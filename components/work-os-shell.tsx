@@ -93,9 +93,9 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           </section>
 
           <section className="goal-card" aria-labelledby="goal-title">
-            <div className="card-heading"><div><p className="eyebrow">Ціль на день</p><h2 id="goal-title">Записи</h2></div><button className="text-action" type="button">Змінити</button></div>
-            <Progress value={0} className="goal-progress"><ProgressLabel>Виконано</ProgressLabel><ProgressValue>{() => '0 із 10'}</ProgressValue></Progress>
-            <p className="muted-note">Ціль зберігатиметься у хмарі й буде однакова на всіх пристроях.</p>
+            <div className="card-heading"><div><p className="eyebrow">Ціль на день</p><h2 id="goal-title">Записи</h2></div>{snapshot.reportSubmittedAt ? <Badge variant="secondary">Звіт зафіксовано</Badge> : <button className="text-action" type="button">Змінити</button>}</div>
+            <Progress value={Math.min(100, snapshot.bookingGoal.completed / Math.max(1, snapshot.bookingGoal.target) * 100)} className="goal-progress"><ProgressLabel>Виконано</ProgressLabel><ProgressValue>{() => `${snapshot.bookingGoal.completed} із ${snapshot.bookingGoal.target}`}</ProgressValue></Progress>
+            <p className="muted-note">{snapshot.pendingAfterReport ? `Після звіту з’явилося ${snapshot.pendingAfterReport} нових подій — звіт потребує оновлення.` : snapshot.reportSubmittedAt ? 'Показники відповідають останньому зданому звіту.' : 'Показники рахуються з робочих подій у реальному часі.'}</p>
           </section>
 
           <section className="queue-card" aria-labelledby="queue-title">
