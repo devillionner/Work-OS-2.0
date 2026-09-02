@@ -33,7 +33,7 @@ export async function getDashboardSnapshot(userId: string): Promise<DashboardSna
       `SELECT COALESCE(e.platform,l.platform,c.platform) AS platform,
        SUM(CASE WHEN e.event_type='publication' THEN 1 ELSE 0 END) AS publications,
        SUM(CASE WHEN e.event_type='lead_created' THEN 1 ELSE 0 END) AS responses,
-       SUM(CASE WHEN e.event_type='lesson_booked' THEN 1 ELSE 0 END) AS bookings
+       SUM(CASE WHEN e.event_type IN ('lesson_booked','curator_booking_pending') THEN 1 ELSE 0 END) AS bookings
        FROM activity_events e
        LEFT JOIN leads l ON l.id=e.lead_id
        LEFT JOIN chats c ON c.id=e.chat_id

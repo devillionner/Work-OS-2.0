@@ -48,6 +48,11 @@ export type MigrationLesson = {
   lessonTime: string; lessonPlatform: string | null; meetingLink: string;
   status: string; bookingDate: string; createdAt: number; updatedAt: number;
 };
+export type MigrationCuratorRequest = {
+  id: string; leadId: string; legacyId: string; status: string;
+  submittedAt: number; submittedDate: string; resolvedAt: number | null;
+  lessonId: string | null; createdAt: number; updatedAt: number;
+};
 export type MigrationReport = {
   id: string; reportDate: string; reportText: string; payloadJson: string;
   submittedAt: number | null; updatedAt: number;
@@ -66,13 +71,14 @@ export type LegacyMigrationDataset = {
   leads: MigrationLead[];
   students: MigrationStudent[];
   lessons: MigrationLesson[];
+  curatorRequests: MigrationCuratorRequest[];
   reports: MigrationReport[];
   settings: MigrationSetting[];
   events: MigrationEvent[];
 };
 
 export const MIGRATION_PHASES = [
-  'chats', 'profiles', 'publications', 'leads', 'students', 'lessons', 'reports', 'settings', 'events',
+  'chats', 'profiles', 'publications', 'leads', 'students', 'lessons', 'curatorRequests', 'reports', 'settings', 'events',
 ] as const;
 export type MigrationPhase = (typeof MIGRATION_PHASES)[number];
 
@@ -147,6 +153,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
   const leads: MigrationLead[] = [];
   const students: MigrationStudent[] = [];
   const lessons: MigrationLesson[] = [];
+  const curatorRequests: MigrationCuratorRequest[] = [];
   for (const [leadIndex, source] of parseArray(storage['shared-leads-v1']).entries()) {
     const legacyId = text(source.id) || `lead-${leadIndex}`;
     const id = stableId('lead', `${userId}:${legacyId}`);
@@ -168,6 +175,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       payloadJson: JSON.stringify(source), updatedAt: Math.max(createdAt, seconds(source.bookedAt) || 0, seconds(source.archivedAt) || 0),
     });
     const studentIdByLegacy = new Map<string, string>();
+    const lessonIdByLegacy = new Map<string, string>();
     array(source.students).filter(isRecord).forEach((student, index) => {
       const studentLegacyId = text(student.id) || `student-${index}`;
       const studentId = stableId('student', `${id}:${studentLegacyId}`);
@@ -181,6 +189,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
     array(source.lessons).filter(isRecord).forEach((lesson, index) => {
       const lessonLegacyId = text(lesson.id) || `lesson-${index}`;
       const lessonId = stableId('lesson', `${userId}:${lessonLegacyId}`);
+      lessonIdByLegacy.set(lessonLegacyId, lessonId);
       const legacyStudentId = text(lesson.studentId);
       const lessonCreatedAt = seconds(lesson.createdAt) || createdAt;
       const lessonBookingDate = legacyDate(text(lesson.bookingAccountingDate))
@@ -196,6 +205,22 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
         lessonPlatform: text(lesson.lessonPlatform) || null, meetingLink: text(lesson.meetingLink),
         status: text(lesson.status) || 'scheduled', bookingDate: lessonBookingDate,
         createdAt: lessonCreatedAt, updatedAt: seconds(lesson.updatedAt) || lessonCreatedAt,
+      });
+    });
+    array(source.curatorRequests).filter(isRecord).forEach((request, index) => {
+      const requestLegacyId = text(request.id) || `curator-${index}`;
+      const submittedAt = seconds(request.submittedAt) || createdAt;
+      const submittedDate = legacyDate(text(request.submittedDate)) || dateForEpoch(submittedAt);
+      const requestStatus = ['pending', 'confirmed', 'cancelled'].includes(text(request.status))
+        ? text(request.status)
+        : 'cancelled';
+      const resolvedAt = seconds(request.resolvedAt);
+      const linkedLessonId = lessonIdByLegacy.get(text(request.lessonId)) || null;
+      curatorRequests.push({
+        id: stableId('curator', `${userId}:${requestLegacyId}`), leadId: id,
+        legacyId: requestLegacyId, status: requestStatus, submittedAt, submittedDate,
+        resolvedAt, lessonId: linkedLessonId, createdAt: submittedAt,
+        updatedAt: resolvedAt || submittedAt,
       });
     });
   }
@@ -244,7 +269,20 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
     });
   }
 
-  return { chats, profiles, publications, leads, students, lessons, reports, settings, events };
+  const leadById = new Map(leads.map((lead) => [lead.id, lead]));
+  for (const request of curatorRequests.filter((item) => item.status === 'pending')) {
+    const lead = leadById.get(request.leadId);
+    const sourceKey = `legacy:curator-request:${request.legacyId}`;
+    events.push({
+      id: stableId('event', sourceKey), eventType: 'curator_booking_pending',
+      platform: lead?.platform || null, chatId: lead?.sourceChatId || null,
+      leadId: request.leadId, lessonId: null, occurredAt: request.submittedAt,
+      eventDate: request.submittedDate,
+      metadataJson: JSON.stringify({ curatorRequestId: request.id, status: request.status }), sourceKey,
+    });
+  }
+
+  return { chats, profiles, publications, leads, students, lessons, curatorRequests, reports, settings, events };
 }
 
 export function migrationTotals(dataset: LegacyMigrationDataset): Record<MigrationPhase, number> {

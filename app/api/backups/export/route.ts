@@ -2,12 +2,12 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 
 const PAGE_SIZE = 200;
-const TABLES = ['chats', 'chat_profiles', 'chat_publications', 'leads', 'students', 'lessons', 'daily_reports', 'user_settings', 'activity_events'] as const;
+const TABLES = ['chats', 'chat_profiles', 'chat_publications', 'leads', 'students', 'lessons', 'curator_requests', 'daily_reports', 'user_settings', 'activity_events'] as const;
 type BackupTable = (typeof TABLES)[number];
 
 const CURSOR_COLUMN: Record<BackupTable, string> = {
   chats: 'id', chat_profiles: 'chat_id', chat_publications: 'id', leads: 'id', students: 'id',
-  lessons: 'id', daily_reports: 'id', user_settings: 'setting_key', activity_events: 'id',
+  lessons: 'id', curator_requests: 'id', daily_reports: 'id', user_settings: 'setting_key', activity_events: 'id',
 };
 
 export async function GET(request: Request): Promise<Response> {

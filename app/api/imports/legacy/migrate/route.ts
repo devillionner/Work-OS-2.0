@@ -147,6 +147,10 @@ function statementFor(phase: MigrationPhase, value: LegacyMigrationDataset[Migra
     const row = value as LegacyMigrationDataset['lessons'][number];
     return env.DB.prepare(`INSERT OR IGNORE INTO lessons (id,user_id,lead_id,student_id,legacy_id,student_name,subject,teacher_name,lesson_date,lesson_time,lesson_platform,meeting_link,status,booking_date,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)`).bind(row.id,userId,row.leadId,row.studentId,row.legacyId,row.studentName,row.subject,row.teacherName,row.lessonDate,row.lessonTime,row.lessonPlatform,row.meetingLink,row.status,row.bookingDate,row.createdAt,row.updatedAt);
   }
+  if (phase === 'curatorRequests') {
+    const row = value as LegacyMigrationDataset['curatorRequests'][number];
+    return env.DB.prepare(`INSERT OR IGNORE INTO curator_requests (id,user_id,lead_id,legacy_id,status,submitted_at,submitted_date,resolved_at,lesson_id,created_at,updated_at,source_import_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)`).bind(row.id,userId,row.leadId,row.legacyId,row.status,row.submittedAt,row.submittedDate,row.resolvedAt,row.lessonId,row.createdAt,row.updatedAt,importId);
+  }
   if (phase === 'reports') {
     const row = value as LegacyMigrationDataset['reports'][number];
     return env.DB.prepare(`INSERT OR IGNORE INTO daily_reports (id,user_id,report_date,report_text,payload_json,submitted_at,updated_at,source_import_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)`).bind(row.id,userId,row.reportDate,row.reportText,row.payloadJson,row.submittedAt,row.updatedAt,importId);
