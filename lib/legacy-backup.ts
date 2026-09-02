@@ -38,6 +38,18 @@ export type LegacyBackupInspection = {
   warnings: string[];
 };
 
+export type LegacyBackupAnalysis = {
+  activeDuplicateEntries: number;
+  activeArchiveOverlaps: number;
+  missingNames: number;
+  missingLinks: number;
+  chatsNeedingProfile: number;
+  leadsWithoutContact: number;
+  leadsWithoutKnownSourceChat: number;
+  incompleteLessons: number;
+  canProceed: boolean;
+};
+
 type LegacyBackup = {
   app?: unknown;
   schemaVersion?: unknown;
@@ -46,10 +58,15 @@ type LegacyBackup = {
 };
 
 type LegacyGroup = {
+  name?: unknown;
+  link?: unknown;
   status?: unknown;
   contentProfile?: { reviewStatus?: unknown };
   publicationDates?: unknown;
   lessons?: unknown;
+  phone?: unknown;
+  telegramUsername?: unknown;
+  sourceChatLink?: unknown;
 };
 
 export function inspectLegacyBackup(raw: string): LegacyBackupInspection {
@@ -167,6 +184,90 @@ export async function sha256Hex(value: string): Promise<string> {
   ).join('');
 }
 
+export function analyzeLegacyBackup(raw: string): LegacyBackupAnalysis {
+  const fallback: LegacyBackupAnalysis = {
+    activeDuplicateEntries: 0,
+    activeArchiveOverlaps: 0,
+    missingNames: 0,
+    missingLinks: 0,
+    chatsNeedingProfile: 0,
+    leadsWithoutContact: 0,
+    leadsWithoutKnownSourceChat: 0,
+    incompleteLessons: 0,
+    canProceed: false,
+  };
+
+  let parsed: LegacyBackup;
+  try {
+    parsed = JSON.parse(raw) as LegacyBackup;
+  } catch {
+    return fallback;
+  }
+  const storage = isStringRecord(parsed.storage) ? parsed.storage : null;
+  if (!storage || parsed.app !== LEGACY_BACKUP_APP) return fallback;
+
+  const invalidSections: string[] = [];
+  const activeGroups = Object.values(PLATFORM_STORAGE_KEYS).flatMap((key) =>
+    parseArraySection(storage, key, invalidSections),
+  );
+  const archiveByPlatform = parseObjectSection(
+    storage,
+    'deleted-groups-archive-v1',
+    invalidSections,
+  );
+  const archivedGroups = Object.values(archiveByPlatform).flatMap((entries) =>
+    Array.isArray(entries)
+      ? entries.filter(
+          (entry): entry is LegacyGroup => Boolean(entry && typeof entry === 'object'),
+        )
+      : [],
+  );
+  const activeLinks = activeGroups
+    .map((group) => normalizeChatLink(group.link))
+    .filter(Boolean);
+  const archiveLinks = new Set(
+    archivedGroups.map((group) => normalizeChatLink(group.link)).filter(Boolean),
+  );
+  const activeLinkCounts = new Map<string, number>();
+  for (const link of activeLinks) {
+    activeLinkCounts.set(link, (activeLinkCounts.get(link) || 0) + 1);
+  }
+
+  const leads = parseArraySection(storage, 'shared-leads-v1', invalidSections);
+  const knownLinks = new Set([...activeLinks, ...archiveLinks]);
+  let incompleteLessons = 0;
+  for (const lead of leads) {
+    if (!Array.isArray(lead.lessons)) continue;
+    incompleteLessons += lead.lessons.filter((lesson) => {
+      if (!lesson || typeof lesson !== 'object') return true;
+      const value = lesson as Record<string, unknown>;
+      return !value.lessonDate || !value.subject || !value.studentName;
+    }).length;
+  }
+
+  return {
+    activeDuplicateEntries: Array.from(activeLinkCounts.values()).reduce(
+      (total, count) => total + Math.max(0, count - 1),
+      0,
+    ),
+    activeArchiveOverlaps: activeLinks.filter((link) => archiveLinks.has(link)).length,
+    missingNames: activeGroups.filter((group) => !hasText(group.name)).length,
+    missingLinks: activeGroups.filter((group) => !hasText(group.link)).length,
+    chatsNeedingProfile: activeGroups.filter(
+      (group) => group.status === '✅' && group.contentProfile?.reviewStatus !== 'confirmed',
+    ).length,
+    leadsWithoutContact: leads.filter(
+      (lead) => !hasText(lead.phone) && !hasText(lead.telegramUsername),
+    ).length,
+    leadsWithoutKnownSourceChat: leads.filter((lead) => {
+      const source = normalizeChatLink(lead.sourceChatLink);
+      return Boolean(source && !knownLinks.has(source));
+    }).length,
+    incompleteLessons,
+    canProceed: invalidSections.length === 0,
+  };
+}
+
 function emptyPlatformSummary(): LegacyPlatformSummary {
   return {
     total: 0,
@@ -259,4 +360,22 @@ function parseObjectOrArraySection(
     return {};
   }
   return value as Record<string, unknown> | unknown[];
+}
+
+function hasText(value: unknown): value is string {
+  return typeof value === 'string' && Boolean(value.trim());
+}
+
+function normalizeChatLink(value: unknown): string {
+  if (!hasText(value)) return '';
+  const trimmed = value.trim();
+  try {
+    const url = new URL(trimmed);
+    url.hostname = url.hostname.toLowerCase().replace(/^www\./, '');
+    url.hash = '';
+    url.pathname = url.pathname.replace(/\/+$/, '') || '/';
+    return url.toString();
+  } catch {
+    return trimmed.replace(/\/+$/, '');
+  }
 }

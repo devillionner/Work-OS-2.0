@@ -1,12 +1,14 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { ArchiveRestore, CheckCircle2, FileJson, ShieldCheck, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { AlertTriangle, ArchiveRestore, CheckCircle2, FileJson, LoaderCircle, ShieldCheck, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   inspectLegacyBackup,
   LEGACY_BACKUP_MAX_BYTES,
   type LegacyBackupInspection,
+  type LegacyBackupAnalysis,
+  type LegacyBackupSummary,
   sha256Hex,
 } from '@/lib/legacy-backup';
 
@@ -15,6 +17,18 @@ type PreparedBackup = {
   raw: string;
   hash: string;
   inspection: LegacyBackupInspection;
+};
+
+type StagedImport = {
+  id: string;
+  filename: string;
+  sha256: string;
+  byteSize: number;
+  status: string;
+  createdAt: number;
+  integrityOk: boolean;
+  summary: LegacyBackupSummary;
+  analysis: LegacyBackupAnalysis;
 };
 
 export function LegacyImportDialog({
@@ -30,6 +44,27 @@ export function LegacyImportDialog({
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [staged, setStaged] = useState<StagedImport | null>(null);
+  const [loadingStaged, setLoadingStaged] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    setLoadingStaged(true);
+    fetch('/api/imports/legacy')
+      .then(async (response) => {
+        const result = (await response.json()) as { staged?: StagedImport | null; error?: string };
+        if (!response.ok) throw new Error(result.error || 'Не вдалося перевірити staging-зону.');
+        if (active) setStaged(result.staged || null);
+      })
+      .catch((cause: unknown) => {
+        if (active) setError(cause instanceof Error ? cause.message : 'Не вдалося перевірити staging-зону.');
+      })
+      .finally(() => {
+        if (active) setLoadingStaged(false);
+      });
+    return () => { active = false; };
+  }, [open]);
 
   if (!open) return null;
 
@@ -73,8 +108,10 @@ export function LegacyImportDialog({
       const result = (await response.json()) as {
         error?: string;
         duplicate?: boolean;
+        staged?: StagedImport | null;
       };
       if (!response.ok) throw new Error(result.error || 'Не вдалося завантажити копію.');
+      if (result.staged) setStaged(result.staged);
       setMessage(
         result.duplicate
           ? 'Ця сама копія вже є у staging-зоні. Дані не дубльовано.'
@@ -106,6 +143,9 @@ export function LegacyImportDialog({
           <ShieldCheck />
           <div><strong>Спочатку лише перевірка</strong><p>Файл зберігається окремо. Чати, ліди та статистика не зміняться без наступного підтвердження.</p></div>
         </div>
+
+        {loadingStaged && <p className="import-loading"><LoaderCircle />Перевіряємо staging-зону…</p>}
+        {staged && !loadingStaged && <StagedReview staged={staged} />}
 
         <ol className="import-steps">
           <li>У старому Work OS відкрий «Звіт» → «Дані й відновлення».</li>
@@ -156,4 +196,48 @@ export function LegacyImportDialog({
 
 function platformName(value: string): string {
   return ({ telegram: 'Telegram', whatsapp: 'WhatsApp', viber: 'Viber', facebook: 'Facebook' } as Record<string, string>)[value] || value;
+}
+
+function StagedReview({ staged }: { staged: StagedImport }) {
+  const checks = [
+    ['Повтори серед активних чатів', staged.analysis.activeDuplicateEntries],
+    ['Одночасно активні й в архіві', staged.analysis.activeArchiveOverlaps],
+    ['Без назви', staged.analysis.missingNames],
+    ['Без посилання', staged.analysis.missingLinks],
+    ['Ліди без контакту', staged.analysis.leadsWithoutContact],
+    ['Джерело ліда не знайдено', staged.analysis.leadsWithoutKnownSourceChat],
+    ['Неповні записи на урок', staged.analysis.incompleteLessons],
+  ] as const;
+  const issueCount = checks.reduce((total, [, value]) => total + value, 0);
+
+  return (
+    <section className="staged-review" aria-label="Перевірка збереженої копії">
+      <div className="staged-review-title">
+        <div><p className="eyebrow">Збережена копія</p><h3>{staged.filename}</h3></div>
+        <span className={staged.integrityOk ? 'is-ok' : 'is-danger'}>{staged.integrityOk ? 'Цілісна' : 'Пошкоджена'}</span>
+      </div>
+      <p className="staged-meta">{formatBytes(staged.byteSize)} · {new Date(staged.createdAt * 1000).toLocaleString('uk-UA')} · SHA {staged.sha256.slice(0, 10)}…</p>
+      <div className="staged-totals">
+        <span><strong>{staged.summary.chats}</strong> чатів</span>
+        <span><strong>{staged.summary.archivedChats}</strong> в архіві</span>
+        <span><strong>{staged.summary.leads}</strong> лідів</span>
+        <span><strong>{staged.summary.reports}</strong> звітів</span>
+      </div>
+      <div className="reconciliation-heading">
+        {issueCount ? <AlertTriangle /> : <CheckCircle2 />}
+        <strong>{issueCount ? 'Пункти для звірки перед переносом' : 'Конфліктів не знайдено'}</strong>
+      </div>
+      <div className="reconciliation-list">
+        {checks.map(([label, value]) => <div key={label}><span>{label}</span><strong className={value ? 'has-issue' : ''}>{value}</strong></div>)}
+        <div><span>Профілі чатів можна доповнити пізніше</span><strong>{staged.analysis.chatsNeedingProfile}</strong></div>
+      </div>
+      <p className="staged-footnote">Це лише звірка. Остаточний перенос ще не запускався.</p>
+    </section>
+  );
+}
+
+function formatBytes(value: number): string {
+  return value >= 1024 * 1024
+    ? `${(value / 1024 / 1024).toFixed(1)} МБ`
+    : `${Math.round(value / 1024)} КБ`;
 }

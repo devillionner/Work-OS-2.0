@@ -71,6 +71,26 @@ button { color: inherit; }
 .import-safety-note { display: flex; gap: 12px; margin: 20px 24px 14px; padding: 14px; border: 1px solid #cad6ff; border-radius: 12px; background: #f1f4ff; }
 .import-safety-note svg { flex: 0 0 auto; width: 21px; color: #3157f6; }
 .import-safety-note p { margin: 4px 0 0; color: #636977; font-size: 13px; line-height: 1.45; }
+.import-loading { display: flex; align-items: center; gap: 8px; margin: 0 24px 16px; color: #6f7583; font-size: 13px; }
+.import-loading svg { width: 17px; animation: import-spin .9s linear infinite; }
+.staged-review { margin: 0 24px 18px; padding: 16px; border: 1px solid #cad6ff; border-radius: 14px; background: #f8f9ff; }
+.staged-review-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.staged-review-title h3 { max-width: 490px; margin: 4px 0 0; overflow: hidden; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.staged-review-title > span { flex: 0 0 auto; padding: 4px 8px; border-radius: 999px; font-size: 11px; font-weight: 750; }
+.staged-review-title .is-ok { background: #dcfce7; color: #087443; }
+.staged-review-title .is-danger { background: #fee2e2; color: #b42318; }
+.staged-meta { margin: 8px 0 0; color: #747a88; font-size: 11px; }
+.staged-totals { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
+.staged-totals span { padding: 9px 10px; border: 1px solid #e0e4ef; border-radius: 9px; background: #fff; color: #747a88; font-size: 11px; }
+.staged-totals strong { display: block; color: #17191e; font-size: 17px; }
+.reconciliation-heading { display: flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 13px; }
+.reconciliation-heading svg { width: 18px; color: #b7791f; }
+.reconciliation-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 18px; margin-top: 8px; }
+.reconciliation-list > div { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid #e4e7ef; color: #5f6572; font-size: 12px; }
+.reconciliation-list strong { color: #087443; }
+.reconciliation-list .has-issue { color: #b45309; }
+.staged-footnote { margin: 11px 0 0; color: #747a88; font-size: 11px; }
+@keyframes import-spin { to { transform: rotate(360deg); } }
 .import-steps { margin: 0 24px 16px; padding-left: 22px; color: #505664; font-size: 13px; line-height: 1.7; }
 .import-file-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .import-dropzone { display: grid; justify-items: center; width: calc(100% - 48px); min-height: 126px; margin: 0 24px 18px; padding: 18px; border: 1.5px dashed #aeb5c4; border-radius: 14px; background: #fafbfc; cursor: pointer; }
@@ -100,7 +120,8 @@ button { color: inherit; }
   .import-backdrop { padding: 0; }
   .import-dialog { width: 100%; height: 100svh; max-height: none; border: 0; border-radius: 0; }
   .import-dialog-header { padding-inline: 18px; }
-  .import-safety-note, .import-steps, .import-preview, .import-warning, .import-error, .import-success { margin-inline: 18px; }
+  .import-safety-note, .import-loading, .staged-review, .import-steps, .import-preview, .import-warning, .import-error, .import-success { margin-inline: 18px; }
+  .staged-totals, .reconciliation-list { grid-template-columns: repeat(2, 1fr); }
   .import-dropzone { width: calc(100% - 36px); margin-inline: 18px; }
   .import-metrics { grid-template-columns: repeat(2, 1fr); }
   .import-metrics span:nth-child(3n) { border-right: 1px solid #e4e7ed; }

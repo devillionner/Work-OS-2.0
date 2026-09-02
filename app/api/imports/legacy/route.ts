@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import {
+  analyzeLegacyBackup,
   inspectLegacyBackup,
   LEGACY_BACKUP_MAX_BYTES,
   sha256Hex,
@@ -14,6 +15,29 @@ type ImportRequest = {
   rawBackup?: unknown;
   sha256?: unknown;
 };
+
+type StagedImportRow = {
+  id: string;
+  original_filename: string;
+  sha256: string;
+  byte_size: number;
+  status: string;
+  summary_json: string;
+  created_at: number;
+};
+
+export async function GET(): Promise<Response> {
+  const user = await getCurrentUser();
+  if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
+
+  const staged = await env.DB.prepare(
+    `SELECT id, original_filename, sha256, byte_size, status, summary_json, created_at
+     FROM legacy_imports WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 1`,
+  ).bind(user.id).first<StagedImportRow>();
+  if (!staged) return Response.json({ staged: null });
+
+  return Response.json({ staged: await describeStagedImport(staged) });
+}
 
 export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
@@ -67,11 +91,16 @@ export async function POST(request: Request): Promise<Response> {
     .first<{ id: string; summary_json: string }>();
 
   if (existing) {
+    const staged = await env.DB.prepare(
+      `SELECT id, original_filename, sha256, byte_size, status, summary_json, created_at
+       FROM legacy_imports WHERE id = ?1 LIMIT 1`,
+    ).bind(existing.id).first<StagedImportRow>();
     return Response.json({
       ok: true,
       duplicate: true,
       importId: existing.id,
       summary: JSON.parse(existing.summary_json),
+      staged: staged ? await describeStagedImport(staged) : null,
     });
   }
 
@@ -110,7 +139,38 @@ export async function POST(request: Request): Promise<Response> {
     duplicate: false,
     importId,
     summary: inspection.summary,
+    staged: {
+      id: importId,
+      filename,
+      sha256: serverHash,
+      byteSize: backupBytes,
+      status: 'staged',
+      createdAt: now,
+      integrityOk: true,
+      summary: inspection.summary,
+      analysis: analyzeLegacyBackup(body.rawBackup),
+    },
   });
+}
+
+async function describeStagedImport(staged: StagedImportRow) {
+  const chunks = await env.DB.prepare(
+    `SELECT payload_chunk FROM legacy_import_chunks
+     WHERE import_id = ?1 ORDER BY chunk_index ASC`,
+  ).bind(staged.id).all<{ payload_chunk: string }>();
+  const raw = chunks.results.map((chunk) => chunk.payload_chunk).join('');
+  const calculatedHash = await sha256Hex(raw);
+  return {
+    id: staged.id,
+    filename: staged.original_filename,
+    sha256: staged.sha256,
+    byteSize: staged.byte_size,
+    status: staged.status,
+    createdAt: staged.created_at,
+    integrityOk: calculatedHash === staged.sha256,
+    summary: JSON.parse(staged.summary_json),
+    analysis: analyzeLegacyBackup(raw),
+  };
 }
 
 function sameOrigin(request: Request): boolean {
