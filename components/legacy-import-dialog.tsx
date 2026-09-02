@@ -31,6 +31,11 @@ type StagedImport = {
   analysis: LegacyBackupAnalysis;
 };
 
+type MigrationJob = {
+  id: string; importId: string; status: 'running' | 'completed' | 'failed'; phase: string;
+  total: number; complete: number; percent: number; error?: string | null;
+};
+
 export function LegacyImportDialog({
   open,
   onClose,
@@ -46,6 +51,9 @@ export function LegacyImportDialog({
   const [error, setError] = useState('');
   const [staged, setStaged] = useState<StagedImport | null>(null);
   const [loadingStaged, setLoadingStaged] = useState(false);
+  const [job, setJob] = useState<MigrationJob | null>(null);
+  const [migrationConfirmed, setMigrationConfirmed] = useState(false);
+  const [migrating, setMigrating] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -63,6 +71,12 @@ export function LegacyImportDialog({
       .finally(() => {
         if (active) setLoadingStaged(false);
       });
+    fetch('/api/imports/legacy/migrate')
+      .then(async (response) => {
+        const result = (await response.json()) as { job?: MigrationJob | null };
+        if (active && response.ok) setJob(result.job || null);
+      })
+      .catch(() => undefined);
     return () => { active = false; };
   }, [open]);
 
@@ -126,6 +140,27 @@ export function LegacyImportDialog({
 
   const summary = prepared?.inspection.summary;
 
+  const migrate = async () => {
+    if (!staged?.integrityOk || !staged.analysis.canProceed || !migrationConfirmed || migrating) return;
+    setMigrating(true);
+    setError('');
+    setMessage('');
+    try {
+      let current = await migrationRequest('start', staged.id);
+      setJob(current);
+      for (let step = 0; current.status === 'running' && step < 300; step += 1) {
+        current = await migrationRequest('process');
+        setJob(current);
+      }
+      if (current.status !== 'completed') throw new Error(current.error || 'Перенос не завершився. Його можна безпечно продовжити.');
+      setMessage('Дані перенесено у нову структуру та звірено без дублювання.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Не вдалося завершити перенос.');
+    } finally {
+      setMigrating(false);
+    }
+  };
+
   return (
     <div className="import-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget && !uploading) onClose();
@@ -146,6 +181,21 @@ export function LegacyImportDialog({
 
         {loadingStaged && <p className="import-loading"><LoaderCircle />Перевіряємо staging-зону…</p>}
         {staged && !loadingStaged && <StagedReview staged={staged} />}
+        {staged && !loadingStaged && (
+          <section className="migration-control" aria-label="Остаточний перенос">
+            {job && <div className={`migration-progress ${job.status === 'completed' ? 'is-complete' : ''}`}>
+              <div><strong>{job.status === 'completed' ? 'Перенос завершено' : migrating ? 'Переносимо дані…' : 'Перенос можна продовжити'}</strong><span>{job.complete} із {job.total} записів</span></div>
+              <div className="migration-progress-track"><i style={{ width: `${job.percent}%` }} /></div>
+              <small>{job.percent}% · етап: {migrationPhaseName(job.phase)}</small>
+            </div>}
+            {job?.status !== 'completed' && <>
+              <label className="migration-consent"><input type="checkbox" checked={migrationConfirmed} onChange={(event) => setMigrationConfirmed(event.target.checked)} disabled={migrating} /><span>Я перевірив підсумок. Стару копію залишаємо незмінною, а дані переносимо в нову структуру.</span></label>
+              <Button type="button" onClick={() => void migrate()} disabled={!migrationConfirmed || !staged.integrityOk || !staged.analysis.canProceed || migrating}>
+                {migrating ? <><LoaderCircle className="is-spinning" />Перенесення {job?.percent || 0}%</> : job ? 'Продовжити перенос' : 'Перенести перевірені дані'}
+              </Button>
+            </>}
+          </section>
+        )}
 
         <ol className="import-steps">
           <li>У старому Work OS відкрий «Звіт» → «Дані й відновлення».</li>
@@ -240,4 +290,19 @@ function formatBytes(value: number): string {
   return value >= 1024 * 1024
     ? `${(value / 1024 / 1024).toFixed(1)} МБ`
     : `${Math.round(value / 1024)} КБ`;
+}
+
+async function migrationRequest(action: 'start' | 'process', importId?: string): Promise<MigrationJob> {
+  const response = await fetch('/api/imports/legacy/migrate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, importId }),
+  });
+  const result = (await response.json()) as { job?: MigrationJob | null; error?: string };
+  if (!response.ok || !result.job) throw new Error(result.error || 'Не вдалося виконати етап переносу.');
+  return result.job;
+}
+
+function migrationPhaseName(value: string): string {
+  return ({ chats: 'чати', profiles: 'профілі', publications: 'публікації', leads: 'ліди', students: 'учні', lessons: 'уроки', reports: 'звіти', settings: 'налаштування', events: 'статистика', done: 'готово' } as Record<string, string>)[value] || value;
 }

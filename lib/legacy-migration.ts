@@ -1,0 +1,302 @@
+type JsonRecord = Record<string, unknown>;
+
+const PLATFORM_KEYS = {
+  telegram: 'telegram-groups-checklist-v1',
+  whatsapp: 'whatsapp-groups-checklist-v1',
+  viber: 'viber-groups-checklist-v1',
+  facebook: 'facebook-groups-checklist-v1',
+} as const;
+
+const DOMAIN_KEYS = new Set([
+  ...Object.values(PLATFORM_KEYS),
+  'deleted-groups-archive-v1',
+  'shared-leads-v1',
+  'daily-report-history-v1',
+]);
+
+export type MigrationChat = {
+  id: string; platform: string; name: string; link: string; normalizedLink: string;
+  workflowStatus: string; isPrivate: number; joinedAt: number | null;
+  processedAt: number | null; snoozedUntil: number | null; archiveReason: string | null;
+  archivedAt: number | null; note: string; legacyDate: string | null;
+  payloadJson: string; createdAt: number; updatedAt: number;
+};
+export type MigrationProfile = {
+  chatId: string; language: string | null; cadence: string; weekdaysJson: string;
+  directionsJson: string; note: string; reviewStatus: string; source: string; updatedAt: number;
+};
+export type MigrationPublication = {
+  id: string; chatId: string; publishedOn: string; publishedAt: number | null;
+  sourceKey: string; createdAt: number;
+};
+export type MigrationLead = {
+  id: string; legacyId: string; name: string; phone: string; telegramUsername: string;
+  normalizedPhone: string; normalizedTelegram: string; platform: string;
+  sourceChatId: string | null; sourceChatLink: string; note: string; needsDetails: number;
+  status: string; teacherName: string; lessonPlatform: string | null; meetingLink: string;
+  isStudent: number; ageGroup: string; createdAt: number; bookedAt: number | null;
+  archivedAt: number | null; payloadJson: string; updatedAt: number;
+};
+export type MigrationStudent = {
+  id: string; leadId: string; legacyId: string; name: string; surname: string;
+  ageGroup: string; note: string; createdAt: number; updatedAt: number;
+};
+export type MigrationLesson = {
+  id: string; leadId: string; studentId: string | null; legacyId: string;
+  studentName: string; subject: string; teacherName: string; lessonDate: string;
+  lessonTime: string; lessonPlatform: string | null; meetingLink: string;
+  status: string; createdAt: number; updatedAt: number;
+};
+export type MigrationReport = {
+  id: string; reportDate: string; reportText: string; payloadJson: string;
+  submittedAt: number | null; updatedAt: number;
+};
+export type MigrationSetting = { key: string; valueJson: string; updatedAt: number };
+export type MigrationEvent = {
+  id: string; eventType: string; platform: string | null; chatId: string | null;
+  leadId: string | null; lessonId: string | null; occurredAt: number; eventDate: string;
+  metadataJson: string; sourceKey: string;
+};
+
+export type LegacyMigrationDataset = {
+  chats: MigrationChat[];
+  profiles: MigrationProfile[];
+  publications: MigrationPublication[];
+  leads: MigrationLead[];
+  students: MigrationStudent[];
+  lessons: MigrationLesson[];
+  reports: MigrationReport[];
+  settings: MigrationSetting[];
+  events: MigrationEvent[];
+};
+
+export const MIGRATION_PHASES = [
+  'chats', 'profiles', 'publications', 'leads', 'students', 'lessons', 'reports', 'settings', 'events',
+] as const;
+export type MigrationPhase = (typeof MIGRATION_PHASES)[number];
+
+export function buildLegacyMigrationDataset(raw: string, userId: string): LegacyMigrationDataset {
+  const backup = JSON.parse(raw) as { storage?: Record<string, string> };
+  const storage = backup.storage || {};
+  const now = Math.floor(Date.now() / 1000);
+  const chats: MigrationChat[] = [];
+  const profiles: MigrationProfile[] = [];
+  const publications: MigrationPublication[] = [];
+  const chatIdByLink = new Map<string, string>();
+
+  for (const [platform, key] of Object.entries(PLATFORM_KEYS)) {
+    const groups = parseArray(storage[key]);
+    groups.forEach((group, index) => addChat(group, platform, `active:${platform}:${index}`, false));
+  }
+  const archive = parseRecord(storage['deleted-groups-archive-v1']);
+  for (const [platform, entries] of Object.entries(archive)) {
+    if (!Array.isArray(entries)) continue;
+    entries.filter(isRecord).forEach((entry, index) => {
+      const group = isRecord(entry.groupData) ? { ...entry.groupData, ...entry } : entry;
+      addChat(group, platform, `archive:${platform}:${index}`, true);
+    });
+  }
+
+  function addChat(group: JsonRecord, platform: string, sourceKey: string, archived: boolean) {
+    const link = text(group.link);
+    const normalizedLink = normalizeLink(link) || `missing:${sourceKey}`;
+    const id = stableId('chat', `${userId}:${platform}:${normalizedLink}`);
+    const profile = isRecord(group.contentProfile)
+      ? group.contentProfile
+      : isRecord(group.groupData) && isRecord(group.groupData.contentProfile)
+        ? group.groupData.contentProfile
+        : null;
+    const publicationDates = array(group.publicationDates);
+    const createdAt = seconds(group.processedAt) || seconds(group.joinedAt) || seconds(group.archivedAt) || now;
+    const updatedAt = Math.max(createdAt, seconds(group.lastPublicationAt) || 0, seconds(group.archivedAt) || 0);
+    chats.push({
+      id, platform, name: text(group.name) || `Чат без назви`, link, normalizedLink,
+      workflowStatus: archived ? 'archived' : workflowStatus(group.status),
+      isPrivate: group.priv ? 1 : 0,
+      joinedAt: seconds(group.joinedAt), processedAt: seconds(group.processedAt),
+      snoozedUntil: seconds(group.approvalSnoozedUntil) || seconds(group.publicationSnoozedUntil),
+      archiveReason: archived ? text(group.reason) || null : null,
+      archivedAt: archived ? seconds(group.archivedAt) : null,
+      note: text(group.note), legacyDate: text(group.date) || text(group.archivedDate) || null,
+      payloadJson: JSON.stringify(group), createdAt, updatedAt: updatedAt || now,
+    });
+    if (link) chatIdByLink.set(normalizeLink(link), id);
+    if (profile) {
+      profiles.push({
+        chatId: id,
+        language: profile.language === 'uk' || profile.language === 'ru' ? profile.language : null,
+        cadence: text(profile.cadence) || 'any', weekdaysJson: JSON.stringify(array(profile.weekdays)),
+        directionsJson: JSON.stringify(array(profile.directions)), note: text(profile.note),
+        reviewStatus: profile.reviewStatus === 'confirmed' ? 'confirmed' : 'draft',
+        source: text(profile.source) || 'legacy', updatedAt: seconds(profile.updatedAt) || updatedAt || now,
+      });
+    }
+    publicationDates.forEach((date, index) => {
+      const publishedOn = legacyDate(text(date));
+      if (!publishedOn) return;
+      const eventKey = `legacy:publication:${id}:${publishedOn}:${index}`;
+      publications.push({
+        id: stableId('pub', eventKey), chatId: id, publishedOn,
+        publishedAt: index === publicationDates.length - 1 ? seconds(group.lastPublicationAt) : null,
+        sourceKey: eventKey, createdAt: seconds(group.lastPublicationAt) || now,
+      });
+    });
+  }
+
+  const leads: MigrationLead[] = [];
+  const students: MigrationStudent[] = [];
+  const lessons: MigrationLesson[] = [];
+  for (const [leadIndex, source] of parseArray(storage['shared-leads-v1']).entries()) {
+    const legacyId = text(source.id) || `lead-${leadIndex}`;
+    const id = stableId('lead', `${userId}:${legacyId}`);
+    const sourceLink = text(source.sourceChatLink);
+    const createdAt = seconds(source.createdAt) || now;
+    leads.push({
+      id, legacyId, name: text(source.name) || 'Без імені', phone: text(source.phone),
+      telegramUsername: text(source.telegramUsername), normalizedPhone: text(source.normalizedPhone),
+      normalizedTelegram: text(source.normalizedTelegram), platform: text(source.platform) || 'unknown',
+      sourceChatId: chatIdByLink.get(normalizeLink(sourceLink)) || null, sourceChatLink: sourceLink,
+      note: text(source.note), needsDetails: source.needsDetails ? 1 : 0,
+      status: text(source.status) || 'new', teacherName: text(source.teacherName),
+      lessonPlatform: text(source.lessonPlatform) || null, meetingLink: text(source.meetingLink),
+      isStudent: source.isStudent ? 1 : 0, ageGroup: text(source.ageGroup), createdAt,
+      bookedAt: seconds(source.bookedAt), archivedAt: seconds(source.archivedAt),
+      payloadJson: JSON.stringify(source), updatedAt: Math.max(createdAt, seconds(source.bookedAt) || 0, seconds(source.archivedAt) || 0),
+    });
+    const studentIdByLegacy = new Map<string, string>();
+    array(source.students).filter(isRecord).forEach((student, index) => {
+      const studentLegacyId = text(student.id) || `student-${index}`;
+      const studentId = stableId('student', `${id}:${studentLegacyId}`);
+      studentIdByLegacy.set(studentLegacyId, studentId);
+      students.push({
+        id: studentId, leadId: id, legacyId: studentLegacyId, name: text(student.name) || 'Без імені',
+        surname: text(student.surname), ageGroup: text(student.ageGroup), note: text(student.note),
+        createdAt, updatedAt: createdAt,
+      });
+    });
+    array(source.lessons).filter(isRecord).forEach((lesson, index) => {
+      const lessonLegacyId = text(lesson.id) || `lesson-${index}`;
+      const lessonId = stableId('lesson', `${userId}:${lessonLegacyId}`);
+      const legacyStudentId = text(lesson.studentId);
+      lessons.push({
+        id: lessonId, leadId: id,
+        studentId: legacyStudentId && legacyStudentId !== 'lead' ? studentIdByLegacy.get(legacyStudentId) || null : null,
+        legacyId: lessonLegacyId, studentName: text(lesson.studentName) || text(source.name) || 'Без імені',
+        subject: text(lesson.subject) || 'Не вказано', teacherName: text(lesson.teacherName),
+        lessonDate: text(lesson.lessonDate), lessonTime: text(lesson.lessonTime),
+        lessonPlatform: text(lesson.lessonPlatform) || null, meetingLink: text(lesson.meetingLink),
+        status: text(lesson.status) || 'scheduled', createdAt: seconds(lesson.createdAt) || createdAt,
+        updatedAt: seconds(lesson.updatedAt) || seconds(lesson.createdAt) || createdAt,
+      });
+    });
+  }
+
+  const reports: MigrationReport[] = [];
+  const reportRecord = parseRecord(storage['daily-report-history-v1']);
+  for (const [dateKey, value] of Object.entries(reportRecord)) {
+    if (!isRecord(value)) continue;
+    const reportDate = legacyDate(text(value.date) || dateKey) || dateKey;
+    reports.push({
+      id: stableId('report', `${userId}:${reportDate}`), reportDate,
+      reportText: text(value.reportText), payloadJson: JSON.stringify(value),
+      submittedAt: seconds(value.submittedAt), updatedAt: seconds(value.updatedAt) || now,
+    });
+  }
+
+  const settings: MigrationSetting[] = Object.entries(storage)
+    .filter(([key]) => !DOMAIN_KEYS.has(key))
+    .map(([key, value]) => ({ key, valueJson: JSON.stringify({ legacyStorageValue: value }), updatedAt: now }));
+
+  const chatPlatform = new Map(chats.map((chat) => [chat.id, chat.platform]));
+  const events: MigrationEvent[] = [];
+  for (const publication of publications) {
+    events.push({
+      id: stableId('event', publication.sourceKey), eventType: 'publication',
+      platform: chatPlatform.get(publication.chatId) || null, chatId: publication.chatId,
+      leadId: null, lessonId: null, occurredAt: publication.publishedAt || epochForDate(publication.publishedOn) || now,
+      eventDate: publication.publishedOn, metadataJson: '{}', sourceKey: publication.sourceKey,
+    });
+  }
+  for (const lead of leads) {
+    const sourceKey = `legacy:lead:${lead.legacyId}`;
+    events.push({
+      id: stableId('event', sourceKey), eventType: 'lead_created', platform: lead.platform,
+      chatId: lead.sourceChatId, leadId: lead.id, lessonId: null, occurredAt: lead.createdAt,
+      eventDate: dateForEpoch(lead.createdAt), metadataJson: '{}', sourceKey,
+    });
+  }
+  for (const lesson of lessons) {
+    const sourceKey = `legacy:lesson:${lesson.legacyId}`;
+    events.push({
+      id: stableId('event', sourceKey), eventType: 'lesson_booked', platform: null,
+      chatId: null, leadId: lesson.leadId, lessonId: lesson.id, occurredAt: lesson.createdAt,
+      eventDate: dateForEpoch(lesson.createdAt), metadataJson: JSON.stringify({ lessonDate: lesson.lessonDate }), sourceKey,
+    });
+  }
+
+  return { chats, profiles, publications, leads, students, lessons, reports, settings, events };
+}
+
+export function migrationTotals(dataset: LegacyMigrationDataset): Record<MigrationPhase, number> {
+  return Object.fromEntries(MIGRATION_PHASES.map((phase) => [phase, dataset[phase].length])) as Record<MigrationPhase, number>;
+}
+
+function parseArray(value: string | undefined): JsonRecord[] {
+  try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) ? parsed.filter(isRecord) : []; }
+  catch { return []; }
+}
+function parseRecord(value: string | undefined): JsonRecord {
+  try { const parsed = JSON.parse(value || '{}'); return isRecord(parsed) ? parsed : {}; }
+  catch { return {}; }
+}
+function isRecord(value: unknown): value is JsonRecord { return Boolean(value && typeof value === 'object' && !Array.isArray(value)); }
+function array(value: unknown): unknown[] { return Array.isArray(value) ? value : []; }
+function text(value: unknown): string { return typeof value === 'string' ? value.trim() : ''; }
+function seconds(value: unknown): number | null {
+  const number = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(number) || number <= 0) return null;
+  return number > 10_000_000_000 ? Math.floor(number / 1000) : Math.floor(number);
+}
+function workflowStatus(value: unknown): string {
+  if (value === '✅') return 'ready';
+  if (value === '⏳') return 'waiting';
+  if (value === '❌') return 'failed';
+  return 'to_join';
+}
+function normalizeLink(value: string): string {
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    url.hostname = url.hostname.toLowerCase().replace(/^www\./, '');
+    url.hash = '';
+    url.pathname = url.pathname.replace(/\/+$/, '') || '/';
+    return url.toString();
+  } catch { return value.replace(/\/+$/, ''); }
+}
+function legacyDate(value: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const match = /^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/.exec(value);
+  if (!match) return '';
+  const year = match[3].length === 2 ? `20${match[3]}` : match[3];
+  return `${year}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+}
+function epochForDate(value: string): number | null {
+  const parsed = Date.parse(`${value}T12:00:00Z`);
+  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : null;
+}
+function dateForEpoch(value: number): string { return new Date(value * 1000).toISOString().slice(0, 10); }
+function stableId(prefix: string, value: string): string {
+  return `${prefix}_${hash53(value, 0).toString(36)}${hash53(value, 1).toString(36)}`;
+}
+function hash53(value: string, seed: number): number {
+  let first = 0xdeadbeef ^ seed;
+  let second = 0x41c6ce57 ^ seed;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    first = Math.imul(first ^ code, 2654435761);
+    second = Math.imul(second ^ code, 1597334677);
+  }
+  first = Math.imul(first ^ (first >>> 16), 2246822507) ^ Math.imul(second ^ (second >>> 13), 3266489909);
+  second = Math.imul(second ^ (second >>> 16), 2246822507) ^ Math.imul(first ^ (first >>> 13), 3266489909);
+  return 4294967296 * (2097151 & second) + (first >>> 0);
+}
