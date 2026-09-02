@@ -10,11 +10,15 @@
     "not_found_handling": "none",
     "binding": "ASSETS"
   },
+  "vars": {
+    "GOOGLE_CLIENT_ID": "561363942798-9mstg6gobqokq0iobdq36s5lh441j3ah.apps.googleusercontent.com"
+  },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "work-os-production",
-      "database_id": "dbe3fce7-5c0c-4ae4-9497-dc236a4e8141"
+      "database_id": "dbe3fce7-5c0c-4ae4-9497-dc236a4e8141",
+      "migrations_dir": "migrations"
     }
   ]
 }

@@ -75,7 +75,9 @@ export function WorkOsShell({ user, signOutPath }: WorkOsShellProps) {
           <div className="account-block">
             <div className="account-copy"><strong>{user.displayName}</strong><span>{user.email}</span></div>
             <Avatar><AvatarFallback>{initials(user.displayName)}</AvatarFallback></Avatar>
-            <a className="account-link" href={signOutPath}>Вийти</a>
+            <form method="post" action={signOutPath}>
+              <button className="account-link" type="submit">Вийти</button>
+            </form>
           </div>
         </header>
 

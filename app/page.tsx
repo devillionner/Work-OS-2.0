@@ -1,22 +1,34 @@
+import { env } from 'cloudflare:workers';
+import { GoogleSignIn } from '@/components/google-sign-in';
+import { WorkOsShell } from '@/components/work-os-shell';
+import { getCurrentUser } from '@/lib/auth';
+
 export const dynamic = 'force-dynamic';
 
-export default function Home() {
+export default async function Home() {
+  const user = await getCurrentUser();
+
+  if (user) {
+    return (
+      <WorkOsShell
+        user={{ displayName: user.displayName, email: user.email }}
+        signOutPath="/api/auth/logout"
+      />
+    );
+  }
+
   return (
     <main className="auth-page">
       <section className="auth-card" aria-labelledby="auth-title">
         <div className="auth-brand"><span>W</span>Work OS 2.0</div>
         <p className="eyebrow">Приватний робочий простір</p>
-        <h1 id="auth-title">Хмарну версію підключено</h1>
+        <h1 id="auth-title">Увійди до свого Work OS</h1>
         <p className="auth-description">
-          Застосунок і база даних уже працюють у твоєму Cloudflare. Наступний
-          крок — підключити приватний вхід через обраний Google-акаунт.
+          Чати, ліди, звіти та статистика захищені. Доступ дозволено лише
+          власнику застосунку.
         </p>
-        <button className="auth-button" type="button" disabled>
-          Вхід через Google налаштовується
-        </button>
-        <p className="auth-note">
-          Робочі дані поки не імпортовано й нікому не показуються.
-        </p>
+        <GoogleSignIn clientId={env.GOOGLE_CLIENT_ID ?? ''} />
+        <p className="auth-note">Увійти можна лише дозволеним Google-акаунтом.</p>
       </section>
     </main>
   );

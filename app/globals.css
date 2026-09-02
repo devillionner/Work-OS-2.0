@@ -58,6 +58,9 @@ button { color: inherit; }
 .auth-button { display: flex; justify-content: center; align-items: center; min-height: 48px; border-radius: 12px; background: #17191e; color: #fff; font-weight: 750; text-decoration: none; transition: transform .15s, background .15s; }
 .auth-button:hover { background: #3157f6; transform: translateY(-1px); }
 .auth-button:disabled { cursor: wait; opacity: .72; transform: none; }
+.google-sign-in-wrap { display: grid; justify-items: center; min-height: 44px; }
+.google-sign-in-wrap .is-busy { opacity: .55; pointer-events: none; }
+.auth-error { margin: 10px 0 0; color: #b42318; font-size: 13px; text-align: center; }
 .auth-note { margin: 14px 0 0; color: #8b909b; font-size: 12px; text-align: center; }
 
 .work-layout { --sidebar-width: 248px; min-height: 100svh; padding-left: var(--sidebar-width); transition: padding .2s ease; }
@@ -82,7 +85,7 @@ button { color: inherit; }
 .account-block { margin-left: auto; display: flex; align-items: center; gap: 11px; }
 .account-copy { display: grid; text-align: right; font-size: 13px; }
 .account-copy span { max-width: 240px; overflow: hidden; color: #747986; font-size: 11px; text-overflow: ellipsis; }
-.account-link { color: #636977; font-size: 12px; font-weight: 700; text-decoration: none; }
+.account-link { border: 0; padding: 0; background: transparent; color: #636977; font: inherit; font-size: 12px; font-weight: 700; text-decoration: none; cursor: pointer; }
 .account-link:hover { color: #3157f6; }
 
 .dashboard-grid { max-width: 1320px; display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(310px, .75fr); gap: 18px; padding: clamp(22px, 4vw, 54px); margin: 0 auto; }
