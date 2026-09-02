@@ -12,10 +12,12 @@ import { Button } from '@/components/ui/button';
 import { Progress, ProgressLabel, ProgressValue } from '@/components/ui/progress';
 import { LegacyImportDialog } from '@/components/legacy-import-dialog';
 import { CloudBackupButton } from '@/components/cloud-backup-button';
+import type { DashboardSnapshot } from '@/lib/dashboard';
 
 type WorkOsShellProps = {
   user: { displayName: string; email: string };
   signOutPath: string;
+  snapshot: DashboardSnapshot;
 };
 
 const navigation = [
@@ -27,13 +29,7 @@ const navigation = [
   { label: 'Бібліотека', icon: BookOpenText, active: false },
 ] as const;
 
-const platformRows = [
-  { name: 'Telegram', color: '#2563eb' },
-  { name: 'WhatsApp', color: '#16a34a' },
-  { name: 'Viber', color: '#7c3aed' },
-] as const;
-
-export function WorkOsShell({ user, signOutPath }: WorkOsShellProps) {
+export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -54,7 +50,7 @@ export function WorkOsShell({ user, signOutPath }: WorkOsShellProps) {
             <button type="button" className="nav-item" aria-current={active ? 'page' : undefined} title={collapsed ? label : undefined} key={label}>
               <Icon />
               {!collapsed && <span>{label}</span>}
-              {label === 'Ліди' && !collapsed && <span className="nav-count">0</span>}
+              {label === 'Ліди' && !collapsed && <span className="nav-count">{snapshot.leads}</span>}
             </button>
           ))}
         </nav>
@@ -87,11 +83,11 @@ export function WorkOsShell({ user, signOutPath }: WorkOsShellProps) {
         <div className="dashboard-grid">
           <section className="focus-card" aria-labelledby="focus-title">
             <div className="focus-heading">
-              <div><p className="eyebrow">Фокус дня</p><h2 id="focus-title">Почнімо з надійної основи</h2><p>Нова база ще порожня. Дані зі старої версії не переносилися.</p></div>
-              <Badge variant="outline">Безпечний старт</Badge>
+              <div><p className="eyebrow">Фокус дня</p><h2 id="focus-title">Дані на місці. Будуємо швидкий робочий процес</h2><p>{snapshot.chats} активних чатів і {snapshot.leads} лідів уже доступні у хмарній базі.</p></div>
+              <Badge variant="outline">{snapshot.migrationCompleted ? 'Перенос завершено' : 'Безпечний старт'}</Badge>
             </div>
             <div className="focus-actions">
-              <Button size="lg" onClick={() => setImportOpen(true)}><Archive data-icon="inline-start" />Підготувати імпорт</Button>
+              <Button size="lg" onClick={() => setImportOpen(true)}><Archive data-icon="inline-start" />Переглянути перенос</Button>
               <Button size="lg" variant="outline"><Target data-icon="inline-start" />Налаштувати ціль</Button>
             </div>
           </section>
@@ -105,9 +101,9 @@ export function WorkOsShell({ user, signOutPath }: WorkOsShellProps) {
           <section className="queue-card" aria-labelledby="queue-title">
             <div className="card-heading"><div><p className="eyebrow">Наступні дії</p><h2 id="queue-title">Робоча черга</h2></div><Badge variant="secondary">3 кроки</Badge></div>
             <ol className="action-list">
-              <li><span className="action-index">1</span><div><strong>Захистити стару базу</strong><p>Створити перевірений експорт перед міграцією.</p></div><Badge variant="outline">Спочатку</Badge></li>
-              <li><span className="action-index">2</span><div><strong>Підключити платформи</strong><p>Перенести списки чатів без зміни їхніх статусів.</p></div><Badge variant="outline">Після імпорту</Badge></li>
-              <li><span className="action-index">3</span><div><strong>Увімкнути статистику</strong><p>Рахувати результат із подій, а не ручних лічильників.</p></div><Badge variant="outline">Далі</Badge></li>
+              <li><span className="action-index">1</span><div><strong>Створити контрольну копію</strong><p>Зберегти незалежну копію вже перенесеної хмарної бази.</p></div><Badge variant="outline">Рекомендовано</Badge></li>
+              <li><span className="action-index">2</span><div><strong>Відкрити робочі платформи</strong><p>Повернути швидкий постинг у новому уніфікованому інтерфейсі.</p></div><Badge variant="outline">Наступне</Badge></li>
+              <li><span className="action-index">3</span><div><strong>Перевірити аналітику</strong><p>Звірити конверсії з перенесеної історії подій.</p></div><Badge variant="outline">Після платформ</Badge></li>
             </ol>
           </section>
 
@@ -115,7 +111,7 @@ export function WorkOsShell({ user, signOutPath }: WorkOsShellProps) {
             <div className="card-heading"><div><p className="eyebrow">Платформи</p><h2 id="platform-title">Результат сьогодні</h2></div><Button variant="ghost" size="sm">Відкрити всі</Button></div>
             <div className="platform-table">
               <div className="platform-table-head"><span>Платформа</span><span>Публікації</span><span>Відгуки</span><span>Записи</span></div>
-              {platformRows.map((platform) => <div className="platform-row" key={platform.name}><span className="platform-name"><i style={{ background: platform.color }} />{platform.name}</span><strong>0</strong><strong>0</strong><strong>0</strong></div>)}
+              {snapshot.platforms.map((platform) => <div className="platform-row" key={platform.key}><span className="platform-name"><i style={{ background: platform.color }} />{platform.name}</span><strong>{platform.publications}</strong><strong>{platform.responses}</strong><strong>{platform.bookings}</strong></div>)}
             </div>
           </section>
 

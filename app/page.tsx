@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { GoogleSignIn } from '@/components/google-sign-in';
 import { WorkOsShell } from '@/components/work-os-shell';
 import { getCurrentUser } from '@/lib/auth';
+import { getDashboardSnapshot } from '@/lib/dashboard';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,10 +10,12 @@ export default async function Home() {
   const user = await getCurrentUser();
 
   if (user) {
+    const snapshot = await getDashboardSnapshot(user.id);
     return (
       <WorkOsShell
         user={{ displayName: user.displayName, email: user.email }}
         signOutPath="/api/auth/logout"
+        snapshot={snapshot}
       />
     );
   }
