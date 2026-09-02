@@ -71,7 +71,7 @@ export function WorkOsShell({ user, signOutPath }: WorkOsShellProps) {
       <main className="work-main">
         <header className="topbar">
           <button className="mobile-menu" type="button" aria-label="Відкрити меню" onClick={() => setMobileOpen(true)}><Menu /></button>
-          <div><p className="eyebrow">Середа, 2 вересня</p><h1>Сьогодні</h1></div>
+          <div><p className="eyebrow">{todayLabel()}</p><h1>Сьогодні</h1></div>
           <div className="account-block">
             <div className="account-copy"><strong>{user.displayName}</strong><span>{user.email}</span></div>
             <Avatar><AvatarFallback>{initials(user.displayName)}</AvatarFallback></Avatar>
@@ -131,4 +131,15 @@ export function WorkOsShell({ user, signOutPath }: WorkOsShellProps) {
 function initials(value: string) {
   const parts = value.trim().split(/\s+/).filter(Boolean);
   return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : value.slice(0, 2)).toUpperCase();
+}
+
+function todayLabel() {
+  const value = new Intl.DateTimeFormat('uk-UA', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'Europe/Kyiv',
+  }).format(new Date());
+
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
