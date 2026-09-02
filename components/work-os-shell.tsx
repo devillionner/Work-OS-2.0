@@ -10,6 +10,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress, ProgressLabel, ProgressValue } from '@/components/ui/progress';
+import { LegacyImportDialog } from '@/components/legacy-import-dialog';
 
 type WorkOsShellProps = {
   user: { displayName: string; email: string };
@@ -34,6 +35,7 @@ const platformRows = [
 export function WorkOsShell({ user, signOutPath }: WorkOsShellProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   return (
     <div className={`work-layout ${collapsed ? 'is-collapsed' : ''}`}>
@@ -88,7 +90,7 @@ export function WorkOsShell({ user, signOutPath }: WorkOsShellProps) {
               <Badge variant="outline">Безпечний старт</Badge>
             </div>
             <div className="focus-actions">
-              <Button size="lg"><Archive data-icon="inline-start" />Підготувати імпорт</Button>
+              <Button size="lg" onClick={() => setImportOpen(true)}><Archive data-icon="inline-start" />Підготувати імпорт</Button>
               <Button size="lg" variant="outline"><Target data-icon="inline-start" />Налаштувати ціль</Button>
             </div>
           </section>
@@ -125,6 +127,7 @@ export function WorkOsShell({ user, signOutPath }: WorkOsShellProps) {
         <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
           {navigation.slice(0, 4).map(({ label, icon: Icon, active }) => <button type="button" aria-current={active ? 'page' : undefined} key={label}><Icon /><span>{label}</span></button>)}
         </nav>
+        <LegacyImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
       </main>
     </div>
   );
