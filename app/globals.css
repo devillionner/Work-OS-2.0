@@ -57,6 +57,7 @@ button { color: inherit; }
 .auth-description { margin: 20px 0 28px; color: #616775; line-height: 1.65; }
 .auth-button { display: flex; justify-content: center; align-items: center; min-height: 48px; border-radius: 12px; background: #17191e; color: #fff; font-weight: 750; text-decoration: none; transition: transform .15s, background .15s; }
 .auth-button:hover { background: #3157f6; transform: translateY(-1px); }
+.auth-button:disabled { cursor: wait; opacity: .72; transform: none; }
 .auth-note { margin: 14px 0 0; color: #8b909b; font-size: 12px; text-align: center; }
 
 .work-layout { --sidebar-width: 248px; min-height: 100svh; padding-left: var(--sidebar-width); transition: padding .2s ease; }
