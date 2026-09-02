@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress, ProgressLabel, ProgressValue } from '@/components/ui/progress';
 import { LegacyImportDialog } from '@/components/legacy-import-dialog';
+import { CloudBackupButton } from '@/components/cloud-backup-button';
 
 type WorkOsShellProps = {
   user: { displayName: string; email: string };
@@ -121,6 +122,7 @@ export function WorkOsShell({ user, signOutPath }: WorkOsShellProps) {
           <section className="status-card" aria-labelledby="status-title">
             <div className="status-icon"><CircleUserRound /></div>
             <div><p className="eyebrow">Доступ</p><h2 id="status-title">Хмарний профіль активний</h2><p>Цей екран доступний із будь-якого пристрою після входу.</p></div>
+            <CloudBackupButton />
           </section>
         </div>
 
