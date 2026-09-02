@@ -137,7 +137,7 @@ function statementFor(phase: MigrationPhase, value: LegacyMigrationDataset[Migra
   }
   if (phase === 'leads') {
     const row = value as LegacyMigrationDataset['leads'][number];
-    return env.DB.prepare(`INSERT OR IGNORE INTO leads (id,user_id,legacy_id,name,phone,telegram_username,normalized_phone,normalized_telegram,platform,source_chat_id,source_chat_link,note,needs_details,status,teacher_name,lesson_platform,meeting_link,is_student,age_group,created_at,booked_at,archived_at,legacy_payload_json,source_import_id,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)`).bind(row.id,userId,row.legacyId,row.name,row.phone,row.telegramUsername,row.normalizedPhone,row.normalizedTelegram,row.platform,row.sourceChatId,row.sourceChatLink,row.note,row.needsDetails,row.status,row.teacherName,row.lessonPlatform,row.meetingLink,row.isStudent,row.ageGroup,row.createdAt,row.bookedAt,row.archivedAt,row.payloadJson,importId,row.updatedAt);
+    return env.DB.prepare(`INSERT OR IGNORE INTO leads (id,user_id,legacy_id,name,phone,telegram_username,normalized_phone,normalized_telegram,platform,source_chat_id,source_chat_link,note,needs_details,status,teacher_name,lesson_platform,meeting_link,is_student,age_group,response_date,booking_date,created_at,booked_at,archived_at,legacy_payload_json,source_import_id,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)`).bind(row.id,userId,row.legacyId,row.name,row.phone,row.telegramUsername,row.normalizedPhone,row.normalizedTelegram,row.platform,row.sourceChatId,row.sourceChatLink,row.note,row.needsDetails,row.status,row.teacherName,row.lessonPlatform,row.meetingLink,row.isStudent,row.ageGroup,row.responseDate,row.bookingDate,row.createdAt,row.bookedAt,row.archivedAt,row.payloadJson,importId,row.updatedAt);
   }
   if (phase === 'students') {
     const row = value as LegacyMigrationDataset['students'][number];
@@ -145,7 +145,7 @@ function statementFor(phase: MigrationPhase, value: LegacyMigrationDataset[Migra
   }
   if (phase === 'lessons') {
     const row = value as LegacyMigrationDataset['lessons'][number];
-    return env.DB.prepare(`INSERT OR IGNORE INTO lessons (id,user_id,lead_id,student_id,legacy_id,student_name,subject,teacher_name,lesson_date,lesson_time,lesson_platform,meeting_link,status,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)`).bind(row.id,userId,row.leadId,row.studentId,row.legacyId,row.studentName,row.subject,row.teacherName,row.lessonDate,row.lessonTime,row.lessonPlatform,row.meetingLink,row.status,row.createdAt,row.updatedAt);
+    return env.DB.prepare(`INSERT OR IGNORE INTO lessons (id,user_id,lead_id,student_id,legacy_id,student_name,subject,teacher_name,lesson_date,lesson_time,lesson_platform,meeting_link,status,booking_date,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)`).bind(row.id,userId,row.leadId,row.studentId,row.legacyId,row.studentName,row.subject,row.teacherName,row.lessonDate,row.lessonTime,row.lessonPlatform,row.meetingLink,row.status,row.bookingDate,row.createdAt,row.updatedAt);
   }
   if (phase === 'reports') {
     const row = value as LegacyMigrationDataset['reports'][number];
