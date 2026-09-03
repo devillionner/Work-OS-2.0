@@ -118,7 +118,8 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       selected: selectedLegacyId ? Number(legacyId === selectedLegacyId) : Number(index === 0),
       createdAt: now,
       updatedAt: now,
-    }));
+    }))
+    .sort((left, right) => left.selected - right.selected || left.number - right.number);
   const accountIdByLegacyId = new Map(
     [...accountSeeds.entries()].map(([legacyId, account]) => [legacyId, `${userId}:tg${account.number}`]),
   );

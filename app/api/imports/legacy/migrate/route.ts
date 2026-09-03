@@ -109,6 +109,14 @@ async function processMigration(userId: string): Promise<Response> {
     const nextPhase = reachedEnd && !completed ? MIGRATION_PHASES[phaseIndex + 1] : phase;
     const nextCursor = reachedEnd ? 0 : job.cursor + chunk.length;
     const now = Math.floor(Date.now() / 1000);
+    if (reachedEnd && phase === 'accounts') {
+      const selected = (chunk as LegacyMigrationDataset['accounts']).find((record) => record.selected);
+      if (selected) {
+        statements.push(env.DB.prepare(
+          `UPDATE telegram_accounts SET is_selected=CASE WHEN id=?1 THEN 1 ELSE 0 END,updated_at=?2 WHERE user_id=?3`,
+        ).bind(selected.id,now,userId));
+      }
+    }
     statements.push(env.DB.prepare(
       `UPDATE migration_jobs SET status = ?1, phase = ?2, cursor = ?3, processed_json = ?4,
        updated_at = ?5, completed_at = ?6 WHERE id = ?7 AND user_id = ?8`,
