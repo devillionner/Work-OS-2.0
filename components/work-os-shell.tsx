@@ -13,6 +13,7 @@ import { Progress, ProgressLabel, ProgressValue } from '@/components/ui/progress
 import { LegacyImportDialog } from '@/components/legacy-import-dialog';
 import { CloudBackupButton } from '@/components/cloud-backup-button';
 import { PlatformWorkspace } from '@/components/platform-workspace';
+import { GlobalTimers } from '@/components/global-timers';
 import type { DashboardSnapshot } from '@/lib/dashboard';
 
 type WorkOsShellProps = {
@@ -75,6 +76,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           <button className="mobile-menu" type="button" aria-label="Відкрити меню" onClick={() => setMobileOpen(true)}><Menu /></button>
           <div><p className="eyebrow">{todayLabel()}</p><h1>{activeLabel}</h1></div>
           <div className="account-block">
+            <GlobalTimers />
             <div className="account-copy"><strong>{user.displayName}</strong><span>{user.email}</span></div>
             <Avatar><AvatarFallback>{initials(user.displayName)}</AvatarFallback></Avatar>
             <form method="post" action={signOutPath}>

@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 
 const PLATFORMS = new Set(['telegram', 'whatsapp', 'viber', 'facebook']);
 const STATUSES = new Set(['to_join', 'waiting', 'ready', 'archived']);
-const ACTIONS = new Set(['joined', 'waiting', 'approved', 'failed', 'archive', 'restore', 'snooze', 'published', 'assign_account']);
+const ACTIONS = new Set(['joined', 'waiting', 'approved', 'failed', 'archive', 'restore', 'snooze', 'published', 'assign_account', 'return_to_join']);
 
 type ChatRow = {
   id: string; name: string; link: string; platform: string; workflow_status: string;
@@ -78,6 +78,7 @@ export async function POST(request: Request): Promise<Response> {
     await env.DB.prepare(`UPDATE chats SET telegram_account_id=?1,updated_at=?2 WHERE id=?3 AND user_id=?4`).bind(target,now,id,user.id).run();
     return Response.json({ok:true});
   }
+  if(action==='return_to_join'&&chat.platform!=='whatsapp') return Response.json({error:'Повернення в цю чергу доступне лише для WhatsApp.'},{status:400});
   if (action === 'published') {
     if (chat.workflow_status !== 'ready') return Response.json({ error: 'Цей чат зараз не в черзі публікації.' }, { status: 409 });
     const availableAt = chat.platform === 'telegram' && chat.joined_at ? chat.joined_at + 21600 : 0;
@@ -98,7 +99,7 @@ export async function POST(request: Request): Promise<Response> {
   const allowedFrom: Record<string, string[]> = {
     joined: ['to_join'], waiting: ['to_join'], failed: ['to_join'],
     approved: ['waiting'], snooze: ['waiting', 'ready'],
-    archive: ['to_join', 'waiting', 'ready'], restore: ['archived'],
+    archive: ['to_join', 'waiting', 'ready'], restore: ['archived'], return_to_join: ['ready'],
   };
   if (!allowedFrom[action]?.includes(chat.workflow_status)) {
     return Response.json({ error: 'Стан чату вже змінився. Оновіть список.' }, { status: 409 });
@@ -109,10 +110,10 @@ export async function POST(request: Request): Promise<Response> {
     joined: { status: 'ready', joinedAt: now }, waiting: { status: 'waiting' },
     approved: { status: 'ready', joinedAt: chat.joined_at || now }, failed: { status: 'archived', archive: now },
     archive: { status: 'archived', archive: now }, restore: { status: 'to_join', joinedAt: null, archive: null },
-    snooze: { status: chat.workflow_status, snooze: now + 3 * 86400 },
+    snooze: { status: chat.workflow_status, snooze: now + 3 * 86400 }, return_to_join: {status:'to_join',joinedAt:null,snooze:null},
   };
   const next = mapping[action];
-  const statements = [env.DB.prepare(`UPDATE chats SET workflow_status=?1,joined_at=CASE WHEN ?3='restore' THEN NULL WHEN ?2 IS NOT NULL THEN ?2 ELSE joined_at END,processed_at=CASE WHEN ?3 IN ('joined','waiting','approved') THEN ?4 ELSE processed_at END,snoozed_until=?5,archive_reason=?6,archived_at=?7,telegram_account_id=CASE WHEN ?3='restore' THEN NULL WHEN platform='telegram' AND ?3 IN ('joined','waiting') THEN COALESCE(telegram_account_id,?10) ELSE telegram_account_id END,updated_at=?4 WHERE id=?8 AND user_id=?9`)
+  const statements = [env.DB.prepare(`UPDATE chats SET workflow_status=?1,joined_at=CASE WHEN ?3 IN ('restore','return_to_join') THEN NULL WHEN ?2 IS NOT NULL THEN ?2 ELSE joined_at END,processed_at=CASE WHEN ?3='return_to_join' THEN NULL WHEN ?3 IN ('joined','waiting','approved') THEN ?4 ELSE processed_at END,snoozed_until=?5,archive_reason=?6,archived_at=?7,telegram_account_id=CASE WHEN ?3='restore' THEN NULL WHEN platform='telegram' AND ?3 IN ('joined','waiting') THEN COALESCE(telegram_account_id,?10) ELSE telegram_account_id END,updated_at=?4 WHERE id=?8 AND user_id=?9`)
     .bind(next.status, next.joinedAt ?? null, action, now, next.snooze ?? null, next.status === 'archived' ? (reason || (action === 'failed' ? 'Не вдалося приєднатися' : 'Не актуальний')) : null, next.archive ?? null, id, user.id, accountId)];
   if (action === 'joined' || action === 'approved') {
     const eventDate = kyivDate();

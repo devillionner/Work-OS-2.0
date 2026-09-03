@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Archive, Check, ChevronLeft, ChevronRight, Clock3, Copy, ExternalLink, LoaderCircle, Plus, RotateCcw, Search, Send, Settings2, UserRoundCheck, X } from 'lucide-react';
+import { Archive, Check, ChevronLeft, ChevronRight, Clock3, Copy, ExternalLink, LoaderCircle, Plus, RotateCcw, Search, Send, Settings2, Undo2, UserRoundCheck, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -151,7 +151,7 @@ export function PlatformWorkspace() {
             <Button variant="outline" size="icon" type="button" onClick={()=>openNativeChat(chat.platform,chat.link)} aria-label={`Відкрити чат у ${selected.label}`}><ExternalLink/></Button>
             {queue==='to_join'&&<><Button size="icon" onClick={()=>act(chat,'joined')} disabled={busy===chat.id} aria-label="Успішно приєднано"><Check/></Button>{(platform==='telegram'||platform==='whatsapp')&&<Button variant="outline" size="icon" onClick={()=>act(chat,'waiting')} disabled={busy===chat.id} aria-label="Очікуємо запрошення"><Clock3/></Button>}<Button variant="outline" size="icon" onClick={()=>act(chat,'failed',{reason:'Не вдалося приєднатися'})} disabled={busy===chat.id} aria-label="Не вдалося приєднатися"><X/></Button></>}
             {queue==='waiting'&&<><Button onClick={()=>act(chat,'approved')} disabled={busy===chat.id}><UserRoundCheck data-icon="inline-start"/>Прийняли</Button><Button variant="outline" onClick={()=>act(chat,'snooze')} disabled={busy===chat.id}>+3 дні</Button></>}
-            {queue==='ready'&&<Button onClick={()=>act(chat,'published')} disabled={busy===chat.id||chat.publishedToday||!chat.availableNow}><Send data-icon="inline-start"/>{chat.publishedToday?'Готово':chat.availableNow?'Опубліковано':'Очікування 6 год'}</Button>}
+            {queue==='ready'&&<><Button onClick={()=>act(chat,'published')} disabled={busy===chat.id||chat.publishedToday||!chat.availableNow}><Send data-icon="inline-start"/>{chat.publishedToday?'Готово':chat.availableNow?'Опубліковано':'Очікування 6 год'}</Button>{platform==='whatsapp'&&<Button variant="outline" size="icon" onClick={()=>window.confirm('Повернути цей чат у «Для приєднання»?')&&act(chat,'return_to_join')} disabled={busy===chat.id} aria-label="Повернути для приєднання"><Undo2/></Button>}</>}
             {queue==='archived'?<Button variant="outline" onClick={()=>act(chat,'restore')} disabled={busy===chat.id}><RotateCcw data-icon="inline-start"/>Відновити</Button>:<Button variant="ghost" size="icon" onClick={()=>setArchiveId(archiveId===chat.id?null:chat.id)} aria-label="Перенести в архів"><Archive/></Button>}
           </div>
           {archiveId===chat.id&&<div className="archive-reasons"><span>Чому в архів?</span>{['Забанено','Чат не існує','Чат не цільовий'].map(reason=><button key={reason} onClick={()=>act(chat,'archive',{reason})}>{reason}</button>)}</div>}

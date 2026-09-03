@@ -85,7 +85,7 @@ export function GoogleSignIn({ clientId }: { clientId: string }) {
       script.addEventListener('error', () => {
         if (!cancelled) setError('Не вдалося завантажити Google-вхід.');
       });
-      document.head.append(script);
+      document.head.appendChild(script);
     }
 
     return () => {

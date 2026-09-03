@@ -2,12 +2,12 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 
 const PAGE_SIZE = 200;
-const TABLES = ['telegram_accounts', 'chats', 'chat_profiles', 'chat_publications', 'leads', 'students', 'lessons', 'curator_requests', 'daily_reports', 'user_settings', 'activity_events'] as const;
+const TABLES = ['telegram_accounts', 'work_timers', 'chats', 'chat_profiles', 'chat_publications', 'leads', 'students', 'lessons', 'curator_requests', 'daily_reports', 'user_settings', 'activity_events'] as const;
 type BackupTable = (typeof TABLES)[number];
 
 const CURSOR_COLUMN: Record<BackupTable, string> = {
   chats: 'id', chat_profiles: 'chat_id', chat_publications: 'id', leads: 'id', students: 'id',
-  telegram_accounts: 'account_number', lessons: 'id', curator_requests: 'id', daily_reports: 'id', user_settings: 'setting_key', activity_events: 'id',
+  telegram_accounts: 'account_number', work_timers: 'id', lessons: 'id', curator_requests: 'id', daily_reports: 'id', user_settings: 'setting_key', activity_events: 'id',
 };
 
 export async function GET(request: Request): Promise<Response> {
@@ -53,7 +53,7 @@ async function manifest(userId: string, email: string): Promise<Response> {
   const counts = Object.fromEntries(TABLES.map((table, index) => [table, Number(results[index].results[0]?.count || 0)]));
   const last = await env.DB.prepare(`SELECT sha256,byte_size,record_counts_json,created_at FROM backup_exports WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 1`).bind(userId).first();
   return Response.json({
-    app: 'work-os-cloud-backup', schemaVersion: 1, ownerEmail: email,
+    app: 'work-os-cloud-backup', schemaVersion: 2, ownerEmail: email,
     createdAt: new Date().toISOString(), tables: TABLES, counts, lastBackup: last || null,
   }, { headers: { 'Cache-Control': 'no-store' } });
 }
