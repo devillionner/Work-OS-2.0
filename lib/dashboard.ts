@@ -7,7 +7,7 @@ export type DashboardSnapshot = {
   reportSubmittedAt: number | null;
   pendingAfterReport: number;
   bookingGoal: { completed: number; target: number };
-  platforms: Array<{ key: string; name: string; color: string; publications: number; responses: number; bookings: number }>;
+  platforms: Array<{ key: string; name: string; color: string; publications: number; joined: number; responses: number; bookings: number }>;
 };
 
 const PLATFORM_META: Record<string, { name: string; color: string }> = {
@@ -32,6 +32,7 @@ export async function getDashboardSnapshot(userId: string): Promise<DashboardSna
     env.DB.prepare(
       `SELECT COALESCE(e.platform,l.platform,c.platform) AS platform,
        SUM(CASE WHEN e.event_type='publication' THEN 1 ELSE 0 END) AS publications,
+       SUM(CASE WHEN e.event_type='chat_joined' THEN 1 ELSE 0 END) AS joined,
        SUM(CASE WHEN e.event_type='lead_created' THEN 1 ELSE 0 END) AS responses,
        SUM(CASE WHEN e.event_type IN ('lesson_booked','curator_booking_pending') THEN 1 ELSE 0 END) AS bookings
        FROM activity_events e
@@ -44,10 +45,10 @@ export async function getDashboardSnapshot(userId: string): Promise<DashboardSna
   const chatCount = chatResult.results[0] as { count?: number } | undefined;
   const leadCount = leadResult.results[0] as { count?: number } | undefined;
   const migrationCount = migrationResult.results[0] as { count?: number } | undefined;
-  const eventRows = eventResult.results as Array<{ platform: string | null; publications: number; responses: number; bookings: number }>;
+  const eventRows = eventResult.results as Array<{ platform: string | null; publications: number; joined: number; responses: number; bookings: number }>;
   const byPlatform = new Map(eventRows.map((row) => [row.platform, row]));
   const pendingAfterReport = report
-    ? eventRows.reduce((sum, row) => sum + Number(row.publications || 0) + Number(row.responses || 0) + Number(row.bookings || 0), 0)
+    ? eventRows.reduce((sum, row) => sum + Number(row.publications || 0) + Number(row.joined || 0) + Number(row.responses || 0) + Number(row.bookings || 0), 0)
     : 0;
   const platforms = ['telegram', 'whatsapp', 'viber', 'facebook'].map((key) => {
     const additions = byPlatform.get(key);
@@ -55,6 +56,7 @@ export async function getDashboardSnapshot(userId: string): Promise<DashboardSna
     return {
       key, ...PLATFORM_META[key],
       publications: Number(base?.publications || 0) + Number(additions?.publications || 0),
+      joined: Number(base?.joined || 0) + Number(additions?.joined || 0),
       responses: Number(base?.responses || 0) + Number(additions?.responses || 0),
       bookings: Number(base?.bookings || 0) + Number(additions?.bookings || 0),
     };
@@ -72,7 +74,7 @@ export async function getDashboardSnapshot(userId: string): Promise<DashboardSna
 }
 
 type ParsedReport = {
-  platforms: Record<string, { publications: number; responses: number; bookings: number }>;
+  platforms: Record<string, { publications: number; joined: number; responses: number; bookings: number }>;
   bookingGoal: { completed: number; target: number };
 };
 
@@ -89,6 +91,7 @@ function parseReport(value: string): ParsedReport {
     const key = match[1].toLowerCase();
     platforms[key] = {
       publications: metric(section, 'Оголошення'),
+      joined: metric(section, 'Нові чати'),
       responses: metric(section, 'Відгуки'),
       bookings: metric(section, 'Записи'),
     };

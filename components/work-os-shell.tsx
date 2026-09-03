@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Progress, ProgressLabel, ProgressValue } from '@/components/ui/progress';
 import { LegacyImportDialog } from '@/components/legacy-import-dialog';
 import { CloudBackupButton } from '@/components/cloud-backup-button';
+import { PlatformWorkspace } from '@/components/platform-workspace';
 import type { DashboardSnapshot } from '@/lib/dashboard';
 
 type WorkOsShellProps = {
@@ -21,18 +22,20 @@ type WorkOsShellProps = {
 };
 
 const navigation = [
-  { label: 'Сьогодні', icon: LayoutDashboard, active: true },
-  { label: 'Платформи', icon: MessageSquareText, active: false },
-  { label: 'Ліди', icon: UsersRound, active: false },
-  { label: 'Аналітика', icon: BarChart3, active: false },
-  { label: 'Звіти', icon: FileText, active: false },
-  { label: 'Бібліотека', icon: BookOpenText, active: false },
+  { key: 'today', label: 'Сьогодні', icon: LayoutDashboard },
+  { key: 'platforms', label: 'Платформи', icon: MessageSquareText },
+  { key: 'leads', label: 'Ліди', icon: UsersRound },
+  { key: 'analytics', label: 'Аналітика', icon: BarChart3 },
+  { key: 'reports', label: 'Звіти', icon: FileText },
+  { key: 'library', label: 'Бібліотека', icon: BookOpenText },
 ] as const;
 
 export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [activeView, setActiveView] = useState<(typeof navigation)[number]['key']>('today');
+  const activeLabel = navigation.find((item) => item.key === activeView)?.label || 'Сьогодні';
 
   return (
     <div className={`work-layout ${collapsed ? 'is-collapsed' : ''}`}>
@@ -46,8 +49,8 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
         </div>
 
         <nav className="sidebar-nav">
-          {navigation.map(({ label, icon: Icon, active }) => (
-            <button type="button" className="nav-item" aria-current={active ? 'page' : undefined} title={collapsed ? label : undefined} key={label}>
+          {navigation.map(({ key, label, icon: Icon }) => (
+            <button type="button" className="nav-item" aria-current={activeView === key ? 'page' : undefined} title={collapsed ? label : undefined} key={key} onClick={() => { setActiveView(key); setMobileOpen(false); }}>
               <Icon />
               {!collapsed && <span>{label}</span>}
               {label === 'Ліди' && !collapsed && <span className="nav-count">{snapshot.leads}</span>}
@@ -70,7 +73,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
       <main className="work-main">
         <header className="topbar">
           <button className="mobile-menu" type="button" aria-label="Відкрити меню" onClick={() => setMobileOpen(true)}><Menu /></button>
-          <div><p className="eyebrow">{todayLabel()}</p><h1>Сьогодні</h1></div>
+          <div><p className="eyebrow">{todayLabel()}</p><h1>{activeLabel}</h1></div>
           <div className="account-block">
             <div className="account-copy"><strong>{user.displayName}</strong><span>{user.email}</span></div>
             <Avatar><AvatarFallback>{initials(user.displayName)}</AvatarFallback></Avatar>
@@ -80,7 +83,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           </div>
         </header>
 
-        <div className="dashboard-grid">
+        {activeView === 'today' ? <div className="dashboard-grid">
           <section className="focus-card" aria-labelledby="focus-title">
             <div className="focus-heading">
               <div><p className="eyebrow">Фокус дня</p><h2 id="focus-title">Дані на місці. Будуємо швидкий робочий процес</h2><p>{snapshot.chats} активних чатів і {snapshot.leads} лідів уже доступні у хмарній базі.</p></div>
@@ -110,8 +113,8 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           <section className="platform-card" aria-labelledby="platform-title">
             <div className="card-heading"><div><p className="eyebrow">Платформи</p><h2 id="platform-title">Результат сьогодні</h2></div><Button variant="ghost" size="sm">Відкрити всі</Button></div>
             <div className="platform-table">
-              <div className="platform-table-head"><span>Платформа</span><span>Публікації</span><span>Відгуки</span><span>Записи</span></div>
-              {snapshot.platforms.map((platform) => <div className="platform-row" key={platform.key}><span className="platform-name"><i style={{ background: platform.color }} />{platform.name}</span><strong>{platform.publications}</strong><strong>{platform.responses}</strong><strong>{platform.bookings}</strong></div>)}
+              <div className="platform-table-head"><span>Платформа</span><span>Публікації</span><span>Нові чати</span><span>Відгуки</span><span>Записи</span></div>
+              {snapshot.platforms.map((platform) => <div className="platform-row" key={platform.key}><span className="platform-name"><i style={{ background: platform.color }} />{platform.name}</span><strong>{platform.publications}</strong><strong>{platform.joined}</strong><strong>{platform.responses}</strong><strong>{platform.bookings}</strong></div>)}
             </div>
           </section>
 
@@ -120,10 +123,10 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
             <div><p className="eyebrow">Доступ</p><h2 id="status-title">Хмарний профіль активний</h2><p>Цей екран доступний із будь-якого пристрою після входу.</p></div>
             <CloudBackupButton />
           </section>
-        </div>
+        </div> : activeView === 'platforms' ? <PlatformWorkspace /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
 
         <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
-          {navigation.slice(0, 4).map(({ label, icon: Icon, active }) => <button type="button" aria-current={active ? 'page' : undefined} key={label}><Icon /><span>{label}</span></button>)}
+          {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => <button type="button" aria-current={activeView === key ? 'page' : undefined} key={key} onClick={() => setActiveView(key)}><Icon /><span>{label}</span></button>)}
         </nav>
         <LegacyImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
       </main>
