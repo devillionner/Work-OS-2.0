@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Archive, Check, ChevronLeft, ChevronRight, Clock3, Copy, ExternalLink, LoaderCircle, RotateCcw, Search, Send, UserRoundCheck, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,6 +23,7 @@ const queues: Array<{key:Queue;label:string}> = [
 ];
 
 export function PlatformWorkspace() {
+  const router = useRouter();
   const [platform,setPlatform] = useState<Platform>('telegram');
   const [queue,setQueue] = useState<Queue>('to_join');
   const [search,setSearch] = useState('');
@@ -53,7 +55,7 @@ export function PlatformWorkspace() {
       const response=await fetch('/api/chats',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:chat.id,action,...extra})});
       const body=await response.json() as {error?:string;availableAt?:number};
       if(!response.ok) throw new Error(body.error || 'Не вдалося виконати дію.');
-      setArchiveId(null); await load();
+      setArchiveId(null); await load(); router.refresh();
     } catch(reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося виконати дію.'); }
     finally { setBusy(null); }
   }
