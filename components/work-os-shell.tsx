@@ -89,7 +89,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           <section className="focus-card" aria-labelledby="focus-title">
             <div className="focus-heading">
               <div><p className="eyebrow">Фокус дня</p><h2 id="focus-title">Дані на місці. Будуємо швидкий робочий процес</h2><p>{snapshot.chats} активних чатів і {snapshot.leads} лідів уже доступні у хмарній базі.</p></div>
-              <Badge variant="outline">{snapshot.migrationCompleted ? 'Перенос завершено' : 'Безпечний старт'}</Badge>
+              <Badge variant="outline">{snapshot.lastPrototypeSync ? `Оновлено ${formatSyncTime(snapshot.lastPrototypeSync.completedAt)}` : 'Безпечний старт'}</Badge>
             </div>
             <div className="focus-actions">
               <Button size="lg" onClick={() => setImportOpen(true)}><Archive data-icon="inline-start" />Оновити з Prototype Checker</Button>
@@ -150,4 +150,8 @@ function todayLabel() {
   }).format(new Date());
 
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function formatSyncTime(value:number) {
+  return new Intl.DateTimeFormat('uk-UA',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Kyiv'}).format(new Date(value*1000));
 }

@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 
 export type DashboardSnapshot = {
   migrationCompleted: boolean;
+  lastPrototypeSync: { completedAt: number; filename: string } | null;
   chats: number;
   leads: number;
   reportSubmittedAt: number | null;
@@ -28,7 +29,7 @@ export async function getDashboardSnapshot(userId: string): Promise<DashboardSna
   const [chatResult, leadResult, migrationResult, eventResult] = await env.DB.batch([
     env.DB.prepare(`SELECT COUNT(*) AS count FROM chats WHERE user_id=?1 AND workflow_status!='archived'`).bind(userId),
     env.DB.prepare(`SELECT COUNT(*) AS count FROM leads WHERE user_id=?1 AND archived_at IS NULL`).bind(userId),
-    env.DB.prepare(`SELECT COUNT(*) AS count FROM migration_jobs WHERE user_id=?1 AND status='completed'`).bind(userId),
+    env.DB.prepare(`SELECT j.completed_at,i.original_filename FROM migration_jobs j JOIN legacy_imports i ON i.id=j.import_id WHERE j.user_id=?1 AND j.status='completed' ORDER BY j.completed_at DESC LIMIT 1`).bind(userId),
     env.DB.prepare(
       `SELECT COALESCE(e.platform,l.platform,c.platform) AS platform,
        SUM(CASE WHEN e.event_type='publication' THEN 1 ELSE 0 END) AS publications,
@@ -44,7 +45,7 @@ export async function getDashboardSnapshot(userId: string): Promise<DashboardSna
   ]);
   const chatCount = chatResult.results[0] as { count?: number } | undefined;
   const leadCount = leadResult.results[0] as { count?: number } | undefined;
-  const migrationCount = migrationResult.results[0] as { count?: number } | undefined;
+  const lastSync = migrationResult.results[0] as { completed_at?: number; original_filename?: string } | undefined;
   const eventRows = eventResult.results as Array<{ platform: string | null; publications: number; joined: number; responses: number; bookings: number }>;
   const byPlatform = new Map(eventRows.map((row) => [row.platform, row]));
   const pendingAfterReport = report
@@ -63,7 +64,8 @@ export async function getDashboardSnapshot(userId: string): Promise<DashboardSna
   });
   const completedBookings = platforms.reduce((sum, platform) => sum + platform.bookings, 0);
   return {
-    migrationCompleted: Number(migrationCount?.count || 0) > 0,
+    migrationCompleted: Boolean(lastSync?.completed_at),
+    lastPrototypeSync: lastSync?.completed_at ? { completedAt:Number(lastSync.completed_at), filename:lastSync.original_filename || 'Prototype Checker' } : null,
     chats: Number(chatCount?.count || 0),
     leads: Number(leadCount?.count || 0),
     reportSubmittedAt: report?.submitted_at || null,
