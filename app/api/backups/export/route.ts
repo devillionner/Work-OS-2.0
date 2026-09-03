@@ -2,12 +2,12 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 
 const PAGE_SIZE = 200;
-const TABLES = ['chats', 'chat_profiles', 'chat_publications', 'leads', 'students', 'lessons', 'curator_requests', 'daily_reports', 'user_settings', 'activity_events'] as const;
+const TABLES = ['telegram_accounts', 'chats', 'chat_profiles', 'chat_publications', 'leads', 'students', 'lessons', 'curator_requests', 'daily_reports', 'user_settings', 'activity_events'] as const;
 type BackupTable = (typeof TABLES)[number];
 
 const CURSOR_COLUMN: Record<BackupTable, string> = {
   chats: 'id', chat_profiles: 'chat_id', chat_publications: 'id', leads: 'id', students: 'id',
-  lessons: 'id', curator_requests: 'id', daily_reports: 'id', user_settings: 'setting_key', activity_events: 'id',
+  telegram_accounts: 'account_number', lessons: 'id', curator_requests: 'id', daily_reports: 'id', user_settings: 'setting_key', activity_events: 'id',
 };
 
 export async function GET(request: Request): Promise<Response> {
@@ -60,6 +60,7 @@ async function manifest(userId: string, email: string): Promise<Response> {
 
 function tableQuery(table: BackupTable, cursorColumn: string): string {
   if (table === 'chat_profiles') return `SELECT p.* FROM chat_profiles p JOIN chats c ON c.id=p.chat_id WHERE c.user_id=?1 AND p.${cursorColumn}>?2 ORDER BY p.${cursorColumn} LIMIT ?3`;
+  if (table === 'telegram_accounts') return `SELECT * FROM telegram_accounts WHERE user_id=?1 AND (?2='' OR account_number>CAST(?2 AS INTEGER)) ORDER BY account_number LIMIT ?3`;
   return `SELECT * FROM ${table} WHERE user_id=?1 AND ${cursorColumn}>?2 ORDER BY ${cursorColumn} LIMIT ?3`;
 }
 function countQuery(table: BackupTable): string {

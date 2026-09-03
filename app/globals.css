@@ -222,6 +222,25 @@ button { color: inherit; }
 .today-links > div > div:first-child { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
 .today-links strong { display: grid; place-items: center; min-width: 25px; height: 25px; border-radius: 8px; background: #eef2ff; color: var(--primary); font-size: 12px; }
 .today-link-actions { display: flex; gap: 6px; }
+.telegram-accounts { display: grid; gap: 10px; padding: 12px; }
+.telegram-account-tabs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.telegram-account-tabs > span { margin-right: 4px; color: #737986; font-size: 12px; font-weight: 700; }
+.telegram-account-tabs > button:not([class]) { display: inline-flex; align-items: center; gap: 5px; min-height: 34px; padding: 6px 11px; border: 1px solid var(--border); border-radius: 9px; background: white; color: #343946; font-weight: 700; cursor: pointer; }
+.telegram-account-tabs > button:not([class])[aria-pressed="true"] { border-color: var(--primary); background: var(--primary); color: white; }
+.telegram-account-tabs small { opacity: .65; font-size: 10px; }
+.telegram-break { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 13px; border-radius: 10px; background: #f5f7fb; }
+.telegram-break.is-due { background: #fff7df; box-shadow: inset 3px 0 #e4a900; }
+.telegram-break > div { display: grid; gap: 2px; }
+.telegram-break strong { font-size: 13px; }
+.telegram-break span { color: #777e8b; font-size: 11px; }
+.telegram-break-settings { display: flex !important; grid-auto-flow: column; align-items: center; gap: 7px !important; }
+.telegram-break-settings label { display: flex; align-items: center; gap: 4px; color: #777e8b; font-size: 11px; white-space: nowrap; }
+.telegram-break-settings select { min-height: 30px; padding: 0 6px; border: 1px solid var(--border); border-radius: 7px; background: white; font-size: 11px; }
+.telegram-account-manager { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+.telegram-account-editor { display: grid; grid-template-columns: 34px minmax(150px,1fr) auto; align-items: center; gap: 8px; }
+.telegram-account-editor > span { color: #777e8b; font-size: 11px; font-weight: 700; }
+.telegram-account-create { display: grid; grid-template-columns: minmax(180px,1fr) auto; gap: 8px; padding-top: 4px; }
+.telegram-account-manager > p { margin: 0; color: #858b96; font-size: 11px; }
 .platform-browser { overflow: hidden; }
 .queue-tabs { display: grid; grid-template-columns: repeat(4,1fr); border-bottom: 1px solid var(--border); }
 .queue-tabs button { min-height: 52px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-right: 1px solid var(--border); background: #fafbfc; color: #69707d; cursor: pointer; font-size: 13px; font-weight: 750; }
@@ -247,6 +266,7 @@ button { color: inherit; }
 .wait-note svg { width: 13px; }
 .chat-actions { display: flex; align-items: center; gap: 7px; }
 .chat-actions svg { width: 17px; }
+.chat-account-select { max-width: 150px; min-height: 36px; padding: 0 30px 0 9px; border: 1px solid var(--border); border-radius: 8px; background: white; color: #343946; font-size: 11px; }
 .archive-reasons { grid-column: 1/-1; display: flex; align-items: center; gap: 7px; padding-top: 10px; border-top: 1px dashed #dfe2e8; }
 .archive-reasons span { margin-right: 4px; color: #727987; font-size: 11px; font-weight: 700; }
 .archive-reasons button { padding: 7px 10px; border: 1px solid #dfe2e8; border-radius: 8px; background: #fff; cursor: pointer; font-size: 11px; }
@@ -302,6 +322,9 @@ button { color: inherit; }
   .platform-picker { width: 100%; overflow-x: auto; }
   .platform-picker button { flex: 0 0 auto; }
   .today-links { grid-template-columns: 1fr; }
+  .telegram-break { align-items: stretch; flex-direction: column; }
+  .telegram-account-editor { grid-template-columns: 28px minmax(0,1fr) auto; }
+  .telegram-account-create { grid-template-columns: 1fr; }
   .today-links > div { align-items: flex-start; padding: 14px; }
   .today-links > div + div { border-top: 1px solid var(--border); border-left: 0; }
   .today-link-actions { flex-wrap: wrap; justify-content: flex-end; }
