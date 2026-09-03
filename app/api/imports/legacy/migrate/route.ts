@@ -160,7 +160,7 @@ function statementFor(phase: MigrationPhase, value: LegacyMigrationDataset[Migra
   if (phase === 'curatorRequests') {
     const row = value as LegacyMigrationDataset['curatorRequests'][number];
     return env.DB.prepare(`INSERT INTO curator_requests (id,user_id,lead_id,legacy_id,status,submitted_at,submitted_date,resolved_at,lesson_id,created_at,updated_at,source_import_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
-      ON CONFLICT(id) DO UPDATE SET lead_id=excluded.lead_id,legacy_id=excluded.legacy_id,status=excluded.status,submitted_at=excluded.submitted_at,submitted_date=excluded.submitted_date,resolved_at=excluded.resolved_at,lesson_id=excluded.lesson_id,updated_at=excluded.updated_at,source_import_id=excluded.source_import_id WHERE curator_requests.user_id=excluded.user_id`).bind(row.id,userId,row.leadId,row.legacyId,row.status,row.submittedAt,row.submittedDate,row.resolvedAt,row.lessonId,row.createdAt,row.updatedAt,importId);
+      ON CONFLICT DO UPDATE SET status=excluded.status,submitted_at=excluded.submitted_at,submitted_date=excluded.submitted_date,resolved_at=excluded.resolved_at,lesson_id=excluded.lesson_id,updated_at=excluded.updated_at,source_import_id=excluded.source_import_id WHERE curator_requests.user_id=excluded.user_id`).bind(row.id,userId,row.leadId,row.legacyId,row.status,row.submittedAt,row.submittedDate,row.resolvedAt,row.lessonId,row.createdAt,row.updatedAt,importId);
   }
   if (phase === 'reports') {
     const row = value as LegacyMigrationDataset['reports'][number];
