@@ -240,8 +240,8 @@ button { color: inherit; }
 .chat-main { min-width: 0; display: grid; gap: 4px; }
 .chat-name-line { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .chat-name-line strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-main > a { max-width: 720px; overflow: hidden; color: #727987; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
-.chat-main > a:hover { color: var(--primary); text-decoration: underline; }
+.chat-native-link { width: fit-content; max-width: 720px; overflow: hidden; padding: 0; border: 0; background: transparent; color: #727987; font: inherit; font-size: 11px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.chat-native-link:hover { color: var(--primary); text-decoration: underline; }
 .chat-main small { color: #858b96; font-size: 11px; }
 .wait-note { display: flex; align-items: center; gap: 5px; color: #a15c00 !important; }
 .wait-note svg { width: 13px; }

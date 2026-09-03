@@ -85,9 +85,9 @@ export function PlatformWorkspace() {
       {error && <div className="workspace-error">{error}</div>}
       {loading ? <div className="workspace-loading"><LoaderCircle/>Завантажуємо {selected.label}…</div> : data?.chats.length ? <div className="chat-list">
         {data.chats.map(chat=><article className="chat-row" key={chat.id}>
-          <div className="chat-main"><div className="chat-name-line"><strong>{chat.name}</strong>{!chat.profileConfirmed&&queue==='ready'&&<Badge variant="outline">Профіль пізніше</Badge>}{chat.publishedToday&&<Badge variant="secondary">Опубліковано сьогодні</Badge>}</div><a href={chat.link} target="_blank" rel="noreferrer">{chat.link}</a>{chat.archiveReason&&<small>Причина: {chat.archiveReason}</small>}{chat.snoozedUntil&&chat.snoozedUntil>Date.now()/1000&&<small>Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{queue==='ready'&&!chat.availableNow&&<small className="wait-note"><Clock3/>Telegram буде доступний {formatDateTime(chat.availableAt!)}</small>}</div>
+          <div className="chat-main"><div className="chat-name-line"><strong>{chat.name}</strong>{!chat.profileConfirmed&&queue==='ready'&&<Badge variant="outline">Профіль пізніше</Badge>}{chat.publishedToday&&<Badge variant="secondary">Опубліковано сьогодні</Badge>}</div><button className="chat-native-link" type="button" onClick={()=>openNativeChat(chat.platform,chat.link)}>{chat.link}</button>{chat.archiveReason&&<small>Причина: {chat.archiveReason}</small>}{chat.snoozedUntil&&chat.snoozedUntil>Date.now()/1000&&<small>Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{queue==='ready'&&!chat.availableNow&&<small className="wait-note"><Clock3/>Telegram буде доступний {formatDateTime(chat.availableAt!)}</small>}</div>
           <div className="chat-actions">
-            <Button variant="outline" size="icon" asChild><a href={chat.link} target="_blank" rel="noreferrer" aria-label="Відкрити чат"><ExternalLink/></a></Button>
+            <Button variant="outline" size="icon" type="button" onClick={()=>openNativeChat(chat.platform,chat.link)} aria-label={`Відкрити чат у ${selected.label}`}><ExternalLink/></Button>
             {queue==='to_join'&&<><Button size="icon" onClick={()=>act(chat,'joined')} disabled={busy===chat.id} aria-label="Успішно приєднано"><Check/></Button>{(platform==='telegram'||platform==='whatsapp')&&<Button variant="outline" size="icon" onClick={()=>act(chat,'waiting')} disabled={busy===chat.id} aria-label="Очікуємо запрошення"><Clock3/></Button>}<Button variant="outline" size="icon" onClick={()=>act(chat,'failed',{reason:'Не вдалося приєднатися'})} disabled={busy===chat.id} aria-label="Не вдалося приєднатися"><X/></Button></>}
             {queue==='waiting'&&<><Button onClick={()=>act(chat,'approved')} disabled={busy===chat.id}><UserRoundCheck data-icon="inline-start"/>Прийняли</Button><Button variant="outline" onClick={()=>act(chat,'snooze')} disabled={busy===chat.id}>+3 дні</Button></>}
             {queue==='ready'&&<Button onClick={()=>act(chat,'published',{force:!chat.availableNow})} disabled={busy===chat.id||chat.publishedToday}><Send data-icon="inline-start"/>{chat.publishedToday?'Готово':chat.availableNow?'Опубліковано':'Все одно опублікувати'}</Button>}
@@ -111,3 +111,36 @@ function TodayLinks({title,items}:{title:string;items:LinkItem[]}) {
 
 function MessageSquareEmpty(){ return <Send aria-hidden="true"/>; }
 function formatDateTime(value:number){return new Intl.DateTimeFormat('uk-UA',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Kyiv'}).format(new Date(value*1000));}
+
+function openNativeChat(platform:Platform, link:string) {
+  const nativeLink=nativeChatLink(platform,link);
+  if(nativeLink) window.location.assign(nativeLink);
+}
+
+function nativeChatLink(platform:Platform, link:string) {
+  let url:URL;
+  try { url=new URL(link.trim()); } catch { return ''; }
+  const host=url.hostname.toLowerCase().replace(/^www\./,'');
+  const parts=url.pathname.split('/').filter(Boolean);
+  if(platform==='telegram'&&['t.me','telegram.me','telegram.dog'].includes(host)) {
+    if(parts[0]?.startsWith('+')) return `tg://join?invite=${encodeURIComponent(parts[0].slice(1))}`;
+    if(parts[0]?.toLowerCase()==='joinchat'&&parts[1]) return `tg://join?invite=${encodeURIComponent(parts[1])}`;
+    return parts[0] ? `tg://resolve?domain=${encodeURIComponent(parts[0])}` : '';
+  }
+  if(platform==='whatsapp'&&host==='chat.whatsapp.com') {
+    const code=parts[0]?.toLowerCase()==='invite'?parts[1]:parts[0];
+    return code ? `whatsapp://chat?code=${encodeURIComponent(safeDecode(code))}` : '';
+  }
+  if(platform==='viber'&&['invite.viber.com','chats.viber.com'].includes(host)) {
+    const token=/[?&]g2=([^&#]+)/i.exec(link)?.[1];
+    return token ? `viber://community_invite?data=${encodeURIComponent(safeDecode(token))}` : '';
+  }
+  if(platform==='facebook'&&['facebook.com','m.facebook.com','fb.com'].includes(host)) {
+    return `fb://facewebmodal/f?href=${encodeURIComponent(url.toString())}`;
+  }
+  return '';
+}
+
+function safeDecode(value:string) {
+  try { return decodeURIComponent(value); } catch { return value; }
+}
