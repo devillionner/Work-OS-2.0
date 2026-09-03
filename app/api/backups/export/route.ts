@@ -53,7 +53,7 @@ async function manifest(userId: string, email: string): Promise<Response> {
   const counts = Object.fromEntries(TABLES.map((table, index) => [table, Number(results[index].results[0]?.count || 0)]));
   const last = await env.DB.prepare(`SELECT sha256,byte_size,record_counts_json,created_at FROM backup_exports WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 1`).bind(userId).first();
   return Response.json({
-    app: 'work-os-cloud-backup', schemaVersion: 2, ownerEmail: email,
+    app: 'work-os-cloud-backup', schemaVersion: 3, ownerEmail: email,
     createdAt: new Date().toISOString(), tables: TABLES, counts, lastBackup: last || null,
   }, { headers: { 'Cache-Control': 'no-store' } });
 }

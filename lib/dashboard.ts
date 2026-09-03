@@ -38,7 +38,7 @@ export async function getDashboardSnapshot(userId: string): Promise<DashboardSna
        FROM activity_events e
        LEFT JOIN leads l ON l.id=e.lead_id
        LEFT JOIN chats c ON c.id=e.chat_id
-       WHERE e.user_id=?1 AND e.event_date=?2 AND e.occurred_at>?3
+       WHERE e.user_id=?1 AND e.event_date=?2 AND e.occurred_at>?3 AND e.cancelled_at IS NULL
        GROUP BY COALESCE(e.platform,l.platform,c.platform)`,
     ).bind(userId, today, afterReport),
   ]);

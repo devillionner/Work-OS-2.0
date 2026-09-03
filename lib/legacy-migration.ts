@@ -35,6 +35,7 @@ export type MigrationLead = {
   sourceChatId: string | null; sourceChatLink: string; note: string; needsDetails: number;
   status: string; teacherName: string; lessonPlatform: string | null; meetingLink: string;
   isStudent: number; ageGroup: string; responseDate: string; bookingDate: string | null;
+  responseCancelledAt: number | null; responseCancelledDate: string | null;
   createdAt: number; bookedAt: number | null;
   archivedAt: number | null; payloadJson: string; updatedAt: number;
 };
@@ -62,6 +63,7 @@ export type MigrationEvent = {
   id: string; eventType: string; platform: string | null; chatId: string | null;
   leadId: string | null; lessonId: string | null; occurredAt: number; eventDate: string;
   metadataJson: string; sourceKey: string;
+  cancelledAt: number | null;
 };
 
 export type LegacyMigrationDataset = {
@@ -171,6 +173,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       status: text(source.status) || 'new', teacherName: text(source.teacherName),
       lessonPlatform: text(source.lessonPlatform) || null, meetingLink: text(source.meetingLink),
       isStudent: source.isStudent ? 1 : 0, ageGroup: text(source.ageGroup), responseDate, bookingDate,
+      responseCancelledAt: seconds(source.responseCancelledAt), responseCancelledDate: legacyDate(text(source.responseCancelledDate)) || null,
       createdAt, bookedAt, archivedAt: seconds(source.archivedAt),
       payloadJson: JSON.stringify(source), updatedAt: Math.max(createdAt, seconds(source.bookedAt) || 0, seconds(source.archivedAt) || 0),
     });
@@ -249,6 +252,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       platform: chatPlatform.get(publication.chatId) || null, chatId: publication.chatId,
       leadId: null, lessonId: null, occurredAt: publication.publishedAt || epochForDate(publication.publishedOn) || now,
       eventDate: publication.publishedOn, metadataJson: '{}', sourceKey: publication.sourceKey,
+      cancelledAt: null,
     });
   }
   for (const lead of leads) {
@@ -257,6 +261,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       id: stableId('event', sourceKey), eventType: 'lead_created', platform: lead.platform,
       chatId: lead.sourceChatId, leadId: lead.id, lessonId: null, occurredAt: lead.createdAt,
       eventDate: lead.responseDate, metadataJson: JSON.stringify({ responseDate: lead.responseDate }), sourceKey,
+      cancelledAt: lead.responseCancelledAt,
     });
   }
   for (const lesson of lessons) {
@@ -266,6 +271,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       chatId: null, leadId: lesson.leadId, lessonId: lesson.id, occurredAt: lesson.createdAt,
       eventDate: lesson.bookingDate,
       metadataJson: JSON.stringify({ bookingDate: lesson.bookingDate, lessonDate: lesson.lessonDate }), sourceKey,
+      cancelledAt: null,
     });
   }
 
@@ -279,6 +285,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       leadId: request.leadId, lessonId: null, occurredAt: request.submittedAt,
       eventDate: request.submittedDate,
       metadataJson: JSON.stringify({ curatorRequestId: request.id, status: request.status }), sourceKey,
+      cancelledAt: null,
     });
   }
 

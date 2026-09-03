@@ -92,7 +92,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
               <Badge variant="outline">{snapshot.migrationCompleted ? 'Перенос завершено' : 'Безпечний старт'}</Badge>
             </div>
             <div className="focus-actions">
-              <Button size="lg" onClick={() => setImportOpen(true)}><Archive data-icon="inline-start" />Переглянути перенос</Button>
+              <Button size="lg" onClick={() => setImportOpen(true)}><Archive data-icon="inline-start" />Оновити з Prototype Checker</Button>
               <Button size="lg" variant="outline"><Target data-icon="inline-start" />Налаштувати ціль</Button>
             </div>
           </section>

@@ -125,7 +125,11 @@ export function LegacyImportDialog({
         staged?: StagedImport | null;
       };
       if (!response.ok) throw new Error(result.error || 'Не вдалося завантажити копію.');
-      if (result.staged) setStaged(result.staged);
+      if (result.staged) {
+        setStaged(result.staged);
+        setJob((current) => current?.importId === result.staged?.id ? current : null);
+        setMigrationConfirmed(false);
+      }
       setMessage(
         result.duplicate
           ? 'Ця сама копія вже є у staging-зоні. Дані не дубльовано.'
@@ -139,6 +143,7 @@ export function LegacyImportDialog({
   };
 
   const summary = prepared?.inspection.summary;
+  const relevantJob = job?.importId === staged?.id ? job : null;
 
   const migrate = async () => {
     if (!staged?.integrityOk || !staged.analysis.canProceed || !migrationConfirmed || migrating) return;
@@ -153,7 +158,7 @@ export function LegacyImportDialog({
         setJob(current);
       }
       if (current.status !== 'completed') throw new Error(current.error || 'Перенос не завершився. Його можна безпечно продовжити.');
-      setMessage('Дані перенесено у нову структуру та звірено без дублювання.');
+      setMessage('Work OS 2.0 синхронізовано з цією копією Prototype Checker без дублювання та автоматичного видалення.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Не вдалося завершити перенос.');
     } finally {
@@ -168,30 +173,30 @@ export function LegacyImportDialog({
       <section className="import-dialog" role="dialog" aria-modal="true" aria-labelledby="legacy-import-title">
         <header className="import-dialog-header">
           <div>
-            <p className="eyebrow">Безпечна міграція</p>
-            <h2 id="legacy-import-title">Підготувати імпорт старої бази</h2>
+            <p className="eyebrow">Безпечна синхронізація</p>
+            <h2 id="legacy-import-title">Оновити дані з Prototype Checker</h2>
           </div>
           <button className="import-close" type="button" aria-label="Закрити" onClick={onClose} disabled={uploading}><X /></button>
         </header>
 
         <div className="import-safety-note">
           <ShieldCheck />
-          <div><strong>Спочатку лише перевірка</strong><p>Файл зберігається окремо. Чати, ліди та статистика не зміняться без наступного підтвердження.</p></div>
+          <div><strong>Спочатку лише перевірка</strong><p>Нова копія зберігається окремо. Дані оновляться лише після твого підтвердження, без очищення бази.</p></div>
         </div>
 
         {loadingStaged && <p className="import-loading"><LoaderCircle />Перевіряємо staging-зону…</p>}
         {staged && !loadingStaged && <StagedReview staged={staged} />}
         {staged && !loadingStaged && (
           <section className="migration-control" aria-label="Остаточний перенос">
-            {job && <div className={`migration-progress ${job.status === 'completed' ? 'is-complete' : ''}`}>
-              <div><strong>{job.status === 'completed' ? 'Перенос завершено' : migrating ? 'Переносимо дані…' : 'Перенос можна продовжити'}</strong><span>{job.complete} із {job.total} записів</span></div>
-              <div className="migration-progress-track"><i style={{ width: `${job.percent}%` }} /></div>
-              <small>{job.percent}% · етап: {migrationPhaseName(job.phase)}</small>
+            {relevantJob && <div className={`migration-progress ${relevantJob.status === 'completed' ? 'is-complete' : ''}`}>
+              <div><strong>{relevantJob.status === 'completed' ? 'Синхронізацію завершено' : migrating ? 'Оновлюємо дані…' : 'Синхронізацію можна продовжити'}</strong><span>{relevantJob.complete} із {relevantJob.total} записів</span></div>
+              <div className="migration-progress-track"><i style={{ width: `${relevantJob.percent}%` }} /></div>
+              <small>{relevantJob.percent}% · етап: {migrationPhaseName(relevantJob.phase)}</small>
             </div>}
-            {job?.status !== 'completed' && <>
-              <label className="migration-consent"><input type="checkbox" checked={migrationConfirmed} onChange={(event) => setMigrationConfirmed(event.target.checked)} disabled={migrating} /><span>Я перевірив підсумок. Стару копію залишаємо незмінною, а дані переносимо в нову структуру.</span></label>
+            {relevantJob?.status !== 'completed' && <>
+              <label className="migration-consent"><input type="checkbox" checked={migrationConfirmed} onChange={(event) => setMigrationConfirmed(event.target.checked)} disabled={migrating} /><span>Я перевірив підсумок. Оновлюємо Work OS 2.0 даними з цієї копії Prototype Checker без автоматичного видалення відсутніх записів.</span></label>
               <Button type="button" onClick={() => void migrate()} disabled={!migrationConfirmed || !staged.integrityOk || !staged.analysis.canProceed || migrating}>
-                {migrating ? <><LoaderCircle className="is-spinning" />Перенесення {job?.percent || 0}%</> : job ? 'Продовжити перенос' : 'Перенести перевірені дані'}
+                {migrating ? <><LoaderCircle className="is-spinning" />Оновлення {relevantJob?.percent || 0}%</> : relevantJob ? 'Продовжити синхронізацію' : 'Синхронізувати перевірені дані'}
               </Button>
             </>}
           </section>
