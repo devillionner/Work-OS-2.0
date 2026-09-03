@@ -29,6 +29,7 @@ type StagedImport = {
   integrityOk: boolean;
   summary: LegacyBackupSummary;
   analysis: LegacyBackupAnalysis;
+  syncPreview?: { added:number; matched:number; preserved:number };
 };
 
 type MigrationJob = {
@@ -278,6 +279,11 @@ function StagedReview({ staged }: { staged: StagedImport }) {
         <span><strong>{staged.summary.leads}</strong> лідів</span>
         <span><strong>{staged.summary.reports}</strong> звітів</span>
       </div>
+      {staged.syncPreview && <div className="sync-preview" aria-label="Зміни під час синхронізації">
+        <span><strong>{staged.syncPreview.added}</strong>буде додано</span>
+        <span><strong>{staged.syncPreview.matched}</strong>буде звірено й оновлено</span>
+        <span><strong>{staged.syncPreview.preserved}</strong>залишиться поза копією</span>
+      </div>}
       <div className="reconciliation-heading">
         {issueCount ? <AlertTriangle /> : <CheckCircle2 />}
         <strong>{issueCount ? 'Пункти для звірки перед переносом' : 'Конфліктів не знайдено'}</strong>
@@ -286,7 +292,7 @@ function StagedReview({ staged }: { staged: StagedImport }) {
         {checks.map(([label, value]) => <div key={label}><span>{label}</span><strong className={value ? 'has-issue' : ''}>{value}</strong></div>)}
         <div><span>Профілі чатів можна доповнити пізніше</span><strong>{staged.analysis.chatsNeedingProfile}</strong></div>
       </div>
-      <p className="staged-footnote">Це лише звірка. Остаточний перенос ще не запускався.</p>
+      <p className="staged-footnote">Це лише звірка. Записи поза копією не видаляються автоматично.</p>
     </section>
   );
 }

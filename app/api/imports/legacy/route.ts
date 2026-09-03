@@ -6,6 +6,7 @@ import {
   LEGACY_BACKUP_MAX_BYTES,
   sha256Hex,
 } from '@/lib/legacy-backup';
+import { buildLegacyMigrationDataset } from '@/lib/legacy-migration';
 
 const REQUEST_MAX_BYTES = Math.ceil(LEGACY_BACKUP_MAX_BYTES * 1.4);
 const CHUNK_SIZE = 300_000;
@@ -36,7 +37,7 @@ export async function GET(): Promise<Response> {
   ).bind(user.id).first<StagedImportRow>();
   if (!staged) return Response.json({ staged: null });
 
-  return Response.json({ staged: await describeStagedImport(staged) });
+  return Response.json({ staged: await describeStagedImport(staged, user.id) });
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -100,7 +101,7 @@ export async function POST(request: Request): Promise<Response> {
       duplicate: true,
       importId: existing.id,
       summary: JSON.parse(existing.summary_json),
-      staged: staged ? await describeStagedImport(staged) : null,
+      staged: staged ? await describeStagedImport(staged, user.id) : null,
     });
   }
 
@@ -139,7 +140,7 @@ export async function POST(request: Request): Promise<Response> {
     duplicate: false,
     importId,
     summary: inspection.summary,
-    staged: {
+      staged: {
       id: importId,
       filename,
       sha256: serverHash,
@@ -148,12 +149,13 @@ export async function POST(request: Request): Promise<Response> {
       createdAt: now,
       integrityOk: true,
       summary: inspection.summary,
-      analysis: analyzeLegacyBackup(body.rawBackup),
+        analysis: analyzeLegacyBackup(body.rawBackup),
+        syncPreview: await buildSyncPreview(body.rawBackup, user.id),
     },
   });
 }
 
-async function describeStagedImport(staged: StagedImportRow) {
+async function describeStagedImport(staged: StagedImportRow, userId: string) {
   const chunks = await env.DB.prepare(
     `SELECT payload_chunk FROM legacy_import_chunks
      WHERE import_id = ?1 ORDER BY chunk_index ASC`,
@@ -170,7 +172,40 @@ async function describeStagedImport(staged: StagedImportRow) {
     integrityOk: calculatedHash === staged.sha256,
     summary: JSON.parse(staged.summary_json),
     analysis: analyzeLegacyBackup(raw),
+    syncPreview: await buildSyncPreview(raw, userId),
   };
+}
+
+async function buildSyncPreview(raw: string, userId: string) {
+  const dataset = buildLegacyMigrationDataset(raw, userId);
+  const [chats, publications, leads, lessons, reports] = await env.DB.batch([
+    env.DB.prepare(`SELECT id FROM chats WHERE user_id=?1`).bind(userId),
+    env.DB.prepare(`SELECT id FROM chat_publications WHERE user_id=?1`).bind(userId),
+    env.DB.prepare(`SELECT id FROM leads WHERE user_id=?1`).bind(userId),
+    env.DB.prepare(`SELECT id FROM lessons WHERE user_id=?1`).bind(userId),
+    env.DB.prepare(`SELECT id FROM daily_reports WHERE user_id=?1`).bind(userId),
+  ]);
+  const categories = {
+    chats: compareIds(dataset.chats, chats.results),
+    publications: compareIds(dataset.publications, publications.results),
+    leads: compareIds(dataset.leads, leads.results),
+    lessons: compareIds(dataset.lessons, lessons.results),
+    reports: compareIds(dataset.reports, reports.results),
+  };
+  return {
+    categories,
+    added: Object.values(categories).reduce((sum, item) => sum + item.added, 0),
+    matched: Object.values(categories).reduce((sum, item) => sum + item.matched, 0),
+    preserved: Object.values(categories).reduce((sum, item) => sum + item.preserved, 0),
+  };
+}
+
+function compareIds(source: Array<{id:string}>, existingRows: unknown[]) {
+  const existing = new Set((existingRows as Array<{id:string}>).map((row) => row.id));
+  const sourceIds = new Set(source.map((row) => row.id));
+  let matched = 0;
+  for (const id of sourceIds) if (existing.has(id)) matched += 1;
+  return { total: sourceIds.size, added: sourceIds.size - matched, matched, preserved: existing.size - matched };
 }
 
 function sameOrigin(request: Request): boolean {
