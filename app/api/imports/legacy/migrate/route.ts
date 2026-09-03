@@ -58,7 +58,9 @@ async function startMigration(userId: string, requestedImportId: string): Promis
   const totals = migrationTotals(dataset);
   const jobId = crypto.randomUUID();
   const now = Math.floor(Date.now() / 1000);
-  const statements: D1PreparedStatement[] = [env.DB.prepare(
+  const statements: D1PreparedStatement[] = [
+    env.DB.prepare(`INSERT INTO telegram_accounts (id,user_id,account_number,name,is_enabled,is_selected,created_at,updated_at) SELECT ?1,?2,1,'TG 1',1,1,?3,?3 WHERE NOT EXISTS (SELECT 1 FROM telegram_accounts WHERE user_id=?2)`).bind(`${userId}:tg1`,userId,now),
+    env.DB.prepare(
     `INSERT INTO migration_jobs (id, user_id, import_id, status, phase, cursor, totals_json, processed_json, created_at, updated_at)
      VALUES (?1, ?2, ?3, 'running', 'chats', 0, ?4, '{}', ?5, ?5)`,
   ).bind(jobId, userId, imported.id, JSON.stringify(totals), now)];
@@ -125,7 +127,8 @@ async function processMigration(userId: string): Promise<Response> {
 function statementFor(phase: MigrationPhase, value: LegacyMigrationDataset[MigrationPhase][number], userId: string, importId: string): D1PreparedStatement {
   if (phase === 'chats') {
     const row = value as LegacyMigrationDataset['chats'][number];
-    return env.DB.prepare(`INSERT OR IGNORE INTO chats (id,user_id,platform,name,link,normalized_link,workflow_status,is_private,joined_at,processed_at,snoozed_until,archive_reason,archived_at,legacy_payload_json,source_import_id,created_at,updated_at,note,legacy_date) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)`).bind(row.id,userId,row.platform,row.name,row.link,row.normalizedLink,row.workflowStatus,row.isPrivate,row.joinedAt,row.processedAt,row.snoozedUntil,row.archiveReason,row.archivedAt,row.payloadJson,importId,row.createdAt,row.updatedAt,row.note,row.legacyDate);
+    const accountId=row.platform==='telegram'&&row.workflowStatus!=='to_join'?`${userId}:tg1`:null;
+    return env.DB.prepare(`INSERT OR IGNORE INTO chats (id,user_id,platform,name,link,normalized_link,workflow_status,is_private,joined_at,processed_at,snoozed_until,archive_reason,archived_at,legacy_payload_json,source_import_id,created_at,updated_at,note,legacy_date,telegram_account_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)`).bind(row.id,userId,row.platform,row.name,row.link,row.normalizedLink,row.workflowStatus,row.isPrivate,row.joinedAt,row.processedAt,row.snoozedUntil,row.archiveReason,row.archivedAt,row.payloadJson,importId,row.createdAt,row.updatedAt,row.note,row.legacyDate,accountId);
   }
   if (phase === 'profiles') {
     const row = value as LegacyMigrationDataset['profiles'][number];
@@ -133,7 +136,7 @@ function statementFor(phase: MigrationPhase, value: LegacyMigrationDataset[Migra
   }
   if (phase === 'publications') {
     const row = value as LegacyMigrationDataset['publications'][number];
-    return env.DB.prepare(`INSERT OR IGNORE INTO chat_publications (id,user_id,chat_id,published_on,published_at,source,source_key,created_at) VALUES (?1,?2,?3,?4,?5,'legacy',?6,?7)`).bind(row.id,userId,row.chatId,row.publishedOn,row.publishedAt,row.sourceKey,row.createdAt);
+    return env.DB.prepare(`INSERT OR IGNORE INTO chat_publications (id,user_id,chat_id,published_on,published_at,source,source_key,created_at,telegram_account_id) VALUES (?1,?2,?3,?4,?5,'legacy',?6,?7,(SELECT telegram_account_id FROM chats WHERE id=?3))`).bind(row.id,userId,row.chatId,row.publishedOn,row.publishedAt,row.sourceKey,row.createdAt);
   }
   if (phase === 'leads') {
     const row = value as LegacyMigrationDataset['leads'][number];
@@ -160,7 +163,8 @@ function statementFor(phase: MigrationPhase, value: LegacyMigrationDataset[Migra
     return env.DB.prepare(`INSERT OR IGNORE INTO user_settings (user_id,setting_key,value_json,source_import_id,updated_at) VALUES (?1,?2,?3,?4,?5)`).bind(userId,row.key,row.valueJson,importId,row.updatedAt);
   }
   const row = value as LegacyMigrationDataset['events'][number];
-  return env.DB.prepare(`INSERT OR IGNORE INTO activity_events (id,user_id,event_type,platform,chat_id,lead_id,lesson_id,occurred_at,event_date,metadata_json,source_key,source_import_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)`).bind(row.id,userId,row.eventType,row.platform,row.chatId,row.leadId,row.lessonId,row.occurredAt,row.eventDate,row.metadataJson,row.sourceKey,importId);
+  const accountId=row.platform==='telegram'?`${userId}:tg1`:null;
+  return env.DB.prepare(`INSERT OR IGNORE INTO activity_events (id,user_id,event_type,platform,chat_id,lead_id,lesson_id,occurred_at,event_date,metadata_json,source_key,source_import_id,telegram_account_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)`).bind(row.id,userId,row.eventType,row.platform,row.chatId,row.leadId,row.lessonId,row.occurredAt,row.eventDate,row.metadataJson,row.sourceKey,importId,accountId);
 }
 
 async function readImportRaw(importId: string): Promise<string> {
