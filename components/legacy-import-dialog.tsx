@@ -315,5 +315,5 @@ async function migrationRequest(action: 'start' | 'process', importId?: string):
 }
 
 function migrationPhaseName(value: string): string {
-  return ({ chats: 'чати', profiles: 'профілі', publications: 'публікації', leads: 'ліди', students: 'учні', lessons: 'уроки', reports: 'звіти', settings: 'налаштування', events: 'статистика', done: 'готово' } as Record<string, string>)[value] || value;
+  return ({ accounts: 'Telegram-акаунти', chats: 'чати', profiles: 'профілі', publications: 'публікації', leads: 'ліди', students: 'учні', lessons: 'уроки', reports: 'звіти', settings: 'налаштування', events: 'статистика', done: 'готово' } as Record<string, string>)[value] || value;
 }

@@ -125,12 +125,17 @@ async function processMigration(userId: string): Promise<Response> {
 }
 
 function statementFor(phase: MigrationPhase, value: LegacyMigrationDataset[MigrationPhase][number], userId: string, importId: string): D1PreparedStatement {
+  if (phase === 'accounts') {
+    const row = value as LegacyMigrationDataset['accounts'][number];
+    return env.DB.prepare(`INSERT INTO telegram_accounts (id,user_id,account_number,name,is_enabled,is_selected,created_at,updated_at) VALUES (?1,?2,?3,?4,1,0,?5,?6)
+      ON CONFLICT(id) DO UPDATE SET account_number=excluded.account_number,name=excluded.name,is_enabled=1,updated_at=excluded.updated_at WHERE telegram_accounts.user_id=excluded.user_id`).bind(row.id,userId,row.number,row.name,row.createdAt,row.updatedAt);
+  }
   if (phase === 'chats') {
     const row = value as LegacyMigrationDataset['chats'][number];
-    const accountId=row.platform==='telegram'&&row.workflowStatus!=='to_join'?`${userId}:tg1`:null;
+    const accountId=row.telegramAccountId||(row.platform==='telegram'&&row.workflowStatus!=='to_join'?`${userId}:tg1`:null);
     return env.DB.prepare(`INSERT INTO chats (id,user_id,platform,name,link,normalized_link,workflow_status,is_private,joined_at,processed_at,snoozed_until,archive_reason,archived_at,legacy_payload_json,source_import_id,created_at,updated_at,note,legacy_date,telegram_account_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)
-      ON CONFLICT(id) DO UPDATE SET platform=excluded.platform,name=excluded.name,link=excluded.link,normalized_link=excluded.normalized_link,workflow_status=excluded.workflow_status,is_private=excluded.is_private,joined_at=excluded.joined_at,processed_at=excluded.processed_at,snoozed_until=excluded.snoozed_until,archive_reason=excluded.archive_reason,archived_at=excluded.archived_at,legacy_payload_json=excluded.legacy_payload_json,source_import_id=excluded.source_import_id,updated_at=excluded.updated_at,note=excluded.note,legacy_date=excluded.legacy_date,telegram_account_id=CASE WHEN excluded.workflow_status='to_join' THEN NULL ELSE chats.telegram_account_id END
-      WHERE chats.user_id=excluded.user_id`).bind(row.id,userId,row.platform,row.name,row.link,row.normalizedLink,row.workflowStatus,row.isPrivate,row.joinedAt,row.processedAt,row.snoozedUntil,row.archiveReason,row.archivedAt,row.payloadJson,importId,row.createdAt,row.updatedAt,row.note,row.legacyDate,accountId);
+      ON CONFLICT(id) DO UPDATE SET platform=excluded.platform,name=excluded.name,link=excluded.link,normalized_link=excluded.normalized_link,workflow_status=excluded.workflow_status,is_private=excluded.is_private,joined_at=excluded.joined_at,processed_at=excluded.processed_at,snoozed_until=excluded.snoozed_until,archive_reason=excluded.archive_reason,archived_at=excluded.archived_at,legacy_payload_json=excluded.legacy_payload_json,source_import_id=excluded.source_import_id,updated_at=excluded.updated_at,note=excluded.note,legacy_date=excluded.legacy_date,telegram_account_id=CASE WHEN ?21=1 THEN excluded.telegram_account_id ELSE chats.telegram_account_id END
+      WHERE chats.user_id=excluded.user_id`).bind(row.id,userId,row.platform,row.name,row.link,row.normalizedLink,row.workflowStatus,row.isPrivate,row.joinedAt,row.processedAt,row.snoozedUntil,row.archiveReason,row.archivedAt,row.payloadJson,importId,row.createdAt,row.updatedAt,row.note,row.legacyDate,accountId,row.telegramAccountExplicit);
   }
   if (phase === 'profiles') {
     const row = value as LegacyMigrationDataset['profiles'][number];
@@ -173,7 +178,7 @@ function statementFor(phase: MigrationPhase, value: LegacyMigrationDataset[Migra
       ON CONFLICT(user_id,setting_key) DO UPDATE SET value_json=excluded.value_json,source_import_id=excluded.source_import_id,updated_at=excluded.updated_at`).bind(userId,row.key,row.valueJson,importId,row.updatedAt);
   }
   const row = value as LegacyMigrationDataset['events'][number];
-  const accountId=row.platform==='telegram'?`${userId}:tg1`:null;
+  const accountId=row.telegramAccountId||(row.platform==='telegram'?`${userId}:tg1`:null);
   return env.DB.prepare(`INSERT INTO activity_events (id,user_id,event_type,platform,chat_id,lead_id,lesson_id,occurred_at,event_date,metadata_json,source_key,source_import_id,telegram_account_id,cancelled_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
     ON CONFLICT(id) DO UPDATE SET event_type=excluded.event_type,platform=excluded.platform,chat_id=excluded.chat_id,lead_id=excluded.lead_id,lesson_id=excluded.lesson_id,occurred_at=excluded.occurred_at,event_date=excluded.event_date,metadata_json=excluded.metadata_json,source_import_id=excluded.source_import_id,cancelled_at=excluded.cancelled_at WHERE activity_events.user_id=excluded.user_id`).bind(row.id,userId,row.eventType,row.platform,row.chatId,row.leadId,row.lessonId,row.occurredAt,row.eventDate,row.metadataJson,row.sourceKey,importId,accountId,row.cancelledAt);
 }

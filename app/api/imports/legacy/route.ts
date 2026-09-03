@@ -178,7 +178,8 @@ async function describeStagedImport(staged: StagedImportRow, userId: string) {
 
 async function buildSyncPreview(raw: string, userId: string) {
   const dataset = buildLegacyMigrationDataset(raw, userId);
-  const [chats, publications, leads, lessons, reports] = await env.DB.batch([
+  const [accounts, chats, publications, leads, lessons, reports] = await env.DB.batch([
+    env.DB.prepare(`SELECT id FROM telegram_accounts WHERE user_id=?1`).bind(userId),
     env.DB.prepare(`SELECT id FROM chats WHERE user_id=?1`).bind(userId),
     env.DB.prepare(`SELECT id FROM chat_publications WHERE user_id=?1`).bind(userId),
     env.DB.prepare(`SELECT id FROM leads WHERE user_id=?1`).bind(userId),
@@ -186,6 +187,7 @@ async function buildSyncPreview(raw: string, userId: string) {
     env.DB.prepare(`SELECT id FROM daily_reports WHERE user_id=?1`).bind(userId),
   ]);
   const categories = {
+    accounts: compareIds(dataset.accounts, accounts.results),
     chats: compareIds(dataset.chats, chats.results),
     publications: compareIds(dataset.publications, publications.results),
     leads: compareIds(dataset.leads, leads.results),

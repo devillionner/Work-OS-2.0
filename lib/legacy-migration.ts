@@ -10,16 +10,22 @@ const PLATFORM_KEYS = {
 const DOMAIN_KEYS = new Set([
   ...Object.values(PLATFORM_KEYS),
   'deleted-groups-archive-v1',
+  'telegram-multi-account-v1',
   'shared-leads-v1',
   'daily-report-history-v1',
 ]);
 
+export type MigrationTelegramAccount = {
+  id: string; number: number; name: string; selected: number;
+  createdAt: number; updatedAt: number;
+};
 export type MigrationChat = {
   id: string; platform: string; name: string; link: string; normalizedLink: string;
   workflowStatus: string; isPrivate: number; joinedAt: number | null;
   processedAt: number | null; snoozedUntil: number | null; archiveReason: string | null;
   archivedAt: number | null; note: string; legacyDate: string | null;
   payloadJson: string; createdAt: number; updatedAt: number;
+  telegramAccountId: string | null; telegramAccountExplicit: number;
 };
 export type MigrationProfile = {
   chatId: string; language: string | null; cadence: string; weekdaysJson: string;
@@ -63,10 +69,11 @@ export type MigrationEvent = {
   id: string; eventType: string; platform: string | null; chatId: string | null;
   leadId: string | null; lessonId: string | null; occurredAt: number; eventDate: string;
   metadataJson: string; sourceKey: string;
-  cancelledAt: number | null;
+  cancelledAt: number | null; telegramAccountId: string | null;
 };
 
 export type LegacyMigrationDataset = {
+  accounts: MigrationTelegramAccount[];
   chats: MigrationChat[];
   profiles: MigrationProfile[];
   publications: MigrationPublication[];
@@ -80,7 +87,7 @@ export type LegacyMigrationDataset = {
 };
 
 export const MIGRATION_PHASES = [
-  'chats', 'profiles', 'publications', 'leads', 'students', 'lessons', 'curatorRequests', 'reports', 'settings', 'events',
+  'accounts', 'chats', 'profiles', 'publications', 'leads', 'students', 'lessons', 'curatorRequests', 'reports', 'settings', 'events',
 ] as const;
 export type MigrationPhase = (typeof MIGRATION_PHASES)[number];
 
@@ -88,6 +95,35 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
   const backup = JSON.parse(raw) as { storage?: Record<string, string> };
   const storage = backup.storage || {};
   const now = Math.floor(Date.now() / 1000);
+  const archive = parseRecord(storage['deleted-groups-archive-v1']);
+  const accountState = parseRecord(storage['telegram-multi-account-v1']);
+  const accountSeeds = new Map<string, { number: number; name: string }>();
+  for (const item of array(accountState.accounts).filter(isRecord)) addAccountSeed(item);
+  for (const item of array(archive.telegram).filter(isRecord)) {
+    const group = isRecord(item.groupData) ? { ...item.groupData, ...item } : item;
+    addAccountSeed({
+      id: group.telegramAccountId,
+      number: group.telegramAccountNumber,
+      name: group.telegramAccountName,
+    });
+  }
+  if (!accountSeeds.size) addAccountSeed({ id: 'tg1', number: 1, name: 'TG 1' });
+  const selectedLegacyId = text(accountState.selected);
+  const accounts: MigrationTelegramAccount[] = [...accountSeeds.entries()]
+    .sort(([, left], [, right]) => left.number - right.number)
+    .map(([legacyId, account], index) => ({
+      id: `${userId}:tg${account.number}`,
+      number: account.number,
+      name: account.name,
+      selected: selectedLegacyId ? Number(legacyId === selectedLegacyId) : Number(index === 0),
+      createdAt: now,
+      updatedAt: now,
+    }));
+  const accountIdByLegacyId = new Map(
+    [...accountSeeds.entries()].map(([legacyId, account]) => [legacyId, `${userId}:tg${account.number}`]),
+  );
+  const assignments = isRecord(accountState.assignments) ? accountState.assignments : {};
+  const candidateAssignments = isRecord(accountState.candidateAssignments) ? accountState.candidateAssignments : {};
   const chats: MigrationChat[] = [];
   const profiles: MigrationProfile[] = [];
   const publications: MigrationPublication[] = [];
@@ -97,7 +133,6 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
     const groups = parseArray(storage[key]);
     groups.forEach((group, index) => addChat(group, platform, `active:${platform}:${index}`, false));
   }
-  const archive = parseRecord(storage['deleted-groups-archive-v1']);
   for (const [platform, entries] of Object.entries(archive)) {
     if (!Array.isArray(entries)) continue;
     entries.filter(isRecord).forEach((entry, index) => {
@@ -118,6 +153,12 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
     const publicationDates = array(group.publicationDates);
     const createdAt = seconds(group.processedAt) || seconds(group.joinedAt) || seconds(group.archivedAt) || now;
     const updatedAt = Math.max(createdAt, seconds(group.lastPublicationAt) || 0, seconds(group.archivedAt) || 0);
+    const groupKey = link ? normalizeLink(link) : `n:${Math.floor(Number(group.n) || 0)}`;
+    const assignedLegacyId = platform === 'telegram'
+      ? text(group.telegramAccountId)
+        || text(group.status === '✅' || group.status === '⏳' ? assignments[groupKey] : candidateAssignments[groupKey])
+      : '';
+    const telegramAccountId = accountIdByLegacyId.get(assignedLegacyId) || null;
     chats.push({
       id, platform, name: text(group.name) || `Чат без назви`, link, normalizedLink,
       workflowStatus: archived ? 'archived' : workflowStatus(group.status),
@@ -128,6 +169,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       archivedAt: archived ? seconds(group.archivedAt) : null,
       note: text(group.note), legacyDate: text(group.date) || text(group.archivedDate) || null,
       payloadJson: JSON.stringify(group), createdAt, updatedAt: updatedAt || now,
+      telegramAccountId, telegramAccountExplicit: telegramAccountId ? 1 : 0,
     });
     if (link) chatIdByLink.set(normalizeLink(link), id);
     if (profile) {
@@ -245,6 +287,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
     .map(([key, value]) => ({ key, valueJson: JSON.stringify({ legacyStorageValue: value }), updatedAt: now }));
 
   const chatPlatform = new Map(chats.map((chat) => [chat.id, chat.platform]));
+  const chatAccount = new Map(chats.map((chat) => [chat.id, chat.telegramAccountId]));
   const events: MigrationEvent[] = [];
   for (const publication of publications) {
     events.push({
@@ -252,7 +295,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       platform: chatPlatform.get(publication.chatId) || null, chatId: publication.chatId,
       leadId: null, lessonId: null, occurredAt: publication.publishedAt || epochForDate(publication.publishedOn) || now,
       eventDate: publication.publishedOn, metadataJson: '{}', sourceKey: publication.sourceKey,
-      cancelledAt: null,
+      cancelledAt: null, telegramAccountId: chatAccount.get(publication.chatId) || null,
     });
   }
   for (const lead of leads) {
@@ -261,7 +304,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       id: stableId('event', sourceKey), eventType: 'lead_created', platform: lead.platform,
       chatId: lead.sourceChatId, leadId: lead.id, lessonId: null, occurredAt: lead.createdAt,
       eventDate: lead.responseDate, metadataJson: JSON.stringify({ responseDate: lead.responseDate }), sourceKey,
-      cancelledAt: lead.responseCancelledAt,
+      cancelledAt: lead.responseCancelledAt, telegramAccountId: null,
     });
   }
   for (const lesson of lessons) {
@@ -271,7 +314,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       chatId: null, leadId: lesson.leadId, lessonId: lesson.id, occurredAt: lesson.createdAt,
       eventDate: lesson.bookingDate,
       metadataJson: JSON.stringify({ bookingDate: lesson.bookingDate, lessonDate: lesson.lessonDate }), sourceKey,
-      cancelledAt: null,
+      cancelledAt: null, telegramAccountId: null,
     });
   }
 
@@ -285,11 +328,19 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       leadId: request.leadId, lessonId: null, occurredAt: request.submittedAt,
       eventDate: request.submittedDate,
       metadataJson: JSON.stringify({ curatorRequestId: request.id, status: request.status }), sourceKey,
-      cancelledAt: null,
+      cancelledAt: null, telegramAccountId: null,
     });
   }
 
-  return { chats, profiles, publications, leads, students, lessons, curatorRequests, reports, settings, events };
+  return { accounts, chats, profiles, publications, leads, students, lessons, curatorRequests, reports, settings, events };
+
+  function addAccountSeed(value: JsonRecord) {
+    const rawId = text(value.id);
+    const idMatch = /^tg(\d+)$/i.exec(rawId);
+    const number = Math.max(1, Math.floor(Number(value.number) || Number(idMatch?.[1]) || 0));
+    if (!rawId || !number) return;
+    accountSeeds.set(rawId, { number, name: text(value.name) || `TG ${number}` });
+  }
 }
 
 export function migrationTotals(dataset: LegacyMigrationDataset): Record<MigrationPhase, number> {
