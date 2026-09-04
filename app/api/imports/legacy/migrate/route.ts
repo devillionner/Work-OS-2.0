@@ -62,7 +62,7 @@ async function startMigration(userId: string, requestedImportId: string): Promis
     env.DB.prepare(`INSERT INTO telegram_accounts (id,user_id,account_number,name,is_enabled,is_selected,created_at,updated_at) SELECT ?1,?2,1,'TG 1',1,1,?3,?3 WHERE NOT EXISTS (SELECT 1 FROM telegram_accounts WHERE user_id=?2)`).bind(`${userId}:tg1`,userId,now),
     env.DB.prepare(
     `INSERT INTO migration_jobs (id, user_id, import_id, status, phase, cursor, totals_json, processed_json, created_at, updated_at)
-     VALUES (?1, ?2, ?3, 'running', 'chats', 0, ?4, '{}', ?5, ?5)`,
+     VALUES (?1, ?2, ?3, 'running', 'accounts', 0, ?4, '{}', ?5, ?5)`,
   ).bind(jobId, userId, imported.id, JSON.stringify(totals), now)];
   for (const phase of MIGRATION_PHASES) {
     const records = dataset[phase];
