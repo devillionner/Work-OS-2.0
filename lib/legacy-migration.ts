@@ -10,7 +10,6 @@ const PLATFORM_KEYS = {
 const DOMAIN_KEYS = new Set([
   ...Object.values(PLATFORM_KEYS),
   'deleted-groups-archive-v1',
-  'telegram-multi-account-v1',
   'shared-leads-v1',
   'daily-report-history-v1',
 ]);
@@ -291,7 +290,18 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
 
   const chatPlatform = new Map(chats.map((chat) => [chat.id, chat.platform]));
   const chatAccount = new Map(chats.map((chat) => [chat.id, chat.telegramAccountId]));
+  const leadById = new Map(leads.map((lead) => [lead.id, lead]));
   const events: MigrationEvent[] = [];
+  for (const chat of chats) {
+    if (!chat.joinedAt) continue;
+    const sourceKey = `legacy:chat-joined:${chat.id}`;
+    events.push({
+      id: stableId('event', sourceKey), eventType: 'chat_joined', platform: chat.platform,
+      chatId: chat.id, leadId: null, lessonId: null, occurredAt: chat.joinedAt,
+      eventDate: dateForEpoch(chat.joinedAt), metadataJson: '{}', sourceKey,
+      cancelledAt: null, telegramAccountId: chat.telegramAccountId,
+    });
+  }
   for (const publication of publications) {
     events.push({
       id: stableId('event', publication.sourceKey), eventType: 'publication',
@@ -303,27 +313,30 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
   }
   for (const lead of leads) {
     const sourceKey = `legacy:lead:${lead.legacyId}`;
+    const telegramAccountId = lead.sourceChatId ? chatAccount.get(lead.sourceChatId) || null : null;
     events.push({
       id: stableId('event', sourceKey), eventType: 'lead_created', platform: lead.platform,
       chatId: lead.sourceChatId, leadId: lead.id, lessonId: null, occurredAt: lead.createdAt,
       eventDate: lead.responseDate, metadataJson: JSON.stringify({ responseDate: lead.responseDate }), sourceKey,
-      cancelledAt: lead.responseCancelledAt, telegramAccountId: null,
+      cancelledAt: lead.responseCancelledAt, telegramAccountId,
     });
   }
   for (const lesson of lessons) {
+    const lead = leadById.get(lesson.leadId);
+    const telegramAccountId = lead?.sourceChatId ? chatAccount.get(lead.sourceChatId) || null : null;
     const sourceKey = `legacy:lesson:${lesson.legacyId}`;
     events.push({
-      id: stableId('event', sourceKey), eventType: 'lesson_booked', platform: null,
-      chatId: null, leadId: lesson.leadId, lessonId: lesson.id, occurredAt: lesson.createdAt,
+      id: stableId('event', sourceKey), eventType: 'lesson_booked', platform: lead?.platform || null,
+      chatId: lead?.sourceChatId || null, leadId: lesson.leadId, lessonId: lesson.id, occurredAt: lesson.createdAt,
       eventDate: lesson.bookingDate,
       metadataJson: JSON.stringify({ bookingDate: lesson.bookingDate, lessonDate: lesson.lessonDate }), sourceKey,
-      cancelledAt: null, telegramAccountId: null,
+      cancelledAt: null, telegramAccountId,
     });
   }
 
-  const leadById = new Map(leads.map((lead) => [lead.id, lead]));
   for (const request of curatorRequests.filter((item) => item.status === 'pending')) {
     const lead = leadById.get(request.leadId);
+    const telegramAccountId = lead?.sourceChatId ? chatAccount.get(lead.sourceChatId) || null : null;
     const sourceKey = `legacy:curator-request:${request.legacyId}`;
     events.push({
       id: stableId('event', sourceKey), eventType: 'curator_booking_pending',
@@ -331,7 +344,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       leadId: request.leadId, lessonId: null, occurredAt: request.submittedAt,
       eventDate: request.submittedDate,
       metadataJson: JSON.stringify({ curatorRequestId: request.id, status: request.status }), sourceKey,
-      cancelledAt: null, telegramAccountId: null,
+      cancelledAt: null, telegramAccountId,
     });
   }
 
