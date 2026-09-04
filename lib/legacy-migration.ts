@@ -155,9 +155,11 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
     const createdAt = seconds(group.processedAt) || seconds(group.joinedAt) || seconds(group.archivedAt) || now;
     const updatedAt = Math.max(createdAt, seconds(group.lastPublicationAt) || 0, seconds(group.archivedAt) || 0);
     const groupKey = link ? normalizeLink(link) : `n:${Math.floor(Number(group.n) || 0)}`;
+    const assignmentMap = group.status === '✅' || group.status === '⏳' ? assignments : candidateAssignments;
     const assignedLegacyId = platform === 'telegram'
       ? text(group.telegramAccountId)
-        || text(group.status === '✅' || group.status === '⏳' ? assignments[groupKey] : candidateAssignments[groupKey])
+        || text(assignmentMap[groupKey])
+        || text(assignmentMap[groupKey.toLowerCase()])
       : '';
     const telegramAccountId = accountIdByLegacyId.get(assignedLegacyId) || null;
     chats.push({
