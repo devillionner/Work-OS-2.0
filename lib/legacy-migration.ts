@@ -334,17 +334,18 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
     });
   }
 
-  for (const request of curatorRequests.filter((item) => item.status === 'pending')) {
+  for (const request of curatorRequests) {
     const lead = leadById.get(request.leadId);
     const telegramAccountId = lead?.sourceChatId ? chatAccount.get(lead.sourceChatId) || null : null;
     const sourceKey = `legacy:curator-request:${request.legacyId}`;
+    const cancelledAt = request.status === 'pending' ? null : request.resolvedAt ?? request.updatedAt;
     events.push({
       id: stableId('event', sourceKey), eventType: 'curator_booking_pending',
       platform: lead?.platform || null, chatId: lead?.sourceChatId || null,
       leadId: request.leadId, lessonId: null, occurredAt: request.submittedAt,
       eventDate: request.submittedDate,
       metadataJson: JSON.stringify({ curatorRequestId: request.id, status: request.status }), sourceKey,
-      cancelledAt: null, telegramAccountId,
+      cancelledAt, telegramAccountId,
     });
   }
 
