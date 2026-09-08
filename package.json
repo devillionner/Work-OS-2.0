@@ -10,7 +10,8 @@
     "build": "vinext build",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "deploy": "npm run build && wrangler deploy --config dist/server/wrangler.json",
-    "lint": "oxlint app components/work-os-shell.tsx db lib",
+    "lint": "oxlint app components/work-os-shell.tsx db lib tests",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate"
   },

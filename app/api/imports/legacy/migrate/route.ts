@@ -189,7 +189,7 @@ function statementFor(phase: MigrationPhase, value: LegacyMigrationDataset[Migra
   const row = value as LegacyMigrationDataset['events'][number];
   const accountId=row.telegramAccountId;
   return env.DB.prepare(`INSERT INTO activity_events (id,user_id,event_type,platform,chat_id,lead_id,lesson_id,occurred_at,event_date,metadata_json,source_key,source_import_id,telegram_account_id,cancelled_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
-    ON CONFLICT(id) DO UPDATE SET event_type=excluded.event_type,platform=excluded.platform,chat_id=excluded.chat_id,lead_id=excluded.lead_id,lesson_id=excluded.lesson_id,event_date=excluded.event_date,metadata_json=excluded.metadata_json,source_import_id=excluded.source_import_id,telegram_account_id=excluded.telegram_account_id,cancelled_at=excluded.cancelled_at WHERE activity_events.user_id=excluded.user_id`).bind(row.id,userId,row.eventType,row.platform,row.chatId,row.leadId,row.lessonId,row.occurredAt,row.eventDate,row.metadataJson,row.sourceKey,importId,accountId,row.cancelledAt);
+    ON CONFLICT(user_id,source_key) DO UPDATE SET event_type=excluded.event_type,platform=excluded.platform,chat_id=excluded.chat_id,lead_id=excluded.lead_id,lesson_id=excluded.lesson_id,event_date=excluded.event_date,metadata_json=excluded.metadata_json,source_import_id=excluded.source_import_id,telegram_account_id=excluded.telegram_account_id,cancelled_at=excluded.cancelled_at`).bind(row.id,userId,row.eventType,row.platform,row.chatId,row.leadId,row.lessonId,row.occurredAt,row.eventDate,row.metadataJson,row.sourceKey,importId,accountId,row.cancelledAt);
 }
 
 async function readImportRaw(importId: string): Promise<string> {
