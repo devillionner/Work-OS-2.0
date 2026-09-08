@@ -10,7 +10,7 @@
     "build": "vinext build",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "deploy": "npm run build && wrangler deploy --config dist/server/wrangler.json",
-    "lint": "oxlint app components/work-os-shell.tsx db lib tests",
+    "lint": "oxlint app components/work-os-shell.tsx components/leads db lib tests",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate"
@@ -48,6 +48,7 @@
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
     "drizzle-kit": "0.31.10",
+    "miniflare": "4.20260515.0",
     "oxfmt": "0.61.0",
     "oxlint": "1.76.0",
     "oxlint-tsgolint": "7.0.2001",

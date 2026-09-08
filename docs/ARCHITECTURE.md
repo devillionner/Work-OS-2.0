@@ -44,3 +44,64 @@ Telegram-акаунт має постійний внутрішній ID та о�
 з дозволеним Gmail і видає захищену сесію. Секрети не зберігаються в
 репозиторії. Старий застосунок залишається недоторканим до завершення тестової
 міграції.
+
+
+### Leads domain (2026-09-08)
+
+- `lib/leads/domain`: validation, contact normalization, Kyiv business time,
+  reminder state and derived waiting/overdue calculations. No React or D1 runtime.
+- `lib/leads/application`: commands, event generation, query projections and text
+  export. The authenticated user ID is supplied by the HTTP boundary, never payload.
+- `lib/leads/data`: Drizzle queries over the **existing** `leads`, `students`,
+  `lessons`, `activity_events` tables and new reminder/message/command tables.
+- `components/leads`: list, summary, separate forms, follow-up/funnel, students,
+  lesson manager, reminder slots and internal CRM conversation. React holds fetched
+  views and unsaved forms only; no local database, counters or messenger integration.
+- `app/api/leads`: session authentication, same-origin JSON mutations, bounded body,
+  server validation and no-store responses. `GET ?overdue=true&offset=0` is the
+  paginated follow-up contract for a future Today module (50 records per page).
+
+Every command requires an idempotency key and aggregate version. A D1 batch writes
+its receipt, aggregate changes and events atomically. A database trigger rejects a
+stale version before any command can commit; concurrent bookings cannot overwrite
+one another. A retry with the same key and payload returns the original lead ID.
+The API returns 409 on stale versions, duplicate contact conflicts and reused keys.
+Duplicates are matched across active AND archived leads. Creating another contact
+with the same phone/username requires explicit `possible` or `confirmed` duplicate
+state. Existing imported duplicates are neither deleted nor merged automatically.
+
+A lead owns many students and lessons. A booking adds a lesson to that lead.
+Rescheduling closes the old lesson as `rescheduled`, creates a replacement with
+`rescheduled_from_id`, retains the original booking business date and emits only
+`lesson_rescheduled`. It does not inflate booking conversion metrics. The two
+reminder slots retain enabled/offset settings; the replacement gets fresh sent/
+skipped markers. Missing lesson details produce `needs-data` and no complete text.
+Sending is manual; no message is sent to any external service by a CRM command.
+
+`activity_events` remains the only conversion metric source. Archive/restore never
+cancels response/booking events. Explicit corrections to response or booking dates
+adjust the one canonical metric event's `event_date`, with an additional audit event
+retaining old/new dates. First-reply time is recorded explicitly and independently
+from internal conversation messages. Unknown imported response times remain null;
+waiting duration is not fabricated from technical import timestamps.
+
+The old lead-level booking/meeting fields remain for compatibility with backups;
+new lesson workflows read/write `lessons`, not those legacy summary fields. Imported
+`scheduled` statuses and dotted lesson dates are adapted on reads, without rewriting
+historical rows. SQL migrations in `migrations/` are authoritative. Drizzle currently
+maps the Leads domain; do not use `drizzle-kit push` or apply a generated initial
+schema against the existing D1 database. Other domain tables retain their existing
+SQL access; their rewrite is outside this module.
+
+Editing any part of a lead sets `managed_at`. Repeat Prototype imports use an atomic
+SQL guard: a chunk touching a managed aggregate stops with an explicit conflict,
+rather than overwriting cloud work. Untouched aggregates can still synchronize.
+Conflict reconciliation requires a separate reviewed comparison; no silent merging
+is performed. Cloud backup schema 4 includes `lesson_reminders`, `lead_messages`
+and `lead_commands` alongside the existing domain tables.
+
+When a lead has a pending imported curator request, the booking form explicitly
+selects the request to confirm. The same batch links the lesson, confirms that
+request and cancels its provisional event, preserving history without counting
+both pending and actual bookings. Import guards increment the aggregate version
+for untouched leads too, so a concurrent cloud edit cannot overwrite a newer sync.

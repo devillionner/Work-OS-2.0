@@ -100,7 +100,13 @@ async function processMigration(userId: string): Promise<Response> {
     const records = stagedChunk ? JSON.parse(stagedChunk.payload_json) as LegacyMigrationDataset[MigrationPhase] : [];
     const chunkOffset = job.cursor % RECORDS_PER_STAGED_CHUNK;
     const chunk = records.slice(chunkOffset, chunkOffset + RECORDS_PER_STEP);
-    const statements = chunk.map((record) => statementFor(phase, record, userId, imported.id));
+    const statements: D1PreparedStatement[] = [];
+    for (const record of chunk) {
+      const row = record as { id: string; leadId?: string | null };
+      const leadId = phase === 'leads' ? row.id : ['students','lessons','curatorRequests','events'].includes(phase) ? row.leadId : null;
+      if (leadId) statements.push(env.DB.prepare(`INSERT INTO lead_import_guards (lead_id,user_id) VALUES (?1,?2)`).bind(leadId,userId));
+      statements.push(statementFor(phase, record, userId, imported.id));
+    }
     const processed = safeCountRecord(job.processed_json);
     processed[phase] = Math.min(phaseTotal, job.cursor + chunk.length);
     const reachedEnd = job.cursor + chunk.length >= phaseTotal;
@@ -211,3 +217,4 @@ function safeCountRecord(value: string): Record<string, number> {
   catch { return {}; }
 }
 function sameOrigin(request: Request): boolean { const origin = request.headers.get('origin'); return Boolean(origin && origin === new URL(request.url).origin); }
+

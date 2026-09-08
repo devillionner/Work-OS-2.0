@@ -2,11 +2,11 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 
 const PAGE_SIZE = 200;
-const TABLES = ['telegram_accounts', 'work_timers', 'chats', 'chat_profiles', 'chat_publications', 'leads', 'students', 'lessons', 'curator_requests', 'daily_reports', 'user_settings', 'activity_events'] as const;
+const TABLES = ['telegram_accounts', 'work_timers', 'chats', 'chat_profiles', 'chat_publications', 'leads', 'students', 'lessons', 'curator_requests', 'lesson_reminders', 'lead_messages', 'lead_commands', 'daily_reports', 'user_settings', 'activity_events'] as const;
 type BackupTable = (typeof TABLES)[number];
 
 const CURSOR_COLUMN: Record<BackupTable, string> = {
-  chats: 'id', chat_profiles: 'chat_id', chat_publications: 'id', leads: 'id', students: 'id',
+  lesson_reminders: 'id', lead_messages: 'id', lead_commands: 'id', chats: 'id', chat_profiles: 'chat_id', chat_publications: 'id', leads: 'id', students: 'id',
   telegram_accounts: 'account_number', work_timers: 'id', lessons: 'id', curator_requests: 'id', daily_reports: 'id', user_settings: 'setting_key', activity_events: 'id',
 };
 
@@ -53,7 +53,7 @@ async function manifest(userId: string, email: string): Promise<Response> {
   const counts = Object.fromEntries(TABLES.map((table, index) => [table, Number(results[index].results[0]?.count || 0)]));
   const last = await env.DB.prepare(`SELECT sha256,byte_size,record_counts_json,created_at FROM backup_exports WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 1`).bind(userId).first();
   return Response.json({
-    app: 'work-os-cloud-backup', schemaVersion: 3, ownerEmail: email,
+    app: 'work-os-cloud-backup', schemaVersion: 4, ownerEmail: email,
     createdAt: new Date().toISOString(), tables: TABLES, counts, lastBackup: last || null,
   }, { headers: { 'Cache-Control': 'no-store' } });
 }
@@ -68,3 +68,4 @@ function countQuery(table: BackupTable): string {
   return `SELECT COUNT(*) AS count FROM ${table} WHERE user_id=?1`;
 }
 function sameOrigin(request: Request): boolean { const origin = request.headers.get('origin'); return Boolean(origin && origin === new URL(request.url).origin); }
+

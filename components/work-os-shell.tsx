@@ -13,6 +13,7 @@ import { Progress, ProgressLabel, ProgressValue } from '@/components/ui/progress
 import { LegacyImportDialog } from '@/components/legacy-import-dialog';
 import { CloudBackupButton } from '@/components/cloud-backup-button';
 import { PlatformWorkspace } from '@/components/platform-workspace';
+import { LeadsWorkspace } from '@/components/leads/workspace';
 import { GlobalTimers } from '@/components/global-timers';
 import type { DashboardSnapshot } from '@/lib/dashboard';
 
@@ -125,7 +126,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
             <div><p className="eyebrow">Доступ</p><h2 id="status-title">Хмарний профіль активний</h2><p>Цей екран доступний із будь-якого пристрою після входу.</p></div>
             <CloudBackupButton />
           </section>
-        </div> : activeView === 'platforms' ? <PlatformWorkspace /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
+        </div> : activeView === 'platforms' ? <PlatformWorkspace /> : activeView === 'leads' ? <LeadsWorkspace /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
 
         <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
           {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => <button type="button" aria-current={activeView === key ? 'page' : undefined} key={key} onClick={() => setActiveView(key)}><Icon /><span>{label}</span></button>)}
@@ -155,3 +156,4 @@ function todayLabel() {
 function formatSyncTime(value:number) {
   return new Intl.DateTimeFormat('uk-UA',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Kyiv'}).format(new Date(value*1000));
 }
+
