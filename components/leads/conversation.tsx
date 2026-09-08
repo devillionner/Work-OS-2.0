@@ -105,7 +105,7 @@ export function Conversation({
                 {
                   sender: textValue(f, 'sender'),
                   body: textValue(f, 'body'),
-                  sentAt: epochValue(f, 'sentAt'),
+                  sentAt: epochValue(f, 'sentAt', current?.sentAt),
                 },
                 current?.id,
               );

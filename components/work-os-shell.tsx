@@ -126,7 +126,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
             <div><p className="eyebrow">Доступ</p><h2 id="status-title">Хмарний профіль активний</h2><p>Цей екран доступний із будь-якого пристрою після входу.</p></div>
             <CloudBackupButton />
           </section>
-        </div> : activeView === 'platforms' ? <PlatformWorkspace /> : activeView === 'leads' ? <LeadsWorkspace /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
+        </div> : activeView === 'platforms' ? <PlatformWorkspace /> : activeView === 'leads' ? <LeadsWorkspace key={user.email} account={user.email} /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
 
         <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
           {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => <button type="button" aria-current={activeView === key ? 'page' : undefined} key={key} onClick={() => setActiveView(key)}><Icon /><span>{label}</span></button>)}

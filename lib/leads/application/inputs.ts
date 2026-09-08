@@ -74,7 +74,9 @@ export function leadFields(
     ),
     note: v.string(merged.note, 'Нотатка', 20000),
     responseDate:
-      merged.responseDate === null && current
+      merged.responseDate === null &&
+      current?.responseDate === null &&
+      !('responseDate' in input)
         ? null
         : v.date(merged.responseDate, 'Дата відгуку'),
     responseAt: v.nullableEpoch(merged.responseAt, 'Час відгуку'),
@@ -187,7 +189,10 @@ export function lessonFields(
         ? null
         : v.string(m.lessonPlatform, 'Платформа зустрічі', 100),
     meetingLink: v.url(m.meetingLink, 'Meeting URL'),
-    bookingDate: v.date(m.bookingDate, 'Дата запису'),
+    bookingDate:
+      current?.bookingDate === null && !('bookingDate' in input)
+        ? null
+        : v.date(m.bookingDate, 'Дата запису'),
   };
   if (
     result.lessonTime &&

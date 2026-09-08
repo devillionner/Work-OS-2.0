@@ -30,7 +30,16 @@ export type Changes = {
   reminders: Reminder[];
   messages: Message[];
   events: Event[];
-  resolvedCuratorRequest?: { id: string; lessonId: string };
+  eventDateCorrections?: Array<{
+    type: 'lead_created' | 'lesson_booked';
+    date: string;
+    lessonId?: string;
+  }>;
+  resolvedCuratorRequest?: {
+    id: string;
+    lessonId: string | null;
+    status: 'confirmed' | 'cancelled';
+  };
 };
 export type Receipt = {
   id: string;
@@ -45,6 +54,7 @@ export interface LeadRepository {
   receipt(userId: string, id: string): Promise<Receipt | null>;
   contacts(
     userId: string,
+    contact: { phone: string; telegram: string },
   ): Promise<
     Array<
       Pick<Lead, 'id' | 'name' | 'phone' | 'telegramUsername' | 'archivedAt'>

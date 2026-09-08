@@ -33,9 +33,17 @@ export function lessonEpoch(day: string, time: string): number | null {
   const utc = Date.parse(`${local}:00Z`) / 1000;
   if (!Number.isFinite(utc) || !/^\d{2}:\d{2}$/.test(time)) return null;
   // Reject nonexistent/ambiguous DST wall times instead of silently moving a lesson.
-  const candidates = [utc - 7200, utc - 10800].filter(
-    (epoch) => localParts(epoch) === local,
+  // Derive offsets from the runtime timezone database, including both sides
+  // of a transition. Do not hardcode Ukraine's current UTC offsets.
+  const offsets = new Set(
+    [-36, -24, -12, 0, 12, 24, 36].map((hours) => {
+      const sample = utc + hours * 3600;
+      return Date.parse(`${localParts(sample)}:00Z`) / 1000 - sample;
+    }),
   );
+  const candidates = [...offsets]
+    .map((offset) => utc - offset)
+    .filter((epoch) => localParts(epoch) === local);
   return candidates.length === 1 ? candidates[0] : null;
 }
 export function overdue(

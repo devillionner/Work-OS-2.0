@@ -7,7 +7,7 @@ import type { LeadDetail } from '@/lib/leads/application/queries';
 import { safeUrl } from '@/lib/leads/domain/validation';
 import {
   getJson,
-  postCommand,
+  createBrowserCommandClient,
   labels,
   type LeadList,
   type Mutation,
@@ -19,7 +19,8 @@ import { FollowUp } from './follow-up';
 import { Lessons } from './lessons';
 import { Conversation } from './conversation';
 
-export function LeadsWorkspace() {
+export function LeadsWorkspace({ account }: { account: string }) {
+  const [postCommand] = useState(() => createBrowserCommandClient(account));
   const [filter, setFilter] = useState('active');
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
@@ -34,6 +35,8 @@ export function LeadsWorkspace() {
   const [archive, setArchive] = useState(false);
   const [notice, setNotice] = useState('');
   const busy = useRef(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const focusSelection = useRef<string | null>(null);
   const reload = useCallback(() => setRefresh((v) => v + 1), []);
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -47,6 +50,7 @@ export function LeadsWorkspace() {
     const url = `/api/leads?archived=${filter === 'archived'}&overdue=${filter === 'overdue'}&search=${encodeURIComponent(query)}&offset=${offset}`;
     void getJson<LeadList>(url, controller.signal)
       .then((data) => {
+        if (controller.signal.aborted) return;
         setList(data);
         setListError('');
       })
@@ -63,7 +67,13 @@ export function LeadsWorkspace() {
       controller.signal,
     )
       .then((data) => {
-        setDetail(data);
+        if (controller.signal.aborted) return;
+        setDetail((current) =>
+          current?.lead.id === data.lead.id &&
+          current.lead.version > data.lead.version
+            ? current
+            : data,
+        );
         setDetailError('');
       })
       .catch((error) => {
@@ -85,12 +95,22 @@ export function LeadsWorkspace() {
       );
       setSelected(id);
       setNotice('Збережено.');
+      setDetail(null);
       reload();
+    } catch (error) {
+      reload();
+      throw error;
     } finally {
       busy.current = false;
     }
   };
   const current = detail?.lead.id === selected ? detail : null;
+  useEffect(() => {
+    if (current && focusSelection.current === current.lead.id) {
+      heading.current?.focus();
+      focusSelection.current = null;
+    }
+  }, [current]);
   return (
     <div className="leads-workspace">
       <div className="leads-toolbar">
@@ -151,6 +171,7 @@ export function LeadsWorkspace() {
                         className="lead-list-item"
                         aria-current={selected === lead.id ? 'true' : undefined}
                         onClick={() => {
+                          focusSelection.current = lead.id;
                           setSelected(lead.id);
                           setDetailError('');
                           setNotice('');
@@ -227,7 +248,9 @@ export function LeadsWorkspace() {
                     <p className="eyebrow">
                       {labels[current.lead.platform] ?? current.lead.platform}
                     </p>
-                    <h2>{current.lead.name}</h2>
+                    <h2 ref={heading} tabIndex={-1}>
+                      {current.lead.name}
+                    </h2>
                   </div>
                   <Badge variant="outline">
                     {current.lead.archivedAt !== null

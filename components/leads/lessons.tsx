@@ -20,6 +20,7 @@ export function Lessons({
     id?: string;
   } | null>(null);
   const [statusId, setStatusId] = useState<string | null>(null);
+  const [cancelRequest, setCancelRequest] = useState<string | null>(null);
   const archived = detail.lead.archivedAt !== null;
   return (
     <section className="lead-panel" aria-labelledby="lessons-title">
@@ -36,6 +37,51 @@ export function Lessons({
           Записати на урок
         </Button>
       </div>
+      {detail.curatorRequests.length > 0 && (
+        <div className="lead-follow-up">
+          <h4>Очікують відповіді куратора</h4>
+          <ul className="lead-simple-list">
+            {detail.curatorRequests.map((request) => (
+              <li key={request.id}>
+                <span>Запит від {request.submittedDate}</span>
+                <Button
+                  variant="ghost"
+                  disabled={archived}
+                  onClick={() => setCancelRequest(request.id)}
+                >
+                  Скасувати запит
+                </Button>
+              </li>
+            ))}
+          </ul>
+          <p>
+            Підтвердіть запит під час запису на урок або скасуйте його з
+            причиною.
+          </p>
+        </div>
+      )}
+      {cancelRequest && (
+        <EditDialog
+          title="Скасувати запит куратору"
+          description="Запит залишиться в історії, його попередній booking-показник буде скасовано."
+          close={() => setCancelRequest(null)}
+        >
+          <SaveForm
+            label="Підтвердити скасування"
+            cancel={() => setCancelRequest(null)}
+            save={async (form) => {
+              await mutate(
+                'curator_cancel',
+                { reason: textValue(form, 'reason') },
+                cancelRequest,
+              );
+              setCancelRequest(null);
+            }}
+          >
+            <Field label="Причина скасування *" name="reason" required />
+          </SaveForm>
+        </EditDialog>
+      )}
       {!detail.lessons.length && (
         <p className="lead-empty">Уроків поки немає.</p>
       )}
@@ -71,13 +117,9 @@ export function Lessons({
                 перенесення
               </p>
             )}
-            {detail.lessons.some((next) => next.rescheduledFromId === l.id) && (
+            {l.replacementId && (
               <p>
-                <a
-                  href={`#lesson-${detail.lessons.find((next) => next.rescheduledFromId === l.id)!.id}`}
-                >
-                  Перейти до нової дати
-                </a>
+                <a href={`#lesson-${l.replacementId}`}>Перейти до нової дати</a>
               </p>
             )}
             {l.status === 'booked' && (

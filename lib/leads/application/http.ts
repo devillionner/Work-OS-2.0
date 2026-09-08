@@ -20,7 +20,10 @@ export function errorResponse(error: unknown): Response {
 export async function commandBody(request: Request): Promise<unknown> {
   if (request.headers.get('origin') !== new URL(request.url).origin)
     throw new LeadError('Недійсне джерело запиту.', 403);
-  if (!request.headers.get('content-type')?.startsWith('application/json'))
+  if (
+    request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !==
+    'application/json'
+  )
     throw new LeadError('Потрібен JSON.', 415);
   // Bound streaming body allocation, including chunked requests without Content-Length.
   const reader = request.body?.getReader();

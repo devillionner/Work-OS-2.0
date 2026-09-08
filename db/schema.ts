@@ -54,6 +54,12 @@ export const leads = sqliteTable(
   },
   (t) => [
     index('leads_follow_up_idx').on(t.userId, t.archivedAt, t.nextContactAt),
+    index('leads_owner_archive_updated_idx').on(
+      t.userId,
+      t.archivedAt,
+      t.updatedAt,
+      t.id,
+    ),
   ],
 );
 
@@ -172,4 +178,12 @@ export const curatorRequests = sqliteTable('curator_requests', {
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
   sourceImportId: text('source_import_id'),
+});
+
+// Ephemeral compare-and-swap assertion; the trigger stores no rows.
+export const leadWriteGuards = sqliteTable('lead_write_guards', {
+  leadId: text('lead_id').notNull(),
+  userId: text('user_id').notNull(),
+  expectedVersion: integer('expected_version').notNull(),
+  curatorRequestId: text('curator_request_id'),
 });

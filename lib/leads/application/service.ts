@@ -44,6 +44,7 @@ export async function executeLeadCommand(
       'archive',
       'restore',
       'first_reply',
+      'curator_cancel',
       'student_create',
       'student_update',
       'lesson_book',
@@ -67,8 +68,11 @@ export async function executeLeadCommand(
   if (action !== 'create' && !aggregate)
     throw new v.LeadError('Ліда не знайдено.', 404);
   const version = v.integer(command.version, 'Версія');
-  if (version !== (aggregate?.lead.version ?? 0))
+  if (version !== (aggregate?.lead.version ?? 0)) {
+    const raced = await repo.receipt(userId, commandId);
+    if (raced?.requestJson === requestJson) return raced.leadId;
     throw new v.LeadError('Запис уже змінено. Оновіть картку.', 409);
+  }
   if (
     aggregate?.lead.archivedAt !== null &&
     aggregate?.lead.archivedAt !== undefined &&
@@ -142,7 +146,12 @@ export async function executeLeadCommand(
       lead.normalizedTelegram !==
         v.normalizeTelegram(aggregate.lead.telegramUsername);
     if (contactsChanged && lead.duplicateState === 'none') {
-      const matches = (await repo.contacts(userId)).filter(
+      const matches = (
+        await repo.contacts(userId, {
+          phone: lead.normalizedPhone,
+          telegram: lead.normalizedTelegram,
+        })
+      ).filter(
         (c) =>
           c.id !== id &&
           ((lead.normalizedPhone &&
@@ -164,6 +173,14 @@ export async function executeLeadCommand(
           },
         );
     }
+    if (
+      action === 'update' &&
+      lead.responseDate &&
+      lead.responseDate !== aggregate!.lead.responseDate
+    )
+      changes.eventDateCorrections = [
+        { type: 'lead_created', date: lead.responseDate },
+      ];
     source = await repo.source(userId, lead.sourceChatLink, lead.platform);
     lead.sourceChatId = source?.id ?? null;
     event(
@@ -198,6 +215,23 @@ export async function executeLeadCommand(
     event('first_reply_recorded', businessDate(at), null, {
       firstReplyAt: at,
       responseAt: lead.responseAt,
+    });
+  } else if (action === 'curator_cancel') {
+    v.only(data, ['reason']);
+    const request = aggregate!.curatorRequests.find(
+      (r) => r.id === command.entityId && r.status === 'pending',
+    );
+    if (!request)
+      throw new v.LeadError('Активний запит куратору не знайдено.', 409);
+    const reason = v.string(data.reason, 'Причина скасування', 2000, true);
+    changes.resolvedCuratorRequest = {
+      id: request.id,
+      lessonId: null,
+      status: 'cancelled',
+    };
+    event('curator_request_cancelled', businessDate(now), null, {
+      curatorRequestId: request.id,
+      reason,
     });
   } else if (action.startsWith('student_')) {
     const current =

@@ -2,6 +2,17 @@ import type { Aggregate } from '../domain/types.ts';
 import { overdue, waitingSeconds, legacyLessonDate } from '../domain/time.ts';
 import { reminderView } from '../domain/reminders.ts';
 export function leadDetail(a: Aggregate, now: number) {
+  const reminders = new Map<string, Aggregate['reminders']>();
+  for (const reminder of a.reminders) {
+    const group = reminders.get(reminder.lessonId) ?? [];
+    group.push(reminder);
+    reminders.set(reminder.lessonId, group);
+  }
+  const replacements = new Map(
+    a.lessons
+      .filter((l) => l.rescheduledFromId)
+      .map((l) => [l.rescheduledFromId, l.id]),
+  );
   const {
     legacyPayloadJson: _raw,
     sourceImportId: _import,
@@ -22,9 +33,10 @@ export function leadDetail(a: Aggregate, now: number) {
       ...l,
       lessonDate: legacyLessonDate(l.lessonDate),
       status: l.status === 'scheduled' ? 'booked' : l.status,
-      reminders: a.reminders
-        .filter((r) => r.lessonId === l.id)
-        .map((r) => reminderView(l, r, now)),
+      replacementId: replacements.get(l.id) ?? null,
+      reminders: (reminders.get(l.id) ?? []).map((r) =>
+        reminderView(l, r, now),
+      ),
     })),
     messages: a.messages
       .filter((m) => m.deletedAt === null)

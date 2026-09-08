@@ -43,9 +43,11 @@ export function applyReminderAction({
       throw new v.LeadError('Нагадування вимкнено або вже оброблено.', 409);
     if (
       state === 'sent' &&
-      reminderView(lesson, reminder, now).state === 'needs-data'
+      !['pending', 'due'].includes(reminderView(lesson, reminder, now).state)
     )
-      throw new v.LeadError('Доповніть дані уроку перед відправкою.');
+      throw new v.LeadError(
+        'Доповніть дані уроку; надсилати нагадування після початку уроку не можна.',
+      );
     changed.sentAt = state === 'sent' ? now : null;
     changed.skippedAt = state === 'skipped' ? now : null;
     if (state === 'sent') lead.funnelStage = 'reminder';

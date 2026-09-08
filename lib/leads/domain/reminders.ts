@@ -1,4 +1,4 @@
-import { lessonEpoch } from './time.ts';
+import { lessonEpoch, legacyLessonDate } from './time.ts';
 import { safeUrl } from './validation.ts';
 export type ReminderSettings = {
   id: string;
@@ -47,6 +47,7 @@ export function reminderView(
   reminder: ReminderSettings,
   now: number,
 ) {
+  lesson = { ...lesson, lessonDate: legacyLessonDate(lesson.lessonDate) };
   const startsAt = lessonEpoch(lesson.lessonDate, lesson.lessonTime);
   const missing = [
     !lesson.subject.trim() || lesson.subject === 'Не вказано' ? 'предмет' : '',
@@ -69,9 +70,11 @@ export function reminderView(
             ? 'inactive'
             : missing.length
               ? 'needs-data'
-              : dueAt !== null && dueAt <= now
-                ? 'due'
-                : 'pending';
+              : startsAt !== null && startsAt <= now
+                ? 'expired'
+                : dueAt !== null && dueAt <= now
+                  ? 'due'
+                  : 'pending';
   const text =
     missing.length || !['due', 'pending'].includes(state)
       ? null

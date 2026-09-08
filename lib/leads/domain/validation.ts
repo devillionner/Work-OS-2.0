@@ -114,7 +114,10 @@ export function normalizeTelegram(value: string): string {
 }
 export function phone(value: unknown) {
   const v = string(value, 'Телефон', 40);
-  if (v && (!/^[+\d\s().-]+$/.test(v) || !/^\d{7,15}$/.test(normalizePhone(v))))
+  if (
+    v &&
+    (!/^\+?[\d\s().-]+$/.test(v) || !/^\d{7,15}$/.test(normalizePhone(v)))
+  )
     throw new LeadError('Некоректний телефон.');
   return v;
 }
@@ -127,12 +130,14 @@ export function telegram(value: unknown) {
 export function grade(value: unknown): number | null {
   return value === null ? null : integer(value, 'Клас', 1, 11);
 }
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+export function canonicalJson(value: unknown, depth = 0): string {
+  if (depth > 8) throw new LeadError('JSON має надмірну вкладеність.');
+  if (Array.isArray(value))
+    return `[${value.map((item) => canonicalJson(item, depth + 1)).join(',')}]`;
   if (value !== null && typeof value === 'object')
     return `{${Object.entries(value)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`)
+      .map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v, depth + 1)}`)
       .join(',')}}`;
   return JSON.stringify(value);
 }

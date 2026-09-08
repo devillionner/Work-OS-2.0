@@ -5,7 +5,7 @@ import { CheckCircle2, Download, LoaderCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 type Manifest = {
-  app: string; schemaVersion: number; ownerEmail: string; createdAt: string;
+  app: string; schemaVersion: number; ownerId: string; revision: number; ownerEmail: string; createdAt: string;
   tables: string[]; counts: Record<string, number>;
 };
 
@@ -26,17 +26,20 @@ export function CloudBackupButton() {
         const rows: unknown[] = [];
         let cursor = '';
         do {
-          const page = await getJson<{ rows: unknown[]; nextCursor: string | null }>(`/api/backups/export?table=${encodeURIComponent(table)}&cursor=${encodeURIComponent(cursor)}`);
+          const page = await getJson<{ rows: unknown[]; nextCursor: string | null }>(`/api/backups/export?table=${encodeURIComponent(table)}&cursor=${encodeURIComponent(cursor)}&revision=${manifest.revision}`);
           rows.push(...page.rows);
           cursor = page.nextCursor || '';
         } while (cursor);
+        if (rows.length !== manifest.counts[table]) throw new Error('Неповна резервна копія. Спробуйте ще раз.');
         tables[table] = rows;
         completedTables += 1;
         setProgress(Math.round(completedTables / manifest.tables.length * 90));
       }
+      const final = await getJson<Manifest>('/api/backups/export');
+      if (final.revision !== manifest.revision) throw new Error('Дані змінилися під час копіювання. Спробуйте ще раз.');
       const payload = JSON.stringify({
         app: manifest.app, schemaVersion: manifest.schemaVersion, createdAt: manifest.createdAt,
-        ownerEmail: manifest.ownerEmail, counts: manifest.counts, tables,
+        ownerEmail: manifest.ownerEmail, ownerId: manifest.ownerId, revision: manifest.revision, counts: manifest.counts, tables,
       });
       const bytes = new TextEncoder().encode(payload);
       const hash = await sha256Hex(bytes);
@@ -76,3 +79,4 @@ function saveFile(payload: string, filename: string) {
   const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+

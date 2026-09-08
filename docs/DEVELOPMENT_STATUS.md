@@ -17,13 +17,16 @@
 - Server validation/auth boundary, D1/Drizzle repository, atomic command/event
   batches, optimistic concurrency, idempotency receipts and event-based metrics.
 - Additive `0014_leads_domain.sql`; no production data deleted or remotely changed.
-- Repeat-import guard for cloud-managed aggregates and cloud backup schema 4.
+- Repeat-import guards for incoming/persisted parents; consistent cloud backup schema 5.
+- PR #6 hardening: additive migration 0015, restorable receipts, curator cancellation/
+  race guard, stale-form and retry protection, unknown-date preservation, expired
+  reminders, Kyiv timezone database offsets and Ukrainian name search.
 
 ## Validation
 
 - `npm run lint`: passed (includes all new Leads components).
 - `npm run build`: passed; `/api/leads` included in production route output.
-- `npm test`: 18/18 passed (13 new D1/domain scenarios and 5 existing migration regressions).
+- `npm test`: 33/33 passed (15 hardening regressions plus the original 18 tests).
   Covers duplicates, several students/lessons, retry/concurrency, reschedule,
   blank subject/grade validation, reminders, first reply, overdue, archive/restore,
   events/historical metrics, message export, ownership, request validation and DST.
@@ -44,21 +47,24 @@
   operation. Internal message deletion is soft and excluded from `.txt` exports.
 - New curator-request creation remains outside scope. Booking confirms a selected
   existing pending request and cancels its provisional event atomically, avoiding
-  double-counting alongside the real booking.
+  double-counting alongside the real booking. Existing pending requests can also
+  be cancelled with a reason, preserving their historical events.
 
 ## Next — Leads cutover gate
 
 1. Review the PR and take a full current D1 backup; retain the original immutable
    Prototype backup referenced in `CUTOVER-2026-09-04.md`.
-2. Apply migration 0014 on a staging copy first, then deploy matching code and
-   migration to production in a coordinated release. Commands for the existing
-   Wrangler setup: `npx wrangler d1 migrations apply DB --local` for local testing;
-   `--remote` only during the reviewed production release.
+2. Apply migrations 0014 and 0015 on an isolated staging copy with matching code.
+   Production release remains a separate, explicitly authorized operation; this
+   review neither deploys nor runs production migrations.
 3. Smoke-test authenticated create/edit, two students, repeated booking,
    reschedule, reminders, follow-up, message export and archive/restore on desktop
    and mobile, including keyboard focus and stale-version recovery.
 4. Reconcile real production entity counts and historical metrics before/after;
-   export schema-4 cloud backup and verify the three new tables are present.
+   export schema-5 cloud backup and rehearse restoration in an empty staging DB,
+   comparing every field and checking foreign keys (see `LEADS_PR6_REVIEW.md`).
 5. Keep Prototype Checker available until these operational checks pass.
 
 Do not start Today, Reports, Analytics or Library while these Leads gates remain.
+
+PR #6 stays **draft**: ready for staging validation, not yet approved for merge.

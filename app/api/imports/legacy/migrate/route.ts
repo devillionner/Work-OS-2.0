@@ -1,3 +1,4 @@
+import { legacyLeadGuards } from '@/lib/leads/data/import-guards';
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import {
@@ -9,7 +10,8 @@ import {
 } from '@/lib/legacy-migration';
 import { sha256Hex } from '@/lib/legacy-backup';
 
-const RECORDS_PER_STEP = 30;
+// Each Leads record now includes parent/conflict guards in the same batch.
+const RECORDS_PER_STEP = 10;
 const RECORDS_PER_STAGED_CHUNK = 200;
 
 type ImportRow = { id: string; sha256: string; status: string };
@@ -102,9 +104,7 @@ async function processMigration(userId: string): Promise<Response> {
     const chunk = records.slice(chunkOffset, chunkOffset + RECORDS_PER_STEP);
     const statements: D1PreparedStatement[] = [];
     for (const record of chunk) {
-      const row = record as { id: string; leadId?: string | null };
-      const leadId = phase === 'leads' ? row.id : ['students','lessons','curatorRequests','events'].includes(phase) ? row.leadId : null;
-      if (leadId) statements.push(env.DB.prepare(`INSERT INTO lead_import_guards (lead_id,user_id) VALUES (?1,?2)`).bind(leadId,userId));
+      statements.push(...legacyLeadGuards(env.DB, phase, record, userId));
       statements.push(statementFor(phase, record, userId, imported.id));
     }
     const processed = safeCountRecord(job.processed_json);

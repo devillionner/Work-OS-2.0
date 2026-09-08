@@ -103,7 +103,11 @@ export function FollowUp({
             save={async (f) => {
               await mutate('update', {
                 nextAction: textValue(f, 'nextAction'),
-                nextContactAt: epochValue(f, 'nextContactAt'),
+                nextContactAt: epochValue(
+                  f,
+                  'nextContactAt',
+                  lead.nextContactAt,
+                ),
                 qualification: textValue(f, 'qualification') || null,
                 familyQualification:
                   textValue(f, 'familyQualification') || null,

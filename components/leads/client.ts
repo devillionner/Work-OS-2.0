@@ -36,50 +36,7 @@ export async function getJson<T>(
     throw new Error(data.error || 'Не вдалося завантажити дані.');
   return data as T;
 }
-const pendingCommands = new Map<string, string>();
-export async function postCommand(
-  action: string,
-  data: Record<string, unknown>,
-  lead?: LeadDetail['lead'],
-  entityId?: string,
-): Promise<string> {
-  const payload = {
-    action,
-    data,
-    leadId: lead?.id,
-    version: lead?.version ?? 0,
-    entityId,
-  };
-  const key = JSON.stringify(payload);
-  let body = pendingCommands.get(key);
-  if (!body) {
-    body = JSON.stringify({ commandId: crypto.randomUUID(), ...payload });
-    pendingCommands.set(key, body);
-  }
-  const send = () =>
-    fetch('/api/leads', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    });
-  // Retry transport failures with the exact same command ID. No duplicate booking.
-  const response = await send().catch(() => send());
-  const result = (await response.json()) as {
-    id: string;
-    error?: string;
-    details?: { duplicates?: Array<{ name: string }> };
-  };
-  if (response.ok || response.status < 500) pendingCommands.delete(key);
-  if (!response.ok) {
-    const names = result.details?.duplicates
-      ?.map((d: { name: string }) => d.name)
-      .join(', ');
-    throw new Error(
-      `${result.error || 'Не вдалося зберегти.'}${names ? ` Збіги: ${names}.` : ''}`,
-    );
-  }
-  return result.id;
-}
+export { createBrowserCommandClient } from '@/lib/leads/client/commands';
 export const labels: Record<string, string> = {
   telegram: 'Telegram',
   whatsapp: 'WhatsApp',
@@ -111,6 +68,7 @@ export const labels: Record<string, string> = {
   skipped: 'Пропущено',
   disabled: 'Вимкнено',
   inactive: 'Неактивне',
+  expired: 'Урок уже розпочався',
 };
 export function displayTime(epoch: number | null) {
   return epoch === null

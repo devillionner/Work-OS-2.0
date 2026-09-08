@@ -1,3 +1,5 @@
+import { foldedName } from './search.ts';
+import { leadWriteGuards } from '../../../db/schema.ts';
 import { and, asc, desc, eq, isNull, lt, sql } from 'drizzle-orm';
 import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
@@ -96,12 +98,16 @@ export class D1LeadRepository implements LeadRepository {
     if (!leadRows[0]) return null;
     // Old/repeated imports may have no reminder rows. Defaults are a projection,
     // persisted only on the next command (no writes during GET).
+    const reminderIndex = new Map(
+      reminderRows.map(({ reminder }) => [
+        `${reminder.lessonId}:${reminder.slot}`,
+        reminder,
+      ]),
+    );
     const reminders = lessonRows.flatMap((l) =>
       defaultReminders(l.id).map(
         (d) =>
-          reminderRows.find(
-            (r) => r.reminder.lessonId === l.id && r.reminder.slot === d.slot,
-          )?.reminder ?? {
+          reminderIndex.get(`${l.id}:${d.slot}`) ?? {
             ...d,
             userId,
             lessonId: l.id,
@@ -127,7 +133,7 @@ export class D1LeadRepository implements LeadRepository {
         .get()) ?? null
     );
   }
-  async contacts(userId: string) {
+  async contacts(userId: string, contact: { phone: string; telegram: string }) {
     return this.db
       .select({
         id: leads.id,
@@ -137,7 +143,18 @@ export class D1LeadRepository implements LeadRepository {
         archivedAt: leads.archivedAt,
       })
       .from(leads)
-      .where(eq(leads.userId, userId));
+      .where(
+        and(
+          eq(leads.userId, userId),
+          sql`(
+        (${contact.phone} <> '' AND ${leads.normalizedPhone}=${contact.phone}) OR
+        (${contact.telegram} <> '' AND ${leads.normalizedTelegram}=${contact.telegram}) OR
+        ${leads.legacyId} IS NOT NULL OR ${leads.managedAt} IS NULL OR
+        (${contact.phone} <> '' AND ${leads.normalizedPhone}='') OR
+        (${contact.telegram} <> '' AND ${leads.normalizedTelegram}='')
+      )`,
+        ),
+      );
   }
   async source(userId: string, link: string, platform: string) {
     if (!link) return null;
@@ -172,6 +189,14 @@ export class D1LeadRepository implements LeadRepository {
     const commands: BatchItem<'sqlite'>[] = [];
     if (c.create)
       commands.push(this.db.insert(leads).values({ ...c.lead, version: 0 }));
+    commands.push(
+      this.db.insert(leadWriteGuards).values({
+        leadId: receipt.leadId,
+        userId: receipt.userId,
+        expectedVersion: receipt.expectedVersion,
+        curatorRequestId: c.resolvedCuratorRequest?.id ?? null,
+      }),
+    );
     commands.push(this.db.insert(leadCommands).values(receipt));
     commands.push(
       this.db
@@ -218,7 +243,7 @@ export class D1LeadRepository implements LeadRepository {
         this.db
           .update(curatorRequests)
           .set({
-            status: 'confirmed',
+            status: resolved.status,
             lessonId: resolved.lessonId,
             resolvedAt: receipt.createdAt,
             updatedAt: receipt.createdAt,
@@ -239,7 +264,7 @@ export class D1LeadRepository implements LeadRepository {
             cancelledAt: receipt.createdAt,
             metadataJson: JSON.stringify({
               curatorRequestId: resolved.id,
-              status: 'confirmed',
+              status: resolved.status,
             }),
           })
           .where(
@@ -252,43 +277,28 @@ export class D1LeadRepository implements LeadRepository {
           ),
       );
     }
-    // Explicit business-date corrections keep one canonical metric; audit events
-    // above retain the old/new dates. Archive never cancels historical events.
-    if (
-      c.events.some((e) => e.eventType === 'lead_updated') &&
-      c.lead.responseDate
-    )
+    for (const correction of c.eventDateCorrections ?? []) {
+      const metadataKey =
+        correction.type === 'lead_created' ? '$.responseDate' : '$.bookingDate';
       commands.push(
         this.db
           .update(activityEvents)
-          .set({ eventDate: c.lead.responseDate })
+          .set({
+            eventDate: correction.date,
+            metadataJson: sql`json_set(CASE WHEN json_valid(${activityEvents.metadataJson}) THEN ${activityEvents.metadataJson} ELSE '{}' END, ${metadataKey}, ${correction.date})`,
+          })
           .where(
             and(
               eq(activityEvents.userId, c.lead.userId),
               eq(activityEvents.leadId, c.lead.id),
-              eq(activityEvents.eventType, 'lead_created'),
+              eq(activityEvents.eventType, correction.type),
+              correction.lessonId
+                ? eq(activityEvents.lessonId, correction.lessonId)
+                : undefined,
             ),
           ),
       );
-    for (const lesson of c.lessons)
-      if (
-        c.events.some(
-          (e) => e.eventType === 'lesson_updated' && e.lessonId === lesson.id,
-        ) &&
-        lesson.bookingDate
-      )
-        commands.push(
-          this.db
-            .update(activityEvents)
-            .set({ eventDate: lesson.bookingDate })
-            .where(
-              and(
-                eq(activityEvents.userId, c.lead.userId),
-                eq(activityEvents.lessonId, lesson.id),
-                eq(activityEvents.eventType, 'lesson_booked'),
-              ),
-            ),
-        );
+    }
     try {
       await this.db.batch(
         commands as [BatchItem<'sqlite'>, ...BatchItem<'sqlite'>[]],
@@ -338,7 +348,7 @@ export class D1LeadRepository implements LeadRepository {
           )
         : undefined,
       search
-        ? sql`(instr(lower(${leads.name}),lower(${search}))>0 OR instr(${leads.phone},${search})>0 OR instr(lower(${leads.telegramUsername}),lower(${search}))>0)`
+        ? sql`(instr(${foldedName(leads.name)},${search.toLowerCase()})>0 OR instr(${leads.phone},${search})>0 OR instr(lower(${leads.telegramUsername}),lower(${search}))>0)`
         : undefined,
     );
     const [rows, totals] = await this.db.batch([

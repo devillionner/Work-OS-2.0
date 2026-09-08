@@ -1,5 +1,12 @@
 'use client';
-import { useId, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
@@ -10,8 +17,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { businessDateTime, lessonEpoch } from '@/lib/leads/domain/time';
 import { labels } from './client';
+const DialogBusy = createContext<((busy: boolean) => void) | null>(null);
 export function Field({
   label,
   name,
@@ -115,19 +122,22 @@ export function EditDialog({
   close: () => void;
   children: ReactNode;
 }) {
+  const [busy, setBusy] = useState(false);
   return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open) close();
-      }}
-    >
-      <DialogContent className="lead-dialog">
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{description}</DialogDescription>
-        {children}
-      </DialogContent>
-    </Dialog>
+    <DialogBusy.Provider value={setBusy}>
+      <Dialog
+        open
+        onOpenChange={(open) => {
+          if (!open && !busy) close();
+        }}
+      >
+        <DialogContent className="lead-dialog" showCloseButton={!busy}>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+          {children}
+        </DialogContent>
+      </Dialog>
+    </DialogBusy.Provider>
   );
 }
 export function SaveForm({
@@ -141,6 +151,9 @@ export function SaveForm({
   label?: string;
   cancel?: () => void;
 }) {
+  const [saveSnapshot] = useState(() => save);
+  const dialogBusy = useContext(DialogBusy);
+  const submitting = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return (
@@ -148,17 +161,21 @@ export function SaveForm({
       className="lead-form"
       onSubmit={async (e) => {
         e.preventDefault();
-        if (busy) return;
+        if (submitting.current) return;
+        submitting.current = true;
+        dialogBusy?.(true);
         const data = new FormData(e.currentTarget);
         setBusy(true);
         setError('');
         try {
-          await save(data);
+          await saveSnapshot(data);
         } catch (cause) {
           setError(
             cause instanceof Error ? cause.message : 'Не вдалося зберегти.',
           );
         } finally {
+          submitting.current = false;
+          dialogBusy?.(false);
           setBusy(false);
         }
       }}
@@ -213,18 +230,8 @@ export function Confirmation({
     </EditDialog>
   );
 }
-export const textValue = (data: FormData, key: string) => {
-  const value = data.get(key);
-  return typeof value === 'string' ? value : '';
-};
-export function epochValue(data: FormData, key: string): number | null {
-  const value = textValue(data, key);
-  if (!value) return null;
-  const [day, time] = value.split('T');
-  const epoch = lessonEpoch(day, time);
-  if (epoch === null)
-    throw new Error('Некоректний або неоднозначний час за Києвом.');
-  return epoch;
-}
-export const datetimeValue = (epoch: number | null | undefined) =>
-  epoch == null ? '' : businessDateTime(epoch);
+export {
+  textValue,
+  epochValue,
+  datetimeValue,
+} from '@/lib/leads/client/form-values';

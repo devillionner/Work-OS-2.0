@@ -49,7 +49,7 @@ async function fixture(t, seed = false) {
   const migrations = readdirSync(new URL('migrations', root))
     .filter((p) => p.endsWith('.sql'))
     .sort();
-  for (const migration of migrations.filter((m) => !m.startsWith('0014'))) {
+  for (const migration of migrations.filter((m) => m < '0014')) {
     for (const s of statements(
       readFileSync(new URL(`migrations/${migration}`, root), 'utf8'),
     ))
@@ -92,10 +92,11 @@ async function fixture(t, seed = false) {
       )
       .run();
   }
-  for (const s of statements(
-    readFileSync(new URL('migrations/0014_leads_domain.sql', root), 'utf8'),
-  ))
-    await db.prepare(s).run();
+  for (const migration of migrations.filter((m) => m >= '0014'))
+    for (const s of statements(
+      readFileSync(new URL(`migrations/${migration}`, root), 'utf8'),
+    ))
+      await db.prepare(s).run();
   const repo = new D1LeadRepository(drizzle(db, { schema }));
   const run = async (action, data = {}, leadId, entityId, extra = {}) =>
     executeLeadCommand(
@@ -734,5 +735,415 @@ void test('native booking resolves selected pending curator event atomically wit
       )
     )[0].cancelled_at,
     NOW,
+  );
+});
+
+void test('direct API cannot clear a known response date; correction keeps canonical event metadata aligned', async (t) => {
+  const f = await fixture(t);
+  const id = await f.create();
+  await assert.rejects(
+    f.run('update', { responseDate: null }, id),
+    /Дата відгуку/,
+  );
+  await f.run('update', { responseDate: '2026-09-07' }, id);
+  const [e] = await f.rows(
+    "SELECT event_date,metadata_json FROM activity_events WHERE event_type='lead_created'",
+  );
+  assert.equal(e.event_date, JSON.parse(e.metadata_json).responseDate);
+  await assert.rejects(f.create({ phone: '123+456789' }), /телефон/);
+  let deep = {};
+  for (let i = 0; i < 100; i++) deep = { nested: deep };
+  await assert.rejects(f.run('update', deep, id), /вкладеність/);
+});
+
+void test('incomplete imported lesson can acquire time without rescheduling or changing student identity', async (t) => {
+  const f = await fixture(t, true);
+  await f.run(
+    'lesson_update',
+    {
+      lessonTime: '18:00',
+      teacherName: 'Teacher',
+      lessonPlatform: 'Meet',
+      meetingLink: 'https://meet.example.test',
+    },
+    'imported-0',
+    'lesson-0',
+  );
+  let a = await f.repo.load('u', 'imported-0');
+  const lesson = a.lessons.find((l) => l.id === 'lesson-0');
+  assert.equal(lesson.studentName, 'Legacy student');
+  assert.equal(lesson.rescheduledFromId, null);
+  assert.equal(a.lessons.length, 9);
+  assert.equal(
+    leadDetail(a, NOW).lessons.find((l) => l.id === 'lesson-0').reminders[0]
+      .state,
+    'pending',
+  );
+  await f.run(
+    'lesson_reschedule',
+    { lessonDate: '2026-09-11', reason: 'New time' },
+    'imported-0',
+    'lesson-0',
+  );
+  a = await f.repo.load('u', 'imported-0');
+  assert.equal(
+    a.lessons.find((l) => l.rescheduledFromId === 'lesson-0').studentName,
+    'Legacy student',
+  );
+});
+
+void test('past lesson reminder has no sendable text and marking sent is rejected', async (t) => {
+  const f = await fixture(t);
+  const id = await f.create();
+  await f.book(id, { lessonDate: '2026-09-07' });
+  const a = await f.repo.load('u', id);
+  const reminder = leadDetail(a, NOW).lessons[0].reminders[0];
+  assert.equal(reminder.state, 'expired');
+  assert.equal(reminder.text, null);
+  await assert.rejects(
+    f.run('reminder_mark', { state: 'sent' }, id, reminder.id),
+    /після початку/,
+  );
+  await f.run('reminder_mark', { state: 'skipped' }, id, reminder.id);
+});
+
+void test('concurrent identical retry succeeds when receipt appears between initial lookup and aggregate load', async (t) => {
+  const f = await fixture(t);
+  const id = await f.create();
+  const command = {
+    commandId: crypto.randomUUID(),
+    leadId: id,
+    version: 1,
+    action: 'lesson_book',
+    data: { subject: 'Math', lessonDate: '2026-09-10' },
+  };
+  const racing = Object.create(f.repo);
+  let intercepted = false;
+  racing.receipt = async (...args) => {
+    if (!intercepted) {
+      intercepted = true;
+      await executeLeadCommand(f.repo, 'u', command, NOW);
+      return null;
+    }
+    return f.repo.receipt(...args);
+  };
+  assert.equal(await executeLeadCommand(racing, 'u', command, NOW), id);
+  assert.equal((await f.repo.load('u', id)).lessons.length, 1);
+});
+
+void test('repeat sync guards persisted parents and rolls back a whole conflicting import chunk', async (t) => {
+  const { legacyLeadGuards } =
+    await import('../lib/leads/data/import-guards.ts');
+  const f = await fixture(t, true);
+  await f.run('update', { note: 'Cloud edit' }, 'imported-0');
+  const before = await f.repo.load('u', 'imported-1');
+  const record = { id: 'student-0', leadId: 'imported-1' };
+  await assert.rejects(
+    f.db.batch([
+      ...legacyLeadGuards(f.db, 'students', record, 'u'),
+      f.db.prepare(
+        "UPDATE students SET lead_id='imported-1' WHERE id='student-0'",
+      ),
+    ]),
+    /Повторний імпорт/,
+  );
+  assert.equal(
+    (await f.rows("SELECT lead_id FROM students WHERE id='student-0'"))[0]
+      .lead_id,
+    'imported-0',
+  );
+  assert.equal(
+    (await f.repo.load('u', 'imported-1')).lead.version,
+    before.lead.version,
+  );
+  await assert.rejects(
+    f.db.batch(
+      legacyLeadGuards(
+        f.db,
+        'events',
+        { id: 'different-id', leadId: null, sourceKey: 'legacy:lead:0' },
+        'u',
+      ),
+    ),
+    /Повторний імпорт/,
+  );
+  assert.equal((await f.repo.load('u', 'imported-0')).lead.note, 'Cloud edit');
+});
+
+void test('paged backup rejects intervening writes including child edits and isolates owner revisions', async (t) => {
+  const { backupManifest, backupPage } =
+    await import('../lib/backups/export.ts');
+  const f = await fixture(t);
+  const id = await f.create();
+  const manifest = await backupManifest(f.db, 'u');
+  assert.equal(
+    (await backupPage(f.db, 'u', 'leads', '', manifest.revision)).rows.length,
+    1,
+  );
+  const other = await backupManifest(f.db, 'other');
+  await f.run('student_create', { name: 'Child', grade: 4 }, id);
+  await assert.rejects(
+    backupPage(f.db, 'u', 'leads', '', manifest.revision),
+    /змінилися/,
+  );
+  assert.equal((await backupManifest(f.db, 'other')).revision, other.revision);
+});
+
+void test('schema 5 backup round trip retains all domain fields, provenance, receipts and archived events', async (t) => {
+  const { BACKUP_TABLES, backupManifest, backupPage } =
+    await import('../lib/backups/export.ts');
+  const f = await fixture(t);
+  const id = await f.create({
+    responseAt: NOW - 7200,
+    qualification: 'A',
+    familyQualification: 'B',
+    nextAction: 'Call',
+    nextContactAt: NOW + 3600,
+  });
+  await f.run('first_reply', { at: NOW - 3600 }, id);
+  await f.run('student_create', { name: 'Child', grade: 5 }, id);
+  await f.book(id, { studentId: (await f.repo.load('u', id)).students[0].id });
+  let a = await f.repo.load('u', id);
+  await f.run('reminder_mark', { state: 'sent' }, id, a.reminders[0].id);
+  await f.run(
+    'lesson_reschedule',
+    { lessonDate: '2026-09-11', reason: 'Changed' },
+    id,
+    a.lessons[0].id,
+  );
+  await f.run(
+    'message_create',
+    { sender: 'lead', body: 'Internal history', sentAt: NOW },
+    id,
+  );
+  await f.run('archive', {}, id);
+  await f.db
+    .prepare(
+      "INSERT INTO legacy_imports(id,user_id,original_filename,sha256,source_schema_version,byte_size,summary_json,created_at,updated_at) VALUES ('import','u','source.json','hash',1,2,'{}',1,1)",
+    )
+    .run();
+  await f.db
+    .prepare("INSERT INTO legacy_import_chunks VALUES ('import',0,'{}')")
+    .run();
+  await f.db
+    .prepare(
+      "UPDATE leads SET source_import_id='import',legacy_payload_json='{}' WHERE id=?",
+    )
+    .bind(id)
+    .run();
+  const manifest = await backupManifest(f.db, 'u');
+  const snapshot = {};
+  for (const table of BACKUP_TABLES)
+    snapshot[table] = (
+      await backupPage(f.db, 'u', table, '', manifest.revision)
+    ).rows;
+  const restored = await fixture(t);
+  // Restore into an empty database with the same seeded owner. Deferred FKs
+  // handle replacement chains regardless of UUID ordering. Insert managed_at
+  // last to avoid applying live duplicate-entry policy to an exact snapshot.
+  const statements = [restored.db.prepare('PRAGMA defer_foreign_keys=ON')];
+  const managed = [];
+  for (const table of BACKUP_TABLES)
+    for (const original of snapshot[table]) {
+      const row = { ...original };
+      if (table === 'leads') {
+        managed.push([row.managed_at, row.id]);
+        row.managed_at = null;
+      }
+      const columns = Object.keys(row);
+      statements.push(
+        restored.db
+          .prepare(
+            `INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`,
+          )
+          .bind(...Object.values(row)),
+      );
+    }
+  for (const [at, leadId] of managed)
+    statements.push(
+      restored.db
+        .prepare('UPDATE leads SET managed_at=? WHERE id=?')
+        .bind(at, leadId),
+    );
+  await restored.db.batch(statements);
+  for (const table of BACKUP_TABLES) {
+    const revision = (await backupManifest(restored.db, 'u')).revision;
+    assert.deepEqual(
+      (await backupPage(restored.db, 'u', table, '', revision)).rows,
+      snapshot[table],
+      table,
+    );
+  }
+  assert.deepEqual(await restored.rows('PRAGMA foreign_key_check'), []);
+  a = await restored.repo.load('u', id);
+  assert.equal(a.lead.archivedAt, NOW);
+  assert.equal(a.lessons.length, 2);
+  const receipt = (
+    await restored.rows(
+      "SELECT request_json FROM lead_commands WHERE json_extract(request_json,'$.action')='lesson_book'",
+    )
+  )[0];
+  assert.equal(
+    await executeLeadCommand(
+      restored.repo,
+      'u',
+      JSON.parse(receipt.request_json),
+      NOW,
+    ),
+    id,
+  );
+  assert.equal((await restored.repo.load('u', id)).lessons.length, 2);
+});
+
+void test('Ukrainian names are searchable regardless of case without changing stored names', async (t) => {
+  const f = await fixture(t);
+  const id = await f.create({ name: 'ІРИНА Ґалаґан' });
+  const result = await f.repo.list(
+    'u',
+    { archived: false, overdue: false, search: 'ірина ґал', offset: 0 },
+    NOW,
+  );
+  assert.equal(result.leads[0]?.id, id);
+  assert.equal((await f.repo.load('u', id)).lead.name, 'ІРИНА Ґалаґан');
+});
+
+void test('curator state race rolls back the booking, receipt and event even without a lead version change', async (t) => {
+  const f = await fixture(t);
+  const id = await f.create();
+  await f.db
+    .prepare(
+      "INSERT INTO curator_requests(id,user_id,lead_id,status,submitted_at,submitted_date,created_at,updated_at) VALUES ('request','u',?,'pending',1,'2026-09-07',1,1)",
+    )
+    .bind(id)
+    .run();
+  const racing = Object.create(f.repo);
+  racing.commit = async (changes, receipt) => {
+    await f.db
+      .prepare(
+        "UPDATE curator_requests SET status='cancelled' WHERE id='request'",
+      )
+      .run();
+    return f.repo.commit(changes, receipt);
+  };
+  await assert.rejects(
+    executeLeadCommand(
+      racing,
+      'u',
+      {
+        commandId: crypto.randomUUID(),
+        leadId: id,
+        version: 1,
+        action: 'lesson_book',
+        data: {
+          curatorRequestId: 'request',
+          subject: 'English',
+          lessonDate: '2026-09-10',
+        },
+      },
+      NOW,
+    ),
+    /іншому пристрої/,
+  );
+  assert.equal((await f.repo.load('u', id)).lessons.length, 0);
+  assert.equal((await f.rows('SELECT count(*) n FROM lead_commands'))[0].n, 1);
+  assert.equal(
+    (
+      await f.rows(
+        "SELECT count(*) n FROM activity_events WHERE event_type='lesson_booked'",
+      )
+    )[0].n,
+    0,
+  );
+});
+
+void test('curator cancellation preserves history, cancels only its provisional metric and rejects repeat resolution', async (t) => {
+  const f = await fixture(t);
+  const id = await f.create();
+  await f.db
+    .prepare(
+      "INSERT INTO curator_requests(id,user_id,lead_id,status,submitted_at,submitted_date,created_at,updated_at) VALUES ('request','u',?,'pending',1,'2026-09-07',1,1)",
+    )
+    .bind(id)
+    .run();
+  await f.db
+    .prepare(
+      `INSERT INTO activity_events(id,user_id,lead_id,event_type,occurred_at,event_date,metadata_json,source_key) VALUES ('pending','u',?,'curator_booking_pending',1,'2026-09-07','{"curatorRequestId":"request"}','legacy:request')`,
+    )
+    .bind(id)
+    .run();
+  await assert.rejects(
+    f.run('curator_cancel', { reason: '' }, id, 'request'),
+    /Причина/,
+  );
+  await f.run('curator_cancel', { reason: 'No longer needed' }, id, 'request');
+  assert.equal(
+    (await f.rows("SELECT status FROM curator_requests WHERE id='request'"))[0]
+      .status,
+    'cancelled',
+  );
+  assert.equal(
+    (
+      await f.rows(
+        "SELECT cancelled_at FROM activity_events WHERE id='pending'",
+      )
+    )[0].cancelled_at,
+    NOW,
+  );
+  await assert.rejects(
+    f.run('curator_cancel', { reason: 'Again' }, id, 'request'),
+    /не знайдено/,
+  );
+  await f.book(id);
+  assert.deepEqual(
+    await f.rows(
+      "SELECT event_type FROM activity_events WHERE event_type IN ('lesson_booked','curator_booking_pending') AND cancelled_at IS NULL",
+    ),
+    [{ event_type: 'lesson_booked' }],
+  );
+});
+
+void test('HTTP JSON media type must be exact, while charset parameters are accepted', async () => {
+  const request = (type) =>
+    new Request('https://example.test/api/leads', {
+      method: 'POST',
+      headers: { origin: 'https://example.test', 'content-type': type },
+      body: '{}',
+    });
+  await assert.rejects(
+    commandBody(request('application/json-evil')),
+    (e) => e.status === 415,
+  );
+  assert.deepEqual(
+    await commandBody(request('application/json; charset=utf-8')),
+    {},
+  );
+});
+
+void test('unknown imported business dates remain null during unrelated edits and reschedule', async (t) => {
+  const f = await fixture(t, true);
+  await f.db
+    .prepare("UPDATE leads SET response_date=NULL WHERE id='imported-0'")
+    .run();
+  await f.db
+    .prepare("UPDATE lessons SET booking_date=NULL WHERE id='lesson-0'")
+    .run();
+  await f.run('update', { note: 'Cloud note' }, 'imported-0');
+  await f.run(
+    'lesson_update',
+    { teacherName: 'Teacher', lessonTime: '18:00' },
+    'imported-0',
+    'lesson-0',
+  );
+  await f.run(
+    'lesson_reschedule',
+    { lessonDate: '2026-09-11', reason: 'Changed' },
+    'imported-0',
+    'lesson-0',
+  );
+  const a = await f.repo.load('u', 'imported-0');
+  assert.equal(a.lead.responseDate, null);
+  assert.equal(
+    a.lessons.find((l) => l.rescheduledFromId === 'lesson-0').bookingDate,
+    null,
   );
 });

@@ -97,11 +97,42 @@ Editing any part of a lead sets `managed_at`. Repeat Prototype imports use an at
 SQL guard: a chunk touching a managed aggregate stops with an explicit conflict,
 rather than overwriting cloud work. Untouched aggregates can still synchronize.
 Conflict reconciliation requires a separate reviewed comparison; no silent merging
-is performed. Cloud backup schema 4 includes `lesson_reminders`, `lead_messages`
-and `lead_commands` alongside the existing domain tables.
+is performed. Cloud backup schema 5 includes `lesson_reminders`, `lead_messages`,
+`lead_commands` and legacy import provenance/chunks alongside existing tables.
 
 When a lead has a pending imported curator request, the booking form explicitly
 selects the request to confirm. The same batch links the lesson, confirms that
 request and cancels its provisional event, preserving history without counting
 both pending and actual bookings. Import guards increment the aggregate version
 for untouched leads too, so a concurrent cloud edit cannot overwrite a newer sync.
+
+### Leads PR #6 hardening
+
+Migration `0015_leads_hardening.sql` separates the transient `lead_write_guards`
+compare-and-swap assertion from durable `lead_commands` receipts. Both execute in
+one D1 batch with aggregate writes/events; receipts can consequently be restored
+without replaying historical expected versions. The guard also verifies a selected
+curator request is still pending. Existing requests can be confirmed by booking or
+cancelled with a reason, retaining their events and cancelling only provisional
+metrics. New curator-request creation remains outside this module.
+
+Business-date correction decisions live in the application changeset; the
+repository applies them to canonical event dates and metadata atomically. Import
+guards check both incoming parents and persisted rows matched by upsert unique
+keys. Import chunks are bounded to 10 records to accommodate these assertions.
+
+`lib/backups/export.ts` owns export selections. `backup_revisions` is a technical
+consistency token, updated transactionally by triggers on exported tables, including
+child/provenance tables. Manifest and pages read it with their rows in one batch;
+changed revisions abort a download, and the client checks final revision and counts.
+It is neither an analytics counter nor a second business-data source.
+
+`lib/leads/client` contains transport and form-value adapters, without database
+access. Forms retain their original save/version snapshot. An account-scoped
+session journal retains only the single unacknowledged delivery intent, removes it
+after a definitive response, and survives tab reloads; cloud rows/receipts remain
+authoritative. A changed form first resolves the previous command and requires review
+before sending a new action. Session storage must be available for writes; clearing
+browser storage or closing the session requires checking cloud history before retry.
+
+See `docs/LEADS_PR6_REVIEW.md` for findings, verification and staging gates.

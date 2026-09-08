@@ -96,7 +96,7 @@ export function applyLessonAction({
     if (
       action === 'lesson_update' &&
       (parsed.lessonDate !== legacyLessonDate(old!.lessonDate) ||
-        parsed.lessonTime !== old!.lessonTime)
+        (old!.lessonTime !== '' && parsed.lessonTime !== old!.lessonTime))
     )
       throw new v.LeadError(
         'Для зміни дати/часу використайте перенесення уроку.',
@@ -122,7 +122,9 @@ export function applyLessonAction({
       ...parsed,
       studentName: student
         ? `${student.name} ${student.surname}`.trim()
-        : lead.name,
+        : old && parsed.studentId === old.studentId
+          ? old.studentName
+          : lead.name,
       bookingDate:
         action === 'lesson_reschedule' ? old!.bookingDate : parsed.bookingDate,
       status: 'booked',
@@ -137,7 +139,11 @@ export function applyLessonAction({
     changes.lessons.push(lesson);
     if (action === 'lesson_book') {
       if (curatorRequestId)
-        changes.resolvedCuratorRequest = { id: curatorRequestId, lessonId };
+        changes.resolvedCuratorRequest = {
+          id: curatorRequestId,
+          lessonId,
+          status: 'confirmed',
+        };
       changes.reminders.push(
         ...defaultReminders(lessonId).map((r) => ({
           ...r,
@@ -178,6 +184,10 @@ export function applyLessonAction({
         lessonDate: lesson.lessonDate,
       });
     } else {
+      if (lesson.bookingDate && lesson.bookingDate !== old!.bookingDate)
+        changes.eventDateCorrections = [
+          { type: 'lesson_booked', date: lesson.bookingDate, lessonId },
+        ];
       event('lesson_updated', businessDate(now), lessonId, {
         fields: Object.keys(fields),
         previousBookingDate: old!.bookingDate,

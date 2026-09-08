@@ -40,8 +40,10 @@ export function LeadEditor({
             sourceChatLink: textValue(f, 'sourceChatLink'),
             subject: textValue(f, 'subject'),
             note: textValue(f, 'note'),
-            responseDate: textValue(f, 'responseDate'),
-            responseAt: epochValue(f, 'responseAt'),
+            ...(lead?.responseDate === null && !textValue(f, 'responseDate')
+              ? {}
+              : { responseDate: textValue(f, 'responseDate') }),
+            responseAt: epochValue(f, 'responseAt', lead?.responseAt),
             status: textValue(f, 'status'),
             duplicateState: textValue(f, 'duplicateState'),
           });
@@ -82,8 +84,8 @@ export function LeadEditor({
           label="Дата відгуку *"
           name="responseDate"
           type="date"
-          value={lead?.responseDate ?? businessDate(now)}
-          required
+          value={lead ? (lead.responseDate ?? '') : businessDate(now)}
+          required={!lead || lead.responseDate !== null}
         />
         <Field
           label="Час відгуку (Київ, якщо відомий)"

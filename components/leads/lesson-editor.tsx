@@ -41,7 +41,11 @@ export function LessonEditor({
             lessonTime: textValue(f, 'lessonTime'),
             lessonPlatform: textValue(f, 'lessonPlatform'),
             meetingLink: textValue(f, 'meetingLink'),
-            bookingDate: textValue(f, 'bookingDate'),
+            ...(mode !== 'book' &&
+            lesson?.bookingDate === null &&
+            !textValue(f, 'bookingDate')
+              ? {}
+              : { bookingDate: textValue(f, 'bookingDate') }),
           };
           if (mode === 'book' && detail.curatorRequests.length)
             data.curatorRequestId = textValue(f, 'curatorRequestId');
@@ -101,7 +105,7 @@ export function LessonEditor({
           name="lessonTime"
           type="time"
           value={lesson?.lessonTime}
-          readOnly={mode === 'update'}
+          readOnly={mode === 'update' && !!lesson?.lessonTime}
         />
         <Field
           label="Платформа зустрічі"
@@ -121,7 +125,7 @@ export function LessonEditor({
           value={
             mode === 'book' ? businessDate(now) : (lesson?.bookingDate ?? '')
           }
-          required
+          required={mode === 'book' || lesson?.bookingDate !== null}
           readOnly={mode === 'reschedule' || !!lesson?.rescheduledFromId}
         />
         {mode === 'reschedule' && (

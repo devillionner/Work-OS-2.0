@@ -1,14 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 
-const PAGE_SIZE = 200;
-const TABLES = ['telegram_accounts', 'work_timers', 'chats', 'chat_profiles', 'chat_publications', 'leads', 'students', 'lessons', 'curator_requests', 'lesson_reminders', 'lead_messages', 'lead_commands', 'daily_reports', 'user_settings', 'activity_events'] as const;
-type BackupTable = (typeof TABLES)[number];
-
-const CURSOR_COLUMN: Record<BackupTable, string> = {
-  lesson_reminders: 'id', lead_messages: 'id', lead_commands: 'id', chats: 'id', chat_profiles: 'chat_id', chat_publications: 'id', leads: 'id', students: 'id',
-  telegram_accounts: 'account_number', work_timers: 'id', lessons: 'id', curator_requests: 'id', daily_reports: 'id', user_settings: 'setting_key', activity_events: 'id',
-};
+import { BACKUP_TABLES as TABLES, type BackupTable, backupManifest, backupPage, BackupConflict } from '@/lib/backups/export';
 
 export async function GET(request: Request): Promise<Response> {
   const user = await getCurrentUser();
@@ -18,17 +11,14 @@ export async function GET(request: Request): Promise<Response> {
   if (!table) return manifest(user.id, user.email);
   if (!TABLES.includes(table as BackupTable)) return Response.json({ error: 'Невідомий розділ резервної копії.' }, { status: 400 });
 
-  const selected = table as BackupTable;
-  const cursor = url.searchParams.get('cursor') || '';
-  const cursorColumn = CURSOR_COLUMN[selected];
-  const query = tableQuery(selected, cursorColumn);
-  const result = await env.DB.prepare(query).bind(user.id, cursor, PAGE_SIZE).all<Record<string, unknown>>();
-  const rows = result.results;
-  const cursorValue = rows.at(-1)?.[cursorColumn];
-  const nextCursor = rows.length === PAGE_SIZE && (typeof cursorValue === 'string' || typeof cursorValue === 'number')
-    ? String(cursorValue)
-    : null;
-  return Response.json({ table: selected, rows, nextCursor }, { headers: { 'Cache-Control': 'no-store' } });
+  const revision = Number(url.searchParams.get('revision'));
+  if (!url.searchParams.has('revision') || !Number.isSafeInteger(revision) || revision < 0) return Response.json({ error: 'Потрібна версія резервної копії.' }, { status: 400 });
+  try {
+    return Response.json(await backupPage(env.DB,user.id,table as BackupTable,url.searchParams.get('cursor') || '',revision), { headers: { 'Cache-Control': 'no-store' } });
+  } catch (error) {
+    if (error instanceof BackupConflict) return Response.json({ error: error.message }, { status: 409 });
+    throw error;
+  }
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -48,24 +38,13 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 async function manifest(userId: string, email: string): Promise<Response> {
-  const statements = TABLES.map((table) => env.DB.prepare(countQuery(table)).bind(userId));
-  const results = await env.DB.batch<{ count: number }>(statements);
-  const counts = Object.fromEntries(TABLES.map((table, index) => [table, Number(results[index].results[0]?.count || 0)]));
+  const { counts, revision } = await backupManifest(env.DB,userId);
   const last = await env.DB.prepare(`SELECT sha256,byte_size,record_counts_json,created_at FROM backup_exports WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 1`).bind(userId).first();
   return Response.json({
-    app: 'work-os-cloud-backup', schemaVersion: 4, ownerEmail: email,
+    app: 'work-os-cloud-backup', schemaVersion: 5, ownerEmail: email, ownerId: userId, revision,
     createdAt: new Date().toISOString(), tables: TABLES, counts, lastBackup: last || null,
   }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
-function tableQuery(table: BackupTable, cursorColumn: string): string {
-  if (table === 'chat_profiles') return `SELECT p.* FROM chat_profiles p JOIN chats c ON c.id=p.chat_id WHERE c.user_id=?1 AND p.${cursorColumn}>?2 ORDER BY p.${cursorColumn} LIMIT ?3`;
-  if (table === 'telegram_accounts') return `SELECT * FROM telegram_accounts WHERE user_id=?1 AND (?2='' OR account_number>CAST(?2 AS INTEGER)) ORDER BY account_number LIMIT ?3`;
-  return `SELECT * FROM ${table} WHERE user_id=?1 AND ${cursorColumn}>?2 ORDER BY ${cursorColumn} LIMIT ?3`;
-}
-function countQuery(table: BackupTable): string {
-  if (table === 'chat_profiles') return `SELECT COUNT(*) AS count FROM chat_profiles p JOIN chats c ON c.id=p.chat_id WHERE c.user_id=?1`;
-  return `SELECT COUNT(*) AS count FROM ${table} WHERE user_id=?1`;
-}
 function sameOrigin(request: Request): boolean { const origin = request.headers.get('origin'); return Boolean(origin && origin === new URL(request.url).origin); }
 
