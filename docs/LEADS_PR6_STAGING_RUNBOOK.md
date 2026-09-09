@@ -39,7 +39,20 @@ Do not mutate the source snapshot after baseline capture.
 
 ## Gate 2 — migrations
 
-Apply migrations through:
+Apply migrations through the repository runner, not raw `wrangler d1 migrations apply`:
+
+```bash
+npm run db:migrate -- --database work-os-2-staging-db --remote --config wrangler.staging.local.jsonc
+```
+
+The runner uses D1 file import for each migration and records the marker in a
+separate statement. This is required because Cloudflare's query endpoint rejects
+a multi-statement request when a `CREATE TRIGGER ... BEGIN ... END` statement is
+followed by the automatic `d1_migrations` marker insert. The runner is
+cross-platform and refuses a production target unless `--allow-production` is
+passed explicitly.
+
+The expected migration files are:
 
 - `0014_leads_domain.sql`
 - `0015_leads_hardening.sql`
