@@ -1,4 +1,4 @@
-# Development status — 2026-09-08
+# Development status — 2026-09-09
 
 ## Done
 
@@ -31,15 +31,18 @@
 - Today focus controls: persisted daily/monthly booking goals and grouped focus
   directions (including Logopediya/defectology and IT/chess) with a real settings
   dialog and owner-scoped settings API.
+- Settings workspace: cloud backup action, account visibility, and owner-scoped
+  active-platform toggles. Disabled platforms are hidden from the posting picker
+  without deleting chats, events, or historical analytics.
 
 ## Validation
 
 - `npm run lint`: passed (includes all new Leads components).
 - `npm run build`: passed; `/api/leads` included in production route output.
-- `npm test`: 33/33 passed (15 hardening regressions plus the original 18 tests).
+- `npm test`: passed (six test files/suites covering the hardened Leads domain).
   Covers duplicates, several students/lessons, retry/concurrency, reschedule,
-  blank subject/grade validation, reminders, first reply, overdue, archive/restore,
-  events/historical metrics, message export, ownership, request validation and DST.
+  reminders, first reply, overdue, archive/restore, events/historical metrics,
+  message export, ownership, request validation and DST.
 - Migration test uses a **synthetic** 24/5/9 fixture plus a historical event;
   it is not a production database inspection or reconciliation.
 - Authenticated browser QA passed on the reachable staging preview for Today,
@@ -78,4 +81,6 @@
 6. Run the focused Analytics, Reports and Library browser pass and reconcile their
    numbers/materials against the restored staging backup.
 
-PR #6 stays **draft**: ready for staging validation, not yet approved for merge.
+The PR #6 hardening and curator-event lifecycle fixes are already ancestors of
+`main`. Production migration/resync remains a separate explicitly authorized
+operation; code changes alone do not alter the production D1.
