@@ -1,12 +1,13 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 
-const ALLOWED = new Set(['focus_directions', 'daily_booking_goal', 'monthly_booking_goal']);
+const ALLOWED = new Set(['focus_directions', 'daily_booking_goal', 'monthly_booking_goal', 'enabled_platforms']);
+const PLATFORMS = new Set(['telegram', 'whatsapp', 'viber', 'facebook']);
 
 export async function GET(): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
-  const result = await env.DB.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('focus_directions','daily_booking_goal','monthly_booking_goal')`).bind(user.id).all<{ setting_key: string; value_json: string }>();
+  const result = await env.DB.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('focus_directions','daily_booking_goal','monthly_booking_goal','enabled_platforms')`).bind(user.id).all<{ setting_key: string; value_json: string }>();
   const settings: Record<string, unknown> = {};
   for (const row of result.results) { try { settings[row.setting_key] = JSON.parse(row.value_json); } catch { /* ignore malformed legacy setting */ } }
   return Response.json({ settings }, { headers: { 'Cache-Control': 'no-store' } });
@@ -22,9 +23,11 @@ export async function POST(request: Request): Promise<Response> {
   if (!entries.length || entries.length !== Object.keys(body.settings as Record<string, unknown>).length) return Response.json({ error: 'Є невідомий параметр.' }, { status: 400 });
   const values = new Map<string, string>();
   for (const [key, value] of entries) {
-    if (key === 'focus_directions') {
+    if (key === 'focus_directions' || key === 'enabled_platforms') {
       if (!Array.isArray(value) || value.some((item) => typeof item !== 'string') || value.length > 20) return Response.json({ error: 'Некоректний список напрямків.' }, { status: 400 });
-      values.set(key, JSON.stringify(value.map((item) => item.trim().slice(0, 80)).filter(Boolean)));
+      const list = value.map((item) => item.trim().slice(0, 80)).filter(Boolean);
+      if (key === 'enabled_platforms' && (!list.length || list.some((item) => !PLATFORMS.has(item)))) return Response.json({ error: 'Обери хоча б одну коректну активну платформу.' }, { status: 400 });
+      values.set(key, JSON.stringify([...new Set(list)]));
     } else {
       const number = Number(value);
       if (!Number.isInteger(number) || number < 0 || number > 100000) return Response.json({ error: 'Ціль має бути цілим числом від 0 до 100 000.' }, { status: 400 });

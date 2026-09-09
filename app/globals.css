@@ -280,6 +280,10 @@ button { color: inherit; }
 .settings-account h3 { margin: 0; }
 .settings-account p:not(.eyebrow) { margin: 5px 0; color: #626977; font-size: 12px; }
 .settings-account small { color: #7c8390; font-size: 11px; }
+.platform-settings-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; margin: 4px 0 10px; }
+.platform-settings-list label { display: flex; align-items: center; gap: 8px; color: #343946; font-size: 12px; }
+.platform-settings-list input { accent-color: var(--primary); }
+.settings-inline-notice { color: #087443; font-size: 11px; }
 .cloud-backup-action { display: grid; justify-items: end; gap: 5px; margin-left: auto; }
 .cloud-backup-action small { max-width: 260px; color: #b42318; font-size: 11px; text-align: right; }
 .mobile-bottom-nav { display: none; }

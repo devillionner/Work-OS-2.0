@@ -10,6 +10,7 @@ export type DashboardSnapshot = {
   bookingGoal: { completed: number; target: number };
   monthlyBookingGoal: number;
   focusDirections: string[];
+  enabledPlatforms: string[];
   platforms: Array<{ key: string; name: string; color: string; publications: number; joined: number; responses: number; bookings: number }>;
 };
 
@@ -44,7 +45,7 @@ export async function getDashboardSnapshot(userId: string): Promise<DashboardSna
        WHERE e.user_id=?1 AND e.event_date=?2 AND e.occurred_at>?3 AND e.cancelled_at IS NULL
        GROUP BY COALESCE(e.platform,l.platform,c.platform)`,
     ).bind(userId, today, afterReport),
-    env.DB.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('focus_directions','daily_booking_goal','monthly_booking_goal')`).bind(userId),
+    env.DB.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('focus_directions','daily_booking_goal','monthly_booking_goal','enabled_platforms')`).bind(userId),
   ]);
   const chatCount = chatResult.results[0] as { count?: number } | undefined;
   const leadCount = leadResult.results[0] as { count?: number } | undefined;
@@ -55,6 +56,7 @@ export async function getDashboardSnapshot(userId: string): Promise<DashboardSna
   const dailyGoal = settingMap.has('daily_booking_goal') ? settingNumber(settingMap.get('daily_booking_goal')) : (reportSnapshot?.bookingGoal.target || 5);
   const monthlyBookingGoal = settingMap.has('monthly_booking_goal') ? settingNumber(settingMap.get('monthly_booking_goal')) : 100;
   const focusDirections = settingList(settingMap.get('focus_directions'));
+  const enabledPlatforms = settingList(settingMap.get('enabled_platforms'));
   const byPlatform = new Map(eventRows.map((row) => [row.platform, row]));
   const pendingAfterReport = report
     ? eventRows.reduce((sum, row) => sum + Number(row.publications || 0) + Number(row.joined || 0) + Number(row.responses || 0) + Number(row.bookings || 0), 0)
@@ -81,6 +83,7 @@ export async function getDashboardSnapshot(userId: string): Promise<DashboardSna
     bookingGoal: { completed: reportSnapshot?.bookingGoal.completed ?? completedBookings, target: dailyGoal },
     monthlyBookingGoal,
     focusDirections,
+    enabledPlatforms: enabledPlatforms.length ? enabledPlatforms : ['telegram', 'whatsapp', 'viber', 'facebook'],
     platforms,
   };
 }

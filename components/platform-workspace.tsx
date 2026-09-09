@@ -23,7 +23,7 @@ const queues: Array<{key:Queue;label:string}> = [
   {key:'ready',label:'Для публікації'}, {key:'archived',label:'Архів'},
 ];
 
-export function PlatformWorkspace() {
+export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: string[] }) {
   const router = useRouter();
   const [platform,setPlatform] = useState<Platform>('telegram');
   const [queue,setQueue] = useState<Queue>('to_join');
@@ -39,6 +39,8 @@ export function PlatformWorkspace() {
   const [manageAccounts,setManageAccounts] = useState(false);
   const [newAccountName,setNewAccountName] = useState('');
   const [clock,setClock] = useState(()=>Date.now());
+  const availablePlatforms = useMemo(() => platforms.filter((item) => !enabledPlatforms || enabledPlatforms.includes(item.key)), [enabledPlatforms]);
+  useEffect(() => { if (!availablePlatforms.some((item) => item.key === platform) && availablePlatforms[0]) { setPlatform(availablePlatforms[0].key); setQueue('to_join'); setOffset(0); } }, [availablePlatforms, platform]);
 
   const loadAccounts=useCallback(async()=>{
     const response=await fetch('/api/telegram-accounts',{cache:'no-store'});
@@ -107,7 +109,7 @@ export function PlatformWorkspace() {
     <section className="platform-hero">
       <div><p className="eyebrow">Робочі платформи</p><h2>Чати без зайвих переходів</h2><p>Приєднуйся, перевіряй очікування та відмічай публікації в одному стабільному процесі.</p></div>
       <div className="platform-picker" role="tablist" aria-label="Платформа">
-        {platforms.map(item=><button key={item.key} role="tab" aria-selected={platform===item.key} onClick={()=>{setPlatform(item.key);setQueue('to_join');setOffset(0)}}><i style={{background:item.color}} />{item.label}</button>)}
+        {availablePlatforms.map(item=><button key={item.key} role="tab" aria-selected={platform===item.key} onClick={()=>{setPlatform(item.key);setQueue('to_join');setOffset(0)}}><i style={{background:item.color}} />{item.label}</button>)}
       </div>
     </section>
 
