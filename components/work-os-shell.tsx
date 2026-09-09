@@ -18,6 +18,7 @@ import { AnalyticsWorkspace } from '@/components/analytics-workspace';
 import { ReportsWorkspace } from '@/components/reports-workspace';
 import { LibraryWorkspace } from '@/components/library-workspace';
 import { TodaySettingsDialog } from '@/components/today-settings-dialog';
+import { SettingsWorkspace } from '@/components/settings-workspace';
 import { GlobalTimers } from '@/components/global-timers';
 import { useRouter } from 'next/navigation';
 import type { DashboardSnapshot } from '@/lib/dashboard';
@@ -35,6 +36,7 @@ const navigation = [
   { key: 'analytics', label: 'Аналітика', icon: BarChart3 },
   { key: 'reports', label: 'Звіти', icon: FileText },
   { key: 'library', label: 'Бібліотека', icon: BookOpenText },
+  { key: 'settings', label: 'Налаштування', icon: Settings },
 ] as const;
 
 export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
@@ -68,7 +70,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
         </nav>
 
         <div className="sidebar-bottom">
-          <button className="nav-item" type="button" title={collapsed ? 'Налаштування' : undefined}>
+          <button className="nav-item" type="button" title={collapsed ? 'Налаштування' : undefined} aria-current={activeView === 'settings' ? 'page' : undefined} onClick={() => { setActiveView('settings'); setMobileOpen(false); }}>
             <Settings />{!collapsed && <span>Налаштування</span>}
           </button>
           <button className="collapse-button" type="button" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? 'Розгорнути меню' : 'Згорнути меню'}>
@@ -133,7 +135,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
             <div><p className="eyebrow">Доступ</p><h2 id="status-title">Хмарний профіль активний</h2><p>Цей екран доступний із будь-якого пристрою після входу.</p></div>
             <CloudBackupButton />
           </section>
-        </div> : activeView === 'platforms' ? <PlatformWorkspace /> : activeView === 'leads' ? <LeadsWorkspace key={user.email} account={user.email} /> : activeView === 'analytics' ? <AnalyticsWorkspace /> : activeView === 'reports' ? <ReportsWorkspace /> : activeView === 'library' ? <LibraryWorkspace /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
+        </div> : activeView === 'platforms' ? <PlatformWorkspace /> : activeView === 'leads' ? <LeadsWorkspace key={user.email} account={user.email} /> : activeView === 'analytics' ? <AnalyticsWorkspace /> : activeView === 'reports' ? <ReportsWorkspace /> : activeView === 'library' ? <LibraryWorkspace /> : activeView === 'settings' ? <SettingsWorkspace user={user} snapshot={snapshot} onRefresh={() => router.refresh()} /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
 
         <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
           {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => <button type="button" aria-current={activeView === key ? 'page' : undefined} key={key} onClick={() => setActiveView(key)}><Icon /><span>{label}</span></button>)}
