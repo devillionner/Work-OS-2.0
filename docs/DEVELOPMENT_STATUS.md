@@ -25,6 +25,9 @@
   platform comparison and per-chat publication/response/booking conversion table.
 - Reports workspace: month calendar, day selection, report editing/creation, event
   summary for the selected day and revision intensity (migration 0016).
+- Library workspace: searchable advertisements and scripts with separate Ukrainian
+  and Russian versions, notes/tags/platforms, archive action and schema-5 backup
+  coverage (migration 0017).
 
 ## Validation
 
@@ -69,7 +72,7 @@
    export schema-5 cloud backup and rehearse restoration in an empty staging DB,
    comparing every field and checking foreign keys (see `LEADS_PR6_REVIEW.md`).
 5. Keep Prototype Checker available until these operational checks pass.
-6. Run the focused Analytics and Reports browser pass and reconcile their numbers
-   against the restored staging backup. Library remains intentionally unconnected.
+6. Run the focused Analytics, Reports and Library browser pass and reconcile their
+   numbers/materials against the restored staging backup.
 
 PR #6 stays **draft**: ready for staging validation, not yet approved for merge.
