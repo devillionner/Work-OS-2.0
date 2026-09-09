@@ -286,6 +286,21 @@ button { color: inherit; }
 .settings-inline-notice { color: #087443; font-size: 11px; }
 .cloud-backup-action { display: grid; justify-items: end; gap: 5px; margin-left: auto; }
 .cloud-backup-action small { max-width: 260px; color: #b42318; font-size: 11px; text-align: right; }
+.settings-backup-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.settings-backup-actions .cloud-backup-action { margin-left: 0; }
+.restore-dialog { max-width: 720px; }
+.restore-validation { display: flex; align-items: flex-start; gap: 10px; padding: 13px; border: 1px solid #f5c2c0; border-radius: 12px; background: #fff5f5; color: #8d1a14; }
+.restore-validation.is-valid { border-color: #b7e3cc; background: #f0fbf5; color: #087443; }
+.restore-validation svg { width: 19px; height: 19px; flex: 0 0 auto; }
+.restore-validation strong, .restore-validation p { display: block; margin: 0; }
+.restore-validation p { margin-top: 3px; font-size: 12px; color: #626977; }
+.restore-preview { display: grid; gap: 12px; }
+.restore-comparison { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; }
+.restore-comparison > div { display: grid; grid-template-columns: minmax(150px,1fr) 80px 80px; align-items: center; min-height: 38px; padding: 0 12px; border-top: 1px solid var(--border); font-size: 12px; }
+.restore-comparison > div:first-child { border-top: 0; }
+.restore-comparison-head { background: #f7f8fa; color: #7c8390; font-size: 10px !important; font-weight: 750; text-transform: uppercase; }
+.restore-note { display: flex; align-items: flex-start; gap: 8px; margin: 0; color: #8a5200; font-size: 12px; }
+.restore-note svg { width: 17px; height: 17px; flex: 0 0 auto; }
 .mobile-bottom-nav { display: none; }
 
 .platform-workspace { max-width: 1400px; display: grid; gap: 18px; margin: 0 auto; padding: clamp(22px,4vw,54px); }

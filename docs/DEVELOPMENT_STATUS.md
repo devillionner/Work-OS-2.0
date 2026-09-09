@@ -34,6 +34,9 @@
 - Settings workspace: cloud backup action, account visibility, and owner-scoped
   active-platform toggles. Disabled platforms are hidden from the posting picker
   without deleting chats, events, or historical analytics.
+- Cloud backup restore preview: local and server-side schema/count/ownership/key/
+  relationship validation, read-only comparison with the current D1 revision and
+  backward compatibility for schema-5 backups created before the library module.
 
 ## Validation
 
@@ -63,6 +66,8 @@
   existing pending request and cancels its provisional event atomically, avoiding
   double-counting alongside the real booking. Existing pending requests can also
   be cancelled with a reason, preserving their historical events.
+- Restore preview is deliberately read-only. Applying a backup still requires a
+  separately reviewed staging/import job; the UI cannot overwrite D1 directly.
 
 ## Next — staging and product gate
 

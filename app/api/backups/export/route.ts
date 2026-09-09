@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 
 import { BACKUP_TABLES as TABLES, type BackupTable, backupManifest, backupPage, BackupConflict } from '@/lib/backups/export';
+import { CLOUD_BACKUP_APP, CLOUD_BACKUP_SCHEMA_VERSION } from '@/lib/backups/inspect';
 
 export async function GET(request: Request): Promise<Response> {
   const user = await getCurrentUser();
@@ -41,7 +42,7 @@ async function manifest(userId: string, email: string): Promise<Response> {
   const { counts, revision } = await backupManifest(env.DB,userId);
   const last = await env.DB.prepare(`SELECT sha256,byte_size,record_counts_json,created_at FROM backup_exports WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 1`).bind(userId).first();
   return Response.json({
-    app: 'work-os-cloud-backup', schemaVersion: 5, ownerEmail: email, ownerId: userId, revision,
+    app: CLOUD_BACKUP_APP, schemaVersion: CLOUD_BACKUP_SCHEMA_VERSION, ownerEmail: email, ownerId: userId, revision,
     createdAt: new Date().toISOString(), tables: TABLES, counts, lastBackup: last || null,
   }, { headers: { 'Cache-Control': 'no-store' } });
 }
