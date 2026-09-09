@@ -37,6 +37,9 @@
 - Cloud backup restore preview: local and server-side schema/count/ownership/key/
   relationship validation, read-only comparison with the current D1 revision and
   backward compatibility for schema-5 backups created before the library module.
+- Cloud restore staging: validated backups are stored outside working tables in
+  bounded, per-table chunks with SHA-256 checksums; staging survives reloads and
+  records both the source revision and current D1 revision without applying data.
 
 ## Validation
 

@@ -26,15 +26,18 @@ export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
-  const body = await request.json().catch(() => ({})) as { sha256?: unknown; byteSize?: unknown; counts?: unknown };
+  const body = await request.json().catch(() => ({})) as { sha256?: unknown; byteSize?: unknown; counts?: unknown; revision?: unknown };
   const sha256 = typeof body.sha256 === 'string' ? body.sha256.toLowerCase() : '';
   const byteSize = Number(body.byteSize);
-  if (!/^[a-f0-9]{64}$/.test(sha256) || !Number.isInteger(byteSize) || byteSize <= 0 || !body.counts || typeof body.counts !== 'object') {
+  const revision = Number(body.revision);
+  if (!/^[a-f0-9]{64}$/.test(sha256) || !Number.isInteger(byteSize) || byteSize <= 0 || !Number.isSafeInteger(revision) || revision < 0 || !body.counts || typeof body.counts !== 'object') {
     return Response.json({ error: 'Некоректні дані резервної копії.' }, { status: 400 });
   }
   const id = crypto.randomUUID();
   const createdAt = Math.floor(Date.now() / 1000);
-  await env.DB.prepare(`INSERT INTO backup_exports (id,user_id,sha256,byte_size,record_counts_json,created_at) VALUES (?1,?2,?3,?4,?5,?6)`).bind(id,user.id,sha256,byteSize,JSON.stringify(body.counts),createdAt).run();
+  const current = await backupManifest(env.DB,user.id);
+  if (current.revision !== revision) return Response.json({ error: 'Дані змінилися до підтвердження копії. Створи її ще раз.' }, { status: 409 });
+  await env.DB.prepare(`INSERT INTO backup_exports (id,user_id,sha256,byte_size,record_counts_json,created_at,revision) VALUES (?1,?2,?3,?4,?5,?6,?7)`).bind(id,user.id,sha256,byteSize,JSON.stringify(body.counts),createdAt,revision).run();
   return Response.json({ ok: true, id, createdAt });
 }
 

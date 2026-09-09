@@ -43,7 +43,7 @@ export function CloudBackupButton() {
       });
       const bytes = new TextEncoder().encode(payload);
       const hash = await sha256Hex(bytes);
-      await postAudit(hash, bytes.byteLength, manifest.counts);
+      await postAudit(hash, bytes.byteLength, manifest.counts, manifest.revision);
       setProgress(100);
       saveFile(payload, `work-os-backup_${manifest.createdAt.slice(0, 10)}_${manifest.createdAt.slice(11, 19).replaceAll(':', '-')}.json`);
       setDone(true);
@@ -66,8 +66,8 @@ async function getJson<T>(url: string): Promise<T> {
   if (!response.ok) throw new Error(result.error || 'Помилка отримання даних.');
   return result;
 }
-async function postAudit(sha256: string, byteSize: number, counts: Record<string, number>) {
-  const response = await fetch('/api/backups/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sha256, byteSize, counts }) });
+async function postAudit(sha256: string, byteSize: number, counts: Record<string, number>, revision: number) {
+  const response = await fetch('/api/backups/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sha256, byteSize, counts, revision }) });
   if (!response.ok) { const result = await response.json() as { error?: string }; throw new Error(result.error || 'Не вдалося підтвердити копію.'); }
 }
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
