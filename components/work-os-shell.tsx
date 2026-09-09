@@ -86,7 +86,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           <button className="mobile-menu" type="button" aria-label="Відкрити меню" onClick={() => setMobileOpen(true)}><Menu /></button>
           <div><p className="eyebrow">{todayLabel()}</p><h1>{activeLabel}</h1></div>
           <div className="account-block">
-            <GlobalTimers />
+            <GlobalTimers enabledPlatforms={snapshot.enabledPlatforms} />
             <div className="account-copy"><strong>{user.displayName}</strong><span>{user.email}</span></div>
             <Avatar><AvatarFallback>{initials(user.displayName)}</AvatarFallback></Avatar>
             <form method="post" action={signOutPath}>
@@ -123,10 +123,10 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           </section>
 
           <section className="platform-card" aria-labelledby="platform-title">
-            <div className="card-heading"><div><p className="eyebrow">Платформи</p><h2 id="platform-title">Результат сьогодні</h2></div><Button variant="ghost" size="sm">Відкрити всі</Button></div>
+            <div className="card-heading"><div><p className="eyebrow">Платформи</p><h2 id="platform-title">Результат сьогодні</h2></div><Button variant="ghost" size="sm" onClick={() => setActiveView('platforms')}>Відкрити платформи</Button></div>
             <div className="platform-table">
               <div className="platform-table-head"><span>Платформа</span><span>Публікації</span><span>Нові чати</span><span>Відгуки</span><span>Записи</span></div>
-              {snapshot.platforms.map((platform) => <div className="platform-row" key={platform.key}><span className="platform-name"><i style={{ background: platform.color }} />{platform.name}</span><strong>{platform.publications}</strong><strong>{platform.joined}</strong><strong>{platform.responses}</strong><strong>{platform.bookings}</strong></div>)}
+              {snapshot.platforms.filter((platform) => snapshot.enabledPlatforms.includes(platform.key)).map((platform) => <div className="platform-row" key={platform.key}><span className="platform-name"><i style={{ background: platform.color }} />{platform.name}</span><strong>{platform.publications}</strong><strong>{platform.joined}</strong><strong>{platform.responses}</strong><strong>{platform.bookings}</strong></div>)}
             </div>
           </section>
 

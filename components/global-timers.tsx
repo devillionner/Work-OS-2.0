@@ -8,7 +8,7 @@ type TimerItem={id:string;label:string;platform:string|null;telegramAccountId:st
 type Platform='telegram'|'whatsapp'|'viber'|'facebook'|'general';
 const platformOptions:Array<{key:Platform;label:string}>=[{key:'telegram',label:'Telegram'},{key:'whatsapp',label:'WhatsApp'},{key:'viber',label:'Viber'},{key:'facebook',label:'Facebook'},{key:'general',label:'Загальний'}];
 
-export function GlobalTimers() {
+export function GlobalTimers({ enabledPlatforms }: { enabledPlatforms: string[] }) {
   const [open,setOpen]=useState(false);
   const [timers,setTimers]=useState<TimerItem[]>([]);
   const [platform,setPlatform]=useState<Platform>('telegram');
@@ -18,6 +18,18 @@ export function GlobalTimers() {
   const [busy,setBusy]=useState(false);
   const announced=useRef(new Set<string>());
   const audioContext=useRef<AudioContext|null>(null);
+  const availablePlatformOptions=useMemo(
+    ()=>platformOptions.filter(item=>item.key==='general'||enabledPlatforms.includes(item.key)),
+    [enabledPlatforms],
+  );
+
+  useEffect(()=>{
+    if(!availablePlatformOptions.some(item=>item.key===platform)){
+      const fallback=availablePlatformOptions.find(item=>item.key!=='general')?.key||'general';
+      setPlatform(fallback);
+      if(fallback==='telegram')setDuration(15);
+    }
+  },[availablePlatformOptions,platform]);
 
   const load=useCallback(async()=>{
     const response=await fetch('/api/timers',{cache:'no-store'});
@@ -62,7 +74,7 @@ export function GlobalTimers() {
     <button className={`timer-trigger ${completed.length?'has-alert':''}`} type="button" aria-expanded={open} onClick={()=>void toggleOpen()}><Clock3/><span>{nearest?formatDuration(nearest.endsAt-now):'Таймери'}</span>{timers.length>0&&<b>{timers.length}</b>}<ChevronDown/></button>
     {open&&<section className="timer-popover" aria-label="Таймери">
       <header><div><p className="eyebrow">Завжди під рукою</p><h2>Таймери</h2></div><button type="button" aria-label="Закрити" onClick={()=>setOpen(false)}><X/></button></header>
-      <div className="timer-create"><label>Для<select value={platform} onChange={event=>{const next=event.target.value as Platform;setPlatform(next);if(next==='telegram')setDuration(15)}}>{platformOptions.map(item=><option value={item.key} key={item.key}>{item.label}</option>)}</select></label><div className="timer-durations" aria-label="Тривалість">{[5,10,15].map(value=><button type="button" aria-pressed={duration===value} onClick={()=>setDuration(value)} disabled={platform==='telegram'&&value!==15} key={value}>{value} хв</button>)}</div><Button size="sm" onClick={start} disabled={busy}><Plus data-icon="inline-start"/>Запустити</Button></div>
+      <div className="timer-create"><label>Для<select value={platform} onChange={event=>{const next=event.target.value as Platform;setPlatform(next);if(next==='telegram')setDuration(15)}}>{availablePlatformOptions.map(item=><option value={item.key} key={item.key}>{item.label}</option>)}</select></label><div className="timer-durations" aria-label="Тривалість">{[5,10,15].map(value=><button type="button" aria-pressed={duration===value} onClick={()=>setDuration(value)} disabled={platform==='telegram'&&value!==15} key={value}>{value} хв</button>)}</div><Button size="sm" onClick={start} disabled={busy}><Plus data-icon="inline-start"/>Запустити</Button></div>
       {error&&<p className="timer-error">{error}</p>}
       <div className="timer-list">{completed.map(timer=><TimerRow timer={timer} now={now} completed onDismiss={()=>dismiss(timer.id)} key={timer.id}/>)}{running.map(timer=><TimerRow timer={timer} now={now} onDismiss={()=>dismiss(timer.id)} key={timer.id}/>)}{!timers.length&&<div className="timer-empty"><TimerReset/><span>Активних таймерів немає</span></div>}</div>
       <footer>Працюють після переходів і перезавантаження сторінки. Звук — коли застосунок відкритий.</footer>
