@@ -4,22 +4,25 @@ This runbook is the release gate for PR #6. It is intentionally staging-only.
 
 ## Non-negotiable safety rule
 
-`wrangler.jsonc` currently binds `DB` to the production database (`work-os-production`).
-Do **not** run remote D1 migration/execute commands against the default config while validating PR #6.
+`wrangler.jsonc` is now safe-by-default for PR validation: the top-level Worker is `work-os-2-staging` and its `DB` binding has no production database ID. Cloudflare/Wrangler may provision an isolated staging D1 resource for that binding on the first staging deploy.
+
+Production is available only through the explicit `production` Cloudflare environment, whose Worker is `work-os-2` and whose `DB` binding is `work-os-production` (`dbe3fce7-5c0c-4ae4-9497-dc236a4e8141`). Because this project uses the Cloudflare Vite plugin, production must be selected at build time with `CLOUDFLARE_ENV=production`; do not set that variable during PR #6 staging validation.
+
 Production must remain untouched until an explicit cutover approval.
 
-A staging validation run must use a separately identified Cloudflare D1 database and a separately reachable staging/preview deployment. Record the staging database name + ID before any write.
+A staging validation run must use a separately identified Cloudflare D1 database and a separately reachable staging/preview deployment. Record the staging database name + ID before any data migration or restore write.
 
 ## Gate 0 — identify staging resources
 
 Before any migration:
 
 1. Confirm the Cloudflare account is the expected Work OS account.
-2. Identify or create an isolated staging D1 database.
-3. Record its database name and ID in the validation notes.
-4. Confirm it is **not** `work-os-production` and its ID is **not** `dbe3fce7-5c0c-4ae4-9497-dc236a4e8141`.
-5. Confirm the staging worker/preview binds `DB` to that staging database only.
-6. Stop immediately if any command resolves to the production database.
+2. Build/deploy the default staging configuration only; do not select `production`.
+3. Identify the isolated D1 resource provisioned/bound to `work-os-2-staging`.
+4. Record its database name and ID in the validation notes.
+5. Confirm it is **not** `work-os-production` and its ID is **not** `dbe3fce7-5c0c-4ae4-9497-dc236a4e8141`.
+6. Confirm the staging Worker binds `DB` to that staging database only.
+7. Stop immediately if any command resolves to the production database.
 
 ## Gate 1 — source snapshot and baseline
 
