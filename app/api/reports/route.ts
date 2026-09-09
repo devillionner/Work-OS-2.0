@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 
-type ReportRow = { id: string; report_date: string; report_text: string; submitted_at: number | null; updated_at: number };
+type ReportRow = { id: string; report_date: string; report_text: string; submitted_at: number | null; updated_at: number; revision_count: number };
 
 export async function GET(request: Request): Promise<Response> {
   const user = await getCurrentUser();
@@ -12,8 +12,8 @@ export async function GET(request: Request): Promise<Response> {
   const start = `${month}-01`;
   const end = shiftMonth(start, 1);
   const [reportsResult, selectedResult] = await env.DB.batch([
-    env.DB.prepare(`SELECT id,report_date,report_text,submitted_at,updated_at FROM daily_reports WHERE user_id=?1 AND report_date>=?2 AND report_date<?3 ORDER BY report_date`).bind(user.id, start, end),
-    env.DB.prepare(`SELECT id,report_date,report_text,submitted_at,updated_at FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`).bind(user.id, validDate(date) ? date : start),
+    env.DB.prepare(`SELECT id,report_date,report_text,submitted_at,updated_at,revision_count FROM daily_reports WHERE user_id=?1 AND report_date>=?2 AND report_date<?3 ORDER BY report_date`).bind(user.id, start, end),
+    env.DB.prepare(`SELECT id,report_date,report_text,submitted_at,updated_at,revision_count FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`).bind(user.id, validDate(date) ? date : start),
   ]);
   const selected = selectedResult.results[0] as ReportRow | undefined;
   const selectedDate = selected?.report_date || (validDate(date) && date!.startsWith(month) ? date : null);
@@ -34,12 +34,12 @@ export async function POST(request: Request): Promise<Response> {
   const submittedAt = body.submitted === false ? null : now;
   await env.DB.prepare(`INSERT INTO daily_reports (id,user_id,report_date,report_text,payload_json,submitted_at,updated_at,source_import_id)
     VALUES (?1,?2,?3,?4,?5,?6,?7,NULL)
-    ON CONFLICT(user_id,report_date) DO UPDATE SET report_text=excluded.report_text,payload_json=excluded.payload_json,submitted_at=excluded.submitted_at,updated_at=excluded.updated_at,source_import_id=NULL
+    ON CONFLICT(user_id,report_date) DO UPDATE SET report_text=excluded.report_text,payload_json=excluded.payload_json,submitted_at=excluded.submitted_at,updated_at=excluded.updated_at,revision_count=COALESCE(daily_reports.revision_count,1)+1,source_import_id=NULL
     WHERE daily_reports.user_id=excluded.user_id`).bind(id, user.id, date, text, JSON.stringify({ source: 'manual', updatedAt: now }), submittedAt, now).run();
   return Response.json({ ok: true, report: { id, date, text, submittedAt, updatedAt: now } });
 }
 
-function publicReport(row: ReportRow) { return { id: row.id, date: row.report_date, text: row.report_text, submittedAt: row.submitted_at, updatedAt: row.updated_at }; }
+function publicReport(row: ReportRow) { return { id: row.id, date: row.report_date, text: row.report_text, submittedAt: row.submitted_at, updatedAt: row.updated_at, revisionCount: Number(row.revision_count || 1) }; }
 
 async function eventSummary(userId: string, date: string) {
   const result = await env.DB.prepare(`SELECT COALESCE(e.platform,l.platform,c.platform) AS platform,e.event_type,COUNT(*) AS count

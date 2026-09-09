@@ -373,6 +373,8 @@ button { color: inherit; }
 .report-day.is-selected { border-color: var(--primary); box-shadow: 0 0 0 2px #dfe5ff; }
 .report-day.has-report { background: #e6ebff; color: #2445cf; }
 .report-day.is-submitted { background: #3157f6; color: #fff; }
+.report-day.is-revised { background: #2445cf; color: #fff; }
+.report-day.is-revised-heavy { background: #172b95; color: #fff; }
 .report-day i { position: absolute; right: 6px; bottom: 6px; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .reports-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 16px; color: #737a88; font-size: 11px; }
 .reports-legend span { display: inline-flex; align-items: center; gap: 5px; }
