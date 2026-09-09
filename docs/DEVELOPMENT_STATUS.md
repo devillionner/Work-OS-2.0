@@ -21,6 +21,8 @@
 - PR #6 hardening: additive migration 0015, restorable receipts, curator cancellation/
   race guard, stale-form and retry protection, unknown-date preservation, expired
   reminders, Kyiv timezone database offsets and Ukrainian name search.
+- Read-only Analytics workspace: selectable 7/30/90-day window, event-derived funnel,
+  platform comparison and per-chat publication/response/booking conversion table.
 
 ## Validation
 
@@ -32,9 +34,10 @@
   events/historical metrics, message export, ownership, request validation and DST.
 - Migration test uses a **synthetic** 24/5/9 fixture plus a historical event;
   it is not a production database inspection or reconciliation.
-- Visual browser QA could not run: this environment's browser blocked the local
-  preview URL. Responsive desktop/mobile and keyboard smoke tests remain required
-  in a reachable authenticated preview. Do not describe visual QA as passed.
+- Authenticated browser QA passed on the reachable staging preview for Today,
+  Platforms and Leads on desktop/mobile, including navigation, Telegram account
+  selection, queue/search behavior and lead detail loading. Analytics still needs
+  a focused visual pass after this change.
 
 ## Partial / deliberate limits
 
@@ -50,7 +53,7 @@
   double-counting alongside the real booking. Existing pending requests can also
   be cancelled with a reason, preserving their historical events.
 
-## Next — Leads cutover gate
+## Next — staging and product gate
 
 1. Review the PR and take a full current D1 backup; retain the original immutable
    Prototype backup referenced in `CUTOVER-2026-09-04.md`.
@@ -64,7 +67,7 @@
    export schema-5 cloud backup and rehearse restoration in an empty staging DB,
    comparing every field and checking foreign keys (see `LEADS_PR6_REVIEW.md`).
 5. Keep Prototype Checker available until these operational checks pass.
-
-Do not start Today, Reports, Analytics or Library while these Leads gates remain.
+6. Run the focused Analytics browser pass and reconcile its funnel numbers against
+   the restored staging backup. Reports and Library remain intentionally unconnected.
 
 PR #6 stays **draft**: ready for staging validation, not yet approved for merge.
