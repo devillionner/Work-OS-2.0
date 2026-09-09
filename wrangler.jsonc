@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "work-os-2",
+  "name": "work-os-2-staging",
   "account_id": "2b21a330cb23ad0163a2941035b859e4",
   "compatibility_date": "2026-09-02",
   "compatibility_flags": ["nodejs_compat"],
@@ -16,9 +16,23 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "work-os-production",
-      "database_id": "dbe3fce7-5c0c-4ae4-9497-dc236a4e8141",
       "migrations_dir": "migrations"
     }
-  ]
+  ],
+  "env": {
+    "production": {
+      "name": "work-os-2",
+      "vars": {
+        "GOOGLE_CLIENT_ID": "561363942798-9mstg6gobqokq0iobdq36s5lh441j3ah.apps.googleusercontent.com"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "work-os-production",
+          "database_id": "dbe3fce7-5c0c-4ae4-9497-dc236a4e8141",
+          "migrations_dir": "migrations"
+        }
+      ]
+    }
+  }
 }
