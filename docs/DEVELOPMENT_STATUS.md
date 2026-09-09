@@ -28,6 +28,9 @@
 - Library workspace: searchable advertisements and scripts with separate Ukrainian
   and Russian versions, notes/tags/platforms, archive action and schema-5 backup
   coverage (migration 0017).
+- Today focus controls: persisted daily/monthly booking goals and grouped focus
+  directions (including Logopediya/defectology and IT/chess) with a real settings
+  dialog and owner-scoped settings API.
 
 ## Validation
 
