@@ -219,6 +219,8 @@ button { color: inherit; }
 .focus-heading h2, .card-heading h2, .status-card h2 { margin: 0; letter-spacing: -.025em; }
 .focus-heading h2 { font-size: clamp(25px, 3vw, 35px); }
 .focus-heading p:not(.eyebrow) { margin: 9px 0 0; color: #666c78; }
+.focus-direction-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.focus-empty-note { font-size: 12px !important; color: #9a6a00 !important; }
 .focus-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; }
 .goal-card, .queue-card, .platform-card { padding: 24px; }
 .card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 22px; }
@@ -244,6 +246,17 @@ button { color: inherit; }
 .status-card p:not(.eyebrow) { margin: 6px 0 0; color: #757b87; font-size: 12px; }
 .status-icon { width: 44px; height: 44px; display: grid; place-items: center; flex: 0 0 44px; border-radius: 13px; background: #edf1ff; color: #3157f6; }
 .status-icon svg { width: 22px; }
+.goal-month-note { margin: 5px 0 0; color: #858b96; font-size: 11px; }
+.settings-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgb(15 18 25 / .62); backdrop-filter: blur(4px); }
+.today-settings-dialog { width: min(620px,100%); max-height: calc(100svh - 40px); overflow: auto; padding: 24px; border: 1px solid #d9dde7; border-radius: 18px; background: #fff; box-shadow: 0 24px 80px rgb(15 18 25 / .24); }
+.today-settings-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.today-settings-dialog label, .today-settings-dialog legend { color: #565d6b; font-size: 12px; font-weight: 700; }
+.today-settings-dialog label { display: grid; gap: 6px; }
+.today-settings-dialog fieldset { margin: 20px 0 0; padding: 14px; border: 1px solid var(--border); border-radius: 12px; }
+.direction-checks { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: 12px; }
+.direction-checks label { display: flex; align-items: center; gap: 8px; color: #343946; font-size: 12px; font-weight: 500; }
+.direction-checks input { accent-color: var(--primary); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .cloud-backup-action { display: grid; justify-items: end; gap: 5px; margin-left: auto; }
 .cloud-backup-action small { max-width: 260px; color: #b42318; font-size: 11px; text-align: right; }
 .mobile-bottom-nav { display: none; }
@@ -438,6 +451,8 @@ button { color: inherit; }
   .focus-heading { display: grid; }
   .focus-actions { display: grid; grid-template-columns: 1fr; }
   .focus-actions button { width: 100%; }
+  .today-settings-dialog { padding: 19px 16px; }
+  .today-settings-fields, .direction-checks { grid-template-columns: 1fr; }
   .goal-card, .queue-card, .platform-card { padding: 19px 16px; }
   .platform-table-head, .platform-row { grid-template-columns: minmax(90px, 1fr) repeat(4, 52px); padding: 0 10px; }
   .platform-table-head { font-size: 8px; }

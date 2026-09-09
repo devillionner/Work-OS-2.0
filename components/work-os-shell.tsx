@@ -17,7 +17,9 @@ import { LeadsWorkspace } from '@/components/leads/workspace';
 import { AnalyticsWorkspace } from '@/components/analytics-workspace';
 import { ReportsWorkspace } from '@/components/reports-workspace';
 import { LibraryWorkspace } from '@/components/library-workspace';
+import { TodaySettingsDialog } from '@/components/today-settings-dialog';
 import { GlobalTimers } from '@/components/global-timers';
+import { useRouter } from 'next/navigation';
 import type { DashboardSnapshot } from '@/lib/dashboard';
 
 type WorkOsShellProps = {
@@ -39,6 +41,8 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [todaySettingsOpen, setTodaySettingsOpen] = useState(false);
+  const router = useRouter();
   const [activeView, setActiveView] = useState<(typeof navigation)[number]['key']>('today');
   const activeLabel = navigation.find((item) => item.key === activeView)?.label || 'Сьогодні';
 
@@ -92,17 +96,17 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
         {activeView === 'today' ? <div className="dashboard-grid">
           <section className="focus-card" aria-labelledby="focus-title">
             <div className="focus-heading">
-              <div><p className="eyebrow">Фокус дня</p><h2 id="focus-title">Дані на місці. Будуємо швидкий робочий процес</h2><p>{snapshot.chats} активних чатів і {snapshot.leads} лідів уже доступні у хмарній базі.</p></div>
+              <div><p className="eyebrow">Фокус дня</p><h2 id="focus-title">Дані на місці. Будуємо швидкий робочий процес</h2><p>{snapshot.chats} активних чатів і {snapshot.leads} лідів уже доступні у хмарній базі.</p>{snapshot.focusDirections.length ? <div className="focus-direction-list">{snapshot.focusDirections.map((direction) => <Badge variant="secondary" key={direction}>{direction}</Badge>)}</div> : <p className="focus-empty-note">Фокус напрямків ще не налаштований.</p>}</div>
               <Badge variant="outline">{snapshot.lastPrototypeSync ? `Оновлено ${formatSyncTime(snapshot.lastPrototypeSync.completedAt)}` : 'Безпечний старт'}</Badge>
             </div>
             <div className="focus-actions">
               <Button size="lg" onClick={() => setImportOpen(true)}><Archive data-icon="inline-start" />Оновити з Prototype Checker</Button>
-              <Button size="lg" variant="outline"><Target data-icon="inline-start" />Налаштувати ціль</Button>
+              <Button size="lg" variant="outline" onClick={() => setTodaySettingsOpen(true)}><Target data-icon="inline-start" />Налаштувати ціль</Button>
             </div>
           </section>
 
           <section className="goal-card" aria-labelledby="goal-title">
-            <div className="card-heading"><div><p className="eyebrow">Ціль на день</p><h2 id="goal-title">Записи</h2></div>{snapshot.reportSubmittedAt ? <Badge variant="secondary">Звіт зафіксовано</Badge> : <button className="text-action" type="button">Змінити</button>}</div>
+            <div className="card-heading"><div><p className="eyebrow">Ціль на день</p><h2 id="goal-title">Записи</h2><p className="goal-month-note">Місячна ціль: {snapshot.monthlyBookingGoal}</p></div>{snapshot.reportSubmittedAt ? <Badge variant="secondary">Звіт зафіксовано</Badge> : <button className="text-action" type="button" onClick={() => setTodaySettingsOpen(true)}>Змінити</button>}</div>
             <Progress value={Math.min(100, snapshot.bookingGoal.completed / Math.max(1, snapshot.bookingGoal.target) * 100)} className="goal-progress"><ProgressLabel>Виконано</ProgressLabel><ProgressValue>{() => `${snapshot.bookingGoal.completed} із ${snapshot.bookingGoal.target}`}</ProgressValue></Progress>
             <p className="muted-note">{snapshot.pendingAfterReport ? `Після звіту з’явилося ${snapshot.pendingAfterReport} нових подій — звіт потребує оновлення.` : snapshot.reportSubmittedAt ? 'Показники відповідають останньому зданому звіту.' : 'Показники рахуються з робочих подій у реальному часі.'}</p>
           </section>
@@ -135,6 +139,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => <button type="button" aria-current={activeView === key ? 'page' : undefined} key={key} onClick={() => setActiveView(key)}><Icon /><span>{label}</span></button>)}
         </nav>
         <LegacyImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
+        <TodaySettingsDialog open={todaySettingsOpen} onClose={() => setTodaySettingsOpen(false)} initialDirections={snapshot.focusDirections} initialDailyGoal={snapshot.bookingGoal.target} initialMonthlyGoal={snapshot.monthlyBookingGoal} onSaved={() => router.refresh()} />
       </main>
     </div>
   );
