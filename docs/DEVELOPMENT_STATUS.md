@@ -44,6 +44,15 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 - `npm run verify` passed: lint, 82/82 local tests and build, including 11 bulk-add
   and 3 profile-editor regressions. Linux CI is checked after push. No production deployment.
 
+## Chat history surface
+
+- Added an on-demand, owner-scoped history endpoint and dialog. It reads up to 50
+  newest chat events with Kyiv-local timestamps and Ukrainian labels for state
+  transitions, joins, publications and profile changes. The read path is strictly
+  read-only and does not alter backup revisions or business totals.
+- The workspace exposes «Історія» on each chat row. Lead/lesson/report history,
+  older imported event rendering and full workspace/Safari acceptance remain open.
+
 ## Profile editor follow-up
 
 - Added a manual profile form to waiting/ready chat rows. It edits the chat name,
