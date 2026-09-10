@@ -13,7 +13,32 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 - Cloudflare Workers Builds triggers checked read-only on 2026-09-10: both
   work-os-2 and work-os-2-staging returned no triggers. No D1 reads/writes used.
 
-## Current iteration: calendar snooze and event totals
+## Current iteration: guarded chat transitions
+
+- All manual chat actions carry the displayed state token. Writes recheck it in
+  the D1 transaction, including same-second archive/restore and snooze/resume
+  cycles. Conflicts refresh the list without replaying the rejected action.
+- Joining, waiting, approval, failure, archive, restore, WhatsApp return and
+  Telegram reassignment now share a tested transition module. Approval starts
+  the six-hour Telegram wait at the actual confirmation time.
+- A successful state change adds an audit event atomically. Failed writes or
+  stale actions add no history, metric or Telegram streak increment. Daily join
+  metrics stay unique even when the existing event came from a legacy snapshot.
+- Publication also checks the displayed version and an enabled, owned Telegram
+  account. Reassignment preserves archive details and historical attribution.
+- The joined-today link list reads events and survives archive/restore/account
+  changes. State-token reads use the existing chat event index and never write.
+- Client writes are serialized; superseded list requests are aborted/ignored.
+  Failed loads clear old rows and offer an explicit retry. Telegram join counters
+  refresh after a successful chat action.
+- No SQL migration, remote D1 test, restore drill, deploy or Prototype change.
+  New API requires stateToken; existing browser tabs need a page reload at release.
+- `npm run verify` passed: lint, 68/68 local tests and build, including 13 new
+  transition/client-gate regressions. Current Linux CI is checked after push.
+  Desktop/iPhone visual acceptance, a user-facing transition history and server
+  guards for concurrent Telegram account-management actions remain open.
+
+## Previous iteration: calendar snooze and event totals
 
 - Snooze ends at Kyiv midnight three calendar dates later, including DST, leap
   days and year boundaries. Waiting/ready queues offer an explicit resume action.
@@ -28,8 +53,8 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   Loading prevents saving the previous day's text under a newly selected date.
   The report workspace is now included in the normal lint command.
 - Local lint, 55/55 tests and build passed (nine new tests use synthetic in-memory
-  D1 data). Current Linux CI is checked after push. Browser/iPhone QA is still pending.
-- Remaining: visual desktop/iPhone QA, guards for the other chat transitions,
+  D1 data). Linux CI passed for 3223d29: [run 34508259431](https://github.com/devillionner/Work-OS-2.0/actions/runs/34508259431).
+- Remaining at the end of that iteration: visual desktop/iPhone QA, guards for the other chat transitions,
   cross-module Today refresh, report correction/source UI and version-based report
   staleness. Timestamp comparison does not detect changes within the same second
   or an event moved out of the report's business date.
@@ -141,8 +166,8 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 
 ## Next
 
-Follow P1 in [ROADMAP](ROADMAP.md): guards for remaining chat transitions, local UI
-acceptance, bulk chat addition/profiles/library attribution and account-scoped
+Follow P1 in [ROADMAP](ROADMAP.md): local UI acceptance, bulk chat
+addition/profiles/library attribution, visible transition history and account-scoped
 Telegram scheduling. Then complete Today/CRM/report parity.
 
 The older PR #6 review and cutover file are historical evidence, not commands to
