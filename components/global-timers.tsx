@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BellRing, Check, ChevronDown, Clock3, Plus, TimerReset, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { createRefreshGate } from '@/lib/refresh-gate';
 
 type TimerItem={id:string;label:string;platform:string|null;telegramAccountId:string|null;durationSeconds:number;startedAt:number;endsAt:number;status:'running'|'completed';completedAt:number|null};
 type Platform='telegram'|'whatsapp'|'viber'|'facebook'|'general';
@@ -11,42 +12,51 @@ const platformOptions:Array<{key:Platform;label:string}>=[{key:'telegram',label:
 export function GlobalTimers({ enabledPlatforms }: { enabledPlatforms: string[] }) {
   const [open,setOpen]=useState(false);
   const [timers,setTimers]=useState<TimerItem[]>([]);
-  const [platform,setPlatform]=useState<Platform>('telegram');
-  const [duration,setDuration]=useState(15);
+  const [selectedPlatform,setPlatform]=useState<Platform>('telegram');
+  const [selectedDuration,setDuration]=useState(15);
   const [now,setNow]=useState(()=>Math.floor(Date.now()/1000));
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
   const announced=useRef(new Set<string>());
   const audioContext=useRef<AudioContext|null>(null);
+  const refresh=useRef(createRefreshGate(120_000));
+  const revision=useRef(0);
+  const mutating=useRef(false);
+  const clockOffset=useRef(0);
   const availablePlatformOptions=useMemo(
     ()=>platformOptions.filter(item=>item.key==='general'||enabledPlatforms.includes(item.key)),
     [enabledPlatforms],
   );
 
-  useEffect(()=>{
-    if(!availablePlatformOptions.some(item=>item.key===platform)){
-      const fallback=availablePlatformOptions.find(item=>item.key!=='general')?.key||'general';
-      setPlatform(fallback);
-      if(fallback==='telegram')setDuration(15);
-    }
-  },[availablePlatformOptions,platform]);
+  const platform=availablePlatformOptions.some(item=>item.key===selectedPlatform)
+    ?selectedPlatform:availablePlatformOptions[0]?.key||'general';
+  const duration=platform==='telegram'?15:selectedDuration;
 
   const load=useCallback(async()=>{
-    const response=await fetch('/api/timers',{cache:'no-store'});
+    const expectedRevision=revision.current;
+    const response=await fetch('/api/timers',{cache:'no-store',signal:AbortSignal.timeout(15_000)});
     const body=await response.json() as {timers?:TimerItem[];serverNow?:number;error?:string};
     if(!response.ok) throw new Error(body.error||'Не вдалося завантажити таймери.');
+    if(expectedRevision!==revision.current)return;
     setTimers(body.timers||[]);
-    if(body.serverNow)setNow(body.serverNow);
+    if(body.serverNow){clockOffset.current=body.serverNow-Math.floor(Date.now()/1000);setNow(body.serverNow);}
   },[]);
-  useEffect(()=>{load().catch(reason=>setError(message(reason)));},[load]);
-  useEffect(()=>{const tick=window.setInterval(()=>setNow(Math.floor(Date.now()/1000)),1000);const sync=window.setInterval(()=>load().catch(()=>{}),30000);return()=>{clearInterval(tick);clearInterval(sync)}},[load]);
+  useEffect(()=>{
+    const sync=()=>void refresh.current(Date.now(),document.visibilityState==='visible'&&navigator.onLine&&!mutating.current,load).catch(reason=>setError(message(reason)));
+    const initial=window.setTimeout(sync,0);
+    const tick=window.setInterval(()=>{setNow(Math.floor(Date.now()/1000)+clockOffset.current);sync();},1000);
+    document.addEventListener('visibilitychange',sync);
+    window.addEventListener('online',sync);
+    return()=>{clearTimeout(initial);clearInterval(tick);document.removeEventListener('visibilitychange',sync);window.removeEventListener('online',sync);revision.current+=1;};
+  },[load]);
   useEffect(()=>{
     const due=timers.filter(timer=>timer.status==='completed'||timer.endsAt<=now);
     for(const timer of due) if(!announced.current.has(timer.id)){announced.current.add(timer.id);playAlarm(audioContext.current);setOpen(true);}
-    if(due.some(timer=>timer.status==='running'))load().catch(()=>{});
-  },[timers,now,load]);
+  },[timers,now]);
 
   async function start(){
+    if(mutating.current)return;
+    mutating.current=true;revision.current+=1;
     setBusy(true);setError('');
     try{
       if(!audioContext.current)audioContext.current=new AudioContext();
@@ -55,7 +65,7 @@ export function GlobalTimers({ enabledPlatforms }: { enabledPlatforms: string[] 
       const body=await response.json() as {timer?:TimerItem;error?:string};
       if(!response.ok||!body.timer)throw new Error(body.error||'Не вдалося запустити таймер.');
       setTimers(current=>[body.timer!,...current]);setOpen(true);
-    }catch(reason){setError(message(reason));}finally{setBusy(false)}
+    }catch(reason){setError(message(reason));}finally{mutating.current=false;setBusy(false)}
   }
   async function toggleOpen(){
     if(!audioContext.current)audioContext.current=new AudioContext();
@@ -63,9 +73,11 @@ export function GlobalTimers({ enabledPlatforms }: { enabledPlatforms: string[] 
     setOpen(value=>!value);
   }
   async function dismiss(id:string){
+    if(mutating.current)return;
+    mutating.current=true;revision.current+=1;
     setBusy(true);setError('');
     try{const response=await fetch('/api/timers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'dismiss',id})});const body=await response.json() as {error?:string};if(!response.ok)throw new Error(body.error||'Не вдалося закрити таймер.');setTimers(current=>current.filter(timer=>timer.id!==id));}
-    catch(reason){setError(message(reason));}finally{setBusy(false)}
+    catch(reason){setError(message(reason));}finally{mutating.current=false;setBusy(false)}
   }
   const running=timers.filter(timer=>timer.status==='running'&&timer.endsAt>now);
   const completed=timers.filter(timer=>timer.status==='completed'||timer.endsAt<=now);

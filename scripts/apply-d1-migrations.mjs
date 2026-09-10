@@ -22,12 +22,18 @@ const migrationsDir = resolve(option("--migrations-dir") ?? "migrations");
 const remote = hasFlag("--remote");
 const local = hasFlag("--local");
 const allowProduction = hasFlag("--allow-production");
+const remoteReason = option("--reason");
 
 if (!database || remote === local) {
   console.error(
-    "Usage: node scripts/apply-d1-migrations.mjs --database <name-or-binding> --remote|--local [--config <path>] [--migrations-dir <path>] [--allow-production]",
+    "Usage: node scripts/apply-d1-migrations.mjs --database <name-or-binding> --remote|--local [--config <path>] [--migrations-dir <path>] [--allow-remote --reason <release-or-recovery-reason>] [--allow-production]",
   );
   process.exit(2);
+}
+
+if (remote && (process.env.CI || !hasFlag('--allow-remote') || !remoteReason?.trim() || remoteReason.startsWith('--'))) {
+  console.error('Remote D1 is not a test environment. Use --local. An authorized release/recovery requires --allow-remote and --reason, outside CI.');
+  process.exit(3);
 }
 
 const configPath = resolve(config);
@@ -107,6 +113,9 @@ const appliedResult = await execute(
   "read applied migrations",
 );
 const appliedJson = parseJsonOutput(appliedResult.stdout);
+if (!Array.isArray(appliedJson?.[0]?.results)) {
+  throw new Error('Cannot verify applied migrations; refusing to replay migrations.');
+}
 const applied = new Set(
   (appliedJson?.[0]?.results ?? []).map((row) => row.name),
 );

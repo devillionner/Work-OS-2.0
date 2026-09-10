@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createRefreshGate } from '@/lib/refresh-gate';
 import { useRouter } from 'next/navigation';
 import { Archive, Check, ChevronLeft, ChevronRight, Clock3, Copy, ExternalLink, LoaderCircle, Plus, RotateCcw, Search, Send, Settings2, Undo2, UserRoundCheck, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -39,8 +40,12 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const [manageAccounts,setManageAccounts] = useState(false);
   const [newAccountName,setNewAccountName] = useState('');
   const [clock,setClock] = useState(()=>Date.now());
+  const refreshExpiredBreak=useRef(createRefreshGate(120_000));
   const availablePlatforms = useMemo(() => platforms.filter((item) => !enabledPlatforms || enabledPlatforms.includes(item.key)), [enabledPlatforms]);
-  useEffect(() => { if (!availablePlatforms.some((item) => item.key === platform) && availablePlatforms[0]) { setPlatform(availablePlatforms[0].key); setQueue('to_join'); setOffset(0); } }, [availablePlatforms, platform]);
+  if (!availablePlatforms.some((item) => item.key === platform) && availablePlatforms[0]) { setPlatform(availablePlatforms[0].key); setQueue('to_join'); setOffset(0); }
+  const filterKey=`${platform}:${queue}:${search}`;
+  const [previousFilter,setPreviousFilter]=useState(filterKey);
+  if(previousFilter!==filterKey){setPreviousFilter(filterKey);setOffset(0);}
 
   const loadAccounts=useCallback(async()=>{
     const response=await fetch('/api/telegram-accounts',{cache:'no-store'});
@@ -51,9 +56,9 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     setAccountId(current=>next.some(item=>item.id===current&&item.enabled)?current:(next.find(item=>item.selected&&item.enabled)||next.find(item=>item.enabled))?.id||null);
   },[]);
 
-  useEffect(()=>{loadAccounts().catch(reason=>setError(reason instanceof Error?reason.message:'Не вдалося завантажити акаунти.'));},[loadAccounts]);
+  useEffect(()=>{const timer=setTimeout(()=>void loadAccounts().catch(reason=>setError(reason instanceof Error?reason.message:'Не вдалося завантажити акаунти.')),0);return()=>clearTimeout(timer);},[loadAccounts]);
   useEffect(()=>{const timer=setInterval(()=>setClock(Date.now()),1000);return()=>clearInterval(timer);},[]);
-  useEffect(()=>{if(activeBreakExpired(accounts,accountId,clock))loadAccounts().catch(()=>{});},[accounts,accountId,clock,loadAccounts]);
+  useEffect(()=>{void refreshExpiredBreak.current(clock,document.visibilityState==='visible'&&navigator.onLine&&activeBreakExpired(accounts,accountId,clock),loadAccounts).catch(()=>{});},[accounts,accountId,clock,loadAccounts]);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -69,7 +74,6 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   },[platform,queue,search,offset,accountId]);
 
   useEffect(() => { const timer=setTimeout(load,search ? 250 : 0); return () => clearTimeout(timer); },[load,search]);
-  useEffect(() => { setOffset(0); },[platform,queue,search]);
 
   async function act(chat:Chat, action:string, extra:Record<string,unknown>={}) {
     setBusy(chat.id); setError('');
@@ -86,7 +90,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     if(nextId===chat.telegramAccountId)return;
     const current=accounts.find(item=>item.id===chat.telegramAccountId)?.name||'поточного акаунта';
     const next=accounts.find(item=>item.id===nextId)?.name||'іншого акаунта';
-    if(window.confirm(`Перепризначити чат з «${current}» на «${next}»?\n\nУ самому Telegram членство потрібно змінити вручну.`)) act(chat,'assign_account',{accountId:nextId});
+    if(window.confirm(`Перепризначити чат з «${current}» на «${next}»?\n\nУ самому Telegram членство потрібно змінити вручну.`)) void act(chat,'assign_account',{accountId:nextId});
   }
 
   async function accountAction(action:string,id?:string,extra:Record<string,unknown>={}) {
@@ -125,7 +129,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
         {!breakSeconds&&activeAccount.joinStreak>=activeAccount.joinBatchSize&&<Button size="sm" onClick={()=>accountAction('start_break',activeAccount.id,{minutes:activeAccount.breakMinutes})}>Почати {activeAccount.breakMinutes} хв</Button>}
       </div>}
       {manageAccounts&&<div className="telegram-account-manager">
-        {accounts.map(account=><div className="telegram-account-editor" key={account.id}><span>#{account.number}</span><Input defaultValue={account.name} aria-label={`Назва акаунта ${account.number}`} onBlur={event=>{const name=event.target.value.trim();if(name&&name!==account.name)accountAction('rename',account.id,{name})}}/><Button variant="outline" size="sm" onClick={()=>accountAction('toggle',account.id)}>{account.enabled?'Вимкнути':'Увімкнути'}</Button></div>)}
+        {accounts.map(account=><div className="telegram-account-editor" key={account.id}><span>#{account.number}</span><Input defaultValue={account.name} aria-label={`Назва акаунта ${account.number}`} onBlur={event=>{const name=event.target.value.trim();if(name&&name!==account.name)void accountAction('rename',account.id,{name})}}/><Button variant="outline" size="sm" onClick={()=>accountAction('toggle',account.id)}>{account.enabled?'Вимкнути':'Увімкнути'}</Button></div>)}
         <div className="telegram-account-create"><Input value={newAccountName} onChange={event=>setNewAccountName(event.target.value)} placeholder="Назва нового акаунта"/><Button onClick={()=>accountAction('create',undefined,{name:newAccountName})}><Plus data-icon="inline-start"/>Додати</Button></div>
         <p>Вимкнення не видаляє історію. Чати можна перепризначити іншим акаунтам нижче.</p>
       </div>}
@@ -141,13 +145,13 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
         {queues.map(item=><button key={item.key} role="tab" aria-selected={queue===item.key} onClick={()=>{setQueue(item.key);setOffset(0)}}>{item.label}<span>{data?.counts[item.key] || 0}</span></button>)}
       </div>
       <div className="chat-toolbar">
-        <label><Search/><Input value={search} onChange={event=>setSearch(event.target.value)} placeholder="Пошук за назвою або посиланням"/><span className="sr-only">Пошук чатів</span></label>
+        <label htmlFor="chat-search"><Search/><Input id="chat-search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Пошук за назвою або посиланням"/><span className="sr-only">Пошук чатів</span></label>
         <Badge variant="secondary">{data?.total || 0} у черзі</Badge>
       </div>
       {error && <div className="workspace-error">{error}</div>}
       {loading ? <div className="workspace-loading"><LoaderCircle/>Завантажуємо {selected.label}…</div> : data?.chats.length ? <div className="chat-list">
         {data.chats.map(chat=><article className="chat-row" key={chat.id}>
-          <div className="chat-main"><div className="chat-name-line"><strong>{chat.name}</strong>{!chat.profileConfirmed&&queue==='ready'&&<Badge variant="outline">Профіль пізніше</Badge>}{chat.publishedToday&&<Badge variant="secondary">Опубліковано сьогодні</Badge>}</div><button className="chat-native-link" type="button" onClick={()=>openNativeChat(chat.platform,chat.link)}>{chat.link}</button>{chat.archiveReason&&<small>Причина: {chat.archiveReason}</small>}{chat.snoozedUntil&&chat.snoozedUntil>Date.now()/1000&&<small>Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{queue==='ready'&&!chat.availableNow&&<small className="wait-note"><Clock3/>Telegram буде доступний {formatDateTime(chat.availableAt!)}</small>}</div>
+          <div className="chat-main"><div className="chat-name-line"><strong>{chat.name}</strong>{!chat.profileConfirmed&&queue==='ready'&&<Badge variant="outline">Профіль пізніше</Badge>}{chat.publishedToday&&<Badge variant="secondary">Опубліковано сьогодні</Badge>}</div><button className="chat-native-link" type="button" onClick={()=>openNativeChat(chat.platform,chat.link)}>{chat.link}</button>{chat.archiveReason&&<small>Причина: {chat.archiveReason}</small>}{chat.snoozedUntil&&chat.snoozedUntil>clock/1000&&<small>Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{queue==='ready'&&!chat.availableNow&&<small className="wait-note"><Clock3/>Telegram буде доступний {formatDateTime(chat.availableAt!)}</small>}</div>
           <div className="chat-actions">
             {platform==='telegram'&&queue!=='to_join'&&<select className="chat-account-select" value={chat.telegramAccountId||''} onChange={event=>assignAccount(chat,event.target.value)} aria-label="Telegram-акаунт чату">{accounts.filter(item=>item.enabled||item.id===chat.telegramAccountId).map(account=><option value={account.id} key={account.id}>{account.name} · #{account.number}</option>)}</select>}
             <Button variant="outline" size="icon" type="button" onClick={()=>openNativeChat(chat.platform,chat.link)} aria-label={`Відкрити чат у ${selected.label}`}><ExternalLink/></Button>

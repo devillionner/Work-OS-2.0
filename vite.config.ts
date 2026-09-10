@@ -1,4 +1,3 @@
-import { cloudflare } from '@cloudflare/vite-plugin';
 import tailwindcss from '@tailwindcss/postcss';
 import vinext from 'vinext';
 import { defineConfig } from 'vite';
@@ -24,6 +23,8 @@ export default defineConfig(async () => {
     plugins: [
       vinext(),
       cloudflare({
+        // Tests and local previews never connect resource bindings to Cloudflare.
+        remoteBindings: false,
         viteEnvironment: { name: 'rsc', childEnvironments: ['ssr'] },
       }),
     ],

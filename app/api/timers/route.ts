@@ -1,20 +1,15 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
+import { readTimers } from '@/lib/timers';
 
 const PLATFORMS = new Set(['telegram', 'whatsapp', 'viber', 'facebook', 'general']);
-type TimerRow = {
-  id:string; label:string; platform:string|null; telegram_account_id:string|null;
-  duration_seconds:number; started_at:number; ends_at:number; status:string;
-  completed_at:number|null; created_at:number;
-};
 
 export async function GET(): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   const now = unixNow();
-  await env.DB.prepare(`UPDATE work_timers SET status='completed',completed_at=COALESCE(completed_at,?1),updated_at=?1 WHERE user_id=?2 AND status='running' AND ends_at<=?1`).bind(now,user.id).run();
-  const result = await env.DB.prepare(`SELECT id,label,platform,telegram_account_id,duration_seconds,started_at,ends_at,status,completed_at,created_at FROM work_timers WHERE user_id=?1 AND status IN ('running','completed') ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END,ends_at`).bind(user.id).all<TimerRow>();
-  return Response.json({timers:result.results.map(publicTimer),serverNow:now});
+  const timers = await readTimers(env.DB, user.id, now);
+  return Response.json({timers,serverNow:now}, {headers:{'Cache-Control':'no-store'}});
 }
 
 export async function POST(request:Request): Promise<Response> {
@@ -49,7 +44,6 @@ export async function POST(request:Request): Promise<Response> {
   return Response.json({error:'Невідома дія.'},{status:400});
 }
 
-function publicTimer(row:TimerRow) { return {id:row.id,label:row.label,platform:row.platform,telegramAccountId:row.telegram_account_id,durationSeconds:Number(row.duration_seconds),startedAt:Number(row.started_at),endsAt:Number(row.ends_at),status:row.status,completedAt:row.completed_at,createdAt:Number(row.created_at)}; }
 function platformLabel(platform:string) { return ({telegram:'Telegram',whatsapp:'WhatsApp',viber:'Viber',facebook:'Facebook',general:'Загальний'} as Record<string,string>)[platform]||'Загальний'; }
 function sameOrigin(request:Request) { const origin=request.headers.get('origin'); return Boolean(origin&&origin===new URL(request.url).origin); }
 function unixNow() { return Math.floor(Date.now()/1000); }
