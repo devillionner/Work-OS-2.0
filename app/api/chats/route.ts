@@ -1,8 +1,11 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
-import { businessDate, businessDayStart, shiftBusinessDate } from '@/lib/business-time';
+import { businessDate } from '@/lib/business-time';
 import { publicationAvailability, recordManualPublication } from '@/lib/chats/publication';
 import { changeChatSnooze } from '@/lib/chats/snooze';
+import { chatStateTokenSql, readChatState } from '@/lib/chats/state';
+import { transitionChat } from '@/lib/chats/transitions';
+import { joinedTodayStatement } from '@/lib/chats/daily-links';
 
 const PLATFORMS = new Set(['telegram', 'whatsapp', 'viber', 'facebook']);
 const STATUSES = new Set(['to_join', 'waiting', 'ready', 'archived']);
@@ -12,7 +15,7 @@ type ChatRow = {
   id: string; name: string; link: string; platform: string; workflow_status: string;
   joined_at: number | null; snoozed_until: number | null; archive_reason: string | null;
   profile_status: string | null; published_today: number;
-  telegram_account_id: string | null;
+  telegram_account_id: string | null; state_token: string;
 };
 
 export async function GET(request: Request): Promise<Response> {
@@ -30,21 +33,17 @@ export async function GET(request: Request): Promise<Response> {
 
   const now = unixNow();
   const today = businessDate(now);
-  const dayStart = businessDayStart(today);
-  const dayEnd = businessDayStart(shiftBusinessDate(today, 1));
   const pattern = `%${escapeLike(search.toLowerCase())}%`;
   const filter = `c.user_id=?1 AND c.platform=?2 AND c.workflow_status=?3 AND (?4='' OR lower(c.name) LIKE ?5 ESCAPE '\\' OR lower(c.link) LIKE ?5 ESCAPE '\\')`;
   const rowAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?9 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
   const totalAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?6 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
   const [rowsResult, totalResult, countsResult, joinedResult, publishedResult] = await env.DB.batch([
-    env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.telegram_account_id,p.review_status AS profile_status,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?6) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE ${filter}${rowAccountFilter} ORDER BY CASE WHEN c.snoozed_until IS NOT NULL AND c.snoozed_until>?7 THEN 1 ELSE 0 END,c.updated_at DESC,c.name LIMIT 50 OFFSET ?8`).bind(user.id, platform, status, search, pattern, today, unixNow(), offset, ...(accountId?[accountId]:[])),
+    env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?6) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE ${filter}${rowAccountFilter} ORDER BY CASE WHEN c.snoozed_until IS NOT NULL AND c.snoozed_until>?7 THEN 1 ELSE 0 END,c.updated_at DESC,c.name LIMIT 50 OFFSET ?8`).bind(user.id, platform, status, search, pattern, today, now, offset, ...(accountId?[accountId]:[])),
     env.DB.prepare(`SELECT COUNT(*) AS count FROM chats c WHERE ${filter}${totalAccountFilter}`).bind(user.id, platform, status, search, pattern, ...(accountId?[accountId]:[])),
     platform === 'telegram'
       ? env.DB.prepare(`SELECT workflow_status,COUNT(*) AS count FROM chats WHERE user_id=?1 AND platform=?2 AND (telegram_account_id=?3 OR (telegram_account_id IS NULL AND workflow_status='to_join')) GROUP BY workflow_status`).bind(user.id,platform,accountId)
       : env.DB.prepare(`SELECT workflow_status,COUNT(*) AS count FROM chats WHERE user_id=?1 AND platform=?2 GROUP BY workflow_status`).bind(user.id,platform),
-    platform === 'telegram'
-      ? env.DB.prepare(`SELECT name,link FROM chats WHERE user_id=?1 AND platform=?2 AND joined_at>=?3 AND joined_at<?4 AND telegram_account_id=?5 ORDER BY joined_at`).bind(user.id,platform,dayStart,dayEnd,accountId)
-      : env.DB.prepare(`SELECT name,link FROM chats WHERE user_id=?1 AND platform=?2 AND joined_at>=?3 AND joined_at<?4 ORDER BY joined_at`).bind(user.id,platform,dayStart,dayEnd),
+    joinedTodayStatement(env.DB,{userId:user.id,platform,date:today,accountId}),
     platform === 'telegram'
       ? env.DB.prepare(`SELECT c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 AND p.telegram_account_id=?4 ORDER BY p.published_at,p.created_at`).bind(user.id,platform,today,accountId)
       : env.DB.prepare(`SELECT c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 ORDER BY p.published_at,p.created_at`).bind(user.id,platform,today),
@@ -52,7 +51,7 @@ export async function GET(request: Request): Promise<Response> {
   const chats = (rowsResult.results as ChatRow[]).map((row) => ({
     id: row.id, name: row.name, link: row.link, platform: row.platform,
     status: row.workflow_status, archiveReason: row.archive_reason,
-    telegramAccountId: row.telegram_account_id,
+    telegramAccountId: row.telegram_account_id, stateToken: row.state_token,
     profileConfirmed: row.profile_status === 'confirmed', publishedToday: Boolean(row.published_today),
     snoozedUntil: row.snoozed_until,
     ...publicationAvailability(row, now),
@@ -65,62 +64,32 @@ export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
-  const body = await request.json() as { id?: unknown; action?: unknown; reason?: unknown; accountId?: unknown };
+  const body = await request.json() as { id?: unknown; action?: unknown; reason?: unknown; accountId?: unknown; stateToken?: unknown };
   const id = typeof body.id === 'string' ? body.id : '';
   const action = typeof body.action === 'string' ? body.action : '';
   if (!id || !ACTIONS.has(action)) return Response.json({ error: 'Невідома дія.' }, { status: 400 });
-  const chat = await env.DB.prepare(`SELECT id,platform,workflow_status,joined_at,snoozed_until,telegram_account_id FROM chats WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(id, user.id).first<{id:string;platform:string;workflow_status:string;joined_at:number|null;snoozed_until:number|null;telegram_account_id:string|null}>();
+  const chat = await readChatState(env.DB,user.id,id);
   if (!chat) return Response.json({ error: 'Чат не знайдено.' }, { status: 404 });
+  if (body.stateToken !== chat.state_token) return Response.json({error:'Стан чату вже змінився. Оновіть список.',refresh:true},{status:409});
   const now = unixNow();
   const requestedAccount = typeof body.accountId === 'string' ? body.accountId : null;
   const accountId = chat.platform === 'telegram' ? (chat.telegram_account_id || await selectedTelegramAccount(user.id,requestedAccount)) : null;
   if (chat.platform === 'telegram' && !accountId && !['restore','archive','failed'].includes(action)) return Response.json({error:'Оберіть активний Telegram-акаунт.'},{status:409});
-  if(action==='assign_account') {
-    const target=await selectedTelegramAccount(user.id,requestedAccount);
-    if(chat.platform!=='telegram'||!target) return Response.json({error:'Не вдалося призначити акаунт.'},{status:400});
-    if(!['waiting','ready','archived'].includes(chat.workflow_status)) return Response.json({error:'Цей чат поки належить до спільного пулу.'},{status:409});
-    await env.DB.prepare(`UPDATE chats SET telegram_account_id=?1,updated_at=?2 WHERE id=?3 AND user_id=?4`).bind(target,now,id,user.id).run();
-    return Response.json({ok:true});
-  }
-  if(action==='return_to_join'&&chat.platform!=='whatsapp') return Response.json({error:'Повернення в цю чергу доступне лише для WhatsApp.'},{status:400});
   if (action === 'published') {
-    const result = await recordManualPublication(env.DB, { userId: user.id, chat, accountId, now, date: businessDate(now) });
+    const result = await recordManualPublication(env.DB, { userId: user.id, chat, accountId, now, date: businessDate(now), stateToken: chat.state_token });
     return Response.json(result, { status: result.ok ? 200 : 409 });
   }
 
   if (action === 'snooze' || action === 'unsnooze') {
     const ok = await changeChatSnooze(env.DB, { userId: user.id, id, status: chat.workflow_status,
-      previousDeadline: chat.snoozed_until, now, resume: action === 'unsnooze' });
+      previousDeadline: chat.snoozed_until, now, resume: action === 'unsnooze', stateToken: chat.state_token });
     return Response.json(ok ? { ok: true } : { error: 'Стан чату вже змінився. Оновіть список.' }, { status: ok ? 200 : 409 });
   }
 
-  const allowedFrom: Record<string, string[]> = {
-    joined: ['to_join'], waiting: ['to_join'], failed: ['to_join'],
-    approved: ['waiting'],
-    archive: ['to_join', 'waiting', 'ready'], restore: ['archived'], return_to_join: ['ready'],
-  };
-  if (!allowedFrom[action]?.includes(chat.workflow_status)) {
-    return Response.json({ error: 'Стан чату вже змінився. Оновіть список.' }, { status: 409 });
-  }
-
-  const reason = typeof body.reason === 'string' ? body.reason.slice(0, 100) : null;
-  const mapping: Record<string, {status:string; joinedAt?:number|null; snooze?:number|null; archive?:number|null}> = {
-    joined: { status: 'ready', joinedAt: now }, waiting: { status: 'waiting' },
-    approved: { status: 'ready', joinedAt: chat.joined_at || now }, failed: { status: 'archived', archive: now },
-    archive: { status: 'archived', archive: now }, restore: { status: 'to_join', joinedAt: null, archive: null },
-    return_to_join: {status:'to_join',joinedAt:null,snooze:null},
-  };
-  const next = mapping[action];
-  const statements = [env.DB.prepare(`UPDATE chats SET workflow_status=?1,joined_at=CASE WHEN ?3 IN ('restore','return_to_join') THEN NULL WHEN ?2 IS NOT NULL THEN ?2 ELSE joined_at END,processed_at=CASE WHEN ?3='return_to_join' THEN NULL WHEN ?3 IN ('joined','waiting','approved') THEN ?4 ELSE processed_at END,snoozed_until=?5,archive_reason=?6,archived_at=?7,telegram_account_id=CASE WHEN ?3='restore' THEN NULL WHEN platform='telegram' AND ?3 IN ('joined','waiting') THEN COALESCE(telegram_account_id,?10) ELSE telegram_account_id END,updated_at=?4 WHERE id=?8 AND user_id=?9`)
-    .bind(next.status, next.joinedAt ?? null, action, now, next.snooze ?? null, next.status === 'archived' ? (reason || (action === 'failed' ? 'Не вдалося приєднатися' : 'Не актуальний')) : null, next.archive ?? null, id, user.id, accountId)];
-  if (action === 'joined' || action === 'approved') {
-    const eventDate = businessDate(now);
-    statements.push(env.DB.prepare(`INSERT OR IGNORE INTO activity_events (id,user_id,event_type,platform,chat_id,lead_id,lesson_id,occurred_at,event_date,metadata_json,source_key,telegram_account_id) VALUES (?1,?2,'chat_joined',?3,?4,NULL,NULL,?5,?6,'{}',?7,?8)`)
-      .bind(crypto.randomUUID(),user.id,chat.platform,id,now,eventDate,`chat-joined:${id}:${eventDate}`,accountId));
-    if(chat.platform==='telegram'&&accountId) statements.push(env.DB.prepare(`UPDATE telegram_accounts SET join_streak=join_streak+1,updated_at=?1 WHERE id=?2 AND user_id=?3`).bind(now,accountId,user.id));
-  }
-  await env.DB.batch(statements);
-  return Response.json({ ok: true });
+  const targetAccount = action === 'assign_account' ? requestedAccount : accountId;
+  const result = await transitionChat(env.DB,{userId:user.id,chat,action,accountId:targetAccount,now,
+    reason:typeof body.reason === 'string' ? body.reason : undefined});
+  return Response.json(result,{status:result.ok ? 200 : 409});
 }
 
 function sameOrigin(request: Request) { const origin = request.headers.get('origin'); return Boolean(origin && origin === new URL(request.url).origin); }

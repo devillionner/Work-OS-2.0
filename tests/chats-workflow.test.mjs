@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { businessDate, businessDayStart, shiftBusinessDate, snoozeDeadline } from '../lib/business-time.ts';
 import { publicationAvailability, recordManualPublication } from '../lib/chats/publication.ts';
+import { readChatState } from '../lib/chats/state.ts';
 import { changeChatSnooze } from '../lib/chats/snooze.ts';
 import { localDatabase, seedChat } from './helpers/local-d1.mjs';
 
 const epoch = value => Date.parse(value) / 1000;
 const NOW = epoch('2026-09-10T12:00:00Z');
-const publish = (db, chat, now = NOW, userId = 'u') => recordManualPublication(db, { userId, chat, accountId: null, now, date: businessDate(now) });
+const publish = (db, chat, now = NOW, userId = 'u') => recordManualPublication(db, { userId, chat, accountId: null, now, date: businessDate(now), stateToken:chat.state_token });
 
 void test('three calendar days end at Kyiv midnight across DST, leap day and year change', () => {
   for (const [now, expected] of [
@@ -36,12 +37,12 @@ void test('publication eligibility uses the later deadline and requires a ready 
 void test('snooze and resume persist without losing history; stale snooze cannot unarchive a chat', async t => {
   const db = await localDatabase(t);
   await seedChat(db, {status:'waiting'});
-  const input = {userId:'u',id:'chat',status:'waiting',previousDeadline:null,now:NOW,resume:false};
+  const input = {userId:'u',id:'chat',status:'waiting',previousDeadline:null,now:NOW,resume:false,stateToken:(await readChatState(db,'u','chat')).state_token};
   assert.equal(await changeChatSnooze(db,input), true);
   const row = await db.prepare("SELECT * FROM chats WHERE id='chat'").first();
   assert.equal(row.snoozed_until,snoozeDeadline(NOW));
   assert.equal(await changeChatSnooze(db,input), false);
-  assert.equal(await changeChatSnooze(db,{...input,previousDeadline:row.snoozed_until,resume:true}), true);
+  assert.equal(await changeChatSnooze(db,{...input,previousDeadline:row.snoozed_until,resume:true,stateToken:(await readChatState(db,'u','chat')).state_token}), true);
   await db.prepare("UPDATE chats SET workflow_status='archived' WHERE id='chat'").run();
   assert.equal(await changeChatSnooze(db,input), false);
   assert.equal((await db.prepare("SELECT workflow_status FROM chats WHERE id='chat'").first()).workflow_status,'archived');

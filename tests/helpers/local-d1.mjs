@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { Miniflare } from 'miniflare';
+import { chatStateTokenSql } from '../../lib/chats/state.ts';
 
 function sqlStatements(sql) {
   const statements = [];
@@ -34,7 +35,7 @@ export async function localDatabase(t) {
 export async function seedChat(db, { id = 'chat', owner = 'u', platform = 'whatsapp', status = 'ready', joined = null, snoozed = null } = {}) {
   await db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,joined_at,snoozed_until,created_at,updated_at)
     VALUES (?1,?2,?3,?1,?4,?4,?5,?6,?7,1,1)`).bind(id,owner,platform,`https://example.test/${id}`,status,joined,snoozed).run();
-  return db.prepare('SELECT * FROM chats WHERE id=?1').bind(id).first();
+  return db.prepare(`SELECT c.*,${chatStateTokenSql()} AS state_token FROM chats c WHERE c.id=?1`).bind(id).first();
 }
 
 export async function seedEvent(db, { id, owner = 'u', type, date, at = 100, platform = 'telegram', cancelled = null, lead = null, chat = null } ) {

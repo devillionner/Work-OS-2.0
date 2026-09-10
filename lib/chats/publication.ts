@@ -1,3 +1,5 @@
+import { chatStateTokenSql } from './state.ts';
+
 export type PublicationChat = {
   id: string;
   platform: string;
@@ -16,7 +18,7 @@ export function publicationAvailability(chat: PublicationChat, now: number) {
 
 export async function recordManualPublication(
   db: D1Database,
-  input: { userId: string; chat: PublicationChat; accountId: string | null; now: number; date: string },
+  input: { userId: string; chat: PublicationChat; accountId: string | null; now: number; date: string; stateToken: string },
 ): Promise<{ ok: true } | { ok: false; error: string; availableAt?: number | null }> {
   const { userId, chat, accountId, now, date } = input;
   const availability = publicationAvailability(chat, now);
@@ -36,8 +38,11 @@ export async function recordManualPublication(
       FROM chats c WHERE c.id=?6 AND c.user_id=?7 AND c.workflow_status='ready'
         AND (c.snoozed_until IS NULL OR c.snoozed_until<=?3)
         AND (c.platform!='telegram' OR c.joined_at IS NULL OR c.joined_at+21600<=?3)
+        AND ${chatStateTokenSql()}=?8
+        AND (c.platform!='telegram' OR EXISTS(SELECT 1 FROM telegram_accounts a
+          WHERE a.id=COALESCE(c.telegram_account_id,?5) AND a.user_id=c.user_id AND a.is_enabled=1))
       ON CONFLICT(user_id,chat_id,published_on) DO NOTHING`)
-      .bind(publicationId,date,now,sourceKey,accountId,chat.id,userId),
+      .bind(publicationId,date,now,sourceKey,accountId,chat.id,userId,input.stateToken),
     db.prepare(`INSERT INTO activity_events
       (id,user_id,event_type,platform,chat_id,lead_id,lesson_id,occurred_at,event_date,metadata_json,source_key,telegram_account_id)
       SELECT ?1,p.user_id,'publication',c.platform,p.chat_id,NULL,NULL,p.published_at,p.published_on,'{}',p.source_key,p.telegram_account_id
