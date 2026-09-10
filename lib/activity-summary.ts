@@ -13,6 +13,7 @@ export function activitySummaryStatement(db: D1Database, userId: string, from: s
     LEFT JOIN leads l ON l.id=e.lead_id AND l.user_id=e.user_id
     LEFT JOIN chats c ON c.id=e.chat_id AND c.user_id=e.user_id
     WHERE e.user_id=?1 AND e.event_date>=?2 AND e.event_date<=?3
+      AND e.event_type NOT IN ('chat_state_changed','chat_bulk_added')
     GROUP BY COALESCE(e.platform,l.platform,c.platform),e.event_type`).bind(userId,from,to,submittedAt);
 }
 
