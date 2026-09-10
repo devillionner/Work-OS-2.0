@@ -6,15 +6,19 @@ import { changeChatSnooze } from '@/lib/chats/snooze';
 import { chatStateTokenSql, readChatState } from '@/lib/chats/state';
 import { transitionChat } from '@/lib/chats/transitions';
 import { joinedTodayStatement } from '@/lib/chats/daily-links';
+import { PROFILE_CADENCES, saveChatProfile } from '@/lib/chats/profile';
+import type { ChatProfileInput } from '@/lib/chats/profile';
 
 const PLATFORMS = new Set(['telegram', 'whatsapp', 'viber', 'facebook']);
 const STATUSES = new Set(['to_join', 'waiting', 'ready', 'archived']);
-const ACTIONS = new Set(['joined', 'waiting', 'approved', 'failed', 'archive', 'restore', 'snooze', 'unsnooze', 'published', 'assign_account', 'return_to_join']);
+const ACTIONS = new Set(['joined', 'waiting', 'approved', 'failed', 'archive', 'restore', 'snooze', 'unsnooze', 'published', 'assign_account', 'return_to_join', 'profile']);
 
 type ChatRow = {
   id: string; name: string; link: string; platform: string; workflow_status: string;
   joined_at: number | null; snoozed_until: number | null; archive_reason: string | null;
   profile_status: string | null; published_today: number;
+  profile_language: string | null; profile_cadence: string | null; profile_weekdays: string | null;
+  profile_directions: string | null; profile_note: string | null;
   telegram_account_id: string | null; state_token: string;
 };
 
@@ -38,7 +42,7 @@ export async function GET(request: Request): Promise<Response> {
   const rowAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?9 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
   const totalAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?6 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
   const [rowsResult, totalResult, countsResult, joinedResult, publishedResult] = await env.DB.batch([
-    env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?6) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE ${filter}${rowAccountFilter} ORDER BY CASE WHEN c.snoozed_until IS NOT NULL AND c.snoozed_until>?7 THEN 1 ELSE 0 END,c.updated_at DESC,c.name LIMIT 50 OFFSET ?8`).bind(user.id, platform, status, search, pattern, today, now, offset, ...(accountId?[accountId]:[])),
+    env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.directions_json AS profile_directions,p.note AS profile_note,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?6) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE ${filter}${rowAccountFilter} ORDER BY CASE WHEN c.snoozed_until IS NOT NULL AND c.snoozed_until>?7 THEN 1 ELSE 0 END,c.updated_at DESC,c.name LIMIT 50 OFFSET ?8`).bind(user.id, platform, status, search, pattern, today, now, offset, ...(accountId?[accountId]:[])),
     env.DB.prepare(`SELECT COUNT(*) AS count FROM chats c WHERE ${filter}${totalAccountFilter}`).bind(user.id, platform, status, search, pattern, ...(accountId?[accountId]:[])),
     platform === 'telegram'
       ? env.DB.prepare(`SELECT workflow_status,COUNT(*) AS count FROM chats WHERE user_id=?1 AND platform=?2 AND (telegram_account_id=?3 OR (telegram_account_id IS NULL AND workflow_status='to_join')) GROUP BY workflow_status`).bind(user.id,platform,accountId)
@@ -52,7 +56,11 @@ export async function GET(request: Request): Promise<Response> {
     id: row.id, name: row.name, link: row.link, platform: row.platform,
     status: row.workflow_status, archiveReason: row.archive_reason,
     telegramAccountId: row.telegram_account_id, stateToken: row.state_token,
-    profileConfirmed: row.profile_status === 'confirmed', publishedToday: Boolean(row.published_today),
+    profileConfirmed: row.profile_status === 'confirmed',
+    profile: { language: row.profile_language === 'uk' || row.profile_language === 'ru' ? row.profile_language : null,
+      cadence: typeof row.profile_cadence === 'string' && PROFILE_CADENCES.includes(row.profile_cadence as typeof PROFILE_CADENCES[number]) ? row.profile_cadence : 'any', weekdays: parseNumberList(row.profile_weekdays), directions: parseStringList(row.profile_directions),
+      note: row.profile_note || '', reviewStatus: row.profile_status === 'confirmed' ? 'confirmed' : 'draft' },
+    publishedToday: Boolean(row.published_today),
     snoozedUntil: row.snoozed_until,
     ...publicationAvailability(row, now),
   }));
@@ -64,7 +72,7 @@ export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
-  const body = await request.json() as { id?: unknown; action?: unknown; reason?: unknown; accountId?: unknown; stateToken?: unknown };
+  const body = await request.json() as { id?: unknown; action?: unknown; reason?: unknown; accountId?: unknown; stateToken?: unknown; profile?: ChatProfileInput };
   const id = typeof body.id === 'string' ? body.id : '';
   const action = typeof body.action === 'string' ? body.action : '';
   if (!id || !ACTIONS.has(action)) return Response.json({ error: 'Невідома дія.' }, { status: 400 });
@@ -74,7 +82,12 @@ export async function POST(request: Request): Promise<Response> {
   const now = unixNow();
   const requestedAccount = typeof body.accountId === 'string' ? body.accountId : null;
   const accountId = chat.platform === 'telegram' ? (chat.telegram_account_id || await selectedTelegramAccount(user.id,requestedAccount)) : null;
-  if (chat.platform === 'telegram' && !accountId && !['restore','archive','failed'].includes(action)) return Response.json({error:'Оберіть активний Telegram-акаунт.'},{status:409});
+  if (chat.platform === 'telegram' && !accountId && !['restore','archive','failed','profile'].includes(action)) return Response.json({error:'Оберіть активний Telegram-акаунт.'},{status:409});
+  if (action === 'profile') {
+    if (!body.profile || typeof body.profile !== 'object' || Array.isArray(body.profile)) return Response.json({error:'Некоректний профіль.'},{status:400});
+    const result = await saveChatProfile(env.DB, { userId:user.id, chatId:id, stateToken:chat.state_token, now, profile:body.profile });
+    return Response.json(result, { status: result.ok ? 200 : 409 });
+  }
   if (action === 'published') {
     const result = await recordManualPublication(env.DB, { userId: user.id, chat, accountId, now, date: businessDate(now), stateToken: chat.state_token });
     return Response.json(result, { status: result.ok ? 200 : 409 });
@@ -94,6 +107,8 @@ export async function POST(request: Request): Promise<Response> {
 
 function sameOrigin(request: Request) { const origin = request.headers.get('origin'); return Boolean(origin && origin === new URL(request.url).origin); }
 function unixNow() { return Math.floor(Date.now() / 1000); }
+function parseNumberList(value:string|null) { try { const parsed=JSON.parse(value||'[]'); return Array.isArray(parsed)?parsed.filter((item):item is number=>Number.isInteger(item)&&item>=1&&item<=7):[]; } catch { return []; } }
+function parseStringList(value:string|null) { try { const parsed=JSON.parse(value||'[]'); return Array.isArray(parsed)?parsed.filter((item):item is string=>typeof item==='string'):[]; } catch { return []; } }
 function escapeLike(value: string) { return value.replace(/[\\%_]/g, '\\$&'); }
 async function selectedTelegramAccount(userId:string,requested:string|null) {
   let row=requested

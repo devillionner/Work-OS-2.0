@@ -11,6 +11,7 @@ export function chatStateTokenSql(alias: 'c' | 'chats' = 'c') {
   return `json_array(${alias}.platform,${alias}.workflow_status,${alias}.joined_at,
     ${alias}.processed_at,${alias}.snoozed_until,${alias}.archive_reason,
     ${alias}.archived_at,${alias}.telegram_account_id,${alias}.updated_at,
+    (SELECT p.updated_at FROM chat_profiles p WHERE p.chat_id=${alias}.id),
     (SELECT e.id FROM activity_events e WHERE e.chat_id=${alias}.id
       AND e.user_id=${alias}.user_id AND e.event_type='chat_state_changed'
       ORDER BY e.rowid DESC LIMIT 1),

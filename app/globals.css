@@ -642,7 +642,24 @@ button { color: inherit; }
 .chat-bulk-status { color:#626977; font-size:12px; }
 .chat-bulk-link { overflow-wrap:anywhere; color:#5f6675; font-size:12px; }
 .platform-hero { flex-wrap:wrap; }
+.chat-profile-dialog[data-slot="dialog-content"] { display:flex; flex-direction:column; width:min(620px,calc(100vw - 24px)); max-width:620px; max-height:90dvh; overflow-y:auto; gap:16px; padding:24px; background:var(--card); color:var(--foreground); box-shadow:0 24px 70px rgb(25 31 48 / .18); }
+.chat-profile-dialog > * { flex-shrink:0; }
+.chat-profile-dialog [data-slot="dialog-header"] { padding-right:36px; }
+.chat-profile-close { position:absolute; right:12px; top:12px; }
+.chat-profile-dialog label { display:grid; gap:7px; font-weight:650; }
+.chat-profile-dialog select { min-height:36px; border:1px solid var(--input); border-radius:8px; padding:0 9px; background:var(--card); color:var(--foreground); }
+.chat-profile-chat { display:grid; gap:5px; padding:12px; border:1px solid var(--border); border-radius:12px; background:#f8f9fc; }
+.chat-profile-chat span { overflow-wrap:anywhere; color:var(--muted-foreground); font-size:12px; }
+.chat-profile-chat button { justify-self:start; }
+.chat-profile-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.chat-profile-dialog fieldset { display:grid; gap:8px; margin:0; border:1px solid var(--border); border-radius:10px; padding:10px 12px 12px; }
+.chat-profile-dialog legend { padding:0 4px; color:var(--muted-foreground); font-size:13px; }
+.chat-profile-days { display:flex; flex-wrap:wrap; gap:8px; }
+.chat-profile-days label,.chat-profile-confirm { display:flex !important; grid-template-columns:none; align-items:center; gap:6px !important; font-size:13px; font-weight:500 !important; }
+.chat-profile-days input,.chat-profile-confirm input { width:16px; height:16px; accent-color:var(--primary); }
+.chat-profile-confirm { color:var(--muted-foreground); }
 @media(max-width:600px) { .chat-bulk-dialog[data-slot="dialog-content"] { padding:18px 14px; } .chat-bulk-dialog .dialog-actions { flex-wrap:wrap; } .chat-bulk-dialog button,.chat-bulk-dialog input { min-height:44px; } .chat-bulk-item button { min-width:44px; } }
+@media(max-width:600px) { .chat-profile-dialog[data-slot="dialog-content"] { padding:18px 14px; } .chat-profile-grid { grid-template-columns:1fr; } .chat-profile-dialog button,.chat-profile-dialog input,.chat-profile-dialog select { min-height:44px; } }
 @media(max-width:1200px) { .lead-reminder-grid { grid-template-columns:1fr; } .leads-workspace { padding:0 20px 24px; } }
 @media(max-width:800px) { .leads-layout { grid-template-columns:1fr; } .leads-list { position:static; max-height:360px; } .leads-workspace { padding:0 12px 100px; } .lead-panel { padding:16px; } }
 @media(max-width:480px) { .lead-form fieldset,.lead-facts { grid-template-columns:1fr; } .lead-messages li,.lead-messages li.from-me { margin:12px 0; } }
