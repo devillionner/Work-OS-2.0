@@ -5,11 +5,12 @@ import { createRefreshGate } from '@/lib/refresh-gate';
 import { createActionGate } from '@/lib/action-gate';
 import { ChatBulkDialog } from '@/components/chat-bulk-dialog';
 import { ChatProfileDialog } from '@/components/chat-profile-dialog';
+import { ChatHistoryDialog } from '@/components/chat-history-dialog';
 import { CHAT_PLATFORM_NAMES, type ChatPlatform } from '@/lib/chats/bulk-input';
 import type { BulkResult } from '@/lib/chats/bulk';
 import type { ChatProfile } from '@/lib/chats/profile';
 import { useRouter } from 'next/navigation';
-import { Archive, Check, ChevronLeft, ChevronRight, Clock3, Copy, ExternalLink, LoaderCircle, Plus, RotateCcw, Search, Send, Settings2, Undo2, UserRoundCheck, X } from 'lucide-react';
+import { Archive, Check, ChevronLeft, ChevronRight, Clock3, Copy, ExternalLink, History, LoaderCircle, Plus, RotateCcw, Search, Send, Settings2, Undo2, UserRoundCheck, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,6 +41,8 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const [notice,setNotice]=useState('');
   const [profileChat,setProfileChat]=useState<Chat|null>(null);
   const [profileOpenKey,setProfileOpenKey]=useState(0);
+  const [historyChat,setHistoryChat]=useState<Chat|null>(null);
+  const [historyOpenKey,setHistoryOpenKey]=useState(0);
   const [loading,setLoading] = useState(true);
   const [busy,setBusy] = useState<string|null>(null);
   const runAction=useRef(createActionGate());
@@ -158,6 +161,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   return <div className="platform-workspace">
     <ChatBulkDialog open={bulkOpen} onClose={()=>setBulkOpen(false)} onAdded={addedChats} enabledPlatforms={enabledPlatforms}/>
     <ChatProfileDialog key={profileOpenKey} open={profileChat!==null} chat={profileChat} onClose={()=>setProfileChat(null)} onSaved={savedProfile} onOpenChat={()=>{if(profileChat)openNativeChat(profileChat.platform,profileChat.link);}}/>
+    <ChatHistoryDialog key={historyOpenKey} open={historyChat!==null} chat={historyChat} onClose={()=>setHistoryChat(null)}/>
     {notice&&<output className="reports-notice">{notice}</output>}
     <section className="platform-hero">
       <div><p className="eyebrow">Робочі платформи</p><h2>Чати без зайвих переходів</h2><p>Приєднуйся, перевіряй очікування та відмічай публікації в одному стабільному процесі.</p></div>
@@ -203,6 +207,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
         {data.chats.map(chat=><article className="chat-row" key={chat.id}>
           <div className="chat-main"><div className="chat-name-line"><strong>{chat.name}</strong>{!chat.profileConfirmed&&queue==='ready'&&<Badge variant="outline">Профіль пізніше</Badge>}{chat.publishedToday&&<Badge variant="secondary">Опубліковано сьогодні</Badge>}</div><button className="chat-native-link" type="button" onClick={()=>openNativeChat(chat.platform,chat.link)}>{chat.link}</button>{chat.archiveReason&&<small>Причина: {chat.archiveReason}</small>}{chat.snoozedUntil&&chat.snoozedUntil>clock/1000&&<small>Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{queue==='ready'&&!canPublish(chat,clock)&&<small className="wait-note"><Clock3/>Публікація буде доступна {formatDateTime(chat.availableAt!)}</small>}</div>
           <div className="chat-actions">
+            <Button variant="outline" size="sm" onClick={()=>{setHistoryChat(chat);setHistoryOpenKey(value=>value+1);}} disabled={busy!==null}><History data-icon="inline-start"/>Історія</Button>
             {platform==='telegram'&&queue!=='to_join'&&<select disabled={busy!==null} className="chat-account-select" value={chat.telegramAccountId||''} onChange={event=>assignAccount(chat,event.target.value)} aria-label="Telegram-акаунт чату">{accounts.filter(item=>item.enabled||item.id===chat.telegramAccountId).map(account=><option value={account.id} key={account.id}>{account.name} · #{account.number}</option>)}</select>}
             <Button variant="outline" size="icon" type="button" onClick={()=>openNativeChat(chat.platform,chat.link)} aria-label={`Відкрити чат у ${selected.label}`}><ExternalLink/></Button>
             {queue==='to_join'&&<><Button size="icon" onClick={()=>act(chat,'joined')} disabled={busy!==null} aria-label="Успішно приєднано"><Check/></Button>{(platform==='telegram'||platform==='whatsapp')&&<Button variant="outline" size="icon" onClick={()=>act(chat,'waiting')} disabled={busy!==null} aria-label="Очікуємо запрошення"><Clock3/></Button>}<Button variant="outline" size="icon" onClick={()=>act(chat,'failed',{reason:'Не вдалося приєднатися'})} disabled={busy!==null} aria-label="Не вдалося приєднатися"><X/></Button></>}
