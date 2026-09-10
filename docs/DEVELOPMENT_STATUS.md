@@ -41,8 +41,24 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   soon as the requested list changes. Full integration acceptance remains open.
 - No remote name lookup, CSV import, existing-chat name editor or migration added.
   Prototype was read only as a parser reference; no remote D1 work or deploy.
-- `npm run verify` passed: lint, 79/79 local tests and build, including 11 new
-  bulk-add regressions. Linux CI is checked after push. No production deployment.
+- `npm run verify` passed: lint, 82/82 local tests and build, including 11 bulk-add
+  and 3 profile-editor regressions. Linux CI is checked after push. No production deployment.
+
+## Profile editor follow-up
+
+- Added a manual profile form to waiting/ready chat rows. It edits the chat name,
+  language, cadence, allowed weekdays, directions, note and reviewed/draft state,
+  and offers the platform deep link from the same form. The GET response includes
+  existing profile data so confirmed profiles reopen with their saved values.
+- Profile save updates the chat and profile together, writes one audit event and
+  advances the displayed state token. A stale token, foreign owner or failed audit
+  write leaves both tables unchanged. Profile audit events are excluded from
+  business totals and report pending-after-submit counts.
+- Three local Miniflare tests cover validation, create/update, owner/version guards
+  and rollback. The form was visually checked with a local browser harness on the
+  saved-value path. Full platform-workspace and Safari/iPhone acceptance remains
+  open; custom intervals, automatic selection and publication scheduling are not
+  implemented.
 
 ## Previous iteration: guarded chat transitions
 
