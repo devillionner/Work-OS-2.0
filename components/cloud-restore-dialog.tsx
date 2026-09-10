@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, FileJson, LoaderCircle, ShieldCheck, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { CloudBackupButton } from '@/components/cloud-backup-button';
 import { BACKUP_TABLES, type BackupTable } from '@/lib/backups/export';
 import { CLOUD_BACKUP_MAX_BYTES, inspectCloudBackup, type CloudBackupInspection } from '@/lib/backups/inspect';
 
@@ -19,6 +20,8 @@ type StagedRestore = {
   currentRevisionAtStage: number; byteSize: number; counts: Record<BackupTable, number>;
   status: string; createdAt: number;
 };
+type RestoreGate = { ready: boolean; currentRevision: number; backupRevision: number | null; backupCreatedAt: number | null };
+type RestoreJob = { id:string; importId:string; status:'running'|'completed'|'failed'; phase:string; total:number; complete:number; percent:number; error:string|null; completedAt:number|null };
 
 const IMPORTANT_TABLES: BackupTable[] = ['chats', 'chat_profiles', 'chat_publications', 'leads', 'students', 'lessons', 'daily_reports', 'activity_events'];
 
@@ -31,6 +34,10 @@ export function CloudRestoreDialog({ open, onClose }: { open: boolean; onClose()
   const [preview, setPreview] = useState<Preview | null>(null);
   const [staged, setStaged] = useState<StagedRestore | null>(null);
   const [rawBackup, setRawBackup] = useState('');
+  const [gate, setGate] = useState<RestoreGate | null>(null);
+  const [job, setJob] = useState<RestoreJob | null>(null);
+  const [restoreConfirmed, setRestoreConfirmed] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [localInspection, setLocalInspection] = useState<CloudBackupInspection | null>(null);
   const [error, setError] = useState('');
 
@@ -38,7 +45,7 @@ export function CloudRestoreDialog({ open, onClose }: { open: boolean; onClose()
     if (!open) return;
     let active = true;
     fetch('/api/backups/restore/stage', { cache: 'no-store' })
-      .then(async (response) => { const result = await response.json() as { staged?: StagedRestore | null; error?: string }; if (!response.ok) throw new Error(result.error || 'Не вдалося перевірити staging-зону.'); if (active) setStaged(result.staged || null); })
+      .then(async (response) => { const result = await response.json() as { staged?: StagedRestore | null; error?: string }; if (!response.ok) throw new Error(result.error || 'Не вдалося перевірити staging-зону.'); if (active) { setStaged(result.staged || null); if (result.staged) void loadRestoreState(result.staged.id, active); } })
       .catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : 'Не вдалося перевірити staging-зону.'); });
     return () => { active = false; };
   }, [open]);
@@ -73,23 +80,49 @@ export function CloudRestoreDialog({ open, onClose }: { open: boolean; onClose()
       const result = await response.json() as { staged?: StagedRestore; error?: string };
       if (!response.ok || !result.staged) throw new Error(result.error || 'Не вдалося зберегти копію у staging-зоні.');
       setStaged(result.staged); setRawBackup('');
+      await loadRestoreState(result.staged.id);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не вдалося зберегти копію у staging-зоні.'); }
     finally { setStaging(false); }
   }
 
-  const close = () => { if (!reading && !previewing && !staging) onClose(); };
+  async function loadRestoreState(importId: string, active = true) {
+    const response = await fetch(`/api/backups/restore/apply?importId=${encodeURIComponent(importId)}`, { cache: 'no-store' });
+    const result = await response.json() as { gate?: RestoreGate | null; job?: RestoreJob | null; error?: string };
+    if (!response.ok) throw new Error(result.error || 'Не вдалося перевірити готовність до відновлення.');
+    if (active) { setGate(result.gate || null); setJob(result.job || null); }
+  }
+
+  async function restore() {
+    if (!staged || !gate?.ready || !restoreConfirmed || restoring) return;
+    setRestoring(true); setError('');
+    try {
+      let current = await restoreRequest('start', staged.id);
+      setJob(current);
+      for (let step = 0; current.status === 'running' && step < 500; step += 1) {
+        current = await restoreRequest('process', staged.id);
+        setJob(current);
+      }
+      if (current.status !== 'completed') throw new Error(current.error || 'Відновлення призупинене. Його можна безпечно продовжити.');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не вдалося завершити відновлення.'); }
+    finally { setRestoring(false); }
+  }
+
+  const close = () => { if (!reading && !previewing && !staging && !restoring) onClose(); };
   return <div className="import-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
     <section className="import-dialog restore-dialog" role="dialog" aria-modal="true" aria-labelledby="restore-title">
-      <header className="import-dialog-header"><div><p className="eyebrow">Контрольоване відновлення</p><h2 id="restore-title">Перевірити резервну копію</h2></div><button className="import-close" type="button" aria-label="Закрити" onClick={close} disabled={reading || previewing}><X /></button></header>
-      <div className="import-safety-note"><ShieldCheck /><div><strong>Поточні дані не змінюються</strong><p>Файл перевіряється локально та звіряється з D1 тільки на читання. Відновлення не запускається автоматично.</p></div></div>
-      {staged && <section className="restore-staged"><div><p className="eyebrow">У staging-зоні</p><strong>{staged.filename}</strong><span>{formatBytes(staged.byteSize)} · {new Date(staged.createdAt * 1000).toLocaleString('uk-UA')}</span></div><CheckCircle2 /><small>Перевірений файл збережено окремо від робочих даних.</small></section>}
+      <header className="import-dialog-header"><div><p className="eyebrow">Контрольоване відновлення</p><h2 id="restore-title">Перевірити резервну копію</h2></div><button className="import-close" type="button" aria-label="Закрити" onClick={close} disabled={reading || previewing || staging || restoring}><X /></button></header>
+      <div className="import-safety-note"><ShieldCheck /><div><strong>Без прямого перезаписування</strong><p>До окремого підтвердження файл лише перевіряється. Відновлення повертає відсутні записи, не видаляючи й не перезаписуючи наявні.</p></div></div>
+      {staged && <section className="restore-staged"><div><p className="eyebrow">У staging-зоні</p><strong>{staged.filename}</strong><span>{formatBytes(staged.byteSize)} · {new Date(staged.createdAt * 1000).toLocaleString('uk-UA')}</span></div><CheckCircle2 /><small>{staged.status === 'completed' ? 'Відсутні записи з цієї копії вже відновлено.' : 'Перевірений файл збережено окремо від робочих даних.'}</small></section>}
+      {staged && gate && staged.status !== 'completed' && !gate.ready && <section className="restore-gate"><div><AlertTriangle /><div><strong>Спочатку захисти поточний стан</strong><p>Створи свіжу контрольну копію після staging. Якщо щось піде не так, цей файл залишиться незалежною точкою відновлення.</p></div></div><CloudBackupButton onComplete={() => void loadRestoreState(staged.id)} /></section>}
+      {staged && gate?.ready && job?.status !== 'completed' && <section className="restore-apply"><label><input type="checkbox" checked={restoreConfirmed} onChange={(event) => setRestoreConfirmed(event.target.checked)} disabled={restoring} /><span>Я зберіг свіжу контрольну копію. Повернути лише відсутні записи зі staging, не змінюючи наявні.</span></label>{job && <div className="migration-progress"><div><strong>{restoring ? 'Відновлюємо…' : job.status === 'failed' ? 'Можна безпечно продовжити' : 'Відновлення підготовлено'}</strong><span>{job.complete} із {job.total} порцій</span></div><div className="migration-progress-track"><i style={{ width: `${job.percent}%` }} /></div><small>{job.percent}% · {job.phase}</small></div>}<Button type="button" onClick={() => void restore()} disabled={!restoreConfirmed || restoring}>{restoring ? <><LoaderCircle className="is-spinning" />Відновлення {job?.percent || 0}%</> : job ? 'Продовжити відновлення' : 'Відновити відсутні записи'}</Button></section>}
+      {job?.status === 'completed' && <div className="restore-validation is-valid"><CheckCircle2 /><div><strong>Відновлення завершено</strong><p>Відсутні записи повернуто. Наявні дані не перезаписувалися й не видалялися.</p></div></div>}
       <input ref={inputRef} className="import-file-input" type="file" accept="application/json,.json" onChange={(event) => void chooseFile(event.target.files?.[0])} />
       <button className="import-dropzone" type="button" onClick={() => inputRef.current?.click()} disabled={reading || previewing}><FileJson /><strong>{reading || previewing ? 'Перевіряємо копію…' : filename || 'Вибрати копію Work OS 2.0'}</strong><span>JSON до 25 МБ · без запису в базу</span></button>
       {localInspection && !localInspection.valid && <div className="restore-validation"><AlertTriangle /><div><strong>Копія не пройшла перевірку</strong><p>{localInspection.errors.length} помилок структури або зв’язків.</p></div></div>}
       {preview && <section className="restore-preview"><div className="restore-validation is-valid"><CheckCircle2 /><div><strong>Копія цілісна й належить цьому акаунту</strong><p>{preview.inspection.totalRecords} записів · SHA {preview.sha256.slice(0, 12)}…</p></div></div><div className="restore-comparison"><div className="restore-comparison-head"><span>Розділ</span><span>У копії</span><span>Зараз</span></div>{IMPORTANT_TABLES.map((table) => <div key={table}><span>{tableLabel(table)}</span><strong>{preview.comparison[table].backup}</strong><strong>{preview.comparison[table].current}</strong></div>)}</div>{preview.dataChanged && <p className="restore-note"><AlertTriangle />Після створення цієї копії база змінювалася. Перед відновленням буде потрібна нова контрольна копія.</p>}<p className="staged-footnote">Перевірку завершено. Наступний етап — окреме підтверджене відновлення через staging без прямого перезаписування бази.</p></section>}
       {previewing && <p className="import-loading"><LoaderCircle className="is-spinning" />Звіряємо з хмарною базою…</p>}
       {error && <p className="import-error" role="alert">{error}</p>}
-      <footer className="import-actions"><Button variant="outline" type="button" onClick={close} disabled={reading || previewing || staging}>Закрити</Button>{preview && rawBackup ? <Button type="button" onClick={() => void stage()} disabled={staging}>{staging ? <><LoaderCircle className="is-spinning" />Зберігаємо…</> : 'Зберегти у staging-зоні'}</Button> : <Button type="button" onClick={() => inputRef.current?.click()} disabled={reading || previewing || staging}>{preview ? 'Перевірити інший файл' : 'Вибрати файл'}</Button>}</footer>
+      <footer className="import-actions"><Button variant="outline" type="button" onClick={close} disabled={reading || previewing || staging || restoring}>Закрити</Button>{preview && rawBackup ? <Button type="button" onClick={() => void stage()} disabled={staging || restoring}>{staging ? <><LoaderCircle className="is-spinning" />Зберігаємо…</> : 'Зберегти у staging-зоні'}</Button> : <Button type="button" onClick={() => inputRef.current?.click()} disabled={reading || previewing || staging || restoring}>{preview ? 'Перевірити інший файл' : 'Вибрати файл'}</Button>}</footer>
     </section>
   </div>;
 }
@@ -99,3 +132,10 @@ function tableLabel(table: BackupTable): string {
 }
 
 function formatBytes(value: number): string { return value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} МБ` : `${Math.max(1, Math.round(value / 1024))} КБ`; }
+
+async function restoreRequest(action: 'start'|'process', importId?: string): Promise<RestoreJob> {
+  const response = await fetch('/api/backups/restore/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, importId }) });
+  const result = await response.json() as { job?: RestoreJob | null; error?: string };
+  if (!response.ok || !result.job) throw new Error(result.error || 'Не вдалося виконати етап відновлення.');
+  return result.job;
+}

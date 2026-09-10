@@ -40,6 +40,10 @@
 - Cloud restore staging: validated backups are stored outside working tables in
   bounded, per-table chunks with SHA-256 checksums; staging survives reloads and
   records both the source revision and current D1 revision without applying data.
+- Missing-only restore: requires a fresh post-staging backup at the current D1
+  revision, explicit consent, checksum verification for every chunk and resumable
+  jobs. Existing rows are never overwritten, absent-source rows are never deleted,
+  and cross-owner ID collisions stop the job before a write.
 
 ## Validation
 
@@ -69,8 +73,9 @@
   existing pending request and cancels its provisional event atomically, avoiding
   double-counting alongside the real booking. Existing pending requests can also
   be cancelled with a reason, preserving their historical events.
-- Restore preview is deliberately read-only. Applying a backup still requires a
-  separately reviewed staging/import job; the UI cannot overwrite D1 directly.
+- Restore apply deliberately supports only recovery of missing rows. Reverting
+  existing row values to an older snapshot remains unavailable because that would
+  be destructive and needs a separate exact-restore design and rehearsal.
 
 ## Next — staging and product gate
 

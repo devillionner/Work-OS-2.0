@@ -9,7 +9,7 @@ type Manifest = {
   tables: string[]; counts: Record<string, number>;
 };
 
-export function CloudBackupButton() {
+export function CloudBackupButton({ onComplete }: { onComplete?: () => void } = {}) {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState(false);
@@ -47,6 +47,7 @@ export function CloudBackupButton() {
       setProgress(100);
       saveFile(payload, `work-os-backup_${manifest.createdAt.slice(0, 10)}_${manifest.createdAt.slice(11, 19).replaceAll(':', '-')}.json`);
       setDone(true);
+      onComplete?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Не вдалося створити резервну копію.');
     } finally { setBusy(false); }

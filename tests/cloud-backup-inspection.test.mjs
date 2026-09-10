@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { Miniflare } from 'miniflare';
 import { BACKUP_TABLES } from '../lib/backups/export.ts';
-import { inspectCloudBackup } from '../lib/backups/inspect.ts';
+import { cloudBackupSha256, inspectCloudBackup } from '../lib/backups/inspect.ts';
+import { restoreMissingChunk } from '../lib/backups/restore.ts';
 
 function backup(overrides = {}) {
   const tables = Object.fromEntries(BACKUP_TABLES.map((table) => [table, []]));
@@ -64,4 +66,40 @@ void test('accepts internally consistent linked rows', () => {
     lesson_reminders: [{ id: 'reminder-1', user_id: 'owner', lesson_id: 'lesson-1', source_import_id: null }],
   }));
   assert.equal(result.valid, true, result.errors.join('\n'));
+});
+
+void test('missing-only restore remaps ownership and never overwrites an existing row', async (t) => {
+  const mf = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response("ok") } }', d1Databases: ['DB'] });
+  t.after(() => mf.dispose());
+  const db = await mf.getD1Database('DB');
+  await db.prepare('CREATE TABLE chats(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,name TEXT NOT NULL)').run();
+  const firstPayload = JSON.stringify([{ id: 'chat-1', user_id: 'backup-owner', name: 'Recovered' }]);
+  const first = await restoreMissingChunk({ db, table: 'chats', payload: firstPayload, sha256: await cloudBackupSha256(firstPayload), rowCount: 1, userId: 'current-owner' });
+  assert.equal(first.inserted, 1);
+  assert.deepEqual(await db.prepare('SELECT user_id,name FROM chats WHERE id=?1').bind('chat-1').first(), { user_id: 'current-owner', name: 'Recovered' });
+  await db.prepare('UPDATE chats SET name=?1 WHERE id=?2').bind('Current value', 'chat-1').run();
+  const repeated = await restoreMissingChunk({ db, table: 'chats', payload: firstPayload, sha256: await cloudBackupSha256(firstPayload), rowCount: 1, userId: 'current-owner' });
+  assert.equal(repeated.inserted, 0);
+  assert.equal(await db.prepare('SELECT name FROM chats WHERE id=?1').bind('chat-1').first('name'), 'Current value');
+});
+
+void test('restore rejects a tampered staging chunk before writing', async (t) => {
+  const mf = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response("ok") } }', d1Databases: ['DB'] });
+  t.after(() => mf.dispose());
+  const db = await mf.getD1Database('DB');
+  await db.prepare('CREATE TABLE chats(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,name TEXT NOT NULL)').run();
+  const payload = JSON.stringify([{ id: 'chat-1', user_id: 'owner', name: 'Recovered' }]);
+  await assert.rejects(restoreMissingChunk({ db, table: 'chats', payload, sha256: '0'.repeat(64), rowCount: 1, userId: 'owner' }), /Контрольна сума/);
+  assert.equal(await db.prepare('SELECT COUNT(*) count FROM chats').first('count'), 0);
+});
+
+void test('restore rejects an id collision owned by another account', async (t) => {
+  const mf = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response("ok") } }', d1Databases: ['DB'] });
+  t.after(() => mf.dispose());
+  const db = await mf.getD1Database('DB');
+  await db.prepare('CREATE TABLE chats(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,name TEXT NOT NULL)').run();
+  await db.prepare("INSERT INTO chats(id,user_id,name) VALUES('chat-1','other-owner','Private')").run();
+  const payload = JSON.stringify([{ id: 'chat-1', user_id: 'backup-owner', name: 'Recovered' }]);
+  await assert.rejects(restoreMissingChunk({ db, table: 'chats', payload, sha256: await cloudBackupSha256(payload), rowCount: 1, userId: 'current-owner' }), /іншим власником/);
+  assert.deepEqual(await db.prepare('SELECT user_id,name FROM chats WHERE id=?1').bind('chat-1').first(), { user_id: 'other-owner', name: 'Private' });
 });

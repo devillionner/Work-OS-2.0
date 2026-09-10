@@ -306,6 +306,15 @@ button { color: inherit; }
 .restore-staged span, .restore-staged small { color: #626977; font-size: 11px; }
 .restore-staged svg { width: 20px; height: 20px; color: #087443; }
 .restore-staged small { grid-column: 1 / -1; }
+.restore-gate, .restore-apply { display: grid; gap: 12px; padding: 14px; border: 1px solid #f1d18a; border-radius: 12px; background: #fffaf0; }
+.restore-gate > div:first-child { display: flex; align-items: flex-start; gap: 9px; }
+.restore-gate svg { width: 18px; height: 18px; flex: 0 0 auto; color: #9a6100; }
+.restore-gate strong, .restore-gate p { display: block; margin: 0; }
+.restore-gate p { margin-top: 4px; color: #626977; font-size: 12px; }
+.restore-gate .cloud-backup-action { justify-items: start; margin-left: 27px; }
+.restore-apply { border-color: #cfd7ff; background: #f5f7ff; }
+.restore-apply > label { display: flex; align-items: flex-start; gap: 9px; color: #343946; font-size: 12px; }
+.restore-apply > label input { margin-top: 2px; accent-color: var(--primary); }
 .mobile-bottom-nav { display: none; }
 
 .platform-workspace { max-width: 1400px; display: grid; gap: 18px; margin: 0 auto; padding: clamp(22px,4vw,54px); }
