@@ -624,6 +624,25 @@ button { color: inherit; }
 .lead-field { min-width:0; }
 .lead-field [data-slot=native-select-wrapper] { width:100%; }
 .lead-wide { grid-column:1 / -1; }
+.chat-bulk-dialog[data-slot="dialog-content"] { display:flex; flex-direction:column; width:min(760px,calc(100vw - 24px)); max-width:760px; max-height:90dvh; overflow-y:auto; gap:16px; padding:24px; background:var(--card); color:var(--foreground); box-shadow:0 24px 70px rgb(25 31 48 / .18); }
+.chat-bulk-dialog > * { flex-shrink:0; }
+.chat-bulk-dialog [data-slot="dialog-header"] { padding-right:36px; }
+.chat-bulk-close { position:absolute; right:12px; top:12px; }
+.chat-bulk-input { display:grid; gap:8px; font-weight:600; }
+.chat-bulk-counts,.chat-bulk-platforms { display:flex; flex-wrap:wrap; gap:8px 16px; font-size:13px; }
+.chat-bulk-platforms span { padding:4px 8px; background:#f1f5fa; border-radius:8px; }
+.chat-bulk-items { display:grid; gap:8px; min-height:120px; overflow-y:auto; flex:1 1 auto; }
+.chat-bulk-dialog .dialog-actions { margin-top:0; }
+.chat-bulk-dialog .bg-primary { color:var(--primary-foreground); }
+.chat-bulk-dialog input,.chat-bulk-dialog textarea { font-size:16px; }
+.chat-bulk-item { display:flex; align-items:flex-start; gap:8px; padding:12px; border:1px solid var(--border); border-radius:12px; }
+.chat-bulk-item[data-status="new"] { border-color:#bbd5f7; background:#f8fbff; }
+.chat-bulk-item[data-status="invalid"] { background:#fff7ed; border-color:#fed7aa; }
+.chat-bulk-item-body { display:grid; gap:6px; min-width:0; flex:1; }
+.chat-bulk-status { color:#626977; font-size:12px; }
+.chat-bulk-link { overflow-wrap:anywhere; color:#5f6675; font-size:12px; }
+.platform-hero { flex-wrap:wrap; }
+@media(max-width:600px) { .chat-bulk-dialog[data-slot="dialog-content"] { padding:18px 14px; } .chat-bulk-dialog .dialog-actions { flex-wrap:wrap; } .chat-bulk-dialog button,.chat-bulk-dialog input { min-height:44px; } .chat-bulk-item button { min-width:44px; } }
 @media(max-width:1200px) { .lead-reminder-grid { grid-template-columns:1fr; } .leads-workspace { padding:0 20px 24px; } }
 @media(max-width:800px) { .leads-layout { grid-template-columns:1fr; } .leads-list { position:static; max-height:360px; } .leads-workspace { padding:0 12px 100px; } .lead-panel { padding:16px; } }
 @media(max-width:480px) { .lead-form fieldset,.lead-facts { grid-template-columns:1fr; } .lead-messages li,.lead-messages li.from-me { margin:12px 0; } }

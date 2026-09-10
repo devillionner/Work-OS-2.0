@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRefreshGate } from '@/lib/refresh-gate';
 import { createActionGate } from '@/lib/action-gate';
+import { ChatBulkDialog } from '@/components/chat-bulk-dialog';
+import { CHAT_PLATFORM_NAMES, type ChatPlatform } from '@/lib/chats/bulk-input';
+import type { BulkResult } from '@/lib/chats/bulk';
 import { useRouter } from 'next/navigation';
 import { Archive, Check, ChevronLeft, ChevronRight, Clock3, Copy, ExternalLink, LoaderCircle, Plus, RotateCcw, Search, Send, Settings2, Undo2, UserRoundCheck, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +16,7 @@ type Platform = 'telegram' | 'whatsapp' | 'viber' | 'facebook';
 type Queue = 'to_join' | 'waiting' | 'ready' | 'archived';
 type Chat = { id:string; name:string; link:string; platform:Platform; status:Queue; archiveReason:string|null; profileConfirmed:boolean; publishedToday:boolean; snoozedUntil:number|null; availableAt:number|null; availableNow:boolean; telegramAccountId:string|null; stateToken:string };
 type LinkItem = { name?:string; link?:string };
-type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[] };
+type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; requestKey?:string };
 type TelegramAccount = { id:string; number:number; name:string; enabled:boolean; selected:boolean; joinStreak:number; joinBatchSize:number; breakMinutes:number; breakUntil:number|null };
 
 const platforms: Array<{key:Platform;label:string;color:string}> = [
@@ -30,7 +33,9 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const [platform,setPlatform] = useState<Platform>('telegram');
   const [queue,setQueue] = useState<Queue>('to_join');
   const [search,setSearch] = useState('');
-  const [data,setData] = useState<ResponseData|null>(null);
+  const [loadedData,setData] = useState<ResponseData|null>(null);
+  const [bulkOpen,setBulkOpen]=useState(false);
+  const [notice,setNotice]=useState('');
   const [loading,setLoading] = useState(true);
   const [busy,setBusy] = useState<string|null>(null);
   const runAction=useRef(createActionGate());
@@ -49,6 +54,9 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const refreshExpiredBreak=useRef(createRefreshGate(120_000));
   const availablePlatforms = useMemo(() => platforms.filter((item) => !enabledPlatforms || enabledPlatforms.includes(item.key)), [enabledPlatforms]);
   if (!availablePlatforms.some((item) => item.key === platform) && availablePlatforms[0]) { setPlatform(availablePlatforms[0].key); setQueue('to_join'); setOffset(0); }
+  const requestKey=`${platform}:${queue}:${search}:${offset}:${accountId}`;
+  const switchingList=loadedData!==null&&loadedData.requestKey!==requestKey;
+  const data=switchingList?null:loadedData;
   const filterKey=`${platform}:${queue}:${search}`;
   const [previousFilter,setPreviousFilter]=useState(filterKey);
   if(previousFilter!==filterKey){setPreviousFilter(filterKey);setOffset(0);}
@@ -78,12 +86,23 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       const body = await response.json() as ResponseData & {error?:string};
       if(controller.signal.aborted || requestNumber!==loadNumber.current) return;
       if(!response.ok) throw new Error(body.error || 'Не вдалося завантажити чати.');
-      setData(body);
+      setData({...body,requestKey});
     } catch (reason) { if(!controller.signal.aborted && requestNumber===loadNumber.current) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити чати.'); }
     finally { if(!controller.signal.aborted && requestNumber===loadNumber.current) setLoading(false); }
-  },[platform,queue,search,offset,accountId]);
+  },[platform,queue,search,offset,accountId,requestKey]);
 
   useEffect(() => { reloadChats.current=load; const timer=setTimeout(load,search ? 250 : 0); return () => { clearTimeout(timer); cancelLoad(); }; },[load,search,cancelLoad]);
+
+  useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),8000);return()=>clearTimeout(timer);},[notice]);
+
+  function addedChats(result:BulkResult) {
+    const target=availablePlatforms.find(item=>(result.counts[item.key]||0)>0)?.key||platform;
+    setNotice(`Додано ${result.added} чатів: ${Object.entries(result.counts).map(([key,count])=>`${CHAT_PLATFORM_NAMES[key as ChatPlatform]} — ${count}`).join(', ')}.`);
+    const changesFilter=target!==platform||queue!=='to_join'||search!==''||offset!==0;
+    setData(null);setLoading(true);setPlatform(target);setQueue('to_join');setSearch('');setOffset(0);
+    if(!changesFilter) void reloadChats.current();
+    router.refresh();
+  }
 
   async function act(chat:Chat, action:string, extra:Record<string,unknown>={}) {
     await runAction.current(async()=>{
@@ -129,8 +148,11 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const activeAccount=accounts.find(item=>item.id===accountId);
   const breakSeconds=activeAccount?.breakUntil?Math.max(0,activeAccount.breakUntil-Math.floor(clock/1000)):0;
   return <div className="platform-workspace">
+    <ChatBulkDialog open={bulkOpen} onClose={()=>setBulkOpen(false)} onAdded={addedChats} enabledPlatforms={enabledPlatforms}/>
+    {notice&&<output className="reports-notice">{notice}</output>}
     <section className="platform-hero">
       <div><p className="eyebrow">Робочі платформи</p><h2>Чати без зайвих переходів</h2><p>Приєднуйся, перевіряй очікування та відмічай публікації в одному стабільному процесі.</p></div>
+      <Button disabled={busy!==null} onClick={()=>setBulkOpen(true)}><Plus data-icon="inline-start"/>Додати чати</Button>
       <div className="platform-picker" role="tablist" aria-label="Платформа">
         {availablePlatforms.map(item=><button key={item.key} role="tab" aria-selected={platform===item.key} onClick={()=>{setPlatform(item.key);setQueue('to_join');setOffset(0)}}><i style={{background:item.color}} />{item.label}</button>)}
       </div>
@@ -168,7 +190,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
         <Badge variant="secondary">{data?.total || 0} у черзі</Badge>
       </div>
       {error && <div className="workspace-error">{error} <Button variant="outline" size="sm" disabled={loading||busy!==null} onClick={()=>void reloadChats.current()}>Оновити список</Button></div>}
-      {loading ? <div className="workspace-loading"><LoaderCircle/>Завантажуємо {selected.label}…</div> : data?.chats.length ? <div className="chat-list">
+      {loading||switchingList ? <div className="workspace-loading"><LoaderCircle/>Завантажуємо {selected.label}…</div> : data?.chats.length ? <div className="chat-list">
         {data.chats.map(chat=><article className="chat-row" key={chat.id}>
           <div className="chat-main"><div className="chat-name-line"><strong>{chat.name}</strong>{!chat.profileConfirmed&&queue==='ready'&&<Badge variant="outline">Профіль пізніше</Badge>}{chat.publishedToday&&<Badge variant="secondary">Опубліковано сьогодні</Badge>}</div><button className="chat-native-link" type="button" onClick={()=>openNativeChat(chat.platform,chat.link)}>{chat.link}</button>{chat.archiveReason&&<small>Причина: {chat.archiveReason}</small>}{chat.snoozedUntil&&chat.snoozedUntil>clock/1000&&<small>Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{queue==='ready'&&!canPublish(chat,clock)&&<small className="wait-note"><Clock3/>Публікація буде доступна {formatDateTime(chat.availableAt!)}</small>}</div>
           <div className="chat-actions">
