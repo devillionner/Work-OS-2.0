@@ -1,4 +1,4 @@
-# Development status — 2026-09-10
+# Development status — 2026-09-11
 
 Canonical product scope: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
 Next work and acceptance gates: [ROADMAP](ROADMAP.md).
@@ -13,7 +13,38 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 - Cloudflare Workers Builds triggers checked read-only on 2026-09-10: both
   work-os-2 and work-os-2-staging returned no triggers. No D1 reads/writes used.
 
-## Current iteration: guarded chat transitions
+## Current iteration: manual bulk chat addition
+
+- Added an authenticated same-origin API and a posting-workspace dialog for up to
+  500 mixed Telegram/WhatsApp/Viber/Facebook links. Preview identifies new,
+  existing, archived, repeated and invalid rows, with platform counts. Users can
+  rename new chats, remove rows and return to the edited list before saving.
+- The server rechecks ownership, normalized legacy URLs and the preview revision.
+  All new rows and one audit receipt commit together. Concurrent writes, failed
+  receipts and an unknown transport outcome cannot create a partial batch or
+  duplicate chats. Existing states/names remain intact; new chats enter to_join
+  and Telegram starts in the common unassigned pool. No join/publication metric
+  is produced by adding a list or by state-change-only audit events.
+- Preview uses two SQL statements and add uses five for 1–500 rows. Legacy aliases
+  currently require one owner/platform-scoped scan, bounded at 10k existing chats.
+  A larger matching database is refused with a clear message. Canonical indexed
+  keys/backfill remain P4 work. Local 10k preview measured 169 ms alone / 336 ms
+  during the parallel suite; these are observations, not a production p95 claim.
+- Browser QA used the real dialog and handler with an in-memory local D1 harness:
+  mixed preview, archive/duplicate/invalid counts, edited name, row removal,
+  lost response after commit, close/reopen/retry, success and a 500-row save.
+  Desktop 1280×720 and narrow 390×844 layouts checked. Fixed a transparent popup
+  background, kept save controls below the scrollable list, and expanded phone
+  touch targets. This does not substitute for Safari/iPhone or whole-workspace QA.
+- Workspace shows an eight-second summary, opens a matching enabled platform's
+  to_join queue, resets search/pagination and refreshes. Old rows are hidden as
+  soon as the requested list changes. Full integration acceptance remains open.
+- No remote name lookup, CSV import, existing-chat name editor or migration added.
+  Prototype was read only as a parser reference; no remote D1 work or deploy.
+- `npm run verify` passed: lint, 79/79 local tests and build, including 11 new
+  bulk-add regressions. Linux CI is checked after push. No production deployment.
+
+## Previous iteration: guarded chat transitions
 
 - All manual chat actions carry the displayed state token. Writes recheck it in
   the D1 transaction, including same-second archive/restore and snooze/resume
@@ -34,7 +65,8 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 - No SQL migration, remote D1 test, restore drill, deploy or Prototype change.
   New API requires stateToken; existing browser tabs need a page reload at release.
 - `npm run verify` passed: lint, 68/68 local tests and build, including 13 new
-  transition/client-gate regressions. Current Linux CI is checked after push.
+  transition/client-gate regressions. Linux CI passed for 1ef3ac4:
+  [run 34510363437](https://github.com/devillionner/Work-OS-2.0/actions/runs/34510363437).
   Desktop/iPhone visual acceptance, a user-facing transition history and server
   guards for concurrent Telegram account-management actions remain open.
 
@@ -166,8 +198,8 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 
 ## Next
 
-Follow P1 in [ROADMAP](ROADMAP.md): local UI acceptance, bulk chat
-addition/profiles/library attribution, visible transition history and account-scoped
+Follow P1 in [ROADMAP](ROADMAP.md): whole-workspace/Safari acceptance, existing chat
+profiles/names and library attribution, visible transition history and account-scoped
 Telegram scheduling. Then complete Today/CRM/report parity.
 
 The older PR #6 review and cutover file are historical evidence, not commands to
