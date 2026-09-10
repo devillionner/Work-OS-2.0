@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import {
-  Archive, BarChart3, BookOpenText, ChevronLeft, ChevronRight,
+  BarChart3, BookOpenText, ChevronLeft, ChevronRight,
   CircleUserRound, FileText, LayoutDashboard, Menu, MessageSquareText,
   Settings, Target, UsersRound, X,
 } from 'lucide-react';
@@ -10,8 +10,8 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress, ProgressLabel, ProgressValue } from '@/components/ui/progress';
-import { LegacyImportDialog } from '@/components/legacy-import-dialog';
-import { CloudBackupButton } from '@/components/cloud-backup-button';
+
+
 import { PlatformWorkspace } from '@/components/platform-workspace';
 import { LeadsWorkspace } from '@/components/leads/workspace';
 import { AnalyticsWorkspace } from '@/components/analytics-workspace';
@@ -42,7 +42,7 @@ const navigation = [
 export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
+
   const [todaySettingsOpen, setTodaySettingsOpen] = useState(false);
   const router = useRouter();
   const [activeView, setActiveView] = useState<(typeof navigation)[number]['key']>('today');
@@ -98,11 +98,11 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
         {activeView === 'today' ? <div className="dashboard-grid">
           <section className="focus-card" aria-labelledby="focus-title">
             <div className="focus-heading">
-              <div><p className="eyebrow">Фокус дня</p><h2 id="focus-title">Дані на місці. Будуємо швидкий робочий процес</h2><p>{snapshot.chats} активних чатів і {snapshot.leads} лідів уже доступні у хмарній базі.</p>{snapshot.focusDirections.length ? <div className="focus-direction-list">{snapshot.focusDirections.map((direction) => <Badge variant="secondary" key={direction}>{direction}</Badge>)}</div> : <p className="focus-empty-note">Фокус напрямків ще не налаштований.</p>}</div>
-              <Badge variant="outline">{snapshot.lastPrototypeSync ? `Оновлено ${formatSyncTime(snapshot.lastPrototypeSync.completedAt)}` : 'Безпечний старт'}</Badge>
+              <div><p className="eyebrow">Фокус дня</p><h2 id="focus-title">Почни з поточних чатів і лідів</h2><p>{snapshot.chats} активних чатів і {snapshot.leads} лідів уже доступні у хмарній базі.</p>{snapshot.focusDirections.length ? <div className="focus-direction-list">{snapshot.focusDirections.map((direction) => <Badge variant="secondary" key={direction}>{direction}</Badge>)}</div> : <p className="focus-empty-note">Фокус напрямків ще не налаштований.</p>}</div>
+              <Badge variant="outline">Ручна робота</Badge>
             </div>
             <div className="focus-actions">
-              <Button size="lg" onClick={() => setImportOpen(true)}><Archive data-icon="inline-start" />Оновити з Prototype Checker</Button>
+              <Button size="lg" onClick={() => setActiveView('platforms')}><MessageSquareText data-icon="inline-start" />Почати постинг</Button>
               <Button size="lg" variant="outline" onClick={() => setTodaySettingsOpen(true)}><Target data-icon="inline-start" />Налаштувати ціль</Button>
             </div>
           </section>
@@ -116,9 +116,9 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           <section className="queue-card" aria-labelledby="queue-title">
             <div className="card-heading"><div><p className="eyebrow">Наступні дії</p><h2 id="queue-title">Робоча черга</h2></div><Badge variant="secondary">3 кроки</Badge></div>
             <ol className="action-list">
-              <li><span className="action-index">1</span><div><strong>Створити контрольну копію</strong><p>Зберегти незалежну копію вже перенесеної хмарної бази.</p></div><Badge variant="outline">Рекомендовано</Badge></li>
-              <li><span className="action-index">2</span><div><strong>Відкрити робочі платформи</strong><p>Повернути швидкий постинг у новому уніфікованому інтерфейсі.</p></div><Badge variant="outline">Наступне</Badge></li>
-              <li><span className="action-index">3</span><div><strong>Перевірити аналітику</strong><p>Звірити конверсії з перенесеної історії подій.</p></div><Badge variant="outline">Після платформ</Badge></li>
+              <li><span className="action-index">1</span><div><strong>Опрацювати чати</strong><p>Приєднання, очікування та ручні публікації.</p></div><Button variant="outline" size="sm" onClick={() => setActiveView('platforms')}>Відкрити</Button></li>
+              <li><span className="action-index">2</span><div><strong>Перевірити лідів та уроки</strong><p>Наступні контакти, записи й ручні нагадування.</p></div><Button variant="outline" size="sm" onClick={() => setActiveView('leads')}>Відкрити</Button></li>
+              <li><span className="action-index">3</span><div><strong>Підготувати звіт</strong><p>Переглянути події дня й зберегти звіт.</p></div><Button variant="outline" size="sm" onClick={() => setActiveView('reports')}>Відкрити</Button></li>
             </ol>
           </section>
 
@@ -133,14 +133,14 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           <section className="status-card" aria-labelledby="status-title">
             <div className="status-icon"><CircleUserRound /></div>
             <div><p className="eyebrow">Доступ</p><h2 id="status-title">Хмарний профіль активний</h2><p>Цей екран доступний із будь-якого пристрою після входу.</p></div>
-            <CloudBackupButton />
+            <Button variant="outline" onClick={() => setActiveView('settings')}>Налаштування даних</Button>
           </section>
         </div> : activeView === 'platforms' ? <PlatformWorkspace enabledPlatforms={snapshot.enabledPlatforms} /> : activeView === 'leads' ? <LeadsWorkspace key={user.email} account={user.email} /> : activeView === 'analytics' ? <AnalyticsWorkspace /> : activeView === 'reports' ? <ReportsWorkspace /> : activeView === 'library' ? <LibraryWorkspace /> : activeView === 'settings' ? <SettingsWorkspace user={user} snapshot={snapshot} onRefresh={() => router.refresh()} /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
 
         <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
           {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => <button type="button" aria-current={activeView === key ? 'page' : undefined} key={key} onClick={() => setActiveView(key)}><Icon /><span>{label}</span></button>)}
         </nav>
-        <LegacyImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
+
         <TodaySettingsDialog open={todaySettingsOpen} onClose={() => setTodaySettingsOpen(false)} initialDirections={snapshot.focusDirections} initialDailyGoal={snapshot.bookingGoal.target} initialMonthlyGoal={snapshot.monthlyBookingGoal} onSaved={() => router.refresh()} />
       </main>
     </div>
@@ -162,8 +162,3 @@ function todayLabel() {
 
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
-
-function formatSyncTime(value:number) {
-  return new Intl.DateTimeFormat('uk-UA',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Kyiv'}).format(new Date(value*1000));
-}
-
