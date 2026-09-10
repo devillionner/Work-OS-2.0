@@ -1,5 +1,10 @@
 # Архітектура Work OS 2.0
 
+Актуальний продуктовий контракт: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
+Статуси та обмеження опису архітектури не замінюють цей реєстр. Зокрема,
+dashboard ще має legacy fallback через report_text; його усунення — блокер
+DATA-10/REPORT-22. [ROADMAP](ROADMAP.md) визначає local-only перевірки та release gates.
+
 ## Мета
 
 Один приватний браузерний застосунок, доступний з Windows, Linux та телефона без постійно ввімкненого домашнього ноутбука.

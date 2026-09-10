@@ -1,4 +1,44 @@
-# Development status — 2026-09-09
+# Development status — 2026-09-10
+
+Canonical product scope: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
+Next work and acceptance gates: [ROADMAP](ROADMAP.md).
+
+## Current working policy
+
+- Direct main, small verified commits, local lint/tests/build before push.
+- Prototype Checker/GitHub read-only; no daily resync. Final transfer only after
+  functional parity and direct confirmation. No production D1 cleanup/deletion.
+- All tests, migration rehearsals and restore drills local. CI does not deploy.
+- Manual usability precedes AI/generation/autoposting.
+- Cloudflare Workers Builds triggers checked read-only on 2026-09-10: both
+  work-os-2 and work-os-2-staging returned no triggers. No D1 reads/writes used.
+
+## This iteration
+
+- Canonical register: 253 legacy IDs plus 23 explicit additions, each with status,
+  source/evidence and gaps; stack/report/migration/schedule conflicts reconciled.
+- Roadmap P0–P6, local-only runbook, data policy and design contract.
+- npm run verify + local CI; remote migration requires reason/explicit flag and
+  is blocked in CI. Unknown migration-log results fail closed.
+- Local Vite bindings explicitly disable remote connections.
+- Timer GET is read-only; completion derives from persisted ends_at. Polling is
+  bounded to 120 seconds in a visible online tab; errors/slow requests cannot
+  create one-second request loops. Stale reads cannot replace local mutations.
+- Today opens manual posting/leads/reports; no daily import/backup task prompt.
+- Library Add opens an empty editor; successful create keeps the returned ID so
+  saving again edits the same material. Visual/mobile QA remains unverified.
+
+## Validation for this iteration
+
+- Local lint passed; 46/46 tests passed including D1 read-only timer projection,
+  owner isolation, refresh rate/error/overlap and remote-migration refusal.
+- `npm run verify`: passed on 2026-09-10 (lint, 46/46 tests, build). Build used the
+  default staging configuration with remote bindings disabled. No deploy performed.
+- Register audit: 253/253 source IDs retained, 276 total, no duplicate IDs, invalid
+  statuses or broken source/code links. Prototype working tree remains clean.
+- GitHub CI is checked after push; previous validation below is historical and
+  does not claim current production deployment or completed browser/mobile QA.
+
 
 ## Done
 
@@ -77,23 +117,12 @@
   existing row values to an older snapshot remains unavailable because that would
   be destructive and needs a separate exact-restore design and rehearsal.
 
-## Next — staging and product gate
+## Next
 
-1. Review the PR and take a full current D1 backup; retain the original immutable
-   Prototype backup referenced in `CUTOVER-2026-09-04.md`.
-2. Apply migrations 0014 and 0015 on an isolated staging copy with matching code.
-   Production release remains a separate, explicitly authorized operation; this
-   review neither deploys nor runs production migrations.
-3. Smoke-test authenticated create/edit, two students, repeated booking,
-   reschedule, reminders, follow-up, message export and archive/restore on desktop
-   and mobile, including keyboard focus and stale-version recovery.
-4. Reconcile real production entity counts and historical metrics before/after;
-   export schema-5 cloud backup and rehearse restoration in an empty staging DB,
-   comparing every field and checking foreign keys (see `LEADS_PR6_REVIEW.md`).
-5. Keep Prototype Checker available until these operational checks pass.
-6. Run the focused Analytics, Reports and Library browser pass and reconcile their
-   numbers/materials against the restored staging backup.
+Follow P1 in [ROADMAP](ROADMAP.md): calendar snooze and server publication guards,
+event-only dashboard totals, bulk chat addition/profiles/library attribution and
+account-scoped Telegram scheduling. Then complete Today/CRM/report parity.
 
-The PR #6 hardening and curator-event lifecycle fixes are already ancestors of
-`main`. Production migration/resync remains a separate explicitly authorized
-operation; code changes alone do not alter the production D1.
+The older PR #6 review and cutover file are historical evidence, not commands to
+repeat remote migration/restore checks. Production release and final transfer are
+separate gates after local validation and the required direct confirmation.

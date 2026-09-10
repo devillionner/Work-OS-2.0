@@ -1,5 +1,10 @@
 # PR #6 hardening review — 2026-09-08
 
+> Historical review. Current execution policy (2026-09-10) supersedes remote drill
+> and PR/merge instructions below: work in main, run all rehearsals locally, no
+> routine resync/restore, no production data operations without direct permission.
+> See [ROADMAP](ROADMAP.md) and the updated [runbook](LEADS_PR6_STAGING_RUNBOOK.md).
+
 Reviewed the required README/architecture/migration/cutover/status documents and
 all 35 files in the original PR diff, including the SQL migration, API/import/backup
 changes, domain/application/data layers, React components, styles and tests. Reviewed

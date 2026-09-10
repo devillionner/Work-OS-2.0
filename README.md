@@ -29,27 +29,37 @@ npm run dev
 ## Перевірка перед змінами
 
 ```bash
-npm run build
-npm run lint
+npm run verify
 ```
+
+Команда виконує lint, tests і build локально. Деталі: [локальна розробка та D1](docs/LOCAL_DEVELOPMENT.md).
 
 ## Публікація у власний Cloudflare
 
-Після одноразового `npx wrangler login`:
+Deploy є окремою контрольованою операцією після локального `npm run verify`.
+Після одноразового `npx wrangler login`, для staging:
 
 ```bash
 npm run deploy
 ```
 
-Для production використовуй окремий явний environment:
+Для production environment потрібно вибрати **до build**. У PowerShell, лише під час погодженого release:
 
-```bash
-npm run deploy -- --env production
+```powershell
+$env:CLOUDFLARE_ENV = 'production'
+npm run build
+# Перевірити Worker і DB у dist/server/wrangler.json; лише після успіху build:
+npx wrangler deploy --config dist/server/wrangler.json
+Remove-Item Env:CLOUDFLARE_ENV
 ```
 
-Звичайний `npm run deploy` працює зі staging-конфігурацією. Production deploy
+Без `CLOUDFLARE_ENV` команда `npm run deploy` працює зі staging-конфігурацією. Production deploy
 не виконується автоматично від push у `main`, щоб випадково не змінити робочі
 дані.
+
+Не залишати `CLOUDFLARE_ENV=production` для звичайної розробки. SQL-міграції не
+входять у deploy; зміни production D1 та фінальний перенос із Prototype потребують
+прямого підтвердження. Щоденного resync немає. Усі тести/restore-drill локальні.
 
 Сайт працює незалежно від підписки ChatGPT. Робочі дані зберігатимуться в
 Cloudflare D1, а код — у цьому GitHub-репозиторії.
@@ -62,4 +72,6 @@ Cloudflare D1, а код — у цьому GitHub-репозиторії.
 4. Міграція зі старої версії відбувається тільки через резервну копію, перевірку та попередній перегляд.
 5. Зовнішні корпоративні системи не інтегруються і не змінюються.
 
-Детальніше: [архітектура](docs/ARCHITECTURE.md) та [безпечна міграція](docs/MIGRATION.md).
+Початок роботи: [канонічні вимоги](docs/PRODUCT_REQUIREMENTS.md),
+[roadmap із критеріями](docs/ROADMAP.md), [статус](docs/DEVELOPMENT_STATUS.md),
+[архітектура](docs/ARCHITECTURE.md) та [безпечна міграція](docs/MIGRATION.md).
