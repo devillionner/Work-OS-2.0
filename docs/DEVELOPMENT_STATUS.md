@@ -13,7 +13,29 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 - Cloudflare Workers Builds triggers checked read-only on 2026-09-10: both
   work-os-2 and work-os-2-staging returned no triggers. No D1 reads/writes used.
 
-## This iteration
+## Current iteration: calendar snooze and event totals
+
+- Snooze ends at Kyiv midnight three calendar dates later, including DST, leap
+  days and year boundaries. Waiting/ready queues offer an explicit resume action.
+- Publication checks the live chat state, snooze and Telegram six-hour wait inside
+  the D1 transaction. Duplicate clicks create one publication and one event;
+  failure to save the event rolls back the publication. No schema change needed.
+- Today, report summary and event analytics share activity_events aggregation.
+  Report text never changes counters. Repeat bookings, curator pending bookings,
+  Threads, archived leads and cancelled events are handled consistently. Hidden
+  platforms still contribute to the daily goal; a configured zero goal is retained.
+- Report date selection sends one request; abort/request guards ignore old results.
+  Loading prevents saving the previous day's text under a newly selected date.
+  The report workspace is now included in the normal lint command.
+- Local lint, 55/55 tests and build passed (nine new tests use synthetic in-memory
+  D1 data). Current Linux CI is checked after push. Browser/iPhone QA is still pending.
+- Remaining: visual desktop/iPhone QA, guards for the other chat transitions,
+  cross-module Today refresh, report correction/source UI and version-based report
+  staleness. Timestamp comparison does not detect changes within the same second
+  or an event moved out of the report's business date.
+- No remote D1 operation, migration, restore drill or deploy performed.
+
+## Previous iteration: requirements and local development
 
 - Canonical register: 253 legacy IDs plus 23 explicit additions, each with status,
   source/evidence and gaps; stack/report/migration/schedule conflicts reconciled.
@@ -28,7 +50,7 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 - Library Add opens an empty editor; successful create keeps the returned ID so
   saving again edits the same material. Visual/mobile QA remains unverified.
 
-## Validation for this iteration
+## Validation for the previous iteration
 
 - Local lint passed; 46/46 tests passed including D1 read-only timer projection,
   owner isolation, refresh rate/error/overlap and remote-migration refusal.
@@ -36,8 +58,8 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   default staging configuration with remote bindings disabled. No deploy performed.
 - Register audit: 253/253 source IDs retained, 276 total, no duplicate IDs, invalid
   statuses or broken source/code links. Prototype working tree remains clean.
-- GitHub CI is checked after push; previous validation below is historical and
-  does not claim current production deployment or completed browser/mobile QA.
+- Linux CI passed for 152173a: [run 34476237149](https://github.com/devillionner/Work-OS-2.0/actions/runs/34476237149).
+  This does not claim production deployment or completed browser/mobile QA.
 
 
 ## Done
@@ -119,9 +141,9 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 
 ## Next
 
-Follow P1 in [ROADMAP](ROADMAP.md): calendar snooze and server publication guards,
-event-only dashboard totals, bulk chat addition/profiles/library attribution and
-account-scoped Telegram scheduling. Then complete Today/CRM/report parity.
+Follow P1 in [ROADMAP](ROADMAP.md): guards for remaining chat transitions, local UI
+acceptance, bulk chat addition/profiles/library attribution and account-scoped
+Telegram scheduling. Then complete Today/CRM/report parity.
 
 The older PR #6 review and cutover file are historical evidence, not commands to
 repeat remote migration/restore checks. Production release and final transfer are

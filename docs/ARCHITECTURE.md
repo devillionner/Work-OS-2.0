@@ -1,9 +1,11 @@
 # Архітектура Work OS 2.0
 
 Актуальний продуктовий контракт: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
-Статуси та обмеження опису архітектури не замінюють цей реєстр. Зокрема,
-dashboard ще має legacy fallback через report_text; його усунення — блокер
-DATA-10/REPORT-22. [ROADMAP](ROADMAP.md) визначає local-only перевірки та release gates.
+Статуси та обмеження опису архітектури не замінюють цей реєстр. Dashboard, summary
+звіту та подієва частина аналітики використовують спільний запит activity_events;
+report_text не впливає на лічильники. Відкриття джерел чисел і простежувані ручні
+корекції DATA-10/REPORT-22 ще потребують реалізації.
+[ROADMAP](ROADMAP.md) визначає local-only перевірки та release gates.
 
 ## Мета
 
