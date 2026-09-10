@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
+import { activitySummaryStatement, type ActivitySummaryRow } from '@/lib/activity-summary';
 
 type ReportRow = { id: string; report_date: string; report_text: string; submitted_at: number | null; updated_at: number; revision_count: number };
 
@@ -42,9 +43,7 @@ export async function POST(request: Request): Promise<Response> {
 function publicReport(row: ReportRow) { return { id: row.id, date: row.report_date, text: row.report_text, submittedAt: row.submitted_at, updatedAt: row.updated_at, revisionCount: Number(row.revision_count || 1) }; }
 
 async function eventSummary(userId: string, date: string) {
-  const result = await env.DB.prepare(`SELECT COALESCE(e.platform,l.platform,c.platform) AS platform,e.event_type,COUNT(*) AS count
-    FROM activity_events e LEFT JOIN leads l ON l.id=e.lead_id AND l.user_id=e.user_id LEFT JOIN chats c ON c.id=e.chat_id AND c.user_id=e.user_id
-    WHERE e.user_id=?1 AND e.event_date=?2 AND e.cancelled_at IS NULL GROUP BY COALESCE(e.platform,l.platform,c.platform),e.event_type`).bind(userId, date).all<{ platform: string | null; event_type: string; count: number }>();
+  const result = await activitySummaryStatement(env.DB, userId, date, date).all<ActivitySummaryRow>();
   return result.results.map((row) => ({ platform: row.platform || 'unknown', eventType: row.event_type, count: Number(row.count || 0) }));
 }
 

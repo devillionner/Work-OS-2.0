@@ -110,7 +110,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           <section className="goal-card" aria-labelledby="goal-title">
             <div className="card-heading"><div><p className="eyebrow">Ціль на день</p><h2 id="goal-title">Записи</h2><p className="goal-month-note">Місячна ціль: {snapshot.monthlyBookingGoal}</p></div>{snapshot.reportSubmittedAt ? <Badge variant="secondary">Звіт зафіксовано</Badge> : <button className="text-action" type="button" onClick={() => setTodaySettingsOpen(true)}>Змінити</button>}</div>
             <Progress value={Math.min(100, snapshot.bookingGoal.completed / Math.max(1, snapshot.bookingGoal.target) * 100)} className="goal-progress"><ProgressLabel>Виконано</ProgressLabel><ProgressValue>{() => `${snapshot.bookingGoal.completed} із ${snapshot.bookingGoal.target}`}</ProgressValue></Progress>
-            <p className="muted-note">{snapshot.pendingAfterReport ? `Після звіту з’явилося ${snapshot.pendingAfterReport} нових подій — звіт потребує оновлення.` : snapshot.reportSubmittedAt ? 'Показники відповідають останньому зданому звіту.' : 'Показники рахуються з робочих подій у реальному часі.'}</p>
+            <p className="muted-note">{snapshot.pendingAfterReport ? `Після звіту з’явилося ${snapshot.pendingAfterReport} змін у подіях — звіт потребує оновлення.` : snapshot.reportSubmittedAt ? 'Показники відповідають останньому зданому звіту.' : 'Показники рахуються з робочих подій у реальному часі.'}</p>
           </section>
 
           <section className="queue-card" aria-labelledby="queue-title">
@@ -126,7 +126,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
             <div className="card-heading"><div><p className="eyebrow">Платформи</p><h2 id="platform-title">Результат сьогодні</h2></div><Button variant="ghost" size="sm" onClick={() => setActiveView('platforms')}>Відкрити платформи</Button></div>
             <div className="platform-table">
               <div className="platform-table-head"><span>Платформа</span><span>Публікації</span><span>Нові чати</span><span>Відгуки</span><span>Записи</span></div>
-              {snapshot.platforms.filter((platform) => snapshot.enabledPlatforms.includes(platform.key)).map((platform) => <div className="platform-row" key={platform.key}><span className="platform-name"><i style={{ background: platform.color }} />{platform.name}</span><strong>{platform.publications}</strong><strong>{platform.joined}</strong><strong>{platform.responses}</strong><strong>{platform.bookings}</strong></div>)}
+              {snapshot.platforms.filter((platform) => snapshot.enabledPlatforms.includes(platform.key) || platform.key === 'threads' || platform.key === 'unknown').map((platform) => <div className="platform-row" key={platform.key}><span className="platform-name"><i style={{ background: platform.color }} />{platform.name}</span><strong>{platform.publications}</strong><strong>{platform.joined}</strong><strong>{platform.responses}</strong><strong>{platform.bookings}</strong></div>)}
             </div>
           </section>
 
