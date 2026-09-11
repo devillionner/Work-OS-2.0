@@ -83,6 +83,14 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 - The extra query runs only for the ready queue and is capped at 200 rows. The local
   D1 regression covers published, snoozed, foreign-owner and other-account rows.
 
+## Profile review filter
+
+- Waiting and ready queues can be narrowed to chats whose profile is missing or not
+  confirmed. The filter is owner-scoped in the API and keeps the urgent manual path
+  available instead of hiding or blocking those chats.
+- The publication dialog now states clearly when profile rules are not confirmed;
+  automatic cadence/direction selection and aggregate profile counters remain open.
+
 ## Profile editor follow-up
 
 - Added a manual profile form to waiting/ready chat rows. It edits the chat name,

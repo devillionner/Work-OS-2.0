@@ -677,6 +677,7 @@ button { color: inherit; }
 .chat-publish-chat { display:grid; gap:5px; padding:12px; border:1px solid var(--border); border-radius:12px; background:#f8f9fc; }
 .chat-publish-chat span { overflow-wrap:anywhere; color:var(--muted-foreground); font-size:12px; }
 .chat-publish-chat button { justify-self:start; }
+.chat-publish-warning { padding:10px 12px; border-left:3px solid #d79b17; border-radius:8px; background:#fff8e6; color:#765300; font-size:12px; line-height:1.45; }
 .chat-publish-search { display:grid; gap:7px; font-weight:650; }
 .chat-publish-items { display:grid; gap:6px; max-height:220px; overflow-y:auto; padding:2px; }
 .chat-publish-items button { display:grid; gap:4px; width:100%; padding:11px 12px; border:1px solid var(--border); border-radius:10px; background:var(--card); color:inherit; cursor:pointer; text-align:left; }

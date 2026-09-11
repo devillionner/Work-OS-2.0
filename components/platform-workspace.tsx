@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 
 type Platform = 'telegram' | 'whatsapp' | 'viber' | 'facebook';
 type Queue = 'to_join' | 'waiting' | 'ready' | 'archived';
+type ProfileFilter = 'all' | 'needs_review';
 type Chat = { id:string; name:string; link:string; platform:Platform; status:Queue; archiveReason:string|null; profileConfirmed:boolean; profile:ChatProfile; publishedToday:boolean; snoozedUntil:number|null; availableAt:number|null; availableNow:boolean; telegramAccountId:string|null; stateToken:string };
 type LinkItem = { name?:string; link?:string };
 type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; requestKey?:string };
@@ -37,6 +38,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const [platform,setPlatform] = useState<Platform>('telegram');
   const [queue,setQueue] = useState<Queue>('to_join');
   const [search,setSearch] = useState('');
+  const [profileFilter,setProfileFilter] = useState<ProfileFilter>('all');
   const [loadedData,setData] = useState<ResponseData|null>(null);
   const [bulkOpen,setBulkOpen]=useState(false);
   const [notice,setNotice]=useState('');
@@ -67,10 +69,10 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const refreshExpiredBreak=useRef(createRefreshGate(120_000));
   const availablePlatforms = useMemo(() => platforms.filter((item) => !enabledPlatforms || enabledPlatforms.includes(item.key)), [enabledPlatforms]);
   if (!availablePlatforms.some((item) => item.key === platform) && availablePlatforms[0]) { setPlatform(availablePlatforms[0].key); setQueue('to_join'); setOffset(0); }
-  const requestKey=`${platform}:${queue}:${search}:${offset}:${accountId}`;
+  const requestKey=`${platform}:${queue}:${search}:${profileFilter}:${offset}:${accountId}`;
   const switchingList=loadedData!==null&&loadedData.requestKey!==requestKey;
   const data=switchingList?null:loadedData;
-  const filterKey=`${platform}:${queue}:${search}`;
+  const filterKey=`${platform}:${queue}:${search}:${profileFilter}`;
   const [previousFilter,setPreviousFilter]=useState(filterKey);
   if(previousFilter!==filterKey){setPreviousFilter(filterKey);setOffset(0);}
 
@@ -82,7 +84,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     const saved=readPlatformView(target);
     queueMicrotask(()=>{
       if(target!==platform)setPlatform(target);
-      if(saved){setQueue(saved.queue);setSearch(saved.search);setOffset(saved.offset);setPreviousFilter(`${target}:${saved.queue}:${saved.search}`);restoreScroll.current=saved.scrollY;setLastOpenedByPlatform(current=>({...current,[target]:saved.lastChatId}));}
+      if(saved){setQueue(saved.queue);setSearch(saved.search);setProfileFilter('all');setOffset(saved.offset);setPreviousFilter(`${target}:${saved.queue}:${saved.search}:all`);restoreScroll.current=saved.scrollY;setLastOpenedByPlatform(current=>({...current,[target]:saved.lastChatId}));}
     });
   },[availablePlatforms,platform]);
 
@@ -111,7 +113,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     const requestNumber=++loadNumber.current;
     setLoading(true); setError(''); setData(null);
     try {
-      const params = new URLSearchParams({platform,status:queue,search,offset:String(offset)});
+      const params = new URLSearchParams({platform,status:queue,search,offset:String(offset),profile:profileFilter});
       if(platform==='telegram'&&accountId) params.set('account',accountId);
       const response = await fetch(`/api/chats?${params}`,{cache:'no-store',signal:controller.signal});
       const body = await response.json() as ResponseData & {error?:string};
@@ -120,7 +122,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       setData({...body,requestKey});
     } catch (reason) { if(!controller.signal.aborted && requestNumber===loadNumber.current) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити чати.'); }
     finally { if(!controller.signal.aborted && requestNumber===loadNumber.current) setLoading(false); }
-  },[platform,queue,search,offset,accountId,requestKey]);
+  },[platform,queue,search,profileFilter,offset,accountId,requestKey]);
 
   useEffect(() => { reloadChats.current=load; const timer=setTimeout(load,search ? 250 : 0); return () => { clearTimeout(timer); cancelLoad(); }; },[load,search,cancelLoad]);
 
@@ -130,7 +132,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     const target=availablePlatforms.find(item=>(result.counts[item.key]||0)>0)?.key||platform;
     setNotice(`Додано ${result.added} чатів: ${Object.entries(result.counts).map(([key,count])=>`${CHAT_PLATFORM_NAMES[key as ChatPlatform]} — ${count}`).join(', ')}.`);
     const changesFilter=target!==platform||queue!=='to_join'||search!==''||offset!==0;
-    setData(null);setLoading(true);setPlatform(target);setQueue('to_join');setSearch('');setOffset(0);
+    setData(null);setLoading(true);setPlatform(target);setQueue('to_join');setSearch('');setProfileFilter('all');setOffset(0);
     if(!changesFilter) void reloadChats.current();
     router.refresh();
   }
@@ -143,8 +145,8 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     if(next===platform)return;
     writePlatformView(platform,{queue,search,offset,scrollY:window.scrollY,lastChatId:lastOpenedByPlatform[platform]||null});
     const saved=readPlatformView(next);
-    setPlatform(next); setQueue(saved?.queue||'to_join'); setSearch(saved?.search||''); setOffset(saved?.offset||0);
-    setPreviousFilter(`${next}:${saved?.queue||'to_join'}:${saved?.search||''}`);
+    setPlatform(next); setQueue(saved?.queue||'to_join'); setSearch(saved?.search||''); setProfileFilter('all'); setOffset(saved?.offset||0);
+    setPreviousFilter(`${next}:${saved?.queue||'to_join'}:${saved?.search||''}:all`);
     setLastOpenedByPlatform(current=>({...current,[next]:saved?.lastChatId||null})); restoreScroll.current=saved?.scrollY??null;
     writeLastPlatform(next);
   }
@@ -246,6 +248,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       </div>
       <div className="chat-toolbar">
         <label htmlFor="chat-search"><Search/><Input id="chat-search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Пошук за назвою або посиланням"/><span className="sr-only">Пошук чатів</span></label>
+        {(queue==='waiting'||queue==='ready')&&<Button type="button" variant="outline" size="sm" aria-pressed={profileFilter==='needs_review'} onClick={()=>{setProfileFilter(value=>value==='all'?'needs_review':'all');setOffset(0);}}><UserRoundCheck data-icon="inline-start"/>{profileFilter==='needs_review'?'Усі профілі':'Потребують правил'}</Button>}
         <Badge variant="secondary">{data?.total || 0} у черзі</Badge>
       </div>
       {error && <div className="workspace-error">{error} <Button variant="outline" size="sm" disabled={loading||busy!==null} onClick={()=>void reloadChats.current()}>Оновити список</Button></div>}

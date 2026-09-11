@@ -28,9 +28,10 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const platform = url.searchParams.get('platform') || 'telegram';
   const status = url.searchParams.get('status') || 'to_join';
+  const profile = url.searchParams.get('profile') || 'all';
   const search = (url.searchParams.get('search') || '').trim().slice(0, 150);
   const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0);
-  if (!PLATFORMS.has(platform) || !STATUSES.has(status)) return Response.json({ error: 'Невідомий фільтр.' }, { status: 400 });
+  if (!PLATFORMS.has(platform) || !STATUSES.has(status) || !['all','needs_review'].includes(profile)) return Response.json({ error: 'Невідомий фільтр.' }, { status: 400 });
 
   const accountId = platform === 'telegram' ? await selectedTelegramAccount(user.id, url.searchParams.get('account')) : null;
   if (platform === 'telegram' && !accountId) return Response.json({ error: 'Додайте активний Telegram-акаунт.' }, { status: 409 });
@@ -38,12 +39,14 @@ export async function GET(request: Request): Promise<Response> {
   const now = unixNow();
   const today = businessDate(now);
   const pattern = `%${escapeLike(search.toLowerCase())}%`;
-  const filter = `c.user_id=?1 AND c.platform=?2 AND c.workflow_status=?3 AND (?4='' OR lower(c.name) LIKE ?5 ESCAPE '\\' OR lower(c.link) LIKE ?5 ESCAPE '\\')`;
+  const profileFilter = profile === 'needs_review' ? ` AND (p.review_status IS NULL OR p.review_status!='confirmed')` : '';
+  const filter = `c.user_id=?1 AND c.platform=?2 AND c.workflow_status=?3 AND (?4='' OR lower(c.name) LIKE ?5 ESCAPE '\\' OR lower(c.link) LIKE ?5 ESCAPE '\\')${profileFilter}`;
+  const totalSource = profileFilter ? 'FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id' : 'FROM chats c';
   const rowAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?9 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
   const totalAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?6 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
   const statements = [
     env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.directions_json AS profile_directions,p.note AS profile_note,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?6) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE ${filter}${rowAccountFilter} ORDER BY CASE WHEN c.snoozed_until IS NOT NULL AND c.snoozed_until>?7 THEN 1 ELSE 0 END,c.updated_at DESC,c.name LIMIT 50 OFFSET ?8`).bind(user.id, platform, status, search, pattern, today, now, offset, ...(accountId?[accountId]:[])),
-    env.DB.prepare(`SELECT COUNT(*) AS count FROM chats c WHERE ${filter}${totalAccountFilter}`).bind(user.id, platform, status, search, pattern, ...(accountId?[accountId]:[])),
+    env.DB.prepare(`SELECT COUNT(*) AS count ${totalSource} WHERE ${filter}${totalAccountFilter}`).bind(user.id, platform, status, search, pattern, ...(accountId?[accountId]:[])),
     platform === 'telegram'
       ? env.DB.prepare(`SELECT workflow_status,COUNT(*) AS count FROM chats WHERE user_id=?1 AND platform=?2 AND (telegram_account_id=?3 OR (telegram_account_id IS NULL AND workflow_status='to_join')) GROUP BY workflow_status`).bind(user.id,platform,accountId)
       : env.DB.prepare(`SELECT workflow_status,COUNT(*) AS count FROM chats WHERE user_id=?1 AND platform=?2 GROUP BY workflow_status`).bind(user.id,platform),
