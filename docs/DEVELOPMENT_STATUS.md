@@ -53,7 +53,8 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   transitions, joins, publications and profile changes. The read path is strictly
   read-only and does not alter backup revisions or business totals.
 - The workspace exposes «Історія» on each chat row. Lead/lesson/report history,
-  older imported event rendering and full workspace/Safari acceptance remain open.
+  publication language is shown next to the linked material, while older imported
+  event rendering and full workspace/Safari acceptance remain open.
 
 ## Manual publication attribution
 
