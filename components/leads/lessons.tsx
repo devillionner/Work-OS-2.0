@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { History as HistoryIcon } from 'lucide-react';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -7,6 +8,7 @@ import { safeUrl } from '@/lib/leads/domain/validation';
 import { EditDialog, Field, SaveForm, SelectField, textValue } from './form';
 import { labels, type Mutation } from './client';
 import { LessonEditor } from './lesson-editor';
+import { LessonHistoryDialog } from './lesson-history';
 import { Reminders } from './reminders';
 export function Lessons({
   detail,
@@ -21,6 +23,7 @@ export function Lessons({
   } | null>(null);
   const [statusId, setStatusId] = useState<string | null>(null);
   const [cancelRequest, setCancelRequest] = useState<string | null>(null);
+  const [historyLesson, setHistoryLesson] = useState<{ id: string; leadId: string; subject: string; date: string } | null>(null);
   const archived = detail.lead.archivedAt !== null;
   return (
     <section className="lead-panel" aria-labelledby="lessons-title">
@@ -122,9 +125,15 @@ export function Lessons({
                 <a href={`#lesson-${l.replacementId}`}>Перейти до нової дати</a>
               </p>
             )}
-            {l.status === 'booked' && (
-              <>
-                <div className="lead-actions">
+            <div className="lead-actions">
+              <Button
+                variant="outline"
+                onClick={() => setHistoryLesson({ id: l.id, leadId: detail.lead.id, subject: l.subject, date: l.lessonDate })}
+              >
+                <HistoryIcon data-icon="inline-start" />Історія
+              </Button>
+              {l.status === 'booked' && (
+                <>
                   <Button
                     variant="outline"
                     disabled={archived}
@@ -146,10 +155,10 @@ export function Lessons({
                   >
                     Результат / скасування
                   </Button>
-                </div>
-                <Reminders lesson={l} mutate={mutate} disabled={archived} />
-              </>
-            )}
+                </>
+              )}
+            </div>
+            {l.status === 'booked' && <Reminders lesson={l} mutate={mutate} disabled={archived} />}
           </article>
         ))}
       </div>
@@ -196,6 +205,7 @@ export function Lessons({
           </SaveForm>
         </EditDialog>
       )}
+      <LessonHistoryDialog open={historyLesson !== null} lesson={historyLesson} onClose={() => setHistoryLesson(null)} />
     </section>
   );
 }

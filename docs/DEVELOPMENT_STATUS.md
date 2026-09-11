@@ -52,16 +52,16 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   newest chat events with Kyiv-local timestamps and Ukrainian labels for state
   transitions, joins, publications and profile changes. The read path is strictly
   read-only and does not alter backup revisions or business totals.
-- The workspace exposes «Історія» on each chat row. Lead/lesson/report history,
-  publication language is shown next to the linked material, while older imported
-  event rendering and full workspace/Safari acceptance remain open.
+- The workspace exposes «Історія» on each chat row. Publication language is shown
+  next to the linked material; older imported event rendering and full
+  workspace/Safari acceptance remain open.
 
 ## Lead history surface
 
 - The lead card now opens an on-demand owner-scoped history with the latest contact,
   booking, lesson, reminder and curator events, including cancellation and reason
-  metadata. It is read-only and bounded to 100 rows; lesson/report-specific history
-  views and full workspace/mobile acceptance remain open.
+  metadata. Each lesson also has its own bounded read-only history view; full
+  workspace/mobile acceptance remains open.
 
 ## Report date navigation
 

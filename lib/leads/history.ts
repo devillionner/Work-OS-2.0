@@ -14,13 +14,15 @@ export async function readLeadHistory(
   userId: string,
   leadId: string,
   limit = 50,
+  lessonId: string | null = null,
 ): Promise<LeadHistoryItem[]> {
   const safeLimit = Math.min(100, Math.max(1, Math.floor(limit)));
   const result = await db
     .prepare(`SELECT e.id,e.event_type,e.platform,e.occurred_at,e.event_date,e.lesson_id,e.cancelled_at,e.metadata_json
       FROM activity_events e JOIN leads l ON l.id=e.lead_id AND l.user_id=e.user_id
-      WHERE e.user_id=?1 AND e.lead_id=?2 ORDER BY e.occurred_at DESC,e.rowid DESC LIMIT ?3`)
-    .bind(userId, leadId, safeLimit)
+      WHERE e.user_id=?1 AND e.lead_id=?2 AND (?4 IS NULL OR e.lesson_id=?4)
+      ORDER BY e.occurred_at DESC,e.rowid DESC LIMIT ?3`)
+    .bind(userId, leadId, safeLimit, lessonId)
     .all<{
       id: string;
       event_type: string;

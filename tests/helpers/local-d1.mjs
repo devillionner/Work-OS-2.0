@@ -38,7 +38,7 @@ export async function seedChat(db, { id = 'chat', owner = 'u', platform = 'whats
   return db.prepare(`SELECT c.*,${chatStateTokenSql()} AS state_token FROM chats c WHERE c.id=?1`).bind(id).first();
 }
 
-export async function seedEvent(db, { id, owner = 'u', type, date, at = 100, platform = 'telegram', cancelled = null, lead = null, chat = null, metadata = null } ) {
-  await db.prepare(`INSERT INTO activity_events(id,user_id,event_type,platform,event_date,occurred_at,metadata_json,source_key,cancelled_at,lead_id,chat_id)
-    VALUES (?1,?2,?3,?4,?5,?6,?7,?1,?8,?9,?10)`).bind(id,owner,type,platform,date,at,metadata?JSON.stringify(metadata):'{}',cancelled,lead,chat).run();
+export async function seedEvent(db, { id, owner = 'u', type, date, at = 100, platform = 'telegram', cancelled = null, lead = null, chat = null, lesson = null, metadata = null } ) {
+  await db.prepare(`INSERT INTO activity_events(id,user_id,event_type,platform,event_date,occurred_at,metadata_json,source_key,cancelled_at,lead_id,chat_id,lesson_id)
+    VALUES (?1,?2,?3,?4,?5,?6,?7,?1,?8,?9,?10,?11)`).bind(id,owner,type,platform,date,at,metadata?JSON.stringify(metadata):'{}',cancelled,lead,chat,lesson).run();
 }
