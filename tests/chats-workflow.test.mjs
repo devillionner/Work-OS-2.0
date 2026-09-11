@@ -5,6 +5,7 @@ import { publicationAvailability, recordManualPublication } from '../lib/chats/p
 import { readChatState } from '../lib/chats/state.ts';
 import { changeChatSnooze } from '../lib/chats/snooze.ts';
 import { localDatabase, seedChat } from './helpers/local-d1.mjs';
+import { availableTodayStatement } from '../lib/chats/daily-links.ts';
 
 const epoch = value => Date.parse(value) / 1000;
 const NOW = epoch('2026-09-10T12:00:00Z');
@@ -96,6 +97,22 @@ void test('manual publication attributes one active owner-scoped advertisement a
   await db.prepare("UPDATE library_items SET archived_at=2 WHERE id='ad'").run();
   const third = await seedChat(db,{id:'third-chat'});
   assert.equal((await publishWithAd(db,third,'ad')).ok,false);
+});
+
+void test('available publication links exclude published, snoozed and foreign Telegram chats', async t => {
+  const db = await localDatabase(t);
+  await db.prepare(`INSERT INTO telegram_accounts(id,user_id,account_number,name,is_enabled,is_selected,created_at,updated_at)
+    VALUES ('a','u',1,'One',1,1,1,1),('b','u',2,'Two',1,0,1,1)`).run();
+  await seedChat(db,{id:'ready-a',platform:'telegram',status:'ready'});
+  await seedChat(db,{id:'ready-b',platform:'telegram',status:'ready'});
+  await seedChat(db,{id:'snoozed',platform:'telegram',status:'ready',snoozed:NOW+60});
+  await seedChat(db,{id:'published',platform:'telegram',status:'ready'});
+  await seedChat(db,{id:'foreign-ready',owner:'other',platform:'telegram',status:'ready'});
+  await db.prepare(`UPDATE chats SET telegram_account_id='a',joined_at=?1 WHERE id IN ('ready-a','published','snoozed')`).bind(NOW-21600).run();
+  await db.prepare("UPDATE chats SET telegram_account_id='b',joined_at=?1 WHERE id='ready-b'").bind(NOW-21600).run();
+  await db.prepare("INSERT INTO chat_publications(id,user_id,chat_id,published_on,source_key,created_at) VALUES ('pub','u','published','2026-09-10','legacy:pub',1)").run();
+  const links=(await availableTodayStatement(db,{userId:'u',platform:'telegram',date:'2026-09-10',accountId:'a',now:NOW}).all()).results;
+  assert.deepEqual(links.map(row=>row.name),['ready-a']);
 });
 
 const publishWithAd = (db, chat, advertisementId) => recordManualPublication(db, { userId:'u', chat, accountId:null, advertisementId, now:NOW, date:'2026-09-10', stateToken:chat.state_token });

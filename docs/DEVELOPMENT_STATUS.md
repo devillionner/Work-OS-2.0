@@ -41,8 +41,9 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   soon as the requested list changes. Full integration acceptance remains open.
 - No remote name lookup, CSV import, existing-chat name editor or migration added.
   Prototype was read only as a parser reference; no remote D1 work or deploy.
-- `npm run verify` passed: lint, 86/86 local tests and build, including 11 bulk-add,
-  3 profile-editor, 2 history and 2 publication-attribution regressions. Linux CI is
+- `npm run verify` passed: lint, 87/87 local tests and build, including 11 bulk-add,
+  3 profile-editor, 2 history, 2 publication-attribution and 1 available-links
+  regression. Linux CI is
   checked after push. No production deployment.
 
 ## Chat history surface
@@ -73,6 +74,14 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 - The same record path is used by the profile and publication dialogs. Invalid or
   oversized stored values are ignored safely; this is browser-session state only and
   does not write D1. Safari/iPhone and full workspace acceptance remain open.
+
+## Available publication links
+
+- The ready queue now includes a bounded «Доступні зараз» block with copyable links.
+  It excludes chats already published today, snoozed chats and Telegram chats that
+  have not passed the six-hour wait, while preserving the selected account scope.
+- The extra query runs only for the ready queue and is capped at 200 rows. The local
+  D1 regression covers published, snoozed, foreign-owner and other-account rows.
 
 ## Profile editor follow-up
 
@@ -245,8 +254,9 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 ## Next
 
 Follow P1 in [ROADMAP](ROADMAP.md): whole-workspace/Safari acceptance, existing chat
-profiles/names and library attribution, visible transition history and account-scoped
-Telegram scheduling. Then complete Today/CRM/report parity.
+profiles/names, visible transition history, account-scoped Telegram scheduling and
+safe undo. Manual library attribution and return-from-chat continuity are now in place.
+Then complete Today/CRM/report parity.
 
 The older PR #6 review and cutover file are historical evidence, not commands to
 repeat remote migration/restore checks. Production release and final transfer are

@@ -327,6 +327,7 @@ button { color: inherit; }
 .platform-picker button[aria-selected='true'] { background: #fff; color: #17191e; box-shadow: 0 1px 5px rgba(20,25,36,.1); }
 .platform-picker i { width: 8px; height: 8px; border-radius: 50%; }
 .today-links { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); overflow: hidden; }
+.today-links.has-available { grid-template-columns: repeat(3,minmax(0,1fr)); }
 .today-links > div { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 17px 20px; }
 .today-links > div + div { border-left: 1px solid var(--border); }
 .today-links > div > div:first-child { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
@@ -516,6 +517,7 @@ button { color: inherit; }
   .action-list li { grid-template-columns: 30px minmax(0,1fr); }
   .action-list li > :last-child { grid-column: 2; justify-self: start; }
   .status-card { align-items: flex-start; flex-wrap: wrap; }
+  .today-links.has-available { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .status-card > div:nth-child(2) { min-width: 0; flex: 1; }
   .cloud-backup-action { width: 100%; justify-items: stretch; margin-left: 0; }
   .cloud-backup-action small { max-width: none; text-align: left; }

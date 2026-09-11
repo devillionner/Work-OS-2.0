@@ -20,7 +20,7 @@ type Platform = 'telegram' | 'whatsapp' | 'viber' | 'facebook';
 type Queue = 'to_join' | 'waiting' | 'ready' | 'archived';
 type Chat = { id:string; name:string; link:string; platform:Platform; status:Queue; archiveReason:string|null; profileConfirmed:boolean; profile:ChatProfile; publishedToday:boolean; snoozedUntil:number|null; availableAt:number|null; availableNow:boolean; telegramAccountId:string|null; stateToken:string };
 type LinkItem = { name?:string; link?:string };
-type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; requestKey?:string };
+type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; requestKey?:string };
 type TelegramAccount = { id:string; number:number; name:string; enabled:boolean; selected:boolean; joinStreak:number; joinBatchSize:number; breakMinutes:number; breakUntil:number|null };
 
 const platforms: Array<{key:Platform;label:string;color:string}> = [
@@ -234,7 +234,8 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       </div>}
     </section>}
 
-    <section className="today-links">
+    <section className={`today-links ${queue==='ready'?'has-available':''}`}>
+      {queue==='ready'&&<TodayLinks title="Доступні зараз" items={data?.availableToday || []} />}
       <TodayLinks title="Приєднано сьогодні" items={data?.joinedToday || []} />
       <TodayLinks title="Опубліковано сьогодні" items={data?.publishedToday || []} />
     </section>

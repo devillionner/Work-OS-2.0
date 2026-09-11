@@ -5,7 +5,7 @@ import { publicationAvailability, recordManualPublication } from '@/lib/chats/pu
 import { changeChatSnooze } from '@/lib/chats/snooze';
 import { chatStateTokenSql, readChatState } from '@/lib/chats/state';
 import { transitionChat } from '@/lib/chats/transitions';
-import { joinedTodayStatement } from '@/lib/chats/daily-links';
+import { availableTodayStatement, joinedTodayStatement } from '@/lib/chats/daily-links';
 import { PROFILE_CADENCES, saveChatProfile } from '@/lib/chats/profile';
 import type { ChatProfileInput } from '@/lib/chats/profile';
 
@@ -41,7 +41,7 @@ export async function GET(request: Request): Promise<Response> {
   const filter = `c.user_id=?1 AND c.platform=?2 AND c.workflow_status=?3 AND (?4='' OR lower(c.name) LIKE ?5 ESCAPE '\\' OR lower(c.link) LIKE ?5 ESCAPE '\\')`;
   const rowAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?9 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
   const totalAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?6 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
-  const [rowsResult, totalResult, countsResult, joinedResult, publishedResult] = await env.DB.batch([
+  const statements = [
     env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.directions_json AS profile_directions,p.note AS profile_note,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?6) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE ${filter}${rowAccountFilter} ORDER BY CASE WHEN c.snoozed_until IS NOT NULL AND c.snoozed_until>?7 THEN 1 ELSE 0 END,c.updated_at DESC,c.name LIMIT 50 OFFSET ?8`).bind(user.id, platform, status, search, pattern, today, now, offset, ...(accountId?[accountId]:[])),
     env.DB.prepare(`SELECT COUNT(*) AS count FROM chats c WHERE ${filter}${totalAccountFilter}`).bind(user.id, platform, status, search, pattern, ...(accountId?[accountId]:[])),
     platform === 'telegram'
@@ -51,7 +51,11 @@ export async function GET(request: Request): Promise<Response> {
     platform === 'telegram'
       ? env.DB.prepare(`SELECT c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 AND p.telegram_account_id=?4 ORDER BY p.published_at,p.created_at`).bind(user.id,platform,today,accountId)
       : env.DB.prepare(`SELECT c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 ORDER BY p.published_at,p.created_at`).bind(user.id,platform,today),
-  ]);
+  ];
+  if(status==='ready') statements.push(availableTodayStatement(env.DB,{userId:user.id,platform,date:today,accountId,now}));
+  const results = await env.DB.batch(statements);
+  const [rowsResult, totalResult, countsResult, joinedResult, publishedResult] = results;
+  const availableResult = status==='ready' ? results[5] : { results: [] };
   const chats = (rowsResult.results as ChatRow[]).map((row) => ({
     id: row.id, name: row.name, link: row.link, platform: row.platform,
     status: row.workflow_status, archiveReason: row.archive_reason,
@@ -65,7 +69,7 @@ export async function GET(request: Request): Promise<Response> {
     ...publicationAvailability(row, now),
   }));
   const counts = Object.fromEntries((countsResult.results as Array<{workflow_status:string;count:number}>).map((row) => [row.workflow_status, Number(row.count)]));
-  return Response.json({ chats, total: Number((totalResult.results[0] as {count?:number})?.count || 0), offset, counts, accountId, joinedToday: joinedResult.results, publishedToday: publishedResult.results });
+  return Response.json({ chats, total: Number((totalResult.results[0] as {count?:number})?.count || 0), offset, counts, accountId, joinedToday: joinedResult.results, publishedToday: publishedResult.results, availableToday: availableResult.results });
 }
 
 export async function POST(request: Request): Promise<Response> {
