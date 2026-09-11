@@ -21,7 +21,8 @@ type Queue = 'to_join' | 'waiting' | 'ready' | 'archived';
 type ProfileFilter = 'all' | 'needs_review';
 type Chat = { id:string; name:string; link:string; platform:Platform; status:Queue; archiveReason:string|null; profileConfirmed:boolean; profile:ChatProfile; publishedToday:boolean; snoozedUntil:number|null; availableAt:number|null; availableNow:boolean; telegramAccountId:string|null; stateToken:string };
 type LinkItem = { name?:string; link?:string };
-type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; requestKey?:string };
+type ProfileCounts = { confirmed:number; draft:number; empty:number; needsReview:number };
+type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; profileCounts:Record<string,ProfileCounts>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; requestKey?:string };
 type TelegramAccount = { id:string; number:number; name:string; enabled:boolean; selected:boolean; joinStreak:number; joinBatchSize:number; breakMinutes:number; breakUntil:number|null };
 
 const platforms: Array<{key:Platform;label:string;color:string}> = [
@@ -203,6 +204,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
 
   const selected = useMemo(() => platforms.find(item=>item.key===platform)!,[platform]);
   const activeAccount=accounts.find(item=>item.id===accountId);
+  const profileSummary=data?.profileCounts[queue];
   const breakSeconds=activeAccount?.breakUntil?Math.max(0,activeAccount.breakUntil-Math.floor(clock/1000)):0;
   return <div className="platform-workspace">
     <ChatBulkDialog open={bulkOpen} onClose={()=>setBulkOpen(false)} onAdded={addedChats} enabledPlatforms={enabledPlatforms}/>
@@ -248,7 +250,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       </div>
       <div className="chat-toolbar">
         <label htmlFor="chat-search"><Search/><Input id="chat-search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Пошук за назвою або посиланням"/><span className="sr-only">Пошук чатів</span></label>
-        {(queue==='waiting'||queue==='ready')&&<Button type="button" variant="outline" size="sm" aria-pressed={profileFilter==='needs_review'} onClick={()=>{setProfileFilter(value=>value==='all'?'needs_review':'all');setOffset(0);}}><UserRoundCheck data-icon="inline-start"/>{profileFilter==='needs_review'?'Усі профілі':'Потребують правил'}</Button>}
+        {(queue==='waiting'||queue==='ready')&&<><Button type="button" variant="outline" size="sm" title={profileSummary?`Підтверджені: ${profileSummary.confirmed}; чернетки: ${profileSummary.draft}; без профілю: ${profileSummary.empty}`:'Фільтр профілів'} aria-pressed={profileFilter==='needs_review'} onClick={()=>{setProfileFilter(value=>value==='all'?'needs_review':'all');setOffset(0);}}><UserRoundCheck data-icon="inline-start"/>{profileFilter==='needs_review'?`Усі профілі (${data?.counts[queue]||0})`:`Потребують правил (${profileSummary?.needsReview||0})`}</Button>{profileSummary&&<span className="profile-counts" aria-label={`Профілі: підтверджені ${profileSummary.confirmed}, чернетки ${profileSummary.draft}, без профілю ${profileSummary.empty}`}>Профілі: ✓ {profileSummary.confirmed} · чернетки {profileSummary.draft} · без профілю {profileSummary.empty}</span>}</>}
         <Badge variant="secondary">{data?.total || 0} у черзі</Badge>
       </div>
       {error && <div className="workspace-error">{error} <Button variant="outline" size="sm" disabled={loading||busy!==null} onClick={()=>void reloadChats.current()}>Оновити список</Button></div>}

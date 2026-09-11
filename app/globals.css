@@ -363,6 +363,7 @@ button { color: inherit; }
 .chat-toolbar label { position: relative; flex: 1; }
 .chat-toolbar label > svg { position: absolute; z-index: 1; top: 50%; left: 13px; width: 18px; transform: translateY(-50%); color: #89909c; }
 .chat-toolbar input { padding-left: 40px; }
+.profile-counts { color: #777e8b; font-size: 10px; font-weight: 650; white-space: nowrap; }
 .chat-list { display: grid; }
 .chat-row { position: relative; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 14px; align-items: center; min-height: 76px; padding: 14px 18px; border-top: 1px solid #eceef2; }
 .chat-row:first-child { border-top: 0; }
@@ -539,7 +540,8 @@ button { color: inherit; }
   .queue-tabs { grid-template-columns: repeat(2,1fr); }
   .queue-tabs button:nth-child(2) { border-right: 0; }
   .queue-tabs button:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
-  .chat-toolbar { padding: 12px; }
+  .chat-toolbar { flex-wrap: wrap; padding: 12px; }
+  .chat-toolbar label { min-width: 100%; }
   .chat-row { grid-template-columns: 1fr; padding: 14px; }
   .chat-actions { flex-wrap: wrap; }
   .archive-reasons { grid-column: auto; flex-wrap: wrap; }

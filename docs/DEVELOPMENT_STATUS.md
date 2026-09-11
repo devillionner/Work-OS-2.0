@@ -89,7 +89,9 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   confirmed. The filter is owner-scoped in the API and keeps the urgent manual path
   available instead of hiding or blocking those chats.
 - The publication dialog now states clearly when profile rules are not confirmed;
-  automatic cadence/direction selection and aggregate profile counters remain open.
+  the queue also shows confirmed, draft and missing-profile counters from the same
+  owner/account-scoped counts statement. Automatic cadence/direction selection and
+  full workspace/Safari acceptance remain open.
 
 ## Profile editor follow-up
 
