@@ -107,13 +107,22 @@ export async function POST(request: Request): Promise<Response> {
   if (action === 'snooze' || action === 'unsnooze') {
     const ok = await changeChatSnooze(env.DB, { userId: user.id, id, status: chat.workflow_status,
       previousDeadline: chat.snoozed_until, now, resume: action === 'unsnooze', stateToken: chat.state_token });
-    return Response.json(ok ? { ok: true } : { error: 'Стан чату вже змінився. Оновіть список.' }, { status: ok ? 200 : 409 });
+    if (!ok) return Response.json({ error: 'Стан чату вже змінився. Оновіть список.' }, { status: 409 });
+    const next = await readChatState(env.DB,user.id,id);
+    return next ? Response.json({ ok: true, stateToken: next.state_token, snoozedUntil: next.snoozed_until })
+      : Response.json({ error: 'Не вдалося підтвердити новий стан. Оновіть список.' }, { status: 409 });
   }
 
   const targetAccount = action === 'assign_account' ? requestedAccount : accountId;
   const result = await transitionChat(env.DB,{userId:user.id,chat,action,accountId:targetAccount,now,
     reason:typeof body.reason === 'string' ? body.reason : undefined});
-  return Response.json(result,{status:result.ok ? 200 : 409});
+  if (!result.ok) return Response.json(result,{status:409});
+  if (action === 'archive' || action === 'failed') {
+    const next = await readChatState(env.DB,user.id,id);
+    return next ? Response.json({ ...result, stateToken: next.state_token })
+      : Response.json({ error: 'Не вдалося підтвердити новий стан. Оновіть список.' }, { status: 409 });
+  }
+  return Response.json(result,{status:200});
 }
 
 function sameOrigin(request: Request) { const origin = request.headers.get('origin'); return Boolean(origin && origin === new URL(request.url).origin); }

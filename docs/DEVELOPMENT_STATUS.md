@@ -109,6 +109,14 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   open; custom intervals, automatic selection and publication scheduling are not
   implemented.
 
+## Safe chat undo
+
+- Archive, failed-join and snooze actions now return the post-action state token.
+  The workspace offers an eight-second «Скасувати» action and sends that token back
+  for the inverse restore/unsnooze operation, so a concurrent change is rejected
+  instead of being overwritten. No polling or remote D1 test is added; bulk undo
+  remains open.
+
 ## Previous iteration: guarded chat transitions
 
 - All manual chat actions carry the displayed state token. Writes recheck it in

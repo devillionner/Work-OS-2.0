@@ -455,7 +455,7 @@ button { color: inherit; }
 .reports-editor-card { min-height: 420px; }
 .reports-editor-card textarea { width: 100%; resize: vertical; }
 .reports-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
-.reports-notice { padding: 11px 13px; border: 1px solid #b7ebc6; border-radius: 10px; background: #effcf2; color: #087443; font-size: 12px; }
+.reports-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; border: 1px solid #b7ebc6; border-radius: 10px; background: #effcf2; color: #087443; font-size: 12px; }
 .report-summary { display: grid; gap: 8px; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); }
 .report-summary > p { margin-bottom: 0; }
 .report-summary > div { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid #eceef2; font-size: 11px; }

@@ -23,6 +23,8 @@ type Chat = { id:string; name:string; link:string; platform:Platform; status:Que
 type LinkItem = { name?:string; link?:string };
 type ProfileCounts = { confirmed:number; draft:number; empty:number; needsReview:number };
 type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; profileCounts:Record<string,ProfileCounts>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; requestKey?:string };
+type UndoSpec = { action:'restore'|'unsnooze'; label:string };
+type UndoState = UndoSpec & { chat:Chat };
 type TelegramAccount = { id:string; number:number; name:string; enabled:boolean; selected:boolean; joinStreak:number; joinBatchSize:number; breakMinutes:number; breakUntil:number|null };
 
 const platforms: Array<{key:Platform;label:string;color:string}> = [
@@ -41,6 +43,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const [search,setSearch] = useState('');
   const [profileFilter,setProfileFilter] = useState<ProfileFilter>('all');
   const [loadedData,setData] = useState<ResponseData|null>(null);
+  const [undo,setUndo] = useState<UndoState|null>(null);
   const [bulkOpen,setBulkOpen]=useState(false);
   const [notice,setNotice]=useState('');
   const [profileChat,setProfileChat]=useState<Chat|null>(null);
@@ -127,7 +130,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
 
   useEffect(() => { reloadChats.current=load; const timer=setTimeout(load,search ? 250 : 0); return () => { clearTimeout(timer); cancelLoad(); }; },[load,search,cancelLoad]);
 
-  useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),8000);return()=>clearTimeout(timer);},[notice]);
+  useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>{setNotice('');setUndo(null);},8000);return()=>clearTimeout(timer);},[notice]);
 
   function addedChats(result:BulkResult) {
     const target=availablePlatforms.find(item=>(result.counts[item.key]||0)>0)?.key||platform;
@@ -159,18 +162,20 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     openNativeChat(chat.platform,chat.link);
   }
 
-  async function act(chat:Chat, action:string, extra:Record<string,unknown>={}): Promise<boolean> {
+  async function act(chat:Chat, action:string, extra:Record<string,unknown>={}, undoSpec?:UndoSpec): Promise<boolean> {
     let succeeded=false;
     await runAction.current(async()=>{
-    setBusy(chat.id); setError('');
+    setBusy(chat.id); setError(''); setNotice(''); setUndo(null);
     try {
       const response=await fetch('/api/chats',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:chat.id,action,stateToken:chat.stateToken,accountId:platform==='telegram'?accountId:null,...extra})});
-      const body=await response.json() as {error?:string;availableAt?:number};
+      const body=await response.json() as {error?:string;availableAt?:number;stateToken?:string;snoozedUntil?:number|null};
       if(!response.ok) {
         if(response.status===409) await reloadChats.current();
         throw new Error(body.error || 'Не вдалося виконати дію.');
       }
+      if(undoSpec&&typeof body.stateToken==='string') setUndo({chat:{...chat,stateToken:body.stateToken,snoozedUntil:body.snoozedUntil??chat.snoozedUntil},...undoSpec});
       setArchiveId(null); await reloadChats.current();
+      if(undoSpec&&typeof body.stateToken==='string') setNotice(undoSpec.label);
       if(chat.platform==='telegram') await loadAccounts();
       router.refresh();
       succeeded=true;
@@ -178,6 +183,12 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     finally { setBusy(null); }
     });
     return succeeded;
+  }
+
+  async function undoLast() {
+    const item=undo;
+    if(!item||busy!==null)return;
+    if(await act(item.chat,item.action)) setNotice('Дію скасовано.');
   }
 
   function assignAccount(chat:Chat,nextId:string) {
@@ -211,7 +222,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     <ChatProfileDialog key={profileOpenKey} open={profileChat!==null} chat={profileChat} onClose={()=>setProfileChat(null)} onSaved={savedProfile} onOpenChat={()=>{if(profileChat)openChat(profileChat);}}/>
     <ChatHistoryDialog key={historyOpenKey} open={historyChat!==null} chat={historyChat} onClose={()=>setHistoryChat(null)}/>
     <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={(advertisementId)=>publishChat?act(publishChat,'published',advertisementId?{advertisementId}:{}):Promise.resolve(false)} onOpenChat={()=>{if(publishChat)openChat(publishChat);}}/>
-    {notice&&<output className="reports-notice">{notice}</output>}
+    {notice&&<output className="reports-notice"><span>{notice}</span>{undo&&<Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>void undoLast()}>Скасувати</Button>}</output>}
     <section className="platform-hero">
       <div><p className="eyebrow">Робочі платформи</p><h2>Чати без зайвих переходів</h2><p>Приєднуйся, перевіряй очікування та відмічай публікації в одному стабільному процесі.</p></div>
       <Button disabled={busy!==null} onClick={()=>setBulkOpen(true)}><Plus data-icon="inline-start"/>Додати чати</Button>
@@ -261,14 +272,14 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
             <Button variant="outline" size="sm" onClick={()=>{setHistoryChat(chat);setHistoryOpenKey(value=>value+1);}} disabled={busy!==null}><History data-icon="inline-start"/>Історія</Button>
             {platform==='telegram'&&queue!=='to_join'&&<select disabled={busy!==null} className="chat-account-select" value={chat.telegramAccountId||''} onChange={event=>assignAccount(chat,event.target.value)} aria-label="Telegram-акаунт чату">{accounts.filter(item=>item.enabled||item.id===chat.telegramAccountId).map(account=><option value={account.id} key={account.id}>{account.name} · #{account.number}</option>)}</select>}
             <Button variant="outline" size="icon" type="button" onClick={()=>openChat(chat)} aria-label={`Відкрити чат у ${selected.label}`}><ExternalLink/></Button>
-            {queue==='to_join'&&<><Button size="icon" onClick={()=>act(chat,'joined')} disabled={busy!==null} aria-label="Успішно приєднано"><Check/></Button>{(platform==='telegram'||platform==='whatsapp')&&<Button variant="outline" size="icon" onClick={()=>act(chat,'waiting')} disabled={busy!==null} aria-label="Очікуємо запрошення"><Clock3/></Button>}<Button variant="outline" size="icon" onClick={()=>act(chat,'failed',{reason:'Не вдалося приєднатися'})} disabled={busy!==null} aria-label="Не вдалося приєднатися"><X/></Button></>}
+            {queue==='to_join'&&<><Button size="icon" onClick={()=>act(chat,'joined')} disabled={busy!==null} aria-label="Успішно приєднано"><Check/></Button>{(platform==='telegram'||platform==='whatsapp')&&<Button variant="outline" size="icon" onClick={()=>act(chat,'waiting')} disabled={busy!==null} aria-label="Очікуємо запрошення"><Clock3/></Button>}<Button variant="outline" size="icon" onClick={()=>act(chat,'failed',{reason:'Не вдалося приєднатися'},{action:'restore',label:'Невдале приєднання можна скасувати протягом 8 секунд.'})} disabled={busy!==null} aria-label="Не вдалося приєднатися"><X/></Button></>}
             {queue==='waiting'&&<><Button onClick={()=>act(chat,'approved')} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>Прийняли</Button></>}
             {queue==='ready'&&<><Button onClick={()=>{setPublishChat(chat);setPublishOpenKey(value=>value+1);}} disabled={busy!==null||chat.publishedToday||!canPublish(chat,clock)}><Send data-icon="inline-start"/>{chat.publishedToday?'Готово':canPublish(chat,clock)?'Опублікувати':isSnoozed(chat,clock)?'Відкладено':'Очікування 6 год'}</Button>{platform==='whatsapp'&&<Button variant="outline" size="icon" onClick={()=>window.confirm('Повернути цей чат у «Для приєднання»?')&&act(chat,'return_to_join')} disabled={busy!==null} aria-label="Повернути для приєднання"><Undo2/></Button>}</>}
             {(queue==='waiting'||queue==='ready')&&<Button variant="outline" onClick={()=>{setProfileChat(chat);setProfileOpenKey(value=>value+1);}} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>Профіль</Button>}
-            {(queue==='waiting'||queue==='ready')&&<Button variant="outline" title={isSnoozed(chat,clock)?'Скасувати відкладення':'Відкласти на 3 календарні дні'} onClick={()=>act(chat,isSnoozed(chat,clock)?'unsnooze':'snooze')} disabled={busy!==null||chat.publishedToday}>{isSnoozed(chat,clock)?'Повернути зараз':'+3 дні'}</Button>}
+            {(queue==='waiting'||queue==='ready')&&<Button variant="outline" title={isSnoozed(chat,clock)?'Скасувати відкладення':'Відкласти на 3 календарні дні'} onClick={()=>{const snoozed=isSnoozed(chat,clock);return act(chat,snoozed?'unsnooze':'snooze',{},snoozed?undefined:{action:'unsnooze',label:'Відкладення можна скасувати протягом 8 секунд.'});}} disabled={busy!==null||chat.publishedToday}>{isSnoozed(chat,clock)?'Повернути зараз':'+3 дні'}</Button>}
             {queue==='archived'?<Button variant="outline" onClick={()=>act(chat,'restore')} disabled={busy!==null}><RotateCcw data-icon="inline-start"/>Відновити</Button>:<Button variant="ghost" size="icon" onClick={()=>setArchiveId(archiveId===chat.id?null:chat.id)} aria-label="Перенести в архів"><Archive/></Button>}
           </div>
-          {archiveId===chat.id&&<div className="archive-reasons"><span>Чому в архів?</span>{['Забанено','Чат не існує','Чат не цільовий'].map(reason=><button disabled={busy!==null} key={reason} onClick={()=>act(chat,'archive',{reason})}>{reason}</button>)}</div>}
+          {archiveId===chat.id&&<div className="archive-reasons"><span>Чому в архів?</span>{['Забанено','Чат не існує','Чат не цільовий'].map(reason=><button disabled={busy!==null} key={reason} onClick={()=>act(chat,'archive',{reason},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'})}>{reason}</button>)}</div>}
         </article>)}
       </div>:<div className="workspace-empty"><MessageSquareEmpty/><strong>У цій черзі нічого немає</strong><p>Зміни платформу, чергу або очисть пошук.</p></div>}
       {!loading&&data&&data.total>50&&<div className="chat-pagination"><Button variant="outline" size="sm" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-50))}><ChevronLeft data-icon="inline-start"/>Назад</Button><span>{offset+1}–{Math.min(offset+50,data.total)} із {data.total}</span><Button variant="outline" size="sm" disabled={offset+50>=data.total} onClick={()=>setOffset(offset+50)}>Далі<ChevronRight data-icon="inline-end"/></Button></div>}
