@@ -20,6 +20,8 @@ import { LibraryWorkspace } from '@/components/library-workspace';
 import { TodaySettingsDialog } from '@/components/today-settings-dialog';
 import { SettingsWorkspace } from '@/components/settings-workspace';
 import { GlobalTimers } from '@/components/global-timers';
+import { AppReleaseDialog } from '@/components/app-release-dialog';
+import { APP_VERSION } from '@/lib/app-meta';
 import { useRouter } from 'next/navigation';
 import type { DashboardSnapshot } from '@/lib/dashboard';
 
@@ -44,6 +46,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const [todaySettingsOpen, setTodaySettingsOpen] = useState(false);
+  const [releaseOpen, setReleaseOpen] = useState(false);
   const router = useRouter();
   const [activeView, setActiveView] = useState<(typeof navigation)[number]['key']>('today');
   const activeLabel = navigation.find((item) => item.key === activeView)?.label || 'Сьогодні';
@@ -73,6 +76,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           <button className="nav-item" type="button" title={collapsed ? 'Налаштування' : undefined} aria-current={activeView === 'settings' ? 'page' : undefined} onClick={() => { setActiveView('settings'); setMobileOpen(false); }}>
             <Settings />{!collapsed && <span>Налаштування</span>}
           </button>
+          {!collapsed && <button className="sidebar-release" type="button" onClick={() => setReleaseOpen(true)}><span>Work OS</span><strong>v{APP_VERSION}</strong><small>Що змінилося</small></button>}
           <button className="collapse-button" type="button" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? 'Розгорнути меню' : 'Згорнути меню'}>
             {collapsed ? <ChevronRight /> : <ChevronLeft />}{!collapsed && <span>Згорнути меню</span>}
           </button>
@@ -142,6 +146,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
         </nav>
 
         <TodaySettingsDialog open={todaySettingsOpen} onClose={() => setTodaySettingsOpen(false)} initialDirections={snapshot.focusDirections} initialDailyGoal={snapshot.bookingGoal.target} initialMonthlyGoal={snapshot.monthlyBookingGoal} onSaved={() => router.refresh()} />
+        <AppReleaseDialog open={releaseOpen} onClose={() => setReleaseOpen(false)} />
       </main>
     </div>
   );

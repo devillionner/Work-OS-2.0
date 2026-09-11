@@ -10,6 +10,13 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   functional parity and direct confirmation. No production D1 cleanup/deletion.
 - All tests, migration rehearsals and restore drills local. CI does not deploy.
 - Manual usability precedes AI/generation/autoposting.
+
+## Release visibility
+
+- The sidebar shows the current Work OS version and opens a short Ukrainian change
+  list without a network request or D1 read. The notes cover the latest manual
+  workflow work; keeping the version and release date aligned with package releases
+  remains a small maintainer task. Full desktop/mobile visual acceptance is open.
 - Cloudflare Workers Builds triggers checked read-only on 2026-09-10: both
   work-os-2 and work-os-2-staging returned no triggers. No D1 reads/writes used.
 

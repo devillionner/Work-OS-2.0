@@ -163,6 +163,16 @@ button { color: inherit; }
 .nav-item[aria-current='page'] { color: #fff; background: #3157f6; }
 .nav-count { margin-left: auto; min-width: 22px; padding: 2px 6px; border-radius: 999px; background: rgba(255,255,255,.15); font-size: 11px; text-align: center; }
 .sidebar-bottom { margin-top: auto; display: grid; gap: 5px; }
+.sidebar-release { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin: 5px 6px 0; padding: 10px 8px; border: 1px solid #2d313c; border-radius: 11px; background: transparent; color: #aeb4c0; cursor: pointer; text-align: left; }
+.sidebar-release:hover { border-color: #4b5da6; background: #242731; color: #fff; }
+.sidebar-release span { font-size: 11px; font-weight: 750; }
+.sidebar-release strong { color: #fff; font-size: 11px; }
+.sidebar-release small { grid-column: 1 / -1; color: #858d9e; font-size: 10px; }
+.app-release-dialog { width: min(500px, calc(100vw - 24px)); }
+.app-release-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted-foreground); font-size: 12px; }
+.app-release-list { display: grid; gap: 11px; margin: 8px 0 0; padding: 0; list-style: none; }
+.app-release-list li { display: flex; align-items: flex-start; gap: 10px; color: #4e5563; font-size: 13px; line-height: 1.45; }
+.app-release-list svg { flex: 0 0 auto; width: 17px; margin-top: 1px; color: var(--primary); }
 .collapse-button { border-top: 1px solid #2d313c; border-radius: 0; margin-top: 6px; padding-top: 9px; }
 .sidebar-close-mobile, .mobile-menu { display: none; border: 0; background: transparent; cursor: pointer; }
 
