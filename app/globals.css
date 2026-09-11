@@ -432,6 +432,7 @@ button { color: inherit; }
 .reports-workspace { max-width: 1400px; display: grid; gap: 18px; margin: 0 auto; padding: clamp(22px,4vw,54px); }
 .reports-hero, .reports-calendar-card, .reports-editor-card { border: 1px solid var(--border); border-radius: 16px; background: #fff; box-shadow: 0 4px 14px rgba(27,31,43,.035); }
 .reports-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 26px; background: linear-gradient(115deg,#fff 0%,#fff 58%,#eef2ff 100%); }
+.reports-hero-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .reports-hero h2 { margin: 0; font-size: clamp(25px,3vw,34px); letter-spacing: -.035em; }
 .reports-hero p:not(.eyebrow) { margin: 8px 0 0; color: var(--muted-foreground); }
 .reports-layout { display: grid; grid-template-columns: minmax(310px,.85fr) minmax(0,1.45fr); gap: 18px; }
@@ -442,7 +443,9 @@ button { color: inherit; }
 .reports-weekdays, .reports-calendar-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 5px; }
 .reports-weekdays { margin-bottom: 5px; color: #858b96; font-size: 10px; font-weight: 750; text-align: center; text-transform: uppercase; }
 .report-day { position: relative; min-height: 48px; border: 1px solid transparent; border-radius: 9px; background: #fafbfc; color: #343946; cursor: pointer; font-size: 12px; font-weight: 700; }
-.report-day:hover { border-color: #b9c6ff; background: #f4f6ff; }
+.report-day:hover:not(:disabled) { border-color: #b9c6ff; background: #f4f6ff; }
+.report-day:disabled { cursor: default; opacity: .55; }
+.report-day.is-future { color: #b8bdc8; background: #fff; }
 .report-day.is-muted { color: #c5c9d1; background: #fff; }
 .report-day.is-selected { border-color: var(--primary); box-shadow: 0 0 0 2px #dfe5ff; }
 .report-day.has-report { background: #e6ebff; color: #2445cf; }

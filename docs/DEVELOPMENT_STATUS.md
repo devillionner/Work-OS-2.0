@@ -63,6 +63,14 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   metadata. It is read-only and bounded to 100 rows; lesson/report-specific history
   views and full workspace/mobile acceptance remain open.
 
+## Report date navigation
+
+- The report calendar now makes future dates visibly unavailable and the API rejects
+  them as well. «Сьогодні» returns to the Kyiv-local current date, and Alt+← / Alt+→
+  moves between available days while preserving the selected month. The controls do
+  not add polling or D1 writes; report version/history and full desktop/mobile QA
+  remain open.
+
 ## Manual publication attribution
 
 - The ready-chat action opens a manual preparation dialog. It loads the owner’s active

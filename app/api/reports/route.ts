@@ -10,6 +10,7 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const month = validMonth(url.searchParams.get('month')) ? url.searchParams.get('month')! : kyivDate().slice(0, 7);
   const date = url.searchParams.get('date');
+  if (validDate(date) && date > kyivDate()) return Response.json({ error: 'Майбутні звіти недоступні.' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
   const start = `${month}-01`;
   const end = shiftMonth(start, 1);
   const [reportsResult, selectedResult] = await env.DB.batch([
@@ -30,6 +31,7 @@ export async function POST(request: Request): Promise<Response> {
   const date = typeof body.date === 'string' && validDate(body.date) ? body.date : '';
   const text = typeof body.text === 'string' ? body.text.slice(0, 20000) : '';
   if (!date || !text.trim()) return Response.json({ error: 'Вкажіть дату та текст звіту.' }, { status: 400 });
+  if (date > kyivDate()) return Response.json({ error: 'Майбутні звіти недоступні.' }, { status: 400 });
   const now = Math.floor(Date.now() / 1000);
   const id = `report_${user.id}_${date}`;
   const submittedAt = body.submitted === false ? null : now;

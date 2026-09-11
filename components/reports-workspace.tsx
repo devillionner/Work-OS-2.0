@@ -40,15 +40,37 @@ export function ReportsWorkspace() {
     return () => { clearTimeout(timer); controller.abort(); };
   }, [load, selectedDate]);
 
-  const days = useMemo(() => monthDays(month), [month]);
+  const today = currentDate();
+  const days = useMemo(() => monthDays(month, today), [month, today]);
   const reportByDate = useMemo(() => new Map((data?.reports || []).map((report) => [report.date, report])), [data]);
   const selected = selectedDate || data?.selected?.date || null;
 
-  function chooseDate(date: string) { if (date === selectedDate || saving) return; latestLoad.current++; setData(null); setText(''); setLoading(true); setNotice(''); setSelectedDate(date); }
+  const chooseDate = useCallback((date: string) => {
+    if (date > today || date === selectedDate || saving) return;
+    latestLoad.current++; setData(null); setText(''); setLoading(true); setNotice('');
+    if (date.slice(0, 7) !== month) setMonth(date.slice(0, 7));
+    setSelectedDate(date);
+  }, [month, saving, selectedDate, today]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (!event.altKey || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
+      event.preventDefault();
+      if (saving) return;
+      const base = selected || today;
+      const next = shiftDay(base, event.key === 'ArrowLeft' ? -1 : 1);
+      if (next > today) return;
+      chooseDate(next);
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [chooseDate, saving, selected, today]);
+
   function moveMonth(offset: number) { if (saving) return; latestLoad.current++; setData(null); setText(''); setLoading(true); setNotice(''); const next = shiftMonth(month, offset); setMonth(next); setSelectedDate(null); }
   async function save() {
     if (loading || saving) return;
     if (!selected || !text.trim()) { setError('Оберіть дату та додайте текст звіту.'); return; }
+    if (selected > today) { setError('Майбутні звіти недоступні.'); return; }
     setSaving(true); setError(''); setNotice('');
     try {
       const response = await fetch('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: selected, text, submitted: true }) });
@@ -60,11 +82,11 @@ export function ReportsWorkspace() {
   }
 
   return <div className="reports-workspace">
-    <section className="reports-hero"><div><p className="eyebrow">Контроль результату</p><h2>Історія звітів</h2><p>Обирай день у календарі, переглядай показники та коригуй звіт без втрати дат.</p></div><Button variant="outline" size="sm" onClick={() => void load()} disabled={loading || saving}><RefreshCw data-icon="inline-start" className={loading ? 'is-spinning' : undefined} />Оновити</Button></section>
+    <section className="reports-hero"><div><p className="eyebrow">Контроль результату</p><h2>Історія звітів</h2><p>Обирай день у календарі, переглядай показники та коригуй звіт без втрати дат.</p></div><div className="reports-hero-actions"><Button variant="outline" size="sm" onClick={() => chooseDate(today)} disabled={loading || saving || selected === today}>Сьогодні</Button><Button variant="outline" size="sm" onClick={() => void load()} disabled={loading || saving}><RefreshCw data-icon="inline-start" className={loading ? 'is-spinning' : undefined} />Оновити</Button></div></section>
     {error && <div className="workspace-error" role="alert">{error}</div>}
     {notice && <output className="reports-notice">{notice}</output>}
     <div className="reports-layout">
-      <section className="reports-calendar-card"><div className="reports-month-head"><Button variant="ghost" size="icon" aria-label="Попередній місяць" onClick={() => moveMonth(-1)}><ChevronLeft /></Button><h3>{formatMonth(month)}</h3><Button variant="ghost" size="icon" aria-label="Наступний місяць" onClick={() => moveMonth(1)}><ChevronRight /></Button></div><div className="reports-weekdays">{['Пн','Вт','Ср','Чт','Пт','Сб','Нд'].map((day) => <span key={day}>{day}</span>)}</div><div className="reports-calendar-grid">{days.map((day) => { const report = reportByDate.get(day.date); const revision = report?.revisionCount || 0; return <button key={day.date} type="button" className={`report-day ${day.isCurrentMonth ? '' : 'is-muted'} ${selected === day.date ? 'is-selected' : ''} ${report ? 'has-report' : ''} ${report?.submittedAt ? 'is-submitted' : ''} ${revision >= 3 ? 'is-revised-heavy' : revision === 2 ? 'is-revised' : ''}`} title={report ? `Редакцій: ${revision}` : 'Додати звіт'} onClick={() => chooseDate(day.date)}><span>{day.day}</span>{report && <i aria-label="Є звіт" />}</button>; })}</div><div className="reports-legend"><span><i className="legend-dot is-submitted" />Здано</span><span><i className="legend-dot has-report" />Є чернетка або зміни</span><span><i className="legend-dot is-revised" />Редагувався повторно</span></div></section>
+      <section className="reports-calendar-card"><div className="reports-month-head"><Button variant="ghost" size="icon" aria-label="Попередній місяць" onClick={() => moveMonth(-1)}><ChevronLeft /></Button><h3>{formatMonth(month)}</h3><Button variant="ghost" size="icon" aria-label="Наступний місяць" onClick={() => moveMonth(1)} disabled={saving || month >= today.slice(0, 7)}><ChevronRight /></Button></div><div className="reports-weekdays">{['Пн','Вт','Ср','Чт','Пт','Сб','Нд'].map((day) => <span key={day}>{day}</span>)}</div><div className="reports-calendar-grid">{days.map((day) => { const report = reportByDate.get(day.date); const revision = report?.revisionCount || 0; return <button key={day.date} type="button" disabled={day.isFuture} className={`report-day ${day.isCurrentMonth ? '' : 'is-muted'} ${day.isFuture ? 'is-future' : ''} ${selected === day.date ? 'is-selected' : ''} ${report ? 'has-report' : ''} ${report?.submittedAt ? 'is-submitted' : ''} ${revision >= 3 ? 'is-revised-heavy' : revision === 2 ? 'is-revised' : ''}`} title={day.isFuture ? 'Майбутня дата недоступна' : report ? `Редакцій: ${revision}` : 'Додати звіт'} onClick={() => chooseDate(day.date)}><span>{day.day}</span>{report && <i aria-label="Є звіт" />}</button>; })}</div><div className="reports-legend"><span><i className="legend-dot is-submitted" />Здано</span><span><i className="legend-dot has-report" />Є чернетка або зміни</span><span><i className="legend-dot is-revised" />Редагувався повторно</span></div></section>
       <section className="reports-editor-card">{loading ? <div className="workspace-loading">Завантажуємо звіт…</div> : selected ? <><div className="card-heading"><div><p className="eyebrow">Звіт за день</p><h3>{formatDate(selected)}</h3></div>{data?.selected?.submittedAt ? <Badge variant="secondary">Здано</Badge> : <Badge variant="outline">Немає звіту</Badge>}</div><Textarea disabled={saving} value={text} onChange={(event) => setText(event.target.value)} placeholder="Встав текст щоденного звіту або внеси коригування…" rows={14} /><div className="reports-editor-footer"><span className="muted-note">Остання зміна: {data?.selected ? formatTime(data.selected.updatedAt) : 'ще не створено'}</span><Button onClick={() => void save()} disabled={loading || saving || !text.trim()}><Save data-icon="inline-start" />{saving ? 'Зберігаємо…' : 'Зберегти звіт'}</Button></div>{data?.summary.length ? <Summary summary={data.summary} /> : null}</> : <div className="workspace-empty"><FileText /><strong>Оберіть дату</strong><p>Дні зі звітом позначені синім.</p></div>}</section>
     </div>
   </div>;
@@ -72,7 +94,9 @@ export function ReportsWorkspace() {
 
 function Summary({ summary }: { summary: ReportData['summary'] }) { const grouped = new Map<string, Record<string, number>>(); for (const row of summary) { const current = grouped.get(row.platform) || {}; current[row.eventType] = (current[row.eventType] || 0) + row.count; grouped.set(row.platform, current); } return <div className="report-summary"><p className="eyebrow">Події в базі за цей день</p>{Array.from(grouped).map(([platform, values]) => <div key={platform}><strong>{platformNames[platform] || platform}</strong><span>Оголошення: {values.publication || 0}</span><span>Відгуки: {values.lead_created || 0}</span><span>Записи: {(values.lesson_booked || 0) + (values.curator_booking_pending || 0)}</span></div>)}</div>; }
 function currentMonth() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit' }).format(new Date()); }
-function monthDays(month: string) { const [year, monthNumber] = month.split('-').map(Number); const first = new Date(Date.UTC(year, monthNumber - 1, 1)); const count = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate(); const start = (first.getUTCDay() + 6) % 7; return Array.from({ length: start + count }, (_, index) => { const day = index - start + 1; const date = new Date(Date.UTC(year, monthNumber - 1, day)); return { day: date.getUTCDate(), date: date.toISOString().slice(0, 10), isCurrentMonth: day >= 1 && day <= count }; }); }
+function currentDate() { const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()); const values = Object.fromEntries(parts.map((part) => [part.type, part.value])); return `${values.year}-${values.month}-${values.day}`; }
+function monthDays(month: string, today: string) { const [year, monthNumber] = month.split('-').map(Number); const first = new Date(Date.UTC(year, monthNumber - 1, 1)); const count = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate(); const start = (first.getUTCDay() + 6) % 7; return Array.from({ length: start + count }, (_, index) => { const day = index - start + 1; const date = new Date(Date.UTC(year, monthNumber - 1, day)); const dateValue = date.toISOString().slice(0, 10); return { day: date.getUTCDate(), date: dateValue, isCurrentMonth: day >= 1 && day <= count, isFuture: dateValue > today }; }); }
+function shiftDay(value: string, offset: number) { const date = new Date(`${value}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + offset); return date.toISOString().slice(0, 10); }
 function shiftMonth(month: string, offset: number) { const [year, monthNumber] = month.split('-').map(Number); const date = new Date(Date.UTC(year, monthNumber - 1 + offset, 1)); return date.toISOString().slice(0, 7); }
 function formatMonth(month: string) { const [year, monthNumber] = month.split('-').map(Number); return new Intl.DateTimeFormat('uk-UA', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, monthNumber - 1, 1))).replace(/^./, (value) => value.toUpperCase()); }
 function formatDate(value: string) { const [year, month, day] = value.split('-'); return `${day}.${month}.${year}`; }
