@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { ReportHistoryItem } from '@/lib/reports/history';
 
-export function ReportHistoryDialog({ open, date, onClose }: { open: boolean; date: string | null; onClose: () => void }) {
+export function ReportHistoryDialog({ open, date, onClose, onRestored }: { open: boolean; date: string | null; onClose: () => void; onRestored?: () => void }) {
   const [events, setEvents] = useState<ReportHistoryItem[]>([]);
   const [busy, setBusy] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -27,7 +28,21 @@ export function ReportHistoryDialog({ open, date, onClose }: { open: boolean; da
     return () => { active = false; controller.abort(); };
   }, [date, open]);
 
-  return <Dialog open={open} onOpenChange={(next) => { if (!next && !busy) onClose(); }}><DialogContent className="report-history-dialog" showCloseButton={!busy}><DialogHeader><DialogTitle>Версії звіту</DialogTitle><DialogDescription>{date ? `Звіт за ${formatDate(date)}` : ''}</DialogDescription></DialogHeader>{error && <p className="workspace-error" role="alert">{error}</p>}{busy ? <output className="workspace-loading">Завантажуємо історію…</output> : events.length ? <ol className="report-history-list">{events.map((event, index) => <li key={event.id}><details open={index === 0}><summary><span><strong>Версія {event.revision}</strong><small>{event.source === 'import' ? 'Імпорт' : 'Ручна зміна'}</small></span><time dateTime={new Date(event.occurredAt * 1000).toISOString()}>{formatTime(event.occurredAt)}</time></summary><div className="report-history-meta">{event.submittedAt ? 'Здано' : 'Чернетка'}</div><pre>{event.text || 'Текст відсутній.'}</pre></details></li>)}</ol> : <p className="muted-note">Історія ще порожня.</p>}<div className="dialog-actions"><Button variant="outline" onClick={onClose} disabled={busy}>Закрити</Button></div></DialogContent></Dialog>;
+  async function restore(event: ReportHistoryItem) {
+    if (!date || busy || restoringId) return;
+    setRestoringId(event.id); setError('');
+    try {
+      const response = await fetch('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, text: event.text, submitted: event.submittedAt !== null }) });
+      const value: unknown = await response.json();
+      if (!response.ok) throw new Error(value && typeof value === 'object' && 'error' in value && typeof value.error === 'string' ? value.error : 'Не вдалося відновити версію звіту.');
+      onRestored?.(); onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Не вдалося відновити версію звіту.');
+    } finally { setRestoringId(null); }
+  }
+
+  const blocked = busy || Boolean(restoringId);
+  return <Dialog open={open} onOpenChange={(next) => { if (!next && !blocked) onClose(); }}><DialogContent className="report-history-dialog" showCloseButton={!blocked}><DialogHeader><DialogTitle>Версії звіту</DialogTitle><DialogDescription>{date ? `Звіт за ${formatDate(date)} · відновлення створює нову версію` : ''}</DialogDescription></DialogHeader>{error && <p className="workspace-error" role="alert">{error}</p>}{busy ? <output className="workspace-loading">Завантажуємо історію…</output> : events.length ? <ol className="report-history-list">{events.map((event, index) => <li key={event.id}><details open={index === 0}><summary><span><strong>Версія {event.revision}</strong><small>{event.source === 'import' ? 'Імпорт' : 'Ручна зміна'}</small></span><time dateTime={new Date(event.occurredAt * 1000).toISOString()}>{formatTime(event.occurredAt)}</time></summary><div className="report-history-meta">{event.submittedAt ? 'Здано' : 'Чернетка'}</div><pre>{event.text || 'Текст відсутній.'}</pre>{index > 0 && <Button type="button" variant="outline" size="sm" disabled={blocked} onClick={() => void restore(event)}>{restoringId === event.id ? 'Відновлюємо…' : 'Відновити цю версію'}</Button>}</details></li>)}</ol> : <p className="muted-note">Історія ще порожня.</p>}<div className="dialog-actions"><Button variant="outline" onClick={onClose} disabled={blocked}>Закрити</Button></div></DialogContent></Dialog>;
 }
 
 function formatDate(value: string) { const [year, month, day] = value.split('-'); return `${day}.${month}.${year}`; }

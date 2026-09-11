@@ -504,6 +504,7 @@ button { color: inherit; }
 .report-history-list summary time { flex: none; color: #737a88; font-size: 11px; }
 .report-history-meta { margin-top: 9px; color: #3157f6; font-size: 11px; font-weight: 700; }
 .report-history-list pre { max-height: 260px; margin: 8px 0 0; padding: 10px; overflow: auto; border-radius: 8px; background: #fff; color: #343946; font: inherit; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
+.report-history-list details > button { margin-top: 10px; }
 .library-workspace { max-width: 1400px; display: grid; gap: 18px; margin: 0 auto; padding: clamp(22px,4vw,54px); }
 .library-hero, .library-list, .library-editor { border: 1px solid var(--border); border-radius: 16px; background: #fff; box-shadow: 0 4px 14px rgba(27,31,43,.035); }
 .library-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 26px; background: linear-gradient(115deg,#fff 0%,#fff 58%,#eef2ff 100%); }

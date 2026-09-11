@@ -109,6 +109,13 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   month, and a local regression covers both event changes and read-only behavior.
   Workday coloring and full mobile acceptance remain open.
 
+## Report version restore
+
+- The report history dialog can restore an older version as a new report revision
+  while preserving whether it was a draft or submitted. The dialog stays blocked
+  while the save is in flight and refreshes the selected report after success;
+  full diff/concurrency checks and mobile acceptance remain open.
+
 ## Manual publication attribution
 
 - The ready-chat action opens a manual preparation dialog. It loads the owner’s active
