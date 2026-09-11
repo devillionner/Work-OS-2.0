@@ -1,5 +1,6 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
+import { PwaRegistration } from '@/components/pwa-registration';
 import './globals.css';
 
 const sans = Geist({ subsets: ['latin'], variable: '--font-sans' });
@@ -8,12 +9,36 @@ const mono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono' });
 export const metadata: Metadata = {
   title: 'Work OS 2.0',
   description: 'Приватний помічник для постингу, лідів, звітів і статистики.',
+  manifest: '/manifest.webmanifest',
+  applicationName: 'Work OS',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Work OS',
+  },
+  icons: {
+    icon: '/favicon.svg',
+    apple: '/apple-touch-icon.png',
+  },
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export const viewport: Viewport = {
+  themeColor: '#111111',
+  colorScheme: 'light',
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="uk">
-      <body className={`${sans.variable} ${mono.variable}`}>{children}</body>
+      <body className={`${sans.variable} ${mono.variable}`}>
+        <PwaRegistration />
+        {children}
+      </body>
     </html>
   );
 }

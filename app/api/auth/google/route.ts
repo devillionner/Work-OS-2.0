@@ -1,10 +1,11 @@
 import { env } from 'cloudflare:workers';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createSession, sessionCookie } from '@/lib/auth';
 import {
-  createSession,
-  sessionCookie,
-  upsertGoogleUser,
-} from '@/lib/auth';
+  AuthIdentityError,
+  createGoogleAuthPolicy,
+  resolveGoogleIdentity,
+} from '@/lib/auth-identities';
 
 const googleKeys = createRemoteJWKSet(
   new URL('https://www.googleapis.com/oauth2/v3/certs'),
@@ -25,27 +26,26 @@ export async function POST(request: Request): Promise<Response> {
     });
 
     const email = typeof payload.email === 'string' ? payload.email.toLowerCase() : '';
-    const ownerEmail = env.OWNER_EMAIL?.toLowerCase();
+    const policy = createGoogleAuthPolicy(
+      env.OWNER_EMAIL,
+      env.ALLOWED_GOOGLE_EMAILS,
+    );
+    if (!policy) return jsonError('Політика Google-доступу не налаштована.', 503);
     if (!payload.sub || payload.email_verified !== true || !email) {
       return jsonError('Google-акаунт не підтверджено.', 401);
     }
-    if (!ownerEmail || email !== ownerEmail) {
-      return jsonError('Цей Google-акаунт не має доступу до Work OS.', 403);
-    }
-
     const displayName =
       typeof payload.name === 'string' && payload.name.trim()
         ? payload.name.trim()
         : email;
     const pictureUrl = typeof payload.picture === 'string' ? payload.picture : null;
 
-    await upsertGoogleUser({
-      id: payload.sub,
-      email,
-      displayName,
-      pictureUrl,
-    });
-    const sessionToken = await createSession(payload.sub);
+    const userId = await resolveGoogleIdentity(
+      env.DB,
+      { subject: payload.sub, email, displayName, pictureUrl },
+      policy,
+    );
+    const sessionToken = await createSession(userId);
     const secure = new URL(request.url).protocol === 'https:';
 
     return Response.json(
@@ -53,6 +53,10 @@ export async function POST(request: Request): Promise<Response> {
       { headers: { 'Set-Cookie': sessionCookie(sessionToken, secure) } },
     );
   } catch (error) {
+    if (error instanceof AuthIdentityError) {
+      const status = error.code === 'owner_not_initialized' ? 409 : 403;
+      return jsonError(error.message, status);
+    }
     console.error('Google sign-in failed', safeErrorName(error));
     return jsonError('Не вдалося перевірити Google-вхід. Спробуй ще раз.', 401);
   }

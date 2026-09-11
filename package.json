@@ -7,10 +7,10 @@
   },
   "scripts": {
     "dev": "vinext dev",
-    "build": "vinext build",
+    "build": "vinext build && node scripts/normalize-wrangler-config.mjs",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "deploy": "npm run build && wrangler deploy --config dist/server/wrangler.json",
-    "lint": "oxlint app components/work-os-shell.tsx components/app-release-dialog.tsx components/global-timers.tsx components/platform-workspace.tsx components/chat-bulk-dialog.tsx components/chat-profile-dialog.tsx components/chat-history-dialog.tsx components/chat-publish-dialog.tsx components/library-workspace.tsx components/reports-workspace.tsx components/leads db lib scripts tests",
+    "lint": "oxlint app components/work-os-shell.tsx components/pwa-registration.tsx components/app-release-dialog.tsx components/global-timers.tsx components/platform-workspace.tsx components/chat-bulk-dialog.tsx components/chat-profile-dialog.tsx components/chat-history-dialog.tsx components/chat-publish-dialog.tsx components/library-workspace.tsx components/reports-workspace.tsx components/leads db lib scripts tests",
     "verify": "node scripts/verify-local.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "format": "oxfmt",
@@ -29,26 +29,26 @@
     "input-otp": "1.4.2",
     "jose": "^6.1.3",
     "lucide-react": "1.31.0",
-    "react": "19.2.6",
+    "react": "19.3.0",
     "react-day-picker": "9.8.1",
-    "react-dom": "19.2.6",
+    "react-dom": "19.3.0",
     "react-resizable-panels": "4.5.8",
-    "react-server-dom-webpack": "19.2.6",
+    "react-server-dom-webpack": "19.3.0",
     "recharts": "3.8.0",
     "shadcn": "4.18.0",
     "tailwind-merge": "3.6.0",
     "tw-animate-css": "1.4.0",
-    "vinext": "1.0.0-beta.5"
+    "vinext": "1.0.0-beta.9"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.37.1",
-    "@cloudflare/workers-types": "4.20260515.1",
+    "@cloudflare/vite-plugin": "1.54.8",
+    "@cloudflare/workers-types": "5.20260911.1",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
-    "@vitejs/plugin-rsc": "0.5.26",
+    "@vitejs/plugin-rsc": "0.5.34",
     "drizzle-kit": "0.31.10",
     "miniflare": "4.20260515.0",
     "oxfmt": "0.61.0",
@@ -56,8 +56,8 @@
     "oxlint-tsgolint": "7.0.2001",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
-    "vite": "8.0.13",
-    "wrangler": "4.92.0"
+    "vite": "8.3.0",
+    "wrangler": "4.131.1"
   },
   "type": "module"
 }
