@@ -458,6 +458,7 @@ button { color: inherit; }
 .legend-dot { width: 8px; height: 8px; border-radius: 50%; background: #e6ebff; }
 .legend-dot.is-submitted { background: #3157f6; }
 .reports-editor-card { min-height: 420px; }
+.reports-editor-actions { display: flex; align-items: center; gap: 8px; }
 .reports-editor-card textarea { width: 100%; resize: vertical; }
 .reports-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
 .reports-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; border: 1px solid #b7ebc6; border-radius: 10px; background: #effcf2; color: #087443; font-size: 12px; }
@@ -466,6 +467,17 @@ button { color: inherit; }
 .report-summary > div { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid #eceef2; font-size: 11px; }
 .report-summary > div strong { min-width: 85px; }
 .report-summary > div span { color: #737a88; }
+.report-history-dialog { max-width: min(680px, calc(100% - 2rem)); }
+.report-history-list { display: grid; gap: 8px; max-height: min(60vh, 520px); margin: 0; padding: 0; overflow: auto; list-style: none; }
+.report-history-list li { border: 1px solid var(--border); border-radius: 10px; background: #fafbfc; }
+.report-history-list details { padding: 11px 13px; }
+.report-history-list summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
+.report-history-list summary::-webkit-details-marker { display: none; }
+.report-history-list summary > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.report-history-list summary small { color: #737a88; font-size: 11px; font-weight: 500; }
+.report-history-list summary time { flex: none; color: #737a88; font-size: 11px; }
+.report-history-meta { margin-top: 9px; color: #3157f6; font-size: 11px; font-weight: 700; }
+.report-history-list pre { max-height: 260px; margin: 8px 0 0; padding: 10px; overflow: auto; border-radius: 8px; background: #fff; color: #343946; font: inherit; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
 .library-workspace { max-width: 1400px; display: grid; gap: 18px; margin: 0 auto; padding: clamp(22px,4vw,54px); }
 .library-hero, .library-list, .library-editor { border: 1px solid var(--border); border-radius: 16px; background: #fff; box-shadow: 0 4px 14px rgba(27,31,43,.035); }
 .library-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 26px; background: linear-gradient(115deg,#fff 0%,#fff 58%,#eef2ff 100%); }

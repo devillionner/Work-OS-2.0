@@ -71,6 +71,14 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   not add polling or D1 writes; report version/history and full desktop/mobile QA
   remain open.
 
+## Report version history
+
+- Migration 0020 records each created or edited report as a bounded owner-scoped
+  `report_revision` activity event. The report workspace opens the selected date’s
+  versions on demand and keeps the latest text expanded for review. History is
+  excluded from business totals; restore/version comparison and full mobile QA
+  remain open.
+
 ## Manual publication attribution
 
 - The ready-chat action opens a manual preparation dialog. It loads the owner’s active
@@ -239,7 +247,7 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 - Read-only Analytics workspace: selectable 7/30/90-day window, event-derived funnel,
   platform comparison and per-chat publication/response/booking conversion table.
 - Reports workspace: month calendar, day selection, report editing/creation, event
-  summary for the selected day and revision intensity (migration 0016).
+  summary for the selected day and revision intensity (migrations 0016, 0020).
 - Library workspace: searchable advertisements and scripts with separate Ukrainian
   and Russian versions, notes/tags/platforms, archive action and schema-5 backup
   coverage (migration 0017).

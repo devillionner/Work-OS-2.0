@@ -48,7 +48,7 @@ void test('Today uses event dates, counts repeat bookings and Threads, and ignor
   await report(db,NOW,'Довільний відредагований звіт: 12345 записів');
   assert.deepEqual((await readDashboardSnapshot(db,'u',NOW)).bookingGoal,before.bookingGoal);
   assert.deepEqual((await readDashboardSnapshot(db,'u',NOW)).platforms,before.platforms);
-  assert.equal((await db.prepare('SELECT COUNT(*) n FROM activity_events').first()).n,12);
+  assert.equal((await db.prepare('SELECT COUNT(*) n FROM activity_events').first()).n,13);
   const summary = await activitySummaryStatement(db,'u',TODAY,TODAY).all();
   assert.equal(activityTotals(summary.results).bookings,after.bookingGoal.completed);
 });
