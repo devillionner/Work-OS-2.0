@@ -124,12 +124,14 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           </section>
 
           <section className="queue-card" aria-labelledby="queue-title">
-            <div className="card-heading"><div><p className="eyebrow">Наступні дії</p><h2 id="queue-title">Робоча черга</h2></div><Badge variant="secondary">3 кроки</Badge></div>
-            <ol className="action-list">
-              <li><span className="action-index">1</span><div><strong>Опрацювати чати</strong><p>Приєднання, очікування та ручні публікації.</p></div><Button variant="outline" size="sm" onClick={() => navigateTo('platforms')}>Відкрити</Button></li>
-              <li><span className="action-index">2</span><div><strong>Перевірити лідів та уроки</strong><p>Наступні контакти, записи й ручні нагадування.</p></div><Button variant="outline" size="sm" onClick={() => navigateTo('leads')}>Відкрити</Button></li>
-              <li><span className="action-index">3</span><div><strong>Підготувати звіт</strong><p>Переглянути події дня й зберегти звіт.</p></div><Button variant="outline" size="sm" onClick={() => navigateTo('reports')}>Відкрити</Button></li>
-            </ol>
+            <div className="card-heading"><div><p className="eyebrow">Наступні дії</p><h2 id="queue-title">Прострочені ліди й нагадування</h2></div><Badge variant="secondary">{snapshot.leadTasks.length}</Badge></div>
+            {snapshot.leadTasks.length ? <ol className="action-list">
+              {snapshot.leadTasks.map((item, index) => <li key={`${item.kind}:${item.leadId}:${item.lessonId || item.dueAt}`}>
+                <span className="action-index">{index + 1}</span>
+                <div><strong>{item.leadName}</strong><p>{item.title} · {formatTaskTime(item.dueAt)}</p></div>
+                <Button variant="outline" size="sm" onClick={() => { setLeadToOpen(item.leadId); navigateTo('leads'); }}>Відкрити</Button>
+              </li>)}
+            </ol> : <div className="queue-empty"><p>Прострочених follow-up і активних нагадувань немає.</p><Button variant="outline" size="sm" onClick={() => navigateTo('leads')}>Відкрити лідів</Button></div>}
           </section>
 
           <section className="platform-card" aria-labelledby="platform-title">
@@ -172,4 +174,13 @@ function todayLabel() {
   }).format(new Date());
 
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+function formatTaskTime(epoch: number) {
+  return new Intl.DateTimeFormat('uk-UA', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Europe/Kyiv',
+  }).format(new Date(epoch * 1000));
 }

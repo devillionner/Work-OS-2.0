@@ -85,3 +85,27 @@ void test('archived leads retain events; attribution never reads a foreign-owner
   assert.equal(snapshot.platforms.find(row=>row.key==='unknown').bookings,1);
   assert.equal(snapshot.bookingGoal.completed,2);
 });
+
+void test('Today lead queue returns only owned active overdue follow-ups and due reminders', async t => {
+  const db = await localDatabase(t);
+  await db.prepare(`INSERT INTO leads(id,user_id,name,platform,status,next_action,next_contact_at,created_at,updated_at,archived_at)
+    VALUES
+      ('overdue','u','Overdue lead','telegram','response','Call back',?1,1,1,NULL),
+      ('future','u','Future lead','telegram','response','Later',?2,1,1,NULL),
+      ('archived-task','u','Archived task','telegram','response','Ignore',?1,1,1,2),
+      ('foreign-task','other','Foreign task','telegram','response','Private',?1,1,1,NULL),
+      ('lesson-lead','u','Lesson lead','viber','response','',NULL,1,1,NULL)`)
+    .bind(NOW - 120, NOW + 120).run();
+  await db.prepare(`INSERT INTO lessons(id,user_id,lead_id,student_name,subject,teacher_name,lesson_date,lesson_time,lesson_platform,meeting_link,status,created_at,updated_at)
+    VALUES ('lesson','u','lesson-lead','Student','Math','Teacher','2026-09-10','16:00','Google Meet','https://meet.google.com/abc-defg-hij','booked',1,1)`).run();
+  await db.prepare(`INSERT INTO lesson_reminders(id,user_id,lesson_id,slot,enabled,offset_minutes,updated_at)
+    VALUES ('lesson:reminder:1','u','lesson',1,1,60,1)`).run();
+
+  const snapshot = await readDashboardSnapshot(db,'u',NOW);
+  assert.deepEqual(snapshot.leadTasks.map(task => [task.kind, task.leadId]), [
+    ['follow_up','overdue'],
+    ['reminder','lesson-lead'],
+  ]);
+  assert.equal(snapshot.leadTasks[0].title, 'Call back');
+  assert.equal(snapshot.leadTasks[1].lessonId, 'lesson');
+});
