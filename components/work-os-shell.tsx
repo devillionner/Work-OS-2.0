@@ -50,6 +50,11 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
   const router = useRouter();
   const [activeView, setActiveView] = useState<(typeof navigation)[number]['key']>('today');
   const activeLabel = navigation.find((item) => item.key === activeView)?.label || 'Сьогодні';
+  const navigateTo = (next: (typeof navigation)[number]['key']) => {
+    setActiveView(next);
+    setMobileOpen(false);
+    if (next === 'today' && activeView !== 'today') router.refresh();
+  };
 
   return (
     <div className={`work-layout ${collapsed ? 'is-collapsed' : ''}`}>
@@ -64,7 +69,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
 
         <nav className="sidebar-nav">
           {navigation.map(({ key, label, icon: Icon }) => (
-            <button type="button" className="nav-item" aria-current={activeView === key ? 'page' : undefined} title={collapsed ? label : undefined} key={key} onClick={() => { setActiveView(key); setMobileOpen(false); }}>
+            <button type="button" className="nav-item" aria-current={activeView === key ? 'page' : undefined} title={collapsed ? label : undefined} key={key} onClick={() => navigateTo(key)}>
               <Icon />
               {!collapsed && <span>{label}</span>}
               {label === 'Ліди' && !collapsed && <span className="nav-count">{snapshot.leads}</span>}
@@ -73,7 +78,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
         </nav>
 
         <div className="sidebar-bottom">
-          <button className="nav-item" type="button" title={collapsed ? 'Налаштування' : undefined} aria-current={activeView === 'settings' ? 'page' : undefined} onClick={() => { setActiveView('settings'); setMobileOpen(false); }}>
+          <button className="nav-item" type="button" title={collapsed ? 'Налаштування' : undefined} aria-current={activeView === 'settings' ? 'page' : undefined} onClick={() => navigateTo('settings')}>
             <Settings />{!collapsed && <span>Налаштування</span>}
           </button>
           {!collapsed && <button className="sidebar-release" type="button" onClick={() => setReleaseOpen(true)}><span>Work OS</span><strong>v{APP_VERSION}</strong><small>Що змінилося</small></button>}
@@ -106,7 +111,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
               <Badge variant="outline">Ручна робота</Badge>
             </div>
             <div className="focus-actions">
-              <Button size="lg" onClick={() => setActiveView('platforms')}><MessageSquareText data-icon="inline-start" />Почати постинг</Button>
+              <Button size="lg" onClick={() => navigateTo('platforms')}><MessageSquareText data-icon="inline-start" />Почати постинг</Button>
               <Button size="lg" variant="outline" onClick={() => setTodaySettingsOpen(true)}><Target data-icon="inline-start" />Налаштувати ціль</Button>
             </div>
           </section>
@@ -120,14 +125,14 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           <section className="queue-card" aria-labelledby="queue-title">
             <div className="card-heading"><div><p className="eyebrow">Наступні дії</p><h2 id="queue-title">Робоча черга</h2></div><Badge variant="secondary">3 кроки</Badge></div>
             <ol className="action-list">
-              <li><span className="action-index">1</span><div><strong>Опрацювати чати</strong><p>Приєднання, очікування та ручні публікації.</p></div><Button variant="outline" size="sm" onClick={() => setActiveView('platforms')}>Відкрити</Button></li>
-              <li><span className="action-index">2</span><div><strong>Перевірити лідів та уроки</strong><p>Наступні контакти, записи й ручні нагадування.</p></div><Button variant="outline" size="sm" onClick={() => setActiveView('leads')}>Відкрити</Button></li>
-              <li><span className="action-index">3</span><div><strong>Підготувати звіт</strong><p>Переглянути події дня й зберегти звіт.</p></div><Button variant="outline" size="sm" onClick={() => setActiveView('reports')}>Відкрити</Button></li>
+              <li><span className="action-index">1</span><div><strong>Опрацювати чати</strong><p>Приєднання, очікування та ручні публікації.</p></div><Button variant="outline" size="sm" onClick={() => navigateTo('platforms')}>Відкрити</Button></li>
+              <li><span className="action-index">2</span><div><strong>Перевірити лідів та уроки</strong><p>Наступні контакти, записи й ручні нагадування.</p></div><Button variant="outline" size="sm" onClick={() => navigateTo('leads')}>Відкрити</Button></li>
+              <li><span className="action-index">3</span><div><strong>Підготувати звіт</strong><p>Переглянути події дня й зберегти звіт.</p></div><Button variant="outline" size="sm" onClick={() => navigateTo('reports')}>Відкрити</Button></li>
             </ol>
           </section>
 
           <section className="platform-card" aria-labelledby="platform-title">
-            <div className="card-heading"><div><p className="eyebrow">Платформи</p><h2 id="platform-title">Результат сьогодні</h2></div><Button variant="ghost" size="sm" onClick={() => setActiveView('platforms')}>Відкрити платформи</Button></div>
+            <div className="card-heading"><div><p className="eyebrow">Платформи</p><h2 id="platform-title">Результат сьогодні</h2></div><Button variant="ghost" size="sm" onClick={() => navigateTo('platforms')}>Відкрити платформи</Button></div>
             <div className="platform-table">
               <div className="platform-table-head"><span>Платформа</span><span>Публікації</span><span>Нові чати</span><span>Відгуки</span><span>Записи</span></div>
               {snapshot.platforms.filter((platform) => snapshot.enabledPlatforms.includes(platform.key) || platform.key === 'threads' || platform.key === 'unknown').map((platform) => <div className="platform-row" key={platform.key}><span className="platform-name"><i style={{ background: platform.color }} />{platform.name}</span><strong>{platform.publications}</strong><strong>{platform.joined}</strong><strong>{platform.responses}</strong><strong>{platform.bookings}</strong></div>)}
@@ -137,12 +142,12 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           <section className="status-card" aria-labelledby="status-title">
             <div className="status-icon"><CircleUserRound /></div>
             <div><p className="eyebrow">Доступ</p><h2 id="status-title">Хмарний профіль активний</h2><p>Цей екран доступний із будь-якого пристрою після входу.</p></div>
-            <Button variant="outline" onClick={() => setActiveView('settings')}>Налаштування даних</Button>
+            <Button variant="outline" onClick={() => navigateTo('settings')}>Налаштування даних</Button>
           </section>
         </div> : activeView === 'platforms' ? <PlatformWorkspace enabledPlatforms={snapshot.enabledPlatforms} /> : activeView === 'leads' ? <LeadsWorkspace key={user.email} account={user.email} /> : activeView === 'analytics' ? <AnalyticsWorkspace /> : activeView === 'reports' ? <ReportsWorkspace /> : activeView === 'library' ? <LibraryWorkspace /> : activeView === 'settings' ? <SettingsWorkspace user={user} snapshot={snapshot} onRefresh={() => router.refresh()} /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
 
         <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
-          {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => <button type="button" aria-current={activeView === key ? 'page' : undefined} key={key} onClick={() => setActiveView(key)}><Icon /><span>{label}</span></button>)}
+          {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => <button type="button" aria-current={activeView === key ? 'page' : undefined} key={key} onClick={() => navigateTo(key)}><Icon /><span>{label}</span></button>)}
         </nav>
 
         <TodaySettingsDialog open={todaySettingsOpen} onClose={() => setTodaySettingsOpen(false)} initialDirections={snapshot.focusDirections} initialDailyGoal={snapshot.bookingGoal.target} initialMonthlyGoal={snapshot.monthlyBookingGoal} onSaved={() => router.refresh()} />

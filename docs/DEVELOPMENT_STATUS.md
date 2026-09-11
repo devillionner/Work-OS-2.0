@@ -17,6 +17,13 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   list without a network request or D1 read. The notes cover the latest manual
   workflow work; keeping the version and release date aligned with package releases
   remains a small maintainer task. Full desktop/mobile visual acceptance is open.
+
+## Today refresh after manual work
+
+- Returning to «Сьогодні» from another workspace now calls an explicit server
+  refresh, so platform, lead, report and goal counters do not stay stale after a
+  completed manual action. This is navigation-triggered only; background polling
+  and cross-tab synchronization remain intentionally out of scope.
 - Cloudflare Workers Builds triggers checked read-only on 2026-09-10: both
   work-os-2 and work-os-2-staging returned no triggers. No D1 reads/writes used.
 
