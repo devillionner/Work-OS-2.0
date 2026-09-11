@@ -41,8 +41,9 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   soon as the requested list changes. Full integration acceptance remains open.
 - No remote name lookup, CSV import, existing-chat name editor or migration added.
   Prototype was read only as a parser reference; no remote D1 work or deploy.
-- `npm run verify` passed: lint, 82/82 local tests and build, including 11 bulk-add
-  and 3 profile-editor regressions. Linux CI is checked after push. No production deployment.
+- `npm run verify` passed: lint, 86/86 local tests and build, including 11 bulk-add,
+  3 profile-editor, 2 history and 2 publication-attribution regressions. Linux CI is
+  checked after push. No production deployment.
 
 ## Chat history surface
 
@@ -52,6 +53,17 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   read-only and does not alter backup revisions or business totals.
 - The workspace exposes «Історія» on each chat row. Lead/lesson/report history,
   older imported event rendering and full workspace/Safari acceptance remain open.
+
+## Manual publication attribution
+
+- The ready-chat action opens a manual preparation dialog. It loads the owner’s active
+  advertisement library, supports search, language choice, text copy and a platform
+  deep link, then records the publication only after the user confirms the manual fact.
+- The server stores `advertisement_id` and an audit metadata key atomically with the
+  publication event. Foreign, archived or script items are rejected by the same D1
+  transaction; a publication without a selected library item remains available.
+- Chat history resolves the selected title without exposing another owner’s library.
+  Automatic profile-based selection, no-repeat planning and scheduler remain open.
 
 ## Profile editor follow-up
 

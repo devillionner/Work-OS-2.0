@@ -72,7 +72,7 @@ export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
-  const body = await request.json() as { id?: unknown; action?: unknown; reason?: unknown; accountId?: unknown; stateToken?: unknown; profile?: ChatProfileInput };
+  const body = await request.json() as { id?: unknown; action?: unknown; reason?: unknown; accountId?: unknown; stateToken?: unknown; advertisementId?: unknown; profile?: ChatProfileInput };
   const id = typeof body.id === 'string' ? body.id : '';
   const action = typeof body.action === 'string' ? body.action : '';
   if (!id || !ACTIONS.has(action)) return Response.json({ error: 'Невідома дія.' }, { status: 400 });
@@ -89,7 +89,9 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json(result, { status: result.ok ? 200 : 409 });
   }
   if (action === 'published') {
-    const result = await recordManualPublication(env.DB, { userId: user.id, chat, accountId, now, date: businessDate(now), stateToken: chat.state_token });
+    if (body.advertisementId !== undefined && body.advertisementId !== null && typeof body.advertisementId !== 'string') return Response.json({ error:'Некоректний матеріал.' }, { status:400 });
+    const advertisementId = typeof body.advertisementId === 'string' ? body.advertisementId.trim().slice(0, 100) || null : null;
+    const result = await recordManualPublication(env.DB, { userId: user.id, chat, accountId, advertisementId, now, date: businessDate(now), stateToken: chat.state_token });
     return Response.json(result, { status: result.ok ? 200 : 409 });
   }
 

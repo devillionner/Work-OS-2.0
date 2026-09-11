@@ -20,3 +20,16 @@ void test('chat history cannot cross owners or expose an unknown chat', async t 
   assert.deepEqual(await readChatHistory(db,'u','other-chat'), []);
   assert.deepEqual(await readChatHistory(db,'u','missing'), []);
 });
+
+void test('publication history keeps the selected library title owner-scoped', async t => {
+  const db = await localDatabase(t); await seedChat(db, { platform:'whatsapp', status:'ready' });
+  await db.prepare(`INSERT INTO library_items(id,user_id,kind,title,uk_text,created_at,updated_at)
+    VALUES ('ad','u','advertisement','Літній набір','Текст','1','1')`).run();
+  await db.prepare(`INSERT INTO chat_publications(id,user_id,chat_id,published_on,published_at,advertisement_id,source,source_key,created_at)
+    VALUES ('pub','u','chat','2026-09-11',20,'ad','manual','manual:pub',20)`).run();
+  await seedEvent(db,{id:'pub-event',type:'publication',chat:'chat',date:'2026-09-11',at:20});
+  await db.prepare("UPDATE activity_events SET source_key='manual:pub' WHERE id='pub-event'").run();
+  const [event] = await readChatHistory(db,'u','chat');
+  assert.equal(event.advertisementId,'ad'); assert.equal(event.advertisementTitle,'Літній набір');
+  assert.equal((await readChatHistory(db,'other','chat')).length,0);
+});

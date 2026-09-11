@@ -6,6 +6,7 @@ import { createActionGate } from '@/lib/action-gate';
 import { ChatBulkDialog } from '@/components/chat-bulk-dialog';
 import { ChatProfileDialog } from '@/components/chat-profile-dialog';
 import { ChatHistoryDialog } from '@/components/chat-history-dialog';
+import { ChatPublishDialog } from '@/components/chat-publish-dialog';
 import { CHAT_PLATFORM_NAMES, type ChatPlatform } from '@/lib/chats/bulk-input';
 import type { BulkResult } from '@/lib/chats/bulk';
 import type { ChatProfile } from '@/lib/chats/profile';
@@ -43,6 +44,8 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const [profileOpenKey,setProfileOpenKey]=useState(0);
   const [historyChat,setHistoryChat]=useState<Chat|null>(null);
   const [historyOpenKey,setHistoryOpenKey]=useState(0);
+  const [publishChat,setPublishChat]=useState<Chat|null>(null);
+  const [publishOpenKey,setPublishOpenKey]=useState(0);
   const [loading,setLoading] = useState(true);
   const [busy,setBusy] = useState<string|null>(null);
   const runAction=useRef(createActionGate());
@@ -115,7 +118,8 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     setProfileChat(null); setData(null); setLoading(true); void reloadChats.current(); router.refresh();
   }
 
-  async function act(chat:Chat, action:string, extra:Record<string,unknown>={}) {
+  async function act(chat:Chat, action:string, extra:Record<string,unknown>={}): Promise<boolean> {
+    let succeeded=false;
     await runAction.current(async()=>{
     setBusy(chat.id); setError('');
     try {
@@ -128,9 +132,11 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       setArchiveId(null); await reloadChats.current();
       if(chat.platform==='telegram') await loadAccounts();
       router.refresh();
+      succeeded=true;
     } catch(reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося виконати дію.'); }
     finally { setBusy(null); }
     });
+    return succeeded;
   }
 
   function assignAccount(chat:Chat,nextId:string) {
@@ -162,6 +168,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     <ChatBulkDialog open={bulkOpen} onClose={()=>setBulkOpen(false)} onAdded={addedChats} enabledPlatforms={enabledPlatforms}/>
     <ChatProfileDialog key={profileOpenKey} open={profileChat!==null} chat={profileChat} onClose={()=>setProfileChat(null)} onSaved={savedProfile} onOpenChat={()=>{if(profileChat)openNativeChat(profileChat.platform,profileChat.link);}}/>
     <ChatHistoryDialog key={historyOpenKey} open={historyChat!==null} chat={historyChat} onClose={()=>setHistoryChat(null)}/>
+    <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={(advertisementId)=>publishChat?act(publishChat,'published',advertisementId?{advertisementId}:{}):Promise.resolve(false)} onOpenChat={()=>{if(publishChat)openNativeChat(publishChat.platform,publishChat.link);}}/>
     {notice&&<output className="reports-notice">{notice}</output>}
     <section className="platform-hero">
       <div><p className="eyebrow">Робочі платформи</p><h2>Чати без зайвих переходів</h2><p>Приєднуйся, перевіряй очікування та відмічай публікації в одному стабільному процесі.</p></div>
@@ -212,7 +219,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
             <Button variant="outline" size="icon" type="button" onClick={()=>openNativeChat(chat.platform,chat.link)} aria-label={`Відкрити чат у ${selected.label}`}><ExternalLink/></Button>
             {queue==='to_join'&&<><Button size="icon" onClick={()=>act(chat,'joined')} disabled={busy!==null} aria-label="Успішно приєднано"><Check/></Button>{(platform==='telegram'||platform==='whatsapp')&&<Button variant="outline" size="icon" onClick={()=>act(chat,'waiting')} disabled={busy!==null} aria-label="Очікуємо запрошення"><Clock3/></Button>}<Button variant="outline" size="icon" onClick={()=>act(chat,'failed',{reason:'Не вдалося приєднатися'})} disabled={busy!==null} aria-label="Не вдалося приєднатися"><X/></Button></>}
             {queue==='waiting'&&<><Button onClick={()=>act(chat,'approved')} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>Прийняли</Button></>}
-            {queue==='ready'&&<><Button onClick={()=>act(chat,'published')} disabled={busy!==null||chat.publishedToday||!canPublish(chat,clock)}><Send data-icon="inline-start"/>{chat.publishedToday?'Готово':canPublish(chat,clock)?'Опубліковано':isSnoozed(chat,clock)?'Відкладено':'Очікування 6 год'}</Button>{platform==='whatsapp'&&<Button variant="outline" size="icon" onClick={()=>window.confirm('Повернути цей чат у «Для приєднання»?')&&act(chat,'return_to_join')} disabled={busy!==null} aria-label="Повернути для приєднання"><Undo2/></Button>}</>}
+            {queue==='ready'&&<><Button onClick={()=>{setPublishChat(chat);setPublishOpenKey(value=>value+1);}} disabled={busy!==null||chat.publishedToday||!canPublish(chat,clock)}><Send data-icon="inline-start"/>{chat.publishedToday?'Готово':canPublish(chat,clock)?'Опублікувати':isSnoozed(chat,clock)?'Відкладено':'Очікування 6 год'}</Button>{platform==='whatsapp'&&<Button variant="outline" size="icon" onClick={()=>window.confirm('Повернути цей чат у «Для приєднання»?')&&act(chat,'return_to_join')} disabled={busy!==null} aria-label="Повернути для приєднання"><Undo2/></Button>}</>}
             {(queue==='waiting'||queue==='ready')&&<Button variant="outline" onClick={()=>{setProfileChat(chat);setProfileOpenKey(value=>value+1);}} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>Профіль</Button>}
             {(queue==='waiting'||queue==='ready')&&<Button variant="outline" title={isSnoozed(chat,clock)?'Скасувати відкладення':'Відкласти на 3 календарні дні'} onClick={()=>act(chat,isSnoozed(chat,clock)?'unsnooze':'snooze')} disabled={busy!==null||chat.publishedToday}>{isSnoozed(chat,clock)?'Повернути зараз':'+3 дні'}</Button>}
             {queue==='archived'?<Button variant="outline" onClick={()=>act(chat,'restore')} disabled={busy!==null}><RotateCcw data-icon="inline-start"/>Відновити</Button>:<Button variant="ghost" size="icon" onClick={()=>setArchiveId(archiveId===chat.id?null:chat.id)} aria-label="Перенести в архів"><Archive/></Button>}

@@ -82,3 +82,20 @@ void test('publication and event roll back together if the event write fails', a
   assert.equal((await db.prepare('SELECT COUNT(*) n FROM chat_publications').first()).n,0);
   assert.equal((await db.prepare("SELECT updated_at FROM chats WHERE id='chat'").first()).updated_at,1);
 });
+
+void test('manual publication attributes one active owner-scoped advertisement atomically', async t => {
+  const db = await localDatabase(t); const chat = await seedChat(db);
+  await db.prepare(`INSERT INTO library_items(id,user_id,kind,title,uk_text,created_at,updated_at)
+    VALUES ('ad','u','advertisement','Англійська для дітей','Текст','1','1'),('foreign-ad','other','advertisement','Чуже','Чуже','1','1'),('script','u','script','Скрипт','Відповідь','1','1')`).run();
+  assert.equal((await publishWithAd(db,chat,'ad')).ok,true);
+  assert.equal((await db.prepare("SELECT advertisement_id FROM chat_publications WHERE chat_id='chat'").first()).advertisement_id,'ad');
+  assert.deepEqual(JSON.parse((await db.prepare("SELECT metadata_json FROM activity_events WHERE event_type='publication'").first()).metadata_json),{advertisementId:'ad'});
+  const second = await seedChat(db,{id:'second-chat'});
+  assert.equal((await publishWithAd(db,second,'foreign-ad')).ok,false);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM chat_publications WHERE chat_id='second-chat'").first()).n,0);
+  await db.prepare("UPDATE library_items SET archived_at=2 WHERE id='ad'").run();
+  const third = await seedChat(db,{id:'third-chat'});
+  assert.equal((await publishWithAd(db,third,'ad')).ok,false);
+});
+
+const publishWithAd = (db, chat, advertisementId) => recordManualPublication(db, { userId:'u', chat, accountId:null, advertisementId, now:NOW, date:'2026-09-10', stateToken:chat.state_token });
