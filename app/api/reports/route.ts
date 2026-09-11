@@ -2,8 +2,9 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { activitySummaryStatement, type ActivitySummaryRow } from '@/lib/activity-summary';
 import { readReportEventDetails } from '@/lib/reports/details';
+import { readReportCalendar } from '@/lib/reports/calendar';
 
-type ReportRow = { id: string; report_date: string; report_text: string; submitted_at: number | null; updated_at: number; revision_count: number };
+type ReportRow = { id: string; report_date: string; report_text: string; submitted_at: number | null; updated_at: number; revision_count: number; stale?: number };
 
 export async function GET(request: Request): Promise<Response> {
   const user = await getCurrentUser();
@@ -14,16 +15,19 @@ export async function GET(request: Request): Promise<Response> {
   if (validDate(date) && date > kyivDate()) return Response.json({ error: 'Майбутні звіти недоступні.' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
   const start = `${month}-01`;
   const end = shiftMonth(start, 1);
-  const [reportsResult, selectedResult] = await env.DB.batch([
-    env.DB.prepare(`SELECT id,report_date,report_text,submitted_at,updated_at,revision_count FROM daily_reports WHERE user_id=?1 AND report_date>=?2 AND report_date<?3 ORDER BY report_date`).bind(user.id, start, end),
-    env.DB.prepare(`SELECT id,report_date,report_text,submitted_at,updated_at,revision_count FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`).bind(user.id, validDate(date) ? date : start),
+  const [calendar, selectedResult] = await Promise.all([
+    readReportCalendar(env.DB, user.id, start, end),
+    env.DB.prepare(`SELECT id,report_date,report_text,submitted_at,updated_at,revision_count FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`).bind(user.id, validDate(date) ? date : start).first<ReportRow>(),
   ]);
-  const selected = selectedResult.results[0] as ReportRow | undefined;
+  const selected = selectedResult ?? undefined;
   const selectedDate = selected?.report_date || (validDate(date) && date!.startsWith(month) ? date : null);
   const [summary, details] = selectedDate
     ? await Promise.all([eventSummary(user.id, selectedDate), readReportEventDetails(env.DB, user.id, selectedDate)])
     : [[], []];
-  return Response.json({ month, reports: (reportsResult.results as ReportRow[]).map(publicReport), selected: selected ? publicReport(selected) : null, summary, details }, { headers: { 'Cache-Control': 'no-store' } });
+  const selectedPublic = selected
+    ? { ...publicReport(selected), stale: calendar.find((item) => item.id === selected.id)?.stale ?? false }
+    : null;
+  return Response.json({ month, reports: calendar, selected: selectedPublic, summary, details }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -45,7 +49,7 @@ export async function POST(request: Request): Promise<Response> {
   return Response.json({ ok: true, report: { id, date, text, submittedAt, updatedAt: now } });
 }
 
-function publicReport(row: ReportRow) { return { id: row.id, date: row.report_date, text: row.report_text, submittedAt: row.submitted_at, updatedAt: row.updated_at, revisionCount: Number(row.revision_count || 1) }; }
+function publicReport(row: ReportRow) { return { id: row.id, date: row.report_date, text: row.report_text, submittedAt: row.submitted_at, updatedAt: row.updated_at, revisionCount: Number(row.revision_count || 1), stale: Boolean(row.stale) }; }
 
 async function eventSummary(userId: string, date: string) {
   const result = await activitySummaryStatement(env.DB, userId, date, date).all<ActivitySummaryRow>();

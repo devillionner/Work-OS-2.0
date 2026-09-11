@@ -186,6 +186,9 @@ button { color: inherit; }
 .report-event-list li strong, .report-event-list li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .report-event-list li span { color: var(--muted-foreground); font-size: 11px; }
 .report-event-list li button { flex: 0 0 auto; }
+.report-day.is-stale { box-shadow: inset 0 -3px 0 #d97706; }
+.report-day.is-stale.is-selected { box-shadow: inset 0 -3px 0 #d97706, 0 0 0 2px #3157f6; }
+.legend-dot.is-stale { background: #d97706; }
 .collapse-button { border-top: 1px solid #2d313c; border-radius: 0; margin-top: 6px; padding-top: 9px; }
 .sidebar-close-mobile, .mobile-menu { display: none; border: 0; background: transparent; cursor: pointer; }
 

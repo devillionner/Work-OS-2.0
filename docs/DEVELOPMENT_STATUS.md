@@ -101,6 +101,14 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   covered locally without writes. Full field reconciliation and mobile acceptance
   remain open.
 
+## Report staleness
+
+- The report calendar now marks a submitted report as «Потребує оновлення» when
+  an active or cancelled business event for that date happened after submission.
+  Drafts stay neutral, the check is owner-scoped and bounded to the requested
+  month, and a local regression covers both event changes and read-only behavior.
+  Workday coloring and full mobile acceptance remain open.
+
 ## Manual publication attribution
 
 - The ready-chat action opens a manual preparation dialog. It loads the owner’s active
