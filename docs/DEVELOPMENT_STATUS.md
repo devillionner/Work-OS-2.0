@@ -65,6 +65,15 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 - Chat history resolves the selected title without exposing another owner’s library.
   Automatic profile-based selection, no-repeat planning and scheduler remain open.
 
+## Return-from-chat continuity
+
+- Opening a native platform link now records the current queue, search, page, scroll
+  position and chat ID in per-platform session storage. Returning to the workspace
+  restores the saved view and gives the last opened row a quiet highlight.
+- The same record path is used by the profile and publication dialogs. Invalid or
+  oversized stored values are ignored safely; this is browser-session state only and
+  does not write D1. Safari/iPhone and full workspace acceptance remain open.
+
 ## Profile editor follow-up
 
 - Added a manual profile form to waiting/ready chat rows. It edits the chat name,

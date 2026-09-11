@@ -61,6 +61,9 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const [manageAccounts,setManageAccounts] = useState(false);
   const [newAccountName,setNewAccountName] = useState('');
   const [clock,setClock] = useState(()=>Date.now());
+  const [lastOpenedByPlatform,setLastOpenedByPlatform] = useState<Record<string,string|null>>({});
+  const restoredView=useRef(false);
+  const restoreScroll=useRef<number|null>(null);
   const refreshExpiredBreak=useRef(createRefreshGate(120_000));
   const availablePlatforms = useMemo(() => platforms.filter((item) => !enabledPlatforms || enabledPlatforms.includes(item.key)), [enabledPlatforms]);
   if (!availablePlatforms.some((item) => item.key === platform) && availablePlatforms[0]) { setPlatform(availablePlatforms[0].key); setQueue('to_join'); setOffset(0); }
@@ -70,6 +73,24 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const filterKey=`${platform}:${queue}:${search}`;
   const [previousFilter,setPreviousFilter]=useState(filterKey);
   if(previousFilter!==filterKey){setPreviousFilter(filterKey);setOffset(0);}
+
+  useEffect(()=>{
+    if(restoredView.current||!availablePlatforms.length)return;
+    restoredView.current=true;
+    const savedPlatform=readLastPlatform();
+    const target=availablePlatforms.some(item=>item.key===savedPlatform)?savedPlatform as Platform:platform;
+    const saved=readPlatformView(target);
+    queueMicrotask(()=>{
+      if(target!==platform)setPlatform(target);
+      if(saved){setQueue(saved.queue);setSearch(saved.search);setOffset(saved.offset);setPreviousFilter(`${target}:${saved.queue}:${saved.search}`);restoreScroll.current=saved.scrollY;setLastOpenedByPlatform(current=>({...current,[target]:saved.lastChatId}));}
+    });
+  },[availablePlatforms,platform]);
+
+  useEffect(()=>{
+    if(loading||!data||restoreScroll.current===null)return;
+    const scrollY=restoreScroll.current; restoreScroll.current=null;
+    requestAnimationFrame(()=>window.scrollTo({top:scrollY,behavior:'auto'}));
+  },[loading,data]);
 
   const loadAccounts=useCallback(async()=>{
     const response=await fetch('/api/telegram-accounts',{cache:'no-store'});
@@ -116,6 +137,23 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
 
   function savedProfile() {
     setProfileChat(null); setData(null); setLoading(true); void reloadChats.current(); router.refresh();
+  }
+
+  function selectPlatform(next:Platform) {
+    if(next===platform)return;
+    writePlatformView(platform,{queue,search,offset,scrollY:window.scrollY,lastChatId:lastOpenedByPlatform[platform]||null});
+    const saved=readPlatformView(next);
+    setPlatform(next); setQueue(saved?.queue||'to_join'); setSearch(saved?.search||''); setOffset(saved?.offset||0);
+    setPreviousFilter(`${next}:${saved?.queue||'to_join'}:${saved?.search||''}`);
+    setLastOpenedByPlatform(current=>({...current,[next]:saved?.lastChatId||null})); restoreScroll.current=saved?.scrollY??null;
+    writeLastPlatform(next);
+  }
+
+  function openChat(chat:Chat) {
+    setLastOpenedByPlatform(current=>({...current,[chat.platform]:chat.id}));
+    writePlatformView(chat.platform,{queue,search,offset,scrollY:window.scrollY,lastChatId:chat.id});
+    writeLastPlatform(chat.platform);
+    openNativeChat(chat.platform,chat.link);
   }
 
   async function act(chat:Chat, action:string, extra:Record<string,unknown>={}): Promise<boolean> {
@@ -166,15 +204,15 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const breakSeconds=activeAccount?.breakUntil?Math.max(0,activeAccount.breakUntil-Math.floor(clock/1000)):0;
   return <div className="platform-workspace">
     <ChatBulkDialog open={bulkOpen} onClose={()=>setBulkOpen(false)} onAdded={addedChats} enabledPlatforms={enabledPlatforms}/>
-    <ChatProfileDialog key={profileOpenKey} open={profileChat!==null} chat={profileChat} onClose={()=>setProfileChat(null)} onSaved={savedProfile} onOpenChat={()=>{if(profileChat)openNativeChat(profileChat.platform,profileChat.link);}}/>
+    <ChatProfileDialog key={profileOpenKey} open={profileChat!==null} chat={profileChat} onClose={()=>setProfileChat(null)} onSaved={savedProfile} onOpenChat={()=>{if(profileChat)openChat(profileChat);}}/>
     <ChatHistoryDialog key={historyOpenKey} open={historyChat!==null} chat={historyChat} onClose={()=>setHistoryChat(null)}/>
-    <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={(advertisementId)=>publishChat?act(publishChat,'published',advertisementId?{advertisementId}:{}):Promise.resolve(false)} onOpenChat={()=>{if(publishChat)openNativeChat(publishChat.platform,publishChat.link);}}/>
+    <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={(advertisementId)=>publishChat?act(publishChat,'published',advertisementId?{advertisementId}:{}):Promise.resolve(false)} onOpenChat={()=>{if(publishChat)openChat(publishChat);}}/>
     {notice&&<output className="reports-notice">{notice}</output>}
     <section className="platform-hero">
       <div><p className="eyebrow">Робочі платформи</p><h2>Чати без зайвих переходів</h2><p>Приєднуйся, перевіряй очікування та відмічай публікації в одному стабільному процесі.</p></div>
       <Button disabled={busy!==null} onClick={()=>setBulkOpen(true)}><Plus data-icon="inline-start"/>Додати чати</Button>
       <div className="platform-picker" role="tablist" aria-label="Платформа">
-        {availablePlatforms.map(item=><button key={item.key} role="tab" aria-selected={platform===item.key} onClick={()=>{setPlatform(item.key);setQueue('to_join');setOffset(0)}}><i style={{background:item.color}} />{item.label}</button>)}
+        {availablePlatforms.map(item=><button key={item.key} role="tab" aria-selected={platform===item.key} onClick={()=>selectPlatform(item.key)}><i style={{background:item.color}} />{item.label}</button>)}
       </div>
     </section>
 
@@ -211,12 +249,12 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       </div>
       {error && <div className="workspace-error">{error} <Button variant="outline" size="sm" disabled={loading||busy!==null} onClick={()=>void reloadChats.current()}>Оновити список</Button></div>}
       {loading||switchingList ? <div className="workspace-loading"><LoaderCircle/>Завантажуємо {selected.label}…</div> : data?.chats.length ? <div className="chat-list">
-        {data.chats.map(chat=><article className="chat-row" key={chat.id}>
-          <div className="chat-main"><div className="chat-name-line"><strong>{chat.name}</strong>{!chat.profileConfirmed&&queue==='ready'&&<Badge variant="outline">Профіль пізніше</Badge>}{chat.publishedToday&&<Badge variant="secondary">Опубліковано сьогодні</Badge>}</div><button className="chat-native-link" type="button" onClick={()=>openNativeChat(chat.platform,chat.link)}>{chat.link}</button>{chat.archiveReason&&<small>Причина: {chat.archiveReason}</small>}{chat.snoozedUntil&&chat.snoozedUntil>clock/1000&&<small>Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{queue==='ready'&&!canPublish(chat,clock)&&<small className="wait-note"><Clock3/>Публікація буде доступна {formatDateTime(chat.availableAt!)}</small>}</div>
+        {data.chats.map(chat=><article className={`chat-row ${lastOpenedByPlatform[platform]===chat.id?'is-last-opened':''}`} key={chat.id}>
+          <div className="chat-main"><div className="chat-name-line"><strong>{chat.name}</strong>{lastOpenedByPlatform[platform]===chat.id&&<Badge variant="outline">Останній відкритий</Badge>}{!chat.profileConfirmed&&queue==='ready'&&<Badge variant="outline">Профіль пізніше</Badge>}{chat.publishedToday&&<Badge variant="secondary">Опубліковано сьогодні</Badge>}</div><button className="chat-native-link" type="button" onClick={()=>openChat(chat)}>{chat.link}</button>{chat.archiveReason&&<small>Причина: {chat.archiveReason}</small>}{chat.snoozedUntil&&chat.snoozedUntil>clock/1000&&<small>Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{queue==='ready'&&!canPublish(chat,clock)&&<small className="wait-note"><Clock3/>Публікація буде доступна {formatDateTime(chat.availableAt!)}</small>}</div>
           <div className="chat-actions">
             <Button variant="outline" size="sm" onClick={()=>{setHistoryChat(chat);setHistoryOpenKey(value=>value+1);}} disabled={busy!==null}><History data-icon="inline-start"/>Історія</Button>
             {platform==='telegram'&&queue!=='to_join'&&<select disabled={busy!==null} className="chat-account-select" value={chat.telegramAccountId||''} onChange={event=>assignAccount(chat,event.target.value)} aria-label="Telegram-акаунт чату">{accounts.filter(item=>item.enabled||item.id===chat.telegramAccountId).map(account=><option value={account.id} key={account.id}>{account.name} · #{account.number}</option>)}</select>}
-            <Button variant="outline" size="icon" type="button" onClick={()=>openNativeChat(chat.platform,chat.link)} aria-label={`Відкрити чат у ${selected.label}`}><ExternalLink/></Button>
+            <Button variant="outline" size="icon" type="button" onClick={()=>openChat(chat)} aria-label={`Відкрити чат у ${selected.label}`}><ExternalLink/></Button>
             {queue==='to_join'&&<><Button size="icon" onClick={()=>act(chat,'joined')} disabled={busy!==null} aria-label="Успішно приєднано"><Check/></Button>{(platform==='telegram'||platform==='whatsapp')&&<Button variant="outline" size="icon" onClick={()=>act(chat,'waiting')} disabled={busy!==null} aria-label="Очікуємо запрошення"><Clock3/></Button>}<Button variant="outline" size="icon" onClick={()=>act(chat,'failed',{reason:'Не вдалося приєднатися'})} disabled={busy!==null} aria-label="Не вдалося приєднатися"><X/></Button></>}
             {queue==='waiting'&&<><Button onClick={()=>act(chat,'approved')} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>Прийняли</Button></>}
             {queue==='ready'&&<><Button onClick={()=>{setPublishChat(chat);setPublishOpenKey(value=>value+1);}} disabled={busy!==null||chat.publishedToday||!canPublish(chat,clock)}><Send data-icon="inline-start"/>{chat.publishedToday?'Готово':canPublish(chat,clock)?'Опублікувати':isSnoozed(chat,clock)?'Відкладено':'Очікування 6 год'}</Button>{platform==='whatsapp'&&<Button variant="outline" size="icon" onClick={()=>window.confirm('Повернути цей чат у «Для приєднання»?')&&act(chat,'return_to_join')} disabled={busy!==null} aria-label="Повернути для приєднання"><Undo2/></Button>}</>}
@@ -241,6 +279,21 @@ function TodayLinks({title,items}:{title:string;items:LinkItem[]}) {
 }
 
 function MessageSquareEmpty(){ return <Send aria-hidden="true"/>; }
+type SavedPlatformView = { queue:Queue; search:string; offset:number; scrollY:number; lastChatId:string|null };
+const platformViewPrefix='work-os:platform-view:';
+const lastPlatformKey='work-os:last-platform';
+function readPlatformView(platform:Platform):SavedPlatformView|null {
+  if(typeof window==='undefined')return null;
+  try {
+    const value=JSON.parse(window.sessionStorage.getItem(`${platformViewPrefix}${platform}`)||'null') as Partial<SavedPlatformView>|null;
+    const offset=value?.offset; const scrollY=value?.scrollY;
+    if(!value||!queues.some(item=>item.key===value.queue)||typeof value.search!=='string'||typeof offset!=='number'||!Number.isInteger(offset)||offset<0||typeof scrollY!=='number'||!Number.isFinite(scrollY)||scrollY<0)return null;
+    return {queue:value.queue as Queue,search:value.search.slice(0,150),offset:Math.min(offset,1_000_000),scrollY:Math.min(scrollY,10_000_000),lastChatId:typeof value.lastChatId==='string'?value.lastChatId.slice(0,100):null};
+  } catch { return null; }
+}
+function writePlatformView(platform:Platform,value:SavedPlatformView) { try { window.sessionStorage.setItem(`${platformViewPrefix}${platform}`,JSON.stringify(value)); } catch {} }
+function readLastPlatform():string|null { try { const value=window.sessionStorage.getItem(lastPlatformKey); return platforms.some(item=>item.key===value)?value:null; } catch { return null; } }
+function writeLastPlatform(platform:Platform) { try { window.sessionStorage.setItem(lastPlatformKey,platform); } catch {} }
 function formatDateTime(value:number){return new Intl.DateTimeFormat('uk-UA',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Kyiv'}).format(new Date(value*1000));}
 function formatDuration(seconds:number){return `${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;}
 function activeBreakExpired(accounts:TelegramAccount[],accountId:string|null,clock:number){const account=accounts.find(item=>item.id===accountId);return Boolean(account?.breakUntil&&account.breakUntil*1000<=clock);}
