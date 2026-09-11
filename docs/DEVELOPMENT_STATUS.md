@@ -60,9 +60,10 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 - The ready-chat action opens a manual preparation dialog. It loads the owner’s active
   advertisement library, supports search, language choice, text copy and a platform
   deep link, then records the publication only after the user confirms the manual fact.
-- The server stores `advertisement_id` and an audit metadata key atomically with the
-  publication event. Foreign, archived or script items are rejected by the same D1
-  transaction; a publication without a selected library item remains available.
+- The server stores `advertisement_id` and the effective language (`uk`/`ru`) in an
+  audit metadata key atomically with the publication event. Foreign, archived or
+  script items are rejected by the same D1 transaction; a publication without a
+  selected library item remains available.
 - Chat history resolves the selected title without exposing another owner’s library.
   Automatic profile-based selection, no-repeat planning and scheduler remain open.
 

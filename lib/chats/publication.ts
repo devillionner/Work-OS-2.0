@@ -18,9 +18,10 @@ export function publicationAvailability(chat: PublicationChat, now: number) {
 
 export async function recordManualPublication(
   db: D1Database,
-  input: { userId: string; chat: PublicationChat; accountId: string | null; advertisementId?: string | null; now: number; date: string; stateToken: string },
+  input: { userId: string; chat: PublicationChat; accountId: string | null; advertisementId?: string | null; language?: 'uk' | 'ru' | null; now: number; date: string; stateToken: string },
 ): Promise<{ ok: true } | { ok: false; error: string; availableAt?: number | null }> {
   const { userId, chat, accountId, advertisementId = null, now, date } = input;
+  const language = input.language === 'uk' || input.language === 'ru' ? input.language : null;
   const availability = publicationAvailability(chat, now);
   if (!availability.availableNow) {
     return { ok: false, ...availability, error: chat.workflow_status !== 'ready'
@@ -48,10 +49,13 @@ export async function recordManualPublication(
     db.prepare(`INSERT INTO activity_events
       (id,user_id,event_type,platform,chat_id,lead_id,lesson_id,occurred_at,event_date,metadata_json,source_key,telegram_account_id)
       SELECT ?1,p.user_id,'publication',c.platform,p.chat_id,NULL,NULL,p.published_at,p.published_on,
-        CASE WHEN p.advertisement_id IS NULL THEN '{}' ELSE json_object('advertisementId',p.advertisement_id) END,
+        CASE WHEN p.advertisement_id IS NULL AND ?4 IS NULL THEN '{}'
+          WHEN p.advertisement_id IS NULL THEN json_object('language',?4)
+          WHEN ?4 IS NULL THEN json_object('advertisementId',p.advertisement_id)
+          ELSE json_object('advertisementId',p.advertisement_id,'language',?4) END,
         p.source_key,p.telegram_account_id
       FROM chat_publications p JOIN chats c ON c.id=p.chat_id AND c.user_id=p.user_id
-      WHERE p.id=?2 AND p.user_id=?3`).bind(crypto.randomUUID(),publicationId,userId),
+      WHERE p.id=?2 AND p.user_id=?3`).bind(crypto.randomUUID(),publicationId,userId,language),
     db.prepare(`UPDATE chats SET updated_at=?1 WHERE id=?2 AND user_id=?3
       AND EXISTS(SELECT 1 FROM chat_publications p WHERE p.id=?4 AND p.user_id=?3)`)
       .bind(now,chat.id,userId,publicationId),

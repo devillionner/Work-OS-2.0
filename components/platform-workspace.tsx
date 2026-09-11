@@ -221,7 +221,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     <ChatBulkDialog open={bulkOpen} onClose={()=>setBulkOpen(false)} onAdded={addedChats} enabledPlatforms={enabledPlatforms}/>
     <ChatProfileDialog key={profileOpenKey} open={profileChat!==null} chat={profileChat} onClose={()=>setProfileChat(null)} onSaved={savedProfile} onOpenChat={()=>{if(profileChat)openChat(profileChat);}}/>
     <ChatHistoryDialog key={historyOpenKey} open={historyChat!==null} chat={historyChat} onClose={()=>setHistoryChat(null)}/>
-    <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={(advertisementId)=>publishChat?act(publishChat,'published',advertisementId?{advertisementId}:{}):Promise.resolve(false)} onOpenChat={()=>{if(publishChat)openChat(publishChat);}}/>
+    <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={({advertisementId,language})=>publishChat?act(publishChat,'published',{advertisementId,language}):Promise.resolve(false)} onOpenChat={()=>{if(publishChat)openChat(publishChat);}}/>
     {notice&&<output className="reports-notice"><span>{notice}</span>{undo&&<Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>void undoLast()}>Скасувати</Button>}</output>}
     <section className="platform-hero">
       <div><p className="eyebrow">Робочі платформи</p><h2>Чати без зайвих переходів</h2><p>Приєднуйся, перевіряй очікування та відмічай публікації в одному стабільному процесі.</p></div>
