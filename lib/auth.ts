@@ -44,25 +44,6 @@ export async function getCurrentUser(): Promise<WorkOsUser | null> {
   };
 }
 
-export async function upsertGoogleUser(profile: {
-  id: string;
-  email: string;
-  displayName: string;
-  pictureUrl: string | null;
-}): Promise<void> {
-  const now = unixNow();
-  await env.DB.prepare(
-    `INSERT INTO users (id, email, display_name, picture_url, created_at, last_login_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?5)
-     ON CONFLICT(email) DO UPDATE SET
-       display_name = excluded.display_name,
-       picture_url = excluded.picture_url,
-       last_login_at = excluded.last_login_at`,
-  )
-    .bind(profile.id, profile.email, profile.displayName, profile.pictureUrl, now)
-    .run();
-}
-
 export async function createSession(userId: string): Promise<string> {
   const token = randomToken();
   const tokenHash = await sha256(token);

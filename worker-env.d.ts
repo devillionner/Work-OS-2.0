@@ -4,5 +4,6 @@ declare namespace Cloudflare {
     ASSETS: Fetcher;
     GOOGLE_CLIENT_ID: string;
     OWNER_EMAIL: string;
+    ALLOWED_GOOGLE_EMAILS?: string;
   }
 }
