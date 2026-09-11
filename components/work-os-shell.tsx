@@ -47,6 +47,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
 
   const [todaySettingsOpen, setTodaySettingsOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
+  const [leadToOpen, setLeadToOpen] = useState<string | null>(null);
   const router = useRouter();
   const [activeView, setActiveView] = useState<(typeof navigation)[number]['key']>('today');
   const activeLabel = navigation.find((item) => item.key === activeView)?.label || 'Сьогодні';
@@ -144,7 +145,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
             <div><p className="eyebrow">Доступ</p><h2 id="status-title">Хмарний профіль активний</h2><p>Цей екран доступний із будь-якого пристрою після входу.</p></div>
             <Button variant="outline" onClick={() => navigateTo('settings')}>Налаштування даних</Button>
           </section>
-        </div> : activeView === 'platforms' ? <PlatformWorkspace enabledPlatforms={snapshot.enabledPlatforms} /> : activeView === 'leads' ? <LeadsWorkspace key={user.email} account={user.email} /> : activeView === 'analytics' ? <AnalyticsWorkspace /> : activeView === 'reports' ? <ReportsWorkspace /> : activeView === 'library' ? <LibraryWorkspace /> : activeView === 'settings' ? <SettingsWorkspace user={user} snapshot={snapshot} onRefresh={() => router.refresh()} /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
+        </div> : activeView === 'platforms' ? <PlatformWorkspace enabledPlatforms={snapshot.enabledPlatforms} /> : activeView === 'leads' ? <LeadsWorkspace key={user.email} account={user.email} initialLeadId={leadToOpen} /> : activeView === 'analytics' ? <AnalyticsWorkspace /> : activeView === 'reports' ? <ReportsWorkspace onOpenLead={(leadId) => { setLeadToOpen(leadId); navigateTo('leads'); }} /> : activeView === 'library' ? <LibraryWorkspace /> : activeView === 'settings' ? <SettingsWorkspace user={user} snapshot={snapshot} onRefresh={() => router.refresh()} /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
 
         <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
           {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => <button type="button" aria-current={activeView === key ? 'page' : undefined} key={key} onClick={() => navigateTo(key)}><Icon /><span>{label}</span></button>)}

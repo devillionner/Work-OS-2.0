@@ -173,6 +173,19 @@ button { color: inherit; }
 .app-release-list { display: grid; gap: 11px; margin: 8px 0 0; padding: 0; list-style: none; }
 .app-release-list li { display: flex; align-items: flex-start; gap: 10px; color: #4e5563; font-size: 13px; line-height: 1.45; }
 .app-release-list svg { flex: 0 0 auto; width: 17px; margin-top: 1px; color: var(--primary); }
+.report-event-details { margin-top: 18px; padding-top: 17px; border-top: 1px solid var(--border); }
+.report-event-details-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.report-event-details-head p { margin-bottom: 0; }
+.report-event-details-head > span, .report-event-list h4 span { color: var(--muted-foreground); font-size: 11px; font-weight: 600; }
+.report-event-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 10px; }
+.report-event-list { padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: #fafbfc; }
+.report-event-list h4 { display: flex; align-items: center; justify-content: space-between; margin: 0; font-size: 13px; }
+.report-event-list ul { display: grid; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.report-event-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px solid #e7e9ef; }
+.report-event-list li > div { min-width: 0; display: grid; gap: 2px; }
+.report-event-list li strong, .report-event-list li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.report-event-list li span { color: var(--muted-foreground); font-size: 11px; }
+.report-event-list li button { flex: 0 0 auto; }
 .collapse-button { border-top: 1px solid #2d313c; border-radius: 0; margin-top: 6px; padding-top: 9px; }
 .sidebar-close-mobile, .mobile-menu { display: none; border: 0; background: transparent; cursor: pointer; }
 
@@ -590,6 +603,7 @@ button { color: inherit; }
   .report-day { min-height: 42px; }
   .reports-editor-footer { align-items: stretch; flex-direction: column; }
   .reports-editor-footer button { width: 100%; }
+  .report-event-columns { grid-template-columns: 1fr; }
   .library-workspace { padding: 14px 12px 88px; gap: 12px; }
   .library-hero { display: grid; padding: 20px 16px 15px; }
   .library-hero button { width: 100%; }

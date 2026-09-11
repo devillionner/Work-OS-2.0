@@ -20,14 +20,14 @@ import { Lessons } from './lessons';
 import { Conversation } from './conversation';
 import { LeadHistoryDialog } from './history';
 
-export function LeadsWorkspace({ account }: { account: string }) {
+export function LeadsWorkspace({ account, initialLeadId }: { account: string; initialLeadId?: string | null }) {
   const [postCommand] = useState(() => createBrowserCommandClient(account));
   const [filter, setFilter] = useState('active');
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [offset, setOffset] = useState(0);
   const [list, setList] = useState<LeadList | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(initialLeadId ?? null);
   const [detail, setDetail] = useState<LeadDetail | null>(null);
   const [listError, setListError] = useState('');
   const [detailError, setDetailError] = useState('');

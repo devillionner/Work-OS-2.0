@@ -93,6 +93,14 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   excluded from business totals; restore/version comparison and full mobile QA
   remain open.
 
+## Report event details
+
+- Selecting a report date now shows bounded owner-scoped lists of active responses
+  and bookings with lead name, platform and subject. «Відкрити» moves to the lead
+  card; cancelled and foreign-owner events are excluded, and the read path is
+  covered locally without writes. Full field reconciliation and mobile acceptance
+  remain open.
+
 ## Manual publication attribution
 
 - The ready-chat action opens a manual preparation dialog. It loads the owner’s active

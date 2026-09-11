@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { activitySummaryStatement, type ActivitySummaryRow } from '@/lib/activity-summary';
+import { readReportEventDetails } from '@/lib/reports/details';
 
 type ReportRow = { id: string; report_date: string; report_text: string; submitted_at: number | null; updated_at: number; revision_count: number };
 
@@ -19,8 +20,10 @@ export async function GET(request: Request): Promise<Response> {
   ]);
   const selected = selectedResult.results[0] as ReportRow | undefined;
   const selectedDate = selected?.report_date || (validDate(date) && date!.startsWith(month) ? date : null);
-  const summary = selectedDate ? await eventSummary(user.id, selectedDate) : [];
-  return Response.json({ month, reports: (reportsResult.results as ReportRow[]).map(publicReport), selected: selected ? publicReport(selected) : null, summary }, { headers: { 'Cache-Control': 'no-store' } });
+  const [summary, details] = selectedDate
+    ? await Promise.all([eventSummary(user.id, selectedDate), readReportEventDetails(env.DB, user.id, selectedDate)])
+    : [[], []];
+  return Response.json({ month, reports: (reportsResult.results as ReportRow[]).map(publicReport), selected: selected ? publicReport(selected) : null, summary, details }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(request: Request): Promise<Response> {
