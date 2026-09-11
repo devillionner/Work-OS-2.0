@@ -738,6 +738,35 @@ void test('native booking resolves selected pending curator event atomically wit
   );
 });
 
+void test('manual curator request is dated, idempotent and resolves into one lesson', async (t) => {
+  const f = await fixture(t);
+  const id = await f.create();
+  await f.run('curator_submit', { submittedDate: '2026-09-07' }, id);
+  let aggregate = await f.repo.load('u', id);
+  assert.equal(aggregate.curatorRequests.length, 1);
+  assert.equal(aggregate.curatorRequests[0].status, 'pending');
+  assert.equal(aggregate.curatorRequests[0].submittedDate, '2026-09-07');
+  assert.equal(
+    (await f.rows("SELECT count(*) n FROM activity_events WHERE event_type='curator_booking_pending' AND cancelled_at IS NULL"))[0].n,
+    1,
+  );
+  await assert.rejects(f.run('curator_submit', { submittedDate: '2026-09-08' }, id), /вже є активний/);
+  await assert.rejects(f.run('curator_submit', { submittedDate: '2026-09-09' }, id), /вже є активний/);
+  const requestId = aggregate.curatorRequests[0].id;
+  await f.book(id, { curatorRequestId: requestId });
+  aggregate = await f.repo.load('u', id);
+  assert.equal((await f.rows("SELECT status FROM curator_requests WHERE id=?", requestId))[0].status, 'confirmed');
+  assert.equal(aggregate.lessons.length, 1);
+  assert.equal(
+    (await f.rows("SELECT count(*) n FROM activity_events WHERE event_type='curator_booking_pending' AND cancelled_at IS NULL"))[0].n,
+    0,
+  );
+  assert.equal(
+    (await f.rows("SELECT count(*) n FROM activity_events WHERE event_type='lesson_booked' AND cancelled_at IS NULL"))[0].n,
+    1,
+  );
+});
+
 void test('direct API cannot clear a known response date; correction keeps canonical event metadata aligned', async (t) => {
   const f = await fixture(t);
   const id = await f.create();

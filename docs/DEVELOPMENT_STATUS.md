@@ -77,6 +77,14 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   metadata. Each lesson also has its own bounded read-only history view; full
   workspace/mobile acceptance remains open.
 
+## Manual curator requests
+
+- A lead card can create one owner-scoped pending curator request with an explicit
+  accounting date. The pending booking event is temporary: confirming it during
+  lesson booking cancels that event and creates one lesson booking, while a second
+  active request is rejected. Local domain regression covers the full transition;
+  cancellation UI and mobile acceptance remain open.
+
 ## Report date navigation
 
 - The report calendar now makes future dates visibly unavailable and the API rejects

@@ -30,6 +30,7 @@ export type Changes = {
   reminders: Reminder[];
   messages: Message[];
   events: Event[];
+  createdCuratorRequest?: CuratorRequest;
   eventDateCorrections?: Array<{
     type: 'lead_created' | 'lesson_booked';
     date: string;

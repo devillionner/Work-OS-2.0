@@ -13,6 +13,7 @@ const eventNames: Record<string, string> = {
   lead_restored: 'Ліда відновлено',
   first_reply_recorded: 'Першу відповідь зафіксовано',
   curator_request_submitted: 'Запит куратору створено',
+  curator_booking_pending: 'Запит куратору очікує відповіді',
   curator_request_cancelled: 'Запит куратору скасовано',
   lesson_booked: 'Урок записано',
   lesson_rescheduled: 'Урок перенесено',

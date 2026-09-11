@@ -7,6 +7,7 @@ import type { LeadHistoryItem } from '@/lib/leads/history';
 
 const eventNames: Record<string, string> = {
   lesson_booked: 'Урок записано',
+  curator_booking_pending: 'Запит куратору очікує відповіді',
   lesson_rescheduled: 'Урок перенесено',
   lesson_updated: 'Урок оновлено',
   lesson_completed: 'Урок проведено',

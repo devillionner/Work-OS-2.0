@@ -198,6 +198,8 @@ export class D1LeadRepository implements LeadRepository {
       }),
     );
     commands.push(this.db.insert(leadCommands).values(receipt));
+    if (c.createdCuratorRequest)
+      commands.push(this.db.insert(curatorRequests).values(c.createdCuratorRequest));
     commands.push(
       this.db
         .update(leads)

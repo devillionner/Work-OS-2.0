@@ -44,6 +44,7 @@ export async function executeLeadCommand(
       'archive',
       'restore',
       'first_reply',
+      'curator_submit',
       'curator_cancel',
       'student_create',
       'student_update',
@@ -215,6 +216,34 @@ export async function executeLeadCommand(
     event('first_reply_recorded', businessDate(at), null, {
       firstReplyAt: at,
       responseAt: lead.responseAt,
+    });
+  } else if (action === 'curator_submit') {
+    v.only(data, ['submittedDate']);
+    if (aggregate!.curatorRequests.some((request) => request.status === 'pending'))
+      throw new v.LeadError('Для цього ліда вже є активний запит куратору.', 409);
+    const submittedDate = data.submittedDate === undefined
+      ? businessDate(now)
+      : v.date(data.submittedDate, 'Дата запиту');
+    if (submittedDate > businessDate(now))
+      throw new v.LeadError('Дата запиту не може бути в майбутньому.');
+    const requestId = crypto.randomUUID();
+    changes.createdCuratorRequest = {
+      id: requestId,
+      userId,
+      leadId: id,
+      legacyId: null,
+      status: 'pending',
+      submittedAt: now,
+      submittedDate,
+      resolvedAt: null,
+      lessonId: null,
+      createdAt: now,
+      updatedAt: now,
+      sourceImportId: null,
+    };
+    event('curator_booking_pending', submittedDate, null, {
+      curatorRequestId: requestId,
+      status: 'pending',
     });
   } else if (action === 'curator_cancel') {
     v.only(data, ['reason']);

@@ -10,6 +10,7 @@ import { labels, type Mutation } from './client';
 import { LessonEditor } from './lesson-editor';
 import { LessonHistoryDialog } from './lesson-history';
 import { Reminders } from './reminders';
+import { businessDate } from '@/lib/leads/domain/time';
 export function Lessons({
   detail,
   mutate,
@@ -23,6 +24,8 @@ export function Lessons({
   } | null>(null);
   const [statusId, setStatusId] = useState<string | null>(null);
   const [cancelRequest, setCancelRequest] = useState<string | null>(null);
+  const [submitRequest, setSubmitRequest] = useState(false);
+  const [today] = useState(() => businessDate(Math.floor(Date.now() / 1000)));
   const [historyLesson, setHistoryLesson] = useState<{ id: string; leadId: string; subject: string; date: string } | null>(null);
   const archived = detail.lead.archivedAt !== null;
   return (
@@ -36,10 +39,9 @@ export function Lessons({
             Повторний запис зберігається в цього самого ліда.
           </p>
         </div>
-        <Button onClick={() => setEditor({ mode: 'book' })} disabled={archived}>
-          Записати на урок
-        </Button>
+        <div className="lead-actions"><Button onClick={() => setEditor({ mode: 'book' })} disabled={archived}>Записати на урок</Button><Button variant="outline" onClick={() => setSubmitRequest(true)} disabled={archived || detail.curatorRequests.length > 0}>{detail.curatorRequests.length > 0 ? 'Запит уже очікує' : 'Запит куратору'}</Button></div>
       </div>
+      {submitRequest && <EditDialog title="Новий запит куратору" description="Запит додасть тимчасовий запис у денні показники до підтвердження або скасування." close={() => setSubmitRequest(false)}><SaveForm label="Надіслати запит" cancel={() => setSubmitRequest(false)} save={async (form) => { await mutate('curator_submit', { submittedDate: textValue(form, 'submittedDate') || today }); setSubmitRequest(false); }}><Field label="Дата обліку запиту *" name="submittedDate" type="date" value={today} required /></SaveForm></EditDialog>}
       {detail.curatorRequests.length > 0 && (
         <div className="lead-follow-up">
           <h4>Очікують відповіді куратора</h4>
