@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import { Button } from '@/components/ui/button';
 import {
@@ -23,10 +23,50 @@ export function Conversation({
 }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [limit, setLimit] = useState(30);
-  const current = detail.messages.find((m) => m.id === editing);
+  const [olderMessages, setOlderMessages] = useState<LeadDetail['messages']>([]);
+  const [olderPage, setOlderPage] = useState<LeadDetail['messagesPage'] | null>(null);
+  const [olderBusy, setOlderBusy] = useState(false);
+  const [olderError, setOlderError] = useState('');
+  const pending = useRef<AbortController | null>(null);
+  useEffect(() => () => pending.current?.abort(), []);
+  const messages = [...olderMessages, ...detail.messages];
+  const current = messages.find((m) => m.id === editing);
   const archived = detail.lead.archivedAt !== null;
   const [now] = useState(() => Math.floor(Date.now() / 1000));
+  const page = olderPage ?? detail.messagesPage;
+  const loadOlder = async () => {
+    if (pending.current || !page.hasMore || !page.before) return;
+    const controller = new AbortController();
+    pending.current = controller;
+    setOlderBusy(true);
+    setOlderError('');
+    try {
+      const response = await fetch(
+        `/api/leads/messages?id=${encodeURIComponent(detail.lead.id)}&version=${detail.lead.version}&limit=30&beforeSentAt=${page.before.sentAt}&beforeId=${encodeURIComponent(page.before.id)}`,
+        { cache: 'no-store', signal: controller.signal },
+      );
+      const body = (await response.json()) as {
+        messages?: LeadDetail['messages'];
+        page?: LeadDetail['messagesPage'];
+        error?: string;
+      };
+      if (!response.ok || !body.messages || !body.page)
+        throw new Error(body.error || 'Не вдалося завантажити попередні повідомлення.');
+      if (controller.signal.aborted) return;
+      setOlderMessages((current) => [...body.messages!, ...current]);
+      setOlderPage(body.page);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setOlderError(
+        error instanceof Error
+          ? error.message
+          : 'Не вдалося завантажити попередні повідомлення.',
+      );
+    } finally {
+      pending.current = null;
+      if (!controller.signal.aborted) setOlderBusy(false);
+    }
+  };
   return (
     <section className="lead-panel" aria-labelledby="conversation-title">
       <div className="lead-section-head">
@@ -53,16 +93,19 @@ export function Conversation({
           </Button>
         </div>
       </div>
-      {!detail.messages.length && (
+      {!messages.length && (
         <p className="lead-empty">Повідомлень ще немає.</p>
       )}
-      {detail.messages.length > limit && (
-        <Button variant="ghost" onClick={() => setLimit((value) => value + 30)}>
-          Показати попередні
-        </Button>
+      {page.hasMore && page.before && (
+        <div className="lead-history-more">
+          <Button variant="ghost" onClick={() => void loadOlder()} disabled={olderBusy}>
+            {olderBusy ? 'Завантаження…' : 'Показати попередні'}
+          </Button>
+          {olderError && <p className="lead-error" role="alert">{olderError}</p>}
+        </div>
       )}
       <ol className="lead-messages">
-        {detail.messages.slice(-limit).map((m) => (
+        {messages.map((m) => (
           <li key={m.id} className={m.sender === 'me' ? 'from-me' : ''}>
             <div>
               <strong>{m.sender === 'lead' ? 'Лід' : 'Я'}</strong>

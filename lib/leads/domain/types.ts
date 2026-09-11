@@ -14,6 +14,12 @@ export type Reminder = typeof lessonReminders.$inferSelect;
 export type Message = typeof leadMessages.$inferSelect;
 export type Event = typeof activityEvents.$inferInsert;
 export type CuratorRequest = typeof curatorRequests.$inferSelect;
+export type MessageCursor = Pick<Message, 'sentAt' | 'id'>;
+export type MessagePage = {
+  messages: Message[];
+  hasMore: boolean;
+  before: MessageCursor | null;
+};
 export type Aggregate = {
   curatorRequests: CuratorRequest[];
   lead: Lead;
@@ -21,6 +27,7 @@ export type Aggregate = {
   lessons: Lesson[];
   reminders: Reminder[];
   messages: Message[];
+  messagePage?: Omit<MessagePage, 'messages'>;
 };
 export type Changes = {
   lead: Lead;
@@ -51,7 +58,16 @@ export type Receipt = {
   createdAt: number;
 };
 export interface LeadRepository {
-  load(userId: string, id: string): Promise<Aggregate | null>;
+  load(
+    userId: string,
+    id: string,
+    options?: { messageLimit?: number; messagesBefore?: MessageCursor },
+  ): Promise<Aggregate | null>;
+  loadMessages(
+    userId: string,
+    leadId: string,
+    options: { limit: number; before?: MessageCursor; version?: number },
+  ): Promise<MessagePage | null>;
   receipt(userId: string, id: string): Promise<Receipt | null>;
   contacts(
     userId: string,

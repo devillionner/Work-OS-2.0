@@ -41,6 +41,7 @@ export function leadDetail(a: Aggregate, now: number) {
     messages: a.messages
       .filter((m) => m.deletedAt === null)
       .map(({ userId: _user, ...m }) => m),
+    messagesPage: a.messagePage ?? { hasMore: false, before: null },
     serverNow: now,
   };
 }

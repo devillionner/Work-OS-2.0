@@ -313,7 +313,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
               <FollowUp detail={current} mutate={mutate} />
               <Lessons detail={current} mutate={mutate} />
               <Students detail={current} mutate={mutate} />
-              <Conversation detail={current} mutate={mutate} />
+              <Conversation key={current.lead.version} detail={current} mutate={mutate} />
             </div>
           )}
         </div>

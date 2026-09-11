@@ -19,7 +19,11 @@ export async function GET(request: Request): Promise<Response> {
     const id = params.get('id');
     const now = Math.floor(Date.now() / 1000);
     if (id) {
-      const aggregate = await repo.load(user.id, id);
+      const aggregate = await repo.load(
+        user.id,
+        id,
+        params.get('export') === 'txt' ? {} : { messageLimit: 30 },
+      );
       if (!aggregate) throw new LeadError('Ліда не знайдено.', 404);
       if (params.get('export') === 'txt')
         return new Response(exportConversation(aggregate), {

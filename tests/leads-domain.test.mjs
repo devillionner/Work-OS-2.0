@@ -531,6 +531,81 @@ void test('CRM messages edit/delete/export without external messaging or fake fi
     1,
   );
 });
+void test('long CRM history is server-paginated with a stable owner-scoped cursor', async (t) => {
+  const f = await fixture(t);
+  const id = await f.create();
+  for (let index = 5; index >= 1; index -= 1)
+    await f.run(
+      'message_create',
+      { sender: index % 2 ? 'lead' : 'me', body: `Message ${index}`, sentAt: NOW - index },
+      id,
+    );
+  const latest = await f.repo.load('u', id, { messageLimit: 2 });
+  assert.deepEqual(latest.messages.map((message) => message.body), ['Message 2', 'Message 1']);
+  assert.deepEqual(latest.messagePage, {
+    hasMore: true,
+    before: { sentAt: NOW - 2, id: latest.messages[0].id },
+  });
+  const middle = await f.repo.loadMessages('u', id, {
+    limit: 2,
+    before: latest.messagePage.before,
+  });
+  assert.deepEqual(middle.messages.map((message) => message.body), ['Message 4', 'Message 3']);
+  assert.equal(middle.hasMore, true);
+  const oldest = await f.repo.loadMessages('u', id, {
+    limit: 2,
+    before: middle.before,
+  });
+  assert.deepEqual(oldest.messages.map((message) => message.body), ['Message 5']);
+  assert.equal(oldest.hasMore, false);
+  assert.equal(await f.repo.loadMessages('other', id, { limit: 2 }), null);
+  assert.equal((await f.repo.load('u', id)).messages.length, 5);
+});
+void test('CRM pages handle tied timestamps, deletions and stale cards without extra writes', async (t) => {
+  const f = await fixture(t);
+  const id = await f.create();
+  await f.db.batch(Array.from({ length: 95 }, (_, index) => f.db.prepare(
+    'INSERT INTO lead_messages(id,user_id,lead_id,sender,body,sent_at,created_at,updated_at,deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).bind(`message-${String(index).padStart(3, '0')}`, 'u', id, 'lead', `Body ${index}`, NOW - 1, NOW, NOW, index === 45 ? NOW : null)));
+  const latest = await f.repo.load('u', id, { messageLimit: 30 });
+  assert.equal(latest.messages.length, 30);
+  assert.equal(latest.messages[0].id, 'message-065');
+  const beforeReads = await f.rows('SELECT count(*) n FROM lead_commands');
+  const originalBatch = f.repo.db.batch.bind(f.repo.db);
+  const batches = [];
+  const pageQueries = [];
+  f.repo.db.batch = (queries) => {
+    batches.push(queries.length);
+    if (queries.length === 2) pageQueries.push(queries[1].toSQL());
+    return originalBatch(queries);
+  };
+  let cursor = latest.messagePage.before;
+  const ids = latest.messages.map((message) => message.id);
+  while (cursor) {
+    const page = await f.repo.loadMessages('u', id, { limit: 30, before: cursor, version: latest.lead.version });
+    assert.ok(page.messages.length <= 30);
+    ids.unshift(...page.messages.map((message) => message.id));
+    cursor = page.before;
+  }
+  assert.deepEqual(batches, [2, 2, 2]);
+  const query = pageQueries[0];
+  const plan = await f.rows(`EXPLAIN QUERY PLAN ${query.sql}`, ...query.params);
+  assert.match(JSON.stringify(plan), /lead_messages_history_idx/);
+  assert.doesNotMatch(JSON.stringify(plan), /USE TEMP B-TREE|SCAN lead_messages/);
+  assert.equal(ids.length, 94);
+  assert.equal(new Set(ids).size, 94);
+  assert.deepEqual(ids, [...ids].sort());
+  assert.ok(!ids.includes('message-045'));
+  assert.deepEqual(await f.rows('SELECT count(*) n FROM lead_commands'), beforeReads);
+  assert.equal(await f.repo.loadMessages('other', id, { limit: 30, version: latest.lead.version }), null);
+  assert.equal(await f.repo.loadMessages('u', 'missing', { limit: 30 }), null);
+  await f.run('message_update', { sender: 'me', body: 'Old message edited', sentAt: NOW - 2 }, id, 'message-000');
+  await assert.rejects(f.repo.loadMessages('u', id, {
+    limit: 30, before: latest.messagePage.before, version: latest.lead.version,
+  }), (error) => error.status === 409);
+  assert.match(exportConversation(await f.repo.load('u', id)), /Old message edited/);
+  assert.doesNotMatch(exportConversation(await f.repo.load('u', id)), /Body 45\n/);
+});
 void test('HTTP validation: origin, malformed JSON, size limit; Kyiv DST rejects gaps/ambiguity', async () => {
   await assert.rejects(
     commandBody(

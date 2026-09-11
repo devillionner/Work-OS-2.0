@@ -85,6 +85,19 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   active request is rejected. Local domain regression covers the full transition;
   cancellation UI and mobile acceptance remain open.
 
+## Paginated CRM conversation
+
+- Lead detail now reads the latest 30 messages. Older pages are loaded on demand
+  through an authenticated owner-scoped endpoint, with a time/ID cursor, a maximum
+  of 50 messages and two SQL statements per page. A version check rejects pages
+  after concurrent edits; the UI prevents overlapping loads and aborts on unmount.
+- Local regression covers tied timestamps, deleted messages, owner isolation,
+  stale versions, editing older messages and the existing history index without
+  temporary sorting. Full text export remains available. Command handling and
+  export still load the entire conversation; their memory/read cost and browser/
+  Safari acceptance remain open. No schema migration or remote D1 work is needed.
+- `npm run verify` passed locally: lint, 94/94 tests and build.
+
 ## Report date navigation
 
 - The report calendar now makes future dates visibly unavailable and the API rejects

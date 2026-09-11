@@ -19,6 +19,8 @@ import type {
   Aggregate,
   Changes,
   LeadRepository,
+  MessageCursor,
+  MessagePage,
   Receipt,
 } from '../domain/types.ts';
 import { defaultReminders } from '../domain/reminders.ts';
@@ -38,8 +40,35 @@ export class D1LeadRepository implements LeadRepository {
   constructor(db: LeadsDb) {
     this.db = db;
   }
-  async load(userId: string, id: string): Promise<Aggregate | null> {
+  async load(
+    userId: string,
+    id: string,
+    options: { messageLimit?: number; messagesBefore?: MessageCursor } = {},
+  ): Promise<Aggregate | null> {
     // One D1 batch gives a consistent snapshot and never reads another user's children.
+    const messageLimit = options.messageLimit;
+    const messagesBefore = options.messagesBefore;
+    const messageWhere = and(
+      eq(leadMessages.leadId, id),
+      eq(leadMessages.userId, userId),
+      isNull(leadMessages.deletedAt),
+      messagesBefore
+        ? sql`(${leadMessages.sentAt}, ${leadMessages.id}) < (${messagesBefore.sentAt}, ${messagesBefore.id})`
+        : undefined,
+    );
+    const messageQuery =
+      messageLimit === undefined
+        ? this.db
+            .select()
+            .from(leadMessages)
+            .where(messageWhere)
+            .orderBy(asc(leadMessages.sentAt), asc(leadMessages.id))
+        : this.db
+            .select()
+            .from(leadMessages)
+            .where(messageWhere)
+            .orderBy(desc(leadMessages.sentAt), desc(leadMessages.id))
+            .limit(messageLimit + 1);
     const [
       leadRows,
       studentRows,
@@ -73,17 +102,7 @@ export class D1LeadRepository implements LeadRepository {
             eq(lessonReminders.userId, userId),
           ),
         ),
-      this.db
-        .select()
-        .from(leadMessages)
-        .where(
-          and(
-            eq(leadMessages.leadId, id),
-            eq(leadMessages.userId, userId),
-            isNull(leadMessages.deletedAt),
-          ),
-        )
-        .orderBy(asc(leadMessages.sentAt), asc(leadMessages.id)),
+      messageQuery,
       this.db
         .select()
         .from(curatorRequests)
@@ -115,13 +134,66 @@ export class D1LeadRepository implements LeadRepository {
           },
       ),
     );
+    const pagedMessages =
+      messageLimit === undefined
+        ? messageRows
+        : messageRows.slice(0, messageLimit).reverse();
+    const hasMore =
+      messageLimit !== undefined && messageRows.length > messageLimit;
+    const before =
+      hasMore && pagedMessages[0]
+        ? { sentAt: pagedMessages[0].sentAt, id: pagedMessages[0].id }
+        : null;
     return {
       lead: leadRows[0],
       curatorRequests: curatorRows,
       students: studentRows,
       lessons: lessonRows,
       reminders,
-      messages: messageRows,
+      messages: pagedMessages,
+      ...(messageLimit === undefined
+        ? {}
+        : { messagePage: { hasMore, before } }),
+    };
+  }
+  async loadMessages(
+    userId: string,
+    leadId: string,
+    options: { limit: number; before?: MessageCursor; version?: number },
+  ): Promise<MessagePage | null> {
+    const messageWhere = and(
+      eq(leads.id, leadId),
+      eq(leads.userId, userId),
+    );
+    const messageCursorWhere = and(
+      eq(leadMessages.leadId, leadId),
+      eq(leadMessages.userId, userId),
+      isNull(leadMessages.deletedAt),
+      options.before
+        ? sql`(${leadMessages.sentAt}, ${leadMessages.id}) < (${options.before.sentAt}, ${options.before.id})`
+        : undefined,
+    );
+    const [leadRows, messageRows] = await this.db.batch([
+      this.db.select({ id: leads.id, version: leads.version }).from(leads).where(messageWhere),
+      this.db
+        .select()
+        .from(leadMessages)
+        .where(messageCursorWhere)
+        .orderBy(desc(leadMessages.sentAt), desc(leadMessages.id))
+        .limit(options.limit + 1),
+    ]);
+    if (!leadRows[0]) return null;
+    if (options.version !== undefined && leadRows[0].version !== options.version)
+      throw new LeadError('Переписку змінено. Оновіть картку ліда перед переглядом попередніх повідомлень.', 409);
+    const messages = messageRows.slice(0, options.limit).reverse();
+    const hasMore = messageRows.length > options.limit;
+    return {
+      messages,
+      hasMore,
+      before:
+        hasMore && messages[0]
+          ? { sentAt: messages[0].sentAt, id: messages[0].id }
+          : null,
     };
   }
   async receipt(userId: string, id: string) {
