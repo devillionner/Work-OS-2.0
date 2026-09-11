@@ -56,6 +56,13 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   publication language is shown next to the linked material, while older imported
   event rendering and full workspace/Safari acceptance remain open.
 
+## Lead history surface
+
+- The lead card now opens an on-demand owner-scoped history with the latest contact,
+  booking, lesson, reminder and curator events, including cancellation and reason
+  metadata. It is read-only and bounded to 100 rows; lesson/report-specific history
+  views and full workspace/mobile acceptance remain open.
+
 ## Manual publication attribution
 
 - The ready-chat action opens a manual preparation dialog. It loads the owner’s active

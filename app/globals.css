@@ -628,6 +628,12 @@ button { color: inherit; }
 .lead-empty { padding:32px 12px; text-align:center; color:var(--muted-foreground); }
 .lead-error { color:var(--destructive) !important; font-size:13px; }
 .lead-dialog { width:min(680px,calc(100vw - 24px)); max-width:680px; max-height:90dvh; overflow-y:auto; }
+.lead-history-dialog { width:min(620px,calc(100vw - 24px)); max-width:620px; max-height:90dvh; overflow-y:auto; }
+.lead-history-list { display:grid; gap:0; margin:0; padding:0; list-style:none; }
+.lead-history-list li { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:12px 0; border-bottom:1px solid var(--border); }
+.lead-history-list li:first-child { padding-top:0; }
+.lead-history-list time { flex-shrink:0; color:var(--muted-foreground); font-size:12px; }
+.lead-history-list small { color:var(--muted-foreground); }
 .lead-form fieldset { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; border:0; padding:0; margin:8px 0; min-width:0; }
 .lead-field { min-width:0; }
 .lead-field [data-slot=native-select-wrapper] { width:100%; }

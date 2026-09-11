@@ -18,6 +18,7 @@ import { Students } from './students';
 import { FollowUp } from './follow-up';
 import { Lessons } from './lessons';
 import { Conversation } from './conversation';
+import { LeadHistoryDialog } from './history';
 
 export function LeadsWorkspace({ account }: { account: string }) {
   const [postCommand] = useState(() => createBrowserCommandClient(account));
@@ -33,6 +34,7 @@ export function LeadsWorkspace({ account }: { account: string }) {
   const [refresh, setRefresh] = useState(0);
   const [editor, setEditor] = useState<'create' | 'update' | null>(null);
   const [archive, setArchive] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [notice, setNotice] = useState('');
   const busy = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -113,6 +115,7 @@ export function LeadsWorkspace({ account }: { account: string }) {
   }, [current]);
   return (
     <div className="leads-workspace">
+      <LeadHistoryDialog open={historyOpen} lead={current?.lead ? { id: current.lead.id, name: current.lead.name } : null} onClose={() => setHistoryOpen(false)} />
       <div className="leads-toolbar">
         <div>
           <p className="eyebrow">Контакти, учні та уроки</p>
@@ -297,6 +300,9 @@ export function LeadsWorkspace({ account }: { account: string }) {
                     {current.lead.archivedAt !== null
                       ? 'Відновити'
                       : 'Архівувати'}
+                  </Button>
+                  <Button variant="outline" onClick={() => setHistoryOpen(true)}>
+                    Історія
                   </Button>
                   <Button variant="ghost" onClick={reload}>
                     Оновити
