@@ -384,6 +384,8 @@ button { color: inherit; }
 .archive-reasons span { margin-right: 4px; color: #727987; font-size: 11px; font-weight: 700; }
 .archive-reasons button { padding: 7px 10px; border: 1px solid #dfe2e8; border-radius: 8px; background: #fff; cursor: pointer; font-size: 11px; }
 .archive-reasons button:hover { border-color: #dc2626; color: #b42318; }
+.archive-custom { display: flex; align-items: center; gap: 7px; min-width: 230px; }
+.archive-custom input { min-height: 32px; min-width: 0; }
 .workspace-loading, .workspace-empty { min-height: 300px; display: grid; place-items: center; align-content: center; gap: 8px; color: #7a818e; }
 .workspace-loading svg { width: 24px; animation: import-spin .9s linear infinite; }
 .workspace-empty svg { width: 32px; color: #a9afba; }
@@ -545,6 +547,7 @@ button { color: inherit; }
   .chat-row { grid-template-columns: 1fr; padding: 14px; }
   .chat-actions { flex-wrap: wrap; }
   .archive-reasons { grid-column: auto; flex-wrap: wrap; }
+  .archive-custom { flex: 1 1 100%; min-width: 0; }
   .coming-soon { margin: 14px 12px 88px; padding: 24px 18px; }
   .analytics-workspace { padding: 14px 12px 88px; gap: 12px; }
   .analytics-hero { display: grid; padding: 20px 16px 15px; }

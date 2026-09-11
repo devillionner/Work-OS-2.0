@@ -61,6 +61,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const cancelLoad=useCallback(()=>{ activeLoad.current?.abort(); loadNumber.current++; },[]);
   const [error,setError] = useState('');
   const [archiveId,setArchiveId] = useState<string|null>(null);
+  const [customArchiveReason,setCustomArchiveReason] = useState('');
   const [offset,setOffset] = useState(0);
   const [accounts,setAccounts] = useState<TelegramAccount[]>([]);
   const [accountId,setAccountId] = useState<string|null>(null);
@@ -174,7 +175,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
         throw new Error(body.error || 'Не вдалося виконати дію.');
       }
       if(undoSpec&&typeof body.stateToken==='string') setUndo({chat:{...chat,stateToken:body.stateToken,snoozedUntil:body.snoozedUntil??chat.snoozedUntil},...undoSpec});
-      setArchiveId(null); await reloadChats.current();
+      setArchiveId(null); setCustomArchiveReason(''); await reloadChats.current();
       if(undoSpec&&typeof body.stateToken==='string') setNotice(undoSpec.label);
       if(chat.platform==='telegram') await loadAccounts();
       router.refresh();
@@ -189,6 +190,10 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     const item=undo;
     if(!item||busy!==null)return;
     if(await act(item.chat,item.action)) setNotice('Дію скасовано.');
+  }
+
+  function toggleArchive(id:string) {
+    setArchiveId(current=>{const next=current===id?null:id;if(next) setCustomArchiveReason('');return next;});
   }
 
   function assignAccount(chat:Chat,nextId:string) {
@@ -277,9 +282,9 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
             {queue==='ready'&&<><Button onClick={()=>{setPublishChat(chat);setPublishOpenKey(value=>value+1);}} disabled={busy!==null||chat.publishedToday||!canPublish(chat,clock)}><Send data-icon="inline-start"/>{chat.publishedToday?'Готово':canPublish(chat,clock)?'Опублікувати':isSnoozed(chat,clock)?'Відкладено':'Очікування 6 год'}</Button>{platform==='whatsapp'&&<Button variant="outline" size="icon" onClick={()=>window.confirm('Повернути цей чат у «Для приєднання»?')&&act(chat,'return_to_join')} disabled={busy!==null} aria-label="Повернути для приєднання"><Undo2/></Button>}</>}
             {(queue==='waiting'||queue==='ready')&&<Button variant="outline" onClick={()=>{setProfileChat(chat);setProfileOpenKey(value=>value+1);}} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>Профіль</Button>}
             {(queue==='waiting'||queue==='ready')&&<Button variant="outline" title={isSnoozed(chat,clock)?'Скасувати відкладення':'Відкласти на 3 календарні дні'} onClick={()=>{const snoozed=isSnoozed(chat,clock);return act(chat,snoozed?'unsnooze':'snooze',{},snoozed?undefined:{action:'unsnooze',label:'Відкладення можна скасувати протягом 8 секунд.'});}} disabled={busy!==null||chat.publishedToday}>{isSnoozed(chat,clock)?'Повернути зараз':'+3 дні'}</Button>}
-            {queue==='archived'?<Button variant="outline" onClick={()=>act(chat,'restore')} disabled={busy!==null}><RotateCcw data-icon="inline-start"/>Відновити</Button>:<Button variant="ghost" size="icon" onClick={()=>setArchiveId(archiveId===chat.id?null:chat.id)} aria-label="Перенести в архів"><Archive/></Button>}
+            {queue==='archived'?<Button variant="outline" onClick={()=>act(chat,'restore')} disabled={busy!==null}><RotateCcw data-icon="inline-start"/>Відновити</Button>:<Button variant="ghost" size="icon" onClick={()=>toggleArchive(chat.id)} aria-label="Перенести в архів"><Archive/></Button>}
           </div>
-          {archiveId===chat.id&&<div className="archive-reasons"><span>Чому в архів?</span>{['Забанено','Чат не існує','Чат не цільовий'].map(reason=><button disabled={busy!==null} key={reason} onClick={()=>act(chat,'archive',{reason},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'})}>{reason}</button>)}</div>}
+          {archiveId===chat.id&&<div className="archive-reasons"><span>Чому в архів?</span>{['Забанено','Чат не існує','Чат не цільовий'].map(reason=><button disabled={busy!==null} key={reason} onClick={()=>act(chat,'archive',{reason},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'})}>{reason}</button>)}<div className="archive-custom"><Input value={customArchiveReason} maxLength={100} disabled={busy!==null} aria-label="Власна причина архівації" placeholder="Інша причина" onChange={event=>setCustomArchiveReason(event.target.value)}/><Button disabled={busy!==null||!customArchiveReason.trim()} onClick={()=>act(chat,'archive',{reason:customArchiveReason.trim()},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'})}>Архівувати</Button></div></div>}
         </article>)}
       </div>:<div className="workspace-empty"><MessageSquareEmpty/><strong>У цій черзі нічого немає</strong><p>Зміни платформу, чергу або очисть пошук.</p></div>}
       {!loading&&data&&data.total>50&&<div className="chat-pagination"><Button variant="outline" size="sm" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-50))}><ChevronLeft data-icon="inline-start"/>Назад</Button><span>{offset+1}–{Math.min(offset+50,data.total)} із {data.total}</span><Button variant="outline" size="sm" disabled={offset+50>=data.total} onClick={()=>setOffset(offset+50)}>Далі<ChevronRight data-icon="inline-end"/></Button></div>}

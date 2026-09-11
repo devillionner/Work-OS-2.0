@@ -119,6 +119,12 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   instead of being overwritten. No polling or remote D1 test is added; bulk undo
   remains open.
 
+## Archive reason entry
+
+- Archive choices retain the three common reasons and now accept a custom note up
+  to 100 characters. The note uses the same guarded archive action and remains
+  visible in the archived row and chat history.
+
 ## Previous iteration: guarded chat transitions
 
 - All manual chat actions carry the displayed state token. Writes recheck it in
