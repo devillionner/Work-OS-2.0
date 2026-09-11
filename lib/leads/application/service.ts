@@ -65,7 +65,18 @@ export async function executeLeadCommand(
     action === 'create'
       ? crypto.randomUUID()
       : v.string(command.leadId, 'Лід', 200, true);
-  const aggregate = action === 'create' ? null : await repo.load(userId, id);
+  const commandMessageId =
+    action === 'message_update' || action === 'message_delete'
+      ? v.string(command.entityId, 'ID повідомлення', 200, true)
+      : undefined;
+  const aggregate =
+    action === 'create'
+      ? null
+      : await repo.load(
+          userId,
+          id,
+          commandMessageId ? { messageId: commandMessageId } : { messageLimit: 0 },
+        );
   if (action !== 'create' && !aggregate)
     throw new v.LeadError('Ліда не знайдено.', 404);
   const version = v.integer(command.version, 'Версія');
@@ -304,7 +315,7 @@ export async function executeLeadCommand(
       action === 'message_create'
         ? undefined
         : aggregate!.messages.find(
-            (m) => m.id === command.entityId && m.deletedAt === null,
+            (m) => m.id === commandMessageId && m.deletedAt === null,
           );
     if (action !== 'message_create' && !old)
       throw new v.LeadError('Повідомлення не знайдено.', 404);

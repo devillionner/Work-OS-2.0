@@ -93,10 +93,11 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   after concurrent edits; the UI prevents overlapping loads and aborts on unmount.
 - Local regression covers tied timestamps, deleted messages, owner isolation,
   stale versions, editing older messages and the existing history index without
-  temporary sorting. Full text export remains available. Command handling and
-  export still load the entire conversation; their memory/read cost and browser/
-  Safari acceptance remain open. No schema migration or remote D1 work is needed.
-- `npm run verify` passed locally: lint, 94/94 tests and build.
+  temporary sorting. Command handling no longer loads the whole CRM conversation:
+  ordinary lead commands request zero messages, while message edit/delete loads only
+  the addressed owner-scoped message. Full text export remains available but still
+  reads the entire conversation; streaming/bounded export and browser/Safari
+  acceptance remain open. No schema migration or remote D1 work is needed.
 
 ## Report date navigation
 

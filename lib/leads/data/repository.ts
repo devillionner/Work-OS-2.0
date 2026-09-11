@@ -43,32 +43,36 @@ export class D1LeadRepository implements LeadRepository {
   async load(
     userId: string,
     id: string,
-    options: { messageLimit?: number; messagesBefore?: MessageCursor } = {},
+    options: { messageLimit?: number; messagesBefore?: MessageCursor; messageId?: string } = {},
   ): Promise<Aggregate | null> {
     // One D1 batch gives a consistent snapshot and never reads another user's children.
     const messageLimit = options.messageLimit;
     const messagesBefore = options.messagesBefore;
+    const messageId = options.messageId;
     const messageWhere = and(
       eq(leadMessages.leadId, id),
       eq(leadMessages.userId, userId),
       isNull(leadMessages.deletedAt),
+      messageId ? eq(leadMessages.id, messageId) : undefined,
       messagesBefore
         ? sql`(${leadMessages.sentAt}, ${leadMessages.id}) < (${messagesBefore.sentAt}, ${messagesBefore.id})`
         : undefined,
     );
     const messageQuery =
-      messageLimit === undefined
-        ? this.db
-            .select()
-            .from(leadMessages)
-            .where(messageWhere)
-            .orderBy(asc(leadMessages.sentAt), asc(leadMessages.id))
-        : this.db
-            .select()
-            .from(leadMessages)
-            .where(messageWhere)
-            .orderBy(desc(leadMessages.sentAt), desc(leadMessages.id))
-            .limit(messageLimit + 1);
+      messageId !== undefined
+        ? this.db.select().from(leadMessages).where(messageWhere).limit(1)
+        : messageLimit === undefined
+          ? this.db
+              .select()
+              .from(leadMessages)
+              .where(messageWhere)
+              .orderBy(asc(leadMessages.sentAt), asc(leadMessages.id))
+          : this.db
+              .select()
+              .from(leadMessages)
+              .where(messageWhere)
+              .orderBy(desc(leadMessages.sentAt), desc(leadMessages.id))
+              .limit(messageLimit === 0 ? 0 : messageLimit + 1);
     const [
       leadRows,
       studentRows,
@@ -135,11 +139,14 @@ export class D1LeadRepository implements LeadRepository {
       ),
     );
     const pagedMessages =
-      messageLimit === undefined
+      messageId !== undefined || messageLimit === undefined
         ? messageRows
         : messageRows.slice(0, messageLimit).reverse();
     const hasMore =
-      messageLimit !== undefined && messageRows.length > messageLimit;
+      messageId === undefined &&
+      messageLimit !== undefined &&
+      messageLimit > 0 &&
+      messageRows.length > messageLimit;
     const before =
       hasMore && pagedMessages[0]
         ? { sentAt: pagedMessages[0].sentAt, id: pagedMessages[0].id }

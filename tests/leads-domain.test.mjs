@@ -1251,3 +1251,46 @@ void test('unknown imported business dates remain null during unrelated edits an
     null,
   );
 });
+
+void test('ordinary lead commands do not load CRM history', async (t) => {
+  const f = await fixture(t);
+  const id = await f.create();
+  const version = (await f.repo.load('u', id)).lead.version;
+  const originalLoad = f.repo.load.bind(f.repo);
+  const seen = [];
+  f.repo.load = async (...args) => {
+    seen.push(args[2]);
+    return originalLoad(...args);
+  };
+  await executeLeadCommand(f.repo, 'u', {
+    commandId: crypto.randomUUID(), leadId: id, version,
+    action: 'archive', data: {},
+  }, NOW);
+  assert.deepEqual(seen, [{ messageLimit: 0 }]);
+});
+
+void test('message edit loads only the addressed CRM message', async (t) => {
+  const f = await fixture(t);
+  const id = await f.create();
+  await f.db.prepare(`INSERT INTO lead_messages
+    (id,user_id,lead_id,sender,body,sent_at,created_at,updated_at)
+    VALUES ('target','u',?1,'lead','old',?2,?2,?2),
+           ('other','u',?1,'me','unrelated',?2,?2,?2)`).bind(id, NOW - 100).run();
+  const version = (await f.repo.load('u', id)).lead.version;
+  const originalLoad = f.repo.load.bind(f.repo);
+  const seen = [];
+  f.repo.load = async (...args) => {
+    seen.push(args[2]);
+    return originalLoad(...args);
+  };
+  await executeLeadCommand(f.repo, 'u', {
+    commandId: crypto.randomUUID(), leadId: id, version,
+    action: 'message_update', entityId: 'target',
+    data: { sender: 'lead', body: 'edited', sentAt: NOW - 100 },
+  }, NOW);
+  assert.deepEqual(seen, [{ messageId: 'target' }]);
+  const rows = await f.rows("SELECT id,body FROM lead_messages ORDER BY id");
+  assert.deepEqual(rows.map(({ id, body }) => [id, body]), [
+    ['other', 'unrelated'], ['target', 'edited'],
+  ]);
+});

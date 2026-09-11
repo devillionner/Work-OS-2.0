@@ -61,7 +61,7 @@ export interface LeadRepository {
   load(
     userId: string,
     id: string,
-    options?: { messageLimit?: number; messagesBefore?: MessageCursor },
+    options?: { messageLimit?: number; messagesBefore?: MessageCursor; messageId?: string },
   ): Promise<Aggregate | null>;
   loadMessages(
     userId: string,
