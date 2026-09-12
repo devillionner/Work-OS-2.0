@@ -44,37 +44,28 @@ CREATE TABLE lead_commands (
  lead_id TEXT NOT NULL REFERENCES leads(id), expected_version INTEGER NOT NULL,
  request_json TEXT NOT NULL, created_at INTEGER NOT NULL
 );
+-- Keep trigger body statements on one physical line for Wrangler remote migration parsing.
 CREATE TRIGGER lead_command_version_guard BEFORE INSERT ON lead_commands
 BEGIN
- SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM leads WHERE id=NEW.lead_id
-  AND user_id=NEW.user_id AND version=NEW.expected_version)
- THEN RAISE(ABORT,'lead_version_conflict') END;
+ SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM leads WHERE id=NEW.lead_id AND user_id=NEW.user_id AND version=NEW.expected_version) THEN RAISE(ABORT,'lead_version_conflict') END;
 END;
 -- Imported duplicate contacts remain valid. Native writes require acknowledgement
 -- via possible/confirmed; the trigger closes races between concurrent requests.
 CREATE TRIGGER lead_duplicate_insert BEFORE INSERT ON leads WHEN NEW.managed_at IS NOT NULL AND NEW.duplicate_state='none'
 BEGIN
- SELECT CASE WHEN EXISTS(SELECT 1 FROM leads WHERE user_id=NEW.user_id AND
- ((NEW.normalized_phone<>'' AND normalized_phone=NEW.normalized_phone) OR
- (NEW.normalized_telegram<>'' AND normalized_telegram=NEW.normalized_telegram)))
- THEN RAISE(ABORT,'lead_duplicate_contact') END;
+ SELECT CASE WHEN EXISTS(SELECT 1 FROM leads WHERE user_id=NEW.user_id AND ((NEW.normalized_phone<>'' AND normalized_phone=NEW.normalized_phone) OR (NEW.normalized_telegram<>'' AND normalized_telegram=NEW.normalized_telegram))) THEN RAISE(ABORT,'lead_duplicate_contact') END;
 END;
 CREATE TRIGGER lead_duplicate_update BEFORE UPDATE OF normalized_phone,normalized_telegram ON leads
-WHEN NEW.managed_at IS NOT NULL AND NEW.duplicate_state='none'
- AND (OLD.normalized_phone<>NEW.normalized_phone OR OLD.normalized_telegram<>NEW.normalized_telegram)
+WHEN NEW.managed_at IS NOT NULL AND NEW.duplicate_state='none' AND (OLD.normalized_phone<>NEW.normalized_phone OR OLD.normalized_telegram<>NEW.normalized_telegram)
 BEGIN
- SELECT CASE WHEN EXISTS(SELECT 1 FROM leads WHERE user_id=NEW.user_id AND id<>NEW.id AND
- ((NEW.normalized_phone<>'' AND normalized_phone=NEW.normalized_phone) OR
- (NEW.normalized_telegram<>'' AND normalized_telegram=NEW.normalized_telegram)))
- THEN RAISE(ABORT,'lead_duplicate_contact') END;
+ SELECT CASE WHEN EXISTS(SELECT 1 FROM leads WHERE user_id=NEW.user_id AND id<>NEW.id AND ((NEW.normalized_phone<>'' AND normalized_phone=NEW.normalized_phone) OR (NEW.normalized_telegram<>'' AND normalized_telegram=NEW.normalized_telegram))) THEN RAISE(ABORT,'lead_duplicate_contact') END;
 END;
 -- Imports cannot silently overwrite an aggregate already managed in Work OS.
 -- A blocked chunk rolls back and the existing migration UI reports the reason.
 CREATE TABLE lead_import_guards (lead_id TEXT NOT NULL, user_id TEXT NOT NULL);
 CREATE TRIGGER lead_import_guard BEFORE INSERT ON lead_import_guards
 BEGIN
- SELECT CASE WHEN EXISTS(SELECT 1 FROM leads WHERE id=NEW.lead_id AND user_id=NEW.user_id AND managed_at IS NOT NULL)
- THEN RAISE(ABORT,'Лід уже редагувався у Work OS. Повторний імпорт зупинено, потрібна звірка конфлікту.') END;
+ SELECT CASE WHEN EXISTS(SELECT 1 FROM leads WHERE id=NEW.lead_id AND user_id=NEW.user_id AND managed_at IS NOT NULL) THEN RAISE(ABORT,'Лід уже редагувався у Work OS. Повторний імпорт зупинено, потрібна звірка конфлікту.') END;
  UPDATE leads SET version=version+1 WHERE id=NEW.lead_id AND user_id=NEW.user_id;
  SELECT RAISE(IGNORE);
 END;
