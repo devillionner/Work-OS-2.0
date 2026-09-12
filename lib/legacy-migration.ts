@@ -36,7 +36,7 @@ export type MigrationPublication = {
 };
 export type MigrationLead = {
   id: string; legacyId: string; name: string; phone: string; telegramUsername: string;
-  normalizedPhone: string; normalizedTelegram: string; platform: string;
+  normalizedPhone: string; normalizedTelegram: string; platform: string; subject: string;
   sourceChatId: string | null; sourceChatLink: string; note: string; needsDetails: number;
   status: string; teacherName: string; lessonPlatform: string | null; meetingLink: string;
   isStudent: number; ageGroup: string; responseDate: string; bookingDate: string | null;
@@ -212,6 +212,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       id, legacyId, name: text(source.name) || 'Без імені', phone: text(source.phone),
       telegramUsername: text(source.telegramUsername), normalizedPhone: text(source.normalizedPhone),
       normalizedTelegram: text(source.normalizedTelegram), platform: text(source.platform) || 'unknown',
+      subject: text(source.subject),
       sourceChatId: chatIdByLink.get(normalizeLink(sourceLink)) || null, sourceChatLink: sourceLink,
       note: text(source.note), needsDetails: source.needsDetails ? 1 : 0,
       status: text(source.status) || 'new', teacherName: text(source.teacherName),
