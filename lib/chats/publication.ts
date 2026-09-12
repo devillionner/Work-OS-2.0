@@ -56,6 +56,11 @@ export async function recordManualPublication(
         p.source_key,p.telegram_account_id
       FROM chat_publications p JOIN chats c ON c.id=p.chat_id AND c.user_id=p.user_id
       WHERE p.id=?2 AND p.user_id=?3`).bind(crypto.randomUUID(),publicationId,userId,language),
+    db.prepare(`UPDATE telegram_schedule_slots SET status='completed',completed_at=?1,publication_id=?2,updated_at=?1,version=version+1
+      WHERE id=(SELECT s.id FROM telegram_schedule_slots s JOIN chat_publications p
+        ON p.user_id=s.user_id AND p.telegram_account_id=s.telegram_account_id AND p.chat_id=s.chat_id
+        WHERE p.id=?2 AND p.user_id=?3 AND s.status='pending' ORDER BY s.scheduled_at,s.sequence LIMIT 1)
+        AND user_id=?3 AND status='pending'`).bind(now,publicationId,userId),
     db.prepare(`UPDATE chats SET updated_at=?1 WHERE id=?2 AND user_id=?3
       AND EXISTS(SELECT 1 FROM chat_publications p WHERE p.id=?4 AND p.user_id=?3)`)
       .bind(now,chat.id,userId,publicationId),

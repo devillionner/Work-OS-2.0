@@ -1,7 +1,7 @@
 import { BACKUP_TABLES, type BackupTable } from './export.ts';
 
 export const CLOUD_BACKUP_APP = 'work-os-cloud-backup';
-export const CLOUD_BACKUP_SCHEMA_VERSION = 6;
+export const CLOUD_BACKUP_SCHEMA_VERSION = 7;
 export const CLOUD_BACKUP_MIN_SCHEMA_VERSION = 5;
 export const CLOUD_BACKUP_MAX_BYTES = 25 * 1024 * 1024;
 
@@ -72,7 +72,8 @@ export function inspectCloudBackup(raw: string): CloudBackupInspection {
     for (const table of BACKUP_TABLES) {
       const rows = tables[table];
       const declared = integer(declaredCounts[table]);
-      if (schemaVersion === 5 && table === 'library_items' && rows === undefined && declared === null) continue;
+      const introduced = table === 'library_items' ? 6 : (table === 'telegram_schedule_settings' || table === 'telegram_schedule_slots') ? 7 : 1;
+      if (schemaVersion !== null && schemaVersion < introduced && rows === undefined && declared === null) continue;
       if (!Array.isArray(rows)) {
         errors.push(`Розділ «${table}» відсутній або пошкоджений.`);
         continue;
@@ -126,6 +127,7 @@ function validateUniqueKeys(table: BackupTable, rows: JsonRow[], errors: string[
 function backupRowKey(table: BackupTable, row: JsonRow): string {
   if (table === 'chat_profiles') return text(row.chat_id);
   if (table === 'user_settings') return text(row.setting_key);
+  if (table === 'telegram_schedule_settings') return `${text(row.user_id)}:${text(row.telegram_account_id)}`;
   if (table === 'legacy_import_chunks') {
     const importId = text(row.import_id);
     const chunkIndex = integer(row.chunk_index);
@@ -155,6 +157,7 @@ function validateReferences(tables: JsonRow, errors: string[]) {
   const lessonIds = ids('lessons');
   const importIds = ids('legacy_imports');
   const accountIds = ids('telegram_accounts');
+  const publicationIds = ids('chat_publications');
   checkReferences(rows(tables, 'chat_profiles'), 'chat_id', chatIds, 'chat_profiles → chats', errors, false);
   checkReferences(rows(tables, 'chat_publications'), 'chat_id', chatIds, 'chat_publications → chats', errors, false);
   checkReferences(rows(tables, 'students'), 'lead_id', leadIds, 'students → leads', errors, false);
@@ -168,6 +171,10 @@ function validateReferences(tables: JsonRow, errors: string[]) {
   checkReferences(rows(tables, 'work_timers'), 'telegram_account_id', accountIds, 'work_timers → telegram_accounts', errors, true);
   checkReferences(rows(tables, 'chats'), 'telegram_account_id', accountIds, 'chats → telegram_accounts', errors, true);
   checkReferences(rows(tables, 'chat_publications'), 'telegram_account_id', accountIds, 'chat_publications → telegram_accounts', errors, true);
+  checkReferences(rows(tables, 'telegram_schedule_settings'), 'telegram_account_id', accountIds, 'telegram_schedule_settings → telegram_accounts', errors, false);
+  checkReferences(rows(tables, 'telegram_schedule_slots'), 'telegram_account_id', accountIds, 'telegram_schedule_slots → telegram_accounts', errors, false);
+  checkReferences(rows(tables, 'telegram_schedule_slots'), 'chat_id', chatIds, 'telegram_schedule_slots → chats', errors, true);
+  checkReferences(rows(tables, 'telegram_schedule_slots'), 'publication_id', publicationIds, 'telegram_schedule_slots → chat_publications', errors, true);
   checkReferences(rows(tables, 'activity_events'), 'telegram_account_id', accountIds, 'activity_events → telegram_accounts', errors, true);
   checkReferences(rows(tables, 'activity_events'), 'chat_id', chatIds, 'activity_events → chats', errors, true);
   checkReferences(rows(tables, 'activity_events'), 'lead_id', leadIds, 'activity_events → leads', errors, true);

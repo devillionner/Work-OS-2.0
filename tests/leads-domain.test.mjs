@@ -38,14 +38,29 @@ function statements(sql) {
   assert.equal(part.trim(), '');
   return result;
 }
+async function testDatabase(t) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const mf = new Miniflare({
+      modules: true,
+      port: 0,
+      script: 'export default { fetch() { return new Response("ok") } }',
+      d1Databases: ['DB'],
+    });
+    try {
+      const db = await mf.getD1Database('DB');
+      await db.prepare('SELECT 1').first();
+      t.after(() => mf.dispose());
+      return db;
+    } catch (error) {
+      await mf.dispose();
+      if (!/EADDRINUSE/.test(String(error) + String(error?.cause)) || attempt === 4) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+    }
+  }
+  throw new Error('unreachable');
+}
 async function fixture(t, seed = false) {
-  const mf = new Miniflare({
-    modules: true,
-    script: 'export default { fetch() { return new Response("ok") } }',
-    d1Databases: ['DB'],
-  });
-  t.after(() => mf.dispose());
-  const db = await mf.getD1Database('DB');
+  const db = await testDatabase(t);
   const migrations = readdirSync(new URL('migrations', root))
     .filter((p) => p.endsWith('.sql'))
     .sort();

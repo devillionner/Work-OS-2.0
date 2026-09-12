@@ -8,6 +8,8 @@ export const BACKUP_TABLES = [
   'chats',
   'chat_profiles',
   'chat_publications',
+  'telegram_schedule_settings',
+  'telegram_schedule_slots',
   'leads',
   'students',
   'lessons',
@@ -24,6 +26,8 @@ export type BackupTable = (typeof BACKUP_TABLES)[number];
 const cursorColumn = (table: BackupTable) =>
   table === 'chat_profiles'
     ? 'chat_id'
+    : table === 'telegram_schedule_settings'
+      ? 'telegram_account_id'
     : table === 'user_settings'
       ? 'setting_key'
       : table === 'legacy_import_chunks'
