@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { Miniflare } from 'miniflare';
 import { chatStateTokenSql } from '../../lib/chats/state.ts';
@@ -20,9 +20,20 @@ function sqlStatements(sql) {
 }
 
 export async function localDatabase(t) {
-  const mf = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response("ok") } }', d1Databases: ['DB'] });
+  let mf; let db;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    mf = new Miniflare({ modules: true, port: 0, script: 'export default { fetch() { return new Response("ok") } }', d1Databases: ['DB'] });
+    try {
+      db = await mf.getD1Database('DB');
+      await db.prepare('SELECT 1').first();
+      break;
+    } catch (error) {
+      await mf.dispose();
+      if (!/EADDRINUSE/.test(String(error) + String(error?.cause)) || attempt === 4) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+    }
+  }
   t.after(() => mf.dispose());
-  const db = await mf.getD1Database('DB');
   const folder = new URL('../../migrations/', import.meta.url);
   for (const file of readdirSync(folder).filter(name => name.endsWith('.sql')).sort()) {
     for (const sql of sqlStatements(readFileSync(new URL(file, folder), 'utf8'))) await db.prepare(sql).run();

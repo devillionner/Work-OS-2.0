@@ -7,6 +7,7 @@ import { ChatBulkDialog } from '@/components/chat-bulk-dialog';
 import { ChatProfileDialog } from '@/components/chat-profile-dialog';
 import { ChatHistoryDialog } from '@/components/chat-history-dialog';
 import { ChatPublishDialog } from '@/components/chat-publish-dialog';
+import { TelegramSchedule } from '@/components/telegram-schedule';
 import { CHAT_PLATFORM_NAMES, type ChatPlatform } from '@/lib/chats/bulk-input';
 import type { BulkResult } from '@/lib/chats/bulk';
 import type { ChatProfile } from '@/lib/chats/profile';
@@ -68,6 +69,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const [manageAccounts,setManageAccounts] = useState(false);
   const [newAccountName,setNewAccountName] = useState('');
   const [clock,setClock] = useState(()=>Date.now());
+  const [scheduleRefreshKey,setScheduleRefreshKey] = useState(0);
   const [lastOpenedByPlatform,setLastOpenedByPlatform] = useState<Record<string,string|null>>({});
   const restoredView=useRef(false);
   const restoreScroll=useRef<number|null>(null);
@@ -178,6 +180,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       setArchiveId(null); setCustomArchiveReason(''); await reloadChats.current();
       if(undoSpec&&typeof body.stateToken==='string') setNotice(undoSpec.label);
       if(chat.platform==='telegram') await loadAccounts();
+      if(action==='published'&&chat.platform==='telegram') setScheduleRefreshKey(value=>value+1);
       router.refresh();
       succeeded=true;
     } catch(reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося виконати дію.'); }
@@ -253,6 +256,8 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
         <p>Вимкнення не видаляє історію. Чати можна перепризначити іншим акаунтам нижче.</p>
       </div>}
     </section>}
+
+    {platform==='telegram'&&accountId&&<TelegramSchedule accountId={accountId} refreshKey={scheduleRefreshKey} />}
 
     <section className={`today-links ${queue==='ready'?'has-available':''}`}>
       {queue==='ready'&&<TodayLinks title="Доступні зараз" items={data?.availableToday || []} />}

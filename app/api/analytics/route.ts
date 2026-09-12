@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { activitySummaryStatement } from '@/lib/activity-summary';
+import { completedOperatorLessonsStatement } from '@/lib/analytics-attribution';
 
 const PLATFORM_META: Record<string, { name: string; color: string }> = {
   telegram: { name: 'Telegram', color: '#2563eb' },
@@ -28,11 +29,7 @@ export async function GET(request: Request): Promise<Response> {
 
   const [eventsResult, lessonsResult, chatResult] = await env.DB.batch([
     activitySummaryStatement(env.DB, user.id, from, to),
-    env.DB.prepare(`SELECT COALESCE(l.platform,'unknown') AS platform,COUNT(*) AS count
-      FROM lessons lesson
-      JOIN leads l ON l.id=lesson.lead_id AND l.user_id=lesson.user_id
-      WHERE lesson.user_id=?1 AND lesson.status='completed' AND lesson.lesson_date>=?2 AND lesson.lesson_date<=?3
-      GROUP BY COALESCE(l.platform,'unknown')`).bind(user.id, from, to),
+    completedOperatorLessonsStatement(env.DB, user.id, from, to),
     env.DB.prepare(`SELECT COALESCE(e.chat_id,l.source_chat_id) AS chat_id,c.name,c.platform,
         SUM(CASE WHEN e.event_type='publication' THEN 1 ELSE 0 END) AS publications,
         SUM(CASE WHEN e.event_type='lead_created' THEN 1 ELSE 0 END) AS responses,

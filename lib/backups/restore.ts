@@ -3,7 +3,8 @@ import type { BackupTable } from './export.ts';
 
 export const RESTORE_TABLES: BackupTable[] = [
   'legacy_imports', 'legacy_import_chunks', 'telegram_accounts', 'work_timers',
-  'chats', 'chat_profiles', 'chat_publications', 'leads', 'students', 'lessons',
+  'chats', 'chat_profiles', 'chat_publications', 'telegram_schedule_settings', 'telegram_schedule_slots',
+  'leads', 'students', 'lessons',
   'curator_requests', 'lesson_reminders', 'lead_messages', 'lead_commands',
   'daily_reports', 'library_items', 'user_settings', 'activity_events',
 ];
@@ -11,7 +12,8 @@ export const RESTORE_TABLES: BackupTable[] = [
 const CONFLICT_COLUMNS: Record<BackupTable, string[]> = {
   legacy_imports: ['id'], legacy_import_chunks: ['import_id', 'chunk_index'],
   telegram_accounts: ['id'], work_timers: ['id'], chats: ['id'],
-  chat_profiles: ['chat_id'], chat_publications: ['id'], leads: ['id'],
+  chat_profiles: ['chat_id'], chat_publications: ['id'],
+  telegram_schedule_settings: ['user_id', 'telegram_account_id'], telegram_schedule_slots: ['id'], leads: ['id'],
   students: ['id'], lessons: ['id'], curator_requests: ['id'],
   lesson_reminders: ['id'], lead_messages: ['id'], lead_commands: ['id'],
   daily_reports: ['id'], library_items: ['id'],
