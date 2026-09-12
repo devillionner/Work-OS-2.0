@@ -62,10 +62,11 @@ export function GoogleSignIn({ clientId }: { clientId: string }) {
           }
         },
       });
+      const availableWidth = buttonRef.current.parentElement?.clientWidth ?? 320;
       window.google.accounts.id.renderButton(buttonRef.current, {
         theme: 'outline',
         size: 'large',
-        width: 320,
+        width: Math.min(320, Math.max(200, Math.floor(availableWidth))),
         text: 'signin_with',
       });
     };
