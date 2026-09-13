@@ -11,9 +11,11 @@ CREATE TABLE activity_day_revisions (
 INSERT INTO activity_day_revisions(user_id,event_date,revision)
 SELECT user_id,event_date,COUNT(*)
 FROM activity_events
+WHERE event_type NOT IN ('chat_state_changed','chat_bulk_added','chat_profile_changed','report_revision')
 GROUP BY user_id,event_date;
 
 CREATE TRIGGER activity_day_revision_insert AFTER INSERT ON activity_events
+WHEN NEW.event_type NOT IN ('chat_state_changed','chat_bulk_added','chat_profile_changed','report_revision')
 BEGIN
   INSERT INTO activity_day_revisions(user_id,event_date,revision)
   VALUES(NEW.user_id,NEW.event_date,1)
@@ -23,15 +25,20 @@ END;
 CREATE TRIGGER activity_day_revision_update AFTER UPDATE ON activity_events
 BEGIN
   INSERT INTO activity_day_revisions(user_id,event_date,revision)
-  VALUES(OLD.user_id,OLD.event_date,1)
+  SELECT OLD.user_id,OLD.event_date,1
+  WHERE OLD.event_type NOT IN ('chat_state_changed','chat_bulk_added','chat_profile_changed','report_revision')
   ON CONFLICT(user_id,event_date) DO UPDATE SET revision=revision+1;
+
   INSERT INTO activity_day_revisions(user_id,event_date,revision)
   SELECT NEW.user_id,NEW.event_date,1
-  WHERE NEW.user_id!=OLD.user_id OR NEW.event_date!=OLD.event_date
+  WHERE NEW.event_type NOT IN ('chat_state_changed','chat_bulk_added','chat_profile_changed','report_revision')
+    AND (OLD.event_type IN ('chat_state_changed','chat_bulk_added','chat_profile_changed','report_revision')
+      OR NEW.user_id!=OLD.user_id OR NEW.event_date!=OLD.event_date)
   ON CONFLICT(user_id,event_date) DO UPDATE SET revision=revision+1;
 END;
 
 CREATE TRIGGER activity_day_revision_delete AFTER DELETE ON activity_events
+WHEN OLD.event_type NOT IN ('chat_state_changed','chat_bulk_added','chat_profile_changed','report_revision')
 BEGIN
   INSERT INTO activity_day_revisions(user_id,event_date,revision)
   VALUES(OLD.user_id,OLD.event_date,1)
