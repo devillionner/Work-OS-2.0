@@ -2,8 +2,16 @@ import { businessDate } from '../business-time.ts';
 
 export type ChatState = {
   id: string; platform: string; workflow_status: string; joined_at: number | null;
-  snoozed_until: number | null; telegram_account_id: string | null; state_token: string;
+  snoozed_until: number | null; telegram_account_id: string | null; left_at: number | null; state_token: string;
 };
+
+export function chatLeftAtSql(alias: 'c' | 'chats' = 'c') {
+  return `(SELECT CASE WHEN json_extract(le.metadata_json,'$.action')='confirm_leave' THEN le.occurred_at ELSE NULL END
+    FROM activity_events le WHERE le.chat_id=${alias}.id AND le.user_id=${alias}.user_id
+      AND le.event_type='chat_state_changed'
+      AND json_extract(le.metadata_json,'$.action') IN ('confirm_leave','undo_leave')
+    ORDER BY le.rowid DESC LIMIT 1)`;
+}
 
 // The latest transition ID distinguishes archive/restore cycles within one second.
 // The existing (chat_id,event_type) index also orders matching entries by rowid.
@@ -22,7 +30,7 @@ export function chatStateTokenSql(alias: 'c' | 'chats' = 'c') {
 
 export function readChatState(db: D1Database, userId: string, id: string) {
   return db.prepare(`SELECT c.id,c.platform,c.workflow_status,c.joined_at,
-    c.snoozed_until,c.telegram_account_id,${chatStateTokenSql()} AS state_token
+    c.snoozed_until,c.telegram_account_id,${chatLeftAtSql()} AS left_at,${chatStateTokenSql()} AS state_token
     FROM chats c WHERE c.id=?1 AND c.user_id=?2`).bind(id,userId).first<ChatState>();
 }
 
