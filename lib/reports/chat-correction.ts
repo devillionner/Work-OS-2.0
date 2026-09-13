@@ -1,3 +1,4 @@
+import { businessDate } from '../business-time.ts';
 import { previewBulkChats } from '../chats/bulk.ts';
 import { BulkChatError, normalizeGroupLink, suggestedChatName, validateBulkItems } from '../chats/bulk-input.ts';
 import { validateAccountingDate } from './publication-correction.ts';
@@ -42,20 +43,28 @@ export async function recordHistoricalJoinedChat(db:D1Database,input:{
   const stateEventId=crypto.randomUUID();
   const joinedEventId=crypto.randomUUID();
   const sourceKey=`report-chat:${input.requestId}`;
-  const metadata=JSON.stringify({correction:'historical_report',accountingDate:input.date,exactJoinTime:'unknown',requestHash:hash});
+  const sameDayTelegram=parsed.platform==='telegram'&&input.date===businessDate(input.now);
+  const joinedAt=sameDayTelegram?input.now:null;
+  const correctionMetadata={
+    correction:'historical_report',
+    accountingDate:input.date,
+    exactJoinTime:'unknown',
+    ...(sameDayTelegram?{warmupStartedAt:input.now,warmupPolicy:'correction_time'}:{}),
+  };
+  const metadata=JSON.stringify({...correctionMetadata,requestHash:hash});
   let results:D1Result[];
   try{
     results=await db.batch([
       db.prepare(`WITH guard AS MATERIALIZED (
         SELECT COALESCE((SELECT revision FROM backup_revisions WHERE user_id=?1),0) AS revision)
         INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,is_private,joined_at,processed_at,telegram_account_id,created_at,updated_at)
-        SELECT ?2,?1,?3,?4,?5,?5,'ready',?6,NULL,NULL,?7,?8,?8 FROM guard WHERE guard.revision=?9`)
-        .bind(input.userId,chatId,parsed.platform,name,parsed.link,Number(parsed.private),accountId,input.now,plan.revision),
+        SELECT ?2,?1,?3,?4,?5,?5,'ready',?6,?7,NULL,?8,?9,?9 FROM guard WHERE guard.revision=?10`)
+        .bind(input.userId,chatId,parsed.platform,name,parsed.link,Number(parsed.private),joinedAt,accountId,input.now,plan.revision),
       db.prepare(`INSERT INTO activity_events
         (id,user_id,event_type,platform,chat_id,occurred_at,event_date,metadata_json,source_key,telegram_account_id)
         SELECT ?1,c.user_id,'chat_state_changed',c.platform,c.id,?2,?3,?4,?5,c.telegram_account_id
         FROM chats c WHERE c.id=?6 AND c.user_id=?7 AND changes()=1`)
-        .bind(stateEventId,input.now,input.date,JSON.stringify({action:'historical_joined',correction:'historical_report',accountingDate:input.date,exactJoinTime:'unknown'}),`report-chat-state:${input.requestId}`,chatId,input.userId),
+        .bind(stateEventId,input.now,input.date,JSON.stringify({action:'historical_joined',...correctionMetadata}),`report-chat-state:${input.requestId}`,chatId,input.userId),
       db.prepare(`INSERT INTO activity_events
         (id,user_id,event_type,platform,chat_id,occurred_at,event_date,metadata_json,source_key,telegram_account_id)
         SELECT ?1,c.user_id,'chat_joined',c.platform,c.id,?2,?3,?4,?5,c.telegram_account_id
