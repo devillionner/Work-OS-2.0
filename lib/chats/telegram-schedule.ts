@@ -87,6 +87,9 @@ export async function generateTelegramSchedule(db:D1Database,input:{userId:strin
   const source=settings.selectionMode==='manual'
     ? settings.manualChatIds.map(id=>eligibleMap.get(id)).filter((chat):chat is TelegramScheduleChat=>Boolean(chat))
     : eligible;
+  if(settings.selectionMode==='manual'&&source.length<count) {
+    throw new TelegramScheduleError(`Для ${count} слотів доступно лише ${source.length} із вибраних чатів. Виберіть ще чати або зменште кількість слотів.`,409);
+  }
   const max=await db.prepare(`SELECT COALESCE(MAX(sequence),0) n FROM telegram_schedule_slots WHERE user_id=?1 AND telegram_account_id=?2`)
     .bind(input.userId,input.accountId).first<{n?:number}>();
   const startSequence=Number(max?.n||0);
