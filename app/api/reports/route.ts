@@ -5,6 +5,7 @@ import { readReportEventDetails } from '@/lib/reports/details';
 import { readReportCalendar } from '@/lib/reports/calendar';
 import { readSubjectAnalytics, SUBJECT_PERIODS, type SubjectPeriod } from '@/lib/reports/subjects';
 import { readPreviousReportReminder } from '@/lib/reports/reminders';
+import { readFinalReportState } from '@/lib/reports/final';
 
 type ReportRow = { id: string; report_date: string; report_text: string; submitted_at: number | null; updated_at: number; revision_count: number; stale?: number };
 
@@ -25,16 +26,17 @@ export async function GET(request: Request): Promise<Response> {
   const selectedDate = selected?.report_date || (validDate(date) && date!.startsWith(month) ? date : null);
   const subjectPeriodRaw = url.searchParams.get('subjectPeriod');
   const subjectPeriod: SubjectPeriod = SUBJECT_PERIODS.includes(subjectPeriodRaw as SubjectPeriod) ? subjectPeriodRaw as SubjectPeriod : 'day';
-  const [summary, details, subjects, previousReportReminder] = await Promise.all([
+  const [summary, details, subjects, previousReportReminder, finalReportState] = await Promise.all([
     selectedDate ? eventSummary(user.id, selectedDate) : Promise.resolve([]),
     selectedDate ? readReportEventDetails(env.DB, user.id, selectedDate) : Promise.resolve([]),
     selectedDate ? readSubjectAnalytics(env.DB, user.id, selectedDate, subjectPeriod) : Promise.resolve(null),
     readPreviousReportReminder(env.DB, user.id, kyivDate()),
+    selectedDate ? readFinalReportState(env.DB,user.id,selectedDate,Math.floor(Date.now()/1000),kyivDate()) : Promise.resolve(null),
   ]);
   const selectedPublic = selected
     ? { ...publicReport(selected), stale: calendar.find((item) => item.id === selected.id)?.stale ?? false }
     : null;
-  return Response.json({ month, reports: calendar, selected: selectedPublic, summary, details, subjects, previousReportReminder }, { headers: { 'Cache-Control': 'no-store' } });
+  return Response.json({ month, reports: calendar, selected: selectedPublic, summary, details, subjects, previousReportReminder, finalReportState }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -48,7 +50,10 @@ export async function POST(request: Request): Promise<Response> {
   if (date > kyivDate()) return Response.json({ error: 'Майбутні звіти недоступні.' }, { status: 400 });
   const now = Math.floor(Date.now() / 1000);
   const id = `report_${user.id}_${date}`;
-  const submittedAt = body.submitted === false ? null : now;
+  const wantsSubmit = body.submitted === true;
+  if (wantsSubmit) { const state=await readFinalReportState(env.DB,user.id,date,now,kyivDate()); if(!state.canSubmit) return Response.json({error:state.reason},{status:409}); }
+  const existing=await env.DB.prepare(`SELECT submitted_at FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`).bind(user.id,date).first<{submitted_at:number|null}>();
+  const submittedAt = wantsSubmit ? now : existing?.submitted_at ?? null;
   await env.DB.prepare(`INSERT INTO daily_reports (id,user_id,report_date,report_text,payload_json,submitted_at,updated_at,source_import_id)
     VALUES (?1,?2,?3,?4,?5,?6,?7,NULL)
     ON CONFLICT(user_id,report_date) DO UPDATE SET report_text=excluded.report_text,payload_json=excluded.payload_json,submitted_at=excluded.submitted_at,updated_at=excluded.updated_at,revision_count=COALESCE(daily_reports.revision_count,1)+1,source_import_id=NULL
