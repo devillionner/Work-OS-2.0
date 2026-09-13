@@ -1,7 +1,9 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
+import { readJsonObject, sameOrigin } from '@/lib/http-json';
 
 const KINDS = new Set(['advertisement', 'script']);
+const REQUEST_MAX_BYTES = 64 * 1024;
 
 export async function GET(request: Request): Promise<Response> {
   const user = await getCurrentUser();
@@ -22,7 +24,9 @@ export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
-  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+  const parsed = await readJsonObject(request, REQUEST_MAX_BYTES);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed;
   const action = typeof body.action === 'string' ? body.action : 'save';
   const id = typeof body.id === 'string' ? body.id : '';
   if (action === 'archive') {
@@ -51,4 +55,3 @@ function publicItem(row: LibraryRow) { return { id: row.id, kind: row.kind, titl
 function parseList(value: string): string[] { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []; } catch { return []; } }
 function cleanList(value: unknown): string[] { if (!Array.isArray(value)) return []; return value.filter((item): item is string => typeof item === 'string').map((item) => item.trim().slice(0, 50)).filter(Boolean).slice(0, 20); }
 function escapeLike(value: string) { return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_'); }
-function sameOrigin(request: Request): boolean { const origin = request.headers.get('origin'); return Boolean(origin && origin === new URL(request.url).origin); }
