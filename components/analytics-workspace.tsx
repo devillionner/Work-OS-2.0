@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { Download, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -10,11 +10,15 @@ type PlatformRow = {
   key: string; name: string; color: string; joined: number; publications: number; responses: number;
   bookings: number; completed: number; publicationRate: number; responseRate: number; bookingRate: number; completionRate: number;
 };
+type CohortTotals = { leads:number; bookedLeads:number; bookings:number; completed:number; bookingLeadRate:number; completionRate:number };
+type CohortPlatform = CohortTotals & { key:string; name:string; platform:string };
+type CohortChat = CohortTotals & { id:string; name:string; platformName:string; platform:string };
 type AnalyticsData = {
   range: { period: string; days: number; from: string; to: string };
   totals: { joined: number; publications: number; responses: number; bookings: number; completed: number; publicationRate: number; responseRate: number; bookingRate: number; completionRate: number };
   platforms: PlatformRow[];
   chats: Array<{ id: string; name: string; platform: string; platformName: string; joined: number; publications: number; responses: number; bookings: number; publicationRate: number; responseRate: number; bookingRate: number }>;
+  cohort: { totals:CohortTotals; platforms:CohortPlatform[]; chats:CohortChat[] };
 };
 
 const periods: Array<{ key: AnalyticsPeriod; label: string }> = [
@@ -34,24 +38,33 @@ export function AnalyticsWorkspace() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const params = useCallback((format?: 'csv') => {
+    const value = new URLSearchParams({ period });
+    if (period === 'custom') {
+      value.set('from', customFrom);
+      value.set('to', customTo);
+    }
+    if (format) value.set('format', format);
+    return value;
+  }, [period, customFrom, customTo]);
+
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const params = new URLSearchParams({ period });
-      if (period === 'custom') {
-        params.set('from', customFrom);
-        params.set('to', customTo);
-      }
-      const response = await fetch(`/api/analytics?${params.toString()}`, { cache: 'no-store' });
+      const response = await fetch(`/api/analytics?${params().toString()}`, { cache: 'no-store' });
       const body = await response.json() as AnalyticsData & { error?: string };
       if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити аналітику.');
       setData(body);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити аналітику.');
     } finally { setLoading(false); }
-  }, [period, customFrom, customTo]);
+  }, [params]);
 
   useEffect(() => { void load(); }, [load]);
+
+  function exportCsv() {
+    window.location.assign(`/api/analytics?${params('csv').toString()}`);
+  }
 
   return (
     <div className="analytics-workspace">
@@ -59,7 +72,7 @@ export function AnalyticsWorkspace() {
         <div>
           <p className="eyebrow">Рішення на основі даних</p>
           <h2>Аналітика роботи</h2>
-          <p>Порівнюй платформи й чати за одним зрозумілим воронковим показником.</p>
+          <p>Порівнюй активність за датою події та результат лідів, отриманих у вибраному періоді.</p>
         </div>
         <div className="analytics-controls">
           <div className="range-picker" role="group" aria-label="Період аналітики">
@@ -69,6 +82,7 @@ export function AnalyticsWorkspace() {
             <label>Від<input type="date" value={customFrom} max={customTo || today} onChange={(event) => setCustomFrom(event.target.value)} aria-label="Початок періоду" /></label>
             <label>До<input type="date" value={customTo} min={customFrom} max={today} onChange={(event) => setCustomTo(event.target.value)} aria-label="Кінець періоду" /></label>
           </div> : null}
+          <Button variant="outline" size="sm" onClick={exportCsv} disabled={loading || !data}><Download data-icon="inline-start" />CSV</Button>
           <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}><RefreshCw data-icon="inline-start" className={loading ? 'is-spinning' : undefined} />Оновити</Button>
         </div>
       </section>
@@ -76,20 +90,30 @@ export function AnalyticsWorkspace() {
       {error && <div className="workspace-error" role="alert">{error}</div>}
       {loading && !data ? <div className="workspace-loading"><RefreshCw className="is-spinning" /><span>Рахуємо показники…</span></div> : data ? <>
         <section className="analytics-metrics">
-          <Metric label="Публікації" value={data.totals.publications} hint="у вибраному періоді" />
+          <Metric label="Публікації" value={data.totals.publications} hint="за датою події" />
           <Metric label="Відгуки" value={data.totals.responses} hint={`${data.totals.responseRate}% від публікацій`} />
           <Metric label="Записи" value={data.totals.bookings} hint={`${data.totals.bookingRate}% від відгуків`} />
           <Metric label="Проведені уроки" value={data.totals.completed} hint={`${data.totals.completionRate}% від записів`} />
         </section>
 
         <section className="analytics-card">
-          <div className="card-heading"><div><p className="eyebrow">Воронка</p><h3>Де втрачається результат</h3></div><Badge variant="outline">{formatRange(data.range.from, data.range.to)}</Badge></div>
+          <div className="card-heading"><div><p className="eyebrow">Активність за датою події</p><h3>Де втрачається результат</h3></div><Badge variant="outline">{formatRange(data.range.from, data.range.to)}</Badge></div>
           <div className="funnel-grid">
             <FunnelStep title="Приєднані чати" value={data.totals.joined} detail="старт" />
             <FunnelStep title="Публікації" value={data.totals.publications} detail={`${data.totals.publicationRate}% від приєднань`} />
             <FunnelStep title="Відгуки" value={data.totals.responses} detail={`${data.totals.responseRate}% конверсія`} />
             <FunnelStep title="Записи" value={data.totals.bookings} detail={`${data.totals.bookingRate}% конверсія`} />
             <FunnelStep title="Проведені" value={data.totals.completed} detail={`${data.totals.completionRate}% доходимість`} />
+          </div>
+        </section>
+
+        <section className="analytics-card">
+          <div className="card-heading"><div><p className="eyebrow">Когорта лідів</p><h3>Що сталося з відгуками цього періоду</h3></div><Badge variant="outline">За датою отримання ліда</Badge></div>
+          <div className="funnel-grid">
+            <FunnelStep title="Ліди" value={data.cohort.totals.leads} detail="активні відгуки періоду" />
+            <FunnelStep title="Ліди із записом" value={data.cohort.totals.bookedLeads} detail={`${data.cohort.totals.bookingLeadRate}% лідів`} />
+            <FunnelStep title="Усі окремі записи" value={data.cohort.totals.bookings} detail="включно з пізнішими" />
+            <FunnelStep title="Проведені" value={data.cohort.totals.completed} detail={`${data.cohort.totals.completionRate}% від записів`} />
           </div>
         </section>
 
@@ -103,11 +127,20 @@ export function AnalyticsWorkspace() {
         </section>
 
         <section className="analytics-card">
-          <div className="card-heading"><div><p className="eyebrow">Ефективність чатів</p><h3>Чати, які дають результат</h3></div><span className="muted-note">Показано до 100 чатів з активністю</span></div>
+          <div className="card-heading"><div><p className="eyebrow">Ефективність чатів</p><h3>Активність чатів за вибраними датами</h3></div><span className="muted-note">Показано до 100 чатів з активністю</span></div>
           <div className="analytics-table analytics-chat-table">
             <div className="analytics-table-head"><span>Чат</span><span>Платформа</span><span>Оголошення</span><span>Відгуки</span><span>Записи</span><span>Конверсія</span></div>
             {data.chats.map((chat) => <div className="analytics-table-row" key={chat.id}><span className="chat-analytics-name" title={chat.name}>{chat.name}</span><span>{chat.platformName}</span><strong>{chat.publications}</strong><strong>{chat.responses}</strong><strong>{chat.bookings}</strong><span>{chat.responseRate}%</span></div>)}
             {!data.chats.length && <div className="analytics-empty">Чати з активністю з’являться тут після роботи.</div>}
+          </div>
+        </section>
+
+        <section className="analytics-card">
+          <div className="card-heading"><div><p className="eyebrow">Когортна атрибуція</p><h3>Результат лідів за чатами-джерелами</h3></div><span className="muted-note">Пізні повторні записи лишаються за початковим source chat</span></div>
+          <div className="analytics-table analytics-chat-table">
+            <div className="analytics-table-head"><span>Чат</span><span>Платформа</span><span>Ліди</span><span>Ліди із записом</span><span>Усі записи</span><span>Проведені</span></div>
+            {data.cohort.chats.map((chat) => <div className="analytics-table-row" key={chat.id}><span className="chat-analytics-name" title={chat.name}>{chat.name}</span><span>{chat.platformName}</span><strong>{chat.leads}</strong><strong>{chat.bookedLeads}</strong><strong>{chat.bookings}</strong><span>{chat.completed}</span></div>)}
+            {!data.cohort.chats.length && <div className="analytics-empty">Для лідів цього періоду ще немає атрибутованих чатів.</div>}
           </div>
         </section>
       </> : null}
