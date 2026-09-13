@@ -1,9 +1,11 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { activityTotals, type ActivitySummaryRow } from '@/lib/activity-summary';
+import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { readCheckpointSummary, readReportCheckpointPlan, REPORT_CHECKPOINT_SLOTS, saveReportCheckpoint, type ReportCheckpointSlot } from '@/lib/reports/checkpoints';
 
 const PLATFORM_NAMES:Record<string,string>={telegram:'Telegram',whatsapp:'WhatsApp',viber:'Viber',facebook:'Facebook',threads:'Threads',unknown:'Інше'};
+const REQUEST_MAX_BYTES=16*1024;
 
 export async function GET(request:Request):Promise<Response>{
   const user=await getCurrentUser();
@@ -20,7 +22,9 @@ export async function POST(request:Request):Promise<Response>{
   const user=await getCurrentUser();
   if(!user) return Response.json({error:'Потрібно увійти.'},{status:401});
   if(!sameOrigin(request)) return Response.json({error:'Недійсний запит.'},{status:403});
-  const body=await request.json().catch(()=>({})) as {date?:unknown;slot?:unknown;expectedVersion?:unknown};
+  const parsed=await readJsonObject(request,REQUEST_MAX_BYTES);
+  if(parsed instanceof Response) return parsed;
+  const body=parsed as {date?:unknown;slot?:unknown;expectedVersion?:unknown};
   const date=validDate(body.date)?body.date:'';
   const slot=typeof body.slot==='string'&&REPORT_CHECKPOINT_SLOTS.includes(body.slot as ReportCheckpointSlot)?body.slot as ReportCheckpointSlot:null;
   const expectedVersion=Number(body.expectedVersion);
@@ -52,5 +56,4 @@ function buildCheckpointText(date:string,slot:ReportCheckpointSlot,rows:Activity
 }
 function validDate(value:unknown):value is string{return typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value);}
 function kyivDate(){const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Kyiv',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const values=Object.fromEntries(parts.map(part=>[part.type,part.value]));return `${values.year}-${values.month}-${values.day}`;}
-function sameOrigin(request:Request){const origin=request.headers.get('origin');return Boolean(origin&&origin===new URL(request.url).origin);}
 function formatDate(value:string){const [year,month,day]=value.split('-');return `${day}.${month}.${year}`;}
