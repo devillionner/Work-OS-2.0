@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
 import { AnalyticsInsights } from '@/components/analytics-insights';
+import { AnalyticsTrends } from '@/components/analytics-trends';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -14,6 +15,7 @@ type PlatformRow = {
 type CohortTotals = { leads:number; bookedLeads:number; bookings:number; completed:number; bookingLeadRate:number; completionRate:number };
 type CohortPlatform = CohortTotals & { key:string; name:string; platform:string };
 type CohortChat = CohortTotals & { id:string; name:string; platformName:string; platform:string };
+type TrendPoint = { date:string; joined:number; publications:number; responses:number; bookings:number; completed:number };
 type AnalyticsInsightsData = {
   recommendation: { kind:'check_low_efficiency'|'consider_more_often'|'insufficient_data'; title:string; explanation:string; chatId:string|null; chatName:string|null };
   archiveReasons: Array<{ reason:string; count:number }>;
@@ -26,6 +28,7 @@ type AnalyticsData = {
   chats: Array<{ id: string; name: string; platform: string; platformName: string; joined: number; publications: number; responses: number; bookings: number; publicationRate: number; responseRate: number; bookingRate: number }>;
   cohort: { totals:CohortTotals; platforms:CohortPlatform[]; chats:CohortChat[] };
   insights: AnalyticsInsightsData;
+  trends: TrendPoint[];
 };
 
 const periods: Array<{ key: AnalyticsPeriod; label: string }> = [
@@ -104,6 +107,7 @@ export function AnalyticsWorkspace() {
         </section>
 
         <AnalyticsInsights insights={data.insights} />
+        <AnalyticsTrends points={data.trends} />
 
         <section className="analytics-card">
           <div className="card-heading"><div><p className="eyebrow">Активність за датою події</p><h3>Де втрачається результат</h3></div><Badge variant="outline">{formatRange(data.range.from, data.range.to)}</Badge></div>
