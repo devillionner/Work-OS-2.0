@@ -4,7 +4,9 @@ import { activitySummaryStatement } from '@/lib/activity-summary';
 import { completedOperatorLessonsStatement } from '@/lib/analytics-attribution';
 import { readAnalyticsCohort } from '@/lib/analytics-cohort';
 import { analyticsCsv, type AnalyticsExportData } from '@/lib/analytics-export';
+import { buildAnalyticsRecommendation } from '@/lib/analytics-insights';
 import { resolveAnalyticsRange } from '@/lib/analytics-range';
+import { businessDayStart, shiftBusinessDate } from '@/lib/business-time';
 
 const PLATFORM_META: Record<string, { name: string; color: string }> = {
   telegram: { name: 'Telegram', color: '#2563eb' },
@@ -20,6 +22,7 @@ type PlatformRow = FunnelCounts & {
   key: string; name: string; color: string; completed: number; publicationRate: number;
   responseRate: number; bookingRate: number; completionRate: number;
 };
+type ArchiveReasonRow = { reason: string; count: number };
 
 export async function GET(request: Request): Promise<Response> {
   const user = await getCurrentUser();
@@ -36,6 +39,8 @@ export async function GET(request: Request): Promise<Response> {
     );
   }
   const { from, to } = range;
+  const archiveFrom = businessDayStart(from);
+  const archiveTo = businessDayStart(shiftBusinessDate(to, 1));
 
   const [cohort, batch] = await Promise.all([
     readAnalyticsCohort(env.DB, user.id, from, to),
@@ -55,9 +60,13 @@ export async function GET(request: Request): Promise<Response> {
         GROUP BY COALESCE(e.chat_id,l.source_chat_id),c.name,c.platform
         HAVING joined>0 OR publications>0 OR responses>0 OR bookings>0
         ORDER BY publications DESC,responses DESC,bookings DESC,joined DESC,c.name ASC LIMIT 100`).bind(user.id, from, to),
+      env.DB.prepare(`SELECT COALESCE(NULLIF(TRIM(archive_reason),''),'Без причини') AS reason,COUNT(*) AS count
+        FROM chats WHERE user_id=?1 AND workflow_status='archived' AND archived_at>=?2 AND archived_at<?3
+        GROUP BY COALESCE(NULLIF(TRIM(archive_reason),''),'Без причини')
+        ORDER BY count DESC,reason ASC LIMIT 20`).bind(user.id, archiveFrom, archiveTo),
     ]),
   ]);
-  const [eventsResult, lessonsResult, chatResult] = batch;
+  const [eventsResult, lessonsResult, chatResult, archiveReasonResult] = batch;
 
   const eventRows = eventsResult.results as EventAggregate[];
   const completedRows = lessonsResult.results as Array<{ platform: string; count: number }>;
@@ -156,7 +165,17 @@ export async function GET(request: Request): Promise<Response> {
       },
     });
   }
-  return Response.json(data, { headers: { 'Cache-Control': 'no-store' } });
+
+  const archiveReasons = (archiveReasonResult.results as ArchiveReasonRow[]).map((row) => ({
+    reason: row.reason,
+    count: Number(row.count || 0),
+  }));
+  const insights = {
+    recommendation: buildAnalyticsRecommendation(chats, range.days),
+    archiveReasons,
+    archivedChats: archiveReasons.reduce((sum, row) => sum + row.count, 0),
+  };
+  return Response.json({ ...data, insights }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 function rate(value: number, base: number): number {
