@@ -36,7 +36,7 @@ This document exists because the canonical requirement registry was last broadly
 | #42 | historical joined-chat correction | GitHub `Local checks` #117 green on `f1a0ae0`; staging acceptance pending |
 | #43 | manual Telegram schedule capacity guard | GitHub CI green; staging acceptance pending |
 | #45 | explainable low-efficiency/strong-signal analytics + current archive-reason summary | GitHub `Local checks` #125 green on `ce686a8`; staging acceptance pending |
-| #46 | daily time-series analytics for joins/publications/responses/bookings/completed lessons | final GitHub CI pending at this update; stacked on #45 |
+| #46 | daily time-series analytics for joins/publications/responses/bookings/completed lessons | GitHub `Local checks` #128 green on `7680ef3`; staging acceptance pending |
 
 PR #44 was closed as redundant after the full open-PR audit because it duplicated #31/#35/#36. Its stricter restore behavior was not promoted because canonical #36 deliberately preserves the existing restore contract.
 
@@ -104,7 +104,7 @@ Actual `telegram-schedule` code plus #37/#43 covers the previously open manual-s
 - ANALYTICS-02 is implemented in #25 (day/week/month/year/custom bounded period).
 - ANALYTICS-12 and ANALYTICS-17 are implemented in #27 (CSV export and acquisition cohort result view).
 - ANALYTICS-08/09/19 recommendation/archive-summary slice is implemented in #45. Recommendations are derived/read-only, require meaningful sample sizes and never auto-archive/restore/change cadence.
-- ANALYTICS-03 daily trend series is implemented in #46; final CI evidence is still pending at this audit revision.
+- ANALYTICS-03 daily trend series is implemented in #46; GitHub `Local checks` #128 passed on the final head.
 
 ## Confirmed remaining functional gaps before declaring pre-UX complete
 
