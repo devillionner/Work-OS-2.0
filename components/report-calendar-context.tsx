@@ -1,4 +1,4 @@
-import { calendarContextLabels, type CalendarDayContext } from '@/lib/reports/calendar-context';
+import { calendarContextLabels, type CalendarDayContext } from '@/lib/reports/calendar-labels';
 
 export function ReportCalendarContext({
   date,
