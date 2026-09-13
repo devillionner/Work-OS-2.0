@@ -70,7 +70,8 @@ void test('same-day Telegram correction starts a conservative six-hour warm-up a
   const result=await recordHistoricalJoinedChat(db,{
     userId:'u',requestId:crypto.randomUUID(),date:'2026-09-13',name:'Today chat',link:'https://t.me/todaychat',telegramAccountId:'u:tg1',now:NOW,
   });
-  const chat=await db.prepare(`SELECT workflow_status,joined_at,snoozed_until FROM chats WHERE id=?1`).bind(result.chatId).first();
+  const chat=await db.prepare(`SELECT platform,workflow_status,joined_at,snoozed_until FROM chats WHERE id=?1`).bind(result.chatId).first();
+  assert.equal(chat.platform,'telegram');
   assert.equal(chat.workflow_status,'ready');
   assert.equal(Number(chat.joined_at),NOW);
   assert.equal(publicationAvailability(chat,NOW).availableNow,false);
