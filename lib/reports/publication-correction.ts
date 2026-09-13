@@ -29,7 +29,7 @@ export async function readHistoricalPublicationOptions(db:D1Database,input:{
   validateAccountingDate(input.date,Math.floor(Date.now()/1000));
   const search=(input.search||'').trim().slice(0,120).toLocaleLowerCase('uk-UA');
   const pattern=`%${escapeLike(search)}%`;
-  const platform=input.platform&&['telegram','whatsapp','viber','facebook'].includes(input.platform)?input.platform:'';
+  const platform=input.platform&&['telegram','whatsapp','viber','facebook','threads'].includes(input.platform)?input.platform:'';
   const [chats,accounts,advertisements]=await db.batch([
     db.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.telegram_account_id
       FROM chats c
