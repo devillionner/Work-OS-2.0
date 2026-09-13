@@ -6,6 +6,7 @@ import { readReportCalendar } from '@/lib/reports/calendar';
 import { readSubjectAnalytics, SUBJECT_PERIODS, type SubjectPeriod } from '@/lib/reports/subjects';
 import { readPreviousReportReminder } from '@/lib/reports/reminders';
 import { readFinalReportState } from '@/lib/reports/final';
+import { readGoalPlanFact } from '@/lib/goals';
 
 type ReportRow = { id: string; report_date: string; report_text: string; submitted_at: number | null; updated_at: number; revision_count: number; stale?: number };
 
@@ -26,17 +27,18 @@ export async function GET(request: Request): Promise<Response> {
   const selectedDate = selected?.report_date || (validDate(date) && date!.startsWith(month) ? date : null);
   const subjectPeriodRaw = url.searchParams.get('subjectPeriod');
   const subjectPeriod: SubjectPeriod = SUBJECT_PERIODS.includes(subjectPeriodRaw as SubjectPeriod) ? subjectPeriodRaw as SubjectPeriod : 'day';
-  const [summary, details, subjects, previousReportReminder, finalReportState] = await Promise.all([
+  const [summary, details, subjects, previousReportReminder, finalReportState, goalPlanFact] = await Promise.all([
     selectedDate ? eventSummary(user.id, selectedDate) : Promise.resolve([]),
     selectedDate ? readReportEventDetails(env.DB, user.id, selectedDate) : Promise.resolve([]),
     selectedDate ? readSubjectAnalytics(env.DB, user.id, selectedDate, subjectPeriod) : Promise.resolve(null),
     readPreviousReportReminder(env.DB, user.id, kyivDate()),
     selectedDate ? readFinalReportState(env.DB,user.id,selectedDate,Math.floor(Date.now()/1000),kyivDate()) : Promise.resolve(null),
+    selectedDate ? readGoalPlanFact(env.DB,user.id,selectedDate) : Promise.resolve(null),
   ]);
   const selectedPublic = selected
     ? { ...publicReport(selected), stale: calendar.find((item) => item.id === selected.id)?.stale ?? false }
     : null;
-  return Response.json({ month, reports: calendar, selected: selectedPublic, summary, details, subjects, previousReportReminder, finalReportState }, { headers: { 'Cache-Control': 'no-store' } });
+  return Response.json({ month, reports: calendar, selected: selectedPublic, summary, details, subjects, previousReportReminder, finalReportState, goalPlanFact }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(request: Request): Promise<Response> {

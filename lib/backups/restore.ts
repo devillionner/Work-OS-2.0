@@ -6,7 +6,7 @@ export const RESTORE_TABLES: BackupTable[] = [
   'chats', 'chat_profiles', 'chat_publications', 'telegram_schedule_settings', 'telegram_schedule_slots',
   'leads', 'students', 'lessons',
   'curator_requests', 'lesson_reminders', 'lead_messages', 'lead_commands',
-  'daily_reports', 'report_checkpoints', 'library_items', 'user_settings', 'activity_events',
+  'daily_reports', 'report_checkpoints', 'goal_versions', 'library_items', 'user_settings', 'activity_events',
 ];
 
 const CONFLICT_COLUMNS: Record<BackupTable, string[]> = {
@@ -16,7 +16,7 @@ const CONFLICT_COLUMNS: Record<BackupTable, string[]> = {
   telegram_schedule_settings: ['user_id', 'telegram_account_id'], telegram_schedule_slots: ['id'], leads: ['id'],
   students: ['id'], lessons: ['id'], curator_requests: ['id'],
   lesson_reminders: ['id'], lead_messages: ['id'], lead_commands: ['id'],
-  daily_reports: ['id'], report_checkpoints: ['id'], library_items: ['id'],
+  daily_reports: ['id'], report_checkpoints: ['id'], goal_versions: ['id'], library_items: ['id'],
   user_settings: ['user_id', 'setting_key'], activity_events: ['id'],
 };
 

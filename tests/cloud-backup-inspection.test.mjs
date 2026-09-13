@@ -129,3 +129,14 @@ void test('restore rejects an id collision owned by another account', async (t) 
   await assert.rejects(restoreMissingChunk({ db, table: 'chats', payload, sha256: await cloudBackupSha256(payload), rowCount: 1, userId: 'current-owner' }), /іншим власником/);
   assert.deepEqual(await db.prepare('SELECT user_id,name FROM chats WHERE id=?1').bind('chat-1').first(), { user_id: 'other-owner', name: 'Private' });
 });
+
+void test('accepts schema 9 backups created before goal history existed', () => {
+  const parsed = JSON.parse(backup());
+  parsed.schemaVersion = 9;
+  delete parsed.tables.goal_versions;
+  delete parsed.counts.goal_versions;
+  const result = inspectCloudBackup(JSON.stringify(parsed));
+  assert.equal(result.valid, true, result.errors.join('\n'));
+  assert.match(result.warnings.join('\n'), /попередню сумісну схему 9/);
+  assert.equal(result.counts.goal_versions, 0);
+});
