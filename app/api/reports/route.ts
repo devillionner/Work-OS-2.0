@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { activitySummaryStatement, type ActivitySummaryRow } from '@/lib/activity-summary';
 import { readReportEventDetails } from '@/lib/reports/details';
 import { readReportCalendar } from '@/lib/reports/calendar';
+import { readCalendarContext } from '@/lib/reports/calendar-context';
 import { readSubjectAnalytics, SUBJECT_PERIODS, type SubjectPeriod } from '@/lib/reports/subjects';
 import { readPreviousReportReminder } from '@/lib/reports/reminders';
 import { readFinalReportState } from '@/lib/reports/final';
@@ -19,8 +20,9 @@ export async function GET(request: Request): Promise<Response> {
   if (validDate(date) && date > kyivDate()) return Response.json({ error: 'Майбутні звіти недоступні.' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
   const start = `${month}-01`;
   const end = shiftMonth(start, 1);
-  const [calendar, selectedResult] = await Promise.all([
+  const [calendar, calendarContext, selectedResult] = await Promise.all([
     readReportCalendar(env.DB, user.id, start, end),
+    readCalendarContext(env.DB, user.id, start, end),
     env.DB.prepare(`SELECT id,report_date,report_text,submitted_at,updated_at,revision_count FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`).bind(user.id, validDate(date) ? date : start).first<ReportRow>(),
   ]);
   const selected = selectedResult ?? undefined;
@@ -38,7 +40,7 @@ export async function GET(request: Request): Promise<Response> {
   const selectedPublic = selected
     ? { ...publicReport(selected), stale: calendar.find((item) => item.id === selected.id)?.stale ?? false }
     : null;
-  return Response.json({ month, reports: calendar, selected: selectedPublic, summary, details, subjects, previousReportReminder, finalReportState, goalPlanFact }, { headers: { 'Cache-Control': 'no-store' } });
+  return Response.json({ month, reports: calendar, calendarContext, selected: selectedPublic, summary, details, subjects, previousReportReminder, finalReportState, goalPlanFact }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(request: Request): Promise<Response> {
