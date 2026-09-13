@@ -7,14 +7,14 @@ import { Button } from '@/components/ui/button';
 
 type AnalyticsPeriod = 'day' | 'week' | 'month' | 'year' | 'custom';
 type PlatformRow = {
-  key: string; name: string; color: string; publications: number; responses: number;
-  bookings: number; completed: number; responseRate: number; bookingRate: number; completionRate: number;
+  key: string; name: string; color: string; joined: number; publications: number; responses: number;
+  bookings: number; completed: number; publicationRate: number; responseRate: number; bookingRate: number; completionRate: number;
 };
 type AnalyticsData = {
   range: { period: string; days: number; from: string; to: string };
-  totals: { publications: number; responses: number; bookings: number; completed: number; responseRate: number; bookingRate: number; completionRate: number };
+  totals: { joined: number; publications: number; responses: number; bookings: number; completed: number; publicationRate: number; responseRate: number; bookingRate: number; completionRate: number };
   platforms: PlatformRow[];
-  chats: Array<{ id: string; name: string; platform: string; platformName: string; publications: number; responses: number; bookings: number; responseRate: number; bookingRate: number }>;
+  chats: Array<{ id: string; name: string; platform: string; platformName: string; joined: number; publications: number; responses: number; bookings: number; publicationRate: number; responseRate: number; bookingRate: number }>;
 };
 
 const periods: Array<{ key: AnalyticsPeriod; label: string }> = [
@@ -85,7 +85,8 @@ export function AnalyticsWorkspace() {
         <section className="analytics-card">
           <div className="card-heading"><div><p className="eyebrow">Воронка</p><h3>Де втрачається результат</h3></div><Badge variant="outline">{formatRange(data.range.from, data.range.to)}</Badge></div>
           <div className="funnel-grid">
-            <FunnelStep title="Публікації" value={data.totals.publications} detail="старт" />
+            <FunnelStep title="Приєднані чати" value={data.totals.joined} detail="старт" />
+            <FunnelStep title="Публікації" value={data.totals.publications} detail={`${data.totals.publicationRate}% від приєднань`} />
             <FunnelStep title="Відгуки" value={data.totals.responses} detail={`${data.totals.responseRate}% конверсія`} />
             <FunnelStep title="Записи" value={data.totals.bookings} detail={`${data.totals.bookingRate}% конверсія`} />
             <FunnelStep title="Проведені" value={data.totals.completed} detail={`${data.totals.completionRate}% доходимість`} />
@@ -102,11 +103,11 @@ export function AnalyticsWorkspace() {
         </section>
 
         <section className="analytics-card">
-          <div className="card-heading"><div><p className="eyebrow">Ефективність чатів</p><h3>Чати, які дають результат</h3></div><span className="muted-note">Показано до 100 чатів з публікаціями</span></div>
+          <div className="card-heading"><div><p className="eyebrow">Ефективність чатів</p><h3>Чати, які дають результат</h3></div><span className="muted-note">Показано до 100 чатів з активністю</span></div>
           <div className="analytics-table analytics-chat-table">
             <div className="analytics-table-head"><span>Чат</span><span>Платформа</span><span>Оголошення</span><span>Відгуки</span><span>Записи</span><span>Конверсія</span></div>
             {data.chats.map((chat) => <div className="analytics-table-row" key={chat.id}><span className="chat-analytics-name" title={chat.name}>{chat.name}</span><span>{chat.platformName}</span><strong>{chat.publications}</strong><strong>{chat.responses}</strong><strong>{chat.bookings}</strong><span>{chat.responseRate}%</span></div>)}
-            {!data.chats.length && <div className="analytics-empty">Чати з публікаціями з’являться тут після роботи.</div>}
+            {!data.chats.length && <div className="analytics-empty">Чати з активністю з’являться тут після роботи.</div>}
           </div>
         </section>
       </> : null}
