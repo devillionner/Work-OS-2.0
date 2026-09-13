@@ -23,6 +23,7 @@ export function leadFields(
     'funnelStage',
     'nextAction',
     'nextContactAt',
+    'isStudent',
   ]);
   const merged = {
     name: '',
@@ -41,6 +42,7 @@ export function leadFields(
     funnelStage: 'response',
     nextAction: '',
     nextContactAt: null,
+    isStudent: 1,
     ...current,
     ...input,
   };
@@ -104,6 +106,7 @@ export function leadFields(
     funnelStage: v.choice(merged.funnelStage, v.FUNNEL_STAGES, 'Воронка'),
     nextAction: v.string(merged.nextAction, 'Наступна дія', 1000),
     nextContactAt: v.nullableEpoch(merged.nextContactAt, 'Наступний контакт'),
+    isStudent: v.integer(merged.isStudent, 'Контакт навчається', 0, 1),
   };
   if (result.nextContactAt !== null && !result.nextAction)
     throw new v.LeadError('Додайте наступну дію або приберіть дату контакту.');

@@ -103,7 +103,6 @@ export async function executeLeadCommand(
         teacherName: '',
         lessonPlatform: null,
         meetingLink: '',
-        isStudent: 0,
         ageGroup: '',
         bookingDate: null,
         bookedAt: null,

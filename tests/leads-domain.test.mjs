@@ -275,6 +275,21 @@ void test('one lead, several students/lessons and repeated booking never creates
     /вже використано/,
   );
 });
+void test('contact marked as not studying can book only an added student', async (t) => {
+  const f = await fixture(t);
+  const parentId = await f.create({ isStudent: 0 });
+  assert.equal((await f.repo.load('u', parentId)).lead.isStudent, 0);
+  await assert.rejects(f.book(parentId), /не навчається/);
+  await f.run('student_create', { name: 'Child', grade: 4 }, parentId);
+  const parent = await f.repo.load('u', parentId);
+  await f.book(parentId, { studentId: parent.students[0].id });
+  assert.equal((await f.repo.load('u', parentId)).lessons.length, 1);
+
+  const adultId = await f.create({ name: 'Adult learner' });
+  assert.equal((await f.repo.load('u', adultId)).lead.isStudent, 1);
+  await f.book(adultId);
+  assert.equal((await f.repo.load('u', adultId)).lessons.length, 1);
+});
 void test('blank subject, invalid grade and hostile payloads are rejected without writes', async (t) => {
   const f = await fixture(t);
   await assert.rejects(f.create({ subject: '  ' }), /Предмет/);

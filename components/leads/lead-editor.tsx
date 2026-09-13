@@ -46,6 +46,7 @@ export function LeadEditor({
             responseAt: epochValue(f, 'responseAt', lead?.responseAt),
             status: textValue(f, 'status'),
             duplicateState: textValue(f, 'duplicateState'),
+            isStudent: textValue(f, 'isStudent') === '1' ? 1 : 0,
           });
           close();
         }}
@@ -105,6 +106,12 @@ export function LeadEditor({
               ? [...LEAD_STATUSES, lead.status]
               : LEAD_STATUSES
           }
+        />
+        <SelectField
+          label="Контакт навчається"
+          name="isStudent"
+          value={String(lead?.isStudent ?? 1)}
+          options={[{ value: '1', label: 'Так' }, { value: '0', label: 'Ні, навчається лише доданий учень' }]}
         />
         <SelectField
           label="Дублікат контакту"

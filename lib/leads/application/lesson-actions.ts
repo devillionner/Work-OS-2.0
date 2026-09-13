@@ -93,6 +93,8 @@ export function applyLessonAction({
         : aggregate.students.find((s) => s.id === parsed.studentId);
     if (parsed.studentId && !student)
       throw new v.LeadError('Учень має належати цьому ліду.');
+    if (action === 'lesson_book' && parsed.studentId === null && lead.isStudent !== 1)
+      throw new v.LeadError('Основний контакт позначений як такий, що не навчається. Оберіть доданого учня.');
     if (
       action === 'lesson_update' &&
       (parsed.lessonDate !== legacyLessonDate(old!.lessonDate) ||
