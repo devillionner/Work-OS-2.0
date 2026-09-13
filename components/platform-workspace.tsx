@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRefreshGate } from '@/lib/refresh-gate';
 import { createActionGate } from '@/lib/action-gate';
 import { ChatBulkDialog } from '@/components/chat-bulk-dialog';
+import { ChatDuplicatesDialog } from '@/components/chat-duplicates-dialog';
 import { ChatProfileDialog } from '@/components/chat-profile-dialog';
 import { ChatHistoryDialog } from '@/components/chat-history-dialog';
 import { ChatPublishDialog } from '@/components/chat-publish-dialog';
@@ -47,6 +48,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const [loadedData,setData] = useState<ResponseData|null>(null);
   const [undo,setUndo] = useState<UndoState|null>(null);
   const [bulkOpen,setBulkOpen]=useState(false);
+  const [duplicatesOpen,setDuplicatesOpen]=useState(false);
   const [notice,setNotice]=useState('');
   const [profileChat,setProfileChat]=useState<Chat|null>(null);
   const [profileOpenKey,setProfileOpenKey]=useState(0);
@@ -149,6 +151,10 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     setProfileChat(null); setData(null); setLoading(true); void reloadChats.current(); router.refresh();
   }
 
+  function duplicatesChanged() {
+    setData(null); setLoading(true); void reloadChats.current(); router.refresh();
+  }
+
   function selectPlatform(next:Platform) {
     if(next===platform)return;
     writePlatformView(platform,{queue,search,offset,scrollY:window.scrollY,lastChatId:lastOpenedByPlatform[platform]||null});
@@ -228,6 +234,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const breakSeconds=activeAccount?.breakUntil?Math.max(0,activeAccount.breakUntil-Math.floor(clock/1000)):0;
   return <div className="platform-workspace">
     <ChatBulkDialog open={bulkOpen} onClose={()=>setBulkOpen(false)} onAdded={addedChats} enabledPlatforms={enabledPlatforms}/>
+    <ChatDuplicatesDialog open={duplicatesOpen} platform={platform} accountId={platform==='telegram'?accountId:null} onClose={()=>setDuplicatesOpen(false)} onChanged={duplicatesChanged}/>
     <ChatProfileDialog key={profileOpenKey} open={profileChat!==null} chat={profileChat} onClose={()=>setProfileChat(null)} onSaved={savedProfile} onOpenChat={()=>{if(profileChat)openChat(profileChat);}}/>
     <ChatHistoryDialog key={historyOpenKey} open={historyChat!==null} chat={historyChat} onClose={()=>setHistoryChat(null)}/>
     <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={({advertisementId,language})=>publishChat?act(publishChat,'published',{advertisementId,language}):Promise.resolve(false)} onOpenChat={()=>{if(publishChat)openChat(publishChat);}}/>
@@ -278,6 +285,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       <div className="chat-toolbar">
         <label htmlFor="chat-search"><Search/><Input id="chat-search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Пошук за назвою або посиланням"/><span className="sr-only">Пошук чатів</span></label>
         {(queue==='waiting'||queue==='ready')&&<><Button type="button" variant="outline" size="sm" title={profileSummary?`Підтверджені: ${profileSummary.confirmed}; чернетки: ${profileSummary.draft}; без профілю: ${profileSummary.empty}`:'Фільтр профілів'} aria-pressed={profileFilter==='needs_review'} onClick={()=>{setProfileFilter(value=>value==='all'?'needs_review':'all');setOffset(0);}}><UserRoundCheck data-icon="inline-start"/>{profileFilter==='needs_review'?`Усі профілі (${data?.counts[queue]||0})`:`Потребують правил (${profileSummary?.needsReview||0})`}</Button>{profileSummary&&<span className="profile-counts" aria-label={`Профілі: підтверджені ${profileSummary.confirmed}, чернетки ${profileSummary.draft}, без профілю ${profileSummary.empty}`}>Профілі: ✓ {profileSummary.confirmed} · чернетки {profileSummary.draft} · без профілю {profileSummary.empty}</span>}</>}
+        <Button type="button" variant="outline" size="sm" disabled={busy!==null||platform==='telegram'&&!accountId} onClick={()=>setDuplicatesOpen(true)}>Дублікати</Button>
         <Badge variant="secondary">{data?.total || 0} у черзі</Badge>
       </div>
       {error && <div className="workspace-error">{error} <Button variant="outline" size="sm" disabled={loading||busy!==null} onClick={()=>void reloadChats.current()}>Оновити список</Button></div>}
