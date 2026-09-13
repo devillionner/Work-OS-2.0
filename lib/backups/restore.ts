@@ -60,7 +60,10 @@ export async function restoreMissingChunk(args: {
   });
   if (!statements.length) return { inserted: 0, rows: 0 };
   const results = await db.batch(statements);
-  return { inserted: results.reduce((sum, result) => sum + Number(result.meta?.changes || 0), 0), rows: statements.length };
+  return {
+    inserted: results.reduce((sum, result) => sum + (Number(result.meta?.changes || 0) > 0 ? 1 : 0), 0),
+    rows: statements.length,
+  };
 }
 
 function restoreValue(value: unknown, table: string, column: string): RestoreValue {
