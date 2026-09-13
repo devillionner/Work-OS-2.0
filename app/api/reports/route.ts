@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { activitySummaryStatement, type ActivitySummaryRow } from '@/lib/activity-summary';
+import { readActivityDayRevision } from '@/lib/reports/activity-revision';
 import { readReportEventDetails } from '@/lib/reports/details';
 import { readReportCalendar } from '@/lib/reports/calendar';
 import { readSubjectAnalytics, SUBJECT_PERIODS, type SubjectPeriod } from '@/lib/reports/subjects';
@@ -54,12 +55,15 @@ export async function POST(request: Request): Promise<Response> {
   const id = `report_${user.id}_${date}`;
   const wantsSubmit = body.submitted === true;
   if (wantsSubmit) { const state=await readFinalReportState(env.DB,user.id,date,now,kyivDate()); if(!state.canSubmit) return Response.json({error:state.reason},{status:409}); }
-  const existing=await env.DB.prepare(`SELECT submitted_at FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`).bind(user.id,date).first<{submitted_at:number|null}>();
+  const existing=await env.DB.prepare(`SELECT submitted_at,submitted_activity_revision FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`).bind(user.id,date).first<{submitted_at:number|null;submitted_activity_revision:number|null}>();
   const submittedAt = wantsSubmit ? now : existing?.submitted_at ?? null;
-  await env.DB.prepare(`INSERT INTO daily_reports (id,user_id,report_date,report_text,payload_json,submitted_at,updated_at,source_import_id)
-    VALUES (?1,?2,?3,?4,?5,?6,?7,NULL)
-    ON CONFLICT(user_id,report_date) DO UPDATE SET report_text=excluded.report_text,payload_json=excluded.payload_json,submitted_at=excluded.submitted_at,updated_at=excluded.updated_at,revision_count=COALESCE(daily_reports.revision_count,1)+1,source_import_id=NULL
-    WHERE daily_reports.user_id=excluded.user_id`).bind(id, user.id, date, text, JSON.stringify({ source: 'manual', updatedAt: now }), submittedAt, now).run();
+  const submittedActivityRevision = wantsSubmit
+    ? await readActivityDayRevision(env.DB,user.id,date)
+    : existing?.submitted_activity_revision ?? null;
+  await env.DB.prepare(`INSERT INTO daily_reports (id,user_id,report_date,report_text,payload_json,submitted_at,submitted_activity_revision,updated_at,source_import_id)
+    VALUES (?1,?2,?3,?4,?5,?6,?7,?8,NULL)
+    ON CONFLICT(user_id,report_date) DO UPDATE SET report_text=excluded.report_text,payload_json=excluded.payload_json,submitted_at=excluded.submitted_at,submitted_activity_revision=excluded.submitted_activity_revision,updated_at=excluded.updated_at,revision_count=COALESCE(daily_reports.revision_count,1)+1,source_import_id=NULL
+    WHERE daily_reports.user_id=excluded.user_id`).bind(id, user.id, date, text, JSON.stringify({ source: 'manual', updatedAt: now }), submittedAt, submittedActivityRevision, now).run();
   return Response.json({ ok: true, report: { id, date, text, submittedAt, updatedAt: now } });
 }
 
