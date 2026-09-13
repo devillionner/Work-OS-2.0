@@ -6,7 +6,7 @@ export const RESTORE_TABLES: BackupTable[] = [
   'chats', 'chat_profiles', 'chat_publications', 'telegram_schedule_settings', 'telegram_schedule_slots',
   'leads', 'students', 'lessons',
   'curator_requests', 'lesson_reminders', 'lead_messages', 'lead_commands',
-  'daily_reports', 'report_checkpoints', 'goal_versions', 'library_items', 'user_settings', 'activity_events',
+  'daily_reports', 'report_checkpoints', 'goal_versions', 'library_items', 'library_item_versions', 'user_settings', 'activity_events',
 ];
 
 const CONFLICT_COLUMNS: Record<BackupTable, string[]> = {
@@ -16,7 +16,7 @@ const CONFLICT_COLUMNS: Record<BackupTable, string[]> = {
   telegram_schedule_settings: ['user_id', 'telegram_account_id'], telegram_schedule_slots: ['id'], leads: ['id'],
   students: ['id'], lessons: ['id'], curator_requests: ['id'],
   lesson_reminders: ['id'], lead_messages: ['id'], lead_commands: ['id'],
-  daily_reports: ['id'], report_checkpoints: ['id'], goal_versions: ['id'], library_items: ['id'],
+  daily_reports: ['id'], report_checkpoints: ['id'], goal_versions: ['id'], library_items: ['id'], library_item_versions: ['id'],
   user_settings: ['user_id', 'setting_key'], activity_events: ['id'],
 };
 
@@ -39,6 +39,11 @@ export async function restoreMissingChunk(args: {
   const normalized = (parsed as Array<Record<string, unknown>>).map((source) => {
     const row = { ...source };
     if (allowed.has('user_id')) row.user_id = userId;
+    // activity_day_revisions is derived from restored activity_events. A backup
+    // snapshot cannot be reused safely because event inserts rebuild a fresh local
+    // revision sequence. Restored submitted reports therefore use the legacy
+    // timestamp fallback until their next explicit submission captures a new exact snapshot.
+    if (table === 'daily_reports' && allowed.has('submitted_activity_revision')) row.submitted_activity_revision = null;
     return row;
   });
   if (allowed.has('user_id') && conflict.length === 1 && conflict[0] === 'id' && normalized.length) {
@@ -55,7 +60,10 @@ export async function restoreMissingChunk(args: {
   });
   if (!statements.length) return { inserted: 0, rows: 0 };
   const results = await db.batch(statements);
-  return { inserted: results.reduce((sum, result) => sum + Number(result.meta?.changes || 0), 0), rows: statements.length };
+  return {
+    inserted: results.reduce((sum, result) => sum + (Number(result.meta?.changes || 0) > 0 ? 1 : 0), 0),
+    rows: statements.length,
+  };
 }
 
 function restoreValue(value: unknown, table: string, column: string): RestoreValue {

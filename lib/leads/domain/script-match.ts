@@ -7,6 +7,7 @@ export type LeadScriptItem = {
   tags: string[];
   platforms: string[];
   updatedAt: number;
+  collection?: 'official_script' | 'personal_script';
 };
 
 export type LeadScriptContext = {
@@ -62,9 +63,9 @@ export function rankLeadScripts(
       if (qualification && searchable.has(qualification)) score += 3;
 
       const personalTags = new Set(['personal', 'особистий', 'особисте', 'особисті']);
-      const audience = item.tags.some((tag) => personalTags.has(normalize(tag)))
-        ? 'personal'
-        : 'work';
+      const audience = item.collection
+        ? item.collection === 'personal_script' ? 'personal' : 'work'
+        : item.tags.some((tag) => personalTags.has(normalize(tag))) ? 'personal' : 'work';
       return { ...item, score, audience };
     })
     .filter((item): item is RankedLeadScript => item !== null)
