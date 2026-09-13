@@ -27,7 +27,7 @@ export function applyLessonAction({
       409,
     );
   if (action === 'lesson_status') {
-    v.only(data, ['status', 'reason']);
+    v.only(data, ['status', 'reason', 'accountingDate']);
     const status = v.choice(
       data.status,
       ['completed', 'cancelled', 'no-show'],
@@ -39,15 +39,23 @@ export function applyLessonAction({
       2000,
       status !== 'completed',
     );
+    const accountingDate = data.accountingDate === undefined
+      ? null
+      : v.date(data.accountingDate, 'Дата обліку');
+    if (accountingDate && accountingDate > businessDate(now))
+      throw new v.LeadError('Дата обліку не може бути в майбутньому.');
     changes.lessons.push({ ...old!, status, statusReason, updatedAt: now });
     lead.funnelStage = status === 'completed' ? 'result' : 'clarification';
+    const defaultEventDate = status === 'completed' || status === 'no-show'
+      ? legacyLessonDate(old!.lessonDate)
+      : businessDate(now);
     event(
       `lesson_${status === 'no-show' ? 'no_show' : status}`,
-      status === 'completed' || status === 'no-show'
-        ? legacyLessonDate(old!.lessonDate)
-        : businessDate(now),
+      accountingDate || defaultEventDate,
       old!.id,
-      { reason: statusReason },
+      accountingDate
+        ? { reason: statusReason, accountingDate, correction: 'historical_report' }
+        : { reason: statusReason },
     );
   } else {
     let fields = data;
