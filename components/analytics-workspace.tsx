@@ -1,29 +1,35 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { BarChart3, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
+type AnalyticsPeriod = 'day' | 'week' | 'month' | 'year' | 'custom';
 type PlatformRow = {
   key: string; name: string; color: string; publications: number; responses: number;
   bookings: number; completed: number; responseRate: number; bookingRate: number; completionRate: number;
 };
 type AnalyticsData = {
-  range: { days: number; from: string; to: string };
+  range: { period: string; days: number; from: string; to: string };
   totals: { publications: number; responses: number; bookings: number; completed: number; responseRate: number; bookingRate: number; completionRate: number };
   platforms: PlatformRow[];
   chats: Array<{ id: string; name: string; platform: string; platformName: string; publications: number; responses: number; bookings: number; responseRate: number; bookingRate: number }>;
 };
 
-const ranges = [
-  { days: 7, label: '7 днів' },
-  { days: 30, label: '30 днів' },
-  { days: 90, label: '90 днів' },
+const periods: Array<{ key: AnalyticsPeriod; label: string }> = [
+  { key: 'day', label: 'День' },
+  { key: 'week', label: 'Тиждень' },
+  { key: 'month', label: 'Місяць' },
+  { key: 'year', label: 'Рік' },
+  { key: 'custom', label: 'Довільно' },
 ];
 
 export function AnalyticsWorkspace() {
-  const [days, setDays] = useState(30);
+  const today = currentDate();
+  const [period, setPeriod] = useState<AnalyticsPeriod>('month');
+  const [customFrom, setCustomFrom] = useState(`${today.slice(0, 7)}-01`);
+  const [customTo, setCustomTo] = useState(today);
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -31,14 +37,19 @@ export function AnalyticsWorkspace() {
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const response = await fetch(`/api/analytics?range=${days}`, { cache: 'no-store' });
+      const params = new URLSearchParams({ period });
+      if (period === 'custom') {
+        params.set('from', customFrom);
+        params.set('to', customTo);
+      }
+      const response = await fetch(`/api/analytics?${params.toString()}`, { cache: 'no-store' });
       const body = await response.json() as AnalyticsData & { error?: string };
       if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити аналітику.');
       setData(body);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити аналітику.');
     } finally { setLoading(false); }
-  }, [days]);
+  }, [period, customFrom, customTo]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -52,8 +63,12 @@ export function AnalyticsWorkspace() {
         </div>
         <div className="analytics-controls">
           <div className="range-picker" role="group" aria-label="Період аналітики">
-            {ranges.map((range) => <button type="button" key={range.days} aria-pressed={days === range.days} onClick={() => setDays(range.days)}>{range.label}</button>)}
+            {periods.map((item) => <button type="button" key={item.key} aria-pressed={period === item.key} onClick={() => setPeriod(item.key)}>{item.label}</button>)}
           </div>
+          {period === 'custom' ? <div className="analytics-custom-range">
+            <label>Від<input type="date" value={customFrom} max={customTo || today} onChange={(event) => setCustomFrom(event.target.value)} aria-label="Початок періоду" /></label>
+            <label>До<input type="date" value={customTo} min={customFrom} max={today} onChange={(event) => setCustomTo(event.target.value)} aria-label="Кінець періоду" /></label>
+          </div> : null}
           <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}><RefreshCw data-icon="inline-start" className={loading ? 'is-spinning' : undefined} />Оновити</Button>
         </div>
       </section>
@@ -114,4 +129,10 @@ function formatRange(from: string, to: string) {
 function formatDate(value: string) {
   const [year, month, day] = value.split('-');
   return `${day}.${month}.${year}`;
+}
+
+function currentDate() {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
