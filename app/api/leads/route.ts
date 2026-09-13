@@ -1,11 +1,10 @@
+import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { getDb } from '@/db';
 import { D1LeadRepository } from '@/lib/leads/data/repository';
 import { executeLeadCommand } from '@/lib/leads/application/service';
-import {
-  leadDetail,
-  exportConversation,
-} from '@/lib/leads/application/queries';
+import { leadDetail } from '@/lib/leads/application/queries';
+import { prepareConversationExport } from '@/lib/leads/application/conversation-export';
 import { commandBody, errorResponse, json } from '@/lib/leads/application/http';
 import { LeadError } from '@/lib/leads/domain/validation';
 import { overdue } from '@/lib/leads/domain/time';
@@ -18,23 +17,22 @@ export async function GET(request: Request): Promise<Response> {
     const params = new URL(request.url).searchParams;
     const id = params.get('id');
     const now = Math.floor(Date.now() / 1000);
+    if (id && params.get('export') === 'txt') {
+      const prepared = await prepareConversationExport(env.DB, user.id, id);
+      if (!prepared) throw new LeadError('Ліда не знайдено.', 404);
+      return new Response(prepared.stream, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Content-Disposition':
+            'attachment; filename="lead-conversation.txt"',
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff',
+        },
+      });
+    }
     if (id) {
-      const aggregate = await repo.load(
-        user.id,
-        id,
-        params.get('export') === 'txt' ? {} : { messageLimit: 30 },
-      );
+      const aggregate = await repo.load(user.id, id, { messageLimit: 30 });
       if (!aggregate) throw new LeadError('Ліда не знайдено.', 404);
-      if (params.get('export') === 'txt')
-        return new Response(exportConversation(aggregate), {
-          headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Content-Disposition':
-              'attachment; filename="lead-conversation.txt"',
-            'Cache-Control': 'no-store',
-            'X-Content-Type-Options': 'nosniff',
-          },
-        });
       return json(leadDetail(aggregate, now));
     }
     const offset = Number(params.get('offset') ?? 0);
