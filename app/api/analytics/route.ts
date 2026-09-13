@@ -49,7 +49,7 @@ export async function GET(request: Request): Promise<Response> {
     env.DB.batch([
       activitySummaryStatement(env.DB, user.id, from, to),
       completedOperatorLessonsStatement(env.DB, user.id, from, to),
-      env.DB.prepare(`SELECT COALESCE(e.chat_id,l.source_chat_id) AS chat_id,c.name,c.platform,
+      env.DB.prepare(`SELECT COALESCE(e.chat_id,l.source_chat_id) AS chat_id,c.name,c.platform,c.workflow_status,
           SUM(CASE WHEN e.event_type='chat_joined' THEN 1 ELSE 0 END) AS joined,
           SUM(CASE WHEN e.event_type='publication' THEN 1 ELSE 0 END) AS publications,
           SUM(CASE WHEN e.event_type='lead_created' THEN 1 ELSE 0 END) AS responses,
@@ -59,7 +59,7 @@ export async function GET(request: Request): Promise<Response> {
         LEFT JOIN chats c ON c.id=COALESCE(e.chat_id,l.source_chat_id) AND c.user_id=e.user_id
         WHERE e.user_id=?1 AND e.event_date>=?2 AND e.event_date<=?3 AND e.cancelled_at IS NULL
           AND COALESCE(e.chat_id,l.source_chat_id) IS NOT NULL
-        GROUP BY COALESCE(e.chat_id,l.source_chat_id),c.name,c.platform
+        GROUP BY COALESCE(e.chat_id,l.source_chat_id),c.name,c.platform,c.workflow_status
         HAVING joined>0 OR publications>0 OR responses>0 OR bookings>0
         ORDER BY publications DESC,responses DESC,bookings DESC,joined DESC,c.name ASC LIMIT 100`).bind(user.id, from, to),
       env.DB.prepare(`SELECT COALESCE(NULLIF(TRIM(archive_reason),''),'Без причини') AS reason,COUNT(*) AS count
@@ -110,11 +110,12 @@ export async function GET(request: Request): Promise<Response> {
     })
     .sort((a, b) => b.publications - a.publications || a.name.localeCompare(b.name, 'uk'));
 
-  const chats = (chatResult.results as Array<{ chat_id: string; name: string | null; platform: string | null; joined: number; publications: number; responses: number; bookings: number }>).map((row) => ({
+  const chats = (chatResult.results as Array<{ chat_id: string; name: string | null; platform: string | null; workflow_status: string | null; joined: number; publications: number; responses: number; bookings: number }>).map((row) => ({
     id: row.chat_id,
     name: row.name || 'Без назви',
     platform: row.platform || 'unknown',
     platformName: PLATFORM_META[row.platform || '']?.name || row.platform || 'Інше',
+    status: row.workflow_status || 'unknown',
     joined: Number(row.joined || 0),
     publications: Number(row.publications || 0),
     responses: Number(row.responses || 0),
