@@ -18,7 +18,7 @@ export type DashboardSnapshot = {
   enabledPlatforms: string[];
   platforms: Array<{ key: string; name: string; color: string; publications: number; joined: number; responses: number; bookings: number }>;
   leadTaskCount: number;
-  leadTasks: Array<{ kind: 'follow_up' | 'reminder'; leadId: string; leadName: string; title: string; dueAt: number; lessonId: string | null }>;
+  leadTasks: Array<{ kind: 'follow_up' | 'reminder'; leadId: string; leadName: string; title: string; dueAt: number; lessonId: string | null; reminderId: string | null; reminderText: string | null; leadVersion: number | null }>;
 };
 
 const PLATFORM_META: Record<string, { name: string; color: string }> = {
@@ -49,7 +49,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
       ORDER BY next_contact_at,id LIMIT 50`).bind(userId, now),
     db.prepare(`SELECT r.id,r.slot,r.enabled,r.offset_minutes,r.sent_at,r.skipped_at,
         l.id AS lesson_id,l.lead_id,l.subject,l.student_name,l.teacher_name,l.lesson_date,l.lesson_time,l.lesson_platform,l.meeting_link,l.status,
-        d.name AS lead_name
+        d.name AS lead_name,d.version AS lead_version
       FROM lesson_reminders r
       JOIN lessons l ON l.id=r.lesson_id AND l.user_id=r.user_id
       JOIN leads d ON d.id=l.lead_id AND d.user_id=r.user_id
@@ -63,10 +63,10 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
   const eventRows = eventResult.results as ActivitySummaryRow[];
   const settingRows = settingsResult.results as Array<{ setting_key: string; value_json: string }>;
   const followUpRows = followUpResult.results as Array<{ id: string; name: string; next_action: string; next_contact_at: number }>;
-  const reminderRows = reminderResult.results as Array<{ id: string; slot: number; enabled: number; offset_minutes: number; sent_at: number | null; skipped_at: number | null; lesson_id: string; lead_id: string; subject: string; student_name: string; teacher_name: string; lesson_date: string; lesson_time: string; lesson_platform: string | null; meeting_link: string; status: string; lead_name: string }>;
+  const reminderRows = reminderResult.results as Array<{ id: string; slot: number; enabled: number; offset_minutes: number; sent_at: number | null; skipped_at: number | null; lesson_id: string; lead_id: string; subject: string; student_name: string; teacher_name: string; lesson_date: string; lesson_time: string; lesson_platform: string | null; meeting_link: string; status: string; lead_name: string; lead_version: number }>;
   const leadTasks: DashboardSnapshot['leadTasks'] = followUpRows.map(row => ({
     kind: 'follow_up', leadId: row.id, leadName: row.name,
-    title: row.next_action.trim() || 'Зв’язатися з лідом', dueAt: Number(row.next_contact_at), lessonId: null,
+    title: row.next_action.trim() || 'Зв’язатися з лідом', dueAt: Number(row.next_contact_at), lessonId: null, reminderId: null, reminderText: null, leadVersion: null,
   }));
   for (const row of reminderRows) {
     const view = reminderView({
@@ -79,7 +79,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
     }, now);
     if (view.state === 'due' && view.dueAt !== null) leadTasks.push({
       kind: 'reminder', leadId: row.lead_id, leadName: row.lead_name,
-      title: `Нагадати про урок: ${row.subject} · ${row.student_name}`, dueAt: view.dueAt, lessonId: row.lesson_id,
+      title: `Нагадати про урок: ${row.subject} · ${row.student_name}`, dueAt: view.dueAt, lessonId: row.lesson_id, reminderId: row.id, reminderText: view.text, leadVersion: Number(row.lead_version),
     });
   }
   leadTasks.sort((a, b) => a.dueAt - b.dueAt || a.leadId.localeCompare(b.leadId));

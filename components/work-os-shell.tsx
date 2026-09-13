@@ -22,6 +22,7 @@ import { SettingsWorkspace } from '@/components/settings-workspace';
 import { GlobalTimers } from '@/components/global-timers';
 import { AppReleaseDialog } from '@/components/app-release-dialog';
 import { WorkdayCard } from '@/components/workday-card';
+import { createBrowserCommandClient } from '@/components/leads/client';
 import { APP_VERSION } from '@/lib/app-meta';
 import { useRouter } from 'next/navigation';
 import type { DashboardSnapshot } from '@/lib/dashboard';
@@ -50,12 +51,30 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [leadToOpen, setLeadToOpen] = useState<string | null>(null);
   const router = useRouter();
+  const [todayCommand] = useState(() => createBrowserCommandClient(`${user.email}:today-reminders`));
+  const [taskBusy, setTaskBusy] = useState<string | null>(null);
+  const [taskNotice, setTaskNotice] = useState('');
   const [activeView, setActiveView] = useState<(typeof navigation)[number]['key']>('today');
   const activeLabel = navigation.find((item) => item.key === activeView)?.label || 'Сьогодні';
   const navigateTo = (next: (typeof navigation)[number]['key']) => {
     setActiveView(next);
     setMobileOpen(false);
     if (next === 'today' && activeView !== 'today') router.refresh();
+  };
+
+  const copyReminder = async (item: DashboardSnapshot['leadTasks'][number]) => {
+    if (!item.reminderText) return;
+    try { await navigator.clipboard.writeText(item.reminderText); setTaskNotice('Текст нагадування скопійовано.'); }
+    catch { setTaskNotice('Не вдалося скопіювати текст.'); }
+  };
+  const markReminderSent = async (item: DashboardSnapshot['leadTasks'][number]) => {
+    if (!item.reminderId || item.leadVersion === null) return;
+    setTaskBusy(item.reminderId); setTaskNotice('');
+    try {
+      await todayCommand('reminder_mark', { state: 'sent' }, { id: item.leadId, version: item.leadVersion }, item.reminderId);
+      setTaskNotice('Нагадування позначено як надіслане.'); router.refresh();
+    } catch (error) { setTaskNotice(error instanceof Error ? error.message : 'Не вдалося оновити нагадування.'); }
+    finally { setTaskBusy(null); }
   };
 
   return (
@@ -128,11 +147,12 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
 
           <section className="queue-card" aria-labelledby="queue-title">
             <div className="card-heading"><div><p className="eyebrow">Наступні дії</p><h2 id="queue-title">Прострочені ліди й нагадування</h2></div><Badge variant="secondary">{snapshot.leadTasks.length}</Badge></div>
+            {taskNotice && <output className="muted-note">{taskNotice}</output>}
             {snapshot.leadTasks.length ? <ol className="action-list">
               {snapshot.leadTasks.map((item, index) => <li key={`${item.kind}:${item.leadId}:${item.lessonId || item.dueAt}`}>
                 <span className="action-index">{index + 1}</span>
                 <div><strong>{item.leadName}</strong><p>{item.title} · {formatTaskTime(item.dueAt)}</p></div>
-                <Button variant="outline" size="sm" onClick={() => { setLeadToOpen(item.leadId); navigateTo('leads'); }}>Відкрити</Button>
+                <div className="lead-actions">{item.kind === 'reminder' && item.reminderText ? <><Button variant="ghost" size="sm" disabled={taskBusy === item.reminderId} onClick={() => void copyReminder(item)}>Копіювати</Button><Button variant="outline" size="sm" disabled={taskBusy === item.reminderId} onClick={() => void markReminderSent(item)}>{taskBusy === item.reminderId ? 'Зберігаємо…' : 'Надіслано'}</Button></> : null}<Button variant="outline" size="sm" onClick={() => { setLeadToOpen(item.leadId); navigateTo('leads'); }}>Відкрити</Button></div>
               </li>)}
             </ol> : <div className="queue-empty"><p>Прострочених follow-up і активних нагадувань немає.</p><Button variant="outline" size="sm" onClick={() => navigateTo('leads')}>Відкрити лідів</Button></div>}
           </section>
