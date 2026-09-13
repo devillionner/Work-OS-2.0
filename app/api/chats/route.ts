@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { businessDate } from '@/lib/business-time';
 import { publicationAvailability, recordManualPublication } from '@/lib/chats/publication';
 import { changeChatSnooze } from '@/lib/chats/snooze';
+import { chatSnoozeCountSql } from '@/lib/chats/snooze-history';
 import { chatStateTokenSql, readChatState } from '@/lib/chats/state';
 import { transitionChat } from '@/lib/chats/transitions';
 import { availableTodayStatement, joinedTodayStatement } from '@/lib/chats/daily-links';
@@ -18,7 +19,7 @@ const REQUEST_MAX_BYTES = 64 * 1024;
 
 type ChatRow = {
   id: string; name: string; link: string; platform: string; workflow_status: string;
-  joined_at: number | null; snoozed_until: number | null; archive_reason: string | null;
+  joined_at: number | null; snoozed_until: number | null; archive_reason: string | null; snooze_count: number;
   profile_status: string | null; published_today: number;
   profile_language: string | null; profile_cadence: string | null; profile_weekdays: string | null;
   profile_custom_interval_days: number | null; profile_next_allowed_on: string | null;
@@ -49,7 +50,7 @@ export async function GET(request: Request): Promise<Response> {
   const rowAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?9 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
   const totalAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?6 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
   const statements = [
-    env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.custom_interval_days AS profile_custom_interval_days,p.next_allowed_on AS profile_next_allowed_on,p.directions_json AS profile_directions,p.note AS profile_note,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?6) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE ${filter}${rowAccountFilter} ORDER BY CASE WHEN c.snoozed_until IS NOT NULL AND c.snoozed_until>?7 THEN 1 ELSE 0 END,c.updated_at DESC,c.name LIMIT 50 OFFSET ?8`).bind(user.id, platform, status, search, pattern, today, now, offset, ...(accountId?[accountId]:[])),
+    env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,${chatSnoozeCountSql()} AS snooze_count,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.custom_interval_days AS profile_custom_interval_days,p.next_allowed_on AS profile_next_allowed_on,p.directions_json AS profile_directions,p.note AS profile_note,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?6) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE ${filter}${rowAccountFilter} ORDER BY CASE WHEN c.snoozed_until IS NOT NULL AND c.snoozed_until>?7 THEN 1 ELSE 0 END,c.updated_at DESC,c.name LIMIT 50 OFFSET ?8`).bind(user.id, platform, status, search, pattern, today, now, offset, ...(accountId?[accountId]:[])),
     env.DB.prepare(`SELECT COUNT(*) AS count ${totalSource} WHERE ${filter}${totalAccountFilter}`).bind(user.id, platform, status, search, pattern, ...(accountId?[accountId]:[])),
     platform === 'telegram'
       ? env.DB.prepare(`SELECT c.workflow_status,COUNT(*) AS count,SUM(CASE WHEN p.review_status='confirmed' THEN 1 ELSE 0 END) AS confirmed_count,SUM(CASE WHEN p.review_status='draft' THEN 1 ELSE 0 END) AS draft_count,SUM(CASE WHEN p.chat_id IS NULL THEN 1 ELSE 0 END) AS empty_count FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 AND (c.telegram_account_id=?3 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join')) GROUP BY c.workflow_status`).bind(user.id,platform,accountId)
@@ -75,6 +76,7 @@ export async function GET(request: Request): Promise<Response> {
       note: row.profile_note || '', reviewStatus: row.profile_status === 'confirmed' ? 'confirmed' : 'draft' },
     publishedToday: Boolean(row.published_today),
     snoozedUntil: row.snoozed_until,
+    snoozeCount: Number(row.snooze_count) || 0,
     ...publicationAvailability(row, now),
   }));
   const countRows = countsResult.results as Array<{workflow_status:string;count:number;confirmed_count:number;draft_count:number;empty_count:number}>;
