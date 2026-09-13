@@ -10,13 +10,13 @@ function request(body, headers = {}) {
   });
 }
 
-test('bounded JSON helper accepts objects and charset content type', async () => {
+void test('bounded JSON helper accepts objects and charset content type', async () => {
   const result = await readJsonObject(request('{"action":"save"}', { 'content-type': 'application/json; charset=utf-8' }), 1024);
   assert.equal(result instanceof Response, false);
   assert.deepEqual(result, { action: 'save' });
 });
 
-test('bounded JSON helper rejects wrong media type, arrays, malformed and oversized bodies', async () => {
+void test('bounded JSON helper rejects wrong media type, arrays, malformed and oversized bodies', async () => {
   const wrongType = await readJsonObject(request('{}', { 'content-type': 'text/plain' }), 1024);
   assert.equal(wrongType instanceof Response && wrongType.status, 415);
 
@@ -33,7 +33,7 @@ test('bounded JSON helper rejects wrong media type, arrays, malformed and oversi
   assert.equal(declared instanceof Response && declared.status, 413);
 });
 
-test('same-origin helper requires the exact request origin', () => {
+void test('same-origin helper requires the exact request origin', () => {
   assert.equal(sameOrigin(request('{}', { 'content-type': 'application/json' })), true);
   assert.equal(sameOrigin(new Request('https://work-os.example/api/test', { method: 'POST', headers: { origin: 'https://evil.example' } })), false);
   assert.equal(sameOrigin(new Request('https://work-os.example/api/test', { method: 'POST' })), false);
