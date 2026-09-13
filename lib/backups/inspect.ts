@@ -1,7 +1,7 @@
 import { BACKUP_TABLES, type BackupTable } from './export.ts';
 
 export const CLOUD_BACKUP_APP = 'work-os-cloud-backup';
-export const CLOUD_BACKUP_SCHEMA_VERSION = 10;
+export const CLOUD_BACKUP_SCHEMA_VERSION = 11;
 export const CLOUD_BACKUP_MIN_SCHEMA_VERSION = 5;
 export const CLOUD_BACKUP_MAX_BYTES = 25 * 1024 * 1024;
 
@@ -70,18 +70,24 @@ export function inspectCloudBackup(raw: string): CloudBackupInspection {
 
   if (declaredCounts && tables) {
     for (const table of BACKUP_TABLES) {
-      const rows = tables[table];
+      const tableRows = tables[table];
       const declared = integer(declaredCounts[table]);
-      const introduced = table === 'library_items' ? 6 : (table === 'telegram_schedule_settings' || table === 'telegram_schedule_slots') ? 7 : table === 'workdays' ? 8 : table === 'report_checkpoints' ? 9 : table === 'goal_versions' ? 10 : 1;
-      if (schemaVersion !== null && schemaVersion < introduced && rows === undefined && declared === null) continue;
-      if (!Array.isArray(rows)) {
+      const introduced = table === 'library_items' ? 6
+        : (table === 'telegram_schedule_settings' || table === 'telegram_schedule_slots') ? 7
+        : table === 'workdays' ? 8
+        : table === 'report_checkpoints' ? 9
+        : table === 'goal_versions' ? 10
+        : table === 'library_item_versions' ? 11
+        : 1;
+      if (schemaVersion !== null && schemaVersion < introduced && tableRows === undefined && declared === null) continue;
+      if (!Array.isArray(tableRows)) {
         errors.push(`Розділ «${table}» відсутній або пошкоджений.`);
         continue;
       }
-      if (rows.some((row) => !record(row))) errors.push(`Розділ «${table}» містить некоректні записи.`);
-      counts[table] = rows.length;
-      if (declared !== rows.length) errors.push(`Контрольна кількість для «${table}» не збігається: очікується ${declared ?? '—'}, отримано ${rows.length}.`);
-      validateUniqueKeys(table, rows.filter(isRow), errors);
+      if (tableRows.some((row) => !record(row))) errors.push(`Розділ «${table}» містить некоректні записи.`);
+      counts[table] = tableRows.length;
+      if (declared !== tableRows.length) errors.push(`Контрольна кількість для «${table}» не збігається: очікується ${declared ?? '—'}, отримано ${tableRows.length}.`);
+      validateUniqueKeys(table, tableRows.filter(isRow), errors);
     }
     const unknownTables = Object.keys(tables).filter((table) => !BACKUP_TABLES.includes(table as BackupTable));
     if (unknownTables.length) warnings.push(`Знайдено невідомі розділи: ${unknownTables.join(', ')}.`);
@@ -139,8 +145,8 @@ function backupRowKey(table: BackupTable, row: JsonRow): string {
 function validateOwnership(tables: JsonRow, ownerId: string, errors: string[]) {
   if (!ownerId) return;
   for (const table of BACKUP_TABLES) {
-    const rows = Array.isArray(tables[table]) ? (tables[table] as unknown[]).filter(isRow) : [];
-    for (const row of rows) {
+    const tableRows = Array.isArray(tables[table]) ? (tables[table] as unknown[]).filter(isRow) : [];
+    for (const row of tableRows) {
       if ('user_id' in row && text(row.user_id) !== ownerId) {
         errors.push(`Розділ «${table}» містить дані іншого власника.`);
         break;
@@ -158,6 +164,7 @@ function validateReferences(tables: JsonRow, errors: string[]) {
   const importIds = ids('legacy_imports');
   const accountIds = ids('telegram_accounts');
   const publicationIds = ids('chat_publications');
+  const libraryIds = ids('library_items');
   checkReferences(rows(tables, 'chat_profiles'), 'chat_id', chatIds, 'chat_profiles → chats', errors, false);
   checkReferences(rows(tables, 'chat_publications'), 'chat_id', chatIds, 'chat_publications → chats', errors, false);
   checkReferences(rows(tables, 'students'), 'lead_id', leadIds, 'students → leads', errors, false);
@@ -179,6 +186,7 @@ function validateReferences(tables: JsonRow, errors: string[]) {
   checkReferences(rows(tables, 'activity_events'), 'chat_id', chatIds, 'activity_events → chats', errors, true);
   checkReferences(rows(tables, 'activity_events'), 'lead_id', leadIds, 'activity_events → leads', errors, true);
   checkReferences(rows(tables, 'activity_events'), 'lesson_id', lessonIds, 'activity_events → lessons', errors, true);
+  checkReferences(rows(tables, 'library_item_versions'), 'item_id', libraryIds, 'library_item_versions → library_items', errors, false);
   checkReferences(rows(tables, 'legacy_import_chunks'), 'import_id', importIds, 'legacy_import_chunks → legacy_imports', errors, false);
   for (const table of BACKUP_TABLES.filter((name) => name !== 'legacy_imports' && name !== 'legacy_import_chunks')) {
     checkReferences(rows(tables, table), 'source_import_id', importIds, `${table} → legacy_imports`, errors, true);
