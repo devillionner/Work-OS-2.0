@@ -20,18 +20,20 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const kind = url.searchParams.get('kind') || 'advertisement';
   const collectionText = url.searchParams.get('collection') || '';
+  const archived = url.searchParams.get('archived') === 'true';
   const search = (url.searchParams.get('search') || '').trim().slice(0, 120);
   if (kind !== 'all' && !KINDS.has(kind)) return Response.json({ error: 'Невідомий тип матеріалу.' }, { status: 400 });
   if (collectionText && !isLibraryCollection(collectionText)) return Response.json({ error: 'Невідома колекція.' }, { status: 400 });
   const collection = collectionText as LibraryCollection | '';
   const pattern = `%${escapeLike(search.toLowerCase())}%`;
   const result = await env.DB.prepare(`SELECT id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,archived_at,created_at,updated_at
-    FROM library_items WHERE user_id=?1 AND archived_at IS NULL
+    FROM library_items WHERE user_id=?1
+      AND ((?6=0 AND archived_at IS NULL) OR (?6=1 AND archived_at IS NOT NULL))
       AND (?2='' OR collection=?2)
       AND (?3='all' OR kind=?3)
       AND NOT (?3='script' AND ?2='' AND collection='knowledge')
       AND (?4='' OR lower(title) LIKE ?5 ESCAPE '\\' OR lower(uk_text) LIKE ?5 ESCAPE '\\' OR lower(ru_text) LIKE ?5 ESCAPE '\\' OR lower(notes) LIKE ?5 ESCAPE '\\' OR lower(tags_json) LIKE ?5 ESCAPE '\\')
-    ORDER BY updated_at DESC,title LIMIT 200`).bind(user.id, collection, kind, search, pattern).all<LibraryRow>();
+    ORDER BY updated_at DESC,title LIMIT 200`).bind(user.id, collection, kind, search, pattern, Number(archived)).all<LibraryRow>();
   return Response.json({ items: result.results.map(publicItem) }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
