@@ -34,8 +34,9 @@ export async function POST(request:Request):Promise<Response>{
       return Response.json(stripRows(preview),{headers:{'Cache-Control':'no-store'}});
     }
     const revisionText=new URL(request.url).searchParams.get('revision')||'';
+    if(!/^\d+$/.test(revisionText))return Response.json({error:'Спочатку виконайте preview CSV.'},{status:400});
     const expectedRevision=Number(revisionText);
-    if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0)return Response.json({error:'Спочатку виконайте preview CSV.'},{status:400});
+    if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0)return Response.json({error:'Некоректна версія preview.'},{status:400});
     const result=await applyChatCsvImport(env.DB,{userId:user.id,rows,expectedRevision,now:unixNow()});
     return Response.json(result,{headers:{'Cache-Control':'no-store'}});
   }catch(reason){return csvError(reason);}
