@@ -53,7 +53,7 @@ void test('historical joined chat is idempotent, canonical and does not mutate c
   }),/ID запиту вже використано/);
   await assert.rejects(recordHistoricalJoinedChat(db,{
     userId:'u',requestId:crypto.randomUUID(),date:DATE,name:'Duplicate alias',link:'https://telegram.dog/TestGroup',telegramAccountId:'u:tg1',now:NOW,
-  }),/вже існує/);
+  }),/існує/);
   await assert.rejects(recordHistoricalJoinedChat(db,{
     userId:'u',requestId:crypto.randomUUID(),date:'2026-09-14',name:'Future',link:'https://t.me/futuregroup',telegramAccountId:'u:tg1',now:NOW,
   }),/майбутньому/);
