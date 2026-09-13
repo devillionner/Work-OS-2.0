@@ -7,6 +7,8 @@ import { ChatBulkDialog } from '@/components/chat-bulk-dialog';
 import { ChatProfileDialog } from '@/components/chat-profile-dialog';
 import { ChatHistoryDialog } from '@/components/chat-history-dialog';
 import { ChatPublishDialog } from '@/components/chat-publish-dialog';
+import { ChatDuplicatesDialog } from '@/components/chat-duplicates-dialog';
+import { ChatLeaveChecklist } from '@/components/chat-leave-checklist';
 import { TelegramSchedule } from '@/components/telegram-schedule';
 import { CHAT_PLATFORM_NAMES, type ChatPlatform } from '@/lib/chats/bulk-input';
 import type { BulkResult } from '@/lib/chats/bulk';
@@ -46,6 +48,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const [loadedData,setData] = useState<ResponseData|null>(null);
   const [undo,setUndo] = useState<UndoState|null>(null);
   const [bulkOpen,setBulkOpen]=useState(false);
+  const [duplicatesOpen,setDuplicatesOpen]=useState(false);
   const [notice,setNotice]=useState('');
   const [profileChat,setProfileChat]=useState<Chat|null>(null);
   const [profileOpenKey,setProfileOpenKey]=useState(0);
@@ -171,14 +174,16 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     setBusy(chat.id); setError(''); setNotice(''); setUndo(null);
     try {
       const response=await fetch('/api/chats',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:chat.id,action,stateToken:chat.stateToken,accountId:platform==='telegram'?accountId:null,...extra})});
-      const body=await response.json() as {error?:string;availableAt?:number;stateToken?:string;snoozedUntil?:number|null};
+      const body=await response.json() as {error?:string;availableAt?:number;stateToken?:string;snoozedUntil?:number|null;snoozeCount?:number;archiveSuggested?:boolean};
       if(!response.ok) {
         if(response.status===409) await reloadChats.current();
         throw new Error(body.error || 'Не вдалося виконати дію.');
       }
       if(undoSpec&&typeof body.stateToken==='string') setUndo({chat:{...chat,stateToken:body.stateToken,snoozedUntil:body.snoozedUntil??chat.snoozedUntil},...undoSpec});
-      setArchiveId(null); setCustomArchiveReason(''); await reloadChats.current();
-      if(undoSpec&&typeof body.stateToken==='string') setNotice(undoSpec.label);
+      const suggestArchive=action==='snooze'&&body.archiveSuggested===true;
+      setArchiveId(suggestArchive?chat.id:null); setCustomArchiveReason(''); await reloadChats.current();
+      if(suggestArchive) setNotice(`Цей чат уже відкладено ${body.snoozeCount||3} разів. Перевір, чи не час перенести його в архів.`);
+      else if(undoSpec&&typeof body.stateToken==='string') setNotice(undoSpec.label);
       if(chat.platform==='telegram') await loadAccounts();
       if(action==='published'&&chat.platform==='telegram') setScheduleRefreshKey(value=>value+1);
       router.refresh();
@@ -227,13 +232,14 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const breakSeconds=activeAccount?.breakUntil?Math.max(0,activeAccount.breakUntil-Math.floor(clock/1000)):0;
   return <div className="platform-workspace">
     <ChatBulkDialog open={bulkOpen} onClose={()=>setBulkOpen(false)} onAdded={addedChats} enabledPlatforms={enabledPlatforms}/>
+    <ChatDuplicatesDialog open={duplicatesOpen} platform={platform} telegramAccountId={accountId} onClose={()=>setDuplicatesOpen(false)} onChanged={()=>void reloadChats.current()}/>
     <ChatProfileDialog key={profileOpenKey} open={profileChat!==null} chat={profileChat} onClose={()=>setProfileChat(null)} onSaved={savedProfile} onOpenChat={()=>{if(profileChat)openChat(profileChat);}}/>
     <ChatHistoryDialog key={historyOpenKey} open={historyChat!==null} chat={historyChat} onClose={()=>setHistoryChat(null)}/>
     <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={({advertisementId,language})=>publishChat?act(publishChat,'published',{advertisementId,language}):Promise.resolve(false)} onOpenChat={()=>{if(publishChat)openChat(publishChat);}}/>
     {notice&&<output className="reports-notice"><span>{notice}</span>{undo&&<Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>void undoLast()}>Скасувати</Button>}</output>}
     <section className="platform-hero">
       <div><p className="eyebrow">Робочі платформи</p><h2>Чати без зайвих переходів</h2><p>Приєднуйся, перевіряй очікування та відмічай публікації в одному стабільному процесі.</p></div>
-      <Button disabled={busy!==null} onClick={()=>setBulkOpen(true)}><Plus data-icon="inline-start"/>Додати чати</Button>
+      <div className="platform-hero-actions"><Button variant="outline" disabled={busy!==null} onClick={()=>setDuplicatesOpen(true)}><Search data-icon="inline-start"/>Дублікати</Button><Button disabled={busy!==null} onClick={()=>setBulkOpen(true)}><Plus data-icon="inline-start"/>Додати чати</Button></div>
       <div className="platform-picker" role="tablist" aria-label="Платформа">
         {availablePlatforms.map(item=><button key={item.key} role="tab" aria-selected={platform===item.key} onClick={()=>selectPlatform(item.key)}><i style={{background:item.color}} />{item.label}</button>)}
       </div>
@@ -294,7 +300,8 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
             {(queue==='waiting'||queue==='ready')&&<Button variant="outline" title={isSnoozed(chat,clock)?'Скасувати відкладення':'Відкласти на 3 календарні дні'} onClick={()=>{const snoozed=isSnoozed(chat,clock);return act(chat,snoozed?'unsnooze':'snooze',{},snoozed?undefined:{action:'unsnooze',label:'Відкладення можна скасувати протягом 8 секунд.'});}} disabled={busy!==null||chat.publishedToday}>{isSnoozed(chat,clock)?'Повернути зараз':'+3 дні'}</Button>}
             {queue==='archived'?<Button variant="outline" onClick={()=>act(chat,'restore')} disabled={busy!==null}><RotateCcw data-icon="inline-start"/>Відновити</Button>:<Button variant="ghost" size="icon" onClick={()=>toggleArchive(chat.id)} aria-label="Перенести в архів"><Archive/></Button>}
           </div>
-          {archiveId===chat.id&&<div className="archive-reasons"><span>Чому в архів?</span>{['Забанено','Чат не існує','Чат не цільовий'].map(reason=><button disabled={busy!==null} key={reason} onClick={()=>act(chat,'archive',{reason},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'})}>{reason}</button>)}<div className="archive-custom"><Input value={customArchiveReason} maxLength={100} disabled={busy!==null} aria-label="Власна причина архівації" placeholder="Інша причина" onChange={event=>setCustomArchiveReason(event.target.value)}/><Button disabled={busy!==null||!customArchiveReason.trim()} onClick={()=>act(chat,'archive',{reason:customArchiveReason.trim()},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'})}>Архівувати</Button></div></div>}
+          {queue==='archived'&&(chat.platform==='telegram'||chat.platform==='whatsapp')&&<ChatLeaveChecklist chat={chat} onChanged={()=>void reloadChats.current()}/>} 
+          {archiveId===chat.id&&<div className="archive-reasons"><span>Чому в архів?</span>{['Забанено','Чат не існує','Чат не цільовий','Дублікат'].map(reason=><button disabled={busy!==null} key={reason} onClick={()=>act(chat,'archive',{reason},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'})}>{reason}</button>)}<div className="archive-custom"><Input value={customArchiveReason} maxLength={100} disabled={busy!==null} aria-label="Власна причина архівації" placeholder="Інша причина" onChange={event=>setCustomArchiveReason(event.target.value)}/><Button disabled={busy!==null||!customArchiveReason.trim()} onClick={()=>act(chat,'archive',{reason:customArchiveReason.trim()},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'})}>Архівувати</Button></div></div>}
         </article>)}
       </div>:<div className="workspace-empty"><MessageSquareEmpty/><strong>У цій черзі нічого немає</strong><p>Зміни платформу, чергу або очисть пошук.</p></div>}
       {!loading&&data&&data.total>50&&<div className="chat-pagination"><Button variant="outline" size="sm" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-50))}><ChevronLeft data-icon="inline-start"/>Назад</Button><span>{offset+1}–{Math.min(offset+50,data.total)} із {data.total}</span><Button variant="outline" size="sm" disabled={offset+50>=data.total} onClick={()=>setOffset(offset+50)}>Далі<ChevronRight data-icon="inline-end"/></Button></div>}
