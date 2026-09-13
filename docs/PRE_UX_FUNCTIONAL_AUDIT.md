@@ -11,7 +11,7 @@ This document exists because the canonical requirement registry was last broadly
 - `Prototype-Checker` remains read-only.
 - Staging acceptance is allowed only against `work-os-2-staging` and `work-os-2-staging-db` after target verification/dry-run.
 - PR #23 pins the default deploy config to the staging Worker/D1 and adds a regression guard separating staging from production.
-- No local or staging result is inferred while Remote Desktop Commander is offline.
+- No local or staging result is inferred while Remote Desktop Commander is offline. A direct RDC ping on 2026-09-14 returned no available device.
 
 ## Current pre-UX PR stack and gates
 
@@ -33,8 +33,10 @@ This document exists because the canonical requirement registry was last broadly
 | #39 | official/personal scripts + knowledge separation and item version history | GitHub CI green; migration/backup/staging acceptance pending |
 | #40 | historical publication correction | GitHub CI green; staging acceptance pending |
 | #41 | historical lesson-result correction | GitHub CI green; staging acceptance pending |
-| #42 | historical joined-chat correction | runtime implementation passes targeted coverage except one test-fixture omission fixed on head `f1a0ae0`; replacement CI run pending at this update |
+| #42 | historical joined-chat correction | GitHub `Local checks` #117 green on `f1a0ae0`; staging acceptance pending |
 | #43 | manual Telegram schedule capacity guard | GitHub CI green; staging acceptance pending |
+| #45 | explainable low-efficiency/strong-signal analytics + current archive-reason summary | GitHub `Local checks` #125 green on `ce686a8`; staging acceptance pending |
+| #46 | daily time-series analytics for joins/publications/responses/bookings/completed lessons | final GitHub CI pending at this update; stacked on #45 |
 
 PR #44 was closed as redundant after the full open-PR audit because it duplicated #31/#35/#36. Its stricter restore behavior was not promoted because canonical #36 deliberately preserves the existing restore contract.
 
@@ -73,6 +75,7 @@ The following are examples of requirements whose old registry status is stale an
 - CHAT-13/14/26/27/29 are implemented in #35: owner/platform-scoped duplicate review, canonical-link confidence, same-name manual candidates, Telegram account scope, guarded rename and explicit archive as `Дублікат`.
 - CHAT-23/25 are implemented in #36 as a recoverable leave-confirmation checklist for archived joined Telegram/WhatsApp chats.
 - IMPORT-06 is implemented in #38 as a bounded state-preserving CSV export/import with preview, stale-preview guard and owner/account checks.
+- IMPORT-10 manual correction is already available for ordinary existing chats through `Профіль чату`: the chat name is editable and saved through the existing optimistic state-token/profile write path. Duplicate review adds another guarded inline rename path; do not build a third manual rename mechanism.
 
 ### Telegram schedule / publishing
 
@@ -100,6 +103,8 @@ Actual `telegram-schedule` code plus #37/#43 covers the previously open manual-s
 - CAL-01/CAL-02 are implemented in #23 and are waiting for staging acceptance, not functional design.
 - ANALYTICS-02 is implemented in #25 (day/week/month/year/custom bounded period).
 - ANALYTICS-12 and ANALYTICS-17 are implemented in #27 (CSV export and acquisition cohort result view).
+- ANALYTICS-08/09/19 recommendation/archive-summary slice is implemented in #45. Recommendations are derived/read-only, require meaningful sample sizes and never auto-archive/restore/change cadence.
+- ANALYTICS-03 daily trend series is implemented in #46; final CI evidence is still pending at this audit revision.
 
 ## Confirmed remaining functional gaps before declaring pre-UX complete
 
@@ -107,20 +112,20 @@ These are actual-code gaps after accounting for the current open PR stack, not s
 
 ### P1 — manual platform workflow
 
-1. **Existing chat name maintenance / global true-name check (remaining IMPORT-07/09/12).** Manual rename exists through duplicate-review flows, but automatic retrieval of real names for new and existing Telegram/WhatsApp/Viber chats plus one global progress/error workflow is not complete. Any implementation must not silently overwrite a trusted manual name with a lower-confidence result and depends on external platform/browser behavior.
+1. **Automatic true-name retrieval / global name check (remaining IMPORT-07/09/12).** Manual correction is already implemented. What remains is external retrieval of real names for new and existing Telegram/WhatsApp/Viber chats plus one global progress/error workflow. It must not silently overwrite a trusted manual name with a lower-confidence result and depends on external platform/browser behavior.
 
 ### P2 — CRM workflow
 
-1. **Conversation media attachments (LEAD-23).** Lead conversation persists text messages; no complete media attachment lifecycle, storage policy, backup/restore semantics and safe rendering path has been confirmed.
+1. **Conversation media attachments (LEAD-23).** Lead conversation persists text messages; no complete media attachment lifecycle, storage policy, backup/restore semantics and safe rendering path has been confirmed. This is not safe to fake by storing arbitrary blobs/base64 in D1.
 
 ### P3 — report / analytics depth
 
-1. **REPORT-22 explicit automatic-fact vs manual-correction reconciliation.** Event-derived totals, revision history and source drill-down exist, but there is not yet a structured per-number comparison model that explains manual correction versus automatic event truth.
-2. **Analytics visual/recommendation layer.** Time-series charts, archive-reason analysis and explainable low-efficiency recommendations are not complete; current analytics is primarily metric/table/cohort based. These features must remain derived views and must not mutate event truth.
+1. **REPORT-22 explicit automatic-fact vs manual-correction reconciliation.** Event-derived totals, revision history and source drill-down exist, but the current report model has event truth plus free-form report text, not structured numeric manual overrides. A real implementation requires an explicit correction data contract; parsing numbers from the report textarea would be fragile and misleading.
+2. **Analytics historical archive-reason journal (optional depth).** #45 safely summarizes chats that are currently archived and whose current `archived_at` is inside the selected period. A full history including chats later restored would require archive reason to be journaled as explicit event metadata rather than decoded from positional state-token arrays. Do not introduce a hidden dependency on state-token indexes.
 
 ### P4 — reliability / release evidence
 
-1. **Same-second report staleness precision.** `activitySummaryStatement` considers a change stale only when `occurred_at > submitted_at` or `cancelled_at > submitted_at`. Events created/cancelled in the exact same integer second after submission can be missed. Changing this to `>=` would create false stale states for events that already existed before submission in that same second. A monotonic submission/event revision marker (or equivalent exact ordering evidence) is required.
+1. **Same-second report staleness precision.** `activitySummaryStatement` considers a change stale only when `occurred_at > submitted_at` or `cancelled_at > submitted_at`. Events created/cancelled in the exact same integer second after submission can be missed. Changing this to `>=` would create false stale states for events that already existed before submission in that same second. The safe model is a monotonic revision scoped by `user_id + business_date`, captured by the report at submit; a global workspace revision would cause false stale states when another date changes.
 2. **Uniform mutation hardening.** #29 covers normal daily mutation routes. The large legacy migration-control POST still uses the older direct JSON parser; change it only with full local verification available because this is a high-risk migration path.
 3. **Performance gate.** Synthetic checks already cover 10k existing chats and 10k leads / 100k events. Final P4 acceptance still requires recorded query counts/rows/payload, p50/p95, EXPLAIN review and UI latency on one fixed local/staging stand, including the current stacked features.
 4. **Final desktop/mobile/keyboard/a11y and staging acceptance.** These are evidence gates, not reasons to invent more business functionality. They remain blocked while the authorized remote machine is offline.
@@ -137,6 +142,6 @@ These are actual-code gaps after accounting for the current open PR stack, not s
 1. Keep the open PR stack canonical; do not create duplicate implementations for stale registry entries.
 2. Turn every red CI gate green before adding more functional surface area.
 3. When Remote Desktop Commander returns, run one full local verify for the accepted combined stack, then a staging-only dry-run/deploy/acceptance with explicit Worker/D1 target verification.
-4. Close same-second ordering, remaining mutation-hardening and recorded performance evidence with local/staging verification available.
-5. Only then decide whether external-platform name retrieval and conversation media are required before visual UX work or can be explicitly deferred.
+4. Close same-second ordering, remaining mutation-hardening and recorded performance evidence with local/staging verification available; stack the ordering migration after the existing #39 migration to avoid migration-number collision.
+5. Only then decide whether external-platform name retrieval, conversation media and full historical archive-reason journaling are required before visual UX work or can be explicitly deferred.
 6. When no required real functional gaps remain, stop functional development and mark Work OS 2.0 `pre-UX complete` before starting the design/UX phase.
