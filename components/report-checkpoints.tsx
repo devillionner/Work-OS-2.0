@@ -5,6 +5,7 @@ import { Check, Clipboard, Clock3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReportPublicationCorrection } from '@/components/report-publication-correction';
 import { ReportLessonResultCorrection } from '@/components/report-lesson-result-correction';
+import { ReportChatCorrection } from '@/components/report-chat-correction';
 
 type Checkpoint = {
   slot: '13:00' | '16:00' | '19:00';
@@ -75,6 +76,7 @@ export function ReportCheckpoints({ date }: { date: string }) {
     </section>
     <ReportPublicationCorrection date={date} />
     <ReportLessonResultCorrection date={date} />
+    <ReportChatCorrection date={date} />
   </>;
 }
 
