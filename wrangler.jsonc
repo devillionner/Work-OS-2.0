@@ -16,6 +16,8 @@
   "d1_databases": [
     {
       "binding": "DB",
+      "database_name": "work-os-2-staging-db",
+      "database_id": "740312bc-bd1f-4d69-826f-d31208789598",
       "migrations_dir": "migrations"
     }
   ],
