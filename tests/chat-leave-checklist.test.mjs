@@ -3,6 +3,7 @@ import test from 'node:test';
 import { localDatabase, seedChat } from './helpers/local-d1.mjs';
 import { readChatState } from '../lib/chats/state.ts';
 import { changeChatLeaveConfirmation, readChatLeaveState, archivedChatNeedsLeave } from '../lib/chats/leave-checklist.ts';
+import { transitionChat } from '../lib/chats/transitions.ts';
 
 const NOW = Date.parse('2026-09-13T12:00:00Z') / 1000;
 
@@ -36,6 +37,23 @@ void test('leave confirmation and undo are versioned, owner scoped and recoverab
   assert.notEqual(afterConfirm.state_token, before.state_token);
   assert.equal((await changeChatLeaveConfirmation(db, { userId: 'u', chatId: 'chat', stateToken: afterConfirm.state_token, confirm: false, now: NOW + 1 })).ok, true);
   assert.deepEqual(await readChatLeaveState(db, 'u', 'chat'), { required: true, confirmed: false, confirmedAt: null });
+});
+
+void test('joined Telegram and WhatsApp archive cannot restore before confirmed leave', async (t) => {
+  const db = await localDatabase(t);
+  await seedChat(db, { id: 'chat', platform: 'whatsapp', status: 'archived', joined: 100 });
+  let chat = await readChatState(db, 'u', 'chat');
+  const blocked = await transitionChat(db, { userId: 'u', chat, action: 'restore', accountId: null, now: NOW });
+  assert.deepEqual(blocked, { ok: false, error: 'Спочатку підтвердьте, що ви вийшли з архівного чату.' });
+  assert.equal((await readChatState(db, 'u', 'chat')).workflow_status, 'archived');
+
+  assert.equal((await changeChatLeaveConfirmation(db, { userId: 'u', chatId: 'chat', stateToken: chat.state_token, confirm: true, now: NOW })).ok, true);
+  chat = await readChatState(db, 'u', 'chat');
+  assert.equal((await transitionChat(db, { userId: 'u', chat, action: 'restore', accountId: null, now: NOW + 1 })).ok, true);
+  const restored = await readChatState(db, 'u', 'chat');
+  assert.equal(restored.workflow_status, 'to_join');
+  assert.equal(restored.joined_at, null);
+  assert.deepEqual(await readChatLeaveState(db, 'u', 'chat'), { required: false, confirmed: false, confirmedAt: null });
 });
 
 void test('active, non-joined and non-supported chats cannot forge leave confirmation', async (t) => {
