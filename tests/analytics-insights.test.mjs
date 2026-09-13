@@ -43,8 +43,8 @@ void test('small samples return an explicit insufficient-data result', () => {
 
 void test('archive reasons are normalized and sorted by frequency', () => {
   assert.deepEqual(summarizeArchiveReasons(['Дублікат','  Дублікат  ','Забанено','',null]),[
-    { reason:'Дублікат',count:2 },
     { reason:'Без причини',count:2 },
+    { reason:'Дублікат',count:2 },
     { reason:'Забанено',count:1 },
   ]);
 });
