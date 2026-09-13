@@ -22,6 +22,7 @@ export function ChatCsvDialog({open,onClose,onImported}:{open:boolean;onClose:()
   const [notice,setNotice]=useState('');
 
   function resetImport(){setCsv('');setFileName('');setPreview(null);setError('');setNotice('');if(inputRef.current)inputRef.current.value='';}
+  function close(){if(busy)return;resetImport();onClose();}
   async function choose(file:File|null){
     resetImport();if(!file)return;
     setFileName(file.name);
@@ -54,9 +55,9 @@ export function ChatCsvDialog({open,onClose,onImported}:{open:boolean;onClose:()
     finally{setBusy(false);}
   }
   if(!open)return null;
-  return <div className="modal-backdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget&&!busy)onClose();}}>
+  return <div className="modal-backdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)close();}}>
     <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="chat-csv-title">
-      <div className="card-heading"><div><p className="eyebrow">Перенесення чатів</p><h3 id="chat-csv-title">CSV імпорт та експорт</h3><p>CSV переносить поточний стан і профілі чатів. Повна історія подій переноситься лише через резервну копію.</p></div><Button variant="ghost" disabled={busy} onClick={onClose}>Закрити</Button></div>
+      <div className="card-heading"><div><p className="eyebrow">Перенесення чатів</p><h3 id="chat-csv-title">CSV імпорт та експорт</h3><p>CSV переносить поточний стан і профілі чатів. Повна історія подій переноситься лише через резервну копію.</p></div><Button variant="ghost" disabled={busy} onClick={close}>Закрити</Button></div>
       {error&&<div className="workspace-error" role="alert">{error}</div>}
       {notice&&<output className="reports-notice">{notice}</output>}
       <section className="settings-panel">
