@@ -20,15 +20,17 @@ void test('report event details expose active owner-scoped chat, response and bo
   await seedEvent(db, { id: 'cancelled-u', type: 'publication', date: DATE, at: 300, chat: 'chat-u', cancelled: 400 });
   await seedEvent(db, { id: 'response-other', owner: 'other', type: 'lead_created', date: DATE, at: 500, lead: 'lead-other' });
   await seedEvent(db, { id: 'joined-other', owner: 'other', type: 'chat_joined', date: DATE, at: 510, chat: 'chat-other' });
+  await seedEvent(db, { id: 'response-backdated', type: 'lead_created', date: DATE, at: 1789300800, lead: 'lead-u' });
 
   const before = Number((await db.prepare(`SELECT COUNT(*) AS count FROM activity_events`).first()).count);
   const details = await readReportEventDetails(db, 'u', DATE);
-  assert.deepEqual(details.map((event) => event.id), ['joined-u', 'publication-u', 'response-u', 'booking-u']);
+  assert.deepEqual(details.map((event) => event.id), ['joined-u', 'publication-u', 'response-u', 'booking-u', 'response-backdated']);
   assert.equal(details[0].chatId, 'chat-u');
   assert.equal(details[0].chatName, 'chat-u');
   assert.equal(details[1].chatName, 'chat-u');
   assert.equal(details[2].leadName, 'Олена');
   assert.equal(details[3].lessonSubject, 'Математика');
+  assert.equal(details[4].leadName, 'Олена · Додано заднім числом');
   const other = await readReportEventDetails(db, 'other', DATE);
   assert.deepEqual(other.map((event) => event.id), ['response-other', 'joined-other']);
   assert.equal(other[1].chatName, 'chat-other');
