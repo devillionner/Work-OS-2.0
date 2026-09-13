@@ -9,7 +9,7 @@ export function chatLeftAtSql(alias: 'c' | 'chats' = 'c') {
   return `(SELECT CASE WHEN json_extract(le.metadata_json,'$.action')='confirm_leave' THEN le.occurred_at ELSE NULL END
     FROM activity_events le WHERE le.chat_id=${alias}.id AND le.user_id=${alias}.user_id
       AND le.event_type='chat_state_changed'
-      AND json_extract(le.metadata_json,'$.action') IN ('confirm_leave','undo_leave')
+      AND json_extract(le.metadata_json,'$.action') IN ('confirm_leave','undo_leave','joined','approved')
     ORDER BY le.rowid DESC LIMIT 1)`;
 }
 
