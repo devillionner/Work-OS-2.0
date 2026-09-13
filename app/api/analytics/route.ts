@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { activitySummaryStatement } from '@/lib/activity-summary';
 import { completedOperatorLessonsStatement } from '@/lib/analytics-attribution';
+import { resolveAnalyticsRange } from '@/lib/analytics-range';
 
 const PLATFORM_META: Record<string, { name: string; color: string }> = {
   telegram: { name: 'Telegram', color: '#2563eb' },
@@ -22,10 +23,16 @@ export async function GET(request: Request): Promise<Response> {
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
 
   const url = new URL(request.url);
-  const requestedDays = Number(url.searchParams.get('range') || 30);
-  const days = [7, 30, 90].includes(requestedDays) ? requestedDays : 30;
-  const to = kyivDate();
-  const from = shiftDate(to, -(days - 1));
+  let range;
+  try {
+    range = resolveAnalyticsRange(url.searchParams, kyivDate());
+  } catch (error) {
+    return Response.json(
+      { error: error instanceof Error ? error.message : 'Некоректний період аналітики.' },
+      { status: 400, headers: { 'Cache-Control': 'no-store' } },
+    );
+  }
+  const { from, to } = range;
 
   const [eventsResult, lessonsResult, chatResult] = await env.DB.batch([
     activitySummaryStatement(env.DB, user.id, from, to),
@@ -93,7 +100,7 @@ export async function GET(request: Request): Promise<Response> {
   }));
 
   return Response.json({
-    range: { days, from, to },
+    range,
     totals: {
       ...totals,
       responseRate: rate(totals.responses, totals.publications),
@@ -113,10 +120,4 @@ function kyivDate(): string {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
-}
-
-function shiftDate(value: string, offset: number): string {
-  const date = new Date(`${value}T12:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + offset);
-  return date.toISOString().slice(0, 10);
 }
