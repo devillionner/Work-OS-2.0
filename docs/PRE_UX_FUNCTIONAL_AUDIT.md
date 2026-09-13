@@ -11,7 +11,7 @@ This document exists because the canonical requirement registry was last broadly
 - `Prototype-Checker` remains read-only.
 - Staging acceptance is allowed only against `work-os-2-staging` and `work-os-2-staging-db` after target verification/dry-run.
 - PR #23 pins the default deploy config to the staging Worker/D1 and adds a regression guard separating staging from production.
-- No local or staging result is inferred while Remote Desktop Commander is offline. A direct RDC ping on 2026-09-14 returned no available device.
+- No local or staging result is inferred while Remote Desktop Commander is offline. Repeated RDC checks on 2026-09-14 show the authorized `Denys-Asus` device offline.
 
 ## Current pre-UX PR stack and gates
 
@@ -37,6 +37,7 @@ This document exists because the canonical requirement registry was last broadly
 | #43 | manual Telegram schedule capacity guard | GitHub CI green; staging acceptance pending |
 | #45 | explainable low-efficiency/strong-signal analytics + current archive-reason summary | GitHub `Local checks` #125 green on `ce686a8`; staging acceptance pending |
 | #46 | daily time-series analytics for joins/publications/responses/bookings/completed lessons | GitHub `Local checks` #128 green on `7680ef3`; staging acceptance pending |
+| #47 | exact per-day activity revision for report staleness + Today pending-after-report | GitHub `Local checks` #134 green on `34a77dec`; migration/backup/local/staging acceptance pending |
 
 PR #44 was closed as redundant after the full open-PR audit because it duplicated #31/#35/#36. Its stricter restore behavior was not promoted because canonical #36 deliberately preserves the existing restore contract.
 
@@ -50,6 +51,7 @@ The following are examples of requirements whose old registry status is stale an
 
 - CORE-09: Today renders `WorkdayCard`; the owner-scoped Workday API supports start, pause, resume and end. Ending a workday checks unfinished lead tasks and requires explicit confirmation when work remains.
 - CAL-04 Today-side reminder actions: due reminders can be copied, marked sent and opened at the exact lead from the Today queue.
+- #47 makes Today `pendingAfterReport` use the same exact per-day activity revision delta as report staleness for newly submitted reports, while legacy/restored reports keep the timestamp fallback.
 
 ### CRM
 
@@ -68,6 +70,7 @@ The following are examples of requirements whose old registry status is stale an
 - REPORT-21: daily/monthly goal history is versioned; later edits do not rewrite past plan/fact.
 - REPORT-23: selected report date has bounded owner-scoped source/detail lists.
 - REPORT-17 is covered as a stacked workflow: historical lead (#28), publication (#40), lesson result (#41) and joined chat (#42).
+- #47 closes the same-second stale-report ordering gap. Report submission atomically snapshots a monotonic revision scoped by `user_id + report_date`; later relevant event inserts/updates/deletes advance that date only. Exact same-second insert/cancel changes are therefore detected without the false positives that `>= submitted_at` would introduce. Technical activity types remain excluded, event moves advance both affected dates, and legacy/restored reports safely retain the existing timestamp fallback.
 
 ### Chat / import workflow
 
@@ -125,10 +128,9 @@ These are actual-code gaps after accounting for the current open PR stack, not s
 
 ### P4 — reliability / release evidence
 
-1. **Same-second report staleness precision.** `activitySummaryStatement` considers a change stale only when `occurred_at > submitted_at` or `cancelled_at > submitted_at`. Events created/cancelled in the exact same integer second after submission can be missed. Changing this to `>=` would create false stale states for events that already existed before submission in that same second. The safe model is a monotonic revision scoped by `user_id + business_date`, captured by the report at submit; a global workspace revision would cause false stale states when another date changes.
-2. **Uniform mutation hardening.** #29 covers normal daily mutation routes. The large legacy migration-control POST still uses the older direct JSON parser; change it only with full local verification available because this is a high-risk migration path.
-3. **Performance gate.** Synthetic checks already cover 10k existing chats and 10k leads / 100k events. Final P4 acceptance still requires recorded query counts/rows/payload, p50/p95, EXPLAIN review and UI latency on one fixed local/staging stand, including the current stacked features.
-4. **Final desktop/mobile/keyboard/a11y and staging acceptance.** These are evidence gates, not reasons to invent more business functionality. They remain blocked while the authorized remote machine is offline.
+1. **Uniform mutation hardening.** #29 covers normal daily mutation routes. The large legacy migration-control POST still uses the older direct JSON parser. It is owner-scoped and same-origin today, but should move to the shared bounded JSON-object parser only with full local verification available because this is a high-risk stateful migration path.
+2. **Performance gate.** Synthetic checks already cover 10k existing chats and 10k leads / 100k events. Final P4 acceptance still requires recorded query counts/rows/payload, p50/p95, EXPLAIN review and UI latency on one fixed local/staging stand, including the current stacked features.
+3. **Final desktop/mobile/keyboard/a11y and staging acceptance.** These are evidence gates, not reasons to invent more business functionality. They remain blocked while the authorized remote machine is offline.
 
 ## Deliberately deferred / not a pre-UX functional blocker
 
@@ -137,11 +139,18 @@ These are actual-code gaps after accounting for the current open PR stack, not s
 - Production cutover/final migration is P5 and requires explicit user approval after parity/acceptance.
 - Visual design polish, layout-system refinement, final mobile styling and visual regression work belong to the design/UX phase once the remaining functional/reliability blockers above are closed.
 
+## Integration notes before combined acceptance
+
+- #47 is intentionally stacked after #39 so `0029_report_activity_day_revisions.sql` follows #39 migration `0028_library_scope_history.sql` without migration-number collision.
+- #23 and #47 overlap only in `app/api/reports/route.ts`. Consolidation must preserve #23 calendar-context wiring and #47 atomic `submitted_activity_revision` write before the combined local/staging pass.
+- #47 treats `activity_day_revisions` as derived state and does not back it up. Restored `daily_reports.submitted_activity_revision` is reset to `NULL`, so restored reports use the timestamp fallback until the next explicit submission captures a fresh exact revision.
+
 ## Next execution order
 
 1. Keep the open PR stack canonical; do not create duplicate implementations for stale registry entries.
-2. Turn every red CI gate green before adding more functional surface area.
-3. When Remote Desktop Commander returns, run one full local verify for the accepted combined stack, then a staging-only dry-run/deploy/acceptance with explicit Worker/D1 target verification.
-4. Close same-second ordering, remaining mutation-hardening and recorded performance evidence with local/staging verification available; stack the ordering migration after the existing #39 migration to avoid migration-number collision.
-5. Only then decide whether external-platform name retrieval, conversation media and full historical archive-reason journaling are required before visual UX work or can be explicitly deferred.
-6. When no required real functional gaps remain, stop functional development and mark Work OS 2.0 `pre-UX complete` before starting the design/UX phase.
+2. Keep every CI gate green before adding more functional surface area.
+3. When Remote Desktop Commander returns, consolidate the accepted stack (including the #23/#47 report-route overlap) and run one full local verify.
+4. On that local stand, harden the legacy migration-control POST with the shared bounded JSON parser and rerun the migration-focused + full verification suite.
+5. Run migration/backup round-trip checks, then a staging-only dry-run/deploy/acceptance with explicit Worker/D1 target verification. Record performance query counts/rows/payload, p50/p95, EXPLAIN and UI latency on that same fixed stand.
+6. Complete desktop/mobile/keyboard/a11y acceptance. Only then decide whether external-platform name retrieval, conversation media and full historical archive-reason journaling are required before visual UX work or can be explicitly deferred.
+7. When no required real functional gaps remain, stop functional development and mark Work OS 2.0 `pre-UX complete` before starting the design/UX phase.
