@@ -16,6 +16,7 @@ import { LeadEditor } from './lead-editor';
 import { Confirmation } from './form';
 import { Students } from './students';
 import { FollowUp } from './follow-up';
+import { LeadScripts } from './scripts';
 import { Lessons } from './lessons';
 import { Conversation } from './conversation';
 import { LeadHistoryDialog } from './history';
@@ -319,6 +320,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                 </div>
               </section>
               <FollowUp detail={current} mutate={mutate} />
+              <LeadScripts lead={current.lead} />
               <Lessons detail={current} mutate={mutate} />
               <Students detail={current} mutate={mutate} />
               <Conversation key={current.lead.version} detail={current} mutate={mutate} />
