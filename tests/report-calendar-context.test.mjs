@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { businessDayStart } from '../lib/business-time.ts';
-import { calendarContextLabels, readCalendarContext } from '../lib/reports/calendar-context.ts';
+import { readCalendarContext } from '../lib/reports/calendar-context.ts';
+import { calendarContextLabels } from '../lib/reports/calendar-labels.ts';
 import { localDatabase, seedEvent } from './helpers/local-d1.mjs';
 
 void test('report calendar context is owner-scoped and combines workdays, lessons, follow-ups and lead events', async (t) => {
