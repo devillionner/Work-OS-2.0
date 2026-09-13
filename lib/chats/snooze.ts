@@ -21,6 +21,17 @@ export function shouldSuggestChatArchive(snoozeCount: number): boolean {
     && snoozeCount >= CHAT_SNOOZE_ARCHIVE_THRESHOLD;
 }
 
+export async function applyChatSnoozeAction(db: D1Database, input: {
+  userId: string; id: string; status: string; previousDeadline: number | null;
+  now: number; resume: boolean; stateToken: string;
+}): Promise<{ ok: false } | { ok: true; snoozeCount: number; archiveSuggested: boolean }> {
+  const ok = await changeChatSnooze(db, input);
+  if (!ok) return { ok: false };
+  if (input.resume) return { ok: true, snoozeCount: 0, archiveSuggested: false };
+  const snoozeCount = await readChatSnoozeCount(db, input.userId, input.id);
+  return { ok: true, snoozeCount, archiveSuggested: shouldSuggestChatArchive(snoozeCount) };
+}
+
 export async function changeChatSnooze(db: D1Database, input: {
   userId: string; id: string; status: string; previousDeadline: number | null; now: number; resume: boolean; stateToken: string;
 }) {
