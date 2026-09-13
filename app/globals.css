@@ -767,3 +767,13 @@ button { color: inherit; }
 .report-subject-row.is-head { color: var(--muted-foreground); font-size: 11px; font-weight: 600; }
 .report-subject-row.is-total { font-weight: 700; background: #fafbfc; }
 .report-subject-row span:not(:first-child) { text-align: right; }
+.report-checkpoints { margin-top: 18px; padding-top: 17px; border-top: 1px solid var(--border); }
+.report-checkpoints-head { display: flex; justify-content: space-between; gap: 12px; align-items: end; }
+.report-checkpoints-head h4 { margin: 0; }
+.report-checkpoint-list { display: grid; gap: 8px; margin-top: 10px; }
+.report-checkpoint { display: flex; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 12px; }
+.report-checkpoint > div:first-child { display: grid; gap: 3px; }
+.report-checkpoint strong { display: flex; align-items: center; gap: 6px; }
+.report-checkpoint strong svg { width: 15px; height: 15px; }
+.report-checkpoint small { color: var(--muted-foreground); }
+.report-checkpoint-actions { display: flex; align-items: center; gap: 8px; }
