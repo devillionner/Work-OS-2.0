@@ -1,3 +1,4 @@
+ALTER TABLE library_items ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE library_items ADD COLUMN collection TEXT NOT NULL DEFAULT 'advertisement'
   CHECK (collection IN ('advertisement','official_script','personal_script','knowledge'));
 
@@ -33,6 +34,6 @@ CREATE INDEX IF NOT EXISTS library_item_versions_owner_item_idx
 
 INSERT INTO library_item_versions
   (id,user_id,item_id,version_number,action,kind,collection,title,uk_text,ru_text,notes,tags_json,platforms_json,archived_at,saved_at)
-SELECT lower(hex(randomblob(16))),user_id,id,1,'create',kind,collection,title,uk_text,ru_text,notes,tags_json,platforms_json,archived_at,updated_at
+SELECT lower(hex(randomblob(16))),user_id,id,version,'create',kind,collection,title,uk_text,ru_text,notes,tags_json,platforms_json,archived_at,updated_at
 FROM library_items
 WHERE NOT EXISTS (SELECT 1 FROM library_item_versions v WHERE v.item_id=library_items.id);
