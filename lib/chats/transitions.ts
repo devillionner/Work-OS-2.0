@@ -15,6 +15,14 @@ export async function transitionChat(db: D1Database, input: {
   if (action === 'waiting' && !['telegram','whatsapp'].includes(chat.platform)) return {ok:false,error:'Для цієї платформи немає очікування запрошення.'};
   if (action === 'return_to_join' && chat.platform !== 'whatsapp') return {ok:false,error:'Повернення в цю чергу доступне лише для WhatsApp.'};
   if (action === 'assign_account' && (chat.platform !== 'telegram' || !input.accountId)) return {ok:false,error:'Оберіть активний Telegram-акаунт.'};
+  if (action === 'restore' && chat.joined_at !== null && ['telegram','whatsapp'].includes(chat.platform)) {
+    const leave = await db.prepare(`SELECT event_type FROM activity_events
+      WHERE user_id=?1 AND chat_id=?2 AND event_type IN ('chat_leave_confirmed','chat_leave_undone')
+      ORDER BY rowid DESC LIMIT 1`).bind(userId,chat.id).first<{event_type:string}>();
+    if (leave?.event_type !== 'chat_leave_confirmed') {
+      return {ok:false,error:'Спочатку підтвердьте, що ви вийшли з архівного чату.'};
+    }
+  }
 
   const joining = action === 'joined' || action === 'approved';
   const reset = action === 'restore' || action === 'return_to_join';
