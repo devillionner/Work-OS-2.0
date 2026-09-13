@@ -39,6 +39,11 @@ export async function restoreMissingChunk(args: {
   const normalized = (parsed as Array<Record<string, unknown>>).map((source) => {
     const row = { ...source };
     if (allowed.has('user_id')) row.user_id = userId;
+    // activity_day_revisions is derived from restored activity_events. A backup
+    // snapshot cannot be reused safely because event inserts rebuild a fresh local
+    // revision sequence. Restored submitted reports therefore use the legacy
+    // timestamp fallback until their next explicit submission captures a new exact snapshot.
+    if (table === 'daily_reports' && allowed.has('submitted_activity_revision')) row.submitted_activity_revision = null;
     return row;
   });
   if (allowed.has('user_id') && conflict.length === 1 && conflict[0] === 'id' && normalized.length) {
