@@ -1,8 +1,11 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
+import { readJsonObject, sameOrigin } from '@/lib/http-json';
 
 import { BACKUP_TABLES as TABLES, type BackupTable, backupManifest, backupPage, BackupConflict } from '@/lib/backups/export';
 import { CLOUD_BACKUP_APP, CLOUD_BACKUP_SCHEMA_VERSION } from '@/lib/backups/inspect';
+
+const BACKUP_RECEIPT_MAX_BYTES = 64 * 1024;
 
 export async function GET(request: Request): Promise<Response> {
   const user = await getCurrentUser();
@@ -26,7 +29,9 @@ export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
-  const body = await request.json().catch(() => ({})) as { sha256?: unknown; byteSize?: unknown; counts?: unknown; revision?: unknown };
+  const parsed = await readJsonObject(request, BACKUP_RECEIPT_MAX_BYTES);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed;
   const sha256 = typeof body.sha256 === 'string' ? body.sha256.toLowerCase() : '';
   const byteSize = Number(body.byteSize);
   const revision = Number(body.revision);
@@ -49,6 +54,3 @@ async function manifest(userId: string, email: string): Promise<Response> {
     createdAt: new Date().toISOString(), tables: TABLES, counts, lastBackup: last || null,
   }, { headers: { 'Cache-Control': 'no-store' } });
 }
-
-function sameOrigin(request: Request): boolean { const origin = request.headers.get('origin'); return Boolean(origin && origin === new URL(request.url).origin); }
-

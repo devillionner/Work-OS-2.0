@@ -9,6 +9,7 @@ import {
   type MigrationPhase,
 } from '@/lib/legacy-migration';
 import { sha256Hex } from '@/lib/legacy-backup';
+import { readJsonObject, sameOrigin } from '@/lib/http-json';
 
 // Each Leads record now includes parent/conflict guards in the same batch.
 const RECORDS_PER_STEP = 10;
@@ -32,7 +33,9 @@ export async function POST(request: Request): Promise<Response> {
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
 
-  const body = await request.json().catch(() => ({})) as { action?: unknown; importId?: unknown };
+  const parsed = await readJsonObject(request, 16 * 1024);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed as { action?: unknown; importId?: unknown };
   if (body.action === 'start') return startMigration(user.id, typeof body.importId === 'string' ? body.importId : '');
   if (body.action === 'process') return processMigration(user.id);
   return Response.json({ error: 'Невідома дія.' }, { status: 400 });
@@ -216,5 +219,4 @@ function safeCountRecord(value: string): Record<string, number> {
   try { const parsed = JSON.parse(value) as Record<string, unknown>; return Object.fromEntries(Object.entries(parsed).map(([key, count]) => [key, Number(count) || 0])); }
   catch { return {}; }
 }
-function sameOrigin(request: Request): boolean { const origin = request.headers.get('origin'); return Boolean(origin && origin === new URL(request.url).origin); }
 

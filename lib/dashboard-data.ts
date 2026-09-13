@@ -32,17 +32,18 @@ const PLATFORM_META: Record<string, { name: string; color: string }> = {
 export async function readDashboardSnapshot(db: D1Database, userId: string, now: number): Promise<DashboardSnapshot> {
   const today = businessDate(now);
   const [report, workday] = await Promise.all([
-    db.prepare(`SELECT submitted_at FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`)
-      .bind(userId, today).first<{ submitted_at: number | null }>(),
+    db.prepare(`SELECT submitted_at,submitted_activity_revision FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`)
+      .bind(userId, today).first<{ submitted_at: number | null; submitted_activity_revision: number | null }>(),
     readWorkdaySnapshot(db, userId, today, now),
   ]);
   const afterReport = report?.submitted_at ?? null;
+  const submittedActivityRevision = report?.submitted_activity_revision ?? null;
   const reminderHorizon = businessDate(now + 43200 * 60);
-  const [chatResult, leadResult, migrationResult, eventResult, settingsResult, followUpResult, reminderResult] = await db.batch([
+  const [chatResult, leadResult, migrationResult, eventResult, settingsResult, followUpResult, reminderResult, dayRevisionResult] = await db.batch([
     db.prepare(`SELECT COUNT(*) AS count FROM chats WHERE user_id=?1 AND workflow_status!='archived'`).bind(userId),
     db.prepare(`SELECT COUNT(*) AS count FROM leads WHERE user_id=?1 AND archived_at IS NULL`).bind(userId),
     db.prepare(`SELECT j.completed_at,i.original_filename FROM migration_jobs j JOIN legacy_imports i ON i.id=j.import_id AND i.user_id=j.user_id WHERE j.user_id=?1 AND j.status='completed' ORDER BY j.completed_at DESC LIMIT 1`).bind(userId),
-    activitySummaryStatement(db, userId, today, today, afterReport),
+    activitySummaryStatement(db, userId, today, today, submittedActivityRevision === null ? afterReport : null),
     db.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('focus_directions','daily_booking_goal','monthly_booking_goal','enabled_platforms')`).bind(userId),
     db.prepare(`SELECT id,name,next_action,next_contact_at FROM leads
       WHERE user_id=?1 AND archived_at IS NULL AND next_contact_at IS NOT NULL AND next_contact_at<=?2
@@ -56,6 +57,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
       WHERE r.user_id=?1 AND d.archived_at IS NULL AND r.enabled=1 AND r.sent_at IS NULL AND r.skipped_at IS NULL
         AND l.status IN ('booked','scheduled') AND l.lesson_date>=?2 AND l.lesson_date<=?3
       ORDER BY l.lesson_date,l.lesson_time,r.slot LIMIT 200`).bind(userId, today, reminderHorizon),
+    db.prepare(`SELECT revision FROM activity_day_revisions WHERE user_id=?1 AND event_date=?2 LIMIT 1`).bind(userId,today),
   ]);
   const chatCount = chatResult.results[0] as { count?: number } | undefined;
   const leadCount = leadResult.results[0] as { count?: number } | undefined;
@@ -64,6 +66,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
   const settingRows = settingsResult.results as Array<{ setting_key: string; value_json: string }>;
   const followUpRows = followUpResult.results as Array<{ id: string; name: string; next_action: string; next_contact_at: number }>;
   const reminderRows = reminderResult.results as Array<{ id: string; slot: number; enabled: number; offset_minutes: number; sent_at: number | null; skipped_at: number | null; lesson_id: string; lead_id: string; subject: string; student_name: string; teacher_name: string; lesson_date: string; lesson_time: string; lesson_platform: string | null; meeting_link: string; status: string; lead_name: string; lead_version: number }>;
+  const currentActivityRevision = Number((dayRevisionResult.results[0] as {revision?:number}|undefined)?.revision || 0);
   const leadTasks: DashboardSnapshot['leadTasks'] = followUpRows.map(row => ({
     kind: 'follow_up', leadId: row.id, leadName: row.name,
     title: row.next_action.trim() || 'Зв’язатися з лідом', dueAt: Number(row.next_contact_at), lessonId: null, reminderId: null, reminderText: null, leadVersion: null,
@@ -94,6 +97,9 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
     key, ...(PLATFORM_META[key] || { name: 'Джерело не вказано', color: '#6b7280' }),
     ...activityTotals(eventRows.filter(row => (row.platform || 'unknown') === key)),
   }));
+  const pendingAfterReport = submittedActivityRevision !== null
+    ? Math.max(0,currentActivityRevision-Number(submittedActivityRevision))
+    : eventRows.reduce((sum,row)=>sum+Number(row.changes_after_report||0),0);
   return {
     today, workday,
     migrationCompleted: Boolean(lastSync?.completed_at),
@@ -101,7 +107,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
     chats: Number(chatCount?.count || 0),
     leads: Number(leadCount?.count || 0),
     reportSubmittedAt: afterReport,
-    pendingAfterReport: eventRows.reduce((sum, row) => sum + Number(row.changes_after_report || 0), 0),
+    pendingAfterReport,
     bookingGoal: { completed: activityTotals(eventRows).bookings, target: dailyGoal },
     monthlyBookingGoal,
     focusDirections,
@@ -113,4 +119,4 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
 }
 
 function settingNumber(value: string | undefined): number { try { const parsed = JSON.parse(value || 'null'); return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0; } catch { return 0; } }
-function settingList(value: string | undefined): string[] { try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []; } catch { return []; } }
+function settingList(value: string | undefined): string[] { try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) ? parsed.filter((item): item is string=>typeof item==='string'):[]; } catch { return []; } }

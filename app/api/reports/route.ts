@@ -1,13 +1,16 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { activitySummaryStatement, type ActivitySummaryRow } from '@/lib/activity-summary';
+import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { readReportEventDetails } from '@/lib/reports/details';
 import { readReportCalendar } from '@/lib/reports/calendar';
+import { readCalendarContext } from '@/lib/reports/calendar-context';
 import { readSubjectAnalytics, SUBJECT_PERIODS, type SubjectPeriod } from '@/lib/reports/subjects';
 import { readPreviousReportReminder } from '@/lib/reports/reminders';
 import { readFinalReportState } from '@/lib/reports/final';
 import { readGoalPlanFact } from '@/lib/goals';
 
+const REQUEST_MAX_BYTES = 32 * 1024;
 type ReportRow = { id: string; report_date: string; report_text: string; submitted_at: number | null; updated_at: number; revision_count: number; stale?: number };
 
 export async function GET(request: Request): Promise<Response> {
@@ -19,8 +22,9 @@ export async function GET(request: Request): Promise<Response> {
   if (validDate(date) && date > kyivDate()) return Response.json({ error: 'Майбутні звіти недоступні.' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
   const start = `${month}-01`;
   const end = shiftMonth(start, 1);
-  const [calendar, selectedResult] = await Promise.all([
+  const [calendar, calendarContext, selectedResult] = await Promise.all([
     readReportCalendar(env.DB, user.id, start, end),
+    readCalendarContext(env.DB, user.id, start, end),
     env.DB.prepare(`SELECT id,report_date,report_text,submitted_at,updated_at,revision_count FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`).bind(user.id, validDate(date) ? date : start).first<ReportRow>(),
   ]);
   const selected = selectedResult ?? undefined;
@@ -38,14 +42,16 @@ export async function GET(request: Request): Promise<Response> {
   const selectedPublic = selected
     ? { ...publicReport(selected), stale: calendar.find((item) => item.id === selected.id)?.stale ?? false }
     : null;
-  return Response.json({ month, reports: calendar, selected: selectedPublic, summary, details, subjects, previousReportReminder, finalReportState, goalPlanFact }, { headers: { 'Cache-Control': 'no-store' } });
+  return Response.json({ month, reports: calendar, calendarContext, selected: selectedPublic, summary, details, subjects, previousReportReminder, finalReportState, goalPlanFact, leadCommandScope: `reports:${user.id}` }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
-  const body = await request.json().catch(() => ({})) as { date?: unknown; text?: unknown; submitted?: unknown };
+  const parsed = await readJsonObject(request, REQUEST_MAX_BYTES);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed as { date?: unknown; text?: unknown; submitted?: unknown };
   const date = typeof body.date === 'string' && validDate(body.date) ? body.date : '';
   const text = typeof body.text === 'string' ? body.text.slice(0, 20000) : '';
   if (!date || !text.trim()) return Response.json({ error: 'Вкажіть дату та текст звіту.' }, { status: 400 });
@@ -54,12 +60,20 @@ export async function POST(request: Request): Promise<Response> {
   const id = `report_${user.id}_${date}`;
   const wantsSubmit = body.submitted === true;
   if (wantsSubmit) { const state=await readFinalReportState(env.DB,user.id,date,now,kyivDate()); if(!state.canSubmit) return Response.json({error:state.reason},{status:409}); }
-  const existing=await env.DB.prepare(`SELECT submitted_at FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`).bind(user.id,date).first<{submitted_at:number|null}>();
+  const existing=await env.DB.prepare(`SELECT submitted_at,submitted_activity_revision FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`).bind(user.id,date).first<{submitted_at:number|null;submitted_activity_revision:number|null}>();
   const submittedAt = wantsSubmit ? now : existing?.submitted_at ?? null;
-  await env.DB.prepare(`INSERT INTO daily_reports (id,user_id,report_date,report_text,payload_json,submitted_at,updated_at,source_import_id)
-    VALUES (?1,?2,?3,?4,?5,?6,?7,NULL)
-    ON CONFLICT(user_id,report_date) DO UPDATE SET report_text=excluded.report_text,payload_json=excluded.payload_json,submitted_at=excluded.submitted_at,updated_at=excluded.updated_at,revision_count=COALESCE(daily_reports.revision_count,1)+1,source_import_id=NULL
-    WHERE daily_reports.user_id=excluded.user_id`).bind(id, user.id, date, text, JSON.stringify({ source: 'manual', updatedAt: now }), submittedAt, now).run();
+  const preservedActivityRevision = existing?.submitted_activity_revision ?? null;
+  await env.DB.prepare(`INSERT INTO daily_reports
+    (id,user_id,report_date,report_text,payload_json,submitted_at,submitted_activity_revision,updated_at,source_import_id)
+    VALUES (?1,?2,?3,?4,?5,?6,
+      CASE WHEN ?7=1 THEN COALESCE((SELECT revision FROM activity_day_revisions WHERE user_id=?2 AND event_date=?3),0) ELSE ?8 END,
+      ?9,NULL)
+    ON CONFLICT(user_id,report_date) DO UPDATE SET
+      report_text=excluded.report_text,payload_json=excluded.payload_json,submitted_at=excluded.submitted_at,
+      submitted_activity_revision=excluded.submitted_activity_revision,updated_at=excluded.updated_at,
+      revision_count=COALESCE(daily_reports.revision_count,1)+1,source_import_id=NULL
+    WHERE daily_reports.user_id=excluded.user_id`)
+    .bind(id,user.id,date,text,JSON.stringify({source:'manual',updatedAt:now}),submittedAt,Number(wantsSubmit),preservedActivityRevision,now).run();
   return Response.json({ ok: true, report: { id, date, text, submittedAt, updatedAt: now } });
 }
 
@@ -74,4 +88,3 @@ function validMonth(value: string | null): boolean { return Boolean(value && /^\
 function validDate(value: unknown): value is string { return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value); }
 function shiftMonth(value: string, offset: number): string { const date = new Date(`${value}T12:00:00Z`); date.setUTCMonth(date.getUTCMonth() + offset); return date.toISOString().slice(0, 10); }
 function kyivDate(): string { const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()); const values = Object.fromEntries(parts.map((part) => [part.type, part.value])); return `${values.year}-${values.month}-${values.day}`; }
-function sameOrigin(request: Request): boolean { const origin = request.headers.get('origin'); return Boolean(origin && origin === new URL(request.url).origin); }

@@ -1,5 +1,8 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
+import { readJsonObject, sameOrigin } from '@/lib/http-json';
+
+const REQUEST_MAX_BYTES = 16 * 1024;
 
 type AccountRow = {
   id:string; account_number:number; name:string; is_enabled:number; is_selected:number;
@@ -20,7 +23,9 @@ export async function POST(request:Request):Promise<Response> {
   const user=await getCurrentUser();
   if(!user) return Response.json({error:'Потрібно увійти.'},{status:401});
   if(!sameOrigin(request)) return Response.json({error:'Недійсний запит.'},{status:403});
-  const body=await request.json() as Record<string,unknown>;
+  const parsed=await readJsonObject(request,REQUEST_MAX_BYTES);
+  if(parsed instanceof Response) return parsed;
+  const body=parsed;
   const action=typeof body.action==='string'?body.action:'';
   const id=typeof body.id==='string'?body.id:'';
   const now=unixNow();
@@ -74,7 +79,6 @@ export async function POST(request:Request):Promise<Response> {
 
 function publicAccount(row:AccountRow) { return {id:row.id,number:Number(row.account_number),name:row.name,enabled:Boolean(row.is_enabled),selected:Boolean(row.is_selected),joinStreak:Number(row.join_streak),joinBatchSize:Number(row.join_batch_size),breakMinutes:Number(row.break_minutes),breakUntil:row.break_until}; }
 function cleanName(value:unknown) { return typeof value==='string'?value.trim().replace(/\s+/g,' ').slice(0,50):''; }
-function sameOrigin(request:Request) { const origin=request.headers.get('origin'); return Boolean(origin&&origin===new URL(request.url).origin); }
 function unixNow() { return Math.floor(Date.now()/1000); }
 async function ensureDefaultAccount(userId:string,now:number) {
   await env.DB.prepare(`INSERT OR IGNORE INTO telegram_accounts (id,user_id,account_number,name,is_enabled,is_selected,created_at,updated_at) VALUES (?1,?2,1,'TG 1',1,1,?3,?3)`).bind(`${userId}:tg1`,userId,now).run();
