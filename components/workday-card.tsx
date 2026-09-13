@@ -10,6 +10,9 @@ type Props = {
   initial: WorkdaySnapshot | null;
   today: string;
   unfinishedCount: number;
+  dailyGoal: number;
+  monthlyGoal: number;
+  focusDirections: string[];
 };
 
 type MutationResponse = {
@@ -19,7 +22,7 @@ type MutationResponse = {
   unfinishedCount?: number;
 };
 
-export function WorkdayCard({ initial, today, unfinishedCount }: Props) {
+export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthlyGoal, focusDirections }: Props) {
   const [workday, setWorkday] = useState(initial);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const [busy, setBusy] = useState(false);
@@ -76,6 +79,7 @@ export function WorkdayCard({ initial, today, unfinishedCount }: Props) {
         <p>Активний час: <strong>{formatDuration(seconds)}</strong></p>
         {staleOpen && <p className="muted-note">Відкритий день за {formatDate(workday!.workDate)}. Заверши його перед стартом нового.</p>}
         {confirmCount !== null && <p className="muted-note">Залишилося справ: {confirmCount}. Завершити день попри це?</p>}
+        {workday?.workDate === today && <div className="workday-plan"><strong>План дня</strong><span>Записи: {dailyGoal} · місячна ціль: {monthlyGoal}</span><span>Фокус: {focusDirections.length ? focusDirections.join(', ') : 'без окремого напрямку'}</span></div>}
         {error && <p className="lead-error" role="alert">{error}</p>}
       </div>
       <div className="workday-actions">

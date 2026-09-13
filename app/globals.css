@@ -755,6 +755,8 @@ button { color: inherit; }
 @media(max-width:480px) { .lead-form fieldset,.lead-facts { grid-template-columns:1fr; } .lead-messages li,.lead-messages li.from-me { margin:12px 0; } }
 
 .workday-actions { display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; align-items:center; }
+.workday-plan { display:grid; gap:3px; margin-top:10px; padding:9px 10px; border:1px solid var(--border); border-radius:10px; }
+.workday-plan span { color:var(--muted-foreground); font-size:12px; }
 
 .posting-pace { display:flex; align-items:center; gap:18px; flex-wrap:wrap; padding:12px 16px; border:1px solid var(--border); border-radius:12px; }
 .posting-pace div { display:grid; gap:2px; } .posting-pace span,.posting-pace small { color:var(--muted-foreground); font-size:12px; }
@@ -777,3 +779,7 @@ button { color: inherit; }
 .report-checkpoint strong svg { width: 15px; height: 15px; }
 .report-checkpoint small { color: var(--muted-foreground); }
 .report-checkpoint-actions { display: flex; align-items: center; gap: 8px; }
+
+.report-form-link { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:28px; padding:4px 10px; border:1px solid var(--border); border-radius:8px; font-size:12px; font-weight:600; text-decoration:none; }
+.report-form-link svg { width:14px; height:14px; }
+.report-form-link:hover { background:var(--muted); }
