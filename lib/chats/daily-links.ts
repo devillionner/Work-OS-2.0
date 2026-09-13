@@ -1,3 +1,5 @@
+import { isoWeekday, profilePublicationEligibilitySql } from './profile.ts';
+
 export function joinedTodayStatement(db: D1Database, input: {
   userId: string; platform: string; date: string; accountId: string | null;
 }) {
@@ -20,6 +22,7 @@ export function availableTodayStatement(db: D1Database, input: {
       AND (?2!='telegram' OR c.telegram_account_id=?4)
       AND NOT EXISTS(SELECT 1 FROM chat_publications p
         WHERE p.user_id=c.user_id AND p.chat_id=c.id AND p.published_on=?3)
+      AND ${profilePublicationEligibilitySql('?3','?6')}
     ORDER BY c.updated_at DESC,c.name LIMIT 200`)
-    .bind(input.userId,input.platform,input.date,input.accountId,input.now);
+    .bind(input.userId,input.platform,input.date,input.accountId,input.now,isoWeekday(input.date));
 }

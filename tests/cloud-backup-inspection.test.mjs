@@ -9,7 +9,7 @@ function backup(overrides = {}) {
   const tables = Object.fromEntries(BACKUP_TABLES.map((table) => [table, []]));
   Object.assign(tables, overrides);
   return JSON.stringify({
-    app: 'work-os-cloud-backup', schemaVersion: 7, createdAt: '2026-09-10T10:00:00.000Z',
+    app: 'work-os-cloud-backup', schemaVersion: 8, createdAt: '2026-09-10T10:00:00.000Z',
     ownerEmail: 'owner@example.com', ownerId: 'owner', revision: 42,
     counts: Object.fromEntries(BACKUP_TABLES.map((table) => [table, tables[table].length])),
     tables,
@@ -31,6 +31,17 @@ void test('rejects mismatched declared counts', () => {
   assert.match(result.errors.join('\n'), /Контрольна кількість.*chats/);
 });
 
+void test('accepts schema 7 backups created before workdays existed', () => {
+  const parsed = JSON.parse(backup());
+  parsed.schemaVersion = 7;
+  delete parsed.tables.workdays;
+  delete parsed.counts.workdays;
+  const result = inspectCloudBackup(JSON.stringify(parsed));
+  assert.equal(result.valid, true, result.errors.join('\n'));
+  assert.match(result.warnings.join('\n'), /попередню сумісну схему 7/);
+  assert.equal(result.counts.workdays, 0);
+});
+
 void test('accepts schema 6 backups created before Telegram scheduler tables existed', () => {
   const parsed = JSON.parse(backup());
   parsed.schemaVersion = 6;
@@ -38,6 +49,8 @@ void test('accepts schema 6 backups created before Telegram scheduler tables exi
   delete parsed.tables.telegram_schedule_slots;
   delete parsed.counts.telegram_schedule_settings;
   delete parsed.counts.telegram_schedule_slots;
+  delete parsed.tables.workdays;
+  delete parsed.counts.workdays;
   const result = inspectCloudBackup(JSON.stringify(parsed));
   assert.equal(result.valid, true, result.errors.join('\n'));
   assert.match(result.warnings.join('\n'), /попередню сумісну схему 6/);

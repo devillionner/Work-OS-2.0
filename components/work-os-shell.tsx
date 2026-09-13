@@ -21,6 +21,7 @@ import { TodaySettingsDialog } from '@/components/today-settings-dialog';
 import { SettingsWorkspace } from '@/components/settings-workspace';
 import { GlobalTimers } from '@/components/global-timers';
 import { AppReleaseDialog } from '@/components/app-release-dialog';
+import { WorkdayCard } from '@/components/workday-card';
 import { APP_VERSION } from '@/lib/app-meta';
 import { useRouter } from 'next/navigation';
 import type { DashboardSnapshot } from '@/lib/dashboard';
@@ -116,6 +117,8 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
               <Button size="lg" variant="outline" onClick={() => setTodaySettingsOpen(true)}><Target data-icon="inline-start" />Налаштувати ціль</Button>
             </div>
           </section>
+
+          <WorkdayCard initial={snapshot.workday} today={snapshot.today} unfinishedCount={snapshot.leadTaskCount} />
 
           <section className="goal-card" aria-labelledby="goal-title">
             <div className="card-heading"><div><p className="eyebrow">Ціль на день</p><h2 id="goal-title">Записи</h2><p className="goal-month-note">Місячна ціль: {snapshot.monthlyBookingGoal}</p></div>{snapshot.reportSubmittedAt ? <Badge variant="secondary">Звіт зафіксовано</Badge> : <button className="text-action" type="button" onClick={() => setTodaySettingsOpen(true)}>Змінити</button>}</div>

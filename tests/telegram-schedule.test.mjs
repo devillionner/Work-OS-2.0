@@ -152,3 +152,14 @@ void test('manual selection rejects chats from another account and duplicate pen
     userId: 'u', accountId: 'a', slotId: snap.slots[1].id, expectedVersion: snap.slots[1].version, chatId: 'a-chat', now: NOW + 1, date: DATE,
   }));
 });
+void test('scheduler respects confirmed profile publication rules', async (t) => {
+  const db = await localDatabase(t);
+  await seedAccount(db, 'a', 'u', 1);
+  await telegramChat(db, 'allowed-profile', 'a');
+  await telegramChat(db, 'blocked-profile', 'a');
+  await db.prepare(`INSERT INTO chat_profiles(chat_id,language,cadence,weekdays_json,custom_interval_days,next_allowed_on,directions_json,note,review_status,source,updated_at)
+    VALUES ('allowed-profile','uk','daily','[4]',NULL,NULL,'[]','','confirmed','manual',1),
+           ('blocked-profile','uk','daily','[4]',NULL,'2026-09-11','[]','','confirmed','manual',1)`).run();
+  const snap = await readTelegramSchedule(db, { userId:'u', accountId:'a', now:NOW, date:DATE });
+  assert.deepEqual(snap.eligibleChats.map(chat=>chat.id), ['allowed-profile']);
+});

@@ -1,7 +1,7 @@
 import { BACKUP_TABLES, type BackupTable } from './export.ts';
 
 export const CLOUD_BACKUP_APP = 'work-os-cloud-backup';
-export const CLOUD_BACKUP_SCHEMA_VERSION = 7;
+export const CLOUD_BACKUP_SCHEMA_VERSION = 8;
 export const CLOUD_BACKUP_MIN_SCHEMA_VERSION = 5;
 export const CLOUD_BACKUP_MAX_BYTES = 25 * 1024 * 1024;
 
@@ -72,7 +72,7 @@ export function inspectCloudBackup(raw: string): CloudBackupInspection {
     for (const table of BACKUP_TABLES) {
       const rows = tables[table];
       const declared = integer(declaredCounts[table]);
-      const introduced = table === 'library_items' ? 6 : (table === 'telegram_schedule_settings' || table === 'telegram_schedule_slots') ? 7 : 1;
+      const introduced = table === 'library_items' ? 6 : (table === 'telegram_schedule_settings' || table === 'telegram_schedule_slots') ? 7 : table === 'workdays' ? 8 : 1;
       if (schemaVersion !== null && schemaVersion < introduced && rows === undefined && declared === null) continue;
       if (!Array.isArray(rows)) {
         errors.push(`Розділ «${table}» відсутній або пошкоджений.`);

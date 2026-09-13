@@ -23,7 +23,7 @@ type ProfileFilter = 'all' | 'needs_review';
 type Chat = { id:string; name:string; link:string; platform:Platform; status:Queue; archiveReason:string|null; profileConfirmed:boolean; profile:ChatProfile; publishedToday:boolean; snoozedUntil:number|null; availableAt:number|null; availableNow:boolean; telegramAccountId:string|null; stateToken:string };
 type LinkItem = { name?:string; link?:string };
 type ProfileCounts = { confirmed:number; draft:number; empty:number; needsReview:number };
-type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; profileCounts:Record<string,ProfileCounts>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; requestKey?:string };
+type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; profileCounts:Record<string,ProfileCounts>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:{ratePerHour:number;completed:number;target:number}; requestKey?:string };
 type UndoSpec = { action:'restore'|'unsnooze'; label:string };
 type UndoState = UndoSpec & { chat:Chat };
 type TelegramAccount = { id:string; number:number; name:string; enabled:boolean; selected:boolean; joinStreak:number; joinBatchSize:number; breakMinutes:number; breakUntil:number|null };
@@ -259,6 +259,11 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
 
     {platform==='telegram'&&accountId&&<TelegramSchedule accountId={accountId} refreshKey={scheduleRefreshKey} />}
 
+    {data?.publicationPace&&<section className="posting-pace" aria-label="Темп публікацій">
+      <div><span>Робочий темп</span><strong>{data.publicationPace.ratePerHour}/год</strong></div>
+      <div><span>Денна ціль</span><strong>{data.publicationPace.completed} / {data.publicationPace.target}</strong></div>
+      <small>{Math.max(0,data.publicationPace.target-data.publicationPace.completed)} публікацій залишилось сьогодні</small>
+    </section>}
     <section className={`today-links ${queue==='ready'?'has-available':''}`}>
       {queue==='ready'&&<TodayLinks title="Доступні зараз" items={data?.availableToday || []} />}
       <TodayLinks title="Приєднано сьогодні" items={data?.joinedToday || []} />

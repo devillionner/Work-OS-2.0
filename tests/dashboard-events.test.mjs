@@ -106,6 +106,7 @@ void test('Today lead queue returns only owned active overdue follow-ups and due
     ['follow_up','overdue'],
     ['reminder','lesson-lead'],
   ]);
+  assert.equal(snapshot.leadTaskCount, 2);
   assert.equal(snapshot.leadTasks[0].title, 'Call back');
   assert.equal(snapshot.leadTasks[1].lessonId, 'lesson');
 });
