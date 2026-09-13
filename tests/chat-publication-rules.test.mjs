@@ -6,6 +6,7 @@ import { recordManualPublication } from '../lib/chats/publication.ts';
 
 const NOW = Date.parse('2026-09-10T12:00:00Z') / 1000;
 const DATE = '2026-09-10';
+let profileRevision = 2;
 
 async function publish(db, id = 'chat') {
   const chat = await readChatState(db, 'u', id);
@@ -29,7 +30,7 @@ async function profile(db, changes = {}) {
       next_allowed_on=excluded.next_allowed_on,review_status=excluded.review_status,
       updated_at=excluded.updated_at`)
     .bind(value.cadence, value.weekdays, value.customIntervalDays,
-      value.nextAllowedOn, value.reviewStatus, Math.floor(Math.random() * 100000) + 2).run();
+      value.nextAllowedOn, value.reviewStatus, profileRevision++).run();
 }
 
 void test('confirmed profile enforces next date and allowed weekdays', async (t) => {
