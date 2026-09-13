@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { businessDayStart } from '../lib/business-time.ts';
-import { readCalendarContext } from '../lib/reports/calendar-context.ts';
+import { calendarContextLabels, readCalendarContext } from '../lib/reports/calendar-context.ts';
 import { localDatabase, seedEvent } from './helpers/local-d1.mjs';
 
 void test('report calendar context is owner-scoped and combines workdays, lessons, follow-ups and lead events', async (t) => {
@@ -38,4 +38,13 @@ void test('report calendar context is owner-scoped and combines workdays, lesson
     date: '2026-09-09', workdayStatus: null, activeSeconds: 0,
     lessons: 1, followUps: 1, leadEvents: 1,
   });
+});
+
+void test('calendar labels distinguish recorded workdays from weekends and summarize CRM context', () => {
+  assert.deepEqual(calendarContextLabels('2026-09-08', {
+    date: '2026-09-08', workdayStatus: 'ended', activeSeconds: 3600,
+    lessons: 2, followUps: 1, leadEvents: 3,
+  }), ['Робочий', 'Уроки 2', 'Follow-up 1', 'CRM 3']);
+  assert.deepEqual(calendarContextLabels('2026-09-12'), ['Вихідний']);
+  assert.deepEqual(calendarContextLabels('2026-09-09'), []);
 });
