@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
+import { AnalyticsInsights } from '@/components/analytics-insights';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -13,12 +14,18 @@ type PlatformRow = {
 type CohortTotals = { leads:number; bookedLeads:number; bookings:number; completed:number; bookingLeadRate:number; completionRate:number };
 type CohortPlatform = CohortTotals & { key:string; name:string; platform:string };
 type CohortChat = CohortTotals & { id:string; name:string; platformName:string; platform:string };
+type AnalyticsInsightsData = {
+  recommendation: { kind:'check_low_efficiency'|'consider_more_often'|'insufficient_data'; title:string; explanation:string; chatId:string|null; chatName:string|null };
+  archiveReasons: Array<{ reason:string; count:number }>;
+  archivedChats: number;
+};
 type AnalyticsData = {
   range: { period: string; days: number; from: string; to: string };
   totals: { joined: number; publications: number; responses: number; bookings: number; completed: number; publicationRate: number; responseRate: number; bookingRate: number; completionRate: number };
   platforms: PlatformRow[];
   chats: Array<{ id: string; name: string; platform: string; platformName: string; joined: number; publications: number; responses: number; bookings: number; publicationRate: number; responseRate: number; bookingRate: number }>;
   cohort: { totals:CohortTotals; platforms:CohortPlatform[]; chats:CohortChat[] };
+  insights: AnalyticsInsightsData;
 };
 
 const periods: Array<{ key: AnalyticsPeriod; label: string }> = [
@@ -95,6 +102,8 @@ export function AnalyticsWorkspace() {
           <Metric label="Записи" value={data.totals.bookings} hint={`${data.totals.bookingRate}% від відгуків`} />
           <Metric label="Проведені уроки" value={data.totals.completed} hint={`${data.totals.completionRate}% від записів`} />
         </section>
+
+        <AnalyticsInsights insights={data.insights} />
 
         <section className="analytics-card">
           <div className="card-heading"><div><p className="eyebrow">Активність за датою події</p><h3>Де втрачається результат</h3></div><Badge variant="outline">{formatRange(data.range.from, data.range.to)}</Badge></div>
