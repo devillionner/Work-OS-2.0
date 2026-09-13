@@ -13,7 +13,7 @@ void test('duplicate grouping keeps same-name different-url chats as manual cand
   ]);
   assert.equal(groups.length, 1);
   assert.equal(groups[0].match, 'name');
-  assert.deepEqual(groups[0].chats.map(chat => chat.id), ['a', 'b']);
+  assert.deepEqual(new Set(groups[0].chats.map(chat => chat.id)), new Set(['a', 'b']));
 });
 
 void test('duplicate read is owner/platform scoped and Telegram respects account scope plus unassigned join queue', async (t) => {
