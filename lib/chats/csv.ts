@@ -53,7 +53,7 @@ export function parseChatCsv(text:string):ChatCsvImportRow[] {
   if(records.length-1>CHAT_CSV_MAX_ROWS)throw new ChatCsvError(`CSV підтримує до ${CHAT_CSV_MAX_ROWS} чатів за один імпорт.`);
   const header=records[0];
   if(header.length!==HEADER.length||HEADER.some((key,index)=>header[index]!==key))throw new ChatCsvError('Невідомий формат CSV. Експортуйте файл із Work OS 2.0.');
-  const seen=new Map<string,string>();
+  const seen=new Set<string>();
   return records.slice(1).filter(record=>record.some(value=>value!=='' )).map((record,index)=>{
     const rowNumber=index+2;
     if(record.length!==HEADER.length)throw new ChatCsvError(`Рядок ${rowNumber}: неправильна кількість колонок.`);
@@ -62,13 +62,11 @@ export function parseChatCsv(text:string):ChatCsvImportRow[] {
     const parsedLink=normalizeGroupLink(raw.link);
     if(!parsedLink)throw new ChatCsvError(`Рядок ${rowNumber}: некоректне посилання.`);
     if(parsedLink.platform!==raw.platform)throw new ChatCsvError(`Рядок ${rowNumber}: платформа не відповідає посиланню.`);
+    if(seen.has(parsedLink.link))throw new ChatCsvError(`Рядок ${rowNumber}: канонічне посилання повторюється у CSV.`);
+    seen.add(parsedLink.link);
     const name=cleanChatName(raw.name);
     if(!name)throw new ChatCsvError(`Рядок ${rowNumber}: порожня назва чату.`);
     if(!STATUSES.has(raw.workflow_status))throw new ChatCsvError(`Рядок ${rowNumber}: невідомий стан чату.`);
-    const fingerprint=JSON.stringify(raw);
-    const prior=seen.get(parsedLink.link);
-    if(prior&&prior!==fingerprint)throw new ChatCsvError(`Рядок ${rowNumber}: те саме канонічне посилання має різні дані в CSV.`);
-    seen.set(parsedLink.link,fingerprint);
     const workflowStatus=raw.workflow_status as ChatCsvImportRow['workflowStatus'];
     const telegramAccountNumber=optionalPositiveInt(raw.telegram_account_number,rowNumber,'Telegram account number');
     if(parsedLink.platform!=='telegram'&&telegramAccountNumber!==null)throw new ChatCsvError(`Рядок ${rowNumber}: Telegram account number дозволений лише для Telegram.`);
@@ -125,15 +123,21 @@ export async function applyChatCsvImport(db:D1Database,input:{userId:string;rows
   const preview=await previewChatCsvImport(db,input.userId,input.rows);
   if(preview.revision!==input.expectedRevision)throw new ChatCsvError('Дані змінилися після preview. Перевірте CSV ще раз перед імпортом.',409);
   if(preview.conflicts.length)throw new ChatCsvError(preview.conflicts[0],409);
-  const accounts=await db.prepare(`SELECT id,account_number FROM telegram_accounts WHERE user_id=?1`).bind(input.userId).all<{id:string;account_number:number}>();
+  const [accounts,existingRows]=await Promise.all([
+    db.prepare(`SELECT id,account_number FROM telegram_accounts WHERE user_id=?1`).bind(input.userId).all<{id:string;account_number:number}>(),
+    db.prepare(`SELECT normalized_link FROM chats WHERE user_id=?1 ORDER BY id LIMIT ${CHAT_CSV_MAX_ROWS+1}`).bind(input.userId).all<{normalized_link:string}>(),
+  ]);
   const accountByNumber=new Map(accounts.results.map(row=>[Number(row.account_number),row.id]));
-  const candidates=input.rows.filter(row=>!new Set<string>().has(row.normalizedLink));
+  const existing=new Set(existingRows.results.map(row=>row.normalized_link));
+  const candidates=input.rows.filter(row=>!existing.has(row.normalizedLink));
   let inserted=0;
   for(let start=0;start<candidates.length;start+=100){
     const statements:D1PreparedStatement[]=[];
+    const chatIndexes:number[]=[];
     for(const row of candidates.slice(start,start+100)){
       const id=crypto.randomUUID();
       const accountId=row.telegramAccountNumber===null?null:accountByNumber.get(row.telegramAccountNumber)||null;
+      chatIndexes.push(statements.length);
       statements.push(db.prepare(`INSERT OR IGNORE INTO chats
         (id,user_id,platform,name,link,normalized_link,workflow_status,is_private,joined_at,processed_at,snoozed_until,archive_reason,archived_at,telegram_account_id,created_at,updated_at)
         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)`)
@@ -143,13 +147,16 @@ export async function applyChatCsvImport(db:D1Database,input:{userId:string;rows
         SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,'csv',?10 WHERE changes()=1`)
         .bind(id,row.profile.language,row.profile.cadence,JSON.stringify(row.profile.weekdays),row.profile.customIntervalDays,row.profile.nextAllowedOn,JSON.stringify(row.profile.directions),row.profile.note,row.profile.reviewStatus,row.updatedAt));
     }
+    if(!statements.length)continue;
     const result=await db.batch(statements);
-    for(let index=0;index<result.length;index++)if(statements[index]&&result[index].meta.changes&&index===0||false){}
-    // Count inserted chats directly; profile statements may be interleaved.
-    inserted=Number((await db.prepare(`SELECT COUNT(*) count FROM chats WHERE user_id=?1 AND normalized_link IN (${candidates.slice(0,start+100).map((_,i)=>`?${i+2}`).join(',')||"''"})`).bind(input.userId,...candidates.slice(0,start+100).map(row=>row.normalizedLink)).first<{count:number}>())?.count||inserted);
+    inserted+=chatIndexes.reduce((sum,index)=>sum+Number(result[index]?.meta.changes||0),0);
   }
-  const final=await previewChatCsvImport(db,input.userId,input.rows);
-  return {ok:true,inserted:Math.max(0,final.existing-preview.existing),existing:final.existing,total:final.total,byPlatform:final.byPlatform};
+  return {ok:true,inserted,existing:input.rows.length-inserted,total:input.rows.length,preview:stripRows(preview)};
+}
+
+export function stripRows(preview:ChatCsvPreview){
+  const {rows:_rows,...publicPreview}=preview;
+  return publicPreview;
 }
 
 function exportRow(row:ExportRow):ChatCsvRow {
@@ -176,7 +183,7 @@ function parseProfile(raw:ChatCsvRow,rowNumber:number):NonNullable<ChatCsvImport
   if(raw.profile_cadence==='custom'&&customIntervalDays===null)throw new ChatCsvError(`Рядок ${rowNumber}: для власної частоти потрібен інтервал.`);
   const nextAllowedOn=optionalDate(raw.profile_next_allowed_on,rowNumber);
   if(raw.profile_review_status!=='draft'&&raw.profile_review_status!=='confirmed')throw new ChatCsvError(`Рядок ${rowNumber}: некоректний статус профілю.`);
-  return {language:language as 'uk'|'ru'|null,cadence:raw.profile_cadence as NonNullable<ChatCsvImportRow['profile']>['cadence'],weekdays,customIntervalDays,nextAllowedOn,directions,note:raw.profile_note.slice(0,1000),reviewStatus:raw.profile_review_status};
+  return {language:language as 'uk'|'ru'|null,cadence:raw.profile_cadence as NonNullable<ChatCsvImportRow['profile']>['cadence'],weekdays,customIntervalDays,nextAllowedOn,directions,note:profileText(raw.profile_note,1000),reviewStatus:raw.profile_review_status};
 }
 function parseCsvRecords(text:string){
   const rows:string[][]=[];let row:string[]=[];let cell='';let quoted=false;
@@ -200,7 +207,8 @@ function optionalEpoch(value:string,row:number,label:string){if(!value)return nu
 function requiredEpoch(value:string,row:number,label:string){const n=optionalEpoch(value,row,label);if(n===null)throw new ChatCsvError(`Рядок ${row}: відсутнє ${label}.`);return n;}
 function optionalPositiveInt(value:string,row:number,label:string){if(!value)return null;const n=Number(value);if(!Number.isInteger(n)||n<1)throw new ChatCsvError(`Рядок ${row}: некоректне ${label}.`);return n;}
 function optionalText(value:string,max:number){const cleaned=value.replace(/\p{Cc}/gu,' ').trim().replace(/\s+/g,' ').normalize('NFC');return cleaned?Array.from(cleaned).slice(0,max).join(''):null;}
-function optionalDate(value:string,row:number){if(!value)return null;if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||new Date(`${value}T12:00:00Z`).toISOString().slice(0,10)!==value)throw new ChatCsvError(`Рядок ${row}: некоректна дата профілю.`);return value;}
+function profileText(value:string,max:number){const cleaned=value.replace(/\p{Cc}/gu,' ').trim().replace(/\s+/g,' ').normalize('NFC');return Array.from(cleaned).slice(0,max).join('');}
+function optionalDate(value:string,row:number){if(!value)return null;if(!/^\d{4}-\d{2}-\d{2}$/.test(value))throw new ChatCsvError(`Рядок ${row}: некоректна дата профілю.`);const parsed=new Date(`${value}T12:00:00Z`);if(Number.isNaN(parsed.getTime())||parsed.toISOString().slice(0,10)!==value)throw new ChatCsvError(`Рядок ${row}: некоректна дата профілю.`);return value;}
 function jsonNumberList(value:string,row:number,label:string,max:number){let parsed:unknown;try{parsed=JSON.parse(value||'[]');}catch{throw new ChatCsvError(`Рядок ${row}: некоректні ${label}.`);}if(!Array.isArray(parsed)||parsed.length>max||parsed.some(item=>!Number.isInteger(item)))throw new ChatCsvError(`Рядок ${row}: некоректні ${label}.`);return [...new Set(parsed as number[])].sort((a,b)=>a-b);}
 function jsonStringList(value:string,row:number,label:string,maxItems:number,maxLength:number){let parsed:unknown;try{parsed=JSON.parse(value||'[]');}catch{throw new ChatCsvError(`Рядок ${row}: некоректні ${label}.`);}if(!Array.isArray(parsed)||parsed.length>maxItems||parsed.some(item=>typeof item!=='string'||Array.from(item).length>maxLength))throw new ChatCsvError(`Рядок ${row}: некоректні ${label}.`);return [...new Set((parsed as string[]).map(item=>item.trim()).filter(Boolean))];}
 function emptyPlatformSummary():ChatCsvPreview['byPlatform']{return {telegram:{total:0,add:0,existing:0},whatsapp:{total:0,add:0,existing:0},viber:{total:0,add:0,existing:0},facebook:{total:0,add:0,existing:0}};}
