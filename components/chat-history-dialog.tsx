@@ -7,7 +7,7 @@ import type { ChatHistoryItem } from '@/lib/chats/history';
 
 type HistoryChat = { id:string; name:string; link:string };
 const eventNames:Record<string,string>={chat_state_changed:'Зміна стану',chat_joined:'Приєднання',publication:'Публікація',chat_profile_changed:'Профіль оновлено'};
-const actionNames:Record<string,string>={joined:'Приєднано',waiting:'Очікування запрошення',approved:'Запрошення підтверджено',failed:'Невдале приєднання',archive:'Перенесено в архів',restore:'Відновлено',return_to_join:'Повернуто для приєднання',assign_account:'Перепризначено акаунт'};
+const actionNames:Record<string,string>={joined:'Приєднано',waiting:'Очікування запрошення',approved:'Запрошення підтверджено',failed:'Невдале приєднання',archive:'Перенесено в архів',restore:'Відновлено',return_to_join:'Повернуто для приєднання',assign_account:'Перепризначено акаунт',confirm_leave:'Вихід із чату підтверджено',undo_leave:'Підтвердження виходу скасовано',rename:'Чат перейменовано'};
 
 export function ChatHistoryDialog({open,chat,onClose}:{open:boolean;chat:HistoryChat|null;onClose:()=>void}) {
   const [events,setEvents]=useState<ChatHistoryItem[]>([]); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
