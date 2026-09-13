@@ -1,7 +1,7 @@
 import { BACKUP_TABLES, type BackupTable } from './export.ts';
 
 export const CLOUD_BACKUP_APP = 'work-os-cloud-backup';
-export const CLOUD_BACKUP_SCHEMA_VERSION = 11;
+export const CLOUD_BACKUP_SCHEMA_VERSION = 12;
 export const CLOUD_BACKUP_MIN_SCHEMA_VERSION = 5;
 export const CLOUD_BACKUP_MAX_BYTES = 25 * 1024 * 1024;
 
@@ -162,52 +162,38 @@ function validateReferences(tables: JsonRow, errors: string[]) {
   const studentIds = ids('students');
   const lessonIds = ids('lessons');
   const importIds = ids('legacy_imports');
-  const accountIds = ids('telegram_accounts');
-  const publicationIds = ids('chat_publications');
-  const libraryIds = ids('library_items');
-  checkReferences(rows(tables, 'chat_profiles'), 'chat_id', chatIds, 'chat_profiles → chats', errors, false);
-  checkReferences(rows(tables, 'chat_publications'), 'chat_id', chatIds, 'chat_publications → chats', errors, false);
-  checkReferences(rows(tables, 'students'), 'lead_id', leadIds, 'students → leads', errors, false);
-  checkReferences(rows(tables, 'lessons'), 'lead_id', leadIds, 'lessons → leads', errors, false);
-  checkReferences(rows(tables, 'lessons'), 'student_id', studentIds, 'lessons → students', errors, true);
-  checkReferences(rows(tables, 'lesson_reminders'), 'lesson_id', lessonIds, 'lesson_reminders → lessons', errors, false);
-  checkReferences(rows(tables, 'lead_messages'), 'lead_id', leadIds, 'lead_messages → leads', errors, false);
-  checkReferences(rows(tables, 'lead_commands'), 'lead_id', leadIds, 'lead_commands → leads', errors, false);
-  checkReferences(rows(tables, 'curator_requests'), 'lead_id', leadIds, 'curator_requests → leads', errors, false);
-  checkReferences(rows(tables, 'curator_requests'), 'lesson_id', lessonIds, 'curator_requests → lessons', errors, true);
-  checkReferences(rows(tables, 'work_timers'), 'telegram_account_id', accountIds, 'work_timers → telegram_accounts', errors, true);
-  checkReferences(rows(tables, 'chats'), 'telegram_account_id', accountIds, 'chats → telegram_accounts', errors, true);
-  checkReferences(rows(tables, 'chat_publications'), 'telegram_account_id', accountIds, 'chat_publications → telegram_accounts', errors, true);
-  checkReferences(rows(tables, 'telegram_schedule_settings'), 'telegram_account_id', accountIds, 'telegram_schedule_settings → telegram_accounts', errors, false);
-  checkReferences(rows(tables, 'telegram_schedule_slots'), 'telegram_account_id', accountIds, 'telegram_schedule_slots → telegram_accounts', errors, false);
-  checkReferences(rows(tables, 'telegram_schedule_slots'), 'chat_id', chatIds, 'telegram_schedule_slots → chats', errors, true);
-  checkReferences(rows(tables, 'telegram_schedule_slots'), 'publication_id', publicationIds, 'telegram_schedule_slots → chat_publications', errors, true);
-  checkReferences(rows(tables, 'activity_events'), 'telegram_account_id', accountIds, 'activity_events → telegram_accounts', errors, true);
-  checkReferences(rows(tables, 'activity_events'), 'chat_id', chatIds, 'activity_events → chats', errors, true);
-  checkReferences(rows(tables, 'activity_events'), 'lead_id', leadIds, 'activity_events → leads', errors, true);
-  checkReferences(rows(tables, 'activity_events'), 'lesson_id', lessonIds, 'activity_events → lessons', errors, true);
-  checkReferences(rows(tables, 'library_item_versions'), 'item_id', libraryIds, 'library_item_versions → library_items', errors, false);
-  checkReferences(rows(tables, 'legacy_import_chunks'), 'import_id', importIds, 'legacy_import_chunks → legacy_imports', errors, false);
-  for (const table of BACKUP_TABLES.filter((name) => name !== 'legacy_imports' && name !== 'legacy_import_chunks')) {
-    checkReferences(rows(tables, table), 'source_import_id', importIds, `${table} → legacy_imports`, errors, true);
+  const telegramAccountIds = ids('telegram_accounts');
+  const libraryItemIds = ids('library_items');
+  for (const row of rows(tables, 'chat_profiles')) if (!chatIds.has(text(row.chat_id))) errors.push('Пошкоджене посилання chat_profiles → chats.');
+  for (const row of rows(tables, 'chat_publications')) if (!chatIds.has(text(row.chat_id))) errors.push('Пошкоджене посилання chat_publications → chats.');
+  for (const row of rows(tables, 'telegram_schedule_settings')) if (!telegramAccountIds.has(text(row.telegram_account_id))) errors.push('Пошкоджене посилання telegram_schedule_settings → telegram_accounts.');
+  for (const row of rows(tables, 'telegram_schedule_slots')) {
+    if (!telegramAccountIds.has(text(row.telegram_account_id))) errors.push('Пошкоджене посилання telegram_schedule_slots → telegram_accounts.');
+    if (!chatIds.has(text(row.chat_id))) errors.push('Пошкоджене посилання telegram_schedule_slots → chats.');
   }
+  for (const row of rows(tables, 'leads')) if (text(row.source_chat_id) && !chatIds.has(text(row.source_chat_id))) errors.push('Пошкоджене посилання leads → chats.');
+  for (const row of rows(tables, 'students')) if (!leadIds.has(text(row.lead_id))) errors.push('Пошкоджене посилання students → leads.');
+  for (const row of rows(tables, 'lessons')) {
+    if (!leadIds.has(text(row.lead_id))) errors.push('Пошкоджене посилання lessons → leads.');
+    if (text(row.student_id) && !studentIds.has(text(row.student_id))) errors.push('Пошкоджене посилання lessons → students.');
+  }
+  for (const row of rows(tables, 'curator_requests')) if (!leadIds.has(text(row.lead_id))) errors.push('Пошкоджене посилання curator_requests → leads.');
+  for (const row of rows(tables, 'lesson_reminders')) if (!lessonIds.has(text(row.lesson_id))) errors.push('Пошкоджене посилання lesson_reminders → lessons.');
+  for (const row of rows(tables, 'lead_messages')) if (!leadIds.has(text(row.lead_id))) errors.push('Пошкоджене посилання lead_messages → leads.');
+  for (const row of rows(tables, 'lead_commands')) if (!leadIds.has(text(row.lead_id))) errors.push('Пошкоджене посилання lead_commands → leads.');
+  for (const row of rows(tables, 'library_item_versions')) if (!libraryItemIds.has(text(row.item_id))) errors.push('Пошкоджене посилання library_item_versions → library_items.');
+  for (const row of rows(tables, 'activity_events')) {
+    if (text(row.chat_id) && !chatIds.has(text(row.chat_id))) errors.push('Пошкоджене посилання activity_events → chats.');
+    if (text(row.lead_id) && !leadIds.has(text(row.lead_id))) errors.push('Пошкоджене посилання activity_events → leads.');
+    if (text(row.lesson_id) && !lessonIds.has(text(row.lesson_id))) errors.push('Пошкоджене посилання activity_events → lessons.');
+  }
+  const provenanceTables: BackupTable[] = ['chats','leads','students','lessons','curator_requests','lesson_reminders','lead_messages','lead_commands','daily_reports','user_settings','activity_events'];
+  for (const table of provenanceTables) for (const row of rows(tables, table)) if (text(row.source_import_id) && !importIds.has(text(row.source_import_id))) errors.push(`Пошкоджене посилання ${table} → legacy_imports.`);
 }
 
-function checkReferences(source: JsonRow[], column: string, targets: Set<string>, label: string, errors: string[], nullable: boolean) {
-  const missing = source.filter((row) => {
-    const value = text(row[column]);
-    return value ? !targets.has(value) : !nullable;
-  }).length;
-  if (missing) errors.push(`Порушено зв’язок ${label}: ${missing} запис(и).`);
-}
-
-function rows(tables: JsonRow, table: BackupTable): JsonRow[] {
-  return Array.isArray(tables[table]) ? (tables[table] as unknown[]).filter(isRow) : [];
-}
-function emptyInspection(errors: string[]): CloudBackupInspection {
-  return { valid: false, schemaVersion: null, createdAt: null, ownerEmail: null, ownerId: null, revision: null, totalRecords: 0, counts: { ...EMPTY_COUNTS }, errors, warnings: [] };
-}
-function record(value: unknown): JsonRow | null { return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRow : null; }
-function isRow(value: unknown): value is JsonRow { return Boolean(record(value)); }
-function text(value: unknown): string { return typeof value === 'string' ? value.trim() : ''; }
-function integer(value: unknown): number | null { return typeof value === 'number' && Number.isSafeInteger(value) ? value : null; }
+function rows(tables: JsonRow, table: BackupTable): JsonRow[] { const value=tables[table]; return Array.isArray(value)?value.filter(isRow):[]; }
+function isRow(value: unknown): value is JsonRow { return Boolean(value && typeof value==='object' && !Array.isArray(value)); }
+function record(value: unknown): JsonRow | null { return isRow(value)?value:null; }
+function text(value: unknown): string { return typeof value==='string'?value:''; }
+function integer(value: unknown): number | null { return Number.isInteger(value)?Number(value):null; }
+function emptyInspection(errors:string[]):CloudBackupInspection { return {valid:false,schemaVersion:null,createdAt:null,ownerEmail:null,ownerId:null,revision:null,totalRecords:0,counts:{...EMPTY_COUNTS},errors,warnings:[]}; }
