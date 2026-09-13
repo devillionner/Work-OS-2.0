@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { activitySummaryStatement, type ActivitySummaryRow } from '@/lib/activity-summary';
+import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { readReportEventDetails } from '@/lib/reports/details';
 import { readReportCalendar } from '@/lib/reports/calendar';
 import { readCalendarContext } from '@/lib/reports/calendar-context';
@@ -9,6 +10,7 @@ import { readPreviousReportReminder } from '@/lib/reports/reminders';
 import { readFinalReportState } from '@/lib/reports/final';
 import { readGoalPlanFact } from '@/lib/goals';
 
+const REQUEST_MAX_BYTES = 32 * 1024;
 type ReportRow = { id: string; report_date: string; report_text: string; submitted_at: number | null; updated_at: number; revision_count: number; stale?: number };
 
 export async function GET(request: Request): Promise<Response> {
@@ -47,7 +49,9 @@ export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
-  const body = await request.json().catch(() => ({})) as { date?: unknown; text?: unknown; submitted?: unknown };
+  const parsed = await readJsonObject(request, REQUEST_MAX_BYTES);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed as { date?: unknown; text?: unknown; submitted?: unknown };
   const date = typeof body.date === 'string' && validDate(body.date) ? body.date : '';
   const text = typeof body.text === 'string' ? body.text.slice(0, 20000) : '';
   if (!date || !text.trim()) return Response.json({ error: 'Вкажіть дату та текст звіту.' }, { status: 400 });
@@ -76,4 +80,3 @@ function validMonth(value: string | null): boolean { return Boolean(value && /^\
 function validDate(value: unknown): value is string { return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value); }
 function shiftMonth(value: string, offset: number): string { const date = new Date(`${value}T12:00:00Z`); date.setUTCMonth(date.getUTCMonth() + offset); return date.toISOString().slice(0, 10); }
 function kyivDate(): string { const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()); const values = Object.fromEntries(parts.map((part) => [part.type, part.value])); return `${values.year}-${values.month}-${values.day}`; }
-function sameOrigin(request: Request): boolean { const origin = request.headers.get('origin'); return Boolean(origin && origin === new URL(request.url).origin); }
