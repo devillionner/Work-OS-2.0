@@ -11,7 +11,7 @@ type Account = { id:string; number:number; name:string; enabled:boolean };
 type Advertisement = { id:string; title:string };
 type Options = { chats:Chat[]; accounts:Account[]; advertisements:Advertisement[]; error?:string };
 
-const PLATFORM_LABELS:Record<string,string>={telegram:'Telegram',whatsapp:'WhatsApp',viber:'Viber',facebook:'Facebook'};
+const PLATFORM_LABELS:Record<string,string>={telegram:'Telegram',whatsapp:'WhatsApp',viber:'Viber',facebook:'Facebook',threads:'Threads'};
 
 export function ReportPublicationCorrection({date}:{date:string}) {
   const [open,setOpen]=useState(false);
