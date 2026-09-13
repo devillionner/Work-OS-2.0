@@ -40,7 +40,7 @@ export async function GET(request: Request): Promise<Response> {
   const selectedPublic = selected
     ? { ...publicReport(selected), stale: calendar.find((item) => item.id === selected.id)?.stale ?? false }
     : null;
-  return Response.json({ month, reports: calendar, calendarContext, selected: selectedPublic, summary, details, subjects, previousReportReminder, finalReportState, goalPlanFact }, { headers: { 'Cache-Control': 'no-store' } });
+  return Response.json({ month, reports: calendar, calendarContext, selected: selectedPublic, summary, details, subjects, previousReportReminder, finalReportState, goalPlanFact, leadCommandScope: `reports:${user.id}` }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(request: Request): Promise<Response> {
