@@ -15,10 +15,12 @@ import {
 } from './form';
 export function LeadEditor({
   lead,
+  defaultResponseDate,
   save,
   close,
 }: {
   lead?: LeadDetail['lead'];
+  defaultResponseDate?: string;
   save: (data: Record<string, unknown>) => Promise<void>;
   close: () => void;
 }) {
@@ -85,7 +87,7 @@ export function LeadEditor({
           label="Дата відгуку *"
           name="responseDate"
           type="date"
-          value={lead ? (lead.responseDate ?? '') : businessDate(now)}
+          value={lead ? (lead.responseDate ?? '') : (defaultResponseDate ?? businessDate(now))}
           required={!lead || lead.responseDate !== null}
         />
         <Field

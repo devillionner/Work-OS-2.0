@@ -5,6 +5,7 @@ import { Copy, LoaderCircle, RefreshCw, Shuffle, Trash2, Unlink } from 'lucide-r
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { TelegramWarmup } from '@/components/telegram-warmup';
 import { businessDate, businessDateTime, lessonEpoch } from '@/lib/leads/domain/time';
 
 type Settings = {
@@ -145,7 +146,7 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
   }
 
   if(!accountId)return null;
-  return <section className="telegram-schedule" aria-label="Telegram-розклад">
+  return <><TelegramWarmup accountId={accountId}/><section className="telegram-schedule" aria-label="Telegram-розклад">
     <div className="card-heading">
       <div><p className="eyebrow">Telegram-розклад</p><h3>План публікацій</h3><p>Окремий розклад для поточного Telegram ID.</p></div>
       <div className="telegram-schedule-summary"><Badge variant="secondary">{data?.completed||0}/{total}</Badge><span>{progress}%</span></div>
@@ -199,7 +200,7 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
         {!data.slots.length&&<p className="muted-note">Розклад ще не створено.</p>}
       </div>
     </>}
-  </section>;
+  </section></>;
 }
 
 function formatNumber(value:number){return Number(value.toFixed(6)).toString();}

@@ -8,11 +8,13 @@ import { transitionChat } from '@/lib/chats/transitions';
 import { availableTodayStatement, joinedTodayStatement } from '@/lib/chats/daily-links';
 import { PROFILE_CADENCES, saveChatProfile } from '@/lib/chats/profile';
 import type { ChatProfileInput } from '@/lib/chats/profile';
+import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { resolveDailyPublicationGoal } from '@/lib/publication-goal';
 
 const PLATFORMS = new Set(['telegram', 'whatsapp', 'viber', 'facebook']);
 const STATUSES = new Set(['to_join', 'waiting', 'ready', 'archived']);
 const ACTIONS = new Set(['joined', 'waiting', 'approved', 'failed', 'archive', 'restore', 'snooze', 'unsnooze', 'published', 'assign_account', 'return_to_join', 'profile']);
+const REQUEST_MAX_BYTES = 64 * 1024;
 
 type ChatRow = {
   id: string; name: string; link: string; platform: string; workflow_status: string;
@@ -87,7 +89,9 @@ export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
-  const body = await request.json() as { id?: unknown; action?: unknown; reason?: unknown; accountId?: unknown; stateToken?: unknown; advertisementId?: unknown; language?: unknown; profile?: ChatProfileInput };
+  const parsed = await readJsonObject(request, REQUEST_MAX_BYTES);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed as { id?: unknown; action?: unknown; reason?: unknown; accountId?: unknown; stateToken?: unknown; advertisementId?: unknown; language?: unknown; profile?: ChatProfileInput };
   const id = typeof body.id === 'string' ? body.id : '';
   const action = typeof body.action === 'string' ? body.action : '';
   if (!id || !ACTIONS.has(action)) return Response.json({ error: 'Невідома дія.' }, { status: 400 });
@@ -133,7 +137,6 @@ export async function POST(request: Request): Promise<Response> {
   return Response.json(result,{status:200});
 }
 
-function sameOrigin(request: Request) { const origin = request.headers.get('origin'); return Boolean(origin && origin === new URL(request.url).origin); }
 function unixNow() { return Math.floor(Date.now() / 1000); }
 function parseNumberList(value:string|null) { try { const parsed=JSON.parse(value||'[]'); return Array.isArray(parsed)?parsed.filter((item):item is number=>Number.isInteger(item)&&item>=1&&item<=7):[]; } catch { return []; } }
 function parseStringList(value:string|null) { try { const parsed=JSON.parse(value||'[]'); return Array.isArray(parsed)?parsed.filter((item):item is string=>typeof item==='string'):[]; } catch { return []; } }

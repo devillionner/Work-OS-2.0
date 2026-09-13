@@ -2,9 +2,11 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { businessDate } from '@/lib/business-time';
 import { goalVersionStatement } from '@/lib/goals';
+import { readJsonObject, sameOrigin } from '@/lib/http-json';
 
 const ALLOWED = new Set(['focus_directions', 'daily_booking_goal', 'monthly_booking_goal', 'enabled_platforms']);
 const PLATFORMS = new Set(['telegram', 'whatsapp', 'viber', 'facebook']);
+const REQUEST_MAX_BYTES = 16 * 1024;
 
 export async function GET(): Promise<Response> {
   const user = await getCurrentUser();
@@ -19,7 +21,9 @@ export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
-  const body = await request.json().catch(() => ({})) as { settings?: unknown };
+  const parsed = await readJsonObject(request, REQUEST_MAX_BYTES);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed as { settings?: unknown };
   if (!body.settings || typeof body.settings !== 'object' || Array.isArray(body.settings)) return Response.json({ error: 'Некоректні налаштування.' }, { status: 400 });
   const entries = Object.entries(body.settings as Record<string, unknown>).filter(([key]) => ALLOWED.has(key));
   if (!entries.length || entries.length !== Object.keys(body.settings as Record<string, unknown>).length) return Response.json({ error: 'Є невідомий параметр.' }, { status: 400 });
@@ -49,5 +53,3 @@ export async function POST(request: Request): Promise<Response> {
   await env.DB.batch(statements);
   return Response.json({ ok: true, settings: Object.fromEntries([...values].map(([key, value]) => [key, JSON.parse(value)])) });
 }
-
-function sameOrigin(request: Request): boolean { const origin = request.headers.get('origin'); return Boolean(origin && origin === new URL(request.url).origin); }
