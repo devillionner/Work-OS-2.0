@@ -1,5 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
+import { businessDate } from '@/lib/business-time';
+import { goalVersionStatement } from '@/lib/goals';
 
 const ALLOWED = new Set(['focus_directions', 'daily_booking_goal', 'monthly_booking_goal', 'enabled_platforms']);
 const PLATFORMS = new Set(['telegram', 'whatsapp', 'viber', 'facebook']);
@@ -35,7 +37,16 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
   const now = Math.floor(Date.now() / 1000);
-  await env.DB.batch([...values].map(([key, value]) => env.DB.prepare(`INSERT INTO user_settings (user_id,setting_key,value_json,source_import_id,updated_at) VALUES (?1,?2,?3,NULL,?4) ON CONFLICT(user_id,setting_key) DO UPDATE SET value_json=excluded.value_json,source_import_id=NULL,updated_at=excluded.updated_at WHERE user_settings.user_id=excluded.user_id`).bind(user.id, key, value, now)));
+  const current = await env.DB.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('daily_booking_goal','monthly_booking_goal')`).bind(user.id).all<{setting_key:string;value_json:string}>();
+  const currentGoals = new Map(current.results.map((row) => [row.setting_key, row.value_json]));
+  const statements = [...values].map(([key, value]) => env.DB.prepare(`INSERT INTO user_settings (user_id,setting_key,value_json,source_import_id,updated_at) VALUES (?1,?2,?3,NULL,?4) ON CONFLICT(user_id,setting_key) DO UPDATE SET value_json=excluded.value_json,source_import_id=NULL,updated_at=excluded.updated_at WHERE user_settings.user_id=excluded.user_id`).bind(user.id, key, value, now));
+  const today = businessDate(now);
+  for (const key of ['daily_booking_goal','monthly_booking_goal'] as const) {
+    const value = values.get(key);
+    if (value === undefined || currentGoals.get(key) === value) continue;
+    statements.push(goalVersionStatement(env.DB,{ userId:user.id, key, value:JSON.parse(value), now, today }));
+  }
+  await env.DB.batch(statements);
   return Response.json({ ok: true, settings: Object.fromEntries([...values].map(([key, value]) => [key, JSON.parse(value)])) });
 }
 

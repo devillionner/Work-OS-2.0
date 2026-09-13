@@ -20,6 +20,7 @@ export const BACKUP_TABLES = [
   'lead_commands',
   'daily_reports',
   'report_checkpoints',
+  'goal_versions',
   'library_items',
   'user_settings',
   'activity_events',
