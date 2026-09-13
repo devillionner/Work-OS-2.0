@@ -138,10 +138,8 @@ export async function GET(request: Request): Promise<Response> {
         completionRate: rate(row.completed, row.bookings),
       })),
       chats: cohort.chats.map((row) => ({
-        id: row.id,
-        name: row.name,
-        platformName: PLATFORM_META[row.platform]?.name || row.platform,
         ...row,
+        platformName: PLATFORM_META[row.platform]?.name || row.platform,
         bookingLeadRate: rate(row.bookedLeads, row.leads),
         completionRate: rate(row.completed, row.bookings),
       })),
