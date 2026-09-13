@@ -17,13 +17,18 @@ export async function transitionChat(db: D1Database, input: {
   if (action === 'assign_account' && (chat.platform !== 'telegram' || !input.accountId)) return {ok:false,error:'Оберіть активний Telegram-акаунт.'};
 
   const joining = action === 'joined' || action === 'approved';
-  const reset = action === 'restore' || action === 'return_to_join';
+  const restoreKeepsMembership = action === 'restore' && ['telegram','whatsapp'].includes(chat.platform)
+    && chat.joined_at !== null && chat.left_at === null;
+  const reset = action === 'return_to_join' || (action === 'restore' && !restoreKeepsMembership);
   const archived = action === 'archive' || action === 'failed';
   const assign = action === 'assign_account';
-  const status = joining ? 'ready' : reset ? 'to_join' : archived ? 'archived' : assign ? chat.workflow_status : 'waiting';
-  const accountId = chat.platform !== 'telegram' || reset ? null
-    : assign ? input.accountId : chat.telegram_account_id ?? input.accountId;
-  const needsActiveAccount = chat.platform === 'telegram' && (joining || action === 'waiting' || assign || (!chat.telegram_account_id && accountId !== null));
+  const status = joining || restoreKeepsMembership ? 'ready' : reset ? 'to_join' : archived ? 'archived' : assign ? chat.workflow_status : 'waiting';
+  const accountId = chat.platform !== 'telegram' ? null
+    : assign ? input.accountId
+      : action === 'return_to_join' ? null
+        : chat.telegram_account_id ?? input.accountId;
+  const needsActiveAccount = chat.platform === 'telegram' && (joining || action === 'waiting' || assign
+    || (action === 'restore' && accountId !== null) || (!chat.telegram_account_id && accountId !== null));
   const eventId = crypto.randomUUID();
   const reason = (input.reason || '').trim().slice(0,100) || (action === 'failed' ? 'Не вдалося приєднатися' : 'Не актуальний');
   const statements = [
