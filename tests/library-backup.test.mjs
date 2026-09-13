@@ -9,14 +9,14 @@ function payload(schemaVersion=CLOUD_BACKUP_SCHEMA_VERSION){
   return {app:'work-os-cloud-backup',schemaVersion,createdAt:'2026-09-10T10:00:00.000Z',ownerEmail:'owner@example.com',ownerId:'owner',revision:1,counts,tables};
 }
 
-void test('backup schema 11 includes library item version history',()=>{
+void test('backup schema 12 includes library item version history',()=>{
   const backup=payload();
   backup.tables.library_items=[{id:'item',user_id:'owner',source_import_id:null}];
   backup.counts.library_items=1;
   backup.tables.library_item_versions=[{id:'version',user_id:'owner',item_id:'item'}];
   backup.counts.library_item_versions=1;
   const result=inspectCloudBackup(JSON.stringify(backup));
-  assert.equal(CLOUD_BACKUP_SCHEMA_VERSION,11);
+  assert.equal(CLOUD_BACKUP_SCHEMA_VERSION,12);
   assert.equal(result.valid,true,result.errors.join('\n'));
   assert.equal(result.counts.library_item_versions,1);
 });
