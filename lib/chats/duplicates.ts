@@ -1,4 +1,5 @@
 import { cleanChatName, normalizeGroupLink, type ChatPlatform } from './bulk-input.ts';
+import { chatStateTokenSql } from './state.ts';
 
 export const DUPLICATE_SCAN_LIMIT = 10_000;
 
@@ -10,6 +11,7 @@ export type DuplicateChat = {
   status: string;
   archiveReason: string | null;
   telegramAccountId: string | null;
+  stateToken: string;
 };
 
 export type DuplicateGroup = {
@@ -27,6 +29,7 @@ type DuplicateRow = {
   workflow_status: string;
   archive_reason: string | null;
   telegram_account_id: string | null;
+  state_token: string;
 };
 
 export class DuplicateScanError extends Error {
@@ -44,13 +47,13 @@ export async function findChatDuplicates(
 ): Promise<DuplicateGroup[]> {
   const platform = input.platform || null;
   const telegramAccountId = platform === 'telegram' ? input.telegramAccountId || null : null;
-  const result = await db.prepare(`SELECT id,platform,name,link,normalized_link,workflow_status,
-      archive_reason,telegram_account_id
-    FROM chats
-    WHERE user_id=?1 AND (?2 IS NULL OR platform=?2)
-      AND (?2!='telegram' OR ?3 IS NULL OR telegram_account_id=?3
-        OR (telegram_account_id IS NULL AND workflow_status='to_join'))
-    ORDER BY platform,name,id LIMIT ?4`)
+  const result = await db.prepare(`SELECT c.id,c.platform,c.name,c.link,c.normalized_link,c.workflow_status,
+      c.archive_reason,c.telegram_account_id,${chatStateTokenSql()} AS state_token
+    FROM chats c
+    WHERE c.user_id=?1 AND (?2 IS NULL OR c.platform=?2)
+      AND (?2!='telegram' OR ?3 IS NULL OR c.telegram_account_id=?3
+        OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))
+    ORDER BY c.platform,c.name,c.id LIMIT ?4`)
     .bind(input.userId, platform, telegramAccountId, DUPLICATE_SCAN_LIMIT + 1)
     .all<DuplicateRow>();
   if (result.results.length > DUPLICATE_SCAN_LIMIT) {
@@ -111,5 +114,6 @@ function toChat(item: { row: DuplicateRow }): DuplicateChat {
     status: row.workflow_status,
     archiveReason: row.archive_reason,
     telegramAccountId: row.telegram_account_id,
+    stateToken: row.state_token,
   };
 }
