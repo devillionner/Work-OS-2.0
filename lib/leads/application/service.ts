@@ -44,6 +44,8 @@ export async function executeLeadCommand(
       'archive',
       'restore',
       'first_reply',
+      'response_cancel',
+      'response_restore',
       'curator_submit',
       'curator_cancel',
       'student_create',
@@ -212,6 +214,18 @@ export async function executeLeadCommand(
       lead.archivedAt = action === 'archive' ? now : null;
       event(action === 'archive' ? 'lead_archived' : 'lead_restored');
     }
+  } else if (action === 'response_cancel' || action === 'response_restore') {
+    v.only(data, []);
+    const cancelled = lead.responseCancelledAt !== null;
+    if (action === 'response_cancel' && cancelled)
+      throw new v.LeadError('Відгук уже скасовано.', 409);
+    if (action === 'response_restore' && !cancelled)
+      throw new v.LeadError('Відгук не скасовано.', 409);
+    const isCancel = action === 'response_cancel';
+    lead.responseCancelledAt = isCancel ? now : null;
+    lead.responseCancelledDate = isCancel ? businessDate(now) : null;
+    changes.responseEventCancelledAt = isCancel ? now : null;
+    event(isCancel ? 'lead_response_cancelled' : 'lead_response_restored', businessDate(now), null, { responseDate: lead.responseDate });
   } else if (action === 'first_reply') {
     v.only(data, ['at']);
     const at = v.integer(data.at, 'Перша відповідь', 0, now);

@@ -318,6 +318,16 @@ export class D1LeadRepository implements LeadRepository {
       );
     for (const event of c.events)
       commands.push(this.db.insert(activityEvents).values(event));
+    if (c.responseEventCancelledAt !== undefined)
+      commands.push(
+        this.db.update(activityEvents).set({ cancelledAt: c.responseEventCancelledAt }).where(
+          and(
+            eq(activityEvents.userId, c.lead.userId),
+            eq(activityEvents.leadId, c.lead.id),
+            eq(activityEvents.eventType, 'lead_created'),
+          ),
+        ),
+      );
     if (c.resolvedCuratorRequest) {
       const resolved = c.resolvedCuratorRequest;
       commands.push(

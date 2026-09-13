@@ -34,6 +34,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
   const [refresh, setRefresh] = useState(0);
   const [editor, setEditor] = useState<'create' | 'update' | null>(null);
   const [archive, setArchive] = useState(false);
+  const [responseChange, setResponseChange] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [notice, setNotice] = useState('');
   const busy = useRef(false);
@@ -301,6 +302,13 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                       ? 'Відновити'
                       : 'Архівувати'}
                   </Button>
+                  <Button
+                    variant="outline"
+                    disabled={current.lead.archivedAt !== null}
+                    onClick={() => setResponseChange(true)}
+                  >
+                    {current.lead.responseCancelledAt === null ? 'Скасувати відгук' : 'Відновити відгук'}
+                  </Button>
                   <Button variant="outline" onClick={() => setHistoryOpen(true)}>
                     Історія
                   </Button>
@@ -339,6 +347,16 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
           run={() =>
             mutate(current.lead.archivedAt !== null ? 'restore' : 'archive')
           }
+        />
+      )}
+      {responseChange && current && (
+        <Confirmation
+          title={current.lead.responseCancelledAt === null ? 'Скасувати відгук?' : 'Відновити відгук?'}
+          description={current.lead.responseCancelledAt === null
+            ? 'Контакт і вся історія збережуться, але цей відгук перестане входити у звіти та статистику.'
+            : 'Первинний відгук знову ввійде у звіти та статистику на своїй історичній даті.'}
+          close={() => setResponseChange(false)}
+          run={() => mutate(current.lead.responseCancelledAt === null ? 'response_cancel' : 'response_restore')}
         />
       )}
     </div>

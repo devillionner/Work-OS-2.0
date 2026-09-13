@@ -290,6 +290,22 @@ void test('contact marked as not studying can book only an added student', async
   await f.book(adultId);
   assert.equal((await f.repo.load('u', adultId)).lessons.length, 1);
 });
+void test('response cancellation removes its metric and restore reactivates the historical response', async (t) => {
+  const f = await fixture(t);
+  const id = await f.create();
+  await f.run('response_cancel', {}, id);
+  let a = await f.repo.load('u', id);
+  assert.equal(a.lead.responseCancelledAt, NOW);
+  assert.equal(a.lead.responseCancelledDate, '2026-09-08');
+  assert.deepEqual(await f.rows("SELECT cancelled_at FROM activity_events WHERE user_id='u' AND lead_id=? AND event_type='lead_created'", id), [{ cancelled_at: NOW }]);
+  await assert.rejects(f.run('response_cancel', {}, id), /уже скасовано/);
+  await f.run('response_restore', {}, id);
+  a = await f.repo.load('u', id);
+  assert.equal(a.lead.responseCancelledAt, null);
+  assert.equal(a.lead.responseCancelledDate, null);
+  assert.deepEqual(await f.rows("SELECT cancelled_at FROM activity_events WHERE user_id='u' AND lead_id=? AND event_type='lead_created'", id), [{ cancelled_at: null }]);
+  await assert.rejects(f.run('response_restore', {}, id), /не скасовано/);
+});
 void test('blank subject, invalid grade and hostile payloads are rejected without writes', async (t) => {
   const f = await fixture(t);
   await assert.rejects(f.create({ subject: '  ' }), /Предмет/);
