@@ -47,7 +47,7 @@ export function ChatDuplicatesDialog({open,onClose}:{open:boolean;onClose:()=>vo
     finally{setLoading(false);}
   },[open,platform,accountId]);
 
-  useEffect(()=>{if(!open)return;void loadAccounts().catch(reason=>setError(reason instanceof Error?reason.message:'Не вдалося завантажити акаунти.'));},[open,loadAccounts]);
+  useEffect(()=>{if(!open)return;const timer=setTimeout(()=>void loadAccounts().catch(reason=>setError(reason instanceof Error?reason.message:'Не вдалося завантажити акаунти.')),0);return()=>clearTimeout(timer);},[open,loadAccounts]);
   useEffect(()=>{if(!open)return;const timer=setTimeout(()=>void load(),0);return()=>clearTimeout(timer);},[open,load]);
 
   async function rename(chat:Chat){
@@ -76,7 +76,7 @@ export function ChatDuplicatesDialog({open,onClose}:{open:boolean;onClose:()=>vo
 
   if(!open)return null;
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event)=>{if(event.target===event.currentTarget&&!busy)onClose();}}>
-    <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="duplicates-title">
+    <dialog open className="modal-card" aria-labelledby="duplicates-title">
       <div className="card-heading"><div><p className="eyebrow">Перевірка даних</p><h3 id="duplicates-title">Менеджер дублікатів чатів</h3><p>Точні посилання мають вищий пріоритет. Однакова назва з різними URL — лише кандидат для ручної перевірки.</p></div><Button variant="ghost" onClick={onClose} disabled={busy!==null}>Закрити</Button></div>
       <div className="lead-actions">
         {(['telegram','whatsapp','viber','facebook'] as Platform[]).map(value=><Button key={value} size="sm" variant={platform===value?'default':'outline'} disabled={busy!==null} onClick={()=>setPlatform(value)}>{value==='telegram'?'Telegram':value==='whatsapp'?'WhatsApp':value==='viber'?'Viber':'Facebook'}</Button>)}
@@ -86,6 +86,6 @@ export function ChatDuplicatesDialog({open,onClose}:{open:boolean;onClose:()=>vo
       {error&&<div className="workspace-error" role="alert">{error}</div>}
       {notice&&<output className="reports-notice">{notice}</output>}
       {loading?<div className="workspace-loading"><LoaderCircle/>Шукаємо дублікати…</div>:groups.length?<div className="chat-list">{groups.map(group=><section key={group.key} className="settings-panel"><div className="card-heading"><div><strong>{group.chats[0]?.name}</strong><p>{group.chats.length} записів для перевірки</p></div><Badge variant={group.match==='link'?'secondary':'outline'}>{group.match==='link'?'Точне посилання':'Однакова назва — перевірити'}</Badge></div>{group.chats.map(chat=><div key={chat.id} className="chat-row"><div className="chat-main"><Input aria-label={`Назва ${chat.name}`} value={names[chat.id]??chat.name} disabled={busy!==null} onChange={event=>setNames(current=>({...current,[chat.id]:event.target.value}))}/><a className="chat-native-link" href={chat.link} target="_blank" rel="noreferrer"><ExternalLink data-icon="inline-start"/>{chat.link}</a><small>{chat.status==='archived'?`Архів${chat.archiveReason?` · ${chat.archiveReason}`:''}`:chat.status}</small></div><div className="chat-actions"><Button variant="outline" size="sm" disabled={busy!==null||!(names[chat.id]||'').trim()||(names[chat.id]||'').trim()===chat.name} onClick={()=>void rename(chat)}>Зберегти назву</Button>{chat.status!=='archived'&&<Button variant="outline" size="sm" disabled={busy!==null} onClick={()=>void archive(chat)}>Архівувати як дублікат</Button>}</div></div>)}</section>)}</div>:<div className="workspace-empty"><strong>Кандидатів не знайдено</strong><p>На цій платформі немає повторів за нормалізованим посиланням або назвою.</p></div>}
-    </section>
+    </dialog>
   </div>;
 }

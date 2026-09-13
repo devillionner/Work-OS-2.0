@@ -151,10 +151,6 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     setProfileChat(null); setData(null); setLoading(true); void reloadChats.current(); router.refresh();
   }
 
-  function duplicatesChanged() {
-    setData(null); setLoading(true); void reloadChats.current(); router.refresh();
-  }
-
   function selectPlatform(next:Platform) {
     if(next===platform)return;
     writePlatformView(platform,{queue,search,offset,scrollY:window.scrollY,lastChatId:lastOpenedByPlatform[platform]||null});
@@ -234,7 +230,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const breakSeconds=activeAccount?.breakUntil?Math.max(0,activeAccount.breakUntil-Math.floor(clock/1000)):0;
   return <div className="platform-workspace">
     <ChatBulkDialog open={bulkOpen} onClose={()=>setBulkOpen(false)} onAdded={addedChats} enabledPlatforms={enabledPlatforms}/>
-    <ChatDuplicatesDialog open={duplicatesOpen} platform={platform} accountId={platform==='telegram'?accountId:null} onClose={()=>setDuplicatesOpen(false)} onChanged={duplicatesChanged}/>
+    <ChatDuplicatesDialog open={duplicatesOpen} onClose={()=>setDuplicatesOpen(false)}/>
     <ChatProfileDialog key={profileOpenKey} open={profileChat!==null} chat={profileChat} onClose={()=>setProfileChat(null)} onSaved={savedProfile} onOpenChat={()=>{if(profileChat)openChat(profileChat);}}/>
     <ChatHistoryDialog key={historyOpenKey} open={historyChat!==null} chat={historyChat} onClose={()=>setHistoryChat(null)}/>
     <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={({advertisementId,language})=>publishChat?act(publishChat,'published',{advertisementId,language}):Promise.resolve(false)} onOpenChat={()=>{if(publishChat)openChat(publishChat);}}/>
