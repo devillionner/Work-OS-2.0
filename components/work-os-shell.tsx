@@ -118,7 +118,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
             </div>
           </section>
 
-          <WorkdayCard initial={snapshot.workday} today={snapshot.today} unfinishedCount={snapshot.leadTaskCount} />
+          <WorkdayCard initial={snapshot.workday} today={snapshot.today} unfinishedCount={snapshot.leadTaskCount} dailyGoal={snapshot.bookingGoal.target} monthlyGoal={snapshot.monthlyBookingGoal} focusDirections={snapshot.focusDirections} />
 
           <section className="goal-card" aria-labelledby="goal-title">
             <div className="card-heading"><div><p className="eyebrow">Ціль на день</p><h2 id="goal-title">Записи</h2><p className="goal-month-note">Місячна ціль: {snapshot.monthlyBookingGoal}</p></div>{snapshot.reportSubmittedAt ? <Badge variant="secondary">Звіт зафіксовано</Badge> : <button className="text-action" type="button" onClick={() => setTodaySettingsOpen(true)}>Змінити</button>}</div>
