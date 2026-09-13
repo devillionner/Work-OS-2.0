@@ -6,6 +6,7 @@ import { readAnalyticsCohort } from '@/lib/analytics-cohort';
 import { analyticsCsv, type AnalyticsExportData } from '@/lib/analytics-export';
 import { buildAnalyticsRecommendation } from '@/lib/analytics-insights';
 import { resolveAnalyticsRange } from '@/lib/analytics-range';
+import { readAnalyticsTrends } from '@/lib/analytics-trends';
 import { businessDayStart, shiftBusinessDate } from '@/lib/business-time';
 
 const PLATFORM_META: Record<string, { name: string; color: string }> = {
@@ -42,8 +43,9 @@ export async function GET(request: Request): Promise<Response> {
   const archiveFrom = businessDayStart(from);
   const archiveTo = businessDayStart(shiftBusinessDate(to, 1));
 
-  const [cohort, batch] = await Promise.all([
+  const [cohort, trends, batch] = await Promise.all([
     readAnalyticsCohort(env.DB, user.id, from, to),
+    readAnalyticsTrends(env.DB, user.id, from, to),
     env.DB.batch([
       activitySummaryStatement(env.DB, user.id, from, to),
       completedOperatorLessonsStatement(env.DB, user.id, from, to),
@@ -175,7 +177,7 @@ export async function GET(request: Request): Promise<Response> {
     archiveReasons,
     archivedChats: archiveReasons.reduce((sum, row) => sum + row.count, 0),
   };
-  return Response.json({ ...data, insights }, { headers: { 'Cache-Control': 'no-store' } });
+  return Response.json({ ...data, insights, trends }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 function rate(value: number, base: number): number {
