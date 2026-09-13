@@ -17,7 +17,6 @@ export function LeadScripts({ lead }: { lead: LeadDetail['lead'] }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
     void fetch('/api/library?kind=script', { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
         const body = await response.json() as { items?: LeadScriptItem[]; error?: string };
@@ -43,19 +42,16 @@ export function LeadScripts({ lead }: { lead: LeadDetail['lead'] }) {
 
   async function copy(text: string, title: string, language: string) {
     if (!text.trim()) return;
+    if (!navigator.clipboard) {
+      setNotice('Браузер не дозволив автоматичне копіювання.');
+      return;
+    }
     try {
       await navigator.clipboard.writeText(text);
+      setNotice(`${title}: ${language} скопійовано.`);
     } catch {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      textarea.remove();
+      setNotice('Не вдалося скопіювати текст.');
     }
-    setNotice(`${title}: ${language} скопійовано.`);
   }
 
   return (
