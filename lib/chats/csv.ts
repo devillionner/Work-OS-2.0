@@ -149,7 +149,7 @@ export async function applyChatCsvImport(db:D1Database,input:{userId:string;rows
     }
     if(!statements.length)continue;
     const result=await db.batch(statements);
-    inserted+=chatIndexes.reduce((sum,index)=>sum+Number(result[index]?.meta.changes||0),0);
+    inserted+=chatIndexes.reduce((sum,index)=>sum+(Number(result[index]?.meta.changes||0)>0?1:0),0);
   }
   return {ok:true,inserted,existing:input.rows.length-inserted,total:input.rows.length,preview:stripRows(preview)};
 }
