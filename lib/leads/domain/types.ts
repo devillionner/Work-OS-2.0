@@ -38,6 +38,7 @@ export type Changes = {
   messages: Message[];
   events: Event[];
   createdCuratorRequest?: CuratorRequest;
+  responseEventCancelledAt?: number | null;
   eventDateCorrections?: Array<{
     type: 'lead_created' | 'lesson_booked';
     date: string;

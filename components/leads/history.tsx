@@ -11,6 +11,8 @@ const eventNames: Record<string, string> = {
   lead_updated: 'Контакт оновлено',
   lead_archived: 'Ліда архівовано',
   lead_restored: 'Ліда відновлено',
+  lead_response_cancelled: 'Відгук скасовано',
+  lead_response_restored: 'Відгук відновлено',
   first_reply_recorded: 'Першу відповідь зафіксовано',
   curator_request_submitted: 'Запит куратору створено',
   curator_booking_pending: 'Запит куратору очікує відповіді',
