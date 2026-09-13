@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Check, Clipboard, Clock3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ReportPublicationCorrection } from '@/components/report-publication-correction';
 
 type Checkpoint = {
   slot: '13:00' | '16:00' | '19:00';
@@ -23,7 +24,8 @@ export function ReportCheckpoints({ date }: { date: string }) {
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
-    setError('');    try {
+    setError('');
+    try {
       const response = await fetch(`/api/reports/checkpoints?date=${encodeURIComponent(date)}`, { cache: 'no-store', signal });
       const body = await response.json() as Payload;
       if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити проміжні звіти.');
@@ -48,7 +50,8 @@ export function ReportCheckpoints({ date }: { date: string }) {
     try {
       const response = await fetch('/api/reports/checkpoints', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, slot, expectedVersion: item.version }),
-      });      const body = await response.json() as Payload & { text?: string };
+      });
+      const body = await response.json() as Payload & { text?: string };
       if (!response.ok) throw new Error(body.error || 'Не вдалося здати проміжний звіт.');
       setItems(body.checkpoints);
     } catch (reason) {
@@ -63,14 +66,14 @@ export function ReportCheckpoints({ date }: { date: string }) {
     catch { setError('Не вдалося скопіювати текст.'); }
   }
 
-  if (loading) return <section className="report-checkpoints"><p className="muted-note">Завантажуємо проміжні звіти…</p></section>;
-  if (!items.length) return null;
-
-  return <section className="report-checkpoints" aria-label="Проміжні звіти">
-    <div className="report-checkpoints-head"><div><p className="eyebrow">Контроль дня</p><h4>Проміжні звіти</h4></div><span className="muted-note">Час визначається від початку робочого дня.</span></div>
-    {error && <p className="workspace-error">{error}</p>}
-    <div className="report-checkpoint-list">{items.map((item) => <div key={item.slot} className={`report-checkpoint is-${item.state}`}><div><strong><Clock3 />{item.slot}</strong><span>{statusText(item)}</span>{item.reason && <small>{item.reason}</small>}</div><div className="report-checkpoint-actions">{item.state === 'due' && <Button size="sm" onClick={() => void submit(item)} disabled={saving !== null}>{saving === item.slot ? 'Здаємо…' : 'Здати'}</Button>}{item.state === 'submitted' && item.text && <><Button size="sm" variant="outline" onClick={() => void copy(item.text!)}><Clipboard data-icon="inline-start" />Копіювати</Button><Check aria-label="Здано" /></>}</div></div>)}</div>
-  </section>;
+  return <>
+    <section className="report-checkpoints" aria-label="Проміжні звіти">
+      <div className="report-checkpoints-head"><div><p className="eyebrow">Контроль дня</p><h4>Проміжні звіти</h4></div><span className="muted-note">Час визначається від початку робочого дня.</span></div>
+      {error && <p className="workspace-error">{error}</p>}
+      {loading ? <p className="muted-note">Завантажуємо проміжні звіти…</p> : items.length ? <div className="report-checkpoint-list">{items.map((item) => <div key={item.slot} className={`report-checkpoint is-${item.state}`}><div><strong><Clock3 />{item.slot}</strong><span>{statusText(item)}</span>{item.reason && <small>{item.reason}</small>}</div><div className="report-checkpoint-actions">{item.state === 'due' && <Button size="sm" onClick={() => void submit(item)} disabled={saving !== null}>{saving === item.slot ? 'Здаємо…' : 'Здати'}</Button>}{item.state === 'submitted' && item.text && <><Button size="sm" variant="outline" onClick={() => void copy(item.text!)}><Clipboard data-icon="inline-start" />Копіювати</Button><Check aria-label="Здано" /></>}</div></div>)}</div> : <p className="muted-note">Для цього дня проміжні звіти не потрібні.</p>}
+    </section>
+    <ReportPublicationCorrection date={date} />
+  </>;
 }
 
 function statusText(item: Checkpoint) {
