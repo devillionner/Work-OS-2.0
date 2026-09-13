@@ -1,8 +1,11 @@
 import { businessDate } from './business-time.ts';
 import { reminderView } from './leads/domain/reminders.ts';
+import { readWorkdaySnapshot, type WorkdaySnapshot } from './workday.ts';
 import { activitySummaryStatement, activityTotals, type ActivitySummaryRow } from './activity-summary.ts';
 
 export type DashboardSnapshot = {
+  today: string;
+  workday: WorkdaySnapshot | null;
   migrationCompleted: boolean;
   lastPrototypeSync: { completedAt: number; filename: string } | null;
   chats: number;
@@ -14,6 +17,7 @@ export type DashboardSnapshot = {
   focusDirections: string[];
   enabledPlatforms: string[];
   platforms: Array<{ key: string; name: string; color: string; publications: number; joined: number; responses: number; bookings: number }>;
+  leadTaskCount: number;
   leadTasks: Array<{ kind: 'follow_up' | 'reminder'; leadId: string; leadName: string; title: string; dueAt: number; lessonId: string | null }>;
 };
 
@@ -27,9 +31,11 @@ const PLATFORM_META: Record<string, { name: string; color: string }> = {
 
 export async function readDashboardSnapshot(db: D1Database, userId: string, now: number): Promise<DashboardSnapshot> {
   const today = businessDate(now);
-  const report = await db.prepare(
-    `SELECT submitted_at FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`,
-  ).bind(userId, today).first<{ submitted_at: number | null }>();
+  const [report, workday] = await Promise.all([
+    db.prepare(`SELECT submitted_at FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`)
+      .bind(userId, today).first<{ submitted_at: number | null }>(),
+    readWorkdaySnapshot(db, userId, today, now),
+  ]);
   const afterReport = report?.submitted_at ?? null;
   const reminderHorizon = businessDate(now + 43200 * 60);
   const [chatResult, leadResult, migrationResult, eventResult, settingsResult, followUpResult, reminderResult] = await db.batch([
@@ -77,6 +83,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
     });
   }
   leadTasks.sort((a, b) => a.dueAt - b.dueAt || a.leadId.localeCompare(b.leadId));
+  const leadTaskCount = leadTasks.length;
   const settingMap = new Map(settingRows.map(row => [row.setting_key, row.value_json]));
   const dailyGoal = settingMap.has('daily_booking_goal') ? settingNumber(settingMap.get('daily_booking_goal')) : 5;
   const monthlyBookingGoal = settingMap.has('monthly_booking_goal') ? settingNumber(settingMap.get('monthly_booking_goal')) : 100;
@@ -88,6 +95,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
     ...activityTotals(eventRows.filter(row => (row.platform || 'unknown') === key)),
   }));
   return {
+    today, workday,
     migrationCompleted: Boolean(lastSync?.completed_at),
     lastPrototypeSync: lastSync?.completed_at ? { completedAt: Number(lastSync.completed_at), filename: lastSync.original_filename || 'Prototype Checker' } : null,
     chats: Number(chatCount?.count || 0),
@@ -99,6 +107,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
     focusDirections,
     enabledPlatforms: enabledPlatforms.length ? enabledPlatforms : ['telegram', 'whatsapp', 'viber', 'facebook'],
     platforms,
+    leadTaskCount,
     leadTasks: leadTasks.slice(0, 8),
   };
 }

@@ -5,6 +5,7 @@ export const BACKUP_TABLES = [
   'legacy_import_chunks',
   'telegram_accounts',
   'work_timers',
+  'workdays',
   'chats',
   'chat_profiles',
   'chat_publications',

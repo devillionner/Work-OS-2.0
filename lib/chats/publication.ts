@@ -1,4 +1,5 @@
 import { chatStateTokenSql } from './state.ts';
+import { nextProfilePublicationDate, profilePublicationRule, PROFILE_CADENCES, type ChatProfile, type ProfileCadence } from './profile.ts';
 
 export type PublicationChat = {
   id: string;
@@ -22,6 +23,14 @@ export async function recordManualPublication(
 ): Promise<{ ok: true } | { ok: false; error: string; availableAt?: number | null }> {
   const { userId, chat, accountId, advertisementId = null, now, date } = input;
   const language = input.language === 'uk' || input.language === 'ru' ? input.language : null;
+  const profileRow = await db.prepare(`SELECT p.cadence,p.weekdays_json,p.custom_interval_days,p.next_allowed_on,p.review_status
+    FROM chat_profiles p JOIN chats c ON c.id=p.chat_id WHERE p.chat_id=?1 AND c.user_id=?2 LIMIT 1`).bind(chat.id,userId).first<Record<string,unknown>>();
+  const profile = publicationProfile(profileRow);
+  if (profile) {
+    const rule = profilePublicationRule(profile,date);
+    if (!rule.allowed) return { ok:false,error:rule.reason || 'Публікація зараз недоступна.' };
+  }
+  const nextAllowedOn = profile?.reviewStatus === 'confirmed' ? nextProfilePublicationDate(date,profile.cadence,profile.customIntervalDays) : null;
   const availability = publicationAvailability(chat, now);
   if (!availability.availableNow) {
     return { ok: false, ...availability, error: chat.workflow_status !== 'ready'
@@ -32,7 +41,7 @@ export async function recordManualPublication(
   const sourceKey = `manual:${publicationId}`;
   // Recheck the current row inside the same transaction as the event. A racing
   // archive/snooze or duplicate click must not create a publication or an event.
-  const results = await db.batch([
+  const statements = [
     db.prepare(`INSERT INTO chat_publications
       (id,user_id,chat_id,published_on,published_at,advertisement_id,source,source_key,created_at,telegram_account_id)
       SELECT ?1,c.user_id,c.id,?2,?3,?6,'manual',?4,?3,CASE WHEN c.platform='telegram' THEN COALESCE(c.telegram_account_id,?5) ELSE NULL END
@@ -61,10 +70,24 @@ export async function recordManualPublication(
         ON p.user_id=s.user_id AND p.telegram_account_id=s.telegram_account_id AND p.chat_id=s.chat_id
         WHERE p.id=?2 AND p.user_id=?3 AND s.status='pending' ORDER BY s.scheduled_at,s.sequence LIMIT 1)
         AND user_id=?3 AND status='pending'`).bind(now,publicationId,userId),
-    db.prepare(`UPDATE chats SET updated_at=?1 WHERE id=?2 AND user_id=?3
+  ];
+  if (profile?.reviewStatus === 'confirmed') statements.push(
+    db.prepare(`UPDATE chat_profiles SET next_allowed_on=?1,updated_at=?2 WHERE chat_id=?3
+      AND EXISTS(SELECT 1 FROM chat_publications p WHERE p.id=?4 AND p.user_id=?5)`)
+      .bind(nextAllowedOn,now,chat.id,publicationId,userId),
+  );
+  statements.push(db.prepare(`UPDATE chats SET updated_at=?1 WHERE id=?2 AND user_id=?3
       AND EXISTS(SELECT 1 FROM chat_publications p WHERE p.id=?4 AND p.user_id=?3)`)
-      .bind(now,chat.id,userId,publicationId),
-  ]);
+      .bind(now,chat.id,userId,publicationId));
+  const results = await db.batch(statements);
   return results[0].meta.changes ? { ok: true }
     : { ok: false, error: 'Чат уже змінено або сьогодні в ньому вже публікували. Оновіть список.' };
+}
+
+function publicationProfile(row:Record<string,unknown>|null): Pick<ChatProfile,'reviewStatus'|'cadence'|'weekdays'|'customIntervalDays'|'nextAllowedOn'> | null {
+  if(!row) return null;
+  const cadence = typeof row.cadence==='string' && PROFILE_CADENCES.includes(row.cadence as ProfileCadence) ? row.cadence as ProfileCadence : 'any';
+  let weekdays:number[]=[]; try { const parsed=JSON.parse(typeof row.weekdays_json==='string'?row.weekdays_json:'[]'); if(Array.isArray(parsed)) weekdays=parsed.filter(value=>Number.isInteger(value)&&value>=1&&value<=7); } catch {}
+  const customIntervalDays = row.custom_interval_days===null||row.custom_interval_days===undefined ? null : Number(row.custom_interval_days);
+  return { reviewStatus:row.review_status==='confirmed'?'confirmed':'draft',cadence,weekdays,customIntervalDays:Number.isInteger(customIntervalDays)?customIntervalDays:null,nextAllowedOn:typeof row.next_allowed_on==='string'?row.next_allowed_on:null };
 }

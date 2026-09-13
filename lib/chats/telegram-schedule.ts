@@ -1,3 +1,5 @@
+import { isoWeekday, profilePublicationEligibilitySql } from './profile.ts';
+
 export class TelegramScheduleError extends Error {
   status: number;
   constructor(message: string, status = 400) { super(message); this.status = status; }
@@ -106,9 +108,8 @@ export async function generateTelegramSchedule(db:D1Database,input:{userId:strin
 export async function updateTelegramScheduleSlot(db:D1Database,input:{userId:string;accountId:string;slotId:string;expectedVersion:number;scheduledAt?:number;chatId?:string|null;now:number;date:string}) {
   await requireAccount(db,input.userId,input.accountId);
   if(!Number.isInteger(input.expectedVersion)||input.expectedVersion<0) throw new TelegramScheduleError('Некоректна версія слота.');
-  if(!Number.isInteger(input.expectedVersion)||input.expectedVersion<0) throw new TelegramScheduleError('?????????? ?????? ?????.');
   if(input.scheduledAt===undefined&&input.chatId===undefined) return readTelegramSchedule(db,{userId:input.userId,accountId:input.accountId,now:input.now,date:input.date});
-  const scheduledAt=input.scheduledAt===undefined?null:roundMillis(validEpoch(input.scheduledAt,'??????????? ??? ?????.'));
+  const scheduledAt=input.scheduledAt===undefined?null:roundMillis(validEpoch(input.scheduledAt,'Некоректний час слота.'));
   if(input.chatId!==undefined&&input.chatId!==null) await assertSelectableChats(db,input.userId,input.accountId,[input.chatId],input.now,input.date);
   try {
     const result=input.scheduledAt!==undefined&&input.chatId!==undefined
@@ -122,10 +123,10 @@ export async function updateTelegramScheduleSlot(db:D1Database,input:{userId:str
         : await db.prepare(`UPDATE telegram_schedule_slots SET chat_id=?1,updated_at=?2,version=version+1
             WHERE id=?3 AND user_id=?4 AND telegram_account_id=?5 AND status='pending' AND version=?6`)
             .bind(input.chatId??null,input.now,input.slotId,input.userId,input.accountId,input.expectedVersion).run();
-    if(!result.meta.changes) throw new TelegramScheduleError('???? ??? ????????. ??????? ???????.',409);
+    if(!result.meta.changes) throw new TelegramScheduleError('Слот уже змінився. Оновіть розклад.',409);
   } catch(reason) {
     if(reason instanceof TelegramScheduleError) throw reason;
-    throw new TelegramScheduleError('??? ??? ??? ??? ??????????? ? ?????? ???????????? ?????.',409);
+    throw new TelegramScheduleError('Не вдалося зберегти слот через конфлікт розкладу.',409);
   }
   return readTelegramSchedule(db,{userId:input.userId,accountId:input.accountId,now:input.now,date:input.date});
 }
@@ -145,9 +146,10 @@ async function eligibleTelegramChats(db:D1Database,input:{userId:string;accountI
       AND (c.joined_at IS NULL OR c.joined_at+21600<=?3)
       AND (?5='' OR lower(c.name) LIKE ?6 ESCAPE '\\' OR lower(c.link) LIKE ?6 ESCAPE '\\')
       AND NOT EXISTS(SELECT 1 FROM chat_publications p WHERE p.user_id=c.user_id AND p.chat_id=c.id AND p.published_on=?4)
+      AND ${profilePublicationEligibilitySql('?4','?7')}
       ${pending}
     ORDER BY COALESCE(c.joined_at,c.created_at),c.updated_at,c.id LIMIT 500`)
-    .bind(input.userId,input.accountId,input.now,input.date,search,pattern).all<TelegramScheduleChat>();
+    .bind(input.userId,input.accountId,input.now,input.date,search,pattern,isoWeekday(input.date)).all<TelegramScheduleChat>();
   return result.results;
 }
 

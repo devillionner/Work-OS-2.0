@@ -9,7 +9,7 @@ const NOW = Date.parse('2026-09-11T22:30:00Z') / 1000;
 const profile = (changes = {}) => ({ name: 'Батьки 7 клас', language: 'uk', cadence: 'weekly', weekdays: [1, 3, 1], directions: ['математика', 'англійська'], note: 'Публікувати після 18:00', reviewStatus: 'confirmed', ...changes });
 
 void test('profile validation normalizes lists and rejects unsafe values', () => {
-  assert.deepEqual(validateChatProfile(profile()), { name: 'Батьки 7 клас', language: 'uk', cadence: 'weekly', weekdays: [1, 3], directions: ['математика', 'англійська'], note: 'Публікувати після 18:00', reviewStatus: 'confirmed' });
+  assert.deepEqual(validateChatProfile(profile()), { name: 'Батьки 7 клас', language: 'uk', cadence: 'weekly', weekdays: [1, 3], customIntervalDays: null, nextAllowedOn: null, directions: ['математика', 'англійська'], note: 'Публікувати після 18:00', reviewStatus: 'confirmed' });
   for (const changes of [{ language: 'en' }, { cadence: 'hourly' }, { weekdays: [0] }, { directions: Array.from({ length: 13 }, () => 'x') }, { name: ' ' }, { name: '😊'.repeat(181) }]) assert.throws(() => validateChatProfile(profile(changes)));
 });
 
