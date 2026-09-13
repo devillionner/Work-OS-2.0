@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Check, Clipboard, Clock3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReportPublicationCorrection } from '@/components/report-publication-correction';
+import { ReportLessonResultCorrection } from '@/components/report-lesson-result-correction';
 
 type Checkpoint = {
   slot: '13:00' | '16:00' | '19:00';
@@ -73,6 +74,7 @@ export function ReportCheckpoints({ date }: { date: string }) {
       {loading ? <p className="muted-note">Завантажуємо проміжні звіти…</p> : items.length ? <div className="report-checkpoint-list">{items.map((item) => <div key={item.slot} className={`report-checkpoint is-${item.state}`}><div><strong><Clock3 />{item.slot}</strong><span>{statusText(item)}</span>{item.reason && <small>{item.reason}</small>}</div><div className="report-checkpoint-actions">{item.state === 'due' && <Button size="sm" onClick={() => void submit(item)} disabled={saving !== null}>{saving === item.slot ? 'Здаємо…' : 'Здати'}</Button>}{item.state === 'submitted' && item.text && <><Button size="sm" variant="outline" onClick={() => void copy(item.text!)}><Clipboard data-icon="inline-start" />Копіювати</Button><Check aria-label="Здано" /></>}</div></div>)}</div> : <p className="muted-note">Для цього дня проміжні звіти не потрібні.</p>}
     </section>
     <ReportPublicationCorrection date={date} />
+    <ReportLessonResultCorrection date={date} />
   </>;
 }
 
