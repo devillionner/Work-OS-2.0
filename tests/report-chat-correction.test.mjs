@@ -6,8 +6,16 @@ import { localDatabase } from './helpers/local-d1.mjs';
 const DATE='2026-09-10';
 const NOW=Math.floor(Date.parse('2026-09-13T12:00:00Z')/1000);
 
+async function seedAccounts(db){
+  await db.prepare(`INSERT INTO telegram_accounts
+    (id,user_id,account_number,name,is_enabled,is_selected,created_at,updated_at)
+    VALUES ('u:tg1','u',1,'TG 1',1,1,1,1),
+           ('other:tg1','other',1,'TG 1',1,1,1,1)`).run();
+}
+
 void test('historical joined chat is idempotent, canonical and does not mutate current Telegram warm-up state',async t=>{
   const db=await localDatabase(t);
+  await seedAccounts(db);
   await db.prepare(`UPDATE telegram_accounts SET join_streak=4,break_until=?1,updated_at=55 WHERE id='u:tg1'`).bind(NOW+3600).run();
   const requestId=crypto.randomUUID();
   const result=await recordHistoricalJoinedChat(db,{
@@ -56,6 +64,7 @@ void test('historical joined chat is idempotent, canonical and does not mutate c
 
 void test('historical chat account list is owner scoped',async t=>{
   const db=await localDatabase(t);
+  await seedAccounts(db);
   const accounts=await readHistoricalChatAccounts(db,'u');
   assert.ok(accounts.length>=1);
   assert.ok(accounts.every(account=>account.id.startsWith('u:')));
