@@ -2,7 +2,9 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { backupManifest, type BackupTable } from '@/lib/backups/export';
 import { RESTORE_TABLES, restoreMissingChunk } from '@/lib/backups/restore';
+import { readJsonObject, sameOrigin } from '@/lib/http-json';
 
+const REQUEST_MAX_BYTES = 16 * 1024;
 type ImportRow = { id: string; status: string; created_at: number };
 type JobRow = { id:string; import_id:string; status:'running'|'completed'|'failed'; phase:string; cursor:number; total_chunks:number; processed_chunks:number; error_message:string|null; created_at:number; updated_at:number; completed_at:number|null };
 type ChunkRow = { table_name: BackupTable; chunk_index: number; payload_json: string; sha256: string; row_count: number };
@@ -20,7 +22,9 @@ export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
-  const body = await request.json().catch(() => ({})) as { action?: unknown; importId?: unknown };
+  const parsed = await readJsonObject(request, REQUEST_MAX_BYTES);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed as { action?: unknown; importId?: unknown };
   if (body.action === 'start' && typeof body.importId === 'string') return start(body.importId, user.id);
   if (body.action === 'process' && typeof body.importId === 'string') return process(body.importId, user.id);
   return Response.json({ error: 'Невідома дія.' }, { status: 400 });
@@ -98,4 +102,3 @@ async function restoreGate(imported: ImportRow, userId: string) {
 async function findImport(id:string,userId:string) { return env.DB.prepare(`SELECT id,status,created_at FROM cloud_restore_imports WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(id,userId).first<ImportRow>(); }
 async function findJob(importId:string,userId:string) { return env.DB.prepare(`SELECT id,import_id,status,phase,cursor,total_chunks,processed_chunks,error_message,created_at,updated_at,completed_at FROM cloud_restore_jobs WHERE import_id=?1 AND user_id=?2 LIMIT 1`).bind(importId,userId).first<JobRow>(); }
 function describeJob(job:JobRow|null) { return job ? { id:job.id,importId:job.import_id,status:job.status,phase:job.phase,total:job.total_chunks,complete:job.processed_chunks,percent:job.total_chunks ? Math.round(job.processed_chunks/job.total_chunks*100) : 100,error:job.error_message,completedAt:job.completed_at } : null; }
-function sameOrigin(request:Request) { const origin=request.headers.get('origin'); return Boolean(origin&&origin===new URL(request.url).origin); }
