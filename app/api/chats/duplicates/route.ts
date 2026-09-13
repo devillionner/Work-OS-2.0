@@ -1,57 +1,52 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
-import { cleanChatName, type ChatPlatform } from '@/lib/chats/bulk-input';
-import { readChatDuplicateGroups } from '@/lib/chats/duplicates';
-import { chatStateEvent, chatStateTokenSql } from '@/lib/chats/state';
+import { ChatDuplicateError, readChatDuplicateGroups, renameDuplicateChat } from '@/lib/chats/duplicates';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 
-const PLATFORMS=new Set<ChatPlatform>(['telegram','whatsapp','viber','facebook']);
+const PLATFORMS=new Set(['telegram','whatsapp','viber','facebook']);
 const REQUEST_MAX_BYTES=16*1024;
 
-export async function GET(request:Request):Promise<Response> {
+export async function GET(request:Request):Promise<Response>{
   const user=await getCurrentUser();
-  if(!user) return Response.json({error:'Потрібно увійти.'},{status:401});
+  if(!user)return Response.json({error:'Потрібно увійти.'},{status:401});
   const url=new URL(request.url);
-  const platform=url.searchParams.get('platform') as ChatPlatform|null;
-  if(!platform||!PLATFORMS.has(platform)) return Response.json({error:'Невідома платформа.'},{status:400});
-  const accountId=platform==='telegram'?(url.searchParams.get('account')||'').trim():null;
-  if(platform==='telegram'&&!accountId) return Response.json({error:'Оберіть Telegram-акаунт.'},{status:400});
-  try {
+  const platform=(url.searchParams.get('platform')||'telegram').trim();
+  if(!PLATFORMS.has(platform))return bad('Невідома платформа.');
+  const accountId=platform==='telegram'?await selectedAccount(user.id,url.searchParams.get('account')):null;
+  try{
     const groups=await readChatDuplicateGroups(env.DB,{userId:user.id,platform,accountId});
-    return Response.json({groups},{headers:{'Cache-Control':'no-store'}});
-  } catch(reason) {
-    return Response.json({error:reason instanceof Error?reason.message:'Не вдалося перевірити дублікати.'},{status:409});
-  }
+    return Response.json({platform,accountId,groups},{headers:{'Cache-Control':'no-store'}});
+  }catch(reason){return duplicateError(reason);}
 }
 
-export async function POST(request:Request):Promise<Response> {
+export async function POST(request:Request):Promise<Response>{
   const user=await getCurrentUser();
-  if(!user) return Response.json({error:'Потрібно увійти.'},{status:401});
-  if(!sameOrigin(request)) return Response.json({error:'Недійсний запит.'},{status:403});
+  if(!user)return Response.json({error:'Потрібно увійти.'},{status:401});
+  if(!sameOrigin(request))return Response.json({error:'Недійсний запит.'},{status:403});
   const parsed=await readJsonObject(request,REQUEST_MAX_BYTES);
-  if(parsed instanceof Response) return parsed;
-  const action=typeof parsed.action==='string'?parsed.action:'';
-  const id=typeof parsed.id==='string'?parsed.id.trim().slice(0,200):'';
-  const expected=typeof parsed.stateToken==='string'?parsed.stateToken:'';
-  if(action!=='rename'||!id||!expected) return Response.json({error:'Некоректна дія.'},{status:400});
-  const name=cleanChatName(typeof parsed.name==='string'?parsed.name:'');
-  if(!name) return Response.json({error:'Назва чату не може бути порожньою.'},{status:400});
+  if(parsed instanceof Response)return parsed;
+  const action=text(parsed.action);
+  if(action!=='rename')return bad('Невідома дія менеджера дублікатів.');
+  const id=text(parsed.id);
+  const stateToken=typeof parsed.stateToken==='string'?parsed.stateToken:'';
+  const name=typeof parsed.name==='string'?parsed.name:'';
+  if(!id||!stateToken)return bad('Некоректний стан чату.');
+  try{
+    return Response.json({ok:true,...await renameDuplicateChat(env.DB,{userId:user.id,id,stateToken,name,now:unixNow()})});
+  }catch(reason){return duplicateError(reason);}
+}
 
-  const row=await env.DB.prepare(`SELECT c.name,${chatStateTokenSql()} AS state_token FROM chats c WHERE c.id=?1 AND c.user_id=?2 LIMIT 1`)
-    .bind(id,user.id).first<{name:string;state_token:string}>();
-  if(!row) return Response.json({error:'Чат не знайдено.'},{status:404});
-  if(row.state_token!==expected) return Response.json({error:'Чат уже змінився. Оновіть список.'},{status:409});
-  if(row.name===name) return Response.json({ok:true,stateToken:row.state_token});
-
-  const now=Math.floor(Date.now()/1000);
-  const eventId=crypto.randomUUID();
-  const results=await env.DB.batch([
-    env.DB.prepare(`UPDATE chats SET name=?1,updated_at=?2 WHERE id=?3 AND user_id=?4 AND ${chatStateTokenSql('chats')}=?5`)
-      .bind(name,now,id,user.id,expected),
-    chatStateEvent(env.DB,{id:eventId,userId:user.id,chatId:id,action:'rename',now,previous:expected}),
-  ]);
-  if(!results[0].meta.changes) return Response.json({error:'Чат уже змінився. Оновіть список.'},{status:409});
-  const next=await env.DB.prepare(`SELECT ${chatStateTokenSql()} AS state_token FROM chats c WHERE c.id=?1 AND c.user_id=?2 LIMIT 1`)
-    .bind(id,user.id).first<{state_token:string}>();
-  return Response.json({ok:true,stateToken:next?.state_token||''});
+function duplicateError(reason:unknown){
+  if(reason instanceof ChatDuplicateError)return Response.json({error:reason.message},{status:reason.status});
+  console.error('chat duplicate manager error',reason);
+  return Response.json({error:'Не вдалося оновити менеджер дублікатів.'},{status:500});
+}
+function bad(error:string){return Response.json({error},{status:400});}
+function text(value:unknown){return typeof value==='string'?value.trim().slice(0,200):'';}
+function unixNow(){return Math.floor(Date.now()/1000);}
+async function selectedAccount(userId:string,requested:string|null){
+  const row=requested
+    ? await env.DB.prepare(`SELECT id FROM telegram_accounts WHERE id=?1 AND user_id=?2 AND is_enabled=1 LIMIT 1`).bind(requested,userId).first<{id:string}>()
+    : await env.DB.prepare(`SELECT id FROM telegram_accounts WHERE user_id=?1 AND is_enabled=1 ORDER BY is_selected DESC,account_number LIMIT 1`).bind(userId).first<{id:string}>();
+  return row?.id||null;
 }
