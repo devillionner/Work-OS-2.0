@@ -6,8 +6,16 @@ import { localDatabase, seedChat } from './helpers/local-d1.mjs';
 const DATE = '2026-09-10';
 const NOW = Math.floor(Date.parse('2026-09-13T12:00:00Z') / 1000);
 
+async function seedAccounts(db) {
+  await db.prepare(`INSERT INTO telegram_accounts
+    (id,user_id,account_number,name,is_enabled,is_selected,created_at,updated_at)
+    VALUES ('u:tg1','u',1,'TG 1',1,1,1,1),
+           ('other:tg1','other',1,'TG 1',1,1,1,1)`).run();
+}
+
 void test('historical publication options are owner scoped and exclude chats already published that day', async (t) => {
   const db = await localDatabase(t);
+  await seedAccounts(db);
   await seedChat(db, { id: 'chat-open', owner: 'u', platform: 'whatsapp', status: 'ready' });
   await seedChat(db, { id: 'chat-used', owner: 'u', platform: 'telegram', status: 'archived' });
   await seedChat(db, { id: 'chat-other', owner: 'other', platform: 'whatsapp', status: 'ready' });
@@ -25,6 +33,7 @@ void test('historical publication options are owner scoped and exclude chats alr
 
 void test('historical publication writes accounting truth without mutating current scheduler or profile cadence', async (t) => {
   const db = await localDatabase(t);
+  await seedAccounts(db);
   await seedChat(db, { id: 'chat-u', owner: 'u', platform: 'telegram', status: 'ready' });
   await seedChat(db, { id: 'chat-other', owner: 'other', platform: 'telegram', status: 'ready' });
   await db.prepare(`UPDATE chats SET telegram_account_id='u:tg1',updated_at=111 WHERE id='chat-u'`).run();
