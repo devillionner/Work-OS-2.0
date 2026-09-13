@@ -109,4 +109,8 @@ void test('Today lead queue returns only owned active overdue follow-ups and due
   assert.equal(snapshot.leadTaskCount, 2);
   assert.equal(snapshot.leadTasks[0].title, 'Call back');
   assert.equal(snapshot.leadTasks[1].lessonId, 'lesson');
+  assert.equal(snapshot.leadTasks[1].reminderId, 'lesson:reminder:1');
+  assert.equal(snapshot.leadTasks[1].leadVersion, 0);
+  assert.match(snapshot.leadTasks[1].reminderText, /Math.*Student.*Teacher.*Google Meet/);
+  assert.equal(snapshot.leadTasks[0].reminderId, null);
 });
