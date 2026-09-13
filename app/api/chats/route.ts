@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { businessDate } from '@/lib/business-time';
 import { publicationAvailability, recordManualPublication } from '@/lib/chats/publication';
-import { changeChatSnooze } from '@/lib/chats/snooze';
+import { applyChatSnoozeAction } from '@/lib/chats/snooze';
 import { chatStateTokenSql, readChatState } from '@/lib/chats/state';
 import { transitionChat } from '@/lib/chats/transitions';
 import { availableTodayStatement, joinedTodayStatement } from '@/lib/chats/daily-links';
@@ -113,11 +113,12 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (action === 'snooze' || action === 'unsnooze') {
-    const ok = await changeChatSnooze(env.DB, { userId: user.id, id, status: chat.workflow_status,
+    const result = await applyChatSnoozeAction(env.DB, { userId: user.id, id, status: chat.workflow_status,
       previousDeadline: chat.snoozed_until, now, resume: action === 'unsnooze', stateToken: chat.state_token });
-    if (!ok) return Response.json({ error: 'Стан чату вже змінився. Оновіть список.' }, { status: 409 });
+    if (!result.ok) return Response.json({ error: 'Стан чату вже змінився. Оновіть список.' }, { status: 409 });
     const next = await readChatState(env.DB,user.id,id);
-    return next ? Response.json({ ok: true, stateToken: next.state_token, snoozedUntil: next.snoozed_until })
+    return next ? Response.json({ ok: true, stateToken: next.state_token, snoozedUntil: next.snoozed_until,
+      snoozeCount: result.snoozeCount, archiveSuggested: result.archiveSuggested })
       : Response.json({ error: 'Не вдалося підтвердити новий стан. Оновіть список.' }, { status: 409 });
   }
 
