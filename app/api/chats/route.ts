@@ -76,6 +76,7 @@ export async function GET(request: Request): Promise<Response> {
       cadence: typeof row.profile_cadence === 'string' && PROFILE_CADENCES.includes(row.profile_cadence as typeof PROFILE_CADENCES[number]) ? row.profile_cadence : 'any', weekdays: parseNumberList(row.profile_weekdays), customIntervalDays: row.profile_custom_interval_days === null ? null : Number(row.profile_custom_interval_days), nextAllowedOn: row.profile_next_allowed_on || null, directions: parseStringList(row.profile_directions),
       note: row.profile_note || '', reviewStatus: row.profile_status === 'confirmed' ? 'confirmed' : 'draft' },
     publishedToday: Boolean(row.published_today),
+    joinedAt: row.joined_at === null || row.joined_at === undefined ? null : Number(row.joined_at),
     snoozedUntil: row.snoozed_until,
     snoozeCount: Number(row.snooze_count) || 0,
     leftAt: row.left_at === null || row.left_at === undefined ? null : Number(row.left_at),
