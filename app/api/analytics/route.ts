@@ -13,9 +13,10 @@ const PLATFORM_META: Record<string, { name: string; color: string }> = {
 };
 
 type EventAggregate = { platform: string | null; event_type: string; count: number };
-type PlatformRow = {
-  key: string; name: string; color: string; publications: number; responses: number;
-  bookings: number; completed: number; responseRate: number; bookingRate: number; completionRate: number;
+type FunnelCounts = { joined: number; publications: number; responses: number; bookings: number };
+type PlatformRow = FunnelCounts & {
+  key: string; name: string; color: string; completed: number; publicationRate: number;
+  responseRate: number; bookingRate: number; completionRate: number;
 };
 
 export async function GET(request: Request): Promise<Response> {
@@ -38,6 +39,7 @@ export async function GET(request: Request): Promise<Response> {
     activitySummaryStatement(env.DB, user.id, from, to),
     completedOperatorLessonsStatement(env.DB, user.id, from, to),
     env.DB.prepare(`SELECT COALESCE(e.chat_id,l.source_chat_id) AS chat_id,c.name,c.platform,
+        SUM(CASE WHEN e.event_type='chat_joined' THEN 1 ELSE 0 END) AS joined,
         SUM(CASE WHEN e.event_type='publication' THEN 1 ELSE 0 END) AS publications,
         SUM(CASE WHEN e.event_type='lead_created' THEN 1 ELSE 0 END) AS responses,
         SUM(CASE WHEN e.event_type IN ('lesson_booked','curator_booking_pending') THEN 1 ELSE 0 END) AS bookings
@@ -47,24 +49,27 @@ export async function GET(request: Request): Promise<Response> {
       WHERE e.user_id=?1 AND e.event_date>=?2 AND e.event_date<=?3 AND e.cancelled_at IS NULL
         AND COALESCE(e.chat_id,l.source_chat_id) IS NOT NULL
       GROUP BY COALESCE(e.chat_id,l.source_chat_id),c.name,c.platform
-      HAVING publications>0 OR responses>0 OR bookings>0
-      ORDER BY publications DESC,responses DESC,bookings DESC,c.name ASC LIMIT 100`).bind(user.id, from, to),
+      HAVING joined>0 OR publications>0 OR responses>0 OR bookings>0
+      ORDER BY publications DESC,responses DESC,bookings DESC,joined DESC,c.name ASC LIMIT 100`).bind(user.id, from, to),
   ]);
 
   const eventRows = eventsResult.results as EventAggregate[];
   const completedRows = lessonsResult.results as Array<{ platform: string; count: number }>;
   const completedByPlatform = new Map(completedRows.map((row) => [row.platform, Number(row.count || 0)]));
-  const totals = { publications: 0, responses: 0, bookings: 0, completed: 0 };
-  const byPlatform = new Map<string, { publications: number; responses: number; bookings: number }>();
+  const totals = { joined: 0, publications: 0, responses: 0, bookings: 0, completed: 0 };
+  const emptyCounts = (): FunnelCounts => ({ joined: 0, publications: 0, responses: 0, bookings: 0 });
+  const byPlatform = new Map<string, FunnelCounts>();
   for (const row of eventRows) {
     const key = row.platform || 'unknown';
-    const current = byPlatform.get(key) || { publications: 0, responses: 0, bookings: 0 };
+    const current = byPlatform.get(key) || emptyCounts();
+    if (row.event_type === 'chat_joined') current.joined += Number(row.count || 0);
     if (row.event_type === 'publication') current.publications += Number(row.count || 0);
     if (row.event_type === 'lead_created') current.responses += Number(row.count || 0);
     if (row.event_type === 'lesson_booked' || row.event_type === 'curator_booking_pending') current.bookings += Number(row.count || 0);
     byPlatform.set(key, current);
   }
   const platformKeys = new Set([...byPlatform.keys(), ...completedByPlatform.keys()]);
+  totals.joined = Array.from(byPlatform.values()).reduce((sum, row) => sum + row.joined, 0);
   totals.publications = Array.from(byPlatform.values()).reduce((sum, row) => sum + row.publications, 0);
   totals.responses = Array.from(byPlatform.values()).reduce((sum, row) => sum + row.responses, 0);
   totals.bookings = Array.from(byPlatform.values()).reduce((sum, row) => sum + row.bookings, 0);
@@ -72,7 +77,7 @@ export async function GET(request: Request): Promise<Response> {
   const platforms: PlatformRow[] = Array.from(platformKeys)
     .filter((key) => key !== 'unknown')
     .map((key) => {
-      const values = byPlatform.get(key) || { publications: 0, responses: 0, bookings: 0 };
+      const values = byPlatform.get(key) || emptyCounts();
       const completed = completedByPlatform.get(key) || 0;
       return {
         key,
@@ -80,6 +85,7 @@ export async function GET(request: Request): Promise<Response> {
         color: PLATFORM_META[key]?.color || '#6b7280',
         ...values,
         completed,
+        publicationRate: rate(values.publications, values.joined),
         responseRate: rate(values.responses, values.publications),
         bookingRate: rate(values.bookings, values.responses),
         completionRate: rate(completed, values.bookings),
@@ -87,14 +93,16 @@ export async function GET(request: Request): Promise<Response> {
     })
     .sort((a, b) => b.publications - a.publications || a.name.localeCompare(b.name, 'uk'));
 
-  const chats = (chatResult.results as Array<{ chat_id: string; name: string | null; platform: string | null; publications: number; responses: number; bookings: number }>).map((row) => ({
+  const chats = (chatResult.results as Array<{ chat_id: string; name: string | null; platform: string | null; joined: number; publications: number; responses: number; bookings: number }>).map((row) => ({
     id: row.chat_id,
     name: row.name || 'Без назви',
     platform: row.platform || 'unknown',
     platformName: PLATFORM_META[row.platform || '']?.name || row.platform || 'Інше',
+    joined: Number(row.joined || 0),
     publications: Number(row.publications || 0),
     responses: Number(row.responses || 0),
     bookings: Number(row.bookings || 0),
+    publicationRate: rate(Number(row.publications || 0), Number(row.joined || 0)),
     responseRate: rate(Number(row.responses || 0), Number(row.publications || 0)),
     bookingRate: rate(Number(row.bookings || 0), Number(row.responses || 0)),
   }));
@@ -103,6 +111,7 @@ export async function GET(request: Request): Promise<Response> {
     range,
     totals: {
       ...totals,
+      publicationRate: rate(totals.publications, totals.joined),
       responseRate: rate(totals.responses, totals.publications),
       bookingRate: rate(totals.bookings, totals.responses),
       completionRate: rate(totals.completed, totals.bookings),
