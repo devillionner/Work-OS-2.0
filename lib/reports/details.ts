@@ -1,3 +1,5 @@
+import { businessDate } from '../business-time.ts';
+
 export type ReportEventDetail = {
   id: string;
   eventType: string;
@@ -28,6 +30,8 @@ type ReportEventRow = {
   lesson_subject: string | null;
 };
 
+const BACKDATED_LABEL = 'Додано заднім числом';
+
 export async function readReportEventDetails(db: D1Database, userId: string, date: string, limit = 200): Promise<ReportEventDetail[]> {
   const boundedLimit = Math.max(1, Math.min(200, Math.floor(limit) || 200));
   const result = await db.prepare(`SELECT e.id,e.event_type,e.platform,e.chat_id,e.lead_id,e.lesson_id,e.occurred_at,e.event_date,
@@ -39,18 +43,23 @@ export async function readReportEventDetails(db: D1Database, userId: string, dat
     WHERE e.user_id=?1 AND e.event_date=?2 AND e.cancelled_at IS NULL
       AND e.event_type IN ('chat_joined','publication','lead_created','lesson_booked','curator_booking_pending')
     ORDER BY e.occurred_at,e.id LIMIT ${boundedLimit}`).bind(userId, date).all<ReportEventRow>();
-  return result.results.map((row) => ({
-    id: row.id,
-    eventType: row.event_type,
-    platform: row.platform,
-    chatId: row.chat_id,
-    leadId: row.lead_id,
-    lessonId: row.lesson_id,
-    occurredAt: Number(row.occurred_at),
-    eventDate: row.event_date,
-    chatName: row.chat_name,
-    leadName: row.lead_name,
-    leadSubject: row.lead_subject,
-    lessonSubject: row.lesson_subject,
-  }));
+  return result.results.map((row) => {
+    const occurredAt = Number(row.occurred_at);
+    const backdated = ['lead_created', 'lesson_booked', 'curator_booking_pending'].includes(row.event_type)
+      && row.event_date < businessDate(occurredAt);
+    return {
+      id: row.id,
+      eventType: row.event_type,
+      platform: row.platform,
+      chatId: row.chat_id,
+      leadId: row.lead_id,
+      lessonId: row.lesson_id,
+      occurredAt,
+      eventDate: row.event_date,
+      chatName: row.chat_name,
+      leadName: row.lead_name && backdated ? `${row.lead_name} · ${BACKDATED_LABEL}` : row.lead_name,
+      leadSubject: row.lead_subject,
+      lessonSubject: row.lesson_subject,
+    };
+  });
 }
