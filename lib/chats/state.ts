@@ -5,8 +5,8 @@ export type ChatState = {
   snoozed_until: number | null; telegram_account_id: string | null; state_token: string;
 };
 
-// The latest transition ID distinguishes archive/restore cycles within one second.
-// The existing (chat_id,event_type) index also orders matching entries by rowid.
+// The latest transition/publication/leave-checklist IDs distinguish concurrent
+// changes even when multiple actions happen inside the same second.
 export function chatStateTokenSql(alias: 'c' | 'chats' = 'c') {
   return `json_array(${alias}.platform,${alias}.workflow_status,${alias}.joined_at,
     ${alias}.processed_at,${alias}.snoozed_until,${alias}.archive_reason,
@@ -17,7 +17,10 @@ export function chatStateTokenSql(alias: 'c' | 'chats' = 'c') {
       ORDER BY e.rowid DESC LIMIT 1),
     (SELECT p.id FROM activity_events p WHERE p.chat_id=${alias}.id
       AND p.user_id=${alias}.user_id AND p.event_type='publication'
-      ORDER BY p.rowid DESC LIMIT 1))`;
+      ORDER BY p.rowid DESC LIMIT 1),
+    (SELECT l.id FROM activity_events l WHERE l.chat_id=${alias}.id
+      AND l.user_id=${alias}.user_id AND l.event_type IN ('chat_leave_confirmed','chat_leave_undone')
+      ORDER BY l.rowid DESC LIMIT 1))`;
 }
 
 export function readChatState(db: D1Database, userId: string, id: string) {
