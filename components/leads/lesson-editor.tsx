@@ -1,7 +1,9 @@
 'use client';
 import { useState } from 'react';
+import { Button } from '@/components/ui/button';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import { businessDate } from '@/lib/leads/domain/time';
+import { lessonDateRecommendations } from '@/lib/leads/domain/lesson-recommendations';
 import type { Mutation } from './client';
 import { EditDialog, Field, SaveForm, SelectField, textValue } from './form';
 export function LessonEditor({
@@ -18,6 +20,8 @@ export function LessonEditor({
   close: () => void;
 }) {
   const [now] = useState(() => Math.floor(Date.now() / 1000));
+  const [lessonDate, setLessonDate] = useState(lesson?.lessonDate ?? '');
+  const recommendations = lessonDateRecommendations(now);
   return (
     <EditDialog
       title={
@@ -94,11 +98,29 @@ export function LessonEditor({
           name="teacherName"
           value={lesson?.teacherName}
         />
+        {mode === 'book' && (
+          <div className="lead-field lead-wide">
+            <span>Рекомендована дата</span>
+            <div className="lead-actions">
+              {recommendations.map((recommendation) => (
+                <Button
+                  key={recommendation.date}
+                  type="button"
+                  variant="outline"
+                  onClick={() => setLessonDate(recommendation.date)}
+                >
+                  {recommendation.label} · {recommendation.date}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
         <Field
+          key={lessonDate || 'lesson-date'}
           label="Дата уроку *"
           name="lessonDate"
           type="date"
-          value={lesson?.lessonDate}
+          value={lessonDate}
           required
           readOnly={mode === 'update'}
         />
