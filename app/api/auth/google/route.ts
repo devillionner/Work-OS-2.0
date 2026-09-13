@@ -1,11 +1,14 @@
 import { env } from 'cloudflare:workers';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { createSession, sessionCookie } from '@/lib/auth';
+import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import {
   AuthIdentityError,
   createGoogleAuthPolicy,
   resolveGoogleIdentity,
 } from '@/lib/auth-identities';
+
+const AUTH_REQUEST_MAX_BYTES = 16 * 1024;
 
 const googleKeys = createRemoteJWKSet(
   new URL('https://www.googleapis.com/oauth2/v3/certs'),
@@ -15,7 +18,9 @@ export async function POST(request: Request): Promise<Response> {
   try {
     if (!sameOrigin(request)) return jsonError('Недійсний запит.', 403);
 
-    const body = (await request.json()) as { credential?: unknown };
+    const parsed = await readJsonObject(request, AUTH_REQUEST_MAX_BYTES);
+    if (parsed instanceof Response) return parsed;
+    const body = parsed;
     if (typeof body.credential !== 'string' || !body.credential) {
       return jsonError('Google не передав дані для входу.', 400);
     }
@@ -60,12 +65,6 @@ export async function POST(request: Request): Promise<Response> {
     console.error('Google sign-in failed', safeErrorName(error));
     return jsonError('Не вдалося перевірити Google-вхід. Спробуй ще раз.', 401);
   }
-}
-
-function sameOrigin(request: Request): boolean {
-  const origin = request.headers.get('origin');
-  if (!origin) return false;
-  return origin === new URL(request.url).origin;
 }
 
 function jsonError(message: string, status: number): Response {
