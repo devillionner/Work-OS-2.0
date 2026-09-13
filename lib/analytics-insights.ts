@@ -2,6 +2,7 @@ export type AnalyticsChatSignal = {
   id: string;
   name: string;
   platform: string;
+  status?: string;
   publications: number;
   responses: number;
   responseRate: number;
@@ -26,7 +27,7 @@ export function buildAnalyticsRecommendation(
     .sort((a, b) => b.publications - a.publications || a.name.localeCompare(b.name, 'uk'));
 
   if (rangeDays >= 14) {
-    const zeroResponse = sample.find((chat) => chat.responses === 0);
+    const zeroResponse = sample.find((chat) => chat.status !== 'archived' && chat.responses === 0);
     if (zeroResponse) {
       return {
         kind: 'check_low_efficiency',
@@ -42,10 +43,11 @@ export function buildAnalyticsRecommendation(
     .filter((chat) => chat.responses >= 2)
     .sort((a, b) => b.responseRate - a.responseRate || b.responses - a.responses || b.publications - a.publications)[0];
   if (strongest) {
+    const archived = strongest.status === 'archived';
     return {
       kind: 'consider_more_often',
-      title: `Сильний сигнал: «${strongest.name}»`,
-      explanation: `${strongest.responses} відгуків із ${strongest.publications} публікацій (${strongest.responseRate}%). Це найкраща конверсія серед чатів із щонайменше 5 публікаціями та 2 відгуками у вибраному періоді; перевірте, чи варто використовувати цей чат частіше.`,
+      title: `${archived ? 'Сильний сигнал в архіві' : 'Сильний сигнал'}: «${strongest.name}»`,
+      explanation: `${strongest.responses} відгуків із ${strongest.publications} публікацій (${strongest.responseRate}%). Це найкраща конверсія серед чатів із щонайменше 5 публікаціями та 2 відгуками у вибраному періоді; ${archived ? 'чат зараз в архіві — перевірте, чи варто відновити його для ручної роботи.' : 'перевірте, чи варто використовувати цей чат частіше.'}`,
       chatId: strongest.id,
       chatName: strongest.name,
     };
