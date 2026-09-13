@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { publicationAvailability } from '../lib/chats/publication.ts';
 import { readHistoricalChatAccounts, recordHistoricalJoinedChat } from '../lib/reports/chat-correction.ts';
 import { localDatabase } from './helpers/local-d1.mjs';
 
@@ -37,6 +38,7 @@ void test('historical joined chat is idempotent, canonical and does not mutate c
   assert.equal(joinedMetadata.correction,'historical_report');
   assert.equal(joinedMetadata.accountingDate,DATE);
   assert.equal(joinedMetadata.exactJoinTime,'unknown');
+  assert.equal(joinedMetadata.warmupStartedAt,undefined);
   assert.deepEqual(await db.prepare(`SELECT join_streak,break_until,updated_at FROM telegram_accounts WHERE id='u:tg1'`).first(),{
     join_streak:4,break_until:NOW+3600,updated_at:55,
   });
@@ -60,6 +62,24 @@ void test('historical joined chat is idempotent, canonical and does not mutate c
   await assert.rejects(recordHistoricalJoinedChat(db,{
     userId:'u',requestId:crypto.randomUUID(),date:DATE,name:'Foreign account',link:'https://t.me/foreignacct',telegramAccountId:'other:tg1',now:NOW,
   }),/не належить/);
+});
+
+void test('same-day Telegram correction starts a conservative six-hour warm-up at correction time',async t=>{
+  const db=await localDatabase(t);
+  await seedAccounts(db);
+  const result=await recordHistoricalJoinedChat(db,{
+    userId:'u',requestId:crypto.randomUUID(),date:'2026-09-13',name:'Today chat',link:'https://t.me/todaychat',telegramAccountId:'u:tg1',now:NOW,
+  });
+  const chat=await db.prepare(`SELECT workflow_status,joined_at,snoozed_until FROM chats WHERE id=?1`).bind(result.chatId).first();
+  assert.equal(chat.workflow_status,'ready');
+  assert.equal(Number(chat.joined_at),NOW);
+  assert.equal(publicationAvailability(chat,NOW).availableNow,false);
+  assert.equal(publicationAvailability(chat,NOW+21600).availableNow,true);
+  const event=await db.prepare(`SELECT metadata_json FROM activity_events WHERE user_id='u' AND chat_id=?1 AND event_type='chat_joined'`).bind(result.chatId).first();
+  const metadata=JSON.parse(event.metadata_json);
+  assert.equal(metadata.exactJoinTime,'unknown');
+  assert.equal(metadata.warmupStartedAt,NOW);
+  assert.equal(metadata.warmupPolicy,'correction_time');
 });
 
 void test('historical chat account list is owner scoped',async t=>{
