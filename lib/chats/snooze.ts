@@ -1,6 +1,26 @@
 import { snoozeDeadline } from '../business-time.ts';
 import { chatStateEvent, chatStateTokenSql } from './state.ts';
 
+export const CHAT_SNOOZE_ARCHIVE_THRESHOLD = 3;
+
+export async function readChatSnoozeCount(
+  db: D1Database,
+  userId: string,
+  chatId: string,
+): Promise<number> {
+  const row = await db.prepare(`SELECT COUNT(*) AS count
+    FROM activity_events
+    WHERE user_id=?1 AND chat_id=?2 AND event_type='chat_state_changed'
+      AND json_extract(metadata_json,'$.action')='snooze'`)
+    .bind(userId, chatId).first<{ count: number }>();
+  return Number(row?.count || 0);
+}
+
+export function shouldSuggestChatArchive(snoozeCount: number): boolean {
+  return Number.isFinite(snoozeCount)
+    && snoozeCount >= CHAT_SNOOZE_ARCHIVE_THRESHOLD;
+}
+
 export async function changeChatSnooze(db: D1Database, input: {
   userId: string; id: string; status: string; previousDeadline: number | null; now: number; resume: boolean; stateToken: string;
 }) {
