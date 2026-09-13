@@ -8,11 +8,13 @@ type LeaveChat = { id: string; stateToken: string; platform: string; name: strin
 
 export function ChatLeaveChecklist({ chat, onChanged }: { chat: LeaveChat; onChanged?: (stateToken?: string) => void }) {
   const [state, setState] = useState<LeaveState | null>(null);
+  const [stateToken, setStateToken] = useState(chat.stateToken);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
+    setStateToken(chat.stateToken);
     setError('');
     fetch(`/api/chats/leave?id=${encodeURIComponent(chat.id)}`, { cache: 'no-store' })
       .then(async (response) => {
@@ -22,18 +24,19 @@ export function ChatLeaveChecklist({ chat, onChanged }: { chat: LeaveChat; onCha
       })
       .catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Не вдалося перевірити вихід із чату.'); });
     return () => { cancelled = true; };
-  }, [chat.id]);
+  }, [chat.id, chat.stateToken]);
 
   async function change(confirm: boolean) {
     setBusy(true); setError('');
     try {
       const response = await fetch('/api/chats/leave', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: chat.id, stateToken: chat.stateToken, confirm }),
+        body: JSON.stringify({ id: chat.id, stateToken, confirm }),
       });
       const body = await response.json() as { error?: string; stateToken?: string; leave?: LeaveState };
       if (!response.ok) throw new Error(body.error || 'Не вдалося оновити чекліст виходу.');
       if (body.leave) setState(body.leave);
+      if (body.stateToken) setStateToken(body.stateToken);
       onChanged?.(body.stateToken);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не вдалося оновити чекліст виходу.');
