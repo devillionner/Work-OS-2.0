@@ -118,12 +118,21 @@ function GoalPlanFactView({ data }: { data: GoalPlanFact }) {
 
 function Summary({ summary }: { summary: ReportData['summary'] }) { const grouped = new Map<string, Record<string, number>>(); for (const row of summary) { const current = grouped.get(row.platform) || {}; current[row.eventType] = (current[row.eventType] || 0) + row.count; grouped.set(row.platform, current); } return <div className="report-summary"><p className="eyebrow">Події в базі за цей день</p>{Array.from(grouped).map(([platform, values]) => <div key={platform}><strong>{platformNames[platform] || platform}</strong><span>Оголошення: {values.publication || 0}</span><span>Відгуки: {values.lead_created || 0}</span><span>Записи: {(values.lesson_booked || 0) + (values.curator_booking_pending || 0)}</span></div>)}</div>; }
 function ReportEventDetails({ details, onOpenLead }: { details: ReportEventDetail[]; onOpenLead?: (leadId: string) => void }) {
+  const sources = details.filter((event) => event.eventType === 'chat_joined' || event.eventType === 'publication');
   const responses = details.filter((event) => event.eventType === 'lead_created');
   const bookings = details.filter((event) => event.eventType === 'lesson_booked' || event.eventType === 'curator_booking_pending');
-  return <section className="report-event-details" aria-label="Деталізація подій"><div className="report-event-details-head"><p className="eyebrow">Деталізація подій</p><span>Показано: {details.length}</span></div><div className="report-event-columns"><EventList title="Відгуки" events={responses} onOpenLead={onOpenLead} /><EventList title="Записи" events={bookings} onOpenLead={onOpenLead} /></div></section>;
+  return <section className="report-event-details" aria-label="Деталізація подій"><div className="report-event-details-head"><p className="eyebrow">Деталізація подій</p><span>Показано: {details.length}</span></div><div className="report-event-columns"><EventList title="Джерельні події" events={sources} onOpenLead={onOpenLead} /><EventList title="Відгуки" events={responses} onOpenLead={onOpenLead} /><EventList title="Записи" events={bookings} onOpenLead={onOpenLead} /></div></section>;
 }
 function EventList({ title, events, onOpenLead }: { title: string; events: ReportEventDetail[]; onOpenLead?: (leadId: string) => void }) {
-  return <div className="report-event-list"><h4>{title} <span>{events.length}</span></h4>{events.length ? <ul>{events.map((event) => <li key={event.id}><div><strong>{event.leadName || 'Лід недоступний'}</strong><span>{platformNames[event.platform || 'unknown'] || event.platform || 'Платформа не вказана'} · {event.eventType === 'lead_created' ? event.leadSubject || 'Предмет не вказано' : event.lessonSubject || event.leadSubject || 'Предмет не вказано'}</span></div>{event.leadId && onOpenLead ? <Button type="button" variant="ghost" size="sm" onClick={() => onOpenLead(event.leadId!)}>Відкрити</Button> : null}</li>)}</ul> : <p className="muted-note">Немає активних подій.</p>}</div>;
+  return <div className="report-event-list"><h4>{title} <span>{events.length}</span></h4>{events.length ? <ul>{events.map((event) => {
+    const sourceEvent = event.eventType === 'chat_joined' || event.eventType === 'publication';
+    const primary = sourceEvent ? event.chatName || 'Чат недоступний' : event.leadName || 'Лід недоступний';
+    const platform = platformNames[event.platform || 'unknown'] || event.platform || 'Платформа не вказана';
+    const detail = sourceEvent
+      ? `${platform} · ${event.eventType === 'chat_joined' ? 'Приєднання чату' : 'Публікація'}`
+      : `${platform} · ${event.eventType === 'lead_created' ? event.leadSubject || 'Предмет не вказано' : event.lessonSubject || event.leadSubject || 'Предмет не вказано'}`;
+    return <li key={event.id}><div><strong>{primary}</strong><span>{detail}</span></div>{event.leadId && onOpenLead ? <Button type="button" variant="ghost" size="sm" onClick={() => onOpenLead(event.leadId!)}>Відкрити</Button> : null}</li>;
+  })}</ul> : <p className="muted-note">Немає активних подій.</p>}</div>;
 }
 
 function SubjectAnalyticsTable({ data, period, onPeriod }: { data: SubjectData | null; period: SubjectData['period']; onPeriod: (period: SubjectData['period']) => void }) {
