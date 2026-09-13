@@ -2,6 +2,8 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { activitySummaryStatement } from '@/lib/activity-summary';
 import { completedOperatorLessonsStatement } from '@/lib/analytics-attribution';
+import { readAnalyticsCohort } from '@/lib/analytics-cohort';
+import { analyticsCsv, type AnalyticsExportData } from '@/lib/analytics-export';
 import { resolveAnalyticsRange } from '@/lib/analytics-range';
 
 const PLATFORM_META: Record<string, { name: string; color: string }> = {
@@ -35,23 +37,27 @@ export async function GET(request: Request): Promise<Response> {
   }
   const { from, to } = range;
 
-  const [eventsResult, lessonsResult, chatResult] = await env.DB.batch([
-    activitySummaryStatement(env.DB, user.id, from, to),
-    completedOperatorLessonsStatement(env.DB, user.id, from, to),
-    env.DB.prepare(`SELECT COALESCE(e.chat_id,l.source_chat_id) AS chat_id,c.name,c.platform,
-        SUM(CASE WHEN e.event_type='chat_joined' THEN 1 ELSE 0 END) AS joined,
-        SUM(CASE WHEN e.event_type='publication' THEN 1 ELSE 0 END) AS publications,
-        SUM(CASE WHEN e.event_type='lead_created' THEN 1 ELSE 0 END) AS responses,
-        SUM(CASE WHEN e.event_type IN ('lesson_booked','curator_booking_pending') THEN 1 ELSE 0 END) AS bookings
-      FROM activity_events e
-      LEFT JOIN leads l ON l.id=e.lead_id AND l.user_id=e.user_id
-      LEFT JOIN chats c ON c.id=COALESCE(e.chat_id,l.source_chat_id) AND c.user_id=e.user_id
-      WHERE e.user_id=?1 AND e.event_date>=?2 AND e.event_date<=?3 AND e.cancelled_at IS NULL
-        AND COALESCE(e.chat_id,l.source_chat_id) IS NOT NULL
-      GROUP BY COALESCE(e.chat_id,l.source_chat_id),c.name,c.platform
-      HAVING joined>0 OR publications>0 OR responses>0 OR bookings>0
-      ORDER BY publications DESC,responses DESC,bookings DESC,joined DESC,c.name ASC LIMIT 100`).bind(user.id, from, to),
+  const [cohort, batch] = await Promise.all([
+    readAnalyticsCohort(env.DB, user.id, from, to),
+    env.DB.batch([
+      activitySummaryStatement(env.DB, user.id, from, to),
+      completedOperatorLessonsStatement(env.DB, user.id, from, to),
+      env.DB.prepare(`SELECT COALESCE(e.chat_id,l.source_chat_id) AS chat_id,c.name,c.platform,
+          SUM(CASE WHEN e.event_type='chat_joined' THEN 1 ELSE 0 END) AS joined,
+          SUM(CASE WHEN e.event_type='publication' THEN 1 ELSE 0 END) AS publications,
+          SUM(CASE WHEN e.event_type='lead_created' THEN 1 ELSE 0 END) AS responses,
+          SUM(CASE WHEN e.event_type IN ('lesson_booked','curator_booking_pending') THEN 1 ELSE 0 END) AS bookings
+        FROM activity_events e
+        LEFT JOIN leads l ON l.id=e.lead_id AND l.user_id=e.user_id
+        LEFT JOIN chats c ON c.id=COALESCE(e.chat_id,l.source_chat_id) AND c.user_id=e.user_id
+        WHERE e.user_id=?1 AND e.event_date>=?2 AND e.event_date<=?3 AND e.cancelled_at IS NULL
+          AND COALESCE(e.chat_id,l.source_chat_id) IS NOT NULL
+        GROUP BY COALESCE(e.chat_id,l.source_chat_id),c.name,c.platform
+        HAVING joined>0 OR publications>0 OR responses>0 OR bookings>0
+        ORDER BY publications DESC,responses DESC,bookings DESC,joined DESC,c.name ASC LIMIT 100`).bind(user.id, from, to),
+    ]),
   ]);
+  const [eventsResult, lessonsResult, chatResult] = batch;
 
   const eventRows = eventsResult.results as EventAggregate[];
   const completedRows = lessonsResult.results as Array<{ platform: string; count: number }>;
@@ -107,7 +113,7 @@ export async function GET(request: Request): Promise<Response> {
     bookingRate: rate(Number(row.bookings || 0), Number(row.responses || 0)),
   }));
 
-  return Response.json({
+  const data: AnalyticsExportData = {
     range,
     totals: {
       ...totals,
@@ -118,7 +124,41 @@ export async function GET(request: Request): Promise<Response> {
     },
     platforms,
     chats,
-  }, { headers: { 'Cache-Control': 'no-store' } });
+    cohort: {
+      totals: {
+        ...cohort.totals,
+        bookingLeadRate: rate(cohort.totals.bookedLeads, cohort.totals.leads),
+        completionRate: rate(cohort.totals.completed, cohort.totals.bookings),
+      },
+      platforms: cohort.platforms.map((row) => ({
+        key: row.platform,
+        name: PLATFORM_META[row.platform]?.name || row.platform,
+        ...row,
+        bookingLeadRate: rate(row.bookedLeads, row.leads),
+        completionRate: rate(row.completed, row.bookings),
+      })),
+      chats: cohort.chats.map((row) => ({
+        id: row.id,
+        name: row.name,
+        platformName: PLATFORM_META[row.platform]?.name || row.platform,
+        ...row,
+        bookingLeadRate: rate(row.bookedLeads, row.leads),
+        completionRate: rate(row.completed, row.bookings),
+      })),
+    },
+  };
+
+  if (url.searchParams.get('format') === 'csv') {
+    return new Response(analyticsCsv(data), {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="work-os-analytics-${from}-${to}.csv"`,
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    });
+  }
+  return Response.json(data, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 function rate(value: number, base: number): number {
