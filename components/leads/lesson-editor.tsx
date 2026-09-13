@@ -80,7 +80,9 @@ export function LessonEditor({
           name="studentId"
           value={lesson?.studentId ?? ''}
           options={[
-            { value: '', label: `${detail.lead.name} (сам контакт)` },
+            ...(mode !== 'book' || detail.lead.isStudent === 1
+              ? [{ value: '', label: `${detail.lead.name} (сам контакт)` }]
+              : []),
             ...detail.students.map((s) => ({
               value: s.id,
               label: `${s.name} ${s.surname}`.trim(),
