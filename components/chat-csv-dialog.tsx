@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { Download, LoaderCircle, Upload } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 type Platform='telegram'|'whatsapp'|'viber'|'facebook';
 type Preview={
@@ -54,10 +55,8 @@ export function ChatCsvDialog({open,onClose,onImported}:{open:boolean;onClose:()
     }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося експортувати CSV.');}
     finally{setBusy(false);}
   }
-  if(!open)return null;
-  return <div className="modal-backdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)close();}}>
-    <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="chat-csv-title">
-      <div className="card-heading"><div><p className="eyebrow">Перенесення чатів</p><h3 id="chat-csv-title">CSV імпорт та експорт</h3><p>CSV переносить поточний стан і профілі чатів. Повна історія подій переноситься лише через резервну копію.</p></div><Button variant="ghost" disabled={busy} onClick={close}>Закрити</Button></div>
+  return <Dialog open={open} onOpenChange={next=>{if(!next&&!busy)close();}}><DialogContent className="modal-card chat-csv-dialog" showCloseButton={false}>
+      <DialogHeader><p className="eyebrow">Перенесення чатів</p><DialogTitle>CSV імпорт та експорт</DialogTitle><DialogDescription>CSV переносить поточний стан і профілі чатів. Повна історія подій переноситься лише через резервну копію.</DialogDescription></DialogHeader>
       {error&&<div className="workspace-error" role="alert">{error}</div>}
       {notice&&<output className="reports-notice">{notice}</output>}
       <section className="settings-panel">
@@ -74,6 +73,5 @@ export function ChatCsvDialog({open,onClose,onImported}:{open:boolean;onClose:()
         <div className="settings-stat-row">{(Object.keys(labels) as Platform[]).map(platform=><div key={platform}><span>{labels[platform]}</span><strong>{preview.byPlatform[platform].add}</strong><small>нових із {preview.byPlatform[platform].total}</small></div>)}</div>
         {preview.conflicts.length>0&&<div className="workspace-error" role="alert"><strong>Спочатку виправте конфлікти:</strong><ul>{preview.conflicts.slice(0,20).map(item=><li key={item}>{item}</li>)}</ul>{preview.conflicts.length>20&&<p>Ще {preview.conflicts.length-20} конфліктів.</p>}</div>}
       </section>}
-    </section>
-  </div>;
+    </DialogContent></Dialog>;
 }
