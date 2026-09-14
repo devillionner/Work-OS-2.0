@@ -66,3 +66,11 @@ void test('app-specific native buttons always declare an explicit type', () => {
   }
   assert.deepEqual([...new Set(offenders)], []);
 });
+
+void test('mobile drawer moves focus into the drawer and isolates the background', () => {
+  const shell = text(join(componentsDir, 'work-os-shell.tsx'));
+  assert.match(shell, /mobileCloseRef\.current\?\.focus\(\)/);
+  assert.match(shell, /mobileDrawerTriggerRef\.current/);
+  assert.match(shell, /<main className="work-main" inert=\{mobileOpen \? true : undefined\}>/);
+  assert.match(shell, /<h1 ref=\{pageHeadingRef\} tabIndex=\{-1\}>/);
+});
