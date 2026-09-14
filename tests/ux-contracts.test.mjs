@@ -23,10 +23,46 @@ void test('shared dialog close controls stay localized and touch-target contract
   assert.match(css, /\[data-slot="dialog-close"\]\s*\{[^}]*min-width:44px;[^}]*min-height:44px;/s);
 });
 
+void test('closed mobile sidebar is removed from keyboard interaction until opened', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /\.work-sidebar \{[^}]*translateX\(-100%\)[^}]*visibility:hidden;[^}]*pointer-events:none;/s);
+  assert.match(css, /\.work-sidebar\.is-open \{[^}]*translateX\(0\)[^}]*visibility:visible;[^}]*pointer-events:auto;/s);
+});
+
 void test('data-management UI avoids internal preview and staging-zone jargon', () => {
   for (const name of ['chat-csv-dialog.tsx', 'cloud-restore-dialog.tsx', 'legacy-import-dialog.tsx']) {
     const source = text(join(componentsDir, name));
     assert.doesNotMatch(source, />Preview</);
     assert.doesNotMatch(source, /staging-\u0437\u043e\u043d/);
   }
+});
+
+
+void test('user-facing source is free from mojibake and placeholder corruption', () => {
+  const roots = ['app', 'components', 'lib'];
+  const offenders = [];
+  for (const folder of roots) {
+    const dir = join(root, folder);
+    const files = readdirSync(dir, { recursive: true })
+      .filter((name) => typeof name === 'string' && /\.(?:ts|tsx)$/.test(name))
+      .map((name) => join(dir, name));
+    for (const path of files) {
+      if (/(?:Ð.|Ñ.|Ã.|Â.|â€|�|\?{4,})/.test(text(path))) offenders.push(path);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
+void test('app-specific native buttons always declare an explicit type', () => {
+  const files = readdirSync(componentsDir, { recursive: true })
+    .filter((name) => typeof name === 'string' && name.endsWith('.tsx') && !name.replaceAll('\\','/').startsWith('ui/'))
+    .map((name) => join(componentsDir, name));
+  const offenders = [];
+  for (const path of files) {
+    const source = text(path);
+    for (const match of source.matchAll(/<button\b[^>]*>/gs)) {
+      if (!/\btype\s*=/.test(match[0])) offenders.push(path);
+    }
+  }
+  assert.deepEqual([...new Set(offenders)], []);
 });

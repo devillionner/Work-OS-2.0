@@ -121,7 +121,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
         </div>
       </aside>
 
-      {mobileOpen && <button className="sidebar-scrim" aria-label="Закрити меню" onClick={() => setMobileOpen(false)} />}
+      {mobileOpen && <button type="button" className="sidebar-scrim" aria-label="Закрити меню" onClick={() => setMobileOpen(false)} />}
 
       <main className="work-main">
         <header className="topbar">

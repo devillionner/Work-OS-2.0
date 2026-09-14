@@ -544,8 +544,8 @@ button { color: inherit; }
 
 @media (max-width: 720px) {
   .work-layout, .work-layout.is-collapsed { padding-left: 0; }
-  .work-sidebar { width: min(84vw, 290px); transform: translateX(-100%); box-shadow: 18px 0 50px rgba(0,0,0,.22); }
-  .work-sidebar.is-open { transform: translateX(0); }
+  .work-sidebar { width: min(84vw, 290px); transform: translateX(-100%); visibility:hidden; pointer-events:none; box-shadow: 18px 0 50px rgba(0,0,0,.22); transition:transform .2s ease, visibility 0s linear .2s; }
+  .work-sidebar.is-open { transform: translateX(0); visibility:visible; pointer-events:auto; transition-delay:0s; }
   .sidebar-close-mobile { display: grid; place-items: center; color: #fff; }
   .sidebar-close-mobile svg { width: 21px; }
   .sidebar-scrim { position: fixed; inset: 0; z-index: 25; border: 0; background: rgba(10,12,17,.52); }
