@@ -113,3 +113,11 @@ void test('Telegram scheduler has responsive workspace styling', () => {
   assert.match(css, /\.telegram-slot-time,\.telegram-schedule-slots select[^}]*min-height:44px/s);
   assert.match(text(join(componentsDir, 'telegram-schedule.tsx')), /<label key=\{chat\.id\} className="telegram-schedule-chat-option">/);
 });
+
+void test('global timer controls meet desktop and mobile target sizes', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /\.timer-popover header > button, \.timer-row > button \{ width: 42px; height: 42px;/);
+  assert.match(css, /\.timer-create select \{ min-height: 42px;/);
+  assert.match(css, /\.timer-durations button \{ min-height: 42px;/);
+  assert.match(css, /\.timer-create select, \.timer-create \[data-slot="button"\] \{ min-width:44px; min-height:44px; \}/);
+});
