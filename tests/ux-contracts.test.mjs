@@ -74,3 +74,8 @@ void test('mobile drawer moves focus into the drawer and isolates the background
   assert.match(shell, /<main className="work-main" inert=\{mobileOpen \? true : undefined\}>/);
   assert.match(shell, /<h1 ref=\{pageHeadingRef\} tabIndex=\{-1\}>/);
 });
+
+void test('Telegram account creation field has an explicit accessible name', () => {
+  const platform = text(join(componentsDir, 'platform-workspace.tsx'));
+  assert.match(platform, /placeholder="Назва нового акаунта" aria-label="Назва нового Telegram-акаунта"/);
+});
