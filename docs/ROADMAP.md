@@ -61,3 +61,5 @@
 Current phase: UI/UX. Bulk >500 queued batching, real-name enrichment and archive deletion policy are recorded requirements, not reasons to delay UX foundation. Today reminders must be separated into Tomorrow/Today intent groups; navigation has one Settings entry.
 
 - UX foundation: one Settings entry, calendar-day reminder groups, explicit calendar labels, subject analytics moved to Analytics, report event details collapsed, manager schedule quick-link, chat history demoted to secondary action, and mobile bottom navigation includes a More entry.
+
+- Leads/mobile CRM UX: mobile uses a focused list ? detail flow with an explicit back action; secondary history/refresh controls are de-emphasized while core lead actions remain visible.

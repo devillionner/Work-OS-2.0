@@ -116,7 +116,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
     }
   }, [current]);
   return (
-    <div className="leads-workspace">
+    <div className={`leads-workspace ${selected ? 'has-selection' : ''}`}>
       <LeadHistoryDialog open={historyOpen} lead={current?.lead ? { id: current.lead.id, name: current.lead.name } : null} onClose={() => setHistoryOpen(false)} />
       <div className="leads-toolbar">
         <div>
@@ -180,6 +180,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                           setSelected(lead.id);
                           setDetailError('');
                           setNotice('');
+                          if (window.matchMedia('(max-width: 800px)').matches) requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
                         }}
                       >
                         <div>
@@ -231,6 +232,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
           )}
         </section>
         <div className="lead-detail" aria-label="Картка ліда">
+          {selected && <Button type="button" variant="ghost" className="lead-mobile-back" onClick={() => { setSelected(null); setDetail(null); setDetailError(''); setNotice(''); }}>← До списку лідів</Button>}
           {detailError ? (
             <p className="lead-error" role="alert">
               {detailError}{' '}
@@ -310,12 +312,8 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                   >
                     {current.lead.responseCancelledAt === null ? 'Скасувати відгук' : 'Відновити відгук'}
                   </Button>
-                  <Button variant="outline" onClick={() => setHistoryOpen(true)}>
-                    Історія
-                  </Button>
-                  <Button variant="ghost" onClick={reload}>
-                    Оновити
-                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setHistoryOpen(true)}>Історія</Button>
+                  <Button variant="ghost" size="sm" onClick={reload}>Оновити</Button>
                   <output>{notice}</output>
                 </div>
               </section>
