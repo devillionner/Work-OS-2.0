@@ -871,3 +871,19 @@ button { color: inherit; }
   .library-kind-picker::-webkit-scrollbar { display:none; }
   .library-kind-picker button { flex:0 0 auto; min-height:44px; }
 }
+.report-mobile-back { display:none; }
+@media (max-width:720px) {
+  .report-mobile-back { display:inline-flex; margin-bottom:10px; }
+  .reports-workspace.has-selected-day .reports-calendar-card { display:none; }
+  .reports-workspace:not(.has-selected-day) .reports-editor-card { display:none; }
+  .reports-hero-actions { align-items:stretch; }
+  .reports-hero-actions > *, .report-form-link { min-height:44px; }
+  .report-day { min-height:44px; }
+  .reports-editor-actions { flex-wrap:wrap; }
+  .reports-editor-actions > button { min-height:44px; }
+  .analytics-controls { width:100%; align-items:stretch; }
+  .range-picker { max-width:100%; overflow-x:auto; scrollbar-width:none; }
+  .range-picker::-webkit-scrollbar { display:none; }
+  .range-picker button { flex:0 0 auto; min-height:44px; }
+  .analytics-controls > button { min-height:44px; }
+}
