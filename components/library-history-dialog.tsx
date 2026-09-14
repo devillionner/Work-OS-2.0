@@ -31,7 +31,7 @@ export function LibraryHistoryDialog({open,item,onClose}:{open:boolean;item:Item
     {error&&<div className="workspace-error" role="alert">{error}</div>}
     {loading?<p className="workspace-loading">Завантажуємо версії…</p>:versions.length?<ol className="chat-history-list">{versions.map(version=><li key={version.id}>
       <div><strong>v{version.versionNumber} · {actions[version.action]||version.action}</strong><span> · {collections[version.collection]||version.collection}</span>{version.title!==item?.title&&<small> · {version.title}</small>}
-        <details><summary>Показати snapshot</summary>{version.notes&&<p>{version.notes}</p>}{version.ukText&&<pre className="lead-preserve">{version.ukText}</pre>}{version.ruText&&<pre className="lead-preserve">{version.ruText}</pre>}<small>Теги: {version.tags.join(', ')||'—'} · Платформи: {version.platforms.join(', ')||'—'}</small></details>
+        <details><summary>Показати збережену версію</summary>{version.notes&&<p>{version.notes}</p>}{version.ukText&&<pre className="lead-preserve">{version.ukText}</pre>}{version.ruText&&<pre className="lead-preserve">{version.ruText}</pre>}<small>Теги: {version.tags.join(', ')||'—'} · Платформи: {version.platforms.join(', ')||'—'}</small></details>
       </div><time dateTime={new Date(version.savedAt*1000).toISOString()}>{new Intl.DateTimeFormat('uk-UA',{dateStyle:'medium',timeStyle:'short',timeZone:'Europe/Kyiv'}).format(new Date(version.savedAt*1000))}</time>
     </li>)}</ol>:<p className="muted-note">Історія ще порожня.</p>}
     <div className="dialog-actions"><Button variant="outline" onClick={onClose} disabled={loading}>Закрити</Button></div>

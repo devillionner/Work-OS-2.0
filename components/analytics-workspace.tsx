@@ -153,7 +153,7 @@ export function AnalyticsWorkspace() {
         </section>
 
         <section className="analytics-card">
-          <div className="card-heading"><div><p className="eyebrow">Когортна атрибуція</p><h3>Результат лідів за чатами-джерелами</h3></div><span className="muted-note">Пізні повторні записи лишаються за початковим source chat</span></div>
+          <div className="card-heading"><div><p className="eyebrow">Джерела лідів</p><h3>Результат лідів за чатами-джерелами</h3></div><span className="muted-note">Пізні повторні записи лишаються за початковим чатом-джерелом</span></div>
           <div className="analytics-table analytics-chat-table">
             <div className="analytics-table-head"><span>Чат</span><span>Платформа</span><span>Ліди</span><span>Ліди із записом</span><span>Усі записи</span><span>Проведені</span></div>
             {data.cohort.chats.map((chat) => <div className="analytics-table-row" key={chat.id}><span className="chat-analytics-name" title={chat.name}>{chat.name}</span><span>{chat.platformName}</span><strong>{chat.leads}</strong><strong>{chat.bookedLeads}</strong><strong>{chat.bookings}</strong><span>{chat.completed}</span></div>)}
