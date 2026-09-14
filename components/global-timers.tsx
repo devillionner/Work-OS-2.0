@@ -53,6 +53,12 @@ export function GlobalTimers({ enabledPlatforms }: { enabledPlatforms: string[] 
     const due=timers.filter(timer=>timer.status==='completed'||timer.endsAt<=now);
     for(const timer of due) if(!announced.current.has(timer.id)){announced.current.add(timer.id);playAlarm(audioContext.current);setOpen(true);}
   },[timers,now]);
+  useEffect(()=>{
+    if(!open)return;
+    const closeOnEscape=(event:KeyboardEvent)=>{if(event.key==='Escape')setOpen(false);};
+    window.addEventListener('keydown',closeOnEscape);
+    return()=>window.removeEventListener('keydown',closeOnEscape);
+  },[open]);
 
   async function start(){
     if(mutating.current)return;
@@ -83,14 +89,14 @@ export function GlobalTimers({ enabledPlatforms }: { enabledPlatforms: string[] 
   const completed=timers.filter(timer=>timer.status==='completed'||timer.endsAt<=now);
   const nearest=useMemo(()=>running.reduce<TimerItem|null>((best,timer)=>!best||timer.endsAt<best.endsAt?timer:best,null),[running]);
   return <div className="global-timers">
-    <button className={`timer-trigger ${completed.length?'has-alert':''}`} type="button" aria-expanded={open} onClick={()=>void toggleOpen()}><Clock3/><span>{nearest?formatDuration(nearest.endsAt-now):'Таймери'}</span>{timers.length>0&&<b>{timers.length}</b>}<ChevronDown/></button>
-    {open&&<section className="timer-popover" aria-label="Таймери">
-      <header><div><p className="eyebrow">Завжди під рукою</p><h2>Таймери</h2></div><button type="button" aria-label="Закрити" onClick={()=>setOpen(false)}><X/></button></header>
+    <button className={`timer-trigger ${completed.length?'has-alert':''}`} type="button" aria-expanded={open} aria-haspopup="dialog" aria-controls="global-timers-popover" onClick={()=>void toggleOpen()}><Clock3/><span>{nearest?formatDuration(nearest.endsAt-now):'Таймери'}</span>{timers.length>0&&<b>{timers.length}</b>}<ChevronDown/></button>
+    {open&&<dialog open id="global-timers-popover" className="timer-popover" aria-labelledby="global-timers-title">
+      <header><div><p className="eyebrow">Завжди під рукою</p><h2 id="global-timers-title">Таймери</h2></div><button type="button" aria-label="Закрити" onClick={()=>setOpen(false)}><X/></button></header>
       <div className="timer-create"><label>Для<select value={platform} onChange={event=>{const next=event.target.value as Platform;setPlatform(next);if(next==='telegram')setDuration(15)}}>{availablePlatformOptions.map(item=><option value={item.key} key={item.key}>{item.label}</option>)}</select></label><div className="timer-durations" aria-label="Тривалість">{[5,10,15].map(value=><button type="button" aria-pressed={duration===value} onClick={()=>setDuration(value)} disabled={platform==='telegram'&&value!==15} key={value}>{value} хв</button>)}</div><Button size="sm" onClick={start} disabled={busy}><Plus data-icon="inline-start"/>Запустити</Button></div>
       {error&&<p className="timer-error">{error}</p>}
       <div className="timer-list">{completed.map(timer=><TimerRow timer={timer} now={now} completed onDismiss={()=>dismiss(timer.id)} key={timer.id}/>)}{running.map(timer=><TimerRow timer={timer} now={now} onDismiss={()=>dismiss(timer.id)} key={timer.id}/>)}{!timers.length&&<div className="timer-empty"><TimerReset/><span>Активних таймерів немає</span></div>}</div>
       <footer>Працюють після переходів і перезавантаження сторінки. Звук — коли застосунок відкритий.</footer>
-    </section>}
+    </dialog>}
   </div>;
 }
 
