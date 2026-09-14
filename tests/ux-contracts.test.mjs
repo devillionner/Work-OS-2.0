@@ -84,3 +84,9 @@ void test('daily report editor textarea has an explicit accessible name', () => 
   const source = text(join(componentsDir, 'reports-workspace.tsx'));
   assert.match(source, /<Textarea aria-label="\u0422\u0435\u043a\u0441\u0442 \u0449\u043e\u0434\u0435\u043d\u043d\u043e\u0433\u043e \u0437\u0432\u0456\u0442\u0443"/);
 });
+
+void test('chat history stays a secondary icon action in platform rows', () => {
+  const source = text(join(componentsDir, 'platform-workspace.tsx'));
+  assert.match(source, /aria-label="\u0406\u0441\u0442\u043e\u0440\u0456\u044f \u0447\u0430\u0442\u0443" title="\u0406\u0441\u0442\u043e\u0440\u0456\u044f \u0447\u0430\u0442\u0443"/);
+  assert.doesNotMatch(source, />\u0406\u0441\u0442\u043e\u0440\u0456\u044f<\/Button>/);
+});
