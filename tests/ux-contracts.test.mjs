@@ -147,3 +147,14 @@ void test('Library workspace uses scoped desktop and mobile interaction targets'
   assert.match(css, /\.library-hero \[data-slot="button"\], \.library-toolbar > \[data-slot="button"\][^}]*min-height:44px;/);
   assert.match(css, /\.library-history-dialog summary \{ min-height:44px;/);
 });
+
+void test('Settings and Analytics interaction layer uses scoped targets and keyboard focus', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /\.range-picker button \{ min-height: 42px;/);
+  assert.match(css, /\.analytics-custom-range input \{ min-height:42px;/);
+  assert.match(css, /\.platform-settings-list label \{ min-height:42px;/);
+  assert.match(css, /\.platform-settings-list input \{ width:18px; height:18px;/);
+  assert.match(css, /\.settings-panel-primary \.card-heading \[data-slot="button"\][^}]*min-height:42px;/s);
+  assert.match(css, /\.analytics-custom-range input \{ width:100%; min-height:44px; \}/);
+  assert.match(css, /\.platform-settings-list label:has\(input:focus-visible\)/);
+});
