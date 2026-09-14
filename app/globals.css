@@ -932,3 +932,8 @@ button { color: inherit; }
 @media (max-width: 600px) {
   .import-dialog > [data-slot="dialog-header"] { padding:18px; }
 }
+
+@media (max-width: 720px) {
+  .chat-duplicates-dialog button, .chat-duplicates-dialog select, .chat-duplicates-dialog input { min-height:44px; }
+  .chat-duplicates-dialog .lead-actions { align-items:stretch; }
+}
