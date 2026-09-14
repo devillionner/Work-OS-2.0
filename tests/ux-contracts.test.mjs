@@ -79,3 +79,8 @@ void test('Telegram account creation field has an explicit accessible name', () 
   const platform = text(join(componentsDir, 'platform-workspace.tsx'));
   assert.match(platform, /placeholder="Назва нового акаунта" aria-label="Назва нового Telegram-акаунта"/);
 });
+
+void test('daily report editor textarea has an explicit accessible name', () => {
+  const source = text(join(componentsDir, 'reports-workspace.tsx'));
+  assert.match(source, /<Textarea aria-label="\u0422\u0435\u043a\u0441\u0442 \u0449\u043e\u0434\u0435\u043d\u043d\u043e\u0433\u043e \u0437\u0432\u0456\u0442\u0443"/);
+});
