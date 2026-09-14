@@ -121,3 +121,11 @@ void test('global timer controls meet desktop and mobile target sizes', () => {
   assert.match(css, /\.timer-durations button \{ min-height: 42px;/);
   assert.match(css, /\.timer-create select, \.timer-create \[data-slot="button"\] \{ min-width:44px; min-height:44px; \}/);
 });
+
+void test('Leads mobile workspace keeps core CRM controls touch friendly', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /\.lead-mobile-back \{ position:sticky; top:8px;[^}]*min-height:44px|\.lead-mobile-back[^}]*min-height:44px/s);
+  assert.match(css, /\.lead-filters \[data-slot="button"\] \{ flex:1 1 100px; \}/);
+  assert.match(css, /\.lead-list-item \{ min-height:72px;/);
+  assert.match(css, /\.lead-dialog \[data-slot="native-select"\][^}]*min-height:44px/s);
+});
