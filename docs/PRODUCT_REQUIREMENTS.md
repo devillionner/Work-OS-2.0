@@ -1,6 +1,6 @@
 # Work OS 2.0 — канонічні продуктові вимоги
 
-Оновлено: 2026-09-14. Реєстр стосується **Work OS 2.0**, а не готовності функцій у Prototype Checker. Мета: приватний, надійний, швидкий і зручний щоденний ручний процес на Windows, Linux та iPhone через Workers + D1. AI, генерація оголошень і автопостинг — пізніша окрема фаза.
+Оновлено: 2026-09-15. Реєстр стосується **Work OS 2.0**, а не готовності функцій у Prototype Checker. Мета: приватний, надійний, швидкий і зручний щоденний ручний процес на Windows, Linux та iPhone через Workers + D1. AI, генерація оголошень і автопостинг — пізніша окрема фаза.
 
 Пріоритет: останнє пряме рішення користувача → цей реєстр → roadmap → технічна документація → історичні джерела. Відсутність реалізації не скасовує вимогу. ID попереднього реєстру збережені без пропусків.
 
@@ -18,7 +18,7 @@
 | [LEADS_PR6_REVIEW](LEADS_PR6_REVIEW.md), [LEADS_PR6_STAGING_RUNBOOK](LEADS_PR6_STAGING_RUNBOOK.md) | Конкурентність, повторна доставка, бізнес-дати, локальні перевірки, межі chunked import |
 | Прямі вимоги користувача 2026-09-10 | main, малі коміти, локальні lint/tests/build, контрольований deploy, жодного регулярного resync, manual-first |
 
-База аудиту Work OS: commit 9a50148 та зміни цієї сесії. Prototype: 55cd4c56cd6ffa3d994475b3ff577fda1e290e11; read-only git ls-remote підтвердив збіг з GitHub HEAD 2026-09-10. Prototype не змінювався. Production D1 не читалася й не змінювалася для аудиту; стан production не виводиться зі стану main. Посилання на код — підтвердження наявного фрагмента, а не доказ повного acceptance.
+База аудиту Work OS: актуальний `main` `f4e65f5` після UX PR #87–#89. Prototype: 55cd4c56cd6ffa3d994475b3ff577fda1e290e11; read-only git ls-remote підтвердив збіг з GitHub HEAD 2026-09-10. Prototype не змінювався. Production D1 не читалася й не змінювалася для аудиту; стан production не виводиться зі стану main. Посилання на код — підтвердження наявного фрагмента, а не доказ повного acceptance.
 
 Доповнення 2026-09-11: ручне розпізнавання/попередній перегляд посилань звірено read-only з Work-OS.html у Prototype 7b8a1bc. Це цільова перевірка масового додавання, не повторний аудит усіх наступних змін Prototype. Нові функції автопостингу лишаються P6.
 
@@ -42,12 +42,12 @@
 7. Повний приватний backup містить необхідні персональні дані, але не секрети/сесії. «Контакти не експортуються» стосується публічних/діагностичних матеріалів, інакше повне відновлення неможливе.
 8. Читати та порівнювати нові функції Prototype можна; щоденно переносити його дані не потрібно. Фінальний перенос — тільки після parity і прямого підтвердження.
 
-## Звірка після pre-UX integration — 2026-09-14
+## Звірка після UX hardening — 2026-09-15
 
-- Source of truth для цієї звірки: `main` після merge PR #48 (`7aa44f2`), combined local verify 208/208, GitHub CI #137 green та staging acceptance на `work-os-2-staging`.
-- Статуси нижче синхронізовано з фактичним merged code. Старі позначки «не реалізовано» для scheduler, duplicate manager, CSV, calendar context, historical corrections, analytics trends/cohort/export/insights та exact report staleness більше не є актуальними.
-- `не реалізовано` надалі означає реальний відсутній сценарій або свідомо пізніший scope, а не автоматично blocker pre-UX milestone. Дизайн/UX, mobile/keyboard visual QA та production cutover мають окремі gates.
-- Відомі реальні наступні functional gaps, які не маскуються UX-роботою: автоматичне підтягування справжніх назв чатів (IMPORT-07/09/12), media attachments у CRM (LEAD-23), структуровані manual report corrections/source diff (REPORT-22), PAY/knowledge/offline та фінальний migration parity — лише коли їх буде взято в scope.
+- Source of truth для цієї звірки: `main` `f4e65f5` після merge UX PR #87–#89. Останній full local gate: lint 0/0, **238/238 tests**, production build green.
+- UX evidence тепер включає iPhone safe-area shell, 42/44 px interaction targets, visible focus, shared dialog semantics, reduced motion, plain operator copy, alert semantics для dynamic errors і keyboard navigation ARIA tablists.
+- `не реалізовано` надалі означає реальний відсутній сценарій або свідомо пізніший scope. Наявність UX contract test не замінює authenticated desktop/iPhone visual QA, тому visual acceptance лишається окремим P4 gate.
+- Відомі реальні functional gaps не маскуються UX-роботою: автоматичне підтягування справжніх назв чатів (IMPORT-07/09/12), media attachments у CRM (LEAD-23), structured manual report corrections/source diff (REPORT-22), PAY/knowledge/offline та final migration parity — лише коли їх буде взято в scope.
 
 ## Принципи продукту
 
@@ -62,7 +62,7 @@
 | CORE-02 | частково | На екрані платформи видно лише інструменти поточного режиму: приєднання, очікування або публікація. | Є оболонка та компоненти; потрібна наскрізна перевірка ручного сценарію. [Код/опис](../components/work-os-shell.tsx). |
 | CORE-03 | частково | Єдина дизайн-система: білий фон, чорний основний колір, один синій акцент; узгоджені відступи, типографіка, кнопки, стани, модальні вікна й таблиці. Червоний/жовтий дозволені лише для небезпеки та попередження, а не як декоративні кольори. | Є оболонка та компоненти; потрібна наскрізна перевірка ручного сценарію. [Код/опис](../components/work-os-shell.tsx). |
 | CORE-04 | частково | Навігація має зрозумілі назви, лічильники та однаково працює на всіх сторінках. | Є оболонка та компоненти; потрібна наскрізна перевірка ручного сценарію. [Код/опис](../components/work-os-shell.tsx). |
-| CORE-05 | частково | Клавіатурна навігація, видимий фокус, читабельні підказки й достатній контраст. | Є оболонка та компоненти; потрібна наскрізна перевірка ручного сценарію. [Код/опис](../components/work-os-shell.tsx). |
+| CORE-05 | частково | Клавіатурна навігація, видимий фокус, читабельні підказки й достатній контраст. | Видимий focus, Escape для mobile drawer, focus-trapped dialogs і roving keyboard navigation для ARIA tablists уже є та мають UX contract tests; authenticated desktop/iPhone порядок фокусу, контраст і повний keyboard walkthrough ще не прийняті. [Тести](../tests/ux-contracts.test.mjs), [tab navigation](../tests/tab-navigation.test.mjs). |
 | CORE-06 | частково | У налаштуваннях можна вимкнути непотрібні платформи. | Є оболонка та компоненти; потрібна наскрізна перевірка ручного сценарію. [Код/опис](../components/work-os-shell.tsx). |
 | CORE-07 | частково | В інтерфейсі видно версію застосунку й короткий список змін. | У нижній частині бічного меню видно версію й відкривається короткий список змін поточного релізу; повна desktop/mobile QA та процес ведення release notes ще не прийняті. [Код](../components/work-os-shell.tsx), [діалог](../components/app-release-dialog.tsx), [метадані](../lib/app-meta.ts). |
 | CORE-08 | частково | Історія важливих дій дозволяє зрозуміти, хто/коли змінив чат, лід, урок або звіт. | Чати, ліди, окремі уроки й звіти мають owner-scoped вікна останніх подій/версій із часом та зрозумілими діями; повна наскрізна QA ще потрібна. [Чати](../components/chat-history-dialog.tsx), [ліди](../components/leads/history.tsx), [уроки](../components/leads/lesson-history.tsx), [звіти](../components/report-history-dialog.tsx). |
@@ -373,7 +373,7 @@
 | QA-08 | частково | Великий HTML/JS поступово розділяється на модулі без втрати даних і поведінки. | Є модулі і локальні тести Leads/backup/legacy та таймерів; повного покриття чатів, звітів, scheduler і всіх лічильників немає. [Код/опис](../tests). |
 | QA-09 | частково | Помилки показуються людською мовою, не ламають інші модулі та містять безпечний шлях відновлення. | Є модулі і локальні тести Leads/backup/legacy та таймерів; повного покриття чатів, звітів, scheduler і всіх лічильників немає. [Код/опис](../tests). |
 | QA-10 | частково | Перед релізом проходить регресійний чек-лист головних робочих сценаріїв. | Є модулі і локальні тести Leads/backup/legacy та таймерів; повного покриття чатів, звітів, scheduler і всіх лічильників немає. [Код/опис](../tests). |
-| QA-11 | не реалізовано | Є візуальні регресійні перевірки ключових екранів на desktop і mobile та автоматична перевірка доступності: фокус, назви контролів, контраст і порядок клавіатури. | У поточному Work OS 2.0 не знайдено завершеного користувацького сценарію. [Код/опис](../tests). |
+| QA-11 | частково | Є візуальні регресійні перевірки ключових екранів на desktop і mobile та автоматична перевірка доступності: фокус, назви контролів, контраст і порядок клавіатури. | Статичні UX contracts вже перевіряють touch targets, focus, safe areas, copy/alert semantics та ARIA tab keyboard navigation; окремі behavioral tab tests покривають wrap/Home/End/disabled. Автоматизованих screenshot-regression/axe перевірок і authenticated desktop+iPhone visual run ще немає. [UX contracts](../tests/ux-contracts.test.mjs), [keyboard](../tests/tab-navigation.test.mjs). |
 | QA-12 | частково | Для кожного лічильника є тест незмінності: одна подія не може двічі збільшити звіт, аналітику або статистику чату. | Є модулі і локальні тести Leads/backup/legacy та таймерів; повного покриття чатів, звітів, scheduler і всіх лічильників немає. [Код/опис](../tests). |
 
 ## 14а. Уточнення UX
@@ -393,7 +393,7 @@
 | OPS-05 | частково | D1 budget: GET таймерів не записує даних; фоновий sync не частіше разу на 120 с видимого online-вікна; expiry не створює запит щосекунди. Інші запити/indexes потребують вимірювання. |
 | OPS-06 | частково | Локальний performance baseline на 10 000 чатів/10 000 лідів/100 000 подій: query count/rows read, p50/p95, розмір відповіді, UI latency; перевірка EXPLAIN QUERY PLAN та відсутності N+1. Ціль: p95 API <500 мс і UI дії <1 с на зафіксованому стенді, без гарантії для невиміряного production. | Є synthetic baseline 10k leads / 100k events (~360 ms analytics query section) і staging root latency sample (~171 ms avg / ~379 ms p95). Ще потрібні повний 10k chats/10k leads/100k events profile, EXPLAIN/rows/payload та UI latency. |
 | OPS-07 | частково | Приватність: auth до доступу до D1, owner-scoped reads/writes, same-origin mutations, bounded payload, безпечні помилки та журнал сесій. Leads має захист, решта API потребує однакового рівня. |
-| UX-02 | частково | Єдині дизайн-токени, сітка 4 px, touch цілі ≥44 px, читабельні 14 px+, видимий фокус; одна primary action, другорядні керування/архів приховані за потреби. Деталі — DESIGN_SYSTEM.md. | UX foundation уже уніфікував mobile list→detail flows, bottom navigation, focus-visible, iOS safe areas, reduced motion і 44 px touch targets для основних та modal controls; критичні custom dialogs поступово переведені на shared focus-trapped Dialog. Статус лишається частковим до authenticated visual/contrast/keyboard QA. |
+| UX-02 | частково | Єдині дизайн-токени, сітка 4 px, touch цілі ≥44 px, читабельні 14 px+, видимий фокус; одна primary action, другорядні керування/архів приховані за потреби. Деталі — DESIGN_SYSTEM.md. | UX foundation уніфікував mobile list→detail flows, bottom navigation, focus-visible, iOS safe areas, reduced motion і 44 px touch targets; critical dialogs мають shared focus trap; Platform/Library tablists мають roving tabIndex та Arrow/Home/End navigation. Статус лишається частковим до authenticated screenshot-based visual/contrast/keyboard QA. |
 | UX-03 | частково | Історична дата має явний контекст, Alt+стрілки, заборону майбутньої дати та швидке повернення на сьогодні. Перехід створення ліда зберігає дату. **Підстава:** звіт має явний контекст, Alt+← / Alt+→, серверну й UI-заборону майбутньої дати та кнопку «Сьогодні»; збереження дати під час переходу до створення ліда ще не реалізоване. [Код](../components/reports-workspace.tsx), [API](../app/api/reports/route.ts). |
 | UX-04 | частково | Єдиний словник предметів для CRM/фільтрів/бібліотеки/аналітики: aliases нормалізуються, невідомі legacy значення не губляться; нульовий знаменник конверсії = «—», понад 100% не обрізається в подієвій статистиці. |
 | MIG-01 | частково | Повний raw backup зберігає оригінальні storage-рядки, невідомі ключі, версію та SHA-256; mapper звіряє не тільки counts, а ID й усі вкладені поля та історію. |
@@ -412,15 +412,15 @@
 
 ## Зведення
 
-- готово: 23.
-- частково: 176.
-- не реалізовано: 65.
+- готово: 65.
+- частково: 175.
+- не реалізовано: 24.
 - відкладено: 12.
 
 Усього: 276 вимог (253 зі збереженими legacy ID + 23 доповнень). Зведення не є відсотком functional parity: критичний відсутній сценарій блокує готовність незалежно від кількості простих готових пунктів. Наступні кроки та критерії — [ROADMAP.md](ROADMAP.md).
 
 
-## UX decisions — 2026-09-14
+## UX decisions — 2026-09-15
 
 - Bulk chat add must accept more than 500 links without data loss. Keep bounded server batches (currently 500) and queue additional batches automatically with visible progress/retry instead of silently rejecting the remainder. Removing the bound is not required if queued batching is reliable.
 - Bulk add must resolve real chat names where the platform permits it. Name resolution is a separate enrichment step: canonical URL remains the duplicate key; failures must not block import and must remain retryable/manual.
@@ -430,3 +430,5 @@
 - Pre-UX functional development remains frozen except for regressions or requirements needed to make the UX coherent. Current phase is UI/UX.
 
 - UX foundation implementation: one Settings navigation entry; Today separates lesson reminders by Today/Tomorrow; report calendar uses explicit planned/completed lesson and lead-event labels; report event details are progressive disclosure; subject analytics lives in Analytics; manager schedule is one tap from the calendar/report workspace; chat history remains available as a secondary action.
+
+- UX hardening evidence 2026-09-15: PR #87–#89 are merged; latest full gate is 238/238. QA-11 moves from “не реалізовано” to “частково” because keyboard/a11y contracts now exist, while screenshot regression and authenticated device QA remain outstanding.
