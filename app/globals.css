@@ -520,14 +520,14 @@ button { color: inherit; }
 .library-hero p:not(.eyebrow) { margin: 8px 0 0; color: var(--muted-foreground); }
 .library-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .library-kind-picker { display: flex; gap: 4px; padding: 4px; border-radius: 10px; background: #f1f3f7; }
-.library-kind-picker button { min-height: 34px; padding: 0 13px; border: 0; border-radius: 8px; background: transparent; color: #69707d; cursor: pointer; font-size: 12px; font-weight: 750; }
+.library-kind-picker button { min-height: 42px; padding: 0 13px; border: 0; border-radius: 8px; background: transparent; color: #69707d; cursor: pointer; font-size: 12px; font-weight: 750; }
 .library-kind-picker button[aria-selected='true'] { background: #fff; color: #17191e; box-shadow: 0 1px 5px rgba(20,25,36,.1); }
 .library-search { position: relative; display: flex; align-items: center; width: min(420px,100%); }
 .library-search svg { position: absolute; left: 12px; z-index: 1; width: 17px; color: #858b96; }
-.library-search input { padding-left: 38px; }
+.library-search input { min-height:42px; padding-left: 38px; }
 .library-layout { display: grid; grid-template-columns: minmax(260px,.8fr) minmax(0,1.4fr); gap: 18px; align-items: start; }
 .library-list, .library-editor { min-height: 420px; padding: 14px; }
-.library-item { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px; padding: 14px 12px; border: 0; border-bottom: 1px solid #eceef2; background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.library-item { min-height:64px; display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px; padding: 14px 12px; border: 0; border-bottom: 1px solid #eceef2; background: transparent; color: inherit; cursor: pointer; text-align: left; }
 .library-item:hover, .library-item.is-selected { background: #f5f7ff; }
 .library-item > span { min-width: 0; display: grid; gap: 5px; }
 .library-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -536,6 +536,7 @@ button { color: inherit; }
 .library-editor label { display: grid; gap: 6px; color: #565d6b; font-size: 12px; font-weight: 700; }
 .library-editor .card-heading { margin-bottom: 2px; }
 .library-two-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.library-hero [data-slot="button"], .library-toolbar > [data-slot="button"], .library-editor [data-slot="input"], .library-editor [data-slot="button"] { min-height:42px; }
 
 @media (max-width: 980px) {
   .dashboard-grid { grid-template-columns: 1fr; }
@@ -876,7 +877,7 @@ button { color: inherit; }
 }
 .library-mobile-back { display:none; }
 @media (max-width:720px) {
-  .library-mobile-back { display:inline-flex; justify-self:start; }
+  .library-mobile-back { display:inline-flex; position:sticky; top:8px; z-index:4; width:100%; min-height:44px; justify-self:stretch; justify-content:flex-start; border:1px solid var(--border); background:var(--card); box-shadow:0 6px 18px rgb(25 31 48 / .08); }
   .library-workspace.has-editor .library-toolbar,
   .library-workspace.has-editor .library-list { display:none; }
   .library-workspace.has-editor .library-layout { grid-template-columns:1fr; }
@@ -884,6 +885,10 @@ button { color: inherit; }
   .library-kind-picker { width:100%; overflow-x:auto; scrollbar-width:none; }
   .library-kind-picker::-webkit-scrollbar { display:none; }
   .library-kind-picker button { flex:0 0 auto; min-height:44px; }
+  .library-hero [data-slot="button"], .library-toolbar > [data-slot="button"], .library-search [data-slot="input"], .library-editor [data-slot="input"], .library-editor [data-slot="button"], .library-history-dialog [data-slot="button"] { min-height:44px; }
+  .library-item { min-height:72px; }
+  .library-history-dialog summary { min-height:44px; display:flex; align-items:center; }
+  .library-history-dialog .chat-history-list li { flex-direction:column; gap:6px; }
 }
 .report-mobile-back { display:none; }
 @media (max-width:720px) {
