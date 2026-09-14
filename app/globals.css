@@ -891,6 +891,32 @@ button { color: inherit; }
   .range-picker button { flex:0 0 auto; min-height:44px; }
   .analytics-controls > button { min-height:44px; }
 }
+/* Telegram scheduler and warmup workspace */
+.telegram-schedule,.telegram-warmup { margin-top:14px; padding:16px; border:1px solid var(--border); border-radius:14px; background:var(--card); }
+.telegram-schedule-summary { display:flex; align-items:center; gap:8px; }
+.telegram-schedule-controls { display:grid; grid-template-columns:max-content minmax(90px,1fr) max-content minmax(90px,1fr); align-items:center; gap:8px 10px; margin-top:14px; }
+.telegram-schedule-mode,.telegram-schedule-create { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:12px; }
+.telegram-schedule-mode [data-slot="input"] { flex:1 1 220px; }
+.telegram-schedule-chat-picker { display:grid; gap:9px; margin-top:12px; padding:12px; border:1px solid var(--border); border-radius:12px; background:#fafbfc; }
+.telegram-schedule-chat-picker>div:first-child { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.telegram-schedule-chat-list { display:grid; gap:6px; max-height:260px; overflow:auto; }
+.telegram-schedule-chat-option { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:start; gap:9px; padding:9px 10px; border-radius:9px; }
+.telegram-schedule-chat-option:hover { background:var(--muted); }
+.telegram-schedule-chat-option span { display:grid; min-width:0; }
+.telegram-schedule-chat-option small,.telegram-slot-link { overflow:hidden; color:var(--muted-foreground); text-overflow:ellipsis; white-space:nowrap; }
+.telegram-schedule-next { display:flex; justify-content:space-between; gap:12px; margin-top:12px; padding:10px 12px; border-radius:10px; background:#f5f7fb; }
+.telegram-schedule-slots { display:grid; gap:7px; margin-top:12px; }
+.telegram-schedule-slots article { display:grid; grid-template-columns:auto 80px minmax(170px,1fr) minmax(120px,1fr) auto; align-items:center; gap:8px; padding:9px 10px; border:1px solid var(--border); border-radius:10px; }
+.telegram-schedule-slots article.is-done { opacity:.62; background:#fafbfc; }
+.telegram-slot-time,.telegram-schedule-slots select { min-height:42px; border:1px solid var(--input); border-radius:8px; background:var(--card); padding:0 8px; }
+.telegram-schedule-controls [data-slot="input"],.telegram-schedule-controls button,.telegram-schedule-mode [data-slot="input"],.telegram-schedule-mode button,.telegram-schedule-create [data-slot="input"],.telegram-schedule-create button,.telegram-schedule-slots button,.telegram-warmup button { min-height:42px; }
+.telegram-warmup-steps { display:grid; gap:8px; margin:12px 0; padding:0; list-style:none; }
+.telegram-warmup-steps li { display:grid; grid-template-columns:28px minmax(0,1fr); gap:10px; padding:10px 11px; border:1px solid var(--border); border-radius:10px; }
+.telegram-warmup-steps li>span { display:grid; place-items:center; width:28px; height:28px; border-radius:50%; background:#f0f2f6; }
+.telegram-warmup-steps li.is-done>span { background:#e9f7ee; }
+.telegram-warmup-steps p { margin:3px 0 0; color:var(--muted-foreground); }
+@media(max-width:720px) { .telegram-schedule,.telegram-warmup{padding:14px 12px}.telegram-schedule-controls{grid-template-columns:1fr;align-items:stretch}.telegram-schedule-controls [data-slot="input"],.telegram-schedule-controls button,.telegram-schedule-mode [data-slot="input"],.telegram-schedule-mode button,.telegram-schedule-create [data-slot="input"],.telegram-schedule-create button,.telegram-slot-time,.telegram-schedule-slots select,.telegram-schedule-slots button,.telegram-warmup button{min-height:44px}.telegram-schedule-slots article{grid-template-columns:auto minmax(76px,.55fr) minmax(0,1.45fr) auto}.telegram-slot-link{grid-column:2/4;grid-row:2}.telegram-schedule-slots article>[data-slot="button"]{grid-column:4;grid-row:1}.telegram-schedule-next{flex-direction:column}.telegram-schedule-chat-option{min-height:44px} }
+
 /* Navigation accessibility */
 .nav-item:focus-visible,
 .collapse-button:focus-visible,

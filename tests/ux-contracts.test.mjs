@@ -103,3 +103,13 @@ void test('mobile workflow form controls keep 44px touch targets', () => {
   assert.match(css, /\.reports-editor-actions > button, \.reports-editor-actions > select, \.reports-editor-actions \[data-slot="input"\] \{ min-height:44px; \}/);
   assert.match(css, /\.report-correction-fields select \{ min-height:44px; \}/);
 });
+
+void test('Telegram scheduler has responsive workspace styling', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /\.telegram-schedule-controls \{ display:grid;/);
+  assert.match(css, /\.telegram-schedule-slots article \{ display:grid;/);
+  assert.match(css, /\.telegram-warmup-steps li \{ display:grid;/);
+  assert.match(css, /\.telegram-slot-time,\.telegram-schedule-slots select \{ min-height:42px;/);
+  assert.match(css, /\.telegram-slot-time,\.telegram-schedule-slots select[^}]*min-height:44px/s);
+  assert.match(text(join(componentsDir, 'telegram-schedule.tsx')), /<label key=\{chat\.id\} className="telegram-schedule-chat-option">/);
+});

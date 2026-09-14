@@ -173,7 +173,7 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
       {mode==='manual'&&<div className="telegram-schedule-chat-picker">
         <div><strong>Вибрано {manualIds.length}</strong><Button variant="ghost" size="sm" onClick={()=>setManualIds([])} disabled={busy||disabled||!manualIds.length}>Очистити вибір</Button></div>
         <div className="telegram-schedule-chat-list">
-          {visibleChats.map(chat=><div key={chat.id} className="telegram-schedule-chat-option"><input aria-label={`Вибрати чат ${chat.name}`} type="checkbox" checked={selectedSet.has(chat.id)} disabled={busy||disabled} onChange={()=>toggleManual(chat.id)}/><span><strong>{chat.name}</strong><small>{chat.link}</small></span></div>)}
+          {visibleChats.map(chat=><label key={chat.id} className="telegram-schedule-chat-option"><input aria-label={`Вибрати чат ${chat.name}`} type="checkbox" checked={selectedSet.has(chat.id)} disabled={busy||disabled} onChange={()=>toggleManual(chat.id)}/><span><strong>{chat.name}</strong><small>{chat.link}</small></span></label>)}
           {!visibleChats.length&&<p>За поточним пошуком доступних чатів немає.</p>}
         </div>
       </div>}
