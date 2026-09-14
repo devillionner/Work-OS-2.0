@@ -274,3 +274,11 @@ void test('Today dashboard adapts before the fixed sidebar makes tiled desktop c
   assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.range-picker \{ max-width:100%; overflow-x:auto; scrollbar-width:none; \}/);
   assert.match(css, /@media \(min-width:721px\) and \(max-width:1180px\) \{[\s\S]*?\.settings-primary-grid \{ grid-template-columns:1fr; gap:14px; \}/);
 });
+
+void test('Report calendar keeps full accessible context while visually compacting dense day labels', () => {
+  const context = text(join(componentsDir, 'report-calendar-context.tsx'));
+  const reports = text(join(componentsDir, 'reports-workspace.tsx'));
+  assert.match(context, /compact\.slice\(0, 2\)/);
+  assert.match(context, /title=\{labels\.join\(' · '\)\} aria-hidden="true"/);
+  assert.match(reports, /aria-label=\{`\$\{formatDate\(day\.date\)\}\. \$\{calendarContextLabels\(day\.date, context\)\.join\(', '\) \|\| 'Без подій'\}/);
+});

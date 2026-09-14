@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { businessDayStart } from '../lib/business-time.ts';
 import { readCalendarContext } from '../lib/reports/calendar-context.ts';
-import { calendarContextLabels } from '../lib/reports/calendar-labels.ts';
+import { calendarContextLabels, compactCalendarContextLabels } from '../lib/reports/calendar-labels.ts';
 import { localDatabase, seedEvent } from './helpers/local-d1.mjs';
 
 void test('report calendar context is owner-scoped and combines workdays, lessons, follow-ups and lead events', async (t) => {
@@ -53,4 +53,14 @@ void test('calendar labels distinguish workdays and explain lesson/lead context 
   }), ['Скасовано уроків 1', 'Неявка 1']);
   assert.deepEqual(calendarContextLabels('2026-09-12'), ['Вихідний']);
   assert.deepEqual(calendarContextLabels('2026-09-09'), []);
+});
+
+void test('compact calendar labels prioritize useful day context without changing full accessible labels', () => {
+  const context = {
+    date: '2026-09-08', workdayStatus: 'ended', activeSeconds: 3600,
+    lessons: 2, lessonsPlanned: 1, lessonsCompleted: 1, lessonsCancelled: 0, lessonsNoShow: 0, followUps: 1, leadEvents: 3,
+  };
+  assert.deepEqual(compactCalendarContextLabels('2026-09-08', context), ['План 1', 'Провед. 1', 'Контакт 1', 'Ліди 3']);
+  assert.deepEqual(calendarContextLabels('2026-09-08', context), ['Робочий', 'Заплановано уроків 1', 'Проведено уроків 1', 'Follow-up 1', 'Події лідів 3']);
+  assert.deepEqual(compactCalendarContextLabels('2026-09-12'), ['Вихідний']);
 });
