@@ -245,3 +245,11 @@ void test('Dynamic workspace errors are announced to assistive technology', () =
     assert.match(source, /className="workspace-error" role="alert"/);
   }
 });
+
+void test('ARIA tablists use roving tab stops and arrow-key navigation', () => {
+  const library = text(join(componentsDir, 'library-workspace.tsx'));
+  const platform = text(join(componentsDir, 'platform-workspace.tsx'));
+  assert.match(library, /role="tab"[^>]*tabIndex=\{collection===value\?0:-1\}[^>]*onKeyDown=\{handleTabKeyNavigation\}/);
+  assert.match(platform, /role="tab"[^>]*tabIndex=\{platform===item\.key\?0:-1\}[^>]*onKeyDown=\{handleTabKeyNavigation\}/);
+  assert.match(platform, /role="tab"[^>]*tabIndex=\{queue===item\.key\?0:-1\}[^>]*onKeyDown=\{handleTabKeyNavigation\}/);
+});
