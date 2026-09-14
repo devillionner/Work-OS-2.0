@@ -283,7 +283,6 @@ void test('Report calendar keeps full accessible context while visually compacti
   assert.match(reports, /aria-label=\{`\$\{formatDate\(day\.date\)\}\. \$\{calendarContextLabels\(day\.date, context\)\.join\(', '\) \|\| 'Без подій'\}/);
 });
 
-
 void test('Intermediate desktop uses single-pane master detail before sidebars squeeze Leads and Library', () => {
   const css = text(join(root, 'app', 'globals.css'));
   assert.match(css, /@media\(max-width:1024px\) \{[\s\S]*?\.leads-layout \{ grid-template-columns:1fr; gap:12px; \}/);
@@ -295,7 +294,6 @@ void test('Intermediate desktop uses single-pane master detail before sidebars s
   assert.match(css, /@media \(min-width:721px\) and \(max-width:1024px\) \{[\s\S]*?\.library-toolbar \{ align-items:stretch; flex-direction:column; \}/);
 });
 
-
 void test('Narrow mobile workspaces constrain intrinsic grid tracks instead of widening the document', () => {
   const css = text(join(root, 'app', 'globals.css'));
   assert.match(css, /@media \(max-width: 720px\) \{[\s\S]*?\.dashboard-grid \{ grid-template-columns:minmax\(0,1fr\);/);
@@ -304,4 +302,12 @@ void test('Narrow mobile workspaces constrain intrinsic grid tracks instead of w
   assert.match(css, /@media \(max-width: 720px\) \{[\s\S]*?\.reports-layout \{ min-width:0; grid-template-columns:minmax\(0,1fr\);/);
   assert.match(css, /@media \(max-width: 720px\) \{[\s\S]*?\.reports-weekdays, \.reports-calendar-grid \{ grid-template-columns:repeat\(7,minmax\(0,1fr\)\); \}/);
   assert.match(css, /@media \(max-width: 720px\) \{[\s\S]*?\.report-day \{ min-width:0; min-height: 42px; \}/);
+});
+
+void test('Leads workspace shares the primary workspace hero hierarchy', () => {
+  const workspace = text(join(componentsDir, 'leads', 'workspace.tsx'));
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(workspace, /<section className="leads-hero">[\s\S]*?<p className="eyebrow">CRM та супровід<\/p>[\s\S]*?<h2>Контакти, учні та уроки<\/h2>/);
+  assert.match(css, /\.leads-workspace \{ max-width:1400px; display:grid; gap:18px; margin:0 auto; padding:clamp\(22px,4vw,54px\); \}/);
+  assert.match(css, /\.leads-hero \{ display:flex; align-items:flex-end; justify-content:space-between; gap:24px; padding:26px; background:linear-gradient\(115deg,#fff 0%,#fff 58%,#eef2ff 100%\); \}/);
 });

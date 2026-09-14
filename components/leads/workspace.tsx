@@ -118,13 +118,14 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
   return (
     <div className={`leads-workspace ${selected ? 'has-selection' : ''}`}>
       <LeadHistoryDialog open={historyOpen} lead={current?.lead ? { id: current.lead.id, name: current.lead.name } : null} onClose={() => setHistoryOpen(false)} />
-      <div className="leads-toolbar">
+      <section className="leads-hero">
         <div>
-          <p className="eyebrow">Контакти, учні та уроки</p>
-          <p className="muted-note">Один лід — повна історія родини.</p>
+          <p className="eyebrow">CRM та супровід</p>
+          <h2>Контакти, учні та уроки</h2>
+          <p>Один лід — повна історія родини.</p>
         </div>
         <Button onClick={() => setEditor('create')}>Новий лід</Button>
-      </div>
+      </section>
       <div className="leads-layout">
         <section className="leads-list" aria-label="Список лідів">
           <label htmlFor="lead-search">Пошук ліда</label>
