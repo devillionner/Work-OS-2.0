@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ArchiveRestore, CheckCircle2, FileJson, LoaderCircle, ShieldCheck, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, CheckCircle2, FileJson, LoaderCircle, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   inspectLegacyBackup,
   LEGACY_BACKUP_MAX_BYTES,
@@ -80,8 +81,6 @@ export function LegacyImportDialog({
       .catch(() => undefined);
     return () => { active = false; };
   }, [open]);
-
-  if (!open) return null;
 
   const chooseFile = async (file: File | undefined) => {
     if (!file) return;
@@ -168,17 +167,13 @@ export function LegacyImportDialog({
   };
 
   return (
-    <div className="import-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !uploading) onClose();
-    }}>
-      <section className="import-dialog" role="dialog" aria-modal="true" aria-labelledby="legacy-import-title">
-        <header className="import-dialog-header">
-          <div>
-            <p className="eyebrow">Безпечна синхронізація</p>
-            <h2 id="legacy-import-title">Оновити дані з Prototype Checker</h2>
-          </div>
-          <button className="import-close" type="button" aria-label="Закрити" onClick={onClose} disabled={uploading}><X /></button>
-        </header>
+    <Dialog open={open} onOpenChange={(next) => { if (!next && !uploading && !migrating) onClose(); }}>
+      <DialogContent className="import-dialog" showCloseButton={false}>
+        <DialogHeader>
+          <p className="eyebrow">Безпечна синхронізація</p>
+          <DialogTitle>Оновити дані з Prototype Checker</DialogTitle>
+          <DialogDescription>Спочатку копія перевіряється та зберігається окремо. Робочі дані змінюються лише після явного підтвердження.</DialogDescription>
+        </DialogHeader>
 
         <div className="import-safety-note">
           <ShieldCheck />
@@ -245,8 +240,8 @@ export function LegacyImportDialog({
             {uploading ? 'Зберігаємо…' : 'Зберегти у staging-зоні'}
           </Button>
         </footer>
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -71,3 +71,5 @@ Current phase: UI/UX. Bulk >500 queued batching, real-name enrichment and archiv
 - Navigation accessibility pass: mobile drawer closes with Escape, menu/close controls use 44px touch targets, and sidebar/bottom-nav focus states are visible.
 
 - Final responsive polish: mobile bottom navigation respects iOS safe areas and reduced-motion preferences disable nonessential motion.
+
+- Modal/accessibility hardening: Today goals, chat CSV, legacy import and backup restore use the shared focus-trapped Dialog semantics; Escape/backdrop behavior and mobile touch targets are being standardized before authenticated visual QA.

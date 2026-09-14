@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, FileJson, LoaderCircle, ShieldCheck, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, FileJson, LoaderCircle, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { CloudBackupButton } from '@/components/cloud-backup-button';
 import { BACKUP_TABLES, type BackupTable } from '@/lib/backups/export';
 import { CLOUD_BACKUP_MAX_BYTES, inspectCloudBackup, type CloudBackupInspection } from '@/lib/backups/inspect';
@@ -49,8 +50,6 @@ export function CloudRestoreDialog({ open, onClose }: { open: boolean; onClose()
       .catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : 'Не вдалося перевірити staging-зону.'); });
     return () => { active = false; };
   }, [open]);
-
-  if (!open) return null;
 
   async function chooseFile(file?: File) {
     if (!file) return;
@@ -108,9 +107,8 @@ export function CloudRestoreDialog({ open, onClose }: { open: boolean; onClose()
   }
 
   const close = () => { if (!reading && !previewing && !staging && !restoring) onClose(); };
-  return <div className="import-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
-    <section className="import-dialog restore-dialog" role="dialog" aria-modal="true" aria-labelledby="restore-title">
-      <header className="import-dialog-header"><div><p className="eyebrow">Контрольоване відновлення</p><h2 id="restore-title">Перевірити резервну копію</h2></div><button className="import-close" type="button" aria-label="Закрити" onClick={close} disabled={reading || previewing || staging || restoring}><X /></button></header>
+  return <Dialog open={open} onOpenChange={(next) => { if (!next) close(); }}><DialogContent className="import-dialog restore-dialog" showCloseButton={false}>
+      <DialogHeader><p className="eyebrow">Контрольоване відновлення</p><DialogTitle>Перевірити резервну копію</DialogTitle><DialogDescription>Спочатку файл лише перевіряється. Відновлення запускається окремо після контрольної копії та підтвердження.</DialogDescription></DialogHeader>
       <div className="import-safety-note"><ShieldCheck /><div><strong>Без прямого перезаписування</strong><p>До окремого підтвердження файл лише перевіряється. Відновлення повертає відсутні записи, не видаляючи й не перезаписуючи наявні.</p></div></div>
       {staged && <section className="restore-staged"><div><p className="eyebrow">У staging-зоні</p><strong>{staged.filename}</strong><span>{formatBytes(staged.byteSize)} · {new Date(staged.createdAt * 1000).toLocaleString('uk-UA')}</span></div><CheckCircle2 /><small>{staged.status === 'completed' ? 'Відсутні записи з цієї копії вже відновлено.' : 'Перевірений файл збережено окремо від робочих даних.'}</small></section>}
       {staged && gate && staged.status !== 'completed' && !gate.ready && <section className="restore-gate"><div><AlertTriangle /><div><strong>Спочатку захисти поточний стан</strong><p>Створи свіжу контрольну копію після staging. Якщо щось піде не так, цей файл залишиться незалежною точкою відновлення.</p></div></div><CloudBackupButton onComplete={() => void loadRestoreState(staged.id)} /></section>}
@@ -123,8 +121,7 @@ export function CloudRestoreDialog({ open, onClose }: { open: boolean; onClose()
       {previewing && <p className="import-loading"><LoaderCircle className="is-spinning" />Звіряємо з хмарною базою…</p>}
       {error && <p className="import-error" role="alert">{error}</p>}
       <footer className="import-actions"><Button variant="outline" type="button" onClick={close} disabled={reading || previewing || staging || restoring}>Закрити</Button>{preview && rawBackup ? <Button type="button" onClick={() => void stage()} disabled={staging || restoring}>{staging ? <><LoaderCircle className="is-spinning" />Зберігаємо…</> : 'Зберегти у staging-зоні'}</Button> : <Button type="button" onClick={() => inputRef.current?.click()} disabled={reading || previewing || staging || restoring}>{preview ? 'Перевірити інший файл' : 'Вибрати файл'}</Button>}</footer>
-    </section>
-  </div>;
+    </DialogContent></Dialog>;
 }
 
 function tableLabel(table: BackupTable): string {
