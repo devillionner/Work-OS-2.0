@@ -263,9 +263,14 @@ void test('Mobile workday card switches to grid before placing full-width action
 void test('Today dashboard adapts before the fixed sidebar makes tiled desktop content too narrow', () => {
   const css = text(join(root, 'app', 'globals.css'));
   assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.dashboard-grid \{ grid-template-columns: 1fr; padding: clamp\(20px, 3vw, 32px\); \}/);
+  assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.analytics-workspace \{ grid-template-columns:minmax\(0,1fr\); \}/);
   assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.focus-card \{ display:grid; gap:20px; \}/);
   assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.focus-actions \{ justify-content:flex-start; flex-wrap:wrap; \}/);
   assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.analytics-metrics \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); \}/);
   assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.reports-layout \{ grid-template-columns:1fr; \}/);
-  assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.settings-grid, \.settings-primary-grid \{ grid-template-columns:1fr; \}/);
+  assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.settings-grid \{ grid-template-columns:1fr; \}/);
+  assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.analytics-hero, \.reports-hero \{ display:grid; grid-template-columns:minmax\(0,1fr\); align-items:start; \}/);
+  assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.analytics-controls \{ min-width:0; width:100%; justify-content:flex-start; \}/);
+  assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.range-picker \{ max-width:100%; overflow-x:auto; scrollbar-width:none; \}/);
+  assert.match(css, /@media \(min-width:721px\) and \(max-width:1180px\) \{[\s\S]*?\.settings-primary-grid \{ grid-template-columns:1fr; gap:14px; \}/);
 });
