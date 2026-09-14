@@ -71,8 +71,8 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
   }
 
   return (
-    <section className="status-card" aria-labelledby="workday-title">
-      <div className="status-icon"><Clock3 /></div>
+    <section className="workday-card" aria-labelledby="workday-title">
+      <div className="workday-icon"><Clock3 /></div>
       <div>
         <p className="eyebrow">Робочий день</p>
         <h2 id="workday-title">{workday ? statusLabel(workday.status) : 'Ще не розпочато'}</h2>
