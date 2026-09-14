@@ -756,6 +756,17 @@ button { color: inherit; }
 @media(max-width:1200px) { .lead-reminder-grid { grid-template-columns:1fr; } .leads-workspace { padding:0 20px 24px; } }
 @media(max-width:800px) { .leads-layout { grid-template-columns:1fr; gap:12px; } .leads-list { position:static; max-height:none; } .leads-workspace { padding:0 12px 100px; } .lead-panel { padding:16px; } .lead-mobile-back { display:inline-flex; } .leads-workspace:not(.has-selection) .lead-detail { display:none; } .leads-workspace.has-selection .leads-list { display:none; } .leads-workspace.has-selection .leads-toolbar { margin-bottom:8px; } }
 @media(max-width:480px) { .lead-form fieldset,.lead-facts { grid-template-columns:1fr; } .lead-messages li,.lead-messages li.from-me { margin:12px 0; } }
+@media(max-width:800px) {
+  .leads-toolbar { align-items:flex-start; }
+  .leads-toolbar > [data-slot="button"], .lead-filters [data-slot="button"], .lead-actions [data-slot="button"], .lead-mobile-back, .leads-list [data-slot="input"], .lead-dialog [data-slot="input"], .lead-dialog [data-slot="textarea"], .lead-dialog [data-slot="native-select"], .lead-dialog [data-slot="button"] { min-height:44px; }
+  .lead-mobile-back { position:sticky; top:8px; z-index:4; width:100%; justify-content:flex-start; border:1px solid var(--border); background:var(--card); box-shadow:0 6px 18px rgb(25 31 48 / .08); }
+  .lead-filters { gap:8px; }
+  .lead-filters [data-slot="button"] { flex:1 1 100px; }
+  .lead-list-item { min-height:72px; padding:14px 12px; }
+  .lead-actions { align-items:stretch; }
+  .lead-contact-lines { flex-direction:column; align-items:flex-start; gap:10px; }
+  .lead-history-list li { flex-direction:column; gap:6px; }
+}
 
 .workday-actions { display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; align-items:center; }
 .workday-plan { display:grid; gap:3px; margin-top:10px; padding:9px 10px; border:1px solid var(--border); border-radius:10px; }
