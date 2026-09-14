@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { handleTabKeyNavigation } from '@/lib/tab-navigation';
 
 type Platform = 'telegram' | 'whatsapp' | 'viber' | 'facebook';
 type Queue = 'to_join' | 'waiting' | 'ready' | 'archived';
@@ -249,7 +250,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       <div><p className="eyebrow">Робочі платформи</p><h2>Чати без зайвих переходів</h2><p>Приєднуйся, перевіряй очікування та відмічай публікації в одному стабільному процесі.</p></div>
       <Button disabled={busy!==null} onClick={()=>setBulkOpen(true)}><Plus data-icon="inline-start"/>Додати чати</Button>
       <div className="platform-picker" role="tablist" aria-label="Платформа">
-        {availablePlatforms.map(item=><button type="button" key={item.key} role="tab" aria-selected={platform===item.key} onClick={()=>selectPlatform(item.key)}><i style={{background:item.color}} />{item.label}</button>)}
+        {availablePlatforms.map(item=><button type="button" key={item.key} role="tab" aria-selected={platform===item.key} tabIndex={platform===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>selectPlatform(item.key)}><i style={{background:item.color}} />{item.label}</button>)}
       </div>
     </section>
 
@@ -286,7 +287,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
 
     <section className="platform-browser">
       <div className="queue-tabs" role="tablist" aria-label="Черга чатів">
-        {queues.map(item=><button type="button" key={item.key} role="tab" aria-selected={queue===item.key} onClick={()=>{setQueue(item.key);setOffset(0)}}>{item.label}<span>{data?.counts[item.key] || 0}</span></button>)}
+        {queues.map(item=><button type="button" key={item.key} role="tab" aria-selected={queue===item.key} tabIndex={queue===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{setQueue(item.key);setOffset(0)}}>{item.label}<span>{data?.counts[item.key] || 0}</span></button>)}
       </div>
       <div className="chat-toolbar">
         <label htmlFor="chat-search"><Search/><Input id="chat-search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Пошук за назвою або посиланням"/><span className="sr-only">Пошук чатів</span></label>
