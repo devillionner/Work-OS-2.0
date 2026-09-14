@@ -1018,6 +1018,7 @@ button { color: inherit; }
 .telegram-slot-time,.telegram-schedule-slots select { min-height:42px; border:1px solid var(--input); border-radius:8px; background:var(--card); padding:0 8px; }
 .telegram-schedule-controls [data-slot="input"],.telegram-schedule-controls button,.telegram-schedule-mode [data-slot="input"],.telegram-schedule-mode button,.telegram-schedule-create [data-slot="input"],.telegram-schedule-create button,.telegram-schedule-slots button,.telegram-warmup button { min-height:42px; }
 .telegram-warmup-steps { display:grid; gap:8px; margin:12px 0; padding:0; list-style:none; }
+@media(min-width:1181px) { .telegram-warmup-steps { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:stretch; } .telegram-warmup-steps li { min-width:0; align-content:start; } }
 .telegram-warmup-steps li { display:grid; grid-template-columns:28px minmax(0,1fr); gap:10px; padding:10px 11px; border:1px solid var(--border); border-radius:10px; }
 .telegram-warmup-steps li>span { display:grid; place-items:center; width:28px; height:28px; border-radius:50%; background:#f0f2f6; }
 .telegram-warmup-steps li.is-done>span { background:#e9f7ee; }

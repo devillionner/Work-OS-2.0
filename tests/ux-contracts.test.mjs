@@ -311,3 +311,9 @@ void test('Leads workspace shares the primary workspace hero hierarchy', () => {
   assert.match(css, /\.leads-workspace \{ max-width:1400px; display:grid; gap:18px; margin:0 auto; padding:clamp\(22px,4vw,54px\); \}/);
   assert.match(css, /\.leads-hero \{ display:flex; align-items:flex-end; justify-content:space-between; gap:24px; padding:26px; background:linear-gradient\(115deg,#fff 0%,#fff 58%,#eef2ff 100%\); \}/);
 });
+
+void test('Wide desktop compacts Telegram warmup without changing mobile flow', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /@media\(min-width:1181px\) \{ \.telegram-warmup-steps \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); align-items:stretch; \}/);
+  assert.match(css, /\.telegram-warmup-steps \{ display:grid; gap:8px; margin:12px 0; padding:0; list-style:none; \}/);
+});
