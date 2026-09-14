@@ -197,3 +197,16 @@ void test('Workspace native controls share desktop targets and visible keyboard 
   assert.match(css, /\.dialog-actions \[data-slot="button"\],[^}]*min-height:44px;/s);
   assert.match(css, /\.timer-trigger:focus-visible,[\s\S]*\.library-item:focus-visible,[\s\S]*\.report-disclosure > summary:focus-visible/);
 });
+
+void test('Remaining workspace controls meet final sizing and mobile nav readability targets', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /\.chat-account-select \{[^}]*min-height: 42px;/);
+  assert.match(css, /\.archive-custom input \{ min-height: 42px;/);
+  assert.match(css, /\.archive-custom \[data-slot="button"\] \{ min-height:42px; \}/);
+  assert.match(css, /\.report-form-link \{[^}]*min-height:42px;/);
+  assert.match(css, /\.mobile-bottom-nav button \{[^}]*font-size: 10px;/);
+  assert.match(css, /\.mobile-bottom-nav button\[aria-current='page'\] \{ background:#eef2ff;/);
+  assert.match(css, /\.archive-custom input, \.archive-custom \[data-slot="button"\] \{ min-height:44px; \}/);
+  assert.match(css, /--muted-foreground: #69707d;/);
+  assert.doesNotMatch(css, /color:\s*#(?:7b8190|747a88|8b909b|747986|7b818d|858b96|767c88|787e89|868b96|7c8390|727987|737986|777e8b|747b87|7a818e|737a88)\b/i);
+});
