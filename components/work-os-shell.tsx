@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
   BarChart3, BookOpenText, ChevronLeft, ChevronRight,
   FileText, LayoutDashboard, Menu, MessageSquareText,
@@ -56,6 +56,12 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
   const [taskBusy, setTaskBusy] = useState<string | null>(null);
   const [taskNotice, setTaskNotice] = useState('');
   const [activeView, setActiveView] = useState<ViewKey>('today');
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setMobileOpen(false); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mobileOpen]);
   const activeLabel = activeView === 'settings' ? 'Налаштування' : navigation.find((item) => item.key === activeView)?.label || 'Сьогодні';
   const navigateTo = (next: ViewKey) => {
     setActiveView(next);

@@ -887,3 +887,17 @@ button { color: inherit; }
   .range-picker button { flex:0 0 auto; min-height:44px; }
   .analytics-controls > button { min-height:44px; }
 }
+/* Navigation accessibility */
+.nav-item:focus-visible,
+.collapse-button:focus-visible,
+.sidebar-release:focus-visible,
+.mobile-menu:focus-visible,
+.sidebar-close-mobile:focus-visible,
+.mobile-bottom-nav button:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+@media (max-width: 720px) {
+  .sidebar-close-mobile { width:44px; height:44px; border-radius:10px; }
+  .mobile-menu { width:44px; height:44px; }
+}
