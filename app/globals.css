@@ -549,7 +549,8 @@ button { color: inherit; }
   .sidebar-close-mobile { display: grid; place-items: center; color: #fff; }
   .sidebar-close-mobile svg { width: 21px; }
   .sidebar-scrim { position: fixed; inset: 0; z-index: 25; border: 0; background: rgba(10,12,17,.52); }
-  .mobile-menu { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: #f0f2f6; }
+  .mobile-menu { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 10px; background: #f0f2f6; }
+  .sidebar-close-mobile, .timer-trigger { min-width:44px; min-height:44px; }
   .mobile-menu svg { width: 21px; }
   .topbar { height: 78px; padding: 13px 16px; }
   .topbar .eyebrow, .account-copy, .account-link { display: none; }
