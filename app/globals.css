@@ -924,3 +924,11 @@ button { color: inherit; }
   .archive-reasons button { min-height:44px; }
   [data-slot="dialog-close"] { min-width:44px; min-height:44px; }
 }
+
+/* Accessible import/restore dialog shell */
+.import-dialog[data-slot="dialog-content"] { gap:0; padding:0; }
+.import-dialog > [data-slot="dialog-header"] { position:sticky; top:0; z-index:2; padding:22px 24px 16px; border-bottom:1px solid #e7e9ef; background:rgb(255 255 255 / .96); backdrop-filter:blur(10px); }
+.import-dialog > [data-slot="dialog-header"] [data-slot="dialog-title"] { font-size:22px; line-height:1.2; }
+@media (max-width: 600px) {
+  .import-dialog > [data-slot="dialog-header"] { padding:18px; }
+}
