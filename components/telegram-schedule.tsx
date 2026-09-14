@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { TelegramWarmup } from '@/components/telegram-warmup';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { businessDate, businessDateTime, lessonEpoch } from '@/lib/leads/domain/time';
 
 type Settings = {
@@ -37,6 +38,7 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
   const [mode,setMode]=useState<'auto'|'manual'>('auto');
   const [manualIds,setManualIds]=useState<string[]>([]);
   const [slotCount,setSlotCount]=useState(7);
+  const [clearConfirm,setClearConfirm]=useState(false);
 
   const applySnapshot=useCallback((next:Snapshot)=>{
     setData(next);
@@ -105,8 +107,9 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
     await post({action:'generate',count:slotCount});
   }
   async function clearPending() {
-    if(!data?.pending||!window.confirm(`Очистити ${data.pending} невиконаних слотів?`))return;
+    if(!data?.pending)return;
     await post({action:'clear_pending'});
+    setClearConfirm(false);
   }
   async function editSlot(slot:Slot,time?:string,chatId?:string|null) {
     const payload:Record<string,unknown>={action:'slot',slotId:slot.id,expectedVersion:slot.version};
@@ -146,7 +149,7 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
   }
 
   if(!accountId)return null;
-  return <><TelegramWarmup accountId={accountId}/><section className="telegram-schedule" aria-label="Telegram-розклад">
+  return <><ConfirmDialog open={clearConfirm} title="Очистити невиконані слоти?" description={`Буде видалено ${data?.pending||0} невиконаних слотів лише цього Telegram-акаунта. Виконані слоти залишаться в історії.`} confirmLabel="Очистити слоти" destructive busy={busy} onCancel={()=>setClearConfirm(false)} onConfirm={()=>void clearPending()}/><TelegramWarmup accountId={accountId}/><section className="telegram-schedule" aria-label="Telegram-розклад">
     <div className="card-heading">
       <div><p className="eyebrow">Telegram-розклад</p><h3>План публікацій</h3><p>Окремий розклад для поточного Telegram ID.</p></div>
       <div className="telegram-schedule-summary"><Badge variant="secondary">{data?.completed||0}/{total}</Badge><span>{progress}%</span></div>
@@ -178,7 +181,7 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
         <label htmlFor="telegram-slot-count">Слотів</label><Input id="telegram-slot-count" type="number" min={1} max={200} value={slotCount} disabled={busy||disabled} onChange={event=>setSlotCount(Math.max(1,Math.min(200,Number(event.target.value)||1)))}/>
         <Button disabled={busy||disabled} onClick={()=>void generate()}>Створити розклад</Button>
         <Button variant="outline" disabled={busy||disabled} onClick={()=>void saveSettings()}>Зберегти налаштування</Button>
-        <Button variant="outline" disabled={busy||disabled||!data.pending} onClick={()=>void clearPending()}><Trash2 data-icon="inline-start"/>Очистити невиконані</Button>
+        <Button variant="outline" disabled={busy||disabled||!data.pending} onClick={()=>setClearConfirm(true)}><Trash2 data-icon="inline-start"/>Очистити невиконані</Button>
         <Button variant="outline" disabled={busy||disabled||!data.slots.length} onClick={()=>void copyPlan()}><Copy data-icon="inline-start"/>Скопіювати план</Button>
       </div>
       {data.nextSlot&&<div className="telegram-schedule-next"><span>Наступна дія</span><strong>{formatTime(data.nextSlot.scheduledAt)} · {data.nextSlot.chatName||'Призначити чат'}</strong></div>}
