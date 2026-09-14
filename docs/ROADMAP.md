@@ -67,3 +67,5 @@ Current phase: UI/UX. Bulk >500 queued batching, real-name enrichment and archiv
 - Today/mobile hierarchy: bottom navigation now has an explicit More entry for Reports, Library and Settings; decorative cloud-profile status card removed from the daily dashboard.
 
 - Visual hierarchy pass: Today prioritizes the action queue; workday and goals form a compact control column; platform results are a full-width summary. Workday styling is isolated from decorative status UI.
+
+- Navigation accessibility pass: mobile drawer closes with Escape, menu/close controls use 44px touch targets, and sidebar/bottom-nav focus states are visible.
