@@ -210,3 +210,16 @@ void test('Remaining workspace controls meet final sizing and mobile nav readabi
   assert.match(css, /--muted-foreground: #69707d;/);
   assert.doesNotMatch(css, /color:\s*#(?:7b8190|747a88|8b909b|747986|7b818d|858b96|767c88|787e89|868b96|7c8390|727987|737986|777e8b|747b87|7a818e|737a88)\b/i);
 });
+
+void test('Mobile shell respects iPhone safe areas and sticky navigation offsets', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /\.topbar \{ position:sticky; top:0; z-index:15; height:calc\(78px \+ env\(safe-area-inset-top\)\);/);
+  assert.match(css, /\.work-sidebar \{[^}]*padding-top:calc\(18px \+ env\(safe-area-inset-top\)\);[^}]*padding-bottom:calc\(18px \+ env\(safe-area-inset-bottom\)\);/s);
+  assert.match(css, /\.timer-popover \{ position:fixed; inset:calc\(82px \+ env\(safe-area-inset-top\)\)/);
+  assert.match(css, /\.lead-mobile-back, \.library-mobile-back, \.report-mobile-back \{[\s\S]*top: calc\(86px \+ env\(safe-area-inset-top\)\);/);
+  assert.match(css, /\.import-dialog > \[data-slot="dialog-header"\] \{ padding:calc\(18px \+ env\(safe-area-inset-top\)\)/);
+  assert.match(css, /\.import-dialog \.import-actions \{ padding:16px max\(18px,env\(safe-area-inset-right\)\) calc\(20px \+ env\(safe-area-inset-bottom\)\)/);
+  assert.match(css, /\.dashboard-grid \{ padding:16px 14px calc\(92px \+ env\(safe-area-inset-bottom\)\);/);
+  assert.match(css, /\.platform-workspace \{ padding:14px 12px calc\(88px \+ env\(safe-area-inset-bottom\)\);/);
+  assert.match(css, /\.leads-workspace \{ padding-bottom:calc\(100px \+ env\(safe-area-inset-bottom\)\);/);
+});
