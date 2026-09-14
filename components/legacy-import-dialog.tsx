@@ -64,11 +64,11 @@ export function LegacyImportDialog({
     fetch('/api/imports/legacy')
       .then(async (response) => {
         const result = (await response.json()) as { staged?: StagedImport | null; error?: string };
-        if (!response.ok) throw new Error(result.error || 'Не вдалося перевірити staging-зону.');
+        if (!response.ok) throw new Error(result.error || 'Не вдалося перевірити безпечну зону.');
         if (active) setStaged(result.staged || null);
       })
       .catch((cause: unknown) => {
-        if (active) setError(cause instanceof Error ? cause.message : 'Не вдалося перевірити staging-зону.');
+        if (active) setError(cause instanceof Error ? cause.message : 'Не вдалося перевірити безпечну зону.');
       })
       .finally(() => {
         if (active) setLoadingStaged(false);
@@ -132,8 +132,8 @@ export function LegacyImportDialog({
       }
       setMessage(
         result.duplicate
-          ? 'Ця сама копія вже є у staging-зоні. Дані не дубльовано.'
-          : 'Копію безпечно збережено у staging-зоні. Робочі дані ще не змінені.',
+          ? 'Ця сама копія вже є в безпечній зоні. Дані не дубльовано.'
+          : 'Копію збережено в безпечній зоні. Робочі дані ще не змінені.',
       );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Не вдалося завантажити копію.');
@@ -180,7 +180,7 @@ export function LegacyImportDialog({
           <div><strong>Спочатку лише перевірка</strong><p>Нова копія зберігається окремо. Дані оновляться лише після твого підтвердження, без очищення бази.</p></div>
         </div>
 
-        {loadingStaged && <p className="import-loading"><LoaderCircle />Перевіряємо staging-зону…</p>}
+        {loadingStaged && <p className="import-loading"><LoaderCircle />Перевіряємо безпечну зону…</p>}
         {staged && !loadingStaged && <StagedReview staged={staged} />}
         {staged && !loadingStaged && (
           <section className="migration-control" aria-label="Остаточний перенос">
@@ -213,7 +213,7 @@ export function LegacyImportDialog({
 
         {summary && (
           <div className="import-preview">
-            <div className="import-preview-heading"><div><p className="eyebrow">Попередній перегляд</p><h3>{prepared.inspection.valid ? 'Копія готова до staging' : 'Копія потребує уваги'}</h3></div>{prepared.inspection.valid && <CheckCircle2 />}</div>
+            <div className="import-preview-heading"><div><p className="eyebrow">Попередній перегляд</p><h3>{prepared.inspection.valid ? 'Копія готова до безпечного переносу' : 'Копія потребує уваги'}</h3></div>{prepared.inspection.valid && <CheckCircle2 />}</div>
             <div className="import-metrics">
               <span><strong>{summary.chats}</strong>чатів</span>
               <span><strong>{summary.archivedChats}</strong>в архіві</span>
@@ -237,7 +237,7 @@ export function LegacyImportDialog({
         <footer className="import-actions">
           <Button variant="outline" type="button" onClick={onClose} disabled={uploading}>Закрити</Button>
           <Button type="button" onClick={() => void upload()} disabled={!prepared?.inspection.valid || uploading}>
-            {uploading ? 'Зберігаємо…' : 'Зберегти у staging-зоні'}
+            {uploading ? 'Зберігаємо…' : 'Зберегти в безпечній зоні'}
           </Button>
         </footer>
       </DialogContent>
