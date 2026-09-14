@@ -154,7 +154,7 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
       <div><p className="eyebrow">Telegram-розклад</p><h3>План публікацій</h3><p>Окремий розклад для поточного Telegram ID.</p></div>
       <div className="telegram-schedule-summary"><Badge variant="secondary">{data?.completed||0}/{total}</Badge><span>{progress}%</span></div>
     </div>
-    {error&&<div className="workspace-error">{error}</div>}
+    {error&&<div className="workspace-error" role="alert">{error}</div>}
     {loading&&!data?<div className="workspace-loading"><LoaderCircle/>Завантажуємо розклад…</div>:null}
     {data&&<>
       <div className="telegram-schedule-controls">

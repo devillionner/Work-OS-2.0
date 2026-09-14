@@ -71,7 +71,7 @@ export function Conversation({
     <section className="lead-panel" aria-labelledby="conversation-title">
       <div className="lead-section-head">
         <div>
-          <h3 id="conversation-title">Внутрішня CRM-історія</h3>
+          <h3 id="conversation-title">Історія спілкування</h3>
           <p className="muted-note">
             Ручні записи переписки. Повідомлення звідси не надсилаються у
             месенджери.

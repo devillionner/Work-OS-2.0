@@ -223,3 +223,25 @@ void test('Mobile shell respects iPhone safe areas and sticky navigation offsets
   assert.match(css, /\.platform-workspace \{ padding:14px 12px calc\(88px \+ env\(safe-area-inset-bottom\)\);/);
   assert.match(css, /\.leads-workspace \{ padding-bottom:calc\(100px \+ env\(safe-area-inset-bottom\)\);/);
 });
+
+void test('User-facing copy avoids implementation jargon in operator workflows', () => {
+  const analytics = text(join(componentsDir, 'analytics-workspace.tsx'));
+  const csv = text(join(componentsDir, 'chat-csv-dialog.tsx'));
+  const restore = text(join(componentsDir, 'cloud-restore-dialog.tsx'));
+  const correction = text(join(componentsDir, 'report-chat-correction.tsx'));
+  const conversation = text(join(componentsDir, 'leads', 'conversation.tsx'));
+  const libraryHistory = text(join(componentsDir, 'library-history-dialog.tsx'));
+  assert.doesNotMatch(analytics, /Когортна атрибуція|source chat/);
+  assert.doesNotMatch(csv, /канонічні посилання/);
+  assert.doesNotMatch(restore, />JSON до 25 МБ · без запису в базу<|· SHA \{/);
+  assert.doesNotMatch(correction, /join-streak|joined_at|події chat_joined/);
+  assert.doesNotMatch(conversation, /CRM-історія/);
+  assert.doesNotMatch(libraryHistory, /Показати snapshot/);
+});
+
+void test('Dynamic workspace errors are announced to assistive technology', () => {
+  for (const name of ['platform-workspace.tsx', 'report-checkpoints.tsx', 'telegram-schedule.tsx', 'today-settings-dialog.tsx']) {
+    const source = text(join(componentsDir, name));
+    assert.match(source, /className="workspace-error" role="alert"/);
+  }
+});
