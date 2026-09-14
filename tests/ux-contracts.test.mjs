@@ -129,3 +129,12 @@ void test('Leads mobile workspace keeps core CRM controls touch friendly', () =>
   assert.match(css, /\.lead-list-item \{ min-height:72px;/);
   assert.match(css, /\.lead-dialog \[data-slot="native-select"\][^}]*min-height:44px/s);
 });
+
+void test('Reports mobile flow keeps calendar, checkpoints, history and corrections touch friendly', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /\.report-mobile-back \{ display:inline-flex; position:sticky; top:8px;[^}]*min-height:44px;/);
+  assert.match(css, /\.reports-month-head \[data-slot="button"\] \{ min-width:44px; min-height:44px; \}/);
+  assert.match(css, /\.report-checkpoint-actions \[data-slot="button"\] \{ min-height:44px;/);
+  assert.match(css, /\.report-history-dialog \[data-slot="button"\], \.report-correction-dialog \[data-slot="button"\][^}]*min-height:44px;/);
+  for (const file of ['report-chat-correction.tsx','report-publication-correction.tsx','report-lesson-result-correction.tsx']) assert.match(text(join(componentsDir, file)), /<DialogContent className="report-correction-dialog">/);
+});

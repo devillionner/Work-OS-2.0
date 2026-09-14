@@ -887,14 +887,25 @@ button { color: inherit; }
 }
 .report-mobile-back { display:none; }
 @media (max-width:720px) {
-  .report-mobile-back { display:inline-flex; margin-bottom:10px; }
+  .report-mobile-back { display:inline-flex; position:sticky; top:8px; z-index:4; width:100%; min-height:44px; justify-content:flex-start; margin-bottom:10px; border:1px solid var(--border); background:var(--card); box-shadow:0 6px 18px rgb(25 31 48 / .08); }
   .reports-workspace.has-selected-day .reports-calendar-card { display:none; }
   .reports-workspace:not(.has-selected-day) .reports-editor-card { display:none; }
   .reports-hero-actions { align-items:stretch; }
   .reports-hero-actions > *, .report-form-link { min-height:44px; }
+  .reports-month-head [data-slot="button"] { min-width:44px; min-height:44px; }
   .report-day { min-height:44px; }
   .reports-editor-actions { flex-wrap:wrap; }
   .reports-editor-actions > button, .reports-editor-actions > select, .reports-editor-actions [data-slot="input"] { min-height:44px; }
+  .report-checkpoints-head { align-items:flex-start; flex-direction:column; }
+  .report-checkpoints-head > [data-slot="button"] { width:100%; min-height:44px; }
+  .report-checkpoint { align-items:flex-start; flex-direction:column; }
+  .report-checkpoint-actions { width:100%; flex-wrap:wrap; }
+  .report-checkpoint-actions [data-slot="button"] { min-height:44px; flex:1 1 140px; }
+  .report-event-list li { align-items:flex-start; }
+  .report-event-list li [data-slot="button"] { min-height:44px; }
+  .report-history-list summary { min-height:44px; }
+  .report-history-dialog [data-slot="button"], .report-correction-dialog [data-slot="button"], .report-correction-dialog [data-slot="input"], .report-correction-dialog select { min-height:44px; }
+  .report-correction-dialog .chat-publish-items button { min-height:56px; }
   .report-correction-fields select { min-height:44px; }
   .analytics-controls { width:100%; align-items:stretch; }
   .range-picker { max-width:100%; overflow-x:auto; scrollbar-width:none; }
