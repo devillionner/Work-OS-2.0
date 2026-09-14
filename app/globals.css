@@ -502,6 +502,10 @@ button { color: inherit; }
 .report-day.is-revised { background: #2445cf; color: #fff; }
 .report-day.is-revised-heavy { background: #172b95; color: #fff; }
 .report-day i { position: absolute; right: 6px; bottom: 6px; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.report-day-context { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:2px 3px; min-width:0; margin:2px 3px 0; font-size:9px; line-height:1.15; font-weight:700; }
+.report-day-context span { max-width:100%; overflow:hidden; padding:2px 4px; border-radius:999px; background:rgb(255 255 255 / .62); text-overflow:ellipsis; white-space:nowrap; }
+.report-day-context .is-more { padding-inline:3px; background:transparent; opacity:.76; }
+.report-day.is-submitted .report-day-context span,.report-day.is-revised .report-day-context span,.report-day.is-revised-heavy .report-day-context span { background:rgb(255 255 255 / .16); color:#fff; }
 .reports-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 16px; color: var(--muted-foreground); font-size: 11px; }
 .reports-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .legend-dot { width: 8px; height: 8px; border-radius: 50%; background: #e6ebff; }
