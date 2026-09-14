@@ -69,7 +69,7 @@ export function ChatCsvDialog({open,onClose,onImported}:{open:boolean;onClose:()
         <div className="dialog-actions"><Button variant="outline" disabled={busy||!csv} onClick={()=>void request('preview')}><Upload data-icon="inline-start"/>Перевірити CSV</Button>{preview&&<Button disabled={busy||preview.add===0||preview.conflicts.length>0} onClick={()=>void request('apply')}>{busy?'Імпортуємо…':`Імпортувати ${preview.add}`}</Button>}</div>
       </section>
       {preview&&<section className="settings-panel">
-        <div className="card-heading"><div><strong>Preview</strong><p>{preview.total} рядків · нових {preview.add} · вже існують {preview.existing}</p></div><Badge variant={preview.conflicts.length?'destructive':'secondary'}>{preview.conflicts.length?`${preview.conflicts.length} конфліктів`:'Готово до імпорту'}</Badge></div>
+        <div className="card-heading"><div><strong>Попередній перегляд</strong><p>{preview.total} рядків · нових {preview.add} · вже існують {preview.existing}</p></div><Badge variant={preview.conflicts.length?'destructive':'secondary'}>{preview.conflicts.length?`${preview.conflicts.length} конфліктів`:'Готово до імпорту'}</Badge></div>
         <div className="settings-stat-row">{(Object.keys(labels) as Platform[]).map(platform=><div key={platform}><span>{labels[platform]}</span><strong>{preview.byPlatform[platform].add}</strong><small>нових із {preview.byPlatform[platform].total}</small></div>)}</div>
         {preview.conflicts.length>0&&<div className="workspace-error" role="alert"><strong>Спочатку виправте конфлікти:</strong><ul>{preview.conflicts.slice(0,20).map(item=><li key={item}>{item}</li>)}</ul>{preview.conflicts.length>20&&<p>Ще {preview.conflicts.length-20} конфліктів.</p>}</div>}
       </section>}
