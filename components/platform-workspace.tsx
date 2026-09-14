@@ -18,6 +18,7 @@ import { Archive, Check, ChevronLeft, ChevronRight, Clock3, Copy, ExternalLink, 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 type Platform = 'telegram' | 'whatsapp' | 'viber' | 'facebook';
 type Queue = 'to_join' | 'waiting' | 'ready' | 'archived';
@@ -29,6 +30,7 @@ type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<s
 type UndoSpec = { action:'restore'|'unsnooze'; label:string };
 type UndoState = UndoSpec & { chat:Chat };
 type TelegramAccount = { id:string; number:number; name:string; enabled:boolean; selected:boolean; joinStreak:number; joinBatchSize:number; breakMinutes:number; breakUntil:number|null };
+type PlatformConfirmation = { kind:'assign'; chat:Chat; nextId:string; currentName:string; nextName:string } | { kind:'return'; chat:Chat };
 
 const platforms: Array<{key:Platform;label:string;color:string}> = [
   {key:'telegram',label:'Telegram',color:'#2563eb'}, {key:'whatsapp',label:'WhatsApp',color:'#16a34a'},
@@ -73,6 +75,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const [newAccountName,setNewAccountName] = useState('');
   const [clock,setClock] = useState(()=>Date.now());
   const [scheduleRefreshKey,setScheduleRefreshKey] = useState(0);
+  const [confirmation,setConfirmation] = useState<PlatformConfirmation|null>(null);
   const [lastOpenedByPlatform,setLastOpenedByPlatform] = useState<Record<string,string|null>>({});
   const restoredView=useRef(false);
   const restoreScroll=useRef<number|null>(null);
@@ -204,9 +207,15 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
 
   function assignAccount(chat:Chat,nextId:string) {
     if(busy!==null||nextId===chat.telegramAccountId)return;
-    const current=accounts.find(item=>item.id===chat.telegramAccountId)?.name||'поточного акаунта';
-    const next=accounts.find(item=>item.id===nextId)?.name||'іншого акаунта';
-    if(window.confirm(`Перепризначити чат з «${current}» на «${next}»?\n\nУ самому Telegram членство потрібно змінити вручну.`)) void act(chat,'assign_account',{accountId:nextId});
+    const currentName=accounts.find(item=>item.id===chat.telegramAccountId)?.name||'поточного акаунта';
+    const nextName=accounts.find(item=>item.id===nextId)?.name||'іншого акаунта';
+    setConfirmation({kind:'assign',chat,nextId,currentName,nextName});
+  }
+  function confirmPlatformAction() {
+    const item=confirmation;if(!item)return;
+    setConfirmation(null);
+    if(item.kind==='assign') void act(item.chat,'assign_account',{accountId:item.nextId});
+    else void act(item.chat,'return_to_join');
   }
 
   async function accountAction(action:string,id?:string,extra:Record<string,unknown>={}) {
@@ -229,6 +238,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const profileSummary=data?.profileCounts[queue];
   const breakSeconds=activeAccount?.breakUntil?Math.max(0,activeAccount.breakUntil-Math.floor(clock/1000)):0;
   return <div className="platform-workspace">
+    <ConfirmDialog open={confirmation!==null} title={confirmation?.kind==='assign'?'Перепризначити Telegram-акаунт?':'Повернути чат до приєднання?'} description={confirmation?.kind==='assign'?`Чат перейде з «${confirmation.currentName}» на «${confirmation.nextName}». Членство в самому Telegram потрібно змінити вручну.`:'Чат повернеться в чергу «Для приєднання». Історія чату не видаляється.'} confirmLabel={confirmation?.kind==='assign'?'Перепризначити':'Повернути'} busy={busy!==null} onCancel={()=>setConfirmation(null)} onConfirm={confirmPlatformAction}/>
     <ChatBulkDialog open={bulkOpen} onClose={()=>setBulkOpen(false)} onAdded={addedChats} enabledPlatforms={enabledPlatforms}/>
     <ChatDuplicatesDialog open={duplicatesOpen} onClose={()=>setDuplicatesOpen(false)}/>
     <ChatProfileDialog key={profileOpenKey} open={profileChat!==null} chat={profileChat} onClose={()=>setProfileChat(null)} onSaved={savedProfile} onOpenChat={()=>{if(profileChat)openChat(profileChat);}}/>
@@ -294,7 +304,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
             <Button variant="outline" size="icon" type="button" onClick={()=>openChat(chat)} aria-label={`Відкрити чат у ${selected.label}`}><ExternalLink/></Button>
             {queue==='to_join'&&<><Button size="icon" onClick={()=>act(chat,'joined')} disabled={busy!==null} aria-label="Успішно приєднано"><Check/></Button>{(platform==='telegram'||platform==='whatsapp')&&<Button variant="outline" size="icon" onClick={()=>act(chat,'waiting')} disabled={busy!==null} aria-label="Очікуємо запрошення"><Clock3/></Button>}<Button variant="outline" size="icon" onClick={()=>act(chat,'failed',{reason:'Не вдалося приєднатися'},{action:'restore',label:'Невдале приєднання можна скасувати протягом 8 секунд.'})} disabled={busy!==null} aria-label="Не вдалося приєднатися"><X/></Button></>}
             {queue==='waiting'&&<><Button onClick={()=>act(chat,'approved')} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>Прийняли</Button></>}
-            {queue==='ready'&&<><Button onClick={()=>{setPublishChat(chat);setPublishOpenKey(value=>value+1);}} disabled={busy!==null||chat.publishedToday||!canPublish(chat,clock)}><Send data-icon="inline-start"/>{chat.publishedToday?'Готово':canPublish(chat,clock)?'Опублікувати':isSnoozed(chat,clock)?'Відкладено':'Очікування 6 год'}</Button>{platform==='whatsapp'&&<Button variant="outline" size="icon" onClick={()=>window.confirm('Повернути цей чат у «Для приєднання»?')&&act(chat,'return_to_join')} disabled={busy!==null} aria-label="Повернути для приєднання"><Undo2/></Button>}</>}
+            {queue==='ready'&&<><Button onClick={()=>{setPublishChat(chat);setPublishOpenKey(value=>value+1);}} disabled={busy!==null||chat.publishedToday||!canPublish(chat,clock)}><Send data-icon="inline-start"/>{chat.publishedToday?'Готово':canPublish(chat,clock)?'Опублікувати':isSnoozed(chat,clock)?'Відкладено':'Очікування 6 год'}</Button>{platform==='whatsapp'&&<Button variant="outline" size="icon" onClick={()=>setConfirmation({kind:'return',chat})} disabled={busy!==null} aria-label="Повернути для приєднання"><Undo2/></Button>}</>}
             {(queue==='waiting'||queue==='ready')&&<Button variant="outline" onClick={()=>{setProfileChat(chat);setProfileOpenKey(value=>value+1);}} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>Профіль</Button>}
             {(queue==='waiting'||queue==='ready')&&<Button variant="outline" title={isSnoozed(chat,clock)?'Скасувати відкладення':'Відкласти на 3 календарні дні'} onClick={()=>{const snoozed=isSnoozed(chat,clock);return act(chat,snoozed?'unsnooze':'snooze',{},snoozed?undefined:{action:'unsnooze',label:'Відкладення можна скасувати протягом 8 секунд.'});}} disabled={busy!==null||chat.publishedToday}>{isSnoozed(chat,clock)?'Повернути зараз':'+3 дні'}</Button>}
             {queue==='archived'&&(platform==='telegram'||platform==='whatsapp')&&chat.joinedAt!==null&&<Button variant="outline" onClick={()=>act(chat,chat.leftAt?'undo_leave':'confirm_leave')} disabled={busy!==null}>{chat.leftAt?<><Undo2 data-icon="inline-start"/>Скасувати вихід</>:<><Check data-icon="inline-start"/>Я вийшов</>}</Button>}
