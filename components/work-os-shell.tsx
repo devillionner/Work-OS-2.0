@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import {
   BarChart3, BookOpenText, ChevronLeft, ChevronRight,
   FileText, LayoutDashboard, Menu, MessageSquareText,
@@ -47,6 +47,9 @@ type ViewKey = (typeof navigation)[number]['key'] | 'settings';
 export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const mobileCloseRef = useRef<HTMLButtonElement>(null);
+  const mobileDrawerTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const pageHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const [todaySettingsOpen, setTodaySettingsOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
@@ -58,14 +61,34 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
   const [activeView, setActiveView] = useState<ViewKey>('today');
   useEffect(() => {
     if (!mobileOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setMobileOpen(false); };
+    const frame = requestAnimationFrame(() => mobileCloseRef.current?.focus());
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setMobileOpen(false);
+      const trigger = mobileDrawerTriggerRef.current;
+      requestAnimationFrame(() => trigger?.focus());
+    };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('keydown', onKeyDown);
+    };
   }, [mobileOpen]);
+  const openMobileMenu = (trigger: HTMLButtonElement) => {
+    mobileDrawerTriggerRef.current = trigger;
+    setMobileOpen(true);
+  };
+  const closeMobileMenu = () => {
+    setMobileOpen(false);
+    const trigger = mobileDrawerTriggerRef.current;
+    requestAnimationFrame(() => trigger?.focus());
+  };
   const activeLabel = activeView === 'settings' ? 'Налаштування' : navigation.find((item) => item.key === activeView)?.label || 'Сьогодні';
   const navigateTo = (next: ViewKey) => {
+    const fromDrawer = mobileOpen;
     setActiveView(next);
     setMobileOpen(false);
+    if (fromDrawer) requestAnimationFrame(() => pageHeadingRef.current?.focus());
     if (next === 'today' && activeView !== 'today') router.refresh();
   };
 
@@ -97,7 +120,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
             <span className="brand-mark" aria-hidden="true">W</span>
             {!collapsed && <strong>Work OS</strong>}
           </div>
-          <button className="sidebar-close-mobile" type="button" aria-label="Закрити меню" onClick={() => setMobileOpen(false)}><X /></button>
+          <button ref={mobileCloseRef} className="sidebar-close-mobile" type="button" aria-label="Закрити меню" onClick={closeMobileMenu}><X /></button>
         </div>
 
         <nav className="sidebar-nav">
@@ -121,12 +144,12 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
         </div>
       </aside>
 
-      {mobileOpen && <button type="button" className="sidebar-scrim" aria-label="Закрити меню" onClick={() => setMobileOpen(false)} />}
+      {mobileOpen && <button type="button" className="sidebar-scrim" aria-label="Закрити меню" onClick={closeMobileMenu} />}
 
-      <main className="work-main">
+      <main className="work-main" inert={mobileOpen ? true : undefined}>
         <header className="topbar">
-          <button className="mobile-menu" type="button" aria-label="Відкрити меню" onClick={() => setMobileOpen(true)}><Menu /></button>
-          <div><p className="eyebrow">{todayLabel()}</p><h1>{activeLabel}</h1></div>
+          <button className="mobile-menu" type="button" aria-label="Відкрити меню" onClick={(event) => openMobileMenu(event.currentTarget)}><Menu /></button>
+          <div><p className="eyebrow">{todayLabel()}</p><h1 ref={pageHeadingRef} tabIndex={-1}>{activeLabel}</h1></div>
           <div className="account-block">
             <GlobalTimers enabledPlatforms={snapshot.enabledPlatforms} />
             <div className="account-copy"><strong>{user.displayName}</strong><span>{user.email}</span></div>
@@ -180,7 +203,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
 
         <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
           {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => <button type="button" aria-current={activeView === key ? 'page' : undefined} key={key} onClick={() => navigateTo(key)}><Icon /><span>{label}</span></button>)}
-          <button type="button" aria-current={['reports','library','settings'].includes(activeView) ? 'page' : undefined} onClick={() => setMobileOpen(true)}><Menu /><span>Ще</span></button>
+          <button type="button" aria-current={['reports','library','settings'].includes(activeView) ? 'page' : undefined} onClick={(event) => openMobileMenu(event.currentTarget)}><Menu /><span>Ще</span></button>
         </nav>
 
         <TodaySettingsDialog open={todaySettingsOpen} onClose={() => setTodaySettingsOpen(false)} initialDirections={snapshot.focusDirections} initialDailyGoal={snapshot.bookingGoal.target} initialMonthlyGoal={snapshot.monthlyBookingGoal} onSaved={() => router.refresh()} />
