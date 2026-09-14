@@ -219,7 +219,7 @@ void test('Mobile shell respects iPhone safe areas and sticky navigation offsets
   assert.match(css, /\.lead-mobile-back, \.library-mobile-back, \.report-mobile-back \{[\s\S]*top: calc\(86px \+ env\(safe-area-inset-top\)\);/);
   assert.match(css, /\.import-dialog > \[data-slot="dialog-header"\] \{ padding:calc\(18px \+ env\(safe-area-inset-top\)\)/);
   assert.match(css, /\.import-dialog \.import-actions \{ padding:16px max\(18px,env\(safe-area-inset-right\)\) calc\(20px \+ env\(safe-area-inset-bottom\)\)/);
-  assert.match(css, /\.dashboard-grid \{ padding:16px 14px calc\(92px \+ env\(safe-area-inset-bottom\)\);/);
+  assert.match(css, /\.dashboard-grid \{ grid-template-columns:minmax\(0,1fr\); padding:16px 14px calc\(92px \+ env\(safe-area-inset-bottom\)\);/);
   assert.match(css, /\.platform-workspace \{ padding:14px 12px calc\(88px \+ env\(safe-area-inset-bottom\)\);/);
   assert.match(css, /\.leads-workspace \{ padding-bottom:calc\(100px \+ env\(safe-area-inset-bottom\)\);/);
 });
@@ -281,4 +281,27 @@ void test('Report calendar keeps full accessible context while visually compacti
   assert.match(context, /compact\.slice\(0, 2\)/);
   assert.match(context, /title=\{labels\.join\(' · '\)\} aria-hidden="true"/);
   assert.match(reports, /aria-label=\{`\$\{formatDate\(day\.date\)\}\. \$\{calendarContextLabels\(day\.date, context\)\.join\(', '\) \|\| 'Без подій'\}/);
+});
+
+
+void test('Intermediate desktop uses single-pane master detail before sidebars squeeze Leads and Library', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /@media\(max-width:1024px\) \{[\s\S]*?\.leads-layout \{ grid-template-columns:1fr; gap:12px; \}/);
+  assert.match(css, /@media\(max-width:1024px\) \{[\s\S]*?\.leads-workspace\.has-selection \.leads-list \{ display:none; \}/);
+  assert.match(text(join(componentsDir, 'leads', 'workspace.tsx')), /matchMedia\('\(max-width: 1024px\)'\)/);
+  assert.match(css, /@media \(min-width:721px\) and \(max-width:1024px\) \{[\s\S]*?\.library-layout \{ grid-template-columns:1fr; gap:12px; \}/);
+  assert.match(css, /@media \(min-width:721px\) and \(max-width:1024px\) \{[\s\S]*?\.library-workspace\.has-editor \.library-list \{ display:none; \}/);
+  assert.match(css, /@media \(min-width:721px\) and \(max-width:1024px\) \{[\s\S]*?\.library-workspace:not\(\.has-editor\) \.library-editor \{ display:none; \}/);
+  assert.match(css, /@media \(min-width:721px\) and \(max-width:1024px\) \{[\s\S]*?\.library-toolbar \{ align-items:stretch; flex-direction:column; \}/);
+});
+
+
+void test('Narrow mobile workspaces constrain intrinsic grid tracks instead of widening the document', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /@media \(max-width: 720px\) \{[\s\S]*?\.dashboard-grid \{ grid-template-columns:minmax\(0,1fr\);/);
+  assert.match(css, /@media \(max-width: 720px\) \{[\s\S]*?\.focus-card \{ min-width:0; display: grid;/);
+  assert.match(css, /@media \(max-width: 720px\) \{[\s\S]*?\.reports-workspace \{ grid-template-columns:minmax\(0,1fr\);/);
+  assert.match(css, /@media \(max-width: 720px\) \{[\s\S]*?\.reports-layout \{ min-width:0; grid-template-columns:minmax\(0,1fr\);/);
+  assert.match(css, /@media \(max-width: 720px\) \{[\s\S]*?\.reports-weekdays, \.reports-calendar-grid \{ grid-template-columns:repeat\(7,minmax\(0,1fr\)\); \}/);
+  assert.match(css, /@media \(max-width: 720px\) \{[\s\S]*?\.report-day \{ min-width:0; min-height: 42px; \}/);
 });

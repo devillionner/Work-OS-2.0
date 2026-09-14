@@ -180,7 +180,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                           setSelected(lead.id);
                           setDetailError('');
                           setNotice('');
-                          if (window.matchMedia('(max-width: 800px)').matches) requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+                          if (window.matchMedia('(max-width: 1024px)').matches) requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
                         }}
                       >
                         <div>
