@@ -3,7 +3,7 @@
 import { Fragment, useState } from 'react';
 import {
   BarChart3, BookOpenText, ChevronLeft, ChevronRight,
-  CircleUserRound, FileText, LayoutDashboard, Menu, MessageSquareText,
+  FileText, LayoutDashboard, Menu, MessageSquareText,
   Settings, Target, UsersRound, X,
 } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -170,16 +170,11 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
               {snapshot.platforms.filter((platform) => snapshot.enabledPlatforms.includes(platform.key) || platform.key === 'threads' || platform.key === 'unknown').map((platform) => <div className="platform-row" key={platform.key}><span className="platform-name"><i style={{ background: platform.color }} />{platform.name}</span><strong>{platform.publications}</strong><strong>{platform.joined}</strong><strong>{platform.responses}</strong><strong>{platform.bookings}</strong></div>)}
             </div>
           </section>
-
-          <section className="status-card" aria-labelledby="status-title">
-            <div className="status-icon"><CircleUserRound /></div>
-            <div><p className="eyebrow">Доступ</p><h2 id="status-title">Хмарний профіль активний</h2><p>Цей екран доступний із будь-якого пристрою після входу.</p></div>
-            <Button variant="outline" onClick={() => navigateTo('settings')}>Налаштування даних</Button>
-          </section>
         </div> : activeView === 'platforms' ? <PlatformWorkspace enabledPlatforms={snapshot.enabledPlatforms} /> : activeView === 'leads' ? <LeadsWorkspace key={user.email} account={user.email} initialLeadId={leadToOpen} /> : activeView === 'analytics' ? <AnalyticsWorkspace /> : activeView === 'reports' ? <ReportsWorkspace onOpenLead={(leadId) => { setLeadToOpen(leadId); navigateTo('leads'); }} /> : activeView === 'library' ? <LibraryWorkspace /> : activeView === 'settings' ? <SettingsWorkspace user={user} snapshot={snapshot} onRefresh={() => router.refresh()} /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
 
         <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
           {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => <button type="button" aria-current={activeView === key ? 'page' : undefined} key={key} onClick={() => navigateTo(key)}><Icon /><span>{label}</span></button>)}
+          <button type="button" aria-current={['reports','library','settings'].includes(activeView) ? 'page' : undefined} onClick={() => setMobileOpen(true)}><Menu /><span>Ще</span></button>
         </nav>
 
         <TodaySettingsDialog open={todaySettingsOpen} onClose={() => setTodaySettingsOpen(false)} initialDirections={snapshot.focusDirections} initialDailyGoal={snapshot.bookingGoal.target} initialMonthlyGoal={snapshot.monthlyBookingGoal} onSaved={() => router.refresh()} />
