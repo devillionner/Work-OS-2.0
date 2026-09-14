@@ -17,14 +17,14 @@ const REQUEST_MAX_BYTES = 64 * 1024;
 
 export async function GET(request: Request): Promise<Response> {
   const user = await getCurrentUser();
-  if (!user) return Response.json({ error: 'ÐŸÐ¾Ñ‚Ñ€Ñ–Ð±Ð½Ð¾ ÑƒÐ²Ñ–Ð¹Ñ‚Ð¸.' }, { status: 401 });
+  if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   const url = new URL(request.url);
   const kind = url.searchParams.get('kind') || 'advertisement';
   const collectionText = url.searchParams.get('collection') || '';
   const archived = url.searchParams.get('archived') === 'true';
   const search = (url.searchParams.get('search') || '').trim().slice(0, 120);
-  if (kind !== 'all' && !KINDS.has(kind)) return Response.json({ error: 'ÐÐµÐ²Ñ–Ð´Ð¾Ð¼Ð¸Ð¹ Ñ‚Ð¸Ð¿ Ð¼Ð°Ñ‚ÐµÑ€Ñ–Ð°Ð»Ñƒ.' }, { status: 400 });
-  if (collectionText && !isLibraryCollection(collectionText)) return Response.json({ error: 'ÐÐµÐ²Ñ–Ð´Ð¾Ð¼Ð° ÐºÐ¾Ð»ÐµÐºÑ†Ñ–Ñ.' }, { status: 400 });
+  if (kind !== 'all' && !KINDS.has(kind)) return Response.json({ error: 'Невідомий тип матеріалу.' }, { status: 400 });
+  if (collectionText && !isLibraryCollection(collectionText)) return Response.json({ error: 'Невідома колекція.' }, { status: 400 });
   const collection = collectionText as LibraryCollection | '';
   const pattern = `%${escapeLike(search.toLowerCase())}%`;
   const result = await env.DB.prepare(`SELECT id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,archived_at,created_at,updated_at
@@ -40,8 +40,8 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
-  if (!user) return Response.json({ error: 'ÐŸÐ¾Ñ‚Ñ€Ñ–Ð±Ð½Ð¾ ÑƒÐ²Ñ–Ð¹Ñ‚Ð¸.' }, { status: 401 });
-  if (!sameOrigin(request)) return Response.json({ error: 'ÐÐµÐ´Ñ–Ð¹ÑÐ½Ð¸Ð¹ Ð·Ð°Ð¿Ð¸Ñ‚.' }, { status: 403 });
+  if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
+  if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
   const parsed = await readJsonObject(request, REQUEST_MAX_BYTES);
   if (parsed instanceof Response) return parsed;
   const body = parsed;
@@ -50,9 +50,9 @@ export async function POST(request: Request): Promise<Response> {
   const now = Math.floor(Date.now() / 1000);
 
   if (action === 'archive' || action === 'restore') {
-    if (!id) return Response.json({ error: 'ÐœÐ°Ñ‚ÐµÑ€Ñ–Ð°Ð» Ð½Ðµ Ð·Ð½Ð°Ð¹Ð´ÐµÐ½Ð¾.' }, { status: 400 });
+    if (!id) return Response.json({ error: 'Матеріал не знайдено.' }, { status: 400 });
     const expectedVersion = positiveInteger(body.version);
-    if (!expectedVersion) return Response.json({ error: 'ÐžÐ½Ð¾Ð²Ñ–Ñ‚ÑŒ Ð±Ñ–Ð±Ð»Ñ–Ð¾Ñ‚ÐµÐºÑƒ Ð¿ÐµÑ€ÐµÐ´ Ð·Ð¼Ñ–Ð½Ð¾ÑŽ Ð¼Ð°Ñ‚ÐµÑ€Ñ–Ð°Ð»Ñƒ.' }, { status: 409 });
+    if (!expectedVersion) return Response.json({ error: 'Оновіть бібліотеку перед зміною матеріалу.' }, { status: 409 });
     const nextVersion = expectedVersion + 1;
     const condition = action === 'archive' ? 'archived_at IS NULL' : 'archived_at IS NOT NULL';
     const archivedAt = action === 'archive' ? now : null;
@@ -64,9 +64,9 @@ export async function POST(request: Request): Promise<Response> {
     ]);
     return results[0].meta.changes
       ? Response.json({ ok: true, id, version: nextVersion, updatedAt: now })
-      : Response.json({ error: 'ÐœÐ°Ñ‚ÐµÑ€Ñ–Ð°Ð» ÑƒÐ¶Ðµ Ð·Ð¼Ñ–Ð½Ð¸Ð²ÑÑ. ÐžÐ½Ð¾Ð²Ñ–Ñ‚ÑŒ Ð±Ñ–Ð±Ð»Ñ–Ð¾Ñ‚ÐµÐºÑƒ.' }, { status: 409 });
+      : Response.json({ error: 'Матеріал уже змінився. Оновіть бібліотеку.' }, { status: 409 });
   }
-  if (action !== 'save') return Response.json({ error: 'ÐÐµÐ²Ñ–Ð´Ð¾Ð¼Ð° Ð´Ñ–Ñ.' }, { status: 400 });
+  if (action !== 'save') return Response.json({ error: 'Невідома дія.' }, { status: 400 });
 
   const requestedCollection = isLibraryCollection(body.collection) ? body.collection : defaultCollection(body.kind);
   const kind = libraryKind(requestedCollection);
@@ -74,14 +74,14 @@ export async function POST(request: Request): Promise<Response> {
   const ukText = cleanLibraryBody(body.ukText, 20000);
   const ruText = cleanLibraryBody(body.ruText, 20000);
   const notes = cleanLibraryBody(body.notes, 4000);
-  if (!title || (!ukText.trim() && !ruText.trim())) return Response.json({ error: 'Ð’ÐºÐ°Ð¶Ñ–Ñ‚ÑŒ Ð½Ð°Ð·Ð²Ñƒ Ñ‚Ð° Ñ…Ð¾Ñ‡Ð° Ð± Ð¾Ð´Ð½Ñƒ Ð¼Ð¾Ð²Ð½Ñƒ Ð²ÐµÑ€ÑÑ–ÑŽ.' }, { status: 400 });
+  if (!title || (!ukText.trim() && !ruText.trim())) return Response.json({ error: 'Вкажіть назву та хоча б одну мовну версію.' }, { status: 400 });
   const tags = cleanLibraryList(body.tags);
   const platforms = cleanLibraryList(body.platforms);
   const itemId = id || crypto.randomUUID();
 
   if (id) {
     const expectedVersion = positiveInteger(body.version);
-    if (!expectedVersion) return Response.json({ error: 'ÐžÐ½Ð¾Ð²Ñ–Ñ‚ÑŒ Ð±Ñ–Ð±Ð»Ñ–Ð¾Ñ‚ÐµÐºÑƒ Ð¿ÐµÑ€ÐµÐ´ Ñ€ÐµÐ´Ð°Ð³ÑƒÐ²Ð°Ð½Ð½ÑÐ¼.' }, { status: 409 });
+    if (!expectedVersion) return Response.json({ error: 'Оновіть бібліотеку перед редагуванням.' }, { status: 409 });
     const nextVersion = expectedVersion + 1;
     const results = await env.DB.batch([
       env.DB.prepare(`UPDATE library_items SET kind=?1,collection=?2,title=?3,uk_text=?4,ru_text=?5,notes=?6,tags_json=?7,platforms_json=?8,updated_at=?9,version=version+1
@@ -89,7 +89,7 @@ export async function POST(request: Request): Promise<Response> {
         .bind(kind,requestedCollection,title,ukText,ruText,notes,JSON.stringify(tags),JSON.stringify(platforms),now,id,user.id,expectedVersion),
       libraryVersionStatement(env.DB,{userId:user.id,itemId:id,action:'update',expectedVersion:nextVersion,savedAt:now}),
     ]);
-    if (!results[0].meta.changes) return Response.json({ error: 'ÐœÐ°Ñ‚ÐµÑ€Ñ–Ð°Ð» ÑƒÐ¶Ðµ Ð·Ð¼Ñ–Ð½Ð¸Ð²ÑÑ. ÐžÐ½Ð¾Ð²Ñ–Ñ‚ÑŒ Ð±Ñ–Ð±Ð»Ñ–Ð¾Ñ‚ÐµÐºÑƒ.' }, { status: 409 });
+    if (!results[0].meta.changes) return Response.json({ error: 'Матеріал уже змінився. Оновіть бібліотеку.' }, { status: 409 });
     return Response.json({ ok: true, id, collection:requestedCollection,kind,version:nextVersion,updatedAt:now });
   }
 
@@ -99,7 +99,7 @@ export async function POST(request: Request): Promise<Response> {
       .bind(itemId,user.id,kind,requestedCollection,title,ukText,ruText,notes,JSON.stringify(tags),JSON.stringify(platforms),now),
     libraryVersionStatement(env.DB,{userId:user.id,itemId:itemId,action:'create',expectedVersion:1,savedAt:now}),
   ]);
-  if (!results[0].meta.changes) return Response.json({ error: 'ÐÐµ Ð²Ð´Ð°Ð»Ð¾ÑÑ ÑÑ‚Ð²Ð¾Ñ€Ð¸Ñ‚Ð¸ Ð¼Ð°Ñ‚ÐµÑ€Ñ–Ð°Ð».' }, { status: 409 });
+  if (!results[0].meta.changes) return Response.json({ error: 'Не вдалося створити матеріал.' }, { status: 409 });
   return Response.json({ ok: true, id: itemId, collection:requestedCollection,kind,version:1,updatedAt:now });
 }
 
