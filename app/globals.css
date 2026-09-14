@@ -917,3 +917,10 @@ button { color: inherit; }
     transition-duration: .01ms !important;
   }
 }
+
+/* Mobile touch-target completion */
+@media (max-width: 720px) {
+  .timer-popover header > button, .timer-row > button, .timer-durations button { min-width:44px; min-height:44px; }
+  .archive-reasons button { min-height:44px; }
+  [data-slot="dialog-close"] { min-width:44px; min-height:44px; }
+}
