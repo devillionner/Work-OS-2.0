@@ -158,3 +158,26 @@ void test('Settings and Analytics interaction layer uses scoped targets and keyb
   assert.match(css, /\.analytics-custom-range input \{ width:100%; min-height:44px; \}/);
   assert.match(css, /\.platform-settings-list label:has\(input:focus-visible\)/);
 });
+
+void test('Today dashboard keeps primary work controls readable and touch friendly', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /\.focus-actions \[data-slot="button"\] \{ min-height:42px; \}/);
+  assert.match(css, /\.text-action \{ min-height:42px;/);
+  assert.match(css, /\.workday-actions \[data-slot="button"\] \{ min-height:42px; \}/);
+  assert.match(css, /\.direction-checks label \{ min-height:42px;/);
+  assert.match(css, /\.workday-card \{ grid-template-columns:44px minmax\(0,1fr\); padding:19px 16px; \}/);
+  assert.match(css, /\.focus-actions \[data-slot="button"\][^}]*min-height:44px;/s);
+  assert.match(css, /\.platform-table-head, \.platform-row \{ min-width:520px;/);
+  assert.match(css, /\.text-action:focus-visible \{ outline:3px solid var\(--ring\);/);
+});
+
+void test('Platform daily workflow uses desktop-sized controls and keyboard focus', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /\.platform-picker button \{ min-height: 42px;/);
+  assert.match(css, /\.telegram-account-tabs > button:not\(\[class\]\)[^}]*min-height: 42px;/);
+  assert.match(css, /\.telegram-break-settings select \{ min-height: 42px;/);
+  assert.match(css, /\.telegram-account-manager \[data-slot="input"\], \.telegram-account-manager \[data-slot="button"\] \{ min-height:42px; \}/);
+  assert.match(css, /\.chat-toolbar input \{ min-height:42px;/);
+  assert.match(css, /\.chat-actions \[data-slot="button"\] \{ min-height:42px; \}/);
+  assert.match(css, /\.platform-picker button:focus-visible, \.telegram-account-tabs > button:not\(\[class\]\):focus-visible, \.queue-tabs button:focus-visible/);
+});
