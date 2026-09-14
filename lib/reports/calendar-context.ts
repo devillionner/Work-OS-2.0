@@ -5,6 +5,7 @@ export type { CalendarDayContext } from './calendar-labels.ts';
 
 type WorkdayRow = { work_date: string; status: CalendarDayContext['workdayStatus']; active_seconds: number };
 type CountRow = { date: string; count: number };
+type LessonCountRow = CountRow & { status: string };
 type FollowUpRow = { next_contact_at: number };
 
 export async function readCalendarContext(
@@ -19,10 +20,10 @@ export async function readCalendarContext(
     db.prepare(`SELECT work_date,status,active_seconds FROM workdays
       WHERE user_id=?1 AND work_date>=?2 AND work_date<?3 ORDER BY work_date`)
       .bind(userId, start, end).all<WorkdayRow>(),
-    db.prepare(`SELECT lesson_date AS date,COUNT(*) AS count FROM lessons
+    db.prepare(`SELECT lesson_date AS date,status,COUNT(*) AS count FROM lessons
       WHERE user_id=?1 AND lesson_date>=?2 AND lesson_date<?3 AND status!='rescheduled'
-      GROUP BY lesson_date ORDER BY lesson_date`)
-      .bind(userId, start, end).all<CountRow>(),
+      GROUP BY lesson_date,status ORDER BY lesson_date,status`)
+      .bind(userId, start, end).all<LessonCountRow>(),
     db.prepare(`SELECT next_contact_at FROM leads
       WHERE user_id=?1 AND archived_at IS NULL AND next_contact_at IS NOT NULL
         AND next_contact_at>=?2 AND next_contact_at<?3`)
@@ -38,7 +39,7 @@ export async function readCalendarContext(
   const get = (date: string) => {
     let value = days.get(date);
     if (!value) {
-      value = { date, workdayStatus: null, activeSeconds: 0, lessons: 0, followUps: 0, leadEvents: 0 };
+      value = { date, workdayStatus: null, activeSeconds: 0, lessons: 0, lessonsPlanned: 0, lessonsCompleted: 0, followUps: 0, leadEvents: 0 };
       days.set(date, value);
     }
     return value;
@@ -49,7 +50,13 @@ export async function readCalendarContext(
     day.workdayStatus = row.status;
     day.activeSeconds = Number(row.active_seconds || 0);
   }
-  for (const row of lessons.results) get(row.date).lessons = Number(row.count || 0);
+  for (const row of lessons.results) {
+    const day = get(row.date);
+    const count = Number(row.count || 0);
+    day.lessons += count;
+    if (row.status === 'booked' || row.status === 'scheduled') day.lessonsPlanned += count;
+    if (row.status === 'completed') day.lessonsCompleted += count;
+  }
   for (const row of followUps.results) get(businessDate(Number(row.next_contact_at))).followUps += 1;
   for (const row of leadEvents.results) get(row.date).leadEvents = Number(row.count || 0);
 

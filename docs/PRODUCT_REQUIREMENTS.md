@@ -418,3 +418,15 @@
 - відкладено: 12.
 
 Усього: 276 вимог (253 зі збереженими legacy ID + 23 доповнень). Зведення не є відсотком functional parity: критичний відсутній сценарій блокує готовність незалежно від кількості простих готових пунктів. Наступні кроки та критерії — [ROADMAP.md](ROADMAP.md).
+
+
+## UX decisions — 2026-09-14
+
+- Bulk chat add must accept more than 500 links without data loss. Keep bounded server batches (currently 500) and queue additional batches automatically with visible progress/retry instead of silently rejecting the remainder. Removing the bound is not required if queued batching is reliable.
+- Bulk add must resolve real chat names where the platform permits it. Name resolution is a separate enrichment step: canonical URL remains the duplicate key; failures must not block import and must remain retryable/manual.
+- Archived chats are tombstones for duplicate prevention and normally cannot be permanently deleted. Permanent deletion is allowed only when the archive reason explicitly means that the chat/link no longer exists; this destructive action requires confirmation and audit.
+- Lesson reminders on Today are grouped by the lesson-relative intent: “Завтра” and “Сьогодні” are separate sections and must not be mixed. Default reminder slot #1 is visible throughout the calendar day before the lesson as ????????; slot #2 is visible throughout the lesson date as ??????????. Today must never mix the two intent groups. Missing lesson data becomes an explicit clarification task instead of a misleading sendable reminder.
+- Main navigation has exactly one Settings entry, anchored in the lower utility area. Goal/focus editing is not a second Settings navigation item.
+- Pre-UX functional development remains frozen except for regressions or requirements needed to make the UX coherent. Current phase is UI/UX.
+
+- UX foundation implementation: one Settings navigation entry; Today separates lesson reminders by Today/Tomorrow; report calendar uses explicit planned/completed lesson and lead-event labels; report event details are progressive disclosure; subject analytics lives in Analytics; manager schedule is one tap from the calendar/report workspace; chat history remains available as a secondary action.

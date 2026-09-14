@@ -3,6 +3,8 @@ export type CalendarDayContext = {
   workdayStatus: 'active' | 'paused' | 'ended' | null;
   activeSeconds: number;
   lessons: number;
+  lessonsPlanned: number;
+  lessonsCompleted: number;
   followUps: number;
   leadEvents: number;
 };

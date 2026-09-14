@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import {
   BarChart3, BookOpenText, ChevronLeft, ChevronRight,
   CircleUserRound, FileText, LayoutDashboard, Menu, MessageSquareText,
@@ -40,8 +40,9 @@ const navigation = [
   { key: 'analytics', label: 'Аналітика', icon: BarChart3 },
   { key: 'reports', label: 'Звіти', icon: FileText },
   { key: 'library', label: 'Бібліотека', icon: BookOpenText },
-  { key: 'settings', label: 'Налаштування', icon: Settings },
 ] as const;
+
+type ViewKey = (typeof navigation)[number]['key'] | 'settings';
 
 export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
   const [collapsed, setCollapsed] = useState(false);
@@ -54,13 +55,18 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
   const [todayCommand] = useState(() => createBrowserCommandClient(`${user.email}:today-reminders`));
   const [taskBusy, setTaskBusy] = useState<string | null>(null);
   const [taskNotice, setTaskNotice] = useState('');
-  const [activeView, setActiveView] = useState<(typeof navigation)[number]['key']>('today');
-  const activeLabel = navigation.find((item) => item.key === activeView)?.label || 'Сьогодні';
-  const navigateTo = (next: (typeof navigation)[number]['key']) => {
+  const [activeView, setActiveView] = useState<ViewKey>('today');
+  const activeLabel = activeView === 'settings' ? 'Налаштування' : navigation.find((item) => item.key === activeView)?.label || 'Сьогодні';
+  const navigateTo = (next: ViewKey) => {
     setActiveView(next);
     setMobileOpen(false);
     if (next === 'today' && activeView !== 'today') router.refresh();
   };
+
+  const orderedLeadTasks = [...snapshot.leadTasks].sort((a, b) => {
+    const sectionOrder = taskSectionRank(a, snapshot.today) - taskSectionRank(b, snapshot.today);
+    return sectionOrder || a.dueAt - b.dueAt || a.leadId.localeCompare(b.leadId);
+  });
 
   const copyReminder = async (item: DashboardSnapshot['leadTasks'][number]) => {
     if (!item.reminderText) return;
@@ -148,12 +154,12 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           <section className="queue-card" aria-labelledby="queue-title">
             <div className="card-heading"><div><p className="eyebrow">Наступні дії</p><h2 id="queue-title">Прострочені ліди й нагадування</h2></div><Badge variant="secondary">{snapshot.leadTasks.length}</Badge></div>
             {taskNotice && <output className="muted-note">{taskNotice}</output>}
-            {snapshot.leadTasks.length ? <ol className="action-list">
-              {snapshot.leadTasks.map((item, index) => <li key={`${item.kind}:${item.leadId}:${item.lessonId || item.dueAt}`}>
+            {orderedLeadTasks.length ? <ol className="action-list">
+              {orderedLeadTasks.map((item, index) => { const section = taskSection(item, snapshot.today); const previous = index > 0 ? taskSection(orderedLeadTasks[index - 1], snapshot.today) : null; return <Fragment key={`${item.kind}:${item.leadId}:${item.lessonId || item.dueAt}`}>{section !== previous && <li className="action-section" aria-label={taskSectionLabel(section)}><span>{taskSectionLabel(section)}</span></li>}<li>
                 <span className="action-index">{index + 1}</span>
                 <div><strong>{item.leadName}</strong><p>{item.title} · {formatTaskTime(item.dueAt)}</p></div>
                 <div className="lead-actions">{item.kind === 'reminder' && item.reminderText ? <><Button variant="ghost" size="sm" disabled={taskBusy === item.reminderId} onClick={() => void copyReminder(item)}>Копіювати</Button><Button variant="outline" size="sm" disabled={taskBusy === item.reminderId} onClick={() => void markReminderSent(item)}>{taskBusy === item.reminderId ? 'Зберігаємо…' : 'Надіслано'}</Button></> : null}<Button variant="outline" size="sm" onClick={() => { setLeadToOpen(item.leadId); navigateTo('leads'); }}>Відкрити</Button></div>
-              </li>)}
+              </li></Fragment>})}
             </ol> : <div className="queue-empty"><p>Прострочених follow-up і активних нагадувань немає.</p><Button variant="outline" size="sm" onClick={() => navigateTo('leads')}>Відкрити лідів</Button></div>}
           </section>
 
@@ -181,6 +187,20 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
       </main>
     </div>
   );
+}
+
+function taskSection(item: DashboardSnapshot['leadTasks'][number], today: string) {
+  if (item.kind !== 'reminder' || !item.lessonDate) return 'followup' as const;
+  return item.lessonDate === today ? 'today' as const : item.lessonDate > today ? 'tomorrow' as const : 'today' as const;
+}
+function taskSectionRank(item: DashboardSnapshot['leadTasks'][number], today: string) {
+  const section = taskSection(item, today);
+  return section === 'today' ? 0 : section === 'tomorrow' ? 1 : 2;
+}
+function taskSectionLabel(section: 'followup' | 'today' | 'tomorrow') {
+  if (section === 'tomorrow') return 'Завтра';
+  if (section === 'today') return 'Сьогодні';
+  return 'Прострочені follow-up';
 }
 
 function initials(value: string) {
