@@ -90,3 +90,9 @@ void test('chat history stays a secondary icon action in platform rows', () => {
   assert.match(source, /aria-label="\u0406\u0441\u0442\u043e\u0440\u0456\u044f \u0447\u0430\u0442\u0443" title="\u0406\u0441\u0442\u043e\u0440\u0456\u044f \u0447\u0430\u0442\u0443"/);
   assert.doesNotMatch(source, />\u0406\u0441\u0442\u043e\u0440\u0456\u044f<\/Button>/);
 });
+
+void test('mobile topbar and drawer controls keep 44px touch targets', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /\.mobile-menu \{[^}]*width: 44px;[^}]*height: 44px;/s);
+  assert.match(css, /\.sidebar-close-mobile, \.timer-trigger \{ min-width:44px; min-height:44px; \}/);
+});
