@@ -86,7 +86,7 @@ void test('archived leads retain events; attribution never reads a foreign-owner
   assert.equal(snapshot.bookingGoal.completed,2);
 });
 
-void test('Today lead queue returns only owned active overdue follow-ups and due reminders', async t => {
+void test('Today lead queue separates calendar-day lesson reminders from overdue follow-ups', async t => {
   const db = await localDatabase(t);
   await db.prepare(`INSERT INTO leads(id,user_id,name,platform,status,next_action,next_contact_at,created_at,updated_at,archived_at)
     VALUES
@@ -97,19 +97,27 @@ void test('Today lead queue returns only owned active overdue follow-ups and due
       ('lesson-lead','u','Lesson lead','viber','response','',NULL,1,1,NULL)`)
     .bind(NOW - 120, NOW + 120).run();
   await db.prepare(`INSERT INTO lessons(id,user_id,lead_id,student_name,subject,teacher_name,lesson_date,lesson_time,lesson_platform,meeting_link,status,created_at,updated_at)
-    VALUES ('lesson','u','lesson-lead','Student','Math','Teacher','2026-09-10','16:00','Google Meet','https://meet.google.com/abc-defg-hij','booked',1,1)`).run();
+    VALUES
+      ('lesson','u','lesson-lead','Student','Math','Teacher','2026-09-10','16:00','Google Meet','https://meet.google.com/abc-defg-hij','booked',1,1),
+      ('tomorrow-lesson','u','lesson-lead','Student','English','Teacher','2026-09-11','16:00','Zoom','https://zoom.us/j/123','booked',1,1)`).run();
   await db.prepare(`INSERT INTO lesson_reminders(id,user_id,lesson_id,slot,enabled,offset_minutes,updated_at)
-    VALUES ('lesson:reminder:1','u','lesson',1,1,60,1)`).run();
+    VALUES
+      ('lesson:reminder:2','u','lesson',2,1,60,1),
+      ('tomorrow-lesson:reminder:1','u','tomorrow-lesson',1,1,1440,1)`).run();
 
   const snapshot = await readDashboardSnapshot(db,'u',NOW);
   assert.deepEqual(snapshot.leadTasks.map(task => [task.kind, task.leadId]), [
     ['follow_up','overdue'],
     ['reminder','lesson-lead'],
+    ['reminder','lesson-lead'],
   ]);
-  assert.equal(snapshot.leadTaskCount, 2);
+  assert.equal(snapshot.leadTaskCount, 3);
   assert.equal(snapshot.leadTasks[0].title, 'Call back');
   assert.equal(snapshot.leadTasks[1].lessonId, 'lesson');
-  assert.equal(snapshot.leadTasks[1].reminderId, 'lesson:reminder:1');
+  assert.equal(snapshot.leadTasks[1].reminderId, 'lesson:reminder:2');
+  assert.equal(snapshot.leadTasks[1].lessonDate, '2026-09-10');
+  assert.equal(snapshot.leadTasks[2].reminderId, 'tomorrow-lesson:reminder:1');
+  assert.equal(snapshot.leadTasks[2].lessonDate, '2026-09-11');
   assert.equal(snapshot.leadTasks[1].leadVersion, 0);
   assert.match(snapshot.leadTasks[1].reminderText, /Math.*Student.*Teacher.*Google Meet/);
   assert.equal(snapshot.leadTasks[0].reminderId, null);

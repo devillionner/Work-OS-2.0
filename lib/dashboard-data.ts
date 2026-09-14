@@ -18,7 +18,7 @@ export type DashboardSnapshot = {
   enabledPlatforms: string[];
   platforms: Array<{ key: string; name: string; color: string; publications: number; joined: number; responses: number; bookings: number }>;
   leadTaskCount: number;
-  leadTasks: Array<{ kind: 'follow_up' | 'reminder'; leadId: string; leadName: string; title: string; dueAt: number; lessonId: string | null; reminderId: string | null; reminderText: string | null; leadVersion: number | null }>;
+  leadTasks: Array<{ kind: 'follow_up' | 'reminder'; leadId: string; leadName: string; title: string; dueAt: number; lessonId: string | null; lessonDate: string | null; reminderId: string | null; reminderText: string | null; leadVersion: number | null }>;
 };
 
 const PLATFORM_META: Record<string, { name: string; color: string }> = {
@@ -39,6 +39,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
   const afterReport = report?.submitted_at ?? null;
   const submittedActivityRevision = report?.submitted_activity_revision ?? null;
   const reminderHorizon = businessDate(now + 43200 * 60);
+  const tomorrow = shiftBusinessDate(today, 1);
   const [chatResult, leadResult, migrationResult, eventResult, settingsResult, followUpResult, reminderResult, dayRevisionResult] = await db.batch([
     db.prepare(`SELECT COUNT(*) AS count FROM chats WHERE user_id=?1 AND workflow_status!='archived'`).bind(userId),
     db.prepare(`SELECT COUNT(*) AS count FROM leads WHERE user_id=?1 AND archived_at IS NULL`).bind(userId),
@@ -69,7 +70,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
   const currentActivityRevision = Number((dayRevisionResult.results[0] as {revision?:number}|undefined)?.revision || 0);
   const leadTasks: DashboardSnapshot['leadTasks'] = followUpRows.map(row => ({
     kind: 'follow_up', leadId: row.id, leadName: row.name,
-    title: row.next_action.trim() || 'Зв’язатися з лідом', dueAt: Number(row.next_contact_at), lessonId: null, reminderId: null, reminderText: null, leadVersion: null,
+    title: row.next_action.trim() || 'Зв’язатися з лідом', dueAt: Number(row.next_contact_at), lessonId: null, lessonDate: null, reminderId: null, reminderText: null, leadVersion: null,
   }));
   for (const row of reminderRows) {
     const view = reminderView({
@@ -80,9 +81,15 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
       id: row.id, slot: Number(row.slot), enabled: Boolean(row.enabled), offsetMinutes: Number(row.offset_minutes),
       sentAt: row.sent_at === null ? null : Number(row.sent_at), skippedAt: row.skipped_at === null ? null : Number(row.skipped_at),
     }, now);
-    if (view.state === 'due' && view.dueAt !== null) leadTasks.push({
+    const matchesReminderDay = (row.slot === 1 && row.lesson_date === tomorrow) || (row.slot === 2 && row.lesson_date === today);
+    const actionableState = view.state === 'pending' || view.state === 'due' || view.state === 'needs-data';
+    if (matchesReminderDay && actionableState) leadTasks.push({
       kind: 'reminder', leadId: row.lead_id, leadName: row.lead_name,
-      title: `Нагадати про урок: ${row.subject} · ${row.student_name}`, dueAt: view.dueAt, lessonId: row.lesson_id, reminderId: row.id, reminderText: view.text, leadVersion: Number(row.lead_version),
+      title: view.state === 'needs-data'
+        ? `Уточнити дані уроку: ${row.subject} · ${row.student_name}`
+        : `Нагадати про урок: ${row.subject} · ${row.student_name}`,
+      dueAt: view.dueAt ?? now, lessonId: row.lesson_id, lessonDate: row.lesson_date, reminderId: row.id,
+      reminderText: view.state === 'needs-data' ? null : view.text, leadVersion: Number(row.lead_version),
     });
   }
   leadTasks.sort((a, b) => a.dueAt - b.dueAt || a.leadId.localeCompare(b.leadId));
@@ -120,3 +127,9 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
 
 function settingNumber(value: string | undefined): number { try { const parsed = JSON.parse(value || 'null'); return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0; } catch { return 0; } }
 function settingList(value: string | undefined): string[] { try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) ? parsed.filter((item): item is string=>typeof item==='string'):[]; } catch { return []; } }
+
+function shiftBusinessDate(value: string, days: number): string {
+  const date = new Date(`${value}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}

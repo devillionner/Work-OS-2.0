@@ -55,3 +55,9 @@
 - Розглянути всі managed/conflicting records; не обходити guard і не перезапускати імпорт навмання. Визначити очікувані existing/missing/conflict результати кожної порції.
 - Провести один погоджений перенос з resumable progress і обмеженою перевіркою. Повтор — лише для конкретного невдалого кроку з поясненням, не як перевірка стабільності.
 - Порівняти фінальні дані/події, зробити дві успішні перевірені копії нової бази за період реальної роботи. Prototype зберігається; його видалення/виведення з експлуатації потребує окремого рішення.
+
+
+## UX phase update — 2026-09-14
+Current phase: UI/UX. Bulk >500 queued batching, real-name enrichment and archive deletion policy are recorded requirements, not reasons to delay UX foundation. Today reminders must be separated into Tomorrow/Today intent groups; navigation has one Settings entry.
+
+- UX foundation: one Settings entry, calendar-day reminder groups, explicit calendar labels, subject analytics moved to Analytics, report event details collapsed, manager schedule quick-link, chat history demoted to secondary action, and mobile bottom navigation includes a More entry.

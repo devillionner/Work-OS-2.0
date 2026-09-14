@@ -6,6 +6,23 @@ export type SubjectAnalyticsRow = { subject:string; responses:number; bookings:n
 export type SubjectAnalytics = { period:SubjectPeriod; from:string|null; to:string; rows:SubjectAnalyticsRow[]; total:SubjectAnalyticsRow };
 type AggregateRow = { event_type:string; subject:string|null; count:number };
 
+export type SubjectAnalyticsRange = { from:string; to:string; rows:SubjectAnalyticsRow[]; total:SubjectAnalyticsRow };
+
+export async function readSubjectAnalyticsRange(db:D1Database,userId:string,from:string,to:string):Promise<SubjectAnalyticsRange> {
+  const result=await db.prepare(`SELECT e.event_type,
+      CASE WHEN e.event_type='lead_created' THEN l.subject ELSE COALESCE(NULLIF(ls.subject,''),l.subject) END AS subject,
+      COUNT(*) AS count
+    FROM activity_events e
+    LEFT JOIN leads l ON l.id=e.lead_id AND l.user_id=e.user_id
+    LEFT JOIN lessons ls ON ls.id=e.lesson_id AND ls.user_id=e.user_id
+    WHERE e.user_id=?1 AND e.event_date>=?2 AND e.event_date<=?3 AND e.cancelled_at IS NULL
+      AND e.event_type IN ('lead_created','lesson_booked','curator_booking_pending')
+    GROUP BY e.event_type,CASE WHEN e.event_type='lead_created' THEN l.subject ELSE COALESCE(NULLIF(ls.subject,''),l.subject) END`)
+    .bind(userId,from,to).all<AggregateRow>();
+  const aggregated=aggregateRows(result.results,'day',from,to);
+  return {from,to,rows:aggregated.rows,total:aggregated.total};
+}
+
 export async function readSubjectAnalytics(db:D1Database,userId:string,date:string,period:SubjectPeriod):Promise<SubjectAnalytics> {
   const range=subjectRange(date,period);
   const fromFilter=range.from?'AND e.event_date>=?3':'';

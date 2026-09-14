@@ -16,6 +16,8 @@ type CohortTotals = { leads:number; bookedLeads:number; bookings:number; complet
 type CohortPlatform = CohortTotals & { key:string; name:string; platform:string };
 type CohortChat = CohortTotals & { id:string; name:string; platformName:string; platform:string };
 type TrendPoint = { date:string; joined:number; publications:number; responses:number; bookings:number; completed:number };
+type SubjectRow = { subject:string; responses:number; bookings:number; conversion:number; responseShare:number; bookingShare:number };
+type SubjectData = { from:string; to:string; rows:SubjectRow[]; total:SubjectRow };
 type AnalyticsInsightsData = {
   recommendation: { kind:'check_low_efficiency'|'consider_more_often'|'insufficient_data'; title:string; explanation:string; chatId:string|null; chatName:string|null };
   archiveReasons: Array<{ reason:string; count:number }>;
@@ -29,6 +31,7 @@ type AnalyticsData = {
   cohort: { totals:CohortTotals; platforms:CohortPlatform[]; chats:CohortChat[] };
   insights: AnalyticsInsightsData;
   trends: TrendPoint[];
+  subjects: SubjectData;
 };
 
 const periods: Array<{ key: AnalyticsPeriod; label: string }> = [
@@ -108,6 +111,7 @@ export function AnalyticsWorkspace() {
 
         <AnalyticsInsights insights={data.insights} />
         <AnalyticsTrends points={data.trends} />
+        <SubjectAnalytics data={data.subjects} />
 
         <section className="analytics-card">
           <div className="card-heading"><div><p className="eyebrow">Активність за датою події</p><h3>Де втрачається результат</h3></div><Badge variant="outline">{formatRange(data.range.from, data.range.to)}</Badge></div>
@@ -167,6 +171,14 @@ function Metric({ label, value, hint }: { label: string; value: number; hint: st
 
 function FunnelStep({ title, value, detail }: { title: string; value: number; detail: string }) {
   return <div className="funnel-step"><span>{title}</span><strong>{value}</strong><small>{detail}</small></div>;
+}
+
+function SubjectAnalytics({ data }: { data: SubjectData }) {
+  return <section className="analytics-card analytics-subjects">
+    <div className="card-heading"><div><p className="eyebrow">Напрямки попиту</p><h3>Предмети</h3><p className="muted-note analytics-card-note">Відгуки та записи за той самий вибраний період.</p></div><Badge variant="outline">{formatRange(data.from, data.to)}</Badge></div>
+    <div className="subject-overview"><div><span>Відгуки</span><strong>{data.total.responses}</strong></div><div><span>Записи</span><strong>{data.total.bookings}</strong></div><div><span>Конверсія</span><strong>{data.total.conversion}%</strong></div></div>
+    <div className="analytics-table analytics-subject-table"><div className="analytics-table-head"><span>Предмет</span><span>Відгуки</span><span>Записи</span><span>Конверсія</span></div>{data.rows.map((row) => <div className="analytics-table-row" key={row.subject}><strong>{row.subject}</strong><span>{row.responses}</span><span>{row.bookings}</span><span>{row.conversion}%</span></div>)}{!data.rows.length && <div className="analytics-empty">За цей період ще немає відгуків або записів.</div>}</div>
+  </section>;
 }
 
 function formatRange(from: string, to: string) {
