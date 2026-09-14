@@ -74,7 +74,8 @@ export function LibraryWorkspace() {
   }
 
   const isKnowledge=collection==='knowledge';
-  return <div className={`library-workspace ${editorOpen ? 'has-editor' : ''}`}>
+  const emptyWorkspace=!loading&&!editorOpen&&items.length===0;
+  return <div className={`library-workspace ${editorOpen ? 'has-editor' : ''} ${emptyWorkspace ? 'is-empty' : ''}`}>
     <LibraryHistoryDialog open={historyOpen} item={selected?{id:selected.id,title:selected.title}:null} onClose={()=>setHistoryOpen(false)}/>
     <ConfirmDialog open={archiveCandidate!==null} title="Перемістити матеріал в архів?" description={archiveCandidate?`«${archiveCandidate.title}» зникне з активної бібліотеки, але його можна буде відновити з архіву.`:''} confirmLabel="В архів" destructive busy={saving} onCancel={()=>setArchiveCandidate(null)} onConfirm={()=>{const item=archiveCandidate;if(!item)return;setArchiveCandidate(null);void changeArchive(item);}}/>
     <section className="library-hero"><div><p className="eyebrow">Єдине місце для робочих матеріалів</p><h2>Бібліотека</h2><p>Офіційні й особисті скрипти розділені, важливі інструкції мають власну історію версій.</p></div><Button disabled={saving||archived} onClick={()=>edit(null)}><FilePlus2 data-icon="inline-start"/>Додати</Button></section>

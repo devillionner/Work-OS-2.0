@@ -317,3 +317,12 @@ void test('Wide desktop compacts Telegram warmup without changing mobile flow', 
   assert.match(css, /@media\(min-width:1181px\) \{ \.telegram-warmup-steps \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); align-items:stretch; \}/);
   assert.match(css, /\.telegram-warmup-steps \{ display:grid; gap:8px; margin:12px 0; padding:0; list-style:none; \}/);
 });
+
+void test('Empty Library uses one focused empty state instead of a redundant editor panel', () => {
+  const workspace = text(join(componentsDir, 'library-workspace.tsx'));
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(workspace, /const emptyWorkspace=!loading&&!editorOpen&&items\.length===0;/);
+  assert.match(workspace, /emptyWorkspace \? 'is-empty' : ''/);
+  assert.match(css, /\.library-workspace\.is-empty \.library-layout \{ grid-template-columns:1fr; \}/);
+  assert.match(css, /\.library-workspace\.is-empty \.library-editor \{ display:none; \}/);
+});
