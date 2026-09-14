@@ -189,7 +189,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
                 <div><strong>{item.leadName}</strong><p>{item.title} · {formatTaskTime(item.dueAt)}</p></div>
                 <div className="lead-actions">{item.kind === 'reminder' && item.reminderText ? <><Button variant="ghost" size="sm" disabled={taskBusy === item.reminderId} onClick={() => void copyReminder(item)}>Копіювати</Button><Button variant="outline" size="sm" disabled={taskBusy === item.reminderId} onClick={() => void markReminderSent(item)}>{taskBusy === item.reminderId ? 'Зберігаємо…' : 'Надіслано'}</Button></> : null}<Button variant="outline" size="sm" onClick={() => { setLeadToOpen(item.leadId); navigateTo('leads'); }}>Відкрити</Button></div>
               </li></Fragment>})}
-            </ol> : <div className="queue-empty"><p>Прострочених follow-up і активних нагадувань немає.</p><Button variant="outline" size="sm" onClick={() => navigateTo('leads')}>Відкрити лідів</Button></div>}
+            </ol> : <div className="queue-empty"><p>Прострочених повторних контактів і активних нагадувань немає.</p><Button variant="outline" size="sm" onClick={() => navigateTo('leads')}>Відкрити лідів</Button></div>}
           </section>
 
           <section className="platform-card" aria-labelledby="platform-title">
@@ -224,7 +224,7 @@ function taskSectionRank(item: DashboardSnapshot['leadTasks'][number], today: st
 function taskSectionLabel(section: 'followup' | 'today' | 'tomorrow') {
   if (section === 'tomorrow') return 'Завтра';
   if (section === 'today') return 'Сьогодні';
-  return 'Прострочені follow-up';
+  return 'Повторні контакти';
 }
 
 function initials(value: string) {

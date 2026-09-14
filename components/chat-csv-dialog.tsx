@@ -63,7 +63,7 @@ export function ChatCsvDialog({open,onClose,onImported}:{open:boolean;onClose:()
         <div className="card-heading"><div><strong>Експорт</strong><p>Зберегти Telegram, WhatsApp, Viber і Facebook разом зі станами, датами та профілями.</p></div><Button variant="outline" disabled={busy} onClick={()=>void download()}>{busy?<LoaderCircle data-icon="inline-start"/>:<Download data-icon="inline-start"/>}Експортувати CSV</Button></div>
       </section>
       <section className="settings-panel">
-        <div className="card-heading"><div><strong>Імпорт</strong><p>Існуючі канонічні посилання не перезаписуються. Спочатку обов’язковий preview.</p></div></div>
+        <div className="card-heading"><div><strong>Імпорт</strong><p>Існуючі канонічні посилання не перезаписуються. Спочатку обов’язкова перевірка даних.</p></div></div>
         <input ref={inputRef} type="file" accept=".csv,text/csv" disabled={busy} aria-label="CSV чатів" onChange={event=>void choose(event.target.files?.[0]||null)}/>
         {fileName&&<p className="muted-note">Обрано: {fileName}</p>}
         <div className="dialog-actions"><Button variant="outline" disabled={busy||!csv} onClick={()=>void request('preview')}><Upload data-icon="inline-start"/>Перевірити CSV</Button>{preview&&<Button disabled={busy||preview.add===0||preview.conflicts.length>0} onClick={()=>void request('apply')}>{busy?'Імпортуємо…':`Імпортувати ${preview.add}`}</Button>}</div>

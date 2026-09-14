@@ -34,7 +34,10 @@ void test('data-management UI avoids internal preview and staging-zone jargon', 
     const source = text(join(componentsDir, name));
     assert.doesNotMatch(source, />Preview</);
     assert.doesNotMatch(source, /staging-\u0437\u043e\u043d/);
+    assert.doesNotMatch(source, /\u043e\u0431\u043e\u0432.\u044f\u0437\u043a\u043e\u0432\u0438\u0439 preview|\u0447\u0435\u0440\u0435\u0437 staging/i);
   }
+  assert.doesNotMatch(text(join(componentsDir, 'work-os-shell.tsx')), /follow-up/i);
+  assert.doesNotMatch(text(join(componentsDir, 'report-lesson-result-correction.tsx')), /CRM lifecycle|version guard/i);
 });
 
 
@@ -180,4 +183,17 @@ void test('Platform daily workflow uses desktop-sized controls and keyboard focu
   assert.match(css, /\.chat-toolbar input \{ min-height:42px;/);
   assert.match(css, /\.chat-actions \[data-slot="button"\] \{ min-height:42px; \}/);
   assert.match(css, /\.platform-picker button:focus-visible, \.telegram-account-tabs > button:not\(\[class\]\):focus-visible, \.queue-tabs button:focus-visible/);
+});
+
+void test('Workspace native controls share desktop targets and visible keyboard focus', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /\.account-link \{ min-height:42px;/);
+  assert.match(css, /\.timer-trigger \{ min-height: 42px;/);
+  assert.match(css, /\.archive-reasons button \{ min-height:42px;/);
+  assert.match(css, /\.report-history-list summary \{ min-height:42px;/);
+  assert.match(css, /\.chat-publish-items button \{ min-height:48px;/);
+  assert.match(css, /\.dialog-actions \[data-slot="button"\] \{ min-height:42px; \}/);
+  assert.match(css, /:is\(\.today-settings-dialog,\.chat-bulk-dialog,[^}]*\[data-slot="button"\][^}]*min-height:42px;/s);
+  assert.match(css, /\.dialog-actions \[data-slot="button"\],[^}]*min-height:44px;/s);
+  assert.match(css, /\.timer-trigger:focus-visible,[\s\S]*\.library-item:focus-visible,[\s\S]*\.report-disclosure > summary:focus-visible/);
 });
