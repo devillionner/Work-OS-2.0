@@ -168,7 +168,7 @@ void test('Today dashboard keeps primary work controls readable and touch friend
   assert.match(css, /\.text-action \{ min-height:42px;/);
   assert.match(css, /\.workday-actions \[data-slot="button"\] \{ min-height:42px; \}/);
   assert.match(css, /\.direction-checks label \{ min-height:42px;/);
-  assert.match(css, /\.workday-card \{ grid-template-columns:44px minmax\(0,1fr\); padding:19px 16px; \}/);
+  assert.match(css, /\.workday-card \{ display:grid; grid-template-columns:44px minmax\(0,1fr\); padding:19px 16px; \}/);
   assert.match(css, /\.focus-actions \[data-slot="button"\][^}]*min-height:44px;/s);
   assert.match(css, /\.platform-table-head, \.platform-row \{ min-width:520px;/);
   assert.match(css, /\.text-action:focus-visible \{ outline:3px solid var\(--ring\);/);
@@ -252,4 +252,20 @@ void test('ARIA tablists use roving tab stops and arrow-key navigation', () => {
   assert.match(library, /role="tab"[^>]*tabIndex=\{collection===value\?0:-1\}[^>]*onKeyDown=\{handleTabKeyNavigation\}/);
   assert.match(platform, /role="tab"[^>]*tabIndex=\{platform===item\.key\?0:-1\}[^>]*onKeyDown=\{handleTabKeyNavigation\}/);
   assert.match(platform, /role="tab"[^>]*tabIndex=\{queue===item\.key\?0:-1\}[^>]*onKeyDown=\{handleTabKeyNavigation\}/);
+});
+
+void test('Mobile workday card switches to grid before placing full-width actions', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /@media \(max-width: 720px\) \{[\s\S]*?\.workday-card \{ display:grid; grid-template-columns:44px minmax\(0,1fr\); padding:19px 16px; \}/);
+  assert.match(css, /\.workday-card > \.workday-actions \{ grid-column:1\/-1; width:100%; margin-left:0; \}/);
+});
+
+void test('Today dashboard adapts before the fixed sidebar makes tiled desktop content too narrow', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.dashboard-grid \{ grid-template-columns: 1fr; padding: clamp\(20px, 3vw, 32px\); \}/);
+  assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.focus-card \{ display:grid; gap:20px; \}/);
+  assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.focus-actions \{ justify-content:flex-start; flex-wrap:wrap; \}/);
+  assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.analytics-metrics \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); \}/);
+  assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.reports-layout \{ grid-template-columns:1fr; \}/);
+  assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.settings-grid, \.settings-primary-grid \{ grid-template-columns:1fr; \}/);
 });

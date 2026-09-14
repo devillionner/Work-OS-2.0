@@ -553,9 +553,20 @@ button { color: inherit; }
 .library-two-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
 .library-hero [data-slot="button"], .library-toolbar > [data-slot="button"], .library-editor [data-slot="input"], .library-editor [data-slot="button"] { min-height:42px; }
 
-@media (max-width: 980px) {
-  .dashboard-grid { grid-template-columns: 1fr; }
+@media (max-width: 1180px) {
+  .dashboard-grid { grid-template-columns: 1fr; padding: clamp(20px, 3vw, 32px); }
   .focus-card, .workday-card, .goal-card, .queue-card, .platform-card { grid-column:auto; grid-row:auto; }
+  .focus-card { display:grid; gap:20px; }
+  .focus-heading { display:grid; gap:12px; }
+  .focus-actions { justify-content:flex-start; flex-wrap:wrap; }
+  .topbar { padding-inline:clamp(20px,3vw,32px); }
+  .analytics-hero, .reports-hero { display:grid; align-items:start; }
+  .analytics-controls { justify-content:flex-start; }
+  .analytics-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .funnel-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .funnel-step::after { display:none; }
+  .reports-layout { grid-template-columns:1fr; }
+  .settings-grid, .settings-primary-grid { grid-template-columns:1fr; }
 }
 
 @media (max-width: 720px) {
@@ -579,7 +590,7 @@ button { color: inherit; }
   .focus-actions { display: grid; grid-template-columns: 1fr; }
   .focus-actions button { width: 100%; }
   .focus-actions [data-slot="button"], .workday-actions [data-slot="button"], .action-list .lead-actions [data-slot="button"], .text-action, .platform-card .card-heading > [data-slot="button"] { min-height:44px; }
-  .workday-card { grid-template-columns:44px minmax(0,1fr); padding:19px 16px; }
+  .workday-card { display:grid; grid-template-columns:44px minmax(0,1fr); padding:19px 16px; }
   .workday-card > .workday-actions { grid-column:1/-1; width:100%; margin-left:0; }
   .workday-actions [data-slot="button"] { flex:1 1 140px; }
   .action-list .lead-actions { width:100%; }
