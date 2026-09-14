@@ -266,7 +266,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       </div>}
       {manageAccounts&&<div className="telegram-account-manager">
         {accounts.map(account=><div className="telegram-account-editor" key={account.id}><span>#{account.number}</span><Input disabled={busy!==null} defaultValue={account.name} aria-label={`Назва акаунта ${account.number}`} onBlur={event=>{const name=event.target.value.trim();if(name&&name!==account.name)void accountAction('rename',account.id,{name})}}/><Button disabled={busy!==null} variant="outline" size="sm" onClick={()=>accountAction('toggle',account.id)}>{account.enabled?'Вимкнути':'Увімкнути'}</Button></div>)}
-        <div className="telegram-account-create"><Input value={newAccountName} onChange={event=>setNewAccountName(event.target.value)} placeholder="Назва нового акаунта"/><Button disabled={busy!==null} onClick={()=>accountAction('create',undefined,{name:newAccountName})}><Plus data-icon="inline-start"/>Додати</Button></div>
+        <div className="telegram-account-create"><Input value={newAccountName} onChange={event=>setNewAccountName(event.target.value)} placeholder="Назва нового акаунта" aria-label="Назва нового Telegram-акаунта"/><Button disabled={busy!==null} onClick={()=>accountAction('create',undefined,{name:newAccountName})}><Plus data-icon="inline-start"/>Додати</Button></div>
         <p>Вимкнення не видаляє історію. Чати можна перепризначити іншим акаунтам нижче.</p>
       </div>}
     </section>}
