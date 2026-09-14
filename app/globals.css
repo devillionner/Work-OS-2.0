@@ -258,7 +258,6 @@ button { color: inherit; }
 .text-action { border: 0; background: transparent; color: #3157f6; font-size: 12px; font-weight: 750; cursor: pointer; }
 .goal-progress { margin-top: 30px; }
 .muted-note { margin: 16px 0 0; color: #767c88; font-size: 12px; line-height: 1.5; }
-.queue-card { grid-row: span 2; }
 .action-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
 .action-list li { display: grid; grid-template-columns: 34px minmax(0,1fr) auto; gap: 12px; align-items: center; padding: 15px 0; border-top: 1px solid #eceef2; }
 .action-list li:first-child { border-top: 0; }
@@ -273,6 +272,14 @@ button { color: inherit; }
 .platform-name { display: flex; align-items: center; gap: 9px; font-weight: 700; }
 .platform-name i { width: 8px; height: 8px; border-radius: 50%; }
 .goal-month-note { margin: 5px 0 0; color: #858b96; font-size: 11px; }
+.workday-card { grid-column:2; grid-row:2; display:flex; align-items:flex-start; gap:16px; padding:22px; }
+.workday-icon { width:44px; height:44px; display:grid; place-items:center; flex:0 0 44px; border-radius:13px; background:#edf1ff; color:#3157f6; }
+.workday-icon svg { width:22px; }
+.workday-card > div:nth-child(2) { min-width:0; flex:1; }
+.goal-card { grid-column:2; grid-row:3; }
+.queue-card { grid-column:1; grid-row:2 / span 2; }
+.platform-card { grid-column:1 / -1; grid-row:4; }
+
 .settings-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgb(15 18 25 / .62); backdrop-filter: blur(4px); }
 .today-settings-dialog { width: min(620px,100%); max-height: calc(100svh - 40px); overflow: auto; padding: 24px; border: 1px solid #d9dde7; border-radius: 18px; background: #fff; box-shadow: 0 24px 80px rgb(15 18 25 / .24); }
 .today-settings-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
@@ -531,8 +538,7 @@ button { color: inherit; }
 
 @media (max-width: 980px) {
   .dashboard-grid { grid-template-columns: 1fr; }
-  .focus-card { grid-column: auto; }
-  .queue-card { grid-row: auto; }
+  .focus-card, .workday-card, .goal-card, .queue-card, .platform-card { grid-column:auto; grid-row:auto; }
 }
 
 @media (max-width: 720px) {

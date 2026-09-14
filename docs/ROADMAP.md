@@ -65,3 +65,5 @@ Current phase: UI/UX. Bulk >500 queued batching, real-name enrichment and archiv
 - Leads/mobile CRM UX: mobile uses a focused list → detail flow with an explicit back action; secondary history/refresh controls are de-emphasized while core lead actions remain visible.
 
 - Today/mobile hierarchy: bottom navigation now has an explicit More entry for Reports, Library and Settings; decorative cloud-profile status card removed from the daily dashboard.
+
+- Visual hierarchy pass: Today prioritizes the action queue; workday and goals form a compact control column; platform results are a full-width summary. Workday styling is isolated from decorative status UI.
