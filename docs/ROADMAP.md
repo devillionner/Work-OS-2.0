@@ -69,3 +69,5 @@ Current phase: UI/UX. Bulk >500 queued batching, real-name enrichment and archiv
 - Visual hierarchy pass: Today prioritizes the action queue; workday and goals form a compact control column; platform results are a full-width summary. Workday styling is isolated from decorative status UI.
 
 - Navigation accessibility pass: mobile drawer closes with Escape, menu/close controls use 44px touch targets, and sidebar/bottom-nav focus states are visible.
+
+- Final responsive polish: mobile bottom navigation respects iOS safe areas and reduced-motion preferences disable nonessential motion.
