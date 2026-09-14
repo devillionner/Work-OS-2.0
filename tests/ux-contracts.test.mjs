@@ -39,12 +39,12 @@ void test('data-management UI avoids internal preview and staging-zone jargon', 
 
 
 void test('user-facing source is free from mojibake and placeholder corruption', () => {
-  const roots = ['app', 'components', 'lib'];
+  const roots = ['app', 'components', 'lib', 'docs'];
   const offenders = [];
   for (const folder of roots) {
     const dir = join(root, folder);
     const files = readdirSync(dir, { recursive: true })
-      .filter((name) => typeof name === 'string' && /\.(?:ts|tsx)$/.test(name))
+      .filter((name) => typeof name === 'string' && /\.(?:ts|tsx|md)$/.test(name))
       .map((name) => join(dir, name));
     for (const path of files) {
       if (/(?:Ð.|Ñ.|Ã.|Â.|â€|�|\?{4,})/.test(text(path))) offenders.push(path);
