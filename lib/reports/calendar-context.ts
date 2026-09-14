@@ -39,7 +39,7 @@ export async function readCalendarContext(
   const get = (date: string) => {
     let value = days.get(date);
     if (!value) {
-      value = { date, workdayStatus: null, activeSeconds: 0, lessons: 0, lessonsPlanned: 0, lessonsCompleted: 0, followUps: 0, leadEvents: 0 };
+      value = { date, workdayStatus: null, activeSeconds: 0, lessons: 0, lessonsPlanned: 0, lessonsCompleted: 0, lessonsCancelled: 0, lessonsNoShow: 0, followUps: 0, leadEvents: 0 };
       days.set(date, value);
     }
     return value;
@@ -56,6 +56,8 @@ export async function readCalendarContext(
     day.lessons += count;
     if (row.status === 'booked' || row.status === 'scheduled') day.lessonsPlanned += count;
     if (row.status === 'completed') day.lessonsCompleted += count;
+    if (row.status === 'cancelled') day.lessonsCancelled += count;
+    if (row.status === 'no-show') day.lessonsNoShow += count;
   }
   for (const row of followUps.results) get(businessDate(Number(row.next_contact_at))).followUps += 1;
   for (const row of leadEvents.results) get(row.date).leadEvents = Number(row.count || 0);
