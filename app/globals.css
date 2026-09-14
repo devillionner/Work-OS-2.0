@@ -860,3 +860,14 @@ button { color: inherit; }
   .posting-pace { align-items:flex-start; gap:12px; }
   .posting-pace small { flex-basis:100%; }
 }
+.library-mobile-back { display:none; }
+@media (max-width:720px) {
+  .library-mobile-back { display:inline-flex; justify-self:start; }
+  .library-workspace.has-editor .library-toolbar,
+  .library-workspace.has-editor .library-list { display:none; }
+  .library-workspace.has-editor .library-layout { grid-template-columns:1fr; }
+  .library-workspace:not(.has-editor) .library-editor { display:none; }
+  .library-kind-picker { width:100%; overflow-x:auto; scrollbar-width:none; }
+  .library-kind-picker::-webkit-scrollbar { display:none; }
+  .library-kind-picker button { flex:0 0 auto; min-height:44px; }
+}
