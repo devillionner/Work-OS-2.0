@@ -96,3 +96,10 @@ void test('mobile topbar and drawer controls keep 44px touch targets', () => {
   assert.match(css, /\.mobile-menu \{[^}]*width: 44px;[^}]*height: 44px;/s);
   assert.match(css, /\.sidebar-close-mobile, \.timer-trigger \{ min-width:44px; min-height:44px; \}/);
 });
+
+void test('mobile workflow form controls keep 44px touch targets', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /\.telegram-break-settings select, \.telegram-account-manager \[data-slot="input"\], \.telegram-account-manager \[data-slot="button"\] \{ min-height:44px; \}/);
+  assert.match(css, /\.reports-editor-actions > button, \.reports-editor-actions > select, \.reports-editor-actions \[data-slot="input"\] \{ min-height:44px; \}/);
+  assert.match(css, /\.report-correction-fields select \{ min-height:44px; \}/);
+});
