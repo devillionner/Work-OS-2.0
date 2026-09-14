@@ -138,3 +138,12 @@ void test('Reports mobile flow keeps calendar, checkpoints, history and correcti
   assert.match(css, /\.report-history-dialog \[data-slot="button"\], \.report-correction-dialog \[data-slot="button"\][^}]*min-height:44px;/);
   for (const file of ['report-chat-correction.tsx','report-publication-correction.tsx','report-lesson-result-correction.tsx']) assert.match(text(join(componentsDir, file)), /<DialogContent className="report-correction-dialog">/);
 });
+
+void test('Library workspace uses scoped desktop and mobile interaction targets', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /\.library-kind-picker button \{ min-height: 42px;/);
+  assert.match(css, /\.library-search input \{ min-height:42px;/);
+  assert.match(css, /\.library-mobile-back \{ display:inline-flex; position:sticky; top:8px;[^}]*min-height:44px;/);
+  assert.match(css, /\.library-hero \[data-slot="button"\], \.library-toolbar > \[data-slot="button"\][^}]*min-height:44px;/);
+  assert.match(css, /\.library-history-dialog summary \{ min-height:44px;/);
+});
