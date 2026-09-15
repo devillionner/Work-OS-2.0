@@ -60,7 +60,8 @@ void test('compact calendar labels prioritize useful day context without changin
     date: '2026-09-08', workdayStatus: 'ended', activeSeconds: 3600,
     lessons: 2, lessonsPlanned: 1, lessonsCompleted: 1, lessonsCancelled: 0, lessonsNoShow: 0, followUps: 1, leadEvents: 3,
   };
-  assert.deepEqual(compactCalendarContextLabels('2026-09-08', context), ['План 1', 'Провед. 1', 'Контакт 1', 'Ліди 3']);
+  assert.deepEqual(compactCalendarContextLabels('2026-09-08', context), ['Пл. 1', 'Ур. 1', 'Пов. 1', 'Лід 3']);
   assert.deepEqual(calendarContextLabels('2026-09-08', context), ['Робочий', 'Заплановано уроків 1', 'Проведено уроків 1', 'Follow-up 1', 'Події лідів 3']);
-  assert.deepEqual(compactCalendarContextLabels('2026-09-12'), ['Вихідний']);
+  assert.deepEqual(compactCalendarContextLabels('2026-09-12'), ['Вих.']);
+  assert.deepEqual(compactCalendarContextLabels('2026-09-10', { ...context, lessons: 3, lessonsPlanned: 0, lessonsCompleted: 0, lessonsCancelled: 1, lessonsNoShow: 1, followUps: 0, leadEvents: 0 }), ['Ск. 1', 'Н/я 1', 'Ін. 1']);
 });
