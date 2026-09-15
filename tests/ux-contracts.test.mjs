@@ -409,3 +409,9 @@ void test('The five-step activity funnel stays one row on wide desktop without c
   assert.match(css, /\.funnel-grid\.is-five \{ grid-template-columns:repeat\(5,minmax\(0,1fr\)\); \}/);
   assert.match(css, /@media \(max-width: 1180px\)[\s\S]*\.funnel-grid, \.funnel-grid\.is-five \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); \}/);
 });
+
+void test('Today workday card adapts before the sidebar squeezes it at laptop widths', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  assert.match(css, /@media \(max-width:1500px\)[\s\S]*\.workday-card \{ display:grid; grid-template-columns:44px minmax\(0,1fr\);/);
+  assert.match(css, /@media \(max-width:1500px\)[\s\S]*\.workday-card > \.workday-actions \{ grid-column:1\/-1;/);
+});

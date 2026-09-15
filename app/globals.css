@@ -956,6 +956,8 @@ button:not([data-slot="button"]) { color: inherit; }
 @media (max-width:1500px) {
   .today-links > div { align-items:flex-start; flex-direction:column; gap:10px; }
   .today-link-actions { width:100%; }
+  .workday-card { display:grid; grid-template-columns:44px minmax(0,1fr); align-items:start; }
+  .workday-card > .workday-actions { grid-column:1/-1; width:100%; margin-left:0; justify-content:flex-start; }
 }
 
 /* Mobile platform workflow: thumb-friendly tabs and actions without a 2x2 queue wall. */
