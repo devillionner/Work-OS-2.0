@@ -5,5 +5,6 @@ declare namespace Cloudflare {
     GOOGLE_CLIENT_ID: string;
     OWNER_EMAIL: string;
     ALLOWED_GOOGLE_EMAILS?: string;
+    AUDIT_ACCESS_TOKEN?: string;
   }
 }
