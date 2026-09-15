@@ -326,3 +326,16 @@ void test('Empty Library uses one focused empty state instead of a redundant edi
   assert.match(css, /\.library-workspace\.is-empty \.library-layout \{ grid-template-columns:1fr; \}/);
   assert.match(css, /\.library-workspace\.is-empty \.library-editor \{ display:none; \}/);
 });
+
+void test('Release metadata stays synchronized and the change dialog has an opaque readable surface', () => {
+  const meta = text(join(root, 'lib', 'app-meta.ts'));
+  const dialog = text(join(componentsDir, 'app-release-dialog.tsx'));
+  const css = text(join(root, 'app', 'globals.css'));
+  const packageMeta = JSON.parse(text(join(root, 'package.json')));
+  const version = meta.match(/APP_VERSION = '([^']+)'/)?.[1];
+  assert.equal(version, packageMeta.version);
+  assert.match(meta, /APP_RELEASE_DATE = '\d{4}-\d{2}-\d{2}'/);
+  assert.match(dialog, /Intl\.DateTimeFormat\('uk-UA',[\s\S]*APP_RELEASE_DATE/);
+  assert.doesNotMatch(dialog, />11 вересня 2026<\/time>/);
+  assert.match(css, /\.app-release-dialog\[data-slot="dialog-content"\] \{[^}]*background:#fff;[^}]*color:var\(--foreground\);[^}]*box-shadow:/);
+});
