@@ -7,7 +7,17 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request): Promise<Response> {
   if (!enabled(request)) return notFound();
-  const failed = new URL(request.url).searchParams.get('error') === '1';
+  const url = new URL(request.url);
+  const token = (url.searchParams.get('token') || '').trim();
+
+  if (token) {
+    if (token.length > 256 || !(await secureTokenEqual(token, env.AUDIT_ACCESS_TOKEN || ''))) {
+      return redirect(request, '/audit-access?error=1');
+    }
+    return createAuditSession(request);
+  }
+
+  const failed = url.searchParams.get('error') === '1';
   return new Response(page(failed), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
@@ -32,6 +42,10 @@ export async function POST(request: Request): Promise<Response> {
   if (token.length > 256 || !(await secureTokenEqual(token, env.AUDIT_ACCESS_TOKEN || ''))) {
     return redirect(request, '/audit-access?error=1');
   }
+  return createAuditSession(request);
+}
+
+async function createAuditSession(request: Request): Promise<Response> {
   const ownerEmail = (env.OWNER_EMAIL || '').trim().toLowerCase();
   if (!ownerEmail) return new Response('Audit owner is not configured.', { status: 503 });
   const owner = await env.DB.prepare('SELECT id FROM users WHERE lower(email)=?1 LIMIT 1')
@@ -41,6 +55,8 @@ export async function POST(request: Request): Promise<Response> {
   const sessionToken = await createSession(owner.id);
   const response = redirect(request, '/');
   response.headers.set('Set-Cookie', sessionCookie(sessionToken, true));
+  response.headers.set('Cache-Control', 'no-store');
+  response.headers.set('Referrer-Policy', 'no-referrer');
   return response;
 }
 

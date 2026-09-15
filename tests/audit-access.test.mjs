@@ -25,3 +25,11 @@ void test('audit route requires a staging secret, same-origin POST and existing 
   assert.match(route, /createSession\(owner\.id\)/);
   assert.doesNotMatch(route, /INSERT INTO users/);
 });
+
+void test('audit GET link can authenticate without rendering a password form first', () => {
+  const route = readFileSync(new URL('../app/audit-access/route.ts', import.meta.url), 'utf8');
+  assert.match(route, /searchParams\.get\('token'\)/);
+  assert.match(route, /return createAuditSession\(request\)/);
+  assert.match(route, /Referrer-Policy', 'no-referrer'/);
+  assert.match(route, /Cache-Control', 'no-store'/);
+});
