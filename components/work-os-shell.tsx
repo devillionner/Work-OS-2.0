@@ -151,7 +151,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           <button className="mobile-menu" type="button" aria-label="Відкрити меню" onClick={(event) => openMobileMenu(event.currentTarget)}><Menu /></button>
           <div><p className="eyebrow">{todayLabel()}</p><h1 ref={pageHeadingRef} tabIndex={-1}>{activeLabel}</h1></div>
           <div className="account-block">
-            <GlobalTimers enabledPlatforms={snapshot.enabledPlatforms} />
+            <GlobalTimers enabledPlatforms={snapshot.enabledPlatforms} viewKey={activeView} />
             <div className="account-copy"><strong>{user.displayName}</strong><span>{user.email}</span></div>
             <Avatar><AvatarFallback>{initials(user.displayName)}</AvatarFallback></Avatar>
             <form method="post" action={signOutPath}>

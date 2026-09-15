@@ -9,7 +9,7 @@ type TimerItem={id:string;label:string;platform:string|null;telegramAccountId:st
 type Platform='telegram'|'whatsapp'|'viber'|'facebook'|'general';
 const platformOptions:Array<{key:Platform;label:string}>=[{key:'telegram',label:'Telegram'},{key:'whatsapp',label:'WhatsApp'},{key:'viber',label:'Viber'},{key:'facebook',label:'Facebook'},{key:'general',label:'Загальний'}];
 
-export function GlobalTimers({ enabledPlatforms }: { enabledPlatforms: string[] }) {
+export function GlobalTimers({ enabledPlatforms, viewKey }: { enabledPlatforms: string[]; viewKey?: string }) {
   const [open,setOpen]=useState(false);
   const [timers,setTimers]=useState<TimerItem[]>([]);
   const [selectedPlatform,setPlatform]=useState<Platform>('telegram');
@@ -18,6 +18,8 @@ export function GlobalTimers({ enabledPlatforms }: { enabledPlatforms: string[] 
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
   const announced=useRef(new Set<string>());
+  const containerRef=useRef<HTMLDivElement|null>(null);
+  const previousViewKey=useRef(viewKey);
   const audioContext=useRef<AudioContext|null>(null);
   const refresh=useRef(createRefreshGate(120_000));
   const revision=useRef(0);
@@ -54,10 +56,20 @@ export function GlobalTimers({ enabledPlatforms }: { enabledPlatforms: string[] 
     for(const timer of due) if(!announced.current.has(timer.id)){announced.current.add(timer.id);playAlarm(audioContext.current);setOpen(true);}
   },[timers,now]);
   useEffect(()=>{
+    if(previousViewKey.current===viewKey)return;
+    previousViewKey.current=viewKey;
+    setOpen(false);
+  },[viewKey]);
+  useEffect(()=>{
     if(!open)return;
     const closeOnEscape=(event:KeyboardEvent)=>{if(event.key==='Escape')setOpen(false);};
+    const closeOnOutside=(event:PointerEvent)=>{
+      const target=event.target;
+      if(target instanceof Node&&!containerRef.current?.contains(target))setOpen(false);
+    };
     window.addEventListener('keydown',closeOnEscape);
-    return()=>window.removeEventListener('keydown',closeOnEscape);
+    document.addEventListener('pointerdown',closeOnOutside);
+    return()=>{window.removeEventListener('keydown',closeOnEscape);document.removeEventListener('pointerdown',closeOnOutside);};
   },[open]);
 
   async function start(){
@@ -88,7 +100,7 @@ export function GlobalTimers({ enabledPlatforms }: { enabledPlatforms: string[] 
   const running=timers.filter(timer=>timer.status==='running'&&timer.endsAt>now);
   const completed=timers.filter(timer=>timer.status==='completed'||timer.endsAt<=now);
   const nearest=useMemo(()=>running.reduce<TimerItem|null>((best,timer)=>!best||timer.endsAt<best.endsAt?timer:best,null),[running]);
-  return <div className="global-timers">
+  return <div className="global-timers" ref={containerRef}>
     <button className={`timer-trigger ${completed.length?'has-alert':''}`} type="button" aria-expanded={open} aria-haspopup="dialog" aria-controls="global-timers-popover" onClick={()=>void toggleOpen()}><Clock3/><span>{nearest?formatDuration(nearest.endsAt-now):'Таймери'}</span>{timers.length>0&&<b>{timers.length}</b>}<ChevronDown/></button>
     {open&&<dialog open id="global-timers-popover" className="timer-popover" aria-labelledby="global-timers-title">
       <header><div><p className="eyebrow">Завжди під рукою</p><h2 id="global-timers-title">Таймери</h2></div><button type="button" aria-label="Закрити" onClick={()=>setOpen(false)}><X/></button></header>
