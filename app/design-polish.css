@@ -105,3 +105,29 @@
     max-width: 100%;
   }
 }
+
+/* Astra-confirmed mobile gaps: keep menu width and direct workflow controls finger-friendly. */
+@media (max-width: 720px) {
+  .mobile-menu {
+    min-width: 44px;
+    flex: 0 0 44px;
+  }
+
+  .platform-hero > [data-slot="button"],
+  .telegram-account-tabs > [data-slot="button"],
+  .telegram-break > [data-slot="button"],
+  .chat-main [data-slot="button"],
+  .workspace-error [data-slot="button"],
+  .chat-pagination [data-slot="button"],
+  .mobile-list-more [data-slot="button"],
+  .platform-workspace .reports-notice [data-slot="button"],
+  .lead-section-head > [data-slot="button"] {
+    min-height: 44px;
+  }
+
+  .chat-native-link {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+}
