@@ -424,3 +424,11 @@ void test('Timer UI recovers from transient network failures without exposing ra
   assert.match(timers, /Таймери синхронізуються автоматично після відновлення мережі/);
   assert.match(timers, /failed to fetch\|networkerror\|load failed/);
 });
+
+void test('Library mobile toolbar gives tabs their own row and keeps search usable', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  assert.match(css, /@media \(max-width:720px\)[\s\S]*\.library-toolbar \{ grid-template-columns:minmax\(0,1fr\) auto;/);
+  assert.match(css, /\.library-kind-picker \{ grid-column:1\/-1; min-width:0; \}/);
+  assert.match(css, /\.library-search \{ grid-column:1; min-width:0; \}/);
+  assert.match(css, /\.library-toolbar > \[data-slot="button"\] \{ grid-column:2; width:auto; justify-self:end; \}/);
+});
