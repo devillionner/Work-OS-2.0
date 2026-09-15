@@ -369,3 +369,28 @@ void test('Confirmed staging layout defects stay compact at intermediate widths'
   assert.match(schedule, /<details className="telegram-schedule"/);
   assert.match(css, /\.telegram-disclosure-summary/);
 });
+
+void test('Analytics trends have compact cards with separated labels and bounded charts', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  assert.match(css, /\.analytics-trend-grid \{ display:grid; grid-template-columns:repeat\(2,minmax\(0,1fr\)\); gap:12px; \}/);
+  assert.match(css, /\.analytics-trend-card > div \{[^}]*display:grid;[^}]*gap:4px/s);
+  assert.match(css, /\.analytics-trend-card svg \{[^}]*height:92px/s);
+  assert.match(css, /@media \(max-width: 1180px\)[\s\S]*\.analytics-trend-grid \{ grid-template-columns:1fr; \}/);
+});
+
+void test('Past booked lessons surface a clear result action without mutating funnel state automatically', () => {
+  const followUp = readFileSync(new URL('../components/leads/follow-up.tsx', import.meta.url), 'utf8');
+  const lessons = readFileSync(new URL('../components/leads/lessons.tsx', import.meta.url), 'utf8');
+  assert.match(followUp, /Минулий урок ще без результату/);
+  assert.match(followUp, /Зафіксуй результат, щоб воронка перейшла з «Запис» далі/);
+  assert.match(lessons, /const pastBooked = l\.status === 'booked' && l\.lessonDate < today/);
+  assert.match(lessons, /pastBooked \? 'Зафіксувати результат' : 'Результат \/ скасування'/);
+  assert.doesNotMatch(followUp, /mutate\('lesson_status'/);
+});
+
+void test('Dense report event sources scroll inside the disclosure instead of stretching the whole page', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  assert.match(css, /\.report-event-list ul \{[^}]*max-height:min\(48vh,440px\)[^}]*overflow:auto/s);
+  assert.match(css, /\.report-disclosure\[open\] > summary::after \{ content:'−'; \}/);
+  assert.doesNotMatch(css, /report-disclosure\[open\] > summary::after \{ content:'\?'/);
+});
