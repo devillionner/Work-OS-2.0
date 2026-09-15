@@ -1,3 +1,5 @@
+import { announceDataChange } from '@/lib/client-sync';
+
 type LeadVersion = { id: string; version: number };
 export type Pending = { key: string; body: string };
 // An uncertain response must be resolved with the original command, even if the
@@ -65,6 +67,7 @@ export function createCommandClient(
           `${result.error || 'Не вдалося зберегти.'}${names ? ` Збіги: ${names}.` : ''}`,
         );
       }
+      announceDataChange('leads');
       if (recovering)
         throw new Error(
           'Попереднє збереження підтверджено. Нову дію ще не виконано. Оновіть картку та перевірте дані перед повтором.',
