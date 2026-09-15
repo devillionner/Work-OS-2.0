@@ -1,9 +1,23 @@
+import { execFileSync } from 'node:child_process';
 import tailwindcss from '@tailwindcss/postcss';
 import vinext from 'vinext';
 import { defineConfig } from 'vite';
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === 'seatbelt';
+
+function resolveBuildId(): string {
+  const explicit = process.env.WORK_OS_BUILD_ID?.trim() || process.env.GITHUB_SHA?.trim();
+  if (explicit) return explicit;
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim() || 'development';
+  } catch {
+    return 'development';
+  }
+}
 
 export default defineConfig(async () => {
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
@@ -14,8 +28,12 @@ export default defineConfig(async () => {
 
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
   const { cloudflare } = await import('@cloudflare/vite-plugin');
+  const buildId = resolveBuildId();
 
   return {
+    define: {
+      __WORK_OS_BUILD_ID__: JSON.stringify(buildId),
+    },
     css: { postcss: { plugins: [tailwindcss()] } },
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
