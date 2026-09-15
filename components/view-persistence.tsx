@@ -19,7 +19,7 @@ export function ViewPersistence() {
   useLayoutEffect(() => {
     const observer = new MutationObserver((mutations) => {
       if (!mutations.some((mutation) => mutation.type === 'attributes' && mutation.attributeName === 'aria-current')) return;
-      void persistCurrentView();
+      persistCurrentView();
     });
     observer.observe(document.body, {
       subtree: true,
@@ -32,9 +32,9 @@ export function ViewPersistence() {
 
     if (saved && saved !== current) {
       const target = findViewButton(saved);
-      if (target) void target.click();
+      if (target) target.click();
     } else if (current) {
-      void persistCurrentView();
+      persistCurrentView();
     }
 
     return () => observer.disconnect();
