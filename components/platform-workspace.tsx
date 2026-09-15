@@ -37,6 +37,7 @@ const platforms: Array<{key:Platform;label:string;color:string}> = [
   {key:'telegram',label:'Telegram',color:'#2563eb'}, {key:'whatsapp',label:'WhatsApp',color:'#16a34a'},
   {key:'viber',label:'Viber',color:'#7c3aed'}, {key:'facebook',label:'Facebook',color:'#1877f2'},
 ];
+const MOBILE_LIST_CHUNK = 12;
 const queues: Array<{key:Queue;label:string}> = [
   {key:'to_join',label:'Для приєднання'}, {key:'waiting',label:'Очікування'},
   {key:'ready',label:'Для публікації'}, {key:'archived',label:'Архів'},
@@ -48,6 +49,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const [queue,setQueue] = useState<Queue>('to_join');
   const [search,setSearch] = useState('');
   const [profileFilter,setProfileFilter] = useState<ProfileFilter>('all');
+  const [mobileListState,setMobileListState] = useState({key:'',count:MOBILE_LIST_CHUNK});
   const [loadedData,setData] = useState<ResponseData|null>(null);
   const [undo,setUndo] = useState<UndoState|null>(null);
   const [bulkOpen,setBulkOpen]=useState(false);
@@ -87,6 +89,8 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const switchingList=loadedData!==null&&loadedData.requestKey!==requestKey;
   const data=switchingList?null:loadedData;
   const filterKey=`${platform}:${queue}:${search}:${profileFilter}`;
+  const mobileListKey=`${filterKey}:${offset}:${accountId||''}`;
+  const mobileVisibleChats=mobileListState.key===mobileListKey?mobileListState.count:MOBILE_LIST_CHUNK;
   const [previousFilter,setPreviousFilter]=useState(filterKey);
   if(previousFilter!==filterKey){setPreviousFilter(filterKey);setOffset(0);}
 
@@ -296,8 +300,9 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
         <Badge variant="secondary">{data?.total || 0} у черзі</Badge>
       </div>
       {error && <div className="workspace-error" role="alert">{error} <Button variant="outline" size="sm" disabled={loading||busy!==null} onClick={()=>void reloadChats.current()}>Оновити список</Button></div>}
-      {loading||switchingList ? <div className="workspace-loading"><LoaderCircle/>Завантажуємо {selected.label}…</div> : data?.chats.length ? <div className="chat-list">
-        {data.chats.map(chat=><article className={`chat-row ${lastOpenedByPlatform[platform]===chat.id?'is-last-opened':''}`} key={chat.id}>
+      {loading||switchingList ? <div className="workspace-loading"><LoaderCircle/>Завантажуємо {selected.label}…</div> : data?.chats.length ? <>
+        <div className="chat-list">
+        {data.chats.map((chat,index)=><article className={`chat-row ${lastOpenedByPlatform[platform]===chat.id?'is-last-opened':''} ${index>=mobileVisibleChats?'mobile-progressive-hidden':''}`} key={chat.id}>
           <div className="chat-main"><div className="chat-name-line"><strong>{chat.name}</strong>{lastOpenedByPlatform[platform]===chat.id&&<Badge variant="outline">Останній відкритий</Badge>}{!chat.profileConfirmed&&queue==='ready'&&<Badge variant="outline">Профіль пізніше</Badge>}{chat.publishedToday&&<Badge variant="secondary">Опубліковано сьогодні</Badge>}</div><button className="chat-native-link" type="button" onClick={()=>openChat(chat)}>{chat.link}</button>{chat.archiveReason&&<small>Причина: {chat.archiveReason}</small>}{queue==='archived'&&(platform==='telegram'||platform==='whatsapp')&&chat.joinedAt!==null&&<small>{chat.leftAt?`Вихід із чату підтверджено ${formatDateTime(chat.leftAt)}`:'Ще потрібно вручну вийти з чату й підтвердити це тут.'}</small>}{chat.snoozedUntil&&chat.snoozedUntil>clock/1000&&<small>Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{(queue==='waiting'||queue==='ready')&&shouldSuggestChatArchive(chat.snoozeCount)&&<div><small>Відкладали {chat.snoozeCount} рази. Якщо чат уже неактуальний, краще перенести його в архів.</small><Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>toggleArchive(chat.id)}><Archive data-icon="inline-start"/>Архівувати</Button></div>}{queue==='ready'&&!canPublish(chat,clock)&&<small className="wait-note"><Clock3/>Публікація буде доступна {formatDateTime(chat.availableAt!)}</small>}</div>
           <div className="chat-actions">
             <Button variant="ghost" size="icon" type="button" aria-label="Історія чату" title="Історія чату" onClick={()=>{setHistoryChat(chat);setHistoryOpenKey(value=>value+1);}} disabled={busy!==null}><History/></Button>
@@ -313,7 +318,9 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
           </div>
           {archiveId===chat.id&&<div className="archive-reasons"><span>Чому в архів?</span>{['Забанено','Чат не існує','Чат не цільовий'].map(reason=><button type="button" disabled={busy!==null} key={reason} onClick={()=>act(chat,'archive',{reason},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'})}>{reason}</button>)}<div className="archive-custom"><Input value={customArchiveReason} maxLength={100} disabled={busy!==null} aria-label="Власна причина архівації" placeholder="Інша причина" onChange={event=>setCustomArchiveReason(event.target.value)}/><Button disabled={busy!==null||!customArchiveReason.trim()} onClick={()=>act(chat,'archive',{reason:customArchiveReason.trim()},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'})}>Архівувати</Button></div></div>}
         </article>)}
-      </div>:<div className="workspace-empty"><MessageSquareEmpty/><strong>У цій черзі нічого немає</strong><p>Зміни платформу, чергу або очисть пошук.</p></div>}
+        </div>
+        {data.chats.length>mobileVisibleChats&&<div className="mobile-list-more"><Button type="button" variant="outline" onClick={()=>setMobileListState({key:mobileListKey,count:Math.min(mobileVisibleChats+MOBILE_LIST_CHUNK,data.chats.length)})}>Показати ще чати</Button></div>}
+      </>:<div className="workspace-empty"><MessageSquareEmpty/><strong>У цій черзі нічого немає</strong><p>Зміни платформу, чергу або очисть пошук.</p></div>}
       {!loading&&data&&data.total>50&&<div className="chat-pagination"><Button variant="outline" size="sm" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-50))}><ChevronLeft data-icon="inline-start"/>Назад</Button><span>{offset+1}–{Math.min(offset+50,data.total)} із {data.total}</span><Button variant="outline" size="sm" disabled={offset+50>=data.total} onClick={()=>setOffset(offset+50)}>Далі<ChevronRight data-icon="inline-end"/></Button></div>}
     </section>
   </div>;

@@ -1365,3 +1365,16 @@ body { background:var(--background); }
   .library-toolbar { grid-template-columns:1fr; align-items:stretch; }
   .library-search { max-width:none; }
 }
+
+/* Progressive disclosure keeps long one-pane work queues scannable without nested scrolling. */
+.mobile-list-more { display:none; }
+@media (max-width:1024px) {
+  .leads-list .mobile-progressive-hidden { display:none !important; }
+  .leads-list .mobile-list-more { display:flex; justify-content:center; padding:10px 0 2px; }
+  .leads-list .mobile-list-more [data-slot="button"] { width:100%; min-height:44px; }
+}
+@media (max-width:720px) {
+  .platform-browser .mobile-progressive-hidden { display:none !important; }
+  .platform-browser .mobile-list-more { display:flex; justify-content:center; padding:10px 0 2px; }
+  .platform-browser .mobile-list-more [data-slot="button"] { width:100%; min-height:44px; }
+}
