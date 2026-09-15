@@ -6,6 +6,7 @@ import {
   WorkdayError,
   endWorkday,
   pauseWorkday,
+  readWorkdaySnapshot,
   reopenWorkday,
   resumeWorkday,
   startWorkday,
@@ -14,6 +15,21 @@ import {
 const REQUEST_MAX_BYTES = 16 * 1024;
 
 type Body = Record<string, unknown>;
+
+export async function GET(): Promise<Response> {
+  const user = await getCurrentUser();
+  if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
+  const now = Math.floor(Date.now() / 1000);
+  const today = businessDate(now);
+  try {
+    return Response.json(
+      { workday: await readWorkdaySnapshot(env.DB, user.id, today, now), today },
+      { headers: { 'Cache-Control': 'no-store' } },
+    );
+  } catch (reason) {
+    return workdayError(reason);
+  }
+}
 
 export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
