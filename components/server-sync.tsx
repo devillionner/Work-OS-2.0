@@ -17,13 +17,17 @@ export function ServerSync() {
   const router = useRouter();
   const revisionRef = useRef<number | null>(null);
   const checkingRef = useRef(false);
+  const pendingLocalAckRef = useRef(false);
   const lastRefreshAt = useRef(0);
 
   const checkRevision = useCallback(async (
     reason: DataSyncDetail['reason'],
     acknowledgeOnly = false,
   ) => {
-    if (checkingRef.current) return;
+    if (checkingRef.current) {
+      if (acknowledgeOnly) pendingLocalAckRef.current = true;
+      return;
+    }
     if (typeof document === 'undefined') return;
     if (document.visibilityState !== 'visible' && reason === 'poll') return;
     if (document.querySelector('.app-update-backdrop')) return;
@@ -37,14 +41,19 @@ export function ServerSync() {
       if (!response.ok) return;
       const result = await response.json() as SyncResponse;
       if (!Number.isSafeInteger(result.revision)) return;
+
       const revision = Number(result.revision);
-      const previous = revisionRef.current;
+      const renderedRevision = readRenderedRevision();
+      const previous = revisionRef.current ?? renderedRevision;
+      const localAck = acknowledgeOnly || pendingLocalAckRef.current;
+      pendingLocalAckRef.current = false;
       revisionRef.current = revision;
 
-      // The first read establishes a baseline. A successful local write is
-      // already reflected optimistically in this tab, so only acknowledge its
-      // new revision here; sibling tabs/devices still refresh independently.
-      if (previous === null || acknowledgeOnly || revision === previous) return;
+      // The page exposes the revision used for its server render. This catches a
+      // write that lands between SSR and the first client poll instead of
+      // incorrectly accepting the newer server value as a baseline.
+      if (previous === null) return;
+      if (localAck || revision === previous) return;
 
       const now = Date.now();
       if (now - lastRefreshAt.current < MIN_REFRESH_GAP_MS) return;
@@ -98,4 +107,12 @@ export function ServerSync() {
   }, [checkRevision]);
 
   return null;
+}
+
+function readRenderedRevision(): number | null {
+  const raw = document.querySelector<HTMLElement>('[data-work-os-revision]')
+    ?.dataset.workOsRevision;
+  if (!raw) return null;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) ? value : null;
 }
