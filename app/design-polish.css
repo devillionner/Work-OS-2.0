@@ -1,0 +1,73 @@
+/* Screenshot-driven polish layered after the shared visual system. */
+.lead-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.lead-filters [data-slot="button"] {
+  width: 100%;
+  min-width: 0;
+  padding-inline: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.reports-editor-card [data-slot="textarea"] {
+  field-sizing: fixed;
+  height: clamp(280px, 40vh, 420px);
+  min-height: 280px;
+  max-height: 520px;
+  overflow-y: auto;
+  resize: vertical;
+  padding: 14px 16px;
+  border-color: #d8dde6;
+  background: #fbfcfe;
+  line-height: 1.55;
+}
+
+@media (max-width: 720px) {
+  .focus-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  .focus-heading { min-width: 0; }
+  .focus-actions { width: 100%; grid-template-columns: 1fr; }
+  .focus-actions [data-slot="button"] { width: 100%; }
+
+  .platform-picker {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+    overflow: visible;
+  }
+
+  .platform-picker button {
+    min-width: 0;
+    justify-content: center;
+    gap: 5px;
+    padding-inline: 7px;
+    font-size: 12px;
+  }
+
+  .lead-filters { gap: 6px; }
+  .lead-filters [data-slot="button"] { padding-inline: 6px; }
+
+  .reports-editor-card [data-slot="textarea"] {
+    height: 300px;
+    min-height: 260px;
+    padding: 13px 14px;
+  }
+}
+
+@media (max-width: 380px) {
+  .platform-picker {
+    display: flex;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .platform-picker::-webkit-scrollbar { display: none; }
+  .platform-picker button { flex: 0 0 auto; padding-inline: 9px; }
+}
