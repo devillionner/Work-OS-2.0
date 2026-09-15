@@ -833,7 +833,7 @@ button:not([data-slot="button"]) { color: inherit; }
 @media(max-width:600px) { .chat-bulk-dialog[data-slot="dialog-content"] { padding:18px 14px; } .chat-bulk-dialog .dialog-actions { flex-wrap:wrap; } .chat-bulk-dialog button,.chat-bulk-dialog input { min-height:44px; } .chat-bulk-item button { min-width:44px; } }
 @media(max-width:600px) { .chat-profile-dialog[data-slot="dialog-content"] { padding:18px 14px; } .chat-profile-grid { grid-template-columns:1fr; } .chat-profile-dialog button,.chat-profile-dialog input,.chat-profile-dialog select { min-height:44px; } }
 @media(max-width:600px) { .chat-publish-dialog[data-slot="dialog-content"] { padding:18px 14px; } .chat-publish-dialog button,.chat-publish-dialog input { min-height:44px; } .chat-publish-preview-head { align-items:flex-start; flex-direction:column; } }
-@media(max-width:1200px) { .lead-reminder-grid { grid-template-columns:1fr; } .leads-workspace { padding:clamp(20px,3vw,32px); } .leads-hero { display:grid; align-items:start; } }
+@media(max-width:1200px) { .lead-reminder-grid { grid-template-columns:1fr; } .leads-workspace { padding:clamp(20px,3vw,32px); } .leads-hero { display:grid; grid-template-columns:minmax(0,1fr); justify-content:stretch; align-items:start; } .leads-hero > [data-slot="button"] { justify-self:start; } }
 @media(max-width:1024px) {
   .leads-layout { grid-template-columns:1fr; gap:12px; }
   .leads-list { position:static; max-height:none; }
@@ -843,6 +843,7 @@ button:not([data-slot="button"]) { color: inherit; }
 }
 @media(max-width:800px) { .leads-workspace { padding:0 12px 100px; } .lead-panel { padding:16px; } }
 @media(max-width:480px) { .lead-form fieldset,.lead-facts { grid-template-columns:1fr; } .lead-messages li,.lead-messages li.from-me { margin:12px 0; } }
+@media(max-width:720px) { .leads-hero > [data-slot="button"] { width:100%; justify-self:stretch; } }
 @media(max-width:800px) {
   .leads-hero { align-items:start; }
   .leads-hero > [data-slot="button"], .lead-filters [data-slot="button"], .lead-actions [data-slot="button"], .lead-mobile-back, .leads-list [data-slot="input"], .lead-dialog [data-slot="input"], .lead-dialog [data-slot="textarea"], .lead-dialog [data-slot="native-select"], .lead-dialog [data-slot="button"] { min-height:44px; }

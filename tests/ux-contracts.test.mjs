@@ -463,3 +463,10 @@ void test('Selected lead heading keeps programmatic focus without the browser de
   assert.match(leads, /<h2 ref=\{heading\} tabIndex=\{-1\}>/);
   assert.match(css, /\.lead-summary h2:focus \{ outline:none; \}/);
 });
+
+void test('Leads hero uses the full responsive grid width and a full-width phone CTA', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  assert.match(css, /@media\(max-width:1200px\)[^\n]*\.leads-hero \{ display:grid; grid-template-columns:minmax\(0,1fr\); justify-content:stretch; align-items:start; \}/);
+  assert.match(css, /@media\(max-width:1200px\)[^\n]*\.leads-hero > \[data-slot="button"\] \{ justify-self:start; \}/);
+  assert.match(css, /@media\(max-width:720px\) \{ \.leads-hero > \[data-slot="button"\] \{ width:100%; justify-self:stretch; \} \}/);
+});
