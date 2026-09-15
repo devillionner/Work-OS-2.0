@@ -37,19 +37,22 @@ export function GlobalTimers({ enabledPlatforms, viewKey }: { enabledPlatforms: 
   const load=useCallback(async()=>{
     const expectedRevision=revision.current;
     const response=await fetch('/api/timers',{cache:'no-store',signal:AbortSignal.timeout(15_000)});
-    const body=await response.json() as {timers?:TimerItem[];serverNow?:number;error?:string};
+    const body=await response.json().catch(()=>({})) as {timers?:TimerItem[];serverNow?:number;error?:string};
     if(!response.ok) throw new Error(body.error||'Не вдалося завантажити таймери.');
     if(expectedRevision!==revision.current)return;
     setTimers(body.timers||[]);
+    setError('');
     if(body.serverNow){clockOffset.current=body.serverNow-Math.floor(Date.now()/1000);setNow(body.serverNow);}
   },[]);
   useEffect(()=>{
-    const sync=()=>void refresh.current(Date.now(),document.visibilityState==='visible'&&navigator.onLine&&!mutating.current,load).catch(reason=>setError(message(reason)));
+    const eligible=()=>document.visibilityState==='visible'&&navigator.onLine&&!mutating.current;
+    const sync=()=>void refresh.current(Date.now(),eligible(),load).catch(reason=>setError(message(reason)));
+    const recover=()=>void refresh.current(Date.now(),eligible(),load,true).catch(reason=>setError(message(reason)));
     const initial=window.setTimeout(sync,0);
     const tick=window.setInterval(()=>{setNow(Math.floor(Date.now()/1000)+clockOffset.current);sync();},1000);
-    document.addEventListener('visibilitychange',sync);
-    window.addEventListener('online',sync);
-    return()=>{clearTimeout(initial);clearInterval(tick);document.removeEventListener('visibilitychange',sync);window.removeEventListener('online',sync);revision.current+=1;};
+    document.addEventListener('visibilitychange',recover);
+    window.addEventListener('online',recover);
+    return()=>{clearTimeout(initial);clearInterval(tick);document.removeEventListener('visibilitychange',recover);window.removeEventListener('online',recover);revision.current+=1;};
   },[load]);
   useEffect(()=>{
     const due=timers.filter(timer=>timer.status==='completed'||timer.endsAt<=now);
@@ -80,7 +83,7 @@ export function GlobalTimers({ enabledPlatforms, viewKey }: { enabledPlatforms: 
       if(!audioContext.current)audioContext.current=new AudioContext();
       if(audioContext.current.state==='suspended')await audioContext.current.resume();
       const response=await fetch('/api/timers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'start',platform,durationMinutes:duration})});
-      const body=await response.json() as {timer?:TimerItem;error?:string};
+      const body=await response.json().catch(()=>({})) as {timer?:TimerItem;error?:string};
       if(!response.ok||!body.timer)throw new Error(body.error||'Не вдалося запустити таймер.');
       setTimers(current=>[body.timer!,...current]);setOpen(true);
     }catch(reason){setError(message(reason));}finally{mutating.current=false;setBusy(false)}
@@ -88,13 +91,15 @@ export function GlobalTimers({ enabledPlatforms, viewKey }: { enabledPlatforms: 
   async function toggleOpen(){
     if(!audioContext.current)audioContext.current=new AudioContext();
     if(audioContext.current.state==='suspended')await audioContext.current.resume().catch(()=>{});
-    setOpen(value=>!value);
+    const next=!open;
+    setOpen(next);
+    if(next&&navigator.onLine&&!mutating.current)void refresh.current(Date.now(),document.visibilityState==='visible',load,true).catch(reason=>setError(message(reason)));
   }
   async function dismiss(id:string){
     if(mutating.current)return;
     mutating.current=true;revision.current+=1;
     setBusy(true);setError('');
-    try{const response=await fetch('/api/timers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'dismiss',id})});const body=await response.json() as {error?:string};if(!response.ok)throw new Error(body.error||'Не вдалося закрити таймер.');setTimers(current=>current.filter(timer=>timer.id!==id));}
+    try{const response=await fetch('/api/timers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'dismiss',id})});const body=await response.json().catch(()=>({})) as {error?:string};if(!response.ok&&response.status!==409)throw new Error(body.error||'Не вдалося закрити таймер.');setTimers(current=>current.filter(timer=>timer.id!==id));setError('');}
     catch(reason){setError(message(reason));}finally{mutating.current=false;setBusy(false)}
   }
   const running=timers.filter(timer=>timer.status==='running'&&timer.endsAt>now);
@@ -117,5 +122,5 @@ function TimerRow({timer,now,completed=false,onDismiss}:{timer:TimerItem;now:num
   return <article className={`timer-row ${completed?'is-complete':''}`}><div className="timer-row-icon">{completed?<BellRing/>:<Clock3/>}</div><div><strong>{timer.label}</strong><span>{completed?'Час завершився':formatDuration(left)}</span><i><b style={{width:`${completed?100:progress}%`}}/></i></div><button type="button" onClick={onDismiss} aria-label={completed?'Підтвердити завершення':'Скасувати таймер'}>{completed?<Check/>:<X/>}</button></article>;
 }
 function formatDuration(seconds:number){const minutes=Math.floor(seconds/60);return `${String(minutes).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;}
-function message(reason:unknown){return reason instanceof Error?reason.message:'Сталася помилка.';}
+function message(reason:unknown){if(reason instanceof Error&&(reason.name==='TimeoutError'||reason.name==='AbortError'))return 'Сервер не відповідає. Таймери синхронізуються автоматично, щойно зв’язок відновиться.';if(reason instanceof Error&&/failed to fetch|networkerror|load failed/i.test(reason.message))return 'Немає зв’язку із сервером. Таймери синхронізуються автоматично після відновлення мережі.';return reason instanceof Error?reason.message:'Сталася помилка.';}
 function playAlarm(context:AudioContext|null){if(!context||context.state!=='running')return;const start=context.currentTime;[0,0.28,0.56].forEach(delay=>{const oscillator=context.createOscillator();const gain=context.createGain();oscillator.frequency.value=880;gain.gain.setValueAtTime(.0001,start+delay);gain.gain.exponentialRampToValueAtTime(.16,start+delay+.015);gain.gain.exponentialRampToValueAtTime(.0001,start+delay+.18);oscillator.connect(gain).connect(context.destination);oscillator.start(start+delay);oscillator.stop(start+delay+.2);});}

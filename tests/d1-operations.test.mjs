@@ -37,6 +37,8 @@ void test('one-second clock, hidden/offline state and errors cannot flood refres
   await refresh(240_000, false, action);
   await refresh(241_000, true, action);
   assert.equal(calls, 3);
+  await refresh(242_000, true, action, true);
+  assert.equal(calls, 4);
 });
 
 void test('slow refresh cannot overlap a later polling interval', async () => {
