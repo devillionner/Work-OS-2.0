@@ -1,4 +1,4 @@
-import { announceDataChange } from '@/lib/client-sync';
+import { announceDataChange } from '../../client-sync.ts';
 
 type LeadVersion = { id: string; version: number };
 export type Pending = { key: string; body: string };
