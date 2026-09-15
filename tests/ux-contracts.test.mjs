@@ -470,3 +470,9 @@ void test('Leads hero uses the full responsive grid width and a full-width phone
   assert.match(css, /@media\(max-width:1200px\)[^\n]*\.leads-hero > \[data-slot="button"\] \{ justify-self:start; \}/);
   assert.match(css, /@media\(max-width:720px\) \{ \.leads-hero > \[data-slot="button"\] \{ width:100%; justify-self:stretch; \} \}/);
 });
+
+void test('Mobile lead sublists stack actions and keep direct controls touch friendly', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.lead-simple-list li \{ align-items:stretch; flex-direction:column; gap:8px; \}/);
+  assert.match(css, /\.lead-simple-list > li > \[data-slot="button"\] \{ width:100%; min-height:44px; \}/);
+});

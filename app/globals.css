@@ -1380,3 +1380,9 @@ body { background:var(--background); }
   .platform-browser .mobile-list-more { display:flex; justify-content:center; padding:10px 0 2px; }
   .platform-browser .mobile-list-more [data-slot="button"] { width:100%; min-height:44px; }
 }
+
+/* Keep mobile lead sublists readable and touch-friendly. */
+@media (max-width: 720px) {
+  .lead-simple-list li { align-items:stretch; flex-direction:column; gap:8px; }
+  .lead-simple-list > li > [data-slot="button"] { width:100%; min-height:44px; }
+}
