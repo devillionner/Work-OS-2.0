@@ -71,3 +71,15 @@
   .platform-picker::-webkit-scrollbar { display: none; }
   .platform-picker button { flex: 0 0 auto; padding-inline: 9px; }
 }
+
+/* Calendar cells must shrink inside the desktop Reports column instead of bleeding into the editor. */
+.reports-weekdays,
+.reports-calendar-grid {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.reports-weekdays > *,
+.reports-calendar-grid > *,
+.report-day {
+  min-width: 0;
+}
+.report-day { overflow: hidden; }

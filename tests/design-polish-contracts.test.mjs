@@ -27,3 +27,9 @@ void test('normal mobile widths show all four platform tabs while very narrow wi
 void test('Reports uses a bounded scrollable editor instead of content-sized page growth', () => {
   assert.match(css, /\.reports-editor-card \[data-slot="textarea"\] \{[\s\S]*field-sizing: fixed;[\s\S]*max-height: 520px;[\s\S]*overflow-y: auto/);
 });
+
+void test('Reports calendar uses zero-min tracks so dense day labels cannot bleed into the editor', () => {
+  assert.match(css, /\.reports-weekdays,\s*\.reports-calendar-grid \{\s*grid-template-columns: repeat\(7, minmax\(0, 1fr\)\);/);
+  assert.match(css, /\.reports-calendar-grid > \*,\s*\.report-day \{\s*min-width: 0;/);
+  assert.match(css, /\.report-day \{ overflow: hidden; \}/);
+});
