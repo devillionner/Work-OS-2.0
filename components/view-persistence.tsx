@@ -17,16 +17,6 @@ type SavedView = keyof typeof VIEW_LABELS;
 
 export function ViewPersistence() {
   useLayoutEffect(() => {
-    const current = readCurrentView();
-    const saved = readSavedView();
-
-    if (saved && saved !== current) {
-      const target = findViewButton(saved);
-      target?.click();
-    }
-
-    persistCurrentView();
-
     const observer = new MutationObserver((mutations) => {
       if (!mutations.some((mutation) => mutation.type === 'attributes' && mutation.attributeName === 'aria-current')) return;
       persistCurrentView();
@@ -36,6 +26,16 @@ export function ViewPersistence() {
       attributes: true,
       attributeFilter: ['aria-current'],
     });
+
+    const current = readCurrentView();
+    const saved = readSavedView();
+
+    if (saved && saved !== current) {
+      const target = findViewButton(saved);
+      if (target) target.click();
+    } else if (current) {
+      persistCurrentView();
+    }
 
     return () => observer.disconnect();
   }, []);
