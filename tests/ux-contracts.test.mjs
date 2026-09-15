@@ -339,3 +339,33 @@ void test('Release metadata stays synchronized and the change dialog has an opaq
   assert.doesNotMatch(dialog, />11 вересня 2026<\/time>/);
   assert.match(css, /\.app-release-dialog\[data-slot="dialog-content"\] \{[^}]*background:#fff;[^}]*color:var\(--foreground\);[^}]*box-shadow:/);
 });
+
+void test('Primary buttons keep their foreground token instead of inheriting page text', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  const button = readFileSync(new URL('../components/ui/button.tsx', import.meta.url), 'utf8');
+  assert.match(css, /button:not\(\[data-slot="button"\]\) \{ color: inherit; \}/);
+  assert.doesNotMatch(css, /\nbutton \{ color: inherit; \}/);
+  assert.match(button, /bg-primary text-primary-foreground/);
+  assert.match(css, /--primary-foreground: #ffffff/);
+});
+
+void test('Dialog surfaces are opaque and lead dialogs expose readable modal chrome', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  const duplicates = readFileSync(new URL('../components/chat-duplicates-dialog.tsx', import.meta.url), 'utf8');
+  assert.match(css, /--color-popover: var\(--popover\)/);
+  assert.match(css, /--popover: #ffffff/);
+  assert.match(css, /\.lead-dialog \{[^}]*background:var\(--popover\)[^}]*box-shadow:/s);
+  assert.match(duplicates, /showCloseButton=\{busy===null\}/);
+});
+
+void test('Confirmed staging layout defects stay compact at intermediate widths', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  const warmup = readFileSync(new URL('../components/telegram-warmup.tsx', import.meta.url), 'utf8');
+  const schedule = readFileSync(new URL('../components/telegram-schedule.tsx', import.meta.url), 'utf8');
+  assert.match(css, /@media \(max-width:1500px\)[\s\S]*\.today-links > div \{ align-items:flex-start; flex-direction:column/);
+  assert.match(css, /@media \(max-width: 1180px\)[\s\S]*\.workday-card \{ display:grid; grid-template-columns:44px minmax\(0,1fr\)/);
+  assert.match(css, /\.queue-card:has\(\.queue-empty\) \{ align-self:start; \}/);
+  assert.match(warmup, /<details className="telegram-warmup"/);
+  assert.match(schedule, /<details className="telegram-schedule"/);
+  assert.match(css, /\.telegram-disclosure-summary/);
+});
