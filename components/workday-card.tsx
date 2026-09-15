@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Clock3, Pause, Play, Square } from 'lucide-react';
+import { Clock3, Pause, Play, RotateCcw, Square } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { WorkdaySnapshot } from '@/lib/workday';
@@ -40,7 +40,7 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
     : 0;
   const staleOpen = Boolean(workday && workday.status !== 'ended' && workday.workDate !== today);
 
-  async function mutate(action: 'start' | 'pause' | 'resume' | 'end', confirmIncomplete = false) {
+  async function mutate(action: 'start' | 'pause' | 'resume' | 'reopen' | 'end', confirmIncomplete = false) {
     if (busy) return;
     setBusy(true); setError('');
     try {
@@ -79,6 +79,7 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
         <p>Активний час: <strong>{formatDuration(seconds)}</strong></p>
         {staleOpen && <p className="muted-note">Відкритий день за {formatDate(workday!.workDate)}. Заверши його перед стартом нового.</p>}
         {confirmCount !== null && <p className="muted-note">Залишилося справ: {confirmCount}. Завершити день попри це?</p>}
+        {workday?.status === 'ended' && <p className="muted-note">Завершили випадково? Поверніть день — початковий старт і накопичений активний час збережуться.</p>}
         {workday?.workDate === today && <div className="workday-plan"><strong>План дня</strong><span>Записи: {dailyGoal} · місячна ціль: {monthlyGoal}</span><span>Фокус: {focusDirections.length ? focusDirections.join(', ') : 'без окремого напрямку'}</span></div>}
         {error && <p className="lead-error" role="alert">{error}</p>}
       </div>
@@ -91,7 +92,10 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
           <Button onClick={() => mutate('end', true)} disabled={busy}>Завершити попри {confirmCount}</Button>
           <Button variant="outline" onClick={() => setConfirmCount(null)} disabled={busy}>Не завершувати</Button>
         </>}
-        {workday?.status === 'ended' && <Badge variant="secondary">Завершено {formatTime(workday.endedAt)}</Badge>}
+        {workday?.status === 'ended' && <>
+          <Badge variant="secondary">Завершено {formatTime(workday.endedAt)}</Badge>
+          <Button variant="outline" onClick={() => mutate('reopen')} disabled={busy}><RotateCcw data-icon="inline-start" />Повернути день</Button>
+        </>}
       </div>
     </section>
   );
