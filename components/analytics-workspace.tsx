@@ -115,7 +115,7 @@ export function AnalyticsWorkspace() {
 
         <section className="analytics-card">
           <div className="card-heading"><div><p className="eyebrow">Активність за датою події</p><h3>Де втрачається результат</h3></div><Badge variant="outline">{formatRange(data.range.from, data.range.to)}</Badge></div>
-          <div className="funnel-grid">
+          <div className="funnel-grid is-five">
             <FunnelStep title="Приєднані чати" value={data.totals.joined} detail="старт" />
             <FunnelStep title="Публікації" value={data.totals.publications} detail={`${data.totals.publicationRate}% від приєднань`} />
             <FunnelStep title="Відгуки" value={data.totals.responses} detail={`${data.totals.responseRate}% конверсія`} />

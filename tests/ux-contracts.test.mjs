@@ -401,3 +401,11 @@ void test('Reports calendar does not stretch with a long editor and Settings too
   assert.match(css, /@media \(min-width:721px\) and \(max-width:1180px\)[\s\S]*\.settings-tool-row \{ grid-template-columns:38px minmax\(0,1fr\); align-items:start; \}/);
   assert.match(css, /@media \(max-width:720px\)[\s\S]*\.settings-tool-row \{ grid-template-columns:36px minmax\(0,1fr\);/);
 });
+
+void test('The five-step activity funnel stays one row on wide desktop without changing the four-step cohort funnel', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  const workspace = readFileSync(new URL('../components/analytics-workspace.tsx', import.meta.url), 'utf8');
+  assert.match(workspace, /className="funnel-grid is-five"[\s\S]*Приєднані чати/);
+  assert.match(css, /\.funnel-grid\.is-five \{ grid-template-columns:repeat\(5,minmax\(0,1fr\)\); \}/);
+  assert.match(css, /@media \(max-width: 1180px\)[\s\S]*\.funnel-grid, \.funnel-grid\.is-five \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); \}/);
+});
