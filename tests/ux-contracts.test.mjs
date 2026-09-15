@@ -476,3 +476,9 @@ void test('Mobile lead sublists stack actions and keep direct controls touch fri
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.lead-simple-list li \{ align-items:stretch; flex-direction:column; gap:8px; \}/);
   assert.match(css, /\.lead-simple-list > li > \[data-slot="button"\] \{ width:100%; min-height:44px; \}/);
 });
+
+void test('Mobile reminder disclosure and copy action keep 44px touch targets', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  assert.match(css, /\.lead-reminder details > summary \{ display:flex; align-items:center; min-height:44px; \}/);
+  assert.match(css, /\.lead-reminder details > \[data-slot="button"\] \{ width:100%; min-height:44px; margin-top:8px; \}/);
+});

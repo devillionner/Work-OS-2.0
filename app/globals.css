@@ -1386,3 +1386,9 @@ body { background:var(--background); }
   .lead-simple-list li { align-items:stretch; flex-direction:column; gap:8px; }
   .lead-simple-list > li > [data-slot="button"] { width:100%; min-height:44px; }
 }
+
+/* Reminder disclosure controls stay usable on touch screens. */
+@media (max-width: 720px) {
+  .lead-reminder details > summary { display:flex; align-items:center; min-height:44px; }
+  .lead-reminder details > [data-slot="button"] { width:100%; min-height:44px; margin-top:8px; }
+}
