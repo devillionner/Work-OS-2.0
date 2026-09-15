@@ -546,6 +546,9 @@ button { color: inherit; }
 .library-search input { min-height:42px; padding-left: 38px; }
 .library-layout { display: grid; grid-template-columns: minmax(260px,.8fr) minmax(0,1.4fr); gap: 18px; align-items: start; }
 .library-list, .library-editor { min-height: 420px; padding: 14px; }
+.library-workspace.is-empty .library-layout { grid-template-columns:1fr; }
+.library-workspace.is-empty .library-editor { display:none; }
+.library-workspace.is-empty .library-list { min-height:260px; }
 .library-item { min-height:64px; display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px; padding: 14px 12px; border: 0; border-bottom: 1px solid #eceef2; background: transparent; color: inherit; cursor: pointer; text-align: left; }
 .library-item:hover, .library-item.is-selected { background: #f5f7ff; }
 .library-item > span { min-width: 0; display: grid; gap: 5px; }
