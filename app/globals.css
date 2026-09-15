@@ -553,11 +553,11 @@ button:not([data-slot="button"]) { color: inherit; }
 .library-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 26px; background: linear-gradient(115deg,#fff 0%,#fff 58%,#eef2ff 100%); }
 .library-hero h2 { margin: 0; font-size: clamp(25px,3vw,34px); letter-spacing: -.035em; }
 .library-hero p:not(.eyebrow) { margin: 8px 0 0; color: var(--muted-foreground); }
-.library-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.library-toolbar { display:grid; grid-template-columns:auto minmax(240px,340px) auto; align-items:center; justify-content:start; gap:12px; }
 .library-kind-picker { display: flex; gap: 4px; padding: 4px; border-radius: 10px; background: #f1f3f7; }
 .library-kind-picker button { min-height: 42px; padding: 0 13px; border: 0; border-radius: 8px; background: transparent; color: #69707d; cursor: pointer; font-size: 12px; font-weight: 750; }
 .library-kind-picker button[aria-selected='true'] { background: #fff; color: #17191e; box-shadow: 0 1px 5px rgba(20,25,36,.1); }
-.library-search { position: relative; display: flex; align-items: center; width: min(420px,100%); }
+.library-search { position:relative; display:flex; align-items:center; width:100%; min-width:0; }
 .library-search svg { position: absolute; left: 12px; z-index: 1; width: 17px; color: var(--muted-foreground); }
 .library-search input { min-height:42px; padding-left: 38px; }
 .library-layout { display: grid; grid-template-columns: minmax(260px,.8fr) minmax(0,1.4fr); gap: 18px; align-items: start; }
@@ -1318,3 +1318,46 @@ body { background:var(--background); }
   .platform-browser .chat-list::-webkit-scrollbar-thumb,.analytics-chat-table::-webkit-scrollbar-thumb { border:3px solid transparent; border-radius:999px; background:#c4cad5; background-clip:padding-box; }
 }
 .reports-editor-actions { flex-wrap:wrap; justify-content:flex-end; }
+
+/* Dense-state action hierarchy polish. */
+.lead-contact-actions { justify-content:space-between; gap:10px 16px; padding-top:12px; border-top:1px solid #edf0f4; }
+.lead-action-primary,.lead-action-utility { display:flex; align-items:center; flex-wrap:wrap; gap:7px; }
+.lead-action-utility { margin-left:auto; }
+.lead-action-utility [data-slot="button"] { color:#5f6878; box-shadow:none; }
+.lead-action-utility [data-slot="button"]:hover { background:#f2f4f7; color:#20242d; box-shadow:none; }
+.lead-action-utility .lead-archive-action { color:#a63a3a; }
+.lead-action-utility .lead-archive-action:hover { background:#fff1f1; color:#8f2525; }
+.lead-action-utility .lead-restore-action { color:#217451; }
+.lead-action-utility .lead-restore-action:hover { background:#edf9f2; color:#175d40; }
+.lead-contact-actions > output:not(:empty) { flex-basis:100%; padding:8px 10px; border-radius:9px; background:#eef8f2; color:#236846; font-size:12px; }
+.leads-list { scrollbar-width:thin; scrollbar-color:#c7ccd6 transparent; }
+
+.reports-hero-actions { display:grid; gap:8px; justify-items:end; }
+.reports-external-actions,.reports-date-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:7px; }
+.reports-external-actions .report-form-link { min-height:36px; border-color:#d9dee7; border-radius:10px; background:#fff; color:#313744; box-shadow:0 1px 2px rgb(20 25 36 / .03); }
+.reports-external-actions .report-form-link:hover { border-color:#cbd3e0; background:#f7f9fc; }
+.reports-date-actions [data-slot="button"] { box-shadow:none; }
+
+@media (max-width:800px) {
+  .lead-contact-actions { align-items:stretch; flex-direction:column; }
+  .lead-action-primary,.lead-action-utility { width:100%; }
+  .lead-action-primary [data-slot="button"] { flex:1 1 160px; }
+  .lead-action-utility { margin-left:0; }
+  .lead-action-utility [data-slot="button"] { flex:1 1 100px; }
+}
+@media (max-width:720px) {
+  .reports-hero-actions { width:100%; justify-items:stretch; }
+  .reports-external-actions,.reports-date-actions { display:grid; grid-template-columns:1fr 1fr; }
+  .reports-external-actions .report-form-link,.reports-date-actions [data-slot="button"] { width:100%; min-height:44px; }
+}
+
+/* Dense-state pass: keep utility overlays transient and Library controls visually grouped. */
+@media (min-width:1025px) {
+  .timer-popover { width:min(360px,calc(100vw - 24px)); }
+  .timer-empty { min-height:72px; }
+  .library-toolbar { padding:2px 0; }
+}
+@media (max-width:1180px) and (min-width:721px) {
+  .library-toolbar { grid-template-columns:1fr; align-items:stretch; }
+  .library-search { max-width:none; }
+}

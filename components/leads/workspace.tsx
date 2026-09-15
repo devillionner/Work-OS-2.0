@@ -293,28 +293,35 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                 {current.lead.duplicateState !== 'none' && (
                   <p>Дублікат: {labels[current.lead.duplicateState]}</p>
                 )}
-                <div className="lead-actions">
-                  <Button
-                    variant="outline"
-                    disabled={current.lead.archivedAt !== null}
-                    onClick={() => setEditor('update')}
-                  >
-                    Редагувати контакт
-                  </Button>
-                  <Button variant="ghost" onClick={() => setArchive(true)}>
-                    {current.lead.archivedAt !== null
-                      ? 'Відновити'
-                      : 'Архівувати'}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={current.lead.archivedAt !== null}
-                    onClick={() => setResponseChange(true)}
-                  >
-                    {current.lead.responseCancelledAt === null ? 'Скасувати відгук' : 'Відновити відгук'}
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setHistoryOpen(true)}>Історія</Button>
-                  <Button variant="ghost" size="sm" onClick={reload}>Оновити</Button>
+                <div className="lead-actions lead-contact-actions">
+                  <div className="lead-action-primary">
+                    <Button
+                      variant="outline"
+                      disabled={current.lead.archivedAt !== null}
+                      onClick={() => setEditor('update')}
+                    >
+                      Редагувати контакт
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={current.lead.archivedAt !== null}
+                      onClick={() => setResponseChange(true)}
+                    >
+                      {current.lead.responseCancelledAt === null ? 'Скасувати відгук' : 'Відновити відгук'}
+                    </Button>
+                  </div>
+                  <div className="lead-action-utility">
+                    <Button variant="ghost" size="sm" onClick={() => setHistoryOpen(true)}>Історія</Button>
+                    <Button variant="ghost" size="sm" onClick={reload}>Оновити</Button>
+                    <Button
+                      className={current.lead.archivedAt !== null ? 'lead-restore-action' : 'lead-archive-action'}
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setArchive(true)}
+                    >
+                      {current.lead.archivedAt !== null ? 'Відновити' : 'Архівувати'}
+                    </Button>
+                  </div>
                   <output>{notice}</output>
                 </div>
               </section>
