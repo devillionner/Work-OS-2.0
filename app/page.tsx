@@ -3,6 +3,7 @@ import { GoogleSignIn } from '@/components/google-sign-in';
 import { WorkOsShell } from '@/components/work-os-shell';
 import { getCurrentUser } from '@/lib/auth';
 import { getDashboardSnapshot } from '@/lib/dashboard';
+import { readSyncRevision } from '@/lib/sync-revision';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,12 +11,16 @@ export default async function Home() {
   const user = await getCurrentUser();
 
   if (user) {
-    const snapshot = await getDashboardSnapshot(user.id);
+    const [snapshot, syncRevision] = await Promise.all([
+      getDashboardSnapshot(user.id),
+      readSyncRevision(env.DB, user.id),
+    ]);
     return (
       <WorkOsShell
         user={{ displayName: user.displayName, email: user.email }}
         signOutPath="/api/auth/logout"
         snapshot={snapshot}
+        syncRevision={syncRevision}
       />
     );
   }
