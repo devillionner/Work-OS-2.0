@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Clock3, Pause, Play, RotateCcw, Square } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,19 +15,27 @@ type Props = {
   focusDirections: string[];
 };
 
-type MutationResponse = {
-  workday?: WorkdaySnapshot;
+type WorkdayResponse = {
+  workday?: WorkdaySnapshot | null;
+  today?: string;
   error?: string;
   requiresConfirmation?: boolean;
   unfinishedCount?: number;
 };
 
+const SYNC_INTERVAL_MS = 5_000;
+const SYNC_CHANNEL = 'work-os-workday';
+
 export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthlyGoal, focusDirections }: Props) {
   const [workday, setWorkday] = useState(initial);
+  const [currentToday, setCurrentToday] = useState(today);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [confirmCount, setConfirmCount] = useState<number | null>(null);
+  const busyRef = useRef(false);
+  const syncGeneration = useRef(0);
+  const channelRef = useRef<BroadcastChannel | null>(null);
 
   useEffect(() => {
     if (workday?.status !== 'active') return;
@@ -35,52 +43,131 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
     return () => window.clearInterval(timer);
   }, [workday?.status]);
 
+  const refreshWorkday = useCallback(async () => {
+    if (busyRef.current) return;
+    const generation = syncGeneration.current;
+    try {
+      const response = await fetch('/api/workday', {
+        method: 'GET',
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) return;
+      const result = await response.json() as WorkdayResponse;
+      if (generation !== syncGeneration.current || busyRef.current) return;
+      const next = result.workday ?? null;
+      setWorkday(next);
+      setCurrentToday(result.today || today);
+      setNow(next?.asOf ?? Math.floor(Date.now() / 1000));
+    } catch {
+      // A temporary background sync failure must not interrupt the running timer UI.
+    }
+  }, [today]);
+
+  useEffect(() => {
+    void refreshWorkday();
+    const onFocus = () => void refreshWorkday();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void refreshWorkday();
+    };
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refreshWorkday();
+    }, SYNC_INTERVAL_MS);
+
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    let channel: BroadcastChannel | null = null;
+    if ('BroadcastChannel' in window) {
+      channel = new BroadcastChannel(SYNC_CHANNEL);
+      channelRef.current = channel;
+      channel.onmessage = () => void refreshWorkday();
+    }
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+      channel?.close();
+      if (channelRef.current === channel) channelRef.current = null;
+    };
+  }, [refreshWorkday]);
+
   const seconds = workday
     ? workday.activeSeconds + (workday.status === 'active' ? Math.max(0, now - workday.asOf) : 0)
     : 0;
-  const staleOpen = Boolean(workday && workday.status !== 'ended' && workday.workDate !== today);
+  const staleOpen = Boolean(workday && workday.status !== 'ended' && workday.workDate !== currentToday);
+  const showPlan = !workday || workday.workDate === currentToday;
 
   async function mutate(action: 'start' | 'pause' | 'resume' | 'reopen' | 'end', confirmIncomplete = false) {
-    if (busy) return;
-    setBusy(true); setError('');
+    if (busyRef.current) return;
+    busyRef.current = true;
+    syncGeneration.current += 1;
+    setBusy(true);
+    setError('');
+    let refreshAfter = false;
     try {
       const payload: Record<string, unknown> = { action };
       if (workday && action !== 'start') Object.assign(payload, {
-        id: workday.id, workDate: workday.workDate,
-        expectedVersion: workday.version, confirmIncomplete,
+        id: workday.id,
+        workDate: workday.workDate,
+        expectedVersion: workday.version,
+        confirmIncomplete,
       });
       const response = await fetch('/api/workday', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const result = await response.json() as MutationResponse;
+      const result = await response.json() as WorkdayResponse;
       if (!response.ok) {
         if (result.requiresConfirmation) {
           setConfirmCount(result.unfinishedCount ?? unfinishedCount);
           return;
         }
+        refreshAfter = response.status === 409;
         throw new Error(result.error || 'Не вдалося оновити робочий день.');
       }
       if (!result.workday) throw new Error('Сервер не повернув стан робочого дня.');
+      syncGeneration.current += 1;
       setWorkday(result.workday);
       setNow(result.workday.asOf);
       setConfirmCount(null);
+      channelRef.current?.postMessage({ type: 'workday-changed', version: result.workday.version });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не вдалося оновити робочий день.');
-    } finally { setBusy(false); }
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+      if (refreshAfter) void refreshWorkday();
+    }
   }
 
+  const status = workday?.status ?? 'idle';
+  const statusText = !workday
+    ? 'Готово до старту'
+    : workday.status === 'active'
+      ? 'Триває'
+      : workday.status === 'paused'
+        ? 'Пауза'
+        : `Завершено ${formatTime(workday.endedAt)}`;
+
   return (
-    <section className="workday-card" aria-labelledby="workday-title">
+    <section className={`workday-card workday-card--${status}`} data-workday-status={status} aria-labelledby="workday-title">
       <div className="workday-icon"><Clock3 /></div>
-      <div>
-        <p className="eyebrow">Робочий день</p>
-        <h2 id="workday-title">{workday ? statusLabel(workday.status) : 'Ще не розпочато'}</h2>
-        <p>Активний час: <strong>{formatDuration(seconds)}</strong></p>
+      <div className="workday-main">
+        <div className="workday-heading">
+          <div className="workday-heading-copy">
+            <p className="eyebrow">Робочий день</p>
+            <h2 id="workday-title">{workday ? statusLabel(workday.status) : 'Ще не розпочато'}</h2>
+          </div>
+          <Badge className="workday-status" variant="secondary" aria-live="polite">{statusText}</Badge>
+        </div>
+        <p className="workday-time">Активний час: <strong>{formatDuration(seconds)}</strong></p>
         {staleOpen && <p className="muted-note">Відкритий день за {formatDate(workday!.workDate)}. Заверши його перед стартом нового.</p>}
         {confirmCount !== null && <p className="muted-note">Залишилося справ: {confirmCount}. Завершити день попри це?</p>}
         {workday?.status === 'ended' && <p className="muted-note">Завершили випадково? Поверніть день — початковий старт і накопичений активний час збережуться.</p>}
-        {workday?.workDate === today && <div className="workday-plan"><strong>План дня</strong><span>Записи: {dailyGoal} · місячна ціль: {monthlyGoal}</span><span>Фокус: {focusDirections.length ? focusDirections.join(', ') : 'без окремого напрямку'}</span></div>}
+        {showPlan && <div className="workday-plan"><strong>План дня</strong><span>Записи: {dailyGoal} · місячна ціль: {monthlyGoal}</span><span>Фокус: {focusDirections.length ? focusDirections.join(', ') : 'без окремого напрямку'}</span></div>}
         {error && <p className="lead-error" role="alert">{error}</p>}
       </div>
       <div className="workday-actions">
@@ -92,10 +179,7 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
           <Button onClick={() => mutate('end', true)} disabled={busy}>Завершити попри {confirmCount}</Button>
           <Button variant="outline" onClick={() => setConfirmCount(null)} disabled={busy}>Не завершувати</Button>
         </>}
-        {workday?.status === 'ended' && <>
-          <Badge variant="secondary">Завершено {formatTime(workday.endedAt)}</Badge>
-          <Button variant="outline" onClick={() => mutate('reopen')} disabled={busy}><RotateCcw data-icon="inline-start" />Повернути день</Button>
-        </>}
+        {workday?.status === 'ended' && <Button variant="outline" onClick={() => mutate('reopen')} disabled={busy}><RotateCcw data-icon="inline-start" />Повернути день</Button>}
       </div>
     </section>
   );
