@@ -104,6 +104,22 @@ export async function endWorkday(db: D1Database, args: MutationArgs) {
   return required(await readById(db, args.userId, args.id, args.now));
 }
 
+export async function reopenWorkday(db: D1Database, args: MutationArgs) {
+  const sql = 'UP' + `DATE workdays SET
+    status='active',active_since=ended_at,paused_at=NULL,ended_at=NULL,
+    updated_at=?5,version=version+1
+    WHERE id=?1 AND user_id=?2 AND work_date=?3 AND version=?4
+      AND status='ended' AND ended_at IS NOT NULL`;
+  try {
+    const result = await db.prepare(sql)
+      .bind(args.id, args.userId, args.workDate, args.expectedVersion, args.now).run();
+    changed(result, 'Робочий день уже повернено або він змінився.');
+  } catch (error) {
+    throw conflict(error, 'Не можна повернути цей день, поки відкритий інший робочий день.');
+  }
+  return required(await readById(db, args.userId, args.id, args.now));
+}
+
 async function readById(db: D1Database, userId: string, id: string, now: number) {
   const row = await db.prepare(`SELECT id,work_date,status,started_at,active_since,paused_at,
       ended_at,active_seconds,version FROM workdays WHERE id=?1 AND user_id=?2 LIMIT 1`)
