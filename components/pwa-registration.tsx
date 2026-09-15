@@ -20,6 +20,8 @@ const BUILD_POLL_MS = 30_000;
 const UPDATE_CHANNEL = 'work-os-release';
 const PENDING_BUILD_KEY = 'work-os:pending-build';
 const UPDATE_SCROLL_KEY = 'work-os:update-scroll';
+const UPDATE_VIEW_KEY = 'work-os:update-view';
+const VIEW_LABELS = ['Сьогодні', 'Платформи', 'Ліди', 'Аналітика', 'Звіти', 'Бібліотека', 'Налаштування'] as const;
 
 const initialState: UpdateState = {
   phase: 'idle',
@@ -33,10 +35,12 @@ export function PwaRegistration() {
   const [update, setUpdate] = useState<UpdateState>(initialState);
   const applying = useRef(false);
   const detectedAt = useRef(0);
+  const targetBuildRef = useRef('');
   const channelRef = useRef<BroadcastChannel | null>(null);
 
   const markAvailable = useCallback((targetBuildId: string, version = '', broadcast = true) => {
     if (!targetBuildId || targetBuildId === APP_BUILD_ID || applying.current) return;
+    targetBuildRef.current = targetBuildId;
     detectedAt.current = Date.now();
     setUpdate((current) => current.phase === 'updating' || current.phase === 'finishing'
       ? current
@@ -62,20 +66,16 @@ export function PwaRegistration() {
   }, [markAvailable]);
 
   const applyUpdate = useCallback(async () => {
-    let targetBuildId = '';
-    setUpdate((current) => {
-      targetBuildId = current.targetBuildId;
-      return current.targetBuildId
-        ? { ...current, phase: 'updating', deferred: false, step: 1 }
-        : current;
-    });
+    const targetBuildId = targetBuildRef.current;
     if (!targetBuildId || applying.current) return;
     applying.current = true;
+    setUpdate((current) => ({ ...current, phase: 'updating', deferred: false, step: 1 }));
 
     try {
       sessionStorage.setItem(PENDING_BUILD_KEY, targetBuildId);
       sessionStorage.setItem(UPDATE_SCROLL_KEY, JSON.stringify({ x: window.scrollX, y: window.scrollY }));
-      setUpdate((current) => ({ ...current, step: 1 }));
+      const activeView = readActiveViewLabel();
+      if (activeView) sessionStorage.setItem(UPDATE_VIEW_KEY, activeView);
 
       if ('serviceWorker' in navigator) {
         const registration = await navigator.serviceWorker.getRegistration('/');
@@ -101,19 +101,26 @@ export function PwaRegistration() {
     if (!pending || pending !== APP_BUILD_ID) return;
 
     applying.current = true;
+    targetBuildRef.current = pending;
     setUpdate({ phase: 'finishing', targetBuildId: pending, version: '', deferred: false, step: 3 });
     const scroll = readSavedScroll();
-    const frame = requestAnimationFrame(() => {
-      if (scroll) window.scrollTo({ left: scroll.x, top: scroll.y, behavior: 'auto' });
+    const savedView = sessionStorage.getItem(UPDATE_VIEW_KEY);
+    let cancelled = false;
+
+    void restoreActiveView(savedView).then(() => {
+      if (!cancelled && scroll) window.scrollTo({ left: scroll.x, top: scroll.y, behavior: 'auto' });
     });
+
     const timer = window.setTimeout(() => {
       sessionStorage.removeItem(PENDING_BUILD_KEY);
       sessionStorage.removeItem(UPDATE_SCROLL_KEY);
+      sessionStorage.removeItem(UPDATE_VIEW_KEY);
       applying.current = false;
+      targetBuildRef.current = '';
       setUpdate(initialState);
-    }, 900);
+    }, 1_000);
     return () => {
-      cancelAnimationFrame(frame);
+      cancelled = true;
       window.clearTimeout(timer);
     };
   }, []);
@@ -226,7 +233,7 @@ export function PwaRegistration() {
           </ol>
         )}
         {isError && <Button onClick={() => void applyUpdate()}><RefreshCw data-icon="inline-start" />Спробувати ще раз</Button>}
-        <small className="app-update-note">Поточний маршрут збережеться автоматично.</small>
+        <small className="app-update-note">Поточний розділ і позиція сторінки збережуться автоматично.</small>
       </div>
     </div>
   );
@@ -237,6 +244,31 @@ function isEditing(): boolean {
   if (!element) return false;
   if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) return true;
   return element instanceof HTMLElement && element.isContentEditable;
+}
+
+function readActiveViewLabel(): string | null {
+  const current = document.querySelector<HTMLElement>('.nav-item[aria-current="page"]');
+  if (!current) return null;
+  const title = current.getAttribute('title') || '';
+  const text = `${title} ${current.textContent || ''}`;
+  return VIEW_LABELS.find((label) => text.includes(label)) || null;
+}
+
+async function restoreActiveView(savedView: string | null): Promise<void> {
+  if (!savedView || savedView === 'Сьогодні') return;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.nav-item'));
+    const target = buttons.find((button) => {
+      const text = `${button.getAttribute('title') || ''} ${button.textContent || ''}`;
+      return text.includes(savedView);
+    });
+    if (target) {
+      target.click();
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+      return;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+  }
 }
 
 function readSavedScroll(): { x: number; y: number } | null {
