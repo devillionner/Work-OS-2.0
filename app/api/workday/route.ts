@@ -6,6 +6,7 @@ import {
   WorkdayError,
   endWorkday,
   pauseWorkday,
+  reopenWorkday,
   resumeWorkday,
   startWorkday,
 } from '@/lib/workday';
@@ -35,6 +36,7 @@ export async function POST(request: Request): Promise<Response> {
     const args = { userId: user.id, id, workDate, expectedVersion, now };
     if (action === 'pause') return Response.json({ workday: await pauseWorkday(env.DB, args) });
     if (action === 'resume') return Response.json({ workday: await resumeWorkday(env.DB, args) });
+    if (action === 'reopen') return Response.json({ workday: await reopenWorkday(env.DB, args) });
     if (action === 'end') {
       const dashboard = await readDashboardSnapshot(env.DB, user.id, now);
       if (dashboard.leadTaskCount > 0 && body.confirmIncomplete !== true) {
