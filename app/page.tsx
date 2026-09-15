@@ -15,14 +15,15 @@ export default async function Home() {
       getDashboardSnapshot(user.id),
       readSyncRevision(env.DB, user.id),
     ]);
-    return (
+    return <>
+      <span hidden data-work-os-revision={syncRevision} />
       <WorkOsShell
         user={{ displayName: user.displayName, email: user.email }}
         signOutPath="/api/auth/logout"
         snapshot={snapshot}
         syncRevision={syncRevision}
       />
-    );
+    </>;
   }
 
   return (
