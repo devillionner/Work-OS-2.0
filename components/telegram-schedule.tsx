@@ -149,11 +149,12 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
   }
 
   if(!accountId)return null;
-  return <><ConfirmDialog open={clearConfirm} title="Очистити невиконані слоти?" description={`Буде видалено ${data?.pending||0} невиконаних слотів лише цього Telegram-акаунта. Виконані слоти залишаться в історії.`} confirmLabel="Очистити слоти" destructive busy={busy} onCancel={()=>setClearConfirm(false)} onConfirm={()=>void clearPending()}/><TelegramWarmup accountId={accountId}/><section className="telegram-schedule" aria-label="Telegram-розклад">
-    <div className="card-heading">
-      <div><p className="eyebrow">Telegram-розклад</p><h3>План публікацій</h3><p>Окремий розклад для поточного Telegram ID.</p></div>
+  return <><ConfirmDialog open={clearConfirm} title="Очистити невиконані слоти?" description={`Буде видалено ${data?.pending||0} невиконаних слотів лише цього Telegram-акаунта. Виконані слоти залишаться в історії.`} confirmLabel="Очистити слоти" destructive busy={busy} onCancel={()=>setClearConfirm(false)} onConfirm={()=>void clearPending()}/><TelegramWarmup accountId={accountId}/><details className="telegram-schedule" aria-label="Telegram-розклад">
+    <summary className="telegram-disclosure-summary">
+      <div><strong>План публікацій</strong><small>{data?.nextSlot?`Наступна: ${formatTime(data.nextSlot.scheduledAt)} · ${data.nextSlot.chatName||'призначити чат'}`:'Окремий розклад для поточного Telegram ID'}</small></div>
       <div className="telegram-schedule-summary"><Badge variant="secondary">{data?.completed||0}/{total}</Badge><span>{progress}%</span></div>
-    </div>
+    </summary>
+    <div className="telegram-disclosure-body">
     {error&&<div className="workspace-error" role="alert">{error}</div>}
     {loading&&!data?<div className="workspace-loading"><LoaderCircle/>Завантажуємо розклад…</div>:null}
     {data&&<>
@@ -203,7 +204,8 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
         {!data.slots.length&&<p className="muted-note">Розклад ще не створено.</p>}
       </div>
     </>}
-  </section></>;
+    </div>
+  </details></>;
 }
 
 function formatNumber(value:number){return Number(value.toFixed(6)).toString();}
