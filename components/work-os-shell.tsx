@@ -31,6 +31,7 @@ type WorkOsShellProps = {
   user: { displayName: string; email: string };
   signOutPath: string;
   snapshot: DashboardSnapshot;
+  syncRevision: number;
 };
 
 const navigation = [
@@ -44,7 +45,7 @@ const navigation = [
 
 type ViewKey = (typeof navigation)[number]['key'] | 'settings';
 
-export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
+export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkOsShellProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const mobileCloseRef = useRef<HTMLButtonElement>(null);
@@ -151,7 +152,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
           <button className="mobile-menu" type="button" aria-label="Відкрити меню" onClick={(event) => openMobileMenu(event.currentTarget)}><Menu /></button>
           <div><p className="eyebrow">{todayLabel()}</p><h1 ref={pageHeadingRef} tabIndex={-1}>{activeLabel}</h1></div>
           <div className="account-block">
-            <GlobalTimers enabledPlatforms={snapshot.enabledPlatforms} viewKey={activeView} />
+            <GlobalTimers key={`timers:${syncRevision}`} enabledPlatforms={snapshot.enabledPlatforms} viewKey={activeView} />
             <div className="account-copy"><strong>{user.displayName}</strong><span>{user.email}</span></div>
             <Avatar><AvatarFallback>{initials(user.displayName)}</AvatarFallback></Avatar>
             <form method="post" action={signOutPath}>
@@ -199,7 +200,7 @@ export function WorkOsShell({ user, signOutPath, snapshot }: WorkOsShellProps) {
               {snapshot.platforms.filter((platform) => snapshot.enabledPlatforms.includes(platform.key) || platform.key === 'threads' || platform.key === 'unknown').map((platform) => <div className="platform-row" key={platform.key}><span className="platform-name"><i style={{ background: platform.color }} />{platform.name}</span><strong>{platform.publications}</strong><strong>{platform.joined}</strong><strong>{platform.responses}</strong><strong>{platform.bookings}</strong></div>)}
             </div>
           </section>
-        </div> : activeView === 'platforms' ? <PlatformWorkspace enabledPlatforms={snapshot.enabledPlatforms} /> : activeView === 'leads' ? <LeadsWorkspace key={user.email} account={user.email} initialLeadId={leadToOpen} /> : activeView === 'analytics' ? <AnalyticsWorkspace /> : activeView === 'reports' ? <ReportsWorkspace onOpenLead={(leadId) => { setLeadToOpen(leadId); navigateTo('leads'); }} /> : activeView === 'library' ? <LibraryWorkspace /> : activeView === 'settings' ? <SettingsWorkspace user={user} snapshot={snapshot} onRefresh={() => router.refresh()} /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
+        </div> : activeView === 'platforms' ? <PlatformWorkspace key={`platforms:${syncRevision}`} enabledPlatforms={snapshot.enabledPlatforms} /> : activeView === 'leads' ? <LeadsWorkspace key={`leads:${user.email}:${syncRevision}`} account={user.email} initialLeadId={leadToOpen} /> : activeView === 'analytics' ? <AnalyticsWorkspace key={`analytics:${syncRevision}`} /> : activeView === 'reports' ? <ReportsWorkspace key={`reports:${syncRevision}`} onOpenLead={(leadId) => { setLeadToOpen(leadId); navigateTo('leads'); }} /> : activeView === 'library' ? <LibraryWorkspace key={`library:${syncRevision}`} /> : activeView === 'settings' ? <SettingsWorkspace key={`settings:${syncRevision}`} user={user} snapshot={snapshot} onRefresh={() => router.refresh()} /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
 
         <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
           {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => <button type="button" aria-current={activeView === key ? 'page' : undefined} key={key} onClick={() => navigateTo(key)}><Icon /><span>{label}</span></button>)}
