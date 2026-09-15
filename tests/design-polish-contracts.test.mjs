@@ -33,3 +33,8 @@ void test('Reports calendar uses zero-min tracks so dense day labels cannot blee
   assert.match(css, /\.reports-calendar-grid > \*,\s*\.report-day \{\s*min-width: 0;/);
   assert.match(css, /\.report-day \{ overflow: hidden; \}/);
 });
+
+void test('Analytics mobile headings keep full text width instead of sharing a row with metadata', () => {
+  assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.analytics-card > \.card-heading \{[\s\S]*flex-direction: column;[\s\S]*gap: 8px;/);
+  assert.match(css, /\.analytics-card > \.card-heading > \[data-slot="badge"\],[\s\S]*\.analytics-card > \.card-heading > \.muted-note \{[\s\S]*align-self: flex-start;/);
+});

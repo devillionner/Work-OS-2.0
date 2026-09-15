@@ -83,3 +83,17 @@
   min-width: 0;
 }
 .report-day { overflow: hidden; }
+
+@media (max-width: 720px) {
+  .analytics-card > .card-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .analytics-card > .card-heading > [data-slot="badge"],
+  .analytics-card > .card-heading > .muted-note {
+    align-self: flex-start;
+    max-width: 100%;
+  }
+}
