@@ -387,3 +387,10 @@ void test('Past booked lessons surface a clear result action without mutating fu
   assert.match(lessons, /pastBooked \? 'Зафіксувати результат' : 'Результат \/ скасування'/);
   assert.doesNotMatch(followUp, /mutate\('lesson_status'/);
 });
+
+void test('Dense report event sources scroll inside the disclosure instead of stretching the whole page', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  assert.match(css, /\.report-event-list ul \{[^}]*max-height:min\(48vh,440px\)[^}]*overflow:auto/s);
+  assert.match(css, /\.report-disclosure\[open\] > summary::after \{ content:'−'; \}/);
+  assert.doesNotMatch(css, /report-disclosure\[open\] > summary::after \{ content:'\?'/);
+});
