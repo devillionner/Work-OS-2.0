@@ -8,7 +8,9 @@
 .lead-filters [data-slot="button"] {
   width: 100%;
   min-width: 0;
-  padding-inline: 8px;
+  padding-inline: 4px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .reports-editor-card [data-slot="textarea"] {
@@ -51,7 +53,7 @@
   }
 
   .lead-filters { gap: 6px; }
-  .lead-filters [data-slot="button"] { padding-inline: 6px; font-size: 12px; }
+  .lead-filters [data-slot="button"] { padding-inline: 6px; }
 
   .reports-editor-card [data-slot="textarea"] {
     height: 300px;
