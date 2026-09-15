@@ -721,6 +721,7 @@ button:not([data-slot="button"]) { color: inherit; }
 .lead-list-item:focus-visible,.leads-workspace a:focus-visible,.leads-workspace summary:focus-visible { outline:3px solid var(--ring); outline-offset:3px; }
 .lead-panel { margin-bottom:18px; }
 .lead-panel h2 { font-size:26px; font-weight:650; overflow-wrap:anywhere; }
+.lead-summary h2:focus { outline:none; }
 .lead-panel h3 { font-size:18px; font-weight:650; }
 .lead-panel h4 { font-size:15px; font-weight:650; }
 .lead-panel small { color:var(--muted-foreground); }

@@ -455,3 +455,11 @@ void test('Long mobile Platforms and Leads lists progressively reveal items with
   assert.match(css, /@media \(max-width:1024px\)[\s\S]*\.leads-list \.mobile-progressive-hidden \{ display:none !important; \}[\s\S]*\.leads-list \.mobile-list-more \{ display:flex;/);
   assert.match(css, /@media \(max-width:720px\)[\s\S]*\.platform-browser \.mobile-progressive-hidden \{ display:none !important; \}[\s\S]*\.platform-browser \.mobile-list-more \{ display:flex;/);
 });
+
+void test('Selected lead heading keeps programmatic focus without the browser default outline', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  const leads = readFileSync(new URL('../components/leads/workspace.tsx', import.meta.url), 'utf8');
+  assert.match(leads, /heading\.current\?\.focus\(\)/);
+  assert.match(leads, /<h2 ref=\{heading\} tabIndex=\{-1\}>/);
+  assert.match(css, /\.lead-summary h2:focus \{ outline:none; \}/);
+});
