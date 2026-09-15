@@ -91,8 +91,10 @@ export function Lessons({
         <p className="lead-empty">Уроків поки немає.</p>
       )}
       <div className="lead-lessons">
-        {detail.lessons.map((l) => (
-          <article className="lead-lesson" key={l.id} id={`lesson-${l.id}`}>
+        {detail.lessons.map((l) => {
+          const pastBooked = l.status === 'booked' && l.lessonDate < today;
+          return (
+          <article className={`lead-lesson ${pastBooked ? 'is-past-booked' : ''}`} key={l.id} id={`lesson-${l.id}`}>
             <div className="lead-section-head">
               <div>
                 <h4>{l.subject}</h4>
@@ -101,7 +103,7 @@ export function Lessons({
                   {l.lessonTime || 'Час не вказано'} (Київ)
                 </p>
               </div>
-              <Badge variant="outline">{labels[l.status] ?? l.status}</Badge>
+              <Badge variant={pastBooked ? 'secondary' : 'outline'}>{pastBooked ? 'Потрібен результат' : (labels[l.status] ?? l.status)}</Badge>
             </div>
             <p>
               {l.teacherName || 'Викладача не вказано'} ·{' '}
@@ -151,18 +153,19 @@ export function Lessons({
                     Перенести
                   </Button>
                   <Button
-                    variant="outline"
+                    variant={pastBooked ? 'default' : 'outline'}
                     disabled={archived}
                     onClick={() => setStatusId(l.id)}
                   >
-                    Результат / скасування
+                    {pastBooked ? 'Зафіксувати результат' : 'Результат / скасування'}
                   </Button>
                 </>
               )}
             </div>
             {l.status === 'booked' && <Reminders lesson={l} mutate={mutate} disabled={archived} />}
           </article>
-        ))}
+          );
+        })}
       </div>
       {editor && (
         <LessonEditor

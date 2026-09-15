@@ -14,6 +14,7 @@ import {
   datetimeValue,
 } from './form';
 import { displayTime, labels, type Mutation } from './client';
+import { businessDate } from '@/lib/leads/domain/time';
 export function FollowUp({
   detail,
   mutate,
@@ -25,6 +26,8 @@ export function FollowUp({
   const [editing, setEditing] = useState(false);
   const [reply, setReply] = useState(false);
   const [now] = useState(() => Math.floor(Date.now() / 1000));
+  const today = businessDate(now);
+  const pastBookedLesson = detail.lessons.find((lesson) => lesson.status === 'booked' && lesson.lessonDate < today);
   return (
     <section className="lead-panel" aria-labelledby="follow-up-title">
       <div className="lead-section-head">
@@ -56,6 +59,7 @@ export function FollowUp({
           {lead.overdue && <Badge variant="destructive">Прострочено</Badge>}
         </p>
       </div>
+      {pastBookedLesson && <output className="lead-stale-lesson"><div><strong>Минулий урок ще без результату</strong><p>{pastBookedLesson.subject} · {pastBookedLesson.lessonDate}. Зафіксуй результат, щоб воронка перейшла з «Запис» далі.</p></div><Button variant="outline" onClick={() => document.getElementById(`lesson-${pastBookedLesson.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>До уроку</Button></output>}
       <dl className="lead-facts">
         <div>
           <dt>Кваліфікація ліда / родини</dt>
