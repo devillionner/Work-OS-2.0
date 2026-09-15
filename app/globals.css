@@ -994,6 +994,10 @@ button:not([data-slot="button"]) { color: inherit; }
   .library-kind-picker button { flex:0 0 auto; }
 }
 @media (max-width:720px) {
+  .library-toolbar { grid-template-columns:minmax(0,1fr) auto; gap:10px 8px; align-items:center; }
+  .library-kind-picker { grid-column:1/-1; min-width:0; }
+  .library-search { grid-column:1; min-width:0; }
+  .library-toolbar > [data-slot="button"] { grid-column:2; width:auto; justify-self:end; }
   .library-mobile-back { display:inline-flex; position:sticky; top:8px; z-index:4; width:100%; min-height:44px; justify-self:stretch; justify-content:flex-start; border:1px solid var(--border); background:var(--card); box-shadow:0 6px 18px rgb(25 31 48 / .08); }
   .library-workspace.has-editor .library-toolbar,
   .library-workspace.has-editor .library-list { display:none; }
