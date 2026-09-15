@@ -13,7 +13,7 @@ export function AppReleaseDialog({ open, onClose }: { open: boolean; onClose: ()
         <DialogTitle>Що змінилося</DialogTitle>
         <DialogDescription>Короткі нотатки поточного релізу Work OS.</DialogDescription>
       </DialogHeader>
-      <div className="app-release-meta"><Badge variant="secondary">Версія {APP_VERSION}</Badge><time dateTime={APP_RELEASE_DATE}>11 вересня 2026</time></div>
+      <div className="app-release-meta"><Badge variant="secondary">Версія {APP_VERSION}</Badge><time dateTime={APP_RELEASE_DATE}>{new Intl.DateTimeFormat('uk-UA', { dateStyle: 'long', timeZone: 'Europe/Kyiv' }).format(new Date(`${APP_RELEASE_DATE}T12:00:00Z`))}</time></div>
       <ul className="app-release-list">{APP_CHANGES.map((change) => <li key={change}><History aria-hidden="true" /><span>{change}</span></li>)}</ul>
       <div className="dialog-actions"><Button variant="outline" onClick={onClose}>Закрити</Button></div>
     </DialogContent>
