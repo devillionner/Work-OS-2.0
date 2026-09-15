@@ -44,14 +44,21 @@ export function ServerSync() {
 
       const revision = Number(result.revision);
       const renderedRevision = readRenderedRevision();
-      const previous = revisionRef.current ?? renderedRevision;
+      if (
+        renderedRevision !== null &&
+        (revisionRef.current === null || renderedRevision > revisionRef.current)
+      ) {
+        revisionRef.current = renderedRevision;
+      }
+      const previous = revisionRef.current;
       const localAck = acknowledgeOnly || pendingLocalAckRef.current;
       pendingLocalAckRef.current = false;
       revisionRef.current = revision;
 
       // The page exposes the revision used for its server render. This catches a
       // write that lands between SSR and the first client poll instead of
-      // incorrectly accepting the newer server value as a baseline.
+      // incorrectly accepting the newer server value as a baseline. It also
+      // prevents a second refresh when a local workflow already refreshed RSC.
       if (previous === null) return;
       if (localAck || revision === previous) return;
 
