@@ -410,6 +410,12 @@ void test('The five-step activity funnel stays one row on wide desktop without c
   assert.match(css, /@media \(max-width: 1180px\)[\s\S]*\.funnel-grid, \.funnel-grid\.is-five \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); \}/);
 });
 
+void test('Today focus hero stops squeezing its heading at tiled desktop widths', () => {
+  const css = readFileSync(new URL('../app/design-polish.css', import.meta.url), 'utf8');
+  assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.focus-card \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);[\s\S]*?align-items: start;/);
+  assert.match(css, /@media \(max-width: 1180px\) \{[\s\S]*?\.focus-actions \{ width: 100%; \}/);
+});
+
 void test('Today workday card adapts before the sidebar squeezes it at laptop widths', () => {
   const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
   assert.match(css, /@media \(max-width:1500px\)[\s\S]*\.workday-card \{ display:grid; grid-template-columns:44px minmax\(0,1fr\);/);

@@ -1,4 +1,4 @@
-﻿export const APP_VERSION = '0.2.2';
+export const APP_VERSION = '0.2.2';
 export const APP_RELEASE_DATE = '2026-09-15';
 
 export const APP_CHANGES = [
