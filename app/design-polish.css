@@ -26,6 +26,14 @@
   line-height: 1.55;
 }
 
+@media (max-width: 1180px) {
+  .focus-card {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+  .focus-actions { width: 100%; }
+}
+
 @media (max-width: 720px) {
   .focus-card {
     display: grid;
@@ -83,3 +91,17 @@
   min-width: 0;
 }
 .report-day { overflow: hidden; }
+
+@media (max-width: 720px) {
+  .analytics-card > .card-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .analytics-card > .card-heading > [data-slot="badge"],
+  .analytics-card > .card-heading > .muted-note {
+    align-self: flex-start;
+    max-width: 100%;
+  }
+}
