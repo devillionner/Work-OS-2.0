@@ -1392,3 +1392,10 @@ body { background:var(--background); }
   .lead-reminder details > summary { display:flex; align-items:center; min-height:44px; }
   .lead-reminder details > [data-slot="button"] { width:100%; min-height:44px; margin-top:8px; }
 }
+
+/* Direct lead action links stay finger-friendly without inflating inline history links. */
+@media (max-width: 720px) {
+  .lead-contact-lines > a,
+  .lead-lesson > a,
+  .lead-actions > a { display:inline-flex; align-items:center; min-height:44px; }
+}

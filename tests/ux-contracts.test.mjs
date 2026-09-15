@@ -482,3 +482,9 @@ void test('Mobile reminder disclosure and copy action keep 44px touch targets', 
   assert.match(css, /\.lead-reminder details > summary \{ display:flex; align-items:center; min-height:44px; \}/);
   assert.match(css, /\.lead-reminder details > \[data-slot="button"\] \{ width:100%; min-height:44px; margin-top:8px; \}/);
 });
+
+void test('Mobile lead action links keep direct touch targets without inflating inline history links', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  assert.match(css, /\.lead-contact-lines > a,[\s\S]*\.lead-lesson > a,[\s\S]*\.lead-actions > a \{ display:inline-flex; align-items:center; min-height:44px; \}/);
+  assert.doesNotMatch(css, /\.lead-lesson a \{[^}]*min-height:44px/);
+});
