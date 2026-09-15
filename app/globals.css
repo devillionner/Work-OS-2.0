@@ -499,7 +499,7 @@ button:not([data-slot="button"]) { color: inherit; }
 .reports-hero-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .reports-hero h2 { margin: 0; font-size: clamp(25px,3vw,34px); letter-spacing: -.035em; }
 .reports-hero p:not(.eyebrow) { margin: 8px 0 0; color: var(--muted-foreground); }
-.reports-layout { display: grid; grid-template-columns: minmax(310px,.85fr) minmax(0,1.45fr); gap: 18px; }
+.reports-layout { display:grid; grid-template-columns:minmax(310px,.85fr) minmax(0,1.45fr); align-items:start; gap:18px; }
 .reports-calendar-card, .reports-editor-card { padding: 22px; }
 .reports-month-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 16px; }
 .reports-month-head h3, .reports-editor-card h3 { margin: 0; font-size: 20px; letter-spacing: -.025em; }
@@ -895,6 +895,9 @@ button:not([data-slot="button"]) { color: inherit; }
 .settings-primary-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
 @media (min-width:721px) and (max-width:1180px) {
   .settings-primary-grid { grid-template-columns:1fr; gap:14px; }
+  .settings-tool-row { grid-template-columns:38px minmax(0,1fr); align-items:start; }
+  .settings-tool-row > [data-slot="button"], .settings-tool-actions { grid-column:2; justify-self:start; }
+  .settings-tool-actions { flex-wrap:wrap; }
 }
 .settings-panel-primary { min-height:220px; }
 .settings-tools { padding:22px; border:1px solid var(--border); border-radius:16px; background:#fff; box-shadow:0 4px 14px rgba(27,31,43,.035); }
@@ -1032,6 +1035,10 @@ button:not([data-slot="button"]) { color: inherit; }
   .analytics-custom-range label { flex:1 1 140px; }
   .analytics-custom-range input { width:100%; min-height:44px; }
   .settings-panel-primary .card-heading { align-items:flex-start; flex-direction:column; }
+  .settings-tool-row { grid-template-columns:36px minmax(0,1fr); align-items:start; gap:10px 12px; padding:13px 12px; }
+  .settings-tool-row > [data-slot="button"], .settings-tool-actions { grid-column:2; justify-self:stretch; }
+  .settings-tool-actions { flex-wrap:wrap; }
+  .settings-tool-actions > *, .settings-tool-row > [data-slot="button"] { width:100%; }
   .settings-panel-primary .card-heading [data-slot="button"], .settings-tool-row > [data-slot="button"], .settings-tool-actions [data-slot="button"], .settings-tool-actions .cloud-backup-action [data-slot="button"] { min-height:44px; }
   .platform-settings-list label { min-height:44px; }
 }
