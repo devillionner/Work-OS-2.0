@@ -21,12 +21,15 @@ import { Lessons } from './lessons';
 import { Conversation } from './conversation';
 import { LeadHistoryDialog } from './history';
 
+const MOBILE_LIST_CHUNK = 12;
+
 export function LeadsWorkspace({ account, initialLeadId }: { account: string; initialLeadId?: string | null }) {
   const [postCommand] = useState(() => createBrowserCommandClient(account));
   const [filter, setFilter] = useState('active');
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [offset, setOffset] = useState(0);
+  const [mobileListState, setMobileListState] = useState({ key: '', count: MOBILE_LIST_CHUNK });
   const [list, setList] = useState<LeadList | null>(null);
   const [selected, setSelected] = useState<string | null>(initialLeadId ?? null);
   const [detail, setDetail] = useState<LeadDetail | null>(null);
@@ -49,6 +52,8 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
     }, 250);
     return () => clearTimeout(timer);
   }, [search]);
+  const mobileListKey = `${filter}:${query}:${offset}`;
+  const mobileVisibleLeads = mobileListState.key === mobileListKey ? mobileListState.count : MOBILE_LIST_CHUNK;
   useEffect(() => {
     const controller = new AbortController();
     const url = `/api/leads?archived=${filter === 'archived'}&overdue=${filter === 'overdue'}&search=${encodeURIComponent(query)}&offset=${offset}`;
@@ -170,8 +175,8 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
               <p className="muted-note">Знайдено: {list.total}</p>
               {list.leads.length ? (
                 <ul>
-                  {list.leads.map((lead) => (
-                    <li key={lead.id}>
+                  {list.leads.map((lead, index) => (
+                    <li className={index >= mobileVisibleLeads ? 'mobile-progressive-hidden' : undefined} key={lead.id}>
                       <button
                         type="button"
                         className="lead-list-item"
@@ -212,6 +217,9 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                 </ul>
               ) : (
                 <p className="lead-empty">Лідів за цим фільтром немає.</p>
+              )}
+              {list.leads.length > mobileVisibleLeads && (
+                <div className="mobile-list-more"><Button type="button" variant="outline" onClick={() => setMobileListState({ key: mobileListKey, count: Math.min(mobileVisibleLeads + MOBILE_LIST_CHUNK, list.leads.length) })}>Показати ще лідів</Button></div>
               )}
               <div className="lead-actions">
                 <Button

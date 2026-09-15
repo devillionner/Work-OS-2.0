@@ -438,3 +438,20 @@ void test('Library mobile toolbar gives tabs their own row and keeps search usab
   assert.match(css, /\.library-search \{ grid-column:1; min-width:0; \}/);
   assert.match(css, /\.library-toolbar > \[data-slot="button"\] \{ grid-column:2; width:auto; justify-self:end; \}/);
 });
+
+void test('Long mobile Platforms and Leads lists progressively reveal items without truncating desktop', () => {
+  const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+  const platforms = readFileSync(new URL('../components/platform-workspace.tsx', import.meta.url), 'utf8');
+  const leads = readFileSync(new URL('../components/leads/workspace.tsx', import.meta.url), 'utf8');
+  assert.match(platforms, /const MOBILE_LIST_CHUNK = 12/);
+  assert.match(platforms, /index>=mobileVisibleChats\?'mobile-progressive-hidden'/);
+  assert.match(platforms, /Показати ще чати/);
+  assert.match(platforms, /mobileListState\.key===mobileListKey\?mobileListState\.count:MOBILE_LIST_CHUNK/);
+  assert.match(leads, /const MOBILE_LIST_CHUNK = 12/);
+  assert.match(leads, /index >= mobileVisibleLeads \? 'mobile-progressive-hidden'/);
+  assert.match(leads, /Показати ще лідів/);
+  assert.match(leads, /mobileListState\.key === mobileListKey \? mobileListState\.count : MOBILE_LIST_CHUNK/);
+  assert.match(css, /\.mobile-list-more \{ display:none; \}/);
+  assert.match(css, /@media \(max-width:1024px\)[\s\S]*\.leads-list \.mobile-progressive-hidden \{ display:none !important; \}[\s\S]*\.leads-list \.mobile-list-more \{ display:flex;/);
+  assert.match(css, /@media \(max-width:720px\)[\s\S]*\.platform-browser \.mobile-progressive-hidden \{ display:none !important; \}[\s\S]*\.platform-browser \.mobile-list-more \{ display:flex;/);
+});
