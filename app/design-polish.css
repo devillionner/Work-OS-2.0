@@ -248,12 +248,20 @@
   z-index: 200;
   display: grid;
   place-items: center;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
   min-width: 320px;
   min-height: 100svh;
+  margin: 0;
   padding: max(20px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+  border: 0;
   background: rgb(242 244 249 / .92);
+  color: var(--foreground);
   backdrop-filter: blur(18px);
 }
+.app-update-backdrop::backdrop { background: transparent; }
 
 .app-update-card {
   position: relative;
