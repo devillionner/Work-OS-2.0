@@ -14,8 +14,9 @@ void test('Today mobile focus card stacks instead of squeezing heading beside CT
   assert.match(css, /\.focus-actions \{ width: 100%; grid-template-columns: 1fr; \}/);
 });
 
-void test('Lead filters stay a three-column segmented row', () => {
+void test('Lead filters stay a compact one-line three-column segmented row', () => {
   assert.match(css, /\.lead-filters \{[\s\S]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(css, /\.lead-filters \[data-slot="button"\] \{[\s\S]*font-size: 12px;[\s\S]*white-space: nowrap;/);
 });
 
 void test('normal mobile widths show all four platform tabs while very narrow widths can scroll', () => {
