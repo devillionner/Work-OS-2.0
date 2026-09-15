@@ -102,10 +102,13 @@ export function PwaRegistration() {
 
     applying.current = true;
     targetBuildRef.current = pending;
-    setUpdate({ phase: 'finishing', targetBuildId: pending, version: '', deferred: false, step: 3 });
     const scroll = readSavedScroll();
     const savedView = sessionStorage.getItem(UPDATE_VIEW_KEY);
     let cancelled = false;
+
+    queueMicrotask(() => {
+      if (!cancelled) setUpdate({ phase: 'finishing', targetBuildId: pending, version: '', deferred: false, step: 3 });
+    });
 
     void restoreActiveView(savedView).then(() => {
       if (!cancelled && scroll) window.scrollTo({ left: scroll.x, top: scroll.y, behavior: 'auto' });
@@ -187,14 +190,14 @@ export function PwaRegistration() {
   const shortBuild = update.targetBuildId ? update.targetBuildId.slice(0, 7) : '';
   if (update.phase === 'available') {
     return (
-      <div className="app-update-banner" role="status" aria-live="polite">
+      <output className="app-update-banner" aria-live="polite">
         <span className="app-update-pulse" aria-hidden="true" />
         <div>
           <strong>Доступне оновлення Work OS</strong>
           <span>{update.deferred ? 'Застосуємо одразу після завершення вводу.' : 'Оновлення застосовується автоматично…'}</span>
         </div>
         {shortBuild && <small>{update.version ? `v${update.version} · ` : ''}{shortBuild}</small>}
-      </div>
+      </output>
     );
   }
 
@@ -203,7 +206,7 @@ export function PwaRegistration() {
   const steps = ['Готуємо оновлення', 'Оновлюємо файли', 'Повертаємо до роботи'];
 
   return (
-    <div className="app-update-backdrop" role="dialog" aria-modal="true" aria-labelledby="app-update-title">
+    <dialog open className="app-update-backdrop" aria-labelledby="app-update-title">
       <div className="app-update-card">
         <div className="app-update-brand" aria-hidden="true">W</div>
         <div className={`app-update-icon ${isFinishing ? 'is-complete' : ''}`} aria-hidden="true">
@@ -235,7 +238,7 @@ export function PwaRegistration() {
         {isError && <Button onClick={() => void applyUpdate()}><RefreshCw data-icon="inline-start" />Спробувати ще раз</Button>}
         <small className="app-update-note">Поточний розділ і позиція сторінки збережуться автоматично.</small>
       </div>
-    </div>
+    </dialog>
   );
 }
 
