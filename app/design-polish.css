@@ -131,3 +131,87 @@
     align-items: center;
   }
 }
+
+/* Workday keeps one geometry across idle, active, paused and ended states. */
+.workday-card {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.workday-card > .workday-main {
+  min-width: 0;
+  width: 100%;
+}
+
+.workday-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.workday-heading-copy { min-width: 0; }
+.workday-heading-copy .eyebrow { margin-bottom: 5px; }
+.workday-heading h2 { margin: 0; overflow-wrap: anywhere; }
+.workday-status { flex: 0 0 auto; max-width: 100%; white-space: nowrap; }
+
+.workday-time {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 0;
+}
+.workday-time strong { font-variant-numeric: tabular-nums; }
+
+.workday-card .workday-plan {
+  width: 100%;
+  min-width: 0;
+  margin-top: 14px;
+}
+
+.workday-card > .workday-actions {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  margin-left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.workday-card > .workday-actions > * { min-width: 0; }
+
+@media (max-width: 640px) {
+  .workday-card {
+    gap: 12px;
+    padding: 18px 16px;
+  }
+
+  .workday-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .workday-status {
+    justify-self: start;
+    white-space: normal;
+  }
+
+  .workday-card .workday-plan { padding: 12px; }
+
+  .workday-card > .workday-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workday-card > .workday-actions [data-slot="button"] {
+    width: 100%;
+    min-height: 44px;
+  }
+}
