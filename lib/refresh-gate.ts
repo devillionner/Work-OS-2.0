@@ -2,8 +2,8 @@
 export function createRefreshGate(intervalMs: number) {
   let lastAttempt = -Infinity;
   let pending = false;
-  return async function refresh(now: number, eligible: boolean, action: () => Promise<void>) {
-    if (!eligible || pending || now - lastAttempt < intervalMs) return;
+  return async function refresh(now: number, eligible: boolean, action: () => Promise<void>, force = false) {
+    if (!eligible || pending || (!force && now - lastAttempt < intervalMs)) return;
     lastAttempt = now;
     pending = true;
     try { await action(); } finally { pending = false; }

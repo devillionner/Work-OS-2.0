@@ -415,3 +415,12 @@ void test('Today workday card adapts before the sidebar squeezes it at laptop wi
   assert.match(css, /@media \(max-width:1500px\)[\s\S]*\.workday-card \{ display:grid; grid-template-columns:44px minmax\(0,1fr\);/);
   assert.match(css, /@media \(max-width:1500px\)[\s\S]*\.workday-card > \.workday-actions \{ grid-column:1\/-1;/);
 });
+
+void test('Timer UI recovers from transient network failures without exposing raw browser errors', () => {
+  const timers = readFileSync(new URL('../components/global-timers.tsx', import.meta.url), 'utf8');
+  assert.match(timers, /response\.json\(\)\.catch\(\(\)=>\(\{\}\)\)/);
+  assert.match(timers, /response\.status!==409/);
+  assert.match(timers, /setTimers\(body\.timers\|\|\[\]\);\s*setError\(''\)/);
+  assert.match(timers, /Таймери синхронізуються автоматично після відновлення мережі/);
+  assert.match(timers, /failed to fetch\|networkerror\|load failed/);
+});
