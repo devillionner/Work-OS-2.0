@@ -8,7 +8,7 @@ void test('Work OS restores the last active workspace per browser device', () =>
 
   assert.match(source, /const STORAGE_KEY = 'work-os:active-view'/);
   assert.match(source, /window\.localStorage\.getItem\(STORAGE_KEY\)/);
-  assert.match(source, /if \(target\) void target\.click\(\)/);
+  assert.match(source, /if \(target\) target\.click\(\)/);
   assert.match(source, /MutationObserver/);
   assert.match(source, /else if \(current\)/);
   assert.match(source, /window\.localStorage\.setItem\(STORAGE_KEY, current\)/);
