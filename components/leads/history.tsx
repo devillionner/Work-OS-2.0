@@ -27,6 +27,12 @@ const eventNames: Record<string, string> = {
   reminder_skipped: 'Нагадування пропущено',
 };
 
+function leadHistoryTrigger(): HTMLElement | null {
+  if (typeof document === 'undefined') return null;
+  return Array.from(document.querySelectorAll<HTMLElement>('.lead-action-utility [data-slot="button"]'))
+    .find((element) => element.textContent?.trim() === 'Історія') ?? null;
+}
+
 export function LeadHistoryDialog({ open, lead, onClose }: { open: boolean; lead: HistoryLead | null; onClose: () => void }) {
   const [events, setEvents] = useState<LeadHistoryItem[]>([]);
   const [busy, setBusy] = useState(false);
@@ -47,5 +53,5 @@ export function LeadHistoryDialog({ open, lead, onClose }: { open: boolean; lead
       .finally(() => { if (!controller.signal.aborted) setBusy(false); });
     return () => { cancelled = true; controller.abort(); };
   }, [open, lead]);
-  return <Dialog open={open} onOpenChange={(next) => { if (!next && !busy) onClose(); }}><DialogContent className="lead-history-dialog" showCloseButton={!busy}><DialogHeader><DialogTitle>Історія ліда</DialogTitle><DialogDescription>{lead?.name}</DialogDescription></DialogHeader>{error && <p className="lead-error" role="alert">{error}</p>}{busy ? <output>Завантаження історії…</output> : events.length ? <ol className="lead-history-list">{events.map((event) => <li key={event.id}><div><strong>{eventNames[event.eventType] || event.eventType}</strong>{event.cancelledAt !== null && <span> · скасовано</span>}{typeof event.metadata.reason === 'string' && event.metadata.reason && <small> · {event.metadata.reason}</small>}</div><time dateTime={new Date(event.occurredAt * 1000).toISOString()}>{new Intl.DateTimeFormat('uk-UA', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Kyiv' }).format(new Date(event.occurredAt * 1000))}</time></li>)}</ol> : <p className="muted-note">Історія ще порожня.</p>}<div className="dialog-actions"><Button variant="outline" onClick={onClose}>Закрити</Button></div></DialogContent></Dialog>;
+  return <Dialog open={open} onOpenChange={(next) => { if (!next && !busy) onClose(); }}><DialogContent className="lead-history-dialog" showCloseButton={!busy} finalFocus={leadHistoryTrigger}><DialogHeader><DialogTitle>Історія ліда</DialogTitle><DialogDescription>{lead?.name}</DialogDescription></DialogHeader>{error && <p className="lead-error" role="alert">{error}</p>}{busy ? <output>Завантаження історії…</output> : events.length ? <ol className="lead-history-list">{events.map((event) => <li key={event.id}><div><strong>{eventNames[event.eventType] || event.eventType}</strong>{event.cancelledAt !== null && <span> · скасовано</span>}{typeof event.metadata.reason === 'string' && event.metadata.reason && <small> · {event.metadata.reason}</small>}</div><time dateTime={new Date(event.occurredAt * 1000).toISOString()}>{new Intl.DateTimeFormat('uk-UA', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Kyiv' }).format(new Date(event.occurredAt * 1000))}</time></li>)}</ol> : <p className="muted-note">Історія ще порожня.</p>}<div className="dialog-actions"><Button variant="outline" onClick={onClose}>Закрити</Button></div></DialogContent></Dialog>;
 }
