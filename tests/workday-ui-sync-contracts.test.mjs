@@ -26,6 +26,17 @@ void test('workday mutations broadcast changes and recover from stale cross-devi
   assert.match(card, /if \(refreshAfter\) void refreshWorkday\(\)/);
 });
 
+void test('ended current workday reset is explicit, confirmed, destructive and server guarded', () => {
+  assert.match(route, /action === 'reset'/);
+  assert.match(route, /workDate !== today/);
+  assert.match(route, /resetWorkday\(env\.DB, args\)/);
+  assert.match(route, /workday: null, today/);
+  assert.match(card, /workday\?\.status === 'ended' && workday\.workDate === currentToday/);
+  assert.match(card, /confirmLabel="Скинути день"/);
+  assert.match(card, /destructive/);
+  assert.match(card, /void mutate\('reset'\)/);
+});
+
 void test('workday status and actions use stable responsive slots', () => {
   assert.match(card, /className="workday-main"/);
   assert.match(card, /className="workday-heading"/);

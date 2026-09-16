@@ -6,6 +6,7 @@ import {
   pauseWorkday,
   readWorkdaySnapshot,
   reopenWorkday,
+  resetWorkday,
   resumeWorkday,
   startWorkday,
 } from '../lib/workday.ts';
@@ -43,6 +44,21 @@ void test('reopening an accidentally ended workday preserves the original timeli
 
   const later = await readWorkdaySnapshot(db, 'u', '2026-09-13', 2200);
   assert.equal(later.activeSeconds, 1200);
+});
+
+void test('resetting an ended workday clears its time and allows a clean restart', async t => {
+  const db = await localDatabase(t);
+  const started = await startWorkday(db, { userId: 'u', today: '2026-09-13', now: 1000 });
+  const ended = await endWorkday(db, { userId: 'u', id: started.id, workDate: started.workDate, expectedVersion: 0, now: 1600 });
+  assert.equal(ended.activeSeconds, 600);
+
+  await resetWorkday(db, { userId: 'u', id: started.id, workDate: started.workDate, expectedVersion: 1, now: 1700 });
+  assert.equal(await readWorkdaySnapshot(db, 'u', '2026-09-13', 1700), null);
+
+  const restarted = await startWorkday(db, { userId: 'u', today: '2026-09-13', now: 1800 });
+  assert.equal(restarted.status, 'active');
+  assert.equal(restarted.activeSeconds, 0);
+  assert.equal(restarted.startedAt, 1800);
 });
 
 void test('open workday blocks another date until it is ended', async t => {

@@ -8,6 +8,7 @@ import {
   pauseWorkday,
   readWorkdaySnapshot,
   reopenWorkday,
+  resetWorkday,
   resumeWorkday,
   startWorkday,
 } from '@/lib/workday';
@@ -53,6 +54,11 @@ export async function POST(request: Request): Promise<Response> {
     if (action === 'pause') return Response.json({ workday: await pauseWorkday(env.DB, args) });
     if (action === 'resume') return Response.json({ workday: await resumeWorkday(env.DB, args) });
     if (action === 'reopen') return Response.json({ workday: await reopenWorkday(env.DB, args) });
+    if (action === 'reset') {
+      if (workDate !== today) throw new WorkdayError('Скинути можна лише сьогоднішній завершений день.');
+      await resetWorkday(env.DB, args);
+      return Response.json({ workday: null, today });
+    }
     if (action === 'end') {
       const dashboard = await readDashboardSnapshot(env.DB, user.id, now);
       if (dashboard.leadTaskCount > 0 && body.confirmIncomplete !== true) {

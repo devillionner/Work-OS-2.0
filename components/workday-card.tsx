@@ -1,9 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Clock3, Pause, Play, RotateCcw, Square } from 'lucide-react';
+import { Clock3, Pause, Play, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import type { WorkdaySnapshot } from '@/lib/workday';
 
 type Props = {
@@ -33,6 +34,7 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [confirmCount, setConfirmCount] = useState<number | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
   const busyRef = useRef(false);
   const syncGeneration = useRef(0);
   const channelRef = useRef<BroadcastChannel | null>(null);
@@ -99,7 +101,7 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
   const staleOpen = Boolean(workday && workday.status !== 'ended' && workday.workDate !== currentToday);
   const showPlan = !workday || workday.workDate === currentToday;
 
-  async function mutate(action: 'start' | 'pause' | 'resume' | 'reopen' | 'end', confirmIncomplete = false) {
+  async function mutate(action: 'start' | 'pause' | 'resume' | 'reopen' | 'reset' | 'end', confirmIncomplete = false) {
     if (busyRef.current) return;
     busyRef.current = true;
     syncGeneration.current += 1;
@@ -127,6 +129,17 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
         }
         refreshAfter = response.status === 409;
         throw new Error(result.error || 'Не вдалося оновити робочий день.');
+      }
+      if (action === 'reset') {
+        if (result.workday !== null) throw new Error('Сервер не підтвердив скидання робочого дня.');
+        syncGeneration.current += 1;
+        setWorkday(null);
+        setCurrentToday(result.today || today);
+        setNow(Math.floor(Date.now() / 1000));
+        setConfirmCount(null);
+        setResetOpen(false);
+        channelRef.current?.postMessage({ type: 'workday-changed', version: null });
+        return;
       }
       if (!result.workday) throw new Error('Сервер не повернув стан робочого дня.');
       syncGeneration.current += 1;
@@ -166,7 +179,7 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
         <p className="workday-time">Активний час: <strong>{formatDuration(seconds)}</strong></p>
         {staleOpen && <p className="muted-note">Відкритий день за {formatDate(workday!.workDate)}. Заверши його перед стартом нового.</p>}
         {confirmCount !== null && <p className="muted-note">Залишилося справ: {confirmCount}. Завершити день попри це?</p>}
-        {workday?.status === 'ended' && <p className="muted-note">Завершили випадково? Поверніть день — початковий старт і накопичений активний час збережуться.</p>}
+        {workday?.status === 'ended' && <p className="muted-note">Завершили випадково? Поверніть день, щоб продовжити з попереднього часу, або скиньте сьогоднішній день, щоб почати заново.</p>}
         {showPlan && <div className="workday-plan"><strong>План дня</strong><span>Записи: {dailyGoal} · місячна ціль: {monthlyGoal}</span><span>Фокус: {focusDirections.length ? focusDirections.join(', ') : 'без окремого напрямку'}</span></div>}
         {error && <p className="lead-error" role="alert">{error}</p>}
       </div>
@@ -180,7 +193,18 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
           <Button variant="outline" onClick={() => setConfirmCount(null)} disabled={busy}>Не завершувати</Button>
         </>}
         {workday?.status === 'ended' && <Button variant="outline" onClick={() => mutate('reopen')} disabled={busy}><RotateCcw data-icon="inline-start" />Повернути день</Button>}
+        {workday?.status === 'ended' && workday.workDate === currentToday && <Button variant="destructive" onClick={() => setResetOpen(true)} disabled={busy}><Trash2 data-icon="inline-start" />Скинути день</Button>}
       </div>
+      <ConfirmDialog
+        open={resetOpen}
+        title="Скинути робочий день?"
+        description="Активний час і запис робочого дня за сьогодні буде видалено. Після цього день можна почати заново. Ліди, чати, уроки та звіти не видаляються. Цю дію не можна скасувати."
+        confirmLabel="Скинути день"
+        busy={busy}
+        destructive
+        onCancel={() => setResetOpen(false)}
+        onConfirm={() => { void mutate('reset'); }}
+      />
     </section>
   );
 }

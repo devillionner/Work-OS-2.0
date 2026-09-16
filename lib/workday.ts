@@ -120,6 +120,13 @@ export async function reopenWorkday(db: D1Database, args: MutationArgs) {
   return required(await readById(db, args.userId, args.id, args.now));
 }
 
+export async function resetWorkday(db: D1Database, args: MutationArgs): Promise<void> {
+  const result = await db.prepare(`DELETE FROM workdays
+    WHERE id=?1 AND user_id=?2 AND work_date=?3 AND version=?4 AND status='ended'`)
+    .bind(args.id, args.userId, args.workDate, args.expectedVersion).run();
+  changed(result, 'Робочий день уже змінено або його не можна скинути.');
+}
+
 async function readById(db: D1Database, userId: string, id: string, now: number) {
   const row = await db.prepare(`SELECT id,work_date,status,started_at,active_since,paused_at,
       ended_at,active_seconds,version FROM workdays WHERE id=?1 AND user_id=?2 LIMIT 1`)
