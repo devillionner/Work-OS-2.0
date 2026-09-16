@@ -1,5 +1,12 @@
 export type WorkdayStatus = 'active' | 'paused' | 'ended';
 
+export type WorkdayPlan = {
+  dailyGoal: number;
+  monthlyGoal: number;
+  focusDirections: string[];
+  createdAt: number;
+};
+
 export type WorkdaySnapshot = {
   id: string;
   workDate: string;
@@ -11,6 +18,7 @@ export type WorkdaySnapshot = {
   activeSeconds: number;
   asOf: number;
   version: number;
+  plan: WorkdayPlan | null;
 };
 
 type WorkdayRow = {
@@ -23,7 +31,11 @@ type WorkdayRow = {
   ended_at: number | null;
   active_seconds: number;
   version: number;
+  plan_json: string | null;
 };
+
+type WorkdayPlanInput = Omit<WorkdayPlan, 'createdAt'>;
+const PLAN_KEY_PREFIX = 'workday_plan:';
 
 export class WorkdayError extends Error {
   readonly status: number;
@@ -39,24 +51,37 @@ export async function readWorkdaySnapshot(
   today: string,
   now: number,
 ): Promise<WorkdaySnapshot | null> {
-  const row = await db.prepare(`SELECT id,work_date,status,started_at,active_since,paused_at,
-      ended_at,active_seconds,version FROM workdays
-    WHERE user_id=?1 AND (status!='ended' OR work_date=?2)
-    ORDER BY CASE WHEN status!='ended' THEN 0 ELSE 1 END, started_at DESC LIMIT 1`)
+  const row = await db.prepare(`SELECT w.id,w.work_date,w.status,w.started_at,w.active_since,w.paused_at,
+      w.ended_at,w.active_seconds,w.version,p.value_json AS plan_json
+    FROM workdays w
+    LEFT JOIN user_settings p ON p.user_id=w.user_id AND p.setting_key=('workday_plan:' || w.id)
+    WHERE w.user_id=?1 AND (w.status!='ended' OR w.work_date=?2)
+    ORDER BY CASE WHEN w.status!='ended' THEN 0 ELSE 1 END, w.started_at DESC LIMIT 1`)
     .bind(userId, today).first<WorkdayRow>();
   return row ? project(row, now) : null;
 }
 
 export async function startWorkday(
   db: D1Database,
-  args: { userId: string; today: string; now: number },
+  args: { userId: string; today: string; now: number; plan?: WorkdayPlanInput },
 ): Promise<WorkdaySnapshot> {
   const id = crypto.randomUUID();
-  try {
-    await db.prepare(`INSERT INTO workdays
+  const insertWorkday = db.prepare(`INSERT INTO workdays
       (id,user_id,work_date,status,started_at,active_since,paused_at,ended_at,active_seconds,created_at,updated_at,version)
       VALUES(?1,?2,?3,'active',?4,?4,NULL,NULL,0,?4,?4,0)`)
-      .bind(id, args.userId, args.today, args.now).run();
+    .bind(id, args.userId, args.today, args.now);
+  try {
+    if (args.plan) {
+      const plan = normalizePlan(args.plan, args.now);
+      await db.batch([
+        insertWorkday,
+        db.prepare(`INSERT INTO user_settings(user_id,setting_key,value_json,source_import_id,updated_at)
+          VALUES(?1,?2,?3,NULL,?4)`)
+          .bind(args.userId, planKey(id), JSON.stringify(plan), args.now),
+      ]);
+    } else {
+      await insertWorkday.run();
+    }
   } catch (error) {
     throw conflict(error, 'Робочий день уже відкритий або за цю дату вже завершений.');
   }
@@ -121,15 +146,25 @@ export async function reopenWorkday(db: D1Database, args: MutationArgs) {
 }
 
 export async function resetWorkday(db: D1Database, args: MutationArgs): Promise<void> {
-  const result = await db.prepare(`DELETE FROM workdays
-    WHERE id=?1 AND user_id=?2 AND work_date=?3 AND version=?4 AND status='ended'`)
-    .bind(args.id, args.userId, args.workDate, args.expectedVersion).run();
-  changed(result, 'Робочий день уже змінено або його не можна скинути.');
+  const [, workdayResult] = await db.batch([
+    db.prepare(`DELETE FROM user_settings
+      WHERE user_id=?2 AND setting_key=?6 AND EXISTS(
+        SELECT 1 FROM workdays
+        WHERE id=?1 AND user_id=?2 AND work_date=?3 AND version=?4 AND status='ended'
+      )`).bind(args.id, args.userId, args.workDate, args.expectedVersion, args.now, planKey(args.id)),
+    db.prepare(`DELETE FROM workdays
+      WHERE id=?1 AND user_id=?2 AND work_date=?3 AND version=?4 AND status='ended'`)
+      .bind(args.id, args.userId, args.workDate, args.expectedVersion),
+  ]);
+  changed(workdayResult, 'Робочий день уже змінено або його не можна скинути.');
 }
 
 async function readById(db: D1Database, userId: string, id: string, now: number) {
-  const row = await db.prepare(`SELECT id,work_date,status,started_at,active_since,paused_at,
-      ended_at,active_seconds,version FROM workdays WHERE id=?1 AND user_id=?2 LIMIT 1`)
+  const row = await db.prepare(`SELECT w.id,w.work_date,w.status,w.started_at,w.active_since,w.paused_at,
+      w.ended_at,w.active_seconds,w.version,p.value_json AS plan_json
+    FROM workdays w
+    LEFT JOIN user_settings p ON p.user_id=w.user_id AND p.setting_key=('workday_plan:' || w.id)
+    WHERE w.id=?1 AND w.user_id=?2 LIMIT 1`)
     .bind(id, userId).first<WorkdayRow>();
   return row ? project(row, now) : null;
 }
@@ -142,9 +177,47 @@ function project(row: WorkdayRow, now: number): WorkdaySnapshot {
     startedAt: Number(row.started_at), activeSince: nullableNumber(row.active_since),
     pausedAt: nullableNumber(row.paused_at), endedAt: nullableNumber(row.ended_at),
     activeSeconds: Number(row.active_seconds) + live, asOf: now, version: Number(row.version),
+    plan: parsePlan(row.plan_json),
   };
 }
 
+function normalizePlan(value: WorkdayPlanInput, createdAt: number): WorkdayPlan {
+  return {
+    dailyGoal: safeGoal(value.dailyGoal),
+    monthlyGoal: safeGoal(value.monthlyGoal),
+    focusDirections: Array.isArray(value.focusDirections)
+      ? value.focusDirections.filter((item): item is string => typeof item === 'string').map((item) => item.trim().slice(0, 80)).filter(Boolean).slice(0, 20)
+      : [],
+    createdAt,
+  };
+}
+
+function parsePlan(value: string | null): WorkdayPlan | null {
+  if (!value) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    if (!isNonNegativeInteger(record.dailyGoal)) return null;
+    if (!isNonNegativeInteger(record.monthlyGoal)) return null;
+    if (!isNonNegativeInteger(record.createdAt)) return null;
+    return normalizePlan({
+      dailyGoal: record.dailyGoal,
+      monthlyGoal: record.monthlyGoal,
+      focusDirections: Array.isArray(record.focusDirections) ? record.focusDirections.filter((item): item is string => typeof item === 'string') : [],
+    }, record.createdAt);
+  } catch {
+    return null;
+  }
+}
+
+function safeGoal(value: number): number {
+  return Number.isSafeInteger(value) && value >= 0 ? Math.min(value, 999999) : 0;
+}
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+function planKey(id: string) { return `${PLAN_KEY_PREFIX}${id}`; }
 function nullableNumber(value: number | null) { return value === null ? null : Number(value); }
 function required(value: WorkdaySnapshot | null): WorkdaySnapshot {
   if (!value) throw new WorkdayError('Робочий день не знайдено.', 404);

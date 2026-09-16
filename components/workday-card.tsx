@@ -100,6 +100,7 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
     : 0;
   const staleOpen = Boolean(workday && workday.status !== 'ended' && workday.workDate !== currentToday);
   const showPlan = !workday || workday.workDate === currentToday;
+  const plan = workday?.plan ?? { dailyGoal, monthlyGoal, focusDirections, createdAt: 0 };
 
   async function mutate(action: 'start' | 'pause' | 'resume' | 'reopen' | 'reset' | 'end', confirmIncomplete = false) {
     if (busyRef.current) return;
@@ -180,7 +181,7 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
         {staleOpen && <p className="muted-note">Відкритий день за {formatDate(workday!.workDate)}. Заверши його перед стартом нового.</p>}
         {confirmCount !== null && <p className="muted-note">Залишилося справ: {confirmCount}. Завершити день попри це?</p>}
         {workday?.status === 'ended' && <p className="muted-note">Завершили випадково? Поверніть день, щоб продовжити з попереднього часу, або скиньте сьогоднішній день, щоб почати заново.</p>}
-        {showPlan && <div className="workday-plan"><strong>План дня</strong><span>Записи: {dailyGoal} · місячна ціль: {monthlyGoal}</span><span>Фокус: {focusDirections.length ? focusDirections.join(', ') : 'без окремого напрямку'}</span></div>}
+        {showPlan && <div className="workday-plan"><strong>План дня</strong><span>Записи: {plan.dailyGoal} · місячна ціль: {plan.monthlyGoal}</span><span>Фокус: {plan.focusDirections.length ? plan.focusDirections.join(', ') : 'без окремого напрямку'}</span><small>{workday?.plan ? `Зафіксовано на старті о ${formatTime(workday.plan.createdAt)}` : 'Цілі зафіксуються під час старту й не зміняться заднім числом.'}</small></div>}
         {error && <p className="lead-error" role="alert">{error}</p>}
       </div>
       <div className="workday-actions">

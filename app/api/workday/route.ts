@@ -44,7 +44,19 @@ export async function POST(request: Request): Promise<Response> {
   const today = businessDate(now);
   try {
     if (action === 'start') {
-      return Response.json({ workday: await startWorkday(env.DB, { userId: user.id, today, now }) });
+      const dashboard = await readDashboardSnapshot(env.DB, user.id, now);
+      return Response.json({
+        workday: await startWorkday(env.DB, {
+          userId: user.id,
+          today,
+          now,
+          plan: {
+            dailyGoal: dashboard.bookingGoal.target,
+            monthlyGoal: dashboard.monthlyBookingGoal,
+            focusDirections: dashboard.focusDirections,
+          },
+        }),
+      });
     }
     const id = text(body.id);
     const workDate = date(body.workDate);
