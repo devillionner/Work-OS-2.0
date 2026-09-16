@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Cloud, CopyCheck, DatabaseBackup, FileSpreadsheet, ShieldCheck, Target } from 'lucide-react';
+import { Cloud, CopyCheck, DatabaseBackup, FileSpreadsheet, History, ShieldCheck, Target } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CloudBackupButton } from '@/components/cloud-backup-button';
@@ -9,6 +9,7 @@ import { CloudRestoreDialog } from '@/components/cloud-restore-dialog';
 import { TodaySettingsDialog } from '@/components/today-settings-dialog';
 import { ChatDuplicatesDialog } from '@/components/chat-duplicates-dialog';
 import { ChatCsvDialog } from '@/components/chat-csv-dialog';
+import { GoalHistoryDialog } from '@/components/goal-history-dialog';
 import type { DashboardSnapshot } from '@/lib/dashboard';
 
 type Props = {
@@ -19,6 +20,7 @@ type Props = {
 
 export function SettingsWorkspace({ user, snapshot, onRefresh }: Props) {
   const [focusOpen, setFocusOpen] = useState(false);
+  const [goalHistoryOpen, setGoalHistoryOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [csvOpen, setCsvOpen] = useState(false);
@@ -50,7 +52,7 @@ export function SettingsWorkspace({ user, snapshot, onRefresh }: Props) {
     <div className="settings-primary-grid">
       <section className="settings-panel settings-panel-primary">
         <div className="settings-panel-icon"><Target /></div>
-        <div className="card-heading"><div><p className="eyebrow">Цілі та фокус</p><h3>Що важливо зараз</h3></div><Button variant="outline" size="sm" onClick={() => setFocusOpen(true)}>Змінити</Button></div>
+        <div className="card-heading"><div><p className="eyebrow">Цілі та фокус</p><h3>Що важливо зараз</h3></div><div className="settings-tool-actions"><Button variant="ghost" size="sm" onClick={() => setGoalHistoryOpen(true)}><History data-icon="inline-start" />Історія</Button><Button variant="outline" size="sm" onClick={() => setFocusOpen(true)}>Змінити</Button></div></div>
         <div className="settings-stat-row"><div><span>На день</span><strong>{snapshot.bookingGoal.target}</strong><small>записів</small></div><div><span>На місяць</span><strong>{snapshot.monthlyBookingGoal}</strong><small>записів</small></div></div>
         <div className="settings-direction-list">{snapshot.focusDirections.length ? snapshot.focusDirections.map((direction) => <Badge variant="outline" key={direction}>{direction}</Badge>) : <span className="muted-note">Напрямки ще не обрані.</span>}</div>
       </section>
@@ -76,6 +78,7 @@ export function SettingsWorkspace({ user, snapshot, onRefresh }: Props) {
     <section className="settings-account-row"><ShieldCheck /><div><span>Обліковий запис</span><strong>{user.displayName}</strong><small>{user.email}</small></div></section>
 
     <TodaySettingsDialog open={focusOpen} onClose={() => setFocusOpen(false)} initialDirections={snapshot.focusDirections} initialDailyGoal={snapshot.bookingGoal.target} initialMonthlyGoal={snapshot.monthlyBookingGoal} onSaved={onRefresh} />
+    <GoalHistoryDialog open={goalHistoryOpen} onClose={() => setGoalHistoryOpen(false)} />
     <CloudRestoreDialog open={restoreOpen} onClose={() => setRestoreOpen(false)} />
     <ChatDuplicatesDialog open={duplicatesOpen} onClose={() => setDuplicatesOpen(false)} />
     <ChatCsvDialog open={csvOpen} onClose={() => setCsvOpen(false)} onImported={onRefresh} />
