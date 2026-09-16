@@ -52,6 +52,19 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
     setQuery('');
     setOffset(0);
   }, []);
+  const copyText = useCallback(async (label: string, value: string) => {
+    if (!value) return;
+    if (!navigator.clipboard) {
+      setNotice(`Не вдалося скопіювати ${label.toLowerCase()}. Скопіюйте вручну.`);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      setNotice(`${label} скопійовано.`);
+    } catch {
+      setNotice(`Не вдалося скопіювати ${label.toLowerCase()}. Скопіюйте вручну.`);
+    }
+  }, []);
   useEffect(() => {
     const timer = setTimeout(() => {
       setQuery(search);
@@ -323,10 +336,16 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                 </p>
                 <div className="lead-contact-lines">
                   {current.lead.phone && (
-                    <span>Телефон: {current.lead.phone}</span>
+                    <>
+                      <span>Телефон: {current.lead.phone}</span>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => void copyText('Телефон', current.lead.phone)}>Копіювати телефон</Button>
+                    </>
                   )}
                   {current.lead.telegramUsername && (
-                    <span>Telegram: {current.lead.telegramUsername}</span>
+                    <>
+                      <span>Telegram: {current.lead.telegramUsername}</span>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => void copyText('Telegram', current.lead.telegramUsername)}>Копіювати Telegram</Button>
+                    </>
                   )}
                   {safeUrl(current.lead.sourceChatLink) && (
                     <a
@@ -339,7 +358,10 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                   )}
                 </div>
                 {current.lead.note && (
-                  <p className="lead-preserve">{current.lead.note}</p>
+                  <div>
+                    <p className="lead-preserve">{current.lead.note}</p>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => void copyText('Нотатку', current.lead.note)}>Копіювати нотатку</Button>
+                  </div>
                 )}
                 {current.lead.duplicateState !== 'none' && (
                   <p>Дублікат: {labels[current.lead.duplicateState]}</p>
