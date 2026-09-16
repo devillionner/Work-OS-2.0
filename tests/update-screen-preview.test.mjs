@@ -16,7 +16,8 @@ void test('Settings test trigger opens the transient app update screen without a
   assert.match(preview, /Оновлюємо Work OS/);
   assert.match(preview, /Work OS оновлено/);
   assert.match(preview, /setTimeout\(\(\) => setPhase\('finishing'\), 2_200\)/);
-  assert.match(preview, /setTimeout\(onClose, 3_400\)/);
+  assert.match(preview, /setTimeout\(\(\) => setExiting\(true\), 3_250\)/);
+  assert.match(preview, /setTimeout\(onClose, 3_250 \+ PREVIEW_EXIT_MS\)/);
   assert.doesNotMatch(preview, /location\.reload/);
   assert.doesNotMatch(preview, /serviceWorker/);
 });

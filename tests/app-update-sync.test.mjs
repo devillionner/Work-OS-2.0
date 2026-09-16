@@ -29,7 +29,8 @@ void test('automatic app update detects a new build and preserves user context',
   assert.match(source, /restoreActiveView\(savedView\)/);
   assert.match(source, /window\.location\.reload\(\)/);
   assert.match(source, /<output className="app-update-banner"/);
-  assert.match(source, /<dialog open className="app-update-backdrop"/);
+  assert.match(source, /app-update-backdrop/);
+  assert.match(source, /is-exiting/);
   assert.match(source, /Оновлюємо Work OS/);
   assert.match(source, /Work OS оновлено/);
 });
@@ -94,6 +95,7 @@ void test('lead writes broadcast fresh server state to other open clients', () =
 
 void test('automatic update UI has desktop, mobile and reduced-motion protection', () => {
   const css = read('app/design-polish.css');
+  const motion = read('app/update-motion.css');
   assert.match(css, /\.app-update-banner\s*\{/);
   assert.match(css, /\.app-update-backdrop\s*\{/);
   assert.match(css, /max-width:\s*none/);
@@ -101,4 +103,7 @@ void test('automatic update UI has desktop, mobile and reduced-motion protection
   assert.match(css, /\.app-update-card\s*\{/);
   assert.match(css, /@media \(max-width: 520px\)/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(motion, /\.app-update-backdrop\.is-exiting/);
+  assert.match(motion, /app-update-card-enter/);
+  assert.match(motion, /@media \(prefers-reduced-motion: reduce\)/);
 });
