@@ -14,6 +14,13 @@ void test('Reports exposes subject analytics for all required operator periods',
   assert.match(checkpoints, /<ReportSubjectAnalytics date=\{date\} \/>/);
 });
 
+void test('subject analytics has separate desktop table and mobile card composition', () => {
+  assert.match(component, /report-subject-table hidden md:block/);
+  assert.match(component, /grid gap-2 md:hidden/);
+  assert.match(component, /function SubjectMetric/);
+  assert.match(component, /whitespace-normal/);
+});
+
 void test('subject analytics endpoint is authenticated, bounded to valid dates and validates period', () => {
   assert.match(route, /getCurrentUser\(\)/);
   assert.match(route, /SUBJECT_PERIODS\.includes/);
