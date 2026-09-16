@@ -9,6 +9,15 @@ import { commandBody, errorResponse, json } from '@/lib/leads/application/http';
 import { LeadError } from '@/lib/leads/domain/validation';
 import { overdue } from '@/lib/leads/domain/time';
 
+const LEAD_LIST_VIEWS = new Set([
+  'active',
+  'responses',
+  'curator',
+  'needs-details',
+  'overdue',
+  'archived',
+]);
+
 export async function GET(request: Request): Promise<Response> {
   try {
     const user = await getCurrentUser();
@@ -38,11 +47,18 @@ export async function GET(request: Request): Promise<Response> {
     const offset = Number(params.get('offset') ?? 0);
     if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1000000)
       throw new LeadError('Некоректна сторінка.');
+    const requestedView = params.get('view');
+    if (requestedView && !LEAD_LIST_VIEWS.has(requestedView))
+      throw new LeadError('Некоректний фільтр лідів.');
+    const view = requestedView || '';
     const result = await repo.list(
       user.id,
       {
-        archived: params.get('archived') === 'true',
-        overdue: params.get('overdue') === 'true',
+        archived: view ? view === 'archived' : params.get('archived') === 'true',
+        overdue: view ? view === 'overdue' : params.get('overdue') === 'true',
+        responses: view === 'responses',
+        curator: view === 'curator',
+        needsDetails: view === 'needs-details',
         search: (params.get('search') ?? '').slice(0, 200),
         offset,
       },
