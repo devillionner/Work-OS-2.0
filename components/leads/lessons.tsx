@@ -5,7 +5,7 @@ import type { LeadDetail } from '@/lib/leads/application/queries';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { safeUrl } from '@/lib/leads/domain/validation';
-import { EditDialog, Field, SaveForm, SelectField, textValue } from './form';
+import { EditDialog, Field, SaveForm, textValue } from './form';
 import { labels, type Mutation } from './client';
 import { LessonEditor } from './lesson-editor';
 import { LessonHistoryDialog } from './lesson-history';
@@ -22,12 +22,16 @@ export function Lessons({
     mode: 'book' | 'update' | 'reschedule';
     id?: string;
   } | null>(null);
-  const [statusId, setStatusId] = useState<string | null>(null);
+  const [statusAction, setStatusAction] = useState<{
+    id: string;
+    status: 'completed' | 'no-show';
+  } | null>(null);
   const [cancelRequest, setCancelRequest] = useState<string | null>(null);
   const [submitRequest, setSubmitRequest] = useState(false);
   const [today] = useState(() => businessDate(Math.floor(Date.now() / 1000)));
   const [historyLesson, setHistoryLesson] = useState<{ id: string; leadId: string; subject: string; date: string } | null>(null);
   const archived = detail.lead.archivedAt !== null;
+  const attendanceCount = detail.lessons.filter((lesson) => lesson.status === 'completed').length;
   return (
     <section className="lead-panel" aria-labelledby="lessons-title">
       <div className="lead-section-head">
@@ -36,7 +40,7 @@ export function Lessons({
             Уроки <small>{detail.lessons.length}</small>
           </h3>
           <p className="muted-note">
-            Повторний запис зберігається в цього самого ліда.
+            Відвідувань: <strong>{attendanceCount}</strong>. Проведений урок зараховується як одне відвідування.
           </p>
         </div>
         <div className="lead-actions"><Button onClick={() => setEditor({ mode: 'book' })} disabled={archived}>Записати на урок</Button><Button variant="outline" onClick={() => setSubmitRequest(true)} disabled={archived || detail.curatorRequests.length > 0}>{detail.curatorRequests.length > 0 ? 'Запит уже очікує' : 'Запит куратору'}</Button></div>
@@ -130,20 +134,14 @@ export function Lessons({
               </p>
             )}
             <div className="lead-actions">
-              <Button
-                variant="outline"
-                onClick={() => setHistoryLesson({ id: l.id, leadId: detail.lead.id, subject: l.subject, date: l.lessonDate })}
-              >
-                <HistoryIcon data-icon="inline-start" />Історія
-              </Button>
               {l.status === 'booked' && (
                 <>
                   <Button
-                    variant="outline"
+                    variant={pastBooked ? 'default' : 'outline'}
                     disabled={archived}
-                    onClick={() => setEditor({ mode: 'update', id: l.id })}
+                    onClick={() => setStatusAction({ id: l.id, status: 'completed' })}
                   >
-                    Дані уроку
+                    Проведено
                   </Button>
                   <Button
                     variant="outline"
@@ -153,14 +151,27 @@ export function Lessons({
                     Перенести
                   </Button>
                   <Button
-                    variant={pastBooked ? 'default' : 'outline'}
+                    variant="outline"
                     disabled={archived}
-                    onClick={() => setStatusId(l.id)}
+                    onClick={() => setStatusAction({ id: l.id, status: 'no-show' })}
                   >
-                    {pastBooked ? 'Зафіксувати результат' : 'Результат / скасування'}
+                    Учень пішов
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={archived}
+                    onClick={() => setEditor({ mode: 'update', id: l.id })}
+                  >
+                    Дані уроку
                   </Button>
                 </>
               )}
+              <Button
+                variant="outline"
+                onClick={() => setHistoryLesson({ id: l.id, leadId: detail.lead.id, subject: l.subject, date: l.lessonDate })}
+              >
+                <HistoryIcon data-icon="inline-start" />Історія
+              </Button>
             </div>
             {l.status === 'booked' && <Reminders lesson={l} mutate={mutate} disabled={archived} />}
           </article>
@@ -176,37 +187,37 @@ export function Lessons({
           close={() => setEditor(null)}
         />
       )}
-      {statusId && (
+      {statusAction && (
         <EditDialog
-          title="Завершити або скасувати урок"
-          description="Це збереже результат уроку в історії. Для нового запису створіть ще один урок у цьому ліді."
-          close={() => setStatusId(null)}
+          title={statusAction.status === 'completed' ? 'Підтвердити проведення уроку' : 'Підтвердити: учень пішов'}
+          description={
+            statusAction.status === 'completed'
+              ? 'Урок буде зараховано як одне відвідування. Сам запис на урок і відвідування рахуються окремо.'
+              : 'Відвідування не буде зараховано. Результат залишиться в історії цього уроку.'
+          }
+          close={() => setStatusAction(null)}
         >
           <SaveForm
-            label="Підтвердити результат"
-            cancel={() => setStatusId(null)}
-            save={async (f) => {
+            label={statusAction.status === 'completed' ? 'Так, урок проведено' : 'Так, учень пішов'}
+            cancel={() => setStatusAction(null)}
+            save={async (form) => {
+              const status = statusAction.status;
+              const reason = status === 'no-show'
+                ? textValue(form, 'reason') || 'Учень пішов'
+                : '';
               await mutate(
                 'lesson_status',
-                {
-                  status: textValue(f, 'status'),
-                  reason: textValue(f, 'reason'),
-                },
-                statusId,
+                { status, reason },
+                statusAction.id,
               );
-              setStatusId(null);
+              setStatusAction(null);
             }}
           >
-            <SelectField
-              label="Статус"
-              name="status"
-              value="completed"
-              options={['completed', 'cancelled', 'no-show']}
-            />
-            <Field
-              label="Причина (обов’язкова для скасування / неявки)"
-              name="reason"
-            />
+            {statusAction.status === 'no-show' ? (
+              <Field label="Коментар (необов’язково)" name="reason" />
+            ) : (
+              <p className="muted-note">Після підтвердження цей урок збільшить показник відвідувань на 1.</p>
+            )}
           </SaveForm>
         </EditDialog>
       )}
