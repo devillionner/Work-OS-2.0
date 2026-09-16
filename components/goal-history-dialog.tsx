@@ -37,6 +37,8 @@ export function GoalHistoryDialog({ open, onClose }: { open: boolean; onClose: (
       if (!active) return;
       setLoading(true);
       setError('');
+      setItems([]);
+      setUnversioned([]);
     });
     fetch('/api/settings/goal-history', { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
