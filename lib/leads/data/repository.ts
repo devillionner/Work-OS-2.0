@@ -1,6 +1,6 @@
-import { foldedName, leadSearchAliases } from './search.ts';
+import { foldedName } from './search.ts';
 import { leadWriteGuards } from '../../../db/schema.ts';
-import { and, asc, desc, eq, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, lt, sql } from 'drizzle-orm';
 import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
 import type { BatchItem } from 'drizzle-orm/batch';
@@ -119,6 +119,8 @@ export class D1LeadRepository implements LeadRepository {
         ),
     ]);
     if (!leadRows[0]) return null;
+    // Old/repeated imports may have no reminder rows. Defaults are a projection,
+    // persisted only on the next command (no writes during GET).
     const reminderIndex = new Map(
       reminderRows.map(({ reminder }) => [
         `${reminder.lessonId}:${reminder.slot}`,
@@ -418,82 +420,12 @@ export class D1LeadRepository implements LeadRepository {
     options: {
       archived: boolean;
       overdue: boolean;
-      responses?: boolean;
-      curator?: boolean;
-      needsDetails?: boolean;
       search: string;
       offset: number;
     },
     now: number,
   ) {
     const { search, offset } = options;
-    const rawSearch = search.trim();
-    const normalizedSearch = rawSearch.toLocaleLowerCase('uk-UA');
-    const phoneSearch = rawSearch.replace(/\D/g, '');
-    const telegramSearch = normalizedSearch
-      .replace(/^@/, '')
-      .replace(/^https?:\/\/(?:www\.)?t\.me\//, '')
-      .split(/[/?#]/, 1)[0] ?? '';
-    const aliases = new Set(leadSearchAliases(normalizedSearch));
-    const searchFilters: SQL[] = [];
-    if (normalizedSearch) {
-      const leadHumanText = sql`${leads.name} || ' ' || ${leads.subject} || ' ' || ${leads.note} || ' ' || ${leads.teacherName} || ' ' || ${leads.nextAction}`;
-      const lessonHumanText = sql`${lessons.teacherName} || ' ' || ${lessons.studentName} || ' ' || ${lessons.subject}`;
-      const studentHumanText = sql`${students.name} || ' ' || ${students.surname} || ' ' || ${students.note}`;
-      searchFilters.push(
-        sql`instr(${foldedName(leadHumanText)},${normalizedSearch})>0`,
-        sql`instr(lower(${leads.telegramUsername}),${normalizedSearch})>0`,
-        sql`instr(lower(${leads.platform}),${normalizedSearch})>0`,
-        sql`instr(lower(${leads.sourceChatLink}),${normalizedSearch})>0`,
-        sql`instr(lower(${leads.status}),${normalizedSearch})>0`,
-        sql`instr(lower(${leads.funnelStage}),${normalizedSearch})>0`,
-        sql`EXISTS (
-          SELECT 1 FROM ${lessons}
-          WHERE ${lessons.userId}=${userId}
-            AND ${lessons.leadId}=${leads.id}
-            AND instr(${foldedName(lessonHumanText)},${normalizedSearch})>0
-        )`,
-        sql`EXISTS (
-          SELECT 1 FROM ${students}
-          WHERE ${students.userId}=${userId}
-            AND ${students.leadId}=${leads.id}
-            AND instr(${foldedName(studentHumanText)},${normalizedSearch})>0
-        )`,
-      );
-      if (phoneSearch.length >= 4)
-        searchFilters.push(sql`instr(${leads.normalizedPhone},${phoneSearch})>0`);
-      if (telegramSearch)
-        searchFilters.push(sql`instr(${leads.normalizedTelegram},${telegramSearch})>0`);
-      if (aliases.has('response'))
-        searchFilters.push(eq(leads.funnelStage, 'response'));
-      if (aliases.has('clarification'))
-        searchFilters.push(sql`(${leads.funnelStage}='clarification' OR ${leads.needsDetails}=1)`);
-      if (aliases.has('booked'))
-        searchFilters.push(sql`(${leads.funnelStage}='booked' OR EXISTS (
-          SELECT 1 FROM ${lessons}
-          WHERE ${lessons.userId}=${userId}
-            AND ${lessons.leadId}=${leads.id}
-            AND ${lessons.status}='booked'
-        ))`);
-      if (aliases.has('reminder'))
-        searchFilters.push(eq(leads.funnelStage, 'reminder'));
-      if (aliases.has('lesson'))
-        searchFilters.push(eq(leads.funnelStage, 'lesson'));
-      if (aliases.has('result'))
-        searchFilters.push(eq(leads.funnelStage, 'result'));
-      if (aliases.has('curator'))
-        searchFilters.push(sql`EXISTS (
-          SELECT 1 FROM ${curatorRequests}
-          WHERE ${curatorRequests.userId}=${userId}
-            AND ${curatorRequests.leadId}=${leads.id}
-            AND ${curatorRequests.status}='pending'
-        )`);
-      if (aliases.has('new')) searchFilters.push(eq(leads.status, 'new'));
-      if (aliases.has('active')) searchFilters.push(eq(leads.status, 'active'));
-      if (aliases.has('won')) searchFilters.push(eq(leads.status, 'won'));
-      if (aliases.has('lost')) searchFilters.push(eq(leads.status, 'lost'));
-    }
-    const searchFilter = normalizedSearch ? or(...searchFilters) : undefined;
     const filter = and(
       eq(leads.userId, userId),
       options.archived
@@ -506,27 +438,9 @@ export class D1LeadRepository implements LeadRepository {
             isNull(leads.archivedAt),
           )
         : undefined,
-      options.responses
-        ? sql`EXISTS (
-            SELECT 1 FROM ${activityEvents}
-            WHERE ${activityEvents.userId}=${userId}
-              AND ${activityEvents.leadId}=${leads.id}
-              AND ${activityEvents.eventType}='lead_created'
-              AND ${activityEvents.cancelledAt} IS NULL
-          )`
+      search
+        ? sql`(instr(${foldedName(leads.name)},${search.toLowerCase()})>0 OR instr(${leads.phone},${search})>0 OR instr(lower(${leads.telegramUsername}),lower(${search}))>0)`
         : undefined,
-      options.curator
-        ? sql`EXISTS (
-            SELECT 1 FROM ${curatorRequests}
-            WHERE ${curatorRequests.userId}=${userId}
-              AND ${curatorRequests.leadId}=${leads.id}
-              AND ${curatorRequests.status}='pending'
-          )`
-        : undefined,
-      options.needsDetails
-        ? sql`(${leads.needsDetails}=1 OR ${leads.funnelStage}='clarification')`
-        : undefined,
-      searchFilter,
     );
     const [rows, totals] = await this.db.batch([
       this.db
