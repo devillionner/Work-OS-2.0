@@ -101,3 +101,32 @@ void test('definitive stale conflict clears the journal and never replays the st
   assert.equal(JSON.parse(bodies[1]).version, 8);
   assert.equal(stored, null);
 });
+
+void test('transient HTTP failures preserve the original command for an identical retry', async () => {
+  for (const status of [408, 429, 503]) {
+    let stored = null;
+    const bodies = [];
+    let transient = true;
+    const journal = {
+      read: () => stored,
+      write: (value) => {
+        stored = value;
+      },
+    };
+    const send = createCommandClient(async (_url, options) => {
+      bodies.push(options.body);
+      if (transient) return Response.json({ error: `temporary ${status}` }, { status });
+      return Response.json({ id: 'lead' });
+    }, journal);
+    const lead = { id: 'lead', version: 11 };
+
+    await assert.rejects(send('lesson_book', { subject: 'Math' }, lead));
+    assert.ok(stored, `status ${status} must keep the pending journal`);
+    const original = stored.body;
+
+    transient = false;
+    await send('lesson_book', { subject: 'Math' }, lead);
+    assert.equal(bodies[1], original, `status ${status} must retry the identical command body`);
+    assert.equal(stored, null);
+  }
+});
