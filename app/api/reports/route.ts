@@ -7,7 +7,6 @@ import { readReportCalendar } from '@/lib/reports/calendar';
 import { readCalendarContext } from '@/lib/reports/calendar-context';
 import { readPreviousReportReminder } from '@/lib/reports/reminders';
 import { readFinalReportState } from '@/lib/reports/final';
-import { readSubjectAnalytics, SUBJECT_PERIODS, type SubjectPeriod } from '@/lib/reports/subjects';
 import { readGoalPlanFact } from '@/lib/goals';
 
 const REQUEST_MAX_BYTES = 32 * 1024;
@@ -19,10 +18,6 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const month = validMonth(url.searchParams.get('month')) ? url.searchParams.get('month')! : kyivDate().slice(0, 7);
   const date = url.searchParams.get('date');
-  const requestedSubjectPeriod = url.searchParams.get('subjectPeriod');
-  const subjectPeriod: SubjectPeriod = SUBJECT_PERIODS.includes(requestedSubjectPeriod as SubjectPeriod)
-    ? requestedSubjectPeriod as SubjectPeriod
-    : 'day';
   if (validDate(date) && date > kyivDate()) return Response.json({ error: 'Майбутні звіти недоступні.' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
   const start = `${month}-01`;
   const end = shiftMonth(start, 1);
@@ -33,18 +28,17 @@ export async function GET(request: Request): Promise<Response> {
   ]);
   const selected = selectedResult ?? undefined;
   const selectedDate = selected?.report_date || (validDate(date) && date!.startsWith(month) ? date : null);
-  const [summary, details, previousReportReminder, finalReportState, goalPlanFact, subjects] = await Promise.all([
+  const [summary, details, previousReportReminder, finalReportState, goalPlanFact] = await Promise.all([
     selectedDate ? eventSummary(user.id, selectedDate) : Promise.resolve([]),
     selectedDate ? readReportEventDetails(env.DB, user.id, selectedDate) : Promise.resolve([]),
     readPreviousReportReminder(env.DB, user.id, kyivDate()),
     selectedDate ? readFinalReportState(env.DB,user.id,selectedDate,Math.floor(Date.now()/1000),kyivDate()) : Promise.resolve(null),
     selectedDate ? readGoalPlanFact(env.DB,user.id,selectedDate) : Promise.resolve(null),
-    selectedDate ? readSubjectAnalytics(env.DB,user.id,selectedDate,subjectPeriod) : Promise.resolve(null),
   ]);
   const selectedPublic = selected
     ? { ...publicReport(selected), stale: calendar.find((item) => item.id === selected.id)?.stale ?? false }
     : null;
-  return Response.json({ month, reports: calendar, calendarContext, selected: selectedPublic, summary, details, previousReportReminder, finalReportState, goalPlanFact, subjects, leadCommandScope: `reports:${user.id}` }, { headers: { 'Cache-Control': 'no-store' } });
+  return Response.json({ month, reports: calendar, calendarContext, selected: selectedPublic, summary, details, previousReportReminder, finalReportState, goalPlanFact, leadCommandScope: `reports:${user.id}` }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(request: Request): Promise<Response> {
