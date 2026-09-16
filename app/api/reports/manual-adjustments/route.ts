@@ -14,7 +14,13 @@ import {
 } from '@/lib/reports/manual-adjustments';
 
 const REQUEST_MAX_BYTES = 8 * 1024;
-type ReportRow = { payload_json: string | null; revision_count: number };
+type ReportRow = {
+  id: string;
+  report_text: string;
+  payload_json: string | null;
+  submitted_at: number | null;
+  revision_count: number;
+};
 
 export async function GET(request: Request): Promise<Response> {
   const user = await getCurrentUser();
@@ -49,18 +55,32 @@ export async function POST(request: Request): Promise<Response> {
   if (!reportManualAdjustmentsAreValidForFacts(before.facts, adjustments))
     return Response.json({ error: 'Підсумкове число не може бути від’ємним.' }, { status: 400 });
 
-  const row = await env.DB.prepare(`SELECT payload_json,revision_count FROM daily_reports
+  const row = await env.DB.prepare(`SELECT id,report_text,payload_json,submitted_at,revision_count FROM daily_reports
     WHERE user_id=?1 AND report_date=?2 LIMIT 1`).bind(user.id, date).first<ReportRow>();
   if (!row || Number(row.revision_count || 1) !== expectedRevision)
     return Response.json({ error: 'Звіт уже змінено на іншому пристрої. Оновіть дані.' }, { status: 409 });
 
   const now = Math.floor(Date.now() / 1000);
-  const payloadJson = writeReportManualAdjustmentsPayload(row.payload_json, adjustments, now);
-  const result = await env.DB.prepare(`UPDATE daily_reports
-    SET payload_json=?1,updated_at=?2,revision_count=COALESCE(revision_count,1)+1,source_import_id=NULL
-    WHERE user_id=?3 AND report_date=?4 AND COALESCE(revision_count,1)=?5`)
-    .bind(payloadJson, now, user.id, date, expectedRevision).run();
-  if (!result.meta.changes)
+  const mutationId = crypto.randomUUID();
+  const payloadJson = writeReportManualAdjustmentsPayload(row.payload_json, adjustments, now, mutationId);
+  const nextRevision = expectedRevision + 1;
+  const [updateResult] = await env.DB.batch([
+    env.DB.prepare(`UPDATE daily_reports
+      SET payload_json=?1,updated_at=?2,revision_count=COALESCE(revision_count,1)+1,source_import_id=NULL
+      WHERE user_id=?3 AND report_date=?4 AND COALESCE(revision_count,1)=?5`)
+      .bind(payloadJson, now, user.id, date, expectedRevision),
+    env.DB.prepare(`INSERT OR IGNORE INTO activity_events
+      (id,user_id,event_type,occurred_at,event_date,metadata_json,source_key)
+      SELECT 'report_revision:' || id || ':' || revision_count,user_id,'report_revision',updated_at,report_date,
+        json_object('reportId',id,'revision',revision_count,'text',report_text,'submittedAt',submitted_at,
+          'source','manual','manualAdjustments',json_extract(payload_json,'$.manualAdjustments')),
+        'report_revision:' || id || ':' || revision_count
+      FROM daily_reports
+      WHERE user_id=?1 AND report_date=?2 AND revision_count=?3
+        AND json_extract(payload_json,'$.manualAdjustmentMutationId')=?4`)
+      .bind(user.id, date, nextRevision, mutationId),
+  ]);
+  if (!updateResult.meta.changes)
     return Response.json({ error: 'Звіт уже змінено на іншому пристрої. Оновіть дані.' }, { status: 409 });
 
   return Response.json(await snapshot(user.id, date), { headers: { 'Cache-Control': 'no-store' } });
@@ -76,7 +96,7 @@ async function snapshot(userId: string, date: string): Promise<{
   details: Awaited<ReturnType<typeof readReportEventDetails>>;
 }> {
   const [report, summaryResult, details] = await Promise.all([
-    env.DB.prepare(`SELECT payload_json,revision_count FROM daily_reports
+    env.DB.prepare(`SELECT id,report_text,payload_json,submitted_at,revision_count FROM daily_reports
       WHERE user_id=?1 AND report_date=?2 LIMIT 1`).bind(userId, date).first<ReportRow>(),
     activitySummaryStatement(env.DB, userId, date, date).all<ActivitySummaryRow>(),
     readReportEventDetails(env.DB, userId, date),

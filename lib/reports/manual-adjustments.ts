@@ -45,6 +45,7 @@ export function writeReportManualAdjustmentsPayload(
   payloadJson: string | null | undefined,
   adjustments: ReportManualAdjustments,
   updatedAt: number,
+  mutationId?: string,
 ): string {
   let base: Record<string, unknown> = {};
   if (payloadJson) {
@@ -61,6 +62,7 @@ export function writeReportManualAdjustmentsPayload(
     source: 'manual',
     updatedAt,
     manualAdjustments: adjustments,
+    ...(mutationId ? { manualAdjustmentMutationId: mutationId } : {}),
   });
 }
 

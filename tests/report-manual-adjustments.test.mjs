@@ -18,13 +18,14 @@ void test('manual report adjustments are bounded integer deltas', () => {
   assert.equal(validateReportManualAdjustments({ publications: 10000, responses: 0, bookings: 0 }), null);
 });
 
-void test('manual report payload preserves existing metadata and reads legacy reports as zero correction', () => {
+void test('manual report payload preserves existing metadata and tracks the exact mutation', () => {
   assert.deepEqual(reportManualAdjustmentsFromPayload('{"source":"import"}'), { publications: 0, responses: 0, bookings: 0 });
-  const payload = writeReportManualAdjustmentsPayload('{"legacyId":"r1","source":"import"}', { publications: 1, responses: -1, bookings: 2 }, 123);
+  const payload = writeReportManualAdjustmentsPayload('{"legacyId":"r1","source":"import"}', { publications: 1, responses: -1, bookings: 2 }, 123, 'mutation-1');
   const parsed = JSON.parse(payload);
   assert.equal(parsed.legacyId, 'r1');
   assert.equal(parsed.source, 'manual');
   assert.equal(parsed.updatedAt, 123);
+  assert.equal(parsed.manualAdjustmentMutationId, 'mutation-1');
   assert.deepEqual(parsed.manualAdjustments, { publications: 1, responses: -1, bookings: 2 });
   assert.deepEqual(reportManualAdjustmentsFromPayload(payload), { publications: 1, responses: -1, bookings: 2 });
 });
@@ -53,11 +54,21 @@ void test('REPORT-22 UI exposes fact, explicit correction, result and per-number
   assert.match(source, /Today та Analytics/);
 });
 
-void test('REPORT-22 write path is owner scoped, same-origin and optimistic', async () => {
+void test('REPORT-22 write path is owner scoped, optimistic and versioned in report history', async () => {
   const source = await readFile(new URL('../app/api/reports/manual-adjustments/route.ts', import.meta.url), 'utf8');
   assert.match(source, /sameOrigin\(request\)/);
   assert.match(source, /WHERE user_id=\?3 AND report_date=\?4 AND COALESCE\(revision_count,1\)=\?5/);
+  assert.match(source, /manualAdjustmentMutationId/);
+  assert.match(source, /INSERT OR IGNORE INTO activity_events/);
+  assert.match(source, /'report_revision'/);
+  assert.match(source, /'manualAdjustments'/);
   assert.match(source, /Звіт уже змінено на іншому пристрої/);
   assert.match(source, /activitySummaryStatement/);
   assert.match(source, /readReportEventDetails/);
+});
+
+void test('report history renders the manual delta for correction-only revisions', async () => {
+  const source = await readFile(new URL('../components/report-history-dialog.tsx', import.meta.url), 'utf8');
+  assert.match(source, /Корекція · оголошення/);
+  assert.match(source, /manualAdjustments/);
 });

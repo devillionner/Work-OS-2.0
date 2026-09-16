@@ -1,3 +1,5 @@
+import { validateReportManualAdjustments, type ReportManualAdjustments } from './manual-adjustments.ts';
+
 export type ReportHistoryItem = {
   id: string;
   revision: number;
@@ -6,6 +8,7 @@ export type ReportHistoryItem = {
   submittedAt: number | null;
   text: string;
   source: 'manual' | 'import' | 'unknown';
+  manualAdjustments: ReportManualAdjustments | null;
 };
 
 export async function readReportHistory(
@@ -27,6 +30,9 @@ export async function readReportHistory(
   return result.results.map((row) => {
     const metadata = parseMetadata(row.metadata_json);
     const source = metadata.source === 'manual' || metadata.source === 'import' ? metadata.source : 'unknown';
+    const manualAdjustments = metadata.manualAdjustments === undefined
+      ? null
+      : validateReportManualAdjustments(metadata.manualAdjustments);
     return {
       id: row.id,
       revision: Number.isSafeInteger(metadata.revision) ? Number(metadata.revision) : 1,
@@ -35,6 +41,7 @@ export async function readReportHistory(
       submittedAt: typeof metadata.submittedAt === 'number' ? Number(metadata.submittedAt) : null,
       text: typeof metadata.text === 'string' ? metadata.text : '',
       source,
+      manualAdjustments,
     };
   });
 }
