@@ -63,7 +63,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
   const mobileVisibleLeads = mobileListState.key === mobileListKey ? mobileListState.count : MOBILE_LIST_CHUNK;
   useEffect(() => {
     const controller = new AbortController();
-    const url = `/api/leads?archived=${filter === 'archived'}&overdue=${filter === 'overdue'}&search=${encodeURIComponent(query)}&offset=${offset}`;
+    const url = `/api/leads?view=${encodeURIComponent(filter)}&search=${encodeURIComponent(query)}&offset=${offset}`;
     void getJson<LeadList>(url, controller.signal)
       .then((data) => {
         if (controller.signal.aborted) return;
@@ -172,13 +172,16 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
             ref={searchInput}
             id="lead-search"
             type="search"
-            placeholder="Ім’я, телефон, username"
+            placeholder="Ім’я, контакт, предмет, викладач або стан"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
           <fieldset className="lead-filters" aria-label="Фільтр лідів">
             {[
               ['active', 'Активні'],
+              ['responses', 'Усі відгуки'],
+              ['curator', 'У куратора'],
+              ['needs-details', 'Потрібно уточнити'],
               ['overdue', 'Прострочені'],
               ['archived', 'Архів'],
             ].map(([key, label]) => (
