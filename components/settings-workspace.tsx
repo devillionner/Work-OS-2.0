@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { Cloud, CopyCheck, DatabaseBackup, FileSpreadsheet, History, ShieldCheck, Target } from 'lucide-react';
+import { Cloud, CopyCheck, DatabaseBackup, FileSpreadsheet, History, ShieldCheck, Sparkles, Target } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { AppReleaseDialog } from '@/components/app-release-dialog';
 import { CloudBackupButton } from '@/components/cloud-backup-button';
 import { CloudRestoreDialog } from '@/components/cloud-restore-dialog';
 import { TodaySettingsDialog } from '@/components/today-settings-dialog';
@@ -21,6 +22,7 @@ type Props = {
 export function SettingsWorkspace({ user, snapshot, onRefresh }: Props) {
   const [focusOpen, setFocusOpen] = useState(false);
   const [goalHistoryOpen, setGoalHistoryOpen] = useState(false);
+  const [releasePreviewOpen, setReleasePreviewOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [csvOpen, setCsvOpen] = useState(false);
@@ -69,6 +71,7 @@ export function SettingsWorkspace({ user, snapshot, onRefresh }: Props) {
     <section className="settings-tools" aria-labelledby="settings-tools-title">
       <div className="settings-section-head"><div><p className="eyebrow">Дані та обслуговування</p><h3 id="settings-tools-title">Рідкісні дії</h3></div><p>Вони не повинні відволікати під час щоденної роботи.</p></div>
       <div className="settings-tool-list">
+        <div className="settings-tool-row"><span className="settings-tool-icon"><Sparkles /></span><div><strong>Тест екрану оновлень</strong><p>Відкриває той самий екран «Що змінилося», який бачить користувач після оновлення.</p></div><Button variant="outline" size="sm" type="button" onClick={() => setReleasePreviewOpen(true)}>Показати</Button></div>
         <div className="settings-tool-row"><span className="settings-tool-icon"><DatabaseBackup /></span><div><strong>Резервна копія</strong><p>Створи переносну копію або перевір файл перед відновленням.</p></div><div className="settings-tool-actions"><CloudBackupButton /><Button variant="outline" size="sm" type="button" onClick={() => setRestoreOpen(true)}>Перевірити</Button></div></div>
         <div className="settings-tool-row"><span className="settings-tool-icon"><CopyCheck /></span><div><strong>Перевірити дублікати</strong><p>Точні URL і потенційні повтори за назвою відкриваються в окремому вікні.</p></div><Button variant="outline" size="sm" onClick={() => setDuplicatesOpen(true)}>Відкрити</Button></div>
         <div className="settings-tool-row"><span className="settings-tool-icon"><FileSpreadsheet /></span><div><strong>Перенесення чатів</strong><p>CSV переносить поточний стан чатів; повна історія зберігається у резервній копії.</p></div><Button variant="outline" size="sm" onClick={() => setCsvOpen(true)}>CSV</Button></div>
@@ -79,6 +82,7 @@ export function SettingsWorkspace({ user, snapshot, onRefresh }: Props) {
 
     <TodaySettingsDialog open={focusOpen} onClose={() => setFocusOpen(false)} initialDirections={snapshot.focusDirections} initialDailyGoal={snapshot.bookingGoal.target} initialMonthlyGoal={snapshot.monthlyBookingGoal} onSaved={onRefresh} />
     <GoalHistoryDialog open={goalHistoryOpen} onClose={() => setGoalHistoryOpen(false)} />
+    <AppReleaseDialog open={releasePreviewOpen} onClose={() => setReleasePreviewOpen(false)} />
     <CloudRestoreDialog open={restoreOpen} onClose={() => setRestoreOpen(false)} />
     <ChatDuplicatesDialog open={duplicatesOpen} onClose={() => setDuplicatesOpen(false)} />
     <ChatCsvDialog open={csvOpen} onClose={() => setCsvOpen(false)} onImported={onRefresh} />
