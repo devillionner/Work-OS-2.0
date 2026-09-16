@@ -437,37 +437,27 @@ export class D1LeadRepository implements LeadRepository {
     const aliases = new Set(leadSearchAliases(normalizedSearch));
     const searchFilters: SQL[] = [];
     if (normalizedSearch) {
+      const leadHumanText = sql`${leads.name} || ' ' || ${leads.subject} || ' ' || ${leads.note} || ' ' || ${leads.teacherName} || ' ' || ${leads.nextAction}`;
+      const lessonHumanText = sql`${lessons.teacherName} || ' ' || ${lessons.studentName} || ' ' || ${lessons.subject}`;
+      const studentHumanText = sql`${students.name} || ' ' || ${students.surname} || ' ' || ${students.note}`;
       searchFilters.push(
-        sql`instr(${foldedName(leads.name)},${normalizedSearch})>0`,
-        sql`instr(${leads.phone},${rawSearch})>0`,
-        sql`instr(${foldedName(leads.telegramUsername)},${normalizedSearch})>0`,
-        sql`instr(${foldedName(leads.subject)},${normalizedSearch})>0`,
-        sql`instr(${foldedName(leads.note)},${normalizedSearch})>0`,
-        sql`instr(${foldedName(leads.platform)},${normalizedSearch})>0`,
-        sql`instr(${foldedName(leads.sourceChatLink)},${normalizedSearch})>0`,
-        sql`instr(${foldedName(leads.teacherName)},${normalizedSearch})>0`,
-        sql`instr(${foldedName(leads.status)},${normalizedSearch})>0`,
-        sql`instr(${foldedName(leads.funnelStage)},${normalizedSearch})>0`,
-        sql`instr(${foldedName(leads.nextAction)},${normalizedSearch})>0`,
+        sql`instr(${foldedName(leadHumanText)},${normalizedSearch})>0`,
+        sql`instr(lower(${leads.telegramUsername}),${normalizedSearch})>0`,
+        sql`instr(lower(${leads.platform}),${normalizedSearch})>0`,
+        sql`instr(lower(${leads.sourceChatLink}),${normalizedSearch})>0`,
+        sql`instr(lower(${leads.status}),${normalizedSearch})>0`,
+        sql`instr(lower(${leads.funnelStage}),${normalizedSearch})>0`,
         sql`EXISTS (
           SELECT 1 FROM ${lessons}
           WHERE ${lessons.userId}=${userId}
             AND ${lessons.leadId}=${leads.id}
-            AND (
-              instr(${foldedName(lessons.teacherName)},${normalizedSearch})>0 OR
-              instr(${foldedName(lessons.studentName)},${normalizedSearch})>0 OR
-              instr(${foldedName(lessons.subject)},${normalizedSearch})>0
-            )
+            AND instr(${foldedName(lessonHumanText)},${normalizedSearch})>0
         )`,
         sql`EXISTS (
           SELECT 1 FROM ${students}
           WHERE ${students.userId}=${userId}
             AND ${students.leadId}=${leads.id}
-            AND (
-              instr(${foldedName(students.name)},${normalizedSearch})>0 OR
-              instr(${foldedName(students.surname)},${normalizedSearch})>0 OR
-              instr(${foldedName(students.note)},${normalizedSearch})>0
-            )
+            AND instr(${foldedName(studentHumanText)},${normalizedSearch})>0
         )`,
       );
       if (phoneSearch.length >= 4)
