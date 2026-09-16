@@ -51,3 +51,30 @@ void test('lead list search covers lead fields, related entities and owner-safe 
   assert.deepEqual(await ids('в роботі'), ['booked', 'clarify', 'curator', 'lesson', 'response']);
   assert.deepEqual(await ids('відгук'), ['curator', 'response']);
 });
+
+void test('workflow list views use authoritative response, curator and needs-details state', async (t) => {
+  const db = await localDatabase(t);
+  const repo = new D1LeadRepository(drizzle(db, { schema }));
+  for (const row of [
+    { id: 'response', name: 'Response', funnel: 'response' },
+    { id: 'booked', name: 'Booked', funnel: 'booked' },
+    { id: 'clarify', name: 'Clarify', funnel: 'clarification', needsDetails: 1 },
+    { id: 'curator', name: 'Curator', funnel: 'response' },
+    { id: 'foreign', owner: 'other', name: 'Foreign', funnel: 'response' },
+  ]) await seedLead(db, row);
+
+  await db.prepare(`INSERT INTO curator_requests(id,user_id,lead_id,status,submitted_at,submitted_date,created_at,updated_at)
+    VALUES ('request','u','curator','pending',1,'2026-09-16',1,1),
+           ('foreign-request','other','foreign','pending',1,'2026-09-16',1,1)`).run();
+  await db.prepare(`INSERT INTO activity_events(id,user_id,event_type,lead_id,event_date,occurred_at,source_key,cancelled_at)
+    VALUES ('response-event','u','lead_created','response','2026-09-16',1,'response-event',NULL),
+           ('booked-event','u','lead_created','booked','2026-09-16',1,'booked-event',NULL),
+           ('curator-event','u','lead_created','curator','2026-09-16',1,'curator-event',NULL),
+           ('clarify-event','u','lead_created','clarify','2026-09-16',1,'clarify-event',2),
+           ('foreign-event','other','lead_created','foreign','2026-09-16',1,'foreign-event',NULL)`).run();
+
+  const viewIds = async (extra) => (await repo.list('u', { archived: false, overdue: false, search: '', offset: 0, ...extra }, 10)).leads.map((lead) => lead.id).sort();
+  assert.deepEqual(await viewIds({ responses: true }), ['booked', 'curator', 'response']);
+  assert.deepEqual(await viewIds({ curator: true }), ['curator']);
+  assert.deepEqual(await viewIds({ needsDetails: true }), ['clarify']);
+});
