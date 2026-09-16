@@ -42,7 +42,7 @@ void test('lead list search covers lead fields, related entities and owner-safe 
   assert.deepEqual(await ids('матем'), ['response']);
   assert.deepEqual(await ids('ірин'), ['response']);
   assert.deepEqual(await ids('parents'), ['response']);
-  assert.deepEqual(await ids('telegram'), ['response']);
+  assert.deepEqual(await ids('telegram'), ['clarify', 'response']);
   assert.deepEqual(await ids('алла'), ['lesson']);
   assert.deepEqual(await ids('марічка'), ['lesson']);
   assert.deepEqual(await ids('у куратора'), ['curator']);
