@@ -4,11 +4,12 @@ import test from 'node:test';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
-void test('Settings exposes the real release dialog as a manual test trigger', () => {
+void test('Settings exposes the transient update screen as a manual test trigger', () => {
   const settings = read('components/settings-workspace.tsx');
-  assert.match(settings, /Тест екрану оновлень/);
-  assert.match(settings, /setReleasePreviewOpen\(true\)/);
-  assert.match(settings, /<AppReleaseDialog open=\{releasePreviewOpen\}/);
+  assert.match(settings, /Тест екрану оновлення/);
+  assert.match(settings, /setUpdatePreviewOpen\(true\)/);
+  assert.match(settings, /<AppUpdateScreenPreview onClose=/);
+  assert.doesNotMatch(settings, /AppReleaseDialog/);
 });
 
 void test('release dialog uses gentle motion and a stable internal scroll area', () => {
