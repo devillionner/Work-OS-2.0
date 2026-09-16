@@ -20,6 +20,7 @@ import { LeadScripts } from './scripts';
 import { Lessons } from './lessons';
 import { Conversation } from './conversation';
 import { LeadHistoryDialog } from './history';
+import { TodayLeadsPanel } from './today-activity';
 
 const MOBILE_LIST_CHUNK = 12;
 
@@ -43,8 +44,36 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
   const [notice, setNotice] = useState('');
   const busy = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
   const focusSelection = useRef<string | null>(null);
   const reload = useCallback(() => setRefresh((v) => v + 1), []);
+  const resetListControls = useCallback(() => {
+    setFilter('active');
+    setSearch('');
+    setQuery('');
+    setOffset(0);
+  }, []);
+  const copyText = useCallback(async (label: string, value: string) => {
+    if (!value) return;
+    if (!navigator.clipboard) {
+      setNotice(`Не вдалося скопіювати ${label.toLowerCase()}. Скопіюйте вручну.`);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      setNotice(`${label} скопійовано.`);
+    } catch {
+      setNotice(`Не вдалося скопіювати ${label.toLowerCase()}. Скопіюйте вручну.`);
+    }
+  }, []);
+  const openLead = useCallback((id: string) => {
+    focusSelection.current = id;
+    setSelected(id);
+    setDetailError('');
+    setNotice('');
+    if (window.matchMedia('(max-width: 1024px)').matches)
+      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  }, []);
   useEffect(() => {
     const timer = setTimeout(() => {
       setQuery(search);
@@ -56,7 +85,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
   const mobileVisibleLeads = mobileListState.key === mobileListKey ? mobileListState.count : MOBILE_LIST_CHUNK;
   useEffect(() => {
     const controller = new AbortController();
-    const url = `/api/leads?archived=${filter === 'archived'}&overdue=${filter === 'overdue'}&search=${encodeURIComponent(query)}&offset=${offset}`;
+    const url = `/api/leads?view=${encodeURIComponent(filter)}&search=${encodeURIComponent(query)}&offset=${offset}`;
     void getJson<LeadList>(url, controller.signal)
       .then((data) => {
         if (controller.signal.aborted) return;
@@ -120,6 +149,33 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
       focusSelection.current = null;
     }
   }, [current]);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (document.querySelector('[data-slot="dialog-content"]')) return;
+      if (event.key === '/') {
+        const target = event.target;
+        const editable =
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement ||
+          (target instanceof HTMLElement && target.isContentEditable);
+        if (editable) return;
+        event.preventDefault();
+        searchInput.current?.focus();
+        return;
+      }
+      if (event.key === 'Escape' && search) {
+        event.preventDefault();
+        setSearch('');
+        setQuery('');
+        setOffset(0);
+        searchInput.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [search]);
   return (
     <div className={`leads-workspace ${selected ? 'has-selection' : ''}`}>
       <LeadHistoryDialog open={historyOpen} lead={current?.lead ? { id: current.lead.id, name: current.lead.name } : null} onClose={() => setHistoryOpen(false)} />
@@ -131,19 +187,24 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
         </div>
         <Button onClick={() => setEditor('create')}>Новий лід</Button>
       </section>
+      <TodayLeadsPanel refreshKey={refresh} onSelect={openLead} />
       <div className="leads-layout">
         <section className="leads-list" aria-label="Список лідів">
           <label htmlFor="lead-search">Пошук ліда</label>
           <Input
+            ref={searchInput}
             id="lead-search"
             type="search"
-            placeholder="Ім’я, телефон, username"
+            placeholder="Ім’я, контакт, предмет, викладач або стан"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
           <fieldset className="lead-filters" aria-label="Фільтр лідів">
             {[
               ['active', 'Активні'],
+              ['responses', 'Усі відгуки'],
+              ['curator', 'У куратора'],
+              ['needs-details', 'Потрібно уточнити'],
               ['overdue', 'Прострочені'],
               ['archived', 'Архів'],
             ].map(([key, label]) => (
@@ -160,6 +221,11 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                 {label}
               </Button>
             ))}
+            {(filter !== 'active' || search || offset !== 0) && (
+              <Button type="button" size="sm" variant="ghost" onClick={resetListControls}>
+                Скинути фільтри
+              </Button>
+            )}
           </fieldset>
           {listError ? (
             <p className="lead-error" role="alert">
@@ -181,13 +247,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                         type="button"
                         className="lead-list-item"
                         aria-current={selected === lead.id ? 'true' : undefined}
-                        onClick={() => {
-                          focusSelection.current = lead.id;
-                          setSelected(lead.id);
-                          setDetailError('');
-                          setNotice('');
-                          if (window.matchMedia('(max-width: 1024px)').matches) requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
-                        }}
+                        onClick={() => openLead(lead.id)}
                       >
                         <div>
                           <strong>{lead.name}</strong>
@@ -280,10 +340,16 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                 </p>
                 <div className="lead-contact-lines">
                   {current.lead.phone && (
-                    <span>Телефон: {current.lead.phone}</span>
+                    <>
+                      <span>Телефон: {current.lead.phone}</span>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => void copyText('Телефон', current.lead.phone)}>Копіювати телефон</Button>
+                    </>
                   )}
                   {current.lead.telegramUsername && (
-                    <span>Telegram: {current.lead.telegramUsername}</span>
+                    <>
+                      <span>Telegram: {current.lead.telegramUsername}</span>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => void copyText('Telegram', current.lead.telegramUsername)}>Копіювати Telegram</Button>
+                    </>
                   )}
                   {safeUrl(current.lead.sourceChatLink) && (
                     <a
@@ -296,7 +362,10 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                   )}
                 </div>
                 {current.lead.note && (
-                  <p className="lead-preserve">{current.lead.note}</p>
+                  <div>
+                    <p className="lead-preserve">{current.lead.note}</p>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => void copyText('Нотатку', current.lead.note)}>Копіювати нотатку</Button>
+                  </div>
                 )}
                 {current.lead.duplicateState !== 'none' && (
                   <p>Дублікат: {labels[current.lead.duplicateState]}</p>
