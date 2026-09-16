@@ -18,6 +18,8 @@ type UpdateState = {
 
 const BUILD_POLL_MS = 30_000;
 const UPDATE_PREP_TIMEOUT_MS = 8_000;
+const UPDATE_FINISH_HOLD_MS = 950;
+const UPDATE_EXIT_MS = 360;
 const UPDATE_CHANNEL = 'work-os-release';
 const PENDING_BUILD_KEY = 'work-os:pending-build';
 const UPDATE_SCROLL_KEY = 'work-os:update-scroll';
@@ -34,6 +36,7 @@ const initialState: UpdateState = {
 
 export function PwaRegistration() {
   const [update, setUpdate] = useState<UpdateState>(initialState);
+  const [exiting, setExiting] = useState(false);
   const applying = useRef(false);
   const detectedAt = useRef(0);
   const targetBuildRef = useRef('');
@@ -43,6 +46,7 @@ export function PwaRegistration() {
     if (!targetBuildId || targetBuildId === APP_BUILD_ID || applying.current) return;
     targetBuildRef.current = targetBuildId;
     detectedAt.current = Date.now();
+    setExiting(false);
     setUpdate((current) => current.phase === 'updating' || current.phase === 'finishing'
       ? current
       : { phase: 'available', targetBuildId, version, deferred: isEditing(), step: 0 });
@@ -70,6 +74,7 @@ export function PwaRegistration() {
     const targetBuildId = targetBuildRef.current;
     if (!targetBuildId || applying.current) return;
     applying.current = true;
+    setExiting(false);
     setUpdate((current) => ({ ...current, phase: 'updating', deferred: false, step: 1 }));
 
     try {
@@ -86,15 +91,16 @@ export function PwaRegistration() {
       }
 
       setUpdate((current) => ({ ...current, step: 2 }));
-      await new Promise((resolve) => window.setTimeout(resolve, 350));
+      await new Promise((resolve) => window.setTimeout(resolve, 420));
       setUpdate((current) => ({ ...current, step: 3 }));
-      await new Promise((resolve) => window.setTimeout(resolve, 450));
+      await new Promise((resolve) => window.setTimeout(resolve, 520));
 
       // A full document navigation is required to replace already-running JS/CSS.
       // It is automatic, stays on the same URL, and is hidden behind the update UI.
       window.location.reload();
     } catch {
       applying.current = false;
+      setExiting(false);
       setUpdate((current) => ({ ...current, phase: 'error', step: 0 }));
     }
   }, []);
@@ -110,24 +116,33 @@ export function PwaRegistration() {
     let cancelled = false;
 
     queueMicrotask(() => {
-      if (!cancelled) setUpdate({ phase: 'finishing', targetBuildId: pending, version: '', deferred: false, step: 3 });
+      if (!cancelled) {
+        setExiting(false);
+        setUpdate({ phase: 'finishing', targetBuildId: pending, version: '', deferred: false, step: 3 });
+      }
     });
 
     void restoreActiveView(savedView).then(() => {
       if (!cancelled && scroll) window.scrollTo({ left: scroll.x, top: scroll.y, behavior: 'auto' });
     });
 
-    const timer = window.setTimeout(() => {
+    const finishTimer = window.setTimeout(() => {
+      if (!cancelled) setExiting(true);
+    }, UPDATE_FINISH_HOLD_MS);
+    const exitTimer = window.setTimeout(() => {
+      if (cancelled) return;
       sessionStorage.removeItem(PENDING_BUILD_KEY);
       sessionStorage.removeItem(UPDATE_SCROLL_KEY);
       sessionStorage.removeItem(UPDATE_VIEW_KEY);
       applying.current = false;
       targetBuildRef.current = '';
       setUpdate(initialState);
-    }, 1_000);
+      setExiting(false);
+    }, UPDATE_FINISH_HOLD_MS + UPDATE_EXIT_MS);
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      window.clearTimeout(finishTimer);
+      window.clearTimeout(exitTimer);
     };
   }, []);
 
@@ -209,8 +224,8 @@ export function PwaRegistration() {
   const steps = ['Готуємо оновлення', 'Оновлюємо файли', 'Повертаємо до роботи'];
 
   return (
-    <dialog open className="app-update-backdrop" aria-labelledby="app-update-title">
-      <div className="app-update-card">
+    <dialog open className={`app-update-backdrop${exiting ? ' is-exiting' : ''}`} aria-labelledby="app-update-title">
+      <div className="app-update-card" data-phase={update.phase}>
         <div className="app-update-brand" aria-hidden="true">W</div>
         <div className={`app-update-icon ${isFinishing ? 'is-complete' : ''}`} aria-hidden="true">
           {isFinishing ? <CheckCircle2 /> : isError ? <RefreshCw /> : <LoaderCircle className="is-spinning" />}

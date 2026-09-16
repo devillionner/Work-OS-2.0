@@ -6,16 +6,20 @@ import { CheckCircle2, LoaderCircle } from 'lucide-react';
 type Props = { onClose: () => void };
 type Phase = 'updating' | 'finishing';
 
+const PREVIEW_EXIT_MS = 360;
+
 export function AppUpdateScreenPreview({ onClose }: Props) {
   const [phase, setPhase] = useState<Phase>('updating');
   const [step, setStep] = useState(1);
+  const [exiting, setExiting] = useState(false);
 
   useEffect(() => {
     const timers = [
       window.setTimeout(() => setStep(2), 700),
       window.setTimeout(() => setStep(3), 1_400),
       window.setTimeout(() => setPhase('finishing'), 2_200),
-      window.setTimeout(onClose, 3_400),
+      window.setTimeout(() => setExiting(true), 3_250),
+      window.setTimeout(onClose, 3_250 + PREVIEW_EXIT_MS),
     ];
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [onClose]);
@@ -24,8 +28,8 @@ export function AppUpdateScreenPreview({ onClose }: Props) {
   const steps = ['Готуємо оновлення', 'Оновлюємо файли', 'Повертаємо до роботи'];
 
   return (
-    <dialog open className="app-update-backdrop" aria-labelledby="app-update-preview-title">
-      <div className="app-update-card">
+    <dialog open className={`app-update-backdrop${exiting ? ' is-exiting' : ''}`} aria-labelledby="app-update-preview-title">
+      <div className="app-update-card" data-phase={phase}>
         <div className="app-update-brand" aria-hidden="true">W</div>
         <div className={`app-update-icon ${isFinishing ? 'is-complete' : ''}`} aria-hidden="true">
           {isFinishing ? <CheckCircle2 /> : <LoaderCircle className="is-spinning" />}

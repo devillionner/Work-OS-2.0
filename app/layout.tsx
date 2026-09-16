@@ -5,6 +5,7 @@ import { ServerSync } from '@/components/server-sync';
 import { ViewPersistence } from '@/components/view-persistence';
 import './globals.css';
 import './design-polish.css';
+import './update-motion.css';
 
 const sans = Geist({ subsets: ['latin'], variable: '--font-sans' });
 const mono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono' });

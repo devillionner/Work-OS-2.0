@@ -1,0 +1,101 @@
+/* Motion layer for the automatic Work OS update handoff. */
+.app-update-banner {
+  animation: app-update-banner-enter 260ms cubic-bezier(.22,1,.36,1) both;
+}
+
+.app-update-backdrop {
+  opacity: 1;
+  animation: app-update-screen-enter 300ms cubic-bezier(.22,1,.36,1) both;
+  transition: opacity 340ms cubic-bezier(.22,1,.36,1), backdrop-filter 340ms cubic-bezier(.22,1,.36,1);
+}
+
+.app-update-card {
+  transform-origin: center;
+  animation: app-update-card-enter 360ms cubic-bezier(.22,1,.36,1) both;
+  transition: opacity 320ms cubic-bezier(.22,1,.36,1), transform 360ms cubic-bezier(.22,1,.36,1), box-shadow 360ms cubic-bezier(.22,1,.36,1);
+  will-change: transform, opacity;
+}
+
+.app-update-backdrop.is-exiting {
+  opacity: 0;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.app-update-backdrop.is-exiting .app-update-card {
+  opacity: 0;
+  transform: translateY(8px) scale(.985);
+  box-shadow: 0 14px 48px rgb(24 31 52 / .10);
+}
+
+.app-update-icon {
+  transition: background-color 280ms ease, color 280ms ease, transform 320ms cubic-bezier(.22,1,.36,1);
+}
+
+.app-update-icon.is-complete {
+  transform: scale(1.03);
+}
+
+.app-update-card h2 {
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+}
+
+.app-update-description {
+  min-height: 44px;
+  transition: color 240ms ease, opacity 240ms ease;
+}
+
+.app-update-progress span {
+  transition: width 520ms cubic-bezier(.22,1,.36,1);
+}
+
+.app-update-steps li {
+  transition: color 260ms ease, opacity 260ms ease, transform 300ms cubic-bezier(.22,1,.36,1);
+}
+
+.app-update-steps li > span {
+  transition: background-color 260ms ease, border-color 260ms ease, color 260ms ease, transform 300ms cubic-bezier(.22,1,.36,1);
+}
+
+.app-update-steps li.is-current {
+  transform: translateX(2px);
+}
+
+.app-update-steps li.is-current > span,
+.app-update-steps li.is-complete > span {
+  transform: scale(1.04);
+}
+
+@keyframes app-update-banner-enter {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@keyframes app-update-screen-enter {
+  from { opacity: 0; backdrop-filter: blur(8px); }
+  to { opacity: 1; backdrop-filter: blur(18px); }
+}
+
+@keyframes app-update-card-enter {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-update-banner,
+  .app-update-backdrop,
+  .app-update-card {
+    animation: none !important;
+  }
+
+  .app-update-backdrop,
+  .app-update-card,
+  .app-update-icon,
+  .app-update-progress span,
+  .app-update-steps li,
+  .app-update-steps li > span {
+    transition-duration: .01ms !important;
+  }
+}
