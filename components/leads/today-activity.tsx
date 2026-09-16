@@ -45,7 +45,11 @@ export function TodayLeadsPanel({
   }, [refreshKey]);
 
   return (
-    <section className="lead-panel leads-today" aria-labelledby="leads-today-title">
+    <section
+      className="lead-panel leads-today"
+      aria-labelledby="leads-today-title"
+      aria-busy={loading}
+    >
       <div className="lead-section-head">
         <div>
           <p className="eyebrow">Сьогодні</p>
@@ -62,7 +66,9 @@ export function TodayLeadsPanel({
         Лічильники показують усі події. У списках один контакт не дублюється: якщо сьогодні вже є запис, він показаний у записах.
       </p>
       {error && <p className="lead-error" role="alert">{error}</p>}
-      {loading && !data ? <p className="muted-note">Завантажуємо активність…</p> : data ? (
+      {loading && !data ? (
+        <p className="muted-note" role="status">Завантажуємо активність…</p>
+      ) : data ? (
         <div className="leads-today-lists">
           <TodayList title="Записи сьогодні" items={data.bookings} onSelect={onSelect} showCount />
           <TodayList title="Відгуки сьогодні" items={data.responses} onSelect={onSelect} />
@@ -95,7 +101,12 @@ function TodayList({
                 <p>{item.subject || 'Предмет не вказано'} · {labels[item.platform] ?? item.platform}</p>
                 {showCount && item.eventCount > 1 && <small>{item.eventCount} записи за день</small>}
               </div>
-              <Button type="button" variant="ghost" onClick={() => onSelect(item.id)}>
+              <Button
+                type="button"
+                variant="ghost"
+                aria-label={`Відкрити ліда ${item.name}`}
+                onClick={() => onSelect(item.id)}
+              >
                 Відкрити
               </Button>
             </li>
