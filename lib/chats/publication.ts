@@ -1,3 +1,4 @@
+import { validatePublicationAdvertisementChoice } from './advertisement-selection.ts';
 import { chatStateTokenSql } from './state.ts';
 import { nextProfilePublicationDate, profilePublicationRule, PROFILE_CADENCES, type ChatProfile, type ProfileCadence } from './profile.ts';
 
@@ -36,6 +37,10 @@ export async function recordManualPublication(
     return { ok: false, ...availability, error: chat.workflow_status !== 'ready'
       ? 'Цей чат зараз не в черзі публікації.'
       : (chat.snoozed_until ?? 0) > now ? 'Цей чат відкладено. Публікація ще недоступна.' : 'Для Telegram ще не минуло 6 годин.' };
+  }
+  if (advertisementId) {
+    const choice = await validatePublicationAdvertisementChoice(db, { userId, chatId: chat.id, advertisementId, date });
+    if (!choice.ok) return choice;
   }
   const publicationId = crypto.randomUUID();
   const sourceKey = `manual:${publicationId}`;
