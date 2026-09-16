@@ -127,6 +127,7 @@ export function Conversation({
                 variant="ghost"
                 disabled={archived}
                 onClick={() => setDeleting(m.id)}
+                aria-label={`Видалити повідомлення від ${displayTime(m.sentAt)}`}
               >
                 Видалити
               </Button>

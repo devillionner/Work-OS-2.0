@@ -58,6 +58,7 @@ export function Reminders({
                 <p className="lead-preserve">{r.text}</p>
                 <Button
                   variant="ghost"
+                  aria-label={`Копіювати текст нагадування №${r.slot}`}
                   onClick={() => {
                     void navigator.clipboard
                       .writeText(r.text!)
@@ -77,6 +78,7 @@ export function Reminders({
               <Button
                 variant="ghost"
                 disabled={disabled}
+                aria-label={`Налаштувати нагадування №${r.slot}`}
                 onClick={() => setEditing(r.slot)}
               >
                 Налаштувати
@@ -84,6 +86,7 @@ export function Reminders({
               <Button
                 variant="outline"
                 disabled={disabled || !r.text}
+                aria-label={`Позначити нагадування №${r.slot} як надіслане`}
                 onClick={() => setMark({ id: r.id, state: 'sent' })}
               >
                 Надіслано
@@ -96,6 +99,7 @@ export function Reminders({
                   r.sentAt !== null ||
                   r.skippedAt !== null
                 }
+                aria-label={`Пропустити нагадування №${r.slot}`}
                 onClick={() => setMark({ id: r.id, state: 'skipped' })}
               >
                 Пропустити
