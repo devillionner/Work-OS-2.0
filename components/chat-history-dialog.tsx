@@ -11,7 +11,7 @@ const actionNames:Record<string,string>={joined:'Приєднано',waiting:'О
 
 export function ChatHistoryDialog({open,chat,onClose}:{open:boolean;chat:HistoryChat|null;onClose:()=>void}) {
   const [events,setEvents]=useState<ChatHistoryItem[]>([]); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
-  useEffect(()=>{if(!open||!chat)return;let cancelled=false;queueMicrotask(()=>{if(!cancelled){setBusy(true);setError('');}});
+  useEffect(()=>{if(!open||!chat)return;let cancelled=false;queueMicrotask(()=>{if(!cancelled){setEvents([]);setBusy(true);setError('');}});
     fetch(`/api/chats/history?id=${encodeURIComponent(chat.id)}`,{cache:'no-store'}).then(async response=>{const value:unknown=await response.json();if(!response.ok)throw new Error(value&&typeof value==='object'&&'error' in value&&typeof value.error==='string'?value.error:'Не вдалося завантажити історію.');if(!cancelled)setEvents(value&&typeof value==='object'&&Array.isArray((value as {events?:unknown}).events)?(value as {events:ChatHistoryItem[]}).events:[]);}).catch(reason=>{if(!cancelled)setError(reason instanceof Error?reason.message:'Не вдалося завантажити історію.');}).finally(()=>{if(!cancelled)setBusy(false);});
     return()=>{cancelled=true;};
   },[open,chat]);
