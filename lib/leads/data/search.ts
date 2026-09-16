@@ -19,7 +19,11 @@ export type LeadSearchAlias =
   | 'reminder'
   | 'lesson'
   | 'result'
-  | 'curator';
+  | 'curator'
+  | 'new'
+  | 'active'
+  | 'won'
+  | 'lost';
 
 const aliasTerms: Record<LeadSearchAlias, readonly string[]> = {
   response: ['відгук', 'отклик', 'response'],
@@ -29,6 +33,10 @@ const aliasTerms: Record<LeadSearchAlias, readonly string[]> = {
   lesson: ['урок', 'заняття', 'занятие', 'lesson'],
   result: ['результат', 'result'],
   curator: ['куратор', 'у куратора', 'curator'],
+  new: ['новий', 'нова', 'новый', 'new'],
+  active: ['у роботі', 'в роботі', 'в работе', 'active'],
+  won: ['успішний', 'успішна', 'успешный', 'won'],
+  lost: ['закритий', 'закрита', 'закрытый', 'lost'],
 };
 
 export function leadSearchAliases(value: string): LeadSearchAlias[] {
