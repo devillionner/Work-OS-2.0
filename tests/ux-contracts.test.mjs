@@ -378,13 +378,17 @@ void test('Analytics trends have compact cards with separated labels and bounded
   assert.match(css, /@media \(max-width: 1180px\)[\s\S]*\.analytics-trend-grid \{ grid-template-columns:1fr; \}/);
 });
 
-void test('Past booked lessons surface a clear result action without mutating funnel state automatically', () => {
+void test('Past booked lessons expose explicit attendance outcomes without mutating funnel state automatically', () => {
   const followUp = readFileSync(new URL('../components/leads/follow-up.tsx', import.meta.url), 'utf8');
   const lessons = readFileSync(new URL('../components/leads/lessons.tsx', import.meta.url), 'utf8');
   assert.match(followUp, /Минулий урок ще без результату/);
   assert.match(followUp, /Зафіксуй результат, щоб воронка перейшла з «Запис» далі/);
   assert.match(lessons, /const pastBooked = l\.status === 'booked' && l\.lessonDate < today/);
-  assert.match(lessons, /pastBooked \? 'Зафіксувати результат' : 'Результат \/ скасування'/);
+  assert.match(lessons, />\s*Проведено\s*<\/Button>/);
+  assert.match(lessons, />\s*Перенести\s*<\/Button>/);
+  assert.match(lessons, />\s*Учень пішов\s*<\/Button>/);
+  assert.match(lessons, /status: 'completed'/);
+  assert.match(lessons, /status: 'no-show'/);
   assert.doesNotMatch(followUp, /mutate\('lesson_status'/);
 });
 
