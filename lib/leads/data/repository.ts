@@ -119,8 +119,6 @@ export class D1LeadRepository implements LeadRepository {
         ),
     ]);
     if (!leadRows[0]) return null;
-    // Old/repeated imports may have no reminder rows. Defaults are a projection,
-    // persisted only on the next command (no writes during GET).
     const reminderIndex = new Map(
       reminderRows.map(({ reminder }) => [
         `${reminder.lessonId}:${reminder.slot}`,
@@ -420,6 +418,9 @@ export class D1LeadRepository implements LeadRepository {
     options: {
       archived: boolean;
       overdue: boolean;
+      responses?: boolean;
+      curator?: boolean;
+      needsDetails?: boolean;
       search: string;
       offset: number;
     },
@@ -514,6 +515,26 @@ export class D1LeadRepository implements LeadRepository {
             sql`trim(${leads.nextAction}) <> ''`,
             isNull(leads.archivedAt),
           )
+        : undefined,
+      options.responses
+        ? sql`EXISTS (
+            SELECT 1 FROM ${activityEvents}
+            WHERE ${activityEvents.userId}=${userId}
+              AND ${activityEvents.leadId}=${leads.id}
+              AND ${activityEvents.eventType}='lead_created'
+              AND ${activityEvents.cancelledAt} IS NULL
+          )`
+        : undefined,
+      options.curator
+        ? sql`EXISTS (
+            SELECT 1 FROM ${curatorRequests}
+            WHERE ${curatorRequests.userId}=${userId}
+              AND ${curatorRequests.leadId}=${leads.id}
+              AND ${curatorRequests.status}='pending'
+          )`
+        : undefined,
+      options.needsDetails
+        ? sql`(${leads.needsDetails}=1 OR ${leads.funnelStage}='clarification')`
         : undefined,
       searchFilter,
     );
