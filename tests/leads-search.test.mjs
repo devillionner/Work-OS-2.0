@@ -46,7 +46,7 @@ void test('lead list search covers lead fields, related entities and owner-safe 
   assert.deepEqual(await ids('алла'), ['lesson']);
   assert.deepEqual(await ids('марічка'), ['lesson']);
   assert.deepEqual(await ids('у куратора'), ['curator']);
-  assert.deepEqual(await ids('записано'), ['booked']);
+  assert.deepEqual(await ids('записано'), ['booked', 'lesson']);
   assert.deepEqual(await ids('потрібно уточнити'), ['clarify']);
   assert.deepEqual(await ids('в роботі'), ['booked', 'clarify', 'curator', 'lesson', 'response']);
   assert.deepEqual(await ids('відгук'), ['curator', 'response']);
