@@ -2,12 +2,14 @@ import { sql, type SQL, type SQLWrapper } from 'drizzle-orm';
 
 // SQLite lower() folds ASCII only. Cover Ukrainian/Russian names without a
 // second persisted search source that legacy imports would need to maintain.
+// The alphabet is a fixed application literal, so keep its replace() arguments
+// inline instead of consuming two D1 bind variables per letter on every use.
 export function foldedName(column: SQLWrapper): SQL {
   return 'АБВГҐДЕЄЁЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ'
     .split('')
     .reduce(
       (value, letter) =>
-        sql`replace(${value},${letter},${letter.toLowerCase()})`,
+        sql`replace(${value},${sql.raw(`'${letter}'`)},${sql.raw(`'${letter.toLowerCase()}'`)})`,
       sql`lower(${column})`,
     );
 }
