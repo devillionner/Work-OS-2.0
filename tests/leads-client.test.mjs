@@ -69,3 +69,35 @@ void test('delivery journal survives a reload and is cleared only after a defini
   assert.equal(sent, original);
   assert.equal(stored, null);
 });
+
+void test('definitive stale conflict clears the journal and never replays the stale command', async () => {
+  let stored = null;
+  const bodies = [];
+  let stale = true;
+  const journal = {
+    read: () => stored,
+    write: (value) => {
+      stored = value;
+    },
+  };
+  const send = createCommandClient(async (_url, options) => {
+    bodies.push(options.body);
+    if (stale) {
+      return Response.json({ error: 'Запис уже змінено. Оновіть картку.' }, { status: 409 });
+    }
+    return Response.json({ id: 'lead' });
+  }, journal);
+
+  await assert.rejects(
+    send('update', { note: 'stale' }, { id: 'lead', version: 7 }),
+    /Запис уже змінено/,
+  );
+  assert.equal(stored, null);
+  const staleCommandId = JSON.parse(bodies[0]).commandId;
+
+  stale = false;
+  await send('update', { note: 'fresh' }, { id: 'lead', version: 8 });
+  assert.notEqual(JSON.parse(bodies[1]).commandId, staleCommandId);
+  assert.equal(JSON.parse(bodies[1]).version, 8);
+  assert.equal(stored, null);
+});
