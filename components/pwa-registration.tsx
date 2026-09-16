@@ -17,6 +17,7 @@ type UpdateState = {
 };
 
 const BUILD_POLL_MS = 30_000;
+const UPDATE_PREP_TIMEOUT_MS = 8_000;
 const UPDATE_CHANNEL = 'work-os-release';
 const PENDING_BUILD_KEY = 'work-os:pending-build';
 const UPDATE_SCROLL_KEY = 'work-os:update-scroll';
@@ -78,8 +79,10 @@ export function PwaRegistration() {
       if (activeView) sessionStorage.setItem(UPDATE_VIEW_KEY, activeView);
 
       if ('serviceWorker' in navigator) {
-        const registration = await navigator.serviceWorker.getRegistration('/');
-        if (registration) await registration.update();
+        await withTimeout((async () => {
+          const registration = await navigator.serviceWorker.getRegistration('/');
+          if (registration) await registration.update();
+        })(), UPDATE_PREP_TIMEOUT_MS);
       }
 
       setUpdate((current) => ({ ...current, step: 2 }));
@@ -272,6 +275,22 @@ async function restoreActiveView(savedView: string | null): Promise<void> {
     }
     await new Promise((resolve) => window.setTimeout(resolve, 50));
   }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error('Update preparation timed out.')), timeoutMs);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 function readSavedScroll(): { x: number; y: number } | null {
