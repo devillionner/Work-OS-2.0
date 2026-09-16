@@ -15,10 +15,17 @@ type GoalHistoryItem = {
   version: number;
 };
 
-type Payload = { history?: GoalHistoryItem[]; error?: string };
+type UnversionedGoal = {
+  key: GoalHistoryItem['key'];
+  value: number;
+  updatedAt: number;
+};
+
+type Payload = { history?: GoalHistoryItem[]; unversioned?: UnversionedGoal[]; error?: string };
 
 export function GoalHistoryDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [items, setItems] = useState<GoalHistoryItem[]>([]);
+  const [unversioned, setUnversioned] = useState<UnversionedGoal[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -35,7 +42,10 @@ export function GoalHistoryDialog({ open, onClose }: { open: boolean; onClose: (
       .then(async (response) => {
         const body = await response.json() as Payload;
         if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити історію цілей.');
-        if (!controller.signal.aborted) setItems(body.history || []);
+        if (!controller.signal.aborted) {
+          setItems(body.history || []);
+          setUnversioned(body.unversioned || []);
+        }
       })
       .catch((reason) => {
         if (!controller.signal.aborted)
@@ -50,6 +60,8 @@ export function GoalHistoryDialog({ open, onClose }: { open: boolean; onClose: (
 
   const daily = items.filter((item) => item.key === 'daily_booking_goal');
   const monthly = items.filter((item) => item.key === 'monthly_booking_goal');
+  const dailyUnversioned = unversioned.find((item) => item.key === 'daily_booking_goal') ?? null;
+  const monthlyUnversioned = unversioned.find((item) => item.key === 'monthly_booking_goal') ?? null;
 
   return <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
     <DialogContent className="report-history-dialog">
@@ -59,22 +71,26 @@ export function GoalHistoryDialog({ open, onClose }: { open: boolean; onClose: (
       </DialogHeader>
       {error && <p className="workspace-error" role="alert">{error}</p>}
       {loading ? <output className="workspace-loading">Завантажуємо історію…</output> : <div className="grid gap-4 md:grid-cols-2">
-        <GoalHistoryList title="Денна ціль" items={daily} />
-        <GoalHistoryList title="Місячна ціль" items={monthly} />
+        <GoalHistoryList title="Денна ціль" items={daily} unversioned={dailyUnversioned} />
+        <GoalHistoryList title="Місячна ціль" items={monthly} unversioned={monthlyUnversioned} />
       </div>}
       <div className="dialog-actions"><Button variant="outline" onClick={onClose}>Закрити</Button></div>
     </DialogContent>
   </Dialog>;
 }
 
-function GoalHistoryList({ title, items }: { title: string; items: GoalHistoryItem[] }) {
+function GoalHistoryList({ title, items, unversioned }: { title: string; items: GoalHistoryItem[]; unversioned: UnversionedGoal | null }) {
   return <section aria-label={title} className="rounded-xl border border-border/70 p-3">
     <div className="mb-2 flex items-center justify-between gap-2"><strong>{title}</strong><Badge variant="outline">{items.length} верс.</Badge></div>
     {items.length ? <ol className="grid gap-2">{items.map((item) => <li key={item.id} className="rounded-lg bg-muted/30 px-3 py-2 text-sm">
       <div className="flex items-center justify-between gap-2"><strong>{item.value} записів</strong><span>v{item.version}</span></div>
       <div className="text-muted-foreground">Діє з {formatDate(item.effectiveOn)}</div>
       <small className="text-muted-foreground">{sourceLabel(item.source)} · {formatTime(item.createdAt)}</small>
-    </li>)}</ol> : <p className="muted-note">Історія ще порожня.</p>}
+    </li>)}</ol> : unversioned ? <div className="rounded-lg bg-muted/30 px-3 py-2 text-sm">
+      <div className="flex items-center justify-between gap-2"><strong>{unversioned.value} записів</strong><Badge variant="secondary">поточне</Badge></div>
+      <p className="mt-1 text-muted-foreground">Історичної версії для цього значення немає, тому дата початку дії невідома.</p>
+      <small className="text-muted-foreground">Останнє збереження: {formatTime(unversioned.updatedAt)}. Наступні зміни вже версіонуються.</small>
+    </div> : <p className="muted-note">Історія ще порожня.</p>}
   </section>;
 }
 

@@ -21,3 +21,19 @@ void test('report saves create owner-scoped bounded history without entering act
   assert.equal((await readReportHistory(db, 'u', DATE, 2)).length, 2);
   assert.equal((await activitySummaryStatement(db, 'u', DATE, DATE).all()).results.length, 0);
 });
+
+void test('legacy report without revision events remains visible as a read-only history baseline', async (t) => {
+  const db = await localDatabase(t);
+  await db.prepare(`INSERT INTO daily_reports(id,user_id,report_date,report_text,payload_json,submitted_at,updated_at,revision_count)
+    VALUES ('legacy-u','u',?1,'Збережений старий звіт','{"source":"manual"}',25,30,1)`).bind(DATE).run();
+  await db.prepare(`DELETE FROM activity_events WHERE user_id='u' AND event_type='report_revision' AND event_date=?1`).bind(DATE).run();
+
+  const history = await readReportHistory(db, 'u', DATE);
+  assert.equal(history.length, 1);
+  assert.equal(history[0].id, 'baseline:legacy-u');
+  assert.equal(history[0].revision, 1);
+  assert.equal(history[0].text, 'Збережений старий звіт');
+  assert.equal(history[0].submittedAt, 25);
+  assert.equal(history[0].source, 'manual');
+  assert.deepEqual(await readReportHistory(db, 'other', DATE), []);
+});
