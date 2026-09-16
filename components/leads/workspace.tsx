@@ -43,8 +43,15 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
   const [notice, setNotice] = useState('');
   const busy = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
   const focusSelection = useRef<string | null>(null);
   const reload = useCallback(() => setRefresh((v) => v + 1), []);
+  const resetListControls = useCallback(() => {
+    setFilter('active');
+    setSearch('');
+    setQuery('');
+    setOffset(0);
+  }, []);
   useEffect(() => {
     const timer = setTimeout(() => {
       setQuery(search);
@@ -120,6 +127,33 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
       focusSelection.current = null;
     }
   }, [current]);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (document.querySelector('[data-slot="dialog-content"]')) return;
+      if (event.key === '/') {
+        const target = event.target;
+        const editable =
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement ||
+          (target instanceof HTMLElement && target.isContentEditable);
+        if (editable) return;
+        event.preventDefault();
+        searchInput.current?.focus();
+        return;
+      }
+      if (event.key === 'Escape' && search) {
+        event.preventDefault();
+        setSearch('');
+        setQuery('');
+        setOffset(0);
+        searchInput.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [search]);
   return (
     <div className={`leads-workspace ${selected ? 'has-selection' : ''}`}>
       <LeadHistoryDialog open={historyOpen} lead={current?.lead ? { id: current.lead.id, name: current.lead.name } : null} onClose={() => setHistoryOpen(false)} />
@@ -135,6 +169,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
         <section className="leads-list" aria-label="Список лідів">
           <label htmlFor="lead-search">Пошук ліда</label>
           <Input
+            ref={searchInput}
             id="lead-search"
             type="search"
             placeholder="Ім’я, телефон, username"
@@ -160,6 +195,11 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                 {label}
               </Button>
             ))}
+            {(filter !== 'active' || search || offset !== 0) && (
+              <Button type="button" size="sm" variant="ghost" onClick={resetListControls}>
+                Скинути фільтри
+              </Button>
+            )}
           </fieldset>
           {listError ? (
             <p className="lead-error" role="alert">
