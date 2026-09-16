@@ -20,7 +20,6 @@ import { LeadScripts } from './scripts';
 import { Lessons } from './lessons';
 import { Conversation } from './conversation';
 import { LeadHistoryDialog } from './history';
-import { TodayLeadsPanel } from './today-activity';
 
 const MOBILE_LIST_CHUNK = 12;
 
@@ -65,14 +64,6 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
     } catch {
       setNotice(`Не вдалося скопіювати ${label.toLowerCase()}. Скопіюйте вручну.`);
     }
-  }, []);
-  const openLead = useCallback((id: string) => {
-    focusSelection.current = id;
-    setSelected(id);
-    setDetailError('');
-    setNotice('');
-    if (window.matchMedia('(max-width: 1024px)').matches)
-      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
   }, []);
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -187,7 +178,6 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
         </div>
         <Button onClick={() => setEditor('create')}>Новий лід</Button>
       </section>
-      <TodayLeadsPanel refreshKey={refresh} onSelect={openLead} />
       <div className="leads-layout">
         <section className="leads-list" aria-label="Список лідів">
           <label htmlFor="lead-search">Пошук ліда</label>
@@ -247,7 +237,13 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                         type="button"
                         className="lead-list-item"
                         aria-current={selected === lead.id ? 'true' : undefined}
-                        onClick={() => openLead(lead.id)}
+                        onClick={() => {
+                          focusSelection.current = lead.id;
+                          setSelected(lead.id);
+                          setDetailError('');
+                          setNotice('');
+                          if (window.matchMedia('(max-width: 1024px)').matches) requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+                        }}
                       >
                         <div>
                           <strong>{lead.name}</strong>
