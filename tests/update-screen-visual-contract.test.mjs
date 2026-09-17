@@ -16,6 +16,8 @@ void test('update screen keeps one visual hierarchy and one motion rhythm', () =
   assert.match(motion, /app-update-spinner-turn/);
   assert.match(motion, /app-update-glyph-enter/);
   assert.match(motion, /\.app-update-icon \.is-spinning,[\s\S]*\.app-update-boot-spinner[\s\S]*animation:\s*none !important/);
+  assert.match(motion, /opacity\s+360ms\s+var\(--app-update-ease\)/);
+  assert.doesNotMatch(motion, /calc\(var\(--app-update-motion-duration\)\s*\*/);
 });
 
 void test('preview-only metadata stays outside the update card', () => {
