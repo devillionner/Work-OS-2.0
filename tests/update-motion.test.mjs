@@ -10,7 +10,7 @@ void test('automatic update screen uses one coherent motion rhythm', () => {
 
   assert.match(source, /const UPDATE_STEP_HOLD_MS = 1_150/);
   assert.match(source, /const UPDATE_FINISH_HOLD_MS = 1_900/);
-  assert.match(source, /const UPDATE_EXIT_MS = 480/);
+  assert.match(source, /const UPDATE_EXIT_MS = 620/);
   assert.match(source, /performance\.now\(\)/);
   assert.match(source, /wait\(UPDATE_STEP_HOLD_MS\)/);
   assert.match(source, /Math\.min\(75, Math\.max\(25, update\.step \* 25\)\)/);
@@ -28,15 +28,24 @@ void test('automatic update screen uses one coherent motion rhythm', () => {
   assert.match(css, /prefers-reduced-motion: reduce/);
 });
 
-void test('Settings update preview follows the same phase cadence', () => {
+void test('Settings update preview follows the real visual hierarchy and phase cadence', () => {
   const preview = read('components/app-update-screen-preview.tsx');
 
   assert.match(preview, /const PREVIEW_STEP_HOLD_MS = 1_150/);
   assert.match(preview, /const PREVIEW_FINISH_HOLD_MS = 1_900/);
-  assert.match(preview, /const PREVIEW_EXIT_MS = 480/);
+  assert.match(preview, /const PREVIEW_EXIT_MS = 620/);
   assert.match(preview, /PREVIEW_STEP_HOLD_MS \* 3/);
   assert.match(preview, /exitAt \+ PREVIEW_EXIT_MS/);
   assert.match(preview, /Math\.min\(75, Math\.max\(25, step \* 25\)\)/);
+  assert.match(preview, /app-update-status-mark/);
+  assert.match(preview, /app-update-status-brand/);
+  assert.match(preview, /app-update-status-check/);
+  assert.match(preview, /role="progressbar"/);
+  assert.match(preview, /aria-valuenow=\{progress\}/);
+  assert.match(preview, /aria-live="polite"/);
+  assert.doesNotMatch(preview, /app-update-brand/);
+  assert.doesNotMatch(preview, /app-update-icon/);
+  assert.doesNotMatch(preview, /LoaderCircle/);
   assert.match(preview, /app-update-status-copy/);
   assert.match(preview, /app-update-backdrop\$\{exiting \? ' is-exiting' : ''\}/);
   assert.doesNotMatch(preview, /location\.reload/);
