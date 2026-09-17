@@ -7,7 +7,6 @@ import { APP_BUILD_ID } from '@/lib/build-id';
 
 type BuildResponse = { buildId?: string; version?: string };
 type UpdatePhase = 'idle' | 'available' | 'updating' | 'finishing' | 'error';
-
 type UpdateState = { phase: UpdatePhase; targetBuildId: string; version: string; deferred: boolean; step: number };
 
 const BUILD_POLL_MS = 30_000;
@@ -116,12 +115,12 @@ export function PwaRegistration() {
   const progress = isFinishing ? 100 : Math.min(75, Math.max(25, update.step * 25));
   const steps = ['Готуємо оновлення', 'Оновлюємо файли', 'Повертаємо до роботи'];
 
-  return <dialog open className={`app-update-backdrop${exiting ? ' is-exiting' : ''}`} aria-labelledby="app-update-title">
+  return <dialog open className={`app-update-backdrop${exiting ? ' is-exiting' : ''}`} aria-labelledby="app-update-title" aria-describedby="app-update-description">
     <div className="app-update-card" data-phase={update.phase}>
       <div className="app-update-status-mark" aria-hidden="true"><span className="app-update-status-brand">W</span>{isFinishing && <Check className="app-update-status-check" />}{isError && <RefreshCw className="app-update-status-error" />}</div>
-      <h2 id="app-update-title"><span key={`title-${statusKey}`} className="app-update-status-copy">{statusTitle}</span></h2>
-      <p className="app-update-description"><span key={`description-${statusKey}`} className="app-update-status-copy">{statusDescription}</span></p>
-      {!isError && <div className="app-update-progress" aria-label="Прогрес оновлення"><span style={{ width: `${progress}%` }} /></div>}
+      <h2 id="app-update-title" aria-live="polite"><span key={`title-${statusKey}`} className="app-update-status-copy">{statusTitle}</span></h2>
+      <p id="app-update-description" className="app-update-description"><span key={`description-${statusKey}`} className="app-update-status-copy">{statusDescription}</span></p>
+      {!isError && <div className="app-update-progress" role="progressbar" aria-label="Прогрес оновлення" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div>}
       {!isError && <ol className="app-update-steps">{steps.map((label, index) => { const complete = isFinishing || update.step > index + 1; const current = !isFinishing && update.step === index + 1; return <li key={label} className={complete ? 'is-complete' : current ? 'is-current' : ''}><span>{complete ? '✓' : index + 1}</span>{label}</li>; })}</ol>}
       {isError && <Button onClick={() => void applyUpdate()}><RefreshCw data-icon="inline-start" />Спробувати ще раз</Button>}
       <small className="app-update-note">Поточний розділ і позиція сторінки збережуться автоматично.</small>
