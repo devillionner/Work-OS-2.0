@@ -16,6 +16,11 @@ void test('automatic update screen uses one coherent motion rhythm', () => {
   assert.match(source, /Math\.min\(75, Math\.max\(25, update\.step \* 25\)\)/);
   assert.match(source, /app-update-status-copy/);
   assert.match(source, /app-update-backdrop\$\{exiting \? ' is-exiting' : ''\}/);
+  assert.match(source, /aria-describedby="app-update-description"/);
+  assert.match(source, /id="app-update-description"/);
+  assert.match(source, /role="progressbar"/);
+  assert.match(source, /aria-valuenow=\{progress\}/);
+  assert.match(source, /aria-live="polite"/);
 
   assert.match(css, /--app-update-motion-duration: 480ms/);
   assert.match(css, /--app-update-progress-duration: 800ms/);
