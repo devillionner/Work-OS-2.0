@@ -2,11 +2,20 @@
 :root {
   --app-update-motion-duration: 480ms;
   --app-update-progress-duration: 800ms;
+  --app-update-spinner-duration: 1440ms;
   --app-update-ease: cubic-bezier(.22, .61, .36, 1);
+  --app-update-spinner-ease: cubic-bezier(.37, 0, .63, 1);
 }
 
 .app-update-banner {
   animation: app-update-banner-enter var(--app-update-motion-duration) var(--app-update-ease) both;
+}
+
+/* The banner only announces availability. Avoid a second perpetual rhythm before the handoff. */
+.app-update-pulse {
+  animation: none;
+  box-shadow: none;
+  opacity: .82;
 }
 
 .app-update-backdrop {
@@ -27,6 +36,17 @@
   will-change: transform, opacity;
 }
 
+/* The old animated top rail looked like a second progress bar. Keep one progress signal only. */
+.app-update-card::before {
+  content: none;
+  animation: none;
+}
+
+/* The W mark already identifies the product; avoid repeating the brand between status cues. */
+.app-update-card .eyebrow {
+  display: none;
+}
+
 .app-update-backdrop.is-exiting {
   opacity: 0;
   backdrop-filter: blur(10px);
@@ -40,6 +60,7 @@
 }
 
 .app-update-icon {
+  position: relative;
   transition:
     background-color var(--app-update-motion-duration) var(--app-update-ease),
     color var(--app-update-motion-duration) var(--app-update-ease),
@@ -47,7 +68,49 @@
 }
 
 .app-update-icon.is-complete {
-  transform: scale(1.03);
+  transform: scale(1.015);
+}
+
+/*
+ * One calm activity cue is shared by preview, real update and post-reload boot handoff.
+ * The legacy LoaderCircle/boot spinner remains in the DOM for compatibility but is visually
+ * replaced by this pseudo-element so the loading -> success transition can cross-fade.
+ */
+.app-update-icon::before {
+  content: '';
+  grid-area: 1 / 1;
+  width: 26px;
+  height: 26px;
+  border: 3px solid #dce3ff;
+  border-top-color: #5871df;
+  border-right-color: #5871df;
+  border-radius: 50%;
+  opacity: 0;
+  transform: scale(.92);
+  transition:
+    opacity calc(var(--app-update-motion-duration) * .75) var(--app-update-ease),
+    transform var(--app-update-motion-duration) var(--app-update-ease);
+}
+
+.app-update-icon > * {
+  grid-area: 1 / 1;
+}
+
+.app-update-card[data-phase='updating'] .app-update-icon::before,
+html[data-work-os-update-boot='1'] .app-update-card[data-phase='boot'] .app-update-icon::before {
+  opacity: 1;
+  transform: scale(1);
+  animation: app-update-spinner-turn var(--app-update-spinner-duration) var(--app-update-spinner-ease) infinite;
+}
+
+.app-update-icon .is-spinning,
+.app-update-boot-spinner {
+  opacity: 0 !important;
+  animation: none !important;
+}
+
+.app-update-icon svg:not(.is-spinning) {
+  animation: app-update-glyph-enter var(--app-update-motion-duration) var(--app-update-ease) both;
 }
 
 .app-update-card h2 {
@@ -90,9 +153,43 @@
   transform: translateX(2px);
 }
 
-.app-update-steps li.is-current > span,
-.app-update-steps li.is-complete > span {
+.app-update-steps li.is-current > span {
   transform: scale(1.04);
+}
+
+/* Completed work should read as settled context, not compete with the current step. */
+.app-update-steps li.is-complete {
+  color: #39745f;
+}
+
+.app-update-steps li.is-complete > span {
+  border-color: #cfe7dc;
+  background: #f3faf6;
+  color: #287358;
+  transform: scale(1.015);
+}
+
+/* Settings preview metadata belongs to the test harness, not the update card itself. */
+.app-update-backdrop[aria-labelledby='app-update-preview-title'] .app-update-note {
+  display: none;
+}
+
+.app-update-backdrop[aria-labelledby='app-update-preview-title']::after {
+  content: 'Тестовий режим · без перезавантаження';
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  padding: 6px 10px;
+  border: 1px solid rgb(217 222 234 / .9);
+  border-radius: 999px;
+  background: rgb(255 255 255 / .72);
+  color: #7b8290;
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
 }
 
 /* Keep the same card visible while the browser swaps the old document for the new build. */
@@ -116,15 +213,6 @@ html[data-work-os-update-boot='1'] .app-update-boot-shell {
   animation: none !important;
 }
 
-.app-update-boot-spinner {
-  width: 27px;
-  height: 27px;
-  border: 3px solid #cbd5ff;
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  animation: app-update-boot-spin .9s linear infinite;
-}
-
 @keyframes app-update-banner-enter {
   from { opacity: 0; transform: translate(-50%, -6px); }
   to { opacity: 1; transform: translate(-50%, 0); }
@@ -145,7 +233,12 @@ html[data-work-os-update-boot='1'] .app-update-boot-shell {
   to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes app-update-boot-spin {
+@keyframes app-update-glyph-enter {
+  from { opacity: 0; transform: scale(.88); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes app-update-spinner-turn {
   to { transform: rotate(360deg); }
 }
 
@@ -154,13 +247,15 @@ html[data-work-os-update-boot='1'] .app-update-boot-shell {
   .app-update-backdrop,
   .app-update-card,
   .app-update-status-copy,
-  .app-update-boot-spinner {
+  .app-update-icon::before,
+  .app-update-icon svg:not(.is-spinning) {
     animation: none !important;
   }
 
   .app-update-backdrop,
   .app-update-card,
   .app-update-icon,
+  .app-update-icon::before,
   .app-update-progress span,
   .app-update-steps li,
   .app-update-steps li > span,
