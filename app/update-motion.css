@@ -68,6 +68,34 @@
   transform: scale(1.04);
 }
 
+/* Keep the same card visible while the browser swaps the old document for the new build. */
+.app-update-boot-shell {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  animation: none !important;
+  transition: opacity 220ms ease, visibility 0s linear 220ms;
+}
+
+html[data-work-os-update-boot='1'] .app-update-boot-shell {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.app-update-boot-shell .app-update-card {
+  animation: none !important;
+}
+
+.app-update-boot-spinner {
+  width: 27px;
+  height: 27px;
+  border: 3px solid #cbd5ff;
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: app-update-boot-spin .8s linear infinite;
+}
+
 @keyframes app-update-banner-enter {
   from { opacity: 0; transform: translate(-50%, -8px); }
   to { opacity: 1; transform: translate(-50%, 0); }
@@ -83,10 +111,15 @@
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+@keyframes app-update-boot-spin {
+  to { transform: rotate(360deg); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .app-update-banner,
   .app-update-backdrop,
-  .app-update-card {
+  .app-update-card,
+  .app-update-boot-spinner {
     animation: none !important;
   }
 
@@ -95,7 +128,8 @@
   .app-update-icon,
   .app-update-progress span,
   .app-update-steps li,
-  .app-update-steps li > span {
+  .app-update-steps li > span,
+  .app-update-boot-shell {
     transition-duration: .01ms !important;
   }
 }
