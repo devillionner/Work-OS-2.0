@@ -29,7 +29,8 @@ void test('automatic app update detects a new build and preserves user context',
   assert.match(source, /restoreActiveView\(savedView\)/);
   assert.match(source, /window\.location\.reload\(\)/);
   assert.match(source, /<output className="app-update-banner"/);
-  assert.match(source, /<dialog open className="app-update-backdrop"/);
+  assert.match(source, /app-update-backdrop/);
+  assert.match(source, /exiting \? ' is-exiting' : ''/);
   assert.match(source, /Оновлюємо Work OS/);
   assert.match(source, /Work OS оновлено/);
 });
