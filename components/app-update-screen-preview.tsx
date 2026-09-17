@@ -1,14 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CheckCircle2, LoaderCircle } from 'lucide-react';
+import { Check } from 'lucide-react';
 
 type Props = { onClose: () => void };
 type Phase = 'updating' | 'finishing';
 
 const PREVIEW_STEP_HOLD_MS = 1_150;
 const PREVIEW_FINISH_HOLD_MS = 1_900;
-const PREVIEW_EXIT_MS = 480;
+const PREVIEW_EXIT_MS = 620;
 
 export function AppUpdateScreenPreview({ onClose }: Props) {
   const [phase, setPhase] = useState<Phase>('updating');
@@ -40,14 +40,13 @@ export function AppUpdateScreenPreview({ onClose }: Props) {
   return (
     <dialog open className={`app-update-backdrop${exiting ? ' is-exiting' : ''}`} aria-labelledby="app-update-preview-title">
       <div className="app-update-card" data-phase={phase}>
-        <div className="app-update-brand" aria-hidden="true">W</div>
-        <div className={`app-update-icon ${isFinishing ? 'is-complete' : ''}`} aria-hidden="true">
-          {isFinishing ? <CheckCircle2 /> : <LoaderCircle className="is-spinning" />}
+        <div className="app-update-status-mark" aria-hidden="true">
+          <span className="app-update-status-brand">W</span>
+          {isFinishing && <Check className="app-update-status-check" />}
         </div>
-        <p className="eyebrow">Work OS</p>
-        <h2 id="app-update-preview-title"><span key={`title-${statusKey}`} className="app-update-status-copy">{statusTitle}</span></h2>
+        <h2 id="app-update-preview-title" aria-live="polite"><span key={`title-${statusKey}`} className="app-update-status-copy">{statusTitle}</span></h2>
         <p className="app-update-description"><span key={`description-${statusKey}`} className="app-update-status-copy">{statusDescription}</span></p>
-        <div className="app-update-progress" aria-label="Прогрес оновлення">
+        <div className="app-update-progress" role="progressbar" aria-label="Прогрес оновлення" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
           <span style={{ width: `${progress}%` }} />
         </div>
         <ol className="app-update-steps">
