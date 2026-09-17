@@ -18,8 +18,9 @@ type UpdateState = {
 
 const BUILD_POLL_MS = 30_000;
 const UPDATE_PREP_TIMEOUT_MS = 8_000;
-const UPDATE_FINISH_HOLD_MS = 950;
-const UPDATE_EXIT_MS = 360;
+const UPDATE_STEP_HOLD_MS = 1_150;
+const UPDATE_FINISH_HOLD_MS = 1_900;
+const UPDATE_EXIT_MS = 480;
 const UPDATE_CHANNEL = 'work-os-release';
 const PENDING_BUILD_KEY = 'work-os:pending-build';
 const UPDATE_SCROLL_KEY = 'work-os:update-scroll';
@@ -83,6 +84,7 @@ export function PwaRegistration() {
       const activeView = readActiveViewLabel();
       if (activeView) sessionStorage.setItem(UPDATE_VIEW_KEY, activeView);
 
+      const preparationStartedAt = performance.now();
       if ('serviceWorker' in navigator) {
         await withTimeout((async () => {
           const registration = await navigator.serviceWorker.getRegistration('/');
@@ -90,10 +92,15 @@ export function PwaRegistration() {
         })(), UPDATE_PREP_TIMEOUT_MS);
       }
 
+      const preparationElapsed = performance.now() - preparationStartedAt;
+      if (preparationElapsed < UPDATE_STEP_HOLD_MS) {
+        await wait(UPDATE_STEP_HOLD_MS - preparationElapsed);
+      }
+
       setUpdate((current) => ({ ...current, step: 2 }));
-      await new Promise((resolve) => window.setTimeout(resolve, 420));
+      await wait(UPDATE_STEP_HOLD_MS);
       setUpdate((current) => ({ ...current, step: 3 }));
-      await new Promise((resolve) => window.setTimeout(resolve, 520));
+      await wait(UPDATE_STEP_HOLD_MS);
 
       // A full document navigation is required to replace already-running JS/CSS.
       // It is automatic, stays on the same URL, and is hidden behind the update UI.
@@ -221,6 +228,14 @@ export function PwaRegistration() {
 
   const isError = update.phase === 'error';
   const isFinishing = update.phase === 'finishing';
+  const statusKey = isError ? 'error' : isFinishing ? 'finishing' : 'updating';
+  const statusTitle = isError ? 'Не вдалося завершити оновлення' : isFinishing ? 'Work OS оновлено' : 'Оновлюємо Work OS';
+  const statusDescription = isError
+    ? 'Поточна версія залишається доступною. Можна безпечно повторити спробу.'
+    : isFinishing
+      ? 'Відновлюємо ваш екран і актуальні дані…'
+      : 'Підтягуємо нову версію та синхронізуємо дані. Нічого натискати не потрібно.';
+  const progress = isFinishing ? 100 : Math.min(75, Math.max(25, update.step * 25));
   const steps = ['Готуємо оновлення', 'Оновлюємо файли', 'Повертаємо до роботи'];
 
   return (
@@ -231,17 +246,11 @@ export function PwaRegistration() {
           {isFinishing ? <CheckCircle2 /> : isError ? <RefreshCw /> : <LoaderCircle className="is-spinning" />}
         </div>
         <p className="eyebrow">Work OS</p>
-        <h2 id="app-update-title">{isError ? 'Не вдалося завершити оновлення' : isFinishing ? 'Work OS оновлено' : 'Оновлюємо Work OS'}</h2>
-        <p className="app-update-description">
-          {isError
-            ? 'Поточна версія залишається доступною. Можна безпечно повторити спробу.'
-            : isFinishing
-              ? 'Відновлюємо ваш екран і актуальні дані…'
-              : 'Підтягуємо нову версію та синхронізуємо дані. Нічого натискати не потрібно.'}
-        </p>
+        <h2 id="app-update-title"><span key={`title-${statusKey}`} className="app-update-status-copy">{statusTitle}</span></h2>
+        <p className="app-update-description"><span key={`description-${statusKey}`} className="app-update-status-copy">{statusDescription}</span></p>
         {!isError && (
           <div className="app-update-progress" aria-label="Прогрес оновлення">
-            <span style={{ width: isFinishing ? '100%' : `${Math.max(18, update.step * 33)}%` }} />
+            <span style={{ width: `${progress}%` }} />
           </div>
         )}
         {!isError && (
@@ -288,8 +297,12 @@ async function restoreActiveView(savedView: string | null): Promise<void> {
       await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
       return;
     }
-    await new Promise((resolve) => window.setTimeout(resolve, 50));
+    await wait(50);
   }
+}
+
+function wait(timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, timeoutMs));
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

@@ -6,7 +6,9 @@ import { CheckCircle2, LoaderCircle } from 'lucide-react';
 type Props = { onClose: () => void };
 type Phase = 'updating' | 'finishing';
 
-const PREVIEW_EXIT_MS = 360;
+const PREVIEW_STEP_HOLD_MS = 1_150;
+const PREVIEW_FINISH_HOLD_MS = 1_900;
+const PREVIEW_EXIT_MS = 480;
 
 export function AppUpdateScreenPreview({ onClose }: Props) {
   const [phase, setPhase] = useState<Phase>('updating');
@@ -14,17 +16,25 @@ export function AppUpdateScreenPreview({ onClose }: Props) {
   const [exiting, setExiting] = useState(false);
 
   useEffect(() => {
+    const finishingAt = PREVIEW_STEP_HOLD_MS * 3;
+    const exitAt = finishingAt + PREVIEW_FINISH_HOLD_MS;
     const timers = [
-      window.setTimeout(() => setStep(2), 700),
-      window.setTimeout(() => setStep(3), 1_400),
-      window.setTimeout(() => setPhase('finishing'), 2_200),
-      window.setTimeout(() => setExiting(true), 3_250),
-      window.setTimeout(onClose, 3_250 + PREVIEW_EXIT_MS),
+      window.setTimeout(() => setStep(2), PREVIEW_STEP_HOLD_MS),
+      window.setTimeout(() => setStep(3), PREVIEW_STEP_HOLD_MS * 2),
+      window.setTimeout(() => setPhase('finishing'), finishingAt),
+      window.setTimeout(() => setExiting(true), exitAt),
+      window.setTimeout(onClose, exitAt + PREVIEW_EXIT_MS),
     ];
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [onClose]);
 
   const isFinishing = phase === 'finishing';
+  const statusKey = isFinishing ? 'finishing' : 'updating';
+  const statusTitle = isFinishing ? 'Work OS оновлено' : 'Оновлюємо Work OS';
+  const statusDescription = isFinishing
+    ? 'Відновлюємо ваш екран і актуальні дані…'
+    : 'Підтягуємо нову версію та синхронізуємо дані. Нічого натискати не потрібно.';
+  const progress = isFinishing ? 100 : Math.min(75, Math.max(25, step * 25));
   const steps = ['Готуємо оновлення', 'Оновлюємо файли', 'Повертаємо до роботи'];
 
   return (
@@ -35,14 +45,10 @@ export function AppUpdateScreenPreview({ onClose }: Props) {
           {isFinishing ? <CheckCircle2 /> : <LoaderCircle className="is-spinning" />}
         </div>
         <p className="eyebrow">Work OS</p>
-        <h2 id="app-update-preview-title">{isFinishing ? 'Work OS оновлено' : 'Оновлюємо Work OS'}</h2>
-        <p className="app-update-description">
-          {isFinishing
-            ? 'Відновлюємо ваш екран і актуальні дані…'
-            : 'Підтягуємо нову версію та синхронізуємо дані. Нічого натискати не потрібно.'}
-        </p>
+        <h2 id="app-update-preview-title"><span key={`title-${statusKey}`} className="app-update-status-copy">{statusTitle}</span></h2>
+        <p className="app-update-description"><span key={`description-${statusKey}`} className="app-update-status-copy">{statusDescription}</span></p>
         <div className="app-update-progress" aria-label="Прогрес оновлення">
-          <span style={{ width: isFinishing ? '100%' : `${Math.max(18, step * 33)}%` }} />
+          <span style={{ width: `${progress}%` }} />
         </div>
         <ol className="app-update-steps">
           {steps.map((label, index) => {
