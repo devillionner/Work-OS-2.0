@@ -88,7 +88,7 @@
   opacity: 0;
   transform: scale(.92);
   transition:
-    opacity calc(var(--app-update-motion-duration) * .75) var(--app-update-ease),
+    opacity 360ms var(--app-update-ease),
     transform var(--app-update-motion-duration) var(--app-update-ease);
 }
 
