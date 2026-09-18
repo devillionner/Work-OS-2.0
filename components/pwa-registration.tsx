@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, LoaderCircle, RefreshCw } from 'lucide-react';
+import { Check, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { APP_BUILD_ID } from '@/lib/build-id';
 
@@ -18,8 +18,9 @@ type UpdateState = {
 
 const BUILD_POLL_MS = 30_000;
 const UPDATE_PREP_TIMEOUT_MS = 8_000;
-const UPDATE_FINISH_HOLD_MS = 950;
-const UPDATE_EXIT_MS = 360;
+const UPDATE_STEP_HOLD_MS = 1_150;
+const UPDATE_FINISH_HOLD_MS = 1_900;
+const UPDATE_EXIT_MS = 620;
 const UPDATE_CHANNEL = 'work-os-release';
 const PENDING_BUILD_KEY = 'work-os:pending-build';
 const UPDATE_SCROLL_KEY = 'work-os:update-scroll';
@@ -91,9 +92,9 @@ export function PwaRegistration() {
       }
 
       setUpdate((current) => ({ ...current, step: 2 }));
-      await new Promise((resolve) => window.setTimeout(resolve, 420));
+      await new Promise((resolve) => window.setTimeout(resolve, UPDATE_STEP_HOLD_MS));
       setUpdate((current) => ({ ...current, step: 3 }));
-      await new Promise((resolve) => window.setTimeout(resolve, 520));
+      await new Promise((resolve) => window.setTimeout(resolve, UPDATE_STEP_HOLD_MS));
 
       // A full document navigation is required to replace already-running JS/CSS.
       // It is automatic, stays on the same URL, and is hidden behind the update UI.
@@ -221,27 +222,49 @@ export function PwaRegistration() {
 
   const isError = update.phase === 'error';
   const isFinishing = update.phase === 'finishing';
+  const statusKey = isError ? 'error' : isFinishing ? 'finishing' : 'updating';
+  const statusTitle = isError
+    ? 'Не вдалося завершити оновлення'
+    : isFinishing
+      ? 'Work OS оновлено'
+      : 'Оновлюємо Work OS';
+  const statusDescription = isError
+    ? 'Поточна версія залишається доступною. Можна безпечно повторити спробу.'
+    : isFinishing
+      ? 'Повертаємо вас до роботи з актуальними даними…'
+      : 'Підтягуємо нову версію та синхронізуємо дані. Нічого натискати не потрібно.';
+  const progress = isFinishing ? 100 : Math.min(75, Math.max(25, update.step * 25));
   const steps = ['Готуємо оновлення', 'Оновлюємо файли', 'Повертаємо до роботи'];
 
   return (
-    <dialog open className={`app-update-backdrop${exiting ? ' is-exiting' : ''}`} aria-labelledby="app-update-title">
+    <dialog
+      open
+      className={`app-update-backdrop${exiting ? ' is-exiting' : ''}`}
+      aria-labelledby="app-update-title"
+      aria-describedby="app-update-description"
+    >
       <div className="app-update-card" data-phase={update.phase}>
-        <div className="app-update-brand" aria-hidden="true">W</div>
-        <div className={`app-update-icon ${isFinishing ? 'is-complete' : ''}`} aria-hidden="true">
-          {isFinishing ? <CheckCircle2 /> : isError ? <RefreshCw /> : <LoaderCircle className="is-spinning" />}
+        <div className="app-update-status-mark" aria-hidden="true">
+          <span className="app-update-status-brand">W</span>
+          {isFinishing && <Check className="app-update-status-check" />}
+          {isError && <RefreshCw className="app-update-status-error" />}
         </div>
-        <p className="eyebrow">Work OS</p>
-        <h2 id="app-update-title">{isError ? 'Не вдалося завершити оновлення' : isFinishing ? 'Work OS оновлено' : 'Оновлюємо Work OS'}</h2>
-        <p className="app-update-description">
-          {isError
-            ? 'Поточна версія залишається доступною. Можна безпечно повторити спробу.'
-            : isFinishing
-              ? 'Відновлюємо ваш екран і актуальні дані…'
-              : 'Підтягуємо нову версію та синхронізуємо дані. Нічого натискати не потрібно.'}
+        <h2 id="app-update-title" aria-live="polite">
+          <span key={`title-${statusKey}`} className="app-update-status-copy">{statusTitle}</span>
+        </h2>
+        <p id="app-update-description" className="app-update-description">
+          <span key={`description-${statusKey}`} className="app-update-status-copy">{statusDescription}</span>
         </p>
         {!isError && (
-          <div className="app-update-progress" aria-label="Прогрес оновлення">
-            <span style={{ width: isFinishing ? '100%' : `${Math.max(18, update.step * 33)}%` }} />
+          <div
+            className="app-update-progress"
+            role="progressbar"
+            aria-label="Прогрес оновлення"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress}
+          >
+            <span style={{ width: `${progress}%` }} />
           </div>
         )}
         {!isError && (
@@ -249,11 +272,21 @@ export function PwaRegistration() {
             {steps.map((label, index) => {
               const complete = isFinishing || update.step > index + 1;
               const current = !isFinishing && update.step === index + 1;
-              return <li key={label} className={complete ? 'is-complete' : current ? 'is-current' : ''}><span>{complete ? '✓' : index + 1}</span>{label}</li>;
+              return (
+                <li key={label} className={complete ? 'is-complete' : current ? 'is-current' : ''}>
+                  <span>{complete ? '✓' : index + 1}</span>
+                  {label}
+                </li>
+              );
             })}
           </ol>
         )}
-        {isError && <Button onClick={() => void applyUpdate()}><RefreshCw data-icon="inline-start" />Спробувати ще раз</Button>}
+        {isError && (
+          <Button onClick={() => void applyUpdate()}>
+            <RefreshCw data-icon="inline-start" />
+            Спробувати ще раз
+          </Button>
+        )}
         <small className="app-update-note">Поточний розділ і позиція сторінки збережуться автоматично.</small>
       </div>
     </dialog>
