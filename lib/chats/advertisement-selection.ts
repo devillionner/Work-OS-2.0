@@ -56,7 +56,7 @@ export async function readPublicationAdvertisementSelection(
 ): Promise<PublicationAdvertisementSelection | null> {
   const chat = await db.prepare(`SELECT c.platform,p.language,p.directions_json,p.review_status,p.cadence,p.weekdays_json,p.custom_interval_days,p.next_allowed_on
     FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id
-    WHERE c.id=?1 AND c.user_id=?2 LIMIT 1`).bind(input.chatId, input.userId).first<SelectionChatRow>();
+    WHERE c.id=?1 AND c.user_id=?2 AND c.workflow_status='ready' LIMIT 1`).bind(input.chatId, input.userId).first<SelectionChatRow>();
   if (!chat) return null;
 
   const [advertisementsResult, usedResult] = await db.batch([

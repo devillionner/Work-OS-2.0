@@ -86,3 +86,36 @@ void test('script library exposes search, tags, immutable versions and archive c
   assert.match(library, /В архів/);
   assert.match(history, /versionNumber/);
 });
+
+
+void test('chat operator flow keeps grouped copy, fast archive and archived-chat exclusion explicit', () => {
+  const platform = source('components/platform-workspace.tsx');
+  const selection = source('lib/chats/advertisement-selection.ts');
+  assert.match(platform, /\(index\+1\)%5===0&&index<items\.length-1\?\[''\]:\[\]/);
+  assert.match(platform, /\['Забанено','Чат не існує','Чат не цільовий'\]/);
+  assert.match(platform, /queue==='archived'\?<Button variant="outline" onClick=\{\(\)=>act\(chat,'restore'\)\}/);
+  assert.match(selection, /c\.workflow_status='ready'/);
+});
+
+
+void test('chat archive reasons, available-now links and Telegram duplicate scope are explicit', () => {
+  const platform = source('components/platform-workspace.tsx');
+  const route = source('app/api/chats/route.ts');
+  const duplicates = source('lib/chats/duplicates.ts');
+  const migration = source('migrations/0011_telegram_accounts.sql');
+  assert.match(platform, /\['Забанено','Чат не існує','Чат не цільовий'\]/);
+  assert.match(platform, /aria-label="Власна причина архівації"/);
+  assert.match(route, /availableTodayStatement/);
+  assert.match(platform, /<TodayLinks title="Доступні зараз"/);
+  assert.match(duplicates, /c\.telegram_account_id=\?3 OR \(c\.telegram_account_id IS NULL AND c\.workflow_status='to_join'\)/);
+  assert.match(migration, /workflow_status != 'to_join' AND telegram_account_id IS NULL/);
+});
+
+
+void test('archived chat rows expose the archive timestamp without enabling destructive deletion', () => {
+  const route = source('app/api/chats/route.ts');
+  const platform = source('components/platform-workspace.tsx');
+  assert.match(route, /c\.archive_reason,c\.archived_at/);
+  assert.match(route, /archivedAt: row\.archived_at/);
+  assert.match(platform, /queue==='archived'&&chat\.archivedAt&&<small>Архівовано \{formatDateTime\(chat\.archivedAt\)\}<\/small>/);
+});

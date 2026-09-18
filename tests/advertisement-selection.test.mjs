@@ -102,3 +102,11 @@ void test('manual publish dialog explains profile rule blocks and prevents confi
   assert.match(source, /disabled=\{busy\|\|!publicationRule\.allowed\}/);
   assert.match(source, /publicationAllowed!==false/);
 });
+
+
+void test('archived chats are excluded from advertisement selection before publication', async (t) => {
+  const db = await localDatabase(t);
+  await seedChat(db, { id: 'archived-chat', owner: 'u', platform: 'whatsapp', status: 'archived' });
+  const selection = await readPublicationAdvertisementSelection(db, { userId: 'u', chatId: 'archived-chat', date: '2026-09-18' });
+  assert.equal(selection, null);
+});
