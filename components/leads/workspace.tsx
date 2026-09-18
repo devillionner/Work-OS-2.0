@@ -45,6 +45,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
   const busy = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
+  const historyTrigger = useRef<HTMLButtonElement>(null);
   const focusSelection = useRef<string | null>(null);
   const reload = useCallback(() => setRefresh((v) => v + 1), []);
   const resetListControls = useCallback(() => {
@@ -178,7 +179,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
   }, [search]);
   return (
     <div className={`leads-workspace ${selected ? 'has-selection' : ''}`}>
-      <LeadHistoryDialog open={historyOpen} lead={current?.lead ? { id: current.lead.id, name: current.lead.name } : null} onClose={() => setHistoryOpen(false)} />
+      <LeadHistoryDialog open={historyOpen} lead={current?.lead ? { id: current.lead.id, name: current.lead.name } : null} onClose={() => setHistoryOpen(false)} finalFocus={() => historyTrigger.current} />
       <section className="leads-hero">
         <div>
           <p className="eyebrow">CRM та супровід</p>
@@ -388,7 +389,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
                     </Button>
                   </div>
                   <div className="lead-action-utility">
-                    <Button variant="ghost" size="sm" onClick={() => setHistoryOpen(true)}>Історія</Button>
+                    <Button ref={historyTrigger} variant="ghost" size="sm" onClick={() => setHistoryOpen(true)}>Історія</Button>
                     <Button variant="ghost" size="sm" onClick={reload}>Оновити</Button>
                     <Button
                       className={current.lead.archivedAt !== null ? 'lead-restore-action' : 'lead-archive-action'}
