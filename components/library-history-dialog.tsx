@@ -12,7 +12,7 @@ type ItemRef={id:string;title:string}|null;
 const actions:Record<string,string>={create:'Створено',update:'Оновлено',archive:'Архівовано',restore:'Відновлено'};
 const collections:Record<string,string>={advertisement:'Оголошення',official_script:'Офіційний скрипт',personal_script:'Особистий скрипт',knowledge:'База знань'};
 
-export function LibraryHistoryDialog({open,item,onClose}:{open:boolean;item:ItemRef;onClose:()=>void}){
+export function LibraryHistoryDialog({open,item,onClose,finalFocus}:{open:boolean;item:ItemRef;onClose:()=>void;finalFocus?:()=>HTMLElement|null}){
   const [versions,setVersions]=useState<Version[]>([]);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState('');
@@ -26,7 +26,7 @@ export function LibraryHistoryDialog({open,item,onClose}:{open:boolean;item:Item
       .finally(()=>{if(!controller.signal.aborted)setLoading(false);});
     return()=>controller.abort();
   },[open,item]);
-  return <Dialog open={open} onOpenChange={next=>{if(!next&&!loading)onClose();}}><DialogContent className="library-history-dialog">
+  return <Dialog open={open} onOpenChange={next=>{if(!next&&!loading)onClose();}}><DialogContent className="library-history-dialog" finalFocus={finalFocus}>
     <DialogHeader><DialogTitle>Історія матеріалу</DialogTitle><DialogDescription>{item?.title}</DialogDescription></DialogHeader>
     {error&&<div className="workspace-error" role="alert">{error}</div>}
     {loading?<p className="workspace-loading">Завантажуємо версії…</p>:versions.length?<ol className="chat-history-list">{versions.map(version=><li key={version.id}>

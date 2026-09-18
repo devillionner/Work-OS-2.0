@@ -15,9 +15,9 @@ type AdvertisementItem = {
   suggestedLanguage:'uk'|'ru'|null; usedToday:boolean; selectable:boolean; recommended:boolean;
   directionMatch:'matched'|'generic'|'other'; note:string|null;
 };
-type SelectionPayload = { items:AdvertisementItem[]; error?:string };
+type SelectionPayload = { items:AdvertisementItem[]; publicationAllowed:boolean; publicationReason:string|null; error?:string };
 
-export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat}:{open:boolean;chat:PublishChat|null;onClose:()=>void;onPublished:(details:PublicationDetails)=>Promise<boolean>;onOpenChat:()=>void}) {
+export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,finalFocus}:{open:boolean;chat:PublishChat|null;onClose:()=>void;onPublished:(details:PublicationDetails)=>Promise<boolean>;onOpenChat:()=>void;finalFocus?:()=>HTMLElement|null}) {
   const [items,setItems]=useState<AdvertisementItem[]>([]);
   const [selectedId,setSelectedId]=useState<string|null>(null);
   const [language,setLanguage]=useState<'uk'|'ru'>(chat?.profile.language==='ru'?'ru':'uk');
@@ -26,6 +26,7 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat}:{op
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
+  const [publicationRule,setPublicationRule]=useState<{allowed:boolean;reason:string|null}>({allowed:true,reason:null});
   const chatId=chat?.id;
   const chatLanguage=chat?.profile.language;
 
@@ -36,7 +37,7 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat}:{op
     const timeout=setTimeout(()=>controller.abort(),30_000);
     queueMicrotask(()=>{
       if(!cancelled){
-        setLoading(true);setBusy(false);setError('');setNotice('');setItems([]);setSelectedId(null);setSearch('');setLanguage(chatLanguage==='ru'?'ru':'uk');
+        setLoading(true);setBusy(false);setError('');setNotice('');setItems([]);setSelectedId(null);setSearch('');setLanguage(chatLanguage==='ru'?'ru':'uk');setPublicationRule({allowed:true,reason:null});
       }
     });
     fetch(`/api/chats/advertisements?chatId=${encodeURIComponent(chatId)}`,{cache:'no-store',signal:controller.signal})
@@ -44,7 +45,7 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat}:{op
         const value:unknown=await response.json();
         if(!response.ok)throw new Error(value&&typeof value==='object'&&'error' in value&&typeof value.error==='string'?value.error:'Не вдалося підібрати оголошення.');
         if(!value||typeof value!=='object'||!Array.isArray((value as SelectionPayload).items))throw new Error('Не вдалося прочитати підбір оголошень.');
-        if(!cancelled)setItems((value as SelectionPayload).items);
+        if(!cancelled){const payload=value as SelectionPayload;setItems(payload.items);setPublicationRule({allowed:payload.publicationAllowed!==false,reason:payload.publicationReason||null});}
       })
       .catch(reason=>{
         if(!cancelled)setError(reason instanceof Error&&reason.name!=='AbortError'&&reason.name!=='TypeError'?reason.message:'Не вдалося підібрати оголошення. Перевірте з’єднання.');
@@ -74,7 +75,7 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat}:{op
     catch{setError('Не вдалося скопіювати текст. Виділіть його та скопіюйте вручну.');}
   }
   async function publish(){
-    if(!chat||busy)return;
+    if(!chat||busy||!publicationRule.allowed)return;
     setBusy(true);setError('');
     try{if(await onPublished({advertisementId:selectedId,language:publicationLanguage}))onClose();}
     catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося відмітити публікацію. Оновіть список і спробуйте ще раз.');}
@@ -82,7 +83,7 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat}:{op
   }
 
   return <Dialog open={open} onOpenChange={next=>{if(!next&&!busy)onClose();}}>
-    <DialogContent className="chat-publish-dialog" showCloseButton={false}>
+    <DialogContent className="chat-publish-dialog" showCloseButton={false} finalFocus={finalFocus}>
       <DialogHeader>
         <DialogTitle>Підготувати публікацію</DialogTitle>
         <DialogDescription>{chat?.name} · Work OS ставить невикористані придатні оголошення першими, але публікацію ви робите вручну.</DialogDescription>
@@ -93,10 +94,11 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat}:{op
       {chat&&<>
         <div className="chat-publish-chat"><strong>{chat.name}</strong><span>{chat.link}</span><Button type="button" variant="outline" size="sm" disabled={busy} onClick={onOpenChat}><ExternalLink data-icon="inline-start"/>Відкрити чат</Button></div>
         {!chat.profileConfirmed&&<output className="chat-publish-warning">Профіль чату ще не підтверджено. Work OS врахує платформу та історію використання, але не застосовуватиме напрямки профілю як перевірене правило.</output>}
+        {!publicationRule.allowed&&<output className="chat-publish-warning">Публікація зараз недоступна: {publicationRule.reason||'правила профілю не дозволяють публікацію на цю дату.'}</output>}
         <label className="chat-publish-search" htmlFor="chat-publish-search">Матеріал<Input id="chat-publish-search" value={search} disabled={busy} onChange={event=>setSearch(event.target.value)} placeholder="Пошук оголошення…" /></label>
         {loading?<p className="workspace-loading"><LoaderCircle/>Підбираємо матеріали…</p>:visible.length?<div className="chat-publish-items" aria-label="Оголошення">{visible.map(item=><button type="button" aria-pressed={selectedId===item.id} className={selectedId===item.id?'is-selected':''} disabled={busy||!item.selectable} key={item.id} onClick={()=>selectItem(item)}><strong>{item.title}</strong><small>{item.ukText||item.ruText}</small><small className="muted-note">{item.recommended?'Рекомендовано · ':''}{item.usedToday?'Використано сьогодні · ':''}{item.directionMatch==='matched'?'Напрямок збігається':item.directionMatch==='other'?'Інший напрямок':'Без жорсткої прив’язки до напрямку'}</small>{item.note&&<small className="muted-note">{item.note}</small>}</button>)}</div>:<p className="muted-note">Придатних активних оголошень для цієї платформи не знайдено. Публікацію все ще можна відмітити без прив’язаного матеріалу.</p>}
         {selected&&<section className="chat-publish-preview"><div className="chat-publish-preview-head"><strong>{selected.title}</strong><div className="chat-publish-language"><Button type="button" variant="outline" size="sm" aria-pressed={language==='uk'} disabled={busy||!selected.ukText} onClick={()=>setLanguage('uk')}>UA</Button><Button type="button" variant="outline" size="sm" aria-pressed={language==='ru'} disabled={busy||!selected.ruText} onClick={()=>setLanguage('ru')}>RU</Button></div></div><Textarea readOnly rows={8} value={text} aria-label="Текст оголошення"/><div className="chat-publish-preview-actions"><Button type="button" variant="outline" size="sm" disabled={busy||!text} onClick={()=>void copyText()}><Copy data-icon="inline-start"/>Скопіювати текст</Button></div></section>}
-        <div className="dialog-actions"><Button variant="outline" disabled={busy} onClick={onClose}>Скасувати</Button><Button disabled={busy} onClick={()=>void publish()}><Send data-icon="inline-start"/>{busy?'Зберігаємо…':selected?'Відмітити публікацію':'Відмітити без матеріалу'}</Button></div>
+        <div className="dialog-actions"><Button variant="outline" disabled={busy} onClick={onClose}>Скасувати</Button><Button disabled={busy||!publicationRule.allowed} onClick={()=>void publish()}><Send data-icon="inline-start"/>{busy?'Зберігаємо…':selected?'Відмітити публікацію':'Відмітити без матеріалу'}</Button></div>
       </>}
     </DialogContent>
   </Dialog>;

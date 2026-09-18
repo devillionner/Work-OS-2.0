@@ -9,6 +9,8 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 - Repository branch noise was removed; main is the canonical remote branch. A local git bundle preserves the pre-cleanup branch refs for recovery if ever needed.
 - REPORT-09, REPORT-21 and REPORT-22 were re-verified against current code with 14/14 focused tests: frozen workday plan, versioned goal history, and explicit report fact/manual-correction/result/source drill-down. PRODUCT_REQUIREMENTS now reflects that evidence.
 - Current staging/application release remains v0.2.5; the restored update screen and current main passed Cloudflare verify/deploy.
+- P4 parity reconciliation confirms PUB-04, PROFILE-12, AD-06/07/09, LEAD-24, ANALYTICS-22, SCRIPT-04 and KNOW-01/02 against current UI/domain code. A dedicated contract test protects those surfaces from documentation drift.
+- History dialogs now return keyboard focus to the exact trigger that opened them across lead, lesson, chat, Library and Reports flows; focused regression coverage guards the controlled-dialog focus contract.
 
 
 ## Current working policy

@@ -1,3 +1,5 @@
+import { profilePublicationRule, PROFILE_CADENCES, type ProfileCadence } from './profile.ts';
+
 export type PublicationAdvertisementRow = {
   id: string;
   title: string;
@@ -30,6 +32,8 @@ export type PublicationAdvertisementSelection = {
   profileLanguage: 'uk' | 'ru' | null;
   profileDirections: string[];
   profileConfirmed: boolean;
+  publicationAllowed: boolean;
+  publicationReason: string | null;
   items: PublicationAdvertisement[];
 };
 
@@ -38,6 +42,10 @@ type SelectionChatRow = {
   language: string | null;
   directions_json: string | null;
   review_status: string | null;
+  cadence: string | null;
+  weekdays_json: string | null;
+  custom_interval_days: number | null;
+  next_allowed_on: string | null;
 };
 
 type RankedAdvertisement = PublicationAdvertisement & { updatedAt: number };
@@ -46,7 +54,7 @@ export async function readPublicationAdvertisementSelection(
   db: D1Database,
   input: { userId: string; chatId: string; date: string },
 ): Promise<PublicationAdvertisementSelection | null> {
-  const chat = await db.prepare(`SELECT c.platform,p.language,p.directions_json,p.review_status
+  const chat = await db.prepare(`SELECT c.platform,p.language,p.directions_json,p.review_status,p.cadence,p.weekdays_json,p.custom_interval_days,p.next_allowed_on
     FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id
     WHERE c.id=?1 AND c.user_id=?2 LIMIT 1`).bind(input.chatId, input.userId).first<SelectionChatRow>();
   if (!chat) return null;
@@ -64,6 +72,17 @@ export async function readPublicationAdvertisementSelection(
 
   const language = chat.language === 'uk' || chat.language === 'ru' ? chat.language : null;
   const directions = parseList(chat.directions_json);
+  const cadence = typeof chat.cadence === 'string' && PROFILE_CADENCES.includes(chat.cadence as ProfileCadence)
+    ? chat.cadence as ProfileCadence : 'any';
+  const customIntervalDays = Number.isInteger(Number(chat.custom_interval_days)) && Number(chat.custom_interval_days) > 0
+    ? Number(chat.custom_interval_days) : null;
+  const publicationRule = profilePublicationRule({
+    reviewStatus: chat.review_status === 'confirmed' ? 'confirmed' : 'draft',
+    cadence,
+    weekdays: parseWeekdays(chat.weekdays_json),
+    customIntervalDays,
+    nextAllowedOn: typeof chat.next_allowed_on === 'string' ? chat.next_allowed_on : null,
+  }, input.date);
   const usedToday = new Set((usedResult.results as Array<{ advertisement_id: string | null }>)
     .map((row) => row.advertisement_id)
     .filter((value): value is string => typeof value === 'string' && Boolean(value)));
@@ -72,6 +91,8 @@ export async function readPublicationAdvertisementSelection(
     profileLanguage: language,
     profileDirections: directions,
     profileConfirmed: chat.review_status === 'confirmed',
+    publicationAllowed: publicationRule.allowed,
+    publicationReason: publicationRule.reason,
     items: rankPublicationAdvertisements(advertisementsResult.results as PublicationAdvertisementRow[], {
       platform: chat.platform,
       profileLanguage: language,
@@ -196,6 +217,15 @@ function parseList(value: string | null): string[] {
   try {
     const parsed: unknown = JSON.parse(value || '[]');
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseWeekdays(value: string | null): number[] {
+  try {
+    const parsed: unknown = JSON.parse(value || '[]');
+    return Array.isArray(parsed) ? [...new Set(parsed.filter((item): item is number => Number.isInteger(item) && item >= 1 && item <= 7))].sort((a, b) => a - b) : [];
   } catch {
     return [];
   }

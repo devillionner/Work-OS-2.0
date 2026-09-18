@@ -10,7 +10,7 @@ import { createActionGate } from '@/lib/action-gate';
 import { PROFILE_CADENCES, type ChatProfile, type ProfileCadence } from '@/lib/chats/profile';
 
 type ProfileChat = { id:string; name:string; link:string; platform:string; stateToken:string; profile:ChatProfile };
-type ChatProfileDialogProps = {open:boolean;chat:ProfileChat|null;onClose:()=>void;onSaved:(chatId:string,profile:ChatProfile)=>void;onOpenChat:()=>void};
+type ChatProfileDialogProps = {open:boolean;chat:ProfileChat|null;onClose:()=>void;onSaved:(chatId:string,profile:ChatProfile)=>void;onOpenChat:()=>void;finalFocus?:()=>HTMLElement|null};
 const cadenceNames:Record<string,string>={any:'Без обмежень',daily:'Раз на день',several_week:'Кілька разів на тиждень',weekly:'Раз на тиждень',monthly:'Раз на місяць',custom:'Власний інтервал'};
 const weekdays=['Пн','Вт','Ср','Чт','Пт','Сб','Нд'];
 
@@ -19,7 +19,7 @@ export function ChatProfileDialog(props:ChatProfileDialogProps) {
   return <ChatProfileDialogForm key={key} {...props}/>;
 }
 
-function ChatProfileDialogForm({open,chat,onClose,onSaved,onOpenChat}:ChatProfileDialogProps) {
+function ChatProfileDialogForm({open,chat,onClose,onSaved,onOpenChat,finalFocus}:ChatProfileDialogProps) {
   const [name,setName]=useState(chat?.name||''); const [language,setLanguage]=useState<'uk'|'ru'|''>(chat?.profile.language||''); const [cadence,setCadence]=useState<ProfileCadence>(chat?.profile.cadence||'any');
   const [weekdaysSelected,setWeekdaysSelected]=useState<number[]>(chat?.profile.weekdays||[]); const [customIntervalDays,setCustomIntervalDays]=useState(chat?.profile.customIntervalDays?String(chat.profile.customIntervalDays):''); const [nextAllowedOn,setNextAllowedOn]=useState(chat?.profile.nextAllowedOn||''); const [directions,setDirections]=useState(chat?.profile.directions.join('\n')||''); const [note,setNote]=useState(chat?.profile.note||''); const [reviewStatus,setReviewStatus]=useState<'draft'|'confirmed'>(chat?.profile.reviewStatus||'draft');
   const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const gate=useRef(createActionGate());
@@ -36,7 +36,7 @@ function ChatProfileDialogForm({open,chat,onClose,onSaved,onOpenChat}:ChatProfil
     });
   }
   return <Dialog open={open} onOpenChange={next=>{if(!next&&!busy)onClose();}}>
-    <DialogContent className="chat-profile-dialog" showCloseButton={false}>
+    <DialogContent className="chat-profile-dialog" showCloseButton={false} finalFocus={finalFocus}>
       <DialogHeader><DialogTitle>Профіль чату</DialogTitle><DialogDescription>Налаштуйте правила для ручної роботи та майбутнього підбору оголошень.</DialogDescription></DialogHeader>
       <Button className="chat-profile-close" variant="ghost" size="icon" aria-label="Закрити" disabled={busy} onClick={onClose}><X/></Button>
       {error&&<div className="workspace-error" role="alert">{error}</div>}

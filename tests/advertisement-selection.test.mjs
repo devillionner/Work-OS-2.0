@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { rankPublicationAdvertisements } from '../lib/chats/advertisement-selection.ts';
+import { rankPublicationAdvertisements, readPublicationAdvertisementSelection } from '../lib/chats/advertisement-selection.ts';
+import { localDatabase, seedChat } from './helpers/local-d1.mjs';
 
 const row = (id, { title = id, tags = [], platforms = [], uk = 'Текст', ru = '', updated = 1 } = {}) => ({
   id,
@@ -71,4 +72,33 @@ void test('selection queries and publication enforcement remain owner scoped', (
   assert.match(selection, /WHERE user_id=\?1 AND kind='advertisement' AND archived_at IS NULL/);
   assert.match(selection, /p\.user_id=\?1 AND c\.platform=\?2 AND p\.published_on=\?3/);
   assert.match(publication, /validatePublicationAdvertisementChoice\(db, \{ userId, chatId: chat\.id, advertisementId, date \}\)/);
+});
+
+
+void test('selection exposes confirmed profile cadence and weekday blocks before manual publish', async (t) => {
+  const db = await localDatabase(t);
+  await seedChat(db, { id: 'rules-chat', owner: 'u', platform: 'whatsapp', status: 'ready' });
+  await db.prepare(`INSERT INTO chat_profiles(chat_id,cadence,weekdays_json,custom_interval_days,next_allowed_on,directions_json,note,review_status,source,updated_at)
+    VALUES ('rules-chat','daily','[]',NULL,'2026-09-20','[]','','confirmed','manual',1)`).run();
+
+  const dateBlocked = await readPublicationAdvertisementSelection(db, { userId: 'u', chatId: 'rules-chat', date: '2026-09-18' });
+  assert.equal(dateBlocked?.publicationAllowed, false);
+  assert.match(dateBlocked?.publicationReason || '', /2026-09-20/);
+
+  await db.prepare(`UPDATE chat_profiles SET next_allowed_on=NULL,weekdays_json='[1]' WHERE chat_id='rules-chat'`).run();
+  const weekdayBlocked = await readPublicationAdvertisementSelection(db, { userId: 'u', chatId: 'rules-chat', date: '2026-09-18' });
+  assert.equal(weekdayBlocked?.publicationAllowed, false);
+  assert.match(weekdayBlocked?.publicationReason || '', /не дозволений день/);
+
+  await db.prepare(`UPDATE chat_profiles SET weekdays_json='[5]' WHERE chat_id='rules-chat'`).run();
+  const allowed = await readPublicationAdvertisementSelection(db, { userId: 'u', chatId: 'rules-chat', date: '2026-09-18' });
+  assert.equal(allowed?.publicationAllowed, true);
+  assert.equal(allowed?.publicationReason, null);
+});
+
+void test('manual publish dialog explains profile rule blocks and prevents confirmation', () => {
+  const source = readFileSync(join(process.cwd(), 'components', 'chat-publish-dialog.tsx'), 'utf8');
+  assert.match(source, /Публікація зараз недоступна:/);
+  assert.match(source, /disabled=\{busy\|\|!publicationRule\.allowed\}/);
+  assert.match(source, /publicationAllowed!==false/);
 });
