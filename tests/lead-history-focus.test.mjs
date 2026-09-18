@@ -11,3 +11,13 @@ void test('lead history dialog explicitly restores focus to its exact lead-level
   assert.match(dialog, /finalFocus\?: \(\) => HTMLElement \| null/);
   assert.doesNotMatch(dialog, /document\.querySelectorAll|leadHistoryTrigger/);
 });
+
+void test('lesson history dialog restores focus to the exact lesson History trigger', () => {
+  const dialog = readFileSync(new URL('../components/leads/lesson-history.tsx', import.meta.url), 'utf8');
+  const lessons = readFileSync(new URL('../components/leads/lessons.tsx', import.meta.url), 'utf8');
+  assert.match(lessons, /const historyTrigger = useRef<HTMLButtonElement \| null>\(null\);/);
+  assert.match(lessons, /historyTrigger\.current = event\.currentTarget;/);
+  assert.match(lessons, /finalFocus=\{\(\) => historyTrigger\.current\}/);
+  assert.match(dialog, /finalFocus\?: \(\) => HTMLElement \| null/);
+  assert.match(dialog, /finalFocus=\{finalFocus\}/);
+});

@@ -19,7 +19,7 @@ const eventNames: Record<string, string> = {
 
 type HistoryLesson = { id: string; leadId: string; subject: string; date: string };
 
-export function LessonHistoryDialog({ open, lesson, onClose }: { open: boolean; lesson: HistoryLesson | null; onClose: () => void }) {
+export function LessonHistoryDialog({ open, lesson, onClose, finalFocus }: { open: boolean; lesson: HistoryLesson | null; onClose: () => void; finalFocus?: () => HTMLElement | null }) {
   const [events, setEvents] = useState<LeadHistoryItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -41,7 +41,7 @@ export function LessonHistoryDialog({ open, lesson, onClose }: { open: boolean; 
     return () => { active = false; controller.abort(); };
   }, [lesson, open]);
 
-  return <Dialog open={open} onOpenChange={(next) => { if (!next && !busy) onClose(); }}><DialogContent className="lead-history-dialog" showCloseButton={!busy}><DialogHeader><DialogTitle>Історія уроку</DialogTitle><DialogDescription>{lesson ? `${lesson.subject} · ${formatDate(lesson.date)}` : ''}</DialogDescription></DialogHeader>{error && <p className="lead-error" role="alert">{error}</p>}{busy ? <output>Завантажуємо історію…</output> : events.length ? <ol className="lead-history-list">{events.map((event) => <li key={event.id}><div><strong>{eventNames[event.eventType] || event.eventType}</strong>{event.cancelledAt !== null && <span> · скасовано</span>}{typeof event.metadata.reason === 'string' && event.metadata.reason && <small> · {event.metadata.reason}</small>}</div><time dateTime={new Date(event.occurredAt * 1000).toISOString()}>{formatTime(event.occurredAt)}</time></li>)}</ol> : <p className="muted-note">Історія ще порожня.</p>}<div className="dialog-actions"><Button variant="outline" onClick={onClose} disabled={busy}>Закрити</Button></div></DialogContent></Dialog>;
+  return <Dialog open={open} onOpenChange={(next) => { if (!next && !busy) onClose(); }}><DialogContent className="lead-history-dialog" showCloseButton={!busy} finalFocus={finalFocus}><DialogHeader><DialogTitle>Історія уроку</DialogTitle><DialogDescription>{lesson ? `${lesson.subject} · ${formatDate(lesson.date)}` : ''}</DialogDescription></DialogHeader>{error && <p className="lead-error" role="alert">{error}</p>}{busy ? <output>Завантажуємо історію…</output> : events.length ? <ol className="lead-history-list">{events.map((event) => <li key={event.id}><div><strong>{eventNames[event.eventType] || event.eventType}</strong>{event.cancelledAt !== null && <span> · скасовано</span>}{typeof event.metadata.reason === 'string' && event.metadata.reason && <small> · {event.metadata.reason}</small>}</div><time dateTime={new Date(event.occurredAt * 1000).toISOString()}>{formatTime(event.occurredAt)}</time></li>)}</ol> : <p className="muted-note">Історія ще порожня.</p>}<div className="dialog-actions"><Button variant="outline" onClick={onClose} disabled={busy}>Закрити</Button></div></DialogContent></Dialog>;
 }
 
 function formatDate(value: string) { const [year, month, day] = value.split('-'); return `${day}.${month}.${year}`; }

@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { History as HistoryIcon } from 'lucide-react';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,7 @@ export function Lessons({
   const [submitRequest, setSubmitRequest] = useState(false);
   const [today] = useState(() => businessDate(Math.floor(Date.now() / 1000)));
   const [historyLesson, setHistoryLesson] = useState<{ id: string; leadId: string; subject: string; date: string } | null>(null);
+  const historyTrigger = useRef<HTMLButtonElement | null>(null);
   const archived = detail.lead.archivedAt !== null;
   const attendanceCount = detail.lessons.filter((lesson) => lesson.status === 'completed').length;
   return (
@@ -168,7 +169,10 @@ export function Lessons({
               )}
               <Button
                 variant="outline"
-                onClick={() => setHistoryLesson({ id: l.id, leadId: detail.lead.id, subject: l.subject, date: l.lessonDate })}
+                onClick={(event) => {
+                  historyTrigger.current = event.currentTarget;
+                  setHistoryLesson({ id: l.id, leadId: detail.lead.id, subject: l.subject, date: l.lessonDate });
+                }}
               >
                 <HistoryIcon data-icon="inline-start" />Історія
               </Button>
@@ -221,7 +225,7 @@ export function Lessons({
           </SaveForm>
         </EditDialog>
       )}
-      <LessonHistoryDialog open={historyLesson !== null} lesson={historyLesson} onClose={() => setHistoryLesson(null)} />
+      <LessonHistoryDialog open={historyLesson !== null} lesson={historyLesson} onClose={() => setHistoryLesson(null)} finalFocus={() => historyTrigger.current} />
     </section>
   );
 }
