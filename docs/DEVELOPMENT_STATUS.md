@@ -1,7 +1,15 @@
-# Development status — 2026-09-11
+# Development status — 2026-09-18
 
 Canonical product scope: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
 Next work and acceptance gates: [ROADMAP](ROADMAP.md).
+
+## 2026-09-18 repository and P4 reconciliation
+
+- GitHub staging Deployments/Environment from the retired Actions deploy path were removed after exporting local metadata; Cloudflare Workers Builds remains the only staging verify/deploy gate. Historical GitHub Actions run metadata was exported locally before cleanup.
+- Repository branch noise was removed; main is the canonical remote branch. A local git bundle preserves the pre-cleanup branch refs for recovery if ever needed.
+- REPORT-09, REPORT-21 and REPORT-22 were re-verified against current code with 14/14 focused tests: frozen workday plan, versioned goal history, and explicit report fact/manual-correction/result/source drill-down. PRODUCT_REQUIREMENTS now reflects that evidence.
+- Current staging/application release remains v0.2.5; the restored update screen and current main passed Cloudflare verify/deploy.
+
 
 ## Current working policy
 

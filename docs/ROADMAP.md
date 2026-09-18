@@ -1,6 +1,6 @@
 # Work OS 2.0 — поетапний roadmap
 
-Оновлено: 2026-09-16. Обсяг і статус кожної вимоги — у [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md). Етап завершується за доказами приймання, а не за наявністю екрана. Працюємо напряму в `main` невеликими комітами. Для staging діє Cloudflare Workers Builds: кожен новий push у `main` проходить `npm run verify`, staging-only guard і автоматичний deploy у `work-os-2-staging`. Production лишається окремою явною операцією й не оновлюється цим pipeline. AI й автопостинг не випереджають ручну роботу.
+Оновлено: 2026-09-18. Обсяг і статус кожної вимоги — у [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md). Етап завершується за доказами приймання, а не за наявністю екрана. Працюємо напряму в `main` невеликими комітами. Для staging діє Cloudflare Workers Builds: кожен новий push у `main` проходить `npm run verify`, staging-only guard і автоматичний deploy у `work-os-2-staging`. Production лишається окремою явною операцією й не оновлюється цим pipeline. AI й автопостинг не випереджають ручну роботу.
 
 | Етап | Обсяг | Критерії готовності | Стан |
 | --- | --- | --- | --- |
@@ -25,17 +25,17 @@ Source snapshot перед цією синхронізацією докумен�
 - Leads writes мають idempotent command body + session journal для невизначеного network outcome: повторна доставка використовує той самий `commandId`, journal переживає reload і очищається лише після definitive response. Stale version повертає 409 `Запис уже змінено. Оновіть картку.`; клієнт перечитує картку і не переграє стару мутацію автоматично. Це покрито regression tests; окремий live offline/reconnect drill лишається acceptance evidence, а не причина змінювати безпечну семантику.
 - Backup preview перевіряє schema/counts/ownership/FK та контрольну суму до apply. Restore є missing-only: не видаляє й не перезаписує наявні записи, відхиляє tampered chunk та collision іншого owner, і перед apply вимагає свіжу контрольну копію та окреме підтвердження. Це покрито Miniflare tests; live restore на staging навмисно не запускався без окремої потреби, бо він змінює дані.
 - GitHub `main` підключено до Cloudflare Workers Builds для `work-os-2-staging`. Build command: `npm run verify`; deploy command: `npm run deploy:staging`. Guard читає `dist/server/wrangler.json` і відмовляється deploy-ити, якщо Worker не `work-os-2-staging`, D1 не `work-os-2-staging-db` або `CLOUDFLARE_ENV=production`. Remote migrations не запускаються цим pipeline. Старий дублюючий GitHub Actions verify видалено, бо він не отримував runner і створював постійний червоний noise без додаткового захисту.
-- User-facing release metadata зберігається в `lib/app-meta.ts`; кнопка версії в нижній частині навігації та діалог `Що змінилося` повинні оновлюватися разом із релізом. Поточний user-facing release: `v0.2.3`, дата 2026-09-16.
+- User-facing release metadata зберігається в `lib/app-meta.ts`; кнопка версії в нижній частині навігації та діалог `Що змінилося` повинні оновлюватися разом із релізом. Поточний user-facing release: `v0.2.5`, дата 2026-09-17.
 - Recorded performance matrix покриває 10k chats/profiles/library/leads + 100k events, query/rows/payload/EXPLAIN, staging API p95 і UI action latency; деталі — у `P4_PERFORMANCE.md`. Не повторювати повний performance прогін без зміни query shape/індексів або нового regression.
 - Keyboard/a11y walkthrough не підтвердив потребу перетворювати Leads filters на tabs: це toggle-buttons у `fieldset` з `aria-pressed`, а не tablist. Focus-return після lead History dialog browser automation не змогла виміряти достовірно, тому цей сигнал лишається unconfirmed і код навмання не змінювався.
-- Реальні gaps не маскуються: automatic real chat names, CRM media, structured report manual-diff/source drill-down, PAY, knowledge base, offline/outbox, final migration parity.
+- Реальні gaps не маскуються: automatic real chat names, CRM media, PAY, knowledge base, offline/outbox, physical Safari/cross-device acceptance та final migration parity.
 
 ## Найближчий активний етап
 
 1. Провести **cross-device acceptance** на двох реальних клієнтах: телефон ↔ ПК для workday/timers/Leads/Platforms та хоча б однієї зміни Reports/Settings. Перевірити latency, stale conflict і відсутність розбіжності після повторного focus/reload.
 2. Провести окремий **physical iPhone/Safari** acceptance: safe areas, touch, virtual keyboard, deep links, dialogs, sticky controls, responsive composition та auto-update UX. Chromium mobile не зараховувати як доказ Safari.
 3. Дозакрити live accessibility/reliability evidence, яке не можна чесно замінити contract tests: exact focus-return для dialog, offline/reconnect walkthrough та injected update-failure recovery. 409/idempotency, reopen/reload і backup/restore safety вже мають code/test evidence; restore-drill не запускати лише заради галочки, якщо для цього треба змінювати staging data.
-4. Синхронізувати статуси PRODUCT_REQUIREMENTS лише з фактичними доказами та сформувати parity gap list перед P5.
+4. Продовжувати синхронізувати PRODUCT_REQUIREMENTS лише з фактичними доказами; REPORT-09/21/22 звірені 2026-09-18 по code/test evidence. Сформувати фінальний parity gap list перед P5.
 5. Не брати без окремого рішення: automatic real chat-name fetching, CRM media storage, PAY, offline outbox/PWA promises, AI/autoposting та final production cutover.
 
 ## Gate кожного коміту й push
