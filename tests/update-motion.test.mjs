@@ -11,8 +11,7 @@ void test('automatic update screen uses one coherent motion rhythm', () => {
   assert.match(source, /const UPDATE_STEP_HOLD_MS = 1_150/);
   assert.match(source, /const UPDATE_FINISH_HOLD_MS = 1_900/);
   assert.match(source, /const UPDATE_EXIT_MS = 620/);
-  assert.match(source, /performance\.now\(\)/);
-  assert.match(source, /wait\(UPDATE_STEP_HOLD_MS\)/);
+  assert.match(source, /window\.setTimeout\(resolve, UPDATE_STEP_HOLD_MS\)/);
   assert.match(source, /app-update-status-mark/);
   assert.match(source, /app-update-status-brand/);
   assert.match(source, /app-update-status-check/);
