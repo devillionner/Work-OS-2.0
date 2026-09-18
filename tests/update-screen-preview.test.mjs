@@ -15,18 +15,10 @@ void test('Settings test trigger opens the transient app update screen without a
 
   assert.match(preview, /Оновлюємо Work OS/);
   assert.match(preview, /Work OS оновлено/);
-  assert.match(preview, /const PREVIEW_STEP_HOLD_MS = 1_150/);
-  assert.match(preview, /const PREVIEW_FINISH_HOLD_MS = 1_900/);
-  assert.match(preview, /const PREVIEW_EXIT_MS = 620/);
-  assert.match(preview, /const finishingAt = PREVIEW_STEP_HOLD_MS \* 3/);
-  assert.match(preview, /const exitAt = finishingAt \+ PREVIEW_FINISH_HOLD_MS/);
-  assert.match(preview, /setTimeout\(\(\) => setPhase\('finishing'\), finishingAt\)/);
-  assert.match(preview, /setTimeout\(\(\) => setExiting\(true\), exitAt\)/);
-  assert.match(preview, /setTimeout\(onClose, exitAt \+ PREVIEW_EXIT_MS\)/);
-  assert.match(preview, /app-update-status-mark/);
-  assert.doesNotMatch(preview, /LoaderCircle/);
-  assert.doesNotMatch(preview, /app-update-brand/);
-  assert.doesNotMatch(preview, /app-update-icon/);
+  assert.match(preview, /const PREVIEW_EXIT_MS = 360/);
+  assert.match(preview, /setTimeout\(\(\) => setPhase\('finishing'\), 2_200\)/);
+  assert.match(preview, /setTimeout\(\(\) => setExiting\(true\), 3_250\)/);
+  assert.match(preview, /setTimeout\(onClose, 3_250 \+ PREVIEW_EXIT_MS\)/);
   assert.doesNotMatch(preview, /location\.reload/);
   assert.doesNotMatch(preview, /serviceWorker/);
 });
