@@ -1,4 +1,5 @@
 'use client';
+/* oxlint-disable jsx-a11y/prefer-tag-over-role -- custom progress track preserves the Work OS update animation. */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, RefreshCw } from 'lucide-react';
