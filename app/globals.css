@@ -811,6 +811,22 @@ button:not([data-slot="button"]) { color: inherit; }
 .chat-history-list li:first-child { padding-top:0; }
 .chat-history-list time { flex-shrink:0; color:var(--muted-foreground); font-size:12px; }
 .chat-history-material { color:var(--primary); font-weight:600; }
+.chat-result-panel { display:grid; gap:12px; padding:14px; border:1px solid var(--border); border-radius:14px; background:#f8f9fc; }
+.chat-result-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.chat-result-head > div:first-child { display:grid; gap:3px; }
+.chat-result-head small { color:var(--muted-foreground); font-size:12px; }
+.chat-result-periods { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
+.chat-result-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+.chat-result-metrics button { display:grid; gap:4px; min-width:0; padding:10px; border:1px solid var(--border); border-radius:10px; background:var(--card); text-align:left; }
+.chat-result-metrics button[aria-pressed="true"] { border-color:var(--primary); box-shadow:0 0 0 1px var(--primary); }
+.chat-result-metrics span,.chat-result-rates span { color:var(--muted-foreground); font-size:11px; }
+.chat-result-metrics strong { font-size:20px; }
+.chat-result-rates { display:flex; flex-wrap:wrap; gap:8px 16px; }
+.chat-result-rates strong { color:var(--foreground); }
+.chat-result-events { display:grid; gap:0; margin:0; padding:10px 0 0; border-top:1px solid var(--border); list-style:none; }
+.chat-result-events li { display:flex; justify-content:space-between; gap:12px; padding:8px 0; }
+.chat-result-events time { flex-shrink:0; color:var(--muted-foreground); font-size:11px; }
+@media (max-width:560px) { .chat-result-head { flex-direction:column; } .chat-result-periods { width:100%; justify-content:flex-start; } .chat-result-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 .chat-publish-dialog[data-slot="dialog-content"] { display:flex; flex-direction:column; width:min(680px,calc(100vw - 24px)); max-width:680px; max-height:90dvh; overflow-y:auto; gap:16px; padding:24px; background:var(--card); color:var(--foreground); box-shadow:0 24px 70px rgb(25 31 48 / .18); }
 .chat-publish-dialog > * { flex-shrink:0; }
 .chat-publish-dialog [data-slot="dialog-header"] { padding-right:36px; }

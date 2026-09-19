@@ -11,6 +11,7 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 - Current staging/application release remains v0.2.5; the restored update screen and current main passed Cloudflare verify/deploy.
 - P4 parity reconciliation confirms PUB-04, PROFILE-12, AD-06/07/09, LEAD-24, ANALYTICS-22, SCRIPT-04 and KNOW-01/02 against current UI/domain code. A dedicated contract test protects those surfaces from documentation drift.
 - History dialogs now return keyboard focus to the exact trigger that opened them across lead, lesson, chat, Library and Reports flows; focused regression coverage guards the controlled-dialog focus contract.
+- Chat details now include owner-scoped 7/30/all-time result analytics with publications, responses, bookings, completed lessons, conversion rates and metric-to-event drill-down; source-chat attribution follows lead outcomes without rewriting historical data.
 
 
 ## Current working policy
