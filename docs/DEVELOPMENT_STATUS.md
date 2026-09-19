@@ -1,4 +1,4 @@
-# Development status — 2026-09-18
+# Development status — 2026-09-20
 
 Canonical product scope: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
 Next work and acceptance gates: [ROADMAP](ROADMAP.md).
@@ -40,10 +40,16 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 
 ## Current iteration: manual bulk chat addition
 
-- Added an authenticated same-origin API and a posting-workspace dialog for up to
-  500 mixed Telegram/WhatsApp/Viber/Facebook links. Preview identifies new,
+- The dialog now accepts one pasted list of up to 10,000 mixed links and splits
+  preview/save work into bounded batches of at most 500 and 200 KB. The existing
+  authenticated same-origin API remains capped at 500 per atomic request. Preview identifies new,
   existing, archived, repeated and invalid rows, with platform counts. Users can
   rename new chats, remove rows and return to the edited list before saving.
+- Cross-batch duplicate detection happens before save. Every batch is previewed
+  again against the latest workspace revision, saved with its own idempotency key,
+  and contributes to visible total/completed/skipped/batch progress. A lost or
+  malformed response retains the exact request for a safe retry; confirmed batches
+  are never replayed, and later conflicts do not corrupt earlier atomic batches.
 - The server rechecks ownership, normalized legacy URLs and the preview revision.
   All new rows and one audit receipt commit together. Concurrent writes, failed
   receipts and an unknown transport outcome cannot create a partial batch or
@@ -55,7 +61,7 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   A larger matching database is refused with a clear message. Canonical indexed
   keys/backfill remain P4 work. Local 10k preview measured 169 ms alone / 336 ms
   during the parallel suite; these are observations, not a production p95 claim.
-- Browser QA used the real dialog and handler with an in-memory local D1 harness:
+- Browser QA for the original <=500 path used the real dialog and handler with an in-memory local D1 harness:
   mixed preview, archive/duplicate/invalid counts, edited name, row removal,
   lost response after commit, close/reopen/retry, success and a 500-row save.
   Desktop 1280×720 and narrow 390×844 layouts checked. Fixed a transparent popup
@@ -66,10 +72,11 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
   soon as the requested list changes. Full integration acceptance remains open.
 - No remote name lookup, CSV import, existing-chat name editor or migration added.
   Prototype was read only as a parser reference; no remote D1 work or deploy.
-- `npm run verify` passed: lint, 87/87 local tests and build, including 11 bulk-add,
-  3 profile-editor, 2 history, 2 publication-attribution and 1 available-links
-  regression. Linux CI is
-  checked after push. No production deployment.
+- `npm run verify` passed on 2026-09-20: lint, 355/355 local tests and production
+  build. Bulk coverage includes 1,203-row client chunking, cross-batch duplicates,
+  10,000-row bounded preview, atomic 500-row saves and identical retry after an
+  unknown transport result. Live staging QA for the >500 dialog remains required
+  before this increment is accepted. No production deployment.
 
 ## Chat history surface
 

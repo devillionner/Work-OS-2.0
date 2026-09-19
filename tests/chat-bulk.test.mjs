@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { localDatabase, seedChat } from './helpers/local-d1.mjs';
-import { cleanChatName, normalizeGroupLink, parseBulkText } from '../lib/chats/bulk-input.ts';
+import { cleanChatName, normalizeGroupLink, parseBulkImportText, parseBulkText } from '../lib/chats/bulk-input.ts';
 import { addBulkChats, previewBulkChats } from '../lib/chats/bulk.ts';
 import { handleBulkChats } from '../lib/chats/bulk-http.ts';
 import { activitySummaryStatement } from '../lib/activity-summary.ts';
+import { markCrossBatchDuplicates, mergeBulkResults, splitBulkBatches } from '../lib/chats/bulk-client.ts';
 
 const NOW=Date.parse('2026-09-11T08:00:00Z')/1000;
 const item=(link,name='')=>({link,name});
@@ -33,6 +34,30 @@ void test('unsupported domains, contacts, credentials and malformed URLs stay in
   for(const link of ['javascript://t.me/hello','https://t.me.evil.test/hello','https://evil.test/t.me/hello','https://u:p@t.me/hello','https://t.me:123/hello','https://t.me/%ZZ','https://t.me/share?url=x','https://wa.me/12345','https://facebook.com/login','https://invite.viber.com','https://chats.viber.com/%00bad']) assert.equal(normalizeGroupLink(link),null,link);
   assert.throws(()=>parseBulkText('x'.repeat(100001)),/завеликий/);
   assert.throws(()=>parseBulkText(Array.from({length:501},(_,i)=>`https://t.me/group_${i}`).join('\n')),/500/);
+});
+
+void test('large client import parses once, chunks bounded payloads and preserves every row',()=>{
+  const input=Array.from({length:1203},(_,i)=>`Group ${i} https://t.me/large_group_${i}`).join('\n');
+  const rows=parseBulkImportText(input);
+  const batches=splitBulkBatches(rows);
+  assert.equal(rows.length,1203);
+  assert.deepEqual(batches.map(batch=>batch.length),[500,500,203]);
+  assert.equal(batches.flat().length,rows.length);
+  for(const batch of batches) {
+    assert.ok(batch.length<=500);
+    assert.ok(new TextEncoder().encode(JSON.stringify({action:'preview',items:batch})).byteLength<=200000);
+  }
+  assert.throws(()=>parseBulkImportText(Array.from({length:10001},(_,i)=>`https://t.me/too_many_${i}`).join('\n')),/10 000/);
+});
+
+void test('cross-batch duplicates and aggregate progress remain explicit',()=>{
+  const items=[
+    {index:0,link:'https://t.me/group_one',name:'One',platform:'telegram',status:'new'},
+    {index:500,link:'https://telegram.me/GROUP_ONE?utm_source=x',name:'Again',platform:'telegram',status:'new'},
+    {index:501,link:'broken',name:'',platform:null,status:'invalid'},
+  ];
+  assert.deepEqual(markCrossBatchDuplicates(items).map(item=>item.status),['new','duplicate','invalid']);
+  assert.deepEqual(mergeBulkResults([{added:500,counts:{telegram:500}},{added:2,counts:{telegram:1,whatsapp:1}}]),{added:502,counts:{telegram:501,whatsapp:1}});
 });
 
 void test('preview is read-only, detects legacy active/archive aliases and isolates the owner',async t=>{

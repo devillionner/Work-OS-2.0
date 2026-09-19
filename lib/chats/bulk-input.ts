@@ -1,5 +1,7 @@
 export const BULK_MAX_ITEMS = 500;
 export const BULK_MAX_TEXT = 100_000;
+export const BULK_IMPORT_MAX_ITEMS = 10_000;
+export const BULK_IMPORT_MAX_TEXT = 2_000_000;
 export type ChatPlatform = 'telegram' | 'whatsapp' | 'viber' | 'facebook';
 export const CHAT_PLATFORM_NAMES: Record<ChatPlatform,string> = {telegram:'Telegram',whatsapp:'WhatsApp',viber:'Viber',facebook:'Facebook'};
 export type BulkInput = { link: string; name: string };
@@ -64,14 +66,22 @@ export function suggestedChatName(chat: ChatLink): string {
 }
 
 export function parseBulkText(text: string): BulkInput[] {
-  if(text.length>BULK_MAX_TEXT) throw new BulkChatError('Список завеликий. Розділіть його на частини.');
+  return parseBulkTextWithin(text,BULK_MAX_TEXT,BULK_MAX_ITEMS,`За раз можна додати до ${BULK_MAX_ITEMS} посилань. Розділіть список.`);
+}
+
+export function parseBulkImportText(text: string): BulkInput[] {
+  return parseBulkTextWithin(text,BULK_IMPORT_MAX_TEXT,BULK_IMPORT_MAX_ITEMS,'За один імпорт можна обробити до 10 000 посилань.');
+}
+
+function parseBulkTextWithin(text:string,maxText:number,maxItems:number,itemError:string):BulkInput[] {
+  if(text.length>maxText) throw new BulkChatError('Список завеликий. Скоротіть його або імпортуйте окремими списками.');
   const rows: BulkInput[]=[];
   for(const line of text.replace(/[,;](?=(?:https?:\/\/|www\.))/gi,' ').split(/\r?\n/).map(s=>s.trim()).filter(Boolean)) {
     const matches=[...line.matchAll(/(?:[a-z][a-z\d+.-]*:\/\/|www\.|(?:t\.me|telegram\.me|telegram\.dog|chat\.whatsapp\.com|invite\.viber\.com|chats\.viber\.com|vb\.me|(?:m\.|mobile\.)?facebook\.com|fb\.com)\/)[^\s<>"']+/gi)];
     const name=matches.length===1?cleanChatName(line.replace(matches[0][0],' ').replace(/^\s*(?:\d+[.)]|[-–—•])\s*/,'')).replace(/^[\s|:;,[\]()]+|[\s|:;,[\]()]+$/g,''):'';
     if(matches.length) for(const match of matches) rows.push({link:match[0],name});
     else rows.push({link:line.slice(0,2048),name:''});
-    if(rows.length>BULK_MAX_ITEMS) throw new BulkChatError(`За раз можна додати до ${BULK_MAX_ITEMS} посилань. Розділіть список.`);
+    if(rows.length>maxItems) throw new BulkChatError(itemError);
   }
   if(!rows.length) throw new BulkChatError('Вставте посилання на чати.');
   return rows;
