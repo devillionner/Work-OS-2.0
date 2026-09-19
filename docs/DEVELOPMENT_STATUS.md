@@ -75,8 +75,10 @@ Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 - `npm run verify` passed on 2026-09-20: lint, 355/355 local tests and production
   build. Bulk coverage includes 1,203-row client chunking, cross-batch duplicates,
   10,000-row bounded preview, atomic 500-row saves and identical retry after an
-  unknown transport result. Live staging QA for the >500 dialog remains required
-  before this increment is accepted. No production deployment.
+  unknown transport result. Authenticated staging QA on build `3ece5e4` previewed
+  501 synthetic unique links as two server batches and showed all 501 as new;
+  the save action was deliberately not run, so staging data was unchanged. Safari/
+  iPhone acceptance remains open. No production deployment.
 
 ## Chat history surface
 
