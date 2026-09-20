@@ -530,6 +530,7 @@ button:not([data-slot="button"]) { color: inherit; }
 .reports-editor-actions { display: flex; align-items: center; gap: 8px; }
 .reports-editor-card textarea { width: 100%; resize: vertical; }
 .reports-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.reports-editor-meta { min-width:0; display:grid; gap:3px; }
 .reports-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; border: 1px solid #b7ebc6; border-radius: 10px; background: #effcf2; color: #087443; font-size: 12px; }
 .report-summary { display: grid; gap: 8px; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); }
 .report-summary > p { margin-bottom: 0; }
