@@ -3,6 +3,13 @@
 Canonical product scope: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
 Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 
+## 2026-09-20 CRM and analytics parity reconciliation
+
+- Staging `7b67820` is live and the report reconstruction path now also carries canonical lesson subject, teacher and lesson date into booking detail lines.
+- Lead parity review closed the contact-not-studying rule, response cancel/restore, and Today responses/bookings presentation. Domain tests protect the `isStudent=0` booking restriction and response event cancellation semantics; read-only staging smoke confirmed the Today counters/lists and cancel-response action.
+- Analytics read-only staging smoke confirmed the four top metrics, full five-step activity funnel, per-platform counts/conversions, separate acquisition cohort, original-source chat attribution note, explainable recommendation and day/week/month/year/custom controls.
+- ANALYTICS-01/04/05/16/19 and LEAD-17/39/40/41/42 are promoted to ready from current code, tests and staging evidence. No staging data was mutated for these checks.
+
 ## 2026-09-20 historical report reconstruction
 
 - `bbdaf24` adds deterministic report draft reconstruction from activity events for any selected historical date

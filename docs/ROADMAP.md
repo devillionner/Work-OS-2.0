@@ -14,6 +14,8 @@
 
 ## Поточний стан P4 — 2026-09-20
 
+- CRM/Analytics parity reconciliation on live staging closed LEAD-17/39/40/41/42 and ANALYTICS-01/04/05/16/19. Remaining Analytics gaps are now the real ones: goals/plan-fact UX, event drill-down/definitions, richer attendance breakdown, ranking filters and publication-level attribution.
+
 - Historical report reconstruction is now closed: `bbdaf24` builds an unsaved past-day draft from canonical events while preserving any existing saved report; read-only staging acceptance passed. REPORT-01/02/04/12/13/15 are now ready.
 
 - Reports calendar acceptance now includes explicit status filters and separate final-submission time; `9d79737` is green on canonical staging and passed a read-only browser smoke. REPORT-06/20 are now closed; physical iPhone/Safari remains separate acceptance.
