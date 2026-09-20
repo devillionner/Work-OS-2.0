@@ -1,3 +1,4 @@
+import { canonicalDirections, focusDirectionForTag, sameDirections } from '../directions.ts';
 import { profilePublicationRule, PROFILE_CADENCES, type ProfileCadence } from './profile.ts';
 
 export type PublicationAdvertisementRow = {
@@ -27,6 +28,18 @@ export type PublicationAdvertisement = {
   note: string | null;
 };
 
+export type PublicationFocusPlan = {
+  currentDirections: string[];
+  planDirections: string[];
+  planCreatedAt: number;
+  currentFocusUpdatedAt: number;
+  stale: boolean;
+  addedDirections: string[];
+  removedDirections: string[];
+  source: 'workday' | 'current-focus';
+  workday: { id: string; workDate: string; version: number } | null;
+};
+
 export type PublicationAdvertisementSelection = {
   platform: string;
   profileLanguage: 'uk' | 'ru' | null;
@@ -34,6 +47,7 @@ export type PublicationAdvertisementSelection = {
   profileConfirmed: boolean;
   publicationAllowed: boolean;
   publicationReason: string | null;
+  focusPlan: PublicationFocusPlan;
   items: PublicationAdvertisement[];
 };
 
@@ -48,6 +62,14 @@ type SelectionChatRow = {
   next_allowed_on: string | null;
 };
 
+type FocusSettingRow = { value_json: string; updated_at: number };
+type WorkdayFocusRow = {
+  id: string;
+  work_date: string;
+  status: string;
+  version: number;
+  plan_json: string | null;
+};
 type RankedAdvertisement = PublicationAdvertisement & { updatedAt: number };
 
 export async function readPublicationAdvertisementSelection(
@@ -59,7 +81,7 @@ export async function readPublicationAdvertisementSelection(
     WHERE c.id=?1 AND c.user_id=?2 AND c.workflow_status='ready' LIMIT 1`).bind(input.chatId, input.userId).first<SelectionChatRow>();
   if (!chat) return null;
 
-  const [advertisementsResult, usedResult] = await db.batch([
+  const [advertisementsResult, usedResult, focusResult, workdayResult] = await db.batch([
     db.prepare(`SELECT id,title,uk_text,ru_text,notes,tags_json,platforms_json,updated_at
       FROM library_items
       WHERE user_id=?1 AND kind='advertisement' AND archived_at IS NULL
@@ -68,10 +90,31 @@ export async function readPublicationAdvertisementSelection(
       FROM chat_publications p JOIN chats c ON c.id=p.chat_id AND c.user_id=p.user_id
       WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 AND p.advertisement_id IS NOT NULL`)
       .bind(input.userId, chat.platform, input.date),
+    db.prepare(`SELECT value_json,updated_at FROM user_settings
+      WHERE user_id=?1 AND setting_key='focus_directions' LIMIT 1`).bind(input.userId),
+    db.prepare(`SELECT w.id,w.work_date,w.status,w.version,p.value_json AS plan_json
+      FROM workdays w
+      LEFT JOIN user_settings p ON p.user_id=w.user_id AND p.setting_key=('workday_plan:' || w.id)
+      WHERE w.user_id=?1 AND (w.status!='ended' OR w.work_date=?2)
+      ORDER BY CASE WHEN w.status!='ended' THEN 0 ELSE 1 END,w.started_at DESC LIMIT 1`)
+      .bind(input.userId, input.date),
   ]);
 
   const language = chat.language === 'uk' || chat.language === 'ru' ? chat.language : null;
-  const directions = parseList(chat.directions_json);
+  const directions = canonicalDirections(parseList(chat.directions_json));
+  const focusRow = (focusResult.results as FocusSettingRow[])[0] || null;
+  const workdayRow = (workdayResult.results as WorkdayFocusRow[])[0] || null;
+  const focusPlan = projectPublicationFocusPlan(
+    canonicalDirections(parseList(focusRow?.value_json || '[]')),
+    Number(focusRow?.updated_at || 0),
+    workdayRow ? {
+      id: workdayRow.id,
+      workDate: workdayRow.work_date,
+      version: Number(workdayRow.version || 0),
+      open: workdayRow.status !== 'ended',
+      plan: readWorkdayFocusPlan(workdayRow.plan_json),
+    } : null,
+  );
   const cadence = typeof chat.cadence === 'string' && PROFILE_CADENCES.includes(chat.cadence as ProfileCadence)
     ? chat.cadence as ProfileCadence : 'any';
   const customIntervalDays = Number.isInteger(Number(chat.custom_interval_days)) && Number(chat.custom_interval_days) > 0
@@ -93,11 +136,13 @@ export async function readPublicationAdvertisementSelection(
     profileConfirmed: chat.review_status === 'confirmed',
     publicationAllowed: publicationRule.allowed,
     publicationReason: publicationRule.reason,
+    focusPlan,
     items: rankPublicationAdvertisements(advertisementsResult.results as PublicationAdvertisementRow[], {
       platform: chat.platform,
       profileLanguage: language,
       profileDirections: directions,
       profileConfirmed: chat.review_status === 'confirmed',
+      focusDirections: focusPlan.planDirections,
       usedToday,
     }),
   };
@@ -110,15 +155,22 @@ export function rankPublicationAdvertisements(
     profileLanguage: 'uk' | 'ru' | null;
     profileDirections: string[];
     profileConfirmed: boolean;
+    focusDirections?: string[];
     usedToday: ReadonlySet<string>;
   },
 ): PublicationAdvertisement[] {
-  const directions = input.profileConfirmed ? input.profileDirections.map(normalize).filter(Boolean) : [];
+  const directions = input.profileConfirmed ? canonicalDirections(input.profileDirections).map(normalize).filter(Boolean) : [];
+  const focusDirections = new Set(canonicalDirections(input.focusDirections || []).map(normalize));
   const candidates = rows.flatMap((row) => {
     const platforms = parseList(row.platforms_json);
     if (platforms.length && !platforms.some((value) => normalize(value) === normalize(input.platform))) return [];
     const tags = parseList(row.tags_json);
     const normalizedTags = tags.map(normalize).filter(Boolean);
+    const taggedFocusDirections = canonicalDirections(tags.flatMap((tag) => {
+      const matched = focusDirectionForTag(tag);
+      return matched ? [matched] : [];
+    }));
+    if (focusDirections.size && taggedFocusDirections.length && !taggedFocusDirections.some((value) => focusDirections.has(normalize(value)))) return [];
     const directionMatch: PublicationAdvertisement['directionMatch'] = !directions.length
       ? 'generic'
       : !normalizedTags.length
@@ -201,6 +253,54 @@ export async function validatePublicationAdvertisementChoice(
   if (!item) return { ok: false, error: 'Це оголошення недоступне для цієї платформи або вже заархівоване.' };
   if (!item.selectable) return { ok: false, error: item.note || 'Оберіть інше оголошення.' };
   return { ok: true };
+}
+
+export function projectPublicationFocusPlan(
+  currentDirections: string[],
+  currentFocusUpdatedAt: number,
+  workday: {
+    id: string;
+    workDate: string;
+    version: number;
+    open: boolean;
+    plan: { focusDirections: string[]; createdAt: number } | null;
+  } | null,
+): PublicationFocusPlan {
+  const current = canonicalDirections(currentDirections);
+  const plan = workday?.plan ? canonicalDirections(workday.plan.focusDirections) : current;
+  const planCreatedAt = workday?.plan?.createdAt || currentFocusUpdatedAt;
+  const currentSet = new Set(current.map(normalize));
+  const planSet = new Set(plan.map(normalize));
+  const stale = Boolean(workday?.plan) && !sameDirections(current, plan);
+  return {
+    currentDirections: current,
+    planDirections: plan,
+    planCreatedAt,
+    currentFocusUpdatedAt,
+    stale,
+    addedDirections: current.filter((item) => !planSet.has(normalize(item))),
+    removedDirections: plan.filter((item) => !currentSet.has(normalize(item))),
+    source: workday?.plan ? 'workday' : 'current-focus',
+    workday: stale && workday?.open
+      ? { id: workday.id, workDate: workday.workDate, version: workday.version }
+      : null,
+  };
+}
+
+function readWorkdayFocusPlan(value: string | null): { focusDirections: string[]; createdAt: number } | null {
+  if (!value) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    if (!Array.isArray(record.focusDirections) || !Number.isSafeInteger(record.createdAt) || Number(record.createdAt) < 0) return null;
+    return {
+      focusDirections: record.focusDirections.filter((item): item is string => typeof item === 'string'),
+      createdAt: Number(record.createdAt),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function chooseLanguage(row: Pick<PublicationAdvertisementRow, 'uk_text' | 'ru_text'>, preferred: 'uk' | 'ru' | null) {

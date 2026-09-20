@@ -8,6 +8,7 @@ import {
   pauseWorkday,
   readWorkdaySnapshot,
   reopenWorkday,
+  refreshWorkdayPlanFocus,
   resetWorkday,
   resumeWorkday,
   startWorkday,
@@ -63,6 +64,13 @@ export async function POST(request: Request): Promise<Response> {
     const expectedVersion = integer(body.expectedVersion);
     if (!id || !workDate || expectedVersion < 0) return bad('Некоректний стан робочого дня.');
     const args = { userId: user.id, id, workDate, expectedVersion, now };
+    if (action === 'refresh-plan') {
+      if (workDate !== today) throw new WorkdayError('Оновити фокус можна лише для сьогоднішнього відкритого дня.');
+      const dashboard = await readDashboardSnapshot(env.DB, user.id, now);
+      return Response.json({
+        workday: await refreshWorkdayPlanFocus(env.DB, { ...args, focusDirections: dashboard.focusDirections }),
+      });
+    }
     if (action === 'pause') return Response.json({ workday: await pauseWorkday(env.DB, args) });
     if (action === 'resume') return Response.json({ workday: await resumeWorkday(env.DB, args) });
     if (action === 'reopen') return Response.json({ workday: await reopenWorkday(env.DB, args) });

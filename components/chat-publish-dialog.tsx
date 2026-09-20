@@ -15,7 +15,8 @@ type AdvertisementItem = {
   suggestedLanguage:'uk'|'ru'|null; usedToday:boolean; selectable:boolean; recommended:boolean;
   directionMatch:'matched'|'generic'|'other'; note:string|null;
 };
-type SelectionPayload = { items:AdvertisementItem[]; publicationAllowed:boolean; publicationReason:string|null; error?:string };
+type FocusPlan = { currentDirections:string[]; planDirections:string[]; planCreatedAt:number; currentFocusUpdatedAt:number; stale:boolean; addedDirections:string[]; removedDirections:string[]; source:'workday'|'current-focus'; workday:{id:string;workDate:string;version:number}|null };
+type SelectionPayload = { items:AdvertisementItem[]; publicationAllowed:boolean; publicationReason:string|null; focusPlan:FocusPlan; error?:string };
 
 export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,finalFocus}:{open:boolean;chat:PublishChat|null;onClose:()=>void;onPublished:(details:PublicationDetails)=>Promise<boolean>;onOpenChat:()=>void;finalFocus?:()=>HTMLElement|null}) {
   const [items,setItems]=useState<AdvertisementItem[]>([]);
@@ -27,6 +28,8 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,fina
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
   const [publicationRule,setPublicationRule]=useState<{allowed:boolean;reason:string|null}>({allowed:true,reason:null});
+  const [focusPlan,setFocusPlan]=useState<FocusPlan|null>(null);
+  const [focusDecision,setFocusDecision]=useState<'kept'|'refreshed'|null>(null);
   const chatId=chat?.id;
   const chatLanguage=chat?.profile.language;
 
@@ -37,7 +40,7 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,fina
     const timeout=setTimeout(()=>controller.abort(),30_000);
     queueMicrotask(()=>{
       if(!cancelled){
-        setLoading(true);setBusy(false);setError('');setNotice('');setItems([]);setSelectedId(null);setSearch('');setLanguage(chatLanguage==='ru'?'ru':'uk');setPublicationRule({allowed:true,reason:null});
+        setLoading(true);setBusy(false);setError('');setNotice('');setItems([]);setSelectedId(null);setSearch('');setLanguage(chatLanguage==='ru'?'ru':'uk');setPublicationRule({allowed:true,reason:null});setFocusPlan(null);setFocusDecision(null);
       }
     });
     fetch(`/api/chats/advertisements?chatId=${encodeURIComponent(chatId)}`,{cache:'no-store',signal:controller.signal})
@@ -45,7 +48,7 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,fina
         const value:unknown=await response.json();
         if(!response.ok)throw new Error(value&&typeof value==='object'&&'error' in value&&typeof value.error==='string'?value.error:'Не вдалося підібрати оголошення.');
         if(!value||typeof value!=='object'||!Array.isArray((value as SelectionPayload).items))throw new Error('Не вдалося прочитати підбір оголошень.');
-        if(!cancelled){const payload=value as SelectionPayload;setItems(payload.items);setPublicationRule({allowed:payload.publicationAllowed!==false,reason:payload.publicationReason||null});}
+        if(!cancelled){const payload=value as SelectionPayload;setItems(payload.items);setPublicationRule({allowed:payload.publicationAllowed!==false,reason:payload.publicationReason||null});setFocusPlan(payload.focusPlan||null);}
       })
       .catch(reason=>{
         if(!cancelled)setError(reason instanceof Error&&reason.name!=='AbortError'&&reason.name!=='TypeError'?reason.message:'Не вдалося підібрати оголошення. Перевірте з’єднання.');
@@ -68,6 +71,23 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,fina
     setSelectedId(item.id);
     if(item.suggestedLanguage)setLanguage(item.suggestedLanguage);
     setNotice(item.note||'');
+  }
+  async function refreshFocusPlan(){
+    if(!chat||!focusPlan?.workday||busy)return;
+    setBusy(true);setError('');
+    try{
+      const workday=focusPlan.workday;
+      const response=await fetch('/api/workday',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'refresh-plan',id:workday.id,workDate:workday.workDate,expectedVersion:workday.version})});
+      const body:unknown=await response.json();
+      if(!response.ok)throw new Error(body&&typeof body==='object'&&'error' in body&&typeof body.error==='string'?body.error:'Не вдалося оновити план дня.');
+      const selectionResponse=await fetch(`/api/chats/advertisements?chatId=${encodeURIComponent(chat.id)}`,{cache:'no-store'});
+      const selectionValue:unknown=await selectionResponse.json();
+      if(!selectionResponse.ok||!selectionValue||typeof selectionValue!=='object'||!Array.isArray((selectionValue as SelectionPayload).items))throw new Error('План оновлено, але не вдалося перечитати підбір. Відкрийте діалог ще раз.');
+      const payload=selectionValue as SelectionPayload;
+      setItems(payload.items);setFocusPlan(payload.focusPlan);setPublicationRule({allowed:payload.publicationAllowed!==false,reason:payload.publicationReason||null});
+      setSelectedId(null);setFocusDecision('refreshed');setNotice('Невиконану частину плану оновлено під поточний фокус. Уже опубліковані пункти не змінено.');
+    }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося оновити план дня.');}
+    finally{setBusy(false);}
   }
   async function copyText(){
     if(!text)return;
@@ -94,6 +114,11 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,fina
       {chat&&<>
         <div className="chat-publish-chat"><strong>{chat.name}</strong><span>{chat.link}</span><Button type="button" variant="outline" size="sm" disabled={busy} onClick={onOpenChat}><ExternalLink data-icon="inline-start"/>Відкрити чат</Button></div>
         {!chat.profileConfirmed&&<output className="chat-publish-warning">Профіль чату ще не підтверджено. Work OS врахує платформу та історію використання, але не застосовуватиме напрямки профілю як перевірене правило.</output>}
+        {focusPlan&&<section className="chat-publish-focus" aria-label="Фокус підбору">
+          <div><strong>Активний фокус</strong><span>{focusPlan.currentDirections.length?focusPlan.currentDirections.join(' · '):'Без обмеження напрямків'}</span></div>
+          <div><strong>Поточний план</strong><span>{focusPlan.planDirections.length?focusPlan.planDirections.join(' · '):'Без обмеження напрямків'}</span><small>{focusPlan.planCreatedAt?`${focusPlan.source==='workday'?'Створено / оновлено':'Оновлено'} ${new Date(focusPlan.planCreatedAt*1000).toLocaleString('uk-UA')}`:'Ще не зафіксовано'}</small></div>
+          {focusPlan.stale&&<div className="chat-publish-focus-stale"><output className="chat-publish-warning">План застарів після зміни фокусу.{focusPlan.addedDirections.length?` Додано: ${focusPlan.addedDirections.join(', ')}.`:''}{focusPlan.removedDirections.length?` Прибрано: ${focusPlan.removedDirections.join(', ')}.`:''} Уже опубліковані пункти залишаться без змін.</output>{focusDecision==='kept'?<small>Поточний план свідомо залишено без змін для цього сеансу.</small>:<div className="chat-publish-focus-actions">{focusPlan.workday&&<Button type="button" size="sm" disabled={busy} onClick={()=>void refreshFocusPlan()}>Оновити невиконану частину</Button>}<Button type="button" variant="outline" size="sm" disabled={busy} onClick={()=>{setFocusDecision('kept');setNotice('Поточний план залишено без змін.');}}>Залишити поточний</Button></div>}</div>}
+        </section>}
         {!publicationRule.allowed&&<output className="chat-publish-warning">Публікація зараз недоступна: {publicationRule.reason||'правила профілю не дозволяють публікацію на цю дату.'}</output>}
         <label className="chat-publish-search" htmlFor="chat-publish-search">Матеріал<Input id="chat-publish-search" value={search} disabled={busy} onChange={event=>setSearch(event.target.value)} placeholder="Пошук оголошення…" /></label>
         {loading?<p className="workspace-loading"><LoaderCircle/>Підбираємо матеріали…</p>:visible.length?<div className="chat-publish-items" aria-label="Оголошення">{visible.map(item=><button type="button" aria-pressed={selectedId===item.id} className={selectedId===item.id?'is-selected':''} disabled={busy||!item.selectable} key={item.id} onClick={()=>selectItem(item)}><strong>{item.title}</strong><small>{item.ukText||item.ruText}</small><small className="muted-note">{item.recommended?'Рекомендовано · ':''}{item.usedToday?'Використано сьогодні · ':''}{item.directionMatch==='matched'?'Напрямок збігається':item.directionMatch==='other'?'Інший напрямок':'Без жорсткої прив’язки до напрямку'}</small>{item.note&&<small className="muted-note">{item.note}</small>}</button>)}</div>:<p className="muted-note">Придатних активних оголошень для цієї платформи не знайдено. Публікацію все ще можна відмітити без прив’язаного матеріалу.</p>}

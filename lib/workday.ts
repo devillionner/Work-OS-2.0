@@ -1,3 +1,5 @@
+import { canonicalDirections } from './directions.ts';
+
 export type WorkdayStatus = 'active' | 'paused' | 'ended';
 
 export type WorkdayPlan = {
@@ -117,6 +119,40 @@ export async function resumeWorkday(db: D1Database, args: MutationArgs) {
   return required(await readById(db, args.userId, args.id, args.now));
 }
 
+export async function refreshWorkdayPlanFocus(
+  db: D1Database,
+  args: MutationArgs & { focusDirections: string[] },
+) {
+  const row = await db.prepare(`SELECT w.version,w.status,p.value_json AS plan_json
+    FROM workdays w
+    LEFT JOIN user_settings p ON p.user_id=w.user_id AND p.setting_key=('workday_plan:' || w.id)
+    WHERE w.id=?1 AND w.user_id=?2 AND w.work_date=?3 LIMIT 1`)
+    .bind(args.id, args.userId, args.workDate)
+    .first<{ version: number; status: WorkdayStatus; plan_json: string | null }>();
+  if (!row || Number(row.version) !== args.expectedVersion || row.status === 'ended')
+    throw new WorkdayError('План дня вже змінився або робочий день завершено.');
+  const plan = parsePlan(row.plan_json);
+  if (!plan) throw new WorkdayError('Для цього робочого дня немає зафіксованого плану.', 404);
+  const nextPlan = normalizePlan({
+    dailyGoal: plan.dailyGoal,
+    monthlyGoal: plan.monthlyGoal,
+    focusDirections: args.focusDirections,
+  }, args.now);
+  const [settingResult, workdayResult] = await db.batch([
+    db.prepare(`UPDATE user_settings SET value_json=?6,updated_at=?5
+      WHERE user_id=?2 AND setting_key=?7
+        AND EXISTS(SELECT 1 FROM workdays
+          WHERE id=?1 AND user_id=?2 AND work_date=?3 AND version=?4 AND status IN ('active','paused'))`)
+      .bind(args.id, args.userId, args.workDate, args.expectedVersion, args.now, JSON.stringify(nextPlan), planKey(args.id)),
+    db.prepare(`UPDATE workdays SET updated_at=?5,version=version+1
+      WHERE id=?1 AND user_id=?2 AND work_date=?3 AND version=?4 AND status IN ('active','paused')`)
+      .bind(args.id, args.userId, args.workDate, args.expectedVersion, args.now),
+  ]);
+  changed(settingResult, 'План дня вже змінився. Оновіть стан і повторіть дію.');
+  changed(workdayResult, 'План дня вже змінився. Оновіть стан і повторіть дію.');
+  return required(await readById(db, args.userId, args.id, args.now));
+}
+
 export async function endWorkday(db: D1Database, args: MutationArgs) {
   const sql = 'UP' + `DATE workdays SET
     active_seconds=active_seconds+CASE
@@ -186,7 +222,7 @@ function normalizePlan(value: WorkdayPlanInput, createdAt: number): WorkdayPlan 
     dailyGoal: safeGoal(value.dailyGoal),
     monthlyGoal: safeGoal(value.monthlyGoal),
     focusDirections: Array.isArray(value.focusDirections)
-      ? value.focusDirections.filter((item): item is string => typeof item === 'string').map((item) => item.trim().slice(0, 80)).filter(Boolean).slice(0, 20)
+      ? canonicalDirections(value.focusDirections.filter((item): item is string => typeof item === 'string').map((item) => item.trim().slice(0, 80)).filter(Boolean)).slice(0, 20)
       : [],
     createdAt,
   };

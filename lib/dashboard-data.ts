@@ -1,4 +1,5 @@
 import { businessDate } from './business-time.ts';
+import { canonicalDirections } from './directions.ts';
 import { reminderView } from './leads/domain/reminders.ts';
 import { readWorkdaySnapshot, type WorkdaySnapshot } from './workday.ts';
 import { activitySummaryStatement, activityTotals, type ActivitySummaryRow } from './activity-summary.ts';
@@ -98,7 +99,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
   const settingMap = new Map(settingRows.map(row => [row.setting_key, row.value_json]));
   const dailyGoal = settingMap.has('daily_booking_goal') ? settingNumber(settingMap.get('daily_booking_goal')) : 5;
   const monthlyBookingGoal = settingMap.has('monthly_booking_goal') ? settingNumber(settingMap.get('monthly_booking_goal')) : 100;
-  const focusDirections = settingList(settingMap.get('focus_directions'));
+  const focusDirections = canonicalDirections(settingList(settingMap.get('focus_directions')));
   const funnelTargets = {
     publicationRate: settingPercent(settingMap.get('target_publication_rate')),
     responseRate: settingPercent(settingMap.get('target_response_rate')),

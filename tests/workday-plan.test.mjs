@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { activitySummaryStatement } from '../lib/activity-summary.ts';
-import { endWorkday, readWorkdaySnapshot, reopenWorkday, resetWorkday, startWorkday } from '../lib/workday.ts';
-import { localDatabase } from './helpers/local-d1.mjs';
+import { endWorkday, readWorkdaySnapshot, refreshWorkdayPlanFocus, reopenWorkday, resetWorkday, startWorkday } from '../lib/workday.ts';
+import { localDatabase, seedChat } from './helpers/local-d1.mjs';
 
 void test('REPORT-09 freezes the day plan when the workday starts and preserves it on reopen', async (t) => {
   const db = await localDatabase(t);
@@ -56,4 +56,36 @@ void test('REPORT-09 UI switches from preview to immutable workday plan', async 
   assert.match(source, /plan\.dailyGoal/);
   assert.match(source, /plan\.monthlyGoal/);
   assert.match(source, /plan\.focusDirections/);
+});
+
+
+void test('AD-17 refreshes only the unfinished workday focus and preserves published history', async (t) => {
+  const db = await localDatabase(t);
+  await seedChat(db, { id: 'published-chat', owner: 'u', platform: 'whatsapp', status: 'ready' });
+  await db.prepare(`INSERT INTO chat_publications
+    (id,user_id,chat_id,published_on,published_at,advertisement_id,source,source_key,created_at)
+    VALUES ('pub','u','published-chat','2026-09-20',1050,NULL,'manual','manual:pub',1050)`).run();
+
+  const started = await startWorkday(db, {
+    userId: 'u', today: '2026-09-20', now: 1000,
+    plan: { dailyGoal: 5, monthlyGoal: 100, focusDirections: ['Англійська', 'Малювання'] },
+  });
+  const refreshed = await refreshWorkdayPlanFocus(db, {
+    userId: 'u', id: started.id, workDate: started.workDate, expectedVersion: started.version,
+    now: 1200, focusDirections: ['Англійська', 'Шахи', 'Програмування та IT'],
+  });
+
+  assert.equal(refreshed.version, 1);
+  assert.deepEqual(refreshed.plan, {
+    dailyGoal: 5, monthlyGoal: 100, focusDirections: ['Англійська', 'ІТ та шахи'], createdAt: 1200,
+  });
+  assert.equal((await db.prepare(`SELECT COUNT(*) AS count FROM chat_publications WHERE user_id='u'`).first()).count, 1);
+  assert.equal((await db.prepare(`SELECT published_at FROM chat_publications WHERE id='pub'`).first()).published_at, 1050);
+});
+
+void test('AD-17 API refresh is owner/version scoped and reloads focus from server state', async () => {
+  const source = await readFile(new URL('../app/api/workday/route.ts', import.meta.url), 'utf8');
+  assert.match(source, /action === 'refresh-plan'/);
+  assert.match(source, /readDashboardSnapshot\(env\.DB, user\.id, now\)/);
+  assert.match(source, /refreshWorkdayPlanFocus\(env\.DB, \{ \.\.\.args, focusDirections: dashboard\.focusDirections \}\)/);
 });

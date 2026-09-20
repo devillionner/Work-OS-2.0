@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { rankPublicationAdvertisements, readPublicationAdvertisementSelection } from '../lib/chats/advertisement-selection.ts';
+import { projectPublicationFocusPlan, rankPublicationAdvertisements, readPublicationAdvertisementSelection } from '../lib/chats/advertisement-selection.ts';
 import { localDatabase, seedChat } from './helpers/local-d1.mjs';
 
 const row = (id, { title = id, tags = [], platforms = [], uk = 'Текст', ru = '', updated = 1 } = {}) => ({
@@ -109,4 +109,38 @@ void test('archived chats are excluded from advertisement selection before publi
   await seedChat(db, { id: 'archived-chat', owner: 'u', platform: 'whatsapp', status: 'archived' });
   const selection = await readPublicationAdvertisementSelection(db, { userId: 'u', chatId: 'archived-chat', date: '2026-09-18' });
   assert.equal(selection, null);
+});
+
+
+void test('focus plan reports stale added/removed directions and only exposes refresh for an open workday', () => {
+  const plan = projectPublicationFocusPlan(
+    ['Англійська', 'Шахи'],
+    1200,
+    { id: 'day', workDate: '2026-09-20', version: 4, open: true, plan: { focusDirections: ['Англійська', 'Малювання'], createdAt: 1000 } },
+  );
+  assert.equal(plan.stale, true);
+  assert.deepEqual(plan.currentDirections, ['Англійська', 'ІТ та шахи']);
+  assert.deepEqual(plan.planDirections, ['Англійська', 'Малювання']);
+  assert.deepEqual(plan.addedDirections, ['ІТ та шахи']);
+  assert.deepEqual(plan.removedDirections, ['Малювання']);
+  assert.deepEqual(plan.workday, { id: 'day', workDate: '2026-09-20', version: 4 });
+});
+
+void test('focus directions filter targeted advertisements but keep generic material available', () => {
+  const items = rankPublicationAdvertisements([
+    row('english', { tags: ['Англійська'], updated: 3 }),
+    row('math', { tags: ['Математика'], updated: 2 }),
+    row('generic', { tags: [], updated: 1 }),
+  ], input({ profileDirections: [], focusDirections: ['Англійська'] }));
+  assert.deepEqual(items.map((item) => item.id), ['english', 'generic']);
+});
+
+void test('publish UI shows current focus, stale diff and explicit refresh/keep choices', () => {
+  const source = readFileSync(join(process.cwd(), 'components', 'chat-publish-dialog.tsx'), 'utf8');
+  assert.match(source, /Активний фокус/);
+  assert.match(source, /Поточний план/);
+  assert.match(source, /План застарів після зміни фокусу/);
+  assert.match(source, /Оновити невиконану частину/);
+  assert.match(source, /Залишити поточний/);
+  assert.match(source, /Уже опубліковані пункти не змінено/);
 });

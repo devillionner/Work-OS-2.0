@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { businessDate } from '@/lib/business-time';
+import { canonicalDirections } from '@/lib/directions';
 import { goalVersionStatement } from '@/lib/goals';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 
@@ -32,7 +33,8 @@ export async function POST(request: Request): Promise<Response> {
   for (const [key, value] of entries) {
     if (key === 'focus_directions' || key === 'enabled_platforms') {
       if (!Array.isArray(value) || value.some((item) => typeof item !== 'string') || value.length > 20) return Response.json({ error: 'Некоректний список напрямків.' }, { status: 400 });
-      const list = value.map((item) => item.trim().slice(0, 80)).filter(Boolean);
+      const rawList = value.map((item) => item.trim().slice(0, 80)).filter(Boolean);
+      const list = key === 'focus_directions' ? canonicalDirections(rawList) : rawList;
       if (key === 'enabled_platforms' && (!list.length || list.some((item) => !PLATFORMS.has(item)))) return Response.json({ error: 'Обери хоча б одну коректну активну платформу.' }, { status: 400 });
       values.set(key, JSON.stringify([...new Set(list)]));
     } else {
