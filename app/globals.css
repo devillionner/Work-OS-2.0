@@ -505,7 +505,7 @@ button:not([data-slot="button"]) { color: inherit; }
 .reports-month-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 16px; }
 .reports-month-head h3, .reports-editor-card h3 { margin: 0; font-size: 20px; letter-spacing: -.025em; }
 .reports-month-head button svg { width: 18px; }
-.reports-calendar-filters { display:flex; gap:4px; margin:-4px 0 14px; overflow-x:auto; scrollbar-width:none; }
+.reports-calendar-filters { display:flex; gap:4px; margin:-4px 0 14px; padding:0; overflow-x:auto; border:0; min-width:0; scrollbar-width:none; }
 .reports-calendar-filters::-webkit-scrollbar { display:none; }
 .reports-calendar-filters [data-slot="button"] { flex:0 0 auto; min-height:36px; padding-inline:10px; }
 .reports-weekdays, .reports-calendar-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 5px; }

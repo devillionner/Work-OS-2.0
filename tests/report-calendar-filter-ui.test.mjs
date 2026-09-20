@@ -6,8 +6,8 @@ const source = readFileSync(new URL('../components/reports-workspace.tsx', impor
 
 void test('report calendar exposes explicit status filters without flattening the calendar grid', () => {
   for (const label of ['Є звіт','Немає','Застарілий','Здано повторно']) assert.match(source,new RegExp(label));
-  assert.match(source,/aria-label="Фільтр календаря"/);
+  assert.match(source,/<fieldset className="reports-calendar-filters" aria-label="Фільтр календаря">/);
   assert.match(source,/submissionCount >= 2/);
   assert.match(source,/is-filtered-out/);
-  assert.match(source,/aria-hidden=\{!matches\}/);
+  assert.doesNotMatch(source,/aria-hidden=\{!matches\}/);
 });
