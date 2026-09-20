@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { ReportHistoryItem } from '@/lib/reports/history';
 
-export function ReportHistoryDialog({ open, date, onClose, onRestored, finalFocus }: { open: boolean; date: string | null; onClose: () => void; onRestored?: () => void; finalFocus?: () => HTMLElement | null }) {
+export function ReportHistoryDialog({ open, date, currentRevision, onClose, onRestored, finalFocus }: { open: boolean; date: string | null; currentRevision: number; onClose: () => void; onRestored?: () => void; finalFocus?: () => HTMLElement | null }) {
   const [events, setEvents] = useState<ReportHistoryItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
@@ -32,7 +32,7 @@ export function ReportHistoryDialog({ open, date, onClose, onRestored, finalFocu
     if (!date || busy || restoringId) return;
     setRestoringId(event.id); setError('');
     try {
-      const response = await fetch('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, text: event.text, submitted: event.submittedAt !== null }) });
+      const response = await fetch('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date, text: event.text, submitted: event.submittedAt !== null, expectedRevision: currentRevision }) });
       const value: unknown = await response.json();
       if (!response.ok) throw new Error(value && typeof value === 'object' && 'error' in value && typeof value.error === 'string' ? value.error : 'Не вдалося відновити версію звіту.');
       onRestored?.(); onClose();

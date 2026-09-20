@@ -8,6 +8,7 @@ import { readCalendarContext } from '@/lib/reports/calendar-context';
 import { readPreviousReportReminder } from '@/lib/reports/reminders';
 import { readFinalReportState } from '@/lib/reports/final';
 import { readGoalPlanFact } from '@/lib/goals';
+import { saveReportText } from '@/lib/reports/write';
 
 const REQUEST_MAX_BYTES = 32 * 1024;
 type ReportRow = { id: string; report_date: string; report_text: string; submitted_at: number | null; updated_at: number; revision_count: number; stale?: number };
@@ -47,30 +48,21 @@ export async function POST(request: Request): Promise<Response> {
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
   const parsed = await readJsonObject(request, REQUEST_MAX_BYTES);
   if (parsed instanceof Response) return parsed;
-  const body = parsed as { date?: unknown; text?: unknown; submitted?: unknown };
+  const body = parsed as { date?: unknown; text?: unknown; submitted?: unknown; expectedRevision?: unknown };
   const date = typeof body.date === 'string' && validDate(body.date) ? body.date : '';
   const text = typeof body.text === 'string' ? body.text.slice(0, 20000) : '';
+  const expectedRevision = typeof body.expectedRevision === 'number' && Number.isSafeInteger(body.expectedRevision) && body.expectedRevision >= 0
+    ? body.expectedRevision
+    : null;
   if (!date || !text.trim()) return Response.json({ error: 'Вкажіть дату та текст звіту.' }, { status: 400 });
+  if (expectedRevision === null) return Response.json({ error: 'Оновіть звіт перед збереженням.' }, { status: 400 });
   if (date > kyivDate()) return Response.json({ error: 'Майбутні звіти недоступні.' }, { status: 400 });
   const now = Math.floor(Date.now() / 1000);
-  const id = `report_${user.id}_${date}`;
   const wantsSubmit = body.submitted === true;
   if (wantsSubmit) { const state=await readFinalReportState(env.DB,user.id,date,now,kyivDate()); if(!state.canSubmit) return Response.json({error:state.reason},{status:409}); }
-  const existing=await env.DB.prepare(`SELECT submitted_at,submitted_activity_revision FROM daily_reports WHERE user_id=?1 AND report_date=?2 LIMIT 1`).bind(user.id,date).first<{submitted_at:number|null;submitted_activity_revision:number|null}>();
-  const submittedAt = wantsSubmit ? now : existing?.submitted_at ?? null;
-  const preservedActivityRevision = existing?.submitted_activity_revision ?? null;
-  await env.DB.prepare(`INSERT INTO daily_reports
-    (id,user_id,report_date,report_text,payload_json,submitted_at,submitted_activity_revision,updated_at,source_import_id)
-    VALUES (?1,?2,?3,?4,?5,?6,
-      CASE WHEN ?7=1 THEN COALESCE((SELECT revision FROM activity_day_revisions WHERE user_id=?2 AND event_date=?3),0) ELSE ?8 END,
-      ?9,NULL)
-    ON CONFLICT(user_id,report_date) DO UPDATE SET
-      report_text=excluded.report_text,payload_json=excluded.payload_json,submitted_at=excluded.submitted_at,
-      submitted_activity_revision=excluded.submitted_activity_revision,updated_at=excluded.updated_at,
-      revision_count=COALESCE(daily_reports.revision_count,1)+1,source_import_id=NULL
-    WHERE daily_reports.user_id=excluded.user_id`)
-    .bind(id,user.id,date,text,JSON.stringify({source:'manual',updatedAt:now}),submittedAt,Number(wantsSubmit),preservedActivityRevision,now).run();
-  return Response.json({ ok: true, report: { id, date, text, submittedAt, updatedAt: now } });
+  const result = await saveReportText(env.DB, { userId:user.id, date, text, submitted:wantsSubmit, expectedRevision, now });
+  if (!result.ok) return Response.json({ error:'Звіт уже змінено на іншому пристрої. Оновіть дані.', currentRevision:result.currentRevision }, { status:409 });
+  return Response.json({ ok:true, report:{ id:result.id, date, text, submittedAt:result.submittedAt, updatedAt:result.updatedAt, revisionCount:result.revision } });
 }
 
 function publicReport(row: ReportRow) { return { id: row.id, date: row.report_date, text: row.report_text, submittedAt: row.submitted_at, updatedAt: row.updated_at, revisionCount: Number(row.revision_count || 1), stale: Boolean(row.stale) }; }
