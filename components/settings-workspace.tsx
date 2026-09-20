@@ -80,7 +80,7 @@ export function SettingsWorkspace({ user, snapshot, onRefresh }: Props) {
 
     <section className="settings-account-row"><ShieldCheck /><div><span>Обліковий запис</span><strong>{user.displayName}</strong><small>{user.email}</small></div></section>
 
-    <TodaySettingsDialog open={focusOpen} onClose={() => setFocusOpen(false)} initialDirections={snapshot.focusDirections} initialDailyGoal={snapshot.bookingGoal.target} initialMonthlyGoal={snapshot.monthlyBookingGoal} onSaved={onRefresh} />
+    <TodaySettingsDialog open={focusOpen} onClose={() => setFocusOpen(false)} initialDirections={snapshot.focusDirections} initialDailyGoal={snapshot.bookingGoal.target} initialMonthlyGoal={snapshot.monthlyBookingGoal} initialFunnelTargets={snapshot.funnelTargets} onSaved={onRefresh} />
     <GoalHistoryDialog open={goalHistoryOpen} onClose={() => setGoalHistoryOpen(false)} />
     {updatePreviewOpen && <AppUpdateScreenPreview onClose={() => setUpdatePreviewOpen(false)} />}
     <CloudRestoreDialog open={restoreOpen} onClose={() => setRestoreOpen(false)} />

@@ -12,3 +12,9 @@ void test('funnel conversion targets are editable together and bounded to percen
   assert.match(analytics,/ціль не задана/);
   assert.match(analytics,/ціль \$\{target\}%/);
 });
+
+
+void test('Settings forwards funnel targets into the shared focus dialog', () => {
+  const source = readFileSync(new URL('../components/settings-workspace.tsx', import.meta.url), 'utf8');
+  assert.match(source, /initialFunnelTargets=\{snapshot\.funnelTargets\}/);
+});
