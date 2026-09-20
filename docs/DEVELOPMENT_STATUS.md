@@ -452,3 +452,17 @@ Then complete Today/CRM/report parity.
 The older PR #6 review and cutover file are historical evidence, not commands to
 repeat remote migration/restore checks. Production release and final transfer are
 separate gates after local validation and the required direct confirmation.
+
+
+## Chat attribution staging acceptance — 2026-09-20
+
+- Cloudflare staging is live on `14de9cd1ec32a520ab1c1d1c34364960f413b20b`
+  (app version `0.2.6`) after the type-aware export-contract fix.
+- A strictly read-only authenticated smoke confirmed the source-chat attribution
+  table with the eight required columns, all four conversion labels and 16 live
+  rows. Values rendered as integers/percentages with no `NaN` or error state.
+- The UI explicitly distinguishes period publications from the lead cohort and
+  keeps later repeat bookings attributed to the original source chat.
+- This evidence closes ANALYTICS-15. ANALYTICS-10 remains partial because the
+  remaining gap is advertisement-level attribution, not chat-level attribution.
+- Production and production D1 were not changed.
