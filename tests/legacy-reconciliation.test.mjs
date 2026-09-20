@@ -130,3 +130,29 @@ void test('reconciliation verifies owner-scoped Telegram schedule settings and s
   }]);
   assert.equal(foreign.ok,false);
 });
+
+
+void test('reconciliation verifies owner-scoped restored goal versions and detects field mismatch', async (t) => {
+  const db = await localDatabase(t);
+  await db.prepare(`INSERT INTO goal_versions
+    (id,user_id,goal_key,effective_on,value,created_at,source,version)
+    VALUES ('goal-restore','u','daily_booking_goal','2026-09-01',8,1,'restore',2)`).run();
+
+  const expected = [{
+    id:'goal-restore', key:'daily_booking_goal', effectiveOn:'2026-09-01',
+    value:8, createdAt:1, source:'restore', version:2,
+  }];
+  const complete = await reconcileMigrationChunk(db,'u','goalVersions',expected);
+  assert.equal(complete.ok,true);
+  assert.equal(complete.expectedChecksum,complete.actualChecksum);
+
+  await db.prepare(`UPDATE goal_versions SET value=9 WHERE id='goal-restore' AND user_id='u'`).run();
+  const mismatch = await reconcileMigrationChunk(db,'u','goalVersions',expected);
+  assert.equal(mismatch.actual,1);
+  assert.equal(mismatch.ok,false);
+  assert.notEqual(mismatch.expectedChecksum,mismatch.actualChecksum);
+
+  const foreign = await reconcileMigrationChunk(db,'other','goalVersions',expected);
+  assert.equal(foreign.actual,0);
+  assert.equal(foreign.ok,false);
+});

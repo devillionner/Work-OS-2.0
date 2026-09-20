@@ -102,7 +102,7 @@ void test('legacy focus and booking goals become active Work OS settings while r
   assert.equal(typeof rawGoals.legacyStorageValue, 'string');
 });
 
-void test('legacy booking goal falls back to the active period and latest historical month', () => {
+void test('legacy booking goal keeps active daily period and monthly exact-month fallback semantics', () => {
   const dataset = buildLegacyMigrationDataset(backup({
     'analytics-daily-goal-schedule-v1': JSON.stringify({
       defaultGoal: { records: 3 },
@@ -124,7 +124,7 @@ void test('legacy booking goal falls back to the active period and latest histor
   }), 'u');
   const settings = settingMap(dataset);
   assert.equal(settings.get('daily_booking_goal'), 6);
-  assert.equal(settings.get('monthly_booking_goal'), 14);
+  assert.equal(settings.get('monthly_booking_goal'), 66);
 });
 
 
@@ -286,4 +286,87 @@ void test('legacy Telegram schedule fails closed on duplicate pending assignment
       },
     }),
   }), 'u'), /repeats a pending chat/);
+});
+
+
+void test('legacy goal periods, overrides and monthly gaps become exact restore versions', () => {
+  const dataset = buildLegacyMigrationDataset(backup({
+    'analytics-daily-goal-schedule-v1': JSON.stringify({
+      defaultGoal: { records: 3 },
+      periods: [{
+        id: 'september',
+        start: '2026-09-01',
+        end: '2026-09-30',
+        goal: { records: 8 },
+        updatedAt: 10,
+      }],
+      overrides: {
+        '15.09.26': { records: 10 },
+      },
+    }),
+    'analytics-goals-v1': JSON.stringify({
+      monthly: {
+        '2026-01': { records: 22 },
+        '2026-03': { records: 33 },
+      },
+    }),
+  }), 'u');
+
+  const daily = dataset.goalVersions
+    .filter((item) => item.key === 'daily_booking_goal')
+    .map(({ effectiveOn, value, version, source }) => ({ effectiveOn, value, version, source }));
+  assert.deepEqual(daily, [
+    { effectiveOn: '0001-01-01', value: 3, version: 1000001, source: 'restore' },
+    { effectiveOn: '2026-09-01', value: 8, version: 1000002, source: 'restore' },
+    { effectiveOn: '2026-09-15', value: 10, version: 1000003, source: 'restore' },
+    { effectiveOn: '2026-09-16', value: 8, version: 1000004, source: 'restore' },
+    { effectiveOn: '2026-10-01', value: 3, version: 1000005, source: 'restore' },
+  ]);
+
+  const monthly = dataset.goalVersions
+    .filter((item) => item.key === 'monthly_booking_goal')
+    .map(({ effectiveOn, value, version }) => ({ effectiveOn, value, version }));
+  assert.deepEqual(monthly, [
+    { effectiveOn: '0001-01-01', value: 66, version: 1000001 },
+    { effectiveOn: '2026-01-01', value: 22, version: 1000002 },
+    { effectiveOn: '2026-02-01', value: 66, version: 1000003 },
+    { effectiveOn: '2026-03-01', value: 33, version: 1000004 },
+    { effectiveOn: '2026-04-01', value: 66, version: 1000005 },
+  ]);
+});
+
+void test('legacy daily history without schedule stays one-day scoped and canonical defaults are migrated', () => {
+  const dataset = buildLegacyMigrationDataset(backup({
+    'analytics-goals-v1': JSON.stringify({
+      daily: {
+        '10.09.26': { records: 4 },
+        '20.09.26': { records: 6 },
+      },
+    }),
+  }), 'u');
+
+  const daily = dataset.goalVersions
+    .filter((item) => item.key === 'daily_booking_goal')
+    .map(({ effectiveOn, value }) => [effectiveOn, value]);
+  assert.deepEqual(daily, [
+    ['0001-01-01', 6],
+    ['2026-09-10', 4],
+    ['2026-09-11', 6],
+    ['2026-09-20', 6],
+    ['2026-09-21', 6],
+  ]);
+  const settings = settingMap(dataset);
+  assert.equal(settings.get('monthly_booking_goal'), 66);
+
+  const empty = buildLegacyMigrationDataset(backup({}), 'u');
+  const emptySettings = settingMap(empty);
+  assert.equal(emptySettings.get('daily_booking_goal'), 3);
+  assert.equal(emptySettings.get('monthly_booking_goal'), 66);
+  assert.deepEqual(
+    empty.goalVersions.map(({ key, effectiveOn, value, version }) => ({ key, effectiveOn, value, version })),
+    [
+      { key: 'daily_booking_goal', effectiveOn: '0001-01-01', value: 3, version: 1000001 },
+      { key: 'monthly_booking_goal', effectiveOn: '0001-01-01', value: 66, version: 1000001 },
+    ],
+  );
 });

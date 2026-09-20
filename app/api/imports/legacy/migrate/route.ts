@@ -255,6 +255,16 @@ function statementFor(phase: MigrationPhase, value: LegacyMigrationDataset[Migra
     return env.DB.prepare(`INSERT INTO daily_reports (id,user_id,report_date,report_text,payload_json,submitted_at,updated_at,source_import_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
       ON CONFLICT(id) DO UPDATE SET report_date=excluded.report_date,report_text=excluded.report_text,payload_json=excluded.payload_json,submitted_at=excluded.submitted_at,updated_at=excluded.updated_at,source_import_id=excluded.source_import_id WHERE daily_reports.user_id=excluded.user_id`).bind(row.id,userId,row.reportDate,row.reportText,row.payloadJson,row.submittedAt,row.updatedAt,importId);
   }
+  if (phase === 'goalVersions') {
+    const row = value as LegacyMigrationDataset['goalVersions'][number];
+    return env.DB.prepare(`INSERT INTO goal_versions
+      (id,user_id,goal_key,effective_on,value,created_at,source,version)
+      VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
+      ON CONFLICT(id) DO UPDATE SET goal_key=excluded.goal_key,effective_on=excluded.effective_on,
+        value=excluded.value,created_at=excluded.created_at,source=excluded.source,version=excluded.version
+      WHERE goal_versions.user_id=excluded.user_id`)
+      .bind(row.id,userId,row.key,row.effectiveOn,row.value,row.createdAt,row.source,row.version);
+  }
   if (phase === 'settings') {
     const row = value as LegacyMigrationDataset['settings'][number];
     return env.DB.prepare(`INSERT INTO user_settings (user_id,setting_key,value_json,source_import_id,updated_at) VALUES (?1,?2,?3,?4,?5)

@@ -9,6 +9,8 @@ export type GoalPlanFact = {
 
 type GoalRow = { value:number };
 
+export const GOAL_RESTORE_VERSION_BASE = 1_000_000;
+
 export async function readGoalPlanFact(db:D1Database,userId:string,date:string):Promise<GoalPlanFact> {
   const monthStart=`${date.slice(0,7)}-01`;
   const monthEnd=endOfMonth(date);
@@ -29,7 +31,7 @@ export async function readGoalPlanFact(db:D1Database,userId:string,date:string):
 async function readGoal(db:D1Database,userId:string,key:string,effectiveOn:string):Promise<number> {
   const row=await db.prepare(`SELECT value FROM goal_versions
     WHERE user_id=?1 AND goal_key=?2 AND effective_on<=?3
-    ORDER BY effective_on DESC,version DESC LIMIT 1`).bind(userId,key,effectiveOn).first<GoalRow>();
+    ORDER BY effective_on DESC,created_at DESC,version DESC LIMIT 1`).bind(userId,key,effectiveOn).first<GoalRow>();
   if(row) return Number(row.value||0);
   return key==='daily_booking_goal' ? 5 : 100;
 }
@@ -45,7 +47,7 @@ export function goalVersionStatement(db:D1Database,args:{
 }) {
   const effectiveOn=args.key==='monthly_booking_goal' ? `${args.today.slice(0,7)}-01` : args.today;
   return db.prepare(`INSERT INTO goal_versions(id,user_id,goal_key,effective_on,value,created_at,source,version)
-    SELECT ?1,?2,?3,?4,?5,?6,'manual',COALESCE(MAX(version),0)+1
+    SELECT ?1,?2,?3,?4,?5,?6,'manual',COALESCE(MAX(CASE WHEN version<?7 THEN version END),0)+1
     FROM goal_versions WHERE user_id=?2 AND goal_key=?3`)
-    .bind(`goal_${crypto.randomUUID()}`,args.userId,args.key,effectiveOn,args.value,args.now);
+    .bind(`goal_${crypto.randomUUID()}`,args.userId,args.key,effectiveOn,args.value,args.now,GOAL_RESTORE_VERSION_BASE);
 }

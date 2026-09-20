@@ -206,6 +206,10 @@ function actualRecordQuery(
     return db.prepare(`SELECT id AS key,report_date,report_text,payload_json,submitted_at,updated_at
       FROM daily_reports WHERE user_id=?1 AND id ${inKeys}`).bind(userId, encodedKeys);
   }
+  if (phase === 'goalVersions') {
+    return db.prepare(`SELECT id AS key,goal_key,effective_on,value,created_at,source,version
+      FROM goal_versions WHERE user_id=?1 AND id ${inKeys}`).bind(userId, encodedKeys);
+  }
   if (phase === 'settings') {
     return db.prepare(`SELECT setting_key AS key,value_json,updated_at
       FROM user_settings WHERE user_id=?1 AND setting_key ${inKeys}`).bind(userId, encodedKeys);
@@ -288,6 +292,10 @@ function canonicalExpectedRecord(phase: MigrationPhase, value: unknown, userId: 
   if (phase === 'reports') {
     const row = value as LegacyMigrationDataset['reports'][number];
     return { key: row.id, reportDate: row.reportDate, reportText: row.reportText, payloadJson: row.payloadJson, submittedAt: row.submittedAt, updatedAt: row.updatedAt };
+  }
+  if (phase === 'goalVersions') {
+    const row = value as LegacyMigrationDataset['goalVersions'][number];
+    return { key: row.id, goalKey: row.key, effectiveOn: row.effectiveOn, value: row.value, createdAt: row.createdAt, source: row.source, version: row.version };
   }
   if (phase === 'settings') {
     const row = value as LegacyMigrationDataset['settings'][number];
@@ -372,6 +380,13 @@ function canonicalActualRecord(phase: MigrationPhase, row: DbRow): CanonicalReco
   }
   if (phase === 'reports') {
     return { key: actualText(row.key), reportDate: actualText(row.report_date), reportText: actualText(row.report_text), payloadJson: actualText(row.payload_json), submittedAt: actualNullableNumber(row.submitted_at), updatedAt: actualNumber(row.updated_at) };
+  }
+  if (phase === 'goalVersions') {
+    return {
+      key: actualText(row.key), goalKey: actualText(row.goal_key), effectiveOn: actualText(row.effective_on),
+      value: actualNumber(row.value), createdAt: actualNumber(row.created_at), source: actualText(row.source),
+      version: actualNumber(row.version),
+    };
   }
   if (phase === 'settings') {
     return { key: actualText(row.key), valueJson: actualText(row.value_json), updatedAt: actualNumber(row.updated_at) };

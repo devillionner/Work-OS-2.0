@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 import { goalVersionStatement, readGoalPlanFact } from '../lib/goals.ts';
 import { localDatabase, seedEvent } from './helpers/local-d1.mjs';
@@ -58,4 +58,26 @@ void test('dates before the first goal version keep canonical defaults', async t
   const old=await readGoalPlanFact(db,'u','2026-08-20');
   assert.equal(old.dailyTarget,5);
   assert.equal(old.monthlyTarget,100);
+});
+
+
+void test('manual goal change on the same effective date wins over imported restore history', async t => {
+  const db=await localDatabase(t);
+  await db.prepare(`INSERT INTO goal_versions
+    (id,user_id,goal_key,effective_on,value,created_at,source,version)
+    VALUES ('legacy-restore','u','daily_booking_goal','2026-09-10',8,?1,'restore',1000001)`)
+    .bind(NOW-10).run();
+
+  await db.batch([
+    goalVersionStatement(db,{userId:'u',key:'daily_booking_goal',value:9,now:NOW,today:'2026-09-10'}),
+  ]);
+
+  const today=await readGoalPlanFact(db,'u','2026-09-10');
+  assert.equal(today.dailyTarget,9);
+  const rows=await db.prepare(`SELECT value,source,version,created_at FROM goal_versions
+    WHERE user_id='u' AND goal_key='daily_booking_goal' ORDER BY created_at,version`).all();
+  assert.deepEqual(rows.results.map(row=>[row.value,row.source,row.version]),[
+    [8,'restore',1000001],
+    [9,'manual',1],
+  ]);
 });

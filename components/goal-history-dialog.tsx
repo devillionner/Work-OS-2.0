@@ -85,7 +85,7 @@ function GoalHistoryList({ title, items, unversioned }: { title: string; items: 
   return <section aria-label={title} className="rounded-xl border border-border/70 p-3">
     <div className="mb-2 flex items-center justify-between gap-2"><strong>{title}</strong><Badge variant="outline">{items.length} верс.</Badge></div>
     {items.length ? <ol className="grid gap-2">{items.map((item) => <li key={item.id} className="rounded-lg bg-muted/30 px-3 py-2 text-sm">
-      <div className="flex items-center justify-between gap-2"><strong>{item.value} записів</strong><span>v{item.version}</span></div>
+      <div className="flex items-center justify-between gap-2"><strong>{item.value} записів</strong><span>{item.source === 'restore' ? 'імпорт' : `v${item.version}`}</span></div>
       <div className="text-muted-foreground">Діє з {formatDate(item.effectiveOn)}</div>
       <small className="text-muted-foreground">{sourceLabel(item.source)} · {formatTime(item.createdAt)}</small>
     </li>)}</ol> : unversioned ? <div className="rounded-lg bg-muted/30 px-3 py-2 text-sm">
@@ -99,7 +99,7 @@ function GoalHistoryList({ title, items, unversioned }: { title: string; items: 
 function sourceLabel(value: string) {
   if (value === 'manual') return 'Ручна зміна';
   if (value === 'baseline') return 'Базове значення';
-  if (value === 'import') return 'Імпорт';
+  if (value === 'import' || value === 'restore') return 'Імпорт з Prototype';
   return 'Системне значення';
 }
 function formatDate(value: string) {

@@ -322,5 +322,5 @@ async function migrationRequest(action: 'start' | 'process', importId?: string):
 }
 
 function migrationPhaseName(value: string): string {
-  return ({ accounts: 'Telegram-акаунти', chats: 'чати', profiles: 'профілі', publications: 'публікації', scheduleSettings: 'налаштування розкладу Telegram', scheduleSlots: 'слоти розкладу Telegram', leads: 'ліди', students: 'учні', lessons: 'уроки', curatorRequests: 'кураторські заявки', reports: 'звіти', settings: 'налаштування', events: 'статистика', done: 'готово' } as Record<string, string>)[value] || value;
+  return ({ accounts: 'Telegram-акаунти', chats: 'чати', profiles: 'профілі', publications: 'публікації', scheduleSettings: 'налаштування розкладу Telegram', scheduleSlots: 'слоти розкладу Telegram', leads: 'ліди', students: 'учні', lessons: 'уроки', curatorRequests: 'кураторські заявки', reports: 'звіти', goalVersions: 'історія цілей', settings: 'налаштування', events: 'статистика', done: 'готово' } as Record<string, string>)[value] || value;
 }

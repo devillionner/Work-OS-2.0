@@ -1,4 +1,5 @@
 import { FOCUS_DIRECTIONS, canonicalDirections } from './directions.ts';
+import { GOAL_RESTORE_VERSION_BASE } from './goals.ts';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -74,6 +75,10 @@ export type MigrationReport = {
   id: string; reportDate: string; reportText: string; payloadJson: string;
   submittedAt: number | null; updatedAt: number;
 };
+export type MigrationGoalVersion = {
+  id: string; key: 'daily_booking_goal' | 'monthly_booking_goal'; effectiveOn: string;
+  value: number; createdAt: number; source: 'restore'; version: number;
+};
 export type MigrationSetting = { key: string; valueJson: string; updatedAt: number };
 export type MigrationEvent = {
   id: string; eventType: string; platform: string | null; chatId: string | null;
@@ -94,13 +99,14 @@ export type LegacyMigrationDataset = {
   lessons: MigrationLesson[];
   curatorRequests: MigrationCuratorRequest[];
   reports: MigrationReport[];
+  goalVersions: MigrationGoalVersion[];
   settings: MigrationSetting[];
   events: MigrationEvent[];
 };
 
 export const MIGRATION_PHASES = [
   'accounts', 'chats', 'profiles', 'publications', 'scheduleSettings', 'scheduleSlots',
-  'leads', 'students', 'lessons', 'curatorRequests', 'reports', 'settings', 'events',
+  'leads', 'students', 'lessons', 'curatorRequests', 'reports', 'goalVersions', 'settings', 'events',
 ] as const;
 export type MigrationPhase = (typeof MIGRATION_PHASES)[number];
 
@@ -447,9 +453,10 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       seconds(focus.updatedAt) || now,
     );
   }
-  const operationalGoals = legacyOperationalBookingGoals(storage, now);
-  if (operationalGoals.daily !== null) addSetting('daily_booking_goal', operationalGoals.daily);
-  if (operationalGoals.monthly !== null) addSetting('monthly_booking_goal', operationalGoals.monthly);
+  const goalVersions = legacyGoalVersions(storage, userId, now);
+  const operationalGoals = operationalBookingGoals(goalVersions, now);
+  addSetting('daily_booking_goal', operationalGoals.daily);
+  addSetting('monthly_booking_goal', operationalGoals.monthly);
 
   const chatPlatform = new Map(chats.map((chat) => [chat.id, chat.platform]));
   const chatAccount = new Map(chats.map((chat) => [chat.id, chat.telegramAccountId]));
@@ -522,7 +529,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
     });
   }
 
-  return { accounts, chats, profiles, publications, scheduleSettings, scheduleSlots, leads, students, lessons, curatorRequests, reports, settings, events };
+  return { accounts, chats, profiles, publications, scheduleSettings, scheduleSlots, leads, students, lessons, curatorRequests, reports, goalVersions, settings, events };
 
   function addAccountSeed(value: JsonRecord) {
     const rawId = text(value.id);
@@ -537,56 +544,184 @@ export function migrationTotals(dataset: LegacyMigrationDataset): Record<Migrati
   return Object.fromEntries(MIGRATION_PHASES.map((phase) => [phase, dataset[phase].length])) as Record<MigrationPhase, number>;
 }
 
-function legacyOperationalBookingGoals(
+const LEGACY_DAILY_BOOKING_DEFAULT = 3;
+const LEGACY_MONTHLY_BOOKING_DEFAULT = 66;
+
+type GoalPoint = { effectiveOn: string; value: number; createdAt: number };
+
+function legacyGoalVersions(
   storage: Record<string, string>,
+  userId: string,
   now: number,
-): { daily: number | null; monthly: number | null } {
-  const date = kyivDateForEpoch(now);
-  const schedule = parseRecord(storage['analytics-daily-goal-schedule-v1']);
+): MigrationGoalVersion[] {
+  const daily = legacyDailyGoalTimeline(storage, now);
+  const monthly = legacyMonthlyGoalTimeline(storage, now);
+  return [
+    ...goalVersionsForKey(userId, 'daily_booking_goal', daily),
+    ...goalVersionsForKey(userId, 'monthly_booking_goal', monthly),
+  ];
+}
+
+function goalVersionsForKey(
+  userId: string,
+  key: MigrationGoalVersion['key'],
+  points: GoalPoint[],
+): MigrationGoalVersion[] {
+  return points.map((point, index) => ({
+    id: stableId('goal', `${userId}:${key}:${point.effectiveOn}`),
+    key,
+    effectiveOn: point.effectiveOn,
+    value: point.value,
+    createdAt: point.createdAt,
+    source: 'restore',
+    version: GOAL_RESTORE_VERSION_BASE + index + 1,
+  }));
+}
+
+function legacyDailyGoalTimeline(storage: Record<string, string>, now: number): GoalPoint[] {
   const analytics = parseRecord(storage['analytics-goals-v1']);
-
-  let daily: number | null = null;
-  const overrides = isRecord(schedule.overrides) ? schedule.overrides : {};
-  const override = overrides[date] ?? overrides[legacyShortDate(date)];
-  daily = bookingGoal(isRecord(override) && 'goal' in override ? override.goal : override);
-
-  if (daily === null) {
-    const periods = array(schedule.periods)
-      .filter(isRecord)
-      .filter((period) => {
-        const start = legacyDate(text(period.start));
-        const end = legacyDate(text(period.end));
-        return Boolean(start && end && start <= date && date <= end);
-      })
-      .sort((left, right) => {
-        const updated = Number(left.updatedAt || 0) - Number(right.updatedAt || 0);
-        return updated || text(left.id).localeCompare(text(right.id));
-      });
-    daily = bookingGoal(periods.at(-1)?.goal);
-  }
-  if (daily === null) daily = bookingGoal(schedule.defaultGoal);
-
   const dailyHistory = isRecord(analytics.daily) ? analytics.daily : {};
-  if (daily === null) {
-    const latest = Object.entries(dailyHistory)
-      .map(([key, value]) => [legacyDate(key), value] as const)
-      .filter((entry): entry is readonly [string, unknown] => Boolean(entry[0] && entry[0] <= date))
-      .sort(([left], [right]) => left.localeCompare(right))
-      .at(-1);
-    daily = bookingGoal(latest?.[1]);
+  const historyByDate = new Map<string, unknown>();
+  for (const [rawDate, value] of Object.entries(dailyHistory)) {
+    const date = legacyDate(rawDate);
+    if (date) historyByDate.set(date, value);
   }
 
-  const monthlyGoals = isRecord(analytics.monthly) ? analytics.monthly : {};
-  const month = date.slice(0, 7);
-  let monthly = bookingGoal(monthlyGoals[month]);
-  if (monthly === null) {
-    const latest = Object.entries(monthlyGoals)
-      .filter(([key]) => /^\d{4}-\d{2}$/.test(key) && key <= month)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .at(-1);
-    monthly = bookingGoal(latest?.[1]);
+  const parsedSchedule = parseStored(storage['analytics-daily-goal-schedule-v1']);
+  const hasSchedule = isRecord(parsedSchedule);
+  const schedule = hasSchedule ? parsedSchedule : {};
+  const latestHistory = [...historyByDate.entries()].sort(([left], [right]) => left.localeCompare(right)).at(-1);
+  const defaultGoal = bookingGoal(schedule.defaultGoal)
+    ?? bookingGoal(latestHistory?.[1])
+    ?? LEGACY_DAILY_BOOKING_DEFAULT;
+
+  const boundaries = new Set<string>(['0001-01-01']);
+  const periods = array(schedule.periods)
+    .filter(isRecord)
+    .map((period) => ({
+      id: text(period.id),
+      start: legacyDate(text(period.start)),
+      end: legacyDate(text(period.end)),
+      goal: bookingGoal(period.goal) ?? LEGACY_DAILY_BOOKING_DEFAULT,
+      updatedAt: Number(period.updatedAt) || 0,
+    }))
+    .filter((period) => Boolean(period.start && period.end && period.start <= period.end));
+  const overrides = new Map<string, number>();
+  if (isRecord(schedule.overrides)) {
+    for (const [rawDate, value] of Object.entries(schedule.overrides)) {
+      const date = legacyDate(rawDate);
+      if (!date) continue;
+      const goal = bookingGoal(isRecord(value) && 'goal' in value ? value.goal : value)
+        ?? LEGACY_DAILY_BOOKING_DEFAULT;
+      overrides.set(date, goal);
+    }
   }
-  return { daily, monthly };
+
+  if (hasSchedule) {
+    for (const period of periods) {
+      boundaries.add(period.start);
+      boundaries.add(nextDate(period.end));
+    }
+    for (const date of overrides.keys()) {
+      boundaries.add(date);
+      boundaries.add(nextDate(date));
+    }
+  } else {
+    for (const date of historyByDate.keys()) {
+      boundaries.add(date);
+      boundaries.add(nextDate(date));
+    }
+  }
+
+  return [...boundaries]
+    .sort()
+    .map((effectiveOn) => {
+      let value = defaultGoal;
+      if (effectiveOn !== '0001-01-01') {
+        if (hasSchedule) {
+          const override = overrides.get(effectiveOn);
+          if (override !== undefined) value = override;
+          else {
+            const active = periods
+              .filter((period) => period.start <= effectiveOn && effectiveOn <= period.end)
+              .sort((left, right) => left.updatedAt - right.updatedAt || left.id.localeCompare(right.id))
+              .at(-1);
+            value = active?.goal ?? defaultGoal;
+          }
+        } else {
+          value = historyByDate.has(effectiveOn)
+            ? bookingGoal(historyByDate.get(effectiveOn)) ?? defaultGoal
+            : defaultGoal;
+        }
+      }
+      return { effectiveOn, value, createdAt: goalCreatedAt(effectiveOn, now) };
+    });
+}
+
+function legacyMonthlyGoalTimeline(storage: Record<string, string>, now: number): GoalPoint[] {
+  const analytics = parseRecord(storage['analytics-goals-v1']);
+  const monthly = isRecord(analytics.monthly) ? analytics.monthly : {};
+  const goals = new Map<string, number>();
+  for (const [month, value] of Object.entries(monthly)) {
+    if (!/^\d{4}-\d{2}$/.test(month)) continue;
+    const goal = bookingGoal(value);
+    if (goal !== null) goals.set(month, goal);
+  }
+
+  const boundaries = new Set<string>(['0001-01-01']);
+  for (const month of goals.keys()) {
+    const start = `${month}-01`;
+    boundaries.add(start);
+    boundaries.add(nextMonthStart(start));
+  }
+  return [...boundaries]
+    .sort()
+    .map((effectiveOn) => ({
+      effectiveOn,
+      value: effectiveOn === '0001-01-01'
+        ? LEGACY_MONTHLY_BOOKING_DEFAULT
+        : goals.get(effectiveOn.slice(0, 7)) ?? LEGACY_MONTHLY_BOOKING_DEFAULT,
+      createdAt: goalCreatedAt(effectiveOn, now),
+    }));
+}
+
+function operationalBookingGoals(
+  versions: MigrationGoalVersion[],
+  now: number,
+): { daily: number; monthly: number } {
+  const today = kyivDateForEpoch(now);
+  return {
+    daily: goalValueAt(versions, 'daily_booking_goal', today, LEGACY_DAILY_BOOKING_DEFAULT),
+    monthly: goalValueAt(versions, 'monthly_booking_goal', `${today.slice(0, 7)}-01`, LEGACY_MONTHLY_BOOKING_DEFAULT),
+  };
+}
+
+function goalValueAt(
+  versions: MigrationGoalVersion[],
+  key: MigrationGoalVersion['key'],
+  effectiveOn: string,
+  fallback: number,
+): number {
+  return versions
+    .filter((version) => version.key === key && version.effectiveOn <= effectiveOn)
+    .sort((left, right) => left.effectiveOn.localeCompare(right.effectiveOn) || left.version - right.version)
+    .at(-1)?.value ?? fallback;
+}
+
+function goalCreatedAt(effectiveOn: string, now: number): number {
+  if (effectiveOn === '0001-01-01') return 1;
+  return Math.max(1, epochForDate(effectiveOn) || now);
+}
+
+function nextDate(value: string): string {
+  const parsed = Date.parse(`${value}T12:00:00Z`);
+  if (!Number.isFinite(parsed)) return value;
+  return new Date(parsed + 86400000).toISOString().slice(0, 10);
+}
+
+function nextMonthStart(value: string): string {
+  const [year, month] = value.slice(0, 7).split('-').map(Number);
+  return new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
 }
 
 function bookingGoal(value: unknown): number | null {
@@ -605,11 +740,6 @@ function kyivDateForEpoch(epochSeconds: number): string {
   }).formatToParts(new Date(epochSeconds * 1000));
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
-}
-
-function legacyShortDate(value: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  return match ? `${match[3]}.${match[2]}.${match[1].slice(-2)}` : value;
 }
 
 function parseStored(value: string | undefined): unknown {
