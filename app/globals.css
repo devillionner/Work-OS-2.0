@@ -371,6 +371,7 @@ button:not([data-slot="button"]) { color: inherit; }
 .platform-workspace { max-width: 1400px; display: grid; gap: 18px; margin: 0 auto; padding: clamp(22px,4vw,54px); }
 .platform-workspace section, .coming-soon { border: 1px solid var(--border); border-radius: 16px; background: #fff; box-shadow: 0 4px 14px rgba(27,31,43,.035); }
 .platform-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 26px; }
+.platform-hero-actions { display:flex; flex-wrap:wrap; gap:8px; }
 .platform-hero h2 { margin: 0; font-size: clamp(25px,3vw,34px); letter-spacing: -.035em; }
 .platform-hero p:not(.eyebrow) { max-width: 650px; margin: 8px 0 0; color: var(--muted-foreground); }
 .platform-picker { display: flex; gap: 6px; padding: 5px; border-radius: 12px; background: #f1f3f7; }
@@ -688,6 +689,8 @@ button:not([data-slot="button"]) { color: inherit; }
   .mobile-bottom-nav button[aria-current='page'] { background:#eef2ff; color: #3157f6; }
   .platform-workspace { padding:14px 12px calc(88px + env(safe-area-inset-bottom)); gap:12px; }
   .platform-hero { display: grid; padding: 20px 16px 15px; overflow: hidden; }
+  .platform-hero-actions { width:100%; }
+  .platform-hero-actions [data-slot="button"] { min-height:44px; flex:1 1 150px; }
   .platform-picker { width: 100%; overflow-x: auto; }
   .platform-picker button { flex: 0 0 auto; }
   .today-links { grid-template-columns: 1fr; }

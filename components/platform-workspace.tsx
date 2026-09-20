@@ -5,6 +5,7 @@ import { createRefreshGate } from '@/lib/refresh-gate';
 import { createActionGate } from '@/lib/action-gate';
 import { ChatBulkDialog } from '@/components/chat-bulk-dialog';
 import { ChatDuplicatesDialog } from '@/components/chat-duplicates-dialog';
+import { ChatDiscoveryDialog } from '@/components/chat-discovery-dialog';
 import { ChatProfileDialog } from '@/components/chat-profile-dialog';
 import { ChatHistoryDialog } from '@/components/chat-history-dialog';
 import { ChatPublishDialog } from '@/components/chat-publish-dialog';
@@ -53,6 +54,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const [loadedData,setData] = useState<ResponseData|null>(null);
   const [undo,setUndo] = useState<UndoState|null>(null);
   const [bulkOpen,setBulkOpen]=useState(false);
+  const [discoveryOpen,setDiscoveryOpen]=useState(false);
   const [duplicatesOpen,setDuplicatesOpen]=useState(false);
   const [notice,setNotice]=useState('');
   const [profileChat,setProfileChat]=useState<Chat|null>(null);
@@ -163,6 +165,14 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     setProfileChat(null); setData(null); setLoading(true); void reloadChats.current(); router.refresh();
   }
 
+  function importedDiscoveryChat(nextPlatform:'whatsapp'|'viber') {
+    const changesFilter=nextPlatform!==platform||queue!=='to_join'||search!==''||offset!==0;
+    setNotice('Новий чат із пошуку додано в чергу «Для приєднання».');
+    setData(null);setLoading(true);setPlatform(nextPlatform);setQueue('to_join');setSearch('');setProfileFilter('all');setOffset(0);
+    if(!changesFilter) void reloadChats.current();
+    router.refresh();
+  }
+
   function selectPlatform(next:Platform) {
     if(next===platform)return;
     writePlatformView(platform,{queue,search,offset,scrollY:window.scrollY,lastChatId:lastOpenedByPlatform[platform]||null});
@@ -250,6 +260,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     <ConfirmDialog open={confirmation!==null} title={confirmation?.kind==='assign'?'Перепризначити Telegram-акаунт?':'Повернути чат до приєднання?'} description={confirmation?.kind==='assign'?`Чат перейде з «${confirmation.currentName}» на «${confirmation.nextName}». Членство в самому Telegram потрібно змінити вручну.`:'Чат повернеться в чергу «Для приєднання». Історія чату не видаляється.'} confirmLabel={confirmation?.kind==='assign'?'Перепризначити':'Повернути'} busy={busy!==null} onCancel={()=>setConfirmation(null)} onConfirm={confirmPlatformAction}/>
     <ConfirmDialog open={deleteChat!==null} title="Остаточно видалити чат?" description={deleteChat?`«${deleteChat.name}» більше не блокуватиме повторне додавання. Дію не можна скасувати; вона доступна лише для неіснуючого чату без публікацій, лідів або активного розкладу.`:''} confirmLabel="Видалити назавжди" destructive busy={busy!==null} onCancel={()=>setDeleteChat(null)} onConfirm={()=>{const chat=deleteChat;setDeleteChat(null);if(chat)void act(chat,'permanent_delete',{confirmation:'PERMANENTLY_DELETE_NONEXISTENT_CHAT'});}}/>
     <ChatBulkDialog open={bulkOpen} onClose={()=>setBulkOpen(false)} onAdded={addedChats} enabledPlatforms={enabledPlatforms}/>
+    <ChatDiscoveryDialog open={discoveryOpen} onClose={()=>setDiscoveryOpen(false)} onImported={importedDiscoveryChat}/>
     <ChatDuplicatesDialog open={duplicatesOpen} onClose={()=>setDuplicatesOpen(false)}/>
     <ChatProfileDialog key={profileOpenKey} open={profileChat!==null} chat={profileChat} onClose={()=>setProfileChat(null)} onSaved={savedProfile} onOpenChat={()=>{if(profileChat)openChat(profileChat);}} finalFocus={()=>profileTrigger.current}/>
     <ChatHistoryDialog key={historyOpenKey} open={historyChat!==null} chat={historyChat} onClose={()=>setHistoryChat(null)} finalFocus={()=>historyTrigger.current}/>
@@ -257,7 +268,10 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     {notice&&<output className="reports-notice"><span>{notice}</span>{undo&&<Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>void undoLast()}>Скасувати</Button>}</output>}
     <section className="platform-hero">
       <div><p className="eyebrow">Робочі платформи</p><h2>Чати без зайвих переходів</h2><p>Приєднуйся, перевіряй очікування та відмічай публікації в одному стабільному процесі.</p></div>
-      <Button disabled={busy!==null} onClick={()=>setBulkOpen(true)}><Plus data-icon="inline-start"/>Додати чати</Button>
+      <div className="platform-hero-actions">
+        <Button variant="outline" disabled={busy!==null} onClick={()=>setDiscoveryOpen(true)}><Search data-icon="inline-start"/>Знайти чати</Button>
+        <Button disabled={busy!==null} onClick={()=>setBulkOpen(true)}><Plus data-icon="inline-start"/>Додати чати</Button>
+      </div>
       <div className="platform-picker" role="tablist" aria-label="Платформа">
         {availablePlatforms.map(item=><button type="button" key={item.key} role="tab" aria-selected={platform===item.key} tabIndex={platform===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>selectPlatform(item.key)}><i style={{background:item.color}} />{item.label}</button>)}
       </div>
