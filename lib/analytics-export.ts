@@ -29,12 +29,20 @@ type CohortTotals = {
   bookedLeads: number;
   bookings: number;
   completed: number;
+  noShow: number;
   bookingLeadRate: number;
   completionRate: number;
+  noShowRate: number;
 };
 
 type CohortPlatform = CohortTotals & { key: string; name: string };
-type CohortChat = CohortTotals & { id: string; name: string; platformName: string };
+type CohortChat = CohortTotals & {
+  id: string;
+  name: string;
+  platformName: string;
+  publications: number;
+  leadRate: number;
+};
 
 export type AnalyticsExportData = {
   range: { from: string; to: string; period: string };

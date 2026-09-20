@@ -9,9 +9,9 @@ void test('analytics CSV exports activity and cohort rows with spreadsheet-safe 
     platforms: [{ key: 'telegram', name: 'Telegram', joined: 5, publications: 4, responses: 2, bookings: 2, completed: 1, publicationRate: 80, responseRate: 50, bookingRate: 100, completionRate: 50 }],
     chats: [{ id: 'chat', name: 'Чат, "Київ"', platformName: 'Telegram', joined: 5, publications: 4, responses: 2, bookings: 2, publicationRate: 80, responseRate: 50, bookingRate: 100 }],
     cohort: {
-      totals: { leads: 2, bookedLeads: 1, bookings: 2, completed: 1, bookingLeadRate: 50, completionRate: 50 },
-      platforms: [{ key: 'telegram', name: 'Telegram', leads: 2, bookedLeads: 1, bookings: 2, completed: 1, bookingLeadRate: 50, completionRate: 50 }],
-      chats: [{ id: 'chat', name: 'Чат, "Київ"', platformName: 'Telegram', leads: 2, bookedLeads: 1, bookings: 2, completed: 1, bookingLeadRate: 50, completionRate: 50 }],
+      totals: { leads: 2, bookedLeads: 1, bookings: 2, completed: 1, noShow: 0, bookingLeadRate: 50, completionRate: 50, noShowRate: 0 },
+      platforms: [{ key: 'telegram', name: 'Telegram', leads: 2, bookedLeads: 1, bookings: 2, completed: 1, noShow: 0, bookingLeadRate: 50, completionRate: 50, noShowRate: 0 }],
+      chats: [{ id: 'chat', name: 'Чат, "Київ"', platformName: 'Telegram', publications: 4, leadRate: 50, leads: 2, bookedLeads: 1, bookings: 2, completed: 1, noShow: 0, bookingLeadRate: 50, completionRate: 50, noShowRate: 0 }],
     },
   });
   assert.equal(csv.charCodeAt(0), 0xfeff);
