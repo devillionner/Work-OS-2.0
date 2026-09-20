@@ -52,6 +52,7 @@ export async function GET(request: Request): Promise<Response> {
       activitySummaryStatement(env.DB, user.id, from, to),
       completedOperatorLessonsStatement(env.DB, user.id, from, to),
       env.DB.prepare(`SELECT COALESCE(e.chat_id,l.source_chat_id) AS chat_id,c.name,c.platform,c.workflow_status,
+          pr.language,pr.directions_json,
           SUM(CASE WHEN e.event_type='chat_joined' THEN 1 ELSE 0 END) AS joined,
           SUM(CASE WHEN e.event_type='publication' THEN 1 ELSE 0 END) AS publications,
           SUM(CASE WHEN e.event_type='lead_created' THEN 1 ELSE 0 END) AS responses,
@@ -59,9 +60,10 @@ export async function GET(request: Request): Promise<Response> {
         FROM activity_events e
         LEFT JOIN leads l ON l.id=e.lead_id AND l.user_id=e.user_id
         LEFT JOIN chats c ON c.id=COALESCE(e.chat_id,l.source_chat_id) AND c.user_id=e.user_id
+        LEFT JOIN chat_profiles pr ON pr.chat_id=c.id
         WHERE e.user_id=?1 AND e.event_date>=?2 AND e.event_date<=?3 AND e.cancelled_at IS NULL
           AND COALESCE(e.chat_id,l.source_chat_id) IS NOT NULL
-        GROUP BY COALESCE(e.chat_id,l.source_chat_id),c.name,c.platform,c.workflow_status
+        GROUP BY COALESCE(e.chat_id,l.source_chat_id),c.name,c.platform,c.workflow_status,pr.language,pr.directions_json
         HAVING joined>0 OR publications>0 OR responses>0 OR bookings>0
         ORDER BY publications DESC,responses DESC,bookings DESC,joined DESC,c.name ASC LIMIT 100`).bind(user.id, from, to),
       env.DB.prepare(`SELECT COALESCE(NULLIF(TRIM(archive_reason),''),'Без причини') AS reason,COUNT(*) AS count
@@ -120,12 +122,18 @@ export async function GET(request: Request): Promise<Response> {
     })
     .sort((a, b) => b.publications - a.publications || a.name.localeCompare(b.name, 'uk'));
 
-  const chats = (chatResult.results as Array<{ chat_id: string; name: string | null; platform: string | null; workflow_status: string | null; joined: number; publications: number; responses: number; bookings: number }>).map((row) => ({
+  const chats = (chatResult.results as Array<{
+    chat_id: string; name: string | null; platform: string | null; workflow_status: string | null;
+    language: string | null; directions_json: string | null;
+    joined: number; publications: number; responses: number; bookings: number;
+  }>).map((row) => ({
     id: row.chat_id,
     name: row.name || 'Без назви',
     platform: row.platform || 'unknown',
     platformName: PLATFORM_META[row.platform || '']?.name || row.platform || 'Інше',
     status: row.workflow_status || 'unknown',
+    language: row.language === 'uk' || row.language === 'ru' ? row.language : null,
+    directions: parseStringList(row.directions_json),
     joined: Number(row.joined || 0),
     publications: Number(row.publications || 0),
     responses: Number(row.responses || 0),
@@ -204,6 +212,18 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 function settingPercent(value:string):number { try { const parsed=JSON.parse(value); return Number.isInteger(parsed)&&parsed>=0&&parsed<=100?parsed:0; } catch { return 0; } }
+
+function parseStringList(value:string|null):string[] {
+  if (!value) return [];
+  try {
+    const parsed:unknown=JSON.parse(value);
+    return Array.isArray(parsed)
+      ? [...new Set(parsed.filter((item):item is string=>typeof item==='string').map(item=>item.trim()).filter(Boolean))]
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 function rate(value: number, base: number): number {
   return base > 0 ? Math.round((value / base) * 1000) / 10 : 0;
