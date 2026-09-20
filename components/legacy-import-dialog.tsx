@@ -45,7 +45,7 @@ export function LegacyImportDialog({
   onClose,
 }: {
   open: boolean;
-  onClose(): void;
+  onClose: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [prepared, setPrepared] = useState<PreparedBackup | null>(null);
@@ -62,7 +62,7 @@ export function LegacyImportDialog({
   useEffect(() => {
     if (!open) return;
     let active = true;
-    setLoadingStaged(true);
+    queueMicrotask(() => { if (active) setLoadingStaged(true); });
     fetch('/api/imports/legacy')
       .then(async (response) => {
         const result = (await response.json()) as { staged?: StagedImport | null; error?: string };
@@ -244,7 +244,7 @@ export function LegacyImportDialog({
         )}
 
         {error && <p className="import-error" role="alert">{error}</p>}
-        {message && <p className="import-success" role="status"><ArchiveRestore />{message}</p>}
+        {message && <output className="import-success"><ArchiveRestore />{message}</output>}
 
         <footer className="import-actions">
           <Button variant="outline" type="button" onClick={onClose} disabled={uploading}>Закрити</Button>

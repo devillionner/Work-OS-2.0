@@ -5,7 +5,6 @@ import test from 'node:test';
 import {
   appendMigrationReconciliation,
   reconcileMigrationChunk,
-  reconciliationComplete,
 } from '../lib/legacy-reconciliation.ts';
 import { MIGRATION_PHASES } from '../lib/legacy-migration.ts';
 import { localDatabase } from './helpers/local-d1.mjs';
