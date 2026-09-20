@@ -1,12 +1,20 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
 import { AnalyticsInsights } from '@/components/analytics-insights';
 import { AnalyticsTrends } from '@/components/analytics-trends';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AnalyticsMetricDialog, type AnalyticsMetricKey } from '@/components/analytics-metric-dialog';
+import {
+  CHAT_RANKING_MIN_PUBLICATIONS,
+  chatLanguageLabel,
+  hasEnoughChatRankingData,
+  rankAnalyticsChats,
+  responseConversionLabel,
+  type AnalyticsRankedChat,
+} from '@/lib/analytics-chat-ranking';
 
 type AnalyticsPeriod = 'day' | 'week' | 'month' | 'year' | 'custom';
 type PlatformRow = {
@@ -28,7 +36,7 @@ type AnalyticsData = {
   range: { period: string; days: number; from: string; to: string };
   totals: { joined: number; publications: number; responses: number; bookings: number; completed: number; publicationRate: number; responseRate: number; bookingRate: number; completionRate: number };
   platforms: PlatformRow[];
-  chats: Array<{ id: string; name: string; platform: string; platformName: string; joined: number; publications: number; responses: number; bookings: number; publicationRate: number; responseRate: number; bookingRate: number }>;
+  chats: AnalyticsRankedChat[];
   cohort: { totals:CohortTotals; platforms:CohortPlatform[]; chats:CohortChat[] };
   insights: AnalyticsInsightsData;
   trends: TrendPoint[];
@@ -54,6 +62,29 @@ export function AnalyticsWorkspace() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [detailMetric, setDetailMetric] = useState<AnalyticsMetricKey | null>(null);
+  const [chatPlatform, setChatPlatform] = useState('all');
+  const [chatDirection, setChatDirection] = useState('all');
+  const [chatLanguage, setChatLanguage] = useState('all');
+
+  const chatPlatforms = useMemo(
+    () => [...new Map((data?.chats || []).map((chat) => [chat.platform, chat.platformName])).entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'uk')),
+    [data],
+  );
+  const chatDirections = useMemo(
+    () => [...new Set((data?.chats || []).flatMap((chat) => chat.directions))]
+      .sort((a, b) => a.localeCompare(b, 'uk')),
+    [data],
+  );
+  const rankedChats = useMemo(
+    () => rankAnalyticsChats(data?.chats || [], {
+      platform: chatPlatform,
+      direction: chatDirection,
+      language: chatLanguage,
+    }),
+    [data, chatPlatform, chatDirection, chatLanguage],
+  );
 
   const params = useCallback((format?: 'csv') => {
     const value = new URLSearchParams({ period });
@@ -158,12 +189,17 @@ export function AnalyticsWorkspace() {
           </div>
         </section>
 
-        <section className="analytics-card">
-          <div className="card-heading"><div><p className="eyebrow">Ефективність чатів</p><h3>Активність чатів за вибраними датами</h3></div><span className="muted-note">Показано до 100 чатів з активністю</span></div>
+        <section className="analytics-card analytics-chat-ranking">
+          <div className="card-heading"><div><p className="eyebrow">Ефективність чатів</p><h3>Рейтинг за конверсією</h3><p className="muted-note analytics-card-note">Конверсія = відгуки / публікації за вибраний зверху період. Чати з менш ніж ${CHAT_RANKING_MIN_PUBLICATIONS} публікаціями позначаються як мала вибірка.</p></div><span className="muted-note">Показано до 100 чатів з активністю</span></div>
+          <div className="analytics-ranking-controls" role="group" aria-label="Фільтри рейтингу чатів">
+            <label>Платформа<select value={chatPlatform} onChange={(event) => setChatPlatform(event.target.value)}><option value="all">Усі платформи</option>{chatPlatforms.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <label>Напрямок<select value={chatDirection} onChange={(event) => setChatDirection(event.target.value)}><option value="all">Усі напрямки</option>{chatDirections.map((direction) => <option key={direction} value={direction}>{direction}</option>)}</select></label>
+            <label>Мова<select value={chatLanguage} onChange={(event) => setChatLanguage(event.target.value)}><option value="all">Усі мови</option><option value="uk">Українська</option><option value="ru">Російська</option><option value="unknown">Не визначено</option></select></label>
+          </div>
           <div className="analytics-table analytics-chat-table">
             <div className="analytics-table-head"><span>Чат</span><span>Платформа</span><span>Оголошення</span><span>Відгуки</span><span>Записи</span><span>Конверсія</span></div>
-            {data.chats.map((chat) => <div className="analytics-table-row" key={chat.id}><span className="chat-analytics-name" title={chat.name}>{chat.name}</span><span>{chat.platformName}</span><strong>{chat.publications}</strong><strong>{chat.responses}</strong><strong>{chat.bookings}</strong><span>{chat.responseRate}%</span></div>)}
-            {!data.chats.length && <div className="analytics-empty">Чати з активністю з’являться тут після роботи.</div>}
+            {rankedChats.map((chat) => <div className="analytics-table-row" key={chat.id}><span className="chat-ranking-name"><span className="chat-analytics-name" title={chat.name}>{chat.name}</span><small>{chatLanguageLabel(chat.language)}{chat.directions.length ? ` · ${chat.directions.join(', ')}` : ''}</small>{!hasEnoughChatRankingData(chat) ? <Badge variant="outline">Недостатньо даних</Badge> : null}</span><span>{chat.platformName}</span><strong>{chat.publications}</strong><strong>{chat.responses}</strong><strong>{chat.bookings}</strong><span>{responseConversionLabel(chat)}</span></div>)}
+            {!rankedChats.length && <div className="analytics-empty">{data.chats.length ? 'За обраними фільтрами чатів немає.' : 'Чати з активністю з’являться тут після роботи.'}</div>}
           </div>
         </section>
 
