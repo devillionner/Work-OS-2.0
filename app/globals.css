@@ -876,6 +876,21 @@ button:not([data-slot="button"]) { color: inherit; }
 .chat-result-events li { display:flex; justify-content:space-between; gap:12px; padding:8px 0; }
 .chat-result-events time { flex-shrink:0; color:var(--muted-foreground); font-size:11px; }
 @media (max-width:560px) { .chat-result-head { flex-direction:column; } .chat-result-periods { width:100%; justify-content:flex-start; } .chat-result-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+.chat-names-dialog[data-slot="dialog-content"] { display:flex; flex-direction:column; width:min(760px,calc(100vw - 24px)); max-width:760px; max-height:90dvh; overflow-y:auto; gap:16px; padding:24px; background:var(--card); color:var(--foreground); box-shadow:0 24px 70px rgb(25 31 48 / .18); }
+.chat-names-summary { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; }
+.chat-names-summary > div { display:grid; gap:2px; padding:10px; border:1px solid var(--border); border-radius:10px; background:#f8f9fc; }
+.chat-names-summary span,.chat-names-summary small { color:var(--muted-foreground); font-size:11px; }
+.chat-names-summary strong { font-size:20px; }
+.chat-names-platforms { display:flex; flex-wrap:wrap; gap:8px; }
+.chat-names-platforms span { padding:6px 9px; border-radius:999px; background:#f1f3f8; color:var(--muted-foreground); font-size:11px; }
+.chat-names-problems { display:grid; gap:8px; max-height:320px; overflow:auto; }
+.chat-names-problem { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; }
+.chat-names-problem > div { min-width:0; display:grid; gap:3px; }
+.chat-names-problem strong,.chat-names-problem span { overflow-wrap:anywhere; }
+.chat-names-problem small { color:var(--muted-foreground); }
+.chat-names-problem[data-status="error"] { border-color:#f0c7c7; background:#fffafa; }
+@media(max-width:700px) { .chat-names-dialog[data-slot="dialog-content"] { padding:18px 14px; } .chat-names-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } .chat-names-problem { align-items:flex-start; flex-direction:column; } }
+
 .chat-publish-dialog[data-slot="dialog-content"] { display:flex; flex-direction:column; width:min(680px,calc(100vw - 24px)); max-width:680px; max-height:90dvh; overflow-y:auto; gap:16px; padding:24px; background:var(--card); color:var(--foreground); box-shadow:0 24px 70px rgb(25 31 48 / .18); }
 .chat-publish-dialog > * { flex-shrink:0; }
 .chat-publish-dialog [data-slot="dialog-header"] { padding-right:36px; }

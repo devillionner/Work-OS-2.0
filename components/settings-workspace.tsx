@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Cloud, CopyCheck, DatabaseBackup, FileSpreadsheet, History, ShieldCheck, Sparkles, Target } from 'lucide-react';
+import { Cloud, CopyCheck, DatabaseBackup, FileSpreadsheet, History, RefreshCw, ShieldCheck, Sparkles, Target } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AppUpdateScreenPreview } from '@/components/app-update-screen-preview';
@@ -10,6 +10,7 @@ import { CloudRestoreDialog } from '@/components/cloud-restore-dialog';
 import { TodaySettingsDialog } from '@/components/today-settings-dialog';
 import { ChatDuplicatesDialog } from '@/components/chat-duplicates-dialog';
 import { ChatCsvDialog } from '@/components/chat-csv-dialog';
+import { ChatNamesDialog } from '@/components/chat-names-dialog';
 import { GoalHistoryDialog } from '@/components/goal-history-dialog';
 import type { DashboardSnapshot } from '@/lib/dashboard';
 
@@ -26,6 +27,7 @@ export function SettingsWorkspace({ user, snapshot, onRefresh }: Props) {
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [csvOpen, setCsvOpen] = useState(false);
+  const [namesOpen, setNamesOpen] = useState(false);
   const [enabledPlatforms, setEnabledPlatforms] = useState(snapshot.enabledPlatforms);
   const [savingPlatforms, setSavingPlatforms] = useState(false);
   const [platformNotice, setPlatformNotice] = useState('');
@@ -73,6 +75,7 @@ export function SettingsWorkspace({ user, snapshot, onRefresh }: Props) {
       <div className="settings-tool-list">
         <div className="settings-tool-row"><span className="settings-tool-icon"><Sparkles /></span><div><strong>Тест екрану оновлення</strong><p>На кілька секунд показує екран, який з’являється під час автооновлення Work OS. Сайт насправді не перезавантажується.</p></div><Button variant="outline" size="sm" type="button" onClick={() => setUpdatePreviewOpen(true)}>Запустити тест</Button></div>
         <div className="settings-tool-row"><span className="settings-tool-icon"><DatabaseBackup /></span><div><strong>Резервна копія</strong><p>Створи переносну копію або перевір файл перед відновленням.</p></div><div className="settings-tool-actions"><CloudBackupButton /><Button variant="outline" size="sm" type="button" onClick={() => setRestoreOpen(true)}>Перевірити</Button></div></div>
+        <div className="settings-tool-row"><span className="settings-tool-icon"><RefreshCw /></span><div><strong>Перевірити назви всіх чатів</strong><p>Підтягує доступні назви Telegram, WhatsApp і Viber; ручні назви без підтвердження не перезаписує.</p></div><Button variant="outline" size="sm" onClick={() => setNamesOpen(true)}>Перевірити</Button></div>
         <div className="settings-tool-row"><span className="settings-tool-icon"><CopyCheck /></span><div><strong>Перевірити дублікати</strong><p>Точні URL і потенційні повтори за назвою відкриваються в окремому вікні.</p></div><Button variant="outline" size="sm" onClick={() => setDuplicatesOpen(true)}>Відкрити</Button></div>
         <div className="settings-tool-row"><span className="settings-tool-icon"><FileSpreadsheet /></span><div><strong>Перенесення чатів</strong><p>CSV переносить поточний стан чатів; повна історія зберігається у резервній копії.</p></div><Button variant="outline" size="sm" onClick={() => setCsvOpen(true)}>CSV</Button></div>
       </div>
@@ -86,5 +89,6 @@ export function SettingsWorkspace({ user, snapshot, onRefresh }: Props) {
     <CloudRestoreDialog open={restoreOpen} onClose={() => setRestoreOpen(false)} />
     <ChatDuplicatesDialog open={duplicatesOpen} onClose={() => setDuplicatesOpen(false)} />
     <ChatCsvDialog open={csvOpen} onClose={() => setCsvOpen(false)} onImported={onRefresh} />
+    <ChatNamesDialog open={namesOpen} onClose={() => setNamesOpen(false)} onChanged={onRefresh} />
   </div>;
 }
