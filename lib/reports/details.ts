@@ -13,6 +13,8 @@ export type ReportEventDetail = {
   leadName: string | null;
   leadSubject: string | null;
   lessonSubject: string | null;
+  lessonTeacherName: string | null;
+  lessonDate: string | null;
 };
 
 type ReportEventRow = {
@@ -28,6 +30,8 @@ type ReportEventRow = {
   lead_name: string | null;
   lead_subject: string | null;
   lesson_subject: string | null;
+  lesson_teacher_name: string | null;
+  lesson_date: string | null;
 };
 
 const BACKDATED_LABEL = 'Додано заднім числом';
@@ -35,7 +39,8 @@ const BACKDATED_LABEL = 'Додано заднім числом';
 export async function readReportEventDetails(db: D1Database, userId: string, date: string, limit = 200): Promise<ReportEventDetail[]> {
   const boundedLimit = Math.max(1, Math.min(200, Math.floor(limit) || 200));
   const result = await db.prepare(`SELECT e.id,e.event_type,e.platform,e.chat_id,e.lead_id,e.lesson_id,e.occurred_at,e.event_date,
-      c.name AS chat_name,l.name AS lead_name,l.subject AS lead_subject,ls.subject AS lesson_subject
+      c.name AS chat_name,l.name AS lead_name,l.subject AS lead_subject,ls.subject AS lesson_subject,
+      ls.teacher_name AS lesson_teacher_name,ls.lesson_date AS lesson_date
     FROM activity_events e
     LEFT JOIN chats c ON c.id=e.chat_id AND c.user_id=e.user_id
     LEFT JOIN leads l ON l.id=e.lead_id AND l.user_id=e.user_id
@@ -60,6 +65,8 @@ export async function readReportEventDetails(db: D1Database, userId: string, dat
       leadName: row.lead_name && backdated ? `${row.lead_name} · ${BACKDATED_LABEL}` : row.lead_name,
       leadSubject: row.lead_subject,
       lessonSubject: row.lesson_subject,
+      lessonTeacherName: row.lesson_teacher_name,
+      lessonDate: row.lesson_date,
     };
   });
 }

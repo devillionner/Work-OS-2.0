@@ -40,7 +40,7 @@ export async function GET(request: Request): Promise<Response> {
   const selectedPublic = selected
     ? { ...publicReport(selected), stale: calendar.find((item) => item.id === selected.id)?.stale ?? false }
     : null;
-  const suggestedText = selectedDate && !selected ? composeDailyReportText(selectedDate, summary) : '';
+  const suggestedText = selectedDate && !selected ? composeDailyReportText(selectedDate, summary, details) : '';
   return Response.json({ month, reports: calendar, calendarContext, selected: selectedPublic, suggestedText, summary, details, previousReportReminder, finalReportState, goalPlanFact, leadCommandScope: `reports:${user.id}` }, { headers: { 'Cache-Control': 'no-store' } });
 }
 

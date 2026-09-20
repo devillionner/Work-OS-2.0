@@ -11,8 +11,8 @@ void test('report event details expose active owner-scoped chat, response and bo
   await seedChat(db, { id: 'chat-other', owner: 'other', platform: 'telegram' });
   await db.prepare(`INSERT INTO leads(id,user_id,name,subject,platform,status,created_at,updated_at)
     VALUES ('lead-u','u','Олена','Англійська','telegram','response',1,1),('lead-other','other','Інший','Математика','telegram','response',1,1)`).run();
-  await db.prepare(`INSERT INTO lessons(id,user_id,lead_id,student_name,subject,lesson_date,created_at,updated_at)
-    VALUES ('lesson-u','u','lead-u','Олена','Математика',?1,1,1)`).bind(DATE).run();
+  await db.prepare(`INSERT INTO lessons(id,user_id,lead_id,student_name,subject,teacher_name,lesson_date,created_at,updated_at)
+    VALUES ('lesson-u','u','lead-u','Олена','Математика','Михайло',?1,1,1)`).bind(DATE).run();
   await seedEvent(db, { id: 'joined-u', type: 'chat_joined', date: DATE, at: 50, chat: 'chat-u' });
   await seedEvent(db, { id: 'publication-u', type: 'publication', date: DATE, at: 75, chat: 'chat-u' });
   await seedEvent(db, { id: 'response-u', type: 'lead_created', date: DATE, at: 100, lead: 'lead-u' });
@@ -30,6 +30,8 @@ void test('report event details expose active owner-scoped chat, response and bo
   assert.equal(details[1].chatName, 'chat-u');
   assert.equal(details[2].leadName, 'Олена');
   assert.equal(details[3].lessonSubject, 'Математика');
+  assert.equal(details[3].lessonTeacherName, 'Михайло');
+  assert.equal(details[3].lessonDate, DATE);
   assert.equal(details[4].leadName, 'Олена · Додано заднім числом');
   const other = await readReportEventDetails(db, 'other', DATE);
   assert.deepEqual(other.map((event) => event.id), ['response-other', 'joined-other']);

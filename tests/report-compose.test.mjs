@@ -10,12 +10,16 @@ void test('daily report draft is reconstructed deterministically from event fact
     {platform:'telegram',eventType:'lesson_booked',count:1},
     {platform:'telegram',eventType:'curator_booking_pending',count:1},
     {platform:'threads',eventType:'lead_created',count:1},
+  ],[
+    {eventType:'lesson_booked',platform:'telegram',lessonSubject:'Англійська',leadSubject:'',lessonTeacherName:'Михайло Ганчак',lessonDate:'2026-09-21'},
+    {eventType:'curator_booking_pending',platform:'threads',lessonSubject:null,leadSubject:'Математика',lessonTeacherName:null,lessonDate:null},
   ]);
   assert.match(text,/Загальний звіт 20\.09\.26/);
-  assert.match(text,/Telegram\nОголошення: 31\nНові чати: 18\nВідгуки: 2\nЗаписи: 2/);
+  assert.match(text,/Telegram\nОголошення: 31\nНові чати: 18\nВідгуки: 2\nЗаписи: 2\nАнглійська — Михайло Ганчак — 21\.09\.26;/);
   assert.match(text,/Threads\nОголошення: 0\nВідгуки: 1\nЗаписи: 0/);
   const threadsBlock = text.split('\n\n').find((block) => block.startsWith('Threads\n')) || '';
   assert.doesNotMatch(threadsBlock,/Нові чати:/);
+  assert.doesNotMatch(threadsBlock,/Викладач не вказаний/);
 });
 
 void test('daily report draft stays stable and includes unknown platforms without losing facts', () => {
