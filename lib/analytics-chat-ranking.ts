@@ -26,7 +26,7 @@ export function rankAnalyticsChats(
   chats: AnalyticsRankedChat[],
   filters: ChatRankingFilters,
 ): AnalyticsRankedChat[] {
-  return chats
+  return [...chats]
     .filter((chat) => filters.platform === 'all' || chat.platform === filters.platform)
     .filter((chat) => filters.direction === 'all' || chat.directions.includes(filters.direction))
     .filter((chat) => {
@@ -34,7 +34,7 @@ export function rankAnalyticsChats(
       if (filters.language === 'unknown') return chat.language === null;
       return chat.language === filters.language;
     })
-    .toSorted((a, b) => {
+    .sort((a, b) => {
       const aSample = hasEnoughChatRankingData(a) ? 0 : 1;
       const bSample = hasEnoughChatRankingData(b) ? 0 : 1;
       return (
