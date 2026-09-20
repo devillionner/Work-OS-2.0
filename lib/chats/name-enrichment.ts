@@ -1,4 +1,4 @@
-import { cleanChatName } from './bulk-input.ts';
+import { cleanChatName, normalizeGroupLink } from './bulk-input.ts';
 import { isGeneratedChatName, resolveChatName, shouldAutoApplyResolvedName, type ChatNameResolution } from './name-resolution.ts';
 
 export type ChatNameScanStatus = 'updated' | 'unchanged' | 'confirm' | 'error';
@@ -21,6 +21,7 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 type Row = { id: string; platform: string; name: string; link: string; updated_at: number };
 
 const MAX_BATCH = 12;
+const AUTO_ENRICH_MAX = 60;
 
 export async function scanChatNames(
   db: D1Database,
@@ -96,6 +97,41 @@ export async function scanChatNames(
     counts: summarize(items),
     nextCursor: !ids.length && hasMore && rows.length ? rows[rows.length - 1].id : null,
   };
+}
+
+export async function enrichImportedChatNames(
+  db: D1Database,
+  userId: string,
+  links: string[],
+  now: number,
+  fetcher: FetchLike = fetch,
+): Promise<{ checked: number; updated: number; confirm: number; error: number; truncated: boolean }> {
+  const supported = [...new Set(links.flatMap((link) => {
+    const parsed = normalizeGroupLink(link);
+    return parsed && ['telegram', 'whatsapp', 'viber'].includes(parsed.platform) ? [parsed.link] : [];
+  }))];
+  const selected = supported.slice(0, AUTO_ENRICH_MAX);
+  if (!selected.length) return { checked: 0, updated: 0, confirm: 0, error: 0, truncated: false };
+
+  const result = await db.prepare(`SELECT id,platform,name,link,updated_at FROM chats
+    WHERE user_id=?1 AND normalized_link IN (SELECT value FROM json_each(?2))
+      AND platform IN ('telegram','whatsapp','viber')
+    ORDER BY id LIMIT ?3`)
+    .bind(userId, JSON.stringify(selected), AUTO_ENRICH_MAX).all<Row>();
+
+  let checked = 0;
+  let updated = 0;
+  let confirm = 0;
+  let error = 0;
+  for (let offset = 0; offset < result.results.length; offset += MAX_BATCH) {
+    const ids = result.results.slice(offset, offset + MAX_BATCH).map((row) => row.id);
+    const batch = await scanChatNames(db, userId, { ids }, now, fetcher);
+    checked += batch.items.length;
+    updated += batch.items.filter((item) => item.status === 'updated').length;
+    confirm += batch.items.filter((item) => item.status === 'confirm').length;
+    error += batch.items.filter((item) => item.status === 'error').length;
+  }
+  return { checked, updated, confirm, error, truncated: supported.length > selected.length };
 }
 
 export async function confirmResolvedChatName(

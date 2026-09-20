@@ -29,3 +29,12 @@ void test('resolver refuses redirects outside the platform allowlist', async () 
   assert.equal(result, null);
   assert.equal(calls, 1);
 });
+
+
+void test('resolver strips Viber provider suffix from a real group title', async () => {
+  const result = await resolveChatName('https://invite.viber.com/?g=AbCd', async () =>
+    new Response('<meta property="og:title" content="UA 🇺🇦— FR 🇫🇷 — UA 🇺🇦 on Viber">', {
+      headers: { 'content-type': 'text/html' },
+    }));
+  assert.equal(result?.name, 'UA 🇺🇦— FR 🇫🇷 — UA 🇺🇦');
+});

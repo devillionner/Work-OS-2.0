@@ -140,7 +140,7 @@ function normalizeResolvedName(value: string, platform: ChatNameResolution['plat
     name = name.replace(/\s*[—–|-]\s*WhatsApp$/i, '').trim();
     if (/^(?:WhatsApp|WhatsApp Group Invite|Join WhatsApp Group)$/i.test(name)) return null;
   } else {
-    name = name.replace(/\s*[—–|-]\s*Viber$/i, '').trim();
+    name = name.replace(/\s*[—–|-]\s*Viber$/i, '').replace(/\s+on\s+Viber$/i, '').trim();
     if (/^(?:Viber|Viber Invite|Join Viber)$/i.test(name)) return null;
   }
   name = cleanChatName(name);

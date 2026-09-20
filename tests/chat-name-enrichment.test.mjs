@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { confirmResolvedChatName, scanChatNames } from '../lib/chats/name-enrichment.ts';
+import { confirmResolvedChatName, enrichImportedChatNames, scanChatNames } from '../lib/chats/name-enrichment.ts';
 import { localDatabase } from './helpers/local-d1.mjs';
 
 async function insertChat(db, { id, owner='u', platform, name, link }) {
@@ -47,4 +48,24 @@ void test('paged scan exposes a stable cursor instead of one unbounded request',
   const second=await scanChatNames(db,'u',{cursor:first.nextCursor,limit:2},101,fetcher);
   assert.equal(second.items.length,1);
   assert.equal(second.nextCursor,null);
+});
+
+
+void test('successful bulk imports can enrich their new supported chat links without touching foreign rows', async (t) => {
+  const db = await localDatabase(t);
+  await insertChat(db,{id:'new-a',platform:'telegram',name:'Telegram · auto_group',link:'https://t.me/auto_group'});
+  await insertChat(db,{id:'foreign',owner:'other',platform:'telegram',name:'Telegram · foreign_group',link:'https://t.me/foreign_group'});
+  const fetcher=async url=>new Response(`<meta property="og:title" content="${url.includes('auto_group')?'Auto Parents':'Foreign'}">`,{headers:{'content-type':'text/html'}});
+  const summary=await enrichImportedChatNames(db,'u',['https://t.me/auto_group','https://t.me/foreign_group','https://www.facebook.com/groups/not-supported'],200,fetcher);
+  assert.deepEqual(summary,{checked:1,updated:1,confirm:0,error:0,truncated:false});
+  assert.equal((await db.prepare("SELECT name FROM chats WHERE id='new-a'").first()).name,'Auto Parents');
+  assert.equal((await db.prepare("SELECT name FROM chats WHERE id='foreign'").first()).name,'Telegram · foreign_group');
+});
+
+void test('bulk route schedules name enrichment only after a successful add response', async () => {
+  const source=await readFile(new URL('../app/api/chats/bulk/route.ts',import.meta.url),'utf8');
+  assert.match(source,/import \{ env, waitUntil \} from 'cloudflare:workers'/);
+  assert.match(source,/response\.ok/);
+  assert.match(source,/body\.action==='add'/);
+  assert.match(source,/waitUntil\(enrichImportedChatNames/);
 });
