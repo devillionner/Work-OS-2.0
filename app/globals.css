@@ -484,6 +484,12 @@ button:not([data-slot="button"]) { color: inherit; }
 
 .analytics-card { padding: 22px; }
 .analytics-card h3 { margin: 0; font-size: 20px; letter-spacing: -.025em; }
+.analytics-outcome-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; }
+.analytics-outcome { display:grid; gap:5px; padding:14px; border:1px solid #e3e6ec; border-radius:11px; background:#fafbfc; }
+.analytics-outcome span { color:var(--muted-foreground); font-size:11px; font-weight:750; }
+.analytics-outcome strong { font-size:23px; font-variant-numeric:tabular-nums; }
+@media (max-width:760px) { .analytics-outcome-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .analytics-outcome:last-child { grid-column:1 / -1; } }
+
 .analytics-trend-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .analytics-trend-card { min-width:0; display:grid; grid-template-columns:minmax(120px,.34fr) minmax(0,1fr); align-items:center; gap:18px; min-height:132px; padding:15px 16px; border:1px solid var(--border); border-radius:12px; background:#fafbfc; }
 .analytics-trend-card > div { min-width:0; display:grid; gap:4px; align-content:center; }

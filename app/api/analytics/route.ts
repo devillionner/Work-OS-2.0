@@ -93,6 +93,13 @@ export async function GET(request: Request): Promise<Response> {
   totals.responses = Array.from(byPlatform.values()).reduce((sum, row) => sum + row.responses, 0);
   totals.bookings = Array.from(byPlatform.values()).reduce((sum, row) => sum + row.bookings, 0);
   totals.completed = Array.from(completedByPlatform.values()).reduce((sum, count) => sum + count, 0);
+  const outcomes = {
+    booked: eventRows.filter((row) => row.event_type === 'lesson_booked').reduce((sum,row)=>sum+Number(row.count||0),0),
+    completed: eventRows.filter((row) => row.event_type === 'lesson_completed').reduce((sum,row)=>sum+Number(row.count||0),0),
+    cancelled: eventRows.filter((row) => row.event_type === 'lesson_cancelled').reduce((sum,row)=>sum+Number(row.count||0),0),
+    rescheduled: eventRows.filter((row) => row.event_type === 'lesson_rescheduled').reduce((sum,row)=>sum+Number(row.count||0),0),
+    noShow: eventRows.filter((row) => row.event_type === 'lesson_no_show').reduce((sum,row)=>sum+Number(row.count||0),0),
+  };
   const platforms: PlatformRow[] = Array.from(platformKeys)
     .filter((key) => key !== 'unknown')
     .map((key) => {
@@ -180,7 +187,7 @@ export async function GET(request: Request): Promise<Response> {
     archiveReasons,
     archivedChats: archiveReasons.reduce((sum, row) => sum + row.count, 0),
   };
-  return Response.json({ ...data, insights, trends, subjects }, { headers: { 'Cache-Control': 'no-store' } });
+  return Response.json({ ...data, outcomes, insights, trends, subjects }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 function rate(value: number, base: number): number {

@@ -33,6 +33,7 @@ type AnalyticsData = {
   insights: AnalyticsInsightsData;
   trends: TrendPoint[];
   subjects: SubjectData;
+  outcomes: { booked:number; completed:number; cancelled:number; rescheduled:number; noShow:number };
 };
 
 const periods: Array<{ key: AnalyticsPeriod; label: string }> = [
@@ -114,6 +115,16 @@ export function AnalyticsWorkspace() {
 
         <AnalyticsInsights insights={data.insights} />
         <AnalyticsTrends points={data.trends} />
+        <section className="analytics-card analytics-outcomes">
+          <div className="card-heading"><div><p className="eyebrow">Доходимість</p><h3>Результат уроків</h3><p className="muted-note analytics-card-note">Події уроків за тим самим вибраним періодом; перенесення не створює нового запису.</p></div><Badge variant="outline">{formatRange(data.range.from, data.range.to)}</Badge></div>
+          <div className="analytics-outcome-grid">
+            <Outcome label="Записано" value={data.outcomes.booked} />
+            <Outcome label="Проведено" value={data.outcomes.completed} />
+            <Outcome label="Скасовано" value={data.outcomes.cancelled} />
+            <Outcome label="Перенесено" value={data.outcomes.rescheduled} />
+            <Outcome label="Не прийшов" value={data.outcomes.noShow} />
+          </div>
+        </section>
         <SubjectAnalytics data={data.subjects} />
 
         <section className="analytics-card">
@@ -174,6 +185,10 @@ function Metric({ metric, label, value, hint, onOpen }: { metric: AnalyticsMetri
 
 function FunnelStep({ title, value, detail }: { title: string; value: number; detail: string }) {
   return <div className="funnel-step"><span>{title}</span><strong>{value}</strong><small>{detail}</small></div>;
+}
+
+function Outcome({ label, value }: { label:string; value:number }) {
+  return <div className="analytics-outcome"><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function SubjectAnalytics({ data }: { data: SubjectData }) {
