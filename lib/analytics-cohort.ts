@@ -3,6 +3,7 @@ export type AnalyticsCohortTotals = {
   bookedLeads: number;
   bookings: number;
   completed: number;
+  noShow: number;
 };
 
 export type AnalyticsCohortPlatform = AnalyticsCohortTotals & {
@@ -23,6 +24,7 @@ type CohortRow = {
   booked_leads: number;
   bookings: number;
   completed: number;
+  no_show: number;
 };
 
 export async function readAnalyticsCohort(
@@ -46,13 +48,15 @@ export async function readAnalyticsCohort(
       WHERE e.user_id=?1 AND e.event_type IN ('lesson_booked','curator_booking_pending')
         AND e.cancelled_at IS NULL
       GROUP BY e.lead_id
-    ), completed AS (
-      SELECT lesson.lead_id,COUNT(*) AS completed
+    ), outcomes AS (
+      SELECT lesson.lead_id,
+        SUM(CASE WHEN lesson.status='completed' THEN 1 ELSE 0 END) AS completed,
+        SUM(CASE WHEN lesson.status='no-show' THEN 1 ELSE 0 END) AS no_show
       FROM lessons lesson JOIN cohort co ON co.lead_id=lesson.lead_id
-      WHERE lesson.user_id=?1 AND lesson.status='completed'
+      WHERE lesson.user_id=?1 AND lesson.status IN ('completed','no-show')
         AND EXISTS (
           SELECT 1 FROM activity_events booked
-          WHERE booked.user_id=lesson.user_id AND booked.lesson_id=lesson.id
+          WHERE booked.user_id=lesson.user_id AND booked.lead_id=lesson.lead_id
             AND booked.event_type='lesson_booked' AND booked.cancelled_at IS NULL
         )
       GROUP BY lesson.lead_id
@@ -61,16 +65,17 @@ export async function readAnalyticsCohort(
       COUNT(*) AS leads,
       SUM(CASE WHEN COALESCE(b.bookings,0)>0 THEN 1 ELSE 0 END) AS booked_leads,
       SUM(COALESCE(b.bookings,0)) AS bookings,
-      SUM(COALESCE(done.completed,0)) AS completed
+      SUM(COALESCE(outcome.completed,0)) AS completed,
+      SUM(COALESCE(outcome.no_show,0)) AS no_show
     FROM cohort co
     JOIN leads l ON l.id=co.lead_id AND l.user_id=?1
     LEFT JOIN chats c ON c.id=l.source_chat_id AND c.user_id=l.user_id
     LEFT JOIN bookings b ON b.lead_id=l.id
-    LEFT JOIN completed done ON done.lead_id=l.id
+    LEFT JOIN outcomes outcome ON outcome.lead_id=l.id
     GROUP BY COALESCE(l.platform,'unknown'),l.source_chat_id,c.name
     ORDER BY leads DESC,bookings DESC,COALESCE(c.name,'')`).bind(userId, from, to).all<CohortRow>();
 
-  const totals: AnalyticsCohortTotals = { leads: 0, bookedLeads: 0, bookings: 0, completed: 0 };
+  const totals: AnalyticsCohortTotals = { leads: 0, bookedLeads: 0, bookings: 0, completed: 0, noShow: 0 };
   const byPlatform = new Map<string, AnalyticsCohortPlatform>();
   const chats: AnalyticsCohortChat[] = [];
   for (const row of result.results) {
@@ -79,17 +84,20 @@ export async function readAnalyticsCohort(
       bookedLeads: Number(row.booked_leads || 0),
       bookings: Number(row.bookings || 0),
       completed: Number(row.completed || 0),
+      noShow: Number(row.no_show || 0),
     };
     totals.leads += values.leads;
     totals.bookedLeads += values.bookedLeads;
     totals.bookings += values.bookings;
     totals.completed += values.completed;
+    totals.noShow += values.noShow;
     const platform = row.platform || 'unknown';
-    const current = byPlatform.get(platform) || { platform, leads: 0, bookedLeads: 0, bookings: 0, completed: 0 };
+    const current = byPlatform.get(platform) || { platform, leads: 0, bookedLeads: 0, bookings: 0, completed: 0, noShow: 0 };
     current.leads += values.leads;
     current.bookedLeads += values.bookedLeads;
     current.bookings += values.bookings;
     current.completed += values.completed;
+    current.noShow += values.noShow;
     byPlatform.set(platform, current);
     if (row.chat_id) chats.push({ id: row.chat_id, name: row.chat_name || 'Без назви', platform, ...values });
   }

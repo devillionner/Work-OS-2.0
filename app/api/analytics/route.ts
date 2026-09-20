@@ -134,6 +134,7 @@ export async function GET(request: Request): Promise<Response> {
     responseRate: rate(Number(row.responses || 0), Number(row.publications || 0)),
     bookingRate: rate(Number(row.bookings || 0), Number(row.responses || 0)),
   }));
+  const activityByChat = new Map(chats.map((row) => [row.id, row]));
 
   const data: AnalyticsExportData = {
     range,
@@ -151,6 +152,7 @@ export async function GET(request: Request): Promise<Response> {
         ...cohort.totals,
         bookingLeadRate: rate(cohort.totals.bookedLeads, cohort.totals.leads),
         completionRate: rate(cohort.totals.completed, cohort.totals.bookings),
+        noShowRate: rate(cohort.totals.noShow, cohort.totals.bookings),
       },
       platforms: cohort.platforms.map((row) => ({
         key: row.platform,
@@ -158,13 +160,21 @@ export async function GET(request: Request): Promise<Response> {
         ...row,
         bookingLeadRate: rate(row.bookedLeads, row.leads),
         completionRate: rate(row.completed, row.bookings),
+        noShowRate: rate(row.noShow, row.bookings),
       })),
-      chats: cohort.chats.map((row) => ({
-        ...row,
-        platformName: PLATFORM_META[row.platform]?.name || row.platform,
-        bookingLeadRate: rate(row.bookedLeads, row.leads),
-        completionRate: rate(row.completed, row.bookings),
-      })),
+      chats: cohort.chats.map((row) => {
+        const activity = activityByChat.get(row.id);
+        const publications = activity?.publications || 0;
+        return {
+          ...row,
+          platformName: PLATFORM_META[row.platform]?.name || row.platform,
+          publications,
+          leadRate: rate(row.leads, publications),
+          bookingLeadRate: rate(row.bookedLeads, row.leads),
+          completionRate: rate(row.completed, row.bookings),
+          noShowRate: rate(row.noShow, row.bookings),
+        };
+      }),
     },
   };
 

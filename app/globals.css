@@ -508,6 +508,9 @@ button:not([data-slot="button"]) { color: inherit; }
 .analytics-table-head, .analytics-table-row { display: grid; align-items: center; gap: 10px; min-width: 690px; padding: 0 14px; }
 .analytics-platform-table .analytics-table-head, .analytics-platform-table .analytics-table-row { grid-template-columns: minmax(140px,1.4fr) repeat(4,90px) 110px; }
 .analytics-chat-table .analytics-table-head, .analytics-chat-table .analytics-table-row { grid-template-columns: minmax(180px,1.7fr) 110px repeat(3,80px) 100px; }
+.analytics-cohort-chat-table .analytics-table-head, .analytics-cohort-chat-table .analytics-table-row { min-width: 1120px; grid-template-columns: minmax(180px,1.6fr) 105px repeat(4,88px) 120px minmax(190px,1.25fr); }
+.chat-conversions { display: grid; gap: 2px; color: #5f6878; line-height: 1.3; }
+.chat-conversions small { font-size: 10px; white-space: nowrap; }
 .analytics-table-head { min-height: 36px; background: #f7f8fa; color: var(--muted-foreground); font-size: 10px; font-weight: 750; text-transform: uppercase; }
 .analytics-table-row { min-height: 49px; border-top: 1px solid #eceef2; font-size: 12px; }
 .analytics-table-row strong { font-variant-numeric: tabular-nums; }

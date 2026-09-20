@@ -24,6 +24,7 @@ void test('cohort analytics follows lead acquisition date and keeps later outcom
   await db.prepare(`INSERT INTO lessons(id,user_id,lead_id,student_name,subject,lesson_date,status,created_at,updated_at)
     VALUES
       ('lesson-a','u','lead-a','A','English','2026-10-01','completed',1,1),
+      ('lesson-moved','u','lead-a','A','English','2026-10-03','no-show',1,1),
       ('lesson-old','u','lead-old','Old','English','2026-09-08','completed',1,1),
       ('lesson-other','other','lead-other','Other','English','2026-09-09','completed',1,1)`).run();
   await seedEvent(db, { id: 'book-a', type: 'lesson_booked', date: '2026-09-20', lead: 'lead-a', lesson: 'lesson-a', chat: 'chat-a' });
@@ -32,14 +33,14 @@ void test('cohort analytics follows lead acquisition date and keeps later outcom
   await seedEvent(db, { id: 'book-other', owner: 'other', type: 'lesson_booked', date: '2026-09-09', lead: 'lead-other', lesson: 'lesson-other', chat: 'chat-other' });
 
   const cohort = await readAnalyticsCohort(db, 'u', '2026-09-01', '2026-09-10');
-  assert.deepEqual(cohort.totals, { leads: 2, bookedLeads: 1, bookings: 2, completed: 1 });
+  assert.deepEqual(cohort.totals, { leads: 2, bookedLeads: 1, bookings: 2, completed: 1, noShow: 1 });
   assert.deepEqual(cohort.platforms, [
-    { platform: 'telegram', leads: 1, bookedLeads: 1, bookings: 2, completed: 1 },
-    { platform: 'whatsapp', leads: 1, bookedLeads: 0, bookings: 0, completed: 0 },
+    { platform: 'telegram', leads: 1, bookedLeads: 1, bookings: 2, completed: 1, noShow: 1 },
+    { platform: 'whatsapp', leads: 1, bookedLeads: 0, bookings: 0, completed: 0, noShow: 0 },
   ]);
-  assert.deepEqual(cohort.chats.map(({ id, leads, bookings, completed }) => ({ id, leads, bookings, completed })), [
-    { id: 'chat-a', leads: 1, bookings: 2, completed: 1 },
-    { id: 'chat-b', leads: 1, bookings: 0, completed: 0 },
+  assert.deepEqual(cohort.chats.map(({ id, leads, bookings, completed, noShow }) => ({ id, leads, bookings, completed, noShow })), [
+    { id: 'chat-a', leads: 1, bookings: 2, completed: 1, noShow: 1 },
+    { id: 'chat-b', leads: 1, bookings: 0, completed: 0, noShow: 0 },
   ]);
-  assert.deepEqual((await readAnalyticsCohort(db, 'other', '2026-09-01', '2026-09-10')).totals, { leads: 1, bookedLeads: 1, bookings: 1, completed: 1 });
+  assert.deepEqual((await readAnalyticsCohort(db, 'other', '2026-09-01', '2026-09-10')).totals, { leads: 1, bookedLeads: 1, bookings: 1, completed: 1, noShow: 0 });
 });

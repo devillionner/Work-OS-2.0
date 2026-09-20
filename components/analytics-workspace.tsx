@@ -13,9 +13,9 @@ type PlatformRow = {
   key: string; name: string; color: string; joined: number; publications: number; responses: number;
   bookings: number; completed: number; publicationRate: number; responseRate: number; bookingRate: number; completionRate: number;
 };
-type CohortTotals = { leads:number; bookedLeads:number; bookings:number; completed:number; bookingLeadRate:number; completionRate:number };
+type CohortTotals = { leads:number; bookedLeads:number; bookings:number; completed:number; noShow:number; bookingLeadRate:number; completionRate:number; noShowRate:number };
 type CohortPlatform = CohortTotals & { key:string; name:string; platform:string };
-type CohortChat = CohortTotals & { id:string; name:string; platformName:string; platform:string };
+type CohortChat = CohortTotals & { id:string; name:string; platformName:string; platform:string; publications:number; leadRate:number };
 type TrendPoint = { date:string; joined:number; publications:number; responses:number; bookings:number; completed:number };
 type SubjectRow = { subject:string; responses:number; bookings:number; conversion:number; responseShare:number; bookingShare:number };
 type SubjectData = { from:string; to:string; rows:SubjectRow[]; total:SubjectRow };
@@ -168,10 +168,10 @@ export function AnalyticsWorkspace() {
         </section>
 
         <section className="analytics-card">
-          <div className="card-heading"><div><p className="eyebrow">Джерела лідів</p><h3>Результат лідів за чатами-джерелами</h3></div><span className="muted-note">Пізні повторні записи лишаються за початковим чатом-джерелом</span></div>
-          <div className="analytics-table analytics-chat-table">
-            <div className="analytics-table-head"><span>Чат</span><span>Платформа</span><span>Ліди</span><span>Ліди із записом</span><span>Усі записи</span><span>Проведені</span></div>
-            {data.cohort.chats.map((chat) => <div className="analytics-table-row" key={chat.id}><span className="chat-analytics-name" title={chat.name}>{chat.name}</span><span>{chat.platformName}</span><strong>{chat.leads}</strong><strong>{chat.bookedLeads}</strong><strong>{chat.bookings}</strong><span>{chat.completed}</span></div>)}
+          <div className="card-heading"><div><p className="eyebrow">Джерела лідів</p><h3>Результат лідів за чатами-джерелами</h3></div><span className="muted-note">Публікації — за вибраними датами; унікальні відгуки та всі подальші результати — когорта лідів цього періоду. Пізні повторні записи лишаються за початковим чатом-джерелом.</span></div>
+          <div className="analytics-table analytics-chat-table analytics-cohort-chat-table">
+            <div className="analytics-table-head"><span>Чат</span><span>Платформа</span><span>Публікації</span><span>Унікальні відгуки</span><span>Ліди із записом</span><span>Усі записи</span><span>Проведені / неявки</span><span>Конверсії</span></div>
+            {data.cohort.chats.map((chat) => <div className="analytics-table-row" key={chat.id}><span className="chat-analytics-name" title={chat.name}>{chat.name}</span><span>{chat.platformName}</span><strong>{chat.publications}</strong><strong>{chat.leads}</strong><strong>{chat.bookedLeads}</strong><strong>{chat.bookings}</strong><span>{chat.completed} / {chat.noShow}</span><span className="chat-conversions"><small>Відгук / публ. {chat.leadRate}%</small><small>Запис / відгук {chat.bookingLeadRate}%</small><small>Проведено / запис {chat.completionRate}%</small><small>Неявка / запис {chat.noShowRate}%</small></span></div>)}
             {!data.cohort.chats.length && <div className="analytics-empty">Для лідів цього періоду ще немає атрибутованих чатів.</div>}
           </div>
         </section>

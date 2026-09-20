@@ -11,3 +11,13 @@ void test('Analytics archive reasons render localized operator-facing labels', (
   assert.match(source, /archiveReasonLabels\[item\.reason\] \?\? 'Інше'/);
   assert.doesNotMatch(source, /<span>\{item\.reason\}<\/span>/);
 });
+
+
+void test('Analytics exposes complete per-chat attribution labels and conversions', () => {
+  const source = readFileSync(new URL('../components/analytics-workspace.tsx', import.meta.url), 'utf8');
+  for (const label of ['Публікації', 'Унікальні відгуки', 'Ліди із записом', 'Усі записи', 'Проведені / неявки', 'Конверсії'])
+    assert.match(source, new RegExp(label));
+  for (const conversion of ['Відгук / публ.', 'Запис / відгук', 'Проведено / запис', 'Неявка / запис'])
+    assert.ok(source.includes(conversion));
+  assert.match(source, /Пізні повторні записи лишаються за початковим чатом-джерелом/);
+});
