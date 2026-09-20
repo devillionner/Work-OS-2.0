@@ -3,6 +3,24 @@
 Canonical product scope: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
 Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 
+## 2026-09-20 report concurrency, comparison and v0.2.6
+
+- Regular report save and historical restore now send the revision that the user actually loaded.
+  A stale client receives a 409 instead of silently overwriting a newer report, while the unsaved
+  local text remains visible so it can be copied before refresh.
+- Report text writes preserve existing structured payload metadata, including manual adjustments,
+  and repeated unchanged draft saves do not create meaningless extra history versions.
+- History can compare an older report with the current version using a bounded line diff that shows
+  added and removed lines. The comparison is capped to keep large historical reports responsive and
+  includes a narrow/mobile layout.
+- `df8c114` and `e36c554` both passed the canonical Cloudflare verify/deploy path. Live
+  `/api/build` returned `e36c55459a423a1607f195532425acd357af7cc2` before the release bump.
+  Read-only staging report inspection found only `revisionCount=1` in the current imported daily
+  reports, so no staging data was mutated merely to manufacture a multi-version UI demonstration.
+- Release metadata is advanced to v0.2.6 and now covers large resumable chat import, guarded
+  archive deletion/leave parity, chat result analytics and safer report history. Production remains
+  untouched.
+
 ## 2026-09-20 archive/delete/leave parity
 
 - Archived rows retain reason/date and guarded restore. Permanent deletion is now a
