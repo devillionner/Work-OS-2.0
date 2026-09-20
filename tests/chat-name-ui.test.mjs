@@ -9,5 +9,5 @@ void test('global chat-name maintenance exposes progress, per-platform summary, 
   for(const label of ['Перевірено','Оновлено','Без змін','Потрібне підтвердження','Помилки']) assert.match(dialog,new RegExp(label));
   assert.match(dialog,/Замінити/);
   assert.match(dialog,/Зупинити/);
-  assert.match(dialog,/Telegram, WhatsApp і Viber/);
+  assert.match(dialog,/Telegram, WhatsApp, Viber і Facebook/);
 });

@@ -69,3 +69,14 @@ void test('bulk route schedules name enrichment only after a successful add resp
   assert.match(source,/body\.action==='add'/);
   assert.match(source,/waitUntil\(enrichImportedChatNames/);
 });
+
+
+void test('global name scan includes Facebook chats and safely updates generated placeholders', async (t) => {
+  const db = await localDatabase(t);
+  await insertChat(db,{id:'fb-a',platform:'facebook',name:'Facebook · parents.kyiv',link:'https://www.facebook.com/groups/parents.kyiv'});
+  const fetcher=async ()=>new Response('<meta property="og:title" content="Батьки Києва | Facebook">',{headers:{'content-type':'text/html'}});
+  const result=await scanChatNames(db,'u',{limit:12},300,fetcher);
+  assert.deepEqual(result.items.map(item=>[item.id,item.status]),[['fb-a','updated']]);
+  assert.equal(result.counts.facebook.updated,1);
+  assert.equal((await db.prepare("SELECT name FROM chats WHERE id='fb-a'").first()).name,'Батьки Києва');
+});

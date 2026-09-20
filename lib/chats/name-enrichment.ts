@@ -36,14 +36,14 @@ export async function scanChatNames(
   let hasMore = false;
   if (ids.length) {
     const result = await db.prepare(`SELECT id,platform,name,link,updated_at FROM chats
-      WHERE user_id=?1 AND platform IN ('telegram','whatsapp','viber')
+      WHERE user_id=?1 AND platform IN ('telegram','whatsapp','viber','facebook')
         AND id IN (SELECT value FROM json_each(?2))
       ORDER BY id LIMIT ?3`).bind(userId, JSON.stringify(ids), MAX_BATCH).all<Row>();
     rows = result.results;
   } else {
     const cursor = typeof input.cursor === 'string' ? input.cursor.slice(0, 200) : '';
     const result = await db.prepare(`SELECT id,platform,name,link,updated_at FROM chats
-      WHERE user_id=?1 AND platform IN ('telegram','whatsapp','viber') AND id>?2
+      WHERE user_id=?1 AND platform IN ('telegram','whatsapp','viber','facebook') AND id>?2
       ORDER BY id LIMIT ?3`).bind(userId, cursor, limit + 1).all<Row>();
     rows = result.results.slice(0, limit);
     hasMore = result.results.length > limit;
@@ -108,14 +108,14 @@ export async function enrichImportedChatNames(
 ): Promise<{ checked: number; updated: number; confirm: number; error: number; truncated: boolean }> {
   const supported = [...new Set(links.flatMap((link) => {
     const parsed = normalizeGroupLink(link);
-    return parsed && ['telegram', 'whatsapp', 'viber'].includes(parsed.platform) ? [parsed.link] : [];
+    return parsed && ['telegram', 'whatsapp', 'viber', 'facebook'].includes(parsed.platform) ? [parsed.link] : [];
   }))];
   const selected = supported.slice(0, AUTO_ENRICH_MAX);
   if (!selected.length) return { checked: 0, updated: 0, confirm: 0, error: 0, truncated: false };
 
   const result = await db.prepare(`SELECT id,platform,name,link,updated_at FROM chats
     WHERE user_id=?1 AND normalized_link IN (SELECT value FROM json_each(?2))
-      AND platform IN ('telegram','whatsapp','viber')
+      AND platform IN ('telegram','whatsapp','viber','facebook')
     ORDER BY id LIMIT ?3`)
     .bind(userId, JSON.stringify(selected), AUTO_ENRICH_MAX).all<Row>();
 
@@ -147,7 +147,7 @@ export async function confirmResolvedChatName(
   const updatedAt = Math.max(now, input.expectedUpdatedAt + 1);
   const result = await db.prepare(`UPDATE chats SET name=?1,updated_at=?2
     WHERE id=?3 AND user_id=?4 AND updated_at=?5
-      AND platform IN ('telegram','whatsapp','viber')`)
+      AND platform IN ('telegram','whatsapp','viber','facebook')`)
     .bind(name, updatedAt, id, userId, input.expectedUpdatedAt).run();
   if (Number(result.meta?.changes || 0) < 1) throw new Error('Чат уже змінився. Перевірте назви ще раз.');
   return { id, name, updatedAt };

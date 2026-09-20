@@ -38,3 +38,16 @@ void test('resolver strips Viber provider suffix from a real group title', async
     }));
   assert.equal(result?.name, 'UA 🇺🇦— FR 🇫🇷 — UA 🇺🇦');
 });
+
+
+void test('resolver accepts a public Facebook group title but rejects generic login pages', async () => {
+  const good = await resolveChatName('https://www.facebook.com/groups/parents.kyiv', async () =>
+    new Response('<meta property="og:title" content="Батьки Києва | Facebook">', {
+      headers: { 'content-type': 'text/html' },
+    }));
+  assert.equal(good?.name, 'Батьки Києва');
+
+  const generic = await resolveChatName('https://www.facebook.com/groups/parents.kyiv', async () =>
+    new Response('<title>Log into Facebook</title>', { headers: { 'content-type': 'text/html' } }));
+  assert.equal(generic, null);
+});

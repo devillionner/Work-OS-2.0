@@ -2,7 +2,7 @@ import { cleanChatName, normalizeGroupLink, suggestedChatName, type ChatPlatform
 
 export type ChatNameResolution = {
   name: string;
-  platform: Extract<ChatPlatform, 'telegram' | 'whatsapp' | 'viber'>;
+  platform: Extract<ChatPlatform, 'telegram' | 'whatsapp' | 'viber' | 'facebook'>;
   source: 'og:title' | 'title';
 };
 
@@ -14,7 +14,7 @@ const MAX_REDIRECTS = 3;
 
 export async function resolveChatName(link: string, fetcher: FetchLike = fetch): Promise<ChatNameResolution | null> {
   const parsed = normalizeGroupLink(link);
-  if (!parsed || !['telegram', 'whatsapp', 'viber'].includes(parsed.platform)) return null;
+  if (!parsed || !['telegram', 'whatsapp', 'viber', 'facebook'].includes(parsed.platform)) return null;
   const platform = parsed.platform as ChatNameResolution['platform'];
   const html = await readSafeHtml(parsed.link, platform, fetcher);
   if (!html) return null;
@@ -115,6 +115,7 @@ function allowedResolverUrl(value: string, platform: ChatNameResolution['platfor
     telegram: new Set(['t.me', 'telegram.me', 'telegram.dog']),
     whatsapp: new Set(['chat.whatsapp.com']),
     viber: new Set(['invite.viber.com', 'chats.viber.com', 'vb.me']),
+    facebook: new Set(['facebook.com', 'm.facebook.com', 'mobile.facebook.com', 'fb.com']),
   };
   return allowed[platform].has(host);
 }
@@ -139,9 +140,12 @@ function normalizeResolvedName(value: string, platform: ChatNameResolution['plat
   } else if (platform === 'whatsapp') {
     name = name.replace(/\s*[—–|-]\s*WhatsApp$/i, '').trim();
     if (/^(?:WhatsApp|WhatsApp Group Invite|Join WhatsApp Group)$/i.test(name)) return null;
-  } else {
+  } else if (platform === 'viber') {
     name = name.replace(/\s*[—–|-]\s*Viber$/i, '').replace(/\s+on\s+Viber$/i, '').trim();
     if (/^(?:Viber|Viber Invite|Join Viber)$/i.test(name)) return null;
+  } else {
+    name = name.replace(/\s*[—–|-]\s*Facebook$/i, '').trim();
+    if (/^(?:Facebook|Log into Facebook|Facebook\s*[—–|-]\s*log in or sign up)$/i.test(name)) return null;
   }
   name = cleanChatName(name);
   if (name.length < 2 || !/[\p{L}\p{N}\p{Extended_Pictographic}]/u.test(name)) return null;

@@ -86,7 +86,7 @@ export function ChatNamesDialog({ open, onClose, onChanged }: { open:boolean; on
     <DialogContent className="chat-names-dialog" showCloseButton={false}>
       <DialogHeader>
         <DialogTitle>Перевірити назви всіх чатів</DialogTitle>
-        <DialogDescription>Work OS читає публічні сторінки Telegram, WhatsApp і Viber порціями. Помилка одного посилання не зупиняє решту, а надійна ручна назва не перезаписується без вашого підтвердження.</DialogDescription>
+        <DialogDescription>Work OS читає публічні сторінки Telegram, WhatsApp, Viber і Facebook порціями. Помилка одного посилання не зупиняє решту, а надійна ручна назва не перезаписується без вашого підтвердження.</DialogDescription>
       </DialogHeader>
       <Button className="chat-publish-close" variant="ghost" size="icon" aria-label="Закрити" onClick={close}><X/></Button>
       {error&&<div className="workspace-error" role="alert">{error}</div>}
@@ -105,7 +105,7 @@ export function ChatNamesDialog({ open, onClose, onChanged }: { open:boolean; on
           {item.status==='confirm'&&item.suggestedName&&<Button size="sm" variant="outline" disabled={busy} onClick={()=>void confirm(item)}><Check data-icon="inline-start"/>Замінити</Button>}
         </article>)}
       </div>}
-      {!busy&&done&&totals.checked===0&&<p className="muted-note">Telegram, WhatsApp або Viber чатів для перевірки не знайдено.</p>}
+      {!busy&&done&&totals.checked===0&&<p className="muted-note">Telegram, WhatsApp, Viber або Facebook чатів для перевірки не знайдено.</p>}
       <div className="dialog-actions">
         {busy?<><Button variant="outline" onClick={()=>{stopRef.current=true;}}>Зупинити</Button><Button disabled><LoaderCircle data-icon="inline-start"/>Перевіряємо…</Button></>:<><Button variant="outline" onClick={onClose}>Закрити</Button><Button onClick={()=>void scanAll()}><RefreshCw data-icon="inline-start"/>{resumeCursor&&!done?'Продовжити перевірку':done?'Перевірити ще раз':'Почати перевірку'}</Button></>}
       </div>
@@ -130,5 +130,5 @@ function mergeTotals(current:Totals, next:Record<string,PlatformCounts>):Totals 
 }
 
 function platformLabel(value:string) {
-  return value==='telegram'?'Telegram':value==='whatsapp'?'WhatsApp':value==='viber'?'Viber':value;
+  return value==='telegram'?'Telegram':value==='whatsapp'?'WhatsApp':value==='viber'?'Viber':value==='facebook'?'Facebook':value;
 }
