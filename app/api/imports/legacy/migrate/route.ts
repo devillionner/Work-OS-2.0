@@ -208,6 +208,27 @@ function statementFor(phase: MigrationPhase, value: LegacyMigrationDataset[Migra
     return env.DB.prepare(`INSERT INTO chat_publications (id,user_id,chat_id,published_on,published_at,source,source_key,created_at,telegram_account_id) VALUES (?1,?2,?3,?4,?5,'legacy',?6,?7,(SELECT telegram_account_id FROM chats WHERE id=?3))
       ON CONFLICT(id) DO UPDATE SET published_on=excluded.published_on,published_at=COALESCE(excluded.published_at,chat_publications.published_at),telegram_account_id=excluded.telegram_account_id WHERE chat_publications.user_id=excluded.user_id`).bind(row.id,userId,row.chatId,row.publishedOn,row.publishedAt,row.sourceKey,row.createdAt);
   }
+  if (phase === 'scheduleSettings') {
+    const row = value as LegacyMigrationDataset['scheduleSettings'][number];
+    return env.DB.prepare(`INSERT INTO telegram_schedule_settings
+      (user_id,telegram_account_id,interval_minutes,base_at,selection_mode,manual_chat_ids_json,updated_at,version)
+      VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
+      ON CONFLICT(user_id,telegram_account_id) DO UPDATE SET
+        interval_minutes=excluded.interval_minutes,base_at=excluded.base_at,selection_mode=excluded.selection_mode,
+        manual_chat_ids_json=excluded.manual_chat_ids_json,updated_at=excluded.updated_at,version=excluded.version`)
+      .bind(userId,row.accountId,row.intervalMinutes,row.baseAt,row.selectionMode,row.manualChatIdsJson,row.updatedAt,row.version);
+  }
+  if (phase === 'scheduleSlots') {
+    const row = value as LegacyMigrationDataset['scheduleSlots'][number];
+    return env.DB.prepare(`INSERT INTO telegram_schedule_slots
+      (id,user_id,telegram_account_id,sequence,scheduled_at,chat_id,status,completed_at,publication_id,created_at,updated_at,version)
+      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
+      ON CONFLICT(id) DO UPDATE SET telegram_account_id=excluded.telegram_account_id,sequence=excluded.sequence,
+        scheduled_at=excluded.scheduled_at,chat_id=excluded.chat_id,status=excluded.status,completed_at=excluded.completed_at,
+        publication_id=excluded.publication_id,created_at=excluded.created_at,updated_at=excluded.updated_at,version=excluded.version
+      WHERE telegram_schedule_slots.user_id=excluded.user_id`)
+      .bind(row.id,userId,row.accountId,row.sequence,row.scheduledAt,row.chatId,row.status,row.completedAt,row.publicationId,row.createdAt,row.updatedAt,row.version);
+  }
   if (phase === 'leads') {
     const row = value as LegacyMigrationDataset['leads'][number];
     return env.DB.prepare(`INSERT INTO leads (id,user_id,legacy_id,name,phone,telegram_username,normalized_phone,normalized_telegram,platform,subject,source_chat_id,source_chat_link,note,needs_details,status,teacher_name,lesson_platform,meeting_link,is_student,age_group,response_date,booking_date,response_cancelled_at,response_cancelled_date,created_at,booked_at,archived_at,legacy_payload_json,source_import_id,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30)

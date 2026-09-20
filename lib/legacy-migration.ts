@@ -36,6 +36,15 @@ export type MigrationPublication = {
   id: string; chatId: string; publishedOn: string; publishedAt: number | null;
   sourceKey: string; createdAt: number;
 };
+export type MigrationScheduleSetting = {
+  accountId: string; intervalMinutes: number; baseAt: number; selectionMode: 'auto' | 'manual';
+  manualChatIdsJson: string; updatedAt: number; version: number;
+};
+export type MigrationScheduleSlot = {
+  id: string; accountId: string; sequence: number; scheduledAt: number; chatId: string | null;
+  status: 'pending' | 'completed'; completedAt: number | null; publicationId: string | null;
+  createdAt: number; updatedAt: number; version: number;
+};
 export type MigrationLead = {
   id: string; legacyId: string; name: string; phone: string; telegramUsername: string;
   normalizedPhone: string; normalizedTelegram: string; platform: string; subject: string;
@@ -78,6 +87,8 @@ export type LegacyMigrationDataset = {
   chats: MigrationChat[];
   profiles: MigrationProfile[];
   publications: MigrationPublication[];
+  scheduleSettings: MigrationScheduleSetting[];
+  scheduleSlots: MigrationScheduleSlot[];
   leads: MigrationLead[];
   students: MigrationStudent[];
   lessons: MigrationLesson[];
@@ -88,7 +99,8 @@ export type LegacyMigrationDataset = {
 };
 
 export const MIGRATION_PHASES = [
-  'accounts', 'chats', 'profiles', 'publications', 'leads', 'students', 'lessons', 'curatorRequests', 'reports', 'settings', 'events',
+  'accounts', 'chats', 'profiles', 'publications', 'scheduleSettings', 'scheduleSlots',
+  'leads', 'students', 'lessons', 'curatorRequests', 'reports', 'settings', 'events',
 ] as const;
 export type MigrationPhase = (typeof MIGRATION_PHASES)[number];
 
@@ -98,8 +110,15 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
   const now = Math.floor(Date.now() / 1000);
   const archive = parseRecord(storage['deleted-groups-archive-v1']);
   const accountState = parseRecord(storage['telegram-multi-account-v1']);
+  const legacyScheduleStore = parseRecord(storage['telegram-announce-schedules-by-account-v1']);
+  const legacyScheduleAccounts = isRecord(legacyScheduleStore.accounts) ? legacyScheduleStore.accounts : {};
+  const legacySelectionStore = parseRecord(storage['telegram-schedule-selection-v1']);
+  const legacySelections = isRecord(legacySelectionStore.accounts) ? legacySelectionStore.accounts : {};
   const accountSeeds = new Map<string, { number: number; name: string }>();
   for (const item of array(accountState.accounts).filter(isRecord)) addAccountSeed(item);
+  for (const legacyId of new Set([...Object.keys(legacyScheduleAccounts), ...Object.keys(legacySelections)])) {
+    addAccountSeed({ id: legacyId });
+  }
   for (const item of array(archive.telegram).filter(isRecord)) {
     const group = isRecord(item.groupData) ? { ...item.groupData, ...item } : item;
     addAccountSeed({
@@ -130,6 +149,8 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
   const profiles: MigrationProfile[] = [];
   const publications: MigrationPublication[] = [];
   const chatIdByLink = new Map<string, string>();
+  const telegramChatIdByNumber = new Map<number, string>();
+  const legacyLeaveConfirmedAtByChatId = new Map<string, number>();
 
   for (const [platform, key] of Object.entries(PLATFORM_KEYS)) {
     const groups = parseArray(storage[key]);
@@ -176,6 +197,12 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       telegramAccountId, telegramAccountExplicit: telegramAccountId ? 1 : 0,
     });
     if (link) chatIdByLink.set(normalizeLink(link), id);
+    const groupNumber = Math.floor(Number(group.n) || Number(group.originalNumber) || 0);
+    if (platform === 'telegram' && groupNumber > 0 && !archived) telegramChatIdByNumber.set(groupNumber, id);
+    const leaveConfirmedAt = archived && ['telegram', 'whatsapp'].includes(platform)
+      ? seconds(group.membershipExitConfirmedAt)
+      : null;
+    if (leaveConfirmedAt) legacyLeaveConfirmedAtByChatId.set(id, leaveConfirmedAt);
     if (profile) {
       profiles.push({
         chatId: id,
@@ -194,6 +221,106 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
         id: stableId('pub', eventKey), chatId: id, publishedOn,
         publishedAt: index === publicationDates.length - 1 ? seconds(group.lastPublicationAt) : null,
         sourceKey: eventKey, createdAt: seconds(group.lastPublicationAt) || now,
+      });
+    });
+  }
+
+  const scheduleSettings: MigrationScheduleSetting[] = [];
+  const scheduleSlots: MigrationScheduleSlot[] = [];
+  const chatById = new Map(chats.map((chat) => [chat.id, chat]));
+  const publicationByChatDate = new Map(
+    publications.map((publication) => [`${publication.chatId}:${publication.publishedOn}`, publication]),
+  );
+  const scheduledLegacyIds = new Set([...Object.keys(legacyScheduleAccounts), ...Object.keys(legacySelections)]);
+  for (const legacyAccountId of [...scheduledLegacyIds].sort()) {
+    const accountId = accountIdByLegacyId.get(legacyAccountId);
+    if (!accountId) continue;
+    const schedule = isRecord(legacyScheduleAccounts[legacyAccountId]) ? legacyScheduleAccounts[legacyAccountId] : {};
+    const selection = isRecord(legacySelections[legacyAccountId]) ? legacySelections[legacyAccountId] : {};
+    const interval = Number(schedule.interval);
+    const intervalMinutes = Number.isFinite(interval) && interval > 0 ? interval : 9;
+    const selectionEnabled = selection.enabled === true;
+    const manualChatIds = selectionEnabled
+      ? array(selection.groupNumbers)
+          .map((value) => Math.floor(Number(value) || 0))
+          .filter((value) => value > 0)
+          .map((number) => telegramChatIdByNumber.get(number) || null)
+          .filter((chatId): chatId is string => {
+            if (!chatId) return false;
+            const chat = chatById.get(chatId);
+            const effectiveAccountId = chat?.telegramAccountId
+              || (chat?.platform === 'telegram' && chat.workflowStatus !== 'to_join' ? `${userId}:tg1` : null);
+            return Boolean(chat?.workflowStatus === 'ready' && effectiveAccountId === accountId);
+          })
+      : [];
+    const sourceSlots = array(schedule.slots).filter(isRecord)
+      .map((slot, sourceIndex) => {
+        const scheduledAt = seconds(slot.ts);
+        if (!scheduledAt) return null;
+        const groupNumber = Math.floor(Number(slot.groupNumber) || 0);
+        const candidateId = groupNumber > 0 ? telegramChatIdByNumber.get(groupNumber) || null : null;
+        const candidate = candidateId ? chatById.get(candidateId) : null;
+        const effectiveAccountId = candidate?.telegramAccountId
+          || (candidate?.platform === 'telegram' && candidate.workflowStatus !== 'to_join' ? `${userId}:tg1` : null);
+        const completed = slot.published === true;
+        const chatId = candidateId && effectiveAccountId === accountId
+          && (completed || candidate?.workflowStatus === 'ready')
+          ? candidateId
+          : null;
+        const scheduledDate = legacyDate(text(slot.date)) || dateForEpoch(scheduledAt);
+        const sourceId = text(slot.id) || `slot-${sourceIndex}`;
+        const createdAt = seconds(slot.assignedAt) || scheduledAt;
+        const publication = completed && chatId
+          ? publicationByChatDate.get(`${chatId}:${scheduledDate}`) || null
+          : null;
+        return {
+          sourceId, scheduledAt, scheduledDate, chatId, completed, createdAt,
+          completedAt: completed ? publication?.publishedAt || scheduledAt : null,
+          publicationId: publication?.id || null,
+        };
+      })
+      .filter((slot): slot is NonNullable<typeof slot> => Boolean(slot))
+      .sort((left, right) => left.scheduledAt - right.scheduledAt || left.sourceId.localeCompare(right.sourceId));
+    const scheduledTimes = new Set<number>();
+    const pendingChats = new Set<string>();
+    for (const slot of sourceSlots) {
+      if (scheduledTimes.has(slot.scheduledAt)) {
+        throw new Error(`Legacy Telegram schedule has duplicate time for ${legacyAccountId}: ${slot.scheduledAt}`);
+      }
+      scheduledTimes.add(slot.scheduledAt);
+      if (!slot.completed && slot.chatId) {
+        if (pendingChats.has(slot.chatId)) {
+          throw new Error(`Legacy Telegram schedule repeats a pending chat for ${legacyAccountId}: ${slot.chatId}`);
+        }
+        pendingChats.add(slot.chatId);
+      }
+    }
+    const latestScheduledAt = sourceSlots.at(-1)?.scheduledAt || now;
+    const updatedAt = seconds(selection.updatedAt)
+      || Math.max(0, ...sourceSlots.map((slot) => slot.createdAt))
+      || now;
+    scheduleSettings.push({
+      accountId,
+      intervalMinutes,
+      baseAt: latestScheduledAt,
+      selectionMode: selectionEnabled ? 'manual' : 'auto',
+      manualChatIdsJson: JSON.stringify([...new Set(manualChatIds)]),
+      updatedAt,
+      version: 0,
+    });
+    sourceSlots.forEach((slot, index) => {
+      scheduleSlots.push({
+        id: stableId('tgslot', `${userId}:${accountId}:${slot.sourceId}:${slot.scheduledAt}`),
+        accountId,
+        sequence: index + 1,
+        scheduledAt: slot.scheduledAt,
+        chatId: slot.chatId,
+        status: slot.completed ? 'completed' : 'pending',
+        completedAt: slot.completedAt,
+        publicationId: slot.publicationId,
+        createdAt: slot.createdAt,
+        updatedAt: slot.completed ? Math.max(slot.createdAt, slot.scheduledAt) : slot.createdAt,
+        version: 0,
       });
     });
   }
@@ -338,6 +465,16 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
       cancelledAt: null, telegramAccountId: chat.telegramAccountId,
     });
   }
+  for (const [chatId, leaveConfirmedAt] of legacyLeaveConfirmedAtByChatId) {
+    const sourceKey = `legacy:chat-leave-confirmed:${chatId}`;
+    events.push({
+      id: stableId('event', sourceKey), eventType: 'chat_state_changed',
+      platform: chatPlatform.get(chatId) || null, chatId, leadId: null, lessonId: null,
+      occurredAt: leaveConfirmedAt, eventDate: dateForEpoch(leaveConfirmedAt),
+      metadataJson: JSON.stringify({ action: 'confirm_leave', source: 'legacy-migration' }),
+      sourceKey, cancelledAt: null, telegramAccountId: chatAccount.get(chatId) || null,
+    });
+  }
   for (const publication of publications) {
     events.push({
       id: stableId('event', publication.sourceKey), eventType: 'publication',
@@ -385,7 +522,7 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
     });
   }
 
-  return { accounts, chats, profiles, publications, leads, students, lessons, curatorRequests, reports, settings, events };
+  return { accounts, chats, profiles, publications, scheduleSettings, scheduleSlots, leads, students, lessons, curatorRequests, reports, settings, events };
 
   function addAccountSeed(value: JsonRecord) {
     const rawId = text(value.id);

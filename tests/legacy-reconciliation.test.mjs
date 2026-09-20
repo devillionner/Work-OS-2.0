@@ -94,3 +94,39 @@ void test('migration route gates completion on reconciliation before marking sou
   assert.ok(source.indexOf('reconcileMigrationChunk(env.DB') < source.indexOf("status = 'migrated'"));
   assert.ok(MIGRATION_PHASES.length > 0);
 });
+
+
+void test('reconciliation verifies owner-scoped Telegram schedule settings and slots', async (t) => {
+  const db = await localDatabase(t);
+  await db.prepare(`INSERT INTO telegram_accounts
+    (id,user_id,account_number,name,is_enabled,is_selected,created_at,updated_at)
+    VALUES ('u:tg1','u',1,'TG 1',1,1,1,1)`).run();
+  await db.prepare(`INSERT INTO chats
+    (id,user_id,platform,name,link,normalized_link,workflow_status,joined_at,telegram_account_id,created_at,updated_at)
+    VALUES ('schedule-chat','u','telegram','Schedule chat','https://t.me/schedule_chat','https://t.me/schedule_chat',
+      'ready',1,'u:tg1',1,1)`).run();
+  await db.prepare(`INSERT INTO telegram_schedule_settings
+    (user_id,telegram_account_id,interval_minutes,base_at,selection_mode,manual_chat_ids_json,updated_at,version)
+    VALUES ('u','u:tg1',15,100,'manual','["schedule-chat"]',10,0)`).run();
+  await db.prepare(`INSERT INTO telegram_schedule_slots
+    (id,user_id,telegram_account_id,sequence,scheduled_at,chat_id,status,completed_at,publication_id,created_at,updated_at,version)
+    VALUES ('schedule-slot','u','u:tg1',1,115,'schedule-chat','pending',NULL,NULL,10,10,0)`).run();
+
+  const settings = await reconcileMigrationChunk(db,'u','scheduleSettings',[{
+    accountId:'u:tg1', intervalMinutes:15, baseAt:100, selectionMode:'manual',
+    manualChatIdsJson:'["schedule-chat"]', updatedAt:10, version:0,
+  }]);
+  assert.equal(settings.ok,true);
+
+  const slots = await reconcileMigrationChunk(db,'u','scheduleSlots',[{
+    id:'schedule-slot', accountId:'u:tg1', sequence:1, scheduledAt:115, chatId:'schedule-chat',
+    status:'pending', completedAt:null, publicationId:null, createdAt:10, updatedAt:10, version:0,
+  }]);
+  assert.equal(slots.ok,true);
+
+  const foreign = await reconcileMigrationChunk(db,'other','scheduleSlots',[{
+    id:'schedule-slot', accountId:'u:tg1', sequence:1, scheduledAt:115, chatId:'schedule-chat',
+    status:'pending', completedAt:null, publicationId:null, createdAt:10, updatedAt:10, version:0,
+  }]);
+  assert.equal(foreign.ok,false);
+});

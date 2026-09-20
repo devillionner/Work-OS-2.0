@@ -126,3 +126,164 @@ void test('legacy booking goal falls back to the active period and latest histor
   assert.equal(settings.get('daily_booking_goal'), 6);
   assert.equal(settings.get('monthly_booking_goal'), 14);
 });
+
+
+void test('legacy confirmed archive exit becomes an immutable chat state event', () => {
+  const joinedAt = 1_750_100_000_000;
+  const archivedAt = 1_750_200_000_000;
+  const confirmedAt = 1_750_300_000_000;
+  const dataset = buildLegacyMigrationDataset(backup({
+    'deleted-groups-archive-v1': JSON.stringify({
+      whatsapp: [{
+        archiveId: 'wa-archive-1',
+        link: 'https://chat.whatsapp.com/ExitParityExample',
+        name: 'Archived WhatsApp',
+        status: '✅',
+        joinedAt,
+        archivedAt,
+        membershipExitRequired: true,
+        membershipExitConfirmedAt: confirmedAt,
+      }],
+    }),
+  }), 'u');
+
+  assert.equal(dataset.chats.length, 1);
+  assert.equal(dataset.chats[0].workflowStatus, 'archived');
+  const event = dataset.events.find((item) => item.eventType === 'chat_state_changed');
+  assert.ok(event);
+  assert.equal(event.chatId, dataset.chats[0].id);
+  assert.equal(event.occurredAt, Math.floor(confirmedAt / 1000));
+  assert.deepEqual(JSON.parse(event.metadataJson), {
+    action: 'confirm_leave',
+    source: 'legacy-migration',
+  });
+  assert.match(event.sourceKey, /^legacy:chat-leave-confirmed:/);
+});
+
+
+void test('legacy Telegram schedule and manual selection migrate per account with published history linkage', () => {
+  const publishedTs = Date.parse('2026-09-20T10:00:00Z');
+  const pendingTs = Date.parse('2026-09-20T10:15:00Z');
+  const assignedTs = Date.parse('2026-09-20T09:55:00Z');
+  const dataset = buildLegacyMigrationDataset(backup({
+    'telegram-multi-account-v1': JSON.stringify({
+      selected: 'tg2',
+      accounts: [{ id: 'tg2', number: 2, name: 'Work TG 2' }],
+    }),
+    'telegram-groups-checklist-v1': JSON.stringify([
+      {
+        n: 10,
+        name: 'Published chat',
+        link: 'https://t.me/published_parity_chat',
+        status: '✅',
+        telegramAccountId: 'tg2',
+        joinedAt: Date.parse('2026-09-19T08:00:00Z'),
+        publicationDates: ['20.09.26'],
+        lastPublicationAt: publishedTs,
+      },
+      {
+        n: 11,
+        name: 'Pending chat',
+        link: 'https://t.me/pending_parity_chat',
+        status: '✅',
+        telegramAccountId: 'tg2',
+        joinedAt: Date.parse('2026-09-19T09:00:00Z'),
+      },
+    ]),
+    'telegram-announce-schedules-by-account-v1': JSON.stringify({
+      version: 2,
+      accounts: {
+        tg2: {
+          interval: 15,
+          slots: [
+            {
+              id: 'published-slot',
+              ts: publishedTs,
+              date: '20.09.26',
+              published: true,
+              source: 'group-list',
+              groupNumber: 10,
+              assignedAt: assignedTs,
+            },
+            {
+              id: 'pending-slot',
+              ts: pendingTs,
+              date: '20.09.26',
+              published: false,
+              source: 'group-schedule',
+              groupNumber: 11,
+              assignedAt: assignedTs,
+            },
+          ],
+        },
+      },
+    }),
+    'telegram-schedule-selection-v1': JSON.stringify({
+      version: 1,
+      accounts: {
+        tg2: {
+          enabled: true,
+          groupNumbers: [11],
+          updatedAt: Date.parse('2026-09-20T09:56:00Z'),
+        },
+      },
+    }),
+  }), 'u');
+
+  assert.equal(dataset.scheduleSettings.length, 1);
+  const setting = dataset.scheduleSettings[0];
+  assert.equal(setting.accountId, 'u:tg2');
+  assert.equal(setting.intervalMinutes, 15);
+  assert.equal(setting.selectionMode, 'manual');
+  const pendingChat = dataset.chats.find((chat) => chat.link.includes('pending_parity_chat'));
+  const publishedChat = dataset.chats.find((chat) => chat.link.includes('published_parity_chat'));
+  assert.ok(pendingChat);
+  assert.ok(publishedChat);
+  assert.deepEqual(JSON.parse(setting.manualChatIdsJson), [pendingChat.id]);
+  assert.equal(setting.baseAt, Math.floor(pendingTs / 1000));
+
+  assert.equal(dataset.scheduleSlots.length, 2);
+  const completed = dataset.scheduleSlots.find((slot) => slot.status === 'completed');
+  const pending = dataset.scheduleSlots.find((slot) => slot.status === 'pending');
+  assert.ok(completed);
+  assert.ok(pending);
+  assert.equal(completed.accountId, 'u:tg2');
+  assert.equal(completed.chatId, publishedChat.id);
+  assert.equal(completed.scheduledAt, Math.floor(publishedTs / 1000));
+  assert.equal(completed.completedAt, Math.floor(publishedTs / 1000));
+  assert.ok(completed.publicationId);
+  assert.equal(pending.chatId, pendingChat.id);
+  assert.equal(pending.scheduledAt, Math.floor(pendingTs / 1000));
+  assert.equal(pending.completedAt, null);
+  assert.equal(pending.publicationId, null);
+});
+
+void test('legacy Telegram schedule fails closed on duplicate pending assignment', () => {
+  const firstTs = Date.parse('2026-09-20T10:00:00Z');
+  const secondTs = Date.parse('2026-09-20T10:15:00Z');
+  assert.throws(() => buildLegacyMigrationDataset(backup({
+    'telegram-multi-account-v1': JSON.stringify({
+      selected: 'tg1',
+      accounts: [{ id: 'tg1', number: 1, name: 'TG 1' }],
+    }),
+    'telegram-groups-checklist-v1': JSON.stringify([{
+      n: 5,
+      name: 'Repeated pending',
+      link: 'https://t.me/repeated_pending_parity',
+      status: '✅',
+      telegramAccountId: 'tg1',
+      joinedAt: Date.parse('2026-09-19T08:00:00Z'),
+    }]),
+    'telegram-announce-schedules-by-account-v1': JSON.stringify({
+      accounts: {
+        tg1: {
+          interval: 15,
+          slots: [
+            { id: 'slot-a', ts: firstTs, date: '20.09.26', published: false, groupNumber: 5 },
+            { id: 'slot-b', ts: secondTs, date: '20.09.26', published: false, groupNumber: 5 },
+          ],
+        },
+      },
+    }),
+  }), 'u'), /repeats a pending chat/);
+});

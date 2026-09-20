@@ -119,6 +119,7 @@ function recordKey(phase: MigrationPhase, value: unknown): string {
   if (!value || typeof value !== 'object') return '';
   const row = value as Record<string, unknown>;
   if (phase === 'profiles') return text(row.chatId);
+  if (phase === 'scheduleSettings') return text(row.accountId);
   if (phase === 'settings') return text(row.key);
   return text(row.id);
 }
@@ -171,6 +172,16 @@ function actualRecordQuery(
       p.telegram_account_id,c.telegram_account_id AS chat_telegram_account_id
       FROM chat_publications p JOIN chats c ON c.id=p.chat_id
       WHERE p.user_id=?1 AND p.id ${inKeys}`).bind(userId, encodedKeys);
+  }
+  if (phase === 'scheduleSettings') {
+    return db.prepare(`SELECT telegram_account_id AS key,interval_minutes,base_at,selection_mode,manual_chat_ids_json,
+      updated_at,version FROM telegram_schedule_settings
+      WHERE user_id=?1 AND telegram_account_id ${inKeys}`).bind(userId, encodedKeys);
+  }
+  if (phase === 'scheduleSlots') {
+    return db.prepare(`SELECT id AS key,telegram_account_id,sequence,scheduled_at,chat_id,status,completed_at,
+      publication_id,created_at,updated_at,version FROM telegram_schedule_slots
+      WHERE user_id=?1 AND id ${inKeys}`).bind(userId, encodedKeys);
   }
   if (phase === 'leads') {
     return db.prepare(`SELECT id AS key,legacy_id,name,phone,telegram_username,normalized_phone,normalized_telegram,
@@ -228,6 +239,22 @@ function canonicalExpectedRecord(phase: MigrationPhase, value: unknown, userId: 
   if (phase === 'publications') {
     const row = value as LegacyMigrationDataset['publications'][number];
     return { key: row.id, chatId: row.chatId, publishedOn: row.publishedOn, publishedAt: row.publishedAt, source: 'legacy', sourceKey: row.sourceKey, createdAt: row.createdAt, telegramAccountMatchesChat: true };
+  }
+  if (phase === 'scheduleSettings') {
+    const row = value as LegacyMigrationDataset['scheduleSettings'][number];
+    return {
+      key: row.accountId, intervalMinutes: row.intervalMinutes, baseAt: row.baseAt,
+      selectionMode: row.selectionMode, manualChatIdsJson: row.manualChatIdsJson,
+      updatedAt: row.updatedAt, version: row.version,
+    };
+  }
+  if (phase === 'scheduleSlots') {
+    const row = value as LegacyMigrationDataset['scheduleSlots'][number];
+    return {
+      key: row.id, accountId: row.accountId, sequence: row.sequence, scheduledAt: row.scheduledAt,
+      chatId: row.chatId, status: row.status, completedAt: row.completedAt,
+      publicationId: row.publicationId, createdAt: row.createdAt, updatedAt: row.updatedAt, version: row.version,
+    };
   }
   if (phase === 'leads') {
     const row = value as LegacyMigrationDataset['leads'][number];
@@ -297,6 +324,21 @@ function canonicalActualRecord(phase: MigrationPhase, row: DbRow): CanonicalReco
       publishedAt: actualNullableNumber(row.published_at), source: actualText(row.source), sourceKey: actualText(row.source_key),
       createdAt: actualNumber(row.created_at),
       telegramAccountMatchesChat: actualNullableText(row.telegram_account_id) === actualNullableText(row.chat_telegram_account_id),
+    };
+  }
+  if (phase === 'scheduleSettings') {
+    return {
+      key: actualText(row.key), intervalMinutes: actualNumber(row.interval_minutes), baseAt: actualNumber(row.base_at),
+      selectionMode: actualText(row.selection_mode), manualChatIdsJson: actualText(row.manual_chat_ids_json),
+      updatedAt: actualNumber(row.updated_at), version: actualNumber(row.version),
+    };
+  }
+  if (phase === 'scheduleSlots') {
+    return {
+      key: actualText(row.key), accountId: actualText(row.telegram_account_id), sequence: actualNumber(row.sequence),
+      scheduledAt: actualNumber(row.scheduled_at), chatId: actualNullableText(row.chat_id), status: actualText(row.status),
+      completedAt: actualNullableNumber(row.completed_at), publicationId: actualNullableText(row.publication_id),
+      createdAt: actualNumber(row.created_at), updatedAt: actualNumber(row.updated_at), version: actualNumber(row.version),
     };
   }
   if (phase === 'leads') {
