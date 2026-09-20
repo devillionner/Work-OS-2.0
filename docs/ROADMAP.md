@@ -14,6 +14,8 @@
 
 ## Поточний стан P4 — 2026-09-20
 
+- Reports calendar acceptance now includes explicit status filters and separate final-submission time; `9d79737` is green on canonical staging and passed a read-only browser smoke. REPORT-06/20 are now closed; physical iPhone/Safari remains separate acceptance.
+
 P4 documentation is reconciled against the current code and tests on 2026-09-20. Cloudflare Workers Builds remains the canonical staging gate; each pushed `main` commit must pass `npm run verify` and the staging-only deploy guard before it counts as deployed evidence.
 
 - UX/visual hardening після PR #87–#120 та прямих main-фіксів охоплює desktop, tiled/narrow і mobile Chromium. Leads mobile touch-target fixes, responsive hero/simple rows/reminders/action links і Today workday composition уже пройшли staging-перевірку. Physical iPhone/Safari лишається окремим доказом і не замінюється Chromium viewport.

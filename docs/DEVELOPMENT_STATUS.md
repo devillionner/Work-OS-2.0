@@ -3,6 +3,18 @@
 Canonical product scope: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
 Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 
+## 2026-09-20 report calendar acceptance
+
+- `643de46` adds a separate last-final-submission timestamp to the report editor.
+- `9d79737` adds explicit report calendar filters for all / has report / missing / stale / resubmitted.
+  Resubmission count is derived from distinct final submission timestamps in version history, so
+  ordinary draft edits after a submit do not masquerade as another submission.
+- Canonical Cloudflare verify/deploy is green and live `/api/build` returns
+  `9d79737e4d7df92a415fd876e47aea1f155a21bc` with v0.2.6.
+- Read-only staging smoke confirmed the five filter controls, filtering without collapsing the calendar grid,
+  and both last-change and last-final-submission metadata. No staging data was written for the smoke.
+- REPORT-06 and REPORT-20 are promoted to ready. Physical iPhone/Safari remains a separate P4 gate.
+
 ## 2026-09-20 report concurrency, comparison and v0.2.6
 
 - Regular report save and historical restore now send the revision that the user actually loaded.
