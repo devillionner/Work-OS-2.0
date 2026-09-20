@@ -548,6 +548,22 @@ button:not([data-slot="button"]) { color: inherit; }
 .report-history-meta { margin-top: 9px; color: #3157f6; font-size: 11px; font-weight: 700; }
 .report-history-list pre { max-height: 260px; margin: 8px 0 0; padding: 10px; overflow: auto; border-radius: 8px; background: #fff; color: #343946; font: inherit; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
 .report-history-list details > button { margin-top: 10px; }
+.report-history-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.report-version-compare { display:grid; gap:8px; margin-top:10px; padding:10px; border:1px solid #dbe1f4; border-radius:10px; background:#fff; }
+.report-version-compare-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.report-version-compare-head > div { display:grid; gap:2px; }
+.report-version-compare-head strong { font-size:12px; }
+.report-version-compare-head small,.report-version-compare-head > span { color:var(--muted-foreground); font-size:10px; }
+.report-version-compare ol { max-height:260px; margin:0; padding:0; overflow:auto; border:1px solid #eceef2; border-radius:8px; background:#fbfcfe; list-style:none; }
+.report-version-compare li { display:grid; grid-template-columns:22px minmax(0,1fr); min-height:24px; border:0; border-top:1px solid #f0f1f4; border-radius:0; background:transparent; font-size:11px; line-height:1.45; }
+.report-version-compare li:first-child { border-top:0; }
+.report-version-compare li > span { display:grid; place-items:start center; padding:4px 0; color:#8b91a0; font-weight:800; user-select:none; }
+.report-version-compare code { min-width:0; padding:4px 7px; overflow-wrap:anywhere; white-space:pre-wrap; }
+.report-version-compare li.is-added { background:#effaf3; }
+.report-version-compare li.is-added > span { color:#087443; }
+.report-version-compare li.is-removed { background:#fff2f1; }
+.report-version-compare li.is-removed > span { color:#b42318; }
+@media (max-width:560px) { .report-version-compare-head { flex-direction:column; } .report-history-actions { display:grid; grid-template-columns:1fr; } .report-history-actions [data-slot="button"] { width:100%; } }
 .library-workspace { max-width: 1400px; display: grid; gap: 18px; margin: 0 auto; padding: clamp(22px,4vw,54px); }
 .library-hero, .library-list, .library-editor { border: 1px solid var(--border); border-radius: 16px; background: #fff; box-shadow: 0 4px 14px rgba(27,31,43,.035); }
 .library-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 26px; background: linear-gradient(115deg,#fff 0%,#fff 58%,#eef2ff 100%); }
