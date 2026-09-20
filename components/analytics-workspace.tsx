@@ -190,7 +190,7 @@ export function AnalyticsWorkspace() {
         </section>
 
         <section className="analytics-card analytics-chat-ranking">
-          <div className="card-heading"><div><p className="eyebrow">Ефективність чатів</p><h3>Рейтинг за конверсією</h3><p className="muted-note analytics-card-note">Конверсія = відгуки / публікації за вибраний зверху період. Чати з менш ніж ${CHAT_RANKING_MIN_PUBLICATIONS} публікаціями позначаються як мала вибірка.</p></div><span className="muted-note">Показано до 100 чатів з активністю</span></div>
+          <div className="card-heading"><div><p className="eyebrow">Ефективність чатів</p><h3>Рейтинг за конверсією</h3><p className="muted-note analytics-card-note">Конверсія = відгуки / публікації за вибраний зверху період. Чати з менш ніж {CHAT_RANKING_MIN_PUBLICATIONS} публікаціями позначаються як мала вибірка.</p></div><span className="muted-note">Показано до 100 чатів з активністю</span></div>
           <div className="analytics-ranking-controls" role="group" aria-label="Фільтри рейтингу чатів">
             <label>Платформа<select value={chatPlatform} onChange={(event) => setChatPlatform(event.target.value)}><option value="all">Усі платформи</option>{chatPlatforms.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <label>Напрямок<select value={chatDirection} onChange={(event) => setChatDirection(event.target.value)}><option value="all">Усі напрямки</option>{chatDirections.map((direction) => <option key={direction} value={direction}>{direction}</option>)}</select></label>
