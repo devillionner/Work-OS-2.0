@@ -14,6 +14,8 @@
 
 ## Поточний стан P4 — 2026-09-20
 
+- Historical report reconstruction is now closed: `bbdaf24` builds an unsaved past-day draft from canonical events while preserving any existing saved report; read-only staging acceptance passed. REPORT-01/02/04/12/13/15 are now ready.
+
 - Reports calendar acceptance now includes explicit status filters and separate final-submission time; `9d79737` is green on canonical staging and passed a read-only browser smoke. REPORT-06/20 are now closed; physical iPhone/Safari remains separate acceptance.
 
 P4 documentation is reconciled against the current code and tests on 2026-09-20. Cloudflare Workers Builds remains the canonical staging gate; each pushed `main` commit must pass `npm run verify` and the staging-only deploy guard before it counts as deployed evidence.
