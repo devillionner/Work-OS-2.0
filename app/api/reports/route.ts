@@ -9,6 +9,7 @@ import { readPreviousReportReminder } from '@/lib/reports/reminders';
 import { readFinalReportState } from '@/lib/reports/final';
 import { readGoalPlanFact } from '@/lib/goals';
 import { saveReportText } from '@/lib/reports/write';
+import { composeDailyReportText } from '@/lib/reports/compose';
 
 const REQUEST_MAX_BYTES = 32 * 1024;
 type ReportRow = { id: string; report_date: string; report_text: string; submitted_at: number | null; updated_at: number; revision_count: number; stale?: number };
@@ -39,7 +40,8 @@ export async function GET(request: Request): Promise<Response> {
   const selectedPublic = selected
     ? { ...publicReport(selected), stale: calendar.find((item) => item.id === selected.id)?.stale ?? false }
     : null;
-  return Response.json({ month, reports: calendar, calendarContext, selected: selectedPublic, summary, details, previousReportReminder, finalReportState, goalPlanFact, leadCommandScope: `reports:${user.id}` }, { headers: { 'Cache-Control': 'no-store' } });
+  const suggestedText = selectedDate && !selected ? composeDailyReportText(selectedDate, summary) : '';
+  return Response.json({ month, reports: calendar, calendarContext, selected: selectedPublic, suggestedText, summary, details, previousReportReminder, finalReportState, goalPlanFact, leadCommandScope: `reports:${user.id}` }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(request: Request): Promise<Response> {
