@@ -1,3 +1,5 @@
+import { FOCUS_DIRECTIONS, canonicalDirections } from './directions.ts';
+
 type JsonRecord = Record<string, unknown>;
 
 const PLATFORM_KEYS = {
@@ -274,7 +276,19 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
   }
 
   const reports: MigrationReport[] = [];
-  const reportRecord = parseRecord(storage['daily-report-history-v1']);
+  const reportHistory = parseStored(storage['daily-report-history-v1']);
+  const reportRecord: Record<string, unknown> = Array.isArray(reportHistory)
+    ? Object.fromEntries(
+        reportHistory
+          .filter(isRecord)
+          .map((entry, index) => [text(entry.date) || `legacy-${index}`, entry]),
+      )
+    : isRecord(reportHistory) ? { ...reportHistory } : {};
+  const legacySubmission = parseRecord(storage['daily-report-submission-v1']);
+  const legacySubmissionDate = text(legacySubmission.date);
+  if (legacySubmissionDate && text(legacySubmission.reportText) && !reportRecord[legacySubmissionDate]) {
+    reportRecord[legacySubmissionDate] = legacySubmission;
+  }
   for (const [dateKey, value] of Object.entries(reportRecord)) {
     if (!isRecord(value)) continue;
     const reportDate = legacyDate(text(value.date) || dateKey) || dateKey;
@@ -288,6 +302,27 @@ export function buildLegacyMigrationDataset(raw: string, userId: string): Legacy
   const settings: MigrationSetting[] = Object.entries(storage)
     .filter(([key]) => !DOMAIN_KEYS.has(key))
     .map(([key, value]) => ({ key, valueJson: JSON.stringify({ legacyStorageValue: value }), updatedAt: now }));
+  const settingKeys = new Set(settings.map((setting) => setting.key));
+  const addSetting = (key: string, value: unknown, updatedAt = now) => {
+    if (settingKeys.has(key)) return;
+    settingKeys.add(key);
+    settings.push({ key, valueJson: JSON.stringify(value), updatedAt });
+  };
+
+  if (typeof storage['content-direction-focus-v1'] === 'string') {
+    const focus = parseRecord(storage['content-direction-focus-v1']);
+    const disabled = new Set(canonicalDirections(
+      array(focus.disabled).filter((value): value is string => typeof value === 'string'),
+    ));
+    addSetting(
+      'focus_directions',
+      FOCUS_DIRECTIONS.filter((direction) => !disabled.has(direction)),
+      seconds(focus.updatedAt) || now,
+    );
+  }
+  const operationalGoals = legacyOperationalBookingGoals(storage, now);
+  if (operationalGoals.daily !== null) addSetting('daily_booking_goal', operationalGoals.daily);
+  if (operationalGoals.monthly !== null) addSetting('monthly_booking_goal', operationalGoals.monthly);
 
   const chatPlatform = new Map(chats.map((chat) => [chat.id, chat.platform]));
   const chatAccount = new Map(chats.map((chat) => [chat.id, chat.telegramAccountId]));
@@ -365,13 +400,93 @@ export function migrationTotals(dataset: LegacyMigrationDataset): Record<Migrati
   return Object.fromEntries(MIGRATION_PHASES.map((phase) => [phase, dataset[phase].length])) as Record<MigrationPhase, number>;
 }
 
+function legacyOperationalBookingGoals(
+  storage: Record<string, string>,
+  now: number,
+): { daily: number | null; monthly: number | null } {
+  const date = kyivDateForEpoch(now);
+  const schedule = parseRecord(storage['analytics-daily-goal-schedule-v1']);
+  const analytics = parseRecord(storage['analytics-goals-v1']);
+
+  let daily: number | null = null;
+  const overrides = isRecord(schedule.overrides) ? schedule.overrides : {};
+  const override = overrides[date] ?? overrides[legacyShortDate(date)];
+  daily = bookingGoal(isRecord(override) && 'goal' in override ? override.goal : override);
+
+  if (daily === null) {
+    const periods = array(schedule.periods)
+      .filter(isRecord)
+      .filter((period) => {
+        const start = legacyDate(text(period.start));
+        const end = legacyDate(text(period.end));
+        return Boolean(start && end && start <= date && date <= end);
+      })
+      .sort((left, right) => {
+        const updated = Number(left.updatedAt || 0) - Number(right.updatedAt || 0);
+        return updated || text(left.id).localeCompare(text(right.id));
+      });
+    daily = bookingGoal(periods.at(-1)?.goal);
+  }
+  if (daily === null) daily = bookingGoal(schedule.defaultGoal);
+
+  const dailyHistory = isRecord(analytics.daily) ? analytics.daily : {};
+  if (daily === null) {
+    const latest = Object.entries(dailyHistory)
+      .map(([key, value]) => [legacyDate(key), value] as const)
+      .filter((entry): entry is readonly [string, unknown] => Boolean(entry[0] && entry[0] <= date))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .at(-1);
+    daily = bookingGoal(latest?.[1]);
+  }
+
+  const monthlyGoals = isRecord(analytics.monthly) ? analytics.monthly : {};
+  const month = date.slice(0, 7);
+  let monthly = bookingGoal(monthlyGoals[month]);
+  if (monthly === null) {
+    const latest = Object.entries(monthlyGoals)
+      .filter(([key]) => /^\d{4}-\d{2}$/.test(key) && key <= month)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .at(-1);
+    monthly = bookingGoal(latest?.[1]);
+  }
+  return { daily, monthly };
+}
+
+function bookingGoal(value: unknown): number | null {
+  if (!isRecord(value)) return null;
+  const parsed = Number(value.records);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100000) return null;
+  return Math.round(parsed);
+}
+
+function kyivDateForEpoch(epochSeconds: number): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Kyiv',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(epochSeconds * 1000));
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function legacyShortDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  return match ? `${match[3]}.${match[2]}.${match[1].slice(-2)}` : value;
+}
+
+function parseStored(value: string | undefined): unknown {
+  if (typeof value !== 'string') return null;
+  try { return JSON.parse(value) as unknown; }
+  catch { return null; }
+}
 function parseArray(value: string | undefined): JsonRecord[] {
-  try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) ? parsed.filter(isRecord) : []; }
-  catch { return []; }
+  const parsed = parseStored(value);
+  return Array.isArray(parsed) ? parsed.filter(isRecord) : [];
 }
 function parseRecord(value: string | undefined): JsonRecord {
-  try { const parsed = JSON.parse(value || '{}'); return isRecord(parsed) ? parsed : {}; }
-  catch { return {}; }
+  const parsed = parseStored(value);
+  return isRecord(parsed) ? parsed : {};
 }
 function isRecord(value: unknown): value is JsonRecord { return Boolean(value && typeof value === 'object' && !Array.isArray(value)); }
 function array(value: unknown): unknown[] { return Array.isArray(value) ? value : []; }
