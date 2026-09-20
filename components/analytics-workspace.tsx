@@ -6,6 +6,7 @@ import { AnalyticsInsights } from '@/components/analytics-insights';
 import { AnalyticsTrends } from '@/components/analytics-trends';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { AnalyticsMetricDialog, type AnalyticsMetricKey } from '@/components/analytics-metric-dialog';
 
 type AnalyticsPeriod = 'day' | 'week' | 'month' | 'year' | 'custom';
 type PlatformRow = {
@@ -50,6 +51,7 @@ export function AnalyticsWorkspace() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [detailMetric, setDetailMetric] = useState<AnalyticsMetricKey | null>(null);
 
   const params = useCallback((format?: 'csv') => {
     const value = new URLSearchParams({ period });
@@ -81,6 +83,7 @@ export function AnalyticsWorkspace() {
 
   return (
     <div className="analytics-workspace">
+      <AnalyticsMetricDialog open={detailMetric !== null} metric={detailMetric} query={params().toString()} onClose={() => setDetailMetric(null)} />
       <section className="analytics-hero">
         <div>
           <p className="eyebrow">Рішення на основі даних</p>
@@ -103,10 +106,10 @@ export function AnalyticsWorkspace() {
       {error && <div className="workspace-error" role="alert">{error}</div>}
       {loading && !data ? <div className="workspace-loading"><RefreshCw className="is-spinning" /><span>Рахуємо показники…</span></div> : data ? <>
         <section className="analytics-metrics">
-          <Metric label="Публікації" value={data.totals.publications} hint="за датою події" />
-          <Metric label="Відгуки" value={data.totals.responses} hint={`${data.totals.responseRate}% від публікацій`} />
-          <Metric label="Записи" value={data.totals.bookings} hint={`${data.totals.bookingRate}% від відгуків`} />
-          <Metric label="Проведені уроки" value={data.totals.completed} hint={`${data.totals.completionRate}% від записів`} />
+          <Metric metric="publications" label="Публікації" value={data.totals.publications} hint="за датою події" onOpen={setDetailMetric} />
+          <Metric metric="responses" label="Відгуки" value={data.totals.responses} hint={`${data.totals.responseRate}% від публікацій`} onOpen={setDetailMetric} />
+          <Metric metric="bookings" label="Записи" value={data.totals.bookings} hint={`${data.totals.bookingRate}% від відгуків`} onOpen={setDetailMetric} />
+          <Metric metric="completed" label="Проведені уроки" value={data.totals.completed} hint={`${data.totals.completionRate}% від записів`} onOpen={setDetailMetric} />
         </section>
 
         <AnalyticsInsights insights={data.insights} />
@@ -165,8 +168,8 @@ export function AnalyticsWorkspace() {
   );
 }
 
-function Metric({ label, value, hint }: { label: string; value: number; hint: string }) {
-  return <div className="analytics-metric"><span>{label}</span><strong>{value}</strong><small>{hint}</small></div>;
+function Metric({ metric, label, value, hint, onOpen }: { metric: AnalyticsMetricKey; label: string; value: number; hint: string; onOpen: (metric: AnalyticsMetricKey) => void }) {
+  return <div className="analytics-metric"><span>{label}</span><strong>{value}</strong><small>{hint}</small><Button type="button" size="sm" variant="ghost" onClick={() => onOpen(metric)}>Що входить · Події</Button></div>;
 }
 
 function FunnelStep({ title, value, detail }: { title: string; value: number; detail: string }) {

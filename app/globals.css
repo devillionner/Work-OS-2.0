@@ -467,6 +467,21 @@ button:not([data-slot="button"]) { color: inherit; }
 .analytics-metric > span { color: var(--muted-foreground); font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .05em; }
 .analytics-metric strong { font-size: 29px; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
 .analytics-metric small { color: var(--muted-foreground); font-size: 11px; }
+.analytics-metric [data-slot="button"] { justify-self:start; min-height:32px; margin:3px 0 -5px -8px; padding-inline:8px; color:#3157f6; }
+.analytics-metric-dialog { max-width:min(720px,calc(100% - 2rem)); }
+.analytics-metric-explainer { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.analytics-metric-explainer > div { display:grid; gap:4px; padding:10px; border:1px solid var(--border); border-radius:10px; background:#fafbfc; }
+.analytics-metric-explainer span { color:var(--muted-foreground); font-size:10px; font-weight:750; text-transform:uppercase; }
+.analytics-metric-explainer p { margin:0; font-size:12px; line-height:1.45; }
+.analytics-metric-event-head { display:flex; justify-content:space-between; gap:12px; align-items:center; }
+.analytics-metric-event-head span { color:var(--muted-foreground); font-size:11px; }
+.analytics-metric-events { display:grid; gap:6px; max-height:min(50vh,460px); margin:0; padding:0; overflow:auto; list-style:none; }
+.analytics-metric-events li { display:grid; gap:4px; padding:10px 12px; border:1px solid #e7e9ee; border-radius:10px; }
+.analytics-metric-events li > div { display:flex; justify-content:space-between; gap:10px; }
+.analytics-metric-events li span,.analytics-metric-events li p { color:var(--muted-foreground); font-size:11px; }
+.analytics-metric-events li p { margin:0; }
+@media (max-width:640px) { .analytics-metric-explainer { grid-template-columns:1fr; } .analytics-metric-events li > div { align-items:flex-start; flex-direction:column; gap:2px; } }
+
 .analytics-card { padding: 22px; }
 .analytics-card h3 { margin: 0; font-size: 20px; letter-spacing: -.025em; }
 .analytics-trend-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
