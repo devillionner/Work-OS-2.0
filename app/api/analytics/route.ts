@@ -68,9 +68,10 @@ export async function GET(request: Request): Promise<Response> {
         FROM chats WHERE user_id=?1 AND workflow_status='archived' AND archived_at>=?2 AND archived_at<?3
         GROUP BY COALESCE(NULLIF(TRIM(archive_reason),''),'Без причини')
         ORDER BY count DESC,reason ASC LIMIT 20`).bind(user.id, archiveFrom, archiveTo),
+      env.DB.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('target_publication_rate','target_response_rate','target_booking_rate','target_completion_rate')`).bind(user.id),
     ]),
   ]);
-  const [eventsResult, lessonsResult, chatResult, archiveReasonResult] = batch;
+  const [eventsResult, lessonsResult, chatResult, archiveReasonResult, targetResult] = batch;
 
   const eventRows = eventsResult.results as EventAggregate[];
   const completedRows = lessonsResult.results as Array<{ platform: string; count: number }>;
@@ -182,13 +183,17 @@ export async function GET(request: Request): Promise<Response> {
     reason: row.reason,
     count: Number(row.count || 0),
   }));
+  const targetMap=new Map((targetResult.results as Array<{setting_key:string;value_json:string}>).map(row=>[row.setting_key,settingPercent(row.value_json)]));
+  const targets={publicationRate:targetMap.get('target_publication_rate')||0,responseRate:targetMap.get('target_response_rate')||0,bookingRate:targetMap.get('target_booking_rate')||0,completionRate:targetMap.get('target_completion_rate')||0};
   const insights = {
     recommendation: buildAnalyticsRecommendation(chats, range.days),
     archiveReasons,
     archivedChats: archiveReasons.reduce((sum, row) => sum + row.count, 0),
   };
-  return Response.json({ ...data, outcomes, insights, trends, subjects }, { headers: { 'Cache-Control': 'no-store' } });
+  return Response.json({ ...data, targets, outcomes, insights, trends, subjects }, { headers: { 'Cache-Control': 'no-store' } });
 }
+
+function settingPercent(value:string):number { try { const parsed=JSON.parse(value); return Number.isInteger(parsed)&&parsed>=0&&parsed<=100?parsed:0; } catch { return 0; } }
 
 function rate(value: number, base: number): number {
   return base > 0 ? Math.round((value / base) * 1000) / 10 : 0;

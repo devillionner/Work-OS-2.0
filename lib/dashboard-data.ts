@@ -15,6 +15,7 @@ export type DashboardSnapshot = {
   bookingGoal: { completed: number; target: number };
   monthlyBookingGoal: number;
   focusDirections: string[];
+  funnelTargets: { publicationRate:number; responseRate:number; bookingRate:number; completionRate:number };
   enabledPlatforms: string[];
   platforms: Array<{ key: string; name: string; color: string; publications: number; joined: number; responses: number; bookings: number }>;
   leadTaskCount: number;
@@ -45,7 +46,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
     db.prepare(`SELECT COUNT(*) AS count FROM leads WHERE user_id=?1 AND archived_at IS NULL`).bind(userId),
     db.prepare(`SELECT j.completed_at,i.original_filename FROM migration_jobs j JOIN legacy_imports i ON i.id=j.import_id AND i.user_id=j.user_id WHERE j.user_id=?1 AND j.status='completed' ORDER BY j.completed_at DESC LIMIT 1`).bind(userId),
     activitySummaryStatement(db, userId, today, today, submittedActivityRevision === null ? afterReport : null),
-    db.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('focus_directions','daily_booking_goal','monthly_booking_goal','enabled_platforms')`).bind(userId),
+    db.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('focus_directions','daily_booking_goal','monthly_booking_goal','enabled_platforms','target_publication_rate','target_response_rate','target_booking_rate','target_completion_rate')`).bind(userId),
     db.prepare(`SELECT id,name,next_action,next_contact_at FROM leads
       WHERE user_id=?1 AND archived_at IS NULL AND next_contact_at IS NOT NULL AND next_contact_at<=?2
       ORDER BY next_contact_at,id LIMIT 50`).bind(userId, now),
@@ -98,6 +99,12 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
   const dailyGoal = settingMap.has('daily_booking_goal') ? settingNumber(settingMap.get('daily_booking_goal')) : 5;
   const monthlyBookingGoal = settingMap.has('monthly_booking_goal') ? settingNumber(settingMap.get('monthly_booking_goal')) : 100;
   const focusDirections = settingList(settingMap.get('focus_directions'));
+  const funnelTargets = {
+    publicationRate: settingPercent(settingMap.get('target_publication_rate')),
+    responseRate: settingPercent(settingMap.get('target_response_rate')),
+    bookingRate: settingPercent(settingMap.get('target_booking_rate')),
+    completionRate: settingPercent(settingMap.get('target_completion_rate')),
+  };
   const enabledPlatforms = settingList(settingMap.get('enabled_platforms'));
   const platformKeys = new Set([...Object.keys(PLATFORM_META), ...eventRows.map(row => row.platform || 'unknown')]);
   const platforms = [...platformKeys].map(key => ({
@@ -118,6 +125,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
     bookingGoal: { completed: activityTotals(eventRows).bookings, target: dailyGoal },
     monthlyBookingGoal,
     focusDirections,
+    funnelTargets,
     enabledPlatforms: enabledPlatforms.length ? enabledPlatforms : ['telegram', 'whatsapp', 'viber', 'facebook'],
     platforms,
     leadTaskCount,
@@ -127,6 +135,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
 
 function settingNumber(value: string | undefined): number { try { const parsed = JSON.parse(value || 'null'); return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0; } catch { return 0; } }
 function settingList(value: string | undefined): string[] { try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) ? parsed.filter((item): item is string=>typeof item==='string'):[]; } catch { return []; } }
+function settingPercent(value:string|undefined):number { try { const parsed=JSON.parse(value||'0'); return Number.isInteger(parsed)&&parsed>=0&&parsed<=100?parsed:0; } catch { return 0; } }
 
 function shiftBusinessDate(value: string, days: number): string {
   const date = new Date(`${value}T12:00:00Z`);

@@ -207,7 +207,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkO
           <button type="button" aria-current={['reports','library','settings'].includes(activeView) ? 'page' : undefined} onClick={(event) => openMobileMenu(event.currentTarget)}><Menu /><span>Ще</span></button>
         </nav>
 
-        <TodaySettingsDialog open={todaySettingsOpen} onClose={() => setTodaySettingsOpen(false)} initialDirections={snapshot.focusDirections} initialDailyGoal={snapshot.bookingGoal.target} initialMonthlyGoal={snapshot.monthlyBookingGoal} onSaved={() => router.refresh()} />
+        <TodaySettingsDialog open={todaySettingsOpen} onClose={() => setTodaySettingsOpen(false)} initialDirections={snapshot.focusDirections} initialDailyGoal={snapshot.bookingGoal.target} initialMonthlyGoal={snapshot.monthlyBookingGoal} initialFunnelTargets={snapshot.funnelTargets} onSaved={() => router.refresh()} />
         <AppReleaseDialog open={releaseOpen} onClose={() => setReleaseOpen(false)} />
       </main>
     </div>

@@ -4,14 +4,15 @@ import { businessDate } from '@/lib/business-time';
 import { goalVersionStatement } from '@/lib/goals';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 
-const ALLOWED = new Set(['focus_directions', 'daily_booking_goal', 'monthly_booking_goal', 'enabled_platforms']);
+const ALLOWED = new Set(['focus_directions', 'daily_booking_goal', 'monthly_booking_goal', 'enabled_platforms', 'target_publication_rate', 'target_response_rate', 'target_booking_rate', 'target_completion_rate']);
+const RATE_KEYS = new Set(['target_publication_rate','target_response_rate','target_booking_rate','target_completion_rate']);
 const PLATFORMS = new Set(['telegram', 'whatsapp', 'viber', 'facebook']);
 const REQUEST_MAX_BYTES = 16 * 1024;
 
 export async function GET(): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
-  const result = await env.DB.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('focus_directions','daily_booking_goal','monthly_booking_goal','enabled_platforms')`).bind(user.id).all<{ setting_key: string; value_json: string }>();
+  const result = await env.DB.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('focus_directions','daily_booking_goal','monthly_booking_goal','enabled_platforms','target_publication_rate','target_response_rate','target_booking_rate','target_completion_rate')`).bind(user.id).all<{ setting_key: string; value_json: string }>();
   const settings: Record<string, unknown> = {};
   for (const row of result.results) { try { settings[row.setting_key] = JSON.parse(row.value_json); } catch { /* ignore malformed legacy setting */ } }
   return Response.json({ settings }, { headers: { 'Cache-Control': 'no-store' } });
@@ -36,7 +37,8 @@ export async function POST(request: Request): Promise<Response> {
       values.set(key, JSON.stringify([...new Set(list)]));
     } else {
       const number = Number(value);
-      if (!Number.isInteger(number) || number < 0 || number > 100000) return Response.json({ error: 'Ціль має бути цілим числом від 0 до 100 000.' }, { status: 400 });
+      const max = RATE_KEYS.has(key) ? 100 : 100000;
+      if (!Number.isInteger(number) || number < 0 || number > max) return Response.json({ error: RATE_KEYS.has(key) ? 'Цільова конверсія має бути цілим відсотком від 0 до 100.' : 'Ціль має бути цілим числом від 0 до 100 000.' }, { status: 400 });
       values.set(key, JSON.stringify(number));
     }
   }

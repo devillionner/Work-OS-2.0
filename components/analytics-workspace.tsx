@@ -33,6 +33,7 @@ type AnalyticsData = {
   insights: AnalyticsInsightsData;
   trends: TrendPoint[];
   subjects: SubjectData;
+  targets: { publicationRate:number; responseRate:number; bookingRate:number; completionRate:number };
   outcomes: { booked:number; completed:number; cancelled:number; rescheduled:number; noShow:number };
 };
 
@@ -107,10 +108,10 @@ export function AnalyticsWorkspace() {
       {error && <div className="workspace-error" role="alert">{error}</div>}
       {loading && !data ? <div className="workspace-loading"><RefreshCw className="is-spinning" /><span>Рахуємо показники…</span></div> : data ? <>
         <section className="analytics-metrics">
-          <Metric metric="publications" label="Публікації" value={data.totals.publications} hint="за датою події" onOpen={setDetailMetric} />
-          <Metric metric="responses" label="Відгуки" value={data.totals.responses} hint={`${data.totals.responseRate}% від публікацій`} onOpen={setDetailMetric} />
-          <Metric metric="bookings" label="Записи" value={data.totals.bookings} hint={`${data.totals.bookingRate}% від відгуків`} onOpen={setDetailMetric} />
-          <Metric metric="completed" label="Проведені уроки" value={data.totals.completed} hint={`${data.totals.completionRate}% від записів`} onOpen={setDetailMetric} />
+          <Metric metric="publications" label="Публікації" value={data.totals.publications} hint={rateHint(data.totals.publicationRate,data.targets.publicationRate,'від приєднань')} onOpen={setDetailMetric} />
+          <Metric metric="responses" label="Відгуки" value={data.totals.responses} hint={rateHint(data.totals.responseRate,data.targets.responseRate,'від публікацій')} onOpen={setDetailMetric} />
+          <Metric metric="bookings" label="Записи" value={data.totals.bookings} hint={rateHint(data.totals.bookingRate,data.targets.bookingRate,'від відгуків')} onOpen={setDetailMetric} />
+          <Metric metric="completed" label="Проведені уроки" value={data.totals.completed} hint={rateHint(data.totals.completionRate,data.targets.completionRate,'від записів')} onOpen={setDetailMetric} />
         </section>
 
         <AnalyticsInsights insights={data.insights} />
@@ -213,3 +214,5 @@ function currentDate() {
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
 }
+
+function rateHint(actual:number,target:number,base:string){return target>0?`${actual}% ${base} · ціль ${target}%`:`${actual}% ${base} · ціль не задана`;}
