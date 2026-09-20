@@ -33,9 +33,11 @@ type StagedImport = {
   syncPreview?: { added:number; matched:number; preserved:number };
 };
 
+type MigrationReconciliationRow = { expected:number; verified:number; expectedChecksum:string; actualChecksum:string; ok:boolean };
 type MigrationJob = {
   id: string; importId: string; status: 'running' | 'completed' | 'failed'; phase: string;
   total: number; complete: number; percent: number; error?: string | null;
+  reconciliation?: Record<string,MigrationReconciliationRow>;
 };
 
 export function LegacyImportDialog({
@@ -189,6 +191,16 @@ export function LegacyImportDialog({
               <div className="migration-progress-track"><i style={{ width: `${relevantJob.percent}%` }} /></div>
               <small>{relevantJob.percent}% · етап: {migrationPhaseName(relevantJob.phase)}</small>
             </div>}
+            {relevantJob && Object.keys(relevantJob.reconciliation || {}).length>0 && <div className="staged-review" aria-label="Звірка переносу">
+              <div className="reconciliation-heading"><ShieldCheck/><strong>Звірка записаних даних</strong></div>
+              <div className="reconciliation-list">
+                {Object.entries(relevantJob.reconciliation || {}).map(([phase,row])=><div key={phase}>
+                  <span>{migrationPhaseName(phase)}</span>
+                  <strong className={!row.ok || row.verified !== row.expected ? 'has-issue' : ''}>{row.verified}/{row.expected} · {row.ok && row.expectedChecksum===row.actualChecksum ? 'SHA ✓' : 'помилка'}</strong>
+                </div>)}
+              </div>
+              <p className="staged-footnote">Кожна порція звіряється за stable ID та checksum одразу після запису в D1. Завершення недоступне, якщо звірка не пройдена.</p>
+            </div>}
             {relevantJob?.status !== 'completed' && <>
               <label className="migration-consent"><input type="checkbox" checked={migrationConfirmed} onChange={(event) => setMigrationConfirmed(event.target.checked)} disabled={migrating} /><span>Я перевірив підсумок. Оновлюємо Work OS 2.0 даними з цієї копії Prototype Checker без автоматичного видалення відсутніх записів.</span></label>
               <Button type="button" onClick={() => void migrate()} disabled={!migrationConfirmed || !staged.integrityOk || !staged.analysis.canProceed || migrating}>
@@ -310,5 +322,5 @@ async function migrationRequest(action: 'start' | 'process', importId?: string):
 }
 
 function migrationPhaseName(value: string): string {
-  return ({ accounts: 'Telegram-акаунти', chats: 'чати', profiles: 'профілі', publications: 'публікації', leads: 'ліди', students: 'учні', lessons: 'уроки', reports: 'звіти', settings: 'налаштування', events: 'статистика', done: 'готово' } as Record<string, string>)[value] || value;
+  return ({ accounts: 'Telegram-акаунти', chats: 'чати', profiles: 'профілі', publications: 'публікації', leads: 'ліди', students: 'учні', lessons: 'уроки', curatorRequests: 'кураторські заявки', reports: 'звіти', settings: 'налаштування', events: 'статистика', done: 'готово' } as Record<string, string>)[value] || value;
 }

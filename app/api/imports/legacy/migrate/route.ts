@@ -10,6 +10,7 @@ import {
 } from '@/lib/legacy-migration';
 import { sha256Hex } from '@/lib/legacy-backup';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
+import { appendMigrationReconciliation, parseMigrationReconciliation, reconcileMigrationChunk, reconciliationComplete } from '@/lib/legacy-reconciliation';
 
 // Each Leads record now includes parent/conflict guards in the same batch.
 const RECORDS_PER_STEP = 10;
@@ -18,7 +19,7 @@ const RECORDS_PER_STAGED_CHUNK = 200;
 type ImportRow = { id: string; sha256: string; status: string };
 type JobRow = {
   id: string; import_id: string; status: string; phase: string; cursor: number;
-  totals_json: string; processed_json: string; error_message: string | null;
+  totals_json: string; processed_json: string; reconciliation_json: string; error_message: string | null;
 };
 
 export async function GET(): Promise<Response> {
@@ -47,7 +48,7 @@ async function startMigration(userId: string, requestedImportId: string): Promis
     : await env.DB.prepare(`SELECT id, sha256, status FROM legacy_imports WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 1`).bind(userId).first<ImportRow>();
   if (!imported) return Response.json({ error: 'Підготовлену копію не знайдено.' }, { status: 404 });
 
-  const existing = await env.DB.prepare(`SELECT id, import_id, status, phase, cursor, totals_json, processed_json, error_message FROM migration_jobs WHERE user_id = ?1 AND import_id = ?2 LIMIT 1`).bind(userId, imported.id).first<JobRow>();
+  const existing = await env.DB.prepare(`SELECT id, import_id, status, phase, cursor, totals_json, processed_json, reconciliation_json, error_message FROM migration_jobs WHERE user_id = ?1 AND import_id = ?2 LIMIT 1`).bind(userId, imported.id).first<JobRow>();
   if (existing) {
     if (existing.status === 'failed') {
       await env.DB.prepare(`UPDATE migration_jobs SET status = 'running', error_message = NULL, updated_at = ?1 WHERE id = ?2 AND user_id = ?3`).bind(Math.floor(Date.now() / 1000), existing.id, userId).run();
@@ -104,34 +105,77 @@ async function processMigration(userId: string): Promise<Response> {
     if (phaseTotal && !stagedChunk) throw new Error('Не знайдено підготовлену порцію даних.');
     const records = stagedChunk ? JSON.parse(stagedChunk.payload_json) as LegacyMigrationDataset[MigrationPhase] : [];
     const chunkOffset = job.cursor % RECORDS_PER_STAGED_CHUNK;
-    const chunk = records.slice(chunkOffset, chunkOffset + RECORDS_PER_STEP);
-    const statements: D1PreparedStatement[] = [];
+    const chunk = records.slice(chunkOffset, chunkOffset + RECORDS_PER_STEP) as LegacyMigrationDataset[MigrationPhase];
+
+    const writeStatements: D1PreparedStatement[] = [];
     for (const record of chunk) {
-      statements.push(...legacyLeadGuards(env.DB, phase, record, userId));
-      statements.push(statementFor(phase, record, userId, imported.id));
+      writeStatements.push(...legacyLeadGuards(env.DB, phase, record, userId));
+      writeStatements.push(statementFor(phase, record, userId, imported.id));
     }
-    const processed = safeCountRecord(job.processed_json);
-    processed[phase] = Math.min(phaseTotal, job.cursor + chunk.length);
-    const reachedEnd = job.cursor + chunk.length >= phaseTotal;
-    const phaseIndex = MIGRATION_PHASES.indexOf(phase);
-    const completed = reachedEnd && phaseIndex === MIGRATION_PHASES.length - 1;
-    const nextPhase = reachedEnd && !completed ? MIGRATION_PHASES[phaseIndex + 1] : phase;
-    const nextCursor = reachedEnd ? 0 : job.cursor + chunk.length;
     const now = Math.floor(Date.now() / 1000);
-    if (reachedEnd && phase === 'accounts') {
+    if (phase === 'accounts') {
       const selected = (chunk as LegacyMigrationDataset['accounts']).find((record) => record.selected);
       if (selected) {
-        statements.push(env.DB.prepare(
+        writeStatements.push(env.DB.prepare(
           `UPDATE telegram_accounts SET is_selected=CASE WHEN id=?1 THEN 1 ELSE 0 END,updated_at=?2 WHERE user_id=?3`,
         ).bind(selected.id,now,userId));
       }
     }
-    statements.push(env.DB.prepare(
-      `UPDATE migration_jobs SET status = ?1, phase = ?2, cursor = ?3, processed_json = ?4,
-       updated_at = ?5, completed_at = ?6 WHERE id = ?7 AND user_id = ?8`,
-    ).bind(completed ? 'completed' : 'running', completed ? 'done' : nextPhase, nextCursor, JSON.stringify(processed), now, completed ? now : null, job.id, userId));
-    if (completed) statements.push(env.DB.prepare(`UPDATE legacy_imports SET status = 'migrated', updated_at = ?1 WHERE id = ?2 AND user_id = ?3`).bind(now, imported.id, userId));
-    await env.DB.batch(statements);
+    if (writeStatements.length) await env.DB.batch(writeStatements);
+
+    const verifiedChunk = await reconcileMigrationChunk(env.DB, userId, phase, chunk);
+    if (!verifiedChunk.ok) {
+      throw new Error(`Звірка етапу ${phase} не пройдена: ${verifiedChunk.actual} із ${verifiedChunk.expected} стабільних ключів.`);
+    }
+    let reconciliation = parseMigrationReconciliation(job.reconciliation_json);
+    reconciliation = await appendMigrationReconciliation(
+      reconciliation,
+      phase,
+      phaseTotal,
+      job.cursor,
+      verifiedChunk,
+    );
+
+    const processed = safeCountRecord(job.processed_json);
+    processed[phase] = Math.min(phaseTotal, job.cursor + chunk.length);
+    const reachedEnd = job.cursor + chunk.length >= phaseTotal;
+    if (reachedEnd) {
+      const phaseCheck = reconciliation[phase];
+      if (!phaseCheck?.ok || phaseCheck.verified !== phaseTotal) {
+        throw new Error(`Фінальна звірка етапу ${phase} не збігається з очікуваною кількістю.`);
+      }
+    }
+    const phaseIndex = MIGRATION_PHASES.indexOf(phase);
+    const completed = reachedEnd && phaseIndex === MIGRATION_PHASES.length - 1;
+    if (completed && !reconciliationComplete(reconciliation, MIGRATION_PHASES)) {
+      throw new Error('Фінальна звірка переносу не пройдена. Робочу базу не активовано.');
+    }
+    const nextPhase = reachedEnd && !completed ? MIGRATION_PHASES[phaseIndex + 1] : phase;
+    const nextCursor = reachedEnd ? 0 : job.cursor + chunk.length;
+
+    const progressStatements: D1PreparedStatement[] = [
+      env.DB.prepare(
+        `UPDATE migration_jobs SET status = ?1, phase = ?2, cursor = ?3, processed_json = ?4,
+         reconciliation_json = ?5, updated_at = ?6, completed_at = ?7 WHERE id = ?8 AND user_id = ?9`,
+      ).bind(
+        completed ? 'completed' : 'running',
+        completed ? 'done' : nextPhase,
+        nextCursor,
+        JSON.stringify(processed),
+        JSON.stringify(reconciliation),
+        now,
+        completed ? now : null,
+        job.id,
+        userId,
+      ),
+    ];
+    if (completed) {
+      progressStatements.push(
+        env.DB.prepare(`UPDATE legacy_imports SET status = 'migrated', updated_at = ?1 WHERE id = ?2 AND user_id = ?3`)
+          .bind(now, imported.id, userId),
+      );
+    }
+    await env.DB.batch(progressStatements);
     const updated = await latestJob(userId);
     return Response.json({ job: updated ? publicJob(updated) : null });
   } catch (cause) {
@@ -206,14 +250,14 @@ async function readImportRaw(importId: string): Promise<string> {
   return chunks.results.map((chunk) => chunk.payload_chunk).join('');
 }
 async function latestJob(userId: string): Promise<JobRow | null> {
-  return env.DB.prepare(`SELECT id, import_id, status, phase, cursor, totals_json, processed_json, error_message FROM migration_jobs WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 1`).bind(userId).first<JobRow>();
+  return env.DB.prepare(`SELECT id, import_id, status, phase, cursor, totals_json, processed_json, reconciliation_json, error_message FROM migration_jobs WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 1`).bind(userId).first<JobRow>();
 }
 function publicJob(job: JobRow) {
   const totals = safeCountRecord(job.totals_json);
   const processed = safeCountRecord(job.processed_json);
   const total = Object.values(totals).reduce((sum, value) => sum + value, 0);
   const complete = Object.values(processed).reduce((sum, value) => sum + value, 0);
-  return { id: job.id, importId: job.import_id, status: job.status, phase: job.phase, totals, processed, total, complete, percent: total ? Math.round(complete / total * 100) : 100, error: job.error_message };
+  return { id: job.id, importId: job.import_id, status: job.status, phase: job.phase, totals, processed, reconciliation: parseMigrationReconciliation(job.reconciliation_json), total, complete, percent: total ? Math.round(complete / total * 100) : 100, error: job.error_message };
 }
 function safeCountRecord(value: string): Record<string, number> {
   try { const parsed = JSON.parse(value) as Record<string, unknown>; return Object.fromEntries(Object.entries(parsed).map(([key, count]) => [key, Number(count) || 0])); }
