@@ -99,6 +99,7 @@ export function ChatNamesDialog({ open, onClose, onChanged }: { open:boolean; on
         <div><span>Помилки</span><strong>{totals.error}</strong></div>
       </section>
       {Object.keys(totals.platforms).length>0&&<div className="chat-names-platforms">{Object.entries(totals.platforms).map(([platform,count])=><span key={platform}>{platformLabel(platform)}: {count.checked} · оновлено {count.updated} · помилок {count.error}</span>)}</div>}
+      {totals.confirm+totals.error>problems.length&&<p className="muted-note">Показано останні {problems.length} із {totals.confirm+totals.error} проблемних чатів. Загальні лічильники вище враховують усі результати.</p>}
       {problems.length>0&&<div className="chat-names-problems">
         {problems.map(item=><article key={item.id} className="chat-names-problem" data-status={item.status}>
           <div><strong>{item.currentName}</strong><small>{platformLabel(item.platform)}</small>{item.status==='confirm'&&item.suggestedName?<span>Знайдено: <b>{item.suggestedName}</b></span>:<span>{item.error||'Назву не вдалося визначити.'}</span>}</div>

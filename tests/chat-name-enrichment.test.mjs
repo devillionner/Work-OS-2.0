@@ -80,3 +80,12 @@ void test('global name scan includes Facebook chats and safely updates generated
   assert.equal(result.counts.facebook.updated,1);
   assert.equal((await db.prepare("SELECT name FROM chats WHERE id='fb-a'").first()).name,'Батьки Києва');
 });
+
+
+void test('name scan normalizes stored HTML entities even when the public page is unavailable', async (t) => {
+  const db = await localDatabase(t);
+  await insertChat(db,{id:'entity-a',platform:'telegram',name:'Батьки &amp; школа &#x1F600;',link:'https://t.me/entity_group'});
+  const result=await scanChatNames(db,'u',{limit:12},400,async ()=>new Response('unavailable',{status:503}));
+  assert.deepEqual(result.items.map(item=>[item.id,item.status]),[['entity-a','updated']]);
+  assert.equal((await db.prepare("SELECT name FROM chats WHERE id='entity-a'").first()).name,'Батьки & школа 😀');
+});

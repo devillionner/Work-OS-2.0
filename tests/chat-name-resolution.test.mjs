@@ -51,3 +51,12 @@ void test('resolver accepts a public Facebook group title but rejects generic lo
     new Response('<title>Log into Facebook</title>', { headers: { 'content-type': 'text/html' } }));
   assert.equal(generic, null);
 });
+
+
+void test('resolver rejects Facebook browser interstitial titles', async () => {
+  for (const title of ['Update Your Browser','Unsupported Browser','Browser Not Supported']) {
+    const result = await resolveChatName('https://www.facebook.com/groups/100balov', async () =>
+      new Response(`<title>${title}</title>`, { headers: { 'content-type': 'text/html' } }));
+    assert.equal(result, null);
+  }
+});

@@ -10,4 +10,5 @@ void test('global chat-name maintenance exposes progress, per-platform summary, 
   assert.match(dialog,/Замінити/);
   assert.match(dialog,/Зупинити/);
   assert.match(dialog,/Telegram, WhatsApp, Viber і Facebook/);
+  assert.match(dialog,/Загальні лічильники вище враховують усі результати/);
 });

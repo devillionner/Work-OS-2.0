@@ -49,21 +49,57 @@ export async function scanChatNames(
     hasMore = result.results.length > limit;
   }
 
+  const normalizedIds = new Set<string>();
+  const normalizationConflicts = new Set<string>();
+  const normalizations = rows.flatMap((row) => {
+    const name = cleanChatName(row.name);
+    if (!name || name === row.name) return [];
+    return [{ row, name, nextUpdatedAt: Math.max(now, Number(row.updated_at) + 1) }];
+  });
+  if (normalizations.length) {
+    const results = await db.batch(normalizations.map(({ row, name, nextUpdatedAt }) =>
+      db.prepare(`UPDATE chats SET name=?1,updated_at=?2
+        WHERE id=?3 AND user_id=?4 AND updated_at=?5`)
+        .bind(name, nextUpdatedAt, row.id, userId, row.updated_at),
+    ));
+    const normalizedRows = new Map<string, Row>();
+    normalizations.forEach((entry, index) => {
+      if (Number(results[index].meta?.changes || 0) > 0) {
+        normalizedIds.add(entry.row.id);
+        normalizedRows.set(entry.row.id, { ...entry.row, name: entry.name, updated_at: entry.nextUpdatedAt });
+      } else {
+        normalizationConflicts.add(entry.row.id);
+      }
+    });
+    rows = rows.map((row) => normalizedRows.get(row.id) || row);
+  }
+
   const resolved = await Promise.all(rows.map(async (row) => {
+    if (normalizationConflicts.has(row.id)) return { row, resolution: null, normalizationConflict: true };
     const resolution = await resolveChatName(row.link, fetcher);
-    return { row, resolution };
+    return { row, resolution, normalizationConflict: false };
   }));
 
   const items: ChatNameScanItem[] = [];
   const updates: Array<{ row: Row; resolution: ChatNameResolution; nextUpdatedAt: number }> = [];
   for (const entry of resolved) {
-    const { row, resolution } = entry;
+    const { row, resolution, normalizationConflict } = entry;
+    if (normalizationConflict) {
+      items.push(project(row, null, 'error', row.updated_at, 'Чат змінився під час перевірки. Повторіть перевірку.'));
+      continue;
+    }
     if (!resolution) {
-      items.push(project(row, null, 'error', row.updated_at, 'Назву не вдалося прочитати з публічної сторінки.'));
+      items.push(project(
+        row,
+        normalizedIds.has(row.id) ? row.name : null,
+        normalizedIds.has(row.id) ? 'updated' : 'error',
+        row.updated_at,
+        normalizedIds.has(row.id) ? null : 'Назву не вдалося прочитати з публічної сторінки.',
+      ));
       continue;
     }
     if (sameName(row.name, resolution.name)) {
-      items.push(project(row, resolution.name, 'unchanged', row.updated_at, null));
+      items.push(project(row, resolution.name, normalizedIds.has(row.id) ? 'updated' : 'unchanged', row.updated_at, null));
       continue;
     }
     if (!shouldAutoApplyResolvedName(row.name, row.link, resolution.name)) {

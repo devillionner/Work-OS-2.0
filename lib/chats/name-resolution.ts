@@ -145,7 +145,7 @@ function normalizeResolvedName(value: string, platform: ChatNameResolution['plat
     if (/^(?:Viber|Viber Invite|Join Viber)$/i.test(name)) return null;
   } else {
     name = name.replace(/\s*[—–|-]\s*Facebook$/i, '').trim();
-    if (/^(?:Facebook|Log into Facebook|Facebook\s*[—–|-]\s*log in or sign up)$/i.test(name)) return null;
+    if (/^(?:Facebook|Log into Facebook|Facebook\s*[—–|-]\s*log in or sign up|Update Your Browser|Unsupported Browser|Browser Not Supported)$/i.test(name)) return null;
   }
   name = cleanChatName(name);
   if (name.length < 2 || !/[\p{L}\p{N}\p{Extended_Pictographic}]/u.test(name)) return null;
