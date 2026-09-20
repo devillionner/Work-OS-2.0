@@ -3,6 +3,12 @@
 Canonical product scope: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
 Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 
+## 2026-09-20 historical report → lead date parity
+
+- UX-03 is closed from current implementation plus a dedicated regression contract.
+- The report workspace action «Новий лід за дату» passes the selected historical report date into LeadEditor as `defaultResponseDate`; LeadEditor uses that value as the required `responseDate` for a new lead and the report command path creates the lead before navigating to it.
+- The contract test protects the button/action wiring, the selected-date handoff and the editor default so this parity cannot silently regress.
+
 ## 2026-09-20 CRM and analytics parity reconciliation
 
 - Staging `7b67820` is live and the report reconstruction path now also carries canonical lesson subject, teacher and lesson date into booking detail lines.
