@@ -20,3 +20,15 @@ void test('report calendar marks submitted reports stale after active or cancell
   assert.equal(reports.find((report) => report.date === '2026-09-08')?.stale, false);
   assert.equal(Number((await db.prepare(`SELECT COUNT(*) AS count FROM activity_events`).first()).count), before);
 });
+
+void test('report calendar counts distinct final submissions without treating later draft edits as resubmits', async (t) => {
+  const db = await localDatabase(t);
+  await db.prepare(`INSERT INTO daily_reports(id,user_id,report_date,report_text,payload_json,submitted_at,updated_at)
+    VALUES ('report-resubmitted','u','2026-09-12','v1','{}',100,100)`).run();
+  await db.prepare(`UPDATE daily_reports SET report_text='draft edit',updated_at=200,revision_count=revision_count+1 WHERE id='report-resubmitted'`).run();
+  await db.prepare(`UPDATE daily_reports SET report_text='v3',submitted_at=300,updated_at=300,revision_count=revision_count+1 WHERE id='report-resubmitted'`).run();
+  const reports = await readReportCalendar(db,'u','2026-09-01','2026-10-01');
+  const report = reports.find((item) => item.date === '2026-09-12');
+  assert.equal(report?.revisionCount,3);
+  assert.equal(report?.submissionCount,2);
+});
