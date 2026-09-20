@@ -3,6 +3,13 @@
 Canonical product scope: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
 Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 
+## 2026-09-20 CRM cancellation, conversation export and metric drill-down reconciliation
+
+- CRM-01 is closed from existing domain and UI evidence: pending curator requests can be created with an accounting date, confirmed into one real lesson, or cancelled with a required reason while preserving history and cancelling only the provisional metric. A dedicated UI/mobile contract now protects the cancellation wiring.
+- CRM-04 is closed: lead detail is cursor-paginated, ordinary commands avoid loading conversation history, addressed edits load one message, and the text export streams bounded owner-scoped pages with a version guard. The 205-message export regression verifies 100/100/5 paging, chronological output, deleted/foreign exclusion and fail-closed concurrent change handling.
+- ANALYTICS-14 is closed: each top metric exposes its definition, formula, selected period and bounded source-event drill-down. The reader is owner/date scoped and excludes cancelled facts.
+- Canonical staging remained healthy on v0.2.6 before this documentation/test reconciliation; no production or remote D1 writes were performed.
+
 ## 2026-09-20 historical report → lead date parity
 
 - UX-03 is closed from current implementation plus a dedicated regression contract.
