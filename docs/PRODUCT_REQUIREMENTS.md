@@ -405,7 +405,7 @@
 | OPS-06 | частково | Performance baseline на 10 000 чатів/10 000 лідів/100 000 подій: query count/rows read, p50/p95, розмір відповіді, UI latency; EXPLAIN QUERY PLAN та відсутність N+1. Ціль: p95 API <500 мс і UI дії <1 с на зафіксованому стенді. | Recorded P4 matrix виконано; повторювати при зміні query shape/індексів або regression. [Evidence](P4_PERFORMANCE.md). |
 | OPS-07 | частково | Приватність: auth до доступу до D1, owner-scoped reads/writes, same-origin mutations, bounded payload, безпечні помилки та журнал сесій. Leads має захист, решта API потребує однакового рівня. |
 | UX-02 | частково | Єдині дизайн-токени, сітка 4 px, touch цілі ≥44 px, читабельні 14 px+, видимий фокус; одна primary action, другорядні керування/архів приховані за потреби. Деталі — DESIGN_SYSTEM.md. | UX foundation уніфікував mobile list→detail flows, bottom navigation, focus-visible, iOS safe areas, reduced motion і 44 px touch targets; critical dialogs мають shared focus trap; Platform/Library tablists мають roving tabIndex та Arrow/Home/End navigation. Chromium staging QA виконано; physical Safari лишається. |
-| UX-03 | частково | Історична дата має явний контекст, Alt+стрілки, заборону майбутньої дати та швидке повернення на сьогодні. Перехід створення ліда зберігає дату. **Підстава:** звіт має явний контекст, Alt+← / Alt+→, серверну й UI-заборону майбутньої дати та кнопку «Сьогодні»; збереження дати під час переходу до створення ліда ще не реалізоване. [Код](../components/reports-workspace.tsx), [API](../app/api/reports/route.ts). |
+| UX-03 | готово | Історична дата має явний контекст, Alt+стрілки, заборону майбутньої дати та швидке повернення на сьогодні. Перехід створення ліда зберігає дату. **Підстава:** звіт має явний контекст, Alt+← / Alt+→, серверну й UI-заборону майбутньої дати та кнопку «Сьогодні»; «Новий лід за дату» відкриває LeadEditor з `defaultResponseDate={selected}`, а редактор зберігає цю дату як `responseDate`. Regression contract захищає весь зв’язок report → lead date. [Код](../components/reports-workspace.tsx), [Lead editor](../components/leads/lead-editor.tsx), [Тест](../tests/report-lead-date-contract.test.mjs). |
 | UX-04 | частково | Єдиний словник предметів для CRM/фільтрів/бібліотеки/аналітики: aliases нормалізуються, невідомі legacy значення не губляться; нульовий знаменник конверсії = «—», понад 100% не обрізається в подієвій статистиці. |
 | MIG-01 | частково | Повний raw backup зберігає оригінальні storage-рядки, невідомі ключі, версію та SHA-256; mapper звіряє не тільки counts, а ID й усі вкладені поля та історію. |
 | MIG-02 | частково | Міграційний parity зберігає account ownership, чати/архів, профілі, публікації, Telegram-розклад/ручний вибір, лідів/учнів/уроки/кураторські заявки, звіти, налаштування, події та історичні booking goals; completion блокується при unexplained missing/mismatch/unexpected. | Нормалізовані фази мають owner-scoped field-level fail-closed reconciliation. Legacy daily goal schedule переносить default, periods, overrides і межі повернення; monthly history зберігає exact-month semantics та canonical 3/66 defaults. Restore-версії ізольовані від manual version numbering, а пізніша ручна зміна на ту саму дату має пріоритет. Archive leave-confirmation і per-account Telegram schedule/manual selection також мігруються з raw source. Залишається тільки фінальний real-data cutover acceptance, який не запускається без прямого підтвердження користувача. |
@@ -423,8 +423,8 @@
 
 ## Зведення
 
-- готово: 65.
-- частково: 175.
+- готово: 66.
+- частково: 174.
 - не реалізовано: 24.
 - відкладено: 12.
 
