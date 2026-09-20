@@ -10,12 +10,13 @@ import { transitionChat } from '@/lib/chats/transitions';
 import { availableTodayStatement, joinedTodayStatement } from '@/lib/chats/daily-links';
 import { PROFILE_CADENCES, saveChatProfile } from '@/lib/chats/profile';
 import type { ChatProfileInput } from '@/lib/chats/profile';
+import { permanentlyDeleteChat } from '@/lib/chats/permanent-delete';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { resolveDailyPublicationGoal } from '@/lib/publication-goal';
 
 const PLATFORMS = new Set(['telegram', 'whatsapp', 'viber', 'facebook']);
 const STATUSES = new Set(['to_join', 'waiting', 'ready', 'archived']);
-const ACTIONS = new Set(['joined', 'waiting', 'approved', 'failed', 'archive', 'restore', 'snooze', 'unsnooze', 'confirm_leave', 'undo_leave', 'published', 'assign_account', 'return_to_join', 'profile']);
+const ACTIONS = new Set(['joined', 'waiting', 'approved', 'failed', 'archive', 'restore', 'snooze', 'unsnooze', 'confirm_leave', 'undo_leave', 'permanent_delete', 'published', 'assign_account', 'return_to_join', 'profile']);
 const REQUEST_MAX_BYTES = 64 * 1024;
 
 type ChatRow = {
@@ -96,7 +97,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
   const parsed = await readJsonObject(request, REQUEST_MAX_BYTES);
   if (parsed instanceof Response) return parsed;
-  const body = parsed as { id?: unknown; action?: unknown; reason?: unknown; accountId?: unknown; stateToken?: unknown; advertisementId?: unknown; language?: unknown; profile?: ChatProfileInput };
+  const body = parsed as { id?: unknown; action?: unknown; reason?: unknown; confirmation?: unknown; accountId?: unknown; stateToken?: unknown; advertisementId?: unknown; language?: unknown; profile?: ChatProfileInput };
   const id = typeof body.id === 'string' ? body.id : '';
   const action = typeof body.action === 'string' ? body.action : '';
   if (!id || !ACTIONS.has(action)) return Response.json({ error: 'Невідома дія.' }, { status: 400 });
@@ -106,7 +107,7 @@ export async function POST(request: Request): Promise<Response> {
   const now = unixNow();
   const requestedAccount = typeof body.accountId === 'string' ? body.accountId : null;
   const accountId = chat.platform === 'telegram' ? (chat.telegram_account_id || await selectedTelegramAccount(user.id,requestedAccount)) : null;
-  if (chat.platform === 'telegram' && !accountId && !['restore','archive','failed','profile','confirm_leave','undo_leave'].includes(action)) return Response.json({error:'Оберіть активний Telegram-акаунт.'},{status:409});
+  if (chat.platform === 'telegram' && !accountId && !['restore','archive','failed','profile','confirm_leave','undo_leave','permanent_delete'].includes(action)) return Response.json({error:'Оберіть активний Telegram-акаунт.'},{status:409});
   if (action === 'profile') {
     if (!body.profile || typeof body.profile !== 'object' || Array.isArray(body.profile)) return Response.json({error:'Некоректний профіль.'},{status:400});
     const result = await saveChatProfile(env.DB, { userId:user.id, chatId:id, stateToken:chat.state_token, now, profile:body.profile });
@@ -136,6 +137,12 @@ export async function POST(request: Request): Promise<Response> {
     const next=await readChatState(env.DB,user.id,id);
     return next ? Response.json({ok:true,stateToken:next.state_token,leftAt:next.left_at})
       : Response.json({error:'Не вдалося підтвердити новий стан. Оновіть список.'},{status:409});
+  }
+
+  if (action === 'permanent_delete') {
+    if(body.confirmation!=='PERMANENTLY_DELETE_NONEXISTENT_CHAT') return Response.json({error:'Потрібне явне підтвердження остаточного видалення.'},{status:400});
+    const result=await permanentlyDeleteChat(env.DB,{userId:user.id,chat,now});
+    return Response.json(result,{status:result.ok?200:409});
   }
 
   const targetAccount = action === 'assign_account' ? requestedAccount : accountId;

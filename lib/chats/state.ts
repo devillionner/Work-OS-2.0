@@ -1,7 +1,8 @@
 import { businessDate } from '../business-time.ts';
 
 export type ChatState = {
-  id: string; platform: string; workflow_status: string; joined_at: number | null;
+  id: string; name: string; link: string; platform: string; workflow_status: string; joined_at: number | null;
+  archive_reason: string | null; archived_at: number | null;
   snoozed_until: number | null; telegram_account_id: string | null; left_at: number | null; state_token: string;
 };
 
@@ -29,8 +30,8 @@ export function chatStateTokenSql(alias: 'c' | 'chats' = 'c') {
 }
 
 export function readChatState(db: D1Database, userId: string, id: string) {
-  return db.prepare(`SELECT c.id,c.platform,c.workflow_status,c.joined_at,
-    c.snoozed_until,c.telegram_account_id,${chatLeftAtSql()} AS left_at,${chatStateTokenSql()} AS state_token
+  return db.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,
+    c.archive_reason,c.archived_at,c.snoozed_until,c.telegram_account_id,${chatLeftAtSql()} AS left_at,${chatStateTokenSql()} AS state_token
     FROM chats c WHERE c.id=?1 AND c.user_id=?2`).bind(id,userId).first<ChatState>();
 }
 

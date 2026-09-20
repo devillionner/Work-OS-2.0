@@ -3,6 +3,20 @@
 Canonical product scope: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
 Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 
+## 2026-09-20 archive/delete/leave parity
+
+- Archived rows retain reason/date and guarded restore. Permanent deletion is now a
+  deliberately narrow exception: the canonical reason must be «Чат не існує»,
+  joined Telegram/WhatsApp must have the latest leave confirmation, and the server
+  rejects chats referenced by publications, leads or a pending Telegram slot.
+- The destructive action has a separate confirmation and is never automatic. A
+  successful delete writes an owner-scoped `chat_permanently_deleted` activity
+  event with the deleted ID/name/link/archive snapshot; prior events remain facts.
+  State-token, dependency and owner checks prevent stale or cross-owner deletion.
+- No SQL migration or remote D1 operation is required. Focused archive/leave/delete
+  coverage passed 27/27; full local `npm run verify` passed lint, 359/359 tests and
+  the production build before documentation status was promoted.
+
 ## 2026-09-18 repository and P4 reconciliation
 
 - GitHub staging Deployments/Environment from the retired Actions deploy path were removed after exporting local metadata; Cloudflare Workers Builds remains the only staging verify/deploy gate. Historical GitHub Actions run metadata was exported locally before cleanup.

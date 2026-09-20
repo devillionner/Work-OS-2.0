@@ -93,7 +93,7 @@ void test('chat operator flow keeps grouped copy, fast archive and archived-chat
   const selection = source('lib/chats/advertisement-selection.ts');
   assert.match(platform, /\(index\+1\)%5===0&&index<items\.length-1\?\[''\]:\[\]/);
   assert.match(platform, /\['Забанено','Чат не існує','Чат не цільовий'\]/);
-  assert.match(platform, /queue==='archived'\?<Button variant="outline" onClick=\{\(\)=>act\(chat,'restore'\)\}/);
+  assert.match(platform, /queue==='archived'\?<><Button variant="outline" onClick=\{\(\)=>act\(chat,'restore'\)\}/);
   assert.match(selection, /c\.workflow_status='ready'/);
 });
 
@@ -112,10 +112,16 @@ void test('chat archive reasons, available-now links and Telegram duplicate scop
 });
 
 
-void test('archived chat rows expose the archive timestamp without enabling destructive deletion', () => {
+void test('archived chat rows expose timestamp and tightly gated permanent deletion', () => {
   const route = source('app/api/chats/route.ts');
   const platform = source('components/platform-workspace.tsx');
+  const deletion = source('lib/chats/permanent-delete.ts');
   assert.match(route, /c\.archive_reason,c\.archived_at/);
   assert.match(route, /archivedAt: row\.archived_at/);
   assert.match(platform, /queue==='archived'&&chat\.archivedAt&&<small>Архівовано \{formatDateTime\(chat\.archivedAt\)\}<\/small>/);
+  assert.match(platform, /PERMANENTLY_DELETE_NONEXISTENT_CHAT/);
+  assert.match(platform, /chat\.archiveReason==='Чат не існує'/);
+  assert.match(deletion, /NOT EXISTS\(SELECT 1 FROM chat_publications/);
+  assert.match(deletion, /NOT EXISTS\(SELECT 1 FROM leads/);
+  assert.match(deletion, /chat_permanently_deleted/);
 });
