@@ -9,7 +9,10 @@ const route = readFileSync(new URL('../app/api/reports/subjects/route.ts', impor
 void test('Reports exposes subject analytics for all required operator periods', () => {
   for (const key of ['day', '7', '30', 'month', 'all']) assert.match(component, new RegExp(`key: '${key}'`));
   for (const label of ['Предмет', 'Відгуки', 'Записи', 'Конверсія', 'Частка відгуків', 'Частка записів']) assert.match(component, new RegExp(label));
-  assert.match(component, /function percent\([\s\S]*denominator > 0[\s\S]*: '—'/);
+  assert.match(component, /import \{ analyticsPercentLabel \} from '@\/lib\/analytics-rate'/);
+  assert.match(component, /analyticsPercentLabel\(row\.conversion, row\.responses\)/);
+  assert.match(component, /analyticsPercentLabel\(row\.responseShare, data\.total\.responses\)/);
+  assert.match(component, /analyticsPercentLabel\(row\.bookingShare, data\.total\.bookings\)/);
   assert.match(component, /\/api\/reports\/subjects\?date=/);
   assert.match(checkpoints, /<ReportSubjectAnalytics date=\{date\} \/>/);
 });
