@@ -91,6 +91,8 @@ void test('Telegram keyword plan is deterministic, bounded and resolves workbook
   assert.equal(first.done, false);
   assert.ok(first.tasks.every(task => task.query.length > 0));
   assert.ok(first.tasks.every(task => !/назва |\(назва| або країни| або міста/iu.test(task.query)));
+  assert.equal(first.tasks[0].seedKind, 'city');
+  assert.ok(new Set(first.tasks.map(task => task.city)).size >= 2);
 
   const repeated = buildTelegramSearchPlan(0, 6);
   assert.deepEqual(repeated, first);
