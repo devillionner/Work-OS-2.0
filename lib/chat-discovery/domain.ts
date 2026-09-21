@@ -502,15 +502,13 @@ function mapCandidate(row: CandidateRow, sources: DiscoverySource[]): DiscoveryC
 }
 
 function validatePlatforms(value: unknown): DiscoveryPlatform[] {
-  if (!Array.isArray(value)) throw new DiscoveryError('Виберіть WhatsApp або Viber.');
-  const platforms = [...new Set(value.filter((item): item is DiscoveryPlatform => item === 'whatsapp' || item === 'viber'))];
-  if (!platforms.length) throw new DiscoveryError('Виберіть WhatsApp або Viber.');
-  return platforms;
+  if (!Array.isArray(value) || !value.includes('whatsapp')) throw new DiscoveryError('Пошук зараз працює лише для WhatsApp.');
+  return ['whatsapp'];
 }
 
 function parsePlatforms(value: string): DiscoveryPlatform[] {
   try { return validatePlatforms(JSON.parse(value)); }
-  catch { return ['whatsapp', 'viber']; }
+  catch { return ['whatsapp']; }
 }
 
 function boundedInteger(value: unknown, min: number, max: number, fallback: number) {

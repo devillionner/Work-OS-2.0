@@ -9,7 +9,7 @@ import {
   startDiscoveryRun,
 } from '../lib/chat-discovery/domain.ts';
 import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
-import { discoverPublicWeb, extractInviteRecords, safePublicUrl } from '../lib/chat-discovery/public-web.ts';
+import { discoverPublicWeb, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl } from '../lib/chat-discovery/public-web.ts';
 import { changeChatLeave } from '../lib/chats/leave.ts';
 import { readChatState } from '../lib/chats/state.ts';
 import { transitionChat } from '../lib/chats/transitions.ts';
@@ -40,6 +40,17 @@ void test('public discovery extracts canonical WhatsApp/Viber invites and keeps 
   assert.match(records[0].source.context, /Українц/i);
   assert.equal(records[1].platform, 'viber');
   assert.match(records[1].link, /^https:\/\/invite\.viber\.com\/\?g2=/);
+});
+
+void test('public discovery rejects generic and spam WhatsApp groups before persistence', () => {
+  assert.equal(isLikelyUkrainianCommunity('Українці Berlin батьки community'), true);
+  assert.equal(isLikelyUkrainianCommunity('Berlin expats international community'), false);
+  assert.equal(isLikelyUkrainianCommunity('Українці Berlin crypto signals bitcoin'), false);
+
+  const base = { sourceUrl:'https://example.org/list', sourceTitle:'Directory', query:'Berlin', seedLabel:'Berlin', seedKind:'city', context:'' };
+  assert.equal(extractInviteRecords('International dating https://chat.whatsapp.com/Spam123', ['whatsapp'], base).length, 0);
+  assert.equal(extractInviteRecords('Українці Berlin crypto signals https://chat.whatsapp.com/Spam456', ['whatsapp'], base).length, 0);
+  assert.equal(extractInviteRecords('Українці Berlin батьки https://chat.whatsapp.com/Good123', ['whatsapp'], base).length, 1);
 });
 
 void test('public discovery rejects local/literal hosts and searches a bounded seed batch', async () => {

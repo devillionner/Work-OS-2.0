@@ -186,6 +186,8 @@ export function extractInviteRecords(
     const parsed = normalizeGroupLink(raw);
     if (!parsed || (parsed.platform !== 'whatsapp' && parsed.platform !== 'viber') || !platforms.includes(parsed.platform)) continue;
     const context = pageContext(decoded, match.index || 0, raw.length);
+    const evidence = [source.context, source.sourceTitle, source.seedLabel, source.query, context].filter(Boolean).join(' · ');
+    if (!isLikelyUkrainianCommunity(evidence)) continue;
     records.push({
       platform: parsed.platform,
       link: parsed.link,
@@ -352,6 +354,14 @@ async function readBoundedText(response: Response, limit: number): Promise<strin
     try { await reader.cancel(); } catch { /* ignore */ }
     return '';
   }
+}
+
+export function isLikelyUkrainianCommunity(value: string): boolean {
+  const text = value.toLocaleLowerCase('uk-UA').normalize('NFKC');
+  const ukrainianSignal = /(україн|украин|ukrain|🇺🇦)/u.test(text);
+  if (!ukrainianSignal) return false;
+  const spamSignal = /(crypto|крипт|bitcoin|forex|casino|казино|betting|ставк[аи]|dating|знакомств|знайомств|escort|ескорт|onlyfans|adult|18\+|nft|airdrop|signals?\b|binary options)/u.test(text);
+  return !spamSignal;
 }
 
 function inferInviteLabel(context: string, invite: string): string {

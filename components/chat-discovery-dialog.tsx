@@ -41,7 +41,7 @@ export function ChatDiscoveryDialog({
   onImported: (platform: DiscoveryPlatform) => void;
 }) {
   const [workspace, setWorkspace] = useState<Workspace>({ run: null, counts: EMPTY_COUNTS, importedCount: 0, candidates: [] });
-  const [platforms, setPlatforms] = useState<DiscoveryPlatform[]>(['whatsapp', 'viber']);
+  const platforms: DiscoveryPlatform[] = ['whatsapp'];
   const [goal, setGoal] = useState(30);
   const [minMembers, setMinMembers] = useState(700);
   const [filter, setFilter] = useState<DecisionFilter>('all');
@@ -77,12 +77,7 @@ export function ChatDiscoveryDialog({
     return () => clearTimeout(timer);
   }, [open, load]);
 
-  function togglePlatform(platform: DiscoveryPlatform) {
-    if (searching || workspace.run?.status === 'running') return;
-    setPlatforms(current => current.includes(platform)
-      ? current.filter(item => item !== platform)
-      : [...current, platform]);
-  }
+
 
   async function post(body: Record<string, unknown>) {
     const response = await fetch('/api/chat-discovery', {
@@ -97,10 +92,6 @@ export function ChatDiscoveryDialog({
 
   async function startOrContinue() {
     if (searching) return;
-    if (!workspace.run && !platforms.length) {
-      setError('Виберіть WhatsApp або Viber.');
-      return;
-    }
     stopRequested.current = false;
     setSearching(true);
     setError('');
@@ -180,7 +171,7 @@ export function ChatDiscoveryDialog({
       <DialogHeader className="pr-10">
         <DialogTitle>Пошук нових чатів</DialogTitle>
         <DialogDescription>
-          Публічний пошук WhatsApp/Viber з дедуплікацією та provenance. Невідомі критерії не вважаються підтвердженими:
+          Публічний пошук WhatsApp з дедуплікацією та provenance. Невідомі критерії не вважаються підтвердженими:
           кандидат спочатку переходить у «Для приєднання», де проходить фактичну перевірку.
         </DialogDescription>
       </DialogHeader>
@@ -191,19 +182,9 @@ export function ChatDiscoveryDialog({
 
       <section className="grid gap-3 rounded-xl border border-border/70 p-3" aria-label="Параметри пошуку">
         <div className="flex flex-wrap items-center gap-2">
-          <strong className="mr-1">Платформи</strong>
-          {(['whatsapp', 'viber'] as DiscoveryPlatform[]).map(platform =>
-            <Button
-              key={platform}
-              type="button"
-              size="sm"
-              variant={platforms.includes(platform) ? 'default' : 'outline'}
-              aria-pressed={platforms.includes(platform)}
-              disabled={searching || run?.status === 'running'}
-              onClick={() => togglePlatform(platform)}
-            >
-              {platformLabel(platform)}
-            </Button>)}
+          <strong className="mr-1">Платформа</strong>
+          <Badge>WhatsApp</Badge>
+          <span className="text-xs text-muted-foreground">Фокус: якісні українські спільноти; Viber/Telegram тимчасово вимкнені.</span>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <label htmlFor="discovery-goal" className="grid gap-1 text-sm font-medium">
