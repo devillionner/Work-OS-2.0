@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { commandBody, errorResponse, json } from '@/lib/leads/application/http';
+import { readBoundedMultipartForm } from '@/lib/http-form';
 import {
   MAX_LEAD_ATTACHMENT_BYTES,
   createLeadAttachment,
@@ -10,6 +11,8 @@ import {
 import { LeadError } from '@/lib/leads/domain/validation';
 
 const MAX_MULTIPART_OVERHEAD = 1024 * 1024;
+const MAX_MULTIPART_BYTES =
+  MAX_LEAD_ATTACHMENT_BYTES + MAX_MULTIPART_OVERHEAD;
 
 export async function GET(request: Request): Promise<Response> {
   try {
@@ -40,17 +43,10 @@ export async function POST(request: Request): Promise<Response> {
     const user = await getCurrentUser();
     if (!user) return json({ error: 'Потрібно увійти.' }, 401);
     assertSameOrigin(request);
-    const contentType = request.headers.get('content-type') ?? '';
-    if (!contentType.toLowerCase().startsWith('multipart/form-data;'))
-      throw new LeadError('Потрібен multipart/form-data.', 415);
-    const contentLength = Number(request.headers.get('content-length') ?? 0);
-    if (
-      Number.isFinite(contentLength) &&
-      contentLength > MAX_LEAD_ATTACHMENT_BYTES + MAX_MULTIPART_OVERHEAD
-    )
-      throw new LeadError('Запит із файлом завеликий.', 413);
 
-    const form = await request.formData();
+    const form = await readBoundedMultipartForm(request, MAX_MULTIPART_BYTES);
+    if (form instanceof Response) return form;
+
     const file = form.get('file');
     if (!(file instanceof File)) throw new LeadError('Оберіть файл.');
     const result = await createLeadAttachment(
