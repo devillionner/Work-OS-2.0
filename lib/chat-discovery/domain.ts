@@ -1,6 +1,6 @@
 import { businessDate } from '../business-time.ts';
 import { cleanChatName, normalizeGroupLink, suggestedChatName, type ChatPlatform } from '../chats/bulk-input.ts';
-import { discoverPublicWeb, type DiscoveryPlatform, type DiscoveryRecord, type DiscoverySource } from './public-web.ts';
+import { discoverPublicWeb, extractInviteRecords, type DiscoveryPlatform, type DiscoveryRecord, type DiscoverySource } from './public-web.ts';
 
 export type DiscoveryDecision = 'review' | 'target' | 'rejected' | 'unavailable';
 export type DiscoveryRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
@@ -144,6 +144,57 @@ export async function continueDiscoveryRun(
     errors: web.errors,
   });
   return { run: merged.run, batch: { searched: web.searched, added: merged.added, duplicates: merged.duplicates, errors: web.errors } };
+}
+
+export async function ingestTelegramDiscovery(
+  db: D1Database,
+  userId: string,
+  runId: string,
+  input: {
+    text: unknown;
+    sourceUrl?: unknown;
+    sourceTitle?: unknown;
+    query?: unknown;
+    seedLabel?: unknown;
+    context?: unknown;
+  },
+  now: number,
+): Promise<{ run: DiscoveryRun; batch: { extracted: number; added: number; duplicates: number } }> {
+  const row = await readRun(db, userId, runId);
+  if (!row) throw new DiscoveryError('Запуск пошуку не знайдено.', 404);
+  if (row.status !== 'running') throw new DiscoveryError('Цей запуск пошуку вже завершено. Почніть новий.', 409);
+
+  const text = boundedDiscoveryText(input.text, 48_000);
+  if (!text) throw new DiscoveryError('Telegram-скан порожній.');
+  const sourceUrl = boundedDiscoveryText(input.sourceUrl, 1000);
+  const sourceTitle = boundedDiscoveryText(input.sourceTitle, 180) || 'Telegram source';
+  const query = boundedDiscoveryText(input.query, 500);
+  const seedLabel = boundedDiscoveryText(input.seedLabel, 180) || sourceTitle;
+  const context = boundedDiscoveryText(input.context, 700);
+  const records = extractInviteRecords(text, ['whatsapp'], {
+    kind: 'telegram_global',
+    sourceUrl,
+    sourceTitle,
+    query,
+    seedLabel,
+    seedKind: 'telegram_chat',
+    context,
+  });
+  if (!records.length) {
+    return { run: mapRun(row), batch: { extracted: 0, added: 0, duplicates: 0 } };
+  }
+
+  const merged = await persistDiscoveryBatch(db, userId, row, records, {
+    now,
+    nextCursor: row.source_cursor,
+    searched: 0,
+    done: false,
+    errors: 0,
+  });
+  return {
+    run: merged.run,
+    batch: { extracted: records.length, added: merged.added, duplicates: merged.duplicates },
+  };
 }
 
 export async function readDiscoveryWorkspace(
@@ -524,6 +575,11 @@ function safeReasons(value: string) {
     const parsed = JSON.parse(value) as unknown;
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string').slice(0, 20) : [];
   } catch { return []; }
+}
+
+function boundedDiscoveryText(value: unknown, max: number) {
+  if (typeof value !== 'string') return '';
+  return value.replace(/\u0000/g, '').trim().slice(0, max);
 }
 
 function normalizeText(value: string) {
