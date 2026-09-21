@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   advanceTelegramDiscoveryPlan,
+  cancelDiscoveryRun,
   continueDiscoveryRun,
   evaluateDiscoveryCandidate,
   handoffDiscoveryCandidate,
@@ -114,6 +115,19 @@ void test('Telegram plan cursor persists independently from public web cursor', 
     html('<div>Українці Berlin батьки https://chat.whatsapp.com/IndependentCursor123</div>'));
   assert.equal(web.run.telegramCursor, 1);
   assert.ok(web.run.cursor > 0);
+});
+
+void test('new discovery run resumes the Telegram keyword cursor instead of restarting', async (t) => {
+  const db = await localDatabase(t);
+  const first = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  const advanced = await advanceTelegramDiscoveryPlan(db, 'u', first.id, first.version, 2, 101);
+  assert.equal(advanced.run.telegramCursor, 2);
+  await cancelDiscoveryRun(db, 'u', first.id, advanced.run.version, 102);
+
+  const second = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 103);
+  assert.notEqual(second.id, first.id);
+  assert.equal(second.telegramCursor, 2);
+  assert.equal((await readTelegramDiscoveryPlan(db, 'u', second.id, 1)).plan.cursor, 2);
 });
 
 void test('Telegram ingestion extracts WhatsApp only, keeps provenance and deduplicates repeats', async (t) => {
