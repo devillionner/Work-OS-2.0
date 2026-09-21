@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import type { SubjectAnalytics, SubjectPeriod } from '@/lib/reports/subjects';
+import { analyticsPercentLabel } from '@/lib/analytics-rate';
 
 const PERIODS: Array<{ key: SubjectPeriod; label: string }> = [
   { key: 'day', label: 'День' },
@@ -88,9 +89,9 @@ export function ReportSubjectAnalytics({ date }: { date: string }) {
                     <th className="px-3 py-2.5 text-left font-semibold" scope="row">{row.subject}</th>
                     <td className="px-3 py-2.5 text-right tabular-nums">{row.responses}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums">{row.bookings}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{percent(row.conversion, row.responses)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{percent(row.responseShare, data.total.responses)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{percent(row.bookingShare, data.total.bookings)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{analyticsPercentLabel(row.conversion, row.responses)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{analyticsPercentLabel(row.responseShare, data.total.responses)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{analyticsPercentLabel(row.bookingShare, data.total.bookings)}</td>
                   </tr>
                 )) : (
                   <tr className="border-t border-border"><td className="px-3 py-4 text-muted-foreground" colSpan={6}>За цей період відгуків і записів немає.</td></tr>
@@ -101,7 +102,7 @@ export function ReportSubjectAnalytics({ date }: { date: string }) {
                   <th className="px-3 py-2.5 text-left" scope="row">Усього</th>
                   <td className="px-3 py-2.5 text-right tabular-nums">{data.total.responses}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{data.total.bookings}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{percent(data.total.conversion, data.total.responses)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{analyticsPercentLabel(data.total.conversion, data.total.responses)}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{data.total.responses ? '100%' : '—'}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{data.total.bookings ? '100%' : '—'}</td>
                 </tr>
@@ -115,9 +116,9 @@ export function ReportSubjectAnalytics({ date }: { date: string }) {
                 <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                   <SubjectMetric label="Відгуки" value={String(row.responses)} />
                   <SubjectMetric label="Записи" value={String(row.bookings)} />
-                  <SubjectMetric label="Конверсія" value={percent(row.conversion, row.responses)} />
-                  <SubjectMetric label="Частка відгуків" value={percent(row.responseShare, data.total.responses)} />
-                  <SubjectMetric label="Частка записів" value={percent(row.bookingShare, data.total.bookings)} />
+                  <SubjectMetric label="Конверсія" value={analyticsPercentLabel(row.conversion, row.responses)} />
+                  <SubjectMetric label="Частка відгуків" value={analyticsPercentLabel(row.responseShare, data.total.responses)} />
+                  <SubjectMetric label="Частка записів" value={analyticsPercentLabel(row.bookingShare, data.total.bookings)} />
                 </div>
               </article>
             )) : (
@@ -128,7 +129,7 @@ export function ReportSubjectAnalytics({ date }: { date: string }) {
               <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                 <SubjectMetric label="Відгуки" value={String(data.total.responses)} />
                 <SubjectMetric label="Записи" value={String(data.total.bookings)} />
-                <SubjectMetric label="Конверсія" value={percent(data.total.conversion, data.total.responses)} />
+                <SubjectMetric label="Конверсія" value={analyticsPercentLabel(data.total.conversion, data.total.responses)} />
                 <SubjectMetric label="Частка відгуків" value={data.total.responses ? '100%' : '—'} />
                 <SubjectMetric label="Частка записів" value={data.total.bookings ? '100%' : '—'} />
               </div>
@@ -147,10 +148,6 @@ function SubjectMetric({ label, value }: { label: string; value: string }) {
       <strong className="mt-0.5 block text-sm tabular-nums">{value}</strong>
     </div>
   );
-}
-
-function percent(value: number, denominator: number): string {
-  return denominator > 0 ? `${value.toLocaleString('uk-UA', { maximumFractionDigits: 1 })}%` : '—';
 }
 
 function periodLabel(data: SubjectAnalytics): string {

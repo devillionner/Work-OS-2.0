@@ -7,6 +7,7 @@ import { AnalyticsTrends } from '@/components/analytics-trends';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AnalyticsMetricDialog, type AnalyticsMetricKey } from '@/components/analytics-metric-dialog';
+import { analyticsPercentLabel } from '@/lib/analytics-rate';
 import {
   CHAT_RANKING_MIN_PUBLICATIONS,
   chatLanguageLabel,
@@ -139,10 +140,10 @@ export function AnalyticsWorkspace() {
       {error && <div className="workspace-error" role="alert">{error}</div>}
       {loading && !data ? <div className="workspace-loading"><RefreshCw className="is-spinning" /><span>Рахуємо показники…</span></div> : data ? <>
         <section className="analytics-metrics">
-          <Metric metric="publications" label="Публікації" value={data.totals.publications} hint={rateHint(data.totals.publicationRate,data.targets.publicationRate,'від приєднань')} onOpen={setDetailMetric} />
-          <Metric metric="responses" label="Відгуки" value={data.totals.responses} hint={rateHint(data.totals.responseRate,data.targets.responseRate,'від публікацій')} onOpen={setDetailMetric} />
-          <Metric metric="bookings" label="Записи" value={data.totals.bookings} hint={rateHint(data.totals.bookingRate,data.targets.bookingRate,'від відгуків')} onOpen={setDetailMetric} />
-          <Metric metric="completed" label="Проведені уроки" value={data.totals.completed} hint={rateHint(data.totals.completionRate,data.targets.completionRate,'від записів')} onOpen={setDetailMetric} />
+          <Metric metric="publications" label="Публікації" value={data.totals.publications} hint={rateHint(data.totals.publicationRate,data.targets.publicationRate,'від приєднань',data.totals.joined)} onOpen={setDetailMetric} />
+          <Metric metric="responses" label="Відгуки" value={data.totals.responses} hint={rateHint(data.totals.responseRate,data.targets.responseRate,'від публікацій',data.totals.publications)} onOpen={setDetailMetric} />
+          <Metric metric="bookings" label="Записи" value={data.totals.bookings} hint={rateHint(data.totals.bookingRate,data.targets.bookingRate,'від відгуків',data.totals.responses)} onOpen={setDetailMetric} />
+          <Metric metric="completed" label="Проведені уроки" value={data.totals.completed} hint={rateHint(data.totals.completionRate,data.targets.completionRate,'від записів',data.totals.bookings)} onOpen={setDetailMetric} />
         </section>
 
         <AnalyticsInsights insights={data.insights} />
@@ -163,10 +164,10 @@ export function AnalyticsWorkspace() {
           <div className="card-heading"><div><p className="eyebrow">Активність за датою події</p><h3>Де втрачається результат</h3></div><Badge variant="outline">{formatRange(data.range.from, data.range.to)}</Badge></div>
           <div className="funnel-grid is-five">
             <FunnelStep title="Приєднані чати" value={data.totals.joined} detail="старт" />
-            <FunnelStep title="Публікації" value={data.totals.publications} detail={`${data.totals.publicationRate}% від приєднань`} />
-            <FunnelStep title="Відгуки" value={data.totals.responses} detail={`${data.totals.responseRate}% конверсія`} />
-            <FunnelStep title="Записи" value={data.totals.bookings} detail={`${data.totals.bookingRate}% конверсія`} />
-            <FunnelStep title="Проведені" value={data.totals.completed} detail={`${data.totals.completionRate}% доходимість`} />
+            <FunnelStep title="Публікації" value={data.totals.publications} detail={`${analyticsPercentLabel(data.totals.publicationRate, data.totals.joined)} від приєднань`} />
+            <FunnelStep title="Відгуки" value={data.totals.responses} detail={`${analyticsPercentLabel(data.totals.responseRate, data.totals.publications)} конверсія`} />
+            <FunnelStep title="Записи" value={data.totals.bookings} detail={`${analyticsPercentLabel(data.totals.bookingRate, data.totals.responses)} конверсія`} />
+            <FunnelStep title="Проведені" value={data.totals.completed} detail={`${analyticsPercentLabel(data.totals.completionRate, data.totals.bookings)} доходимість`} />
           </div>
         </section>
 
@@ -174,9 +175,9 @@ export function AnalyticsWorkspace() {
           <div className="card-heading"><div><p className="eyebrow">Когорта лідів</p><h3>Що сталося з відгуками цього періоду</h3></div><Badge variant="outline">За датою отримання ліда</Badge></div>
           <div className="funnel-grid">
             <FunnelStep title="Ліди" value={data.cohort.totals.leads} detail="активні відгуки періоду" />
-            <FunnelStep title="Ліди із записом" value={data.cohort.totals.bookedLeads} detail={`${data.cohort.totals.bookingLeadRate}% лідів`} />
+            <FunnelStep title="Ліди із записом" value={data.cohort.totals.bookedLeads} detail={`${analyticsPercentLabel(data.cohort.totals.bookingLeadRate, data.cohort.totals.leads)} лідів`} />
             <FunnelStep title="Усі окремі записи" value={data.cohort.totals.bookings} detail="включно з пізнішими" />
-            <FunnelStep title="Проведені" value={data.cohort.totals.completed} detail={`${data.cohort.totals.completionRate}% від записів`} />
+            <FunnelStep title="Проведені" value={data.cohort.totals.completed} detail={`${analyticsPercentLabel(data.cohort.totals.completionRate, data.cohort.totals.bookings)} від записів`} />
           </div>
         </section>
 
@@ -184,7 +185,7 @@ export function AnalyticsWorkspace() {
           <div className="card-heading"><div><p className="eyebrow">Порівняння</p><h3>Результат за платформами</h3></div></div>
           <div className="analytics-table analytics-platform-table">
             <div className="analytics-table-head"><span>Платформа</span><span>Оголошення</span><span>Відгуки</span><span>Записи</span><span>Проведені</span><span>Відгук / огол.</span></div>
-            {data.platforms.map((platform) => <div className="analytics-table-row" key={platform.key}><span className="platform-name"><i style={{ background: platform.color }} />{platform.name}</span><strong>{platform.publications}</strong><strong>{platform.responses}</strong><strong>{platform.bookings}</strong><strong>{platform.completed}</strong><span>{platform.responseRate}%</span></div>)}
+            {data.platforms.map((platform) => <div className="analytics-table-row" key={platform.key}><span className="platform-name"><i style={{ background: platform.color }} />{platform.name}</span><strong>{platform.publications}</strong><strong>{platform.responses}</strong><strong>{platform.bookings}</strong><strong>{platform.completed}</strong><span>{analyticsPercentLabel(platform.responseRate, platform.publications)}</span></div>)}
             {!data.platforms.length && <div className="analytics-empty">За цей період ще немає подій.</div>}
           </div>
         </section>
@@ -207,7 +208,7 @@ export function AnalyticsWorkspace() {
           <div className="card-heading"><div><p className="eyebrow">Джерела лідів</p><h3>Результат лідів за чатами-джерелами</h3></div><span className="muted-note">Публікації — за вибраними датами; унікальні відгуки та всі подальші результати — когорта лідів цього періоду. Пізні повторні записи лишаються за початковим чатом-джерелом.</span></div>
           <div className="analytics-table analytics-chat-table analytics-cohort-chat-table">
             <div className="analytics-table-head"><span>Чат</span><span>Платформа</span><span>Публікації</span><span>Унікальні відгуки</span><span>Ліди із записом</span><span>Усі записи</span><span>Проведені / неявки</span><span>Конверсії</span></div>
-            {data.cohort.chats.map((chat) => <div className="analytics-table-row" key={chat.id}><span className="chat-analytics-name" title={chat.name}>{chat.name}</span><span>{chat.platformName}</span><strong>{chat.publications}</strong><strong>{chat.leads}</strong><strong>{chat.bookedLeads}</strong><strong>{chat.bookings}</strong><span>{chat.completed} / {chat.noShow}</span><span className="chat-conversions"><small>Відгук / публ. {chat.leadRate}%</small><small>Запис / відгук {chat.bookingLeadRate}%</small><small>Проведено / запис {chat.completionRate}%</small><small>Неявка / запис {chat.noShowRate}%</small></span></div>)}
+            {data.cohort.chats.map((chat) => <div className="analytics-table-row" key={chat.id}><span className="chat-analytics-name" title={chat.name}>{chat.name}</span><span>{chat.platformName}</span><strong>{chat.publications}</strong><strong>{chat.leads}</strong><strong>{chat.bookedLeads}</strong><strong>{chat.bookings}</strong><span>{chat.completed} / {chat.noShow}</span><span className="chat-conversions"><small>Відгук / публ. {analyticsPercentLabel(chat.leadRate, chat.publications)}</small><small>Запис / відгук {analyticsPercentLabel(chat.bookingLeadRate, chat.leads)}</small><small>Проведено / запис {analyticsPercentLabel(chat.completionRate, chat.bookings)}</small><small>Неявка / запис {analyticsPercentLabel(chat.noShowRate, chat.bookings)}</small></span></div>)}
             {!data.cohort.chats.length && <div className="analytics-empty">Для лідів цього періоду ще немає атрибутованих чатів.</div>}
           </div>
         </section>
@@ -231,13 +232,9 @@ function Outcome({ label, value }: { label:string; value:number }) {
 function SubjectAnalytics({ data }: { data: SubjectData }) {
   return <section className="analytics-card analytics-subjects">
     <div className="card-heading"><div><p className="eyebrow">Напрямки попиту</p><h3>Предмети</h3><p className="muted-note analytics-card-note">Відгуки та записи за той самий вибраний період.</p></div><Badge variant="outline">{formatRange(data.from, data.to)}</Badge></div>
-    <div className="subject-overview"><div><span>Відгуки</span><strong>{data.total.responses}</strong></div><div><span>Записи</span><strong>{data.total.bookings}</strong></div><div><span>Конверсія</span><strong>{percentLabel(data.total.conversion, data.total.responses)}</strong></div></div>
-    <div className="analytics-table analytics-subject-table"><div className="analytics-table-head"><span>Предмет</span><span>Відгуки</span><span>Записи</span><span>Конверсія</span></div>{data.rows.map((row) => <div className="analytics-table-row" key={row.subject}><strong>{row.subject}</strong><span>{row.responses}</span><span>{row.bookings}</span><span>{percentLabel(row.conversion, row.responses)}</span></div>)}{!data.rows.length && <div className="analytics-empty">За цей період ще немає відгуків або записів.</div>}</div>
+    <div className="subject-overview"><div><span>Відгуки</span><strong>{data.total.responses}</strong></div><div><span>Записи</span><strong>{data.total.bookings}</strong></div><div><span>Конверсія</span><strong>{analyticsPercentLabel(data.total.conversion, data.total.responses)}</strong></div></div>
+    <div className="analytics-table analytics-subject-table"><div className="analytics-table-head"><span>Предмет</span><span>Відгуки</span><span>Записи</span><span>Конверсія</span></div>{data.rows.map((row) => <div className="analytics-table-row" key={row.subject}><strong>{row.subject}</strong><span>{row.responses}</span><span>{row.bookings}</span><span>{analyticsPercentLabel(row.conversion, row.responses)}</span></div>)}{!data.rows.length && <div className="analytics-empty">За цей період ще немає відгуків або записів.</div>}</div>
   </section>;
-}
-
-function percentLabel(value: number, denominator: number): string {
-  return denominator > 0 ? `${value.toLocaleString('uk-UA', { maximumFractionDigits: 1 })}%` : '—';
 }
 
 function formatRange(from: string, to: string) {
@@ -255,4 +252,4 @@ function currentDate() {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
-function rateHint(actual:number,target:number,base:string){return target>0?`${actual}% ${base} · ціль ${target}%`:`${actual}% ${base} · ціль не задана`;}
+function rateHint(actual:number,target:number,base:string,denominator:number){const label=analyticsPercentLabel(actual,denominator);return target>0?`${label} ${base} · ціль ${target}%`:`${label} ${base} · ціль не задана`;}
