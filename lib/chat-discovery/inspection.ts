@@ -4,7 +4,6 @@ import { transitionChat } from '../chats/transitions.ts';
 import {
   DiscoveryError,
   evaluateDiscoveryCandidate,
-  inferDiscoveryTopicMatch,
   type DiscoveryCandidate,
   type DiscoveryDecision,
 } from './domain.ts';
@@ -110,8 +109,7 @@ export async function applyDiscoveryInspection(
   const sources = await readCandidateSources(db, userId, candidate.id);
   const observedName = cleanChatName(result.observedName || '');
   const nextName = observedName && isGeneratedName(current.name) ? observedName : current.name;
-  const inferredTopic = inferDiscoveryTopicMatch(nextName, sources);
-  const nextTopic = result.topicMatch ?? (inferredTopic === 'unknown' ? current.topic_match : inferredTopic);
+  const nextTopic = result.topicMatch ?? 'unknown';
   const reason = (result.reason || '').slice(0, 100);
   const knownUnavailable = result.accessible === false && KNOWN_UNAVAILABLE.has(reason);
   const accessState = result.accessible === true ? 'available'
@@ -204,8 +202,7 @@ async function applyUnlinkedInspection(
   const sources = await readCandidateSources(db, userId, candidate.id);
   const observedName = cleanChatName(result.observedName || '');
   const nextName = observedName && isGeneratedName(candidate.name) ? observedName : candidate.name;
-  const inferredTopic = inferDiscoveryTopicMatch(nextName, sources);
-  const nextTopic = result.topicMatch ?? (inferredTopic === 'unknown' ? candidate.topic_match : inferredTopic);
+  const nextTopic = result.topicMatch ?? 'unknown';
   const reason = (result.reason || '').slice(0, 100);
   const knownUnavailable = result.accessible === false && KNOWN_UNAVAILABLE.has(reason);
   const accessState = result.accessible === true ? 'available'
