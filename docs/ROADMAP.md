@@ -25,6 +25,8 @@
 
 P4 documentation is reconciled against the current code and tests on 2026-09-21. Cloudflare Workers Builds remains the canonical staging gate; each pushed `main` commit must pass `npm run verify` and the staging-only deploy guard before it counts as deployed evidence.
 
+- Reliability/test registry reconciliation закрив OPS-03/06 та QA-03/04/06/07: canonical staging pipeline підтверджений live SHA `d87b992`; performance matrix уже є accepted evidence; controlled-clock timers тепер покривають одночасні deadlines; normalization/duplicate tests охоплюють Telegram/WhatsApp/Viber/Facebook і archive states. Це прибирає застарілі «частково», але не змінює physical Safari/cross-device/offline gates.
+
 - UX/visual hardening після PR #87–#120 та прямих main-фіксів охоплює desktop, tiled/narrow і mobile Chromium. Leads mobile touch-target fixes, responsive hero/simple rows/reminders/action links і Today workday composition уже пройшли staging-перевірку. Physical iPhone/Safari лишається окремим доказом і не замінюється Chromium viewport.
 - Workday тепер має start/pause/resume/end, `Повернути день` після випадкового завершення та підтверджуваний `Скинути день` для сьогоднішнього завершеного запису. Reopen зберігає original start/active time; reset видаляє лише workday за сьогодні й не чіпає ліди/чати/уроки/звіти.
 - Дані між відкритими клієнтами синхронізуються через монотонний server revision: lightweight `/api/sync` polling у видимому online-вікні, refresh на focus/online та BroadcastChannel між вкладками. Повний RSC refresh відбувається лише після зміни authoritative revision; активний shell/view не повинен скидатися.

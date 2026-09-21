@@ -11,15 +11,18 @@ void test('timer reads project deadlines without writes and isolate owners', asy
   t.after(() => mf.dispose());
   const db = await mf.getD1Database('DB');
   await db.prepare(`CREATE TABLE work_timers (id TEXT PRIMARY KEY, user_id TEXT, label TEXT, platform TEXT, telegram_account_id TEXT, duration_seconds INTEGER, started_at INTEGER, ends_at INTEGER, status TEXT, completed_at INTEGER, created_at INTEGER)`).run();
-  for (const [id, owner, ends, status] of [['due','u',100,'running'],['future','u',200,'running'],['dismissed','u',50,'dismissed'],['other','other',100,'running']]) {
+  for (const [id, owner, ends, status] of [['due','u',100,'running'],['due-2','u',100,'running'],['future','u',200,'running'],['dismissed','u',50,'dismissed'],['other','other',100,'running']]) {
     await db.prepare(`INSERT INTO work_timers VALUES (?1,?2,'Test','general',NULL,60,40,?3,?4,NULL,40)`).bind(id,owner,ends,status).run();
   }
   await db.prepare(`CREATE TRIGGER forbid_timer_update BEFORE UPDATE ON work_timers BEGIN SELECT RAISE(ABORT, 'Reads must not update timers'); END`).run();
-  assert.equal((await readTimers(db, 'u', 99))[0].status, 'running');
+  assert.ok((await readTimers(db, 'u', 99)).every(timer => timer.status === 'running'));
   const timers = await readTimers(db, 'u', 100);
-  assert.deepEqual(timers.map(timer => [timer.id, timer.status, timer.completedAt]), [['due','completed',100],['future','running',null]]);
+  const byId = new Map(timers.map(timer => [timer.id, timer]));
+  assert.deepEqual([byId.get('due')?.status, byId.get('due')?.completedAt], ['completed',100]);
+  assert.deepEqual([byId.get('due-2')?.status, byId.get('due-2')?.completedAt], ['completed',100]);
+  assert.deepEqual([byId.get('future')?.status, byId.get('future')?.completedAt], ['running',null]);
   assert.deepEqual(await readTimers(db, 'u', 100), timers);
-  assert.equal((await db.prepare("SELECT status FROM work_timers WHERE id='due'").first()).status, 'running');
+  assert.deepEqual((await db.prepare("SELECT id,status FROM work_timers WHERE id IN ('due','due-2') ORDER BY id").all()).results, [{id:'due',status:'running'},{id:'due-2',status:'running'}]);
   assert.deepEqual((await readTimers(db, 'other', 201)).map(timer => timer.id), ['other']);
 });
 

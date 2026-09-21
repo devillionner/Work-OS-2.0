@@ -32,6 +32,23 @@ void test('duplicate read is owner/platform scoped and Telegram respects account
   assert.deepEqual(new Set(groups[0].chats.map(chat => chat.id)), new Set(['a-ready','a-archive','unassigned']));
 });
 
+void test('duplicate read includes active and archived chats on every non-Telegram group platform', async (t) => {
+  const db = await localDatabase(t);
+  for (const platform of ['whatsapp','viber','facebook']) {
+    await seedChat(db, { id:`${platform}-ready`, owner:'u', platform, status:'ready' });
+    await seedChat(db, { id:`${platform}-archive`, owner:'u', platform, status:'archived' });
+    await db.prepare(`UPDATE chats SET name='Одна назва' WHERE id IN (?1,?2)`)
+      .bind(`${platform}-ready`,`${platform}-archive`).run();
+    const groups = await readChatDuplicateGroups(db, { userId:'u', platform });
+    assert.equal(groups.length, 1, platform);
+    assert.deepEqual(
+      new Set(groups[0].chats.map(chat => `${chat.id}:${chat.status}`)),
+      new Set([`${platform}-ready:ready`,`${platform}-archive:archived`]),
+      platform,
+    );
+  }
+});
+
 void test('rename is owner-scoped, CAS guarded and appends chat history event', async (t) => {
   const db = await localDatabase(t);
   await seedChat(db, { id:'mine', owner:'u', platform:'whatsapp', status:'ready' });
