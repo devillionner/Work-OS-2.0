@@ -85,14 +85,19 @@ export type TelegramSearchPlan = {
 
 export function buildTelegramSearchPlan(cursor = 0, limit = 6): TelegramSearchPlan {
   const countries = [...new Set(SEEDS.cities.map(city => String(city.country || '').trim()).filter(Boolean))];
+  const cities = interleaveCitiesByCountry(SEEDS.cities);
   const unsupported = /(назва села|назва селища|район міста|назва района|назва області|пункту пропуску|навчального закладу|назва жк|слово пошук)/iu;
-  const countryTemplates = SEEDS.keywords.filter(template =>
-    /назва країни/iu.test(template) && !/назва міста/iu.test(template) && !unsupported.test(template));
-  const cityTemplates = SEEDS.keywords.filter(template =>
-    (/назва міста/iu.test(template) || ['Ukrainian in', 'Ukrainians', 'Ukraine chat'].includes(template))
-      && !unsupported.test(template));
+  const staticTemplates = new Set(['Ukrainian in', 'Ukrainians', 'Ukraine chat']);
+  const ranked = (templates: readonly string[]) => templates
+    .map((template, index) => ({ template, index, priority: telegramTemplatePriority(template) }))
+    .sort((left, right) => left.priority - right.priority || left.index - right.index)
+    .map(item => item.template);
+  const countryTemplates = ranked(SEEDS.keywords.filter(template =>
+    (/назва країни/iu.test(template) || staticTemplates.has(template)) && !unsupported.test(template)));
+  const cityTemplates = ranked(SEEDS.keywords.filter(template =>
+    (/назва міста/iu.test(template) || staticTemplates.has(template)) && !unsupported.test(template)));
   const countryTotal = countries.length * countryTemplates.length;
-  const cityTotal = SEEDS.cities.length * cityTemplates.length;
+  const cityTotal = cities.length * cityTemplates.length;
   const totalTasks = countryTotal + cityTotal;
   const start = clampInt(cursor, 0, totalTasks, 0);
   const count = clampInt(limit, 1, 20, 6);
@@ -110,7 +115,7 @@ export function buildTelegramSearchPlan(cursor = 0, limit = 6): TelegramSearchPl
     const local = index - countryTotal;
     const cityIndex = Math.floor(local / cityTemplates.length);
     const template = cityTemplates[local % cityTemplates.length];
-    const city = SEEDS.cities[cityIndex];
+    const city = cities[cityIndex];
     const cityLabel = String(city?.uk || city?.name || '').trim();
     const country = String(city?.country || '').trim();
     const query = renderTelegramTemplate(template, cityLabel, country, 'city');
@@ -121,10 +126,52 @@ export function buildTelegramSearchPlan(cursor = 0, limit = 6): TelegramSearchPl
   return { cursor:start, nextCursor, totalTasks, done:nextCursor >= totalTasks, tasks };
 }
 
+function interleaveCitiesByCountry(cities: readonly SeedCity[]): SeedCity[] {
+  const buckets = new Map<string, SeedCity[]>();
+  const order: string[] = [];
+  for (const city of cities) {
+    const country = String(city.country || '').trim();
+    if (!country) continue;
+    if (!buckets.has(country)) {
+      buckets.set(country, []);
+      order.push(country);
+    }
+    buckets.get(country)!.push(city);
+  }
+  for (const bucket of buckets.values()) bucket.sort((left, right) => Number(right.population || 0) - Number(left.population || 0));
+  const result: SeedCity[] = [];
+  for (let index = 0; ; index += 1) {
+    let added = false;
+    for (const country of order) {
+      const city = buckets.get(country)?.[index];
+      if (!city) continue;
+      result.push(city);
+      added = true;
+    }
+    if (!added) break;
+  }
+  return result;
+}
+
+function telegramTemplatePriority(template: string) {
+  const text = template.toLocaleLowerCase('uk-UA');
+  if (text === 'просто назва міста') return 0;
+  if (/українці в (місті|країні)/u.test(text)) return 1;
+  if (/назва міста чат/u.test(text)) return 2;
+  if (/допомога українцям|помощь украинцам|допомога біженцям/u.test(text)) return 3;
+  if (/мамоч|батьки/u.test(text)) return 4;
+  if (/барахол|оголош|объявлен|віддам|обмін|продаж/u.test(text)) return 5;
+  if (/оренд|зніму житло|ріелтор/u.test(text)) return 6;
+  if (/перевіз|перевез|передач/u.test(text)) return 7;
+  if (text === 'ukrainian in' || text === 'ukrainians' || text === 'ukraine chat') return 8;
+  return 20;
+}
+
 function renderTelegramTemplate(template: string, city: string, country: string, mode: 'country' | 'city') {
-  if (template === 'Ukrainian in') return mode === 'city' && city ? `Ukrainian in ${city}` : '';
-  if (template === 'Ukrainians') return mode === 'city' && city ? `Ukrainians ${city}` : '';
-  if (template === 'Ukraine chat') return mode === 'city' && city ? `Ukraine chat ${city}` : '';
+  const place = mode === 'city' ? city : country;
+  if (template === 'Ukrainian in') return place ? `Ukrainian in ${place}` : '';
+  if (template === 'Ukrainians') return place ? `Ukrainians ${place}` : '';
+  if (template === 'Ukraine chat') return place ? `Ukraine chat ${place}` : '';
   if (template === 'Просто назва міста') return mode === 'city' ? city : '';
 
   let query = template;
@@ -140,6 +187,8 @@ function renderTelegramTemplate(template: string, city: string, country: string,
     if (!country) return '';
     query = query
       .replace(/Українці в країні \(назва країни\)/giu, `Українці в ${country}`)
+      .replace(/назва міста або країни/giu, country)
+      .replace(/назва країни або міста/giu, country)
       .replace(/\(назва країни\)/giu, country)
       .replace(/назва країни/giu, country);
   }
