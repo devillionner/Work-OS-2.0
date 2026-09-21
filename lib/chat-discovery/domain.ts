@@ -1,6 +1,6 @@
 import { businessDate } from '../business-time.ts';
 import { cleanChatName, normalizeGroupLink, suggestedChatName, type ChatPlatform } from '../chats/bulk-input.ts';
-import { discoverPublicWeb, extractInviteRecords, type DiscoveryPlatform, type DiscoveryRecord, type DiscoverySource } from './public-web.ts';
+import { buildTelegramSearchPlan, discoverPublicWeb, extractInviteRecords, type DiscoveryPlatform, type DiscoveryRecord, type DiscoverySource, type TelegramSearchPlan } from './public-web.ts';
 
 export type DiscoveryDecision = 'review' | 'target' | 'rejected' | 'unavailable';
 export type DiscoveryRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
@@ -12,6 +12,7 @@ export type DiscoveryRun = {
   goal: number;
   minMembers: number;
   cursor: number;
+  telegramCursor: number;
   searchedQueries: number;
   foundCount: number;
   duplicateCount: number;
@@ -59,7 +60,7 @@ export class DiscoveryError extends Error {
 
 type RunRow = {
   id: string; status: DiscoveryRunStatus; platforms_json: string; goal: number; min_members: number;
-  source_cursor: number; searched_queries: number; found_count: number; duplicate_count: number;
+  source_cursor: number; telegram_cursor: number; searched_queries: number; found_count: number; duplicate_count: number;
   imported_count: number; error_message: string | null; started_at: number; updated_at: number;
   completed_at: number | null; version: number;
 };
@@ -190,11 +191,50 @@ export async function ingestTelegramDiscovery(
     searched: 0,
     done: false,
     errors: 0,
+    completeAtGoal: false,
   });
   return {
     run: merged.run,
     batch: { extracted: records.length, added: merged.added, duplicates: merged.duplicates },
   };
+}
+
+export async function readTelegramDiscoveryPlan(
+  db: D1Database,
+  userId: string,
+  runId: string,
+  limit = 6,
+): Promise<{ run: DiscoveryRun; plan: TelegramSearchPlan }> {
+  const row = await readRun(db, userId, runId);
+  if (!row) throw new DiscoveryError('Запуск пошуку не знайдено.', 404);
+  return { run: mapRun(row), plan: buildTelegramSearchPlan(row.telegram_cursor, boundedInteger(limit, 1, 20, 6)) };
+}
+
+export async function advanceTelegramDiscoveryPlan(
+  db: D1Database,
+  userId: string,
+  runId: string,
+  expectedVersion: number,
+  processed: number,
+  now: number,
+): Promise<{ run: DiscoveryRun; plan: TelegramSearchPlan }> {
+  const row = await readRun(db, userId, runId);
+  if (!row) throw new DiscoveryError('Запуск пошуку не знайдено.', 404);
+  if (row.status !== 'running') throw new DiscoveryError('Цей запуск пошуку вже завершено. Почніть новий.', 409);
+  if (row.version !== expectedVersion) throw new DiscoveryError('План пошуку вже змінився в іншій вкладці. Оновіть стан.', 409);
+  const count = boundedInteger(processed, 1, 20, 1);
+  const currentPlan = buildTelegramSearchPlan(row.telegram_cursor, count);
+  if (!currentPlan.tasks.length) return { run: mapRun(row), plan: buildTelegramSearchPlan(row.telegram_cursor, 6) };
+  const nextCursor = currentPlan.nextCursor;
+  const updated = await db.prepare(`UPDATE chat_discovery_runs
+    SET telegram_cursor=?1,searched_queries=searched_queries+?2,updated_at=?3,version=version+1
+    WHERE id=?4 AND user_id=?5 AND status='running' AND version=?6 RETURNING id`)
+    .bind(nextCursor, currentPlan.tasks.length, now, runId, userId, expectedVersion)
+    .first<{ id: string }>();
+  if (!updated) throw new DiscoveryError('План пошуку вже змінився в іншій вкладці. Оновіть стан.', 409);
+  const fresh = await readRun(db, userId, runId);
+  if (!fresh) throw new DiscoveryError('Не вдалося прочитати оновлений план пошуку.', 500);
+  return { run: mapRun(fresh), plan: buildTelegramSearchPlan(fresh.telegram_cursor, 6) };
 }
 
 export async function readDiscoveryWorkspace(
@@ -347,7 +387,7 @@ async function persistDiscoveryBatch(
   userId: string,
   run: RunRow,
   records: DiscoveryRecord[],
-  progress: { now: number; nextCursor: number; searched: number; done: boolean; errors: number },
+  progress: { now: number; nextCursor: number; searched: number; done: boolean; errors: number; completeAtGoal?: boolean },
 ): Promise<{ run: DiscoveryRun; added: number; duplicates: number }> {
   const canonical = new Map<string, { platform: DiscoveryPlatform; link: string; name: string; sources: DiscoverySource[] }>();
   for (const record of records) {
@@ -420,7 +460,7 @@ async function persistDiscoveryBatch(
   }
 
   const projectedFound = run.found_count + added;
-  const completed = progress.done || projectedFound >= run.goal;
+  const completed = progress.done || (progress.completeAtGoal !== false && projectedFound >= run.goal);
   const errorMessage = progress.errors ? `Не вдалося прочитати ${progress.errors} джерел; пошук можна продовжити.` : null;
   statements.push(db.prepare(`UPDATE chat_discovery_runs SET
     status=?1,source_cursor=?2,searched_queries=searched_queries+?3,found_count=found_count+?4,
@@ -515,6 +555,7 @@ function mapRun(row: RunRow): DiscoveryRun {
     goal: row.goal,
     minMembers: row.min_members,
     cursor: row.source_cursor,
+    telegramCursor: row.telegram_cursor,
     searchedQueries: row.searched_queries,
     foundCount: row.found_count,
     duplicateCount: row.duplicate_count,
