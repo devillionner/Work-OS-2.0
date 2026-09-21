@@ -66,6 +66,8 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const [publishChat,setPublishChat]=useState<Chat|null>(null);
   const [publishOpenKey,setPublishOpenKey]=useState(0);
   const publishTrigger=useRef<HTMLButtonElement|null>(null);
+  const [quickPublishMode,setQuickPublishMode]=useState(false);
+  const [quickAdvertisementId,setQuickAdvertisementId]=useState<string|null>(null);
   const [loading,setLoading] = useState(true);
   const [busy,setBusy] = useState<string|null>(null);
   const runAction=useRef(createActionGate());
@@ -154,6 +156,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
 
   function addedChats(result:BulkResult) {
     const target=availablePlatforms.find(item=>(result.counts[item.key]||0)>0)?.key||platform;
+    setQuickPublishMode(false); setQuickAdvertisementId(null);
     setNotice(`Додано ${result.added} чатів: ${Object.entries(result.counts).map(([key,count])=>`${CHAT_PLATFORM_NAMES[key as ChatPlatform]} — ${count}`).join(', ')}.`);
     const changesFilter=target!==platform||queue!=='to_join'||search!==''||offset!==0;
     setData(null);setLoading(true);setPlatform(target);setQueue('to_join');setSearch('');setProfileFilter('all');setOffset(0);
@@ -167,6 +170,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
 
   function importedDiscoveryChat(nextPlatform:'whatsapp'|'viber') {
     const changesFilter=nextPlatform!==platform||queue!=='to_join'||search!==''||offset!==0;
+    setQuickPublishMode(false); setQuickAdvertisementId(null);
     setNotice('Новий чат із пошуку додано в чергу «Для приєднання».');
     setData(null);setLoading(true);setPlatform(nextPlatform);setQueue('to_join');setSearch('');setProfileFilter('all');setOffset(0);
     if(!changesFilter) void reloadChats.current();
@@ -177,6 +181,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     if(next===platform)return;
     writePlatformView(platform,{queue,search,offset,scrollY:window.scrollY,lastChatId:lastOpenedByPlatform[platform]||null});
     const saved=readPlatformView(next);
+    setQuickPublishMode(false); setQuickAdvertisementId(null);
     setPlatform(next); setQueue(saved?.queue||'to_join'); setSearch(saved?.search||''); setProfileFilter('all'); setOffset(saved?.offset||0);
     setPreviousFilter(`${next}:${saved?.queue||'to_join'}:${saved?.search||''}:all`);
     setLastOpenedByPlatform(current=>({...current,[next]:saved?.lastChatId||null})); restoreScroll.current=saved?.scrollY??null;
@@ -264,7 +269,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     <ChatDuplicatesDialog open={duplicatesOpen} onClose={()=>setDuplicatesOpen(false)}/>
     <ChatProfileDialog key={profileOpenKey} open={profileChat!==null} chat={profileChat} onClose={()=>setProfileChat(null)} onSaved={savedProfile} onOpenChat={()=>{if(profileChat)openChat(profileChat);}} finalFocus={()=>profileTrigger.current}/>
     <ChatHistoryDialog key={historyOpenKey} open={historyChat!==null} chat={historyChat} onClose={()=>setHistoryChat(null)} finalFocus={()=>historyTrigger.current}/>
-    <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={({advertisementId,language})=>publishChat?act(publishChat,'published',{advertisementId,language}):Promise.resolve(false)} onOpenChat={()=>{if(publishChat)openChat(publishChat);}} finalFocus={()=>publishTrigger.current}/>
+    <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={async({advertisementId,language})=>{if(!publishChat)return false;const quick=quickPublishMode&&(platform==='whatsapp'||platform==='viber');const published=await act(publishChat,'published',{advertisementId,language,quick});if(published&&quick&&advertisementId&&!quickAdvertisementId){setQuickAdvertisementId(advertisementId);setNotice('Матеріал швидкого режиму зафіксовано. Наступні чати використовуватимуть його автоматично.');}return published;}} onOpenChat={()=>{if(publishChat)openChat(publishChat);}} finalFocus={()=>publishTrigger.current} quickMode={quickPublishMode&&(platform==='whatsapp'||platform==='viber')} preferredAdvertisementId={quickAdvertisementId}/>
     {notice&&<output className="reports-notice"><span>{notice}</span>{undo&&<Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>void undoLast()}>Скасувати</Button>}</output>}
     <section className="platform-hero">
       <div><p className="eyebrow">Робочі платформи</p><h2>Чати без зайвих переходів</h2><p>Приєднуйся, перевіряй очікування та відмічай публікації в одному стабільному процесі.</p></div>
@@ -302,6 +307,10 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       <div><span>Денна ціль</span><strong>{data.publicationPace.completed} / {data.publicationPace.target}</strong></div>
       <small>{Math.max(0,data.publicationPace.target-data.publicationPace.completed)} публікацій залишилось сьогодні</small>
     </section>}
+    {queue==='ready'&&(platform==='whatsapp'||platform==='viber')&&<section className={`quick-publish-bar ${quickPublishMode?'is-active':''}`} aria-label="Швидка публікація">
+      <div><strong>Швидка публікація</strong><span>{quickPublishMode?(quickAdvertisementId?'Матеріал зафіксовано для цієї серії. Відкривайте доступні чати й підтверджуйте факт вручну.':'Відкрийте перший доступний чат і один раз оберіть матеріал. Після першої публікації він зафіксується для серії.'):'Оберіть один матеріал і вручну пройдіть доступні чати без обов’язкового заповнення кожного профілю.'}</span></div>
+      <Button type="button" variant={quickPublishMode?'outline':'default'} disabled={busy!==null} onClick={()=>{setQuickPublishMode(value=>{const next=!value;if(!next)setQuickAdvertisementId(null);return next;});}}><Send data-icon="inline-start"/>{quickPublishMode?'Завершити швидкий режим':'Почати швидку публікацію'}</Button>
+    </section>}
     <section className={`today-links ${queue==='ready'?'has-available':''}`}>
       {queue==='ready'&&<TodayLinks title="Доступні зараз" items={data?.availableToday || []} />}
       <TodayLinks title="Приєднано сьогодні" items={data?.joinedToday || []} />
@@ -310,7 +319,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
 
     <section className="platform-browser">
       <div className="queue-tabs" role="tablist" aria-label="Черга чатів">
-        {queues.map(item=><button type="button" key={item.key} role="tab" aria-selected={queue===item.key} tabIndex={queue===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{setQueue(item.key);setOffset(0)}}>{item.label}<span>{data?.counts[item.key] || 0}</span></button>)}
+        {queues.map(item=><button type="button" key={item.key} role="tab" aria-selected={queue===item.key} tabIndex={queue===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{if(item.key!=='ready'){setQuickPublishMode(false);setQuickAdvertisementId(null);}setQueue(item.key);setOffset(0)}}>{item.label}<span>{data?.counts[item.key] || 0}</span></button>)}
       </div>
       <div className="chat-toolbar">
         <label htmlFor="chat-search"><Search/><Input id="chat-search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Пошук за назвою або посиланням"/><span className="sr-only">Пошук чатів</span></label>

@@ -71,7 +71,7 @@ void test('selection queries and publication enforcement remain owner scoped', (
   assert.match(selection, /c\.id=\?1 AND c\.user_id=\?2/);
   assert.match(selection, /WHERE user_id=\?1 AND kind='advertisement' AND archived_at IS NULL/);
   assert.match(selection, /p\.user_id=\?1 AND c\.platform=\?2 AND p\.published_on=\?3/);
-  assert.match(publication, /validatePublicationAdvertisementChoice\(db, \{ userId, chatId: chat\.id, advertisementId, date \}\)/);
+  assert.match(publication, /validatePublicationAdvertisementChoice\(db, \{ userId, chatId: chat\.id, advertisementId, date, allowSameDayReuse: quickMode \}\)/);
 });
 
 
@@ -99,7 +99,7 @@ void test('selection exposes confirmed profile cadence and weekday blocks before
 void test('manual publish dialog explains profile rule blocks and prevents confirmation', () => {
   const source = readFileSync(join(process.cwd(), 'components', 'chat-publish-dialog.tsx'), 'utf8');
   assert.match(source, /Публікація зараз недоступна:/);
-  assert.match(source, /disabled=\{busy\|\|!publicationRule\.allowed\}/);
+  assert.match(source, /disabled=\{busy\|\|!publicationRule\.allowed\|\|\(quickMode&&!selected\)\}/);
   assert.match(source, /publicationAllowed!==false/);
 });
 

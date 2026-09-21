@@ -245,13 +245,13 @@ export function rankPublicationAdvertisements(
 
 export async function validatePublicationAdvertisementChoice(
   db: D1Database,
-  input: { userId: string; chatId: string; advertisementId: string; date: string },
+  input: { userId: string; chatId: string; advertisementId: string; date: string; allowSameDayReuse?: boolean },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const selection = await readPublicationAdvertisementSelection(db, input);
   if (!selection) return { ok: false, error: 'Чат не знайдено.' };
   const item = selection.items.find((candidate) => candidate.id === input.advertisementId);
   if (!item) return { ok: false, error: 'Це оголошення недоступне для цієї платформи або вже заархівоване.' };
-  if (!item.selectable) return { ok: false, error: item.note || 'Оберіть інше оголошення.' };
+  if (!item.selectable && !(input.allowSameDayReuse && item.usedToday)) return { ok: false, error: item.note || 'Оберіть інше оголошення.' };
   return { ok: true };
 }
 

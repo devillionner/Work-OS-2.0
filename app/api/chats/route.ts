@@ -97,7 +97,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
   const parsed = await readJsonObject(request, REQUEST_MAX_BYTES);
   if (parsed instanceof Response) return parsed;
-  const body = parsed as { id?: unknown; action?: unknown; reason?: unknown; confirmation?: unknown; accountId?: unknown; stateToken?: unknown; advertisementId?: unknown; language?: unknown; profile?: ChatProfileInput };
+  const body = parsed as { id?: unknown; action?: unknown; reason?: unknown; confirmation?: unknown; accountId?: unknown; stateToken?: unknown; advertisementId?: unknown; language?: unknown; quick?: unknown; profile?: ChatProfileInput };
   const id = typeof body.id === 'string' ? body.id : '';
   const action = typeof body.action === 'string' ? body.action : '';
   if (!id || !ACTIONS.has(action)) return Response.json({ error: 'Невідома дія.' }, { status: 400 });
@@ -116,9 +116,13 @@ export async function POST(request: Request): Promise<Response> {
   if (action === 'published') {
     if (body.advertisementId !== undefined && body.advertisementId !== null && typeof body.advertisementId !== 'string') return Response.json({ error:'Некоректний матеріал.' }, { status:400 });
     if (body.language !== undefined && body.language !== null && body.language !== '' && body.language !== 'uk' && body.language !== 'ru') return Response.json({ error:'Некоректна мова публікації.' }, { status:400 });
+    if (body.quick !== undefined && typeof body.quick !== 'boolean') return Response.json({ error:'Некоректний режим публікації.' }, { status:400 });
     const advertisementId = typeof body.advertisementId === 'string' ? body.advertisementId.trim().slice(0, 100) || null : null;
     const language = body.language === 'uk' || body.language === 'ru' ? body.language : null;
-    const result = await recordManualPublication(env.DB, { userId: user.id, chat, accountId, advertisementId, language, now, date: businessDate(now), stateToken: chat.state_token });
+    const quickMode = body.quick === true;
+    if (quickMode && chat.platform !== 'whatsapp' && chat.platform !== 'viber') return Response.json({ error:'Швидка публікація доступна лише для WhatsApp і Viber.' }, { status:400 });
+    if (quickMode && !advertisementId) return Response.json({ error:'Для швидкої публікації оберіть матеріал.' }, { status:400 });
+    const result = await recordManualPublication(env.DB, { userId: user.id, chat, accountId, advertisementId, language, quickMode, now, date: businessDate(now), stateToken: chat.state_token });
     return Response.json(result, { status: result.ok ? 200 : 409 });
   }
 

@@ -99,6 +99,21 @@ void test('manual publication attributes one active owner-scoped advertisement a
   assert.equal((await publishWithAd(db,third,'ad')).ok,false);
 });
 
+void test('quick publish may reuse one active material across WhatsApp chats without weakening normal reuse rules', async t => {
+  const db = await localDatabase(t);
+  const first = await seedChat(db,{id:'quick-first',platform:'whatsapp',status:'ready'});
+  const second = await seedChat(db,{id:'quick-second',platform:'whatsapp',status:'ready'});
+  await db.prepare(`INSERT INTO library_items(id,user_id,kind,title,uk_text,created_at,updated_at)
+    VALUES ('quick-ad','u','advertisement','Швидке оголошення','Текст','1','1'),('unused-ad','u','advertisement','Інше оголошення','Інший текст','1','2')`).run();
+  assert.equal((await publishWithAd(db,first,'quick-ad','uk')).ok,true);
+  assert.equal((await publishWithAd(db,second,'quick-ad','uk')).ok,false);
+  assert.equal((await publishWithAd(db,second,'quick-ad','uk',true)).ok,true);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM chat_publications WHERE advertisement_id='quick-ad'").first()).n,2);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM activity_events WHERE event_type='publication' AND json_extract(metadata_json,'$.advertisementId')='quick-ad'").first()).n,2);
+  const telegram = await seedChat(db,{id:'quick-telegram',platform:'telegram',status:'ready'});
+  assert.equal((await publishWithAd(db,telegram,'quick-ad','uk',true)).ok,false);
+});
+
 void test('available publication links exclude published, snoozed and foreign Telegram chats', async t => {
   const db = await localDatabase(t);
   await db.prepare(`INSERT INTO telegram_accounts(id,user_id,account_number,name,is_enabled,is_selected,created_at,updated_at)
@@ -115,4 +130,4 @@ void test('available publication links exclude published, snoozed and foreign Te
   assert.deepEqual(links.map(row=>row.name),['ready-a']);
 });
 
-const publishWithAd = (db, chat, advertisementId, language = null) => recordManualPublication(db, { userId:'u', chat, accountId:null, advertisementId, language, now:NOW, date:'2026-09-10', stateToken:chat.state_token });
+const publishWithAd = (db, chat, advertisementId, language = null, quickMode = false) => recordManualPublication(db, { userId:'u', chat, accountId:null, advertisementId, language, quickMode, now:NOW, date:'2026-09-10', stateToken:chat.state_token });

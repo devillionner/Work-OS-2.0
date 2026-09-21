@@ -75,6 +75,25 @@ void test('manual publishing and profile management cover the remaining operator
   assert.match(platform, /Потребують правил \(\$\{profileSummary\?\.needsReview\|\|0\}\)/);
 });
 
+void test('WhatsApp and Viber quick publishing locks one material without bypassing normal publication rules', () => {
+  const platform = source('components/platform-workspace.tsx');
+  const publish = source('components/chat-publish-dialog.tsx');
+  const publication = source('lib/chats/publication.ts');
+  assert.match(platform, /queue==='ready'&&\(platform==='whatsapp'\|\|platform==='viber'\)/);
+  assert.match(platform, /Почати швидку публікацію/);
+  assert.match(platform, /setQuickAdvertisementId\(advertisementId\)/);
+  assert.match(platform, /act\(publishChat,'published',\{advertisementId,language,quick\}\)/);
+  assert.match(platform, /!chat\.profileConfirmed&&queue==='ready'&&<Badge variant="outline">Профіль пізніше<\/Badge>/);
+  assert.match(publish, /quickMode&&preferredAdvertisementId/);
+  assert.match(publish, /Матеріал швидкого режиму/);
+  assert.match(publish, /quickMode&&!selected/);
+  assert.match(publish, /Профіль чату ще не підтверджено/);
+  assert.match(publication, /profilePublicationRule\(profile,date\)/);
+  assert.match(publication, /chat\.workflow_status !== 'ready'/);
+  assert.match(publication, /advertisementId/);
+  assert.match(publication, /json_object\('advertisementId',p\.advertisement_id,'language',\?4\)/);
+});
+
 void test('script library exposes search, tags, immutable versions and archive controls', () => {
   const library = source('components/library-workspace.tsx');
   const history = source('components/library-history-dialog.tsx');

@@ -20,10 +20,15 @@ export function publicationAvailability(chat: PublicationChat, now: number) {
 
 export async function recordManualPublication(
   db: D1Database,
-  input: { userId: string; chat: PublicationChat; accountId: string | null; advertisementId?: string | null; language?: 'uk' | 'ru' | null; now: number; date: string; stateToken: string },
+  input: { userId: string; chat: PublicationChat; accountId: string | null; advertisementId?: string | null; language?: 'uk' | 'ru' | null; quickMode?: boolean; now: number; date: string; stateToken: string },
 ): Promise<{ ok: true } | { ok: false; error: string; availableAt?: number | null }> {
   const { userId, chat, accountId, advertisementId = null, now, date } = input;
   const language = input.language === 'uk' || input.language === 'ru' ? input.language : null;
+  const quickMode = input.quickMode === true;
+  if (quickMode && chat.platform !== 'whatsapp' && chat.platform !== 'viber')
+    return { ok:false,error:'Швидка публікація доступна лише для WhatsApp і Viber.' };
+  if (quickMode && !advertisementId)
+    return { ok:false,error:'Для швидкої публікації оберіть матеріал.' };
   const profileRow = await db.prepare(`SELECT p.cadence,p.weekdays_json,p.custom_interval_days,p.next_allowed_on,p.review_status
     FROM chat_profiles p JOIN chats c ON c.id=p.chat_id WHERE p.chat_id=?1 AND c.user_id=?2 LIMIT 1`).bind(chat.id,userId).first<Record<string,unknown>>();
   const profile = publicationProfile(profileRow);
@@ -39,7 +44,7 @@ export async function recordManualPublication(
       : (chat.snoozed_until ?? 0) > now ? 'Цей чат відкладено. Публікація ще недоступна.' : 'Для Telegram ще не минуло 6 годин.' };
   }
   if (advertisementId) {
-    const choice = await validatePublicationAdvertisementChoice(db, { userId, chatId: chat.id, advertisementId, date });
+    const choice = await validatePublicationAdvertisementChoice(db, { userId, chatId: chat.id, advertisementId, date, allowSameDayReuse: quickMode });
     if (!choice.ok) return choice;
   }
   const publicationId = crypto.randomUUID();
