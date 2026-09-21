@@ -65,6 +65,89 @@ const CURATED_SOURCES = [
   ['InfoChatUkraine · допомога', 'https://t.me/s/infochatukraine?before=46', 'українці допомога Польща Європа житло транспорт медицина переклад'],
 ] as const;
 
+export type TelegramSearchTask = {
+  cursor: number;
+  template: string;
+  query: string;
+  seedLabel: string;
+  seedKind: 'country' | 'city';
+  country: string;
+  city: string;
+};
+
+export type TelegramSearchPlan = {
+  cursor: number;
+  nextCursor: number;
+  totalTasks: number;
+  done: boolean;
+  tasks: TelegramSearchTask[];
+};
+
+export function buildTelegramSearchPlan(cursor = 0, limit = 6): TelegramSearchPlan {
+  const countries = [...new Set(SEEDS.cities.map(city => String(city.country || '').trim()).filter(Boolean))];
+  const unsupported = /(назва села|назва селища|район міста|назва района|назва області|пункту пропуску|навчального закладу|назва жк|слово пошук)/iu;
+  const countryTemplates = SEEDS.keywords.filter(template =>
+    /назва країни/iu.test(template) && !/назва міста/iu.test(template) && !unsupported.test(template));
+  const cityTemplates = SEEDS.keywords.filter(template =>
+    (/назва міста/iu.test(template) || ['Ukrainian in', 'Ukrainians', 'Ukraine chat'].includes(template))
+      && !unsupported.test(template));
+  const countryTotal = countries.length * countryTemplates.length;
+  const cityTotal = SEEDS.cities.length * cityTemplates.length;
+  const totalTasks = countryTotal + cityTotal;
+  const start = clampInt(cursor, 0, totalTasks, 0);
+  const count = clampInt(limit, 1, 20, 6);
+  const tasks: TelegramSearchTask[] = [];
+
+  for (let index = start; index < Math.min(totalTasks, start + count); index += 1) {
+    if (index < countryTotal) {
+      const countryIndex = Math.floor(index / countryTemplates.length);
+      const template = countryTemplates[index % countryTemplates.length];
+      const country = countries[countryIndex];
+      const query = renderTelegramTemplate(template, '', country, 'country');
+      if (query) tasks.push({ cursor:index, template, query, seedLabel:country, seedKind:'country', country, city:'' });
+      continue;
+    }
+    const local = index - countryTotal;
+    const cityIndex = Math.floor(local / cityTemplates.length);
+    const template = cityTemplates[local % cityTemplates.length];
+    const city = SEEDS.cities[cityIndex];
+    const cityLabel = String(city?.uk || city?.name || '').trim();
+    const country = String(city?.country || '').trim();
+    const query = renderTelegramTemplate(template, cityLabel, country, 'city');
+    if (query) tasks.push({ cursor:index, template, query, seedLabel:cityLabel, seedKind:'city', country, city:cityLabel });
+  }
+
+  const nextCursor = Math.min(totalTasks, start + count);
+  return { cursor:start, nextCursor, totalTasks, done:nextCursor >= totalTasks, tasks };
+}
+
+function renderTelegramTemplate(template: string, city: string, country: string, mode: 'country' | 'city') {
+  if (template === 'Ukrainian in') return mode === 'city' && city ? `Ukrainian in ${city}` : '';
+  if (template === 'Ukrainians') return mode === 'city' && city ? `Ukrainians ${city}` : '';
+  if (template === 'Ukraine chat') return mode === 'city' && city ? `Ukraine chat ${city}` : '';
+  if (template === 'Просто назва міста') return mode === 'city' ? city : '';
+
+  let query = template;
+  if (mode === 'city') {
+    if (!city) return '';
+    query = query
+      .replace(/Українці в місті \(назва міста\)/giu, `Українці в ${city}`)
+      .replace(/назва міста або країни/giu, city)
+      .replace(/назва країни або міста/giu, city)
+      .replace(/\(назва міста\)/giu, city)
+      .replace(/назва міста/giu, city);
+  } else {
+    if (!country) return '';
+    query = query
+      .replace(/Українці в країні \(назва країни\)/giu, `Українці в ${country}`)
+      .replace(/\(назва країни\)/giu, country)
+      .replace(/назва країни/giu, country);
+  }
+  query = query.replace(/\s*\+\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!query || /назва |\(назва| або країни| або міста/iu.test(query)) return '';
+  return query;
+}
+
 export function buildPublicSearchTasks(platforms: DiscoveryPlatform[]): SearchTask[] {
   const buckets = new Map<string, SeedCity[]>();
   const countryOrder: string[] = [];
