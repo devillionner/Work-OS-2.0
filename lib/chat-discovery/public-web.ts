@@ -96,34 +96,52 @@ export function buildTelegramSearchPlan(cursor = 0, limit = 6): TelegramSearchPl
     (/назва країни/iu.test(template) || staticTemplates.has(template)) && !unsupported.test(template)));
   const cityTemplates = ranked(SEEDS.keywords.filter(template =>
     (/назва міста/iu.test(template) || staticTemplates.has(template)) && !unsupported.test(template)));
-  const countryTotal = countries.length * countryTemplates.length;
   const cityTotal = cities.length * cityTemplates.length;
-  const totalTasks = countryTotal + cityTotal;
+  const countryTotal = countries.length * countryTemplates.length;
+  const totalTasks = cityTotal + countryTotal;
   const start = clampInt(cursor, 0, totalTasks, 0);
   const count = clampInt(limit, 1, 20, 6);
   const tasks: TelegramSearchTask[] = [];
 
   for (let index = start; index < Math.min(totalTasks, start + count); index += 1) {
-    if (index < countryTotal) {
-      const countryIndex = Math.floor(index / countryTemplates.length);
-      const template = countryTemplates[index % countryTemplates.length];
-      const country = countries[countryIndex];
-      const query = renderTelegramTemplate(template, '', country, 'country');
-      if (query) tasks.push({ cursor:index, template, query, seedLabel:country, seedKind:'country', country, city:'' });
+    if (index < cityTotal) {
+      const pair = telegramCityPair(index, cities.length, cityTemplates.length);
+      const city = cities[pair.cityIndex];
+      const template = cityTemplates[pair.templateIndex];
+      const cityLabel = String(city?.uk || city?.name || '').trim();
+      const country = String(city?.country || '').trim();
+      const query = renderTelegramTemplate(template, cityLabel, country, 'city');
+      if (query) tasks.push({ cursor:index, template, query, seedLabel:cityLabel, seedKind:'city', country, city:cityLabel });
       continue;
     }
-    const local = index - countryTotal;
-    const cityIndex = Math.floor(local / cityTemplates.length);
-    const template = cityTemplates[local % cityTemplates.length];
-    const city = cities[cityIndex];
-    const cityLabel = String(city?.uk || city?.name || '').trim();
-    const country = String(city?.country || '').trim();
-    const query = renderTelegramTemplate(template, cityLabel, country, 'city');
-    if (query) tasks.push({ cursor:index, template, query, seedLabel:cityLabel, seedKind:'city', country, city:cityLabel });
+    const local = index - cityTotal;
+    const countryIndex = Math.floor(local / countryTemplates.length);
+    const template = countryTemplates[local % countryTemplates.length];
+    const country = countries[countryIndex];
+    const query = renderTelegramTemplate(template, '', country, 'country');
+    if (query) tasks.push({ cursor:index, template, query, seedLabel:country, seedKind:'country', country, city:'' });
   }
 
   const nextCursor = Math.min(totalTasks, start + count);
   return { cursor:start, nextCursor, totalTasks, done:nextCursor >= totalTasks, tasks };
+}
+
+function telegramCityPair(index: number, cityCount: number, templateCount: number) {
+  const waveSize = 5;
+  let offset = index;
+  for (let templateStart = 0; templateStart < templateCount; templateStart += waveSize) {
+    const width = Math.min(waveSize, templateCount - templateStart);
+    const waveTotal = cityCount * width;
+    if (offset >= waveTotal) {
+      offset -= waveTotal;
+      continue;
+    }
+    return {
+      cityIndex: Math.floor(offset / width),
+      templateIndex: templateStart + (offset % width),
+    };
+  }
+  return { cityIndex: 0, templateIndex: 0 };
 }
 
 function interleaveCitiesByCountry(cities: readonly SeedCity[]): SeedCity[] {
