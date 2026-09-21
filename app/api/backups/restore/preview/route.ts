@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { backupManifest } from '@/lib/backups/export';
 import { CLOUD_BACKUP_MAX_BYTES, cloudBackupSha256, inspectCloudBackup } from '@/lib/backups/inspect';
+import { readBoundedText } from '@/lib/http-body';
 
 const REQUEST_MAX_BYTES = Math.ceil(CLOUD_BACKUP_MAX_BYTES * 1.35);
 
@@ -9,10 +10,12 @@ export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
-  const declaredLength = Number(request.headers.get('content-length') || 0);
-  if (declaredLength > REQUEST_MAX_BYTES) return tooLarge();
-  const requestText = await request.text();
-  if (new TextEncoder().encode(requestText).byteLength > REQUEST_MAX_BYTES) return tooLarge();
+  const requestText = await readBoundedText(
+    request,
+    REQUEST_MAX_BYTES,
+    'Файл завеликий. Максимальний розмір — 25 МБ.',
+  );
+  if (requestText instanceof Response) return requestText;
   let rawBackup = '';
   try {
     const body = JSON.parse(requestText) as { rawBackup?: unknown };

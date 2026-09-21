@@ -7,6 +7,7 @@ import {
   sha256Hex,
 } from '@/lib/legacy-backup';
 import { buildLegacyMigrationDataset } from '@/lib/legacy-migration';
+import { readBoundedText } from '@/lib/http-body';
 
 const REQUEST_MAX_BYTES = Math.ceil(LEGACY_BACKUP_MAX_BYTES * 1.4);
 const CHUNK_SIZE = 300_000;
@@ -47,13 +48,12 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
   }
 
-  const declaredLength = Number(request.headers.get('content-length') || 0);
-  if (declaredLength > REQUEST_MAX_BYTES) return tooLarge();
-
-  const requestText = await request.text();
-  if (new TextEncoder().encode(requestText).byteLength > REQUEST_MAX_BYTES) {
-    return tooLarge();
-  }
+  const requestText = await readBoundedText(
+    request,
+    REQUEST_MAX_BYTES,
+    'Файл завеликий. Максимальний розмір — 10 МБ.',
+  );
+  if (requestText instanceof Response) return requestText;
 
   let body: ImportRequest;
   try {

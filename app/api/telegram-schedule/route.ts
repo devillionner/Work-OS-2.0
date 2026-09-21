@@ -9,6 +9,7 @@ import {
   saveTelegramScheduleSettings,
   updateTelegramScheduleSlot,
 } from '@/lib/chats/telegram-schedule';
+import { readBoundedText } from '@/lib/http-body';
 
 const REQUEST_MAX_BYTES = 128 * 1024;
 
@@ -37,10 +38,8 @@ export async function POST(request: Request): Promise<Response> {
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
   if (!isJson(request.headers.get('content-type'))) return Response.json({ error: 'Очікується JSON-запит.' }, { status: 415 });
-  const declared = Number(request.headers.get('content-length') || 0);
-  if (declared > REQUEST_MAX_BYTES) return tooLarge();
-  const raw = await request.text();
-  if (new TextEncoder().encode(raw).byteLength > REQUEST_MAX_BYTES) return tooLarge();
+  const raw = await readBoundedText(request, REQUEST_MAX_BYTES);
+  if (raw instanceof Response) return raw;
   let body: Record<string, unknown>;
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -115,4 +114,3 @@ function number(value: unknown) { const parsed = typeof value === 'number' ? val
 function integer(value: unknown) { const parsed = number(value); return Number.isInteger(parsed) ? parsed : Number.NaN; }
 function validStringList(value: unknown) { return Array.isArray(value) && value.length <= 500 && value.every((item) => typeof item === 'string' && item.trim().length > 0 && item.length <= 200); }
 function bad(error: string) { return Response.json({ error }, { status: 400 }); }
-function tooLarge() { return Response.json({ error: 'Запит завеликий.' }, { status: 413 }); }

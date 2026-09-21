@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { readHistoricalPublicationOptions, recordHistoricalPublication, ReportCorrectionError, validateAccountingDate } from '@/lib/reports/publication-correction';
+import { readBoundedText } from '@/lib/http-body';
 
 const REQUEST_MAX_BYTES=32*1024;
 
@@ -42,10 +43,8 @@ function correctionError(reason:unknown){
 async function readJson(request:Request):Promise<Record<string,unknown>|Response>{
   const media=(request.headers.get('content-type')||'').split(';',1)[0].trim().toLowerCase();
   if(media!=='application/json')return Response.json({error:'Очікується application/json.'},{status:415});
-  const declared=Number(request.headers.get('content-length')||0);
-  if(Number.isFinite(declared)&&declared>REQUEST_MAX_BYTES)return Response.json({error:'Запит завеликий.'},{status:413});
-  const raw=await request.text();
-  if(new TextEncoder().encode(raw).byteLength>REQUEST_MAX_BYTES)return Response.json({error:'Запит завеликий.'},{status:413});
+  const raw=await readBoundedText(request,REQUEST_MAX_BYTES);
+  if(raw instanceof Response)return raw;
   let parsed:unknown;try{parsed=JSON.parse(raw);}catch{return Response.json({error:'Некоректний JSON.'},{status:400});}
   return parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed as Record<string,unknown>:Response.json({error:'Некоректний запит.'},{status:400});
 }

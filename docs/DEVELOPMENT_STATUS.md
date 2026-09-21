@@ -1,11 +1,19 @@
 # Development status — 2026-09-21
 
+## 2026-09-21 bounded mutation request bodies - v0.2.14
+
+- OPS-07 payload hardening now uses one streaming `readBoundedText` helper before full body allocation for JSON, CSV, backup/restore, legacy import, Telegram schedule, workday and historical publication mutation requests.
+- All mutation routes are protected from direct `request.text/json/arrayBuffer/formData` reads by a source-contract regression; existing same-origin, owner and domain guards remain unchanged.
+- Chunked requests without `Content-Length` are stopped at the configured byte limit and return the existing route-specific 413 copy instead of allocating the complete body first.
+- Full local verify is green: lint 0/0, typecheck, 476/476 tests and the production build. OPS-07 remains partial until the remaining session/privacy audit and live acceptance are complete; canonical staging deploy is still the release gate for v0.2.14.
+- Canonical registry remains 141 ready, 122 partial, 1 not implemented and 12 deferred out of 276.
+
 ## 2026-09-21 shared subject vocabulary — v0.2.13
 
 - UX-04 is closed with one shared subject registry for CRM writes/search, chat direction normalization, Library subject tags and Report/Analytics grouping. Common Ukrainian, Russian and English aliases resolve to the same canonical label.
 - New recognized subject writes are canonicalized, but unknown/legacy values remain untouched instead of being discarded or force-mapped. Legacy migration continues to preserve the source value; read/search paths bridge old aliases without rewriting historical rows.
 - Lead and lesson subject fields expose canonical suggestions through a datalist while still accepting custom values. Library tags canonicalize subject aliases but preserve unrelated operational tags.
-- Focused subject/chat-profile/CRM-search/report regressions are green and typecheck passes. Full verify and canonical staging deploy remain the release gate for this package.
+- Full local verify passed with 471/471 tests and the production build. Canonical Cloudflare staging is live at exact SHA `ed354f0de1ee471dc624fbfd3ca80ee94e303c23` with v0.2.13; production and production D1 were not changed.
 - Canonical registry after this package: 141 ready, 122 partial, 1 not implemented and 12 deferred out of 276.
 
 ## 2026-09-21 Report revision heatmap — v0.2.12

@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { businessDate } from '@/lib/business-time';
 import { readDashboardSnapshot } from '@/lib/dashboard-data';
+import { readBoundedText } from '@/lib/http-body';
 import {
   WorkdayError,
   endWorkday,
@@ -100,10 +101,8 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 async function readBody(request: Request): Promise<Body | Response> {
-  const declared = Number(request.headers.get('content-length') || 0);
-  if (declared > REQUEST_MAX_BYTES) return Response.json({ error: 'Запит завеликий.' }, { status: 413 });
-  const raw = await request.text();
-  if (new TextEncoder().encode(raw).byteLength > REQUEST_MAX_BYTES) return Response.json({ error: 'Запит завеликий.' }, { status: 413 });
+  const raw = await readBoundedText(request, REQUEST_MAX_BYTES);
+  if (raw instanceof Response) return raw;
   try {
     const parsed = JSON.parse(raw) as unknown;
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)

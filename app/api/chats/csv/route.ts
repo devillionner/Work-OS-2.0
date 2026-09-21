@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { businessDate } from '@/lib/business-time';
 import { applyChatCsvImport, CHAT_CSV_MAX_BYTES, ChatCsvError, exportChatCsv, parseChatCsv, previewChatCsvImport, stripRows } from '@/lib/chats/csv';
 import { sameOrigin } from '@/lib/http-json';
+import { readBoundedText } from '@/lib/http-body';
 
 export async function GET():Promise<Response>{
   const user=await getCurrentUser();
@@ -45,11 +46,7 @@ export async function POST(request:Request):Promise<Response>{
 async function readCsvBody(request:Request):Promise<string|Response>{
   const mediaType=(request.headers.get('content-type')||'').split(';',1)[0].trim().toLowerCase();
   if(mediaType!=='text/csv')return Response.json({error:'CSV потрібно надіслати як text/csv.'},{status:415});
-  const declared=Number(request.headers.get('content-length')||0);
-  if(Number.isFinite(declared)&&declared>CHAT_CSV_MAX_BYTES)return Response.json({error:'CSV завеликий.'},{status:413});
-  const text=await request.text();
-  if(new TextEncoder().encode(text).byteLength>CHAT_CSV_MAX_BYTES)return Response.json({error:'CSV завеликий.'},{status:413});
-  return text;
+  return readBoundedText(request,CHAT_CSV_MAX_BYTES,'CSV завеликий.');
 }
 function csvError(reason:unknown){
   if(reason instanceof ChatCsvError)return Response.json({error:reason.message},{status:reason.status});

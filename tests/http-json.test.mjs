@@ -10,6 +10,28 @@ function request(body, headers = {}) {
   });
 }
 
+function chunkedJsonRequest(chunks) {
+  let index = 0;
+  const body = new ReadableStream({
+    pull(controller) {
+      if (index >= chunks.length) return controller.close();
+      controller.enqueue(new TextEncoder().encode(chunks[index++]));
+    },
+    cancel() {
+      index = chunks.length;
+    },
+  });
+  return new Request('https://work-os.example/api/test', {
+    method: 'POST',
+    body,
+    duplex: 'half',
+    headers: {
+      origin: 'https://work-os.example',
+      'content-type': 'application/json',
+    },
+  });
+}
+
 void test('bounded JSON helper accepts objects and charset content type', async () => {
   const result = await readJsonObject(request('{"action":"save"}', { 'content-type': 'application/json; charset=utf-8' }), 1024);
   assert.equal(result instanceof Response, false);
@@ -31,6 +53,19 @@ void test('bounded JSON helper rejects wrong media type, arrays, malformed and o
 
   const declared = await readJsonObject(request('{}', { 'content-type': 'application/json', 'content-length': '2048' }), 1024);
   assert.equal(declared instanceof Response && declared.status, 413);
+
+  const chunked = await readJsonObject(
+    chunkedJsonRequest(['{"value":"', 'x'.repeat(2048), '"}']),
+    1024,
+  );
+  assert.equal(chunked instanceof Response && chunked.status, 413);
+});
+
+void test('bounded JSON helper rejects invalid limits before reading the request', async () => {
+  await assert.rejects(
+    readJsonObject(request('{}', { 'content-type': 'application/json' }), 0),
+    /positive safe integer/,
+  );
 });
 
 void test('same-origin helper requires the exact request origin', () => {
