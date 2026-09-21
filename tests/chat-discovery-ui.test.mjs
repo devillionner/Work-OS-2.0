@@ -69,3 +69,15 @@ void test('Telegram keyword plan is the primary discovery flow and public web is
   assert.match(domain, /telegram_cursor/);
   assert.match(domain, /buildTelegramSearchPlan/);
 });
+
+void test('candidate cards expose the WhatsApp link and every target qualification criterion', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.match(dialog, /Відкрити WhatsApp/);
+  assert.match(dialog, /Учасники:/);
+  assert.match(dialog, /Активність:/);
+  assert.match(dialog, /Писати:/);
+  assert.match(dialog, /Оголошення:/);
+  assert.match(dialog, /Аудиторія:/);
+  assert.match(dialog, /adsPolicyLabel/);
+  assert.match(dialog, /topicMatchLabel/);
+});
