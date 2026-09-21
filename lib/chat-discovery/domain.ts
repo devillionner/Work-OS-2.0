@@ -368,7 +368,7 @@ export function evaluateDiscoveryCandidate(input: {
     [Number.isFinite(input.memberCount) && Number(input.memberCount) >= minMembers && Number(input.memberCount) <= maxMembers, 'unknown_member_count'],
     [input.topicMatch === 'match', 'unknown_topic_match'],
     [input.canWrite === true, 'unknown_can_write'],
-    [['allowed', 'inferred_allowed', 'operator_confirmed'].includes(input.adsPolicy || 'unknown'), 'unknown_ads_allowed'],
+    [['allowed', 'operator_confirmed'].includes(input.adsPolicy || 'unknown'), 'unknown_ads_allowed'],
     [input.activityState === 'active', 'unknown_activity'],
   ] as const;
   for (const [ok, code] of required) if (!ok) reasons.push(code);
