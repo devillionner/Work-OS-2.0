@@ -53,3 +53,19 @@ void test('discovery UI exposes the Telegram to WhatsApp ingestion bridge', asyn
   assert.match(route, /body\.action === 'ingest-telegram'/);
   assert.match(route, /ingestTelegramDiscovery/);
 });
+
+void test('Telegram keyword plan is the primary discovery flow and public web is explicitly fallback', async () => {
+  const [dialog, route, domain] = await Promise.all([
+    readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../app/api/chat-discovery/route.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../lib/chat-discovery/domain.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(dialog, /Почати Telegram-пошук/);
+  assert.match(dialog, /Черга Telegram-запитів/);
+  assert.match(dialog, /Опрацьовано → наступний/);
+  assert.match(dialog, /Додатковий web-пошук/);
+  assert.match(dialog, /run\.telegramCursor/);
+  assert.match(route, /body\.action === 'advance-telegram-plan'/);
+  assert.match(domain, /telegram_cursor/);
+  assert.match(domain, /buildTelegramSearchPlan/);
+});
