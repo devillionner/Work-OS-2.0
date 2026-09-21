@@ -1,5 +1,14 @@
 # Development status — 2026-09-21
 
+## 2026-09-21 Report revision heatmap — v0.2.12
+
+- REPORT-14 now uses a bounded four-level blue heatmap for saved report versions: 1, 2, 3 and 4+ revisions. Days without a report stay neutral.
+- Draft/submitted state remains visible independently from heat intensity through solid/ring markers; stale submitted reports keep the warning treatment, so the heatmap does not regress the existing calendar status contract.
+- Workday/weekend and lesson/lead context continues to come from the owner-scoped calendar context read path. The heat mapping is a pure helper with focused regression coverage, plus a UI contract for the legend and state markers.
+- Canonical Cloudflare verify/deploy for the final follow-up `c46e5ee` passed before registry promotion. Production and production D1 were not changed.
+- Canonical registry after this package: 140 ready, 123 partial, 1 not implemented and 12 deferred out of 276.
+
+
 Canonical product scope: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
 Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 

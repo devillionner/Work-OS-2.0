@@ -283,7 +283,7 @@
 | REPORT-11 | готово | Якщо вчорашній звіт не підтверджено, сьогодні є помітне нагадування. | Є owner-scoped reminder про непідтверджений попередній робочий звіт; сценарій покритий report-reminders tests. |
 | REPORT-12 | готово | У календарі видно статус звіту для кожного робочого дня. | Calendar відображає відсутній/чернетка/здано/застарілий/повторно редагований стан, має явну легенду й status filters; read-only staging smoke на `9d79737` підтвердив поведінку без зміни даних. [calendar](../lib/reports/calendar.ts), [UI](../components/reports-workspace.tsx). |
 | REPORT-13 | готово | Здані звіти зберігаються в історії за датами; кожен можна відкрити, переглянути й відкоригувати без зміни сьогоднішньої статистики. | Календар відкриває історичний день, editor працює по вибраній business-date, version history owner-scoped; редагування тексту/restore не переписує activity facts сьогоднішнього дня. [UI](../components/reports-workspace.tsx), [історія](../components/report-history-dialog.tsx), [history domain](../lib/reports/history.ts). |
-| REPORT-14 | частково | Історія звітів відкривається календарем: день без звіту має нейтральний вигляд, а день зі звітом підсвічений синім; інтенсивність синього відображає кількість збережених версій за принципом heatmap. | Є календар, редактор, summary, report_revision activity events і окрема позначка застарілого поданого звіту після нових/скасованих подій; немає повного heatmap/робочих днів і наскрізної QA. [Код](../lib/reports/calendar.ts), [UI](../components/reports-workspace.tsx). |
+| REPORT-14 | готово | Історія звітів відкривається календарем: день без звіту має нейтральний вигляд, а день зі звітом підсвічений синім; інтенсивність синього відображає кількість збережених версій за принципом heatmap. | Календар має bounded heatmap 1/2/3/4+ версій, окремі маркери чернетки/зданого стану, stale-попередження та контекст робочого/вихідного дня. Pure mapping і UI contract покриті regression tests; canonical Cloudflare verify/deploy пройшов на `c46e5ee`. [heatmap](../lib/reports/calendar-heatmap.ts), [calendar](../lib/reports/calendar.ts), [context](../lib/reports/calendar-context.ts), [UI](../components/reports-workspace.tsx). |
 | REPORT-15 | готово | Можна вибрати минулу дату, реконструювати звіт з подій і створити його навіть без попереднього запису; календар та версії входять у повний сценарій. | Вибір минулої дати без `daily_reports` повертає event-derived `suggestedText`, який користувач може перевірити й зберегти як першу версію; існуючий звіт завжди має пріоритет над автогенерацією. Staging smoke `bbdaf24` підтвердив обидва сценарії read-only. [compose](../lib/reports/compose.ts), [API](../app/api/reports/route.ts), [UI](../components/reports-workspace.tsx). |
 | REPORT-16 | частково | Кожне виправлення історичного звіту створює нову версію з часом і описом змін замість безповоротного перезапису; попередню версію можна переглянути й відновити. | Versioned `report_revision` history, owner-scoped restore, optimistic revision guard для save/restore і bounded line diff старої версії з поточною вже реалізовані. Canonical Cloudflare verify/deploy green; повний live multi-version UI smoke не зараховано, бо поточний read-only staging dataset не має звітів з `revisionCount>1` і тестові записи навмисно не створювалися. [Міграція](../migrations/0020_report_history.sql), [write guard](../lib/reports/write.ts), [diff](../lib/reports/diff.ts), [UI](../components/report-history-dialog.tsx). |
 | REPORT-17 | готово | Із історичного звіту можна створити ліда, чат, публікацію або результат уроку з явною датою обліку без зміни сьогоднішніх подій. | Історичний звіт має correction flows для ліда, publication, lesson result і joined chat з окремою accounting date без переписування today. |
@@ -423,8 +423,8 @@
 
 ## Зведення
 
-- готово: 139.
-- частково: 124.
+- готово: 140.
+- частково: 123.
 - не реалізовано: 1.
 - відкладено: 12.
 
