@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import type { DiscoveryCandidate, DiscoveryDecision, DiscoveryRun } from '@/lib/chat-discovery/domain';
 import type { DiscoveryPlatform } from '@/lib/chat-discovery/public-web';
 
@@ -22,6 +23,7 @@ type ContinueResponse = {
   error?: string;
 };
 type ImportResponse = { chatId?: string; existing?: boolean; workflowStatus?: string; error?: string };
+type TelegramIngestResponse = { run: DiscoveryRun; batch: { extracted: number; added: number; duplicates: number }; error?: string };
 type DecisionFilter = 'all' | DiscoveryDecision;
 
 const EMPTY_COUNTS: Record<DiscoveryDecision, number> = {
@@ -48,6 +50,11 @@ export function ChatDiscoveryDialog({
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [importingId, setImportingId] = useState<string | null>(null);
+  const [telegramBusy, setTelegramBusy] = useState(false);
+  const [telegramText, setTelegramText] = useState('');
+  const [telegramSourceTitle, setTelegramSourceTitle] = useState('');
+  const [telegramSourceUrl, setTelegramSourceUrl] = useState('');
+  const [telegramQuery, setTelegramQuery] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const stopRequested = useRef(false);
@@ -124,6 +131,38 @@ export function ChatDiscoveryDialog({
     } finally {
       setSearching(false);
       stopRequested.current = false;
+    }
+  }
+
+  async function ingestTelegramScan() {
+    if (telegramBusy || !telegramText.trim()) return;
+    setTelegramBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      let run = workspace.run?.status === 'running' ? workspace.run : null;
+      if (!run) {
+        const started = await post({ action: 'start', platforms, goal, minMembers });
+        run = started.run as DiscoveryRun;
+        setWorkspace(current => ({ ...current, run }));
+      }
+      const payload = await post({
+        action: 'ingest-telegram',
+        runId: run.id,
+        text: telegramText,
+        sourceUrl: telegramSourceUrl,
+        sourceTitle: telegramSourceTitle || 'Telegram Web',
+        query: telegramQuery,
+        seedLabel: telegramSourceTitle || telegramQuery || 'Telegram',
+        context: telegramQuery,
+      }) as unknown as TelegramIngestResponse;
+      setNotice(`Telegram: витягнуто ${payload.batch.extracted}, нових ${payload.batch.added}, дублів ${payload.batch.duplicates}.`);
+      setTelegramText('');
+      await load(filter);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Не вдалося передати Telegram-результати в пошук.');
+    } finally {
+      setTelegramBusy(false);
     }
   }
 
@@ -221,6 +260,40 @@ export function ChatDiscoveryDialog({
           </span>}
         </div>
         {run?.errorMessage && <small className="text-muted-foreground">{run.errorMessage}</small>}
+      </section>
+
+      <section className="grid gap-3 rounded-xl border border-border/70 p-3" aria-label="Telegram джерело WhatsApp">
+        <div className="grid gap-1">
+          <strong>Telegram → WhatsApp</strong>
+          <span className="text-xs text-muted-foreground">
+            Основний канал discovery: результати пошуку всередині Telegram передаються сюди, Work OS витягує всі chat.whatsapp.com, прибирає дублікати й зберігає provenance.
+          </span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-source-title">
+            Telegram-чат
+            <Input id="telegram-source-title" value={telegramSourceTitle} disabled={telegramBusy} onChange={event => setTelegramSourceTitle(event.target.value)} placeholder="Українці в Берліні" />
+          </label>
+          <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-source-url">
+            Посилання на джерело
+            <Input id="telegram-source-url" value={telegramSourceUrl} disabled={telegramBusy} onChange={event => setTelegramSourceUrl(event.target.value)} placeholder="https://t.me/…" />
+          </label>
+        </div>
+        <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-query">
+          Ключове слово / запит
+          <Input id="telegram-query" value={telegramQuery} disabled={telegramBusy} onChange={event => setTelegramQuery(event.target.value)} placeholder="Українці Берлін / WhatsApp" />
+        </label>
+        <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-scan">
+          Результати пошуку Telegram
+          <Textarea id="telegram-scan" rows={6} value={telegramText} disabled={telegramBusy} onChange={event => setTelegramText(event.target.value)} placeholder="Текст повідомлень або результатів пошуку з посиланнями chat.whatsapp.com…" />
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" disabled={telegramBusy || searching || !telegramText.trim()} onClick={() => void ingestTelegramScan()}>
+            {telegramBusy ? <LoaderCircle data-icon="inline-start"/> : <ExternalLink data-icon="inline-start"/>}
+            {telegramBusy ? 'Обробляємо…' : 'Передати Telegram-скан'}
+          </Button>
+          <span className="text-xs text-muted-foreground">Цей вхід також використовується браузерною автоматизацією; вручну копіювати результати не обов’язково.</span>
+        </div>
       </section>
 
       <section className="grid gap-3" aria-label="Кандидати">
