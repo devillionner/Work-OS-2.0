@@ -147,6 +147,7 @@ void test('Telegram plan refuses a receipt for a different query', async (t) => 
 void test('Telegram ingestion extracts WhatsApp only, keeps provenance and deduplicates repeats', async (t) => {
   const db = await localDatabase(t);
   const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  const plan = await readTelegramDiscoveryPlan(db, 'u', run.id, 1);
   const input = {
     text: [
       'Українці Berlin батьки https://chat.whatsapp.com/TelegramInvite123',
@@ -155,7 +156,7 @@ void test('Telegram ingestion extracts WhatsApp only, keeps provenance and dedup
     ].join('\n'),
     sourceUrl: 'https://t.me/example',
     sourceTitle: 'Українці в Берліні',
-    query: 'українці berlin whatsapp',
+    query: plan.plan.tasks[0].query,
     seedLabel: 'Берлін',
     context: 'Українці Німеччина',
   };
@@ -170,12 +171,26 @@ void test('Telegram ingestion extracts WhatsApp only, keeps provenance and dedup
   assert.equal(workspace.candidates[0].platform, 'whatsapp');
   assert.equal(workspace.candidates[0].sources[0].kind, 'telegram_global');
   assert.equal(workspace.candidates[0].sources[0].sourceUrl, 'https://t.me/example');
-  assert.equal(workspace.candidates[0].sources[0].query, 'українці berlin whatsapp');
+  assert.equal(workspace.candidates[0].sources[0].query, plan.plan.tasks[0].query);
 
   const second = await ingestTelegramDiscovery(db, 'u', first.run.id, input, 102);
   assert.equal(second.batch.added, 0);
   assert.equal(second.batch.duplicates, 1);
   assert.equal((await readDiscoveryWorkspace(db, 'u')).candidates.length, 1);
+});
+
+void test('Telegram ingestion rejects results from a stale or different plan query', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  await assert.rejects(
+    () => ingestTelegramDiscovery(db, 'u', run.id, {
+      text: 'https://chat.whatsapp.com/StaleQueryInvite123',
+      sourceTitle: 'Telegram source',
+      query: 'not the current query',
+    }, 101),
+    error => error?.status === 409,
+  );
+  assert.equal((await readDiscoveryWorkspace(db, 'u')).candidates.length, 0);
 });
 
 void test('qualification is fail-closed until every target criterion is confirmed', () => {
@@ -328,7 +343,7 @@ void test('invalid WhatsApp invite is rejected before handoff without creating a
     text:'Українці Berlin батьки https://chat.whatsapp.com/ExpiredBeforeJoin123',
     sourceUrl:'https://t.me/source',
     sourceTitle:'Українці Berlin',
-    query:'Берлін',
+    query:(await readTelegramDiscoveryPlan(db, 'u', run.id, 1)).plan.tasks[0].query,
     context:'українська спільнота',
   }, 101);
   const candidate = (await readDiscoveryWorkspace(db, 'u')).candidates[0];
