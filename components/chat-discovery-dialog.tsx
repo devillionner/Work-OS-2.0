@@ -262,7 +262,7 @@ export function ChatDiscoveryDialog({
       activityState: candidate.activityState,
       canWrite: candidate.canWrite === null ? 'unknown' : candidate.canWrite ? 'yes' : 'no',
       adsPolicy: candidate.adsPolicy === 'forbidden' ? 'forbidden'
-        : candidate.adsPolicy === 'allowed' || candidate.adsPolicy === 'inferred_allowed' || candidate.adsPolicy === 'operator_confirmed'
+        : candidate.adsPolicy === 'allowed' || candidate.adsPolicy === 'operator_confirmed'
           ? 'operator_confirmed' : 'unknown',
       topicMatch: candidate.topicMatch,
       membershipState: candidate.membershipState === 'left' ? 'not_checked' : candidate.membershipState,
@@ -621,9 +621,10 @@ function activityLabel(value: DiscoveryCandidate['activityState']) {
 }
 
 function adsPolicyLabel(value: DiscoveryCandidate['adsPolicy']) {
-  return value === 'allowed' || value === 'inferred_allowed' || value === 'operator_confirmed' ? 'можна'
-    : value === 'forbidden' ? 'заборонено'
-      : 'невідомо';
+  return value === 'allowed' || value === 'operator_confirmed' ? 'можна'
+    : value === 'inferred_allowed' ? 'ймовірно можна — перевірити'
+      : value === 'forbidden' ? 'заборонено'
+        : 'невідомо';
 }
 
 function topicMatchLabel(value: DiscoveryCandidate['topicMatch']) {
