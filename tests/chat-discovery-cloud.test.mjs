@@ -5,6 +5,7 @@ import {
   continueDiscoveryRun,
   evaluateDiscoveryCandidate,
   handoffDiscoveryCandidate,
+  ingestTelegramDiscovery,
   readDiscoveryWorkspace,
   startDiscoveryRun,
 } from '../lib/chat-discovery/domain.ts';
@@ -75,6 +76,40 @@ void test('public discovery rejects local/literal hosts and searches a bounded s
   assert.equal(result.records.length, 2);
   assert.ok(result.records.every((item) => item.link === 'https://chat.whatsapp.com/TestInvite123'));
   assert.ok(result.records.every((item) => item.source.query.includes('українці')));
+});
+
+void test('Telegram ingestion extracts WhatsApp only, keeps provenance and deduplicates repeats', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  const input = {
+    text: [
+      'Українці Berlin батьки https://chat.whatsapp.com/TelegramInvite123',
+      'дублікат https://chat.whatsapp.com/TelegramInvite123',
+      'Viber https://invite.viber.com/?g2=Zm9vYmFy',
+    ].join('\n'),
+    sourceUrl: 'https://t.me/example',
+    sourceTitle: 'Українці в Берліні',
+    query: 'українці berlin whatsapp',
+    seedLabel: 'Берлін',
+    context: 'Українці Німеччина',
+  };
+
+  const first = await ingestTelegramDiscovery(db, 'u', run.id, input, 101);
+  assert.equal(first.batch.extracted, 2);
+  assert.equal(first.batch.added, 1);
+  assert.equal(first.batch.duplicates, 0);
+
+  const workspace = await readDiscoveryWorkspace(db, 'u');
+  assert.equal(workspace.candidates.length, 1);
+  assert.equal(workspace.candidates[0].platform, 'whatsapp');
+  assert.equal(workspace.candidates[0].sources[0].kind, 'telegram_global');
+  assert.equal(workspace.candidates[0].sources[0].sourceUrl, 'https://t.me/example');
+  assert.equal(workspace.candidates[0].sources[0].query, 'українці berlin whatsapp');
+
+  const second = await ingestTelegramDiscovery(db, 'u', first.run.id, input, 102);
+  assert.equal(second.batch.added, 0);
+  assert.equal(second.batch.duplicates, 1);
+  assert.equal((await readDiscoveryWorkspace(db, 'u')).candidates.length, 1);
 });
 
 void test('qualification is fail-closed until every target criterion is confirmed', () => {
