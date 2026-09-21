@@ -178,6 +178,17 @@ void test('qualification is fail-closed until every target criterion is confirme
     linkState: 'valid',
   }), { decision: 'target', reasonCodes: ['all_required_confirmed'] });
 
+  assert.deepEqual(evaluateDiscoveryCandidate({
+    chatType: 'group',
+    memberCount: 900,
+    topicMatch: 'match',
+    canWrite: true,
+    adsPolicy: 'inferred_allowed',
+    activityState: 'active',
+    accessState: 'available',
+    linkState: 'valid',
+  }), { decision: 'review', reasonCodes: ['unknown_ads_allowed'] });
+
   const review = evaluateDiscoveryCandidate({
     chatType: 'group',
     memberCount: 900,
@@ -393,7 +404,7 @@ void test('inspection promotes an accepted WhatsApp target into ready workflow',
     result: {
       status:'inspected', accessible:true, membershipState:'joined',
       observedName:'Українці Praha допомога', chatType:'group', memberCount:900,
-      canWrite:true, adsPolicy:'allowed', activityState:'active',
+      topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
     },
   }, 110);
   assert.equal(outcome.decision, 'target');
@@ -425,6 +436,7 @@ void test('joined inspection with unknown rules stays ready but explicitly needs
   assert.equal(outcome.workflowStatus, 'ready');
   assert.equal(outcome.needsQualification, true);
   assert.equal(outcome.needsExternalLeave, false);
+  assert.ok(outcome.reasonCodes.includes('unknown_topic_match'));
   assert.ok(outcome.reasonCodes.includes('unknown_can_write'));
   assert.ok(outcome.reasonCodes.includes('unknown_ads_allowed'));
   assert.ok(outcome.reasonCodes.includes('unknown_activity'));
