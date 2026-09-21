@@ -436,7 +436,7 @@ export function ChatDiscoveryDialog({
                 {workspace.telegramPlan.tasks.slice(1).map(task => <div key={task.cursor}>{task.cursor + 1}. {task.query}</div>)}
               </div>
             </details>}
-            <Button type="button" variant="outline" disabled={telegramBusy || searching || workspace.run?.status !== 'running'} onClick={() => void advanceTelegramTask()}>
+            <Button type="button" variant="outline" disabled={telegramBusy || searching || workspace.run?.status !== 'running' || Boolean(telegramText.trim())} onClick={() => void advanceTelegramTask()}>
               Опрацьовано → наступний
             </Button>
           </> : <span className="text-sm text-muted-foreground">Keyword plan завершено.</span>}
@@ -453,7 +453,7 @@ export function ChatDiscoveryDialog({
         </div>
         <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-query">
           Ключове слово / запит
-          <Input id="telegram-query" value={telegramQuery} disabled={telegramBusy} onChange={event => setTelegramQuery(event.target.value)} placeholder="Українці Берлін / WhatsApp" />
+          <Input id="telegram-query" value={telegramQuery} readOnly aria-readonly="true" disabled={telegramBusy} placeholder="Поточний запит із Telegram-плану" />
         </label>
         <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-scan">
           Результати пошуку Telegram
