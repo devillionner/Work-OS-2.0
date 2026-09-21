@@ -7,6 +7,7 @@ import {
   cancelDiscoveryRun,
   continueDiscoveryRun,
   handoffDiscoveryCandidate,
+  ingestTelegramDiscovery,
   readDiscoveryWorkspace,
   startDiscoveryRun,
 } from '@/lib/chat-discovery/domain';
@@ -35,7 +36,7 @@ export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return json({ error: 'Потрібна авторизація.' }, 401);
   if (!sameOrigin(request)) return json({ error: 'Недійсне джерело запиту.' }, 403);
-  const body = await readJsonObject(request, 16 * 1024);
+  const body = await readJsonObject(request, 64 * 1024);
   if (body instanceof Response) return body;
   const now = Math.floor(Date.now() / 1000);
 
@@ -57,6 +58,17 @@ export async function POST(request: Request): Promise<Response> {
         throw new DiscoveryError('Некоректний стан запуску.');
       }
       return json(await cancelDiscoveryRun(env.DB, user.id, body.runId, Number(body.version), now));
+    }
+    if (body.action === 'ingest-telegram') {
+      if (typeof body.runId !== 'string' || !body.runId) throw new DiscoveryError('Запуск пошуку не вказаний.');
+      return json(await ingestTelegramDiscovery(env.DB, user.id, body.runId, {
+        text: body.text,
+        sourceUrl: body.sourceUrl,
+        sourceTitle: body.sourceTitle,
+        query: body.query,
+        seedLabel: body.seedLabel,
+        context: body.context,
+      }, now));
     }
     if (body.action === 'import') {
       if (typeof body.candidateId !== 'string' || !body.candidateId || !Number.isSafeInteger(body.version)) {
