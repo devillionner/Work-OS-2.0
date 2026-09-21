@@ -4,6 +4,7 @@ import type {
   lessons,
   lessonReminders,
   leadMessages,
+  leadMessageAttachments,
   activityEvents,
   curatorRequests,
 } from '../../../db/schema.ts';
@@ -12,11 +13,13 @@ export type Student = typeof students.$inferSelect;
 export type Lesson = typeof lessons.$inferSelect;
 export type Reminder = typeof lessonReminders.$inferSelect;
 export type Message = typeof leadMessages.$inferSelect;
+export type Attachment = typeof leadMessageAttachments.$inferSelect;
 export type Event = typeof activityEvents.$inferInsert;
 export type CuratorRequest = typeof curatorRequests.$inferSelect;
 export type MessageCursor = Pick<Message, 'sentAt' | 'id'>;
 export type MessagePage = {
   messages: Message[];
+  attachments: Attachment[];
   hasMore: boolean;
   before: MessageCursor | null;
 };
@@ -27,7 +30,8 @@ export type Aggregate = {
   lessons: Lesson[];
   reminders: Reminder[];
   messages: Message[];
-  messagePage?: Omit<MessagePage, 'messages'>;
+  attachments: Attachment[];
+  messagePage?: Omit<MessagePage, 'messages' | 'attachments'>;
 };
 export type Changes = {
   lead: Lead;

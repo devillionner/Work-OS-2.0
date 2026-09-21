@@ -134,6 +134,57 @@ export const leadMessages = sqliteTable('lead_messages', {
   updatedAt: integer('updated_at').notNull(),
   deletedAt: integer('deleted_at'),
 });
+export const leadMessageAttachments = sqliteTable(
+  'lead_message_attachments',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    leadId: text('lead_id')
+      .notNull()
+      .references(() => leads.id),
+    messageId: text('message_id')
+      .notNull()
+      .references(() => leadMessages.id),
+    fileName: text('file_name').notNull(),
+    contentType: text('content_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    sha256: text('sha256').notNull(),
+    chunkCount: integer('chunk_count').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [
+    index('lead_message_attachments_owner_message_idx').on(
+      t.userId,
+      t.leadId,
+      t.messageId,
+      t.createdAt,
+      t.id,
+    ),
+  ],
+);
+export const leadMessageAttachmentChunks = sqliteTable(
+  'lead_message_attachment_chunks',
+  {
+    id: text('id').primaryKey(),
+    attachmentId: text('attachment_id')
+      .notNull()
+      .references(() => leadMessageAttachments.id),
+    userId: text('user_id').notNull(),
+    chunkIndex: integer('chunk_index').notNull(),
+    dataBase64: text('data_base64').notNull(),
+  },
+  (t) => [
+    uniqueIndex('lead_message_attachment_chunks_attachment_chunk_idx').on(
+      t.attachmentId,
+      t.chunkIndex,
+    ),
+    index('lead_message_attachment_chunks_owner_attachment_idx').on(
+      t.userId,
+      t.attachmentId,
+      t.chunkIndex,
+    ),
+  ],
+);
 export const activityEvents = sqliteTable(
   'activity_events',
   {

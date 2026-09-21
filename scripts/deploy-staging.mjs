@@ -57,12 +57,72 @@ if (migrationCheck.status !== 0) {
   throw new Error('Refusing deploy: could not verify staging D1 migration state (exit ' + (migrationCheck.status ?? 'unknown') + ').');
 }
 
-const migrationState = parseStagingMigrationList((migrationCheck.stdout || '') + '\n' + (migrationCheck.stderr || ''));
+let migrationState = parseStagingMigrationList((migrationCheck.stdout || '') + '\n' + (migrationCheck.stderr || ''));
 if (migrationState.pending) {
-  throw new Error(
-    'Refusing deploy: staging D1 has unapplied migrations: ' + migrationState.names.join(', ') + '. ' +
-    'Apply them manually to work-os-2-staging-db, then retry the build. Production was not touched.',
+  console.log(
+    'Applying pending migrations to exact staging D1 only: ' + migrationState.names.join(', ') + '.',
   );
+  const migrationApply = spawnSync(
+    process.execPath,
+    [
+      process.env.npm_execpath,
+      'exec',
+      '--',
+      'wrangler',
+      'd1',
+      'migrations',
+      'apply',
+      expected.database,
+      '--remote',
+      '--config',
+      sourceConfigPath,
+    ],
+    { encoding: 'utf8', env: { ...wranglerEnv, CI: '1' }, shell: false },
+  );
+  if (migrationApply.stdout) process.stdout.write(migrationApply.stdout);
+  if (migrationApply.stderr) process.stderr.write(migrationApply.stderr);
+  if (migrationApply.error) throw migrationApply.error;
+  if (migrationApply.status !== 0) {
+    throw new Error(
+      'Refusing deploy: automatic staging D1 migration failed (exit ' +
+        (migrationApply.status ?? 'unknown') +
+        '). Production was not touched.',
+    );
+  }
+
+  const migrationRecheck = spawnSync(
+    process.execPath,
+    [
+      process.env.npm_execpath,
+      'exec',
+      '--',
+      'wrangler',
+      'd1',
+      'migrations',
+      'list',
+      expected.database,
+      '--remote',
+      '--config',
+      sourceConfigPath,
+    ],
+    { encoding: 'utf8', env: wranglerEnv, shell: false },
+  );
+  if (migrationRecheck.stdout) process.stdout.write(migrationRecheck.stdout);
+  if (migrationRecheck.stderr) process.stderr.write(migrationRecheck.stderr);
+  if (migrationRecheck.error) throw migrationRecheck.error;
+  if (migrationRecheck.status !== 0) {
+    throw new Error('Refusing deploy: could not re-check staging D1 migration state.');
+  }
+  migrationState = parseStagingMigrationList(
+    (migrationRecheck.stdout || '') + '\n' + (migrationRecheck.stderr || ''),
+  );
+  if (migrationState.pending) {
+    throw new Error(
+      'Refusing deploy: staging D1 still has unapplied migrations after apply: ' +
+        migrationState.names.join(', ') +
+        '. Production was not touched.',
+    );
+  }
 }
 
 console.log('Staging guard passed: ' + config.name + ' -> ' + db.database_name);

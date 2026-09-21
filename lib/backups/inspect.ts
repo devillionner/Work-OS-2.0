@@ -1,7 +1,7 @@
 import { BACKUP_TABLES, type BackupTable } from './export.ts';
 
 export const CLOUD_BACKUP_APP = 'work-os-cloud-backup';
-export const CLOUD_BACKUP_SCHEMA_VERSION = 12;
+export const CLOUD_BACKUP_SCHEMA_VERSION = 13;
 export const CLOUD_BACKUP_MIN_SCHEMA_VERSION = 5;
 export const CLOUD_BACKUP_MAX_BYTES = 25 * 1024 * 1024;
 
@@ -78,6 +78,7 @@ export function inspectCloudBackup(raw: string): CloudBackupInspection {
         : table === 'report_checkpoints' ? 9
         : table === 'goal_versions' ? 10
         : table === 'library_item_versions' ? 11
+        : (table === 'lead_message_attachments' || table === 'lead_message_attachment_chunks') ? 13
         : 1;
       if (schemaVersion !== null && schemaVersion < introduced && tableRows === undefined && declared === null) continue;
       if (!Array.isArray(tableRows)) {
@@ -159,6 +160,8 @@ function validateReferences(tables: JsonRow, errors: string[]) {
   const ids = (table: BackupTable, column = 'id') => new Set(rows(tables, table).map((row) => text(row[column])).filter(Boolean));
   const chatIds = ids('chats');
   const leadIds = ids('leads');
+  const messageIds = ids('lead_messages');
+  const attachmentIds = ids('lead_message_attachments');
   const studentIds = ids('students');
   const lessonIds = ids('lessons');
   const importIds = ids('legacy_imports');
@@ -172,6 +175,9 @@ function validateReferences(tables: JsonRow, errors: string[]) {
   checkReferences(rows(tables, 'lessons'), 'student_id', studentIds, 'lessons → students', errors, true);
   checkReferences(rows(tables, 'lesson_reminders'), 'lesson_id', lessonIds, 'lesson_reminders → lessons', errors, false);
   checkReferences(rows(tables, 'lead_messages'), 'lead_id', leadIds, 'lead_messages → leads', errors, false);
+  checkReferences(rows(tables, 'lead_message_attachments'), 'lead_id', leadIds, 'lead_message_attachments → leads', errors, false);
+  checkReferences(rows(tables, 'lead_message_attachments'), 'message_id', messageIds, 'lead_message_attachments → lead_messages', errors, false);
+  checkReferences(rows(tables, 'lead_message_attachment_chunks'), 'attachment_id', attachmentIds, 'lead_message_attachment_chunks → lead_message_attachments', errors, false);
   checkReferences(rows(tables, 'lead_commands'), 'lead_id', leadIds, 'lead_commands → leads', errors, false);
   checkReferences(rows(tables, 'curator_requests'), 'lead_id', leadIds, 'curator_requests → leads', errors, false);
   checkReferences(rows(tables, 'curator_requests'), 'lesson_id', lessonIds, 'curator_requests → lessons', errors, true);

@@ -407,7 +407,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
               <LeadScripts lead={current.lead} />
               <Lessons detail={current} mutate={mutate} />
               <Students detail={current} mutate={mutate} />
-              <Conversation key={current.lead.version} detail={current} mutate={mutate} />
+              <Conversation key={current.lead.version} detail={current} mutate={mutate} onChanged={reload} />
             </div>
           )}
         </div>

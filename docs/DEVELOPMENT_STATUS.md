@@ -3,6 +3,17 @@
 Canonical product scope: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
 Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 
+## 2026-09-21 CRM message attachments — v0.2.10
+
+- LEAD-23 is implemented as CRM history media, not as a hidden external messenger send. Files attach to an existing saved lead message and remain owner-scoped.
+- Supported bounded payloads: images, audio, video, PDF, text and common office files up to 10 MB. Active-content/executable extensions and SVG/HTML are rejected; image download responses use private no-store + nosniff.
+- Binary payloads live in dedicated D1 chunk rows, separate from message pagination. Attachment metadata is SHA-256 checked, upload retries are idempotent by attachment id + digest, and writes use the existing lead optimistic version guard.
+- Deleting an attachment or soft-deleting its message removes media rows/chunks. Conversation export includes attachment metadata; cloud backup schema 13 includes metadata/chunks and schema 12 remains backward-compatible.
+- Focused LEAD-23 gate is green at 31/31 with lint/typecheck green. Registry after LEAD-23: 135 ready, 124 partial, 5 not implemented and 12 deferred out of 276. Remaining not-implemented IDs are PAY-01..04 and DATA-06.
+- R2 was probed but is not enabled on the Cloudflare account. No storage/billing product was enabled automatically; the current implementation is self-contained in bounded D1 chunks.
+- Staging deploy hardening now prevents the next schema change from producing a predictable red build: after exact `work-os-2-staging` + `work-os-2-staging-db` + database-id guards, pending migrations are applied to staging only, re-listed, and the deploy remains fail-closed if apply/recheck fails. `CLOUDFLARE_ENV=production` remains an immediate refusal; no production migration path was added.
+- Migration `0032_lead_message_attachments.sql` was applied explicitly to remote `work-os-2-staging-db`; an immediate `wrangler d1 migrations list ... --remote` recheck returned `No migrations to apply`. Production D1 was not targeted.
+
 ## 2026-09-21 factual P4 requirement reconciliation
 
 - Canonical registry was reconciled against current v0.2.9 code and regression evidence instead of carrying forward stale partial labels. Eleven requirements move to ready without inventing new scope: AD-14/16/17, PUB-17/18/19/20, ANALYTICS-11/18/20 and CAL-03.

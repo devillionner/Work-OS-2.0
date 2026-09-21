@@ -1,8 +1,15 @@
 import type { Aggregate } from '../domain/types.ts';
+import { attachmentView } from '../attachments.ts';
 import { overdue, waitingSeconds, legacyLessonDate } from '../domain/time.ts';
 import { reminderView } from '../domain/reminders.ts';
 export function leadDetail(a: Aggregate, now: number) {
   const reminders = new Map<string, Aggregate['reminders']>();
+  const attachments = new Map<string, ReturnType<typeof attachmentView>[]>();
+  for (const attachment of a.attachments) {
+    const group = attachments.get(attachment.messageId) ?? [];
+    group.push(attachmentView(attachment));
+    attachments.set(attachment.messageId, group);
+  }
   for (const reminder of a.reminders) {
     const group = reminders.get(reminder.lessonId) ?? [];
     group.push(reminder);
@@ -40,7 +47,10 @@ export function leadDetail(a: Aggregate, now: number) {
     })),
     messages: a.messages
       .filter((m) => m.deletedAt === null)
-      .map(({ userId: _user, ...m }) => m),
+      .map(({ userId: _user, ...m }) => ({
+        ...m,
+        attachments: attachments.get(m.id) ?? [],
+      })),
     messagesPage: a.messagePage ?? { hasMore: false, before: null },
     serverNow: now,
   };
@@ -52,10 +62,13 @@ export function exportConversation(a: Aggregate) {
     a.messages
       .filter((m) => m.deletedAt === null)
       .sort((a, b) => a.sentAt - b.sentAt || a.id.localeCompare(b.id))
-      .map(
-        (m) =>
-          `[${new Date(m.sentAt * 1000).toISOString()}] ${m.sender === 'lead' ? 'Лід' : 'Я'}:\n${m.body}`,
-      )
+      .map((m) => {
+        const media = a.attachments
+          .filter((attachment) => attachment.messageId === m.id)
+          .map((attachment) => `Вкладення: ${attachment.fileName} (${attachment.contentType}, ${attachment.sizeBytes} B)`)
+          .join('\n');
+        return `[${new Date(m.sentAt * 1000).toISOString()}] ${m.sender === 'lead' ? 'Лід' : 'Я'}:\n${m.body}${media ? `\n${media}` : ''}`;
+      })
       .join('\n\n') +
     '\n'
   );

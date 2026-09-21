@@ -70,5 +70,11 @@ export async function prepareConversationExport(
 }
 
 function formatExportMessage(message: ConversationExportMessage) {
-  return `[${new Date(Number(message.sentAt) * 1000).toISOString()}] ${message.sender === 'lead' ? 'Лід' : 'Я'}:\n${message.body}`;
+  const media = message.attachments
+    .map(
+      (attachment) =>
+        `Вкладення: ${attachment.fileName} (${attachment.contentType}, ${attachment.sizeBytes} B)`,
+    )
+    .join('\n');
+  return `[${new Date(Number(message.sentAt) * 1000).toISOString()}] ${message.sender === 'lead' ? 'Лід' : 'Я'}:\n${message.body}${media ? `\n${media}` : ''}`;
 }

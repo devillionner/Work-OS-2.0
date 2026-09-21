@@ -17,6 +17,8 @@ export const BACKUP_TABLES = [
   'curator_requests',
   'lesson_reminders',
   'lead_messages',
+  'lead_message_attachments',
+  'lead_message_attachment_chunks',
   'lead_commands',
   'daily_reports',
   'report_checkpoints',
@@ -73,7 +75,12 @@ export async function backupPage(
   revision: number,
 ) {
   const column = cursorColumn(table);
-  const size = table === 'legacy_import_chunks' ? 10 : 200;
+  const size =
+    table === 'lead_message_attachment_chunks'
+      ? 1
+      : table === 'legacy_import_chunks'
+        ? 10
+        : 200;
   const comparison =
     column === 'rowid'
       ? "(?2='' OR t.rowid>CAST(?2 AS INTEGER))"

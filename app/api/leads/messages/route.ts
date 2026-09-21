@@ -1,6 +1,7 @@
 import { getCurrentUser } from '@/lib/auth';
 import { getDb } from '@/db';
 import { D1LeadRepository } from '@/lib/leads/data/repository';
+import { attachmentView } from '@/lib/leads/attachments';
 import type { MessageCursor } from '@/lib/leads/domain/types';
 import { errorResponse, json } from '@/lib/leads/application/http';
 import { LeadError } from '@/lib/leads/domain/validation';
@@ -46,8 +47,17 @@ export async function GET(request: Request): Promise<Response> {
       { limit, before, version },
     );
     if (!page) throw new LeadError('Ліда не знайдено.', 404);
+    const attachments = new Map<string, ReturnType<typeof attachmentView>[]>();
+    for (const attachment of page.attachments) {
+      const group = attachments.get(attachment.messageId) ?? [];
+      group.push(attachmentView(attachment));
+      attachments.set(attachment.messageId, group);
+    }
     return json({
-      messages: page.messages.map(({ userId: _user, ...message }) => message),
+      messages: page.messages.map(({ userId: _user, ...message }) => ({
+        ...message,
+        attachments: attachments.get(message.id) ?? [],
+      })),
       page: { hasMore: page.hasMore, before: page.before },
     });
   } catch (error) {

@@ -11,6 +11,7 @@ import {
   lessons,
   lessonReminders,
   leadMessages,
+  leadMessageAttachments,
   activityEvents,
   leadCommands,
   curatorRequests,
@@ -73,12 +74,31 @@ export class D1LeadRepository implements LeadRepository {
               .where(messageWhere)
               .orderBy(desc(leadMessages.sentAt), desc(leadMessages.id))
               .limit(messageLimit === 0 ? 0 : messageLimit + 1);
+    const attachmentMessageScope =
+      messageId !== undefined
+        ? eq(leadMessageAttachments.messageId, messageId)
+        : messageLimit === 0
+          ? sql`0`
+          : messageLimit === undefined && !messagesBefore
+            ? undefined
+            : sql`${leadMessageAttachments.messageId} IN (
+                SELECT ${leadMessages.id} FROM ${leadMessages}
+                WHERE ${leadMessages.leadId}=${id}
+                  AND ${leadMessages.userId}=${userId}
+                  AND ${leadMessages.deletedAt} IS NULL
+                  ${messagesBefore
+                    ? sql`AND (${leadMessages.sentAt}, ${leadMessages.id}) < (${messagesBefore.sentAt}, ${messagesBefore.id})`
+                    : sql``}
+                ORDER BY ${leadMessages.sentAt} DESC, ${leadMessages.id} DESC
+                LIMIT ${messageLimit === undefined ? -1 : messageLimit + 1}
+              )`;
     const [
       leadRows,
       studentRows,
       lessonRows,
       reminderRows,
       messageRows,
+      attachmentRows,
       curatorRows,
     ] = await this.db.batch([
       this.db
@@ -107,6 +127,20 @@ export class D1LeadRepository implements LeadRepository {
           ),
         ),
       messageQuery,
+      this.db
+        .select()
+        .from(leadMessageAttachments)
+        .where(
+          and(
+            eq(leadMessageAttachments.leadId, id),
+            eq(leadMessageAttachments.userId, userId),
+            attachmentMessageScope,
+          ),
+        )
+        .orderBy(
+          asc(leadMessageAttachments.createdAt),
+          asc(leadMessageAttachments.id),
+        ),
       this.db
         .select()
         .from(curatorRequests)
@@ -158,6 +192,9 @@ export class D1LeadRepository implements LeadRepository {
       lessons: lessonRows,
       reminders,
       messages: pagedMessages,
+      attachments: attachmentRows.filter((attachment) =>
+        pagedMessages.some((message) => message.id === attachment.messageId),
+      ),
       ...(messageLimit === undefined
         ? {}
         : { messagePage: { hasMore, before } }),
@@ -180,7 +217,18 @@ export class D1LeadRepository implements LeadRepository {
         ? sql`(${leadMessages.sentAt}, ${leadMessages.id}) < (${options.before.sentAt}, ${options.before.id})`
         : undefined,
     );
-    const [leadRows, messageRows] = await this.db.batch([
+    const attachmentMessageScope = sql`${leadMessageAttachments.messageId} IN (
+      SELECT ${leadMessages.id} FROM ${leadMessages}
+      WHERE ${leadMessages.leadId}=${leadId}
+        AND ${leadMessages.userId}=${userId}
+        AND ${leadMessages.deletedAt} IS NULL
+        ${options.before
+          ? sql`AND (${leadMessages.sentAt}, ${leadMessages.id}) < (${options.before.sentAt}, ${options.before.id})`
+          : sql``}
+      ORDER BY ${leadMessages.sentAt} DESC, ${leadMessages.id} DESC
+      LIMIT ${options.limit + 1}
+    )`;
+    const [leadRows, messageRows, attachmentRows] = await this.db.batch([
       this.db.select({ id: leads.id, version: leads.version }).from(leads).where(messageWhere),
       this.db
         .select()
@@ -188,6 +236,20 @@ export class D1LeadRepository implements LeadRepository {
         .where(messageCursorWhere)
         .orderBy(desc(leadMessages.sentAt), desc(leadMessages.id))
         .limit(options.limit + 1),
+      this.db
+        .select()
+        .from(leadMessageAttachments)
+        .where(
+          and(
+            eq(leadMessageAttachments.leadId, leadId),
+            eq(leadMessageAttachments.userId, userId),
+            attachmentMessageScope,
+          ),
+        )
+        .orderBy(
+          asc(leadMessageAttachments.createdAt),
+          asc(leadMessageAttachments.id),
+        ),
     ]);
     if (!leadRows[0]) return null;
     if (options.version !== undefined && leadRows[0].version !== options.version)
@@ -196,6 +258,9 @@ export class D1LeadRepository implements LeadRepository {
     const hasMore = messageRows.length > options.limit;
     return {
       messages,
+      attachments: attachmentRows.filter((attachment) =>
+        messages.some((message) => message.id === attachment.messageId),
+      ),
       hasMore,
       before:
         hasMore && messages[0]

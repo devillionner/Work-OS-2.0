@@ -5,7 +5,7 @@ export const RESTORE_TABLES: BackupTable[] = [
   'legacy_imports', 'legacy_import_chunks', 'telegram_accounts', 'work_timers', 'workdays',
   'chats', 'chat_profiles', 'chat_publications', 'telegram_schedule_settings', 'telegram_schedule_slots',
   'leads', 'students', 'lessons',
-  'curator_requests', 'lesson_reminders', 'lead_messages', 'lead_commands',
+  'curator_requests', 'lesson_reminders', 'lead_messages', 'lead_message_attachments', 'lead_message_attachment_chunks', 'lead_commands',
   'daily_reports', 'report_checkpoints', 'goal_versions', 'library_items', 'library_item_versions', 'user_settings', 'activity_events',
 ];
 
@@ -15,7 +15,7 @@ const CONFLICT_COLUMNS: Record<BackupTable, string[]> = {
   chat_profiles: ['chat_id'], chat_publications: ['id'],
   telegram_schedule_settings: ['user_id', 'telegram_account_id'], telegram_schedule_slots: ['id'], leads: ['id'],
   students: ['id'], lessons: ['id'], curator_requests: ['id'],
-  lesson_reminders: ['id'], lead_messages: ['id'], lead_commands: ['id'],
+  lesson_reminders: ['id'], lead_messages: ['id'], lead_message_attachments: ['id'], lead_message_attachment_chunks: ['id'], lead_commands: ['id'],
   daily_reports: ['id'], report_checkpoints: ['id'], goal_versions: ['id'], library_items: ['id'], library_item_versions: ['id'],
   user_settings: ['user_id', 'setting_key'], activity_events: ['id'],
 };

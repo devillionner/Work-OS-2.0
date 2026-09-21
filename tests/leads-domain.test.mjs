@@ -620,9 +620,13 @@ void test('CRM pages handle tied timestamps, deletions and stale cards without e
   const originalBatch = f.repo.db.batch.bind(f.repo.db);
   const batches = [];
   const pageQueries = [];
+  const attachmentQueries = [];
   f.repo.db.batch = (queries) => {
     batches.push(queries.length);
-    if (queries.length === 2) pageQueries.push(queries[1].toSQL());
+    if (queries.length === 3) {
+      pageQueries.push(queries[1].toSQL());
+      attachmentQueries.push(queries[2].toSQL());
+    }
     return originalBatch(queries);
   };
   let cursor = latest.messagePage.before;
@@ -633,11 +637,14 @@ void test('CRM pages handle tied timestamps, deletions and stale cards without e
     ids.unshift(...page.messages.map((message) => message.id));
     cursor = page.before;
   }
-  assert.deepEqual(batches, [2, 2, 2]);
+  assert.deepEqual(batches, [3, 3, 3]);
   const query = pageQueries[0];
   const plan = await f.rows(`EXPLAIN QUERY PLAN ${query.sql}`, ...query.params);
   assert.match(JSON.stringify(plan), /lead_messages_history_idx/);
   assert.doesNotMatch(JSON.stringify(plan), /USE TEMP B-TREE|SCAN lead_messages/);
+  const attachmentSql = attachmentQueries[0].sql.toLowerCase();
+  for (const token of ['lead_message_attachments', 'message_id', ' in (', 'select', 'lead_messages', 'sent_at', 'limit ?'])
+    assert.ok(attachmentSql.includes(token), `attachment page query is missing ${token}: ${attachmentQueries[0].sql}`);
   assert.equal(ids.length, 94);
   assert.equal(new Set(ids).size, 94);
   assert.deepEqual(ids, [...ids].sort());
