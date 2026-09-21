@@ -9,6 +9,26 @@ function multipartRequest(size) {
   return new Request('http://localhost/upload', { method: 'POST', body: form });
 }
 
+function oversizedChunkedRequest() {
+  const chunks = [new Uint8Array(768), new Uint8Array(768)];
+  let index = 0;
+  const body = new ReadableStream({
+    pull(controller) {
+      if (index >= chunks.length) return controller.close();
+      controller.enqueue(chunks[index++]);
+    },
+    cancel() {
+      index = chunks.length;
+    },
+  });
+  return new Request('http://localhost/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'multipart/form-data; boundary=bounded-test' },
+    body,
+    duplex: 'half',
+  });
+}
+
 void test('bounded multipart parser accepts a small form without Content-Length', async () => {
   const request = multipartRequest(32);
   assert.equal(request.headers.get('content-length'), null);
@@ -21,7 +41,7 @@ void test('bounded multipart parser accepts a small form without Content-Length'
 });
 
 void test('bounded multipart parser rejects chunked bodies before form parsing', async () => {
-  const request = multipartRequest(4096);
+  const request = oversizedChunkedRequest();
   assert.equal(request.headers.get('content-length'), null);
   const parsed = await readBoundedMultipartForm(request, 1024);
   assert.ok(parsed instanceof Response);
