@@ -91,13 +91,15 @@ export async function startDiscoveryRun(
   const minMembers = boundedInteger(input.minMembers, 1, 10_000_000, 700);
   const existing = await activeRun(db, userId);
   if (existing) return mapRun(existing);
+  const previous = await latestRun(db, userId);
+  const telegramCursor = Math.max(0, Number(previous?.telegram_cursor || 0));
   const id = crypto.randomUUID();
   try {
     await db.prepare(`INSERT INTO chat_discovery_runs
-      (id,user_id,status,platforms_json,goal,min_members,source_cursor,searched_queries,found_count,duplicate_count,
+      (id,user_id,status,platforms_json,goal,min_members,source_cursor,telegram_cursor,searched_queries,found_count,duplicate_count,
        imported_count,error_message,started_at,updated_at,completed_at,version)
-      VALUES (?1,?2,'running',?3,?4,?5,0,0,0,0,0,NULL,?6,?6,NULL,1)`)
-      .bind(id, userId, JSON.stringify(platforms), goal, minMembers, now).run();
+      VALUES (?1,?2,'running',?3,?4,?5,0,?6,0,0,0,0,NULL,?7,?7,NULL,1)`)
+      .bind(id, userId, JSON.stringify(platforms), goal, minMembers, telegramCursor, now).run();
   } catch {
     const concurrent = await activeRun(db, userId);
     if (concurrent) return mapRun(concurrent);
