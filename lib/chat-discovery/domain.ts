@@ -420,7 +420,7 @@ async function persistDiscoveryBatch(
     const existing = existingCandidates.get(`${item.platform}|${item.link}`);
     const candidateId = existing?.id || await stableId('candidate', `${userId}:${item.platform}:${item.link}`);
     const name = item.name || suggestedChatName(normalizeGroupLink(item.link)!);
-    const topicMatch = existing?.topic_match === 'unknown' || !existing ? inferDiscoveryTopicMatch(name, item.sources) : existing.topic_match;
+    const topicMatch = existing?.topic_match || 'unknown';
     const evaluated = evaluateDiscoveryCandidate({
       chatType: existing?.chat_type || 'unknown',
       memberCount: existing?.member_count ?? null,
