@@ -114,6 +114,24 @@ void test('qualification is fail-closed until every target criterion is confirme
   }, 700);
   assert.equal(rejected.decision, 'rejected');
   assert.ok(rejected.reasonCodes.includes('too_few_members'));
+
+  const tooLarge = evaluateDiscoveryCandidate({
+    chatType: 'group',
+    memberCount: 18_001,
+    topicMatch: 'match',
+    canWrite: true,
+    adsPolicy: 'allowed',
+    activityState: 'active',
+    accessState: 'available',
+    linkState: 'valid',
+  });
+  assert.equal(tooLarge.decision, 'rejected');
+  assert.ok(tooLarge.reasonCodes.includes('too_many_members'));
+
+  assert.deepEqual(evaluateDiscoveryCandidate({
+    linkState: 'invalid',
+    accessState: 'unavailable',
+  }), { decision: 'unavailable', reasonCodes: ['invalid_invite'] });
 });
 
 void test('discovery run persists one canonical candidate, provenance and owner isolation', async (t) => {

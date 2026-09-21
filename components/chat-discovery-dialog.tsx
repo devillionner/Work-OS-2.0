@@ -171,8 +171,8 @@ export function ChatDiscoveryDialog({
       <DialogHeader className="pr-10">
         <DialogTitle>Пошук нових чатів</DialogTitle>
         <DialogDescription>
-          Публічний пошук WhatsApp з дедуплікацією та provenance. Невідомі критерії не вважаються підтвердженими:
-          кандидат спочатку переходить у «Для приєднання», де проходить фактичну перевірку.
+          Пошук WhatsApp-кандидатів з дедуплікацією та provenance. Цільовий діапазон — 700–18 000 учасників.
+          Невідомі критерії не вважаються підтвердженими: кандидат спочатку проходить фактичну перевірку.
         </DialogDescription>
       </DialogHeader>
       <Button className="absolute right-3 top-3" variant="ghost" size="icon" aria-label="Закрити" onClick={close}><X/></Button>
@@ -343,7 +343,9 @@ function reasonLabel(value: string) {
     topic_mismatch: 'тематика не підходить',
     cannot_write: 'писати не можна',
     ads_forbidden: 'оголошення заборонені',
-    too_few_members: 'замало учасників',
+    too_few_members: 'менше 700 учасників',
+    too_many_members: 'понад 18 000 учасників',
+    invalid_invite: 'посилання недійсне або прострочене',
     inactive_chat: 'чат неактивний',
     not_discussion_group: 'не груповий чат',
     access_unavailable: 'чат недоступний',

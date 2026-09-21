@@ -256,20 +256,22 @@ export function evaluateDiscoveryCandidate(input: {
   activityState?: DiscoveryCandidate['activityState'];
   accessState?: DiscoveryCandidate['accessState'];
   linkState?: DiscoveryCandidate['linkState'];
-}, minMembers = 700): { decision: DiscoveryDecision; reasonCodes: string[] } {
-  if (input.accessState === 'unavailable' || input.linkState === 'invalid') return { decision: 'unavailable', reasonCodes: ['access_unavailable'] };
+}, minMembers = 700, maxMembers = 18_000): { decision: DiscoveryDecision; reasonCodes: string[] } {
+  if (input.linkState === 'invalid') return { decision: 'unavailable', reasonCodes: ['invalid_invite'] };
+  if (input.accessState === 'unavailable') return { decision: 'unavailable', reasonCodes: ['access_unavailable'] };
   if (input.chatType === 'channel' || input.chatType === 'contact' || input.chatType === 'bot') return { decision: 'rejected', reasonCodes: ['not_discussion_group'] };
   const reasons: string[] = [];
   if (input.topicMatch === 'mismatch') reasons.push('topic_mismatch');
   if (input.canWrite === false) reasons.push('cannot_write');
   if (input.adsPolicy === 'forbidden') reasons.push('ads_forbidden');
   if (input.memberCount !== null && input.memberCount !== undefined && Number.isFinite(input.memberCount) && input.memberCount < minMembers) reasons.push('too_few_members');
+  if (input.memberCount !== null && input.memberCount !== undefined && Number.isFinite(input.memberCount) && input.memberCount > maxMembers) reasons.push('too_many_members');
   if (input.activityState === 'dead') reasons.push('inactive_chat');
   if (reasons.length) return { decision: 'rejected', reasonCodes: reasons };
 
   const required = [
     [['group', 'community'].includes(input.chatType || 'unknown'), 'unknown_chat_type'],
-    [Number.isFinite(input.memberCount) && Number(input.memberCount) >= minMembers, 'unknown_member_count'],
+    [Number.isFinite(input.memberCount) && Number(input.memberCount) >= minMembers && Number(input.memberCount) <= maxMembers, 'unknown_member_count'],
     [input.topicMatch === 'match', 'unknown_topic_match'],
     [input.canWrite === true, 'unknown_can_write'],
     [['allowed', 'inferred_allowed', 'operator_confirmed'].includes(input.adsPolicy || 'unknown'), 'unknown_ads_allowed'],
