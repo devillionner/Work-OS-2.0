@@ -179,7 +179,7 @@ export function extractInviteRecords(
   source: Omit<DiscoverySource, 'kind'> & { kind?: DiscoverySourceKind },
 ): DiscoveryRecord[] {
   const decoded = decodeHtml(text).replaceAll('\\/', '/');
-  const pattern = /https?:\/\/(?:chat\.whatsapp\.com|invite\.viber\.com|chats\.viber\.com|vb\.me)\/?[^\s<>"'\\]*/gi;
+  const pattern = /(?:https?:\/\/)?(?:chat\.whatsapp\.com|invite\.viber\.com|chats\.viber\.com|vb\.me)\/?[^\s<>"'\\]*/gi;
   const records: DiscoveryRecord[] = [];
   for (const match of decoded.matchAll(pattern)) {
     const raw = trimInvite(match[0]);
@@ -191,7 +191,7 @@ export function extractInviteRecords(
     records.push({
       platform: parsed.platform,
       link: parsed.link,
-      nameHint: inferInviteLabel(context, raw),
+      nameHint: inferInviteLabel(context, parsed.link),
       source: {
         kind: source.kind || 'public_web',
         sourceUrl: bound(source.sourceUrl, 1000),
