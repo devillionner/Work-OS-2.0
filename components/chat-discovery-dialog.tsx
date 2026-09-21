@@ -51,6 +51,7 @@ export function ChatDiscoveryDialog({
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [importingId, setImportingId] = useState<string | null>(null);
+  const [inspectingId, setInspectingId] = useState<string | null>(null);
   const [telegramBusy, setTelegramBusy] = useState(false);
   const [telegramText, setTelegramText] = useState('');
   const [telegramSourceTitle, setTelegramSourceTitle] = useState('');
@@ -212,6 +213,26 @@ export function ChatDiscoveryDialog({
       setError(reason instanceof Error ? reason.message : 'Не вдалося передати Telegram-результати в пошук.');
     } finally {
       setTelegramBusy(false);
+    }
+  }
+
+  async function markInviteInvalid(candidate: DiscoveryCandidate) {
+    if (inspectingId) return;
+    setInspectingId(candidate.id);
+    setError('');
+    try {
+      await post({
+        action: 'inspect',
+        candidateId: candidate.id,
+        version: candidate.version,
+        result: { status:'failed', accessible:false, reason:'invalid_whatsapp_link' },
+      });
+      setNotice('Invite недійсний або прострочений — кандидат відхилено без створення чату.');
+      await load(filter);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Не вдалося зафіксувати недійсний invite.');
+    } finally {
+      setInspectingId(null);
     }
   }
 
@@ -409,10 +430,15 @@ export function ChatDiscoveryDialog({
                       <a className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium hover:bg-muted" href={candidate.link} target="_blank" rel="noreferrer">
                         Відкрити WhatsApp <ExternalLink className="size-3.5"/>
                       </a>
+                      {!candidate.importedChatId && candidate.decision === 'review' &&
+                        <Button type="button" size="sm" variant="outline" disabled={inspectingId !== null} onClick={() => void markInviteInvalid(candidate)}>
+                          {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
+                          Invite недійсний
+                        </Button>}
                       {candidate.importedChatId
                         ? <Badge variant="secondary">У Work OS</Badge>
                         : (candidate.decision === 'review' || candidate.decision === 'target') &&
-                          <Button type="button" size="sm" disabled={importingId !== null} onClick={() => void importCandidate(candidate)}>
+                          <Button type="button" size="sm" disabled={importingId !== null || inspectingId !== null} onClick={() => void importCandidate(candidate)}>
                             {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
                             Додати на перевірку
                           </Button>}
