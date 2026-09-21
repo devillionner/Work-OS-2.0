@@ -2,15 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  advanceTelegramDiscoveryPlan,
   continueDiscoveryRun,
   evaluateDiscoveryCandidate,
   handoffDiscoveryCandidate,
   ingestTelegramDiscovery,
   readDiscoveryWorkspace,
+  readTelegramDiscoveryPlan,
   startDiscoveryRun,
 } from '../lib/chat-discovery/domain.ts';
 import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
-import { discoverPublicWeb, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl } from '../lib/chat-discovery/public-web.ts';
+import { buildTelegramSearchPlan, discoverPublicWeb, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl } from '../lib/chat-discovery/public-web.ts';
 import { changeChatLeave } from '../lib/chats/leave.ts';
 import { readChatState } from '../lib/chats/state.ts';
 import { transitionChat } from '../lib/chats/transitions.ts';
@@ -77,6 +79,41 @@ void test('public discovery rejects local/literal hosts and searches a bounded s
   assert.equal(result.records.length, 2);
   assert.ok(result.records.every((item) => item.link === 'https://chat.whatsapp.com/TestInvite123'));
   assert.ok(result.records.every((item) => item.source.query.includes('українці')));
+});
+
+void test('Telegram keyword plan is deterministic, bounded and resolves workbook placeholders', () => {
+  const first = buildTelegramSearchPlan(0, 6);
+  assert.equal(first.cursor, 0);
+  assert.equal(first.tasks.length, 6);
+  assert.ok(first.totalTasks > 1000);
+  assert.equal(first.nextCursor, 6);
+  assert.equal(first.done, false);
+  assert.ok(first.tasks.every(task => task.query.length > 0));
+  assert.ok(first.tasks.every(task => !/назва |\(назва| або країни| або міста/iu.test(task.query)));
+
+  const repeated = buildTelegramSearchPlan(0, 6);
+  assert.deepEqual(repeated, first);
+  const next = buildTelegramSearchPlan(first.nextCursor, 3);
+  assert.equal(next.cursor, first.nextCursor);
+  assert.ok(next.tasks.every(task => task.cursor >= first.nextCursor));
+});
+
+void test('Telegram plan cursor persists independently from public web cursor', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  const initial = await readTelegramDiscoveryPlan(db, 'u', run.id, 2);
+  assert.equal(initial.plan.cursor, 0);
+  assert.equal(initial.run.telegramCursor, 0);
+
+  const advanced = await advanceTelegramDiscoveryPlan(db, 'u', run.id, run.version, 1, 101);
+  assert.equal(advanced.run.telegramCursor, 1);
+  assert.equal(advanced.run.cursor, 0);
+  assert.equal(advanced.plan.cursor, 1);
+
+  const web = await continueDiscoveryRun(db, 'u', run.id, 102, async () =>
+    html('<div>Українці Berlin батьки https://chat.whatsapp.com/IndependentCursor123</div>'));
+  assert.equal(web.run.telegramCursor, 1);
+  assert.ok(web.run.cursor > 0);
 });
 
 void test('Telegram ingestion extracts WhatsApp only, keeps provenance and deduplicates repeats', async (t) => {
