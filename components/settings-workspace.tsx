@@ -12,6 +12,7 @@ import { ChatDuplicatesDialog } from '@/components/chat-duplicates-dialog';
 import { ChatCsvDialog } from '@/components/chat-csv-dialog';
 import { ChatNamesDialog } from '@/components/chat-names-dialog';
 import { GoalHistoryDialog } from '@/components/goal-history-dialog';
+import { PaymentSettings } from '@/components/payment-settings';
 import type { DashboardSnapshot } from '@/lib/dashboard';
 
 type Props = {
@@ -65,10 +66,12 @@ export function SettingsWorkspace({ user, snapshot, onRefresh }: Props) {
         <div className="settings-panel-icon"><Cloud /></div>
         <div className="card-heading"><div><p className="eyebrow">Активні платформи</p><h3>Що показувати в роботі</h3></div><Button size="sm" onClick={() => void savePlatforms()} disabled={savingPlatforms}>{savingPlatforms ? 'Зберігаємо…' : 'Зберегти'}</Button></div>
         <div className="platform-settings-list">{[['telegram','Telegram'],['whatsapp','WhatsApp'],['viber','Viber'],['facebook','Facebook']].map(([key,label]) => <label key={key}><input type="checkbox" checked={enabledPlatforms.includes(key)} onChange={(event) => setEnabledPlatforms((current) => event.target.checked ? [...current, key] : current.filter((item) => item !== key))} />{label}</label>)}</div>
-        {platformNotice && <small className="settings-inline-notice" role="status">{platformNotice}</small>}
+        {platformNotice && <output className="settings-inline-notice">{platformNotice}</output>}
         <p className="settings-panel-copy">Вимкнення лише ховає платформу з робочих екранів. Дані та статистика не видаляються.</p>
       </section>
     </div>
+
+    <PaymentSettings onSaved={onRefresh} />
 
     <section className="settings-tools" aria-labelledby="settings-tools-title">
       <div className="settings-section-head"><div><p className="eyebrow">Дані та обслуговування</p><h3 id="settings-tools-title">Рідкісні дії</h3></div><p>Вони не повинні відволікати під час щоденної роботи.</p></div>

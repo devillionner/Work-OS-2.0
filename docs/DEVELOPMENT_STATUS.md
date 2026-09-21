@@ -3,6 +3,15 @@
 Canonical product scope: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
 Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 
+## 2026-09-21 configurable payments and forecast — v0.2.11
+
+- PAY-01..04 are implemented as one owner-scoped Settings flow: monthly or semimonthly salary periods, payout days, base salary, and independent lead/booking/completed-lesson bonus periods, rates and targets.
+- Payment facts come from canonical non-cancelled activity events; the calculator does not invent default earnings. Base salary and bonus values are stored as integer cents, with zero-value defaults until the user configures real rules.
+- The payment card shows current period, payout date, plan, accrued fact and pace-based end-of-period forecast plus per-metric actual/target/forecast values.
+- No new D1 schema is required: `payment_rules` uses the existing owner-scoped `user_settings` store, so this package avoids a deployment migration.
+- Focused PAY regression is green at 6/6 with typecheck and full lint green. The Windows migration-format gate also exposed and fixed CRLF-only legacy migration blobs without changing SQL semantics.
+- Canonical registry after this package: 139 ready, 124 partial, 1 not implemented and 12 deferred out of 276. The only remaining not-implemented requirement is DATA-06 (offline outbox/replay); other remaining P4 work is partial parity/reliability/physical-device acceptance rather than missing implementation.
+
 ## 2026-09-21 CRM message attachments — v0.2.10
 
 - LEAD-23 is implemented as CRM history media, not as a hidden external messenger send. Files attach to an existing saved lead message and remain owner-scoped.
