@@ -25,6 +25,16 @@ type ContinueResponse = {
 };
 type ImportResponse = { chatId?: string; existing?: boolean; workflowStatus?: string; error?: string };
 type TelegramIngestResponse = { run: DiscoveryRun; batch: { extracted: number; added: number; duplicates: number }; error?: string };
+type ManualInspectionDraft = {
+  candidateId: string;
+  memberCount: string;
+  activityState: 'unknown' | 'active' | 'dead';
+  canWrite: 'unknown' | 'yes' | 'no';
+  adsPolicy: 'unknown' | 'operator_confirmed' | 'forbidden';
+  topicMatch: 'unknown' | 'match' | 'mismatch';
+  membershipState: 'not_checked' | 'pending' | 'joined';
+  chatType: 'group' | 'community' | 'channel';
+};
 type DecisionFilter = 'all' | DiscoveryDecision;
 
 const EMPTY_COUNTS: Record<DiscoveryDecision, number> = {
@@ -52,6 +62,7 @@ export function ChatDiscoveryDialog({
   const [searching, setSearching] = useState(false);
   const [importingId, setImportingId] = useState<string | null>(null);
   const [inspectingId, setInspectingId] = useState<string | null>(null);
+  const [manualDraft, setManualDraft] = useState<ManualInspectionDraft | null>(null);
   const [telegramBusy, setTelegramBusy] = useState(false);
   const [telegramText, setTelegramText] = useState('');
   const [telegramSourceTitle, setTelegramSourceTitle] = useState('');
@@ -231,6 +242,62 @@ export function ChatDiscoveryDialog({
       await load(filter);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не вдалося зафіксувати недійсний invite.');
+    } finally {
+      setInspectingId(null);
+    }
+  }
+
+  function openManualInspection(candidate: DiscoveryCandidate) {
+    setManualDraft({
+      candidateId: candidate.id,
+      memberCount: candidate.memberCount === null ? '' : String(candidate.memberCount),
+      activityState: candidate.activityState,
+      canWrite: candidate.canWrite === null ? 'unknown' : candidate.canWrite ? 'yes' : 'no',
+      adsPolicy: candidate.adsPolicy === 'forbidden' ? 'forbidden'
+        : candidate.adsPolicy === 'allowed' || candidate.adsPolicy === 'inferred_allowed' || candidate.adsPolicy === 'operator_confirmed'
+          ? 'operator_confirmed' : 'unknown',
+      topicMatch: candidate.topicMatch,
+      membershipState: candidate.membershipState === 'left' ? 'not_checked' : candidate.membershipState,
+      chatType: candidate.chatType === 'community' || candidate.chatType === 'channel' ? candidate.chatType : 'group',
+    });
+  }
+
+  async function submitManualInspection(candidate: DiscoveryCandidate) {
+    if (!manualDraft || manualDraft.candidateId !== candidate.id || inspectingId) return;
+    const rawCount = manualDraft.memberCount.trim();
+    const memberCount = rawCount === '' ? null : Number(rawCount);
+    if (memberCount !== null && (!Number.isSafeInteger(memberCount) || memberCount < 0 || memberCount > 10_000_000)) {
+      setError('Некоректна кількість учасників.');
+      return;
+    }
+    setInspectingId(candidate.id);
+    setError('');
+    try {
+      const payload = await post({
+        action: 'inspect',
+        candidateId: candidate.id,
+        version: candidate.version,
+        result: {
+          status: 'inspected',
+          accessible: true,
+          membershipState: manualDraft.membershipState,
+          observedName: candidate.name,
+          chatType: manualDraft.chatType,
+          memberCount,
+          topicMatch: manualDraft.topicMatch,
+          canWrite: manualDraft.canWrite === 'unknown' ? null : manualDraft.canWrite === 'yes',
+          adsPolicy: manualDraft.adsPolicy,
+          activityState: manualDraft.activityState,
+        },
+      }) as unknown as { decision?: DiscoveryDecision; needsExternalLeave?: boolean };
+      setNotice(payload.needsExternalLeave
+        ? 'Кваліфікацію збережено. Чат нецільовий — після виходу з WhatsApp підтвердь leave у Work OS.'
+        : `Кваліфікацію збережено: ${payload.decision ? decisionLabel(payload.decision) : 'оновлено'}.`);
+      setManualDraft(null);
+      await load(filter);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Не вдалося зберегти кваліфікацію.');
+      await load(filter);
     } finally {
       setInspectingId(null);
     }
@@ -447,6 +514,52 @@ export function ChatDiscoveryDialog({
                   <div className="flex flex-wrap gap-1.5">
                     {candidate.reasonCodes.map(code => <span key={code} className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{reasonLabel(code)}</span>)}
                   </div>
+                  {candidate.importedChatId && <div className="grid gap-2">
+                    <Button type="button" size="sm" variant="outline" className="w-fit" onClick={() => setManualDraft(current => current?.candidateId === candidate.id ? null : (openManualInspection(candidate), current))}>
+                      {manualDraft?.candidateId === candidate.id ? 'Закрити ручну кваліфікацію' : 'Кваліфікувати вручну'}
+                    </Button>
+                    {manualDraft?.candidateId === candidate.id && <div className="grid gap-3 rounded-lg border border-border/70 bg-muted/20 p-3">
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        <label className="grid gap-1 text-xs font-medium">Учасники
+                          <Input type="number" min={0} max={10_000_000} value={manualDraft.memberCount} onChange={event => setManualDraft({...manualDraft, memberCount:event.target.value})} placeholder="700–18000" />
+                        </label>
+                        <label className="grid gap-1 text-xs font-medium">Активність
+                          <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.activityState} onChange={event => setManualDraft({...manualDraft, activityState:event.target.value as ManualInspectionDraft['activityState']})}>
+                            <option value="unknown">Невідомо</option><option value="active">Активний</option><option value="dead">Неактивний</option>
+                          </select>
+                        </label>
+                        <label className="grid gap-1 text-xs font-medium">Писати можуть учасники
+                          <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.canWrite} onChange={event => setManualDraft({...manualDraft, canWrite:event.target.value as ManualInspectionDraft['canWrite']})}>
+                            <option value="unknown">Невідомо</option><option value="yes">Так</option><option value="no">Ні</option>
+                          </select>
+                        </label>
+                        <label className="grid gap-1 text-xs font-medium">Оголошення
+                          <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.adsPolicy} onChange={event => setManualDraft({...manualDraft, adsPolicy:event.target.value as ManualInspectionDraft['adsPolicy']})}>
+                            <option value="unknown">Невідомо</option><option value="operator_confirmed">Дозволені</option><option value="forbidden">Заборонені</option>
+                          </select>
+                        </label>
+                        <label className="grid gap-1 text-xs font-medium">Аудиторія
+                          <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.topicMatch} onChange={event => setManualDraft({...manualDraft, topicMatch:event.target.value as ManualInspectionDraft['topicMatch']})}>
+                            <option value="unknown">Невідомо</option><option value="match">Цільова</option><option value="mismatch">Нецільова</option>
+                          </select>
+                        </label>
+                        <label className="grid gap-1 text-xs font-medium">Вступ
+                          <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.membershipState} onChange={event => setManualDraft({...manualDraft, membershipState:event.target.value as ManualInspectionDraft['membershipState']})}>
+                            <option value="not_checked">Не перевірено</option><option value="pending">Очікує схвалення</option><option value="joined">Приєднано</option>
+                          </select>
+                        </label>
+                        <label className="grid gap-1 text-xs font-medium">Тип
+                          <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.chatType} onChange={event => setManualDraft({...manualDraft, chatType:event.target.value as ManualInspectionDraft['chatType']})}>
+                            <option value="group">Група</option><option value="community">Спільнота</option><option value="channel">Канал</option>
+                          </select>
+                        </label>
+                      </div>
+                      <Button type="button" size="sm" className="w-fit" disabled={inspectingId !== null} onClick={() => void submitManualInspection(candidate)}>
+                        {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
+                        Зберегти кваліфікацію
+                      </Button>
+                    </div>}
+                  </div>}
                   {candidate.importedChatId && candidate.membershipState === 'joined' && candidate.decision === 'review' &&
                     <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Приєднано. Автоперевірці ще бракує фактів для цільового статусу — потрібна кваліфікація.</div>}
                   {candidate.importedChatId && candidate.membershipState === 'joined' && (candidate.decision === 'rejected' || candidate.decision === 'unavailable') &&
