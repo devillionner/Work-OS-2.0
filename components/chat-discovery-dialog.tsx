@@ -8,10 +8,11 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import type { DiscoveryCandidate, DiscoveryDecision, DiscoveryRun } from '@/lib/chat-discovery/domain';
-import type { DiscoveryPlatform } from '@/lib/chat-discovery/public-web';
+import type { DiscoveryPlatform, TelegramSearchPlan } from '@/lib/chat-discovery/public-web';
 
 type Workspace = {
   run: DiscoveryRun | null;
+  telegramPlan: TelegramSearchPlan | null;
   counts: Record<DiscoveryDecision, number>;
   importedCount: number;
   candidates: DiscoveryCandidate[];
@@ -42,7 +43,7 @@ export function ChatDiscoveryDialog({
   onClose: () => void;
   onImported: (platform: DiscoveryPlatform) => void;
 }) {
-  const [workspace, setWorkspace] = useState<Workspace>({ run: null, counts: EMPTY_COUNTS, importedCount: 0, candidates: [] });
+  const [workspace, setWorkspace] = useState<Workspace>({ run: null, telegramPlan: null, counts: EMPTY_COUNTS, importedCount: 0, candidates: [] });
   const platforms: DiscoveryPlatform[] = ['whatsapp'];
   const [goal, setGoal] = useState(30);
   const [minMembers, setMinMembers] = useState(700);
@@ -97,6 +98,59 @@ export function ChatDiscoveryDialog({
     return payload;
   }
 
+  async function ensureTelegramRun() {
+    let run = workspace.run?.status === 'running' ? workspace.run : null;
+    if (run) return run;
+    const payload = await post({ action: 'start', platforms, goal, minMembers });
+    run = payload.run as DiscoveryRun;
+    setWorkspace(current => ({ ...current, run }));
+    return run;
+  }
+
+  async function startTelegramSearch() {
+    if (telegramBusy) return;
+    setTelegramBusy(true);
+    setError('');
+    try {
+      const run = await ensureTelegramRun();
+      const fresh = await load(filter);
+      const query = fresh?.telegramPlan?.tasks[0]?.query || '';
+      if (query) setTelegramQuery(query);
+      setNotice(`Telegram-план готовий. Починаємо із запиту №${run.telegramCursor + 1}.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Не вдалося запустити Telegram-пошук.');
+    } finally {
+      setTelegramBusy(false);
+    }
+  }
+
+  async function advanceTelegramTask() {
+    const run = workspace.run;
+    if (!run || run.status !== 'running' || telegramBusy) return;
+    setTelegramBusy(true);
+    setError('');
+    try {
+      const payload = await post({
+        action: 'advance-telegram-plan',
+        runId: run.id,
+        version: run.version,
+        processed: 1,
+      }) as unknown as { run: DiscoveryRun; plan: TelegramSearchPlan };
+      setWorkspace(current => ({ ...current, run: payload.run, telegramPlan: payload.plan }));
+      setTelegramQuery(payload.plan.tasks[0]?.query || '');
+      setTelegramSourceTitle('');
+      setTelegramSourceUrl('');
+      setTelegramText('');
+      setNotice(payload.plan.done ? 'Telegram keyword plan завершено.' : 'Перейшли до наступного Telegram-запиту.');
+      await load(filter);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Не вдалося перейти до наступного Telegram-запиту.');
+      await load(filter);
+    } finally {
+      setTelegramBusy(false);
+    }
+  }
+
   async function startOrContinue() {
     if (searching) return;
     stopRequested.current = false;
@@ -140,12 +194,7 @@ export function ChatDiscoveryDialog({
     setError('');
     setNotice('');
     try {
-      let run = workspace.run?.status === 'running' ? workspace.run : null;
-      if (!run) {
-        const started = await post({ action: 'start', platforms, goal, minMembers });
-        run = started.run as DiscoveryRun;
-        setWorkspace(current => ({ ...current, run }));
-      }
+      const run = await ensureTelegramRun();
       const payload = await post({
         action: 'ingest-telegram',
         runId: run.id,
@@ -252,11 +301,15 @@ export function ChatDiscoveryDialog({
           </label>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" disabled={telegramBusy || searching || run?.status === 'running'} onClick={() => void startTelegramSearch()}>
+            {telegramBusy ? <LoaderCircle data-icon="inline-start"/> : <Search data-icon="inline-start"/>}
+            {run?.status === 'running' ? 'Telegram-план активний' : 'Почати Telegram-пошук'}
+          </Button>
           {searching
-            ? <><Button type="button" variant="outline" onClick={() => { stopRequested.current = true; }}><Square data-icon="inline-start"/>Зупинити</Button><Button disabled><LoaderCircle data-icon="inline-start"/>Шукаємо…</Button></>
-            : <Button type="button" onClick={() => void startOrContinue()}><Search data-icon="inline-start"/>{run?.status === 'running' ? 'Продовжити пошук' : 'Почати пошук'}</Button>}
+            ? <><Button type="button" variant="outline" onClick={() => { stopRequested.current = true; }}><Square data-icon="inline-start"/>Зупинити fallback</Button><Button disabled><LoaderCircle data-icon="inline-start"/>Web fallback…</Button></>
+            : <Button type="button" variant="outline" onClick={() => void startOrContinue()}>Додатковий web-пошук</Button>}
           {run && <span className="text-sm text-muted-foreground">
-            Запитів: {run.searchedQueries} · знайдено: {run.foundCount} · дублі: {run.duplicateCount} · передано: {workspace.importedCount}
+            Telegram: {run.telegramCursor} · опрацьовано запитів: {run.searchedQueries} · знайдено: {run.foundCount} · дублі: {run.duplicateCount} · передано: {workspace.importedCount}
           </span>}
         </div>
         {run?.errorMessage && <small className="text-muted-foreground">{run.errorMessage}</small>}
@@ -266,9 +319,31 @@ export function ChatDiscoveryDialog({
         <div className="grid gap-1">
           <strong>Telegram → WhatsApp</strong>
           <span className="text-xs text-muted-foreground">
-            Основний канал discovery: результати пошуку всередині Telegram передаються сюди, Work OS витягує всі chat.whatsapp.com, прибирає дублікати й зберігає provenance.
+            Основний канал discovery: Work OS бере наступний запит із твоєї keyword matrix, Telegram шукає джерела, а знайдені chat.whatsapp.com проходять dedupe та qualification.
           </span>
         </div>
+        {workspace.telegramPlan && <div className="grid gap-2 rounded-lg border border-border/70 bg-muted/20 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <strong>Черга Telegram-запитів</strong>
+            <span className="text-xs text-muted-foreground">{workspace.telegramPlan.cursor} / {workspace.telegramPlan.totalTasks}</span>
+          </div>
+          {workspace.telegramPlan.tasks.length ? <>
+            <div className="rounded-lg bg-background p-3">
+              <div className="text-xs text-muted-foreground">Поточний · {workspace.telegramPlan.tasks[0].seedKind === 'city' ? workspace.telegramPlan.tasks[0].city : workspace.telegramPlan.tasks[0].country}</div>
+              <div className="mt-1 font-medium">{workspace.telegramPlan.tasks[0].query}</div>
+              <div className="mt-1 text-xs text-muted-foreground">Шаблон: {workspace.telegramPlan.tasks[0].template}</div>
+            </div>
+            {workspace.telegramPlan.tasks.length > 1 && <details>
+              <summary className="cursor-pointer text-sm font-medium">Наступні запити · {workspace.telegramPlan.tasks.length - 1}</summary>
+              <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
+                {workspace.telegramPlan.tasks.slice(1).map(task => <div key={task.cursor}>{task.cursor + 1}. {task.query}</div>)}
+              </div>
+            </details>}
+            <Button type="button" variant="outline" disabled={telegramBusy || searching || workspace.run?.status !== 'running'} onClick={() => void advanceTelegramTask()}>
+              Опрацьовано → наступний
+            </Button>
+          </> : <span className="text-sm text-muted-foreground">Keyword plan завершено.</span>}
+        </div>}
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-source-title">
             Telegram-чат
