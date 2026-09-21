@@ -1,3 +1,4 @@
+import { subjectSearchVariants } from '../../subjects.ts';
 import { leadSearchAliases } from './search.ts';
 
 export type LeadListView =
@@ -91,7 +92,7 @@ function buildWhere(userId: string, options: LeadListOptions, now: number) {
   const rawSearch = options.search.trim();
   if (rawSearch) {
     const normalizedSearch = rawSearch.toLocaleLowerCase('uk-UA');
-    const variants = searchVariants(rawSearch);
+    const variants = subjectSearchVariants(rawSearch);
     const searchSql: string[] = [];
     const searchBinds: BindValue[] = [];
     const addVariants = (expression: string) => {
@@ -163,17 +164,6 @@ function buildWhere(userId: string, options: LeadListOptions, now: number) {
     binds.push(...searchBinds);
   }
   return { sql: where.join(' AND '), binds };
-}
-
-function searchVariants(value: string): string[] {
-  const trimmed = value.trim();
-  const lower = trimmed.toLocaleLowerCase('uk-UA');
-  const upper = lower.toLocaleUpperCase('uk-UA');
-  const title = lower
-    .split(/(\s+)/)
-    .map((part) => part.trim() ? `${part.charAt(0).toLocaleUpperCase('uk-UA')}${part.slice(1)}` : part)
-    .join('');
-  return [...new Set([trimmed, lower, upper, title])];
 }
 
 function responseExistsSql() {

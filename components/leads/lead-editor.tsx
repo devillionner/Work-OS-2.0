@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import { PLATFORMS, LEAD_STATUSES } from '@/lib/leads/domain/validation';
 import { businessDate } from '@/lib/leads/domain/time';
+import { SUBJECT_OPTIONS } from '@/lib/subjects';
 import {
   EditDialog,
   Field,
@@ -82,6 +83,7 @@ export function LeadEditor({
           name="subject"
           value={lead?.subject}
           required
+          suggestions={SUBJECT_OPTIONS}
         />
         <Field
           label="Дата відгуку *"

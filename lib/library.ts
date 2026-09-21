@@ -1,3 +1,5 @@
+import { canonicalSubjectList } from './subjects.ts';
+
 export const LIBRARY_COLLECTIONS = ['advertisement','official_script','personal_script','knowledge'] as const;
 export type LibraryCollection = (typeof LIBRARY_COLLECTIONS)[number];
 export type LibraryKind = 'advertisement'|'script';
@@ -21,6 +23,10 @@ export function cleanLibraryBody(value:unknown,max:number) {
 export function cleanLibraryList(value:unknown):string[] {
   if(!Array.isArray(value))return [];
   return [...new Set(value.filter((item):item is string=>typeof item==='string').map(item=>cleanLibraryText(item,50)).filter(Boolean))].slice(0,20);
+}
+
+export function cleanLibraryTags(value:unknown):string[] {
+  return canonicalSubjectList(cleanLibraryList(value)).slice(0,20);
 }
 
 export function libraryVersionStatement(db:D1Database,input:{

@@ -1,5 +1,13 @@
 # Development status — 2026-09-21
 
+## 2026-09-21 shared subject vocabulary — v0.2.13
+
+- UX-04 is closed with one shared subject registry for CRM writes/search, chat direction normalization, Library subject tags and Report/Analytics grouping. Common Ukrainian, Russian and English aliases resolve to the same canonical label.
+- New recognized subject writes are canonicalized, but unknown/legacy values remain untouched instead of being discarded or force-mapped. Legacy migration continues to preserve the source value; read/search paths bridge old aliases without rewriting historical rows.
+- Lead and lesson subject fields expose canonical suggestions through a datalist while still accepting custom values. Library tags canonicalize subject aliases but preserve unrelated operational tags.
+- Focused subject/chat-profile/CRM-search/report regressions are green and typecheck passes. Full verify and canonical staging deploy remain the release gate for this package.
+- Canonical registry after this package: 141 ready, 122 partial, 1 not implemented and 12 deferred out of 276.
+
 ## 2026-09-21 Report revision heatmap — v0.2.12
 
 - REPORT-14 now uses a bounded four-level blue heatmap for saved report versions: 1, 2, 3 and 4+ revisions. Days without a report stay neutral.

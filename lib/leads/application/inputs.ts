@@ -1,6 +1,7 @@
 import type { Lead, Student, Lesson } from '../domain/types.ts';
 import * as v from '../domain/validation.ts';
 import { businessDate, lessonEpoch } from '../domain/time.ts';
+import { canonicalSubjectValue } from '../../subjects.ts';
 export function leadFields(
   input: Record<string, unknown>,
   current: Lead | null,
@@ -68,11 +69,13 @@ export function leadFields(
         input.sourceChatLink === current.sourceChatLink)
         ? current.sourceChatLink
         : v.url(merged.sourceChatLink, 'Джерело'),
-    subject: v.string(
-      merged.subject,
-      'Предмет',
-      200,
-      !current || 'subject' in input,
+    subject: canonicalSubjectValue(
+      v.string(
+        merged.subject,
+        'Предмет',
+        200,
+        !current || 'subject' in input,
+      ),
     ),
     note: v.string(merged.note, 'Нотатка', 20000),
     responseDate:
@@ -181,7 +184,7 @@ export function lessonFields(
     ...input,
   };
   const result = {
-    subject: v.string(m.subject, 'Предмет', 200, true),
+    subject: canonicalSubjectValue(v.string(m.subject, 'Предмет', 200, true)),
     studentId:
       m.studentId === null ? null : v.string(m.studentId, 'Учень', 200, true),
     teacherName: v.string(m.teacherName, 'Викладач', 200),

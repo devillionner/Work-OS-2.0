@@ -1,4 +1,7 @@
 import { shiftBusinessDate } from '../business-time.ts';
+import { canonicalSubject } from '../subjects.ts';
+
+export { canonicalSubject } from '../subjects.ts';
 
 export const SUBJECT_PERIODS = ['day', '7', '30', 'month', 'all'] as const;
 export type SubjectPeriod = (typeof SUBJECT_PERIODS)[number];
@@ -50,17 +53,4 @@ function aggregateRows(rows:AggregateRow[],period:SubjectPeriod,from:string|null
 
 export function subjectRange(date:string,period:SubjectPeriod){if(period==='day')return{from:date,to:date};if(period==='7')return{from:shiftBusinessDate(date,-6),to:date};if(period==='30')return{from:shiftBusinessDate(date,-29),to:date};if(period==='all')return{from:null,to:date};const monthStart=`${date.slice(0,7)}-01`;const nextMonth=new Date(`${monthStart}T12:00:00Z`);nextMonth.setUTCMonth(nextMonth.getUTCMonth()+1);return{from:monthStart,to:shiftBusinessDate(nextMonth.toISOString().slice(0,10),-1)};}
 
-export function canonicalSubject(value:string|null|undefined):string {
-  const original=(value||'').trim().replace(/\s+/g,' ');if(!original)return'\u041f\u0440\u0435\u0434\u043c\u0435\u0442 \u043d\u0435 \u0432\u043a\u0430\u0437\u0430\u043d\u043e';
-  const key=original.toLocaleLowerCase('uk-UA').replace(/[._,/\\()-]+/g,' ').replace(/\s+/g,' ').trim();
-  for(const [name,aliases] of SUBJECT_ALIASES)if(aliases.has(key))return name;return original;
-}
 function percent(value:number,base:number){return base>0?Math.round((value/base)*1000)/10:0;}
-const SUBJECT_ALIASES:Array<[string,Set<string>]>=[
-  ['\u0410\u043d\u0433\u043b\u0456\u0439\u0441\u044c\u043a\u0430',new Set(['\u0430\u043d\u0433\u043b\u0456\u0439\u0441\u044c\u043a\u0430','\u0430\u043d\u0433\u043b\u0456\u0439\u0441\u044c\u043a\u0430 \u043c\u043e\u0432\u0430','\u0430\u043d\u0433\u043b\u0456\u0439\u0441\u044c\u043a\u0438\u0439','english','\u0430\u043d\u0433\u043b'])],
-  ['\u041c\u0430\u0442\u0435\u043c\u0430\u0442\u0438\u043a\u0430',new Set(['\u043c\u0430\u0442\u0435\u043c\u0430\u0442\u0438\u043a\u0430','\u043c\u0430\u0442\u0435\u043c','math','\u0430\u043b\u0433\u0435\u0431\u0440\u0430','\u0433\u0435\u043e\u043c\u0435\u0442\u0440\u0456\u044f','\u0433\u0435\u043e\u043c\u0435\u0442\u0440\u0438\u044f'])],
-  ['\u041c\u0430\u043b\u044e\u0432\u0430\u043d\u043d\u044f',new Set(['\u043c\u0430\u043b\u044e\u0432\u0430\u043d\u043d\u044f','\u0440\u0438\u0441\u043e\u0432\u0430\u043d\u0438\u0435','drawing','art'])],
-  ['\u041d\u0456\u043c\u0435\u0446\u044c\u043a\u0430',new Set(['\u043d\u0456\u043c\u0435\u0446\u044c\u043a\u0430','\u043d\u0456\u043c\u0435\u0446\u044c\u043a\u0430 \u043c\u043e\u0432\u0430','\u043d\u0435\u043c\u0435\u0446\u043a\u0438\u0439','german'])],
-  ['\u041f\u043e\u043b\u044c\u0441\u044c\u043a\u0430',new Set(['\u043f\u043e\u043b\u044c\u0441\u044c\u043a\u0430','\u043f\u043e\u043b\u044c\u0441\u044c\u043a\u0430 \u043c\u043e\u0432\u0430','\u043f\u043e\u043b\u044c\u0441\u043a\u0438\u0439','polish'])],
-  ['\u041b\u043e\u0433\u043e\u043f\u0435\u0434\u0456\u044f \u0442\u0430 \u0434\u0435\u0444\u0435\u043a\u0442\u043e\u043b\u043e\u0433\u0456\u044f',new Set(['\u043b\u043e\u0433\u043e\u043f\u0435\u0434\u0456\u044f','\u043b\u043e\u0433\u043e\u043f\u0435\u0434\u0438\u044f','\u0434\u0435\u0444\u0435\u043a\u0442\u043e\u043b\u043e\u0433\u0456\u044f','\u0434\u0435\u0444\u0435\u043a\u0442\u043e\u043b\u043e\u0433\u0438\u044f'])],
-];

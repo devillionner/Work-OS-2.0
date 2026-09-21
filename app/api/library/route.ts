@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import {
   cleanLibraryBody,
   cleanLibraryList,
+  cleanLibraryTags,
   cleanLibraryText,
   defaultCollection,
   isLibraryCollection,
@@ -11,6 +12,7 @@ import {
   type LibraryCollection,
 } from '@/lib/library';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
+import { subjectSearchVariants } from '@/lib/subjects';
 
 const KINDS = new Set(['advertisement', 'script']);
 const REQUEST_MAX_BYTES = 64 * 1024;
@@ -27,14 +29,18 @@ export async function GET(request: Request): Promise<Response> {
   if (collectionText && !isLibraryCollection(collectionText)) return Response.json({ error: 'Невідома колекція.' }, { status: 400 });
   const collection = collectionText as LibraryCollection | '';
   const pattern = `%${escapeLike(search.toLowerCase())}%`;
+  const subjectTerms = subjectSearchVariants(search);
+  const subjectTagSearch = subjectTerms.length
+    ? ` OR ${subjectTerms.map((_, index) => `instr(tags_json, ?${index + 7})>0`).join(' OR ')}`
+    : '';
   const result = await env.DB.prepare(`SELECT id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,archived_at,created_at,updated_at
     FROM library_items WHERE user_id=?1
       AND ((?6=0 AND archived_at IS NULL) OR (?6=1 AND archived_at IS NOT NULL))
       AND (?2='' OR collection=?2)
       AND (?3='all' OR kind=?3)
       AND NOT (?3='script' AND ?2='' AND collection='knowledge')
-      AND (?4='' OR lower(title) LIKE ?5 ESCAPE '\\' OR lower(uk_text) LIKE ?5 ESCAPE '\\' OR lower(ru_text) LIKE ?5 ESCAPE '\\' OR lower(notes) LIKE ?5 ESCAPE '\\' OR lower(tags_json) LIKE ?5 ESCAPE '\\')
-    ORDER BY updated_at DESC,title LIMIT 200`).bind(user.id, collection, kind, search, pattern, Number(archived)).all<LibraryRow>();
+      AND (?4='' OR lower(title) LIKE ?5 ESCAPE '\\' OR lower(uk_text) LIKE ?5 ESCAPE '\\' OR lower(ru_text) LIKE ?5 ESCAPE '\\' OR lower(notes) LIKE ?5 ESCAPE '\\' OR lower(tags_json) LIKE ?5 ESCAPE '\\'${subjectTagSearch})
+    ORDER BY updated_at DESC,title LIMIT 200`).bind(user.id, collection, kind, search, pattern, Number(archived), ...subjectTerms).all<LibraryRow>();
   return Response.json({ items: result.results.map(publicItem) }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
@@ -75,7 +81,7 @@ export async function POST(request: Request): Promise<Response> {
   const ruText = cleanLibraryBody(body.ruText, 20000);
   const notes = cleanLibraryBody(body.notes, 4000);
   if (!title || (!ukText.trim() && !ruText.trim())) return Response.json({ error: 'Вкажіть назву та хоча б одну мовну версію.' }, { status: 400 });
-  const tags = cleanLibraryList(body.tags);
+  const tags = cleanLibraryTags(body.tags);
   const platforms = cleanLibraryList(body.platforms);
   const itemId = id || crypto.randomUUID();
 

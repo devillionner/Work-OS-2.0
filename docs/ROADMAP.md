@@ -14,6 +14,7 @@
 
 ## Поточний стан P4 — 2026-09-21
 
+- UX-04 закрито shared subject vocabulary: CRM writes/search, chat-direction filters, Library subject tags і Report/Analytics grouping використовують один alias registry; відомі aliases канонізуються, невідомі legacy/custom значення не губляться. CRM subject inputs мають canonical suggestions без закритого select.
 - PAY-01..04 закриті одним configurable payment flow у Settings: зарплатний період і дати виплат, незалежні bonus periods для лідів/записів/проведених уроків, калькулятор із canonical event facts та plan/fact/forecast до кінця періоду. Після цього єдиний requirement зі статусом «не реалізовано» — DATA-06 offline outbox/replay; решта P4-gap'ів є partial acceptance/parity/reliability.
 - Chat Discovery post-join lifecycle тепер зв’язаний із canonical chat workflow: waiting/join/approval/leave оновлюють membership кандидата, а owner/version-guarded inspection повторно оцінює target-критерії. Joined target переходить у ready; joined review лишається на кваліфікації; joined rejected/unavailable не ховається до підтвердженого виходу; відомий недійсний invite до вступу можна безпечно архівувати. Реальний зовнішній inspection/leave executor ще окремий gap — Work OS не заявляє дію в месенджері без фактичного підтвердження.
 

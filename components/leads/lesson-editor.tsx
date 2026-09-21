@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import { businessDate } from '@/lib/leads/domain/time';
 import { lessonDateRecommendations } from '@/lib/leads/domain/lesson-recommendations';
+import { SUBJECT_OPTIONS } from '@/lib/subjects';
 import type { Mutation } from './client';
 import { EditDialog, Field, SaveForm, SelectField, textValue } from './form';
 export function LessonEditor({
@@ -78,6 +79,7 @@ export function LessonEditor({
           name="subject"
           value={lesson?.subject ?? detail.lead.subject}
           required
+          suggestions={SUBJECT_OPTIONS}
         />
         <SelectField
           label="Учень"

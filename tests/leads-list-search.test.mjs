@@ -39,6 +39,7 @@ void test('expanded lead list search is owner-safe and covers human CRM context'
     note: 'Вечірній час з батьками', phone: '+38 (067) 123-45-67', normalizedPhone: '380671234567',
     telegram: '@ExampleParent', normalizedTelegram: 'exampleparent',
   });
+  await seedLead(db, { id: 'legacy-subject', name: 'Legacy subject', subject: 'English' });
   await seedLead(db, { id: 'lesson', name: 'Родина Коваль', funnel: 'lesson' });
   await seedLead(db, { id: 'curator', name: 'Запит куратору', funnel: 'clarification' });
   await seedLead(db, { id: 'clarify', name: 'Уточнення даних', needsDetails: 1 });
@@ -59,6 +60,8 @@ void test('expanded lead list search is owner-safe and covers human CRM context'
   assert.deepEqual(await names('алла'), ['lesson']);
   assert.deepEqual(await names('марічка'), ['lesson']);
   assert.deepEqual(await names('матем'), ['lesson']);
+  assert.deepEqual((await names('англійська')).sort(), ['legacy-subject', 'response']);
+  assert.deepEqual((await names('english')).sort(), ['legacy-subject', 'response']);
   assert.deepEqual(await names('відгук'), ['response']);
   assert.deepEqual(await names('у куратора'), ['curator']);
   assert.deepEqual(await names('записано'), ['lesson']);

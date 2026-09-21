@@ -406,7 +406,7 @@
 | OPS-07 | частково | Приватність: auth до доступу до D1, owner-scoped reads/writes, same-origin mutations, bounded payload, безпечні помилки та журнал сесій. Leads має захист, решта API потребує однакового рівня. |
 | UX-02 | частково | Єдині дизайн-токени, сітка 4 px, touch цілі ≥44 px, читабельні 14 px+, видимий фокус; одна primary action, другорядні керування/архів приховані за потреби. Деталі — DESIGN_SYSTEM.md. | UX foundation уніфікував mobile list→detail flows, bottom navigation, focus-visible, iOS safe areas, reduced motion і 44 px touch targets; critical dialogs мають shared focus trap; Platform/Library tablists мають roving tabIndex та Arrow/Home/End navigation. Chromium staging QA виконано; physical Safari лишається. |
 | UX-03 | готово | Історична дата має явний контекст, Alt+стрілки, заборону майбутньої дати та швидке повернення на сьогодні. Перехід створення ліда зберігає дату. **Підстава:** звіт має явний контекст, Alt+← / Alt+→, серверну й UI-заборону майбутньої дати та кнопку «Сьогодні»; «Новий лід за дату» відкриває LeadEditor з `defaultResponseDate={selected}`, а редактор зберігає цю дату як `responseDate`. Regression contract захищає весь зв’язок report → lead date. [Код](../components/reports-workspace.tsx), [Lead editor](../components/leads/lead-editor.tsx), [Тест](../tests/report-lead-date-contract.test.mjs). |
-| UX-04 | частково | Єдиний словник предметів для CRM/фільтрів/бібліотеки/аналітики: aliases нормалізуються, невідомі legacy значення не губляться; нульовий знаменник конверсії = «—», понад 100% не обрізається в подієвій статистиці. |
+| UX-04 | готово | Єдиний словник предметів для CRM/фільтрів/бібліотеки/аналітики: aliases нормалізуються, невідомі legacy значення не губляться; нульовий знаменник конверсії = «—», понад 100% не обрізається в подієвій статистиці. | Shared `lib/subjects.ts` є єдиним alias registry для CRM writes/search, chat-direction filters, Library subject tags і report/Analytics grouping. Відомі aliases канонізуються на нових writes, двосторонній alias-search знаходить legacy raw значення, а невідомі назви лишаються без переписування. CRM subject fields дають canonical datalist без закритого select; zero-denominator/100%+ semantics лишаються в `lib/analytics-rate.ts`. [Vocabulary](../lib/subjects.ts), [CRM search](../lib/leads/data/list.ts), [Library](../app/api/library/route.ts), [Analytics](../lib/reports/subjects.ts), [Tests](../tests/subjects.test.mjs). |
 | MIG-01 | частково | Повний raw backup зберігає оригінальні storage-рядки, невідомі ключі, версію та SHA-256; mapper звіряє не тільки counts, а ID й усі вкладені поля та історію. |
 | MIG-02 | частково | Міграційний parity зберігає account ownership, чати/архів, профілі, публікації, Telegram-розклад/ручний вибір, лідів/учнів/уроки/кураторські заявки, звіти, налаштування, події та історичні booking goals; completion блокується при unexplained missing/mismatch/unexpected. | Нормалізовані фази мають owner-scoped field-level fail-closed reconciliation. Legacy daily goal schedule переносить default, periods, overrides і межі повернення; monthly history зберігає exact-month semantics та canonical 3/66 defaults. Restore-версії ізольовані від manual version numbering, а пізніша ручна зміна на ту саму дату має пріоритет. Archive leave-confirmation і per-account Telegram schedule/manual selection також мігруються з raw source. Залишається тільки фінальний real-data cutover acceptance, який не запускається без прямого підтвердження користувача. |
 | MIG-03 | готово | Managed lead guard, version та idempotency receipt зупиняють повторний імпорт і конкурентний запис замість тихого overwrite; локальні Leads/legacy тести. |
@@ -423,8 +423,8 @@
 
 ## Зведення
 
-- готово: 140.
-- частково: 123.
+- готово: 141.
+- частково: 122.
 - не реалізовано: 1.
 - відкладено: 12.
 

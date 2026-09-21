@@ -9,7 +9,7 @@ const NOW = Date.parse('2026-09-11T22:30:00Z') / 1000;
 const profile = (changes = {}) => ({ name: 'Батьки 7 клас', language: 'uk', cadence: 'weekly', weekdays: [1, 3, 1], directions: ['математика', 'англійська'], note: 'Публікувати після 18:00', reviewStatus: 'confirmed', ...changes });
 
 void test('profile validation normalizes lists and rejects unsafe values', () => {
-  assert.deepEqual(validateChatProfile(profile()), { name: 'Батьки 7 клас', language: 'uk', cadence: 'weekly', weekdays: [1, 3], customIntervalDays: null, nextAllowedOn: null, directions: ['математика', 'англійська'], note: 'Публікувати після 18:00', reviewStatus: 'confirmed' });
+  assert.deepEqual(validateChatProfile(profile()), { name: 'Батьки 7 клас', language: 'uk', cadence: 'weekly', weekdays: [1, 3], customIntervalDays: null, nextAllowedOn: null, directions: ['Математика', 'Англійська'], note: 'Публікувати після 18:00', reviewStatus: 'confirmed' });
   for (const changes of [{ language: 'en' }, { cadence: 'hourly' }, { weekdays: [0] }, { directions: Array.from({ length: 13 }, () => 'x') }, { name: ' ' }, { name: '😊'.repeat(181) }]) assert.throws(() => validateChatProfile(profile(changes)));
 });
 
@@ -19,7 +19,7 @@ void test('profile save creates or updates one profile, name and audit event ato
   const saved = await saveChatProfile(db, { userId: 'u', chatId: 'chat', stateToken: before.state_token, now: NOW, profile: profile() });
   assert.equal(saved.ok, true);
   assert.deepEqual(await db.prepare("SELECT name,updated_at FROM chats WHERE id='chat'").first(), { name: 'Батьки 7 клас', updated_at: NOW });
-  assert.deepEqual(await db.prepare("SELECT language,cadence,weekdays_json,directions_json,note,review_status,source FROM chat_profiles WHERE chat_id='chat'").first(), { language: 'uk', cadence: 'weekly', weekdays_json: '[1,3]', directions_json: '["математика","англійська"]', note: 'Публікувати після 18:00', review_status: 'confirmed', source: 'manual' });
+  assert.deepEqual(await db.prepare("SELECT language,cadence,weekdays_json,directions_json,note,review_status,source FROM chat_profiles WHERE chat_id='chat'").first(), { language: 'uk', cadence: 'weekly', weekdays_json: '[1,3]', directions_json: '["Математика","Англійська"]', note: 'Публікувати після 18:00', review_status: 'confirmed', source: 'manual' });
   assert.equal((await db.prepare("SELECT COUNT(*) n FROM activity_events WHERE event_type='chat_profile_changed'").first()).n, 1);
   assert.equal((await activitySummaryStatement(db, 'u', '2026-09-11', '2026-09-11').all()).results.length, 0);
   const after = await readChatState(db, 'u', 'chat'); assert.notEqual(after.state_token, before.state_token);

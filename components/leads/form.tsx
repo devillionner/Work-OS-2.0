@@ -28,6 +28,7 @@ export function Field({
   min,
   max,
   readOnly = false,
+  suggestions,
 }: {
   label: string;
   name: string;
@@ -37,6 +38,7 @@ export function Field({
   min?: number;
   max?: number;
   readOnly?: boolean;
+  suggestions?: readonly string[];
 }) {
   const id = useId();
   return (
@@ -51,7 +53,15 @@ export function Field({
         min={min}
         max={max}
         readOnly={readOnly}
+        list={suggestions?.length ? `${id}-suggestions` : undefined}
       />
+      {suggestions?.length ? (
+        <datalist id={`${id}-suggestions`}>
+          {suggestions.map((suggestion) => (
+            <option key={suggestion} value={suggestion}>{suggestion}</option>
+          ))}
+        </datalist>
+      ) : null}
     </div>
   );
 }

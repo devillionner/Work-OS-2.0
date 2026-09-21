@@ -1,3 +1,5 @@
+import { canonicalSubjectValue, cleanSubjectValue } from './subjects.ts';
+
 export const FOCUS_DIRECTIONS = [
   'Англійська',
   'Німецька',
@@ -9,40 +11,32 @@ export const FOCUS_DIRECTIONS = [
   'ІТ та шахи',
 ] as const;
 
-export type FocusDirection = typeof FOCUS_DIRECTIONS[number];
+export type FocusDirection = (typeof FOCUS_DIRECTIONS)[number];
 
-const ALIASES = new Map<string, FocusDirection>([
-  ['англійська', 'Англійська'],
-  ['английский', 'Англійська'],
-  ['німецька', 'Німецька'],
-  ['немецкий', 'Німецька'],
-  ['польська', 'Польська'],
-  ['польский', 'Польська'],
-  ['математика', 'Математика'],
-  ['шкільні предмети — комплексно', 'Шкільні предмети — комплексно'],
-  ['шкільні предмети - комплексно', 'Шкільні предмети — комплексно'],
-  ['шкільні предмети', 'Шкільні предмети — комплексно'],
-  ['логопедія та дефектологія', 'Логопедія та дефектологія'],
-  ['логопедія', 'Логопедія та дефектологія'],
-  ['дефектологія', 'Логопедія та дефектологія'],
-  ['малювання', 'Малювання'],
-  ['рисование', 'Малювання'],
-  ['іт та шахи', 'ІТ та шахи'],
-  ['it та шахи', 'ІТ та шахи'],
-  ['програмування та it', 'ІТ та шахи'],
-  ['програмування та іт', 'ІТ та шахи'],
-  ['програмування', 'ІТ та шахи'],
-  ['programming', 'ІТ та шахи'],
-  ['it', 'ІТ та шахи'],
-  ['іт', 'ІТ та шахи'],
-  ['шахи', 'ІТ та шахи'],
-  ['шахматы', 'ІТ та шахи'],
+const FOCUS_BY_SUBJECT = new Map<string, FocusDirection>([
+  ['Англійська', 'Англійська'],
+  ['Німецька', 'Німецька'],
+  ['Польська', 'Польська'],
+  ['Математика', 'Математика'],
+  ['Шкільні предмети — комплексно', 'Шкільні предмети — комплексно'],
+  ['Логопедія та дефектологія', 'Логопедія та дефектологія'],
+  ['Малювання', 'Малювання'],
+  ['ІТ', 'ІТ та шахи'],
+  ['Шахи', 'ІТ та шахи'],
 ]);
 
+const COMBINED_IT_CHESS = new Set([
+  'іт та шахи',
+  'it та шахи',
+  'it и шахматы',
+  'іт і шахи',
+]);
 export function canonicalDirection(value: string): string {
-  const trimmed = value.normalize('NFC').trim().replace(/\s+/g, ' ');
-  if (!trimmed) return '';
-  return ALIASES.get(normalizeDirection(trimmed)) || trimmed;
+  const clean = cleanSubjectValue(value);
+  if (!clean) return '';
+  if (COMBINED_IT_CHESS.has(normalizeDirection(clean))) return 'ІТ та шахи';
+  const canonical = canonicalSubjectValue(clean);
+  return FOCUS_BY_SUBJECT.get(canonical) ?? canonical;
 }
 
 export function canonicalDirections(values: readonly string[]): string[] {
@@ -61,21 +55,20 @@ export function canonicalDirections(values: readonly string[]): string[] {
 
 export function focusDirectionForTag(value: string): FocusDirection | null {
   const canonical = canonicalDirection(value);
-  if ((FOCUS_DIRECTIONS as readonly string[]).includes(canonical)) return canonical as FocusDirection;
-  const normalized = normalizeDirection(value);
-  for (const direction of FOCUS_DIRECTIONS) {
-    const target = normalizeDirection(direction);
-    if (normalized.length >= 4 && target.length >= 4 && (normalized.includes(target) || target.includes(normalized))) return direction;
-  }
+  if ((FOCUS_DIRECTIONS as readonly string[]).includes(canonical))
+    return canonical as FocusDirection;
   return null;
 }
 
-export function sameDirections(left: readonly string[], right: readonly string[]): boolean {
+export function sameDirections(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
   const a = canonicalDirections(left).map(normalizeDirection).sort();
   const b = canonicalDirections(right).map(normalizeDirection).sort();
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
-function normalizeDirection(value: string) {
-  return value.normalize('NFC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('uk-UA');
+function normalizeDirection(value: string): string {
+  return cleanSubjectValue(value).toLocaleLowerCase('uk-UA');
 }

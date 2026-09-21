@@ -1,5 +1,6 @@
 import { chatStateTokenSql } from './state.ts';
 import { businessDate, shiftBusinessDate } from '../business-time.ts';
+import { canonicalDirections } from '../directions.ts';
 
 export const PROFILE_CADENCES = ['any', 'daily', 'several_week', 'weekly', 'monthly', 'custom'] as const;
 export type ProfileCadence = (typeof PROFILE_CADENCES)[number];
@@ -86,7 +87,7 @@ export function validateChatProfile(input: ChatProfileInput): ChatProfile {
     ? [...new Set(input.weekdays as number[])].sort((a, b) => a - b) : (() => { throw new ChatProfileError('Оберіть коректні дні.'); })();
   const customIntervalDays = customInterval(input.customIntervalDays, input.cadence as ProfileCadence);
   const nextAllowedOn = optionalDate(input.nextAllowedOn);
-  const directions = list(input.directions, 12, 80);
+  const directions = canonicalDirections(list(input.directions, 12, 80));
   const note = text(input.note, 1000);
   const reviewStatus = input.reviewStatus === 'confirmed' ? 'confirmed' : input.reviewStatus === 'draft' ? 'draft' : (() => { throw new ChatProfileError('Некоректний стан профілю.'); })();
   return { name, language: language as 'uk' | 'ru' | null, cadence: input.cadence as ProfileCadence, weekdays, customIntervalDays, nextAllowedOn, directions, note, reviewStatus };
