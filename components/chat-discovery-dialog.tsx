@@ -147,6 +147,7 @@ export function ChatDiscoveryDialog({
         runId: run.id,
         version: run.version,
         processed: 1,
+        processedQuery: workspace.telegramPlan?.tasks[0]?.query || telegramQuery,
       }) as unknown as { run: DiscoveryRun; plan: TelegramSearchPlan };
       setWorkspace(current => ({ ...current, run: payload.run, telegramPlan: payload.plan }));
       setTelegramQuery(payload.plan.tasks[0]?.query || '');
