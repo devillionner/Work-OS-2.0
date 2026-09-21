@@ -33,7 +33,7 @@ type ManualInspectionDraft = {
   adsPolicy: 'unknown' | 'operator_confirmed' | 'forbidden';
   topicMatch: 'unknown' | 'match' | 'mismatch';
   membershipState: 'not_checked' | 'pending' | 'joined';
-  chatType: 'group' | 'community' | 'channel';
+  chatType: 'unknown' | 'group' | 'community' | 'channel';
 };
 type DecisionFilter = 'all' | DiscoveryDecision;
 
@@ -266,7 +266,7 @@ export function ChatDiscoveryDialog({
           ? 'operator_confirmed' : 'unknown',
       topicMatch: candidate.topicMatch,
       membershipState: candidate.membershipState === 'left' ? 'not_checked' : candidate.membershipState,
-      chatType: candidate.chatType === 'community' || candidate.chatType === 'channel' ? candidate.chatType : 'group',
+      chatType: candidate.chatType === 'group' || candidate.chatType === 'community' || candidate.chatType === 'channel' ? candidate.chatType : 'unknown',
     });
   }
 
@@ -558,7 +558,7 @@ export function ChatDiscoveryDialog({
                         </label>
                         <label className="grid gap-1 text-xs font-medium">Тип
                           <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.chatType} onChange={event => setManualDraft({...manualDraft, chatType:event.target.value as ManualInspectionDraft['chatType']})}>
-                            <option value="group">Група</option><option value="community">Спільнота</option><option value="channel">Канал</option>
+                            <option value="unknown">Невідомо</option><option value="group">Група</option><option value="community">Спільнота</option><option value="channel">Канал</option>
                           </select>
                         </label>
                       </div>
