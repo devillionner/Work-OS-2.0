@@ -298,6 +298,37 @@ void test('discovery membership follows real chat transitions and ignores stale 
   assert.equal((await readDiscoveryWorkspace(db, 'u')).candidates[0].membershipState, 'joined');
 });
 
+void test('invalid WhatsApp invite is rejected before handoff without creating a chat row', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  await ingestTelegramDiscovery(db, 'u', run.id, {
+    text:'Українці Berlin батьки https://chat.whatsapp.com/ExpiredBeforeJoin123',
+    sourceUrl:'https://t.me/source',
+    sourceTitle:'Українці Berlin',
+    query:'Берлін',
+    context:'українська спільнота',
+  }, 101);
+  const candidate = (await readDiscoveryWorkspace(db, 'u')).candidates[0];
+  assert.ok(candidate);
+  assert.equal(candidate.importedChatId, null);
+
+  const outcome = await applyDiscoveryInspection(db, 'u', {
+    candidateId:candidate.id,
+    expectedVersion:candidate.version,
+    result:{status:'failed',accessible:false,reason:'invalid_whatsapp_link'},
+  }, 102);
+  assert.equal(outcome.chatId, null);
+  assert.equal(outcome.workflowStatus, 'not_imported');
+  assert.equal(outcome.decision, 'unavailable');
+  assert.ok(outcome.reasonCodes.includes('invalid_invite'));
+
+  const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.importedChatId, null);
+  assert.equal(stored.linkState, 'invalid');
+  const count = await db.prepare(`SELECT COUNT(*) AS count FROM chats WHERE user_id='u'`).first();
+  assert.equal(Number(count.count), 0);
+});
+
 void test('discovery handoff creates one to-join chat and is idempotent', async (t) => {
   const db = await localDatabase(t);
   const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
