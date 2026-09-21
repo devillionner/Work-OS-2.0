@@ -58,6 +58,25 @@ void test('ANALYTICS-22 and KNOW-01/02 have complete user-facing surfaces', () =
 });
 
 
+void test('AD-14/16/17 focus controls preserve data and expose plan freshness in the publish flow', () => {
+  const today = source('components/today-settings-dialog.tsx');
+  const settings = source('app/api/settings/route.ts');
+  const selection = source('lib/chats/advertisement-selection.ts');
+  const publish = source('components/chat-publish-dialog.tsx');
+  assert.match(today, /FOCUS_DIRECTIONS\.map/);
+  assert.match(today, /focus_directions: directions/);
+  assert.match(settings, /key === 'focus_directions' \? canonicalDirections\(rawList\) : rawList/);
+  assert.doesNotMatch(settings, /DELETE FROM (library_items|chat_profiles|activity_events)/);
+  assert.match(selection, /focusDirections: focusPlan\.planDirections/);
+  assert.match(selection, /taggedFocusDirections\.some/);
+  assert.match(publish, /Активний фокус/);
+  assert.match(publish, /Поточний план/);
+  assert.match(publish, /planCreatedAt\*1000/);
+  assert.match(publish, /План застарів після зміни фокусу/);
+  assert.match(publish, /Оновити невиконану частину/);
+  assert.match(publish, /Залишити поточний/);
+});
+
 void test('manual publishing and profile management cover the remaining operator parity surfaces', () => {
   const platform = source('components/platform-workspace.tsx');
   const publish = source('components/chat-publish-dialog.tsx');

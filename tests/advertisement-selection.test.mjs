@@ -139,6 +139,9 @@ void test('publish UI shows current focus, stale diff and explicit refresh/keep 
   const source = readFileSync(join(process.cwd(), 'components', 'chat-publish-dialog.tsx'), 'utf8');
   assert.match(source, /Активний фокус/);
   assert.match(source, /Поточний план/);
+  assert.match(source, /Створено \/ оновлено/);
+  assert.match(source, /planCreatedAt\*1000/);
+  assert.match(source, /toLocaleString\('uk-UA'\)/);
   assert.match(source, /План застарів після зміни фокусу/);
   assert.match(source, /Оновити невиконану частину/);
   assert.match(source, /Залишити поточний/);

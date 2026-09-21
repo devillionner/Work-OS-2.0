@@ -3,6 +3,14 @@
 Canonical product scope: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
 Next work and acceptance gates: [ROADMAP](ROADMAP.md).
 
+## 2026-09-21 factual P4 requirement reconciliation
+
+- Canonical registry was reconciled against current v0.2.9 code and regression evidence instead of carrying forward stale partial labels. Eleven requirements move to ready without inventing new scope: AD-14/16/17, PUB-17/18/19/20, ANALYTICS-11/18/20 and CAL-03.
+- Focus selection, focus-plan timestamp/staleness, safe unfinished-plan refresh and WhatsApp/Viber quick publication are protected by explicit contracts plus D1 publication/workday regressions. Ordinary profile publication remains a real separate gap; PROFILE-01 is intentionally not promoted.
+- Analytics reconciliation is limited to facts already present in the product: complete lesson outcomes, normalized chat ranking with sample confidence/filters/custom range, and historical daily/monthly plan-fact backed by versioned goals. Analytics information-hierarchy items that still need UX work remain partial.
+- Report calendar status is covered by domain regressions for stale/resubmitted reports and an explicit UI filter contract. Focused reconciliation suite is green at 51/51 with lint/typecheck green.
+- Registry after this pass: 134 ready, 124 partial, 6 not implemented and 12 deferred out of 276. The remaining not-implemented IDs are LEAD-23, PAY-01..04 and DATA-06. Full local verify and the canonical Cloudflare staging build remain required before this reconciliation is accepted in main.
+
 ## 2026-09-21 Chat Discovery post-join lifecycle
 
 - Discovery candidates imported into Work OS now follow the canonical chat transition truth: WhatsApp waiting maps to pending membership; join/approval maps to joined; confirmed leave/undo keeps the candidate membership synchronized without a second source of truth.
