@@ -14,6 +14,7 @@ const MIN_TARGET_MEMBERS = 700;
 const CHAT_TYPES = ['unknown','group','community','channel','contact','bot'] as const;
 const ADS_POLICIES = ['unknown','allowed','inferred_allowed','operator_confirmed','forbidden'] as const;
 const ACTIVITY_STATES = ['unknown','active','dead'] as const;
+const TOPIC_MATCHES = ['unknown','match','mismatch'] as const;
 const INSPECTION_STATUSES = ['inspected','pending','preview','failed'] as const;
 const KNOWN_UNAVAILABLE = new Set([
   'whatsapp_chat_missing','whatsapp_banned','invalid_whatsapp_link',
@@ -107,7 +108,7 @@ export async function applyDiscoveryInspection(
   const observedName = cleanChatName(result.observedName || '');
   const nextName = observedName && isGeneratedName(current.name) ? observedName : current.name;
   const inferredTopic = inferDiscoveryTopicMatch(nextName, sources);
-  const nextTopic = inferredTopic === 'unknown' ? current.topic_match : inferredTopic;
+  const nextTopic = result.topicMatch ?? (inferredTopic === 'unknown' ? current.topic_match : inferredTopic);
   const reason = (result.reason || '').slice(0, 100);
   const knownUnavailable = result.accessible === false && KNOWN_UNAVAILABLE.has(reason);
   const accessState = result.accessible === true ? 'available'
@@ -198,6 +199,7 @@ function parseInspectionResult(value: unknown) {
     canWrite: optionalBoolean(raw.canWrite, 'canWrite'),
     adsPolicy: optionalEnum(raw.adsPolicy, ADS_POLICIES, 'adsPolicy'),
     activityState: optionalEnum(raw.activityState, ACTIVITY_STATES, 'activityState'),
+    topicMatch: optionalEnum(raw.topicMatch, TOPIC_MATCHES, 'topicMatch'),
     reason: optionalString(raw.reason, 200, 'reason'),
   };
 }
