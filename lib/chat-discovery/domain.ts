@@ -241,7 +241,7 @@ export async function readDiscoveryWorkspace(
   db: D1Database,
   userId: string,
   input: { decision?: string | null; limit?: number } = {},
-): Promise<{ run: DiscoveryRun | null; counts: Record<DiscoveryDecision, number>; importedCount: number; candidates: DiscoveryCandidate[] }> {
+): Promise<{ run: DiscoveryRun | null; telegramPlan: TelegramSearchPlan | null; counts: Record<DiscoveryDecision, number>; importedCount: number; candidates: DiscoveryCandidate[] }> {
   const decision = ['review', 'target', 'rejected', 'unavailable'].includes(input.decision || '') ? input.decision! : null;
   const limit = Math.max(1, Math.min(100, Number(input.limit) || 60));
   const [run, countsResult, importedResult, candidateResult] = await Promise.all([
@@ -261,6 +261,7 @@ export async function readDiscoveryWorkspace(
   for (const item of countsResult.results) counts[item.decision] = Number(item.count) || 0;
   return {
     run: run ? mapRun(run) : null,
+    telegramPlan: run ? buildTelegramSearchPlan(run.telegram_cursor, 6) : null,
     counts,
     importedCount: Number(importedResult?.count || 0),
     candidates: candidates.map((candidate) => mapCandidate(candidate, sources.get(candidate.id) || [])),
