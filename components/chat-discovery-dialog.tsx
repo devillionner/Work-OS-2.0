@@ -405,13 +405,18 @@ export function ChatDiscoveryDialog({
                         <Badge variant="outline">{inspectionLabel(candidate.inspectionState)}</Badge>
                       </div>}
                     </div>
-                    {candidate.importedChatId
-                      ? <Badge variant="secondary">У Work OS</Badge>
-                      : (candidate.decision === 'review' || candidate.decision === 'target') &&
-                        <Button type="button" size="sm" disabled={importingId !== null} onClick={() => void importCandidate(candidate)}>
-                          {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                          Додати на перевірку
-                        </Button>}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <a className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium hover:bg-muted" href={candidate.link} target="_blank" rel="noreferrer">
+                        Відкрити WhatsApp <ExternalLink className="size-3.5"/>
+                      </a>
+                      {candidate.importedChatId
+                        ? <Badge variant="secondary">У Work OS</Badge>
+                        : (candidate.decision === 'review' || candidate.decision === 'target') &&
+                          <Button type="button" size="sm" disabled={importingId !== null} onClick={() => void importCandidate(candidate)}>
+                            {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
+                            Додати на перевірку
+                          </Button>}
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {candidate.reasonCodes.map(code => <span key={code} className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{reasonLabel(code)}</span>)}
@@ -420,10 +425,12 @@ export function ChatDiscoveryDialog({
                     <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Приєднано. Автоперевірці ще бракує фактів для цільового статусу — потрібна кваліфікація.</div>}
                   {candidate.importedChatId && candidate.membershipState === 'joined' && (candidate.decision === 'rejected' || candidate.decision === 'unavailable') &&
                     <div className="workspace-error">Чат уже приєднаний, але після перевірки не відповідає критеріям. Потрібен підтверджений вихід із месенджера — до цього Work OS не ховає чат автоматично.</div>}
-                  <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-3">
+                  <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-5">
                     <span>Учасники: {candidate.memberCount ?? 'невідомо'}</span>
                     <span>Активність: {activityLabel(candidate.activityState)}</span>
                     <span>Писати: {candidate.canWrite === null ? 'невідомо' : candidate.canWrite ? 'так' : 'ні'}</span>
+                    <span>Оголошення: {adsPolicyLabel(candidate.adsPolicy)}</span>
+                    <span>Аудиторія: {topicMatchLabel(candidate.topicMatch)}</span>
                   </div>
                   {candidate.sources.length > 0 && <details>
                     <summary className="cursor-pointer text-sm font-medium">Звідки знайдено · {candidate.sources.length}</summary>
@@ -464,6 +471,18 @@ function decisionLabel(value: DiscoveryDecision) {
 
 function activityLabel(value: DiscoveryCandidate['activityState']) {
   return value === 'active' ? 'активний' : value === 'dead' ? 'неактивний' : 'невідомо';
+}
+
+function adsPolicyLabel(value: DiscoveryCandidate['adsPolicy']) {
+  return value === 'allowed' || value === 'inferred_allowed' || value === 'operator_confirmed' ? 'можна'
+    : value === 'forbidden' ? 'заборонено'
+      : 'невідомо';
+}
+
+function topicMatchLabel(value: DiscoveryCandidate['topicMatch']) {
+  return value === 'match' ? 'цільова'
+    : value === 'mismatch' ? 'нецільова'
+      : 'невідомо';
 }
 
 function membershipLabel(value: DiscoveryCandidate['membershipState']) {
