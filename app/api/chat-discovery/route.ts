@@ -56,15 +56,15 @@ export async function POST(request: Request): Promise<Response> {
       return json(await readTelegramDiscoveryPlan(env.DB, user.id, body.runId, Number(body.limit) || 6));
     }
     if (body.action === 'advance-telegram-plan') {
-      if (typeof body.runId !== 'string' || !body.runId || !Number.isSafeInteger(body.version) || !Number.isSafeInteger(body.processed)) {
-        throw new DiscoveryError('Некоректний стан Telegram-плану.');
+      if (typeof body.runId !== 'string' || !body.runId || !Number.isSafeInteger(body.version) || body.processed !== 1) {
+        throw new DiscoveryError('Telegram-план можна просувати лише на один фактично опрацьований запит.');
       }
       return json(await advanceTelegramDiscoveryPlan(
         env.DB,
         user.id,
         body.runId,
         Number(body.version),
-        Number(body.processed),
+        1,
         now,
       ));
     }
