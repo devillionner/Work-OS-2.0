@@ -75,6 +75,26 @@ void test('transaction rechecks archive, snooze, six-hour limit and owner after 
   assert.equal((await db.prepare('SELECT COUNT(*) n FROM activity_events').first()).n,0);
 });
 
+void test('unqualified discovery chats are excluded from posting until target is confirmed', async t => {
+  const db = await localDatabase(t);
+  const chat = await seedChat(db,{id:'discovered-chat',platform:'whatsapp',status:'ready'});
+  await db.prepare(`INSERT INTO chat_discovery_candidates
+    (id,user_id,platform,link,normalized_link,discovered_at,decision,imported_chat_id,created_at,updated_at)
+    VALUES ('candidate','u','whatsapp','https://chat.whatsapp.com/Discovery123','https://chat.whatsapp.com/Discovery123',1,'review','discovered-chat',1,1)`).run();
+
+  const blocked = await publish(db,chat);
+  assert.equal(blocked.ok,false);
+  assert.match(blocked.error,/кваліфікацію/u);
+  assert.equal((await db.prepare('SELECT COUNT(*) n FROM chat_publications').first()).n,0);
+  const blockedLinks=(await availableTodayStatement(db,{userId:'u',platform:'whatsapp',date:'2026-09-10',accountId:null,now:NOW}).all()).results;
+  assert.equal(blockedLinks.some(row=>row.name===chat.name),false);
+
+  await db.prepare("UPDATE chat_discovery_candidates SET decision='target',updated_at=2 WHERE id='candidate'").run();
+  const availableLinks=(await availableTodayStatement(db,{userId:'u',platform:'whatsapp',date:'2026-09-10',accountId:null,now:NOW}).all()).results;
+  assert.equal(availableLinks.some(row=>row.name===chat.name),true);
+  assert.equal((await publish(db,chat)).ok,true);
+});
+
 void test('publication and event roll back together if the event write fails', async t => {
   const db = await localDatabase(t);
   const chat = await seedChat(db);
