@@ -11,3 +11,11 @@ void test('report calendar exposes explicit status filters without flattening th
   assert.match(source,/is-filtered-out/);
   assert.doesNotMatch(source,/aria-hidden=\{!matches\}/);
 });
+
+void test('report calendar heatmap maps saved revisions to four bounded blue intensity levels', () => {
+  assert.match(source,/reportRevisionHeatClass\(revision\)/);
+  assert.match(source,/Інтенсивність календаря за кількістю версій/);
+  for (const label of ['1 версія','2 версії','3 версії','4+ версій']) assert.match(source,new RegExp(label.replace('+','\\+')));
+  assert.match(source,/Збережених версій: \$\{revision\}/);
+  assert.doesNotMatch(source,/is-revised-heavy/);
+});
