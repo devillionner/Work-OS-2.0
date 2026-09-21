@@ -74,7 +74,6 @@ export async function applyDiscoveryInspection(
   const candidate = await readCandidate(db, userId, input.candidateId);
   if (!candidate) throw new DiscoveryError('Кандидат не знайдений.', 404);
   if (candidate.version !== input.expectedVersion) throw new DiscoveryError('Кандидат уже змінився. Оновіть список.', 409);
-  if (!candidate.imported_chat_id) throw new DiscoveryError('Спочатку додайте кандидата у Work OS.', 409);
   if (candidate.platform !== 'whatsapp' && candidate.platform !== 'viber') {
     throw new DiscoveryError('Автоперевірка доступна лише для WhatsApp і Viber.', 409);
   }
