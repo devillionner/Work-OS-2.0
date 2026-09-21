@@ -19,3 +19,10 @@ void test('report calendar heatmap maps saved revisions to four bounded blue int
   assert.match(source,/Збережених версій: \$\{revision\}/);
   assert.doesNotMatch(source,/is-revised-heavy/);
 });
+
+void test('report heatmap keeps draft and submitted status visible independently of revision intensity', () => {
+  assert.match(source,/report\.submittedAt \? 'is-submitted' : 'is-draft'/);
+  assert.match(source,/legend-state is-draft/);
+  assert.match(source,/legend-state is-submitted/);
+  assert.match(source,/report\.submittedAt \? 'Здано · ' : 'Чернетка · '/);
+});
