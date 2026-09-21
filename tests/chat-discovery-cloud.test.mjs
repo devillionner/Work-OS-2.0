@@ -399,6 +399,24 @@ void test('joined inspection with unknown rules stays ready but explicitly needs
   assert.ok(outcome.reasonCodes.includes('unknown_activity'));
 });
 
+void test('inspection can record observed audience mismatch instead of trusting source inference', async (t) => {
+  const { db, candidate } = await importedCandidate(t, 'InspectAudienceMismatch123');
+  const outcome = await applyDiscoveryInspection(db, 'u', {
+    candidateId: candidate.id,
+    expectedVersion: candidate.version,
+    result: {
+      status:'inspected', accessible:true, membershipState:'joined',
+      observedName:'Прага community', chatType:'group', memberCount:900,
+      topicMatch:'mismatch', canWrite:true, adsPolicy:'allowed', activityState:'active',
+    },
+  }, 110);
+  assert.equal(outcome.decision, 'rejected');
+  assert.ok(outcome.reasonCodes.includes('topic_mismatch'));
+  assert.equal(outcome.needsExternalLeave, true);
+  const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.topicMatch, 'mismatch');
+});
+
 void test('joined rejected chat is not hidden before external leave succeeds', async (t) => {
   const { db, candidate, chatId } = await importedCandidate(t, 'InspectReject123');
   const outcome = await applyDiscoveryInspection(db, 'u', {
