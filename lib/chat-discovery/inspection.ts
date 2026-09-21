@@ -7,7 +7,6 @@ import {
   type DiscoveryCandidate,
   type DiscoveryDecision,
 } from './domain.ts';
-import type { DiscoverySource } from './public-web.ts';
 
 const MIN_TARGET_MEMBERS = 700;
 const CHAT_TYPES = ['unknown','group','community','channel','contact','bot'] as const;
@@ -39,16 +38,6 @@ type CandidateRow = {
   reason_codes_json: string;
   imported_chat_id: string | null;
   version: number;
-};
-
-type SourceRow = {
-  source_kind: DiscoverySource['kind'];
-  source_url: string;
-  source_title: string;
-  query_text: string;
-  seed_label: string;
-  seed_kind: string;
-  context: string;
 };
 
 export type DiscoveryInspectionOutcome = {
@@ -106,7 +95,6 @@ export async function applyDiscoveryInspection(
     throw new DiscoveryError('Кандидат змінився під час автоперевірки. Оновіть список.', 409);
   }
 
-  const sources = await readCandidateSources(db, userId, candidate.id);
   const observedName = cleanChatName(result.observedName || '');
   const nextName = observedName && isGeneratedName(current.name) ? observedName : current.name;
   const nextTopic = result.topicMatch ?? 'unknown';
@@ -323,21 +311,6 @@ async function readCandidate(db: D1Database, userId: string, candidateId: string
     ads_policy,membership_state,access_state,link_state,inspection_state,decision,reason_codes_json,
     imported_chat_id,version FROM chat_discovery_candidates WHERE id=?1 AND user_id=?2 LIMIT 1`)
     .bind(candidateId, userId).first<CandidateRow>();
-}
-
-async function readCandidateSources(db: D1Database, userId: string, candidateId: string): Promise<DiscoverySource[]> {
-  const result = await db.prepare(`SELECT source_kind,source_url,source_title,query_text,seed_label,seed_kind,context
-    FROM chat_discovery_sources WHERE candidate_id=?1 AND user_id=?2 ORDER BY discovered_at DESC,id LIMIT 12`)
-    .bind(candidateId, userId).all<SourceRow>();
-  return result.results.map(row => ({
-    kind: row.source_kind,
-    sourceUrl: row.source_url,
-    sourceTitle: row.source_title,
-    query: row.query_text,
-    seedLabel: row.seed_label,
-    seedKind: row.seed_kind,
-    context: row.context,
-  }));
 }
 
 async function requiredChat(db: D1Database, userId: string, chatId: string) {
