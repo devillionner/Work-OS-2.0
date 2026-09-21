@@ -54,7 +54,7 @@ type SourceRow = {
 
 export type DiscoveryInspectionOutcome = {
   candidateId: string;
-  chatId: string;
+  chatId: string | null;
   decision: DiscoveryDecision;
   reasonCodes: string[];
   membershipState: DiscoveryCandidate['membershipState'];
@@ -80,6 +80,10 @@ export async function applyDiscoveryInspection(
   }
 
   const result = parseInspectionResult(input.result);
+  if (!candidate.imported_chat_id) {
+    return applyUnlinkedInspection(db, userId, candidate, result, input.minMembers, now);
+  }
+
   let chat = await readChatState(db, userId, candidate.imported_chat_id);
   if (!chat) throw new DiscoveryError('Пов’язаний чат не знайдений.', 409);
   if (chat.platform !== candidate.platform) throw new DiscoveryError('Платформа кандидата не збігається з чатом.', 409);
@@ -183,6 +187,75 @@ export async function applyDiscoveryInspection(
     needsExternalLeave,
     autoArchived,
     version: finalCandidate.version,
+  };
+}
+
+async function applyUnlinkedInspection(
+  db: D1Database,
+  userId: string,
+  candidate: CandidateRow,
+  result: ReturnType<typeof parseInspectionResult>,
+  minMembersInput: unknown,
+  now: number,
+): Promise<DiscoveryInspectionOutcome> {
+  const reportedMembership = normalizeMembership(result.membershipState);
+  if (reportedMembership === 'joined' || reportedMembership === 'pending') {
+    throw new DiscoveryError('Спочатку додайте чат у Work OS перед фіксацією вступу.', 409);
+  }
+  const sources = await readCandidateSources(db, userId, candidate.id);
+  const observedName = cleanChatName(result.observedName || '');
+  const nextName = observedName && isGeneratedName(candidate.name) ? observedName : candidate.name;
+  const inferredTopic = inferDiscoveryTopicMatch(nextName, sources);
+  const nextTopic = result.topicMatch ?? (inferredTopic === 'unknown' ? candidate.topic_match : inferredTopic);
+  const reason = (result.reason || '').slice(0, 100);
+  const knownUnavailable = result.accessible === false && KNOWN_UNAVAILABLE.has(reason);
+  const accessState = result.accessible === true ? 'available'
+    : knownUnavailable ? 'unavailable' : candidate.access_state;
+  const linkState = result.accessible === true ? 'valid'
+    : knownUnavailable ? 'invalid' : candidate.link_state;
+  const inspectionState = result.status === 'inspected' ? 'inspected'
+    : result.status === 'failed' ? 'failed' : candidate.inspection_state;
+  const chatType = result.chatType ?? candidate.chat_type;
+  const memberCount = result.memberCount !== undefined ? result.memberCount : candidate.member_count;
+  const canWrite = result.canWrite !== undefined ? result.canWrite : (candidate.can_write === null ? null : Boolean(candidate.can_write));
+  const adsPolicy = result.adsPolicy ?? candidate.ads_policy;
+  const activityState = result.activityState ?? candidate.activity_state;
+  const minMembers = boundedMinMembers(minMembersInput);
+  const evaluated = evaluateDiscoveryCandidate({
+    chatType,
+    memberCount,
+    topicMatch: nextTopic,
+    canWrite,
+    adsPolicy,
+    activityState,
+    accessState,
+    linkState,
+  }, minMembers);
+
+  const update = await db.prepare(`UPDATE chat_discovery_candidates SET
+    name=?1,checked_at=?2,member_count=?3,chat_type=?4,activity_state=?5,topic_match=?6,
+    can_write=?7,ads_policy=?8,access_state=?9,link_state=?10,inspection_state=?11,
+    decision=?12,reason_codes_json=?13,updated_at=?2,version=version+1
+    WHERE id=?14 AND user_id=?15 AND version=?16 AND imported_chat_id IS NULL
+    RETURNING version`)
+    .bind(nextName, now, memberCount, chatType, activityState, nextTopic,
+      canWrite === null ? null : Number(canWrite), adsPolicy, accessState, linkState,
+      inspectionState, evaluated.decision, JSON.stringify(evaluated.reasonCodes),
+      candidate.id, userId, candidate.version)
+    .first<{ version: number }>();
+  if (!update) throw new DiscoveryError('Кандидат уже змінився. Оновіть список.', 409);
+
+  return {
+    candidateId: candidate.id,
+    chatId: null,
+    decision: evaluated.decision,
+    reasonCodes: evaluated.reasonCodes,
+    membershipState: candidate.membership_state,
+    workflowStatus: 'not_imported',
+    needsQualification: false,
+    needsExternalLeave: false,
+    autoArchived: false,
+    version: update.version,
   };
 }
 
