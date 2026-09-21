@@ -247,6 +247,14 @@ export function ChatDiscoveryDialog({
     }
   }
 
+  function toggleManualInspection(candidate: DiscoveryCandidate) {
+    if (manualDraft?.candidateId === candidate.id) {
+      setManualDraft(null);
+      return;
+    }
+    openManualInspection(candidate);
+  }
+
   function openManualInspection(candidate: DiscoveryCandidate) {
     setManualDraft({
       candidateId: candidate.id,
@@ -515,7 +523,7 @@ export function ChatDiscoveryDialog({
                     {candidate.reasonCodes.map(code => <span key={code} className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{reasonLabel(code)}</span>)}
                   </div>
                   {candidate.importedChatId && <div className="grid gap-2">
-                    <Button type="button" size="sm" variant="outline" className="w-fit" onClick={() => setManualDraft(current => current?.candidateId === candidate.id ? null : (openManualInspection(candidate), current))}>
+                    <Button type="button" size="sm" variant="outline" className="w-fit" onClick={() => toggleManualInspection(candidate)}>
                       {manualDraft?.candidateId === candidate.id ? 'Закрити ручну кваліфікацію' : 'Кваліфікувати вручну'}
                     </Button>
                     {manualDraft?.candidateId === candidate.id && <div className="grid gap-3 rounded-lg border border-border/70 bg-muted/20 p-3">
