@@ -81,3 +81,10 @@ void test('candidate cards expose the WhatsApp link and every target qualificati
   assert.match(dialog, /adsPolicyLabel/);
   assert.match(dialog, /topicMatchLabel/);
 });
+
+void test('operators can reject an invalid WhatsApp invite before creating a chat', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.match(dialog, /Invite недійсний/);
+  assert.match(dialog, /invalid_whatsapp_link/);
+  assert.match(dialog, /кандидат відхилено без створення чату/);
+});
