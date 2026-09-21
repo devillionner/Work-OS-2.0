@@ -88,3 +88,15 @@ void test('operators can reject an invalid WhatsApp invite before creating a cha
   assert.match(dialog, /invalid_whatsapp_link/);
   assert.match(dialog, /кандидат відхилено без створення чату/);
 });
+
+void test('imported WhatsApp candidates have a manual qualification fallback using the inspection contract', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.match(dialog, /Кваліфікувати вручну/);
+  assert.match(dialog, /Зберегти кваліфікацію/);
+  assert.match(dialog, /Писати можуть учасники/);
+  assert.match(dialog, /Дозволені/);
+  assert.match(dialog, /Цільова/);
+  assert.match(dialog, /membershipState: manualDraft\.membershipState/);
+  assert.match(dialog, /topicMatch: manualDraft\.topicMatch/);
+  assert.match(dialog, /action: 'inspect'/);
+});
