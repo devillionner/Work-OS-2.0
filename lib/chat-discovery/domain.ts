@@ -172,6 +172,10 @@ export async function ingestTelegramDiscovery(
   const sourceUrl = boundedDiscoveryText(input.sourceUrl, 1000);
   const sourceTitle = boundedDiscoveryText(input.sourceTitle, 180) || 'Telegram source';
   const query = boundedDiscoveryText(input.query, 500);
+  const expectedQuery = buildTelegramSearchPlan(row.telegram_cursor, 1).tasks[0]?.query || '';
+  if (!query || query !== expectedQuery) {
+    throw new DiscoveryError('Telegram-результати мають відповідати поточному запиту плану.', 409);
+  }
   const seedLabel = boundedDiscoveryText(input.seedLabel, 180) || sourceTitle;
   const context = boundedDiscoveryText(input.context, 700);
   const records = extractInviteRecords(text, ['whatsapp'], {
