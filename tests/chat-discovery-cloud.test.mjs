@@ -108,7 +108,7 @@ void test('Telegram plan cursor persists independently from public web cursor', 
   assert.equal(initial.plan.cursor, 0);
   assert.equal(initial.run.telegramCursor, 0);
 
-  const advanced = await advanceTelegramDiscoveryPlan(db, 'u', run.id, run.version, 1, 101);
+  const advanced = await advanceTelegramDiscoveryPlan(db, 'u', run.id, run.version, 1, initial.plan.tasks[0].query, 101);
   assert.equal(advanced.run.telegramCursor, 1);
   assert.equal(advanced.run.cursor, 0);
   assert.equal(advanced.plan.cursor, 1);
@@ -122,14 +122,26 @@ void test('Telegram plan cursor persists independently from public web cursor', 
 void test('new discovery run resumes the Telegram keyword cursor instead of restarting', async (t) => {
   const db = await localDatabase(t);
   const first = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
-  const advanced = await advanceTelegramDiscoveryPlan(db, 'u', first.id, first.version, 2, 101);
-  assert.equal(advanced.run.telegramCursor, 2);
+  const current = await readTelegramDiscoveryPlan(db, 'u', first.id, 1);
+  const advanced = await advanceTelegramDiscoveryPlan(db, 'u', first.id, first.version, 1, current.plan.tasks[0].query, 101);
+  assert.equal(advanced.run.telegramCursor, 1);
   await cancelDiscoveryRun(db, 'u', first.id, advanced.run.version, 102);
 
   const second = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 103);
   assert.notEqual(second.id, first.id);
-  assert.equal(second.telegramCursor, 2);
-  assert.equal((await readTelegramDiscoveryPlan(db, 'u', second.id, 1)).plan.cursor, 2);
+  assert.equal(second.telegramCursor, 1);
+  assert.equal((await readTelegramDiscoveryPlan(db, 'u', second.id, 1)).plan.cursor, 1);
+});
+
+void test('Telegram plan refuses a receipt for a different query', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  await assert.rejects(
+    () => advanceTelegramDiscoveryPlan(db, 'u', run.id, run.version, 1, 'wrong query', 101),
+    error => error?.status === 409,
+  );
+  const unchanged = await readTelegramDiscoveryPlan(db, 'u', run.id, 1);
+  assert.equal(unchanged.run.telegramCursor, 0);
 });
 
 void test('Telegram ingestion extracts WhatsApp only, keeps provenance and deduplicates repeats', async (t) => {
