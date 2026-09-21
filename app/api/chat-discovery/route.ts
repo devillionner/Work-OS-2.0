@@ -56,7 +56,7 @@ export async function POST(request: Request): Promise<Response> {
       return json(await readTelegramDiscoveryPlan(env.DB, user.id, body.runId, Number(body.limit) || 6));
     }
     if (body.action === 'advance-telegram-plan') {
-      if (typeof body.runId !== 'string' || !body.runId || !Number.isSafeInteger(body.version) || body.processed !== 1) {
+      if (typeof body.runId !== 'string' || !body.runId || !Number.isSafeInteger(body.version) || body.processed !== 1 || typeof body.processedQuery !== 'string' || !body.processedQuery.trim()) {
         throw new DiscoveryError('Telegram-план можна просувати лише на один фактично опрацьований запит.');
       }
       return json(await advanceTelegramDiscoveryPlan(
@@ -65,6 +65,7 @@ export async function POST(request: Request): Promise<Response> {
         body.runId,
         Number(body.version),
         1,
+        body.processedQuery,
         now,
       ));
     }
