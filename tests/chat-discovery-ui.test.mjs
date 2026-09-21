@@ -40,3 +40,16 @@ void test('discovery UI exposes membership, inspection and post-join cleanup sta
   assert.match(route, /body\.action === 'inspect'/);
   assert.match(route, /applyDiscoveryInspection/);
 });
+
+void test('discovery UI exposes the Telegram to WhatsApp ingestion bridge', async () => {
+  const [dialog, route] = await Promise.all([
+    readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../app/api/chat-discovery/route.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(dialog, /Telegram → WhatsApp/);
+  assert.match(dialog, /Результати пошуку Telegram/);
+  assert.match(dialog, /Передати Telegram-скан/);
+  assert.match(dialog, /action: 'ingest-telegram'/);
+  assert.match(route, /body\.action === 'ingest-telegram'/);
+  assert.match(route, /ingestTelegramDiscovery/);
+});
