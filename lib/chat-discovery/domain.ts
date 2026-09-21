@@ -218,15 +218,21 @@ export async function advanceTelegramDiscoveryPlan(
   runId: string,
   expectedVersion: number,
   processed: number,
+  processedQuery: unknown,
   now: number,
 ): Promise<{ run: DiscoveryRun; plan: TelegramSearchPlan }> {
   const row = await readRun(db, userId, runId);
   if (!row) throw new DiscoveryError('Запуск пошуку не знайдено.', 404);
   if (row.status !== 'running') throw new DiscoveryError('Цей запуск пошуку вже завершено. Почніть новий.', 409);
   if (row.version !== expectedVersion) throw new DiscoveryError('План пошуку вже змінився в іншій вкладці. Оновіть стан.', 409);
-  const count = boundedInteger(processed, 1, 20, 1);
+  const count = boundedInteger(processed, 1, 1, 1);
   const currentPlan = buildTelegramSearchPlan(row.telegram_cursor, count);
   if (!currentPlan.tasks.length) return { run: mapRun(row), plan: buildTelegramSearchPlan(row.telegram_cursor, 6) };
+  const expectedQuery = currentPlan.tasks[0].query;
+  const confirmedQuery = boundedDiscoveryText(processedQuery, 500);
+  if (!confirmedQuery || confirmedQuery !== expectedQuery) {
+    throw new DiscoveryError('Telegram-план можна просунути лише для поточного фактично опрацьованого запиту.', 409);
+  }
   const nextCursor = currentPlan.nextCursor;
   const updated = await db.prepare(`UPDATE chat_discovery_runs
     SET telegram_cursor=?1,searched_queries=searched_queries+?2,updated_at=?3,version=version+1
