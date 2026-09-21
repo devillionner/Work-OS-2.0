@@ -25,3 +25,18 @@ void test('discovery UI keeps candidate goal distinct from confirmed target qual
   assert.match(dialog, /Мінімум учасників для target/);
   assert.match(dialog, /Невідомі критерії не вважаються підтвердженими/);
 });
+
+
+void test('discovery UI exposes membership, inspection and post-join cleanup states', async () => {
+  const [dialog, route] = await Promise.all([
+    readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../app/api/chat-discovery/route.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(dialog, /Очікує схвалення/);
+  assert.match(dialog, /Приєднано/);
+  assert.match(dialog, /Автоперевірено/);
+  assert.match(dialog, /потрібна кваліфікація/i);
+  assert.match(dialog, /Потрібен підтверджений вихід із месенджера/);
+  assert.match(route, /body\.action === 'inspect'/);
+  assert.match(route, /applyDiscoveryInspection/);
+});

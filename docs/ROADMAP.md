@@ -1,6 +1,6 @@
 # Work OS 2.0 — поетапний roadmap
 
-Оновлено: 2026-09-20. Обсяг і статус кожної вимоги — у [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md). Етап завершується за доказами приймання, а не за наявністю екрана. Працюємо напряму в `main` невеликими комітами. Для staging діє Cloudflare Workers Builds: кожен новий push у `main` проходить `npm run verify`, staging-only guard і автоматичний deploy у `work-os-2-staging`. Production лишається окремою явною операцією й не оновлюється цим pipeline. AI й автопостинг не випереджають ручну роботу.
+Оновлено: 2026-09-21. Обсяг і статус кожної вимоги — у [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md). Етап завершується за доказами приймання, а не за наявністю екрана. Працюємо напряму в `main` невеликими комітами. Для staging діє Cloudflare Workers Builds: кожен новий push у `main` проходить `npm run verify`, staging-only guard і автоматичний deploy у `work-os-2-staging`. Production лишається окремою явною операцією й не оновлюється цим pipeline. AI й автопостинг не випереджають ручну роботу.
 
 | Етап | Обсяг | Критерії готовності | Стан |
 | --- | --- | --- | --- |
@@ -12,15 +12,17 @@
 | P5. Контрольований release та фінальний синхронний перенос | OPS-03/04, MIG, DATA-09/15–17, BACKUP-01/02 | P1–P4 прийняті; production target перевірений окремо; користувач прямо підтвердив остаточний перенос. Одна узгоджена свіжа копія замість щоденного resync; production не очищується; усі відмінності пояснені; є rollback коду та перевірені копії | Заблоковано критеріями parity, не починати |
 | P6. AI та додаткова автоматизація | Відкладені PROFILE/AD, LATER, DATA-07, desktop/native push за потреби | Надійний ручний процес прийнято; окремо визначено джерела, приватність, витрати, перегляд і підтвердження. Генерація/автопостинг не змінюють факт публікації до підтвердженого результату. Локальний AI — тільки за новим прямим дозволом | Відкладено |
 
-## Поточний стан P4 — 2026-09-20
+## Поточний стан P4 — 2026-09-21
 
-- CRM/Analytics parity reconciliation on live staging closed LEAD-17/39/40/41/42 and ANALYTICS-01/04/05/16/19. Remaining Analytics gaps are now the real ones: goals/plan-fact UX, event drill-down/definitions, richer attendance breakdown, ranking filters and publication-level attribution.
+- Chat Discovery post-join lifecycle тепер зв’язаний із canonical chat workflow: waiting/join/approval/leave оновлюють membership кандидата, а owner/version-guarded inspection повторно оцінює target-критерії. Joined target переходить у ready; joined review лишається на кваліфікації; joined rejected/unavailable не ховається до підтвердженого виходу; відомий недійсний invite до вступу можна безпечно архівувати. Реальний зовнішній inspection/leave executor ще окремий gap — Work OS не заявляє дію в месенджері без фактичного підтвердження.
+
+- CRM/Analytics parity reconciliation on live staging closed LEAD-17/39/40/41/42 and ANALYTICS-01/04/05/16/19. Remaining Analytics gaps are now the real ones: goals/plan-fact UX, event drill-down/definitions, richer attendance breakdown and publication-level attribution.
 
 - Historical report reconstruction is now closed: `bbdaf24` builds an unsaved past-day draft from canonical events while preserving any existing saved report; read-only staging acceptance passed. REPORT-01/02/04/12/13/15 are now ready.
 
 - Reports calendar acceptance now includes explicit status filters and separate final-submission time; `9d79737` is green on canonical staging and passed a read-only browser smoke. REPORT-06/20 are now closed; physical iPhone/Safari remains separate acceptance.
 
-P4 documentation is reconciled against the current code and tests on 2026-09-20. Cloudflare Workers Builds remains the canonical staging gate; each pushed `main` commit must pass `npm run verify` and the staging-only deploy guard before it counts as deployed evidence.
+P4 documentation is reconciled against the current code and tests on 2026-09-21. Cloudflare Workers Builds remains the canonical staging gate; each pushed `main` commit must pass `npm run verify` and the staging-only deploy guard before it counts as deployed evidence.
 
 - UX/visual hardening після PR #87–#120 та прямих main-фіксів охоплює desktop, tiled/narrow і mobile Chromium. Leads mobile touch-target fixes, responsive hero/simple rows/reminders/action links і Today workday composition уже пройшли staging-перевірку. Physical iPhone/Safari лишається окремим доказом і не замінюється Chromium viewport.
 - Workday тепер має start/pause/resume/end, `Повернути день` після випадкового завершення та підтверджуваний `Скинути день` для сьогоднішнього завершеного запису. Reopen зберігає original start/active time; reset видаляє лише workday за сьогодні й не чіпає ліди/чати/уроки/звіти.
@@ -32,12 +34,12 @@ P4 documentation is reconciled against the current code and tests on 2026-09-20.
 - Backup preview перевіряє schema/counts/ownership/FK та контрольну суму до apply. Restore є missing-only: не видаляє й не перезаписує наявні записи, відхиляє tampered chunk та collision іншого owner, і перед apply вимагає свіжу контрольну копію та окреме підтвердження. Це покрито Miniflare tests; live restore на staging навмисно не запускався без окремої потреби, бо він змінює дані.
 - GitHub `main` підключено до Cloudflare Workers Builds для `work-os-2-staging`. Build command: `npm run verify`; deploy command: `npm run deploy:staging`. Guard читає `dist/server/wrangler.json` і відмовляється deploy-ити, якщо Worker не `work-os-2-staging`, D1 не `work-os-2-staging-db` або `CLOUDFLARE_ENV=production`. Remote migrations не запускаються цим pipeline. Старий дублюючий GitHub Actions verify видалено, бо він не отримував runner і створював постійний червоний noise без додаткового захисту.
 - Staging deploy now performs a read-only D1 migration preflight: any unapplied staging migration blocks deploy fail-closed; the pipeline never applies migrations automatically and never targets production.
-- User-facing release metadata зберігається в `lib/app-meta.ts`; кнопка версії в нижній частині навігації та діалог `Що змінилося` повинні оновлюватися разом із релізом. Поточний user-facing release: `v0.2.6`, дата 2026-09-20.
+- User-facing release metadata зберігається в `lib/app-meta.ts`; кнопка версії в нижній частині навігації та діалог `Що змінилося` повинні оновлюватися разом із релізом. Поточний user-facing release: `v0.2.9`, дата 2026-09-21.
 - Recorded performance matrix покриває 10k chats/profiles/library/leads + 100k events, query/rows/payload/EXPLAIN, staging API p95 і UI action latency; деталі — у `P4_PERFORMANCE.md`. Не повторювати повний performance прогін без зміни query shape/індексів або нового regression.
 - Keyboard/a11y walkthrough не підтвердив потребу перетворювати Leads filters на tabs: це toggle-buttons у `fieldset` з `aria-pressed`, а не tablist. Deterministic focus-return тепер реалізований для history dialogs у Leads, lessons, Platforms, Library та Reports через exact trigger refs і regression contracts; physical keyboard/Safari acceptance лишається окремим live доказом.
 - Archive/delete/leave parity закрито доменно: permanent delete є лише явно підтвердженим винятком для «Чат не існує», recheck-ить leave policy та відсутність publication/lead/pending-schedule dependencies, лишає audit snapshot і захищений state token/owner guards. CHAT-12/25 підвищені до «готово» після 359/359 local tests і production build; staging acceptance ще виконується canonical pipeline після push.
 - Report history тепер має optimistic revision guard для save/restore та bounded line-by-line comparison старої версії з поточною. `df8c114` і `e36c554` пройшли canonical Cloudflare verify/deploy; live `/api/build` підтвердив `e36c554`. Поточний read-only staging dataset має лише `revisionCount=1` для наявних денних звітів, тому тестову другу версію навмисно не створювали лише заради smoke.
-- Реальні gaps не маскуються: automatic real chat names, CRM media, PAY, offline/outbox, physical Safari/cross-device acceptance та final migration parity.
+- Реальні gaps не маскуються: CRM media, PAY, offline/outbox, physical Safari/cross-device acceptance, final migration parity та реальний зовнішній Chat Discovery inspection/leave executor. Automatic real chat names уже реалізовані й не є відкритим gap.
 
 ## Найближчий активний етап
 
@@ -45,7 +47,7 @@ P4 documentation is reconciled against the current code and tests on 2026-09-20.
 2. Провести окремий **physical iPhone/Safari** acceptance: safe areas, touch, virtual keyboard, deep links, dialogs, sticky controls, responsive composition та auto-update UX. Chromium mobile не зараховувати як доказ Safari.
 3. Дозакрити live accessibility/reliability evidence, яке не можна чесно замінити contract tests: physical keyboard/Safari walkthrough для focus-return, offline/reconnect walkthrough та injected update-failure recovery. Exact history-dialog focus targets, 409/idempotency, reopen/reload і backup/restore safety вже мають code/test evidence; restore-drill не запускати лише заради галочки, якщо для цього треба змінювати staging data.
 4. Продовжувати синхронізувати PRODUCT_REQUIREMENTS лише з фактичними доказами; REPORT-09/21/22 звірені 2026-09-18 по code/test evidence. Сформувати фінальний parity gap list перед P5.
-5. Не брати без окремого рішення: automatic real chat-name fetching, CRM media storage, PAY, offline outbox/PWA promises, AI/autoposting та final production cutover.
+5. Не брати без окремого рішення: CRM media storage, PAY, offline outbox/PWA promises та final production cutover. Chat Discovery/operator automation лишається поточним погодженим scope; production — тільки після окремого прямого дозволу.
 
 ## Gate кожного коміту й push
 

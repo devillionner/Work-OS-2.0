@@ -1,3 +1,4 @@
+import { discoveryMembershipStatement } from '../chat-discovery/workflow-link.ts';
 import { chatStateEvent, chatStateTokenSql, type ChatState } from './state.ts';
 
 export async function changeChatLeave(db:D1Database,input:{
@@ -16,6 +17,13 @@ export async function changeChatLeave(db:D1Database,input:{
       AND joined_at IS NOT NULL AND platform IN ('telegram','whatsapp') AND ${chatStateTokenSql('chats')}=?4`)
       .bind(input.now,chat.id,input.userId,chat.state_token),
     chatStateEvent(db,{id:eventId,userId:input.userId,chatId:chat.id,action,now:input.now,previous:chat.state_token}),
+    discoveryMembershipStatement(db,{
+      userId:input.userId,
+      chatId:chat.id,
+      eventId,
+      membershipState:input.confirm?'left':'joined',
+      now:input.now,
+    }),
   ]);
   return results[0].meta.changes?{ok:true}:{ok:false,error:'Чат уже змінився. Оновіть список.'};
 }

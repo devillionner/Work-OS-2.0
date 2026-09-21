@@ -271,6 +271,10 @@ export function ChatDiscoveryDialog({
                         <Badge variant="secondary">{platformLabel(candidate.platform)}</Badge>
                       </div>
                       <div className="mt-1 break-all text-xs text-muted-foreground">{candidate.link}</div>
+                      {candidate.importedChatId && <div className="mt-2 flex flex-wrap gap-1.5">
+                        <Badge variant="secondary">{membershipLabel(candidate.membershipState)}</Badge>
+                        <Badge variant="outline">{inspectionLabel(candidate.inspectionState)}</Badge>
+                      </div>}
                     </div>
                     {candidate.importedChatId
                       ? <Badge variant="secondary">У Work OS</Badge>
@@ -283,6 +287,10 @@ export function ChatDiscoveryDialog({
                   <div className="flex flex-wrap gap-1.5">
                     {candidate.reasonCodes.map(code => <span key={code} className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{reasonLabel(code)}</span>)}
                   </div>
+                  {candidate.importedChatId && candidate.membershipState === 'joined' && candidate.decision === 'review' &&
+                    <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Приєднано. Автоперевірці ще бракує фактів для цільового статусу — потрібна кваліфікація.</div>}
+                  {candidate.importedChatId && candidate.membershipState === 'joined' && (candidate.decision === 'rejected' || candidate.decision === 'unavailable') &&
+                    <div className="workspace-error">Чат уже приєднаний, але після перевірки не відповідає критеріям. Потрібен підтверджений вихід із месенджера — до цього Work OS не ховає чат автоматично.</div>}
                   <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-3">
                     <span>Учасники: {candidate.memberCount ?? 'невідомо'}</span>
                     <span>Активність: {activityLabel(candidate.activityState)}</span>
@@ -327,6 +335,19 @@ function decisionLabel(value: DiscoveryDecision) {
 
 function activityLabel(value: DiscoveryCandidate['activityState']) {
   return value === 'active' ? 'активний' : value === 'dead' ? 'неактивний' : 'невідомо';
+}
+
+function membershipLabel(value: DiscoveryCandidate['membershipState']) {
+  return value === 'joined' ? 'Приєднано'
+    : value === 'pending' ? 'Очікує схвалення'
+      : value === 'left' ? 'Вийшли з чату'
+        : 'Вступ не перевірено';
+}
+
+function inspectionLabel(value: DiscoveryCandidate['inspectionState']) {
+  return value === 'inspected' ? 'Автоперевірено'
+    : value === 'failed' ? 'Автоперевірка не завершена'
+      : 'Ще не перевірено';
 }
 
 function reasonLabel(value: string) {

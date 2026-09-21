@@ -1,7 +1,14 @@
-# Development status — 2026-09-20
+# Development status — 2026-09-21
 
 Canonical product scope: [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
 Next work and acceptance gates: [ROADMAP](ROADMAP.md).
+
+## 2026-09-21 Chat Discovery post-join lifecycle
+
+- Discovery candidates imported into Work OS now follow the canonical chat transition truth: WhatsApp waiting maps to pending membership; join/approval maps to joined; confirmed leave/undo keeps the candidate membership synchronized without a second source of truth.
+- The authenticated discovery API has an owner-scoped optimistic `inspect` action. Observed name, membership, chat type, member count, write permission, ad policy, activity, access and link state are re-evaluated against the target criteria instead of being trusted as a precomputed decision.
+- A joined target moves into the normal ready workflow. A joined candidate with unknown facts stays ready but explicitly needs qualification. A joined rejected/unavailable chat stays visible until messenger leave is actually confirmed; Work OS does not pretend an external leave occurred. A known invalid invite before joining may be archived safely.
+- Focused discovery/workflow coverage is green, including stale/foreign inspection guards, membership synchronization, target/review/rejected/unavailable outcomes and UI state labels. Full local `npm run verify` is green; canonical Cloudflare staging deploy remains the release gate for v0.2.9.
 
 ## 2026-09-20 CRM cancellation, conversation export and metric drill-down reconciliation
 

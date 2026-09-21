@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
+import { applyDiscoveryInspection } from '@/lib/chat-discovery/inspection';
 import {
   DiscoveryError,
   cancelDiscoveryRun,
@@ -62,6 +63,17 @@ export async function POST(request: Request): Promise<Response> {
         throw new DiscoveryError('Некоректний кандидат.');
       }
       return json(await handoffDiscoveryCandidate(env.DB, user.id, body.candidateId, Number(body.version), now));
+    }
+    if (body.action === 'inspect') {
+      if (typeof body.candidateId !== 'string' || !body.candidateId || !Number.isSafeInteger(body.version)) {
+        throw new DiscoveryError('Некоректний кандидат.');
+      }
+      return json(await applyDiscoveryInspection(env.DB, user.id, {
+        candidateId: body.candidateId,
+        expectedVersion: Number(body.version),
+        result: body.result,
+        minMembers: body.minMembers,
+      }, now));
     }
     throw new DiscoveryError('Невідома дія.');
   } catch (error) {

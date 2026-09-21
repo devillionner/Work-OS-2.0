@@ -279,7 +279,7 @@ export function evaluateDiscoveryCandidate(input: {
   return reasons.length ? { decision: 'review', reasonCodes: reasons } : { decision: 'target', reasonCodes: ['all_required_confirmed'] };
 }
 
-function inferTopicMatch(name: string, sources: DiscoverySource[]): DiscoveryCandidate['topicMatch'] {
+export function inferDiscoveryTopicMatch(name: string, sources: DiscoverySource[]): DiscoveryCandidate['topicMatch'] {
   const raw = [name, ...sources.map((source) => source.context)].join(' ');
   const text = normalizeText(raw);
   if (/(shooting|casting|кастинг|масовк|vfs\s*slots?|visa\s*slots?|passport\s*appointment|driving\s*licen[cs]e\s*appointment)/u.test(text)) return 'mismatch';
@@ -324,7 +324,7 @@ async function persistDiscoveryBatch(
     const existing = existingCandidates.get(`${item.platform}|${item.link}`);
     const candidateId = existing?.id || await stableId('candidate', `${userId}:${item.platform}:${item.link}`);
     const name = item.name || suggestedChatName(normalizeGroupLink(item.link)!);
-    const topicMatch = existing?.topic_match === 'unknown' || !existing ? inferTopicMatch(name, item.sources) : existing.topic_match;
+    const topicMatch = existing?.topic_match === 'unknown' || !existing ? inferDiscoveryTopicMatch(name, item.sources) : existing.topic_match;
     const evaluated = evaluateDiscoveryCandidate({
       chatType: existing?.chat_type || 'unknown',
       memberCount: existing?.member_count ?? null,

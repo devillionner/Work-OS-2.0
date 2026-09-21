@@ -1,4 +1,5 @@
 import { businessDate } from '../business-time.ts';
+import { discoveryMembershipForTransition, discoveryMembershipStatement } from '../chat-discovery/workflow-link.ts';
 import { chatStateEvent, chatStateTokenSql, type ChatState } from './state.ts';
 
 const ALLOWED_FROM: Record<string, readonly string[]> = {
@@ -40,6 +41,16 @@ export async function transitionChat(db: D1Database, input: {
         accountId,chat.id,userId,chat.state_token,Number(needsActiveAccount)),
     chatStateEvent(db,{id:eventId,userId,chatId:chat.id,action,now,previous:chat.state_token}),
   ];
+  const discoveryMembership = discoveryMembershipForTransition(action);
+  if (discoveryMembership) {
+    statements.push(discoveryMembershipStatement(db, {
+      userId,
+      chatId: chat.id,
+      eventId,
+      membershipState: discoveryMembership,
+      now,
+    }));
+  }
   if (joining) {
     const metricId = crypto.randomUUID();
     // Preserve the established one-chat-per-day metric, including rejoining after
