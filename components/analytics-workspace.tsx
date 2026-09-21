@@ -231,9 +231,13 @@ function Outcome({ label, value }: { label:string; value:number }) {
 function SubjectAnalytics({ data }: { data: SubjectData }) {
   return <section className="analytics-card analytics-subjects">
     <div className="card-heading"><div><p className="eyebrow">Напрямки попиту</p><h3>Предмети</h3><p className="muted-note analytics-card-note">Відгуки та записи за той самий вибраний період.</p></div><Badge variant="outline">{formatRange(data.from, data.to)}</Badge></div>
-    <div className="subject-overview"><div><span>Відгуки</span><strong>{data.total.responses}</strong></div><div><span>Записи</span><strong>{data.total.bookings}</strong></div><div><span>Конверсія</span><strong>{data.total.conversion}%</strong></div></div>
-    <div className="analytics-table analytics-subject-table"><div className="analytics-table-head"><span>Предмет</span><span>Відгуки</span><span>Записи</span><span>Конверсія</span></div>{data.rows.map((row) => <div className="analytics-table-row" key={row.subject}><strong>{row.subject}</strong><span>{row.responses}</span><span>{row.bookings}</span><span>{row.conversion}%</span></div>)}{!data.rows.length && <div className="analytics-empty">За цей період ще немає відгуків або записів.</div>}</div>
+    <div className="subject-overview"><div><span>Відгуки</span><strong>{data.total.responses}</strong></div><div><span>Записи</span><strong>{data.total.bookings}</strong></div><div><span>Конверсія</span><strong>{percentLabel(data.total.conversion, data.total.responses)}</strong></div></div>
+    <div className="analytics-table analytics-subject-table"><div className="analytics-table-head"><span>Предмет</span><span>Відгуки</span><span>Записи</span><span>Конверсія</span></div>{data.rows.map((row) => <div className="analytics-table-row" key={row.subject}><strong>{row.subject}</strong><span>{row.responses}</span><span>{row.bookings}</span><span>{percentLabel(row.conversion, row.responses)}</span></div>)}{!data.rows.length && <div className="analytics-empty">За цей період ще немає відгуків або записів.</div>}</div>
   </section>;
+}
+
+function percentLabel(value: number, denominator: number): string {
+  return denominator > 0 ? `${value.toLocaleString('uk-UA', { maximumFractionDigits: 1 })}%` : '—';
 }
 
 function formatRange(from: string, to: string) {

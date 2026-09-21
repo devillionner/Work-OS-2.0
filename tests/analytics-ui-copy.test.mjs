@@ -21,3 +21,11 @@ void test('Analytics exposes complete per-chat attribution labels and conversion
     assert.ok(source.includes(conversion));
   assert.match(source, /Пізні повторні записи лишаються за початковим чатом-джерелом/);
 });
+
+
+void test('Analytics subject conversion uses dash when there is no response denominator', () => {
+  const source = readFileSync(new URL('../components/analytics-workspace.tsx', import.meta.url), 'utf8');
+  assert.match(source, /percentLabel\(data\.total\.conversion, data\.total\.responses\)/);
+  assert.match(source, /percentLabel\(row\.conversion, row\.responses\)/);
+  assert.match(source, /denominator > 0 \? .* : '—'/);
+});
