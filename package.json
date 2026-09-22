@@ -17,7 +17,9 @@
     "test": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.mjs",
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "node scripts/apply-d1-migrations.mjs"
+    "db:migrate": "node scripts/apply-d1-migrations.mjs",
+    "test:staging": "node --experimental-strip-types --test --test-concurrency=1 tests/chat-discovery-cloud.test.mjs tests/chat-discovery-route-contract.test.mjs tests/chat-discovery-scan-gate.test.mjs tests/chat-discovery-ui.test.mjs tests/release-version.test.mjs tests/wrangler-config.test.mjs",
+    "test:full": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
