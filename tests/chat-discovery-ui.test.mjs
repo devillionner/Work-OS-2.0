@@ -23,8 +23,8 @@ void test('Platforms exposes a real Chat Discovery workflow instead of an API-on
 
 void test('discovery UI keeps candidate goal distinct from confirmed target qualification', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
-  assert.match(dialog, /Нових кандидатів за запуск/);
-  assert.match(dialog, /Мінімум учасників для target/);
+  assert.match(dialog, /Нових кандидатів/);
+  assert.match(dialog, /Мінімум учасників/);
   assert.match(dialog, /Невідомі критерії не зараховуються/);
 });
 
@@ -37,7 +37,7 @@ void test('discovery UI exposes membership, inspection and post-join cleanup sta
   assert.match(dialog, /Очікує схвалення/);
   assert.match(dialog, /Приєднано/);
   assert.match(dialog, /Автоперевірено/);
-  assert.match(dialog, /потрібна кваліфікація/i);
+  assert.match(dialog, /Заповни кваліфікацію нижче/);
   assert.match(dialog, /Потрібен підтверджений вихід із месенджера/);
   assert.match(route, /body\.action === 'inspect'/);
   assert.match(route, /applyDiscoveryInspection/);
@@ -65,7 +65,7 @@ void test('Telegram keyword plan is the primary discovery flow and public web is
   ]);
   assert.match(dialog, /Почати Telegram-пошук/);
   assert.match(dialog, /Черга Telegram-запитів/);
-  assert.match(dialog, /лише «Завершити query» переходить до наступного/);
+  assert.match(dialog, /«Завершити query» просуває cursor рівно на один крок/);
   assert.match(dialog, /Web fallback/);
   assert.match(dialog, /run\.telegramCursor/);
   assert.doesNotMatch(route, /body\.action === 'advance-telegram-plan'/);
@@ -83,7 +83,7 @@ void test('Telegram ingestion and advancement use the persistent plan query as t
   assert.match(dialog, /const query = displayedQuery/);
   assert.doesNotMatch(dialog, /processedQuery:/);
   assert.match(dialog, /aria-readonly="true"/);
-  assert.match(dialog, /workspace\.run\?\.status !== 'running' \|\| !workspace\.telegramPlan\?\.tasks\[0\]\?\.query/);
+  assert.match(dialog, /workspace\.run\?\.status !== 'running' \|\| !currentTask\?\.query/);
   assert.match(dialog, /required=\{telegramHasInvite\}/);
   assert.match(dialog, /telegramHasInvite && \(!telegramSourceTitle\.trim\(\) \|\| !telegramSourceUrl\.trim\(\)\)/);
 });
