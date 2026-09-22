@@ -631,6 +631,37 @@ void test('confirmed external leave downgrades a target back to review', async (
   assert.deepEqual(stored.reasonCodes, ['all_required_confirmed']);
 });
 
+void test('restoring an archived discovery chat resets membership instead of reviving target status', async (t) => {
+  const { db, candidate, chatId } = await importedCandidate(t, 'InspectRestoreMembership123');
+  const outcome = await applyDiscoveryInspection(db, 'u', {
+    candidateId: candidate.id,
+    expectedVersion: candidate.version,
+    result: {
+      status:'inspected', accessible:true, membershipState:'joined',
+      observedName:'Українці Praha допомога', chatType:'group', memberCount:900,
+      topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
+    },
+  }, 110);
+  assert.equal(outcome.decision, 'target');
+
+  const ready = await readChatState(db, 'u', chatId);
+  assert.ok(ready);
+  assert.equal((await transitionChat(db, { userId:'u', chat:ready, action:'archive', accountId:null, now:111, reason:'Пауза' })).ok, true);
+  const archived = await readChatState(db, 'u', chatId);
+  assert.ok(archived);
+  assert.equal((await changeChatLeave(db, { userId:'u', chat:archived, now:112, confirm:true })).ok, true);
+
+  const left = await readChatState(db, 'u', chatId);
+  assert.ok(left);
+  assert.equal((await transitionChat(db, { userId:'u', chat:left, action:'restore', accountId:null, now:113 })).ok, true);
+
+  const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.membershipState, 'not_checked');
+  assert.equal(stored.decision, 'review');
+  assert.deepEqual(stored.reasonCodes, ['unknown_membership']);
+  assert.equal((await readChatState(db, 'u', chatId)).workflow_status, 'to_join');
+});
+
 void test('joined inspection with unknown rules stays ready but explicitly needs qualification', async (t) => {
   const { db, candidate } = await importedCandidate(t, 'InspectReview123');
   const outcome = await applyDiscoveryInspection(db, 'u', {

@@ -27,6 +27,6 @@ export function discoveryMembershipStatement(db: D1Database, input: {
 export function discoveryMembershipForTransition(action: string): DiscoveryMembershipState | null {
   if (action === 'waiting') return 'pending';
   if (action === 'joined' || action === 'approved') return 'joined';
-  if (action === 'return_to_join' || action === 'failed') return 'not_checked';
+  if (action === 'restore' || action === 'return_to_join' || action === 'failed') return 'not_checked';
   return null;
 }
