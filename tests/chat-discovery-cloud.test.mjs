@@ -145,6 +145,39 @@ void test('Telegram plan cursor persists independently from public web cursor', 
   assert.ok(web.run.cursor > 0);
 });
 
+void test('partial Telegram source ingestion survives restart without skipping the unfinished query', async (t) => {
+  const db = await localDatabase(t);
+  const first = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  const firstPlan = await readTelegramDiscoveryPlan(db, 'u', first.id, 1);
+  const query = firstPlan.plan.tasks[0].query;
+
+  const partial = await ingestTelegramDiscovery(db, 'u', first.id, {
+    text: 'Українці Berlin батьки https://chat.whatsapp.com/PartialRestart123',
+    sourceUrl: 'https://t.me/partial_restart',
+    sourceTitle: 'Українці Berlin',
+    query,
+    context: 'українська спільнота',
+    completeQuery: false,
+  }, 101);
+  assert.equal(partial.queryCompleted, false);
+  assert.equal(partial.run.telegramCursor, 0);
+  assert.equal((await readDiscoveryWorkspace(db, 'u')).candidates.length, 1);
+
+  await cancelDiscoveryRun(db, 'u', first.id, partial.run.version, 102);
+  const second = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 103);
+  const resumed = await readTelegramDiscoveryPlan(db, 'u', second.id, 1);
+  assert.equal(second.telegramCursor, 0);
+  assert.equal(resumed.plan.tasks[0].query, query);
+
+  const completed = await ingestTelegramDiscovery(db, 'u', second.id, {
+    text: 'Telegram search completed: no more WhatsApp invites found',
+    query,
+    completeQuery: true,
+  }, 104);
+  assert.equal(completed.queryCompleted, true);
+  assert.equal(completed.run.telegramCursor, 1);
+});
+
 void test('new discovery run resumes the Telegram keyword cursor instead of restarting', async (t) => {
   const db = await localDatabase(t);
   const first = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
