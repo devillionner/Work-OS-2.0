@@ -419,11 +419,11 @@ export function ChatDiscoveryDialog({
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-source-title">
             Telegram-чат
-            <Input id="telegram-source-title" value={telegramSourceTitle} disabled={telegramBusy} onChange={event => setTelegramSourceTitle(event.target.value)} placeholder="Українці в Берліні" />
+            <Input id="telegram-source-title" required value={telegramSourceTitle} disabled={telegramBusy} onChange={event => setTelegramSourceTitle(event.target.value)} placeholder="Українці в Берліні" />
           </label>
           <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-source-url">
             Посилання на джерело
-            <Input id="telegram-source-url" value={telegramSourceUrl} disabled={telegramBusy} onChange={event => setTelegramSourceUrl(event.target.value)} placeholder="https://t.me/…" />
+            <Input id="telegram-source-url" type="url" required value={telegramSourceUrl} disabled={telegramBusy} onChange={event => setTelegramSourceUrl(event.target.value)} placeholder="https://t.me/…" />
           </label>
         </div>
         <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-query">
