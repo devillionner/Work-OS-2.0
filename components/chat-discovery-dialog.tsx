@@ -67,6 +67,7 @@ export function ChatDiscoveryDialog({
   const [telegramText, setTelegramText] = useState('');
   const [telegramSourceTitle, setTelegramSourceTitle] = useState('');
   const [telegramSourceUrl, setTelegramSourceUrl] = useState('');
+  const [telegramProcessedQuery, setTelegramProcessedQuery] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const stopRequested = useRef(false);
@@ -138,7 +139,8 @@ export function ChatDiscoveryDialog({
 
   async function advanceTelegramTask() {
     const run = workspace.run;
-    if (!run || run.status !== 'running' || telegramBusy) return;
+    const currentQuery = workspace.telegramPlan?.tasks[0]?.query || '';
+    if (!run || run.status !== 'running' || telegramBusy || !currentQuery || telegramProcessedQuery !== currentQuery) return;
     setTelegramBusy(true);
     setError('');
     try {
@@ -153,6 +155,7 @@ export function ChatDiscoveryDialog({
       setTelegramSourceTitle('');
       setTelegramSourceUrl('');
       setTelegramText('');
+      setTelegramProcessedQuery('');
       setNotice(payload.plan.done ? 'Telegram keyword plan завершено.' : 'Перейшли до наступного Telegram-запиту.');
       await load(filter);
     } catch (reason) {
@@ -217,7 +220,8 @@ export function ChatDiscoveryDialog({
         seedLabel: telegramSourceTitle || workspace.telegramPlan?.tasks[0]?.query || 'Telegram',
         context: workspace.telegramPlan?.tasks[0]?.query || '',
       }) as unknown as TelegramIngestResponse;
-      setNotice(`Telegram: витягнуто ${payload.batch.extracted}, нових ${payload.batch.added}, дублів ${payload.batch.duplicates}.`);
+      setTelegramProcessedQuery(workspace.telegramPlan?.tasks[0]?.query || '');
+      setNotice(`Telegram: витягнуто ${payload.batch.extracted}, нових ${payload.batch.added}, дублів ${payload.batch.duplicates}. Скан зафіксовано — тепер можна перейти до наступного запиту.`);
       setTelegramText('');
       await load(filter);
     } catch (reason) {
@@ -435,8 +439,8 @@ export function ChatDiscoveryDialog({
                 {workspace.telegramPlan.tasks.slice(1).map(task => <div key={task.cursor}>{task.cursor + 1}. {task.query}</div>)}
               </div>
             </details>}
-            <Button type="button" variant="outline" disabled={telegramBusy || searching || workspace.run?.status !== 'running' || Boolean(telegramText.trim())} onClick={() => void advanceTelegramTask()}>
-              Опрацьовано → наступний
+            <Button type="button" variant="outline" disabled={telegramBusy || searching || workspace.run?.status !== 'running' || telegramProcessedQuery !== (workspace.telegramPlan?.tasks[0]?.query || '')} onClick={() => void advanceTelegramTask()}>
+              Скан передано → наступний
             </Button>
           </> : <span className="text-sm text-muted-foreground">Keyword plan завершено.</span>}
         </div>}
