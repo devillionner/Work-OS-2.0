@@ -16,6 +16,8 @@ void test('Platforms exposes a real Chat Discovery workflow instead of an API-on
   assert.match(dialog, /Додати на перевірку/);
   assert.match(dialog, /Звідки знайдено/);
   assert.match(dialog, /unknown_member_count/);
+  assert.match(dialog, /unknown_invite_validity/);
+  assert.match(dialog, /unknown_access/);
   assert.match(dialog, /while \(run\.status === 'running'/);
 });
 

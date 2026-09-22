@@ -653,6 +653,8 @@ function reasonLabel(value: string) {
     unknown_activity: 'активність не підтверджена',
     unknown_membership: 'вступ до чату не підтверджено',
     unknown_inspection: 'після вступу чат ще не перевірено',
+    unknown_invite_validity: 'invite потрібно перевірити повторно',
+    unknown_access: 'доступ до чату не підтверджено',
     topic_mismatch: 'тематика не підходить',
     cannot_write: 'писати не можна',
     ads_forbidden: 'оголошення заборонені',

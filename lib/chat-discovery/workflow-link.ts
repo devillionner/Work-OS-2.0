@@ -19,6 +19,7 @@ export function discoveryMembershipStatement(db: D1Database, input: {
         can_write=CASE WHEN ?6 THEN NULL ELSE can_write END,
         ads_policy=CASE WHEN ?6 THEN 'unknown' ELSE ads_policy END,
         access_state=CASE WHEN ?6 THEN 'unknown' ELSE access_state END,
+        link_state=CASE WHEN ?6 THEN 'unknown' ELSE link_state END,
         inspection_state=CASE WHEN ?6 THEN 'not_checked' ELSE inspection_state END,
         decision=CASE
           WHEN ?6 THEN 'review'
@@ -26,7 +27,7 @@ export function discoveryMembershipStatement(db: D1Database, input: {
           WHEN ?1='joined' AND decision='review' AND reason_codes_json='["unknown_membership"]' THEN 'target'
           ELSE decision END,
         reason_codes_json=CASE
-          WHEN ?6 THEN '["unknown_chat_type","unknown_member_count","unknown_topic_match","unknown_can_write","unknown_ads_allowed","unknown_activity","unknown_membership","unknown_inspection","unknown_access"]'
+          WHEN ?6 THEN '["unknown_chat_type","unknown_member_count","unknown_topic_match","unknown_can_write","unknown_ads_allowed","unknown_activity","unknown_membership","unknown_inspection","unknown_invite_validity","unknown_access"]'
           WHEN ?1<>'joined' AND decision='target' THEN '["unknown_membership"]'
           WHEN ?1<>'joined' AND decision='review' AND NOT EXISTS(
             SELECT 1 FROM json_each(reason_codes_json) WHERE value='unknown_membership'

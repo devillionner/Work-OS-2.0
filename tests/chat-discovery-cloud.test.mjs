@@ -836,10 +836,14 @@ void test('restoring an archived discovery chat resets membership instead of rev
   let stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
   assert.equal(stored.membershipState, 'not_checked');
   assert.equal(stored.inspectionState, 'not_checked');
+  assert.equal(stored.linkState, 'unknown');
+  assert.equal(stored.accessState, 'unknown');
   assert.equal(stored.memberCount, null);
   assert.equal(stored.decision, 'review');
   assert.ok(stored.reasonCodes.includes('unknown_membership'));
   assert.ok(stored.reasonCodes.includes('unknown_inspection'));
+  assert.ok(stored.reasonCodes.includes('unknown_invite_validity'));
+  assert.ok(stored.reasonCodes.includes('unknown_access'));
   assert.equal((await readChatState(db, 'u', chatId)).workflow_status, 'to_join');
 
   const toJoin = await readChatState(db, 'u', chatId);
