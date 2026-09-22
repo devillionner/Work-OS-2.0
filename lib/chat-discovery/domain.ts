@@ -423,15 +423,8 @@ async function persistDiscoveryBatch(
   const statements: D1PreparedStatement[] = [];
 
   for (const item of canonical.values()) {
-    const existingChat = existingChats.get(`${item.platform}|${item.link}`);
-    if (existingChat) {
+    if (existingChats.has(`${item.platform}|${item.link}`)) {
       duplicates += 1;
-      const existingCandidate = existingCandidates.get(`${item.platform}|${item.link}`);
-      if (existingCandidate && !existingCandidate.imported_chat_id) {
-        statements.push(db.prepare(`UPDATE chat_discovery_candidates SET imported_chat_id=?1,updated_at=?2,version=version+1
-          WHERE id=?3 AND user_id=?4 AND imported_chat_id IS NULL`)
-          .bind(existingChat.id, progress.now, existingCandidate.id, userId));
-      }
       continue;
     }
     const existing = existingCandidates.get(`${item.platform}|${item.link}`);
@@ -502,14 +495,14 @@ async function readExistingCanonicalLinks(db: D1Database, userId: string, platfo
     WHERE user_id=?1 AND platform IN (SELECT value FROM json_each(?2)) LIMIT 10001`)
     .bind(userId, JSON.stringify(platforms)).all<ExistingChat>();
   if (result.results.length > 10_000) throw new DiscoveryError('У базі понад 10 000 чатів на вибраних платформах. Спочатку перевірте дублікати.', 409);
-  const chats = new Map<string, ExistingChat>();
+  const keys = new Set<string>();
   for (const chat of result.results) {
     for (const value of [chat.link, chat.normalized_link]) {
       const parsed = normalizeGroupLink(value);
-      if (parsed && !chats.has(`${parsed.platform}|${parsed.link}`)) chats.set(`${parsed.platform}|${parsed.link}`, chat);
+      if (parsed) keys.add(`${parsed.platform}|${parsed.link}`);
     }
   }
-  return chats;
+  return keys;
 }
 
 async function readExistingCandidates(db: D1Database, userId: string, links: string[]) {
