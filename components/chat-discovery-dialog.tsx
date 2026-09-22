@@ -174,23 +174,26 @@ export function ChatDiscoveryDialog({
     }
   }
 
-  async function ingestTelegramScan() {
+  async function ingestTelegramScan(completeQuery: boolean) {
     if (telegramBusy || !telegramText.trim()) return;
     setTelegramBusy(true);
     setError('');
     setNotice('');
     try {
       const run = await ensureTelegramRun();
+      const fresh = await load(filter);
+      const query = fresh?.run?.id === run.id ? fresh.telegramPlan?.tasks[0]?.query || '' : '';
+      if (!query) throw new Error('Поточний Telegram-запит не знайдений. Оновіть пошук.');
       const payload = await post({
         action: 'ingest-telegram',
         runId: run.id,
         text: telegramText,
         sourceUrl: telegramSourceUrl,
         sourceTitle: telegramSourceTitle,
-        query: workspace.telegramPlan?.tasks[0]?.query || '',
-        seedLabel: telegramSourceTitle || workspace.telegramPlan?.tasks[0]?.query || 'Telegram',
-        context: workspace.telegramPlan?.tasks[0]?.query || '',
-        completeQuery: true,
+        query,
+        seedLabel: telegramSourceTitle || query || 'Telegram',
+        context: query,
+        completeQuery,
       }) as unknown as TelegramIngestResponse;
       setWorkspace(current => ({ ...current, run: payload.run }));
       setNotice(payload.queryCompleted
@@ -439,11 +442,14 @@ export function ChatDiscoveryDialog({
           <Textarea id="telegram-scan" rows={6} value={telegramText} disabled={telegramBusy} onChange={event => setTelegramText(event.target.value)} placeholder="Текст повідомлень або результатів пошуку з посиланнями chat.whatsapp.com…" />
         </label>
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" disabled={telegramBusy || searching || !telegramText.trim() || (telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim())) || workspace.run?.status !== 'running' || !workspace.telegramPlan?.tasks[0]?.query} onClick={() => void ingestTelegramScan()}>
+          <Button type="button" variant="outline" disabled={telegramBusy || searching || !telegramText.trim() || (telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim())) || workspace.run?.status !== 'running' || !workspace.telegramPlan?.tasks[0]?.query} onClick={() => void ingestTelegramScan(false)}>
             {telegramBusy ? <LoaderCircle data-icon="inline-start"/> : <ExternalLink data-icon="inline-start"/>}
-            {telegramBusy ? 'Обробляємо…' : 'Передати Telegram-скан'}
+            {telegramBusy ? 'Обробляємо…' : 'Зберегти джерело'}
           </Button>
-          <span className="text-xs text-muted-foreground">Для скану з invite потрібні назва й Telegram-посилання джерела. Якщо invite немає, достатньо зафіксувати завершений пошук текстом — query все одно просунеться рівно на один крок.</span>
+          <Button type="button" disabled={telegramBusy || searching || !telegramText.trim() || (telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim())) || workspace.run?.status !== 'running' || !workspace.telegramPlan?.tasks[0]?.query} onClick={() => void ingestTelegramScan(true)}>
+            Завершити query → наступний
+          </Button>
+          <span className="w-full text-xs text-muted-foreground">«Зберегти джерело» не рухає план, тому для одного query можна пройти кілька Telegram-чатів. «Завершити query» просуває cursor рівно на один крок. Для скану з invite потрібні назва й Telegram-посилання джерела.</span>
         </div>
       </section>
 
