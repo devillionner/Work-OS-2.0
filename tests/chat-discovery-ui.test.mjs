@@ -123,6 +123,11 @@ void test('candidate cards expose the WhatsApp link and every target qualificati
   assert.match(dialog, /label: 'Можна писати'/);
   assert.match(dialog, /label: 'Оголошення'/);
   assert.match(dialog, /label: 'Аудиторія'/);
+  assert.match(dialog, /label: 'Вступ'/);
+  assert.match(dialog, /label: 'Перевірка'/);
+  assert.match(dialog, /label: 'Invite'/);
+  assert.match(dialog, /label: 'Доступ'/);
+  assert.match(dialog, /chatTypeLabel/);
   assert.match(dialog, /adsPolicyLabel/);
   assert.match(dialog, /topicMatchLabel/);
 });

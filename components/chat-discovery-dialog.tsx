@@ -692,15 +692,20 @@ function Criterion({ label, value, state }: CriterionItem) {
 }
 
 function candidateCriteria(candidate: DiscoveryCandidate): CriterionItem[] {
-  const knownMemberCount = candidate.memberCount !== null;
-  const memberOk = knownMemberCount && candidate.memberCount! >= 700 && candidate.memberCount! <= 18_000;
+  const count = candidate.memberCount;
+  const memberOk = count !== null && count >= 700 && count <= 18_000;
+  const chatTypeOk = candidate.chatType === 'group' || candidate.chatType === 'community';
   return [
-    { label: 'Учасники', value: candidate.memberCount === null ? 'Невідомо' : String(candidate.memberCount), state: !knownMemberCount ? 'warn' : memberOk ? 'ok' : 'bad' },
+    { label: 'Тип', value: chatTypeLabel(candidate.chatType), state: candidate.chatType === 'unknown' ? 'warn' : chatTypeOk ? 'ok' : 'bad' },
+    { label: 'Учасники', value: count === null ? 'Невідомо' : String(count), state: count === null ? 'warn' : memberOk ? 'ok' : 'bad' },
     { label: 'Активність', value: activityLabel(candidate.activityState), state: candidate.activityState === 'active' ? 'ok' : candidate.activityState === 'dead' ? 'bad' : 'warn' },
     { label: 'Можна писати', value: candidate.canWrite === null ? 'Невідомо' : candidate.canWrite ? 'Так' : 'Ні', state: candidate.canWrite === true ? 'ok' : candidate.canWrite === false ? 'bad' : 'warn' },
     { label: 'Оголошення', value: adsPolicyLabel(candidate.adsPolicy), state: candidate.adsPolicy === 'allowed' || candidate.adsPolicy === 'operator_confirmed' ? 'ok' : candidate.adsPolicy === 'forbidden' ? 'bad' : 'warn' },
     { label: 'Аудиторія', value: topicMatchLabel(candidate.topicMatch), state: candidate.topicMatch === 'match' ? 'ok' : candidate.topicMatch === 'mismatch' ? 'bad' : 'warn' },
+    { label: 'Вступ', value: membershipLabel(candidate.membershipState), state: candidate.membershipState === 'joined' ? 'ok' : candidate.membershipState === 'left' ? 'bad' : 'warn' },
     { label: 'Перевірка', value: inspectionLabel(candidate.inspectionState), state: candidate.inspectionState === 'inspected' ? 'ok' : candidate.inspectionState === 'failed' ? 'bad' : 'warn' },
+    { label: 'Invite', value: linkStateLabel(candidate.linkState), state: candidate.linkState === 'valid' ? 'ok' : candidate.linkState === 'invalid' ? 'bad' : 'warn' },
+    { label: 'Доступ', value: accessStateLabel(candidate.accessState), state: candidate.accessState === 'available' ? 'ok' : candidate.accessState === 'unavailable' ? 'bad' : 'warn' },
   ];
 }
 
@@ -717,6 +722,23 @@ function decisionLabel(value: DiscoveryDecision) {
     : value === 'review' ? 'Потрібна перевірка'
       : value === 'rejected' ? 'Відхилений'
         : 'Недоступний';
+}
+
+function chatTypeLabel(value: DiscoveryCandidate['chatType']) {
+  return value === 'group' ? 'Група'
+    : value === 'community' ? 'Спільнота'
+      : value === 'channel' ? 'Канал'
+        : value === 'contact' ? 'Контакт'
+          : value === 'bot' ? 'Бот'
+            : 'Невідомо';
+}
+
+function linkStateLabel(value: DiscoveryCandidate['linkState']) {
+  return value === 'valid' ? 'Дійсний' : value === 'invalid' ? 'Недійсний' : 'Невідомо';
+}
+
+function accessStateLabel(value: DiscoveryCandidate['accessState']) {
+  return value === 'available' ? 'Є' : value === 'unavailable' ? 'Немає' : 'Невідомо';
 }
 
 function activityLabel(value: DiscoveryCandidate['activityState']) {
