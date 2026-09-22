@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { businessDate } from '@/lib/business-time';
 import { changeChatLeave } from '@/lib/chats/leave';
-import { publicationAvailability, recordManualPublication } from '@/lib/chats/publication';
+import { publicationAvailability, recordManualPublication, undoManualPublication } from '@/lib/chats/publication';
 import { changeChatSnooze } from '@/lib/chats/snooze';
 import { chatSnoozeCountSql } from '@/lib/chats/snooze-history';
 import { chatLeftAtSql, chatStateTokenSql, readChatState } from '@/lib/chats/state';
@@ -16,7 +16,7 @@ import { resolveDailyPublicationGoal } from '@/lib/publication-goal';
 
 const PLATFORMS = new Set(['telegram', 'whatsapp', 'viber', 'facebook']);
 const STATUSES = new Set(['to_join', 'waiting', 'ready', 'archived']);
-const ACTIONS = new Set(['joined', 'waiting', 'approved', 'failed', 'archive', 'restore', 'snooze', 'unsnooze', 'confirm_leave', 'undo_leave', 'permanent_delete', 'published', 'assign_account', 'return_to_join', 'profile']);
+const ACTIONS = new Set(['joined', 'waiting', 'approved', 'failed', 'archive', 'restore', 'snooze', 'unsnooze', 'confirm_leave', 'undo_leave', 'permanent_delete', 'published', 'undo_published', 'assign_account', 'return_to_join', 'profile']);
 const REQUEST_MAX_BYTES = 64 * 1024;
 
 type ChatRow = {
@@ -124,7 +124,18 @@ export async function POST(request: Request): Promise<Response> {
     if (quickMode && chat.platform !== 'whatsapp' && chat.platform !== 'viber') return Response.json({ error:'Швидка публікація доступна лише для WhatsApp і Viber.' }, { status:400 });
     if (quickMode && !advertisementId) return Response.json({ error:'Для швидкої публікації оберіть матеріал.' }, { status:400 });
     const result = await recordManualPublication(env.DB, { userId: user.id, chat, accountId, advertisementId, language, quickMode, now, date: businessDate(now), stateToken: chat.state_token });
-    return Response.json(result, { status: result.ok ? 200 : 409 });
+    if (!result.ok) return Response.json(result, { status: 409 });
+    const next = await readChatState(env.DB,user.id,id);
+    return next ? Response.json({ ...result, stateToken: next.state_token })
+      : Response.json({ error: 'Не вдалося підтвердити новий стан. Оновіть список.' }, { status: 409 });
+  }
+
+  if (action === 'undo_published') {
+    const result = await undoManualPublication(env.DB,{userId:user.id,chat,now,date:businessDate(now)});
+    if (!result.ok) return Response.json(result,{status:409});
+    const next = await readChatState(env.DB,user.id,id);
+    return next ? Response.json({ ...result, stateToken: next.state_token })
+      : Response.json({ error: 'Не вдалося підтвердити новий стан. Оновіть список.' }, { status: 409 });
   }
 
   if (action === 'snooze' || action === 'unsnooze') {
