@@ -386,6 +386,15 @@ function activeBreakExpired(accounts:TelegramAccount[],accountId:string|null,clo
 function canPermanentlyDelete(chat:Chat){return chat.status==='archived'&&chat.archiveReason==='Чат не існує'&&(!['telegram','whatsapp'].includes(chat.platform)||chat.joinedAt===null||chat.leftAt!==null);}
 
 function openNativeChat(platform:Platform, link:string) {
+  if(platform==='whatsapp') {
+    let url:URL;
+    try { url=new URL(link.trim()); } catch { return; }
+    const host=url.hostname.toLowerCase().replace(/^www\./,'');
+    if(url.protocol==='https:'&&host==='chat.whatsapp.com') {
+      window.open(url.toString(),'_blank','noopener,noreferrer');
+    }
+    return;
+  }
   const nativeLink=nativeChatLink(platform,link);
   if(nativeLink) window.location.assign(nativeLink);
 }
