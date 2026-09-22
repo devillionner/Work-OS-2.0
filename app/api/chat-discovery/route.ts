@@ -4,7 +4,6 @@ import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { applyDiscoveryInspection } from '@/lib/chat-discovery/inspection';
 import {
   DiscoveryError,
-  advanceTelegramDiscoveryPlan,
   cancelDiscoveryRun,
   continueDiscoveryRun,
   handoffDiscoveryCandidate,
@@ -54,20 +53,6 @@ export async function POST(request: Request): Promise<Response> {
     if (body.action === 'telegram-plan') {
       if (typeof body.runId !== 'string' || !body.runId) throw new DiscoveryError('Запуск пошуку не вказаний.');
       return json(await readTelegramDiscoveryPlan(env.DB, user.id, body.runId, Number(body.limit) || 6));
-    }
-    if (body.action === 'advance-telegram-plan') {
-      if (typeof body.runId !== 'string' || !body.runId || !Number.isSafeInteger(body.version) || body.processed !== 1 || typeof body.processedQuery !== 'string' || !body.processedQuery.trim()) {
-        throw new DiscoveryError('Telegram-план можна просувати лише на один фактично опрацьований запит.');
-      }
-      return json(await advanceTelegramDiscoveryPlan(
-        env.DB,
-        user.id,
-        body.runId,
-        Number(body.version),
-        1,
-        body.processedQuery,
-        now,
-      ));
     }
     if (body.action === 'continue') {
       if (typeof body.runId !== 'string' || !body.runId) throw new DiscoveryError('Запуск пошуку не вказаний.');
