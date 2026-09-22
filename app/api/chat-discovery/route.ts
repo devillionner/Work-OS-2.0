@@ -36,24 +36,37 @@ export async function GET(request: Request): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return json({ error: 'Потрібна авторизація.' }, 401);
-  if (!sameOrigin(request)) return json({ error: 'Некоректне джерело запиту.' }, 403);
+  if (!sameOrigin(request)) return json({ error: 'Недійсне джерело запиту.' }, 403);
+  const body = await readJsonObject(request, 256 * 1024);
+  if (body instanceof Response) return body;
+  const now = Math.floor(Date.now() / 1000);
+
   try {
-    const body = await readJsonObject(request);
-    const now = Date.now();
     if (body.action === 'start') {
-      return json(await startDiscoveryRun(env.DB, user.id, { platforms: body.platforms, goal: body.goal, minMembers: body.minMembers }, now));
-    }
-    if (body.action === 'cancel') {
-      return json(await cancelDiscoveryRun(env.DB, user.id, String(body.runId || ''), Number(body.expectedVersion), now));
-    }
-    if (body.action === 'continue') {
-      return json(await continueDiscoveryRun(env.DB, user.id, String(body.runId || ''), now));
+      const run = await startDiscoveryRun(env.DB, user.id, {
+        platforms: body.platforms,
+        goal: body.goal,
+        minMembers: body.minMembers,
+      }, now);
+      return json({ run });
     }
     if (body.action === 'telegram-plan') {
-      return json(await readTelegramDiscoveryPlan(env.DB, user.id, String(body.runId || ''), Number(body.limit || 6)));
+      if (typeof body.runId !== 'string' || !body.runId) throw new DiscoveryError('Запуск пошуку не вказаний.');
+      return json(await readTelegramDiscoveryPlan(env.DB, user.id, body.runId, Number(body.limit) || 6));
+    }
+    if (body.action === 'continue') {
+      if (typeof body.runId !== 'string' || !body.runId) throw new DiscoveryError('Запуск пошуку не вказаний.');
+      return json(await continueDiscoveryRun(env.DB, user.id, body.runId, now));
+    }
+    if (body.action === 'cancel') {
+      if (typeof body.runId !== 'string' || !body.runId || !Number.isSafeInteger(body.version)) {
+        throw new DiscoveryError('Некоректний стан запуску.');
+      }
+      return json(await cancelDiscoveryRun(env.DB, user.id, body.runId, Number(body.version), now));
     }
     if (body.action === 'ingest-telegram') {
-      return json(await ingestTelegramDiscovery(env.DB, user.id, String(body.runId || ''), {
+      if (typeof body.runId !== 'string' || !body.runId) throw new DiscoveryError('Запуск пошуку не вказаний.');
+      return json(await ingestTelegramDiscovery(env.DB, user.id, body.runId, {
         text: body.text,
         sourceUrl: body.sourceUrl,
         sourceTitle: body.sourceTitle,
@@ -62,24 +75,27 @@ export async function POST(request: Request): Promise<Response> {
         context: body.context,
       }, now));
     }
-    if (body.action === 'handoff') {
-      return json(await handoffDiscoveryCandidate(env.DB, user.id, {
-        candidateId: body.candidateId,
-        expectedVersion: body.expectedVersion,
-      }, now));
+    if (body.action === 'import') {
+      if (typeof body.candidateId !== 'string' || !body.candidateId || !Number.isSafeInteger(body.version)) {
+        throw new DiscoveryError('Некоректний кандидат.');
+      }
+      return json(await handoffDiscoveryCandidate(env.DB, user.id, body.candidateId, Number(body.version), now));
     }
     if (body.action === 'inspect') {
+      if (typeof body.candidateId !== 'string' || !body.candidateId || !Number.isSafeInteger(body.version)) {
+        throw new DiscoveryError('Некоректний кандидат.');
+      }
       return json(await applyDiscoveryInspection(env.DB, user.id, {
         candidateId: body.candidateId,
-        expectedVersion: body.expectedVersion,
-        minMembers: body.minMembers,
+        expectedVersion: Number(body.version),
         result: body.result,
+        minMembers: body.minMembers,
       }, now));
     }
-    return json({ error: 'Невідома дія.' }, 400);
+    throw new DiscoveryError('Невідома дія.');
   } catch (error) {
     if (error instanceof DiscoveryError) return json({ error: error.message }, error.status);
-    console.error('Chat discovery mutation failed', error instanceof Error ? error.name : 'unknown');
-    return json({ error: 'Не вдалося виконати дію пошуку чатів.' }, 500);
+    console.error('Chat discovery action failed', error instanceof Error ? error.name : 'unknown');
+    return json({ error: 'Пошук чатів не завершено. Спробуйте ще раз.' }, 500);
   }
 }
