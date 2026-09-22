@@ -70,6 +70,14 @@ void test('Telegram keyword plan is the primary discovery flow and public web is
   assert.match(domain, /buildTelegramSearchPlan/);
 });
 
+void test('Telegram ingestion and advancement use the persistent plan query as the only query source', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(dialog, /useState\(''\).*telegramQuery|setTelegramQuery/);
+  assert.match(dialog, /query: workspace\.telegramPlan\?\.tasks\[0\]\?\.query \|\| ''/);
+  assert.match(dialog, /processedQuery: workspace\.telegramPlan\?\.tasks\[0\]\?\.query \|\| ''/);
+  assert.match(dialog, /aria-readonly="true"/);
+});
+
 void test('candidate cards expose the WhatsApp link and every target qualification criterion', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
   assert.match(dialog, /Відкрити WhatsApp/);
