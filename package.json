@@ -12,7 +12,7 @@
     "deploy": "npm run build && wrangler deploy --config dist/server/wrangler.json",
     "deploy:staging": "node scripts/deploy-staging.mjs",
     "lint": "oxlint --threads=1 app components/work-os-shell.tsx components/pwa-registration.tsx components/server-sync.tsx components/view-persistence.tsx components/app-release-dialog.tsx components/global-timers.tsx components/platform-workspace.tsx components/chat-discovery-dialog.tsx components/chat-bulk-dialog.tsx components/chat-names-dialog.tsx components/chat-profile-dialog.tsx components/chat-history-dialog.tsx components/chat-publish-dialog.tsx components/legacy-import-dialog.tsx components/library-workspace.tsx components/reports-workspace.tsx components/settings-workspace.tsx components/payment-settings.tsx components/leads db lib scripts tests",
-    "typecheck": "node --max-old-space-size=1536 ./node_modules/typescript/bin/tsc --noEmit --pretty false",
+    "typecheck": "tsc -p tsconfig.chat-discovery.json --pretty false",
     "verify": "node scripts/verify-local.mjs",
     "test": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.mjs",
     "format": "oxfmt",
