@@ -114,6 +114,12 @@ void test('operators can reject an invalid WhatsApp invite before creating a cha
   assert.match(dialog, /кандидат відхилено без створення чату/);
 });
 
+void test('left discovery chats require restore and rejoin before manual qualification', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.match(dialog, /candidate\.membershipState !== 'left'/);
+  assert.match(dialog, /Чат уже покинуто\. Для нової кваліфікації спочатку віднови його та підтвердь повторний вступ/);
+});
+
 void test('imported WhatsApp candidates have a manual qualification fallback using the inspection contract', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
   assert.match(dialog, /Кваліфікувати вручну/);

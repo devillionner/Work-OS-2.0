@@ -516,7 +516,7 @@ export function ChatDiscoveryDialog({
                   <div className="flex flex-wrap gap-1.5">
                     {candidate.reasonCodes.map(code => <span key={code} className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{reasonLabel(code)}</span>)}
                   </div>
-                  {candidate.importedChatId && <div className="grid gap-2">
+                  {candidate.importedChatId && candidate.membershipState !== 'left' && <div className="grid gap-2">
                     <Button type="button" size="sm" variant="outline" className="w-fit" onClick={() => toggleManualInspection(candidate)}>
                       {manualDraft?.candidateId === candidate.id ? 'Закрити ручну кваліфікацію' : 'Кваліфікувати вручну'}
                     </Button>
@@ -562,6 +562,8 @@ export function ChatDiscoveryDialog({
                       </Button>
                     </div>}
                   </div>}
+                  {candidate.importedChatId && candidate.membershipState === 'left' &&
+                    <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Чат уже покинуто. Для нової кваліфікації спочатку віднови його та підтвердь повторний вступ.</div>}
                   {candidate.importedChatId && candidate.membershipState === 'joined' && candidate.decision === 'review' &&
                     <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Приєднано. Автоперевірці ще бракує фактів для цільового статусу — потрібна кваліфікація.</div>}
                   {candidate.importedChatId && candidate.membershipState === 'joined' && (candidate.decision === 'rejected' || candidate.decision === 'unavailable') &&
