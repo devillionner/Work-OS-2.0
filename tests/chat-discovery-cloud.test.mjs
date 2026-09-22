@@ -613,6 +613,41 @@ void test('inspection promotes an accepted WhatsApp target into ready workflow',
   assert.equal(stored.memberCount, 900);
 });
 
+void test('confirmed leave adds the membership blocker to an already-review candidate and undo removes only it', async (t) => {
+  const { db, candidate, chatId } = await importedCandidate(t, 'ReviewLeaveReasons123');
+  const reviewed = await applyDiscoveryInspection(db, 'u', {
+    candidateId: candidate.id,
+    expectedVersion: candidate.version,
+    result: {
+      status:'inspected', accessible:true, membershipState:'joined',
+      observedName:'Українці Brno батьки', chatType:'group', memberCount:900,
+      topicMatch:'match', canWrite:true, adsPolicy:'unknown', activityState:'active',
+    },
+  }, 110);
+  assert.equal(reviewed.decision, 'review');
+  assert.deepEqual(reviewed.reasonCodes, ['unknown_ads_allowed']);
+
+  const ready = await readChatState(db, 'u', chatId);
+  assert.ok(ready);
+  assert.equal((await transitionChat(db, { userId:'u', chat:ready, action:'archive', accountId:null, now:111, reason:'Пауза' })).ok, true);
+  const archived = await readChatState(db, 'u', chatId);
+  assert.ok(archived);
+  assert.equal((await changeChatLeave(db, { userId:'u', chat:archived, now:112, confirm:true })).ok, true);
+
+  let stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.membershipState, 'left');
+  assert.equal(stored.decision, 'review');
+  assert.deepEqual(stored.reasonCodes, ['unknown_ads_allowed','unknown_membership']);
+
+  const left = await readChatState(db, 'u', chatId);
+  assert.ok(left);
+  assert.equal((await changeChatLeave(db, { userId:'u', chat:left, now:113, confirm:false })).ok, true);
+  stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.membershipState, 'joined');
+  assert.equal(stored.decision, 'review');
+  assert.deepEqual(stored.reasonCodes, ['unknown_ads_allowed']);
+});
+
 void test('inspection cannot fake an external leave for an imported chat', async (t) => {
   const { db, candidate, chatId } = await importedCandidate(t, 'InspectCannotFakeLeave123');
   const joined = await applyDiscoveryInspection(db, 'u', {
