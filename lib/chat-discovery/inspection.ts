@@ -187,7 +187,6 @@ async function applyUnlinkedInspection(
   if (reportedMembership === 'joined' || reportedMembership === 'pending') {
     throw new DiscoveryError('Спочатку додайте чат у Work OS перед фіксацією вступу.', 409);
   }
-  const sources = await readCandidateSources(db, userId, candidate.id);
   const observedName = cleanChatName(result.observedName || '');
   const nextName = observedName && isGeneratedName(candidate.name) ? observedName : candidate.name;
   const nextTopic = result.topicMatch ?? 'unknown';
