@@ -253,6 +253,7 @@ void test('qualification is fail-closed until every target criterion is confirme
     adsPolicy: 'inferred_allowed',
     activityState: 'active',
     membershipState: 'joined',
+    inspectionState: 'inspected',
     accessState: 'available',
     linkState: 'valid',
   }), { decision: 'review', reasonCodes: ['unknown_ads_allowed'] });
