@@ -755,6 +755,10 @@ void test('known invalid invite before join is safely archived without claiming 
   assert.equal(outcome.autoArchived, true);
   assert.equal(outcome.needsExternalLeave, false);
   assert.equal((await readChatState(db, 'u', chatId)).workflow_status, 'archived');
+  const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.decision, 'unavailable');
+  assert.equal(stored.inspectionState, 'failed');
+  assert.equal(stored.linkState, 'invalid');
 });
 
 void test('inspection is owner scoped and optimistic', async (t) => {
