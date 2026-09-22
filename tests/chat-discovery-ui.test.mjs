@@ -11,7 +11,7 @@ void test('Platforms exposes a real Chat Discovery workflow instead of an API-on
   assert.match(workspace, /ChatDiscoveryDialog/);
   assert.match(workspace, /Знайти чати/);
   assert.match(dialog, /Почати Telegram-пошук/);
-  assert.match(dialog, /Додатковий web-пошук/);
+  assert.match(dialog, /Web fallback/);
   assert.match(dialog, /Зупинити/);
   assert.match(dialog, /Додати на перевірку/);
   assert.match(dialog, /Звідки знайдено/);
@@ -66,7 +66,7 @@ void test('Telegram keyword plan is the primary discovery flow and public web is
   assert.match(dialog, /Почати Telegram-пошук/);
   assert.match(dialog, /Черга Telegram-запитів/);
   assert.match(dialog, /лише «Завершити query» переходить до наступного/);
-  assert.match(dialog, /Додатковий web-пошук/);
+  assert.match(dialog, /Web fallback/);
   assert.match(dialog, /run\.telegramCursor/);
   assert.doesNotMatch(route, /body\.action === 'advance-telegram-plan'/);
   assert.match(domain, /telegram_cursor/);
@@ -97,6 +97,24 @@ void test('Telegram UI can save multiple source chats before completing the curr
   assert.match(dialog, /telegramText\.replaceAll\('\\\\\/', '\/'\)/);
 });
 
+void test('Chat Discovery modal uses a wide split layout with independent candidate scrolling', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.match(dialog, /!max-w-\[1180px\]/);
+  assert.match(dialog, /h-\[min\(92dvh,940px\)\]/);
+  assert.match(dialog, /lg:grid-cols-\[minmax\(0,0\.92fr\)_minmax\(460px,1\.08fr\)\]/);
+  assert.match(dialog, /min-h-0 flex-1 overflow-y-auto/);
+  assert.match(dialog, /Фільтр кандидатів/);
+  assert.match(dialog, /StatTile/);
+});
+
+void test('candidate cards present qualification as a compact criteria grid instead of a flat text wall', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.match(dialog, /candidateCriteria\(candidate\)/);
+  assert.match(dialog, /Що потребує уваги/);
+  assert.match(dialog, /grid-cols-2 gap-1\.5 sm:grid-cols-3/);
+  assert.match(dialog, /Criterion/);
+});
+
 void test('candidate cards expose the WhatsApp link and every target qualification criterion', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
   assert.match(dialog, /Відкрити WhatsApp/);
@@ -124,7 +142,7 @@ void test('left discovery chats require restore and rejoin before manual qualifi
 
 void test('imported WhatsApp candidates have a manual qualification fallback using the inspection contract', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
-  assert.match(dialog, /Кваліфікувати вручну/);
+  assert.match(dialog, /Кваліфікувати/);
   assert.match(dialog, /Зберегти кваліфікацію/);
   assert.match(dialog, /Писати можуть учасники/);
   assert.match(dialog, /Дозволені/);
