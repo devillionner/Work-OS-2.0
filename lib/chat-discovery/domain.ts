@@ -187,20 +187,28 @@ export async function ingestTelegramDiscovery(
     seedKind: 'telegram_chat',
     context,
   });
-  if (!records.length) {
-    return { run: mapRun(row), batch: { extracted: 0, added: 0, duplicates: 0 } };
-  }
+  const merged = records.length
+    ? await persistDiscoveryBatch(db, userId, row, records, {
+      now,
+      nextCursor: row.source_cursor,
+      searched: 0,
+      done: false,
+      errors: 0,
+      completeAtGoal: false,
+    })
+    : { run: mapRun(row), added: 0, duplicates: 0 };
 
-  const merged = await persistDiscoveryBatch(db, userId, row, records, {
-    now,
-    nextCursor: row.source_cursor,
-    searched: 0,
-    done: false,
-    errors: 0,
-    completeAtGoal: false,
-  });
+  const currentPlan = buildTelegramSearchPlan(row.telegram_cursor, 1);
+  const advanced = await db.prepare(`UPDATE chat_discovery_runs
+    SET telegram_cursor=?1,searched_queries=searched_queries+1,updated_at=?2,version=version+1
+    WHERE id=?3 AND user_id=?4 AND status='running' AND version=?5 RETURNING id`)
+    .bind(currentPlan.nextCursor, now, runId, userId, merged.run.version)
+    .first<{ id: string }>();
+  if (!advanced) throw new DiscoveryError('Telegram-план уже змінився в іншій вкладці. Оновіть стан.', 409);
+  const fresh = await readRun(db, userId, runId);
+  if (!fresh) throw new DiscoveryError('Не вдалося прочитати оновлений Telegram-план.', 500);
   return {
-    run: merged.run,
+    run: mapRun(fresh),
     batch: { extracted: records.length, added: merged.added, duplicates: merged.duplicates },
   };
 }
