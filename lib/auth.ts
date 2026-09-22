@@ -1,6 +1,8 @@
 import { env } from 'cloudflare:workers';
 import { headers } from 'next/headers';
 
+const bindings = env as typeof env & { DB: D1Database };
+
 export const SESSION_COOKIE = 'work_os_session';
 export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 
@@ -24,7 +26,7 @@ export async function getCurrentUser(): Promise<WorkOsUser | null> {
   if (!token) return null;
 
   const tokenHash = await sha256(token);
-  const row = await env.DB.prepare(
+  const row = await bindings.DB.prepare(
     `SELECT u.id, u.email, u.display_name, u.picture_url
      FROM sessions AS s
      INNER JOIN users AS u ON u.id = s.user_id
@@ -49,9 +51,9 @@ export async function createSession(userId: string): Promise<string> {
   const tokenHash = await sha256(token);
   const now = unixNow();
 
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM sessions WHERE expires_at <= ?1').bind(now),
-    env.DB.prepare(
+  await bindings.DB.batch([
+    bindings.DB.prepare('DELETE FROM sessions WHERE expires_at <= ?1').bind(now),
+    bindings.DB.prepare(
       `INSERT INTO sessions (token_hash, user_id, created_at, expires_at)
        VALUES (?1, ?2, ?3, ?4)`,
     ).bind(tokenHash, userId, now, now + SESSION_TTL_SECONDS),
@@ -62,7 +64,7 @@ export async function createSession(userId: string): Promise<string> {
 
 export async function deleteSession(token: string | null): Promise<void> {
   if (!token) return;
-  await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?1')
+  await bindings.DB.prepare('DELETE FROM sessions WHERE token_hash = ?1')
     .bind(await sha256(token))
     .run();
 }
