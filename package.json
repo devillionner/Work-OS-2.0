@@ -3,7 +3,7 @@
   "version": "0.2.14",
   "private": true,
   "engines": {
-    "node": "22.x"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "dev": "vinext dev",
