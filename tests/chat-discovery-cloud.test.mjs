@@ -193,6 +193,29 @@ void test('Telegram ingestion rejects results from a stale or different plan que
   assert.equal((await readDiscoveryWorkspace(db, 'u')).candidates.length, 0);
 });
 
+void test('discovery dedupe links an existing candidate to an already-known chat', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  const plan = await readTelegramDiscoveryPlan(db, 'u', run.id, 1);
+  const input = {
+    text: 'Українці Berlin https://chat.whatsapp.com/AlreadyKnownInvite123',
+    sourceTitle: 'Telegram source',
+    query: plan.plan.tasks[0].query,
+    context: 'українська спільнота',
+  };
+  const first = await ingestTelegramDiscovery(db, 'u', run.id, input, 101);
+  const candidate = (await readDiscoveryWorkspace(db, 'u')).candidates[0];
+  const handed = await handoffDiscoveryCandidate(db, 'u', candidate.id, candidate.version, 102);
+  assert.equal(handed.existing, false);
+
+  await db.prepare('UPDATE chat_discovery_candidates SET imported_chat_id=NULL,version=version+1 WHERE id=?1').bind(candidate.id).run();
+  const before = await readDiscoveryWorkspace(db, 'u');
+  const second = await ingestTelegramDiscovery(db, 'u', before.run.id, input, 103);
+  assert.equal(second.batch.duplicates, 1);
+  const relinked = (await readDiscoveryWorkspace(db, 'u')).candidates[0];
+  assert.equal(relinked.importedChatId, handed.chatId);
+});
+
 void test('qualification is fail-closed until every target criterion is confirmed', () => {
   assert.deepEqual(evaluateDiscoveryCandidate({
     chatType: 'group',
