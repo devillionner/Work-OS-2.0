@@ -423,8 +423,15 @@ async function persistDiscoveryBatch(
   const statements: D1PreparedStatement[] = [];
 
   for (const item of canonical.values()) {
-    if (existingChats.has(`${item.platform}|${item.link}`)) {
+    const existingChat = existingChats.get(`${item.platform}|${item.link}`);
+    if (existingChat) {
       duplicates += 1;
+      const existingCandidate = existingCandidates.get(`${item.platform}|${item.link}`);
+      if (existingCandidate && !existingCandidate.imported_chat_id) {
+        statements.push(db.prepare(`UPDATE chat_discovery_candidates SET imported_chat_id=?1,updated_at=?2,version=version+1
+          WHERE id=?3 AND user_id=?4 AND imported_chat_id IS NULL`)
+          .bind(existingChat.id, progress.now, existingCandidate.id, userId));
+      }
       continue;
     }
     const existing = existingCandidates.get(`${item.platform}|${item.link}`);
