@@ -519,6 +519,32 @@ void test('inspection promotes an accepted WhatsApp target into ready workflow',
   assert.equal(stored.memberCount, 900);
 });
 
+void test('confirmed external leave downgrades a target back to review', async (t) => {
+  const { db, candidate, chatId } = await importedCandidate(t, 'InspectTargetLeave123');
+  const outcome = await applyDiscoveryInspection(db, 'u', {
+    candidateId: candidate.id,
+    expectedVersion: candidate.version,
+    result: {
+      status:'inspected', accessible:true, membershipState:'joined',
+      observedName:'Українці Praha допомога', chatType:'group', memberCount:900,
+      topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
+    },
+  }, 110);
+  assert.equal(outcome.decision, 'target');
+
+  const ready = await readChatState(db, 'u', chatId);
+  assert.ok(ready);
+  assert.equal((await transitionChat(db, { userId:'u', chat:ready, action:'archive', accountId:null, now:111, reason:'Завершено' })).ok, true);
+  const archived = await readChatState(db, 'u', chatId);
+  assert.ok(archived);
+  assert.equal((await changeChatLeave(db, { userId:'u', chat:archived, now:112, confirm:true })).ok, true);
+
+  const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.membershipState, 'left');
+  assert.equal(stored.decision, 'review');
+  assert.deepEqual(stored.reasonCodes, ['unknown_membership']);
+});
+
 void test('joined inspection with unknown rules stays ready but explicitly needs qualification', async (t) => {
   const { db, candidate } = await importedCandidate(t, 'InspectReview123');
   const outcome = await applyDiscoveryInspection(db, 'u', {
