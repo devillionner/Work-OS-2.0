@@ -24,7 +24,7 @@ type ContinueResponse = {
   error?: string;
 };
 type ImportResponse = { chatId?: string; existing?: boolean; workflowStatus?: string; error?: string };
-type TelegramIngestResponse = { run: DiscoveryRun; batch: { extracted: number; added: number; duplicates: number }; error?: string };
+type TelegramIngestResponse = { run: DiscoveryRun; queryCompleted: boolean; batch: { extracted: number; added: number; duplicates: number }; error?: string };
 type ManualInspectionDraft = {
   candidateId: string;
   memberCount: string;
@@ -190,9 +190,12 @@ export function ChatDiscoveryDialog({
         query: workspace.telegramPlan?.tasks[0]?.query || '',
         seedLabel: telegramSourceTitle || workspace.telegramPlan?.tasks[0]?.query || 'Telegram',
         context: workspace.telegramPlan?.tasks[0]?.query || '',
+        completeQuery: true,
       }) as unknown as TelegramIngestResponse;
       setWorkspace(current => ({ ...current, run: payload.run }));
-      setNotice(`Telegram: витягнуто ${payload.batch.extracted}, нових ${payload.batch.added}, дублів ${payload.batch.duplicates}. Поточний запит завершено, план перейшов далі.`);
+      setNotice(payload.queryCompleted
+        ? `Telegram: витягнуто ${payload.batch.extracted}, нових ${payload.batch.added}, дублів ${payload.batch.duplicates}. Поточний запит завершено, план перейшов далі.`
+        : `Telegram: витягнуто ${payload.batch.extracted}, нових ${payload.batch.added}, дублів ${payload.batch.duplicates}. Джерело збережено, поточний query ще активний.`);
       setTelegramSourceTitle('');
       setTelegramSourceUrl('');
       setTelegramText('');

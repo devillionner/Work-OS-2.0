@@ -160,9 +160,10 @@ export async function ingestTelegramDiscovery(
     query?: unknown;
     seedLabel?: unknown;
     context?: unknown;
+    completeQuery?: unknown;
   },
   now: number,
-): Promise<{ run: DiscoveryRun; batch: { extracted: number; added: number; duplicates: number } }> {
+): Promise<{ run: DiscoveryRun; queryCompleted: boolean; batch: { extracted: number; added: number; duplicates: number } }> {
   const row = await readRun(db, userId, runId);
   if (!row) throw new DiscoveryError('Запуск пошуку не знайдено.', 404);
   if (row.status !== 'running') throw new DiscoveryError('Цей запуск пошуку вже завершено. Почніть новий.', 409);
@@ -202,6 +203,15 @@ export async function ingestTelegramDiscovery(
     })
     : { run: mapRun(row), added: 0, duplicates: 0 };
 
+  const completeQuery = input.completeQuery === true;
+  if (!completeQuery) {
+    return {
+      run: merged.run,
+      queryCompleted: false,
+      batch: { extracted: records.length, added: merged.added, duplicates: merged.duplicates },
+    };
+  }
+
   const currentPlan = buildTelegramSearchPlan(row.telegram_cursor, 1);
   const advanced = await db.prepare(`UPDATE chat_discovery_runs
     SET telegram_cursor=?1,searched_queries=searched_queries+1,updated_at=?2,version=version+1
@@ -213,6 +223,7 @@ export async function ingestTelegramDiscovery(
   if (!fresh) throw new DiscoveryError('Не вдалося прочитати оновлений Telegram-план.', 500);
   return {
     run: mapRun(fresh),
+    queryCompleted: true,
     batch: { extracted: records.length, added: merged.added, duplicates: merged.duplicates },
   };
 }

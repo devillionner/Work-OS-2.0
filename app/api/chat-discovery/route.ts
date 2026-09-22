@@ -73,6 +73,7 @@ export async function POST(request: Request): Promise<Response> {
         query: body.query,
         seedLabel: body.seedLabel,
         context: body.context,
+        completeQuery: body.completeQuery,
       }, now));
     }
     if (body.action === 'import') {

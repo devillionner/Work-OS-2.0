@@ -11,10 +11,10 @@ void test('Chat Discovery mutation route preserves the browser API contract', as
   assert.match(route, /return json\(\{ run \}\)/);
   assert.match(route, /if \(body\.action === 'cancel'\)/);
   assert.match(route, /Number\.isSafeInteger\(body\.version\)/);
-  assert.match(route, /const bindings = env as typeof env & \{ DB: D1Database \}/);
-  assert.match(route, /cancelDiscoveryRun\(bindings\.DB, user\.id, body\.runId, Number\(body\.version\), now\)/);
+  assert.match(route, /cancelDiscoveryRun\(env\.DB, user\.id, body\.runId, Number\(body\.version\), now\)/);
   assert.match(route, /if \(body\.action === 'import'\)/);
-  assert.match(route, /handoffDiscoveryCandidate\(bindings\.DB, user\.id, body\.candidateId, Number\(body\.version\), now\)/);
+  assert.match(route, /handoffDiscoveryCandidate\(env\.DB, user\.id, body\.candidateId, Number\(body\.version\), now\)/);
+  assert.match(route, /completeQuery: body\.completeQuery/);
   assert.doesNotMatch(route, /body\.action === 'handoff'/);
   assert.doesNotMatch(route, /body\.expectedVersion/);
 });

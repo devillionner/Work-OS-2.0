@@ -133,6 +133,7 @@ void test('Telegram plan cursor persists independently from public web cursor', 
     query: initial.plan.tasks[0].query,
     sourceUrl: 'https://t.me/example',
     sourceTitle: 'Telegram Web',
+    completeQuery: true,
   }, 101);
   assert.equal(advanced.run.telegramCursor, 1);
   assert.equal(advanced.run.cursor, 0);
@@ -153,6 +154,7 @@ void test('new discovery run resumes the Telegram keyword cursor instead of rest
     query: current.plan.tasks[0].query,
     sourceUrl: 'https://t.me/example',
     sourceTitle: 'Telegram Web',
+    completeQuery: true,
   }, 101);
   assert.equal(advanced.run.telegramCursor, 1);
   await cancelDiscoveryRun(db, 'u', first.id, advanced.run.version, 102);
@@ -206,6 +208,7 @@ void test('Telegram query with no invites advances without invented source prove
   const result = await ingestTelegramDiscovery(db, 'u', run.id, {
     text: 'Telegram search completed: no WhatsApp invites found',
     query: plan.plan.tasks[0].query,
+    completeQuery: true,
   }, 101);
 
   assert.equal(result.batch.extracted, 0);
@@ -229,6 +232,7 @@ void test('Telegram ingestion extracts WhatsApp only, keeps provenance and dedup
     query: plan.plan.tasks[0].query,
     seedLabel: 'Берлін',
     context: 'Українці Німеччина',
+    completeQuery: true,
   };
 
   const first = await ingestTelegramDiscovery(db, 'u', run.id, input, 101);
@@ -253,6 +257,40 @@ void test('Telegram ingestion extracts WhatsApp only, keeps provenance and dedup
   assert.equal(second.batch.duplicates, 1);
   assert.equal(second.run.telegramCursor, 2);
   assert.equal((await readDiscoveryWorkspace(db, 'u')).candidates.length, 1);
+});
+
+void test('Telegram query can ingest multiple source chats before one persisted completion', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  const plan = await readTelegramDiscoveryPlan(db, 'u', run.id, 1);
+  const query = plan.plan.tasks[0].query;
+
+  const first = await ingestTelegramDiscovery(db, 'u', run.id, {
+    text: 'Українці Berlin батьки https://chat.whatsapp.com/MultiSourceA123',
+    sourceUrl: 'https://t.me/source_a',
+    sourceTitle: 'Українці Berlin A',
+    query,
+    context: 'українська спільнота',
+    completeQuery: false,
+  }, 101);
+  assert.equal(first.queryCompleted, false);
+  assert.equal(first.run.telegramCursor, 0);
+
+  const second = await ingestTelegramDiscovery(db, 'u', run.id, {
+    text: 'Українці Berlin родини https://chat.whatsapp.com/MultiSourceB123',
+    sourceUrl: 'https://t.me/source_b',
+    sourceTitle: 'Українці Berlin B',
+    query,
+    context: 'українська спільнота',
+    completeQuery: true,
+  }, 102);
+  assert.equal(second.queryCompleted, true);
+  assert.equal(second.run.telegramCursor, 1);
+
+  const workspace = await readDiscoveryWorkspace(db, 'u');
+  assert.equal(workspace.candidates.length, 2);
+  assert.deepEqual(new Set(workspace.candidates.flatMap(item => item.sources.map(source => source.sourceUrl))),
+    new Set(['https://t.me/source_a', 'https://t.me/source_b']));
 });
 
 void test('Telegram ingestion rejects results from a stale or different plan query', async (t) => {

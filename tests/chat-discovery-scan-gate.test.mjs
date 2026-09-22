@@ -14,6 +14,9 @@ void test('Telegram plan advances only through ingestion of the current planned 
   assert.doesNotMatch(route, /body\.action === 'advance-telegram-plan'/);
   assert.match(domain, /query !== expectedQuery/);
   assert.match(domain, /SET telegram_cursor=\?1,searched_queries=searched_queries\+1/);
+  assert.match(domain, /input\.completeQuery === true/);
   assert.match(domain, /merged\.run\.version/);
+  assert.match(route, /completeQuery: body\.completeQuery/);
+  assert.match(dialog, /completeQuery: true/);
   assert.match(dialog, /Наступний query відкриється автоматично/);
 });
