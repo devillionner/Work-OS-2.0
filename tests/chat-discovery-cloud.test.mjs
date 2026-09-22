@@ -131,6 +131,7 @@ void test('Telegram plan cursor persists independently from public web cursor', 
   const advanced = await ingestTelegramDiscovery(db, 'u', run.id, {
     text: 'Telegram search completed without WhatsApp invites',
     query: initial.plan.tasks[0].query,
+    sourceUrl: 'https://t.me/example',
     sourceTitle: 'Telegram Web',
   }, 101);
   assert.equal(advanced.run.telegramCursor, 1);
@@ -150,6 +151,7 @@ void test('new discovery run resumes the Telegram keyword cursor instead of rest
   const advanced = await ingestTelegramDiscovery(db, 'u', first.id, {
     text: 'Telegram search completed without WhatsApp invites',
     query: current.plan.tasks[0].query,
+    sourceUrl: 'https://t.me/example',
     sourceTitle: 'Telegram Web',
   }, 101);
   assert.equal(advanced.run.telegramCursor, 1);
@@ -168,7 +170,8 @@ void test('Telegram plan refuses a receipt for a different query', async (t) => 
     () => ingestTelegramDiscovery(db, 'u', run.id, {
       text: 'Telegram search completed',
       query: 'wrong query',
-      sourceTitle: 'Telegram Web',
+      sourceUrl: 'https://t.me/example',
+    sourceTitle: 'Telegram Web',
     }, 101),
     error => error?.status === 409,
   );
@@ -223,6 +226,7 @@ void test('Telegram ingestion rejects results from a stale or different plan que
   await assert.rejects(
     () => ingestTelegramDiscovery(db, 'u', run.id, {
       text: 'https://chat.whatsapp.com/StaleQueryInvite123',
+      sourceUrl: 'https://t.me/example',
       sourceTitle: 'Telegram source',
       query: 'not the current query',
     }, 101),
