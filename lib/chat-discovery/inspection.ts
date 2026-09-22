@@ -297,8 +297,8 @@ function optionalEnum<T extends string>(value: unknown, allowed: readonly T[], f
 function boundedMinMembers(value: unknown) {
   if (value === undefined || value === null || value === '') return MIN_TARGET_MEMBERS;
   const number = Number(value);
-  if (!Number.isSafeInteger(number) || number < MIN_TARGET_MEMBERS || number > 10_000_000) {
-    throw new DiscoveryError(`Мінімум учасників не може бути меншим за ${MIN_TARGET_MEMBERS}.`);
+  if (!Number.isSafeInteger(number) || number < MIN_TARGET_MEMBERS || number > 18_000) {
+    throw new DiscoveryError(`Мінімум учасників має бути в діапазоні ${MIN_TARGET_MEMBERS}–18 000.`);
   }
   return number;
 }
