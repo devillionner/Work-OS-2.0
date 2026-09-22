@@ -502,14 +502,14 @@ async function readExistingCanonicalLinks(db: D1Database, userId: string, platfo
     WHERE user_id=?1 AND platform IN (SELECT value FROM json_each(?2)) LIMIT 10001`)
     .bind(userId, JSON.stringify(platforms)).all<ExistingChat>();
   if (result.results.length > 10_000) throw new DiscoveryError('У базі понад 10 000 чатів на вибраних платформах. Спочатку перевірте дублікати.', 409);
-  const keys = new Set<string>();
+  const chats = new Map<string, ExistingChat>();
   for (const chat of result.results) {
     for (const value of [chat.link, chat.normalized_link]) {
       const parsed = normalizeGroupLink(value);
-      if (parsed) keys.add(`${parsed.platform}|${parsed.link}`);
+      if (parsed && !chats.has(`${parsed.platform}|${parsed.link}`)) chats.set(`${parsed.platform}|${parsed.link}`, chat);
     }
   }
-  return keys;
+  return chats;
 }
 
 async function readExistingCandidates(db: D1Database, userId: string, links: string[]) {
