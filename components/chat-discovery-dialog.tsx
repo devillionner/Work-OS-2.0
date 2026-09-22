@@ -70,6 +70,7 @@ export function ChatDiscoveryDialog({
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const stopRequested = useRef(false);
+  const telegramHasInvite = /(?:https?:\/\/)?chat\.whatsapp\.com\//iu.test(telegramText);
 
   const load = useCallback(async (decision: DecisionFilter = filter) => {
     setLoading(true);
@@ -419,11 +420,11 @@ export function ChatDiscoveryDialog({
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-source-title">
             Telegram-чат
-            <Input id="telegram-source-title" required value={telegramSourceTitle} disabled={telegramBusy} onChange={event => setTelegramSourceTitle(event.target.value)} placeholder="Українці в Берліні" />
+            <Input id="telegram-source-title" required={telegramHasInvite} value={telegramSourceTitle} disabled={telegramBusy} onChange={event => setTelegramSourceTitle(event.target.value)} placeholder="Українці в Берліні" />
           </label>
           <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-source-url">
             Посилання на джерело
-            <Input id="telegram-source-url" type="url" required value={telegramSourceUrl} disabled={telegramBusy} onChange={event => setTelegramSourceUrl(event.target.value)} placeholder="https://t.me/…" />
+            <Input id="telegram-source-url" type="url" required={telegramHasInvite} value={telegramSourceUrl} disabled={telegramBusy} onChange={event => setTelegramSourceUrl(event.target.value)} placeholder="https://t.me/…" />
           </label>
         </div>
         <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-query">
@@ -435,11 +436,11 @@ export function ChatDiscoveryDialog({
           <Textarea id="telegram-scan" rows={6} value={telegramText} disabled={telegramBusy} onChange={event => setTelegramText(event.target.value)} placeholder="Текст повідомлень або результатів пошуку з посиланнями chat.whatsapp.com…" />
         </label>
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" disabled={telegramBusy || searching || !telegramText.trim() || !telegramSourceTitle.trim() || !telegramSourceUrl.trim() || workspace.run?.status !== 'running' || !workspace.telegramPlan?.tasks[0]?.query} onClick={() => void ingestTelegramScan()}>
+          <Button type="button" variant="outline" disabled={telegramBusy || searching || !telegramText.trim() || (telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim())) || workspace.run?.status !== 'running' || !workspace.telegramPlan?.tasks[0]?.query} onClick={() => void ingestTelegramScan()}>
             {telegramBusy ? <LoaderCircle data-icon="inline-start"/> : <ExternalLink data-icon="inline-start"/>}
             {telegramBusy ? 'Обробляємо…' : 'Передати Telegram-скан'}
           </Button>
-          <span className="text-xs text-muted-foreground">Цей вхід також використовується браузерною автоматизацією; вручну копіювати результати не обов’язково.</span>
+          <span className="text-xs text-muted-foreground">Для скану з invite потрібні назва й Telegram-посилання джерела. Якщо invite немає, достатньо зафіксувати завершений пошук текстом — query все одно просунеться рівно на один крок.</span>
         </div>
       </section>
 

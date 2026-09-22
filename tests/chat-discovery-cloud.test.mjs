@@ -186,7 +186,7 @@ void test('Telegram ingestion requires source title and Telegram URL provenance'
 
   await assert.rejects(
     () => ingestTelegramDiscovery(db, 'u', run.id, {
-      text: 'Telegram search completed',
+      text: 'Українці Berlin https://chat.whatsapp.com/NeedsProvenance123',
       query: plan.plan.tasks[0].query,
       sourceTitle: 'Telegram source',
       sourceUrl: 'https://example.org/not-telegram',
@@ -196,6 +196,22 @@ void test('Telegram ingestion requires source title and Telegram URL provenance'
 
   const unchanged = await readTelegramDiscoveryPlan(db, 'u', run.id, 1);
   assert.equal(unchanged.run.telegramCursor, 0);
+});
+
+void test('Telegram query with no invites advances without invented source provenance', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  const plan = await readTelegramDiscoveryPlan(db, 'u', run.id, 1);
+
+  const result = await ingestTelegramDiscovery(db, 'u', run.id, {
+    text: 'Telegram search completed: no WhatsApp invites found',
+    query: plan.plan.tasks[0].query,
+  }, 101);
+
+  assert.equal(result.batch.extracted, 0);
+  assert.equal(result.batch.added, 0);
+  assert.equal(result.run.telegramCursor, 1);
+  assert.equal((await readDiscoveryWorkspace(db, 'u')).candidates.length, 0);
 });
 
 void test('Telegram ingestion extracts WhatsApp only, keeps provenance and deduplicates repeats', async (t) => {

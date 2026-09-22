@@ -171,17 +171,18 @@ export async function ingestTelegramDiscovery(
   if (!text) throw new DiscoveryError('Telegram-скан порожній.');
   const sourceUrl = boundedDiscoveryText(input.sourceUrl, 1000);
   const sourceTitle = boundedDiscoveryText(input.sourceTitle, 180);
-  if (!sourceTitle || !isTelegramSourceUrl(sourceUrl)) {
-    throw new DiscoveryError('Для Telegram-скану потрібні назва чату та коректне посилання на Telegram-джерело.');
-  }
   const query = boundedDiscoveryText(input.query, 500);
   const expectedQuery = buildTelegramSearchPlan(row.telegram_cursor, 1).tasks[0]?.query || '';
   if (!query || query !== expectedQuery) {
     throw new DiscoveryError('Telegram-результати мають відповідати поточному запиту плану.', 409);
   }
-  const seedLabel = boundedDiscoveryText(input.seedLabel, 180) || sourceTitle;
+  const containsInvite = /(?:https?:\/\/)?chat\.whatsapp\.com\//iu.test(text);
+  if (containsInvite && (!sourceTitle || !isTelegramSourceUrl(sourceUrl))) {
+    throw new DiscoveryError('Для Telegram-скану з WhatsApp invite потрібні назва чату та коректне посилання на Telegram-джерело.');
+  }
+  const seedLabel = boundedDiscoveryText(input.seedLabel, 180) || sourceTitle || query;
   const context = boundedDiscoveryText(input.context, 700);
-  const records = extractInviteRecords(text, ['whatsapp'], {
+  const records = containsInvite ? extractInviteRecords(text, ['whatsapp'], {
     kind: 'telegram_global',
     sourceUrl,
     sourceTitle,
@@ -189,7 +190,7 @@ export async function ingestTelegramDiscovery(
     seedLabel,
     seedKind: 'telegram_chat',
     context,
-  });
+  }) : [];
   const merged = records.length
     ? await persistDiscoveryBatch(db, userId, row, records, {
       now,
