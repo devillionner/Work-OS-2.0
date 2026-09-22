@@ -200,6 +200,22 @@ void test('Telegram ingestion requires source title and Telegram URL provenance'
   assert.equal(unchanged.run.telegramCursor, 0);
 });
 
+void test('Telegram ingestion recognizes escaped WhatsApp invite URLs and still requires provenance', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  const plan = await readTelegramDiscoveryPlan(db, 'u', run.id, 1);
+
+  await assert.rejects(
+    () => ingestTelegramDiscovery(db, 'u', run.id, {
+      text: 'Українці Berlin https:\\/\\/chat.whatsapp.com\\/EscapedInvite123',
+      query: plan.plan.tasks[0].query,
+      completeQuery: true,
+    }, 101),
+    /потрібні назва чату та коректне посилання/i,
+  );
+  assert.equal((await readTelegramDiscoveryPlan(db, 'u', run.id, 1)).run.telegramCursor, 0);
+});
+
 void test('Telegram query with no invites advances without invented source provenance', async (t) => {
   const db = await localDatabase(t);
   const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);

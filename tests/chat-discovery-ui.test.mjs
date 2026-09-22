@@ -63,7 +63,7 @@ void test('Telegram keyword plan is the primary discovery flow and public web is
   ]);
   assert.match(dialog, /Почати Telegram-пошук/);
   assert.match(dialog, /Черга Telegram-запитів/);
-  assert.match(dialog, /Наступний query відкриється автоматично/);
+  assert.match(dialog, /лише «Завершити query» переходить до наступного/);
   assert.match(dialog, /Додатковий web-пошук/);
   assert.match(dialog, /run\.telegramCursor/);
   assert.doesNotMatch(route, /body\.action === 'advance-telegram-plan'/);
@@ -89,6 +89,7 @@ void test('Telegram UI can save multiple source chats before completing the curr
   assert.match(dialog, /ingestTelegramScan\(true\)/);
   assert.match(dialog, /«Зберегти джерело» не рухає план/);
   assert.match(dialog, /«Завершити query» просуває cursor рівно на один крок/);
+  assert.match(dialog, /telegramText\.replaceAll\('\\\\\/', '\/'\)/);
 });
 
 void test('candidate cards expose the WhatsApp link and every target qualification criterion', async () => {

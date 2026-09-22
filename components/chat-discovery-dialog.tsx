@@ -70,7 +70,7 @@ export function ChatDiscoveryDialog({
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const stopRequested = useRef(false);
-  const telegramHasInvite = /(?:https?:\/\/)?chat\.whatsapp\.com\//iu.test(telegramText);
+  const telegramHasInvite = /(?:https?:\/\/)?chat\.whatsapp\.com\//iu.test(telegramText.replaceAll('\\/', '/'));
 
   const load = useCallback(async (decision: DecisionFilter = filter) => {
     setLoading(true);
@@ -419,7 +419,7 @@ export function ChatDiscoveryDialog({
               </div>
             </details>}
             <p className="text-xs text-muted-foreground">
-              Наступний query відкриється автоматично після успішної передачі скану поточного запиту.
+              Збереження окремого джерела лишає цей query активним; лише «Завершити query» переходить до наступного.
             </p>
           </> : <span className="text-sm text-muted-foreground">Keyword plan завершено.</span>}
         </div>}

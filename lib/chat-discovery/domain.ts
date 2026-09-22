@@ -177,13 +177,14 @@ export async function ingestTelegramDiscovery(
   if (!query || query !== expectedQuery) {
     throw new DiscoveryError('Telegram-результати мають відповідати поточному запиту плану.', 409);
   }
-  const containsInvite = /(?:https?:\/\/)?chat\.whatsapp\.com\//iu.test(text);
+  const normalizedText = text.replaceAll('\\/', '/');
+  const containsInvite = /(?:https?:\/\/)?chat\.whatsapp\.com\//iu.test(normalizedText);
   if (containsInvite && (!sourceTitle || !isTelegramSourceUrl(sourceUrl))) {
     throw new DiscoveryError('Для Telegram-скану з WhatsApp invite потрібні назва чату та коректне посилання на Telegram-джерело.');
   }
   const seedLabel = boundedDiscoveryText(input.seedLabel, 180) || sourceTitle || query;
   const context = boundedDiscoveryText(input.context, 700);
-  const records = containsInvite ? extractInviteRecords(text, ['whatsapp'], {
+  const records = containsInvite ? extractInviteRecords(normalizedText, ['whatsapp'], {
     kind: 'telegram_global',
     sourceUrl,
     sourceTitle,
