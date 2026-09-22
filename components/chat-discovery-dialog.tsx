@@ -67,7 +67,6 @@ export function ChatDiscoveryDialog({
   const [telegramText, setTelegramText] = useState('');
   const [telegramSourceTitle, setTelegramSourceTitle] = useState('');
   const [telegramSourceUrl, setTelegramSourceUrl] = useState('');
-  const [telegramQuery, setTelegramQuery] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const stopRequested = useRef(false);
@@ -127,7 +126,6 @@ export function ChatDiscoveryDialog({
       const run = await ensureTelegramRun();
       const fresh = await load(filter);
       const query = fresh?.telegramPlan?.tasks[0]?.query || '';
-      if (query) setTelegramQuery(query);
       setNotice(`Telegram-план готовий. Починаємо із запиту №${run.telegramCursor + 1}.`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не вдалося запустити Telegram-пошук.');
@@ -147,10 +145,9 @@ export function ChatDiscoveryDialog({
         runId: run.id,
         version: run.version,
         processed: 1,
-        processedQuery: workspace.telegramPlan?.tasks[0]?.query || telegramQuery,
+        processedQuery: workspace.telegramPlan?.tasks[0]?.query || '',
       }) as unknown as { run: DiscoveryRun; plan: TelegramSearchPlan };
       setWorkspace(current => ({ ...current, run: payload.run, telegramPlan: payload.plan }));
-      setTelegramQuery(payload.plan.tasks[0]?.query || '');
       setTelegramSourceTitle('');
       setTelegramSourceUrl('');
       setTelegramText('');
@@ -214,9 +211,9 @@ export function ChatDiscoveryDialog({
         text: telegramText,
         sourceUrl: telegramSourceUrl,
         sourceTitle: telegramSourceTitle || 'Telegram Web',
-        query: telegramQuery,
-        seedLabel: telegramSourceTitle || telegramQuery || 'Telegram',
-        context: telegramQuery,
+        query: workspace.telegramPlan?.tasks[0]?.query || '',
+        seedLabel: telegramSourceTitle || workspace.telegramPlan?.tasks[0]?.query || 'Telegram',
+        context: workspace.telegramPlan?.tasks[0]?.query || '',
       }) as unknown as TelegramIngestResponse;
       setNotice(`Telegram: витягнуто ${payload.batch.extracted}, нових ${payload.batch.added}, дублів ${payload.batch.duplicates}.`);
       setTelegramText('');
@@ -453,7 +450,7 @@ export function ChatDiscoveryDialog({
         </div>
         <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-query">
           Ключове слово / запит
-          <Input id="telegram-query" value={telegramQuery} readOnly aria-readonly="true" disabled={telegramBusy} placeholder="Поточний запит із Telegram-плану" />
+          <Input id="telegram-query" value={workspace.telegramPlan?.tasks[0]?.query || ''} readOnly aria-readonly="true" disabled={telegramBusy} placeholder="Поточний запит із Telegram-плану" />
         </label>
         <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-scan">
           Результати пошуку Telegram
