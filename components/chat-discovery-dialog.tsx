@@ -348,7 +348,7 @@ export function ChatDiscoveryDialog({
 
   return <Dialog open={open} onOpenChange={next => { if (!next) close(); }}>
     <DialogContent
-      className="h-[min(92dvh,940px)] w-[calc(100vw-24px)] !max-w-[1180px] gap-0 overflow-hidden !rounded-2xl !p-0 sm:!max-w-[1180px]"
+      className="h-[min(92dvh,940px)] w-[calc(100vw-24px)] !max-w-[1180px] !flex !flex-col gap-0 overflow-hidden !rounded-2xl !p-0 sm:!max-w-[1180px]"
       overlayClassName="bg-black/25 supports-backdrop-filter:backdrop-blur-sm"
       showCloseButton={false}
     >
@@ -377,8 +377,8 @@ export function ChatDiscoveryDialog({
         {notice && !error && <output className="reports-notice">{notice}</output>}
       </div>}
 
-      <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[minmax(0,0.92fr)_minmax(460px,1.08fr)]">
-        <div className="min-h-0 overflow-y-auto border-b border-border/70 bg-muted/10 p-4 sm:p-5 lg:border-b-0 lg:border-r">
+      <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[minmax(0,0.92fr)_minmax(460px,1.08fr)] lg:overflow-hidden">
+        <div className="border-b border-border/70 bg-muted/10 p-4 sm:p-5 lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r">
           <div className="grid gap-4">
             <section className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm" aria-label="Параметри пошуку">
               <div className="flex items-start justify-between gap-4">
@@ -503,7 +503,7 @@ export function ChatDiscoveryDialog({
           </div>
         </div>
 
-        <section className="flex min-h-0 min-w-0 flex-col bg-background" aria-label="Кандидати">
+        <section className="flex min-h-[480px] min-w-0 flex-col bg-background lg:min-h-0" aria-label="Кандидати">
           <div className="border-b border-border/70 px-4 py-3 sm:px-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
