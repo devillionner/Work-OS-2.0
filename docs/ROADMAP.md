@@ -12,7 +12,11 @@
 | P5. Контрольований release та фінальний синхронний перенос | OPS-03/04, MIG, DATA-09/15–17, BACKUP-01/02 | P1–P4 прийняті; production target перевірений окремо; користувач прямо підтвердив остаточний перенос. Одна узгоджена свіжа копія замість щоденного resync; production не очищується; усі відмінності пояснені; є rollback коду та перевірені копії | Заблоковано критеріями parity, не починати |
 | P6. AI та додаткова автоматизація | Відкладені PROFILE/AD, LATER, DATA-07, desktop/native push за потреби | Надійний ручний процес прийнято; окремо визначено джерела, приватність, витрати, перегляд і підтвердження. Генерація/автопостинг не змінюють факт публікації до підтвердженого результату. Локальний AI — тільки за новим прямим дозволом | Відкладено |
 
-## Поточний стан P4 — 2026-09-21
+## Поточний стан P4 — 2026-09-23
+
+- Manual publication queue hardening: після `published` canonical publication/history/counters лишаються джерелом істини, але ready-list тепер сортує `published_today ASC` перед `updated_at`, тому щойно завершений чат не стрибає нагору й не відсуває наступну робочу дію. UI показує коротке підтвердження, а regression contract фіксує порядок.
+- Наступний GitHub-only operator gap: safe same-day publication undo/correction. Його не можна реалізувати видаленням badge або одного event — rollback має узгодити `chat_publications`, publication event, profile `next_allowed_on` і pending/completed Telegram schedule slot та не ламати state token/денні метрики.
+
 
 - UX-04 закрито shared subject vocabulary: CRM writes/search, chat-direction filters, Library subject tags і Report/Analytics grouping використовують один alias registry; відомі aliases канонізуються, невідомі legacy/custom значення не губляться. CRM subject inputs мають canonical suggestions без закритого select.
 - OPS-07 bounded-payload hardening уніфікує mutation body reads через streaming limits до повної алокації; прямі `request.text/json/arrayBuffer/formData` у mutation routes блокуються regression contract. Сам OPS-07 лишається partial до повного session/privacy audit і live acceptance.
@@ -48,11 +52,12 @@ P4 documentation is reconciled against the current code and tests on 2026-09-21.
 
 ## Найближчий активний етап
 
-1. Провести **cross-device acceptance** на двох реальних клієнтах: телефон ↔ ПК для workday/timers/Leads/Platforms та хоча б однієї зміни Reports/Settings. Перевірити latency, stale conflict і відсутність розбіжності після повторного focus/reload.
-2. Провести окремий **physical iPhone/Safari** acceptance: safe areas, touch, virtual keyboard, deep links, dialogs, sticky controls, responsive composition та auto-update UX. Chromium mobile не зараховувати як доказ Safari.
-3. Дозакрити live accessibility/reliability evidence, яке не можна чесно замінити contract tests: physical keyboard/Safari walkthrough для focus-return, offline/reconnect walkthrough та injected update-failure recovery. Exact history-dialog focus targets, 409/idempotency, reopen/reload і backup/restore safety вже мають code/test evidence; restore-drill не запускати лише заради галочки, якщо для цього треба змінювати staging data.
-4. Продовжувати синхронізувати PRODUCT_REQUIREMENTS лише з фактичними доказами; REPORT-09/21/22 звірені 2026-09-18 по code/test evidence. Сформувати фінальний parity gap list перед P5.
-5. Не брати без окремого рішення: offline outbox/PWA promises та final production cutover. PAY-01..04 і CRM message attachments уже входять у поточний Work OS; Chat Discovery/operator automation лишається погодженим scope; production — тільки після окремого прямого дозволу.
+1. Закрити **safe same-day publication undo/correction** як один атомарний operator flow: guarded current-day publication lookup → узгоджений rollback publication/event/profile cadence/Telegram slot → новий state token → автоматичне оновлення ready-list, «Доступні зараз», «Опубліковано сьогодні» і денного лічильника. Не робити UI-only undo.
+2. Провести **cross-device acceptance** на двох реальних клієнтах: телефон ↔ ПК для workday/timers/Leads/Platforms та хоча б однієї зміни Reports/Settings. Перевірити latency, stale conflict і відсутність розбіжності після повторного focus/reload.
+3. Провести окремий **physical iPhone/Safari** acceptance: safe areas, touch, virtual keyboard, deep links, dialogs, sticky controls, responsive composition та auto-update UX. Chromium mobile не зараховувати як доказ Safari.
+4. Дозакрити live accessibility/reliability evidence, яке не можна чесно замінити contract tests: physical keyboard/Safari walkthrough для focus-return, offline/reconnect walkthrough та injected update-failure recovery. Exact history-dialog focus targets, 409/idempotency, reopen/reload і backup/restore safety вже мають code/test evidence; restore-drill не запускати лише заради галочки, якщо для цього треба змінювати staging data.
+5. Продовжувати синхронізувати PRODUCT_REQUIREMENTS лише з фактичними доказами; REPORT-09/21/22 звірені 2026-09-18 по code/test evidence. Сформувати фінальний parity gap list перед P5.
+6. Не брати без окремого рішення: offline outbox/PWA promises та final production cutover. PAY-01..04 і CRM message attachments уже входять у поточний Work OS; Chat Discovery/operator automation лишається погодженим scope; production — тільки після окремого прямого дозволу.
 
 ## Gate кожного коміту й push
 
