@@ -16,7 +16,7 @@ const actionNames:Record<string,string>={
   joined:'Приєднано',waiting:'Очікування запрошення',approved:'Запрошення підтверджено',
   failed:'Невдале приєднання',archive:'Перенесено в архів',restore:'Відновлено',
   return_to_join:'Повернуто для приєднання',assign_account:'Перепризначено акаунт',
-  confirm_leave:'Вихід із чату підтверджено',undo_leave:'Підтвердження виходу скасовано',rename:'Чат перейменовано',
+  confirm_leave:'Вихід із чату підтверджено',undo_leave:'Підтвердження виходу скасовано',undo_published:'Публікацію скасовано',rename:'Чат перейменовано',
 };
 
 export function ChatHistoryDialog({open,chat,onClose,finalFocus}:{
@@ -100,6 +100,7 @@ function HistoryList({events}:{events:ChatHistoryItem[]}) {
   return <ol className="chat-history-list">{events.map(event=><li key={event.id}>
     <div><strong>{eventNames[event.eventType]||event.eventType}</strong>
       {event.eventType==='chat_state_changed'&&typeof event.metadata.action==='string'&&<span> · {actionNames[event.metadata.action]||event.metadata.action}</span>}
+      {event.eventType==='publication'&&event.cancelledAt&&<span> · скасовано</span>}
       {event.eventType==='publication'&&event.advertisementTitle&&<small className="chat-history-material"> · {event.advertisementTitle}</small>}
       {event.eventType==='publication'&&(event.metadata.language==='uk'||event.metadata.language==='ru')&&<small className="chat-history-material"> · {event.metadata.language==='uk'?'UA':'RU'}</small>}
     </div><time dateTime={new Date(event.occurredAt*1000).toISOString()}>{formatTime(event.occurredAt)}</time>
