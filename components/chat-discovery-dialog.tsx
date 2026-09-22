@@ -457,7 +457,7 @@ export function ChatDiscoveryDialog({
           <Textarea id="telegram-scan" rows={6} value={telegramText} disabled={telegramBusy} onChange={event => setTelegramText(event.target.value)} placeholder="Текст повідомлень або результатів пошуку з посиланнями chat.whatsapp.com…" />
         </label>
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" disabled={telegramBusy || searching || !telegramText.trim()} onClick={() => void ingestTelegramScan()}>
+          <Button type="button" variant="outline" disabled={telegramBusy || searching || !telegramText.trim() || workspace.run?.status !== 'running' || !workspace.telegramPlan?.tasks[0]?.query} onClick={() => void ingestTelegramScan()}>
             {telegramBusy ? <LoaderCircle data-icon="inline-start"/> : <ExternalLink data-icon="inline-start"/>}
             {telegramBusy ? 'Обробляємо…' : 'Передати Telegram-скан'}
           </Button>
