@@ -179,6 +179,25 @@ void test('Telegram plan refuses a receipt for a different query', async (t) => 
   assert.equal(unchanged.run.telegramCursor, 0);
 });
 
+void test('Telegram ingestion requires source title and Telegram URL provenance', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  const plan = await readTelegramDiscoveryPlan(db, 'u', run.id, 1);
+
+  await assert.rejects(
+    () => ingestTelegramDiscovery(db, 'u', run.id, {
+      text: 'Telegram search completed',
+      query: plan.plan.tasks[0].query,
+      sourceTitle: 'Telegram source',
+      sourceUrl: 'https://example.org/not-telegram',
+    }, 101),
+    /потрібні назва чату та коректне посилання/i,
+  );
+
+  const unchanged = await readTelegramDiscoveryPlan(db, 'u', run.id, 1);
+  assert.equal(unchanged.run.telegramCursor, 0);
+});
+
 void test('Telegram ingestion extracts WhatsApp only, keeps provenance and deduplicates repeats', async (t) => {
   const db = await localDatabase(t);
   const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
