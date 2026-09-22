@@ -4,7 +4,6 @@ import { transitionChat } from '../chats/transitions.ts';
 import {
   DiscoveryError,
   evaluateDiscoveryCandidate,
-  readCandidate,
   type DiscoveryCandidate,
   type DiscoveryDecision,
 } from './domain.ts';
