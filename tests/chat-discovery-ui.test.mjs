@@ -10,8 +10,8 @@ void test('Platforms exposes a real Chat Discovery workflow instead of an API-on
 
   assert.match(workspace, /ChatDiscoveryDialog/);
   assert.match(workspace, /Знайти чати/);
-  assert.match(dialog, /Почати пошук/);
-  assert.match(dialog, /Продовжити пошук/);
+  assert.match(dialog, /Почати Telegram-пошук/);
+  assert.match(dialog, /Додатковий web-пошук/);
   assert.match(dialog, /Зупинити/);
   assert.match(dialog, /Додати на перевірку/);
   assert.match(dialog, /Звідки знайдено/);
