@@ -33,6 +33,7 @@
   ],
   "rules": {
     "no-array-constructor": "error",
+    "no-unused-vars": "off",
     "no-var": "error",
     "prefer-const": "error",
     "prefer-rest-params": "error",
