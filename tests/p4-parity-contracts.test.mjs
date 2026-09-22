@@ -79,6 +79,7 @@ void test('AD-14/16/17 focus controls preserve data and expose plan freshness in
 
 void test('manual publishing and profile management cover the remaining operator parity surfaces', () => {
   const platform = source('components/platform-workspace.tsx');
+  const route = source('app/api/chats/route.ts');
   const publish = source('components/chat-publish-dialog.tsx');
   const profile = source('components/chat-profile-dialog.tsx');
   const selection = source('lib/chats/advertisement-selection.ts');
@@ -92,6 +93,8 @@ void test('manual publishing and profile management cover the remaining operator
   assert.match(profile, /Нотатка про правила/);
   assert.match(platform, /Профілі: ✓ \{profileSummary\.confirmed\}/);
   assert.match(platform, /Потребують правил \(\$\{profileSummary\?\.needsReview\|\|0\}\)/);
+  assert.match(route, /ORDER BY published_today ASC,CASE WHEN c\.snoozed_until IS NOT NULL/);
+  assert.match(platform, /Публікацію відмічено\. Чат переміщено нижче завершених на сьогодні/);
 });
 
 void test('WhatsApp and Viber quick publishing locks one material without bypassing normal publication rules', () => {
