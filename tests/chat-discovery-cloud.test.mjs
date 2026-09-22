@@ -186,9 +186,15 @@ void test('Telegram ingestion extracts WhatsApp only, keeps provenance and dedup
   assert.equal(workspace.candidates[0].sources[0].sourceUrl, 'https://t.me/example');
   assert.equal(workspace.candidates[0].sources[0].query, plan.plan.tasks[0].query);
 
-  const second = await ingestTelegramDiscovery(db, 'u', first.run.id, input, 102);
+  assert.equal(first.run.telegramCursor, 1);
+  const nextPlan = await readTelegramDiscoveryPlan(db, 'u', first.run.id, 1);
+  const second = await ingestTelegramDiscovery(db, 'u', first.run.id, {
+    ...input,
+    query: nextPlan.plan.tasks[0].query,
+  }, 102);
   assert.equal(second.batch.added, 0);
   assert.equal(second.batch.duplicates, 1);
+  assert.equal(second.run.telegramCursor, 2);
   assert.equal((await readDiscoveryWorkspace(db, 'u')).candidates.length, 1);
 });
 
