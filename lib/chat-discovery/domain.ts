@@ -380,6 +380,7 @@ export function evaluateDiscoveryCandidate(input: {
     [input.canWrite === true, 'unknown_can_write'],
     [['allowed', 'operator_confirmed'].includes(input.adsPolicy || 'unknown'), 'unknown_ads_allowed'],
     [input.activityState === 'active', 'unknown_activity'],
+    // A candidate cannot become target until both the invite itself and post-join access are confirmed.
     [input.linkState === 'valid', 'unknown_invite_validity'],
     [input.accessState === 'available', 'unknown_access'],
   ] as const;
