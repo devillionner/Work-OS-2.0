@@ -647,6 +647,42 @@ void test('confirmed external leave downgrades a target back to review', async (
   assert.deepEqual(stored.reasonCodes, ['all_required_confirmed']);
 });
 
+void test('joining removes only the membership blocker and preserves other qualification gaps', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  await ingestTelegramDiscovery(db, 'u', run.id, {
+    text:'Українці Berlin батьки https://chat.whatsapp.com/JoinKeepsOtherGaps123',
+    sourceUrl:'https://t.me/source',
+    sourceTitle:'Українці Berlin',
+    query:(await readTelegramDiscoveryPlan(db, 'u', run.id, 1)).plan.tasks[0].query,
+    context:'українська спільнота',
+    completeQuery:true,
+  }, 101);
+  let candidate = (await readDiscoveryWorkspace(db, 'u')).candidates[0];
+  const inspected = await applyDiscoveryInspection(db, 'u', {
+    candidateId: candidate.id,
+    expectedVersion: candidate.version,
+    result: {
+      status:'inspected', accessible:true,
+      observedName:'Українці Berlin батьки', chatType:'group', memberCount:900,
+      topicMatch:'match', canWrite:true, adsPolicy:'unknown', activityState:'active',
+    },
+  }, 102);
+  assert.equal(inspected.decision, 'review');
+  assert.deepEqual(inspected.reasonCodes, ['unknown_ads_allowed','unknown_membership']);
+
+  candidate = (await readDiscoveryWorkspace(db, 'u')).candidates[0];
+  const imported = await handoffDiscoveryCandidate(db, 'u', candidate.id, candidate.version, 103);
+  const toJoin = await readChatState(db, 'u', imported.chatId);
+  assert.ok(toJoin);
+  assert.equal((await transitionChat(db, { userId:'u', chat:toJoin, action:'joined', accountId:null, now:104 })).ok, true);
+
+  candidate = (await readDiscoveryWorkspace(db, 'u')).candidates[0];
+  assert.equal(candidate.membershipState, 'joined');
+  assert.equal(candidate.decision, 'review');
+  assert.deepEqual(candidate.reasonCodes, ['unknown_ads_allowed']);
+});
+
 void test('restoring an archived discovery chat resets membership instead of reviving target status', async (t) => {
   const { db, candidate, chatId } = await importedCandidate(t, 'InspectRestoreMembership123');
   const outcome = await applyDiscoveryInspection(db, 'u', {

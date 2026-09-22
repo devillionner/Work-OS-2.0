@@ -29,9 +29,14 @@ export function discoveryMembershipStatement(db: D1Database, input: {
           WHEN ?6 THEN '["unknown_chat_type","unknown_member_count","unknown_topic_match","unknown_can_write","unknown_ads_allowed","unknown_activity","unknown_membership","unknown_inspection","unknown_access"]'
           WHEN ?1<>'joined' AND decision='target' THEN '["unknown_membership"]'
           WHEN ?1='joined' AND decision='review' AND reason_codes_json='["unknown_membership"]' THEN '["all_required_confirmed"]'
-          WHEN ?1='joined' AND decision='review'
-            AND reason_codes_json='["unknown_chat_type","unknown_member_count","unknown_topic_match","unknown_can_write","unknown_ads_allowed","unknown_activity","unknown_membership","unknown_inspection","unknown_access"]'
-            THEN '["unknown_chat_type","unknown_member_count","unknown_topic_match","unknown_can_write","unknown_ads_allowed","unknown_activity","unknown_inspection","unknown_access"]'
+          WHEN ?1='joined' AND decision='review' AND EXISTS(
+            SELECT 1 FROM json_each(reason_codes_json) WHERE value='unknown_membership'
+          ) THEN (
+            SELECT COALESCE(json_group_array(value),'[]') FROM (
+              SELECT value FROM json_each(reason_codes_json)
+              WHERE value<>'unknown_membership' ORDER BY CAST(key AS INTEGER)
+            )
+          )
           ELSE reason_codes_json END,
         updated_at=?2,version=version+1
     WHERE user_id=?3 AND imported_chat_id=?4
