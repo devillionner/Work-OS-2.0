@@ -129,10 +129,13 @@ export async function undoManualPublication(
   const undoData = undo as {profileCadenceAdvanced?:unknown;previousNextAllowedOn?:unknown};
   if (typeof undoData.profileCadenceAdvanced !== 'boolean')
     return { ok:false,error:'Для цієї публікації бракує даних безпечного відновлення.' };
-  const previousNextAllowedOn = undoData.previousNextAllowedOn;
-  if (undoData.profileCadenceAdvanced && previousNextAllowedOn !== null &&
-      (typeof previousNextAllowedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(previousNextAllowedOn)))
-    return { ok:false,error:'Не вдалося підтвердити попередню дозволену дату публікації.' };
+  let previousNextAllowedOn: string | null = null;
+  if (undoData.profileCadenceAdvanced) {
+    const previous = undoData.previousNextAllowedOn;
+    if (previous !== null && (typeof previous !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(previous)))
+      return { ok:false,error:'Не вдалося підтвердити попередню дозволену дату публікації.' };
+    previousNextAllowedOn = previous;
+  }
 
   const slot = chat.platform === 'telegram'
     ? await db.prepare(`SELECT id FROM telegram_schedule_slots
@@ -171,9 +174,13 @@ export async function undoManualPublication(
       .bind(now,publication.event_id,userId,publication.source_key),
     chatStateEvent(db,{id:correctionEventId,userId,chatId:chat.id,action:'undo_published',now,previous:chat.state_token}),
   );
-  const results = await db.batch(statements);
-  return results.at(-1)?.meta.changes ? {ok:true}
-    : {ok:false,error:'Публікація вже змінилася. Оновіть список перед повторною спробою.'};
+  try {
+    const results = await db.batch(statements);
+    return results.at(-1)?.meta.changes ? {ok:true}
+      : {ok:false,error:'Публікація вже змінилася. Оновіть список перед повторною спробою.'};
+  } catch {
+    return {ok:false,error:'Не вдалося безпечно скасувати публікацію. Оновіть список і спробуйте ще раз.'};
+  }
 }
 
 function publicationProfile(row:Record<string,unknown>|null): Pick<ChatProfile,'reviewStatus'|'cadence'|'weekdays'|'customIntervalDays'|'nextAllowedOn'> | null {
