@@ -2,14 +2,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  advanceTelegramDiscoveryPlan,
+  cancelDiscoveryRun,
   continueDiscoveryRun,
   evaluateDiscoveryCandidate,
   handoffDiscoveryCandidate,
+  ingestTelegramDiscovery,
   readDiscoveryWorkspace,
+  readTelegramDiscoveryPlan,
   startDiscoveryRun,
 } from '../lib/chat-discovery/domain.ts';
 import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
-import { discoverPublicWeb, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl } from '../lib/chat-discovery/public-web.ts';
+import { buildTelegramSearchPlan, discoverPublicWeb, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl } from '../lib/chat-discovery/public-web.ts';
 import { changeChatLeave } from '../lib/chats/leave.ts';
 import { readChatState } from '../lib/chats/state.ts';
 import { transitionChat } from '../lib/chats/transitions.ts';
@@ -51,6 +55,7 @@ void test('public discovery rejects generic and spam WhatsApp groups before pers
   assert.equal(extractInviteRecords('International dating https://chat.whatsapp.com/Spam123', ['whatsapp'], base).length, 0);
   assert.equal(extractInviteRecords('Українці Berlin crypto signals https://chat.whatsapp.com/Spam456', ['whatsapp'], base).length, 0);
   assert.equal(extractInviteRecords('Українці Berlin батьки https://chat.whatsapp.com/Good123', ['whatsapp'], base).length, 1);
+  assert.equal(extractInviteRecords('Українці Berlin батьки chat.whatsapp.com/Good456', ['whatsapp'], base)[0].link, 'https://chat.whatsapp.com/Good456');
 });
 
 void test('public discovery rejects local/literal hosts and searches a bounded seed batch', async () => {
@@ -77,6 +82,130 @@ void test('public discovery rejects local/literal hosts and searches a bounded s
   assert.ok(result.records.every((item) => item.source.query.includes('українці')));
 });
 
+void test('Telegram keyword plan is deterministic, bounded and resolves workbook placeholders', () => {
+  const first = buildTelegramSearchPlan(0, 6);
+  assert.equal(first.cursor, 0);
+  assert.equal(first.tasks.length, 6);
+  assert.ok(first.totalTasks > 1000);
+  assert.equal(first.nextCursor, 6);
+  assert.equal(first.done, false);
+  assert.ok(first.tasks.every(task => task.query.length > 0));
+  assert.ok(first.tasks.every(task => !/назва |\(назва| або країни| або міста/iu.test(task.query)));
+  assert.equal(first.tasks[0].seedKind, 'city');
+  assert.ok(new Set(first.tasks.map(task => task.city)).size >= 2);
+  const all = buildTelegramSearchPlan(0, 20);
+  const seen = new Set();
+  let cursor = 0;
+  while (cursor < all.totalTasks) {
+    const page = buildTelegramSearchPlan(cursor, 20);
+    for (const task of page.tasks) {
+      const key = `${task.seedKind}|${task.country}|${task.city}|${task.template}`;
+      assert.equal(seen.has(key), false, `duplicate Telegram task: ${key}`);
+      seen.add(key);
+    }
+    assert.ok(page.nextCursor > cursor);
+    cursor = page.nextCursor;
+  }
+
+  const repeated = buildTelegramSearchPlan(0, 6);
+  assert.deepEqual(repeated, first);
+  const next = buildTelegramSearchPlan(first.nextCursor, 3);
+  assert.equal(next.cursor, first.nextCursor);
+  assert.ok(next.tasks.every(task => task.cursor >= first.nextCursor));
+});
+
+void test('Telegram plan cursor persists independently from public web cursor', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  const initial = await readTelegramDiscoveryPlan(db, 'u', run.id, 2);
+  assert.equal(initial.plan.cursor, 0);
+  assert.equal(initial.run.telegramCursor, 0);
+
+  const advanced = await advanceTelegramDiscoveryPlan(db, 'u', run.id, run.version, 1, initial.plan.tasks[0].query, 101);
+  assert.equal(advanced.run.telegramCursor, 1);
+  assert.equal(advanced.run.cursor, 0);
+  assert.equal(advanced.plan.cursor, 1);
+
+  const web = await continueDiscoveryRun(db, 'u', run.id, 102, async () =>
+    html('<div>Українці Berlin батьки https://chat.whatsapp.com/IndependentCursor123</div>'));
+  assert.equal(web.run.telegramCursor, 1);
+  assert.ok(web.run.cursor > 0);
+});
+
+void test('new discovery run resumes the Telegram keyword cursor instead of restarting', async (t) => {
+  const db = await localDatabase(t);
+  const first = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  const current = await readTelegramDiscoveryPlan(db, 'u', first.id, 1);
+  const advanced = await advanceTelegramDiscoveryPlan(db, 'u', first.id, first.version, 1, current.plan.tasks[0].query, 101);
+  assert.equal(advanced.run.telegramCursor, 1);
+  await cancelDiscoveryRun(db, 'u', first.id, advanced.run.version, 102);
+
+  const second = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 103);
+  assert.notEqual(second.id, first.id);
+  assert.equal(second.telegramCursor, 1);
+  assert.equal((await readTelegramDiscoveryPlan(db, 'u', second.id, 1)).plan.cursor, 1);
+});
+
+void test('Telegram plan refuses a receipt for a different query', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  await assert.rejects(
+    () => advanceTelegramDiscoveryPlan(db, 'u', run.id, run.version, 1, 'wrong query', 101),
+    error => error?.status === 409,
+  );
+  const unchanged = await readTelegramDiscoveryPlan(db, 'u', run.id, 1);
+  assert.equal(unchanged.run.telegramCursor, 0);
+});
+
+void test('Telegram ingestion extracts WhatsApp only, keeps provenance and deduplicates repeats', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  const plan = await readTelegramDiscoveryPlan(db, 'u', run.id, 1);
+  const input = {
+    text: [
+      'Українці Berlin батьки https://chat.whatsapp.com/TelegramInvite123',
+      'дублікат https://chat.whatsapp.com/TelegramInvite123',
+      'Viber https://invite.viber.com/?g2=Zm9vYmFy',
+    ].join('\n'),
+    sourceUrl: 'https://t.me/example',
+    sourceTitle: 'Українці в Берліні',
+    query: plan.plan.tasks[0].query,
+    seedLabel: 'Берлін',
+    context: 'Українці Німеччина',
+  };
+
+  const first = await ingestTelegramDiscovery(db, 'u', run.id, input, 101);
+  assert.equal(first.batch.extracted, 2);
+  assert.equal(first.batch.added, 1);
+  assert.equal(first.batch.duplicates, 0);
+
+  const workspace = await readDiscoveryWorkspace(db, 'u');
+  assert.equal(workspace.candidates.length, 1);
+  assert.equal(workspace.candidates[0].platform, 'whatsapp');
+  assert.equal(workspace.candidates[0].sources[0].kind, 'telegram_global');
+  assert.equal(workspace.candidates[0].sources[0].sourceUrl, 'https://t.me/example');
+  assert.equal(workspace.candidates[0].sources[0].query, plan.plan.tasks[0].query);
+
+  const second = await ingestTelegramDiscovery(db, 'u', first.run.id, input, 102);
+  assert.equal(second.batch.added, 0);
+  assert.equal(second.batch.duplicates, 1);
+  assert.equal((await readDiscoveryWorkspace(db, 'u')).candidates.length, 1);
+});
+
+void test('Telegram ingestion rejects results from a stale or different plan query', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  await assert.rejects(
+    () => ingestTelegramDiscovery(db, 'u', run.id, {
+      text: 'https://chat.whatsapp.com/StaleQueryInvite123',
+      sourceTitle: 'Telegram source',
+      query: 'not the current query',
+    }, 101),
+    error => error?.status === 409,
+  );
+  assert.equal((await readDiscoveryWorkspace(db, 'u')).candidates.length, 0);
+});
+
 void test('qualification is fail-closed until every target criterion is confirmed', () => {
   assert.deepEqual(evaluateDiscoveryCandidate({
     chatType: 'group',
@@ -88,6 +217,17 @@ void test('qualification is fail-closed until every target criterion is confirme
     accessState: 'available',
     linkState: 'valid',
   }), { decision: 'target', reasonCodes: ['all_required_confirmed'] });
+
+  assert.deepEqual(evaluateDiscoveryCandidate({
+    chatType: 'group',
+    memberCount: 900,
+    topicMatch: 'match',
+    canWrite: true,
+    adsPolicy: 'inferred_allowed',
+    activityState: 'active',
+    accessState: 'available',
+    linkState: 'valid',
+  }), { decision: 'review', reasonCodes: ['unknown_ads_allowed'] });
 
   const review = evaluateDiscoveryCandidate({
     chatType: 'group',
@@ -114,6 +254,24 @@ void test('qualification is fail-closed until every target criterion is confirme
   }, 700);
   assert.equal(rejected.decision, 'rejected');
   assert.ok(rejected.reasonCodes.includes('too_few_members'));
+
+  const tooLarge = evaluateDiscoveryCandidate({
+    chatType: 'group',
+    memberCount: 18_001,
+    topicMatch: 'match',
+    canWrite: true,
+    adsPolicy: 'allowed',
+    activityState: 'active',
+    accessState: 'available',
+    linkState: 'valid',
+  });
+  assert.equal(tooLarge.decision, 'rejected');
+  assert.ok(tooLarge.reasonCodes.includes('too_many_members'));
+
+  assert.deepEqual(evaluateDiscoveryCandidate({
+    linkState: 'invalid',
+    accessState: 'unavailable',
+  }), { decision: 'unavailable', reasonCodes: ['invalid_invite'] });
 });
 
 void test('discovery run persists one canonical candidate, provenance and owner isolation', async (t) => {
@@ -191,6 +349,37 @@ void test('discovery membership follows real chat transitions and ignores stale 
   assert.equal((await readDiscoveryWorkspace(db, 'u')).candidates[0].membershipState, 'joined');
 });
 
+void test('invalid WhatsApp invite is rejected before handoff without creating a chat row', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
+  await ingestTelegramDiscovery(db, 'u', run.id, {
+    text:'Українці Berlin батьки https://chat.whatsapp.com/ExpiredBeforeJoin123',
+    sourceUrl:'https://t.me/source',
+    sourceTitle:'Українці Berlin',
+    query:(await readTelegramDiscoveryPlan(db, 'u', run.id, 1)).plan.tasks[0].query,
+    context:'українська спільнота',
+  }, 101);
+  const candidate = (await readDiscoveryWorkspace(db, 'u')).candidates[0];
+  assert.ok(candidate);
+  assert.equal(candidate.importedChatId, null);
+
+  const outcome = await applyDiscoveryInspection(db, 'u', {
+    candidateId:candidate.id,
+    expectedVersion:candidate.version,
+    result:{status:'failed',accessible:false,reason:'invalid_whatsapp_link'},
+  }, 102);
+  assert.equal(outcome.chatId, null);
+  assert.equal(outcome.workflowStatus, 'not_imported');
+  assert.equal(outcome.decision, 'unavailable');
+  assert.ok(outcome.reasonCodes.includes('invalid_invite'));
+
+  const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.importedChatId, null);
+  assert.equal(stored.linkState, 'invalid');
+  const count = await db.prepare(`SELECT COUNT(*) AS count FROM chats WHERE user_id='u'`).first();
+  assert.equal(Number(count.count), 0);
+});
+
 void test('discovery handoff creates one to-join chat and is idempotent', async (t) => {
   const db = await localDatabase(t);
   const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
@@ -255,7 +444,7 @@ void test('inspection promotes an accepted WhatsApp target into ready workflow',
     result: {
       status:'inspected', accessible:true, membershipState:'joined',
       observedName:'Українці Praha допомога', chatType:'group', memberCount:900,
-      canWrite:true, adsPolicy:'allowed', activityState:'active',
+      topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
     },
   }, 110);
   assert.equal(outcome.decision, 'target');
@@ -287,9 +476,28 @@ void test('joined inspection with unknown rules stays ready but explicitly needs
   assert.equal(outcome.workflowStatus, 'ready');
   assert.equal(outcome.needsQualification, true);
   assert.equal(outcome.needsExternalLeave, false);
+  assert.ok(outcome.reasonCodes.includes('unknown_topic_match'));
   assert.ok(outcome.reasonCodes.includes('unknown_can_write'));
   assert.ok(outcome.reasonCodes.includes('unknown_ads_allowed'));
   assert.ok(outcome.reasonCodes.includes('unknown_activity'));
+});
+
+void test('inspection can record observed audience mismatch instead of trusting source inference', async (t) => {
+  const { db, candidate } = await importedCandidate(t, 'InspectAudienceMismatch123');
+  const outcome = await applyDiscoveryInspection(db, 'u', {
+    candidateId: candidate.id,
+    expectedVersion: candidate.version,
+    result: {
+      status:'inspected', accessible:true, membershipState:'joined',
+      observedName:'Прага community', chatType:'group', memberCount:900,
+      topicMatch:'mismatch', canWrite:true, adsPolicy:'allowed', activityState:'active',
+    },
+  }, 110);
+  assert.equal(outcome.decision, 'rejected');
+  assert.ok(outcome.reasonCodes.includes('topic_mismatch'));
+  assert.equal(outcome.needsExternalLeave, true);
+  const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.topicMatch, 'mismatch');
 });
 
 void test('joined rejected chat is not hidden before external leave succeeds', async (t) => {

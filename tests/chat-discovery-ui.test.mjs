@@ -40,3 +40,72 @@ void test('discovery UI exposes membership, inspection and post-join cleanup sta
   assert.match(route, /body\.action === 'inspect'/);
   assert.match(route, /applyDiscoveryInspection/);
 });
+
+void test('discovery UI exposes the Telegram to WhatsApp ingestion bridge', async () => {
+  const [dialog, route] = await Promise.all([
+    readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../app/api/chat-discovery/route.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(dialog, /Telegram → WhatsApp/);
+  assert.match(dialog, /Результати пошуку Telegram/);
+  assert.match(dialog, /Передати Telegram-скан/);
+  assert.match(dialog, /action: 'ingest-telegram'/);
+  assert.match(route, /body\.action === 'ingest-telegram'/);
+  assert.match(route, /ingestTelegramDiscovery/);
+});
+
+void test('Telegram keyword plan is the primary discovery flow and public web is explicitly fallback', async () => {
+  const [dialog, route, domain] = await Promise.all([
+    readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../app/api/chat-discovery/route.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../lib/chat-discovery/domain.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(dialog, /Почати Telegram-пошук/);
+  assert.match(dialog, /Черга Telegram-запитів/);
+  assert.match(dialog, /Опрацьовано → наступний/);
+  assert.match(dialog, /Додатковий web-пошук/);
+  assert.match(dialog, /run\.telegramCursor/);
+  assert.match(route, /body\.action === 'advance-telegram-plan'/);
+  assert.match(domain, /telegram_cursor/);
+  assert.match(domain, /buildTelegramSearchPlan/);
+});
+
+void test('Telegram ingestion and advancement use the persistent plan query as the only query source', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(dialog, /useState\(''\).*telegramQuery|setTelegramQuery/);
+  assert.match(dialog, /query: workspace\.telegramPlan\?\.tasks\[0\]\?\.query \|\| ''/);
+  assert.match(dialog, /processedQuery: workspace\.telegramPlan\?\.tasks\[0\]\?\.query \|\| ''/);
+  assert.match(dialog, /aria-readonly="true"/);
+  assert.match(dialog, /workspace\.run\?\.status !== 'running' \|\| !workspace\.telegramPlan\?\.tasks\[0\]\?\.query/);
+});
+
+void test('candidate cards expose the WhatsApp link and every target qualification criterion', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.match(dialog, /Відкрити WhatsApp/);
+  assert.match(dialog, /Учасники:/);
+  assert.match(dialog, /Активність:/);
+  assert.match(dialog, /Писати:/);
+  assert.match(dialog, /Оголошення:/);
+  assert.match(dialog, /Аудиторія:/);
+  assert.match(dialog, /adsPolicyLabel/);
+  assert.match(dialog, /topicMatchLabel/);
+});
+
+void test('operators can reject an invalid WhatsApp invite before creating a chat', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.match(dialog, /Invite недійсний/);
+  assert.match(dialog, /invalid_whatsapp_link/);
+  assert.match(dialog, /кандидат відхилено без створення чату/);
+});
+
+void test('imported WhatsApp candidates have a manual qualification fallback using the inspection contract', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.match(dialog, /Кваліфікувати вручну/);
+  assert.match(dialog, /Зберегти кваліфікацію/);
+  assert.match(dialog, /Писати можуть учасники/);
+  assert.match(dialog, /Дозволені/);
+  assert.match(dialog, /Цільова/);
+  assert.match(dialog, /membershipState: manualDraft\.membershipState/);
+  assert.match(dialog, /topicMatch: manualDraft\.topicMatch/);
+  assert.match(dialog, /action: 'inspect'/);
+});

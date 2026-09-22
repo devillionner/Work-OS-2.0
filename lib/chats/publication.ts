@@ -29,6 +29,11 @@ export async function recordManualPublication(
     return { ok:false,error:'Швидка публікація доступна лише для WhatsApp і Viber.' };
   if (quickMode && !advertisementId)
     return { ok:false,error:'Для швидкої публікації оберіть матеріал.' };
+  const discovery = await db.prepare(`SELECT decision FROM chat_discovery_candidates
+    WHERE user_id=?1 AND imported_chat_id=?2 ORDER BY updated_at DESC,id LIMIT 1`)
+    .bind(userId,chat.id).first<{ decision:string }>();
+  if (discovery && discovery.decision !== 'target')
+    return { ok:false,error:'Чат із автопошуку ще не пройшов кваліфікацію для публікації.' };
   const profileRow = await db.prepare(`SELECT p.cadence,p.weekdays_json,p.custom_interval_days,p.next_allowed_on,p.review_status
     FROM chat_profiles p JOIN chats c ON c.id=p.chat_id WHERE p.chat_id=?1 AND c.user_id=?2 LIMIT 1`).bind(chat.id,userId).first<Record<string,unknown>>();
   const profile = publicationProfile(profileRow);
@@ -58,6 +63,8 @@ export async function recordManualPublication(
       FROM chats c WHERE c.id=?7 AND c.user_id=?8 AND c.workflow_status='ready'
         AND (c.snoozed_until IS NULL OR c.snoozed_until<=?3)
         AND (c.platform!='telegram' OR c.joined_at IS NULL OR c.joined_at+21600<=?3)
+        AND NOT EXISTS(SELECT 1 FROM chat_discovery_candidates dc
+          WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.decision!='target')
         AND ${chatStateTokenSql()}=?9
         AND (?6 IS NULL OR EXISTS(SELECT 1 FROM library_items li
           WHERE li.id=?6 AND li.user_id=c.user_id AND li.kind='advertisement' AND li.archived_at IS NULL))

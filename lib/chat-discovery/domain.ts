@@ -1,6 +1,6 @@
 import { businessDate } from '../business-time.ts';
 import { cleanChatName, normalizeGroupLink, suggestedChatName, type ChatPlatform } from '../chats/bulk-input.ts';
-import { discoverPublicWeb, type DiscoveryPlatform, type DiscoveryRecord, type DiscoverySource } from './public-web.ts';
+import { buildTelegramSearchPlan, discoverPublicWeb, extractInviteRecords, type DiscoveryPlatform, type DiscoveryRecord, type DiscoverySource, type TelegramSearchPlan } from './public-web.ts';
 
 export type DiscoveryDecision = 'review' | 'target' | 'rejected' | 'unavailable';
 export type DiscoveryRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
@@ -12,6 +12,7 @@ export type DiscoveryRun = {
   goal: number;
   minMembers: number;
   cursor: number;
+  telegramCursor: number;
   searchedQueries: number;
   foundCount: number;
   duplicateCount: number;
@@ -59,7 +60,7 @@ export class DiscoveryError extends Error {
 
 type RunRow = {
   id: string; status: DiscoveryRunStatus; platforms_json: string; goal: number; min_members: number;
-  source_cursor: number; searched_queries: number; found_count: number; duplicate_count: number;
+  source_cursor: number; telegram_cursor: number; searched_queries: number; found_count: number; duplicate_count: number;
   imported_count: number; error_message: string | null; started_at: number; updated_at: number;
   completed_at: number | null; version: number;
 };
@@ -90,13 +91,15 @@ export async function startDiscoveryRun(
   const minMembers = boundedInteger(input.minMembers, 1, 10_000_000, 700);
   const existing = await activeRun(db, userId);
   if (existing) return mapRun(existing);
+  const previous = await latestRun(db, userId);
+  const telegramCursor = Math.max(0, Number(previous?.telegram_cursor || 0));
   const id = crypto.randomUUID();
   try {
     await db.prepare(`INSERT INTO chat_discovery_runs
-      (id,user_id,status,platforms_json,goal,min_members,source_cursor,searched_queries,found_count,duplicate_count,
+      (id,user_id,status,platforms_json,goal,min_members,source_cursor,telegram_cursor,searched_queries,found_count,duplicate_count,
        imported_count,error_message,started_at,updated_at,completed_at,version)
-      VALUES (?1,?2,'running',?3,?4,?5,0,0,0,0,0,NULL,?6,?6,NULL,1)`)
-      .bind(id, userId, JSON.stringify(platforms), goal, minMembers, now).run();
+      VALUES (?1,?2,'running',?3,?4,?5,0,?6,0,0,0,0,NULL,?7,?7,NULL,1)`)
+      .bind(id, userId, JSON.stringify(platforms), goal, minMembers, telegramCursor, now).run();
   } catch {
     const concurrent = await activeRun(db, userId);
     if (concurrent) return mapRun(concurrent);
@@ -146,11 +149,111 @@ export async function continueDiscoveryRun(
   return { run: merged.run, batch: { searched: web.searched, added: merged.added, duplicates: merged.duplicates, errors: web.errors } };
 }
 
+export async function ingestTelegramDiscovery(
+  db: D1Database,
+  userId: string,
+  runId: string,
+  input: {
+    text: unknown;
+    sourceUrl?: unknown;
+    sourceTitle?: unknown;
+    query?: unknown;
+    seedLabel?: unknown;
+    context?: unknown;
+  },
+  now: number,
+): Promise<{ run: DiscoveryRun; batch: { extracted: number; added: number; duplicates: number } }> {
+  const row = await readRun(db, userId, runId);
+  if (!row) throw new DiscoveryError('Запуск пошуку не знайдено.', 404);
+  if (row.status !== 'running') throw new DiscoveryError('Цей запуск пошуку вже завершено. Почніть новий.', 409);
+
+  const text = boundedDiscoveryText(input.text, 48_000);
+  if (!text) throw new DiscoveryError('Telegram-скан порожній.');
+  const sourceUrl = boundedDiscoveryText(input.sourceUrl, 1000);
+  const sourceTitle = boundedDiscoveryText(input.sourceTitle, 180) || 'Telegram source';
+  const query = boundedDiscoveryText(input.query, 500);
+  const expectedQuery = buildTelegramSearchPlan(row.telegram_cursor, 1).tasks[0]?.query || '';
+  if (!query || query !== expectedQuery) {
+    throw new DiscoveryError('Telegram-результати мають відповідати поточному запиту плану.', 409);
+  }
+  const seedLabel = boundedDiscoveryText(input.seedLabel, 180) || sourceTitle;
+  const context = boundedDiscoveryText(input.context, 700);
+  const records = extractInviteRecords(text, ['whatsapp'], {
+    kind: 'telegram_global',
+    sourceUrl,
+    sourceTitle,
+    query,
+    seedLabel,
+    seedKind: 'telegram_chat',
+    context,
+  });
+  if (!records.length) {
+    return { run: mapRun(row), batch: { extracted: 0, added: 0, duplicates: 0 } };
+  }
+
+  const merged = await persistDiscoveryBatch(db, userId, row, records, {
+    now,
+    nextCursor: row.source_cursor,
+    searched: 0,
+    done: false,
+    errors: 0,
+    completeAtGoal: false,
+  });
+  return {
+    run: merged.run,
+    batch: { extracted: records.length, added: merged.added, duplicates: merged.duplicates },
+  };
+}
+
+export async function readTelegramDiscoveryPlan(
+  db: D1Database,
+  userId: string,
+  runId: string,
+  limit = 6,
+): Promise<{ run: DiscoveryRun; plan: TelegramSearchPlan }> {
+  const row = await readRun(db, userId, runId);
+  if (!row) throw new DiscoveryError('Запуск пошуку не знайдено.', 404);
+  return { run: mapRun(row), plan: buildTelegramSearchPlan(row.telegram_cursor, boundedInteger(limit, 1, 20, 6)) };
+}
+
+export async function advanceTelegramDiscoveryPlan(
+  db: D1Database,
+  userId: string,
+  runId: string,
+  expectedVersion: number,
+  processed: number,
+  processedQuery: unknown,
+  now: number,
+): Promise<{ run: DiscoveryRun; plan: TelegramSearchPlan }> {
+  const row = await readRun(db, userId, runId);
+  if (!row) throw new DiscoveryError('Запуск пошуку не знайдено.', 404);
+  if (row.status !== 'running') throw new DiscoveryError('Цей запуск пошуку вже завершено. Почніть новий.', 409);
+  if (row.version !== expectedVersion) throw new DiscoveryError('План пошуку вже змінився в іншій вкладці. Оновіть стан.', 409);
+  const count = boundedInteger(processed, 1, 1, 1);
+  const currentPlan = buildTelegramSearchPlan(row.telegram_cursor, count);
+  if (!currentPlan.tasks.length) return { run: mapRun(row), plan: buildTelegramSearchPlan(row.telegram_cursor, 6) };
+  const expectedQuery = currentPlan.tasks[0].query;
+  const confirmedQuery = boundedDiscoveryText(processedQuery, 500);
+  if (!confirmedQuery || confirmedQuery !== expectedQuery) {
+    throw new DiscoveryError('Telegram-план можна просунути лише для поточного фактично опрацьованого запиту.', 409);
+  }
+  const nextCursor = currentPlan.nextCursor;
+  const updated = await db.prepare(`UPDATE chat_discovery_runs
+    SET telegram_cursor=?1,searched_queries=searched_queries+?2,updated_at=?3,version=version+1
+    WHERE id=?4 AND user_id=?5 AND status='running' AND version=?6 RETURNING id`)
+    .bind(nextCursor, currentPlan.tasks.length, now, runId, userId, expectedVersion)
+    .first<{ id: string }>();
+  if (!updated) throw new DiscoveryError('План пошуку вже змінився в іншій вкладці. Оновіть стан.', 409);
+  const fresh = await readRun(db, userId, runId);
+  if (!fresh) throw new DiscoveryError('Не вдалося прочитати оновлений план пошуку.', 500);
+  return { run: mapRun(fresh), plan: buildTelegramSearchPlan(fresh.telegram_cursor, 6) };
+}
+
 export async function readDiscoveryWorkspace(
   db: D1Database,
   userId: string,
   input: { decision?: string | null; limit?: number } = {},
-): Promise<{ run: DiscoveryRun | null; counts: Record<DiscoveryDecision, number>; importedCount: number; candidates: DiscoveryCandidate[] }> {
+): Promise<{ run: DiscoveryRun | null; telegramPlan: TelegramSearchPlan | null; counts: Record<DiscoveryDecision, number>; importedCount: number; candidates: DiscoveryCandidate[] }> {
   const decision = ['review', 'target', 'rejected', 'unavailable'].includes(input.decision || '') ? input.decision! : null;
   const limit = Math.max(1, Math.min(100, Number(input.limit) || 60));
   const [run, countsResult, importedResult, candidateResult] = await Promise.all([
@@ -170,6 +273,7 @@ export async function readDiscoveryWorkspace(
   for (const item of countsResult.results) counts[item.decision] = Number(item.count) || 0;
   return {
     run: run ? mapRun(run) : null,
+    telegramPlan: run ? buildTelegramSearchPlan(run.telegram_cursor, 6) : null,
     counts,
     importedCount: Number(importedResult?.count || 0),
     candidates: candidates.map((candidate) => mapCandidate(candidate, sources.get(candidate.id) || [])),
@@ -256,23 +360,25 @@ export function evaluateDiscoveryCandidate(input: {
   activityState?: DiscoveryCandidate['activityState'];
   accessState?: DiscoveryCandidate['accessState'];
   linkState?: DiscoveryCandidate['linkState'];
-}, minMembers = 700): { decision: DiscoveryDecision; reasonCodes: string[] } {
-  if (input.accessState === 'unavailable' || input.linkState === 'invalid') return { decision: 'unavailable', reasonCodes: ['access_unavailable'] };
+}, minMembers = 700, maxMembers = 18_000): { decision: DiscoveryDecision; reasonCodes: string[] } {
+  if (input.linkState === 'invalid') return { decision: 'unavailable', reasonCodes: ['invalid_invite'] };
+  if (input.accessState === 'unavailable') return { decision: 'unavailable', reasonCodes: ['access_unavailable'] };
   if (input.chatType === 'channel' || input.chatType === 'contact' || input.chatType === 'bot') return { decision: 'rejected', reasonCodes: ['not_discussion_group'] };
   const reasons: string[] = [];
   if (input.topicMatch === 'mismatch') reasons.push('topic_mismatch');
   if (input.canWrite === false) reasons.push('cannot_write');
   if (input.adsPolicy === 'forbidden') reasons.push('ads_forbidden');
   if (input.memberCount !== null && input.memberCount !== undefined && Number.isFinite(input.memberCount) && input.memberCount < minMembers) reasons.push('too_few_members');
+  if (input.memberCount !== null && input.memberCount !== undefined && Number.isFinite(input.memberCount) && input.memberCount > maxMembers) reasons.push('too_many_members');
   if (input.activityState === 'dead') reasons.push('inactive_chat');
   if (reasons.length) return { decision: 'rejected', reasonCodes: reasons };
 
   const required = [
     [['group', 'community'].includes(input.chatType || 'unknown'), 'unknown_chat_type'],
-    [Number.isFinite(input.memberCount) && Number(input.memberCount) >= minMembers, 'unknown_member_count'],
+    [Number.isFinite(input.memberCount) && Number(input.memberCount) >= minMembers && Number(input.memberCount) <= maxMembers, 'unknown_member_count'],
     [input.topicMatch === 'match', 'unknown_topic_match'],
     [input.canWrite === true, 'unknown_can_write'],
-    [['allowed', 'inferred_allowed', 'operator_confirmed'].includes(input.adsPolicy || 'unknown'), 'unknown_ads_allowed'],
+    [['allowed', 'operator_confirmed'].includes(input.adsPolicy || 'unknown'), 'unknown_ads_allowed'],
     [input.activityState === 'active', 'unknown_activity'],
   ] as const;
   for (const [ok, code] of required) if (!ok) reasons.push(code);
@@ -294,7 +400,7 @@ async function persistDiscoveryBatch(
   userId: string,
   run: RunRow,
   records: DiscoveryRecord[],
-  progress: { now: number; nextCursor: number; searched: number; done: boolean; errors: number },
+  progress: { now: number; nextCursor: number; searched: number; done: boolean; errors: number; completeAtGoal?: boolean },
 ): Promise<{ run: DiscoveryRun; added: number; duplicates: number }> {
   const canonical = new Map<string, { platform: DiscoveryPlatform; link: string; name: string; sources: DiscoverySource[] }>();
   for (const record of records) {
@@ -324,7 +430,7 @@ async function persistDiscoveryBatch(
     const existing = existingCandidates.get(`${item.platform}|${item.link}`);
     const candidateId = existing?.id || await stableId('candidate', `${userId}:${item.platform}:${item.link}`);
     const name = item.name || suggestedChatName(normalizeGroupLink(item.link)!);
-    const topicMatch = existing?.topic_match === 'unknown' || !existing ? inferDiscoveryTopicMatch(name, item.sources) : existing.topic_match;
+    const topicMatch = existing?.topic_match || 'unknown';
     const evaluated = evaluateDiscoveryCandidate({
       chatType: existing?.chat_type || 'unknown',
       memberCount: existing?.member_count ?? null,
@@ -367,7 +473,7 @@ async function persistDiscoveryBatch(
   }
 
   const projectedFound = run.found_count + added;
-  const completed = progress.done || projectedFound >= run.goal;
+  const completed = progress.done || (progress.completeAtGoal !== false && projectedFound >= run.goal);
   const errorMessage = progress.errors ? `Не вдалося прочитати ${progress.errors} джерел; пошук можна продовжити.` : null;
   statements.push(db.prepare(`UPDATE chat_discovery_runs SET
     status=?1,source_cursor=?2,searched_queries=searched_queries+?3,found_count=found_count+?4,
@@ -462,6 +568,7 @@ function mapRun(row: RunRow): DiscoveryRun {
     goal: row.goal,
     minMembers: row.min_members,
     cursor: row.source_cursor,
+    telegramCursor: row.telegram_cursor,
     searchedQueries: row.searched_queries,
     foundCount: row.found_count,
     duplicateCount: row.duplicate_count,
@@ -522,6 +629,11 @@ function safeReasons(value: string) {
     const parsed = JSON.parse(value) as unknown;
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string').slice(0, 20) : [];
   } catch { return []; }
+}
+
+function boundedDiscoveryText(value: unknown, max: number) {
+  if (typeof value !== 'string') return '';
+  return value.replace(/\u0000/g, '').trim().slice(0, max);
 }
 
 function normalizeText(value: string) {

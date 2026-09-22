@@ -65,6 +65,171 @@ const CURATED_SOURCES = [
   ['InfoChatUkraine · допомога', 'https://t.me/s/infochatukraine?before=46', 'українці допомога Польща Європа житло транспорт медицина переклад'],
 ] as const;
 
+export type TelegramSearchTask = {
+  cursor: number;
+  template: string;
+  query: string;
+  seedLabel: string;
+  seedKind: 'country' | 'city';
+  country: string;
+  city: string;
+};
+
+export type TelegramSearchPlan = {
+  cursor: number;
+  nextCursor: number;
+  totalTasks: number;
+  done: boolean;
+  tasks: TelegramSearchTask[];
+};
+
+export function buildTelegramSearchPlan(cursor = 0, limit = 6): TelegramSearchPlan {
+  const countries = [...new Set(SEEDS.cities.map(city => String(city.country || '').trim()).filter(Boolean))];
+  const cities = interleaveCitiesByCountry(uniqueTelegramCities(SEEDS.cities));
+  const unsupported = /(назва села|назва селища|район міста|назва района|назва області|пункту пропуску|навчального закладу|назва жк|слово пошук)/iu;
+  const staticTemplates = new Set(['Ukrainian in', 'Ukrainians', 'Ukraine chat']);
+  const ranked = (templates: readonly string[]) => templates
+    .map((template, index) => ({ template, index, priority: telegramTemplatePriority(template) }))
+    .sort((left, right) => left.priority - right.priority || left.index - right.index)
+    .map(item => item.template);
+  const countryTemplates = ranked(SEEDS.keywords.filter(template =>
+    (/назва країни/iu.test(template) || staticTemplates.has(template)) && !unsupported.test(template)));
+  const cityTemplates = ranked(SEEDS.keywords.filter(template =>
+    (/назва міста/iu.test(template) || staticTemplates.has(template)) && !unsupported.test(template)));
+  const cityTotal = cities.length * cityTemplates.length;
+  const countryTotal = countries.length * countryTemplates.length;
+  const totalTasks = cityTotal + countryTotal;
+  const start = clampInt(cursor, 0, totalTasks, 0);
+  const count = clampInt(limit, 1, 20, 6);
+  const tasks: TelegramSearchTask[] = [];
+
+  for (let index = start; index < Math.min(totalTasks, start + count); index += 1) {
+    if (index < cityTotal) {
+      const pair = telegramCityPair(index, cities.length, cityTemplates.length);
+      const city = cities[pair.cityIndex];
+      const template = cityTemplates[pair.templateIndex];
+      const cityLabel = String(city?.uk || city?.name || '').trim();
+      const country = String(city?.country || '').trim();
+      const query = renderTelegramTemplate(template, cityLabel, country, 'city');
+      if (query) tasks.push({ cursor:index, template, query, seedLabel:cityLabel, seedKind:'city', country, city:cityLabel });
+      continue;
+    }
+    const local = index - cityTotal;
+    const countryIndex = Math.floor(local / countryTemplates.length);
+    const template = countryTemplates[local % countryTemplates.length];
+    const country = countries[countryIndex];
+    const query = renderTelegramTemplate(template, '', country, 'country');
+    if (query) tasks.push({ cursor:index, template, query, seedLabel:country, seedKind:'country', country, city:'' });
+  }
+
+  const nextCursor = Math.min(totalTasks, start + count);
+  return { cursor:start, nextCursor, totalTasks, done:nextCursor >= totalTasks, tasks };
+}
+
+function telegramCityPair(index: number, cityCount: number, templateCount: number) {
+  const waveSize = 5;
+  let offset = index;
+  for (let templateStart = 0; templateStart < templateCount; templateStart += waveSize) {
+    const width = Math.min(waveSize, templateCount - templateStart);
+    const waveTotal = cityCount * width;
+    if (offset >= waveTotal) {
+      offset -= waveTotal;
+      continue;
+    }
+    return {
+      cityIndex: Math.floor(offset / width),
+      templateIndex: templateStart + (offset % width),
+    };
+  }
+  return { cityIndex: 0, templateIndex: 0 };
+}
+
+function uniqueTelegramCities(cities: readonly SeedCity[]): SeedCity[] {
+  const seen = new Set<string>();
+  const result: SeedCity[] = [];
+  for (const city of cities) {
+    const country = String(city.country || '').trim();
+    const label = String(city.uk || city.name || '').trim();
+    if (!country || !label) continue;
+    const key = `${country.toLocaleLowerCase('uk-UA')}|${label.toLocaleLowerCase('uk-UA')}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(city);
+  }
+  return result;
+}
+
+function interleaveCitiesByCountry(cities: readonly SeedCity[]): SeedCity[] {
+  const buckets = new Map<string, SeedCity[]>();
+  const order: string[] = [];
+  for (const city of cities) {
+    const country = String(city.country || '').trim();
+    if (!country) continue;
+    if (!buckets.has(country)) {
+      buckets.set(country, []);
+      order.push(country);
+    }
+    buckets.get(country)!.push(city);
+  }
+  for (const bucket of buckets.values()) bucket.sort((left, right) => Number(right.population || 0) - Number(left.population || 0));
+  const result: SeedCity[] = [];
+  for (let index = 0; ; index += 1) {
+    let added = false;
+    for (const country of order) {
+      const city = buckets.get(country)?.[index];
+      if (!city) continue;
+      result.push(city);
+      added = true;
+    }
+    if (!added) break;
+  }
+  return result;
+}
+
+function telegramTemplatePriority(template: string) {
+  const text = template.toLocaleLowerCase('uk-UA');
+  if (text === 'просто назва міста') return 0;
+  if (/українці в (місті|країні)/u.test(text)) return 1;
+  if (/назва міста чат/u.test(text)) return 2;
+  if (/допомога українцям|помощь украинцам|допомога біженцям/u.test(text)) return 3;
+  if (/мамоч|батьки/u.test(text)) return 4;
+  if (/барахол|оголош|объявлен|віддам|обмін|продаж/u.test(text)) return 5;
+  if (/оренд|зніму житло|ріелтор/u.test(text)) return 6;
+  if (/перевіз|перевез|передач/u.test(text)) return 7;
+  if (text === 'ukrainian in' || text === 'ukrainians' || text === 'ukraine chat') return 8;
+  return 20;
+}
+
+function renderTelegramTemplate(template: string, city: string, country: string, mode: 'country' | 'city') {
+  const place = mode === 'city' ? city : country;
+  if (template === 'Ukrainian in') return place ? `Ukrainian in ${place}` : '';
+  if (template === 'Ukrainians') return place ? `Ukrainians ${place}` : '';
+  if (template === 'Ukraine chat') return place ? `Ukraine chat ${place}` : '';
+  if (template === 'Просто назва міста') return mode === 'city' ? city : '';
+
+  let query = template;
+  if (mode === 'city') {
+    if (!city) return '';
+    query = query
+      .replace(/Українці в місті \(назва міста\)/giu, `Українці в ${city}`)
+      .replace(/назва міста або країни/giu, city)
+      .replace(/назва країни або міста/giu, city)
+      .replace(/\(назва міста\)/giu, city)
+      .replace(/назва міста/giu, city);
+  } else {
+    if (!country) return '';
+    query = query
+      .replace(/Українці в країні \(назва країни\)/giu, `Українці в ${country}`)
+      .replace(/назва міста або країни/giu, country)
+      .replace(/назва країни або міста/giu, country)
+      .replace(/\(назва країни\)/giu, country)
+      .replace(/назва країни/giu, country);
+  }
+  query = query.replace(/\s*\+\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!query || /назва |\(назва| або країни| або міста/iu.test(query)) return '';
+  return query;
+}
+
 export function buildPublicSearchTasks(platforms: DiscoveryPlatform[]): SearchTask[] {
   const buckets = new Map<string, SeedCity[]>();
   const countryOrder: string[] = [];
@@ -179,7 +344,7 @@ export function extractInviteRecords(
   source: Omit<DiscoverySource, 'kind'> & { kind?: DiscoverySourceKind },
 ): DiscoveryRecord[] {
   const decoded = decodeHtml(text).replaceAll('\\/', '/');
-  const pattern = /https?:\/\/(?:chat\.whatsapp\.com|invite\.viber\.com|chats\.viber\.com|vb\.me)\/?[^\s<>"'\\]*/gi;
+  const pattern = /(?:https?:\/\/)?(?:chat\.whatsapp\.com|invite\.viber\.com|chats\.viber\.com|vb\.me)\/?[^\s<>"'\\]*/gi;
   const records: DiscoveryRecord[] = [];
   for (const match of decoded.matchAll(pattern)) {
     const raw = trimInvite(match[0]);
@@ -191,7 +356,7 @@ export function extractInviteRecords(
     records.push({
       platform: parsed.platform,
       link: parsed.link,
-      nameHint: inferInviteLabel(context, raw),
+      nameHint: inferInviteLabel(context, parsed.link),
       source: {
         kind: source.kind || 'public_web',
         sourceUrl: bound(source.sourceUrl, 1000),

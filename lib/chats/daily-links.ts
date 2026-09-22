@@ -20,6 +20,8 @@ export function availableTodayStatement(db: D1Database, input: {
       AND (c.snoozed_until IS NULL OR c.snoozed_until<=?5)
       AND (c.platform!='telegram' OR c.joined_at IS NULL OR c.joined_at+21600<=?5)
       AND (?2!='telegram' OR c.telegram_account_id=?4)
+      AND NOT EXISTS(SELECT 1 FROM chat_discovery_candidates dc
+        WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.decision!='target')
       AND NOT EXISTS(SELECT 1 FROM chat_publications p
         WHERE p.user_id=c.user_id AND p.chat_id=c.id AND p.published_on=?3)
       AND ${profilePublicationEligibilitySql('?3','?6')}

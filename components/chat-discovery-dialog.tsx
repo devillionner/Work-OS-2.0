@@ -6,11 +6,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import type { DiscoveryCandidate, DiscoveryDecision, DiscoveryRun } from '@/lib/chat-discovery/domain';
-import type { DiscoveryPlatform } from '@/lib/chat-discovery/public-web';
+import type { DiscoveryPlatform, TelegramSearchPlan } from '@/lib/chat-discovery/public-web';
 
 type Workspace = {
   run: DiscoveryRun | null;
+  telegramPlan: TelegramSearchPlan | null;
   counts: Record<DiscoveryDecision, number>;
   importedCount: number;
   candidates: DiscoveryCandidate[];
@@ -22,6 +24,17 @@ type ContinueResponse = {
   error?: string;
 };
 type ImportResponse = { chatId?: string; existing?: boolean; workflowStatus?: string; error?: string };
+type TelegramIngestResponse = { run: DiscoveryRun; batch: { extracted: number; added: number; duplicates: number }; error?: string };
+type ManualInspectionDraft = {
+  candidateId: string;
+  memberCount: string;
+  activityState: 'unknown' | 'active' | 'dead';
+  canWrite: 'unknown' | 'yes' | 'no';
+  adsPolicy: 'unknown' | 'operator_confirmed' | 'forbidden';
+  topicMatch: 'unknown' | 'match' | 'mismatch';
+  membershipState: 'not_checked' | 'pending' | 'joined';
+  chatType: 'unknown' | 'group' | 'community' | 'channel';
+};
 type DecisionFilter = 'all' | DiscoveryDecision;
 
 const EMPTY_COUNTS: Record<DiscoveryDecision, number> = {
@@ -40,7 +53,7 @@ export function ChatDiscoveryDialog({
   onClose: () => void;
   onImported: (platform: DiscoveryPlatform) => void;
 }) {
-  const [workspace, setWorkspace] = useState<Workspace>({ run: null, counts: EMPTY_COUNTS, importedCount: 0, candidates: [] });
+  const [workspace, setWorkspace] = useState<Workspace>({ run: null, telegramPlan: null, counts: EMPTY_COUNTS, importedCount: 0, candidates: [] });
   const platforms: DiscoveryPlatform[] = ['whatsapp'];
   const [goal, setGoal] = useState(30);
   const [minMembers, setMinMembers] = useState(700);
@@ -48,6 +61,12 @@ export function ChatDiscoveryDialog({
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [importingId, setImportingId] = useState<string | null>(null);
+  const [inspectingId, setInspectingId] = useState<string | null>(null);
+  const [manualDraft, setManualDraft] = useState<ManualInspectionDraft | null>(null);
+  const [telegramBusy, setTelegramBusy] = useState(false);
+  const [telegramText, setTelegramText] = useState('');
+  const [telegramSourceTitle, setTelegramSourceTitle] = useState('');
+  const [telegramSourceUrl, setTelegramSourceUrl] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const stopRequested = useRef(false);
@@ -90,6 +109,58 @@ export function ChatDiscoveryDialog({
     return payload;
   }
 
+  async function ensureTelegramRun() {
+    let run = workspace.run?.status === 'running' ? workspace.run : null;
+    if (run) return run;
+    const payload = await post({ action: 'start', platforms, goal, minMembers });
+    run = payload.run as DiscoveryRun;
+    setWorkspace(current => ({ ...current, run }));
+    return run;
+  }
+
+  async function startTelegramSearch() {
+    if (telegramBusy) return;
+    setTelegramBusy(true);
+    setError('');
+    try {
+      const run = await ensureTelegramRun();
+      const fresh = await load(filter);
+      const query = fresh?.telegramPlan?.tasks[0]?.query || '';
+      setNotice(`Telegram-план готовий. Починаємо із запиту №${run.telegramCursor + 1}.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Не вдалося запустити Telegram-пошук.');
+    } finally {
+      setTelegramBusy(false);
+    }
+  }
+
+  async function advanceTelegramTask() {
+    const run = workspace.run;
+    if (!run || run.status !== 'running' || telegramBusy) return;
+    setTelegramBusy(true);
+    setError('');
+    try {
+      const payload = await post({
+        action: 'advance-telegram-plan',
+        runId: run.id,
+        version: run.version,
+        processed: 1,
+        processedQuery: workspace.telegramPlan?.tasks[0]?.query || '',
+      }) as unknown as { run: DiscoveryRun; plan: TelegramSearchPlan };
+      setWorkspace(current => ({ ...current, run: payload.run, telegramPlan: payload.plan }));
+      setTelegramSourceTitle('');
+      setTelegramSourceUrl('');
+      setTelegramText('');
+      setNotice(payload.plan.done ? 'Telegram keyword plan завершено.' : 'Перейшли до наступного Telegram-запиту.');
+      await load(filter);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Не вдалося перейти до наступного Telegram-запиту.');
+      await load(filter);
+    } finally {
+      setTelegramBusy(false);
+    }
+  }
+
   async function startOrContinue() {
     if (searching) return;
     stopRequested.current = false;
@@ -124,6 +195,117 @@ export function ChatDiscoveryDialog({
     } finally {
       setSearching(false);
       stopRequested.current = false;
+    }
+  }
+
+  async function ingestTelegramScan() {
+    if (telegramBusy || !telegramText.trim()) return;
+    setTelegramBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const run = await ensureTelegramRun();
+      const payload = await post({
+        action: 'ingest-telegram',
+        runId: run.id,
+        text: telegramText,
+        sourceUrl: telegramSourceUrl,
+        sourceTitle: telegramSourceTitle || 'Telegram Web',
+        query: workspace.telegramPlan?.tasks[0]?.query || '',
+        seedLabel: telegramSourceTitle || workspace.telegramPlan?.tasks[0]?.query || 'Telegram',
+        context: workspace.telegramPlan?.tasks[0]?.query || '',
+      }) as unknown as TelegramIngestResponse;
+      setNotice(`Telegram: витягнуто ${payload.batch.extracted}, нових ${payload.batch.added}, дублів ${payload.batch.duplicates}.`);
+      setTelegramText('');
+      await load(filter);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Не вдалося передати Telegram-результати в пошук.');
+    } finally {
+      setTelegramBusy(false);
+    }
+  }
+
+  async function markInviteInvalid(candidate: DiscoveryCandidate) {
+    if (inspectingId) return;
+    setInspectingId(candidate.id);
+    setError('');
+    try {
+      await post({
+        action: 'inspect',
+        candidateId: candidate.id,
+        version: candidate.version,
+        result: { status:'failed', accessible:false, reason:'invalid_whatsapp_link' },
+      });
+      setNotice('Invite недійсний або прострочений — кандидат відхилено без створення чату.');
+      await load(filter);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Не вдалося зафіксувати недійсний invite.');
+    } finally {
+      setInspectingId(null);
+    }
+  }
+
+  function toggleManualInspection(candidate: DiscoveryCandidate) {
+    if (manualDraft?.candidateId === candidate.id) {
+      setManualDraft(null);
+      return;
+    }
+    openManualInspection(candidate);
+  }
+
+  function openManualInspection(candidate: DiscoveryCandidate) {
+    setManualDraft({
+      candidateId: candidate.id,
+      memberCount: candidate.memberCount === null ? '' : String(candidate.memberCount),
+      activityState: candidate.activityState,
+      canWrite: candidate.canWrite === null ? 'unknown' : candidate.canWrite ? 'yes' : 'no',
+      adsPolicy: candidate.adsPolicy === 'forbidden' ? 'forbidden'
+        : candidate.adsPolicy === 'allowed' || candidate.adsPolicy === 'operator_confirmed'
+          ? 'operator_confirmed' : 'unknown',
+      topicMatch: candidate.topicMatch,
+      membershipState: candidate.membershipState === 'left' ? 'not_checked' : candidate.membershipState,
+      chatType: candidate.chatType === 'group' || candidate.chatType === 'community' || candidate.chatType === 'channel' ? candidate.chatType : 'unknown',
+    });
+  }
+
+  async function submitManualInspection(candidate: DiscoveryCandidate) {
+    if (!manualDraft || manualDraft.candidateId !== candidate.id || inspectingId) return;
+    const rawCount = manualDraft.memberCount.trim();
+    const memberCount = rawCount === '' ? null : Number(rawCount);
+    if (memberCount !== null && (!Number.isSafeInteger(memberCount) || memberCount < 0 || memberCount > 10_000_000)) {
+      setError('Некоректна кількість учасників.');
+      return;
+    }
+    setInspectingId(candidate.id);
+    setError('');
+    try {
+      const payload = await post({
+        action: 'inspect',
+        candidateId: candidate.id,
+        version: candidate.version,
+        result: {
+          status: 'inspected',
+          accessible: true,
+          membershipState: manualDraft.membershipState,
+          observedName: candidate.name,
+          chatType: manualDraft.chatType,
+          memberCount,
+          topicMatch: manualDraft.topicMatch,
+          canWrite: manualDraft.canWrite === 'unknown' ? null : manualDraft.canWrite === 'yes',
+          adsPolicy: manualDraft.adsPolicy,
+          activityState: manualDraft.activityState,
+        },
+      }) as unknown as { decision?: DiscoveryDecision; needsExternalLeave?: boolean };
+      setNotice(payload.needsExternalLeave
+        ? 'Кваліфікацію збережено. Чат нецільовий — після виходу з WhatsApp підтвердь leave у Work OS.'
+        : `Кваліфікацію збережено: ${payload.decision ? decisionLabel(payload.decision) : 'оновлено'}.`);
+      setManualDraft(null);
+      await load(filter);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Не вдалося зберегти кваліфікацію.');
+      await load(filter);
+    } finally {
+      setInspectingId(null);
     }
   }
 
@@ -171,8 +353,8 @@ export function ChatDiscoveryDialog({
       <DialogHeader className="pr-10">
         <DialogTitle>Пошук нових чатів</DialogTitle>
         <DialogDescription>
-          Публічний пошук WhatsApp з дедуплікацією та provenance. Невідомі критерії не вважаються підтвердженими:
-          кандидат спочатку переходить у «Для приєднання», де проходить фактичну перевірку.
+          Пошук WhatsApp-кандидатів з дедуплікацією та provenance. Цільовий діапазон — 700–18 000 учасників.
+          Невідомі критерії не вважаються підтвердженими: кандидат спочатку проходить фактичну перевірку.
         </DialogDescription>
       </DialogHeader>
       <Button className="absolute right-3 top-3" variant="ghost" size="icon" aria-label="Закрити" onClick={close}><X/></Button>
@@ -213,14 +395,74 @@ export function ChatDiscoveryDialog({
           </label>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" disabled={telegramBusy || searching || run?.status === 'running'} onClick={() => void startTelegramSearch()}>
+            {telegramBusy ? <LoaderCircle data-icon="inline-start"/> : <Search data-icon="inline-start"/>}
+            {run?.status === 'running' ? 'Telegram-план активний' : 'Почати Telegram-пошук'}
+          </Button>
           {searching
-            ? <><Button type="button" variant="outline" onClick={() => { stopRequested.current = true; }}><Square data-icon="inline-start"/>Зупинити</Button><Button disabled><LoaderCircle data-icon="inline-start"/>Шукаємо…</Button></>
-            : <Button type="button" onClick={() => void startOrContinue()}><Search data-icon="inline-start"/>{run?.status === 'running' ? 'Продовжити пошук' : 'Почати пошук'}</Button>}
+            ? <><Button type="button" variant="outline" onClick={() => { stopRequested.current = true; }}><Square data-icon="inline-start"/>Зупинити fallback</Button><Button disabled><LoaderCircle data-icon="inline-start"/>Web fallback…</Button></>
+            : <Button type="button" variant="outline" onClick={() => void startOrContinue()}>Додатковий web-пошук</Button>}
           {run && <span className="text-sm text-muted-foreground">
-            Запитів: {run.searchedQueries} · знайдено: {run.foundCount} · дублі: {run.duplicateCount} · передано: {workspace.importedCount}
+            Telegram: {run.telegramCursor} · опрацьовано запитів: {run.searchedQueries} · знайдено: {run.foundCount} · дублі: {run.duplicateCount} · передано: {workspace.importedCount}
           </span>}
         </div>
         {run?.errorMessage && <small className="text-muted-foreground">{run.errorMessage}</small>}
+      </section>
+
+      <section className="grid gap-3 rounded-xl border border-border/70 p-3" aria-label="Telegram джерело WhatsApp">
+        <div className="grid gap-1">
+          <strong>Telegram → WhatsApp</strong>
+          <span className="text-xs text-muted-foreground">
+            Основний канал discovery: Work OS бере наступний запит із твоєї keyword matrix, Telegram шукає джерела, а знайдені chat.whatsapp.com проходять dedupe та qualification.
+          </span>
+        </div>
+        {workspace.telegramPlan && <div className="grid gap-2 rounded-lg border border-border/70 bg-muted/20 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <strong>Черга Telegram-запитів</strong>
+            <span className="text-xs text-muted-foreground">{workspace.telegramPlan.cursor} / {workspace.telegramPlan.totalTasks}</span>
+          </div>
+          {workspace.telegramPlan.tasks.length ? <>
+            <div className="rounded-lg bg-background p-3">
+              <div className="text-xs text-muted-foreground">Поточний · {workspace.telegramPlan.tasks[0].seedKind === 'city' ? workspace.telegramPlan.tasks[0].city : workspace.telegramPlan.tasks[0].country}</div>
+              <div className="mt-1 font-medium">{workspace.telegramPlan.tasks[0].query}</div>
+              <div className="mt-1 text-xs text-muted-foreground">Шаблон: {workspace.telegramPlan.tasks[0].template}</div>
+            </div>
+            {workspace.telegramPlan.tasks.length > 1 && <details>
+              <summary className="cursor-pointer text-sm font-medium">Наступні запити · {workspace.telegramPlan.tasks.length - 1}</summary>
+              <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
+                {workspace.telegramPlan.tasks.slice(1).map(task => <div key={task.cursor}>{task.cursor + 1}. {task.query}</div>)}
+              </div>
+            </details>}
+            <Button type="button" variant="outline" disabled={telegramBusy || searching || workspace.run?.status !== 'running' || Boolean(telegramText.trim())} onClick={() => void advanceTelegramTask()}>
+              Опрацьовано → наступний
+            </Button>
+          </> : <span className="text-sm text-muted-foreground">Keyword plan завершено.</span>}
+        </div>}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-source-title">
+            Telegram-чат
+            <Input id="telegram-source-title" value={telegramSourceTitle} disabled={telegramBusy} onChange={event => setTelegramSourceTitle(event.target.value)} placeholder="Українці в Берліні" />
+          </label>
+          <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-source-url">
+            Посилання на джерело
+            <Input id="telegram-source-url" value={telegramSourceUrl} disabled={telegramBusy} onChange={event => setTelegramSourceUrl(event.target.value)} placeholder="https://t.me/…" />
+          </label>
+        </div>
+        <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-query">
+          Ключове слово / запит
+          <Input id="telegram-query" value={workspace.telegramPlan?.tasks[0]?.query || ''} readOnly aria-readonly="true" disabled={telegramBusy} placeholder="Поточний запит із Telegram-плану" />
+        </label>
+        <label className="grid gap-1 text-sm font-medium" htmlFor="telegram-scan">
+          Результати пошуку Telegram
+          <Textarea id="telegram-scan" rows={6} value={telegramText} disabled={telegramBusy} onChange={event => setTelegramText(event.target.value)} placeholder="Текст повідомлень або результатів пошуку з посиланнями chat.whatsapp.com…" />
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" disabled={telegramBusy || searching || !telegramText.trim() || workspace.run?.status !== 'running' || !workspace.telegramPlan?.tasks[0]?.query} onClick={() => void ingestTelegramScan()}>
+            {telegramBusy ? <LoaderCircle data-icon="inline-start"/> : <ExternalLink data-icon="inline-start"/>}
+            {telegramBusy ? 'Обробляємо…' : 'Передати Telegram-скан'}
+          </Button>
+          <span className="text-xs text-muted-foreground">Цей вхід також використовується браузерною автоматизацією; вручну копіювати результати не обов’язково.</span>
+        </div>
       </section>
 
       <section className="grid gap-3" aria-label="Кандидати">
@@ -257,25 +499,83 @@ export function ChatDiscoveryDialog({
                         <Badge variant="outline">{inspectionLabel(candidate.inspectionState)}</Badge>
                       </div>}
                     </div>
-                    {candidate.importedChatId
-                      ? <Badge variant="secondary">У Work OS</Badge>
-                      : (candidate.decision === 'review' || candidate.decision === 'target') &&
-                        <Button type="button" size="sm" disabled={importingId !== null} onClick={() => void importCandidate(candidate)}>
-                          {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                          Додати на перевірку
+                    <div className="flex flex-wrap items-center gap-2">
+                      <a className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium hover:bg-muted" href={candidate.link} target="_blank" rel="noreferrer">
+                        Відкрити WhatsApp <ExternalLink className="size-3.5"/>
+                      </a>
+                      {!candidate.importedChatId && candidate.decision === 'review' &&
+                        <Button type="button" size="sm" variant="outline" disabled={inspectingId !== null} onClick={() => void markInviteInvalid(candidate)}>
+                          {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
+                          Invite недійсний
                         </Button>}
+                      {candidate.importedChatId
+                        ? <Badge variant="secondary">У Work OS</Badge>
+                        : (candidate.decision === 'review' || candidate.decision === 'target') &&
+                          <Button type="button" size="sm" disabled={importingId !== null || inspectingId !== null} onClick={() => void importCandidate(candidate)}>
+                            {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
+                            Додати на перевірку
+                          </Button>}
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {candidate.reasonCodes.map(code => <span key={code} className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{reasonLabel(code)}</span>)}
                   </div>
+                  {candidate.importedChatId && <div className="grid gap-2">
+                    <Button type="button" size="sm" variant="outline" className="w-fit" onClick={() => toggleManualInspection(candidate)}>
+                      {manualDraft?.candidateId === candidate.id ? 'Закрити ручну кваліфікацію' : 'Кваліфікувати вручну'}
+                    </Button>
+                    {manualDraft?.candidateId === candidate.id && <div className="grid gap-3 rounded-lg border border-border/70 bg-muted/20 p-3">
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        <label className="grid gap-1 text-xs font-medium">Учасники
+                          <Input type="number" min={0} max={10_000_000} value={manualDraft.memberCount} onChange={event => setManualDraft({...manualDraft, memberCount:event.target.value})} placeholder="700–18000" />
+                        </label>
+                        <label className="grid gap-1 text-xs font-medium">Активність
+                          <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.activityState} onChange={event => setManualDraft({...manualDraft, activityState:event.target.value as ManualInspectionDraft['activityState']})}>
+                            <option value="unknown">Невідомо</option><option value="active">Активний</option><option value="dead">Неактивний</option>
+                          </select>
+                        </label>
+                        <label className="grid gap-1 text-xs font-medium">Писати можуть учасники
+                          <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.canWrite} onChange={event => setManualDraft({...manualDraft, canWrite:event.target.value as ManualInspectionDraft['canWrite']})}>
+                            <option value="unknown">Невідомо</option><option value="yes">Так</option><option value="no">Ні</option>
+                          </select>
+                        </label>
+                        <label className="grid gap-1 text-xs font-medium">Оголошення
+                          <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.adsPolicy} onChange={event => setManualDraft({...manualDraft, adsPolicy:event.target.value as ManualInspectionDraft['adsPolicy']})}>
+                            <option value="unknown">Невідомо</option><option value="operator_confirmed">Дозволені</option><option value="forbidden">Заборонені</option>
+                          </select>
+                        </label>
+                        <label className="grid gap-1 text-xs font-medium">Аудиторія
+                          <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.topicMatch} onChange={event => setManualDraft({...manualDraft, topicMatch:event.target.value as ManualInspectionDraft['topicMatch']})}>
+                            <option value="unknown">Невідомо</option><option value="match">Цільова</option><option value="mismatch">Нецільова</option>
+                          </select>
+                        </label>
+                        <label className="grid gap-1 text-xs font-medium">Вступ
+                          <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.membershipState} onChange={event => setManualDraft({...manualDraft, membershipState:event.target.value as ManualInspectionDraft['membershipState']})}>
+                            <option value="not_checked">Не перевірено</option><option value="pending">Очікує схвалення</option><option value="joined">Приєднано</option>
+                          </select>
+                        </label>
+                        <label className="grid gap-1 text-xs font-medium">Тип
+                          <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.chatType} onChange={event => setManualDraft({...manualDraft, chatType:event.target.value as ManualInspectionDraft['chatType']})}>
+                            <option value="unknown">Невідомо</option><option value="group">Група</option><option value="community">Спільнота</option><option value="channel">Канал</option>
+                          </select>
+                        </label>
+                      </div>
+                      <Button type="button" size="sm" className="w-fit" disabled={inspectingId !== null} onClick={() => void submitManualInspection(candidate)}>
+                        {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
+                        Зберегти кваліфікацію
+                      </Button>
+                    </div>}
+                  </div>}
                   {candidate.importedChatId && candidate.membershipState === 'joined' && candidate.decision === 'review' &&
                     <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Приєднано. Автоперевірці ще бракує фактів для цільового статусу — потрібна кваліфікація.</div>}
                   {candidate.importedChatId && candidate.membershipState === 'joined' && (candidate.decision === 'rejected' || candidate.decision === 'unavailable') &&
                     <div className="workspace-error">Чат уже приєднаний, але після перевірки не відповідає критеріям. Потрібен підтверджений вихід із месенджера — до цього Work OS не ховає чат автоматично.</div>}
-                  <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-3">
+                  <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-5">
                     <span>Учасники: {candidate.memberCount ?? 'невідомо'}</span>
                     <span>Активність: {activityLabel(candidate.activityState)}</span>
                     <span>Писати: {candidate.canWrite === null ? 'невідомо' : candidate.canWrite ? 'так' : 'ні'}</span>
+                    <span>Оголошення: {adsPolicyLabel(candidate.adsPolicy)}</span>
+                    <span>Аудиторія: {topicMatchLabel(candidate.topicMatch)}</span>
                   </div>
                   {candidate.sources.length > 0 && <details>
                     <summary className="cursor-pointer text-sm font-medium">Звідки знайдено · {candidate.sources.length}</summary>
@@ -318,6 +618,19 @@ function activityLabel(value: DiscoveryCandidate['activityState']) {
   return value === 'active' ? 'активний' : value === 'dead' ? 'неактивний' : 'невідомо';
 }
 
+function adsPolicyLabel(value: DiscoveryCandidate['adsPolicy']) {
+  return value === 'allowed' || value === 'operator_confirmed' ? 'можна'
+    : value === 'inferred_allowed' ? 'ймовірно можна — перевірити'
+      : value === 'forbidden' ? 'заборонено'
+        : 'невідомо';
+}
+
+function topicMatchLabel(value: DiscoveryCandidate['topicMatch']) {
+  return value === 'match' ? 'цільова'
+    : value === 'mismatch' ? 'нецільова'
+      : 'невідомо';
+}
+
 function membershipLabel(value: DiscoveryCandidate['membershipState']) {
   return value === 'joined' ? 'Приєднано'
     : value === 'pending' ? 'Очікує схвалення'
@@ -343,7 +656,9 @@ function reasonLabel(value: string) {
     topic_mismatch: 'тематика не підходить',
     cannot_write: 'писати не можна',
     ads_forbidden: 'оголошення заборонені',
-    too_few_members: 'замало учасників',
+    too_few_members: 'менше 700 учасників',
+    too_many_members: 'понад 18 000 учасників',
+    invalid_invite: 'посилання недійсне або прострочене',
     inactive_chat: 'чат неактивний',
     not_discussion_group: 'не груповий чат',
     access_unavailable: 'чат недоступний',

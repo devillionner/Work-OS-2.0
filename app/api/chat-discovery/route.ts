@@ -4,10 +4,13 @@ import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { applyDiscoveryInspection } from '@/lib/chat-discovery/inspection';
 import {
   DiscoveryError,
+  advanceTelegramDiscoveryPlan,
   cancelDiscoveryRun,
   continueDiscoveryRun,
   handoffDiscoveryCandidate,
+  ingestTelegramDiscovery,
   readDiscoveryWorkspace,
+  readTelegramDiscoveryPlan,
   startDiscoveryRun,
 } from '@/lib/chat-discovery/domain';
 
@@ -35,7 +38,7 @@ export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return json({ error: 'Потрібна авторизація.' }, 401);
   if (!sameOrigin(request)) return json({ error: 'Недійсне джерело запиту.' }, 403);
-  const body = await readJsonObject(request, 16 * 1024);
+  const body = await readJsonObject(request, 256 * 1024);
   if (body instanceof Response) return body;
   const now = Math.floor(Date.now() / 1000);
 
@@ -48,6 +51,24 @@ export async function POST(request: Request): Promise<Response> {
       }, now);
       return json({ run });
     }
+    if (body.action === 'telegram-plan') {
+      if (typeof body.runId !== 'string' || !body.runId) throw new DiscoveryError('Запуск пошуку не вказаний.');
+      return json(await readTelegramDiscoveryPlan(env.DB, user.id, body.runId, Number(body.limit) || 6));
+    }
+    if (body.action === 'advance-telegram-plan') {
+      if (typeof body.runId !== 'string' || !body.runId || !Number.isSafeInteger(body.version) || body.processed !== 1 || typeof body.processedQuery !== 'string' || !body.processedQuery.trim()) {
+        throw new DiscoveryError('Telegram-план можна просувати лише на один фактично опрацьований запит.');
+      }
+      return json(await advanceTelegramDiscoveryPlan(
+        env.DB,
+        user.id,
+        body.runId,
+        Number(body.version),
+        1,
+        body.processedQuery,
+        now,
+      ));
+    }
     if (body.action === 'continue') {
       if (typeof body.runId !== 'string' || !body.runId) throw new DiscoveryError('Запуск пошуку не вказаний.');
       return json(await continueDiscoveryRun(env.DB, user.id, body.runId, now));
@@ -57,6 +78,17 @@ export async function POST(request: Request): Promise<Response> {
         throw new DiscoveryError('Некоректний стан запуску.');
       }
       return json(await cancelDiscoveryRun(env.DB, user.id, body.runId, Number(body.version), now));
+    }
+    if (body.action === 'ingest-telegram') {
+      if (typeof body.runId !== 'string' || !body.runId) throw new DiscoveryError('Запуск пошуку не вказаний.');
+      return json(await ingestTelegramDiscovery(env.DB, user.id, body.runId, {
+        text: body.text,
+        sourceUrl: body.sourceUrl,
+        sourceTitle: body.sourceTitle,
+        query: body.query,
+        seedLabel: body.seedLabel,
+        context: body.context,
+      }, now));
     }
     if (body.action === 'import') {
       if (typeof body.candidateId !== 'string' || !body.candidateId || !Number.isSafeInteger(body.version)) {

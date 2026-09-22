@@ -4,16 +4,15 @@ import { transitionChat } from '../chats/transitions.ts';
 import {
   DiscoveryError,
   evaluateDiscoveryCandidate,
-  inferDiscoveryTopicMatch,
   type DiscoveryCandidate,
   type DiscoveryDecision,
 } from './domain.ts';
-import type { DiscoverySource } from './public-web.ts';
 
 const MIN_TARGET_MEMBERS = 700;
 const CHAT_TYPES = ['unknown','group','community','channel','contact','bot'] as const;
 const ADS_POLICIES = ['unknown','allowed','inferred_allowed','operator_confirmed','forbidden'] as const;
 const ACTIVITY_STATES = ['unknown','active','dead'] as const;
+const TOPIC_MATCHES = ['unknown','match','mismatch'] as const;
 const INSPECTION_STATUSES = ['inspected','pending','preview','failed'] as const;
 const KNOWN_UNAVAILABLE = new Set([
   'whatsapp_chat_missing','whatsapp_banned','invalid_whatsapp_link',
@@ -41,19 +40,9 @@ type CandidateRow = {
   version: number;
 };
 
-type SourceRow = {
-  source_kind: DiscoverySource['kind'];
-  source_url: string;
-  source_title: string;
-  query_text: string;
-  seed_label: string;
-  seed_kind: string;
-  context: string;
-};
-
 export type DiscoveryInspectionOutcome = {
   candidateId: string;
-  chatId: string;
+  chatId: string | null;
   decision: DiscoveryDecision;
   reasonCodes: string[];
   membershipState: DiscoveryCandidate['membershipState'];
@@ -73,12 +62,15 @@ export async function applyDiscoveryInspection(
   const candidate = await readCandidate(db, userId, input.candidateId);
   if (!candidate) throw new DiscoveryError('Кандидат не знайдений.', 404);
   if (candidate.version !== input.expectedVersion) throw new DiscoveryError('Кандидат уже змінився. Оновіть список.', 409);
-  if (!candidate.imported_chat_id) throw new DiscoveryError('Спочатку додайте кандидата у Work OS.', 409);
   if (candidate.platform !== 'whatsapp' && candidate.platform !== 'viber') {
     throw new DiscoveryError('Автоперевірка доступна лише для WhatsApp і Viber.', 409);
   }
 
   const result = parseInspectionResult(input.result);
+  if (!candidate.imported_chat_id) {
+    return applyUnlinkedInspection(db, userId, candidate, result, input.minMembers, now);
+  }
+
   let chat = await readChatState(db, userId, candidate.imported_chat_id);
   if (!chat) throw new DiscoveryError('Пов’язаний чат не знайдений.', 409);
   if (chat.platform !== candidate.platform) throw new DiscoveryError('Платформа кандидата не збігається з чатом.', 409);
@@ -103,11 +95,9 @@ export async function applyDiscoveryInspection(
     throw new DiscoveryError('Кандидат змінився під час автоперевірки. Оновіть список.', 409);
   }
 
-  const sources = await readCandidateSources(db, userId, candidate.id);
   const observedName = cleanChatName(result.observedName || '');
   const nextName = observedName && isGeneratedName(current.name) ? observedName : current.name;
-  const inferredTopic = inferDiscoveryTopicMatch(nextName, sources);
-  const nextTopic = inferredTopic === 'unknown' ? current.topic_match : inferredTopic;
+  const nextTopic = result.topicMatch ?? 'unknown';
   const reason = (result.reason || '').slice(0, 100);
   const knownUnavailable = result.accessible === false && KNOWN_UNAVAILABLE.has(reason);
   const accessState = result.accessible === true ? 'available'
@@ -185,6 +175,74 @@ export async function applyDiscoveryInspection(
   };
 }
 
+async function applyUnlinkedInspection(
+  db: D1Database,
+  userId: string,
+  candidate: CandidateRow,
+  result: ReturnType<typeof parseInspectionResult>,
+  minMembersInput: unknown,
+  now: number,
+): Promise<DiscoveryInspectionOutcome> {
+  const reportedMembership = normalizeMembership(result.membershipState);
+  if (reportedMembership === 'joined' || reportedMembership === 'pending') {
+    throw new DiscoveryError('Спочатку додайте чат у Work OS перед фіксацією вступу.', 409);
+  }
+  const sources = await readCandidateSources(db, userId, candidate.id);
+  const observedName = cleanChatName(result.observedName || '');
+  const nextName = observedName && isGeneratedName(candidate.name) ? observedName : candidate.name;
+  const nextTopic = result.topicMatch ?? 'unknown';
+  const reason = (result.reason || '').slice(0, 100);
+  const knownUnavailable = result.accessible === false && KNOWN_UNAVAILABLE.has(reason);
+  const accessState = result.accessible === true ? 'available'
+    : knownUnavailable ? 'unavailable' : candidate.access_state;
+  const linkState = result.accessible === true ? 'valid'
+    : knownUnavailable ? 'invalid' : candidate.link_state;
+  const inspectionState = result.status === 'inspected' ? 'inspected'
+    : result.status === 'failed' ? 'failed' : candidate.inspection_state;
+  const chatType = result.chatType ?? candidate.chat_type;
+  const memberCount = result.memberCount !== undefined ? result.memberCount : candidate.member_count;
+  const canWrite = result.canWrite !== undefined ? result.canWrite : (candidate.can_write === null ? null : Boolean(candidate.can_write));
+  const adsPolicy = result.adsPolicy ?? candidate.ads_policy;
+  const activityState = result.activityState ?? candidate.activity_state;
+  const minMembers = boundedMinMembers(minMembersInput);
+  const evaluated = evaluateDiscoveryCandidate({
+    chatType,
+    memberCount,
+    topicMatch: nextTopic,
+    canWrite,
+    adsPolicy,
+    activityState,
+    accessState,
+    linkState,
+  }, minMembers);
+
+  const update = await db.prepare(`UPDATE chat_discovery_candidates SET
+    name=?1,checked_at=?2,member_count=?3,chat_type=?4,activity_state=?5,topic_match=?6,
+    can_write=?7,ads_policy=?8,access_state=?9,link_state=?10,inspection_state=?11,
+    decision=?12,reason_codes_json=?13,updated_at=?2,version=version+1
+    WHERE id=?14 AND user_id=?15 AND version=?16 AND imported_chat_id IS NULL
+    RETURNING version`)
+    .bind(nextName, now, memberCount, chatType, activityState, nextTopic,
+      canWrite === null ? null : Number(canWrite), adsPolicy, accessState, linkState,
+      inspectionState, evaluated.decision, JSON.stringify(evaluated.reasonCodes),
+      candidate.id, userId, candidate.version)
+    .first<{ version: number }>();
+  if (!update) throw new DiscoveryError('Кандидат уже змінився. Оновіть список.', 409);
+
+  return {
+    candidateId: candidate.id,
+    chatId: null,
+    decision: evaluated.decision,
+    reasonCodes: evaluated.reasonCodes,
+    membershipState: candidate.membership_state,
+    workflowStatus: 'not_imported',
+    needsQualification: false,
+    needsExternalLeave: false,
+    autoArchived: false,
+    version: update.version,
+  };
+}
+
 function parseInspectionResult(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new DiscoveryError('Некоректний результат автоперевірки.');
   const raw = value as Record<string, unknown>;
@@ -198,6 +256,7 @@ function parseInspectionResult(value: unknown) {
     canWrite: optionalBoolean(raw.canWrite, 'canWrite'),
     adsPolicy: optionalEnum(raw.adsPolicy, ADS_POLICIES, 'adsPolicy'),
     activityState: optionalEnum(raw.activityState, ACTIVITY_STATES, 'activityState'),
+    topicMatch: optionalEnum(raw.topicMatch, TOPIC_MATCHES, 'topicMatch'),
     reason: optionalString(raw.reason, 200, 'reason'),
   };
 }
@@ -252,21 +311,6 @@ async function readCandidate(db: D1Database, userId: string, candidateId: string
     ads_policy,membership_state,access_state,link_state,inspection_state,decision,reason_codes_json,
     imported_chat_id,version FROM chat_discovery_candidates WHERE id=?1 AND user_id=?2 LIMIT 1`)
     .bind(candidateId, userId).first<CandidateRow>();
-}
-
-async function readCandidateSources(db: D1Database, userId: string, candidateId: string): Promise<DiscoverySource[]> {
-  const result = await db.prepare(`SELECT source_kind,source_url,source_title,query_text,seed_label,seed_kind,context
-    FROM chat_discovery_sources WHERE candidate_id=?1 AND user_id=?2 ORDER BY discovered_at DESC,id LIMIT 12`)
-    .bind(candidateId, userId).all<SourceRow>();
-  return result.results.map(row => ({
-    kind: row.source_kind,
-    sourceUrl: row.source_url,
-    sourceTitle: row.source_title,
-    query: row.query_text,
-    seedLabel: row.seed_label,
-    seedKind: row.seed_kind,
-    context: row.context,
-  }));
 }
 
 async function requiredChat(db: D1Database, userId: string, chatId: string) {
