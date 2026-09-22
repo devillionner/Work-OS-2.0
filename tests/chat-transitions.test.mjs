@@ -4,7 +4,7 @@ import { localDatabase, seedChat, seedEvent } from './helpers/local-d1.mjs';
 import { readChatState, chatStateTokenSql } from '../lib/chats/state.ts';
 import { transitionChat } from '../lib/chats/transitions.ts';
 import { changeChatSnooze } from '../lib/chats/snooze.ts';
-import { recordManualPublication } from '../lib/chats/publication.ts';
+import { recordManualPublication, undoManualPublication } from '../lib/chats/publication.ts';
 import { activitySummaryStatement, activityTotals } from '../lib/activity-summary.ts';
 import { joinedTodayStatement } from '../lib/chats/daily-links.ts';
 
@@ -179,4 +179,45 @@ void test('same-day legacy joins stay unique and daily links survive restore and
   assert.equal((await links('a')).results.length,1);
   assert.equal((await joinedTodayStatement(db,{userId:'other',platform:'telegram',date:'2026-09-10',accountId:'a'}).all()).results.length,0);
   assert.equal((await joinedTodayStatement(db,{userId:'u',platform:'telegram',date:'2026-09-09',accountId:'a'}).all()).results.length,0);
+});
+
+
+void test('same-day publication undo restores publication facts, profile cadence and Telegram slot', async t => {
+  const db=await localDatabase(t); await accounts(db); await seed(db,'telegram','ready');
+  await db.prepare("UPDATE chats SET joined_at=1,telegram_account_id='a' WHERE id='chat'").run();
+  await db.prepare(`INSERT INTO chat_profiles
+    (chat_id,cadence,weekdays_json,custom_interval_days,next_allowed_on,directions_json,note,review_status,source,updated_at)
+    VALUES ('chat','daily','[]',NULL,NULL,'[]','','confirmed','manual',2)`).run();
+  await db.prepare(`INSERT INTO telegram_schedule_slots
+    (id,user_id,telegram_account_id,sequence,scheduled_at,chat_id,status,completed_at,publication_id,created_at,updated_at,version)
+    VALUES ('slot','u','a',1,?1,'chat','pending',NULL,NULL,1,1,0)`).bind(NOW-60).run();
+
+  const before=await state(db);
+  const published=await recordManualPublication(db,{userId:'u',chat:before,accountId:'a',now:NOW,date:'2026-09-10',stateToken:before.state_token});
+  assert.equal(published.ok,true);
+  if(!published.ok)return;
+  const afterPublication=await state(db);
+  assert.notEqual(afterPublication.state_token,before.state_token);
+  assert.equal((await db.prepare("SELECT next_allowed_on FROM chat_profiles WHERE chat_id='chat'").first()).next_allowed_on,'2026-09-11');
+  const completedSlot=await db.prepare("SELECT status,completed_at,publication_id FROM telegram_schedule_slots WHERE id='slot'").first();
+  assert.equal(completedSlot.status,'completed');
+  assert.equal(completedSlot.publication_id,published.publicationId);
+
+  const undone=await undoManualPublication(db,{userId:'u',chat:afterPublication,now:NOW+30,date:'2026-09-10'});
+  assert.equal(undone.ok,true);
+  const final=await state(db);
+  assert.notEqual(final.state_token,afterPublication.state_token);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM chat_publications WHERE user_id='u' AND chat_id='chat' AND published_on='2026-09-10'").first()).n,0);
+  const publicationEvent=await db.prepare("SELECT cancelled_at FROM activity_events WHERE user_id='u' AND chat_id='chat' AND event_type='publication' ORDER BY rowid DESC LIMIT 1").first();
+  assert.equal(publicationEvent.cancelled_at,NOW+30);
+  assert.equal((await db.prepare("SELECT next_allowed_on FROM chat_profiles WHERE chat_id='chat'").first()).next_allowed_on,null);
+  const restoredSlot=await db.prepare("SELECT status,completed_at,publication_id FROM telegram_schedule_slots WHERE id='slot'").first();
+  assert.equal(restoredSlot.status,'pending');
+  assert.equal(restoredSlot.completed_at,null);
+  assert.equal(restoredSlot.publication_id,null);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM activity_events WHERE user_id='u' AND event_type='publication' AND event_date='2026-09-10' AND cancelled_at IS NULL").first()).n,0);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM activity_events WHERE user_id='u' AND chat_id='chat' AND event_type='chat_state_changed' AND json_extract(metadata_json,'$.action')='undo_published'").first()).n,1);
+
+  const republished=await recordManualPublication(db,{userId:'u',chat:final,accountId:'a',now:NOW+31,date:'2026-09-10',stateToken:final.state_token});
+  assert.equal(republished.ok,true);
 });
