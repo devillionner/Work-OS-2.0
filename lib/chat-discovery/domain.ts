@@ -224,39 +224,6 @@ export async function readTelegramDiscoveryPlan(
   return { run: mapRun(row), plan: buildTelegramSearchPlan(row.telegram_cursor, boundedInteger(limit, 1, 20, 6)) };
 }
 
-export async function advanceTelegramDiscoveryPlan(
-  db: D1Database,
-  userId: string,
-  runId: string,
-  expectedVersion: number,
-  processed: number,
-  processedQuery: unknown,
-  now: number,
-): Promise<{ run: DiscoveryRun; plan: TelegramSearchPlan }> {
-  const row = await readRun(db, userId, runId);
-  if (!row) throw new DiscoveryError('Запуск пошуку не знайдено.', 404);
-  if (row.status !== 'running') throw new DiscoveryError('Цей запуск пошуку вже завершено. Почніть новий.', 409);
-  if (row.version !== expectedVersion) throw new DiscoveryError('План пошуку вже змінився в іншій вкладці. Оновіть стан.', 409);
-  const count = boundedInteger(processed, 1, 1, 1);
-  const currentPlan = buildTelegramSearchPlan(row.telegram_cursor, count);
-  if (!currentPlan.tasks.length) return { run: mapRun(row), plan: buildTelegramSearchPlan(row.telegram_cursor, 6) };
-  const expectedQuery = currentPlan.tasks[0].query;
-  const confirmedQuery = boundedDiscoveryText(processedQuery, 500);
-  if (!confirmedQuery || confirmedQuery !== expectedQuery) {
-    throw new DiscoveryError('Telegram-план можна просунути лише для поточного фактично опрацьованого запиту.', 409);
-  }
-  const nextCursor = currentPlan.nextCursor;
-  const updated = await db.prepare(`UPDATE chat_discovery_runs
-    SET telegram_cursor=?1,searched_queries=searched_queries+?2,updated_at=?3,version=version+1
-    WHERE id=?4 AND user_id=?5 AND status='running' AND version=?6 RETURNING id`)
-    .bind(nextCursor, currentPlan.tasks.length, now, runId, userId, expectedVersion)
-    .first<{ id: string }>();
-  if (!updated) throw new DiscoveryError('План пошуку вже змінився в іншій вкладці. Оновіть стан.', 409);
-  const fresh = await readRun(db, userId, runId);
-  if (!fresh) throw new DiscoveryError('Не вдалося прочитати оновлений план пошуку.', 500);
-  return { run: mapRun(fresh), plan: buildTelegramSearchPlan(fresh.telegram_cursor, 6) };
-}
-
 export async function readDiscoveryWorkspace(
   db: D1Database,
   userId: string,
