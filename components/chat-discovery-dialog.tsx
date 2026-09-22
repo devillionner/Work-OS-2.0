@@ -67,7 +67,6 @@ export function ChatDiscoveryDialog({
   const [telegramText, setTelegramText] = useState('');
   const [telegramSourceTitle, setTelegramSourceTitle] = useState('');
   const [telegramSourceUrl, setTelegramSourceUrl] = useState('');
-  const [telegramProcessedQuery, setTelegramProcessedQuery] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const stopRequested = useRef(false);
@@ -137,35 +136,6 @@ export function ChatDiscoveryDialog({
     }
   }
 
-  async function advanceTelegramTask() {
-    const run = workspace.run;
-    const currentQuery = workspace.telegramPlan?.tasks[0]?.query || '';
-    if (!run || run.status !== 'running' || telegramBusy || !currentQuery || telegramProcessedQuery !== currentQuery) return;
-    setTelegramBusy(true);
-    setError('');
-    try {
-      const payload = await post({
-        action: 'advance-telegram-plan',
-        runId: run.id,
-        version: run.version,
-        processed: 1,
-        processedQuery: workspace.telegramPlan?.tasks[0]?.query || '',
-      }) as unknown as { run: DiscoveryRun; plan: TelegramSearchPlan };
-      setWorkspace(current => ({ ...current, run: payload.run, telegramPlan: payload.plan }));
-      setTelegramSourceTitle('');
-      setTelegramSourceUrl('');
-      setTelegramText('');
-      setTelegramProcessedQuery('');
-      setNotice(payload.plan.done ? 'Telegram keyword plan завершено.' : 'Перейшли до наступного Telegram-запиту.');
-      await load(filter);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Не вдалося перейти до наступного Telegram-запиту.');
-      await load(filter);
-    } finally {
-      setTelegramBusy(false);
-    }
-  }
-
   async function startOrContinue() {
     if (searching) return;
     stopRequested.current = false;
@@ -220,8 +190,10 @@ export function ChatDiscoveryDialog({
         seedLabel: telegramSourceTitle || workspace.telegramPlan?.tasks[0]?.query || 'Telegram',
         context: workspace.telegramPlan?.tasks[0]?.query || '',
       }) as unknown as TelegramIngestResponse;
-      setTelegramProcessedQuery(workspace.telegramPlan?.tasks[0]?.query || '');
-      setNotice(`Telegram: витягнуто ${payload.batch.extracted}, нових ${payload.batch.added}, дублів ${payload.batch.duplicates}. Скан зафіксовано — тепер можна перейти до наступного запиту.`);
+      setWorkspace(current => ({ ...current, run: payload.run }));
+      setNotice(`Telegram: витягнуто ${payload.batch.extracted}, нових ${payload.batch.added}, дублів ${payload.batch.duplicates}. Поточний запит завершено, план перейшов далі.`);
+      setTelegramSourceTitle('');
+      setTelegramSourceUrl('');
       setTelegramText('');
       await load(filter);
     } catch (reason) {
@@ -439,9 +411,9 @@ export function ChatDiscoveryDialog({
                 {workspace.telegramPlan.tasks.slice(1).map(task => <div key={task.cursor}>{task.cursor + 1}. {task.query}</div>)}
               </div>
             </details>}
-            <Button type="button" variant="outline" disabled={telegramBusy || searching || workspace.run?.status !== 'running' || telegramProcessedQuery !== (workspace.telegramPlan?.tasks[0]?.query || '')} onClick={() => void advanceTelegramTask()}>
-              Скан передано → наступний
-            </Button>
+            <p className="text-xs text-muted-foreground">
+              Наступний query відкриється автоматично після успішної передачі скану поточного запиту.
+            </p>
           </> : <span className="text-sm text-muted-foreground">Keyword plan завершено.</span>}
         </div>}
         <div className="grid gap-3 sm:grid-cols-2">
