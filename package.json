@@ -18,7 +18,7 @@
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/apply-d1-migrations.mjs",
-    "test:staging": "node --experimental-strip-types --test --test-concurrency=1 tests/chat-discovery-cloud.test.mjs tests/chat-discovery-route-contract.test.mjs tests/chat-discovery-scan-gate.test.mjs tests/chat-discovery-ui.test.mjs tests/release-version.test.mjs tests/wrangler-config.test.mjs",
+    "test:staging": "node --experimental-strip-types --test --test-concurrency=1 tests/chat-discovery-cloud.test.mjs tests/chat-discovery-route-contract.test.mjs tests/chat-discovery-scan-gate.test.mjs tests/chat-discovery-ui.test.mjs tests/platform-browser-open.test.mjs tests/release-version.test.mjs tests/wrangler-config.test.mjs",
     "test:full": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.mjs"
   },
   "dependencies": {
@@ -37,7 +37,6 @@
     "react-day-picker": "9.8.1",
     "react-dom": "19.3.0",
     "react-resizable-panels": "4.5.8",
-    "react-server-dom-webpack": "19.3.0",
     "recharts": "3.8.0",
     "shadcn": "4.18.0",
     "tailwind-merge": "3.6.0",
