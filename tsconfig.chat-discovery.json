@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "noEmit": true
+  },
+  "include": [
+    "app/api/chat-discovery/route.ts",
+    "components/chat-discovery-dialog.tsx",
+    "lib/chat-discovery/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".vinext",
+    "dist",
+    "build",
+    "out",
+    "coverage",
+    ".wrangler"
+  ]
+}
