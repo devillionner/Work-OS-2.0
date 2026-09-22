@@ -77,6 +77,9 @@ export async function applyDiscoveryInspection(
 
   let expectedVersion = candidate.version;
   const reportedMembership = normalizeMembership(result.membershipState);
+  if (reportedMembership === 'left') {
+    throw new DiscoveryError('Вихід із приєднаного чату підтверджується лише через архівний leave-checklist.', 409);
+  }
   if (reportedMembership === 'pending' && candidate.platform === 'whatsapp' && chat.workflow_status === 'to_join') {
     const moved = await transitionChat(db, { userId, chat, action:'waiting', accountId:null, now });
     if (!moved.ok) throw new DiscoveryError(moved.error || 'Стан чату вже змінився. Оновіть список.', 409);
@@ -186,8 +189,8 @@ async function applyUnlinkedInspection(
   now: number,
 ): Promise<DiscoveryInspectionOutcome> {
   const reportedMembership = normalizeMembership(result.membershipState);
-  if (reportedMembership === 'joined' || reportedMembership === 'pending') {
-    throw new DiscoveryError('Спочатку додайте чат у Work OS перед фіксацією вступу.', 409);
+  if (reportedMembership === 'joined' || reportedMembership === 'pending' || reportedMembership === 'left') {
+    throw new DiscoveryError('Спочатку додайте чат у Work OS перед фіксацією стану вступу.', 409);
   }
   const observedName = cleanChatName(result.observedName || '');
   const nextName = observedName && isGeneratedName(candidate.name) ? observedName : candidate.name;
