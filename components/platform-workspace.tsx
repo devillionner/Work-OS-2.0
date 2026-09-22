@@ -29,7 +29,7 @@ type Chat = { id:string; name:string; link:string; platform:Platform; status:Que
 type LinkItem = { name?:string; link?:string };
 type ProfileCounts = { confirmed:number; draft:number; empty:number; needsReview:number };
 type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; profileCounts:Record<string,ProfileCounts>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:{ratePerHour:number;completed:number;target:number}; requestKey?:string };
-type UndoSpec = { action:'restore'|'unsnooze'; label:string };
+type UndoSpec = { action:'restore'|'unsnooze'|'undo_published'; label:string };
 type UndoState = UndoSpec & { chat:Chat };
 type TelegramAccount = { id:string; number:number; name:string; enabled:boolean; selected:boolean; joinStreak:number; joinBatchSize:number; breakMinutes:number; breakUntil:number|null };
 type PlatformConfirmation = { kind:'assign'; chat:Chat; nextId:string; currentName:string; nextName:string } | { kind:'return'; chat:Chat };
@@ -211,9 +211,11 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       if(undoSpec&&typeof body.stateToken==='string') setNotice(undoSpec.label);
       if(chat.platform==='telegram') await loadAccounts();
       if(action==='published') {
-        setNotice('Публікацію відмічено. Чат переміщено нижче завершених на сьогодні, щоб наступний доступний лишався перед очима.');
-        if(chat.platform==='telegram') setScheduleRefreshKey(value=>value+1);
+        setNotice(undoSpec&&typeof body.stateToken==='string'
+          ? 'Публікацію відмічено. Якщо це помилка, скасуйте її зараз; наступний доступний чат лишився перед очима.'
+          : 'Публікацію відмічено. Чат переміщено нижче завершених на сьогодні, щоб наступний доступний лишався перед очима.');
       }
+      if((action==='published'||action==='undo_published')&&chat.platform==='telegram') setScheduleRefreshKey(value=>value+1);
       router.refresh();
       succeeded=true;
     } catch(reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося виконати дію.'); }
@@ -272,7 +274,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     <ChatDuplicatesDialog open={duplicatesOpen} onClose={()=>setDuplicatesOpen(false)}/>
     <ChatProfileDialog key={profileOpenKey} open={profileChat!==null} chat={profileChat} onClose={()=>setProfileChat(null)} onSaved={savedProfile} onOpenChat={()=>{if(profileChat)openChat(profileChat);}} finalFocus={()=>profileTrigger.current}/>
     <ChatHistoryDialog key={historyOpenKey} open={historyChat!==null} chat={historyChat} onClose={()=>setHistoryChat(null)} finalFocus={()=>historyTrigger.current}/>
-    <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={async({advertisementId,language})=>{if(!publishChat)return false;const quick=quickPublishMode&&(platform==='whatsapp'||platform==='viber');const published=await act(publishChat,'published',{advertisementId,language,quick});if(published&&quick&&advertisementId&&!quickAdvertisementId){setQuickAdvertisementId(advertisementId);setNotice('Матеріал швидкого режиму зафіксовано. Наступні чати використовуватимуть його автоматично.');}return published;}} onOpenChat={()=>{if(publishChat)openChat(publishChat);}} finalFocus={()=>publishTrigger.current} quickMode={quickPublishMode&&(platform==='whatsapp'||platform==='viber')} preferredAdvertisementId={quickAdvertisementId}/>
+    <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={async({advertisementId,language})=>{if(!publishChat)return false;const quick=quickPublishMode&&(platform==='whatsapp'||platform==='viber');const published=await act(publishChat,'published',{advertisementId,language,quick},{action:'undo_published',label:'Публікацію можна скасувати протягом 8 секунд.'});if(published&&quick&&advertisementId&&!quickAdvertisementId){setQuickAdvertisementId(advertisementId);setNotice('Матеріал швидкого режиму зафіксовано. Публікацію можна скасувати кнопкою поруч; матеріал серії залишиться обраним.');}return published;}} onOpenChat={()=>{if(publishChat)openChat(publishChat);}} finalFocus={()=>publishTrigger.current} quickMode={quickPublishMode&&(platform==='whatsapp'||platform==='viber')} preferredAdvertisementId={quickAdvertisementId}/>
     {notice&&<output className="reports-notice"><span>{notice}</span>{undo&&<Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>void undoLast()}>Скасувати</Button>}</output>}
     <section className="platform-hero">
       <div><p className="eyebrow">Робочі платформи</p><h2>Чати без зайвих переходів</h2><p>Приєднуйся, перевіряй очікування та відмічай публікації в одному стабільному процесі.</p></div>
