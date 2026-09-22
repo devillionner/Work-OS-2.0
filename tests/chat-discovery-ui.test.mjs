@@ -48,7 +48,8 @@ void test('discovery UI exposes the Telegram to WhatsApp ingestion bridge', asyn
   ]);
   assert.match(dialog, /Telegram → WhatsApp/);
   assert.match(dialog, /Результати пошуку Telegram/);
-  assert.match(dialog, /Передати Telegram-скан/);
+  assert.match(dialog, /Зберегти джерело/);
+  assert.match(dialog, /Завершити query → наступний/);
   assert.match(dialog, /action: 'ingest-telegram'/);
   assert.match(route, /body\.action === 'ingest-telegram'/);
   assert.match(route, /ingestTelegramDiscovery/);
@@ -73,12 +74,21 @@ void test('Telegram keyword plan is the primary discovery flow and public web is
 void test('Telegram ingestion and advancement use the persistent plan query as the only query source', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(dialog, /useState\(''\).*telegramQuery|setTelegramQuery/);
-  assert.match(dialog, /query: workspace\.telegramPlan\?\.tasks\[0\]\?\.query \|\| ''/);
+  assert.match(dialog, /const fresh = await load\(filter\)/);
+  assert.match(dialog, /fresh\?\.run\?\.id === run\.id \? fresh\.telegramPlan\?\.tasks\[0\]\?\.query \|\| '' : ''/);
   assert.doesNotMatch(dialog, /processedQuery:/);
   assert.match(dialog, /aria-readonly="true"/);
   assert.match(dialog, /workspace\.run\?\.status !== 'running' \|\| !workspace\.telegramPlan\?\.tasks\[0\]\?\.query/);
   assert.match(dialog, /required=\{telegramHasInvite\}/);
   assert.match(dialog, /telegramHasInvite && \(!telegramSourceTitle\.trim\(\) \|\| !telegramSourceUrl\.trim\(\)\)/);
+});
+
+void test('Telegram UI can save multiple source chats before completing the current query', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.match(dialog, /ingestTelegramScan\(false\)/);
+  assert.match(dialog, /ingestTelegramScan\(true\)/);
+  assert.match(dialog, /«Зберегти джерело» не рухає план/);
+  assert.match(dialog, /«Завершити query» просуває cursor рівно на один крок/);
 });
 
 void test('candidate cards expose the WhatsApp link and every target qualification criterion', async () => {
