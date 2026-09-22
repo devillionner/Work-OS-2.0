@@ -1,5 +1,5 @@
 import { validatePublicationAdvertisementChoice } from './advertisement-selection.ts';
-import { chatStateTokenSql } from './state.ts';
+import { chatStateEvent, chatStateTokenSql, type ChatState } from './state.ts';
 import { nextProfilePublicationDate, profilePublicationRule, PROFILE_CADENCES, type ChatProfile, type ProfileCadence } from './profile.ts';
 
 export type PublicationChat = {
@@ -21,7 +21,7 @@ export function publicationAvailability(chat: PublicationChat, now: number) {
 export async function recordManualPublication(
   db: D1Database,
   input: { userId: string; chat: PublicationChat; accountId: string | null; advertisementId?: string | null; language?: 'uk' | 'ru' | null; quickMode?: boolean; now: number; date: string; stateToken: string },
-): Promise<{ ok: true } | { ok: false; error: string; availableAt?: number | null }> {
+): Promise<{ ok: true; publicationId: string } | { ok: false; error: string; availableAt?: number | null }> {
   const { userId, chat, accountId, advertisementId = null, now, date } = input;
   const language = input.language === 'uk' || input.language === 'ru' ? input.language : null;
   const quickMode = input.quickMode === true;
@@ -54,6 +54,14 @@ export async function recordManualPublication(
   }
   const publicationId = crypto.randomUUID();
   const sourceKey = `manual:${publicationId}`;
+  const eventMetadata: Record<string, unknown> = {
+    manualUndo: {
+      profileCadenceAdvanced: profile?.reviewStatus === 'confirmed',
+      previousNextAllowedOn: profile?.nextAllowedOn ?? null,
+    },
+  };
+  if (advertisementId) eventMetadata.advertisementId = advertisementId;
+  if (language) eventMetadata.language = language;
   // Recheck the current row inside the same transaction as the event. A racing
   // archive/snooze or duplicate click must not create a publication or an event.
   const statements = [
@@ -75,13 +83,9 @@ export async function recordManualPublication(
     db.prepare(`INSERT INTO activity_events
       (id,user_id,event_type,platform,chat_id,lead_id,lesson_id,occurred_at,event_date,metadata_json,source_key,telegram_account_id)
       SELECT ?1,p.user_id,'publication',c.platform,p.chat_id,NULL,NULL,p.published_at,p.published_on,
-        CASE WHEN p.advertisement_id IS NULL AND ?4 IS NULL THEN '{}'
-          WHEN p.advertisement_id IS NULL THEN json_object('language',?4)
-          WHEN ?4 IS NULL THEN json_object('advertisementId',p.advertisement_id)
-          ELSE json_object('advertisementId',p.advertisement_id,'language',?4) END,
-        p.source_key,p.telegram_account_id
+        ?4,p.source_key,p.telegram_account_id
       FROM chat_publications p JOIN chats c ON c.id=p.chat_id AND c.user_id=p.user_id
-      WHERE p.id=?2 AND p.user_id=?3`).bind(crypto.randomUUID(),publicationId,userId,language),
+      WHERE p.id=?2 AND p.user_id=?3`).bind(crypto.randomUUID(),publicationId,userId,JSON.stringify(eventMetadata)),
     db.prepare(`UPDATE telegram_schedule_slots SET status='completed',completed_at=?1,publication_id=?2,updated_at=?1,version=version+1
       WHERE id=(SELECT s.id FROM telegram_schedule_slots s JOIN chat_publications p
         ON p.user_id=s.user_id AND p.telegram_account_id=s.telegram_account_id AND p.chat_id=s.chat_id
@@ -97,8 +101,79 @@ export async function recordManualPublication(
       AND EXISTS(SELECT 1 FROM chat_publications p WHERE p.id=?4 AND p.user_id=?3)`)
       .bind(now,chat.id,userId,publicationId));
   const results = await db.batch(statements);
-  return results[0].meta.changes ? { ok: true }
+  return results[0].meta.changes ? { ok: true, publicationId }
     : { ok: false, error: 'Чат уже змінено або сьогодні в ньому вже публікували. Оновіть список.' };
+}
+
+export async function undoManualPublication(
+  db: D1Database,
+  input: { userId: string; chat: ChatState; now: number; date: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { userId, chat, now, date } = input;
+  if (chat.workflow_status !== 'ready') return { ok:false,error:'Скасування публікації доступне лише в черзі публікації.' };
+  const publication = await db.prepare(`SELECT p.id,p.source_key,e.id AS event_id,e.metadata_json,e.cancelled_at
+    FROM chat_publications p JOIN activity_events e
+      ON e.user_id=p.user_id AND e.source_key=p.source_key AND e.event_type='publication'
+    WHERE p.user_id=?1 AND p.chat_id=?2 AND p.published_on=?3 AND p.source='manual'
+    ORDER BY p.created_at DESC LIMIT 1`).bind(userId,chat.id,date)
+    .first<{id:string;source_key:string;event_id:string;metadata_json:string;cancelled_at:number|null}>();
+  if (!publication || publication.cancelled_at !== null)
+    return { ok:false,error:'Активну ручну публікацію за сьогодні не знайдено. Оновіть список.' };
+
+  let metadata: unknown;
+  try { metadata = JSON.parse(publication.metadata_json || '{}'); } catch { metadata = null; }
+  const undo = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+    ? (metadata as {manualUndo?:unknown}).manualUndo : null;
+  if (!undo || typeof undo !== 'object' || Array.isArray(undo))
+    return { ok:false,error:'Цю стару публікацію не можна безпечно скасувати автоматично. Скористайтеся корекцією звіту.' };
+  const undoData = undo as {profileCadenceAdvanced?:unknown;previousNextAllowedOn?:unknown};
+  if (typeof undoData.profileCadenceAdvanced !== 'boolean')
+    return { ok:false,error:'Для цієї публікації бракує даних безпечного відновлення.' };
+  const previousNextAllowedOn = undoData.previousNextAllowedOn;
+  if (undoData.profileCadenceAdvanced && previousNextAllowedOn !== null &&
+      (typeof previousNextAllowedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(previousNextAllowedOn)))
+    return { ok:false,error:'Не вдалося підтвердити попередню дозволену дату публікації.' };
+
+  const slot = chat.platform === 'telegram'
+    ? await db.prepare(`SELECT id FROM telegram_schedule_slots
+        WHERE user_id=?1 AND publication_id=?2 AND status='completed' LIMIT 1`)
+      .bind(userId,publication.id).first<{id:string}>()
+    : null;
+  if (undoData.profileCadenceAdvanced) {
+    const profile = await db.prepare(`SELECT chat_id FROM chat_profiles WHERE chat_id=?1 LIMIT 1`).bind(chat.id).first();
+    if (!profile) return { ok:false,error:'Профіль чату вже змінився. Оновіть список.' };
+  }
+
+  const correctionEventId = crypto.randomUUID();
+  const statements = [
+    db.prepare(`UPDATE chats SET updated_at=?1
+      WHERE id=?2 AND user_id=?3 AND workflow_status='ready' AND ${chatStateTokenSql('chats')}=?4`)
+      .bind(now,chat.id,userId,chat.state_token),
+  ];
+  if (slot) statements.push(
+    db.prepare(`UPDATE telegram_schedule_slots
+      SET status='pending',completed_at=NULL,publication_id=NULL,updated_at=?1,version=version+1
+      WHERE id=?2 AND user_id=?3 AND publication_id=?4 AND status='completed' AND changes()=1`)
+      .bind(now,slot.id,userId,publication.id),
+  );
+  if (undoData.profileCadenceAdvanced) statements.push(
+    db.prepare(`UPDATE chat_profiles SET next_allowed_on=?1,updated_at=?2
+      WHERE chat_id=?3 AND changes()=1`)
+      .bind(previousNextAllowedOn,now,chat.id),
+  );
+  statements.push(
+    db.prepare(`DELETE FROM chat_publications
+      WHERE id=?1 AND user_id=?2 AND chat_id=?3 AND published_on=?4 AND source='manual' AND changes()=1`)
+      .bind(publication.id,userId,chat.id,date),
+    db.prepare(`UPDATE activity_events SET cancelled_at=?1
+      WHERE id=?2 AND user_id=?3 AND event_type='publication' AND source_key=?4
+        AND cancelled_at IS NULL AND changes()=1`)
+      .bind(now,publication.event_id,userId,publication.source_key),
+    chatStateEvent(db,{id:correctionEventId,userId,chatId:chat.id,action:'undo_published',now,previous:chat.state_token}),
+  );
+  const results = await db.batch(statements);
+  return results.at(-1)?.meta.changes ? {ok:true}
+    : {ok:false,error:'Публікація вже змінилася. Оновіть список перед повторною спробою.'};
 }
 
 function publicationProfile(row:Record<string,unknown>|null): Pick<ChatProfile,'reviewStatus'|'cadence'|'weekdays'|'customIntervalDays'|'nextAllowedOn'> | null {
