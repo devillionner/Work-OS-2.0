@@ -655,11 +655,34 @@ void test('restoring an archived discovery chat resets membership instead of rev
   assert.ok(left);
   assert.equal((await transitionChat(db, { userId:'u', chat:left, action:'restore', accountId:null, now:113 })).ok, true);
 
-  const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  let stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
   assert.equal(stored.membershipState, 'not_checked');
+  assert.equal(stored.inspectionState, 'not_checked');
+  assert.equal(stored.memberCount, null);
   assert.equal(stored.decision, 'review');
-  assert.deepEqual(stored.reasonCodes, ['unknown_membership']);
+  assert.ok(stored.reasonCodes.includes('unknown_membership'));
+  assert.ok(stored.reasonCodes.includes('unknown_inspection'));
   assert.equal((await readChatState(db, 'u', chatId)).workflow_status, 'to_join');
+
+  const toJoin = await readChatState(db, 'u', chatId);
+  assert.ok(toJoin);
+  assert.equal((await transitionChat(db, { userId:'u', chat:toJoin, action:'joined', accountId:null, now:114 })).ok, true);
+  stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.membershipState, 'joined');
+  assert.equal(stored.decision, 'review');
+  assert.equal(stored.reasonCodes.includes('unknown_membership'), false);
+  assert.ok(stored.reasonCodes.includes('unknown_inspection'));
+
+  const inspected = await applyDiscoveryInspection(db, 'u', {
+    candidateId: stored.id,
+    expectedVersion: stored.version,
+    result: {
+      status:'inspected', accessible:true, membershipState:'joined',
+      observedName:'Українці Praha допомога', chatType:'group', memberCount:900,
+      topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
+    },
+  }, 115);
+  assert.equal(inspected.decision, 'target');
 });
 
 void test('joined inspection with unknown rules stays ready but explicitly needs qualification', async (t) => {

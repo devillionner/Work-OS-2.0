@@ -49,6 +49,7 @@ export async function transitionChat(db: D1Database, input: {
       eventId,
       membershipState: discoveryMembership,
       now,
+      resetInspection: action === 'restore' || action === 'return_to_join' || action === 'failed',
     }));
   }
   if (joining) {
