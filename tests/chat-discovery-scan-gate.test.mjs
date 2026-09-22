@@ -2,14 +2,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 
-void test('Telegram plan cannot advance until the current query scan is submitted', async () => {
-  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+void test('Telegram plan advances only through ingestion of the current planned query', async () => {
+  const [dialog, route, domain] = await Promise.all([
+    readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../app/api/chat-discovery/route.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../lib/chat-discovery/domain.ts', import.meta.url), 'utf8'),
+  ]);
 
-  assert.match(dialog, /const \[telegramProcessedQuery, setTelegramProcessedQuery\] = useState\(''\)/);
-  assert.match(dialog, /telegramProcessedQuery !== currentQuery/);
-  assert.match(dialog, /setTelegramProcessedQuery\(workspace\.telegramPlan\?\.tasks\[0\]\?\.query \|\| ''\)/);
-  assert.match(dialog, /Скан передано → наступний/);
-  assert.match(dialog, /setTelegramProcessedQuery\(''\)/);
   assert.match(dialog, /action: 'ingest-telegram'/);
-  assert.match(dialog, /action: 'advance-telegram-plan'/);
+  assert.doesNotMatch(dialog, /action: 'advance-telegram-plan'/);
+  assert.doesNotMatch(route, /body\.action === 'advance-telegram-plan'/);
+  assert.match(domain, /query !== expectedQuery/);
+  assert.match(domain, /SET telegram_cursor=\?1,searched_queries=searched_queries\+1/);
+  assert.match(domain, /merged\.run\.version/);
+  assert.match(dialog, /Наступний query відкриється автоматично/);
 });
