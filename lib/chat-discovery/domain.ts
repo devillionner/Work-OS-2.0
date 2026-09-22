@@ -380,6 +380,8 @@ export function evaluateDiscoveryCandidate(input: {
     [input.canWrite === true, 'unknown_can_write'],
     [['allowed', 'operator_confirmed'].includes(input.adsPolicy || 'unknown'), 'unknown_ads_allowed'],
     [input.activityState === 'active', 'unknown_activity'],
+    [input.linkState === 'valid', 'unknown_invite_validity'],
+    [input.accessState === 'available', 'unknown_access'],
   ] as const;
   for (const [ok, code] of required) if (!ok) reasons.push(code);
   return reasons.length ? { decision: 'review', reasonCodes: reasons } : { decision: 'target', reasonCodes: ['all_required_confirmed'] };
