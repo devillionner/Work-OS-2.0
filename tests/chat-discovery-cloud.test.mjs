@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  advanceTelegramDiscoveryPlan,
   cancelDiscoveryRun,
   continueDiscoveryRun,
   evaluateDiscoveryCandidate,
@@ -121,10 +120,14 @@ void test('Telegram plan cursor persists independently from public web cursor', 
   assert.equal(initial.plan.cursor, 0);
   assert.equal(initial.run.telegramCursor, 0);
 
-  const advanced = await advanceTelegramDiscoveryPlan(db, 'u', run.id, run.version, 1, initial.plan.tasks[0].query, 101);
+  const advanced = await ingestTelegramDiscovery(db, 'u', run.id, {
+    text: 'Telegram search completed without WhatsApp invites',
+    query: initial.plan.tasks[0].query,
+    sourceTitle: 'Telegram Web',
+  }, 101);
   assert.equal(advanced.run.telegramCursor, 1);
   assert.equal(advanced.run.cursor, 0);
-  assert.equal(advanced.plan.cursor, 1);
+  assert.equal((await readTelegramDiscoveryPlan(db, 'u', run.id, 1)).plan.cursor, 1);
 
   const web = await continueDiscoveryRun(db, 'u', run.id, 102, async () =>
     html('<div>Українці Berlin батьки https://chat.whatsapp.com/IndependentCursor123</div>'));
@@ -136,7 +139,11 @@ void test('new discovery run resumes the Telegram keyword cursor instead of rest
   const db = await localDatabase(t);
   const first = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
   const current = await readTelegramDiscoveryPlan(db, 'u', first.id, 1);
-  const advanced = await advanceTelegramDiscoveryPlan(db, 'u', first.id, first.version, 1, current.plan.tasks[0].query, 101);
+  const advanced = await ingestTelegramDiscovery(db, 'u', first.id, {
+    text: 'Telegram search completed without WhatsApp invites',
+    query: current.plan.tasks[0].query,
+    sourceTitle: 'Telegram Web',
+  }, 101);
   assert.equal(advanced.run.telegramCursor, 1);
   await cancelDiscoveryRun(db, 'u', first.id, advanced.run.version, 102);
 
@@ -150,7 +157,11 @@ void test('Telegram plan refuses a receipt for a different query', async (t) => 
   const db = await localDatabase(t);
   const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
   await assert.rejects(
-    () => advanceTelegramDiscoveryPlan(db, 'u', run.id, run.version, 1, 'wrong query', 101),
+    () => ingestTelegramDiscovery(db, 'u', run.id, {
+      text: 'Telegram search completed',
+      query: 'wrong query',
+      sourceTitle: 'Telegram Web',
+    }, 101),
     error => error?.status === 409,
   );
   const unchanged = await readTelegramDiscoveryPlan(db, 'u', run.id, 1);
