@@ -160,7 +160,6 @@ export async function applyDiscoveryInspection(
   if (!autoArchived) workflowStatus = (await requiredChat(db, userId, candidate.imported_chat_id)).workflow_status;
 
   const needsExternalLeave = membershipState === 'joined'
-    && workflowStatus !== 'archived'
     && (evaluated.decision === 'rejected' || evaluated.decision === 'unavailable');
   return {
     candidateId: candidate.id,
