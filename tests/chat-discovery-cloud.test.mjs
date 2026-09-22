@@ -539,10 +539,18 @@ void test('confirmed external leave downgrades a target back to review', async (
   assert.ok(archived);
   assert.equal((await changeChatLeave(db, { userId:'u', chat:archived, now:112, confirm:true })).ok, true);
 
-  const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  let stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
   assert.equal(stored.membershipState, 'left');
   assert.equal(stored.decision, 'review');
   assert.deepEqual(stored.reasonCodes, ['unknown_membership']);
+
+  const left = await readChatState(db, 'u', chatId);
+  assert.ok(left);
+  assert.equal((await changeChatLeave(db, { userId:'u', chat:left, now:113, confirm:false })).ok, true);
+  stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.membershipState, 'joined');
+  assert.equal(stored.decision, 'target');
+  assert.deepEqual(stored.reasonCodes, ['all_required_confirmed']);
 });
 
 void test('joined inspection with unknown rules stays ready but explicitly needs qualification', async (t) => {
