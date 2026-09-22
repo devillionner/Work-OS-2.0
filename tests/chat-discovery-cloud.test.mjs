@@ -115,9 +115,9 @@ void test('Telegram keyword plan is deterministic, bounded and resolves workbook
 
 void test('discovery run clamps target member threshold to the required 700-18000 range', async (t) => {
   const db = await localDatabase(t);
-  const low = await startDiscoveryRun(db, 'low', { platforms: ['whatsapp'], goal: 30, minMembers: 1 }, 100);
+  const low = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 1 }, 100);
   assert.equal(low.minMembers, 700);
-  const high = await startDiscoveryRun(db, 'high', { platforms: ['whatsapp'], goal: 30, minMembers: 99_999 }, 100);
+  const high = await startDiscoveryRun(db, 'other', { platforms: ['whatsapp'], goal: 30, minMembers: 99_999 }, 100);
   assert.equal(high.minMembers, 18_000);
 });
 
