@@ -120,6 +120,7 @@ export async function applyDiscoveryInspection(
     canWrite,
     adsPolicy,
     activityState,
+    membershipState,
     accessState,
     linkState,
   }, minMembers);
@@ -211,6 +212,7 @@ async function applyUnlinkedInspection(
     canWrite,
     adsPolicy,
     activityState,
+    membershipState: candidate.membership_state,
     accessState,
     linkState,
   }, minMembers);
