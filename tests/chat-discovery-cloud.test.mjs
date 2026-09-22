@@ -231,6 +231,7 @@ void test('qualification is fail-closed until every target criterion is confirme
     canWrite: true,
     adsPolicy: 'allowed',
     activityState: 'active',
+    membershipState: 'joined',
     accessState: 'available',
     linkState: 'valid',
   }), { decision: 'target', reasonCodes: ['all_required_confirmed'] });
@@ -242,9 +243,24 @@ void test('qualification is fail-closed until every target criterion is confirme
     canWrite: true,
     adsPolicy: 'inferred_allowed',
     activityState: 'active',
+    membershipState: 'joined',
     accessState: 'available',
     linkState: 'valid',
   }), { decision: 'review', reasonCodes: ['unknown_ads_allowed'] });
+
+  const notJoined = evaluateDiscoveryCandidate({
+    chatType: 'group',
+    memberCount: 900,
+    topicMatch: 'match',
+    canWrite: true,
+    adsPolicy: 'allowed',
+    activityState: 'active',
+    membershipState: 'not_checked',
+    accessState: 'available',
+    linkState: 'valid',
+  });
+  assert.equal(notJoined.decision, 'review');
+  assert.deepEqual(notJoined.reasonCodes, ['unknown_membership']);
 
   const review = evaluateDiscoveryCandidate({
     chatType: 'group',
