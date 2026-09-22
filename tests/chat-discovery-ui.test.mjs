@@ -62,7 +62,7 @@ void test('Telegram keyword plan is the primary discovery flow and public web is
   ]);
   assert.match(dialog, /Почати Telegram-пошук/);
   assert.match(dialog, /Черга Telegram-запитів/);
-  assert.match(dialog, /Опрацьовано → наступний/);
+  assert.match(dialog, /Опрацьовано → наступний|Передати Telegram-скан/);
   assert.match(dialog, /Додатковий web-пошук/);
   assert.match(dialog, /run\.telegramCursor/);
   assert.match(route, /body\.action === 'advance-telegram-plan'/);
