@@ -76,6 +76,7 @@ void test('Telegram ingestion and advancement use the persistent plan query as t
   assert.match(dialog, /query: workspace\.telegramPlan\?\.tasks\[0\]\?\.query \|\| ''/);
   assert.match(dialog, /processedQuery: workspace\.telegramPlan\?\.tasks\[0\]\?\.query \|\| ''/);
   assert.match(dialog, /aria-readonly="true"/);
+  assert.match(dialog, /workspace\.run\?\.status !== 'running' \|\| !workspace\.telegramPlan\?\.tasks\[0\]\?\.query/);
 });
 
 void test('candidate cards expose the WhatsApp link and every target qualification criterion', async () => {
