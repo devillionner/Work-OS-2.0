@@ -25,7 +25,7 @@ void test('discovery UI keeps candidate goal distinct from confirmed target qual
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
   assert.match(dialog, /Нових кандидатів за запуск/);
   assert.match(dialog, /Мінімум учасників для target/);
-  assert.match(dialog, /Невідомі критерії не вважаються підтвердженими/);
+  assert.match(dialog, /Невідомі критерії не зараховуються/);
 });
 
 
@@ -118,11 +118,11 @@ void test('candidate cards present qualification as a compact criteria grid inst
 void test('candidate cards expose the WhatsApp link and every target qualification criterion', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
   assert.match(dialog, /Відкрити WhatsApp/);
-  assert.match(dialog, /Учасники:/);
-  assert.match(dialog, /Активність:/);
-  assert.match(dialog, /Писати:/);
-  assert.match(dialog, /Оголошення:/);
-  assert.match(dialog, /Аудиторія:/);
+  assert.match(dialog, /label: 'Учасники'/);
+  assert.match(dialog, /label: 'Активність'/);
+  assert.match(dialog, /label: 'Можна писати'/);
+  assert.match(dialog, /label: 'Оголошення'/);
+  assert.match(dialog, /label: 'Аудиторія'/);
   assert.match(dialog, /adsPolicyLabel/);
   assert.match(dialog, /topicMatchLabel/);
 });

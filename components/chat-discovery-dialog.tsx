@@ -359,7 +359,7 @@ export function ChatDiscoveryDialog({
             <Badge variant="secondary">WhatsApp discovery</Badge>
           </div>
           <DialogDescription className="max-w-3xl text-xs sm:text-sm">
-            Telegram — основне джерело. Кандидат стає цільовим тільки після фактичного вступу та повної перевірки критеріїв.
+            Telegram — основне джерело. Кандидат стає цільовим тільки після фактичного вступу та повної перевірки критеріїв. Невідомі критерії не зараховуються.
           </DialogDescription>
         </DialogHeader>
         <Button className="absolute right-4 top-4" variant="ghost" size="icon" aria-label="Закрити" onClick={close}><X/></Button>
@@ -444,6 +444,10 @@ export function ChatDiscoveryDialog({
               </div>
 
               {workspace.telegramPlan && <div className="mt-4 rounded-xl border border-border/70 bg-muted/25 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold">Черга Telegram-запитів</span>
+                  <span className="text-[11px] tabular-nums text-muted-foreground">{workspace.telegramPlan.cursor} / {workspace.telegramPlan.totalTasks}</span>
+                </div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                   <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${telegramProgress}%` }} />
                 </div>
