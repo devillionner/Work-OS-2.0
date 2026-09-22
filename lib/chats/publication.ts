@@ -2,6 +2,8 @@ import { validatePublicationAdvertisementChoice } from './advertisement-selectio
 import { chatStateEvent, chatStateTokenSql, type ChatState } from './state.ts';
 import { nextProfilePublicationDate, profilePublicationRule, PROFILE_CADENCES, type ChatProfile, type ProfileCadence } from './profile.ts';
 
+const MANUAL_PUBLICATION_UNDO_WINDOW_SECONDS = 8;
+
 export type PublicationChat = {
   id: string;
   platform: string;
@@ -62,8 +64,6 @@ export async function recordManualPublication(
   };
   if (advertisementId) eventMetadata.advertisementId = advertisementId;
   if (language) eventMetadata.language = language;
-  // Recheck the current row inside the same transaction as the event. A racing
-  // archive/snooze or duplicate click must not create a publication or an event.
   const statements = [
     db.prepare(`INSERT INTO chat_publications
       (id,user_id,chat_id,published_on,published_at,advertisement_id,source,source_key,created_at,telegram_account_id)
@@ -111,14 +111,16 @@ export async function undoManualPublication(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const { userId, chat, now, date } = input;
   if (chat.workflow_status !== 'ready') return { ok:false,error:'Скасування публікації доступне лише в черзі публікації.' };
-  const publication = await db.prepare(`SELECT p.id,p.source_key,e.id AS event_id,e.metadata_json,e.cancelled_at
+  const publication = await db.prepare(`SELECT p.id,p.source_key,p.published_at,e.id AS event_id,e.metadata_json,e.cancelled_at
     FROM chat_publications p JOIN activity_events e
       ON e.user_id=p.user_id AND e.source_key=p.source_key AND e.event_type='publication'
     WHERE p.user_id=?1 AND p.chat_id=?2 AND p.published_on=?3 AND p.source='manual'
     ORDER BY p.created_at DESC LIMIT 1`).bind(userId,chat.id,date)
-    .first<{id:string;source_key:string;event_id:string;metadata_json:string;cancelled_at:number|null}>();
+    .first<{id:string;source_key:string;published_at:number;event_id:string;metadata_json:string;cancelled_at:number|null}>();
   if (!publication || publication.cancelled_at !== null)
     return { ok:false,error:'Активну ручну публікацію за сьогодні не знайдено. Оновіть список.' };
+  if (!Number.isFinite(publication.published_at) || publication.published_at > now || now - publication.published_at > MANUAL_PUBLICATION_UNDO_WINDOW_SECONDS)
+    return { ok:false,error:'Час швидкого скасування минув. Для пізнішого виправлення скористайтеся корекцією звіту.' };
 
   let metadata: unknown;
   try { metadata = JSON.parse(publication.metadata_json || '{}'); } catch { metadata = null; }
