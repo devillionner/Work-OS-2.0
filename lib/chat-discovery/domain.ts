@@ -336,6 +336,7 @@ export function evaluateDiscoveryCandidate(input: {
   accessState?: DiscoveryCandidate['accessState'];
   linkState?: DiscoveryCandidate['linkState'];
   membershipState?: DiscoveryCandidate['membershipState'];
+  inspectionState?: DiscoveryCandidate['inspectionState'];
 }, minMembers = 700, maxMembers = 18_000): { decision: DiscoveryDecision; reasonCodes: string[] } {
   if (input.linkState === 'invalid') return { decision: 'unavailable', reasonCodes: ['invalid_invite'] };
   if (input.accessState === 'unavailable') return { decision: 'unavailable', reasonCodes: ['access_unavailable'] };
@@ -357,6 +358,7 @@ export function evaluateDiscoveryCandidate(input: {
     [['allowed', 'operator_confirmed'].includes(input.adsPolicy || 'unknown'), 'unknown_ads_allowed'],
     [input.activityState === 'active', 'unknown_activity'],
     [input.membershipState === 'joined', 'unknown_membership'],
+    [input.inspectionState === 'inspected', 'unknown_inspection'],
     // A candidate cannot become target until both the invite itself and post-join access are confirmed.
     [input.linkState === 'valid', 'unknown_invite_validity'],
     [input.accessState === 'available', 'unknown_access'],
@@ -419,6 +421,7 @@ async function persistDiscoveryBatch(
       adsPolicy: existing?.ads_policy || 'unknown',
       activityState: existing?.activity_state || 'unknown',
       membershipState: existing?.membership_state || 'not_checked',
+      inspectionState: existing?.inspection_state || 'not_checked',
       accessState: existing?.access_state || 'unknown',
       linkState: existing?.link_state || 'valid',
     }, run.min_members);
