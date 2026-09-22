@@ -32,5 +32,11 @@ void test('publication history keeps the selected library title owner-scoped', a
   const [event] = await readChatHistory(db,'u','chat');
   assert.equal(event.advertisementId,'ad'); assert.equal(event.advertisementTitle,'Літній набір');
   assert.deepEqual(event.metadata,{advertisementId:'ad',language:'ru'});
+  await db.prepare("UPDATE activity_events SET cancelled_at=30 WHERE id='pub-event'").run();
+  await db.prepare("DELETE FROM chat_publications WHERE id='pub'").run();
+  const [cancelled] = await readChatHistory(db,'u','chat');
+  assert.equal(cancelled.cancelledAt,30);
+  assert.equal(cancelled.advertisementId,'ad');
+  assert.equal(cancelled.advertisementTitle,'Літній набір');
   assert.equal((await readChatHistory(db,'other','chat')).length,0);
 });
