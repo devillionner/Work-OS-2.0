@@ -210,7 +210,10 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       setArchiveId(null); setCustomArchiveReason(''); await reloadChats.current();
       if(undoSpec&&typeof body.stateToken==='string') setNotice(undoSpec.label);
       if(chat.platform==='telegram') await loadAccounts();
-      if(action==='published'&&chat.platform==='telegram') setScheduleRefreshKey(value=>value+1);
+      if(action==='published') {
+        setNotice('Публікацію відмічено. Чат переміщено нижче завершених на сьогодні, щоб наступний доступний лишався перед очима.');
+        if(chat.platform==='telegram') setScheduleRefreshKey(value=>value+1);
+      }
       router.refresh();
       succeeded=true;
     } catch(reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося виконати дію.'); }
