@@ -1,6 +1,4 @@
 import { env } from 'cloudflare:workers';
-
-const bindings = env as typeof env & { DB: D1Database };
 import { getCurrentUser } from '@/lib/auth';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { applyDiscoveryInspection } from '@/lib/chat-discovery/inspection';
@@ -25,7 +23,7 @@ export async function GET(request: Request): Promise<Response> {
   if (!user) return json({ error: 'Потрібна авторизація.' }, 401);
   const url = new URL(request.url);
   try {
-    const workspace = await readDiscoveryWorkspace(bindings.DB, user.id, {
+    const workspace = await readDiscoveryWorkspace(env.DB, user.id, {
       decision: url.searchParams.get('decision'),
       limit: Number(url.searchParams.get('limit') || 60),
     });
@@ -46,7 +44,7 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     if (body.action === 'start') {
-      const run = await startDiscoveryRun(bindings.DB, user.id, {
+      const run = await startDiscoveryRun(env.DB, user.id, {
         platforms: body.platforms,
         goal: body.goal,
         minMembers: body.minMembers,
@@ -55,14 +53,14 @@ export async function POST(request: Request): Promise<Response> {
     }
     if (body.action === 'telegram-plan') {
       if (typeof body.runId !== 'string' || !body.runId) throw new DiscoveryError('Запуск пошуку не вказаний.');
-      return json(await readTelegramDiscoveryPlan(bindings.DB, user.id, body.runId, Number(body.limit) || 6));
+      return json(await readTelegramDiscoveryPlan(env.DB, user.id, body.runId, Number(body.limit) || 6));
     }
     if (body.action === 'advance-telegram-plan') {
       if (typeof body.runId !== 'string' || !body.runId || !Number.isSafeInteger(body.version) || body.processed !== 1 || typeof body.processedQuery !== 'string' || !body.processedQuery.trim()) {
         throw new DiscoveryError('Telegram-план можна просувати лише на один фактично опрацьований запит.');
       }
       return json(await advanceTelegramDiscoveryPlan(
-        bindings.DB,
+        env.DB,
         user.id,
         body.runId,
         Number(body.version),
@@ -73,17 +71,17 @@ export async function POST(request: Request): Promise<Response> {
     }
     if (body.action === 'continue') {
       if (typeof body.runId !== 'string' || !body.runId) throw new DiscoveryError('Запуск пошуку не вказаний.');
-      return json(await continueDiscoveryRun(bindings.DB, user.id, body.runId, now));
+      return json(await continueDiscoveryRun(env.DB, user.id, body.runId, now));
     }
     if (body.action === 'cancel') {
       if (typeof body.runId !== 'string' || !body.runId || !Number.isSafeInteger(body.version)) {
         throw new DiscoveryError('Некоректний стан запуску.');
       }
-      return json(await cancelDiscoveryRun(bindings.DB, user.id, body.runId, Number(body.version), now));
+      return json(await cancelDiscoveryRun(env.DB, user.id, body.runId, Number(body.version), now));
     }
     if (body.action === 'ingest-telegram') {
       if (typeof body.runId !== 'string' || !body.runId) throw new DiscoveryError('Запуск пошуку не вказаний.');
-      return json(await ingestTelegramDiscovery(bindings.DB, user.id, body.runId, {
+      return json(await ingestTelegramDiscovery(env.DB, user.id, body.runId, {
         text: body.text,
         sourceUrl: body.sourceUrl,
         sourceTitle: body.sourceTitle,
@@ -96,13 +94,13 @@ export async function POST(request: Request): Promise<Response> {
       if (typeof body.candidateId !== 'string' || !body.candidateId || !Number.isSafeInteger(body.version)) {
         throw new DiscoveryError('Некоректний кандидат.');
       }
-      return json(await handoffDiscoveryCandidate(bindings.DB, user.id, body.candidateId, Number(body.version), now));
+      return json(await handoffDiscoveryCandidate(env.DB, user.id, body.candidateId, Number(body.version), now));
     }
     if (body.action === 'inspect') {
       if (typeof body.candidateId !== 'string' || !body.candidateId || !Number.isSafeInteger(body.version)) {
         throw new DiscoveryError('Некоректний кандидат.');
       }
-      return json(await applyDiscoveryInspection(bindings.DB, user.id, {
+      return json(await applyDiscoveryInspection(env.DB, user.id, {
         candidateId: body.candidateId,
         expectedVersion: Number(body.version),
         result: body.result,
