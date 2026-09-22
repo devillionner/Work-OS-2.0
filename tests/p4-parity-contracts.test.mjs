@@ -80,6 +80,7 @@ void test('AD-14/16/17 focus controls preserve data and expose plan freshness in
 void test('manual publishing and profile management cover the remaining operator parity surfaces', () => {
   const platform = source('components/platform-workspace.tsx');
   const route = source('app/api/chats/route.ts');
+  const publication = source('lib/chats/publication.ts');
   const publish = source('components/chat-publish-dialog.tsx');
   const profile = source('components/chat-profile-dialog.tsx');
   const selection = source('lib/chats/advertisement-selection.ts');
@@ -94,6 +95,10 @@ void test('manual publishing and profile management cover the remaining operator
   assert.match(platform, /Профілі: ✓ \{profileSummary\.confirmed\}/);
   assert.match(platform, /Потребують правил \(\$\{profileSummary\?\.needsReview\|\|0\}\)/);
   assert.match(route, /ORDER BY published_today ASC,CASE WHEN c\.snoozed_until IS NOT NULL/);
+  assert.match(route, /action === 'undo_published'/);
+  assert.match(publication, /export async function undoManualPublication/);
+  assert.match(publication, /manualUndo/);
+  assert.match(platform, /action:'undo_published'/);
   assert.match(platform, /Публікацію відмічено\. Чат переміщено нижче завершених на сьогодні/);
 });
 
