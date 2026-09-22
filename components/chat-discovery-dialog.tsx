@@ -176,14 +176,22 @@ export function ChatDiscoveryDialog({
 
   async function ingestTelegramScan(completeQuery: boolean) {
     if (telegramBusy || !telegramText.trim()) return;
+    const displayedQuery = workspace.telegramPlan?.tasks[0]?.query || '';
+    if (!displayedQuery) {
+      setError('Поточний Telegram-запит не знайдений. Оновіть пошук.');
+      return;
+    }
     setTelegramBusy(true);
     setError('');
     setNotice('');
     try {
       const run = await ensureTelegramRun();
       const fresh = await load(filter);
-      const query = fresh?.run?.id === run.id ? fresh.telegramPlan?.tasks[0]?.query || '' : '';
-      if (!query) throw new Error('Поточний Telegram-запит не знайдений. Оновіть пошук.');
+      const freshQuery = fresh?.run?.id === run.id ? fresh.telegramPlan?.tasks[0]?.query || '' : '';
+      if (freshQuery !== displayedQuery) {
+        throw new Error('Telegram-запит уже змінився в іншій вкладці. Скан не передано — оновіть поточний query.');
+      }
+      const query = displayedQuery;
       const payload = await post({
         action: 'ingest-telegram',
         runId: run.id,
