@@ -126,7 +126,9 @@ export function ChatDiscoveryDialog({
       const run = await ensureTelegramRun();
       const fresh = await load(filter);
       const query = fresh?.telegramPlan?.tasks[0]?.query || '';
-      setNotice(`Telegram-план готовий. Починаємо із запиту №${run.telegramCursor + 1}.`);
+      setNotice(query
+        ? `Telegram-план готовий. Запит №${run.telegramCursor + 1}: ${query}`
+        : 'Telegram keyword plan завершено.');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не вдалося запустити Telegram-пошук.');
     } finally {
