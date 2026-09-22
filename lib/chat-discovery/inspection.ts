@@ -1,5 +1,5 @@
 import { cleanChatName } from '../chats/bulk-input.ts';
-import { readChatState } from '../chats/state.ts';
+import { readChatState, type ChatState } from '../chats/state.ts';
 import { transitionChat } from '../chats/transitions.ts';
 import {
   DiscoveryError,
@@ -97,6 +97,10 @@ export async function applyDiscoveryInspection(
   if (!current || current.version !== expectedVersion || current.imported_chat_id !== candidate.imported_chat_id) {
     throw new DiscoveryError('Кандидат змінився під час автоперевірки. Оновіть список.', 409);
   }
+  const canonicalMembership = linkedMembershipState(chat, current.membership_state);
+  if (reportedMembership && reportedMembership !== canonicalMembership) {
+    throw new DiscoveryError('Статус вступу не відповідає фактичному стану чату в Work OS. Оновіть список.', 409);
+  }
 
   const observedName = cleanChatName(result.observedName || '');
   const nextName = observedName && isGeneratedName(current.name) ? observedName : current.name;
@@ -107,7 +111,7 @@ export async function applyDiscoveryInspection(
     : knownUnavailable ? 'unavailable' : current.access_state;
   const linkState = result.accessible === true ? 'valid'
     : knownUnavailable ? 'invalid' : current.link_state;
-  const membershipState = reportedMembership || current.membership_state;
+  const membershipState = canonicalMembership;
   const inspectionState = result.status === 'inspected' ? 'inspected'
     : result.status === 'failed' ? 'failed' : current.inspection_state;
   const chatType = result.chatType ?? current.chat_type;
@@ -247,6 +251,14 @@ async function applyUnlinkedInspection(
     autoArchived: false,
     version: update.version,
   };
+}
+
+function linkedMembershipState(chat: ChatState, fallback: DiscoveryCandidate['membershipState']): DiscoveryCandidate['membershipState'] {
+  if (chat.left_at !== null) return 'left';
+  if (chat.workflow_status === 'waiting') return 'pending';
+  if (chat.joined_at !== null) return 'joined';
+  if (chat.workflow_status === 'to_join') return 'not_checked';
+  return fallback;
 }
 
 function parseInspectionResult(value: unknown) {

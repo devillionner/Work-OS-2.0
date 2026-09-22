@@ -681,6 +681,35 @@ void test('confirmed leave adds the membership blocker to an already-review cand
   assert.deepEqual(stored.reasonCodes, ['unknown_ads_allowed']);
 });
 
+void test('inspection cannot overwrite canonical joined membership with a stale manual state', async (t) => {
+  const { db, candidate, chatId } = await importedCandidate(t, 'InspectMembershipCanonical123');
+  const joined = await applyDiscoveryInspection(db, 'u', {
+    candidateId: candidate.id,
+    expectedVersion: candidate.version,
+    result: {
+      status:'inspected', accessible:true, membershipState:'joined',
+      observedName:'Українці Graz батьки', chatType:'group', memberCount:900,
+      topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
+    },
+  }, 110);
+  assert.equal(joined.decision, 'target');
+
+  const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  await assert.rejects(
+    () => applyDiscoveryInspection(db, 'u', {
+      candidateId: stored.id,
+      expectedVersion: stored.version,
+      result: { status:'inspected', membershipState:'not_checked' },
+    }, 111),
+    error => error?.status === 409 && /фактичному стану чату/i.test(error.message),
+  );
+
+  const after = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(after.membershipState, 'joined');
+  assert.equal(after.decision, 'target');
+  assert.equal((await readChatState(db, 'u', chatId)).workflow_status, 'ready');
+});
+
 void test('inspection cannot fake an external leave for an imported chat', async (t) => {
   const { db, candidate, chatId } = await importedCandidate(t, 'InspectCannotFakeLeave123');
   const joined = await applyDiscoveryInspection(db, 'u', {
