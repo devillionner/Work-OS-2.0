@@ -364,11 +364,11 @@ export function ChatDiscoveryDialog({
             <Input
               id="discovery-min-members"
               type="number"
-              min={1}
-              max={10_000_000}
+              min={700}
+              max={18_000}
               value={minMembers}
               disabled={searching || run?.status === 'running'}
-              onChange={event => setMinMembers(clampNumber(event.target.value, 1, 10_000_000, 700))}
+              onChange={event => setMinMembers(clampNumber(event.target.value, 700, 18_000, 700))}
             />
           </label>
         </div>
