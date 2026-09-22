@@ -62,10 +62,10 @@ void test('Telegram keyword plan is the primary discovery flow and public web is
   ]);
   assert.match(dialog, /Почати Telegram-пошук/);
   assert.match(dialog, /Черга Telegram-запитів/);
-  assert.match(dialog, /Опрацьовано → наступний|Передати Telegram-скан/);
+  assert.match(dialog, /Наступний query відкриється автоматично/);
   assert.match(dialog, /Додатковий web-пошук/);
   assert.match(dialog, /run\.telegramCursor/);
-  assert.match(route, /body\.action === 'advance-telegram-plan'/);
+  assert.doesNotMatch(route, /body\.action === 'advance-telegram-plan'/);
   assert.match(domain, /telegram_cursor/);
   assert.match(domain, /buildTelegramSearchPlan/);
 });
@@ -74,7 +74,7 @@ void test('Telegram ingestion and advancement use the persistent plan query as t
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(dialog, /useState\(''\).*telegramQuery|setTelegramQuery/);
   assert.match(dialog, /query: workspace\.telegramPlan\?\.tasks\[0\]\?\.query \|\| ''/);
-  assert.match(dialog, /processedQuery: workspace\.telegramPlan\?\.tasks\[0\]\?\.query \|\| ''/);
+  assert.doesNotMatch(dialog, /processedQuery:/);
   assert.match(dialog, /aria-readonly="true"/);
   assert.match(dialog, /workspace\.run\?\.status !== 'running' \|\| !workspace\.telegramPlan\?\.tasks\[0\]\?\.query/);
 });
