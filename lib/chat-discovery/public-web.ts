@@ -85,7 +85,7 @@ export type TelegramSearchPlan = {
 
 export function buildTelegramSearchPlan(cursor = 0, limit = 6): TelegramSearchPlan {
   const countries = [...new Set(SEEDS.cities.map(city => String(city.country || '').trim()).filter(Boolean))];
-  const cities = interleaveCitiesByCountry(SEEDS.cities);
+  const cities = interleaveCitiesByCountry(uniqueTelegramCities(SEEDS.cities));
   const unsupported = /(назва села|назва селища|район міста|назва района|назва області|пункту пропуску|навчального закладу|назва жк|слово пошук)/iu;
   const staticTemplates = new Set(['Ukrainian in', 'Ukrainians', 'Ukraine chat']);
   const ranked = (templates: readonly string[]) => templates
@@ -142,6 +142,21 @@ function telegramCityPair(index: number, cityCount: number, templateCount: numbe
     };
   }
   return { cityIndex: 0, templateIndex: 0 };
+}
+
+function uniqueTelegramCities(cities: readonly SeedCity[]): SeedCity[] {
+  const seen = new Set<string>();
+  const result: SeedCity[] = [];
+  for (const city of cities) {
+    const country = String(city.country || '').trim();
+    const label = String(city.uk || city.name || '').trim();
+    if (!country || !label) continue;
+    const key = `${country.toLocaleLowerCase('uk-UA')}|${label.toLocaleLowerCase('uk-UA')}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(city);
+  }
+  return result;
 }
 
 function interleaveCitiesByCountry(cities: readonly SeedCity[]): SeedCity[] {
