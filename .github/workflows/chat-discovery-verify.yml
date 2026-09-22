@@ -3,7 +3,7 @@ name: Chat Discovery Verify
 on:
   push:
     branches:
-      - work/whatsapp-chat-discovery
+      - main
   pull_request:
     branches:
       - main
