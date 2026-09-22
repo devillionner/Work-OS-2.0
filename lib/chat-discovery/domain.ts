@@ -88,7 +88,7 @@ export async function startDiscoveryRun(
 ): Promise<DiscoveryRun> {
   const platforms = validatePlatforms(input.platforms);
   const goal = boundedInteger(input.goal, 1, 100, 30);
-  const minMembers = boundedInteger(input.minMembers, 1, 10_000_000, 700);
+  const minMembers = boundedInteger(input.minMembers, 700, 18_000, 700);
   const existing = await activeRun(db, userId);
   if (existing) return mapRun(existing);
   const previous = await latestRun(db, userId);
