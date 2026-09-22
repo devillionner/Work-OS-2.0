@@ -170,7 +170,10 @@ export async function ingestTelegramDiscovery(
   const text = boundedDiscoveryText(input.text, 48_000);
   if (!text) throw new DiscoveryError('Telegram-скан порожній.');
   const sourceUrl = boundedDiscoveryText(input.sourceUrl, 1000);
-  const sourceTitle = boundedDiscoveryText(input.sourceTitle, 180) || 'Telegram source';
+  const sourceTitle = boundedDiscoveryText(input.sourceTitle, 180);
+  if (!sourceTitle || !isTelegramSourceUrl(sourceUrl)) {
+    throw new DiscoveryError('Для Telegram-скану потрібні назва чату та коректне посилання на Telegram-джерело.');
+  }
   const query = boundedDiscoveryText(input.query, 500);
   const expectedQuery = buildTelegramSearchPlan(row.telegram_cursor, 1).tasks[0]?.query || '';
   if (!query || query !== expectedQuery) {
@@ -618,6 +621,16 @@ function safeReasons(value: string) {
 function boundedDiscoveryText(value: unknown, max: number) {
   if (typeof value !== 'string') return '';
   return value.replace(/\u0000/g, '').trim().slice(0, max);
+}
+
+function isTelegramSourceUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    return url.protocol === 'https:' && (host === 't.me' || host === 'telegram.me' || host === 'web.telegram.org');
+  } catch {
+    return false;
+  }
 }
 
 function normalizeText(value: string) {
