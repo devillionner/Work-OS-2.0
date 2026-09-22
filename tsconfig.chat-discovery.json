@@ -5,6 +5,7 @@
     "noEmit": true
   },
   "include": [
+    "worker-env.d.ts",
     "app/api/chat-discovery/route.ts",
     "components/chat-discovery-dialog.tsx",
     "lib/chat-discovery/**/*.ts"
