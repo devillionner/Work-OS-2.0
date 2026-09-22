@@ -93,6 +93,19 @@ void test('Telegram keyword plan is deterministic, bounded and resolves workbook
   assert.ok(first.tasks.every(task => !/назва |\(назва| або країни| або міста/iu.test(task.query)));
   assert.equal(first.tasks[0].seedKind, 'city');
   assert.ok(new Set(first.tasks.map(task => task.city)).size >= 2);
+  const all = buildTelegramSearchPlan(0, 20);
+  const seen = new Set();
+  let cursor = 0;
+  while (cursor < all.totalTasks) {
+    const page = buildTelegramSearchPlan(cursor, 20);
+    for (const task of page.tasks) {
+      const key = `${task.seedKind}|${task.country}|${task.city}|${task.template}`;
+      assert.equal(seen.has(key), false, `duplicate Telegram task: ${key}`);
+      seen.add(key);
+    }
+    assert.ok(page.nextCursor > cursor);
+    cursor = page.nextCursor;
+  }
 
   const repeated = buildTelegramSearchPlan(0, 6);
   assert.deepEqual(repeated, first);
