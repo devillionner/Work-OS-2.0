@@ -58,3 +58,13 @@ void test('global sync refreshes every workspace when the Kyiv business date cha
   assert.match(sync,/if \(refreshBusinessDay\(\)\) return/);
   assert.match(sync,/router\.refresh\(\)/);
 });
+
+
+void test('sync never consumes a newer server revision when poll refresh is throttled', () => {
+  const sync = read('components/server-sync.tsx');
+  const throttle = sync.indexOf("if (reason === 'poll' && now - lastRefreshAt.current < MIN_REFRESH_GAP_MS) return;");
+  const assign = sync.indexOf('revisionRef.current = revision;', throttle);
+  assert.ok(throttle >= 0);
+  assert.ok(assign > throttle);
+  assert.match(sync,/explicit local\/cross-tab\s+\*\/);
+});

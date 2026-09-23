@@ -45,15 +45,21 @@ export function ServerSync() {
         revisionRef.current = renderedRevision;
       }
       const previous = revisionRef.current;
-      revisionRef.current = revision;
 
       // The page exposes the revision used for its server render. This catches a
       // write that lands between SSR and the first client poll instead of
       // incorrectly accepting the newer server value as a baseline.
-      if (previous === null || revision === previous) return;
+      if (previous === null || revision === previous) {
+        revisionRef.current = revision;
+        return;
+      }
 
       const now = Date.now();
-      if (now - lastRefreshAt.current < MIN_REFRESH_GAP_MS) return;
+      // Never consume a newer authoritative revision merely because a previous
+      // refresh happened recently. Polls can retry it; explicit local/cross-tab
+      // writes refresh immediately so derived workspaces cannot stay stale.
+      if (reason === 'poll' && now - lastRefreshAt.current < MIN_REFRESH_GAP_MS) return;
+      revisionRef.current = revision;
       lastRefreshAt.current = now;
       const detail: DataSyncDetail = { scope: 'all', reason, at: now };
       window.dispatchEvent(new CustomEvent<DataSyncDetail>(DATA_SYNC_EVENT, { detail }));
