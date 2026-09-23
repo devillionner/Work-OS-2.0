@@ -158,7 +158,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     activeLoad.current?.abort();
     const controller=new AbortController(); activeLoad.current=controller;
     const requestNumber=++loadNumber.current;
-    setLoading(true); setError(''); setData(null);
+    setLoading(true); setError('');
     try {
       const params = new URLSearchParams({platform,status:queue,search,offset:String(offset),profile:profileFilter});
       if(requestAccountId) params.set('account',requestAccountId);
@@ -180,20 +180,20 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     setQuickPublishMode(false); setQuickAdvertisementId(null);
     setNotice(`Додано ${result.added} чатів: ${Object.entries(result.counts).map(([key,count])=>`${CHAT_PLATFORM_NAMES[key as ChatPlatform]} — ${count}`).join(', ')}.`);
     const changesFilter=target!==platform||queue!=='to_join'||search!==''||offset!==0;
-    setData(null);setLoading(true);setPlatform(target);setQueue('to_join');setSearch('');setProfileFilter('all');setOffset(0);
+    setLoading(true);setPlatform(target);setQueue('to_join');setSearch('');setProfileFilter('all');setOffset(0);
     if(!changesFilter) void reloadChats.current();
     router.refresh();
   }
 
   function savedProfile() {
-    setProfileChat(null); setData(null); setLoading(true); void reloadChats.current(); router.refresh();
+    setProfileChat(null); setLoading(true); void reloadChats.current(); router.refresh();
   }
 
   function importedDiscoveryChat(nextPlatform:'whatsapp'|'viber') {
     const changesFilter=nextPlatform!==platform||queue!=='to_join'||search!==''||offset!==0;
     setQuickPublishMode(false); setQuickAdvertisementId(null);
     setNotice('Новий чат із пошуку додано в чергу «Для приєднання».');
-    setData(null);setLoading(true);setPlatform(nextPlatform);setQueue('to_join');setSearch('');setProfileFilter('all');setOffset(0);
+    setLoading(true);setPlatform(nextPlatform);setQueue('to_join');setSearch('');setProfileFilter('all');setOffset(0);
     if(!changesFilter) void reloadChats.current();
     router.refresh();
   }
@@ -386,7 +386,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
         <Badge variant="secondary">{data?.total || 0} у черзі</Badge>
       </div>
       {error && <div className="workspace-error" role="alert">{error} <Button variant="outline" size="sm" disabled={loading||busy!==null} onClick={()=>void reloadChats.current()}>Оновити список</Button></div>}
-      {loading||switchingList ? <div className="workspace-loading"><LoaderCircle/>Завантажуємо {selected.label}…</div> : data?.chats.length ? <>
+      {!data&&(loading||switchingList) ? <div className="workspace-loading"><LoaderCircle/>Завантажуємо {selected.label}…</div> : data?.chats.length ? <>
         <div className="chat-list">
         {data.chats.map((chat,index)=><article className={`chat-row ${lastOpenedByPlatform[platform]===chat.id?'is-last-opened':''} ${index>=mobileVisibleChats?'mobile-progressive-hidden':''}`} key={chat.id}>
           <div className="chat-main"><div className="chat-name-line"><strong>{chat.name}</strong>{lastOpenedByPlatform[platform]===chat.id&&<Badge variant="outline">Останній відкритий</Badge>}{!chat.profileConfirmed&&queue==='ready'&&<Badge variant="outline">Профіль пізніше</Badge>}{queue==='ready'&&chat.discoveryDecision&&chat.discoveryDecision!=='target'&&<Badge variant="outline">Потрібна кваліфікація</Badge>}{chat.publishedToday&&<Badge variant="secondary">Опубліковано сьогодні</Badge>}</div><button className="chat-native-link" type="button" onClick={()=>openChat(chat)}>{chat.link}</button>{chat.archiveReason&&<small>Причина: {chat.archiveReason}</small>}{queue==='archived'&&chat.archivedAt&&<small>Архівовано {formatDateTime(chat.archivedAt)}</small>}{queue==='archived'&&supportsChatLeaveChecklist(platform)&&chat.joinedAt!==null&&<small>{chat.leftAt?`Вихід із чату підтверджено ${formatDateTime(chat.leftAt)}`:'Ще потрібно вручну вийти з чату й підтвердити це тут.'}</small>}{chat.snoozedUntil&&chat.snoozedUntil>clock/1000&&<small>Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{(queue==='waiting'||queue==='ready')&&shouldSuggestChatArchive(chat.snoozeCount)&&<div><small>Відкладали {chat.snoozeCount} рази. Якщо чат уже неактуальний, краще перенести його в архів.</small><Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>toggleArchive(chat.id)}><Archive data-icon="inline-start"/>Архівувати</Button></div>}{queue==='ready'&&!canPublish(chat,clock)&&(chat.discoveryDecision&&chat.discoveryDecision!=='target'
