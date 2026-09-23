@@ -1436,11 +1436,16 @@ body { background:var(--background); }
   .chat-native-link { max-width:100%; }
   .chat-actions { width:100%; min-width:0; flex-wrap:wrap; justify-content:flex-start; align-items:stretch; gap:8px; }
 }
+@container platform-browser (max-width: 640px) {
+  .queue-tabs { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .queue-tabs button:nth-child(2) { border-right:0; }
+  .queue-tabs button:nth-child(-n+2) { border-bottom:1px solid var(--border); }
+}
 @container platform-browser (max-width: 560px) {
   .chat-toolbar { gap:8px; }
   .chat-toolbar > [data-slot="button"] { flex:1 1 auto; }
   .chat-row { padding:12px; }
-  .chat-actions [data-slot="button"]:not([data-size="icon"]) { flex:1 1 auto; min-width:0; }
+  .chat-actions { gap:6px; }
   .chat-account-select { max-width:100%; flex:1 1 140px; }
 }
 @media (max-width:720px) {
