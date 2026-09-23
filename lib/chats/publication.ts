@@ -23,7 +23,7 @@ export function publicationAvailability(chat: PublicationChat, now: number) {
 export async function recordManualPublication(
   db: D1Database,
   input: { userId: string; chat: PublicationChat; accountId: string | null; advertisementId?: string | null; language?: 'uk' | 'ru' | null; quickMode?: boolean; now: number; date: string; stateToken: string },
-): Promise<{ ok: true; publicationId: string } | { ok: false; error: string; availableAt?: number | null }> {
+): Promise<{ ok: true; publicationId: string; undoExpiresAt: number } | { ok: false; error: string; availableAt?: number | null }> {
   const { userId, chat, accountId, advertisementId = null, now, date } = input;
   const language = input.language === 'uk' || input.language === 'ru' ? input.language : null;
   const quickMode = input.quickMode === true;
@@ -101,7 +101,7 @@ export async function recordManualPublication(
       AND EXISTS(SELECT 1 FROM chat_publications p WHERE p.id=?4 AND p.user_id=?3)`)
       .bind(now,chat.id,userId,publicationId));
   const results = await db.batch(statements);
-  return results[0].meta.changes ? { ok: true, publicationId }
+  return results[0].meta.changes ? { ok: true, publicationId, undoExpiresAt: now + MANUAL_PUBLICATION_UNDO_WINDOW_SECONDS }
     : { ok: false, error: 'Чат уже змінено або сьогодні в ньому вже публікували. Оновіть список.' };
 }
 

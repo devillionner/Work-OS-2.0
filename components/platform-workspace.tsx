@@ -30,7 +30,7 @@ type LinkItem = { name?:string; link?:string };
 type ProfileCounts = { confirmed:number; draft:number; empty:number; needsReview:number };
 type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; profileCounts:Record<string,ProfileCounts>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:{ratePerHour:number;completed:number;target:number}; requestKey?:string };
 type UndoSpec = { action:'restore'|'unsnooze'|'undo_published'; label:string };
-type UndoState = UndoSpec & { chat:Chat };
+type UndoState = UndoSpec & { chat:Chat; expiresAt:number };
 type TelegramAccount = { id:string; number:number; name:string; enabled:boolean; selected:boolean; joinStreak:number; joinBatchSize:number; breakMinutes:number; breakUntil:number|null };
 type PlatformConfirmation = { kind:'assign'; chat:Chat; nextId:string; currentName:string; nextName:string } | { kind:'return'; chat:Chat };
 
@@ -170,7 +170,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
 
   useEffect(() => { reloadChats.current=load; const timer=setTimeout(load,search ? 250 : 0); return () => { clearTimeout(timer); cancelLoad(); }; },[load,search,cancelLoad]);
 
-  useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>{setNotice('');setUndo(null);},8000);return()=>clearTimeout(timer);},[notice]);
+  useEffect(()=>{if(!notice)return;const delay=undo?Math.max(0,undo.expiresAt-Date.now()):8000;const timer=setTimeout(()=>{setNotice('');setUndo(null);},delay);return()=>clearTimeout(timer);},[notice,undo]);
 
   function addedChats(result:BulkResult) {
     const target=availablePlatforms.find(item=>(result.counts[item.key]||0)>0)?.key||platform;
@@ -219,17 +219,20 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     setBusy(chat.id); setError(''); setNotice(''); setUndo(null);
     try {
       const response=await fetch('/api/chats',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:chat.id,action,stateToken:chat.stateToken,accountId:chat.platform==='telegram'?(chat.telegramAccountId||accountId):null,...extra})});
-      const body=await response.json() as {error?:string;availableAt?:number;stateToken?:string;snoozedUntil?:number|null;leftAt?:number|null};
+      const body=await response.json() as {error?:string;availableAt?:number;stateToken?:string;snoozedUntil?:number|null;leftAt?:number|null;undoExpiresAt?:number};
       if(!response.ok) {
         if(response.status===409) await reloadChats.current();
         throw new Error(body.error || 'Не вдалося виконати дію.');
       }
-      if(undoSpec&&typeof body.stateToken==='string') setUndo({chat:{...chat,stateToken:body.stateToken,snoozedUntil:body.snoozedUntil??chat.snoozedUntil},...undoSpec});
+      if(undoSpec&&typeof body.stateToken==='string') {
+        const expiresAt=typeof body.undoExpiresAt==='number'?body.undoExpiresAt*1000:Date.now()+8000;
+        if(expiresAt>Date.now()) setUndo({chat:{...chat,stateToken:body.stateToken,snoozedUntil:body.snoozedUntil??chat.snoozedUntil},expiresAt,...undoSpec});
+      }
       setArchiveId(null); setCustomArchiveReason(''); await reloadChats.current();
-      if(undoSpec&&typeof body.stateToken==='string') setNotice(undoSpec.label);
+      if(undoSpec&&typeof body.stateToken==='string'&&(!body.undoExpiresAt||body.undoExpiresAt*1000>Date.now())) setNotice(undoSpec.label);
       if(chat.platform==='telegram') await loadAccounts();
       if(action==='published') {
-        setNotice(undoSpec&&typeof body.stateToken==='string'
+        setNotice(undoSpec&&typeof body.stateToken==='string'&&(!body.undoExpiresAt||body.undoExpiresAt*1000>Date.now())
           ? 'Публікацію відмічено. Якщо це помилка, скасуйте її зараз; наступний доступний чат лишився перед очима.'
           : 'Публікацію відмічено. Чат переміщено нижче завершених на сьогодні, щоб наступний доступний лишався перед очима.');
       }

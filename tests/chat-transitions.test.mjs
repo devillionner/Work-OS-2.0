@@ -196,6 +196,7 @@ void test('same-day publication undo restores publication facts, profile cadence
   const published=await recordManualPublication(db,{userId:'u',chat:before,accountId:'a',now:NOW,date:'2026-09-10',stateToken:before.state_token});
   assert.equal(published.ok,true);
   if(!published.ok)return;
+  assert.equal(published.undoExpiresAt,NOW+8);
   const afterPublication=await state(db);
   assert.notEqual(afterPublication.state_token,before.state_token);
   assert.equal((await db.prepare("SELECT next_allowed_on FROM chat_profiles WHERE chat_id='chat'").first()).next_allowed_on,'2026-09-11');

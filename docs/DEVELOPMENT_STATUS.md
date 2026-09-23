@@ -1,5 +1,12 @@
 # Development status — 2026-09-23
 
+## 2026-09-23 publication Undo deadline parity — v0.2.21
+
+- Manual publication domain/API now returns the authoritative server-side Undo deadline. Platforms binds the Undo affordance lifetime to that deadline instead of starting a fresh client-only 8-second timer after the network round trip.
+- This closes the misleading retry edge where a slow response could leave a visible «Скасувати» button after the domain window had already expired. Server enforcement remains fail-closed and unchanged.
+- Regression contracts cover the API deadline and deadline-bound UI timer. Live/two-device publication acceptance remains a separate PUB-15 gate.
+
+
 ## 2026-09-23 Telegram account-context race hardening — v0.2.20
 
 - Platforms більше не викликає chat reload, захоплений для попереднього Telegram account ID, одразу після `select`: новий account ID змінює request key, а canonical load effect завантажує саме новий контекст. Це прибирає короткий stale-account flash/race у publication workspace.

@@ -99,6 +99,9 @@ void test('manual publishing and profile management cover the remaining operator
   assert.match(publication, /export async function undoManualPublication/);
   assert.match(publication, /manualUndo/);
   assert.match(platform, /action:'undo_published'/);
+  assert.match(publication, /undoExpiresAt: now \+ MANUAL_PUBLICATION_UNDO_WINDOW_SECONDS/);
+  assert.match(platform, /expiresAt:number/);
+  assert.match(platform, /Math\.max\(0,undo\.expiresAt-Date\.now\(\)\)/);
   assert.match(platform, /Публікацію відмічено\. Чат переміщено нижче завершених на сьогодні/);
 });
 
