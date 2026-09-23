@@ -44,8 +44,9 @@ export async function transitionChat(db: D1Database, input: {
   ];
   if (invalidatesTodayJoin) {
     statements.push(db.prepare(`UPDATE activity_events SET cancelled_at=?1
-      WHERE user_id=?2 AND chat_id=?3 AND event_type='chat_joined' AND event_date=?4 AND cancelled_at IS NULL`)
-      .bind(now,userId,chat.id,businessDate(now)));
+      WHERE user_id=?2 AND chat_id=?3 AND event_type='chat_joined' AND event_date=?4 AND cancelled_at IS NULL
+        AND EXISTS(SELECT 1 FROM activity_events transition_event WHERE transition_event.id=?5 AND transition_event.user_id=?2)`)
+      .bind(now,userId,chat.id,businessDate(now),eventId));
   }
   const discoveryMembership = discoveryMembershipForTransition(action);
   if (discoveryMembership) {
