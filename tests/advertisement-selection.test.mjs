@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectPublicationFocusPlan, rankPublicationAdvertisements, readPublicationAdvertisementSelection } from '../lib/chats/advertisement-selection.ts';
 import { localDatabase, seedChat } from './helpers/local-d1.mjs';
+import { recordManualPublication, undoManualPublication } from '../lib/chats/publication.ts';
+import { readChatState } from '../lib/chats/state.ts';
 
 const row = (id, { title = id, tags = [], platforms = [], uk = 'Текст', ru = '', updated = 1 } = {}) => ({
   id,
@@ -146,4 +148,35 @@ void test('publish UI shows current focus, stale diff and explicit refresh/keep 
   assert.match(source, /Оновити невиконану частину/);
   assert.match(source, /Залишити поточний/);
   assert.match(source, /Уже опубліковані пункти не змінено/);
+});
+
+
+void test('manual publication undo restores advertisement usedToday and selectability', async (t) => {
+  const db = await localDatabase(t);
+  const chat = await seedChat(db, { id: 'ad-undo-chat', owner: 'u', platform: 'whatsapp', status: 'ready' });
+  await db.prepare(`INSERT INTO library_items(id,user_id,kind,title,uk_text,tags_json,platforms_json,created_at,updated_at)
+    VALUES ('ad-undo','u','advertisement','Оголошення','Текст','[]','["whatsapp"]',1,1)`).run();
+
+  const before = await readPublicationAdvertisementSelection(db, { userId: 'u', chatId: 'ad-undo-chat', date: '2026-09-10' });
+  assert.equal(before?.items.find((item) => item.id === 'ad-undo')?.usedToday, false);
+  assert.equal(before?.items.find((item) => item.id === 'ad-undo')?.selectable, true);
+
+  const state = await readChatState(db, 'u', 'ad-undo-chat');
+  const published = await recordManualPublication(db, {
+    userId:'u', chat:state, accountId:null, advertisementId:'ad-undo', now:Date.parse('2026-09-10T12:00:00Z')/1000,
+    date:'2026-09-10', stateToken:state.state_token,
+  });
+  assert.equal(published.ok, true);
+  const afterPublish = await readPublicationAdvertisementSelection(db, { userId: 'u', chatId: 'ad-undo-chat', date: '2026-09-10' });
+  assert.equal(afterPublish?.items.find((item) => item.id === 'ad-undo')?.usedToday, true);
+
+  const next = await readChatState(db, 'u', 'ad-undo-chat');
+  const undone = await undoManualPublication(db, {
+    userId:'u', chat:next, now:Date.parse('2026-09-10T12:00:01Z')/1000, date:'2026-09-10',
+  });
+  assert.equal(undone.ok, true);
+  const afterUndo = await readPublicationAdvertisementSelection(db, { userId: 'u', chatId: 'ad-undo-chat', date: '2026-09-10' });
+  const restored = afterUndo?.items.find((item) => item.id === 'ad-undo');
+  assert.equal(restored?.usedToday, false);
+  assert.equal(restored?.selectable, true);
 });

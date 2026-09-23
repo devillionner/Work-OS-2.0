@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { businessDate } from '../lib/business-time.ts';
-import { recordManualPublication } from '../lib/chats/publication.ts';
+import { recordManualPublication, undoManualPublication } from '../lib/chats/publication.ts';
 import {
   clearPendingTelegramSchedule,
   generateTelegramSchedule,
@@ -162,4 +162,42 @@ void test('scheduler respects confirmed profile publication rules', async (t) =>
            ('blocked-profile','uk','daily','[4]',NULL,'2026-09-11','[]','','confirmed','manual',1)`).run();
   const snap = await readTelegramSchedule(db, { userId:'u', accountId:'a', now:NOW, date:DATE });
   assert.deepEqual(snap.eligibleChats.map(chat=>chat.id), ['allowed-profile']);
+});
+
+void test('publication undo restores exactly the matching Telegram slot and keeps other accounts isolated', async (t) => {
+  const db = await localDatabase(t);
+  await seedAccount(db, 'a', 'u', 1);
+  await seedAccount(db, 'b', 'u', 2);
+  const aChat = await telegramChat(db, 'undo-a-chat', 'a');
+  await telegramChat(db, 'undo-b-chat', 'b');
+
+  for (const accountId of ['a', 'b']) {
+    await saveTelegramScheduleSettings(db, {
+      userId:'u', accountId, expectedVersion:0, intervalMinutes:4, baseAt:NOW,
+      selectionMode:'auto', manualChatIds:[], now:NOW, date:DATE,
+    });
+    await generateTelegramSchedule(db, { userId:'u', accountId, count:1, now:NOW, date:DATE });
+  }
+
+  const published = await recordManualPublication(db, {
+    userId:'u', chat:aChat, accountId:'a', now:NOW+1, date:DATE, stateToken:aChat.state_token,
+  });
+  assert.equal(published.ok, true);
+  const completedA = await readTelegramSchedule(db, { userId:'u', accountId:'a', now:NOW+1, date:DATE });
+  const untouchedB = await readTelegramSchedule(db, { userId:'u', accountId:'b', now:NOW+1, date:DATE });
+  assert.equal(completedA.completed, 1);
+  assert.equal(untouchedB.pending, 1);
+
+  const current = await (await import('../lib/chats/state.ts')).readChatState(db,'u','undo-a-chat');
+  const undone = await undoManualPublication(db, { userId:'u', chat:current, now:NOW+2, date:DATE });
+  assert.equal(undone.ok, true);
+
+  const restoredA = await readTelegramSchedule(db, { userId:'u', accountId:'a', now:NOW+2, date:DATE });
+  const stillUntouchedB = await readTelegramSchedule(db, { userId:'u', accountId:'b', now:NOW+2, date:DATE });
+  assert.equal(restoredA.completed, 0);
+  assert.equal(restoredA.pending, 1);
+  assert.equal(restoredA.slots[0].chatId, 'undo-a-chat');
+  assert.equal(restoredA.slots[0].publicationId, null);
+  assert.equal(stillUntouchedB.completed, 0);
+  assert.equal(stillUntouchedB.pending, 1);
 });
