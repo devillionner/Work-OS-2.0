@@ -1,5 +1,12 @@
 # Development status — 2026-09-23
 
+## 2026-09-23 Platforms no-remount reconciliation — v0.2.33
+
+- Root cause of the remaining queue flash was the shell keying `PlatformWorkspace` by `syncRevision`: every local `router.refresh()` or server-sync revision update remounted the whole workspace, resetting chat data to null and showing the large loader even though the mutation itself had already completed.
+- Platforms is now kept mounted across revision changes. `syncRevision` is passed as data, and the workspace silently re-fetches canonical chats/accounts when that revision changes instead of resetting all local UI state.
+- Direct Platforms mutations no longer call `router.refresh()`; archive/publication/profile/account reconciliation uses silent client-side reloads. Cross-device server sync still updates the page shell, but Platforms consumes the new revision without remounting.
+- Regression coverage now forbids the revision key and router refresh inside Platforms, and requires the silent reconciliation path.
+
 ## 2026-09-23 Platforms background reconciliation — v0.2.32
 
 - Chat mutations in Platforms no longer clear the currently loaded queue before the authoritative GET reconciliation finishes. Archive, manual publication and other same-view actions therefore keep the list mounted instead of replacing the whole block with a loading screen.
