@@ -268,7 +268,15 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision }: { enabledP
       result={ok:true};
     } catch(reason) {
       const error=reason instanceof Error ? reason.message : 'Не вдалося виконати дію.';
-      result={ok:false,error,refresh:false};
+      const publicationAction=action==='published'||action==='undo_published';
+      if(publicationAction) {
+        // The server may have committed even if the response was lost. Re-read
+        // canonical state before the operator can retry, so a timeout cannot
+        // leave stale counters or encourage a duplicate manual action.
+        await reloadChats.current(true);
+        announceDataChange('all');
+      }
+      result={ok:false,error,refresh:publicationAction};
       if(action!=='published') setError(error);
     }
     finally { setBusy(null); }

@@ -24,3 +24,12 @@ void test('platform workspace reconciles confirmed publication state immediately
   assert.match(workspace,/announceDataChange\('all'\)/);
   assert.match(workspace,/void reloadChats\.current\(true\)/);
 });
+
+
+void test('ambiguous publication network failures force canonical reconciliation before retry', () => {
+  const workspace=read('components/platform-workspace.tsx');
+  assert.match(workspace,/const publicationAction=action==='published'\|\|action==='undo_published'/);
+  assert.match(workspace,/await reloadChats\.current\(true\)/);
+  assert.match(workspace,/timeout cannot[\s\S]*duplicate manual action/);
+  assert.match(workspace,/result=\{ok:false,error,refresh:publicationAction\}/);
+});
