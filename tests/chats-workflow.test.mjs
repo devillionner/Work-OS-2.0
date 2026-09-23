@@ -3,6 +3,8 @@ import test from 'node:test';
 import { businessDate, businessDayStart, shiftBusinessDate, snoozeDeadline } from '../lib/business-time.ts';
 import { publicationAvailability, recordManualPublication, undoManualPublication } from '../lib/chats/publication.ts';
 import { activitySummaryStatement } from '../lib/activity-summary.ts';
+import { readDashboardSnapshot } from '../lib/dashboard-data.ts';
+import { readAnalyticsMetricEvents } from '../lib/analytics-events.ts';
 import { readActivityDayRevision } from '../lib/reports/activity-revision.ts';
 import { readChatState } from '../lib/chats/state.ts';
 import { transitionChat } from '../lib/chats/transitions.ts';
@@ -198,4 +200,26 @@ void test('archiving a chat after publication preserves historical publication m
   assert.equal((await db.prepare("SELECT COUNT(*) n FROM activity_events WHERE user_id='u' AND chat_id='archive-after-publish' AND event_type='publication' AND event_date='2026-09-10' AND cancelled_at IS NULL").first()).n,1);
   const summary = await activitySummaryStatement(db,'u','2026-09-10','2026-09-10').all();
   assert.equal(Number(summary.results.find(row=>row.event_type==='publication')?.count||0),1);
+});
+
+
+void test('Today and Analytics follow the same active publication fact through Undo', async t => {
+  const db = await localDatabase(t);
+  const chat = await seedChat(db,{id:'cross-view-publication',platform:'whatsapp',status:'ready'});
+  const created = await publish(db,chat);
+  assert.equal(created.ok,true);
+
+  const dashboardAfterPublish = await readDashboardSnapshot(db,'u',NOW);
+  assert.equal(dashboardAfterPublish.platforms.find(item=>item.key==='whatsapp')?.publications,1);
+  const analyticsAfterPublish = await readAnalyticsMetricEvents(db,{userId:'u',metric:'publications',from:'2026-09-10',to:'2026-09-10'});
+  assert.equal(analyticsAfterPublish.total,1);
+  assert.equal(analyticsAfterPublish.events[0]?.chatName,'cross-view-publication');
+
+  const current = await readChatState(db,'u','cross-view-publication');
+  assert.equal((await undoManualPublication(db,{userId:'u',chat:current,now:NOW+1,date:'2026-09-10'})).ok,true);
+
+  const dashboardAfterUndo = await readDashboardSnapshot(db,'u',NOW+1);
+  assert.equal(dashboardAfterUndo.platforms.find(item=>item.key==='whatsapp')?.publications,0);
+  const analyticsAfterUndo = await readAnalyticsMetricEvents(db,{userId:'u',metric:'publications',from:'2026-09-10',to:'2026-09-10'});
+  assert.equal(analyticsAfterUndo.total,0);
 });
