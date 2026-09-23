@@ -1,5 +1,13 @@
 # Development status — 2026-09-23
 
+## 2026-09-23 Chat Discovery executor task leasing — v0.2.26
+
+- Dedicated executor queue reads now atomically lease each candidate to one authenticated device for 90 seconds, preventing two paired runners from executing the same messenger action concurrently.
+- Inspection and external-leave callbacks fail closed unless the candidate is still leased to that exact device and version; expired work is recoverable by another runner instead of remaining stuck indefinitely.
+- Revoking an executor immediately releases its outstanding candidate leases. Migration `0035_chat_discovery_executor_leases.sql` adds only staging-safe lease metadata/indexes; production is untouched.
+- Focused lease/auth/route evidence is green. Real WhatsApp/Viber browser automation and live messenger acceptance remain the next Discovery slice; this release closes the multi-runner delivery race before that adapter is attached.
+
+
 ## 2026-09-23 Chat Discovery executor pairing — v0.2.25
 
 - Added owner-scoped executor device pairing with one-time 256-bit bearer tokens; Work OS stores only SHA-256 token hashes and supports explicit revocation.

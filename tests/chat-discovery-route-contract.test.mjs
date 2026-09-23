@@ -31,3 +31,10 @@ void test('Chat Discovery rejects malformed versioned mutations before domain ca
   assert.match(route, /typeof body\.runId !== 'string'/);
   assert.match(route, /throw new DiscoveryError\('Невідома дія\.'\)/);
 });
+
+
+void test('dedicated executor bridge leases tasks to the authenticated device before callbacks', async () => {
+  const route = await readFile(new URL('../app/api/chat-discovery/executor/route.ts', import.meta.url), 'utf8');
+  assert.match(route, /claimDiscoveryExecutorQueue\(env\.DB, executor\.userId, executor\.deviceId/);
+  assert.match(route, /assertDiscoveryExecutorLease\(env\.DB, executor\.userId, executor\.deviceId/);
+});

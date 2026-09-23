@@ -50,6 +50,9 @@ export async function revokeDiscoveryExecutorDevice(
     SET revoked_at=?1 WHERE id=?2 AND user_id=?3 AND revoked_at IS NULL`)
     .bind(now, deviceId, userId).run();
   if (Number(result.meta.changes || 0) !== 1) throw new DiscoveryError('Підключення executor не знайдено.', 404);
+  await db.prepare(`UPDATE chat_discovery_candidates
+    SET executor_lease_device_id=NULL,executor_lease_expires_at=NULL
+    WHERE user_id=?1 AND executor_lease_device_id=?2`).bind(userId, deviceId).run();
   return { ok: true };
 }
 

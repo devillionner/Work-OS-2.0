@@ -12,7 +12,7 @@ import {
   startDiscoveryRun,
 } from '../lib/chat-discovery/domain.ts';
 import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
-import { completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
+import { assertDiscoveryExecutorLease, claimDiscoveryExecutorQueue, completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
 import { buildTelegramSearchPlan, discoverPublicWeb, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl } from '../lib/chat-discovery/public-web.ts';
 import { changeChatLeave } from '../lib/chats/leave.ts';
 import { readChatState } from '../lib/chats/state.ts';
@@ -644,6 +644,33 @@ void test('executor queue exposes only the next safe external action and clears 
   assert.equal(inspected.decision, 'target');
   assert.equal((await readDiscoveryExecutorQueue(db, 'u', 10)).tasks.length, 0);
   assert.equal((await readDiscoveryExecutorQueue(db, 'other', 10)).tasks.length, 0);
+});
+
+
+void test('executor claims are exclusive per device and recover after a bounded lease', async (t) => {
+  const { db, candidate } = await importedCandidate(t, 'ExecutorLease123');
+  const first = await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 10, 200);
+  assert.equal(first.tasks.length, 1);
+  assert.equal(first.leaseSeconds, 90);
+  assert.equal(first.tasks[0].leaseExpiresAt, 290);
+
+  const competing = await claimDiscoveryExecutorQueue(db, 'u', 'device-b', 10, 201);
+  assert.equal(competing.tasks.length, 0);
+  await assert.rejects(
+    assertDiscoveryExecutorLease(db, 'u', 'device-b', candidate.id, candidate.version, 201),
+    /більше не належить цьому пристрою/,
+  );
+  await assert.doesNotReject(
+    assertDiscoveryExecutorLease(db, 'u', 'device-a', candidate.id, candidate.version, 201),
+  );
+
+  const recovered = await claimDiscoveryExecutorQueue(db, 'u', 'device-b', 10, 291);
+  assert.equal(recovered.tasks.length, 1);
+  assert.equal(recovered.tasks[0].candidateId, candidate.id);
+  await assert.rejects(
+    assertDiscoveryExecutorLease(db, 'u', 'device-a', candidate.id, candidate.version, 291),
+    /більше не належить цьому пристрою/,
+  );
 });
 
 void test('executor leave result archives a rejected joined WhatsApp chat and confirms the real external leave', async (t) => {

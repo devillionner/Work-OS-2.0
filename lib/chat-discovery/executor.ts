@@ -22,6 +22,7 @@ export type DiscoveryExecutorTask = {
   decision: DiscoveryDecision;
   minMembers: number;
   resultAction: 'inspect' | 'executor-leave';
+  leaseExpiresAt?: number;
 };
 
 type CandidateTaskRow = {
@@ -76,6 +77,49 @@ export async function readDiscoveryExecutorQueue(
     });
   }
   return { tasks };
+}
+
+
+export async function claimDiscoveryExecutorQueue(
+  db: D1Database,
+  userId: string,
+  deviceId: string,
+  limitInput: unknown,
+  now: number,
+): Promise<{ tasks: DiscoveryExecutorTask[]; leaseSeconds: number }> {
+  const leaseSeconds = 90;
+  const limit = boundedLimit(limitInput);
+  const queue = await readDiscoveryExecutorQueue(db, userId, Math.max(limit * 3, 20));
+  const tasks: DiscoveryExecutorTask[] = [];
+  for (const task of queue.tasks) {
+    if (tasks.length >= limit) break;
+    const leaseExpiresAt = now + leaseSeconds;
+    const claimed = await db.prepare(`UPDATE chat_discovery_candidates
+      SET executor_lease_device_id=?1,executor_lease_expires_at=?2
+      WHERE id=?3 AND user_id=?4 AND version=?5
+        AND (executor_lease_device_id=?1 OR executor_lease_expires_at IS NULL OR executor_lease_expires_at<=?6)`)
+      .bind(deviceId, leaseExpiresAt, task.candidateId, userId, task.candidateVersion, now).run();
+    if (Number(claimed.meta.changes || 0) !== 1) continue;
+    tasks.push({ ...task, leaseExpiresAt });
+  }
+  return { tasks, leaseSeconds };
+}
+
+export async function assertDiscoveryExecutorLease(
+  db: D1Database,
+  userId: string,
+  deviceId: string,
+  candidateId: string,
+  expectedVersion: number,
+  now: number,
+) {
+  const lease = await db.prepare(`SELECT executor_lease_device_id,executor_lease_expires_at
+    FROM chat_discovery_candidates WHERE id=?1 AND user_id=?2 AND version=?3 LIMIT 1`)
+    .bind(candidateId, userId, expectedVersion)
+    .first<{executor_lease_device_id:string|null;executor_lease_expires_at:number|null}>();
+  if (!lease || lease.executor_lease_device_id !== deviceId || !lease.executor_lease_expires_at || lease.executor_lease_expires_at <= now) {
+    throw new DiscoveryError('Задача executor більше не належить цьому пристрою. Оновіть чергу.', 409);
+  }
 }
 
 export async function completeDiscoveryExternalLeave(

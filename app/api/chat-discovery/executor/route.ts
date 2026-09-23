@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers';
 import { readJsonObject } from '@/lib/http-json';
 import { DiscoveryError } from '@/lib/chat-discovery/domain';
 import { applyDiscoveryInspection } from '@/lib/chat-discovery/inspection';
-import { completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '@/lib/chat-discovery/executor';
+import { assertDiscoveryExecutorLease, claimDiscoveryExecutorQueue, completeDiscoveryExternalLeave } from '@/lib/chat-discovery/executor';
 import { authenticateDiscoveryExecutor } from '@/lib/chat-discovery/executor-auth';
 
 function json(value: unknown, status = 200) {
@@ -14,7 +14,7 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const executor = await authenticateDiscoveryExecutor(env.DB, request, now);
     const url = new URL(request.url);
-    return json(await readDiscoveryExecutorQueue(env.DB, executor.userId, url.searchParams.get('limit')));
+    return json(await claimDiscoveryExecutorQueue(env.DB, executor.userId, executor.deviceId, url.searchParams.get('limit'), now));
   } catch (error) {
     if (error instanceof DiscoveryError) return json({ error: error.message }, error.status);
     console.error('Discovery executor read failed', error instanceof Error ? error.name : 'unknown');
@@ -32,6 +32,7 @@ export async function POST(request: Request): Promise<Response> {
       if (typeof body.candidateId !== 'string' || !Number.isSafeInteger(body.version)) {
         throw new DiscoveryError('Некоректний результат executor.');
       }
+      await assertDiscoveryExecutorLease(env.DB, executor.userId, executor.deviceId, body.candidateId, Number(body.version), now);
       return json(await applyDiscoveryInspection(env.DB, executor.userId, {
         candidateId: body.candidateId,
         expectedVersion: Number(body.version),
@@ -44,6 +45,7 @@ export async function POST(request: Request): Promise<Response> {
         || typeof body.chatStateToken !== 'string' || !body.chatStateToken) {
         throw new DiscoveryError('Некоректний результат executor.');
       }
+      await assertDiscoveryExecutorLease(env.DB, executor.userId, executor.deviceId, body.candidateId, Number(body.version), now);
       return json(await completeDiscoveryExternalLeave(env.DB, executor.userId, {
         candidateId: body.candidateId,
         expectedVersion: Number(body.version),
