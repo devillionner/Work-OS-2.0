@@ -77,6 +77,16 @@ void test('archive removes an unusable chat from today joins; restore alone does
   assert.equal(activityTotals(summary.results).joined,1);
 });
 
+void test('stale archive cannot cancel a valid joined-today fact', async t => {
+  const db=await localDatabase(t); const before=await seed(db,'whatsapp');
+  assert.equal((await transition(db,before,'joined')).ok,true);
+  assert.equal(await countActive(db,'chat_joined'),1);
+  assert.equal((await transition(db,before,'archive',{reason:'Чат не існує'})).ok,false);
+  assert.equal(await countActive(db,'chat_joined'),1);
+  const links=await joinedTodayStatement(db,{userId:'u',platform:'whatsapp',date:'2026-09-10',accountId:null}).all();
+  assert.equal(links.results.length,1);
+});
+
 void test('state token rejects an old action after same-second archive/restore and snooze/resume cycles', async t => {
   const db=await localDatabase(t); const old=await seed(db,'whatsapp');
   assert.equal((await transition(db,old,'archive')).ok,true);
