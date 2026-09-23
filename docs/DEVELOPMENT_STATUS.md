@@ -1,5 +1,11 @@
 # Development status — 2026-09-23
 
+## 2026-09-23 Platforms container-responsive queue — v0.2.31
+
+- Platforms queue layout now reacts to the actual width of the `.platform-browser` container instead of relying only on viewport breakpoints. This fixes the sidebar/tiled-window case where the browser viewport was still wide but the working list itself was narrow.
+- The scrollable chat grid now uses max-content auto rows and owns the remaining flex height, so wrapped action controls increase their row height instead of visually spilling into the next chat.
+- At compact container widths chat actions stack safely below chat identity, names/badges may wrap, and the four queue tabs become a two-column grid. Regression contracts cover the container breakpoint, row sizing and scroll-region behavior.
+
 ## 2026-09-23 Platforms archive dialog reliability — v0.2.30
 
 - Replaced the inline archive-reason strip with a dedicated modal dialog. The previous strip could visually overlap the next chat row in the dense Platforms list, leaving its reason controls partially covered and effectively unclickable.
