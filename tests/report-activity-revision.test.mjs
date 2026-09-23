@@ -5,7 +5,10 @@ import { restoreMissingChunk } from '../lib/backups/restore.ts';
 import { readDashboardSnapshot } from '../lib/dashboard-data.ts';
 import { readActivityDayRevision } from '../lib/reports/activity-revision.ts';
 import { readReportCalendar } from '../lib/reports/calendar.ts';
-import { localDatabase, seedEvent } from './helpers/local-d1.mjs';
+import { localDatabase, seedEvent, seedChat } from './helpers/local-d1.mjs';
+import { recordManualPublication, undoManualPublication } from '../lib/chats/publication.ts';
+import { readChatState } from '../lib/chats/state.ts';
+import { activitySummaryStatement } from '../lib/activity-summary.ts';
 
 const DATE='2026-09-14';
 const NEXT='2026-09-15';
@@ -94,4 +97,25 @@ void test('restored reports clear derived activity snapshots and safely use lega
   });
   assert.equal(result.inserted,1);
   assert.equal(await db.prepare(`SELECT submitted_activity_revision FROM daily_reports WHERE id='restored-report'`).first('submitted_activity_revision'),null);
+});
+
+
+void test('publication and Undo both invalidate a submitted report while the live summary returns to zero',async t=>{
+  const db=await localDatabase(t);
+  await saveSubmittedReport(db,{submittedAt:SECOND});
+  const chat=await seedChat(db,{id:'report-publication',platform:'whatsapp',status:'ready'});
+  const state=await readChatState(db,'u','report-publication');
+  const published=await recordManualPublication(db,{
+    userId:'u',chat:state,accountId:null,now:SECOND+1,date:DATE,stateToken:state.state_token,
+  });
+  assert.equal(published.ok,true);
+  assert.equal(await stale(db),true);
+  let summary=await activitySummaryStatement(db,'u',DATE,DATE).all();
+  assert.equal(Number(summary.results.find(row=>row.event_type==='publication')?.count||0),1);
+
+  const next=await readChatState(db,'u','report-publication');
+  assert.equal((await undoManualPublication(db,{userId:'u',chat:next,now:SECOND+2,date:DATE})).ok,true);
+  assert.equal(await stale(db),true);
+  summary=await activitySummaryStatement(db,'u',DATE,DATE).all();
+  assert.equal(Number(summary.results.find(row=>row.event_type==='publication')?.count||0),0);
 });
