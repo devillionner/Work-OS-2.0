@@ -1,4 +1,12 @@
-# Development status — 2026-09-21
+# Development status — 2026-09-23
+
+## 2026-09-23 Linux continuity and operator UX hardening — v0.2.19
+
+- Resumed the interrupted Linux/main-only cycle from its existing working tree instead of restarting or creating another branch/clone.
+- Discovery inspection labels are now neutral (`Перевірено`) and no longer claim a manual observation was automatic. Disabling the currently selected platform reconciles navigation asynchronously and clears quick-publish material so it cannot leak into another platform context.
+- Shared primary actions use the blue primary token with the explicit light foreground token; the stale neutral-button contract was reconciled with the current contrast/one-accent UX requirement. Existing manual-publication Undo contracts were also updated to assert the current rollback metadata/API shape rather than the pre-Undo shape.
+- Local release gate is green on the final snapshot: lint 0/0, typecheck, 519/519 tests and production build via `npm run verify:local`. Registry totals are 147 ready, 116 partial, 1 not implemented and 12 deferred out of 276.
+- This entry is local/main release evidence only. Canonical staging build/deploy begins after the push to `main`; production and production D1 are not touched by this package.
 
 ## 2026-09-21 bounded mutation request bodies - v0.2.14
 

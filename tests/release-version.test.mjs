@@ -18,5 +18,5 @@ void test('release version is aligned across app and package metadata', () => {
 
 void test('current release date matches the release day', () => {
   const appMeta = readFileSync(join(root,'lib','app-meta.ts'),'utf8');
-  assert.match(appMeta,/APP_RELEASE_DATE = '2026-09-22'/);
+  assert.match(appMeta,/APP_RELEASE_DATE = '2026-09-23'/);
 });

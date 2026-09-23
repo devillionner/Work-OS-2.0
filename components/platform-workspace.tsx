@@ -104,7 +104,14 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   useEffect(()=>{
     if(availablePlatforms.some((item)=>item.key===platform)||!availablePlatforms[0])return;
     const next=availablePlatforms[0].key;
-    setPlatform(next);setQueue('to_join');setSearch('');setProfileFilter('all');setOffset(0);previousFilter.current=`${next}:to_join::all`;writeLastPlatform(next);
+    // Reconcile persisted navigation after settings change; cancel stale work
+    // if the operator switches platforms before this callback runs.
+    const timer=setTimeout(()=>{
+      setPlatform(next);setQueue('to_join');setSearch('');setProfileFilter('all');setOffset(0);
+      setQuickPublishMode(false);setQuickAdvertisementId(null);
+      previousFilter.current=`${next}:to_join::all`;writeLastPlatform(next);
+    },0);
+    return()=>clearTimeout(timer);
   },[availablePlatforms,platform]);
 
   useEffect(()=>{

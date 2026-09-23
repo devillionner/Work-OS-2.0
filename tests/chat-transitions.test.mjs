@@ -203,13 +203,13 @@ void test('same-day publication undo restores publication facts, profile cadence
   assert.equal(completedSlot.status,'completed');
   assert.equal(completedSlot.publication_id,published.publicationId);
 
-  const undone=await undoManualPublication(db,{userId:'u',chat:afterPublication,now:NOW+30,date:'2026-09-10'});
+  const undone=await undoManualPublication(db,{userId:'u',chat:afterPublication,now:NOW+8,date:'2026-09-10'});
   assert.equal(undone.ok,true);
   const final=await state(db);
   assert.notEqual(final.state_token,afterPublication.state_token);
   assert.equal((await db.prepare("SELECT COUNT(*) n FROM chat_publications WHERE user_id='u' AND chat_id='chat' AND published_on='2026-09-10'").first()).n,0);
   const publicationEvent=await db.prepare("SELECT cancelled_at FROM activity_events WHERE user_id='u' AND chat_id='chat' AND event_type='publication' ORDER BY rowid DESC LIMIT 1").first();
-  assert.equal(publicationEvent.cancelled_at,NOW+30);
+  assert.equal(publicationEvent.cancelled_at,NOW+8);
   assert.equal((await db.prepare("SELECT next_allowed_on FROM chat_profiles WHERE chat_id='chat'").first()).next_allowed_on,null);
   const restoredSlot=await db.prepare("SELECT status,completed_at,publication_id FROM telegram_schedule_slots WHERE id='slot'").first();
   assert.equal(restoredSlot.status,'pending');
@@ -218,6 +218,21 @@ void test('same-day publication undo restores publication facts, profile cadence
   assert.equal((await db.prepare("SELECT COUNT(*) n FROM activity_events WHERE user_id='u' AND event_type='publication' AND event_date='2026-09-10' AND cancelled_at IS NULL").first()).n,0);
   assert.equal((await db.prepare("SELECT COUNT(*) n FROM activity_events WHERE user_id='u' AND chat_id='chat' AND event_type='chat_state_changed' AND json_extract(metadata_json,'$.action')='undo_published'").first()).n,1);
 
-  const republished=await recordManualPublication(db,{userId:'u',chat:final,accountId:'a',now:NOW+31,date:'2026-09-10',stateToken:final.state_token});
+  const republished=await recordManualPublication(db,{userId:'u',chat:final,accountId:'a',now:NOW+9,date:'2026-09-10',stateToken:final.state_token});
   assert.equal(republished.ok,true);
+});
+
+void test('expired publication undo leaves the publication and event unchanged', async t => {
+  const db=await localDatabase(t);
+  const before=await seed(db,'whatsapp','ready');
+  const published=await recordManualPublication(db,{userId:'u',chat:before,accountId:null,now:NOW,date:'2026-09-10',stateToken:before.state_token});
+  assert.equal(published.ok,true);
+  const after=await state(db);
+  const undone=await undoManualPublication(db,{userId:'u',chat:after,now:NOW+9,date:'2026-09-10'});
+  assert.equal(undone.ok,false);
+  assert.match(undone.error,/Час швидкого скасування минув/);
+  assert.equal((await state(db)).state_token,after.state_token);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM chat_publications WHERE chat_id='chat'").first()).n,1);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM activity_events WHERE chat_id='chat' AND event_type='publication' AND cancelled_at IS NULL").first()).n,1);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM activity_events WHERE chat_id='chat' AND json_extract(metadata_json,'$.action')='undo_published'").first()).n,0);
 });

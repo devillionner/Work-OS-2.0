@@ -31,6 +31,8 @@ void test('successful publication advances the confirmed profile next date', asy
   const before=await readChatState(db,'u','daily-chat');
   assert.equal((await saveChatProfile(db,{userId:'u',chatId:'daily-chat',stateToken:before.state_token,now,profile:{name:'Daily',language:'uk',cadence:'daily',weekdays:[],customIntervalDays:null,nextAllowedOn:null,directions:[],note:'',reviewStatus:'confirmed'}})).ok,true);
   const chat=await readChatState(db,'u','daily-chat');
-  assert.deepEqual(await recordManualPublication(db,{userId:'u',chat,accountId:null,now,date:'2026-09-13',stateToken:chat.state_token}),{ok:true});
+  const publication=await recordManualPublication(db,{userId:'u',chat,accountId:null,now,date:'2026-09-13',stateToken:chat.state_token});
+  assert.equal(publication.ok,true);
+  assert.equal(typeof (publication.ok?publication.publicationId:null),'string');
   assert.equal(await db.prepare(`SELECT next_allowed_on FROM chat_profiles WHERE chat_id='daily-chat'`).first('next_allowed_on'),'2026-09-14');
 });

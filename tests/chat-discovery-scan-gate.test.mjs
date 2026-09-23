@@ -17,6 +17,9 @@ void test('Telegram plan advances only through ingestion of the current planned 
   assert.match(domain, /input\.completeQuery === true/);
   assert.match(domain, /merged\.run\.version/);
   assert.match(route, /completeQuery: body\.completeQuery/);
-  assert.match(dialog, /completeQuery: true/);
-  assert.match(dialog, /Наступний query відкриється автоматично/);
+  assert.match(dialog, /async function ingestTelegramScan\(completeQuery: boolean\)/);
+  assert.match(dialog, /ingestTelegramScan\(false\)/);
+  assert.match(dialog, /ingestTelegramScan\(true\)/);
+  assert.match(dialog, /completeQuery,/);
+  assert.match(dialog, /«Зберегти джерело» не рухає план/);
 });

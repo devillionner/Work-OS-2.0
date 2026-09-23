@@ -14,6 +14,9 @@
 
 ## Поточний стан P4 — 2026-09-23
 
+- Linux trial: одна робоча папка, main-only. Перед push — `npm run verify:local` (lint → typecheck → full tests → build); existing staging `verify` є build-only. Виправлено lint regression у reconciliation вимкненої платформи та скидання quick-publish контексту; Discovery не називає ручну перевірку автоматичною. Публікація й live acceptance цього пакета фіксуються окремо в DEVELOPMENT_STATUS.
+- Наступний пріоритет: Platforms publication/retry/undo/account-context acceptance, потім Discovery external executor; довільний cosmetic refactor не є fallback-пріоритетом.
+
 - Manual publication queue hardening: після `published` canonical publication/history/counters лишаються джерелом істини, але ready-list тепер сортує `published_today ASC` перед `updated_at`, тому щойно завершений чат не стрибає нагору й не відсуває наступну робочу дію. UI показує коротке підтвердження, а regression contract фіксує порядок.
 - Same-day manual publication correction закрито на code/domain рівні: нові publication events зберігають rollback metadata; 8-секундний Undo використовує fresh state token, видаляє точний manual publication row, ставить publication event у `cancelled_at`, повертає profile `next_allowed_on`, відновлює пов’язаний completed Telegram slot і залишає `undo_published` audit у chat history. Старі events без rollback metadata fail-closed не змінюються автоматично.
 

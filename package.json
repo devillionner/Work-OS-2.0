@@ -1,6 +1,6 @@
 {
   "name": "work-os-2",
-  "version": "0.2.16",
+  "version": "0.2.19",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -14,6 +14,7 @@
     "lint": "oxlint --threads=1 app components/work-os-shell.tsx components/pwa-registration.tsx components/server-sync.tsx components/view-persistence.tsx components/app-release-dialog.tsx components/global-timers.tsx components/platform-workspace.tsx components/chat-discovery-dialog.tsx components/chat-bulk-dialog.tsx components/chat-names-dialog.tsx components/chat-profile-dialog.tsx components/chat-history-dialog.tsx components/chat-publish-dialog.tsx components/legacy-import-dialog.tsx components/library-workspace.tsx components/reports-workspace.tsx components/settings-workspace.tsx components/payment-settings.tsx components/leads db lib scripts tests",
     "typecheck": "tsc -p tsconfig.chat-discovery.json --pretty false",
     "verify": "npm run build",
+    "verify:local": "npm run lint && npm run typecheck && npm run test:full && npm run build",
     "test": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.mjs",
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate",

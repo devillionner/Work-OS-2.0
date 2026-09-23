@@ -766,8 +766,8 @@ function membershipLabel(value: DiscoveryCandidate['membershipState']) {
 }
 
 function inspectionLabel(value: DiscoveryCandidate['inspectionState']) {
-  return value === 'inspected' ? 'Автоперевірено'
-    : value === 'failed' ? 'Автоперевірка не завершена'
+  return value === 'inspected' ? 'Перевірено'
+    : value === 'failed' ? 'Перевірка не завершена'
       : 'Ще не перевірено';
 }
 

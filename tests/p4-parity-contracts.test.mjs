@@ -109,7 +109,7 @@ void test('WhatsApp and Viber quick publishing locks one material without bypass
   assert.match(platform, /queue==='ready'&&\(platform==='whatsapp'\|\|platform==='viber'\)/);
   assert.match(platform, /Почати швидку публікацію/);
   assert.match(platform, /setQuickAdvertisementId\(advertisementId\)/);
-  assert.match(platform, /act\(publishChat,'published',\{advertisementId,language,quick\}\)/);
+  assert.match(platform, /act\(publishChat,'published',\{advertisementId,language,quick\},\{action:'undo_published'/);
   assert.match(platform, /!chat\.profileConfirmed&&queue==='ready'&&<Badge variant="outline">Профіль пізніше<\/Badge>/);
   assert.match(publish, /quickMode&&preferredAdvertisementId/);
   assert.match(publish, /Матеріал швидкого режиму/);
@@ -118,7 +118,7 @@ void test('WhatsApp and Viber quick publishing locks one material without bypass
   assert.match(publication, /profilePublicationRule\(profile,date\)/);
   assert.match(publication, /chat\.workflow_status !== 'ready'/);
   assert.match(publication, /advertisementId/);
-  assert.match(publication, /json_object\('advertisementId',p\.advertisement_id,'language',\?4\)/);
+  assert.match(publication, /JSON\.stringify\(eventMetadata\)/);
 });
 
 void test('script library exposes search, tags, immutable versions and archive controls', () => {

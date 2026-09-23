@@ -7,8 +7,8 @@ const button = readFileSync(join(process.cwd(), 'components', 'ui', 'button.tsx'
 const select = readFileSync(join(process.cwd(), 'components', 'ui', 'select.tsx'), 'utf8');
 const nativeSelect = readFileSync(join(process.cwd(), 'components', 'ui', 'native-select.tsx'), 'utf8');
 
-void test('shared primary action uses neutral hierarchy instead of the blue accent', () => {
-  assert.match(button, /default: 'bg-foreground text-background hover:bg-foreground\/85'/);
+void test('shared primary action uses the readable blue accent hierarchy', () => {
+  assert.match(button, /default: 'bg-primary text-primary-foreground hover:bg-primary\/90'/);
   assert.match(button, /link: 'text-accent-foreground/);
 });
 

@@ -36,7 +36,8 @@ void test('discovery UI exposes membership, inspection and post-join cleanup sta
   ]);
   assert.match(dialog, /Очікує схвалення/);
   assert.match(dialog, /Приєднано/);
-  assert.match(dialog, /Автоперевірено/);
+  assert.match(dialog, /'Перевірено'/);
+  assert.doesNotMatch(dialog, /Автоперевірено|Автоперевірка не завершена/);
   assert.match(dialog, /Заповни кваліфікацію нижче/);
   assert.match(dialog, /Потрібен підтверджений вихід із месенджера/);
   assert.match(route, /body\.action === 'inspect'/);
