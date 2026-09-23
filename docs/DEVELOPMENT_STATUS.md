@@ -1,5 +1,11 @@
 # Development status — 2026-09-23
 
+## 2026-09-23 Platforms archive dialog reliability — v0.2.30
+
+- Replaced the inline archive-reason strip with a dedicated modal dialog. The previous strip could visually overlap the next chat row in the dense Platforms list, leaving its reason controls partially covered and effectively unclickable.
+- Preset and custom archive reasons now run through the same guarded archive mutation while the dialog stays open on failure. Stale-state errors remain visible in the dialog; the canonical list reload still refreshes the state token before a retry.
+- Added a regression contract that forbids returning the archive reason picker to the row layout. This is source-level evidence; staging browser smoke remains the live acceptance step.
+
 ## 2026-09-23 Platforms narrow-desktop responsiveness — v0.2.29
 
 - Platforms chat queues now switch to a single-column row composition at <=1180px: chat identity stays full-width and action buttons wrap below it instead of forcing horizontal overflow.
