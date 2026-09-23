@@ -85,6 +85,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkO
     requestAnimationFrame(() => trigger?.focus());
   };
   const activeLabel = activeView === 'settings' ? 'Налаштування' : navigation.find((item) => item.key === activeView)?.label || 'Сьогодні';
+  const dataSyncKey = `${syncRevision}:${snapshot.today}`;
   const navigateTo = (next: ViewKey) => {
     const fromDrawer = mobileOpen;
     setActiveView(next);
@@ -200,7 +201,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkO
               {snapshot.platforms.filter((platform) => snapshot.enabledPlatforms.includes(platform.key) || platform.key === 'threads' || platform.key === 'unknown').map((platform) => <div className="platform-row" key={platform.key}><span className="platform-name"><i style={{ background: platform.color }} />{platform.name}</span><strong>{platform.publications}</strong><strong>{platform.joined}</strong><strong>{platform.responses}</strong><strong>{platform.bookings}</strong></div>)}
             </div>
           </section>
-        </div> : activeView === 'platforms' ? <PlatformWorkspace enabledPlatforms={snapshot.enabledPlatforms} syncRevision={syncRevision} /> : activeView === 'leads' ? <LeadsWorkspace key={`leads:${user.email}:${syncRevision}`} account={user.email} initialLeadId={leadToOpen} /> : activeView === 'analytics' ? <AnalyticsWorkspace key={`analytics:${syncRevision}`} /> : activeView === 'reports' ? <ReportsWorkspace key={`reports:${syncRevision}`} onOpenLead={(leadId) => { setLeadToOpen(leadId); navigateTo('leads'); }} /> : activeView === 'library' ? <LibraryWorkspace key={`library:${syncRevision}`} /> : activeView === 'settings' ? <SettingsWorkspace key={`settings:${syncRevision}`} user={user} snapshot={snapshot} onRefresh={() => router.refresh()} /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
+        </div> : activeView === 'platforms' ? <PlatformWorkspace enabledPlatforms={snapshot.enabledPlatforms} syncRevision={syncRevision} businessDate={snapshot.today} /> : activeView === 'leads' ? <LeadsWorkspace key={`leads:${user.email}:${dataSyncKey}`} account={user.email} initialLeadId={leadToOpen} /> : activeView === 'analytics' ? <AnalyticsWorkspace key={`analytics:${dataSyncKey}`} /> : activeView === 'reports' ? <ReportsWorkspace key={`reports:${dataSyncKey}`} onOpenLead={(leadId) => { setLeadToOpen(leadId); navigateTo('leads'); }} /> : activeView === 'library' ? <LibraryWorkspace key={`library:${dataSyncKey}`} /> : activeView === 'settings' ? <SettingsWorkspace key={`settings:${dataSyncKey}`} user={user} snapshot={snapshot} onRefresh={() => router.refresh()} /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
 
         <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
           {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => <button type="button" aria-current={activeView === key ? 'page' : undefined} key={key} onClick={() => navigateTo(key)}><Icon /><span>{label}</span></button>)}

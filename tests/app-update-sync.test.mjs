@@ -38,17 +38,17 @@ void test('global server sync refreshes only after authoritative revision change
   assert.match(sync, /const SERVER_SYNC_MS = 10_000/); assert.match(sync, /fetch\(`\/api\/sync\?t=\$\{Date\.now\(\)\}`/); assert.match(sync, /readRenderedRevision\(\)/); assert.doesNotMatch(sync, /pendingLocalAckRef/); assert.match(sync, /revision === previous/); assert.match(sync, /detail\?\.reason === 'local-write'\) void checkRevision\('cross-tab'\)/); assert.match(sync, /router\.refresh\(\)/); assert.match(sync, /new BroadcastChannel\(DATA_SYNC_CHANNEL\)/); assert.match(sync, /visibilitychange/); assert.match(sync, /window\.addEventListener\('online'/); assert.match(clientSync, /announceDataChange/); assert.match(clientSync, /reason: 'local-write'/); assert.match(layout, /<ServerSync \/>/);
 });
 
-void test('authoritative revision refreshes data workspaces without resetting the Platforms view', () => {
+void test('authoritative revision and Kyiv date refresh data workspaces without resetting Platforms', () => {
   const shell = read('components/work-os-shell.tsx');
-  assert.match(shell, /syncRevision: number/);
-  assert.match(shell, /<GlobalTimers key=\{\`timers:\$\{syncRevision\}\`\}/);
-  assert.match(shell, /<PlatformWorkspace enabledPlatforms=\{snapshot\.enabledPlatforms\} syncRevision=\{syncRevision\} \/>/);
+  const platform = read('components/platform-workspace.tsx');
+  assert.match(shell, /const dataSyncKey = `\$\{syncRevision\}:\$\{snapshot\.today\}`/);
+  assert.match(shell, /<PlatformWorkspace enabledPlatforms=\{snapshot\.enabledPlatforms\} syncRevision=\{syncRevision\} businessDate=\{snapshot\.today\} \/>/);
   assert.doesNotMatch(shell, /<PlatformWorkspace key=/);
-  assert.match(shell, /<LeadsWorkspace key=\{\`leads:\$\{user\.email\}:\$\{syncRevision\}\`\}/);
-  assert.match(shell, /<AnalyticsWorkspace key=\{\`analytics:\$\{syncRevision\}\`\}/);
-  assert.match(shell, /<ReportsWorkspace key=\{\`reports:\$\{syncRevision\}\`\}/);
-  assert.match(shell, /<LibraryWorkspace key=\{\`library:\$\{syncRevision\}\`\}/);
-  assert.match(shell, /<SettingsWorkspace key=\{\`settings:\$\{syncRevision\}\`\}/);
+  assert.match(shell, /<AnalyticsWorkspace key=\{\`analytics:\$\{dataSyncKey\}\`\}/);
+  assert.match(shell, /<ReportsWorkspace key=\{\`reports:\$\{dataSyncKey\}\`\}/);
+  assert.match(shell, /<LibraryWorkspace key=\{\`library:\$\{dataSyncKey\}\`\}/);
+  assert.match(platform, /const lastSyncKey=useRef\(\`\$\{syncRevision \?\? ''\}:\$\{businessDate \?\? ''\}\`\)/);
+  assert.match(platform, /\[syncRevision,businessDate,platform,loadAccounts\]/);
 });
 
 void test('lead writes broadcast fresh server state to other open clients', () => { const commands = read('lib/leads/client/commands.ts'); assert.match(commands, /announceDataChange\('leads'\)/); });

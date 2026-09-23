@@ -48,7 +48,7 @@ const queues: Array<{key:Queue;label:string}> = [
   {key:'ready',label:'Для публікації'}, {key:'archived',label:'Архів'},
 ];
 
-export function PlatformWorkspace({ enabledPlatforms, syncRevision }: { enabledPlatforms?: string[]; syncRevision?: number }) {
+export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate }: { enabledPlatforms?: string[]; syncRevision?: number; businessDate?: string }) {
   const [platform,setPlatform] = useState<Platform>('telegram');
   const [queue,setQueue] = useState<Queue>('to_join');
   const [search,setSearch] = useState('');
@@ -78,7 +78,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision }: { enabledP
   const loadNumber=useRef(0);
   const reloadChats=useRef<(silent?:boolean) => Promise<void>>(async()=>{});
   const hasLoadedData=useRef(false);
-  const lastSyncRevision=useRef(syncRevision);
+  const lastSyncKey=useRef(`${syncRevision ?? ''}:${businessDate ?? ''}`);
   const cancelLoad=useCallback(()=>{ activeLoad.current?.abort(); loadNumber.current++; },[]);
   const [error,setError] = useState('');
   const [archiveId,setArchiveId] = useState<string|null>(null);
@@ -176,12 +176,13 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision }: { enabledP
   useEffect(() => { reloadChats.current=load; const timer=setTimeout(()=>void load(false),search ? 250 : 0); return () => { clearTimeout(timer); cancelLoad(); }; },[load,search,cancelLoad]);
 
   useEffect(()=>{
-    const previous=lastSyncRevision.current;
-    lastSyncRevision.current=syncRevision;
-    if(syncRevision===undefined||previous===undefined||syncRevision===previous||!hasLoadedData.current)return;
+    const nextSyncKey=`${syncRevision ?? ''}:${businessDate ?? ''}`;
+    const previous=lastSyncKey.current;
+    lastSyncKey.current=nextSyncKey;
+    if(previous===nextSyncKey||!hasLoadedData.current)return;
     void reloadChats.current(true);
     if(platform==='telegram') queueMicrotask(()=>void loadAccounts().catch(()=>{}));
-  },[syncRevision,platform,loadAccounts]);
+  },[syncRevision,businessDate,platform,loadAccounts]);
 
   useEffect(()=>{if(!notice)return;const delay=undo?Math.max(0,undo.expiresAt-Date.now()):8000;const timer=setTimeout(()=>{setNotice('');setUndo(null);},delay);return()=>clearTimeout(timer);},[notice,undo]);
 
