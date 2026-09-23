@@ -662,3 +662,11 @@ separate gates after local validation and the required direct confirmation.
 - Regression coverage now guards publication→Undo consistency across `chat_publications`, active `activity_events`, report summary/day revision, available-today links, Library `usedToday`, Telegram schedule restoration/account isolation, and publication history after later chat archiving.
 - Ambiguous publication network failures force a canonical reread before a retry, while the existing action gate, state token and unique chat/day publication constraint continue to prevent duplicate writes.
 - Staging deployment now runs the repository's full `verify:local` gate before the guarded staging deploy command. Replit remains unable to read the private GitHub repository in the current connection, so Replit itself cannot provide an independent full-suite run; staging acceptance is the required remaining verification gate for this release candidate.
+
+
+## Library advertisement UX cleanup — v0.2.37
+
+- Advertisement Library now has an explicit platform filter derived from the currently loaded collection; changing collection/archive state safely resets that filter instead of leaving a hidden stale selection.
+- Advertisement rows expose platform badges with operator-friendly Telegram/WhatsApp/Viber/Facebook labels, so platform scope is visible before opening the editor.
+- Narrow/mobile Library toolbar is now a real one-column grid; collection tabs scroll horizontally and platform select keeps a 44px touch target instead of overflowing.
+- Added source regression coverage for platform filtering, row context and responsive controls. This is code/test evidence; canonical staging full-gate acceptance remains required before marking the release deployed.
