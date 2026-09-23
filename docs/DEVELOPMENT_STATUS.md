@@ -1,5 +1,11 @@
 # Development status — 2026-09-23
 
+## 2026-09-23 Joined-today correction on archive — v0.2.34
+
+- Archiving an unusable chat now cancels its active same-day `chat_joined` fact. This removes the chat from «Приєднано сьогодні» and from joined analytics/counts while preserving the audit row as a cancelled event.
+- WhatsApp `return_to_join` and failed join cleanup follow the same rule. A plain restore does not make the chat count as joined again; only a subsequent successful join/approval reactivates or creates the active same-day fact.
+- Cancellation is guarded by the successful state-transition event, so a stale/failed archive request cannot erase a valid joined fact. Regression tests cover archive → restore → rejoin, legacy joins, Telegram account attribution and stale archive protection.
+
 ## 2026-09-23 Platforms no-remount reconciliation — v0.2.33
 
 - Root cause of the remaining queue flash was the shell keying `PlatformWorkspace` by `syncRevision`: every local `router.refresh()` or server-sync revision update remounted the whole workspace, resetting chat data to null and showing the large loader even though the mutation itself had already completed.
