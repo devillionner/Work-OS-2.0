@@ -102,6 +102,11 @@ void test('manual publishing and profile management cover the remaining operator
   assert.match(publication, /undoExpiresAt: now \+ MANUAL_PUBLICATION_UNDO_WINDOW_SECONDS/);
   assert.match(platform, /expiresAt:number/);
   assert.match(platform, /Math\.max\(0,undo\.expiresAt-Date\.now\(\)\)/);
+  assert.match(platform, /type ChatActionResult = \{ ok:true \} \| \{ ok:false; error:string; refresh:boolean \}/);
+  assert.match(platform, /result=\{ok:false,error,refresh:body\.refresh===true\}/);
+  assert.match(platform, /if\(action!=='published'\) setError\(error\)/);
+  assert.match(platform, /if\(result\.refresh\)\{setPublishChat\(null\);setNotice/);
+  assert.match(platform, /throw new Error\(result\.error\)/);
   assert.match(platform, /Публікацію відмічено\. Чат переміщено нижче завершених на сьогодні/);
 });
 

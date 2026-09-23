@@ -31,6 +31,7 @@ type ProfileCounts = { confirmed:number; draft:number; empty:number; needsReview
 type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; profileCounts:Record<string,ProfileCounts>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:{ratePerHour:number;completed:number;target:number}; requestKey?:string };
 type UndoSpec = { action:'restore'|'unsnooze'|'undo_published'; label:string };
 type UndoState = UndoSpec & { chat:Chat; expiresAt:number };
+type ChatActionResult = { ok:true } | { ok:false; error:string; refresh:boolean };
 type TelegramAccount = { id:string; number:number; name:string; enabled:boolean; selected:boolean; joinStreak:number; joinBatchSize:number; breakMinutes:number; breakUntil:number|null };
 type PlatformConfirmation = { kind:'assign'; chat:Chat; nextId:string; currentName:string; nextName:string } | { kind:'return'; chat:Chat };
 
@@ -213,16 +214,19 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     openNativeChat(chat.platform,chat.link);
   }
 
-  async function act(chat:Chat, action:string, extra:Record<string,unknown>={}, undoSpec?:UndoSpec): Promise<boolean> {
-    let succeeded=false;
-    await runAction.current(async()=>{
+  async function act(chat:Chat, action:string, extra:Record<string,unknown>={}, undoSpec?:UndoSpec): Promise<ChatActionResult> {
+    let result:ChatActionResult={ok:false,error:'Інша дія вже виконується. Спробуйте ще раз після її завершення.',refresh:false};
+    const accepted=await runAction.current(async()=>{
     setBusy(chat.id); setError(''); setNotice(''); setUndo(null);
     try {
       const response=await fetch('/api/chats',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:chat.id,action,stateToken:chat.stateToken,accountId:chat.platform==='telegram'?(chat.telegramAccountId||accountId):null,...extra})});
-      const body=await response.json() as {error?:string;availableAt?:number;stateToken?:string;snoozedUntil?:number|null;leftAt?:number|null;undoExpiresAt?:number};
+      const body=await response.json() as {error?:string;refresh?:boolean;availableAt?:number;stateToken?:string;snoozedUntil?:number|null;leftAt?:number|null;undoExpiresAt?:number};
       if(!response.ok) {
+        const error=body.error || 'Не вдалося виконати дію.';
         if(response.status===409) await reloadChats.current();
-        throw new Error(body.error || 'Не вдалося виконати дію.');
+        result={ok:false,error,refresh:body.refresh===true};
+        if(action!=='published') setError(error);
+        return;
       }
       if(undoSpec&&typeof body.stateToken==='string') {
         const expiresAt=typeof body.undoExpiresAt==='number'?body.undoExpiresAt*1000:Date.now()+8000;
@@ -238,17 +242,21 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       }
       if((action==='published'||action==='undo_published')&&chat.platform==='telegram') setScheduleRefreshKey(value=>value+1);
       router.refresh();
-      succeeded=true;
-    } catch(reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося виконати дію.'); }
+      result={ok:true};
+    } catch(reason) {
+      const error=reason instanceof Error ? reason.message : 'Не вдалося виконати дію.';
+      result={ok:false,error,refresh:false};
+      if(action!=='published') setError(error);
+    }
     finally { setBusy(null); }
     });
-    return succeeded;
+    return accepted?result:{ok:false,error:'Інша дія вже виконується. Спробуйте ще раз після її завершення.',refresh:false};
   }
 
   async function undoLast() {
     const item=undo;
     if(!item||busy!==null)return;
-    if(await act(item.chat,item.action)) setNotice('Дію скасовано.');
+    if((await act(item.chat,item.action)).ok) setNotice('Дію скасовано.');
   }
 
   function toggleArchive(id:string) {
@@ -304,7 +312,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     <ChatDuplicatesDialog open={duplicatesOpen} onClose={()=>setDuplicatesOpen(false)}/>
     <ChatProfileDialog key={profileOpenKey} open={profileChat!==null} chat={profileChat} onClose={()=>setProfileChat(null)} onSaved={savedProfile} onOpenChat={()=>{if(profileChat)openChat(profileChat);}} finalFocus={()=>profileTrigger.current}/>
     <ChatHistoryDialog key={historyOpenKey} open={historyChat!==null} chat={historyChat} onClose={()=>setHistoryChat(null)} finalFocus={()=>historyTrigger.current}/>
-    <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={async({advertisementId,language})=>{if(!publishChat)return false;const quick=quickPublishMode&&(publishChat.platform==='whatsapp'||publishChat.platform==='viber');const published=await act(publishChat,'published',{advertisementId,language,quick},{action:'undo_published',label:'Публікацію можна скасувати протягом 8 секунд.'});if(!published)throw new Error('Не вдалося відмітити публікацію. Оновіть список і спробуйте ще раз.');if(quick&&advertisementId&&!quickAdvertisementId){setQuickAdvertisementId(advertisementId);setNotice('Матеріал швидкого режиму зафіксовано. Публікацію можна скасувати кнопкою поруч; матеріал серії залишиться обраним.');}return published;}} onOpenChat={()=>{if(publishChat)openChat(publishChat);}} finalFocus={()=>publishTrigger.current} quickMode={publishQuickMode} preferredAdvertisementId={quickAdvertisementId}/>
+    <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={async({advertisementId,language})=>{if(!publishChat)return false;const quick=quickPublishMode&&(publishChat.platform==='whatsapp'||publishChat.platform==='viber');const result=await act(publishChat,'published',{advertisementId,language,quick},{action:'undo_published',label:'Публікацію можна скасувати протягом 8 секунд.'});if(!result.ok){if(result.refresh){setPublishChat(null);setNotice(`${result.error} Список уже оновлено — відкрийте актуальний чат повторно.`);return false;}throw new Error(result.error);}if(quick&&advertisementId&&!quickAdvertisementId){setQuickAdvertisementId(advertisementId);setNotice('Матеріал швидкого режиму зафіксовано. Публікацію можна скасувати кнопкою поруч; матеріал серії залишиться обраним.');}return true;}} onOpenChat={()=>{if(publishChat)openChat(publishChat);}} finalFocus={()=>publishTrigger.current} quickMode={publishQuickMode} preferredAdvertisementId={quickAdvertisementId}/>
     {notice&&<output className="reports-notice"><span>{notice}</span>{undo&&<Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>void undoLast()}>Скасувати</Button>}</output>}
     <section className="platform-hero">
       <div><p className="eyebrow">Робочі платформи</p><h2>Чати без зайвих переходів</h2><p>Приєднуйся, перевіряй очікування та відмічай публікації в одному стабільному процесі.</p></div>

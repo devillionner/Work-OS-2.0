@@ -1,5 +1,12 @@
 # Development status — 2026-09-23
 
+## 2026-09-23 manual publication retry recovery — v0.2.22
+
+- Platforms chat mutations now return a typed action result instead of collapsing every failure to a boolean. Manual publication keeps the exact server error inside the publish dialog, so cadence, duplicate, network and validation failures no longer degrade to a generic retry message.
+- A server `refresh:true` stale-state response is treated as authoritative recovery: the list is reloaded, the stale publish dialog closes, and the operator gets an explicit instruction to reopen the current chat instead of retrying with the old `stateToken`.
+- Other 409/domain failures keep the dialog open with the real server explanation; unrelated chat actions retain the existing workspace-level error surface. Regression contracts cover the split error/recovery behavior.
+- PUB-01/PUB-15 and QA-09 remain partial until the live/two-device/network acceptance matrix is completed; this package closes a source-level retry loop, not the physical-device gate.
+
 ## 2026-09-23 publication Undo deadline parity — v0.2.21
 
 - Manual publication domain/API now returns the authoritative server-side Undo deadline. Platforms binds the Undo affordance lifetime to that deadline instead of starting a fresh client-only 8-second timer after the network round trip.
