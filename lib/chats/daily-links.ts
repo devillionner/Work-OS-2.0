@@ -3,7 +3,7 @@ import { isoWeekday, profilePublicationEligibilitySql } from './profile.ts';
 export function joinedTodayStatement(db: D1Database, input: {
   userId: string; platform: string; date: string; accountId: string | null;
 }) {
-  return db.prepare(`SELECT c.name,c.link FROM activity_events e
+  return db.prepare(`SELECT c.id,c.name,c.link FROM activity_events e
     JOIN chats c ON c.id=e.chat_id AND c.user_id=e.user_id
     WHERE e.user_id=?1 AND COALESCE(e.platform,c.platform)=?2 AND e.event_date=?3
       AND e.event_type='chat_joined' AND e.cancelled_at IS NULL
@@ -15,7 +15,7 @@ export function joinedTodayStatement(db: D1Database, input: {
 export function availableTodayStatement(db: D1Database, input: {
   userId: string; platform: string; date: string; accountId: string | null; now: number;
 }) {
-  return db.prepare(`SELECT c.name,c.link FROM chats c
+  return db.prepare(`SELECT c.id,c.name,c.link FROM chats c
     WHERE c.user_id=?1 AND c.platform=?2 AND c.workflow_status='ready'
       AND (c.snoozed_until IS NULL OR c.snoozed_until<=?5)
       AND (c.platform!='telegram' OR c.joined_at IS NULL OR c.joined_at+21600<=?5)

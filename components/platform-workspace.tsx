@@ -22,13 +22,15 @@ import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { handleTabKeyNavigation } from '@/lib/tab-navigation';
+import { announceDataChange } from '@/lib/client-sync';
 
 type Platform = 'telegram' | 'whatsapp' | 'viber' | 'facebook';
 type Queue = 'to_join' | 'waiting' | 'ready' | 'archived';
 type ProfileFilter = 'all' | 'needs_review';
 type Chat = { id:string; name:string; link:string; platform:Platform; status:Queue; archiveReason:string|null; archivedAt:number|null; profileConfirmed:boolean; profile:ChatProfile; publishedToday:boolean; joinedAt:number|null; snoozedUntil:number|null; snoozeCount:number; leftAt:number|null; availableAt:number|null; availableNow:boolean; telegramAccountId:string|null; stateToken:string; discoveryDecision:'review'|'target'|'rejected'|'unavailable'|null };
-type LinkItem = { name?:string; link?:string };
+type LinkItem = { id?:string; name?:string; link?:string };
 type ProfileCounts = { confirmed:number; draft:number; empty:number; needsReview:number };
+type PublicationState = { chatId:string; chatPublishedToday:boolean; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:{ratePerHour:number;completed:number;target:number} };
 type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; profileCounts:Record<string,ProfileCounts>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:{ratePerHour:number;completed:number;target:number}; requestKey?:string };
 type UndoSpec = { action:'restore'|'unsnooze'|'undo_published'; label:string };
 type UndoState = UndoSpec & { chat:Chat; expiresAt:number };
@@ -228,7 +230,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision }: { enabledP
     setBusy(chat.id); setError(''); setNotice(''); setUndo(null);
     try {
       const response=await fetch('/api/chats',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:chat.id,action,stateToken:chat.stateToken,accountId:chat.platform==='telegram'?(chat.telegramAccountId||accountId):null,...extra})});
-      const body=await response.json() as {error?:string;refresh?:boolean;availableAt?:number;stateToken?:string;snoozedUntil?:number|null;leftAt?:number|null;undoExpiresAt?:number};
+      const body=await response.json() as {error?:string;refresh?:boolean;availableAt?:number;stateToken?:string;snoozedUntil?:number|null;leftAt?:number|null;undoExpiresAt?:number;publicationState?:PublicationState};
       if(!response.ok) {
         const error=body.error || 'Не вдалося виконати дію.';
         if(response.status===409) await reloadChats.current(true);
@@ -240,7 +242,21 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision }: { enabledP
         const expiresAt=typeof body.undoExpiresAt==='number'?body.undoExpiresAt*1000:Date.now()+8000;
         if(expiresAt>Date.now()) setUndo({chat:{...chat,stateToken:body.stateToken,snoozedUntil:body.snoozedUntil??chat.snoozedUntil},expiresAt,...undoSpec});
       }
-      setArchiveId(null); setCustomArchiveReason(''); await reloadChats.current(true);
+      if((action==='published'||action==='undo_published')&&body.publicationState) {
+        const publicationState=body.publicationState;
+        setData(current=>{
+          if(!current||current.requestKey!==requestKey)return current;
+          const chats=current.chats.map(item=>item.id===publicationState.chatId
+            ? {...item,publishedToday:publicationState.chatPublishedToday,stateToken:body.stateToken||item.stateToken}
+            : item);
+          if(queue==='ready') chats.sort((left,right)=>Number(left.publishedToday)-Number(right.publishedToday));
+          return {...current,chats,publishedToday:publicationState.publishedToday,availableToday:publicationState.availableToday,publicationPace:publicationState.publicationPace};
+        });
+      }
+      announceDataChange('all');
+      setArchiveId(null); setCustomArchiveReason('');
+      if(action==='published'||action==='undo_published') void reloadChats.current(true);
+      else await reloadChats.current(true);
       if(undoSpec&&typeof body.stateToken==='string'&&(!body.undoExpiresAt||body.undoExpiresAt*1000>Date.now())) setNotice(undoSpec.label);
       if(chat.platform==='telegram') await loadAccounts();
       if(action==='published') {

@@ -35,7 +35,7 @@ void test('cross-device sync uses the existing monotonic backup revision as sour
 
 void test('global server sync refreshes only after authoritative revision changes', () => {
   const sync = read('components/server-sync.tsx'); const clientSync = read('lib/client-sync.ts'); const layout = read('app/layout.tsx');
-  assert.match(sync, /const SERVER_SYNC_MS = 10_000/); assert.match(sync, /fetch\(`\/api\/sync\?t=\$\{Date\.now\(\)\}`/); assert.match(sync, /readRenderedRevision\(\)/); assert.match(sync, /pendingLocalAckRef/); assert.match(sync, /revision === previous/); assert.match(sync, /router\.refresh\(\)/); assert.match(sync, /new BroadcastChannel\(DATA_SYNC_CHANNEL\)/); assert.match(sync, /visibilitychange/); assert.match(sync, /window\.addEventListener\('online'/); assert.match(clientSync, /announceDataChange/); assert.match(clientSync, /reason: 'local-write'/); assert.match(layout, /<ServerSync \/>/);
+  assert.match(sync, /const SERVER_SYNC_MS = 10_000/); assert.match(sync, /fetch\(`\/api\/sync\?t=\$\{Date\.now\(\)\}`/); assert.match(sync, /readRenderedRevision\(\)/); assert.doesNotMatch(sync, /pendingLocalAckRef/); assert.match(sync, /revision === previous/); assert.match(sync, /detail\?\.reason === 'local-write'\) void checkRevision\('cross-tab'\)/); assert.match(sync, /router\.refresh\(\)/); assert.match(sync, /new BroadcastChannel\(DATA_SYNC_CHANNEL\)/); assert.match(sync, /visibilitychange/); assert.match(sync, /window\.addEventListener\('online'/); assert.match(clientSync, /announceDataChange/); assert.match(clientSync, /reason: 'local-write'/); assert.match(layout, /<ServerSync \/>/);
 });
 
 void test('authoritative revision remounts data workspaces without resetting the shell', () => {

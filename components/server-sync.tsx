@@ -17,17 +17,10 @@ export function ServerSync() {
   const router = useRouter();
   const revisionRef = useRef<number | null>(null);
   const checkingRef = useRef(false);
-  const pendingLocalAckRef = useRef(false);
   const lastRefreshAt = useRef(0);
 
-  const checkRevision = useCallback(async (
-    reason: DataSyncDetail['reason'],
-    acknowledgeOnly = false,
-  ) => {
-    if (checkingRef.current) {
-      if (acknowledgeOnly) pendingLocalAckRef.current = true;
-      return;
-    }
+  const checkRevision = useCallback(async (reason: DataSyncDetail['reason']) => {
+    if (checkingRef.current) return;
     if (typeof document === 'undefined') return;
     if (document.visibilityState !== 'visible' && reason === 'poll') return;
     if (document.querySelector('.app-update-backdrop')) return;
@@ -51,16 +44,12 @@ export function ServerSync() {
         revisionRef.current = renderedRevision;
       }
       const previous = revisionRef.current;
-      const localAck = acknowledgeOnly || pendingLocalAckRef.current;
-      pendingLocalAckRef.current = false;
       revisionRef.current = revision;
 
       // The page exposes the revision used for its server render. This catches a
       // write that lands between SSR and the first client poll instead of
-      // incorrectly accepting the newer server value as a baseline. It also
-      // prevents a second refresh when a local workflow already refreshed RSC.
-      if (previous === null) return;
-      if (localAck || revision === previous) return;
+      // incorrectly accepting the newer server value as a baseline.
+      if (previous === null || revision === previous) return;
 
       const now = Date.now();
       if (now - lastRefreshAt.current < MIN_REFRESH_GAP_MS) return;
@@ -85,7 +74,10 @@ export function ServerSync() {
     };
     const onLocalData = (event: Event) => {
       const detail = (event as CustomEvent<DataSyncDetail>).detail;
-      if (detail?.reason === 'local-write') void checkRevision('local-write', true);
+      // A local workflow reconciles its own component immediately, then this
+      // authoritative revision refresh updates Today/Reports/Analytics and all
+      // other server-derived workspaces in the same tab.
+      if (detail?.reason === 'local-write') void checkRevision('cross-tab');
     };
 
     let channel: BroadcastChannel | null = null;

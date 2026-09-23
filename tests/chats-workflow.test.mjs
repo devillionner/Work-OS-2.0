@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { businessDate, businessDayStart, shiftBusinessDate, snoozeDeadline } from '../lib/business-time.ts';
-import { publicationAvailability, recordManualPublication } from '../lib/chats/publication.ts';
+import { publicationAvailability, recordManualPublication, undoManualPublication } from '../lib/chats/publication.ts';
+import { activitySummaryStatement } from '../lib/activity-summary.ts';
+import { readActivityDayRevision } from '../lib/reports/activity-revision.ts';
 import { readChatState } from '../lib/chats/state.ts';
 import { changeChatSnooze } from '../lib/chats/snooze.ts';
 import { localDatabase, seedChat } from './helpers/local-d1.mjs';
@@ -153,3 +155,28 @@ void test('available publication links exclude published, snoozed and foreign Te
 });
 
 const publishWithAd = (db, chat, advertisementId, language = null, quickMode = false) => recordManualPublication(db, { userId:'u', chat, accountId:null, advertisementId, language, quickMode, now:NOW, date:'2026-09-10', stateToken:chat.state_token });
+
+
+void test('publication and undo keep canonical publication facts, report totals and available links in sync', async t => {
+  const db = await localDatabase(t);
+  const chat = await seedChat(db,{id:'consistency-chat',platform:'whatsapp',status:'ready'});
+  const beforeRevision = await readActivityDayRevision(db,'u','2026-09-10');
+
+  const created = await publish(db,chat);
+  assert.equal(created.ok,true);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM chat_publications WHERE user_id='u' AND chat_id='consistency-chat' AND published_on='2026-09-10'").first()).n,1);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM activity_events WHERE user_id='u' AND chat_id='consistency-chat' AND event_type='publication' AND event_date='2026-09-10' AND cancelled_at IS NULL").first()).n,1);
+  const publishedSummary = await activitySummaryStatement(db,'u','2026-09-10','2026-09-10').all();
+  assert.equal(Number(publishedSummary.results.find(row=>row.event_type==='publication')?.count||0),1);
+  assert.ok((await readActivityDayRevision(db,'u','2026-09-10')) > beforeRevision);
+  assert.equal((await availableTodayStatement(db,{userId:'u',platform:'whatsapp',date:'2026-09-10',accountId:null,now:NOW}).all()).results.some(row=>row.id==='consistency-chat'),false);
+
+  const current = await readChatState(db,'u','consistency-chat');
+  const undone = await undoManualPublication(db,{userId:'u',chat:current,now:NOW+1,date:'2026-09-10'});
+  assert.equal(undone.ok,true);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM chat_publications WHERE user_id='u' AND chat_id='consistency-chat' AND published_on='2026-09-10'").first()).n,0);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM activity_events WHERE user_id='u' AND chat_id='consistency-chat' AND event_type='publication' AND event_date='2026-09-10' AND cancelled_at IS NULL").first()).n,0);
+  const undoneSummary = await activitySummaryStatement(db,'u','2026-09-10','2026-09-10').all();
+  assert.equal(Number(undoneSummary.results.find(row=>row.event_type==='publication')?.count||0),0);
+  assert.equal((await availableTodayStatement(db,{userId:'u',platform:'whatsapp',date:'2026-09-10',accountId:null,now:NOW+1}).all()).results.some(row=>row.id==='consistency-chat'),true);
+});

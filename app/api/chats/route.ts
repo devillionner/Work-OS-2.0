@@ -59,8 +59,8 @@ export async function GET(request: Request): Promise<Response> {
       : env.DB.prepare(`SELECT c.workflow_status,COUNT(*) AS count,SUM(CASE WHEN p.review_status='confirmed' THEN 1 ELSE 0 END) AS confirmed_count,SUM(CASE WHEN p.review_status='draft' THEN 1 ELSE 0 END) AS draft_count,SUM(CASE WHEN p.chat_id IS NULL THEN 1 ELSE 0 END) AS empty_count FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 GROUP BY c.workflow_status`).bind(user.id,platform),
     joinedTodayStatement(env.DB,{userId:user.id,platform,date:today,accountId}),
     platform === 'telegram'
-      ? env.DB.prepare(`SELECT c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 AND p.telegram_account_id=?4 ORDER BY p.published_at,p.created_at`).bind(user.id,platform,today,accountId)
-      : env.DB.prepare(`SELECT c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 ORDER BY p.published_at,p.created_at`).bind(user.id,platform,today),
+      ? env.DB.prepare(`SELECT c.id,c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 AND p.telegram_account_id=?4 ORDER BY p.published_at,p.created_at`).bind(user.id,platform,today,accountId)
+      : env.DB.prepare(`SELECT c.id,c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 ORDER BY p.published_at,p.created_at`).bind(user.id,platform,today),
     env.DB.prepare(`SELECT value_json FROM user_settings WHERE user_id=?1 AND setting_key='analytics-daily-goal-schedule-v1' LIMIT 1`).bind(user.id),
     env.DB.prepare(`SELECT COUNT(*) AS count FROM activity_events WHERE user_id=?1 AND event_type='publication' AND event_date=?2 AND cancelled_at IS NULL`).bind(user.id,today),
   ];
@@ -126,16 +126,18 @@ export async function POST(request: Request): Promise<Response> {
     const result = await recordManualPublication(env.DB, { userId: user.id, chat, accountId, advertisementId, language, quickMode, now, date: businessDate(now), stateToken: chat.state_token });
     if (!result.ok) return Response.json(result, { status: 409 });
     const next = await readChatState(env.DB,user.id,id);
-    return next ? Response.json({ ...result, stateToken: next.state_token })
-      : Response.json({ error: 'Не вдалося підтвердити новий стан. Оновіть список.' }, { status: 409 });
+    if (!next) return Response.json({ error: 'Не вдалося підтвердити новий стан. Оновіть список.' }, { status: 409 });
+    const publicationState = await readPublicationState(user.id,next,accountId,businessDate(now),now);
+    return Response.json({ ...result, stateToken: next.state_token, publicationState });
   }
 
   if (action === 'undo_published') {
     const result = await undoManualPublication(env.DB,{userId:user.id,chat,now,date:businessDate(now)});
     if (!result.ok) return Response.json(result,{status:409});
     const next = await readChatState(env.DB,user.id,id);
-    return next ? Response.json({ ...result, stateToken: next.state_token })
-      : Response.json({ error: 'Не вдалося підтвердити новий стан. Оновіть список.' }, { status: 409 });
+    if (!next) return Response.json({ error: 'Не вдалося підтвердити новий стан. Оновіть список.' }, { status: 409 });
+    const publicationState = await readPublicationState(user.id,next,accountId,businessDate(now),now);
+    return Response.json({ ...result, stateToken: next.state_token, publicationState });
   }
 
   if (action === 'snooze' || action === 'unsnooze') {
@@ -176,7 +178,40 @@ export async function POST(request: Request): Promise<Response> {
 function unixNow() { return Math.floor(Date.now() / 1000); }
 function parseNumberList(value:string|null) { try { const parsed=JSON.parse(value||'[]'); return Array.isArray(parsed)?parsed.filter((item):item is number=>Number.isInteger(item)&&item>=1&&item<=7):[]; } catch { return []; } }
 function parseStringList(value:string|null) { try { const parsed=JSON.parse(value||'[]'); return Array.isArray(parsed)?parsed.filter((item):item is string=>typeof item==='string'):[]; } catch { return []; } }
-function escapeLike(value: string) { return value.replace(/[\\%_]/g, '\\$&'); }
+function escapeLike(value: string) { return value.replace(/[\\%_]/g, '\\function escapeLike(value: string) { return value.replace(/[\\%_]/g, '\\$&'); }
+async function selectedTelegramAccount'); }
+
+async function readPublicationState(userId:string, chat:{id:string;platform:string}, accountId:string|null, date:string, now:number) {
+  const publishedStatement = chat.platform === 'telegram'
+    ? env.DB.prepare(`SELECT c.id,c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id
+        WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 AND p.telegram_account_id=?4
+        ORDER BY p.published_at,p.created_at`).bind(userId,chat.platform,date,accountId)
+    : env.DB.prepare(`SELECT c.id,c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id
+        WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3
+        ORDER BY p.published_at,p.created_at`).bind(userId,chat.platform,date);
+  const [chatPublishedResult,publishedResult,availableResult,goalResult,publicationCountResult] = await env.DB.batch([
+    env.DB.prepare(`SELECT EXISTS(SELECT 1 FROM chat_publications
+      WHERE user_id=?1 AND chat_id=?2 AND published_on=?3) AS published`).bind(userId,chat.id,date),
+    publishedStatement,
+    availableTodayStatement(env.DB,{userId,platform:chat.platform,date,accountId,now}),
+    env.DB.prepare(`SELECT value_json FROM user_settings WHERE user_id=?1 AND setting_key='analytics-daily-goal-schedule-v1' LIMIT 1`).bind(userId),
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM activity_events
+      WHERE user_id=?1 AND event_type='publication' AND event_date=?2 AND cancelled_at IS NULL`).bind(userId,date),
+  ]);
+  const goalValue=(goalResult.results[0] as {value_json?:string}|undefined)?.value_json;
+  return {
+    chatId:chat.id,
+    chatPublishedToday:Boolean((chatPublishedResult.results[0] as {published?:number}|undefined)?.published),
+    publishedToday:publishedResult.results,
+    availableToday:availableResult.results,
+    publicationPace:{
+      ratePerHour:7,
+      completed:Number((publicationCountResult.results[0] as {count?:number}|undefined)?.count||0),
+      target:resolveDailyPublicationGoal(goalValue,date),
+    },
+  };
+}
+
 async function selectedTelegramAccount(userId:string,requested:string|null) {
   let row=requested
     ? await env.DB.prepare(`SELECT id FROM telegram_accounts WHERE id=?1 AND user_id=?2 AND is_enabled=1 LIMIT 1`).bind(requested,userId).first<{id:string}>()
