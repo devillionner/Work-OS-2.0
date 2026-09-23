@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { applyDiscoveryInspection } from '@/lib/chat-discovery/inspection';
 import { completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '@/lib/chat-discovery/executor';
+import { createDiscoveryExecutorDevice, listDiscoveryExecutorDevices, revokeDiscoveryExecutorDevice } from '@/lib/chat-discovery/executor-auth';
 import {
   DiscoveryError,
   cancelDiscoveryRun,
@@ -26,6 +27,9 @@ export async function GET(request: Request): Promise<Response> {
     if (url.searchParams.get('executor') === '1') {
       return json(await readDiscoveryExecutorQueue(env.DB, user.id, url.searchParams.get('limit')));
     }
+    if (url.searchParams.get('executorDevices') === '1') {
+      return json({ devices: await listDiscoveryExecutorDevices(env.DB, user.id) });
+    }
     const workspace = await readDiscoveryWorkspace(env.DB, user.id, {
       decision: url.searchParams.get('decision'),
       limit: Number(url.searchParams.get('limit') || 60),
@@ -46,6 +50,13 @@ export async function POST(request: Request): Promise<Response> {
   const now = Math.floor(Date.now() / 1000);
 
   try {
+    if (body.action === 'pair-executor') {
+      return json(await createDiscoveryExecutorDevice(env.DB, user.id, body.name, now));
+    }
+    if (body.action === 'revoke-executor') {
+      if (typeof body.deviceId !== 'string' || !body.deviceId) throw new DiscoveryError('Підключення executor не вказано.');
+      return json(await revokeDiscoveryExecutorDevice(env.DB, user.id, body.deviceId, now));
+    }
     if (body.action === 'start') {
       const run = await startDiscoveryRun(env.DB, user.id, {
         platforms: body.platforms,

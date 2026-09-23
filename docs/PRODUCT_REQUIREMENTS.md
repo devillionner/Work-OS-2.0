@@ -24,7 +24,7 @@
 
 ## Перевірка 2026-09-23
 
-Ручна кваліфікація Discovery показує нейтральне «Перевірено», без хибної заяви про автоматичну перевірку. Для зовнішнього executor додано owner-scoped read queue наступних дій (`join_and_inspect` / `check_membership_and_inspect` / `inspect` / `leave`) і guarded callback для підтвердженого WhatsApp/Viber leave; жодна зовнішня дія не вважається виконаною до фактичного result callback. Реальний runner/pairing лишається окремим gap. Перед push використовується `npm run verify:local`; staging `verify` не замінює локальний full gate.
+Ручна кваліфікація Discovery показує нейтральне «Перевірено», без хибної заяви про автоматичну перевірку. Для зовнішнього executor додано owner-scoped read queue наступних дій (`join_and_inspect` / `check_membership_and_inspect` / `inspect` / `leave`) і guarded callback для підтвердженого WhatsApp/Viber leave; жодна зовнішня дія не вважається виконаною до фактичного result callback. Secure pairing/transport реалізовано у v0.2.25: owner-scoped executor devices мають one-time bearer token, у D1 зберігається тільки hash, є revoke/last-seen та окремий executor API без browser-session cookie. Реальний WhatsApp/Viber browser runner adapter і live messenger acceptance лишаються окремим gap. Перед push використовується `npm run verify:local`; staging `verify` не замінює локальний full gate.
 
 ## Статуси й готовність
 

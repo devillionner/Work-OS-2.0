@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, CircleAlert, ExternalLink, LoaderCircle, Search, Square, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { ChatDiscoveryExecutorPanel } from '@/components/chat-discovery-executor-panel';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -380,6 +381,7 @@ export function ChatDiscoveryDialog({
       <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[minmax(0,0.92fr)_minmax(460px,1.08fr)] lg:overflow-hidden">
         <div className="border-b border-border/70 bg-muted/10 p-4 sm:p-5 lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r">
           <div className="grid gap-4">
+            <ChatDiscoveryExecutorPanel />
             <section className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm" aria-label="Параметри пошуку">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">

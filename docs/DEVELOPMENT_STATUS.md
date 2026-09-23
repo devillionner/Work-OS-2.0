@@ -1,5 +1,13 @@
 # Development status — 2026-09-23
 
+## 2026-09-23 Chat Discovery executor pairing — v0.2.25
+
+- Added owner-scoped executor device pairing with one-time 256-bit bearer tokens; Work OS stores only SHA-256 token hashes and supports explicit revocation.
+- Added a dedicated bearer-authenticated `/api/chat-discovery/executor` bridge for queue reads plus guarded inspection/leave result callbacks, so an external runner no longer needs a browser session cookie.
+- Discovery UI now shows connected executors, last-seen state, one-time token copy and revocation in the existing responsive modal.
+- Migration `0034_chat_discovery_executor_devices.sql` is staging-safe and does not touch production. Real WhatsApp/Viber browser automation remains the next runner-adapter slice; this release provides the secure pairing/transport boundary it requires.
+
+
 ## 2026-09-23 dialog close transition hardening — v0.2.24
 
 - Shared Base UI dialogs now deduplicate identical open/close transitions before forwarding `onOpenChange`, preventing a single close gesture from triggering parent close logic twice.
