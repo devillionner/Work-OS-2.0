@@ -197,7 +197,7 @@ void test('publication undo restores exactly the matching Telegram slot and keep
   assert.equal(restoredA.completed, 0);
   assert.equal(restoredA.pending, 1);
   assert.equal(restoredA.slots[0].chatId, 'undo-a-chat');
-  assert.equal(restoredA.slots[0].publicationId, null);
+  assert.equal(await db.prepare("SELECT publication_id FROM telegram_schedule_slots WHERE id=?1").bind(restoredA.slots[0].id).first('publication_id'), null);
   assert.equal(stillUntouchedB.completed, 0);
   assert.equal(stillUntouchedB.pending, 1);
 });
