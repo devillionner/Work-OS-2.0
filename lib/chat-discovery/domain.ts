@@ -243,15 +243,18 @@ export async function readTelegramDiscoveryPlan(
 export async function readDiscoveryWorkspace(
   db: D1Database,
   userId: string,
-  input: { decision?: string | null; limit?: number } = {},
-): Promise<{ run: DiscoveryRun | null; telegramPlan: TelegramSearchPlan | null; counts: Record<DiscoveryDecision, number>; importedCount: number; candidates: DiscoveryCandidate[] }> {
+  input: { decision?: string | null; waitingWhatsApp?: boolean; limit?: number } = {},
+): Promise<{ run: DiscoveryRun | null; telegramPlan: TelegramSearchPlan | null; counts: Record<DiscoveryDecision, number>; importedCount: number; waitingWhatsAppCount: number; candidates: DiscoveryCandidate[] }> {
   const decision = ['review', 'target', 'rejected', 'unavailable'].includes(input.decision || '') ? input.decision! : null;
   const limit = Math.max(1, Math.min(100, Number(input.limit) || 60));
-  const [run, countsResult, importedResult, candidateResult] = await Promise.all([
+  const [run, countsResult, importedResult, waitingWhatsAppResult, candidateResult] = await Promise.all([
     latestRun(db, userId),
     db.prepare(`SELECT decision,COUNT(*) AS count FROM chat_discovery_candidates WHERE user_id=?1 GROUP BY decision`).bind(userId).all<{ decision: DiscoveryDecision; count: number }>(),
     db.prepare(`SELECT COUNT(*) AS count FROM chat_discovery_candidates WHERE user_id=?1 AND imported_chat_id IS NOT NULL`).bind(userId).first<{ count: number }>(),
-    decision
+    db.prepare(`SELECT COUNT(*) AS count FROM chat_discovery_candidates WHERE user_id=?1 AND platform='whatsapp' AND membership_state='pending' AND imported_chat_id IS NOT NULL`).bind(userId).first<{ count: number }>(),
+    input.waitingWhatsApp
+      ? db.prepare(`SELECT * FROM chat_discovery_candidates WHERE user_id=?1 AND platform='whatsapp' AND membership_state='pending' AND imported_chat_id IS NOT NULL ORDER BY updated_at ASC,id LIMIT ?2`).bind(userId, limit).all<CandidateRow>()
+      : decision
       ? db.prepare(`SELECT * FROM chat_discovery_candidates WHERE user_id=?1 AND decision=?2 ORDER BY updated_at DESC,id LIMIT ?3`).bind(userId, decision, limit).all<CandidateRow>()
       : db.prepare(`SELECT * FROM chat_discovery_candidates WHERE user_id=?1 ORDER BY
           CASE decision WHEN 'target' THEN 0 WHEN 'review' THEN 1 WHEN 'rejected' THEN 2 ELSE 3 END,
@@ -267,6 +270,7 @@ export async function readDiscoveryWorkspace(
     telegramPlan: run ? buildTelegramSearchPlan(run.telegram_cursor, 6) : null,
     counts,
     importedCount: Number(importedResult?.count || 0),
+    waitingWhatsAppCount: Number(waitingWhatsAppResult?.count || 0),
     candidates: candidates.map((candidate) => mapCandidate(candidate, sources.get(candidate.id) || [])),
   };
 }

@@ -48,7 +48,8 @@ export async function readDiscoveryExecutorQueue(
       FROM chat_discovery_candidates
       WHERE user_id=?1 AND imported_chat_id IS NOT NULL AND membership_state<>'left'
         AND platform IN ('whatsapp','viber')
-      ORDER BY CASE decision WHEN 'rejected' THEN 0 WHEN 'unavailable' THEN 0 WHEN 'review' THEN 1 ELSE 2 END,
+      ORDER BY CASE WHEN platform='whatsapp' AND membership_state='pending' THEN 0 ELSE 1 END,
+        CASE decision WHEN 'rejected' THEN 0 WHEN 'unavailable' THEN 0 WHEN 'review' THEN 1 ELSE 2 END,
         updated_at ASC,id
       LIMIT ?2`).bind(userId, Math.max(limit * 3, 20)).all<CandidateTaskRow>(),
     db.prepare(`SELECT min_members FROM chat_discovery_runs WHERE user_id=?1 ORDER BY updated_at DESC LIMIT 1`)

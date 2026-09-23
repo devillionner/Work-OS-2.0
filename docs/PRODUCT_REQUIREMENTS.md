@@ -453,3 +453,10 @@
 - Last active view — локальний preference конкретного пристрою/браузера. Він переживає F5/auto-update, але не повинен примусово синхронізуватися між телефоном і ПК.
 - Staging deploy є автоматичним після green verify на `main`; production — лише окремо й явно. Після exact worker/database-id guard staging pipeline може застосувати pending D1 migrations тільки до `work-os-2-staging-db`, повторно перевіряє migration state й лише тоді deploy-ить Worker; production migrations автоматично не запускаються.
 - Workday `Повернути день` — recovery без втрати timeline; `Скинути день` — destructive confirmed reset лише завершеного сьогоднішнього workday. Інші дані при reset не видаляються.
+
+## Messenger automation requirements — 2026-09-23
+
+- **WhatsApp pending approval** є окремою WhatsApp-only функцією. «Очікування» показує лише чати, де після join request потрібне підтвердження адміністратора. «Перевірити зараз» має запускати фактичну messenger-side перевірку; adapter згодом може виконувати bounded background rechecks. `joined` дозволено виставляти лише після перевіреного результату, а не після таймера чи відкриття invite.
+- Цільовий WhatsApp adapter працює через **WhatsApp Web у браузері** та постійну авторизовану сесію; окремий WhatsApp Desktop app не є product dependency. Розпізнавання pending/joined/unavailable, chat identity та writeability повинне бути fail-closed.
+- Viber використовує native desktop/deep-link path і **не має WhatsApp-style pending approval вкладки**. Linux/CachyOS acceptance target — системно зареєстрований Viber handler (`viber.desktop`, `x-scheme-handler/viber`), а не standalone AppImage.
+- Після Discovery messenger acceptance операторська автоматизація переходить до autoposting: WhatsApp Web adapter, потім Viber desktop adapter. Перед send треба підтвердити target chat identity; publication fact створюється лише після підтвердженої відправки. Wrong chat / read-only / admin-only / unknown UI state / adapter failure не можуть тихо рахуватися як publication.

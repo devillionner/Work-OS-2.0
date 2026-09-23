@@ -16,6 +16,7 @@ type Workspace = {
   telegramPlan: TelegramSearchPlan | null;
   counts: Record<DiscoveryDecision, number>;
   importedCount: number;
+  waitingWhatsAppCount: number;
   candidates: DiscoveryCandidate[];
   error?: string;
 };
@@ -36,7 +37,7 @@ type ManualInspectionDraft = {
   membershipState: 'not_checked' | 'pending' | 'joined';
   chatType: 'unknown' | 'group' | 'community' | 'channel';
 };
-type DecisionFilter = 'all' | DiscoveryDecision;
+type DecisionFilter = 'all' | 'waiting-whatsapp' | DiscoveryDecision;
 
 const EMPTY_COUNTS: Record<DiscoveryDecision, number> = {
   review: 0,
@@ -54,7 +55,7 @@ export function ChatDiscoveryDialog({
   onClose: () => void;
   onImported: (platform: DiscoveryPlatform) => void;
 }) {
-  const [workspace, setWorkspace] = useState<Workspace>({ run: null, telegramPlan: null, counts: EMPTY_COUNTS, importedCount: 0, candidates: [] });
+  const [workspace, setWorkspace] = useState<Workspace>({ run: null, telegramPlan: null, counts: EMPTY_COUNTS, importedCount: 0, waitingWhatsAppCount: 0, candidates: [] });
   const platforms: DiscoveryPlatform[] = ['whatsapp', 'viber'];
   const [goal, setGoal] = useState(30);
   const [minMembers, setMinMembers] = useState(700);
@@ -78,7 +79,8 @@ export function ChatDiscoveryDialog({
     setError('');
     try {
       const params = new URLSearchParams({ limit: '60' });
-      if (decision !== 'all') params.set('decision', decision);
+      if (decision === 'waiting-whatsapp') params.set('waitingWhatsApp', '1');
+      else if (decision !== 'all') params.set('decision', decision);
       const response = await fetch(`/api/chat-discovery?${params}`, { cache: 'no-store' });
       const body = await response.json() as Workspace;
       if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити пошук чатів.');
@@ -516,11 +518,12 @@ export function ChatDiscoveryDialog({
                 <h3 className="font-semibold">Кандидати</h3>
                 <p className="text-xs text-muted-foreground">{total} знайдено · {workspace.importedCount} уже в Work OS</p>
               </div>
-              <Badge variant="secondary">{filter === 'all' ? 'Усі' : decisionLabel(filter)} · {filter === 'all' ? total : workspace.counts[filter]}</Badge>
+              <Badge variant="secondary">{filter === 'all' ? 'Усі' : filter === 'waiting-whatsapp' ? 'WhatsApp · Очікування' : decisionLabel(filter)} · {filter === 'all' ? total : filter === 'waiting-whatsapp' ? workspace.waitingWhatsAppCount : workspace.counts[filter]}</Badge>
             </div>
             <div className="mt-3 flex gap-1 overflow-x-auto rounded-xl bg-muted/50 p-1" role="tablist" aria-label="Фільтр кандидатів">
               {([
                 ['all', 'Усі', total],
+                ['waiting-whatsapp', 'WA · Очікування', workspace.waitingWhatsAppCount],
                 ['review', 'Перевірка', workspace.counts.review],
                 ['target', 'Цільові', workspace.counts.target],
                 ['rejected', 'Відхилені', workspace.counts.rejected],

@@ -44,6 +44,20 @@ void test('discovery UI exposes membership, inspection and post-join cleanup sta
   assert.match(route, /applyDiscoveryInspection/);
 });
 
+void test('WhatsApp waiting is a dedicated server-filtered queue with an executor count', async () => {
+  const [dialog, route, domain, executor] = await Promise.all([
+    readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../app/api/chat-discovery/route.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../lib/chat-discovery/domain.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../lib/chat-discovery/executor.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(dialog, /WA · Очікування/);
+  assert.match(dialog, /waitingWhatsApp/);
+  assert.match(route, /waitingWhatsApp.*=== '1'/);
+  assert.match(domain, /platform='whatsapp' AND membership_state='pending'/);
+  assert.match(executor, /platform='whatsapp' AND membership_state='pending'/);
+});
+
 void test('discovery UI exposes the Telegram to WhatsApp ingestion bridge', async () => {
   const [dialog, route] = await Promise.all([
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),

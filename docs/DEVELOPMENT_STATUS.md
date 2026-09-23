@@ -604,3 +604,10 @@ separate gates after local validation and the required direct confirmation.
 - This evidence closes ANALYTICS-15. ANALYTICS-10 remains partial because the
   remaining gap is advertisement-level attribution, not chat-level attribution.
 - Production and production D1 were not changed.
+
+## 2026-09-23 messenger integration decisions / local acceptance
+
+- v0.2.28 working slice adds a WhatsApp-only server-filtered «Очікування» list/count and gives pending WhatsApp membership tasks priority in the executor queue. Fully automated messenger-side membership detection is still an adapter/live-acceptance gap.
+- Product decision: WhatsApp automation is browser-first through a persistent authenticated WhatsApp Web session; a separate WhatsApp Desktop app is not required. Pending approval must be checked against real messenger state before promotion to joined.
+- Product decision: Viber does not use the WhatsApp pending-approval flow. On the CachyOS reference workstation, the packaged Viber client is installed with `/usr/bin/viber`, `viber.desktop` is registered for `x-scheme-handler/viber`, and a Work OS Viber invite now opens the intended Viber chat successfully. The previous standalone AppImage was removed.
+- Next operator-automation sequence after Discovery adapter acceptance is WhatsApp autopost → Viber autopost → shared retry/recovery, with exact target-chat verification before send and a confirmed-send callback before `published`.

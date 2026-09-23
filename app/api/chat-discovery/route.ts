@@ -32,6 +32,7 @@ export async function GET(request: Request): Promise<Response> {
     }
     const workspace = await readDiscoveryWorkspace(env.DB, user.id, {
       decision: url.searchParams.get('decision'),
+      waitingWhatsApp: url.searchParams.get('waitingWhatsApp') === '1',
       limit: Number(url.searchParams.get('limit') || 60),
     });
     return json(workspace);
