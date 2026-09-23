@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { handleTabKeyNavigation } from '@/lib/tab-navigation';
 
 type Platform = 'telegram' | 'whatsapp' | 'viber' | 'facebook';
@@ -261,6 +262,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   }
 
   function toggleArchive(id:string) {
+    setError('');
     setArchiveId(current=>{const next=current===id?null:id;if(next) setCustomArchiveReason('');return next;});
   }
 
@@ -305,9 +307,21 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const profileSummary=data?.profileCounts[queue];
   const breakSeconds=activeAccount?.breakUntil?Math.max(0,activeAccount.breakUntil-Math.floor(clock/1000)):0;
   const publishQuickMode=quickPublishMode&&(publishChat?.platform==='whatsapp'||publishChat?.platform==='viber');
+  const archiveChat=archiveId?data?.chats.find(chat=>chat.id===archiveId)||null:null;
   return <div className="platform-workspace">
     <ConfirmDialog open={confirmation!==null} title={confirmation?.kind==='assign'?'Перепризначити Telegram-акаунт?':'Повернути чат до приєднання?'} description={confirmation?.kind==='assign'?`Чат перейде з «${confirmation.currentName}» на «${confirmation.nextName}». Членство в самому Telegram потрібно змінити вручну.`:'Чат повернеться в чергу «Для приєднання». Історія чату не видаляється.'} confirmLabel={confirmation?.kind==='assign'?'Перепризначити':'Повернути'} busy={busy!==null} onCancel={()=>setConfirmation(null)} onConfirm={confirmPlatformAction}/>
     <ConfirmDialog open={deleteChat!==null} title="Остаточно видалити чат?" description={deleteChat?`«${deleteChat.name}» більше не блокуватиме повторне додавання. Дію не можна скасувати; вона доступна лише для неіснуючого чату без публікацій, лідів або активного розкладу.`:''} confirmLabel="Видалити назавжди" destructive busy={busy!==null} onCancel={()=>setDeleteChat(null)} onConfirm={()=>{const chat=deleteChat;setDeleteChat(null);if(chat)void act(chat,'permanent_delete',{confirmation:'PERMANENTLY_DELETE_NONEXISTENT_CHAT'});}}/>
+    <Dialog open={archiveChat!==null} onOpenChange={(next)=>{if(!next&&busy===null){setArchiveId(null);setCustomArchiveReason('');setError('');}}}>
+      <DialogContent className="archive-dialog" showCloseButton={false}>
+        <DialogHeader><DialogTitle>Перенести чат в архів?</DialogTitle><DialogDescription>{archiveChat?`«${archiveChat.name}». Оберіть причину — чат зникне з поточної черги, але його можна буде відновити з «Архіву».`:'Оберіть причину архівації.'}</DialogDescription></DialogHeader>
+        <div className="archive-dialog-reasons" role="group" aria-label="Причина архівації">
+          {['Забанено','Чат не існує','Чат не цільовий'].map(reason=><Button type="button" variant="outline" disabled={busy!==null} key={reason} onClick={()=>{if(archiveChat)void act(archiveChat,'archive',{reason},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'});}}>{reason}</Button>)}
+        </div>
+        <div className="archive-dialog-custom"><Input value={customArchiveReason} maxLength={100} disabled={busy!==null} aria-label="Власна причина архівації" placeholder="Інша причина" onChange={event=>setCustomArchiveReason(event.target.value)}/><Button disabled={busy!==null||!customArchiveReason.trim()} onClick={()=>{const reason=customArchiveReason.trim();if(archiveChat&&reason)void act(archiveChat,'archive',{reason},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'});}}>Архівувати</Button></div>
+        {error&&<p className="archive-dialog-error" role="alert">{error}</p>}
+        <DialogFooter><Button type="button" variant="outline" disabled={busy!==null} onClick={()=>{setArchiveId(null);setCustomArchiveReason('');setError('');}}>Скасувати</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
     <ChatBulkDialog open={bulkOpen} onClose={()=>setBulkOpen(false)} onAdded={addedChats} enabledPlatforms={enabledPlatforms}/>
     <ChatDiscoveryDialog open={discoveryOpen} onClose={()=>setDiscoveryOpen(false)} onImported={importedDiscoveryChat}/>
     <ChatDuplicatesDialog open={duplicatesOpen} onClose={()=>setDuplicatesOpen(false)}/>
@@ -390,7 +404,6 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
             {queue==='archived'&&supportsChatLeaveChecklist(platform)&&chat.joinedAt!==null&&<Button variant="outline" onClick={()=>act(chat,chat.leftAt?'undo_leave':'confirm_leave')} disabled={busy!==null}>{chat.leftAt?<><Undo2 data-icon="inline-start"/>Скасувати вихід</>:<><Check data-icon="inline-start"/>Я вийшов</>}</Button>}
             {queue==='archived'?<><Button variant="outline" onClick={()=>act(chat,'restore')} disabled={busy!==null}><RotateCcw data-icon="inline-start"/>Відновити</Button>{canPermanentlyDelete(chat)&&<Button variant="outline" onClick={()=>setDeleteChat(chat)} disabled={busy!==null}><Trash2 data-icon="inline-start"/>Видалити назавжди</Button>}</>:<Button variant="ghost" size="icon" onClick={()=>toggleArchive(chat.id)} aria-label="Перенести в архів"><Archive/></Button>}
           </div>
-          {archiveId===chat.id&&<div className="archive-reasons"><span>Чому в архів?</span>{['Забанено','Чат не існує','Чат не цільовий'].map(reason=><button type="button" disabled={busy!==null} key={reason} onClick={()=>act(chat,'archive',{reason},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'})}>{reason}</button>)}<div className="archive-custom"><Input value={customArchiveReason} maxLength={100} disabled={busy!==null} aria-label="Власна причина архівації" placeholder="Інша причина" onChange={event=>setCustomArchiveReason(event.target.value)}/><Button disabled={busy!==null||!customArchiveReason.trim()} onClick={()=>act(chat,'archive',{reason:customArchiveReason.trim()},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'})}>Архівувати</Button></div></div>}
         </article>)}
         </div>
         {data.chats.length>mobileVisibleChats&&<div className="mobile-list-more"><Button type="button" variant="outline" onClick={()=>setMobileListState({key:mobileListKey,count:Math.min(mobileVisibleChats+MOBILE_LIST_CHUNK,data.chats.length)})}>Показати ще чати</Button></div>}
