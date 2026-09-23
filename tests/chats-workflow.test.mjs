@@ -5,6 +5,7 @@ import { publicationAvailability, recordManualPublication, undoManualPublication
 import { activitySummaryStatement } from '../lib/activity-summary.ts';
 import { readActivityDayRevision } from '../lib/reports/activity-revision.ts';
 import { readChatState } from '../lib/chats/state.ts';
+import { transitionChat } from '../lib/chats/transitions.ts';
 import { changeChatSnooze } from '../lib/chats/snooze.ts';
 import { localDatabase, seedChat } from './helpers/local-d1.mjs';
 import { availableTodayStatement } from '../lib/chats/daily-links.ts';
@@ -179,4 +180,22 @@ void test('publication and undo keep canonical publication facts, report totals 
   const undoneSummary = await activitySummaryStatement(db,'u','2026-09-10','2026-09-10').all();
   assert.equal(Number(undoneSummary.results.find(row=>row.event_type==='publication')?.count||0),0);
   assert.equal((await availableTodayStatement(db,{userId:'u',platform:'whatsapp',date:'2026-09-10',accountId:null,now:NOW+1}).all()).results.some(row=>row.id==='consistency-chat'),true);
+});
+
+
+void test('archiving a chat after publication preserves historical publication metrics', async t => {
+  const db = await localDatabase(t);
+  const chat = await seedChat(db,{id:'archive-after-publish',platform:'whatsapp',status:'ready'});
+  assert.equal((await publish(db,chat)).ok,true);
+
+  const current = await readChatState(db,'u','archive-after-publish');
+  const archived = await transitionChat(db,{
+    userId:'u',chat:current,action:'archive',accountId:null,now:NOW+2,reason:'Чат не цільовий',
+  });
+  assert.equal(archived.ok,true);
+
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM chat_publications WHERE user_id='u' AND chat_id='archive-after-publish' AND published_on='2026-09-10'").first()).n,1);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM activity_events WHERE user_id='u' AND chat_id='archive-after-publish' AND event_type='publication' AND event_date='2026-09-10' AND cancelled_at IS NULL").first()).n,1);
+  const summary = await activitySummaryStatement(db,'u','2026-09-10','2026-09-10').all();
+  assert.equal(Number(summary.results.find(row=>row.event_type==='publication')?.count||0),1);
 });
