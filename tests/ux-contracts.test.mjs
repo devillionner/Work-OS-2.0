@@ -207,6 +207,17 @@ void test('Platform archive reason picker is modal and cannot overlap the next c
   assert.match(css, /\.archive-dialog-reasons \{ display:grid; grid-template-columns:repeat\(3,minmax\(0,1fr\)\);/);
 });
 
+void test('Platform mutations reconcile in the background without blanking the current queue', () => {
+  const workspace = text(join(componentsDir, 'platform-workspace.tsx'));
+  const loadStart = workspace.indexOf('const load = useCallback');
+  const loadEnd = workspace.indexOf('useEffect(() => { reloadChats.current=load', loadStart);
+  assert.ok(loadStart >= 0 && loadEnd > loadStart);
+  const loadBlock = workspace.slice(loadStart, loadEnd);
+  assert.doesNotMatch(loadBlock, /setData\(null\)/);
+  assert.match(workspace, /!data&&\(loading\|\|switchingList\) \? <div className="workspace-loading"/);
+  assert.doesNotMatch(workspace, /setProfileChat\(null\); setData\(null\);/);
+});
+
 void test('Workspace native controls share desktop targets and visible keyboard focus', () => {
   const css = text(join(root, 'app', 'globals.css'));
   assert.match(css, /\.account-link \{ min-height:42px;/);
