@@ -92,11 +92,12 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const restoreScroll=useRef<number|null>(null);
   const refreshExpiredBreak=useRef(createRefreshGate(120_000));
   const availablePlatforms = useMemo(() => platforms.filter((item) => !enabledPlatforms || enabledPlatforms.includes(item.key)), [enabledPlatforms]);
-  const requestKey=`${platform}:${queue}:${search}:${profileFilter}:${offset}:${accountId}`;
+  const requestAccountId=platform==='telegram'?accountId:null;
+  const requestKey=`${platform}:${queue}:${search}:${profileFilter}:${offset}:${requestAccountId||''}`;
   const switchingList=loadedData!==null&&loadedData.requestKey!==requestKey;
   const data=switchingList?null:loadedData;
   const filterKey=`${platform}:${queue}:${search}:${profileFilter}`;
-  const mobileListKey=`${filterKey}:${offset}:${accountId||''}`;
+  const mobileListKey=`${filterKey}:${offset}:${requestAccountId||''}`;
   const mobileVisibleChats=mobileListState.key===mobileListKey?mobileListState.count:MOBILE_LIST_CHUNK;
   const previousFilter=useRef(filterKey);
 
@@ -150,7 +151,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     setLoading(true); setError(''); setData(null);
     try {
       const params = new URLSearchParams({platform,status:queue,search,offset:String(offset),profile:profileFilter});
-      if(platform==='telegram'&&accountId) params.set('account',accountId);
+      if(requestAccountId) params.set('account',requestAccountId);
       const response = await fetch(`/api/chats?${params}`,{cache:'no-store',signal:controller.signal});
       const body = await response.json() as ResponseData & {error?:string};
       if(controller.signal.aborted || requestNumber!==loadNumber.current) return;
@@ -158,7 +159,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       setData({...body,requestKey});
     } catch (reason) { if(!controller.signal.aborted && requestNumber===loadNumber.current) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити чати.'); }
     finally { if(!controller.signal.aborted && requestNumber===loadNumber.current) setLoading(false); }
-  },[platform,queue,search,profileFilter,offset,accountId,requestKey]);
+  },[platform,queue,search,profileFilter,offset,requestAccountId,requestKey]);
 
   useEffect(() => { reloadChats.current=load; const timer=setTimeout(load,search ? 250 : 0); return () => { clearTimeout(timer); cancelLoad(); }; },[load,search,cancelLoad]);
 
