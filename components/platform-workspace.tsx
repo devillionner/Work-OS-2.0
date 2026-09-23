@@ -92,15 +92,25 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const restoreScroll=useRef<number|null>(null);
   const refreshExpiredBreak=useRef(createRefreshGate(120_000));
   const availablePlatforms = useMemo(() => platforms.filter((item) => !enabledPlatforms || enabledPlatforms.includes(item.key)), [enabledPlatforms]);
-  if (!availablePlatforms.some((item) => item.key === platform) && availablePlatforms[0]) { setPlatform(availablePlatforms[0].key); setQueue('to_join'); setOffset(0); }
   const requestKey=`${platform}:${queue}:${search}:${profileFilter}:${offset}:${accountId}`;
   const switchingList=loadedData!==null&&loadedData.requestKey!==requestKey;
   const data=switchingList?null:loadedData;
   const filterKey=`${platform}:${queue}:${search}:${profileFilter}`;
   const mobileListKey=`${filterKey}:${offset}:${accountId||''}`;
   const mobileVisibleChats=mobileListState.key===mobileListKey?mobileListState.count:MOBILE_LIST_CHUNK;
-  const [previousFilter,setPreviousFilter]=useState(filterKey);
-  if(previousFilter!==filterKey){setPreviousFilter(filterKey);setOffset(0);}
+  const previousFilter=useRef(filterKey);
+
+  useEffect(()=>{
+    if(availablePlatforms.some((item)=>item.key===platform)||!availablePlatforms[0])return;
+    const next=availablePlatforms[0].key;
+    setPlatform(next);setQueue('to_join');setSearch('');setProfileFilter('all');setOffset(0);previousFilter.current=`${next}:to_join::all`;writeLastPlatform(next);
+  },[availablePlatforms,platform]);
+
+  useEffect(()=>{
+    if(previousFilter.current===filterKey)return;
+    previousFilter.current=filterKey;
+    setOffset(0);
+  },[filterKey]);
 
   useEffect(()=>{
     if(restoredView.current||!availablePlatforms.length)return;
@@ -110,7 +120,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     const saved=readPlatformView(target);
     queueMicrotask(()=>{
       if(target!==platform)setPlatform(target);
-      if(saved){setQueue(saved.queue);setSearch(saved.search);setProfileFilter('all');setOffset(saved.offset);setPreviousFilter(`${target}:${saved.queue}:${saved.search}:all`);restoreScroll.current=saved.scrollY;setLastOpenedByPlatform(current=>({...current,[target]:saved.lastChatId}));}
+      if(saved){setQueue(saved.queue);setSearch(saved.search);setProfileFilter('all');setOffset(saved.offset);previousFilter.current=`${target}:${saved.queue}:${saved.search}:all`;restoreScroll.current=saved.scrollY;setLastOpenedByPlatform(current=>({...current,[target]:saved.lastChatId}));}
     });
   },[availablePlatforms,platform]);
 
@@ -183,7 +193,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     const saved=readPlatformView(next);
     setQuickPublishMode(false); setQuickAdvertisementId(null);
     setPlatform(next); setQueue(saved?.queue||'to_join'); setSearch(saved?.search||''); setProfileFilter('all'); setOffset(saved?.offset||0);
-    setPreviousFilter(`${next}:${saved?.queue||'to_join'}:${saved?.search||''}:all`);
+    previousFilter.current=`${next}:${saved?.queue||'to_join'}:${saved?.search||''}:all`;
     setLastOpenedByPlatform(current=>({...current,[next]:saved?.lastChatId||null})); restoreScroll.current=saved?.scrollY??null;
     writeLastPlatform(next);
   }
