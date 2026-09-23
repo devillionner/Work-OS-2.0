@@ -20,6 +20,7 @@ export async function transitionChat(db: D1Database, input: {
   const joining = action === 'joined' || action === 'approved';
   const reset = action === 'restore' || action === 'return_to_join';
   const archived = action === 'archive' || action === 'failed';
+  const invalidatesTodayJoin = action === 'archive' || action === 'failed' || action === 'return_to_join';
   const assign = action === 'assign_account';
   const status = joining ? 'ready' : reset ? 'to_join' : archived ? 'archived' : assign ? chat.workflow_status : 'waiting';
   const accountId = chat.platform !== 'telegram' || reset ? null
@@ -41,6 +42,11 @@ export async function transitionChat(db: D1Database, input: {
         accountId,chat.id,userId,chat.state_token,Number(needsActiveAccount)),
     chatStateEvent(db,{id:eventId,userId,chatId:chat.id,action,now,previous:chat.state_token}),
   ];
+  if (invalidatesTodayJoin) {
+    statements.push(db.prepare(`UPDATE activity_events SET cancelled_at=?1
+      WHERE user_id=?2 AND chat_id=?3 AND event_type='chat_joined' AND event_date=?4 AND cancelled_at IS NULL`)
+      .bind(now,userId,chat.id,businessDate(now)));
+  }
   const discoveryMembership = discoveryMembershipForTransition(action);
   if (discoveryMembership) {
     statements.push(discoveryMembershipStatement(db, {
@@ -63,7 +69,11 @@ export async function transitionChat(db: D1Database, input: {
         AND NOT EXISTS(SELECT 1 FROM activity_events prior WHERE prior.user_id=e.user_id
           AND prior.chat_id=e.chat_id AND prior.event_type='chat_joined'
           AND prior.event_date=e.event_date AND prior.cancelled_at IS NULL)
-      ON CONFLICT(user_id,source_key) DO NOTHING`)
+      ON CONFLICT(user_id,source_key) DO UPDATE SET
+        cancelled_at=NULL,
+        occurred_at=excluded.occurred_at,
+        platform=excluded.platform,
+        telegram_account_id=excluded.telegram_account_id`)
       .bind(metricId,`chat-joined:${chat.id}:${businessDate(now)}`,eventId,userId));
     if (chat.platform === 'telegram') statements.push(db.prepare(`UPDATE telegram_accounts
       SET join_streak=CASE WHEN break_until IS NOT NULL AND break_until<=?1 THEN 1 ELSE join_streak+1 END,
