@@ -143,4 +143,4 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Europe/Kyiv day rollover refreshes daily read-models even without a mutation.
 - [x] Regression coverage guards atomic publication/event facts, cancellation, report revisions, Library reuse state, Telegram scheduler restore/account isolation and archive-history preservation.
 - [ ] Final staging full-gate acceptance for v0.2.36: `verify:local` + guarded deploy + `/api/build` must match the release HEAD/version before this slice is called deployed.
-- Next after green staging: Library advertisement UX/data cleanup, then Viber autopost safe mode to «Мої нотатки».
+- Library advertisement UX cleanup started in v0.2.37: platform filter + visible platform badges + responsive mobile toolbar are implemented with regression coverage. Next data slice: normalize/validate advertisement platform metadata and reuse visibility; then Viber autopost safe mode to «Мої нотатки».
