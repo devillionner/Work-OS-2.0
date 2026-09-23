@@ -207,15 +207,22 @@ void test('Platform archive reason picker is modal and cannot overlap the next c
   assert.match(css, /\.archive-dialog-reasons \{ display:grid; grid-template-columns:repeat\(3,minmax\(0,1fr\)\);/);
 });
 
-void test('Platform mutations reconcile in the background without blanking the current queue', () => {
+void test('Platform mutations and sync revisions reconcile without remounting or blanking the queue', () => {
   const workspace = text(join(componentsDir, 'platform-workspace.tsx'));
+  const shell = text(join(componentsDir, 'work-os-shell.tsx'));
   const loadStart = workspace.indexOf('const load = useCallback');
   const loadEnd = workspace.indexOf('useEffect(() => { reloadChats.current=load', loadStart);
   assert.ok(loadStart >= 0 && loadEnd > loadStart);
   const loadBlock = workspace.slice(loadStart, loadEnd);
   assert.doesNotMatch(loadBlock, /setData\(null\)/);
+  assert.match(workspace, /const load = useCallback\(async \(silent=false\)/);
+  assert.match(workspace, /await reloadChats\.current\(true\)/);
+  assert.match(workspace, /syncRevision\?: number/);
+  assert.doesNotMatch(workspace, /router\.refresh\(\)/);
+  assert.doesNotMatch(workspace, /useRouter/);
+  assert.match(shell, /<PlatformWorkspace enabledPlatforms=\{snapshot\.enabledPlatforms\} syncRevision=\{syncRevision\} \/>/);
+  assert.doesNotMatch(shell, /<PlatformWorkspace key=/);
   assert.match(workspace, /!data&&\(loading\|\|switchingList\) \? <div className="workspace-loading"/);
-  assert.doesNotMatch(workspace, /setProfileChat\(null\); setData\(null\);/);
 });
 
 void test('Workspace native controls share desktop targets and visible keyboard focus', () => {
