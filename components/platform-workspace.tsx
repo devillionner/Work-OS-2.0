@@ -272,9 +272,17 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       const response=await fetch('/api/telegram-accounts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,id,...extra})});
       const body=await response.json() as {error?:string;id?:string};
       if(!response.ok) throw new Error(body.error||'Не вдалося оновити акаунт.');
-      if(action==='select'&&id) setAccountId(id);
-      if(action==='create') setNewAccountName('');
-      await loadAccounts(); await reloadChats.current();
+      if(action==='select'&&id) {
+        // Account selection changes the chat request key. Do not invoke the stale
+        // reload callback captured for the previous account; the load effect will
+        // fetch the newly selected account after state reconciliation.
+        setAccountId(id);
+        await loadAccounts();
+      } else {
+        if(action==='create') setNewAccountName('');
+        await loadAccounts();
+        await reloadChats.current();
+      }
     } catch(reason) { setError(reason instanceof Error?reason.message:'Не вдалося оновити акаунт.'); }
     finally { setBusy(null); }
     });

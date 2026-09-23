@@ -1,5 +1,11 @@
 # Development status — 2026-09-23
 
+## 2026-09-23 Telegram account-context race hardening — v0.2.20
+
+- Platforms більше не викликає chat reload, захоплений для попереднього Telegram account ID, одразу після `select`: новий account ID змінює request key, а canonical load effect завантажує саме новий контекст. Це прибирає короткий stale-account flash/race у publication workspace.
+- Додано regression contract на account-switch path; PUB-15 лишається partial до two-device/live acceptance, без штучного підвищення статусу.
+
+
 ## 2026-09-23 Linux continuity and operator UX hardening — v0.2.19
 
 - Resumed the interrupted Linux/main-only cycle from its existing working tree instead of restarting or creating another branch/clone.

@@ -171,3 +171,9 @@ void test('archived chat rows expose timestamp and tightly gated permanent delet
   assert.match(deletion, /NOT EXISTS\(SELECT 1 FROM leads/);
   assert.match(deletion, /chat_permanently_deleted/);
 });
+
+void test('Telegram account switch lets the request-key effect reload the selected account', () => {
+  const platform = source('components/platform-workspace.tsx');
+  assert.match(platform, /if\(action==='select'&&id\) \{[\s\S]*?setAccountId\(id\);[\s\S]*?await loadAccounts\(\);[\s\S]*?\} else \{/);
+  assert.doesNotMatch(platform, /if\(action==='select'&&id\)[\s\S]{0,240}reloadChats\.current\(\)/);
+});
