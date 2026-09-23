@@ -12,6 +12,7 @@ const NOW = Date.parse('2026-09-10T12:00:00Z') / 1000;
 const state = db => readChatState(db,'u','chat');
 const transition = (db,chat,action,extra={}) => transitionChat(db,{userId:'u',chat,action,accountId:null,now:NOW,...extra});
 const count = async (db,type) => (await db.prepare('SELECT COUNT(*) n FROM activity_events WHERE event_type=?1').bind(type).first()).n;
+const countActive = async (db,type) => (await db.prepare('SELECT COUNT(*) n FROM activity_events WHERE event_type=?1 AND cancelled_at IS NULL').bind(type).first()).n;
 async function accounts(db) {
   await db.prepare(`INSERT INTO telegram_accounts(id,user_id,account_number,name,is_enabled,is_selected,created_at,updated_at)
     VALUES ('a','u',1,'One',1,1,1,1),('b','u',2,'Two',1,0,1,1),('disabled','u',3,'Disabled',0,0,1,1),('foreign','other',1,'Foreign',1,1,1,1)`).run();
@@ -49,7 +50,7 @@ void test('waiting and approval count once, bind the account and start the six-h
   assert.equal((await db.prepare("SELECT join_streak FROM telegram_accounts WHERE id='a'").first()).join_streak,1);
 });
 
-void test('join versus archive race has one winner; archive, restore and same-day rejoin preserve metrics', async t => {
+void test('archive removes an unusable chat from today joins; restore alone does not re-count it', async t => {
   const db=await localDatabase(t); await accounts(db); const before=await seed(db);
   const results=await Promise.all([transition(db,before,'joined',{accountId:'a'}),transition(db,before,'archive',{accountId:'a',reason:'Чат не цільовий'})]);
   assert.equal(results.filter(r=>r.ok).length,1);
@@ -58,13 +59,21 @@ void test('join versus archive race has one winner; archive, restore and same-da
   const archived=await state(db);
   assert.equal(archived.telegram_account_id,'a');
   assert.equal((await db.prepare("SELECT archive_reason FROM chats WHERE id='chat'").first()).archive_reason,'Чат не цільовий');
+  assert.equal(await countActive(db,'chat_joined'),0);
+  assert.equal((await joinedTodayStatement(db,{userId:'u',platform:'telegram',date:'2026-09-10',accountId:'a'}).all()).results.length,0);
+  let summary=await activitySummaryStatement(db,'u','2026-09-10','2026-09-10').all();
+  assert.equal(activityTotals(summary.results).joined,0);
+
   assert.equal((await transition(db,archived,'restore')).ok,true);
   const restored=await db.prepare("SELECT * FROM chats WHERE id='chat'").first();
   for(const key of ['joined_at','processed_at','snoozed_until','archive_reason','archived_at','telegram_account_id']) assert.equal(restored[key],null,key);
+  assert.equal(await countActive(db,'chat_joined'),0);
+  assert.equal((await joinedTodayStatement(db,{userId:'u',platform:'telegram',date:'2026-09-10',accountId:'a'}).all()).results.length,0);
+
   assert.equal((await transition(db,await state(db),'joined',{accountId:'a'})).ok,true);
-  assert.equal(await count(db,'chat_joined'),1);
+  assert.equal(await countActive(db,'chat_joined'),1);
   assert.equal((await db.prepare("SELECT join_streak FROM telegram_accounts WHERE id='a'").first()).join_streak,1);
-  const summary=await activitySummaryStatement(db,'u','2026-09-10','2026-09-10').all();
+  summary=await activitySummaryStatement(db,'u','2026-09-10','2026-09-10').all();
   assert.equal(activityTotals(summary.results).joined,1);
 });
 
@@ -125,13 +134,16 @@ void test('history and metrics roll back with a failed metric or account write',
   }
 });
 
-void test('WhatsApp return and failed joins preserve history; platform restrictions reject invalid actions', async t => {
+void test('WhatsApp return and failed joins preserve history but not the active joined-today fact', async t => {
   const db=await localDatabase(t); await seed(db,'whatsapp');
   await transition(db,await state(db),'joined');
+  assert.equal(await countActive(db,'chat_joined'),1);
   assert.equal((await transition(db,await state(db),'return_to_join')).ok,true);
+  assert.equal(await countActive(db,'chat_joined'),0);
   assert.equal((await transition(db,await state(db),'failed')).ok,true);
   assert.equal((await state(db)).workflow_status,'archived');
   assert.equal(await count(db,'chat_joined'),1);
+  assert.equal(await countActive(db,'chat_joined'),0);
   await transition(db,await state(db),'restore');
   await db.prepare("UPDATE chats SET platform='viber' WHERE id='chat'").run();
   assert.equal((await transition(db,await state(db),'waiting')).ok,false);
@@ -165,20 +177,28 @@ void test('publication requires the displayed version and invalidates it even in
   assert.equal(await count(db,'publication'),1);
 });
 
-void test('same-day legacy joins stay unique and daily links survive restore and account reassignment', async t => {
+void test('archived legacy joins disappear from daily links and can be counted again only after a real rejoin', async t => {
   const db=await localDatabase(t); await accounts(db); await seed(db);
   await seedEvent(db,{id:'legacy-join',type:'chat_joined',chat:'chat',date:'2026-09-10',at:NOW-30});
   await db.prepare("UPDATE activity_events SET telegram_account_id='a' WHERE id='legacy-join'").run();
   assert.equal((await transition(db,await state(db),'joined',{accountId:'a'})).ok,true);
-  assert.equal(await count(db,'chat_joined'),1);
-  await transition(db,await state(db),'archive');
-  await transition(db,await state(db),'assign_account',{accountId:'b'});
+  assert.equal(await countActive(db,'chat_joined'),1);
   const links=accountId=>joinedTodayStatement(db,{userId:'u',platform:'telegram',date:'2026-09-10',accountId}).all();
-  assert.equal((await links('a')).results.length,1); assert.equal((await links('b')).results.length,0);
+
+  await transition(db,await state(db),'archive',{reason:'Забанено'});
+  await transition(db,await state(db),'assign_account',{accountId:'b'});
+  assert.equal(await countActive(db,'chat_joined'),0);
+  assert.equal((await links('a')).results.length,0);
+  assert.equal((await links('b')).results.length,0);
+
   await transition(db,await state(db),'restore');
-  assert.equal((await links('a')).results.length,1);
-  assert.equal((await joinedTodayStatement(db,{userId:'other',platform:'telegram',date:'2026-09-10',accountId:'a'}).all()).results.length,0);
-  assert.equal((await joinedTodayStatement(db,{userId:'u',platform:'telegram',date:'2026-09-09',accountId:'a'}).all()).results.length,0);
+  assert.equal((await links('a')).results.length,0);
+  assert.equal((await transition(db,await state(db),'joined',{accountId:'b'})).ok,true);
+  assert.equal(await countActive(db,'chat_joined'),1);
+  assert.equal((await links('a')).results.length,0);
+  assert.equal((await links('b')).results.length,1);
+  assert.equal((await joinedTodayStatement(db,{userId:'other',platform:'telegram',date:'2026-09-10',accountId:'b'}).all()).results.length,0);
+  assert.equal((await joinedTodayStatement(db,{userId:'u',platform:'telegram',date:'2026-09-09',accountId:'b'}).all()).results.length,0);
 });
 
 
