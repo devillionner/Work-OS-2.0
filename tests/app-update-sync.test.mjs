@@ -76,3 +76,11 @@ void test('sync never consumes a newer server revision when poll refresh is thro
   assert.ok(assign > throttle);
   assert.match(sync,/explicit local\/cross-tab\s+\*\/);
 });
+
+
+void test('local and cross-tab writes are replayed when a revision poll is already in flight', () => {
+  const sync = read('components/server-sync.tsx');
+  assert.match(sync,/pendingCheckRef = useRef<DataSyncDetail\['reason'\] \| null>\(null\)/);
+  assert.match(sync,/if \(checkingRef\.current\) \{[\s\S]*reason !== 'poll'[\s\S]*pendingCheckRef\.current = reason/);
+  assert.match(sync,/const pending = pendingCheckRef\.current;[\s\S]*window\.setTimeout\(\(\) => void checkRevision\(pending\), 0\)/);
+});

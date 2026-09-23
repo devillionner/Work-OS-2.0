@@ -17,11 +17,15 @@ export function ServerSync() {
   const router = useRouter();
   const revisionRef = useRef<number | null>(null);
   const checkingRef = useRef(false);
+  const pendingCheckRef = useRef<DataSyncDetail['reason'] | null>(null);
   const lastRefreshAt = useRef(0);
   const businessDateRef = useRef(readKyivBusinessDate());
 
   const checkRevision = useCallback(async (reason: DataSyncDetail['reason']) => {
-    if (checkingRef.current) return;
+    if (checkingRef.current) {
+      if (reason !== 'poll') pendingCheckRef.current = reason;
+      return;
+    }
     if (typeof document === 'undefined') return;
     if (document.visibilityState !== 'visible' && reason === 'poll') return;
     if (document.querySelector('.app-update-backdrop')) return;
@@ -68,6 +72,9 @@ export function ServerSync() {
       // Temporary sync failures are retried on the next poll/focus/online event.
     } finally {
       checkingRef.current = false;
+      const pending = pendingCheckRef.current;
+      pendingCheckRef.current = null;
+      if (pending) window.setTimeout(() => void checkRevision(pending), 0);
     }
   }, [router]);
 
