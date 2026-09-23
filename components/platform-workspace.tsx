@@ -200,7 +200,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     await runAction.current(async()=>{
     setBusy(chat.id); setError(''); setNotice(''); setUndo(null);
     try {
-      const response=await fetch('/api/chats',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:chat.id,action,stateToken:chat.stateToken,accountId:platform==='telegram'?accountId:null,...extra})});
+      const response=await fetch('/api/chats',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:chat.id,action,stateToken:chat.stateToken,accountId:chat.platform==='telegram'?(chat.telegramAccountId||accountId):null,...extra})});
       const body=await response.json() as {error?:string;availableAt?:number;stateToken?:string;snoozedUntil?:number|null;leftAt?:number|null};
       if(!response.ok) {
         if(response.status===409) await reloadChats.current();
