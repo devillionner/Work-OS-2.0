@@ -466,3 +466,13 @@
 - Після Discovery messenger acceptance операторська автоматизація переходить до autoposting: WhatsApp Web adapter, потім Viber desktop adapter. Перед send треба підтвердити target chat identity; publication fact створюється лише після підтвердженої відправки. Wrong chat / read-only / admin-only / unknown UI state / adapter failure не можуть тихо рахуватися як publication.
 
 - v0.2.35: Platforms archive-reason dialog uses native fieldset/legend semantics while preserving responsive touch targets; UX regression coverage guards the accessible grouping.
+
+
+## Publication consistency requirements — 2026-09-23
+
+- A confirmed publication is one accounting fact represented atomically by one chat/day publication record and one active `publication` activity event. Retries and double clicks must not create extra facts.
+- Publication/Undo UI is server-confirmed, not blind optimistic state: the mutation response immediately reconciles Platforms, then the global revision mechanism reconciles Today/Reports/Analytics/Library and sibling tabs/devices.
+- Undo must symmetrically remove/cancel the publication accounting fact, restore any affected advertisement reuse state and restore the exact Telegram schedule slot/profile cadence that the publication advanced.
+- Archiving a chat after publication must not erase the historical publication from reports or analytics. Cancelled publication events must not count in Today, Reports or Analytics.
+- All daily publication views and midnight rollover use the Europe/Kyiv business date. Daily read-models must switch dates without requiring F5.
+- If a publication request has an ambiguous network outcome, the client must reread canonical state before encouraging a retry.

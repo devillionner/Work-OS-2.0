@@ -133,3 +133,14 @@ P4 documentation is source-reconciled against current `main` code and regression
 - Autoposting іде наступним operator-automation slice після messenger-side Discovery acceptance: **WhatsApp Web → Viber desktop → shared retry/recovery**. Перед відправленням adapter має перевірити, що відкрито саме target chat; після відправлення — підтвердити фактичний send. Будь-яка невизначеність fail-closed: не відправляти і не ставити `published`.
 
 - v0.2.35: Platforms archive-reason dialog uses native fieldset/legend semantics while preserving responsive touch targets; UX regression coverage guards the accessible grouping.
+
+
+## Publication consistency acceptance — v0.2.36
+
+- [x] Server-confirmed publication/Undo returns an authoritative Platforms snapshot and reconciles visible counters/state immediately.
+- [x] Publication/Undo broadcasts an all-scope revision refresh for Today, Reports, Analytics and Library; Platforms remains mounted and silently reconciles.
+- [x] Cross-tab/cross-device revision handling does not consume throttled revisions without a refresh.
+- [x] Europe/Kyiv day rollover refreshes daily read-models even without a mutation.
+- [x] Regression coverage guards atomic publication/event facts, cancellation, report revisions, Library reuse state, Telegram scheduler restore/account isolation and archive-history preservation.
+- [ ] Final staging full-gate acceptance for v0.2.36: `verify:local` + guarded deploy + `/api/build` must match the release HEAD/version before this slice is called deployed.
+- Next after green staging: Library advertisement UX/data cleanup, then Viber autopost safe mode to «Мої нотатки».

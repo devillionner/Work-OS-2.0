@@ -650,3 +650,15 @@ separate gates after local validation and the required direct confirmation.
 - Next operator-automation sequence after Discovery adapter acceptance is WhatsApp autopost → Viber autopost → shared retry/recovery, with exact target-chat verification before send and a confirmed-send callback before `published`.
 
 - v0.2.35: Platforms archive-reason dialog uses native fieldset/legend semantics while preserving responsive touch targets; UX regression coverage guards the accessible grouping.
+
+
+## Publication/data consistency hardening — 2026-09-23
+
+- v0.2.36 makes a confirmed publication immediately reconcile the current Platforms read-model from an authoritative POST response: the row state/token, `publishedToday`, `availableToday` and global daily publication pace update without waiting for F5.
+- The same successful mutation broadcasts an all-scope data change. The global server revision then refreshes Today and remounts server-derived Reports/Analytics/Library workspaces; Platforms stays mounted and performs a silent canonical reload so operator context does not flash/reset.
+- Local-write revision acknowledgement no longer consumes the newer revision without refreshing dependent workspaces. Poll throttling also no longer consumes a revision that it skipped.
+- The global sync checks the Europe/Kyiv business date on poll/focus/online/visibility and refreshes all daily read-models after midnight even when no write occurs.
+- Historical report publication correction now broadcasts the same authoritative refresh instead of asking the operator to update manually.
+- Regression coverage now guards publication→Undo consistency across `chat_publications`, active `activity_events`, report summary/day revision, available-today links, Library `usedToday`, Telegram schedule restoration/account isolation, and publication history after later chat archiving.
+- Ambiguous publication network failures force a canonical reread before a retry, while the existing action gate, state token and unique chat/day publication constraint continue to prevent duplicate writes.
+- Staging deployment now runs the repository's full `verify:local` gate before the guarded staging deploy command. Replit remains unable to read the private GitHub repository in the current connection, so Replit itself cannot provide an independent full-suite run; staging acceptance is the required remaining verification gate for this release candidate.
