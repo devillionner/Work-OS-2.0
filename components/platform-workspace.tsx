@@ -15,7 +15,6 @@ import type { BulkResult } from '@/lib/chats/bulk';
 import type { ChatProfile } from '@/lib/chats/profile';
 import { supportsChatLeaveChecklist } from '@/lib/chats/leave-policy';
 import { shouldSuggestChatArchive } from '@/lib/chats/snooze-history';
-import { useRouter } from 'next/navigation';
 import { Archive, Check, ChevronLeft, ChevronRight, Clock3, Copy, ExternalLink, History, LoaderCircle, Plus, RotateCcw, Search, Send, Settings2, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -47,8 +46,7 @@ const queues: Array<{key:Queue;label:string}> = [
   {key:'ready',label:'Для публікації'}, {key:'archived',label:'Архів'},
 ];
 
-export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: string[] }) {
-  const router = useRouter();
+export function PlatformWorkspace({ enabledPlatforms, syncRevision }: { enabledPlatforms?: string[]; syncRevision?: number }) {
   const [platform,setPlatform] = useState<Platform>('telegram');
   const [queue,setQueue] = useState<Queue>('to_join');
   const [search,setSearch] = useState('');
@@ -76,7 +74,9 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   const runAction=useRef(createActionGate());
   const activeLoad=useRef<AbortController|null>(null);
   const loadNumber=useRef(0);
-  const reloadChats=useRef<() => Promise<void>>(async()=>{});
+  const reloadChats=useRef<(silent?:boolean) => Promise<void>>(async()=>{});
+  const hasLoadedData=useRef(false);
+  const lastSyncRevision=useRef(syncRevision);
   const cancelLoad=useCallback(()=>{ activeLoad.current?.abort(); loadNumber.current++; },[]);
   const [error,setError] = useState('');
   const [archiveId,setArchiveId] = useState<string|null>(null);
@@ -154,11 +154,11 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
   useEffect(()=>{const timer=setInterval(()=>setClock(Date.now()),1000);return()=>clearInterval(timer);},[]);
   useEffect(()=>{void refreshExpiredBreak.current(clock,document.visibilityState==='visible'&&navigator.onLine&&activeBreakExpired(accounts,accountId,clock),loadAccounts).catch(()=>{});},[accounts,accountId,clock,loadAccounts]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent=false) => {
     activeLoad.current?.abort();
     const controller=new AbortController(); activeLoad.current=controller;
     const requestNumber=++loadNumber.current;
-    setLoading(true); setError('');
+    if(!silent) setLoading(true); setError('');
     try {
       const params = new URLSearchParams({platform,status:queue,search,offset:String(offset),profile:profileFilter});
       if(requestAccountId) params.set('account',requestAccountId);
@@ -166,12 +166,20 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       const body = await response.json() as ResponseData & {error?:string};
       if(controller.signal.aborted || requestNumber!==loadNumber.current) return;
       if(!response.ok) throw new Error(body.error || 'Не вдалося завантажити чати.');
-      setData({...body,requestKey});
+      setData({...body,requestKey}); hasLoadedData.current=true;
     } catch (reason) { if(!controller.signal.aborted && requestNumber===loadNumber.current) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити чати.'); }
-    finally { if(!controller.signal.aborted && requestNumber===loadNumber.current) setLoading(false); }
+    finally { if(!silent&&!controller.signal.aborted && requestNumber===loadNumber.current) setLoading(false); }
   },[platform,queue,search,profileFilter,offset,requestAccountId,requestKey]);
 
-  useEffect(() => { reloadChats.current=load; const timer=setTimeout(load,search ? 250 : 0); return () => { clearTimeout(timer); cancelLoad(); }; },[load,search,cancelLoad]);
+  useEffect(() => { reloadChats.current=load; const timer=setTimeout(()=>void load(false),search ? 250 : 0); return () => { clearTimeout(timer); cancelLoad(); }; },[load,search,cancelLoad]);
+
+  useEffect(()=>{
+    const previous=lastSyncRevision.current;
+    lastSyncRevision.current=syncRevision;
+    if(syncRevision===undefined||previous===undefined||syncRevision===previous||!hasLoadedData.current)return;
+    void reloadChats.current(true);
+    if(platform==='telegram') void loadAccounts().catch(()=>{});
+  },[syncRevision,platform,loadAccounts]);
 
   useEffect(()=>{if(!notice)return;const delay=undo?Math.max(0,undo.expiresAt-Date.now()):8000;const timer=setTimeout(()=>{setNotice('');setUndo(null);},delay);return()=>clearTimeout(timer);},[notice,undo]);
 
@@ -180,22 +188,20 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
     setQuickPublishMode(false); setQuickAdvertisementId(null);
     setNotice(`Додано ${result.added} чатів: ${Object.entries(result.counts).map(([key,count])=>`${CHAT_PLATFORM_NAMES[key as ChatPlatform]} — ${count}`).join(', ')}.`);
     const changesFilter=target!==platform||queue!=='to_join'||search!==''||offset!==0;
-    setLoading(true);setPlatform(target);setQueue('to_join');setSearch('');setProfileFilter('all');setOffset(0);
-    if(!changesFilter) void reloadChats.current();
-    router.refresh();
+    setPlatform(target);setQueue('to_join');setSearch('');setProfileFilter('all');setOffset(0);
+    if(!changesFilter) void reloadChats.current(true);
   }
 
   function savedProfile() {
-    setProfileChat(null); setLoading(true); void reloadChats.current(); router.refresh();
+    setProfileChat(null); void reloadChats.current(true);
   }
 
   function importedDiscoveryChat(nextPlatform:'whatsapp'|'viber') {
     const changesFilter=nextPlatform!==platform||queue!=='to_join'||search!==''||offset!==0;
     setQuickPublishMode(false); setQuickAdvertisementId(null);
     setNotice('Новий чат із пошуку додано в чергу «Для приєднання».');
-    setLoading(true);setPlatform(nextPlatform);setQueue('to_join');setSearch('');setProfileFilter('all');setOffset(0);
-    if(!changesFilter) void reloadChats.current();
-    router.refresh();
+    setPlatform(nextPlatform);setQueue('to_join');setSearch('');setProfileFilter('all');setOffset(0);
+    if(!changesFilter) void reloadChats.current(true);
   }
 
   function selectPlatform(next:Platform) {
@@ -225,7 +231,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       const body=await response.json() as {error?:string;refresh?:boolean;availableAt?:number;stateToken?:string;snoozedUntil?:number|null;leftAt?:number|null;undoExpiresAt?:number};
       if(!response.ok) {
         const error=body.error || 'Не вдалося виконати дію.';
-        if(response.status===409) await reloadChats.current();
+        if(response.status===409) await reloadChats.current(true);
         result={ok:false,error,refresh:body.refresh===true};
         if(action!=='published') setError(error);
         return;
@@ -234,7 +240,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
         const expiresAt=typeof body.undoExpiresAt==='number'?body.undoExpiresAt*1000:Date.now()+8000;
         if(expiresAt>Date.now()) setUndo({chat:{...chat,stateToken:body.stateToken,snoozedUntil:body.snoozedUntil??chat.snoozedUntil},expiresAt,...undoSpec});
       }
-      setArchiveId(null); setCustomArchiveReason(''); await reloadChats.current();
+      setArchiveId(null); setCustomArchiveReason(''); await reloadChats.current(true);
       if(undoSpec&&typeof body.stateToken==='string'&&(!body.undoExpiresAt||body.undoExpiresAt*1000>Date.now())) setNotice(undoSpec.label);
       if(chat.platform==='telegram') await loadAccounts();
       if(action==='published') {
@@ -243,7 +249,6 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
           : 'Публікацію відмічено. Чат переміщено нижче завершених на сьогодні, щоб наступний доступний лишався перед очима.');
       }
       if((action==='published'||action==='undo_published')&&chat.platform==='telegram') setScheduleRefreshKey(value=>value+1);
-      router.refresh();
       result={ok:true};
     } catch(reason) {
       const error=reason instanceof Error ? reason.message : 'Не вдалося виконати дію.';
@@ -295,7 +300,7 @@ export function PlatformWorkspace({ enabledPlatforms }: { enabledPlatforms?: str
       } else {
         if(action==='create') setNewAccountName('');
         await loadAccounts();
-        await reloadChats.current();
+        await reloadChats.current(true);
       }
     } catch(reason) { setError(reason instanceof Error?reason.message:'Не вдалося оновити акаунт.'); }
     finally { setBusy(null); }
