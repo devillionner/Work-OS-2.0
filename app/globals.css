@@ -1422,6 +1422,14 @@ body { background:var(--background); }
 @media (max-width:1180px) {
   .dashboard-grid,.platform-workspace,.leads-workspace,.analytics-workspace,.reports-workspace,.library-workspace,.settings-workspace { padding:24px 22px 36px; }
   .focus-card,.platform-hero,.analytics-hero,.reports-hero,.library-hero,.settings-hero,.leads-hero { min-height:0; padding:22px; }
+  .platform-browser { min-width:0; }
+  .chat-toolbar { flex-wrap:wrap; }
+  .chat-toolbar label { flex:1 1 100%; min-width:0; }
+  .chat-toolbar .profile-counts { flex:1 1 100%; white-space:normal; }
+  .chat-row { grid-template-columns:minmax(0,1fr); align-items:start; }
+  .chat-main { min-width:0; }
+  .chat-native-link { max-width:100%; }
+  .chat-actions { min-width:0; flex-wrap:wrap; justify-content:flex-start; }
 }
 @media (max-width:720px) {
   .topbar { height:calc(76px + env(safe-area-inset-top)); }

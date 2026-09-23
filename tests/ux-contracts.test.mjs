@@ -188,6 +188,14 @@ void test('Platform daily workflow uses desktop-sized controls and keyboard focu
   assert.match(css, /\.platform-picker button:focus-visible, \.telegram-account-tabs > button:not\(\[class\]\):focus-visible, \.queue-tabs button:focus-visible/);
 });
 
+void test('Platform queue collapses cleanly on narrow desktop without horizontal action overflow', () => {
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(css, /@media \(max-width:1180px\)[\s\S]*\.chat-toolbar \{ flex-wrap:wrap; \}/);
+  assert.match(css, /@media \(max-width:1180px\)[\s\S]*\.chat-toolbar label \{ flex:1 1 100%; min-width:0; \}/);
+  assert.match(css, /@media \(max-width:1180px\)[\s\S]*\.chat-row \{ grid-template-columns:minmax\(0,1fr\); align-items:start; \}/);
+  assert.match(css, /@media \(max-width:1180px\)[\s\S]*\.chat-actions \{ min-width:0; flex-wrap:wrap; justify-content:flex-start; \}/);
+});
+
 void test('Workspace native controls share desktop targets and visible keyboard focus', () => {
   const css = text(join(root, 'app', 'globals.css'));
   assert.match(css, /\.account-link \{ min-height:42px;/);

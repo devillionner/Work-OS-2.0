@@ -1,5 +1,11 @@
 # Development status — 2026-09-23
 
+## 2026-09-23 Platforms narrow-desktop responsiveness — v0.2.29
+
+- Platforms chat queues now switch to a single-column row composition at <=1180px: chat identity stays full-width and action buttons wrap below it instead of forcing horizontal overflow.
+- The queue toolbar also wraps at the same breakpoint: search gets its own full-width row, while profile counts and secondary controls can wrap without collapsing the input to an icon-width fragment.
+- Native links are capped to the available row width and the main/action columns explicitly allow shrinking. A regression contract protects the narrow-desktop breakpoint; mobile <=720px behavior remains unchanged.
+
 ## 2026-09-23 Chat Discovery local executor companion — v0.2.27
 
 - Added a dependency-free local runner command that consumes the paired bearer-authenticated executor queue, opens the exact WhatsApp/Viber invite with the OS browser, and submits inspection through the existing version/lease guards.

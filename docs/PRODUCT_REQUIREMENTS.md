@@ -454,6 +454,10 @@
 - Staging deploy є автоматичним після green verify на `main`; production — лише окремо й явно. Після exact worker/database-id guard staging pipeline може застосувати pending D1 migrations тільки до `work-os-2-staging-db`, повторно перевіряє migration state й лише тоді deploy-ить Worker; production migrations автоматично не запускаються.
 - Workday `Повернути день` — recovery без втрати timeline; `Скинути день` — destructive confirmed reset лише завершеного сьогоднішнього workday. Інші дані при reset не видаляються.
 
+## Platforms responsive requirement — 2026-09-23
+
+- Platforms must remain usable on narrow desktop widths without horizontal list overflow: queue search may take a full row, profile metadata may wrap, and chat actions must move below the chat identity before controls collide or clip. Buttons keep normal desktop hit targets; mobile behavior remains separately optimized.
+
 ## Messenger automation requirements — 2026-09-23
 
 - **WhatsApp pending approval** є окремою WhatsApp-only функцією. «Очікування» показує лише чати, де після join request потрібне підтвердження адміністратора. «Перевірити зараз» має запускати фактичну messenger-side перевірку; adapter згодом може виконувати bounded background rechecks. `joined` дозволено виставляти лише після перевіреного результату, а не після таймера чи відкриття invite.

@@ -115,6 +115,10 @@ P4 documentation is source-reconciled against current `main` code and regression
 - Workday reset є destructive дією тільки для сьогоднішнього завершеного workday та має підтвердження; reopen — недеструктивний recovery path.
 - Physical Safari/iPhone, offline/outbox і production cutover лишаються окремими acceptance gates.
 
+## Platforms responsive acceptance — 2026-09-23
+
+- v0.2.29 closes the observed narrow-desktop overflow in Platforms: at <=1180px chat rows stack actions below chat identity, toolbar search takes a full row, profile counters wrap, and native links cannot exceed the available width. This is source/regression evidence; physical browser acceptance remains part of the live UX gate.
+
 ## Messenger automation decisions — 2026-09-23
 
 - v0.2.28: WhatsApp-only «Очікування» отримує окремий server-filtered список і лічильник; pending WhatsApp membership задачі мають пріоритет у executor queue. Це саме flow запитів, які має підтвердити адміністратор групи, а не загальний platform filter.
