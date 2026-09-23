@@ -1,5 +1,11 @@
 # Development status — 2026-09-23
 
+## 2026-09-23 Platforms background reconciliation — v0.2.32
+
+- Chat mutations in Platforms no longer clear the currently loaded queue before the authoritative GET reconciliation finishes. Archive, manual publication and other same-view actions therefore keep the list mounted instead of replacing the whole block with a loading screen.
+- Full loading UI is now reserved for the initial load or an actual request-key switch (platform/queue/search/page/account). Same-view refreshes keep the current rows visible while controls remain guarded by the existing busy state.
+- The same non-blanking behavior now applies after profile save and same-view bulk/discovery additions. A regression contract protects the load path from reintroducing `setData(null)` and verifies the loader only replaces the list when no current data exists.
+
 ## 2026-09-23 Platforms container-responsive queue — v0.2.31
 
 - Platforms queue layout now reacts to the actual width of the `.platform-browser` container instead of relying only on viewport breakpoints. This fixes the sidebar/tiled-window case where the browser viewport was still wide but the working list itself was narrow.
