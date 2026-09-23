@@ -405,7 +405,7 @@ button:not([data-slot="button"]) { color: inherit; }
 .telegram-account-editor > span { color: var(--muted-foreground); font-size: 11px; font-weight: 700; }
 .telegram-account-create { display: grid; grid-template-columns: minmax(180px,1fr) auto; gap: 8px; padding-top: 4px; }
 .telegram-account-manager > p { margin: 0; color: var(--muted-foreground); font-size: 11px; }
-.platform-browser { overflow: hidden; }
+.platform-browser { overflow: hidden; container-type:inline-size; container-name:platform-browser; }
 .queue-tabs { display: grid; grid-template-columns: repeat(4,1fr); border-bottom: 1px solid var(--border); }
 .queue-tabs button { min-height: 52px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-right: 1px solid var(--border); background: #fafbfc; color: #69707d; cursor: pointer; font-size: 13px; font-weight: 750; }
 .queue-tabs button:last-child { border-right: 0; }
@@ -417,7 +417,7 @@ button:not([data-slot="button"]) { color: inherit; }
 .chat-toolbar label > svg { position: absolute; z-index: 1; top: 50%; left: 13px; width: 18px; transform: translateY(-50%); color: #89909c; }
 .chat-toolbar input { min-height:42px; padding-left: 40px; }
 .profile-counts { color: var(--muted-foreground); font-size: 10px; font-weight: 650; white-space: nowrap; }
-.chat-list { display: grid; }
+.chat-list { display:grid; grid-auto-rows:max-content; align-content:start; }
 .chat-row { position: relative; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 14px; align-items: center; min-height: 76px; padding: 14px 18px; border-top: 1px solid #eceef2; }
 .chat-row:first-child { border-top: 0; }
 .chat-row:hover { background: #fafbff; }
@@ -719,7 +719,6 @@ button:not([data-slot="button"]) { color: inherit; }
   .chat-toolbar label { min-width: 100%; }
   .chat-row { grid-template-columns: 1fr; padding: 14px; }
   .chat-actions { flex-wrap: wrap; }
-  .archive-custom { flex: 1 1 100%; min-width: 0; }
   .coming-soon { margin:14px 12px calc(88px + env(safe-area-inset-bottom)); padding:24px 18px; }
   .analytics-workspace { padding:14px 12px calc(88px + env(safe-area-inset-bottom)); gap:12px; }
   .analytics-hero { display: grid; padding: 20px 16px 15px; }
@@ -1423,13 +1422,26 @@ body { background:var(--background); }
   .dashboard-grid,.platform-workspace,.leads-workspace,.analytics-workspace,.reports-workspace,.library-workspace,.settings-workspace { padding:24px 22px 36px; }
   .focus-card,.platform-hero,.analytics-hero,.reports-hero,.library-hero,.settings-hero,.leads-hero { min-height:0; padding:22px; }
   .platform-browser { min-width:0; }
+}
+
+/* Platforms queue adapts to the width left after sidebar/shell chrome. */
+@container platform-browser (max-width: 820px) {
   .chat-toolbar { flex-wrap:wrap; }
   .chat-toolbar label { flex:1 1 100%; min-width:0; }
   .chat-toolbar .profile-counts { flex:1 1 100%; white-space:normal; }
-  .chat-row { grid-template-columns:minmax(0,1fr); align-items:start; }
+  .chat-row { grid-template-columns:minmax(0,1fr); grid-auto-rows:max-content; align-items:start; gap:10px; min-height:0; }
   .chat-main { min-width:0; }
+  .chat-name-line { flex-wrap:wrap; align-items:flex-start; }
+  .chat-name-line strong { max-width:100%; }
   .chat-native-link { max-width:100%; }
-  .chat-actions { min-width:0; flex-wrap:wrap; justify-content:flex-start; }
+  .chat-actions { width:100%; min-width:0; flex-wrap:wrap; justify-content:flex-start; align-items:stretch; gap:8px; }
+}
+@container platform-browser (max-width: 560px) {
+  .chat-toolbar { gap:8px; }
+  .chat-toolbar > [data-slot="button"] { flex:1 1 auto; }
+  .chat-row { padding:12px; }
+  .chat-actions [data-slot="button"]:not([data-size="icon"]) { flex:1 1 auto; min-width:0; }
+  .chat-account-select { max-width:100%; flex:1 1 140px; }
 }
 @media (max-width:720px) {
   .topbar { height:calc(76px + env(safe-area-inset-top)); }
@@ -1445,7 +1457,7 @@ body { background:var(--background); }
 @media (min-width:721px) {
   .platform-browser { display:flex; flex-direction:column; max-height:min(760px,calc(100dvh - 150px)); }
   .platform-browser .queue-tabs,.platform-browser .chat-toolbar,.platform-browser .chat-pagination { flex:0 0 auto; }
-  .platform-browser .chat-list { min-height:0; overflow:auto; overscroll-behavior:contain; }
+  .platform-browser .chat-list { flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; }
   .platform-browser .chat-list::-webkit-scrollbar,.analytics-chat-table::-webkit-scrollbar { width:10px; height:10px; }
   .platform-browser .chat-list::-webkit-scrollbar-thumb,.analytics-chat-table::-webkit-scrollbar-thumb { border:3px solid transparent; border-radius:999px; background:#c4cad5; background-clip:padding-box; }
 }
