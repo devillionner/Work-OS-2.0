@@ -435,7 +435,7 @@ button:not([data-slot="button"]) { color: inherit; }
 .chat-row.is-last-opened { border-color:#aebcff; box-shadow:0 0 0 2px #eef1ff; }
 .chat-account-select { max-width: 150px; min-height: 42px; padding: 0 30px 0 9px; border: 1px solid var(--border); border-radius: 8px; background: white; color: #343946; font-size: 11px; }
 .archive-dialog[data-slot="dialog-content"] { max-width:520px; }
-.archive-dialog-reasons { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.archive-dialog-reasons { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; min-width:0; margin:0; padding:0; border:0; }
 .archive-dialog-reasons [data-slot="button"] { min-height:42px; height:auto; white-space:normal; }
 .archive-dialog-custom { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; }
 .archive-dialog-custom input { min-height:42px; min-width:0; }

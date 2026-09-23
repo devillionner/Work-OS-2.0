@@ -648,3 +648,5 @@ separate gates after local validation and the required direct confirmation.
 - Product decision: WhatsApp automation is browser-first through a persistent authenticated WhatsApp Web session; a separate WhatsApp Desktop app is not required. Pending approval must be checked against real messenger state before promotion to joined.
 - Product decision: Viber does not use the WhatsApp pending-approval flow. On the CachyOS reference workstation, the packaged Viber client is installed with `/usr/bin/viber`, `viber.desktop` is registered for `x-scheme-handler/viber`, and a Work OS Viber invite now opens the intended Viber chat successfully. The previous standalone AppImage was removed.
 - Next operator-automation sequence after Discovery adapter acceptance is WhatsApp autopost → Viber autopost → shared retry/recovery, with exact target-chat verification before send and a confirmed-send callback before `published`.
+
+- v0.2.35: Platforms archive-reason dialog uses native fieldset/legend semantics while preserving responsive touch targets; UX regression coverage guards the accessible grouping.

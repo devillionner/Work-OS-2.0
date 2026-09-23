@@ -464,3 +464,5 @@
 - Цільовий WhatsApp adapter працює через **WhatsApp Web у браузері** та постійну авторизовану сесію; окремий WhatsApp Desktop app не є product dependency. Розпізнавання pending/joined/unavailable, chat identity та writeability повинне бути fail-closed.
 - Viber використовує native desktop/deep-link path і **не має WhatsApp-style pending approval вкладки**. Linux/CachyOS acceptance target — системно зареєстрований Viber handler (`viber.desktop`, `x-scheme-handler/viber`), а не standalone AppImage.
 - Після Discovery messenger acceptance операторська автоматизація переходить до autoposting: WhatsApp Web adapter, потім Viber desktop adapter. Перед send треба підтвердити target chat identity; publication fact створюється лише після підтвердженої відправки. Wrong chat / read-only / admin-only / unknown UI state / adapter failure не можуть тихо рахуватися як publication.
+
+- v0.2.35: Platforms archive-reason dialog uses native fieldset/legend semantics while preserving responsive touch targets; UX regression coverage guards the accessible grouping.

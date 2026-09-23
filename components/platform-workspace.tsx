@@ -178,7 +178,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision }: { enabledP
     lastSyncRevision.current=syncRevision;
     if(syncRevision===undefined||previous===undefined||syncRevision===previous||!hasLoadedData.current)return;
     void reloadChats.current(true);
-    if(platform==='telegram') void loadAccounts().catch(()=>{});
+    if(platform==='telegram') queueMicrotask(()=>void loadAccounts().catch(()=>{}));
   },[syncRevision,platform,loadAccounts]);
 
   useEffect(()=>{if(!notice)return;const delay=undo?Math.max(0,undo.expiresAt-Date.now()):8000;const timer=setTimeout(()=>{setNotice('');setUndo(null);},delay);return()=>clearTimeout(timer);},[notice,undo]);
@@ -319,9 +319,10 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision }: { enabledP
     <Dialog open={archiveChat!==null} onOpenChange={(next)=>{if(!next&&busy===null){setArchiveId(null);setCustomArchiveReason('');setError('');}}}>
       <DialogContent className="archive-dialog" showCloseButton={false}>
         <DialogHeader><DialogTitle>Перенести чат в архів?</DialogTitle><DialogDescription>{archiveChat?`«${archiveChat.name}». Оберіть причину — чат зникне з поточної черги, але його можна буде відновити з «Архіву».`:'Оберіть причину архівації.'}</DialogDescription></DialogHeader>
-        <div className="archive-dialog-reasons" role="group" aria-label="Причина архівації">
+        <fieldset className="archive-dialog-reasons">
+          <legend className="sr-only">Причина архівації</legend>
           {['Забанено','Чат не існує','Чат не цільовий'].map(reason=><Button type="button" variant="outline" disabled={busy!==null} key={reason} onClick={()=>{if(archiveChat)void act(archiveChat,'archive',{reason},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'});}}>{reason}</Button>)}
-        </div>
+        </fieldset>
         <div className="archive-dialog-custom"><Input value={customArchiveReason} maxLength={100} disabled={busy!==null} aria-label="Власна причина архівації" placeholder="Інша причина" onChange={event=>setCustomArchiveReason(event.target.value)}/><Button disabled={busy!==null||!customArchiveReason.trim()} onClick={()=>{const reason=customArchiveReason.trim();if(archiveChat&&reason)void act(archiveChat,'archive',{reason},{action:'restore',label:'Архівацію можна скасувати протягом 8 секунд.'});}}>Архівувати</Button></div>
         {error&&<p className="archive-dialog-error" role="alert">{error}</p>}
         <DialogFooter><Button type="button" variant="outline" disabled={busy!==null} onClick={()=>{setArchiveId(null);setCustomArchiveReason('');setError('');}}>Скасувати</Button></DialogFooter>

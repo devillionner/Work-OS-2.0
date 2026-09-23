@@ -202,9 +202,11 @@ void test('Platform archive reason picker is modal and cannot overlap the next c
   const workspace = text(join(componentsDir, 'platform-workspace.tsx'));
   const css = text(join(root, 'app', 'globals.css'));
   assert.match(workspace, /<Dialog open=\{archiveChat!==null\}/);
-  assert.match(workspace, /className="archive-dialog-reasons"/);
+  assert.match(workspace, /<fieldset className="archive-dialog-reasons">/);
+  assert.match(workspace, /<legend className="sr-only">Причина архівації<\/legend>/);
+  assert.doesNotMatch(workspace, /role="group"/);
   assert.doesNotMatch(workspace, /archiveId===chat\.id&&<div className="archive-reasons"/);
-  assert.match(css, /\.archive-dialog-reasons \{ display:grid; grid-template-columns:repeat\(3,minmax\(0,1fr\)\);/);
+  assert.match(css, /\.archive-dialog-reasons \{ display:grid; grid-template-columns:repeat\(3,minmax\(0,1fr\)\);[^}]*border:0;/);
 });
 
 void test('Platform mutations and sync revisions reconcile without remounting or blanking the queue', () => {
