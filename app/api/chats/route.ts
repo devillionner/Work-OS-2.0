@@ -178,8 +178,8 @@ export async function POST(request: Request): Promise<Response> {
 function unixNow() { return Math.floor(Date.now() / 1000); }
 function parseNumberList(value:string|null) { try { const parsed=JSON.parse(value||'[]'); return Array.isArray(parsed)?parsed.filter((item):item is number=>Number.isInteger(item)&&item>=1&&item<=7):[]; } catch { return []; } }
 function parseStringList(value:string|null) { try { const parsed=JSON.parse(value||'[]'); return Array.isArray(parsed)?parsed.filter((item):item is string=>typeof item==='string'):[]; } catch { return []; } }
-function escapeLike(value: string) { return value.replace(/[\\%_]/g, '\\function escapeLike(value: string) { return value.replace(/[\\%_]/g, '\\function escapeLike(value: string) { return value.replace(/[\\%_]/g, '\\$&'); }
-async function selectedTelegramAccount'); }'); }
+function escapeLike(value: string) { return value.replace(/[\\%_]/g, '\\function escapeLike(value: string) { return value.replace(/[\\%_]/g, '\\function escapeLike(value: string) { return value.replace(/[\\%_]/g, '\\function escapeLike(value: string) { return value.replace(/[\\%_]/g, '\\$&'); }
+async function selectedTelegramAccount'); }'); }'); }
 
 async function readPublicationState(userId:string, chat:{id:string;platform:string}, accountId:string|null, date:string, now:number) {
   const publishedStatement = chat.platform === 'telegram'
