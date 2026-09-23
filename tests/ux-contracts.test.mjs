@@ -16,10 +16,13 @@ void test('components never fall back to native browser alert, prompt or confirm
   assert.deepEqual(offenders, []);
 });
 
-void test('shared dialog close controls stay localized and touch-target contract remains explicit', () => {
+void test('shared dialog close controls stay localized, deduplicate state transitions and keep touch targets explicit', () => {
   const dialog = text(join(componentsDir, 'ui', 'dialog.tsx'));
   const css = text(join(root, 'app', 'globals.css'));
   assert.match(dialog, /sr-only">\u0417\u0430\u043a\u0440\u0438\u0442\u0438<\/span>/);
+  assert.match(dialog, /lastOpenRef = React\.useRef/);
+  assert.match(dialog, /if \(lastOpenRef\.current === open\) return;/);
+  assert.match(dialog, /if \(props\.open !== undefined\) lastOpenRef\.current = props\.open;/);
   assert.match(css, /\[data-slot="dialog-close"\]\s*\{[^}]*min-width:44px;[^}]*min-height:44px;/s);
 });
 

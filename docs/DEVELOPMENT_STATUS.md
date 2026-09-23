@@ -1,5 +1,12 @@
 # Development status — 2026-09-23
 
+## 2026-09-23 dialog close transition hardening — v0.2.24
+
+- Shared Base UI dialogs now deduplicate identical open/close transitions before forwarding `onOpenChange`, preventing a single close gesture from triggering parent close logic twice.
+- Controlled dialog state is synchronized back into the guard, so external reopen/close changes remain authoritative while X, Escape and backdrop dismissal share one transition path.
+- A UX regression contract protects the shared guard; this package does not claim physical Safari acceptance or change any production data.
+
+
 ## 2026-09-23 Chat Discovery executor contract + Viber leave parity — v0.2.23
 
 - Chat Discovery now exposes an authenticated, owner-scoped executor queue for imported WhatsApp/Viber candidates. Each task includes candidate version and canonical chat state token and names exactly one next external action: join+inspect, membership check+inspect, inspect, or leave.

@@ -14,6 +14,8 @@
 
 ## Поточний стан P4 — 2026-09-23
 
+- Modal close regression hardening у v0.2.24: shared Dialog deduplicate-ить однаковий open/close transition перед callback і синхронізує controlled state, щоб один X/Escape/backdrop жест не запускав батьківське закриття двічі. Physical Safari/dialog acceptance лишається окремим live gate.
+
 - Linux trial: одна робоча папка, main-only. Перед push — `npm run verify:local` (lint → typecheck → full tests → build); existing staging `verify` є build-only. Виправлено lint regression у reconciliation вимкненої платформи та скидання quick-publish контексту; Discovery не називає ручну перевірку автоматичною. Публікація й live acceptance цього пакета фіксуються окремо в DEVELOPMENT_STATUS.
 - Platforms source-level publication/retry/undo/account-context hardening закрито до live gate; наступний автономний пріоритет — Chat Discovery external executor. У v0.2.23 додано owner-scoped executor queue та guarded result callback; окремо лишається реальний runner/pairing і live messenger acceptance. Довільний cosmetic refactor не є fallback-пріоритетом.
 - Account-context code race закрито у v0.2.20: після вибору іншого Telegram ID не запускається stale reload попереднього ID; новий request-key effect є єдиним reload для switch. Live/two-device publication acceptance лишається наступним Platforms gate.

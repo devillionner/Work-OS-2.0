@@ -7,8 +7,20 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { XIcon } from 'lucide-react';
 
-function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />;
+function Dialog({ onOpenChange, ...props }: DialogPrimitive.Root.Props) {
+  const lastOpenRef = React.useRef(props.open ?? props.defaultOpen ?? false);
+
+  const handleOpenChange = React.useCallback((open: boolean, eventDetails: DialogPrimitive.Root.ChangeEventDetails) => {
+    if (lastOpenRef.current === open) return;
+    lastOpenRef.current = open;
+    onOpenChange?.(open, eventDetails);
+  }, [onOpenChange]);
+
+  React.useEffect(() => {
+    if (props.open !== undefined) lastOpenRef.current = props.open;
+  }, [props.open]);
+
+  return <DialogPrimitive.Root data-slot="dialog" {...props} onOpenChange={handleOpenChange} />;
 }
 
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
