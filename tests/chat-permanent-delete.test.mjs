@@ -44,6 +44,16 @@ void test('reason, ownership and confirmed-leave policy are rechecked in the dom
   assert.equal((await permanentlyDeleteChat(db,{userId:'u',chat,now:NOW+2})).ok,true);
 });
 
+void test('joined Viber tombstone requires confirmed external leave before deletion',async t=>{
+  const db=await localDatabase(t);
+  let chat=await archived(db,{platform:'viber',joined:true});
+  assert.equal((await permanentlyDeleteChat(db,{userId:'u',chat,now:NOW+1})).ok,false);
+  assert.equal((await changeChatLeave(db,{userId:'u',chat,now:NOW+1,confirm:true})).ok,true);
+  chat=await state(db);
+  assert.equal(chat.left_at,NOW+1);
+  assert.equal((await permanentlyDeleteChat(db,{userId:'u',chat,now:NOW+2})).ok,true);
+});
+
 void test('publications, lead attribution and pending Telegram slots preserve the tombstone',async t=>{
   for(const dependency of ['publication','lead','slot']) {
     const db=await localDatabase(t); await archived(db,{platform:dependency==='slot'?'telegram':'viber'});

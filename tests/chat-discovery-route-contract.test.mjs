@@ -12,8 +12,12 @@ void test('Chat Discovery mutation route preserves the browser API contract', as
   assert.match(route, /if \(body\.action === 'cancel'\)/);
   assert.match(route, /Number\.isSafeInteger\(body\.version\)/);
   assert.match(route, /cancelDiscoveryRun\(env\.DB, user\.id, body\.runId, Number\(body\.version\), now\)/);
+  assert.match(route, /if \(url\.searchParams\.get\('executor'\) === '1'\)/);
+  assert.match(route, /readDiscoveryExecutorQueue\(env\.DB, user\.id, url\.searchParams\.get\('limit'\)\)/);
   assert.match(route, /if \(body\.action === 'import'\)/);
   assert.match(route, /handoffDiscoveryCandidate\(env\.DB, user\.id, body\.candidateId, Number\(body\.version\), now\)/);
+  assert.match(route, /if \(body\.action === 'executor-leave'\)/);
+  assert.match(route, /completeDiscoveryExternalLeave\(env\.DB, user\.id/);
   assert.match(route, /completeQuery: body\.completeQuery/);
   assert.doesNotMatch(route, /body\.action === 'handoff'/);
   assert.doesNotMatch(route, /body\.expectedVersion/);

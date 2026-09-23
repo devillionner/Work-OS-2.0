@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { applyDiscoveryInspection } from '@/lib/chat-discovery/inspection';
+import { completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '@/lib/chat-discovery/executor';
 import {
   DiscoveryError,
   cancelDiscoveryRun,
@@ -22,6 +23,9 @@ export async function GET(request: Request): Promise<Response> {
   if (!user) return json({ error: 'Потрібна авторизація.' }, 401);
   const url = new URL(request.url);
   try {
+    if (url.searchParams.get('executor') === '1') {
+      return json(await readDiscoveryExecutorQueue(env.DB, user.id, url.searchParams.get('limit')));
+    }
     const workspace = await readDiscoveryWorkspace(env.DB, user.id, {
       decision: url.searchParams.get('decision'),
       limit: Number(url.searchParams.get('limit') || 60),
@@ -91,6 +95,17 @@ export async function POST(request: Request): Promise<Response> {
         expectedVersion: Number(body.version),
         result: body.result,
         minMembers: body.minMembers,
+      }, now));
+    }
+    if (body.action === 'executor-leave') {
+      if (typeof body.candidateId !== 'string' || !body.candidateId || !Number.isSafeInteger(body.version)
+        || typeof body.chatStateToken !== 'string' || !body.chatStateToken) {
+        throw new DiscoveryError('Некоректний результат executor.');
+      }
+      return json(await completeDiscoveryExternalLeave(env.DB, user.id, {
+        candidateId: body.candidateId,
+        expectedVersion: Number(body.version),
+        chatStateToken: body.chatStateToken,
       }, now));
     }
     throw new DiscoveryError('Невідома дія.');

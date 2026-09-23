@@ -118,7 +118,7 @@ void test('candidate cards present qualification as a compact criteria grid inst
 
 void test('candidate cards expose the WhatsApp link and every target qualification criterion', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
-  assert.match(dialog, /Відкрити WhatsApp/);
+  assert.match(dialog, /Відкрити \{platformLabel\(candidate\.platform\)\}/);
   assert.match(dialog, /label: 'Учасники'/);
   assert.match(dialog, /label: 'Активність'/);
   assert.match(dialog, /label: 'Можна писати'/);
@@ -131,6 +131,18 @@ void test('candidate cards expose the WhatsApp link and every target qualificati
   assert.match(dialog, /chatTypeLabel/);
   assert.match(dialog, /adsPolicyLabel/);
   assert.match(dialog, /topicMatchLabel/);
+});
+
+void test('discovery run and candidate actions cover both WhatsApp and Viber', async () => {
+  const [dialog, domain, executor] = await Promise.all([
+    readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../lib/chat-discovery/domain.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../lib/chat-discovery/executor.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(dialog, /const platforms: DiscoveryPlatform\[\] = \['whatsapp', 'viber'\]/);
+  assert.match(dialog, /candidate\.platform === 'viber' \? 'invalid_viber_link' : 'invalid_whatsapp_link'/);
+  assert.match(domain, /item === 'whatsapp' \|\| item === 'viber'/);
+  assert.match(executor, /\['whatsapp','viber'\]\.includes\(chat\.platform\)/);
 });
 
 void test('operators can reject an invalid WhatsApp invite before creating a chat', async () => {

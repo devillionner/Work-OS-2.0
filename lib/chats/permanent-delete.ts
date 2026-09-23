@@ -1,4 +1,5 @@
 import { businessDate } from '../business-time.ts';
+import { supportsChatLeaveChecklist } from './leave-policy.ts';
 import { chatStateTokenSql, type ChatState } from './state.ts';
 
 const REQUIRED_REASON = 'Чат не існує';
@@ -10,7 +11,7 @@ export async function permanentlyDeleteChat(db:D1Database,input:{
   if(chat.workflow_status!=='archived'||chat.archive_reason!==REQUIRED_REASON) {
     return {ok:false,error:'Остаточно видалити можна лише архівний чат із причиною «Чат не існує».'};
   }
-  if(['telegram','whatsapp'].includes(chat.platform)&&chat.joined_at!==null&&chat.left_at===null) {
+  if(supportsChatLeaveChecklist(chat.platform)&&chat.joined_at!==null&&chat.left_at===null) {
     return {ok:false,error:'Спочатку вручну вийдіть із чату та підтвердьте вихід.'};
   }
 

@@ -1,5 +1,12 @@
 # Development status — 2026-09-23
 
+## 2026-09-23 Chat Discovery executor contract + Viber leave parity — v0.2.23
+
+- Chat Discovery now exposes an authenticated, owner-scoped executor queue for imported WhatsApp/Viber candidates. Each task includes candidate version and canonical chat state token and names exactly one next external action: join+inspect, membership check+inspect, inspect, or leave.
+- External results remain fail-closed: inspection continues through the existing optimistic inspection domain, while a confirmed WhatsApp/Viber leave callback verifies candidate version + chat token, archives the rejected/unavailable chat if needed, then records `confirm_leave` through the canonical leave domain. Work OS still never claims a messenger action happened before the executor reports success.
+- Viber now shares the same recoverable archive leave-checklist policy as Telegram/WhatsApp, including permanent-delete protection until leave is confirmed. Platforms, leave domain and deletion domain read the same policy helper instead of maintaining divergent platform lists.
+- Focused evidence is green: executor tests 3/3; leave/permanent-delete tests 9/9; typecheck and `git diff --check` pass. The full `npm run verify:local` release gate is recorded separately after the final snapshot. The remaining Discovery gap is the actual external runner/pairing and live messenger acceptance, not another source-of-truth state machine.
+
 ## 2026-09-23 manual publication retry recovery — v0.2.22
 
 - Platforms chat mutations now return a typed action result instead of collapsing every failure to a boolean. Manual publication keeps the exact server error inside the publish dialog, so cadence, duplicate, network and validation failures no longer degrade to a generic retry message.

@@ -12,6 +12,7 @@ import {
   startDiscoveryRun,
 } from '../lib/chat-discovery/domain.ts';
 import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
+import { completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
 import { buildTelegramSearchPlan, discoverPublicWeb, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl } from '../lib/chat-discovery/public-web.ts';
 import { changeChatLeave } from '../lib/chats/leave.ts';
 import { readChatState } from '../lib/chats/state.ts';
@@ -621,6 +622,72 @@ async function importedCandidate(t, suffix) {
   return { db, candidate: fresh, chatId: handed.chatId };
 }
 
+void test('executor queue exposes only the next safe external action and clears completed targets', async (t) => {
+  const { db, candidate, chatId } = await importedCandidate(t, 'ExecutorQueue123');
+  const initial = await readDiscoveryExecutorQueue(db, 'u', 10);
+  assert.equal(initial.tasks.length, 1);
+  assert.deepEqual(
+    [initial.tasks[0].candidateId, initial.tasks[0].chatId, initial.tasks[0].action, initial.tasks[0].resultAction],
+    [candidate.id, chatId, 'join_and_inspect', 'inspect'],
+  );
+  assert.equal(initial.tasks[0].minMembers, 700);
+
+  const inspected = await applyDiscoveryInspection(db, 'u', {
+    candidateId: candidate.id,
+    expectedVersion: candidate.version,
+    result: {
+      status:'inspected', accessible:true, membershipState:'joined',
+      observedName:'Українці Praha', chatType:'group', memberCount:900,
+      topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
+    },
+  }, 110);
+  assert.equal(inspected.decision, 'target');
+  assert.equal((await readDiscoveryExecutorQueue(db, 'u', 10)).tasks.length, 0);
+  assert.equal((await readDiscoveryExecutorQueue(db, 'other', 10)).tasks.length, 0);
+});
+
+void test('executor leave result archives a rejected joined WhatsApp chat and confirms the real external leave', async (t) => {
+  const { db, candidate, chatId } = await importedCandidate(t, 'ExecutorLeave123');
+  await applyDiscoveryInspection(db, 'u', {
+    candidateId: candidate.id,
+    expectedVersion: candidate.version,
+    result: {
+      status:'inspected', accessible:true, membershipState:'joined',
+      observedName:'Random chat', chatType:'group', memberCount:900,
+      topicMatch:'mismatch', canWrite:true, adsPolicy:'allowed', activityState:'active',
+    },
+  }, 110);
+
+  const queue = await readDiscoveryExecutorQueue(db, 'u', 10);
+  assert.equal(queue.tasks.length, 1);
+  const task = queue.tasks[0];
+  assert.equal(task.action, 'leave');
+  assert.equal(task.resultAction, 'executor-leave');
+  assert.equal(task.chatId, chatId);
+
+  await assert.rejects(
+    completeDiscoveryExternalLeave(db, 'u', {
+      candidateId: task.candidateId,
+      expectedVersion: task.candidateVersion,
+      chatStateToken: 'stale-token',
+    }, 111),
+    /Чат уже змінився/,
+  );
+
+  const completed = await completeDiscoveryExternalLeave(db, 'u', {
+    candidateId: task.candidateId,
+    expectedVersion: task.candidateVersion,
+    chatStateToken: task.chatStateToken,
+  }, 112);
+  assert.equal(completed.ok, true);
+  const chat = await readChatState(db, 'u', chatId);
+  assert.equal(chat.workflow_status, 'archived');
+  assert.equal(chat.left_at, 112);
+  const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.membershipState, 'left');
+  assert.equal((await readDiscoveryExecutorQueue(db, 'u', 10)).tasks.length, 0);
+});
+
 void test('inspection promotes an accepted WhatsApp target into ready workflow', async (t) => {
   const { db, candidate, chatId } = await importedCandidate(t, 'InspectTarget123');
   const outcome = await applyDiscoveryInspection(db, 'u', {
@@ -923,6 +990,51 @@ void test('joined rejected chat is not hidden before external leave succeeds', a
   assert.equal(outcome.autoArchived, false);
   assert.ok(outcome.reasonCodes.includes('too_few_members'));
   assert.equal((await readChatState(db, 'u', chatId)).workflow_status, 'ready');
+});
+
+void test('joined rejected Viber candidate can complete the canonical external-leave checklist', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms: ['viber'], goal: 30, minMembers: 700 }, 100);
+  await continueDiscoveryRun(db, 'u', run.id, 101, async () =>
+    html('<div>Українці Praha допомога https://invite.viber.com/?g2=ViberReject123</div>'));
+  let candidate = (await readDiscoveryWorkspace(db, 'u')).candidates[0];
+  assert.ok(candidate);
+  assert.equal(candidate.platform, 'viber');
+  const handed = await handoffDiscoveryCandidate(db, 'u', candidate.id, candidate.version, 102);
+  candidate = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  const outcome = await applyDiscoveryInspection(db, 'u', {
+    candidateId: candidate.id,
+    expectedVersion: candidate.version,
+    result: {
+      status:'inspected', accessible:true, membershipState:'joined',
+      observedName:'Українці Praha допомога', chatType:'group', memberCount:500,
+      topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
+    },
+  }, 110);
+  assert.equal(outcome.decision, 'rejected');
+  assert.equal(outcome.needsExternalLeave, true);
+
+  const ready = await readChatState(db, 'u', handed.chatId);
+  assert.equal(ready.workflow_status, 'ready');
+  const queue = await readDiscoveryExecutorQueue(db, 'u', 10);
+  const task = queue.tasks.find(item => item.candidateId === candidate.id);
+  assert.equal(task?.action, 'leave');
+  assert.equal(task?.platform, 'viber');
+  assert.equal(task?.resultAction, 'executor-leave');
+  assert.ok(task);
+  const completed = await completeDiscoveryExternalLeave(db, 'u', {
+    candidateId: task.candidateId,
+    expectedVersion: task.candidateVersion,
+    chatStateToken: task.chatStateToken,
+  }, 112);
+  assert.equal(completed.ok, true);
+
+  const left = await readChatState(db, 'u', handed.chatId);
+  assert.equal(left.workflow_status, 'archived');
+  assert.equal(left.left_at, 112);
+  const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.membershipState, 'left');
+  assert.equal(stored.decision, 'rejected');
 });
 
 void test('known invalid invite before join is safely archived without claiming an external leave', async (t) => {

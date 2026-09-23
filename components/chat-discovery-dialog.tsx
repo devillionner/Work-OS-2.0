@@ -54,7 +54,7 @@ export function ChatDiscoveryDialog({
   onImported: (platform: DiscoveryPlatform) => void;
 }) {
   const [workspace, setWorkspace] = useState<Workspace>({ run: null, telegramPlan: null, counts: EMPTY_COUNTS, importedCount: 0, candidates: [] });
-  const platforms: DiscoveryPlatform[] = ['whatsapp'];
+  const platforms: DiscoveryPlatform[] = ['whatsapp', 'viber'];
   const [goal, setGoal] = useState(30);
   const [minMembers, setMinMembers] = useState(700);
   const [filter, setFilter] = useState<DecisionFilter>('all');
@@ -227,7 +227,7 @@ export function ChatDiscoveryDialog({
         action: 'inspect',
         candidateId: candidate.id,
         version: candidate.version,
-        result: { status:'failed', accessible:false, reason:'invalid_whatsapp_link' },
+        result: { status:'failed', accessible:false, reason:candidate.platform === 'viber' ? 'invalid_viber_link' : 'invalid_whatsapp_link' },
       });
       setNotice('Invite недійсний або прострочений — кандидат відхилено без створення чату.');
       await load(filter);
@@ -290,7 +290,7 @@ export function ChatDiscoveryDialog({
         },
       }) as unknown as { decision?: DiscoveryDecision; needsExternalLeave?: boolean };
       setNotice(payload.needsExternalLeave
-        ? 'Кваліфікацію збережено. Чат нецільовий — після виходу з WhatsApp підтвердь leave у Work OS.'
+        ? `Кваліфікацію збережено. Чат нецільовий — після виходу з ${platformLabel(candidate.platform)} підтвердь leave у Work OS.`
         : `Кваліфікацію збережено: ${payload.decision ? decisionLabel(payload.decision) : 'оновлено'}.`);
       setManualDraft(null);
       await load(filter);
@@ -574,7 +574,7 @@ export function ChatDiscoveryDialog({
 
                       <div className="mt-3 flex flex-wrap gap-2">
                         <a className="inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-border bg-background px-2.5 text-[0.8rem] font-semibold hover:bg-muted" href={candidate.link} target="_blank" rel="noreferrer">
-                          Відкрити WhatsApp <ExternalLink className="size-3.5"/>
+                          Відкрити {platformLabel(candidate.platform)} <ExternalLink className="size-3.5"/>
                         </a>
                         {!candidate.importedChatId && candidate.decision === 'review' &&
                           <Button type="button" size="sm" variant="outline" disabled={inspectingId !== null} onClick={() => void markInviteInvalid(candidate)}>

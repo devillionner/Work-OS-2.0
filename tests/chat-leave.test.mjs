@@ -46,9 +46,21 @@ void test('confirmed leave survives restore until the chat is joined again', asy
   assert.equal((await state(db)).left_at,null);
 });
 
-void test('leave confirmation is rejected outside archived joined Telegram or WhatsApp chats', async t=>{
+void test('archived joined Viber chat uses the same recoverable leave checklist', async t=>{
   const db=await localDatabase(t);
-  await seedChat(db,{id:'chat',owner:'u',platform:'viber',status:'archived',joined:NOW-100});
+  await seedChat(db,{id:'chat',owner:'u',platform:'viber',status:'ready',joined:NOW-100});
+  assert.equal((await transitionChat(db,{userId:'u',chat:await state(db),action:'archive',accountId:null,now:NOW,reason:'Чат не цільовий'})).ok,true);
+  const archived=await state(db);
+  assert.equal((await changeChatLeave(db,{userId:'u',chat:archived,now:NOW+1,confirm:true})).ok,true);
+  const left=await state(db);
+  assert.equal(left.left_at,NOW+1);
+  assert.equal((await changeChatLeave(db,{userId:'u',chat:left,now:NOW+2,confirm:false})).ok,true);
+  assert.equal((await state(db)).left_at,null);
+});
+
+void test('leave confirmation is rejected outside archived joined checklist platforms', async t=>{
+  const db=await localDatabase(t);
+  await seedChat(db,{id:'chat',owner:'u',platform:'facebook',status:'archived',joined:NOW-100});
   assert.equal((await changeChatLeave(db,{userId:'u',chat:await state(db),now:NOW,confirm:true})).ok,false);
   await db.prepare(`UPDATE chats SET platform='whatsapp',joined_at=NULL WHERE id='chat'`).run();
   assert.equal((await changeChatLeave(db,{userId:'u',chat:await state(db),now:NOW,confirm:true})).ok,false);

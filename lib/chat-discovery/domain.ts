@@ -609,8 +609,10 @@ function mapCandidate(row: CandidateRow, sources: DiscoverySource[]): DiscoveryC
 }
 
 function validatePlatforms(value: unknown): DiscoveryPlatform[] {
-  if (!Array.isArray(value) || !value.includes('whatsapp')) throw new DiscoveryError('Пошук зараз працює лише для WhatsApp.');
-  return ['whatsapp'];
+  if (!Array.isArray(value)) throw new DiscoveryError('Оберіть WhatsApp або Viber для пошуку.');
+  const platforms = [...new Set(value)].filter((item): item is DiscoveryPlatform => item === 'whatsapp' || item === 'viber');
+  if (!platforms.length) throw new DiscoveryError('Оберіть WhatsApp або Viber для пошуку.');
+  return platforms;
 }
 
 function parsePlatforms(value: string): DiscoveryPlatform[] {
