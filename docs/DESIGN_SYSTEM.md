@@ -3,8 +3,8 @@
 Контракт: CORE-03/05/10–18, UX-02 у [PRODUCT_REQUIREMENTS](PRODUCT_REQUIREMENTS.md).
 Фактичні спільні компоненти — `components/ui`; токени — `app/globals.css`.
 Правила успадковані з read-only Prototype DESIGN_SYSTEM і адаптовані до React.
-Shared `Button` тепер відповідає базовій ієрархії нижче: primary action нейтрально-чорна,
-синій лишається акцентом/focus color, а всі shared size variants мають interaction target
+Shared `Button` і `Select` тепер відповідають базовій ієрархії нижче: primary action нейтрально-чорна,
+синій лишається акцентом/focus color, а shared button/select triggers та select options мають interaction target
 не менше 42 px. Повна візуальна QA всіх legacy/app-specific controls ще не завершена.
 
 ## Основні правила
@@ -14,8 +14,8 @@ Shared `Button` тепер відповідає базовій ієрархії 
 - Одна основна дія; заголовок/дата → 2–5 потрібних показників → режими → поточний
   список. Керування базою, імпорт, дублікати, історія та архів відкриваються за потреби.
 - Сітка 4 px; відступи 8/12/16/24/32 px. Контрол ≥42 px desktop, ≥44 px touch.
-  Shared `Button` задає 42 px для compact/default та 44 px для large; mobile-specific
-  controls мають підніматися до 44 px там, де viewport/touch contract цього вимагає.
+  Shared `Button` і `Select` задають щонайменше 42 px для compact/default interaction targets;
+  mobile-specific controls мають підніматися до 44 px там, де viewport/touch contract цього вимагає.
   Орієнтири радіусів 7/10/14 px, основна ширина контенту до 1040 px; довгі таблиці
   можуть мати обґрунтований виняток без розтягування всіх форм.
 - Основний текст 14 px+, line-height 1.45–1.55; заголовок 24 px (Today до 30 px).
