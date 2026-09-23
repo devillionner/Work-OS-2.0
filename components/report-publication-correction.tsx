@@ -5,6 +5,7 @@ import { LoaderCircle, Plus, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { announceDataChange } from '@/lib/client-sync';
 
 type Chat = { id:string; name:string; link:string; platform:string; status:string; telegramAccountId:string|null };
 type Account = { id:string; number:number; name:string; enabled:boolean };
@@ -72,7 +73,8 @@ export function ReportPublicationCorrection({date}:{date:string}) {
       });
       const body=await response.json() as {error?:string};
       if(!response.ok)throw new Error(body.error||'Не вдалося додати історичну публікацію.');
-      setNotice(`Публікацію за ${formatDate(date)} додано. Оновіть звіт, щоб побачити новий підсумок.`);
+      announceDataChange('all');
+      setNotice(`Публікацію за ${formatDate(date)} додано. Підсумки синхронізуються автоматично.`);
       setOpen(false); setChatId(''); setAdvertisementId(''); setLanguage('');
     }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося додати історичну публікацію.');}
     finally{setSaving(false);}

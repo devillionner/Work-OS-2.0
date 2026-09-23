@@ -18,6 +18,7 @@ export function ServerSync() {
   const revisionRef = useRef<number | null>(null);
   const checkingRef = useRef(false);
   const lastRefreshAt = useRef(0);
+  const businessDateRef = useRef(readKyivBusinessDate());
 
   const checkRevision = useCallback(async (reason: DataSyncDetail['reason']) => {
     if (checkingRef.current) return;
@@ -64,13 +65,25 @@ export function ServerSync() {
     }
   }, [router]);
 
-  useEffect(() => {
-    void checkRevision('poll');
+  const refreshBusinessDay = useCallback(() => {
+    const nextDate = readKyivBusinessDate();
+    if (nextDate === businessDateRef.current) return false;
+    businessDateRef.current = nextDate;
+    const now = Date.now();
+    lastRefreshAt.current = now;
+    const detail: DataSyncDetail = { scope: 'all', reason: 'poll', at: now };
+    window.dispatchEvent(new CustomEvent<DataSyncDetail>(DATA_SYNC_EVENT, { detail }));
+    router.refresh();
+    return true;
+  }, [router]);
 
-    const onFocus = () => void checkRevision('focus');
-    const onOnline = () => void checkRevision('online');
+  useEffect(() => {
+    if (!refreshBusinessDay()) void checkRevision('poll');
+
+    const onFocus = () => { if (!refreshBusinessDay()) void checkRevision('focus'); };
+    const onOnline = () => { if (!refreshBusinessDay()) void checkRevision('online'); };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void checkRevision('focus');
+      if (document.visibilityState === 'visible' && !refreshBusinessDay()) void checkRevision('focus');
     };
     const onLocalData = (event: Event) => {
       const detail = (event as CustomEvent<DataSyncDetail>).detail;
@@ -87,6 +100,7 @@ export function ServerSync() {
     }
 
     const timer = window.setInterval(() => {
+      if (refreshBusinessDay()) return;
       if (navigator.onLine) void checkRevision('poll');
     }, SERVER_SYNC_MS);
 
@@ -103,7 +117,7 @@ export function ServerSync() {
       document.removeEventListener('visibilitychange', onVisibility);
       channel?.close();
     };
-  }, [checkRevision]);
+  }, [checkRevision, refreshBusinessDay]);
 
   return null;
 }
@@ -114,4 +128,16 @@ function readRenderedRevision(): number | null {
   if (!raw) return null;
   const value = Number(raw);
   return Number.isSafeInteger(value) ? value : null;
+}
+
+
+function readKyivBusinessDate(date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Kyiv',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }

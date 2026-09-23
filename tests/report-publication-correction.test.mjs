@@ -88,3 +88,11 @@ void test('historical publication writes accounting truth without mutating curre
     /майбутньому/,
   );
 });
+
+
+void test('historical publication correction broadcasts authoritative data refresh to other workspaces', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../components/report-publication-correction.tsx', import.meta.url), 'utf8');
+  assert.match(source,/announceDataChange\('all'\)/);
+  assert.match(source,/Підсумки синхронізуються автоматично/);
+});

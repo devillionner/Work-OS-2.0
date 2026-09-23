@@ -49,3 +49,12 @@ void test('automatic update UI has desktop, mobile and reduced-motion protection
   const css = read('app/design-polish.css'); const motion = read('app/update-motion.css');
   assert.match(css, /\.app-update-banner\s*\{/); assert.match(css, /\.app-update-backdrop\s*\{/); assert.match(css, /max-width:\s*none/); assert.match(css, /max-height:\s*none/); assert.match(css, /\.app-update-card\s*\{/); assert.match(css, /@media \(max-width: 520px\)/); assert.match(css, /@media \(prefers-reduced-motion: reduce\)/); assert.match(motion, /\.app-update-backdrop\.is-exiting/); assert.match(motion, /app-update-card-enter/); assert.match(motion, /@media \(prefers-reduced-motion: reduce\)/);
 });
+
+
+void test('global sync refreshes every workspace when the Kyiv business date changes', () => {
+  const sync = read('components/server-sync.tsx');
+  assert.match(sync,/businessDateRef = useRef\(readKyivBusinessDate\(\)\)/);
+  assert.match(sync,/timeZone: 'Europe\/Kyiv'/);
+  assert.match(sync,/if \(refreshBusinessDay\(\)\) return/);
+  assert.match(sync,/router\.refresh\(\)/);
+});
