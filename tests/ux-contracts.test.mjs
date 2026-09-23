@@ -188,12 +188,14 @@ void test('Platform daily workflow uses desktop-sized controls and keyboard focu
   assert.match(css, /\.platform-picker button:focus-visible, \.telegram-account-tabs > button:not\(\[class\]\):focus-visible, \.queue-tabs button:focus-visible/);
 });
 
-void test('Platform queue collapses cleanly on narrow desktop without horizontal action overflow', () => {
+void test('Platform queue adapts to its own width without compressing or overlapping chat rows', () => {
   const css = text(join(root, 'app', 'globals.css'));
-  assert.match(css, /@media \(max-width:1180px\)[\s\S]*\.chat-toolbar \{ flex-wrap:wrap; \}/);
-  assert.match(css, /@media \(max-width:1180px\)[\s\S]*\.chat-toolbar label \{ flex:1 1 100%; min-width:0; \}/);
-  assert.match(css, /@media \(max-width:1180px\)[\s\S]*\.chat-row \{ grid-template-columns:minmax\(0,1fr\); align-items:start; \}/);
-  assert.match(css, /@media \(max-width:1180px\)[\s\S]*\.chat-actions \{ min-width:0; flex-wrap:wrap; justify-content:flex-start; \}/);
+  assert.match(css, /\.platform-browser \{[^}]*container-type:inline-size; container-name:platform-browser;/);
+  assert.match(css, /\.chat-list \{ display:grid; grid-auto-rows:max-content; align-content:start; \}/);
+  assert.match(css, /@container platform-browser \(max-width: 820px\)[\s\S]*\.chat-row \{ grid-template-columns:minmax\(0,1fr\); grid-auto-rows:max-content; align-items:start; gap:10px; min-height:0; \}/);
+  assert.match(css, /@container platform-browser \(max-width: 820px\)[\s\S]*\.chat-actions \{ width:100%; min-width:0; flex-wrap:wrap; justify-content:flex-start; align-items:stretch; gap:8px; \}/);
+  assert.match(css, /@container platform-browser \(max-width: 640px\)[\s\S]*\.queue-tabs \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); \}/);
+  assert.match(css, /\.platform-browser \.chat-list \{ flex:1 1 auto; min-height:0; overflow:auto;/);
 });
 
 void test('Platform archive reason picker is modal and cannot overlap the next chat row', () => {
