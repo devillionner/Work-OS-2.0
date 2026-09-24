@@ -162,3 +162,14 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] External leave requires the same target proof before any archive/leave mutation.
 - [x] The reference runner short-circuits unknown/wrong targets, and the pairing panel documents WhatsApp Web vs Viber native behavior.
 - [ ] Real WhatsApp Web automation acceptance remains open; this slice hardens the server/runner contract and does not claim a live browser result.
+
+
+## v0.2.41 — Platforms operator UX cleanup
+
+- [x] Replace the oversized Platforms hero with a compact operator header while preserving platform switching and discovery/add actions.
+- [x] Merge pace, daily goal, available, joined and published facts into one compact overview instead of separate stacked surfaces.
+- [x] Move quick-publish context inside the ready queue and remove duplicated queue-count chrome.
+- [x] Rename the row action from «Опублікувати» to «Підготувати» because it opens the preparation dialog; only the final confirmation records publication.
+- [x] Remove obsolete today-links, posting-pace, quick-publish-bar and platform-hero styling paths; extract the daily overview from the already-large workspace component.
+- [x] Preserve container-responsive chat rows, silent server reconciliation and 44px mobile action targets.
+- [ ] Canonical Workers build/staging /api/build and live desktop/narrow/mobile visual acceptance remain the release evidence gate.
