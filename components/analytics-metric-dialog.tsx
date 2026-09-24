@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 
 export type AnalyticsMetricKey = 'publications' | 'responses' | 'bookings' | 'completed';
 
@@ -31,18 +32,21 @@ export function AnalyticsMetricDialog({ open, metric, query, onClose }: { open:b
   const [data,setData]=useState<Payload|null>(null);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState('');
+  const cache=useRef(new Map<string,Payload>());
 
   useEffect(() => {
     if (!open || !metric) return;
     const controller=new AbortController();
-    queueMicrotask(()=>{setLoading(true);setError('');setData(null);});
+    const key=`${metric}:${query}`;
+    const cached=cache.current.get(key);
+    queueMicrotask(()=>{setLoading(true);setError('');setData(cached||null);});
     const params=new URLSearchParams(query);
     params.set('metric',metric);
     fetch('/api/analytics/events?'+params.toString(),{cache:'no-store',signal:controller.signal})
       .then(async response => {
         const body=await response.json() as Payload & {error?:string};
         if(!response.ok) throw new Error(body.error||'Не вдалося завантажити події.');
-        setData(body);
+        cache.current.set(key,body);setData(body);
       })
       .catch(reason => {
         if(!controller.signal.aborted) setError(reason instanceof Error?reason.message:'Не вдалося завантажити події.');
@@ -58,7 +62,7 @@ export function AnalyticsMetricDialog({ open, metric, query, onClose }: { open:b
         <DialogDescription>{data ? formatRange(data.range.from,data.range.to) : 'Формула та події вибраного періоду'}</DialogDescription>
       </DialogHeader>
       {error?<p className="workspace-error" role="alert">{error}</p>:null}
-      {loading?<output className="workspace-loading">Завантажуємо події…</output>:data?<>
+      {loading&&!data?<WorkspaceInlineLoading label="Завантажуємо події…"/>:data?<>{loading?<WorkspaceInlineLoading label="Оновлюємо події…"/>:null}
         <section className="analytics-metric-explainer">
           <div><span>Що рахуємо</span><p>{data.definition}</p></div>
           <div><span>Формула</span><p>{data.formula}</p></div>
