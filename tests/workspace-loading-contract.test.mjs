@@ -85,6 +85,7 @@ void test('persistent hidden workspaces close portal overlays and disable hidden
   const leads=read('components/leads/workspace.tsx');
   assert.match(leads,/if \(active\) return;[\s\S]*setHistoryOpen\(false\)[\s\S]*setEditor\(null\)[\s\S]*setArchive\(false\)[\s\S]*setResponseChange\(false\)/);
   assert.match(leads,/if\(!active\)return;[\s\S]*document\.addEventListener\('keydown'/);
+  assert.match(leads,/\{active&&<>[\s\S]*<FollowUp[\s\S]*<Lessons[\s\S]*<Conversation/);
 
   const analytics=read('components/analytics-workspace.tsx');
   assert.match(analytics,/if \(!active\) setDetailMetric\(null\)/);
@@ -92,6 +93,7 @@ void test('persistent hidden workspaces close portal overlays and disable hidden
   const reports=read('components/reports-workspace.tsx');
   assert.match(reports,/if \(!active\) \{[\s\S]*setHistoryOpen\(false\)[\s\S]*setBackdatedLeadOpen\(false\)/);
   assert.match(reports,/if\(!active\)return;[\s\S]*window\.addEventListener\('keydown'/);
+  assert.match(reports,/\{active&&<ReportCheckpoints date=\{selected\} \/>\}/);
 
   const library=read('components/library-workspace.tsx');
   assert.match(library,/if\(active\)return;[\s\S]*setHistoryOpen\(false\)[\s\S]*setArchiveCandidate\(null\)/);
@@ -100,4 +102,29 @@ void test('persistent hidden workspaces close portal overlays and disable hidden
   for(const setter of ['setFocusOpen(false)','setGoalHistoryOpen(false)','setUpdatePreviewOpen(false)','setRestoreOpen(false)','setDuplicatesOpen(false)','setCsvOpen(false)','setNamesOpen(false)']) {
     assert.match(settings,new RegExp(setter.replace(/[()]/g,'\\$&')));
   }
+});
+
+void test('nested loading surfaces use the shared inline state and do not replace existing data during refresh',()=>{
+  const shared=read('components/workspace-load-state.tsx');
+  assert.match(shared,/export function WorkspaceInlineLoading/);
+
+  for(const file of [
+    'components/telegram-schedule.tsx',
+    'components/leads/today-activity.tsx',
+    'components/report-subject-analytics.tsx',
+    'components/report-manual-diff.tsx',
+    'components/report-checkpoints.tsx',
+    'components/report-publication-correction.tsx',
+    'components/report-lesson-result-correction.tsx',
+  ]){
+    const source=read(file);
+    assert.match(source,/WorkspaceInlineLoading/);
+    assert.doesNotMatch(source,/className="workspace-loading"/);
+  }
+
+  const manual=read('components/report-manual-diff.tsx');
+  assert.match(manual,/loading && !data \? <WorkspaceInlineLoading/);
+  const checkpoints=read('components/report-checkpoints.tsx');
+  assert.match(checkpoints,/cache=useRef\(new Map<string,Checkpoint\[]>\(\)\)/);
+  assert.match(checkpoints,/loading&&loadedDate!==date \? <WorkspaceInlineLoading/);
 });
