@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Cloud, CopyCheck, DatabaseBackup, FileSpreadsheet, History, RefreshCw, ShieldCheck, Sparkles, Target } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,6 +32,8 @@ export function SettingsWorkspace({ user, snapshot, onRefresh }: Props) {
   const [enabledPlatforms, setEnabledPlatforms] = useState(snapshot.enabledPlatforms);
   const [savingPlatforms, setSavingPlatforms] = useState(false);
   const [platformNotice, setPlatformNotice] = useState('');
+  const enabledPlatformsKey=snapshot.enabledPlatforms.join('|');
+  useEffect(()=>{if(!savingPlatforms)setEnabledPlatforms(snapshot.enabledPlatforms);},[enabledPlatformsKey,savingPlatforms,snapshot.enabledPlatforms]);
 
   async function savePlatforms() {
     setSavingPlatforms(true); setPlatformNotice('');
