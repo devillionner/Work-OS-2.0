@@ -113,6 +113,9 @@ export function AnalyticsWorkspace({ syncRevision=0, active=true }: { syncRevisi
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
+    if (!active) setDetailMetric(null);
+  }, [active]);
+  useEffect(() => {
     if (!active || lastSyncRevision.current === syncRevision) return;
     lastSyncRevision.current = syncRevision;
     void load();
