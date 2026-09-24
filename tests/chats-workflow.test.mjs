@@ -14,7 +14,16 @@ import { availableTodayStatement } from '../lib/chats/daily-links.ts';
 
 const epoch = value => Date.parse(value) / 1000;
 const NOW = epoch('2026-09-10T12:00:00Z');
-const publish = (db, chat, now = NOW, userId = 'u') => recordManualPublication(db, { userId, chat, accountId: null, now, date: businessDate(now), stateToken:chat.state_token });
+async function confirmProfile(db,chatId) {
+  await db.prepare(`INSERT INTO chat_profiles
+    (chat_id,cadence,weekdays_json,custom_interval_days,next_allowed_on,directions_json,note,review_status,source,updated_at)
+    VALUES (?1,'any','[]',NULL,NULL,'[]','','confirmed','manual',1)
+    ON CONFLICT(chat_id) DO NOTHING`).bind(chatId).run();
+}
+const publish = async (db, chat, now = NOW, userId = 'u') => {
+  await confirmProfile(db,chat.id);
+  return recordManualPublication(db, { userId, chat, accountId: null, now, date: businessDate(now), stateToken:chat.state_token });
+};
 
 void test('three calendar days end at Kyiv midnight across DST, leap day and year change', () => {
   for (const [now, expected] of [
@@ -141,6 +150,33 @@ void test('quick publish may reuse one active material across WhatsApp chats wit
   assert.equal((await publishWithAd(db,telegram,'quick-ad','uk',true)).ok,false);
 });
 
+void test('ordinary publication requires a confirmed profile while WhatsApp/Viber quick mode remains explicit', async t => {
+  const db = await localDatabase(t);
+  const chat = await seedChat(db,{id:'profile-required',platform:'whatsapp',status:'ready'});
+  await db.prepare(`INSERT INTO library_items(id,user_id,kind,title,uk_text,tags_json,platforms_json,created_at,updated_at)
+    VALUES ('profile-quick-ad','u','advertisement','Quick','Текст','[]','["whatsapp"]',1,1)`).run();
+
+  const normal = await recordManualPublication(db,{userId:'u',chat,accountId:null,advertisementId:'profile-quick-ad',language:'uk',now:NOW,date:'2026-09-10',stateToken:chat.state_token});
+  assert.equal(normal.ok,false);
+  assert.match(normal.error,/підтвердженого профілю/u);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM chat_publications WHERE chat_id='profile-required'").first()).n,0);
+  const normalLinks=(await availableTodayStatement(db,{userId:'u',platform:'whatsapp',date:'2026-09-10',accountId:null,now:NOW}).all()).results;
+  assert.equal(normalLinks.some(row=>row.id==='profile-required'),false);
+
+  const quick = await recordManualPublication(db,{userId:'u',chat,accountId:null,advertisementId:'profile-quick-ad',language:'uk',quickMode:true,now:NOW,date:'2026-09-10',stateToken:chat.state_token});
+  assert.equal(quick.ok,true);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM chat_publications WHERE chat_id='profile-required'").first()).n,1);
+});
+
+void test('available publication links accept legacy confirmed profiles with nullable cadence fields', async t => {
+  const db = await localDatabase(t);
+  await seedChat(db,{id:'legacy-profile',platform:'whatsapp',status:'ready'});
+  await db.prepare(`INSERT INTO chat_profiles(chat_id,review_status,updated_at)
+    VALUES ('legacy-profile','confirmed',1)`).run();
+  const links=(await availableTodayStatement(db,{userId:'u',platform:'whatsapp',date:'2026-09-10',accountId:null,now:NOW}).all()).results;
+  assert.equal(links.some(row=>row.id==='legacy-profile'),true);
+});
+
 void test('available publication links exclude published, snoozed and foreign Telegram chats', async t => {
   const db = await localDatabase(t);
   await db.prepare(`INSERT INTO telegram_accounts(id,user_id,account_number,name,is_enabled,is_selected,created_at,updated_at)
@@ -150,6 +186,7 @@ void test('available publication links exclude published, snoozed and foreign Te
   await seedChat(db,{id:'snoozed',platform:'telegram',status:'ready',snoozed:NOW+60});
   await seedChat(db,{id:'published',platform:'telegram',status:'ready'});
   await seedChat(db,{id:'foreign-ready',owner:'other',platform:'telegram',status:'ready'});
+  for(const id of ['ready-a','ready-b','snoozed','published']) await confirmProfile(db,id);
   await db.prepare(`UPDATE chats SET telegram_account_id='a',joined_at=?1 WHERE id IN ('ready-a','published','snoozed')`).bind(NOW-21600).run();
   await db.prepare("UPDATE chats SET telegram_account_id='b',joined_at=?1 WHERE id='ready-b'").bind(NOW-21600).run();
   await db.prepare("INSERT INTO chat_publications(id,user_id,chat_id,published_on,source_key,created_at) VALUES ('pub','u','published','2026-09-10','legacy:pub',1)").run();
@@ -157,7 +194,10 @@ void test('available publication links exclude published, snoozed and foreign Te
   assert.deepEqual(links.map(row=>row.name),['ready-a']);
 });
 
-const publishWithAd = (db, chat, advertisementId, language = null, quickMode = false) => recordManualPublication(db, { userId:'u', chat, accountId:null, advertisementId, language, quickMode, now:NOW, date:'2026-09-10', stateToken:chat.state_token });
+const publishWithAd = async (db, chat, advertisementId, language = null, quickMode = false) => {
+  if(!quickMode) await confirmProfile(db,chat.id);
+  return recordManualPublication(db, { userId:'u', chat, accountId:null, advertisementId, language, quickMode, now:NOW, date:'2026-09-10', stateToken:chat.state_token });
+};
 
 
 void test('publication and undo keep canonical publication facts, report totals and available links in sync', async t => {

@@ -63,10 +63,10 @@ export function nextProfilePublicationDate(date: string, cadence: ProfileCadence
 }
 export function profilePublicationEligibilitySql(dateParam:string, weekdayParam:string) {
   if (!/^\?\d+$/.test(dateParam) || !/^\?\d+$/.test(weekdayParam)) throw new Error('Invalid SQL parameter marker.');
-  return `NOT EXISTS(SELECT 1 FROM chat_profiles pr WHERE pr.chat_id=c.id AND pr.review_status='confirmed' AND (
+  return `EXISTS(SELECT 1 FROM chat_profiles pr WHERE pr.chat_id=c.id AND pr.review_status='confirmed' AND NOT (
     (pr.next_allowed_on IS NOT NULL AND pr.next_allowed_on>${dateParam}) OR
-    (pr.cadence='custom' AND (pr.custom_interval_days IS NULL OR pr.custom_interval_days<1)) OR
-    (pr.weekdays_json!='[]' AND NOT EXISTS(SELECT 1 FROM json_each(pr.weekdays_json) wd WHERE CAST(wd.value AS INTEGER)=${weekdayParam}))
+    (COALESCE(pr.cadence,'any')='custom' AND (pr.custom_interval_days IS NULL OR pr.custom_interval_days<1)) OR
+    (COALESCE(pr.weekdays_json,'[]')!='[]' AND NOT EXISTS(SELECT 1 FROM json_each(pr.weekdays_json) wd WHERE CAST(wd.value AS INTEGER)=${weekdayParam}))
   ))`;
 }
 

@@ -17,6 +17,12 @@ async function accounts(db) {
   await db.prepare(`INSERT INTO telegram_accounts(id,user_id,account_number,name,is_enabled,is_selected,created_at,updated_at)
     VALUES ('a','u',1,'One',1,1,1,1),('b','u',2,'Two',1,0,1,1),('disabled','u',3,'Disabled',0,0,1,1),('foreign','other',1,'Foreign',1,1,1,1)`).run();
 }
+async function confirmProfile(db,chatId='chat') {
+  await db.prepare(`INSERT INTO chat_profiles
+    (chat_id,cadence,weekdays_json,custom_interval_days,next_allowed_on,directions_json,note,review_status,source,updated_at)
+    VALUES (?1,'any','[]',NULL,NULL,'[]','','confirmed','manual',1)
+    ON CONFLICT(chat_id) DO NOTHING`).bind(chatId).run();
+}
 async function seed(db,platform='telegram',status='to_join') {
   await seedChat(db,{platform,status});
   await db.prepare("UPDATE chats SET updated_at=?1 WHERE id='chat'").bind(NOW).run();
@@ -127,6 +133,7 @@ void test('every transition rechecks ownership; disabled Telegram accounts canno
   await db.prepare("UPDATE telegram_accounts SET is_enabled=0 WHERE id='a'").run();
   assert.equal((await transition(db,before,'joined',{accountId:'a'})).ok,false);
   await db.prepare("UPDATE chats SET workflow_status='ready',joined_at=1,telegram_account_id='a' WHERE id='chat'").run();
+  await confirmProfile(db);
   const ready=await state(db);
   assert.equal((await recordManualPublication(db,{userId:'u',chat:ready,accountId:'a',now:NOW,date:'2026-09-10',stateToken:ready.state_token})).ok,false);
   assert.equal(await count(db,'chat_joined'),0); assert.equal(await count(db,'publication'),0);
@@ -178,6 +185,7 @@ void test('publication requires the displayed version and invalidates it even in
   await transition(db,old,'archive');
   await transition(db,await state(db),'restore');
   await transition(db,await state(db),'joined');
+  await confirmProfile(db);
   const publish=chat=>recordManualPublication(db,{userId:'u',chat,accountId:null,now:NOW,date:'2026-09-10',stateToken:chat.state_token});
   assert.equal((await publish(old)).ok,false);
   const current=await state(db);
@@ -256,6 +264,7 @@ void test('same-day publication undo restores publication facts, profile cadence
 void test('expired publication undo leaves the publication and event unchanged', async t => {
   const db=await localDatabase(t);
   const before=await seed(db,'whatsapp','ready');
+  await confirmProfile(db);
   const published=await recordManualPublication(db,{userId:'u',chat:before,accountId:null,now:NOW,date:'2026-09-10',stateToken:before.state_token});
   assert.equal(published.ok,true);
   const after=await state(db);

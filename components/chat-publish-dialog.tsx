@@ -94,6 +94,7 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,fina
   const selected=items.find(item=>item.id===selectedId)||null;
   const text=selected?(language==='ru'?selected.ruText||selected.ukText:selected.ukText||selected.ruText):'';
   const publicationLanguage=selected?(language==='ru'&&selected.ruText?'ru':selected.ukText?'uk':selected.ruText?'ru':null):null;
+  const profileRequired=Boolean(chat&&!chat.profileConfirmed&&!quickMode);
 
   function selectItem(item:AdvertisementItem){
     if(!item.selectable)return;
@@ -124,7 +125,7 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,fina
     catch{setError('Не вдалося скопіювати текст. Виділіть його та скопіюйте вручну.');}
   }
   async function publish(){
-    if(!chat||busy||!publicationRule.allowed||(quickMode&&!selectedId))return;
+    if(!chat||busy||profileRequired||!publicationRule.allowed||(quickMode&&!selectedId))return;
     setBusy(true);setError('');
     try{if(await onPublished({advertisementId:selectedId,language:publicationLanguage}))onClose();}
     catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося відмітити публікацію. Оновіть список і спробуйте ще раз.');}
@@ -142,7 +143,7 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,fina
       {notice&&<output className="reports-notice">{notice}</output>}
       {chat&&<>
         <div className="chat-publish-chat"><strong>{chat.name}</strong><span>{chat.link}</span><Button type="button" variant="outline" size="sm" disabled={busy} onClick={onOpenChat}><ExternalLink data-icon="inline-start"/>Відкрити чат</Button></div>
-        {!chat.profileConfirmed&&<output className="chat-publish-warning">Профіль чату ще не підтверджено. Work OS врахує платформу та історію використання, але не застосовуватиме напрямки профілю як перевірене правило.</output>}
+        {!chat.profileConfirmed&&<output className="chat-publish-warning">{quickMode?'Профіль чату ще не підтверджено. Швидкий режим дозволяє термінову ручну публікацію без автоматичного підтвердження правил; чат залишиться в черзі уточнення профілю.':'Звичайна публікація потребує підтвердженого профілю. Закрийте це вікно й уточніть правила чату або для WhatsApp/Viber свідомо увімкніть швидкий режим.'}</output>}
         {focusPlan&&<section className="chat-publish-focus" aria-label="Фокус підбору">
           <div><strong>Активний фокус</strong><span>{focusPlan.currentDirections.length?focusPlan.currentDirections.join(' · '):'Без обмеження напрямків'}</span></div>
           <div><strong>Поточний план</strong><span>{focusPlan.planDirections.length?focusPlan.planDirections.join(' · '):'Без обмеження напрямків'}</span><small>{focusPlan.planCreatedAt?`${focusPlan.source==='workday'?'Створено / оновлено':'Оновлено'} ${new Date(focusPlan.planCreatedAt*1000).toLocaleString('uk-UA')}`:'Ще не зафіксовано'}</small></div>
@@ -153,7 +154,7 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,fina
         {quickMode&&preferredAdvertisementId?<div className="chat-publish-locked-material"><strong>Матеріал швидкого режиму</strong><span>Зафіксовано після першої публікації. Для цього чату перевіряються його відомі правила.</span></div>:<label className="chat-publish-search" htmlFor="chat-publish-search">Матеріал<Input id="chat-publish-search" value={search} disabled={busy} onChange={event=>setSearch(event.target.value)} placeholder="Пошук оголошення…" /></label>}
         {loading&&!items.length?<WorkspaceInlineLoading label="Підбираємо матеріали…"/>:<>{loading&&items.length?<WorkspaceInlineLoading label="Перевіряємо актуальність матеріалів…"/>:null}{visible.length?<div className="chat-publish-items" aria-label="Оголошення">{visible.map(item=><button type="button" aria-pressed={selectedId===item.id} className={selectedId===item.id?'is-selected':''} disabled={loading||busy||!item.selectable} key={item.id} onClick={()=>selectItem(item)}><strong>{item.title}</strong><small>{item.ukText||item.ruText}</small><small className="muted-note">{item.recommended?'Рекомендовано · ':''}{item.usedToday?'Використано сьогодні · ':''}{item.directionMatch==='matched'?'Напрямок збігається':item.directionMatch==='other'?'Інший напрямок':'Без жорсткої прив’язки до напрямку'}</small>{item.note&&<small className="muted-note">{item.note}</small>}</button>)}</div>:<p className="muted-note">{quickMode?'Для швидкого режиму потрібен придатний активний матеріал. Пропустіть цей чат або завершіть швидкий режим.':'Придатних активних оголошень для цієї платформи не знайдено. Публікацію все ще можна відмітити без прив’язаного матеріалу.'}</p>}</>}
         {selected&&<section className="chat-publish-preview"><div className="chat-publish-preview-head"><strong>{selected.title}</strong><div className="chat-publish-language"><Button type="button" variant="outline" size="sm" aria-pressed={language==='uk'} disabled={busy||!selected.ukText} onClick={()=>setLanguage('uk')}>UA</Button><Button type="button" variant="outline" size="sm" aria-pressed={language==='ru'} disabled={busy||!selected.ruText} onClick={()=>setLanguage('ru')}>RU</Button></div></div><Textarea readOnly rows={8} value={text} aria-label="Текст оголошення"/><div className="chat-publish-preview-actions"><Button type="button" variant="outline" size="sm" disabled={busy||!text} onClick={()=>void copyText()}><Copy data-icon="inline-start"/>Скопіювати текст</Button></div></section>}
-        <div className="dialog-actions"><Button variant="outline" disabled={busy} onClick={onClose}>Скасувати</Button><Button disabled={loading||busy||!publicationRule.allowed||(quickMode&&!selected)} onClick={()=>void publish()}><Send data-icon="inline-start"/>{busy?'Зберігаємо…':selected?'Відмітити публікацію':quickMode?'Оберіть матеріал':'Відмітити без матеріалу'}</Button></div>
+        <div className="dialog-actions"><Button variant="outline" disabled={busy} onClick={onClose}>Скасувати</Button><Button disabled={loading||busy||profileRequired||!publicationRule.allowed||(quickMode&&!selected)} onClick={()=>void publish()}><Send data-icon="inline-start"/>{busy?'Зберігаємо…':profileRequired?'Потрібен профіль':selected?'Відмітити публікацію':quickMode?'Оберіть матеріал':'Відмітити без матеріалу'}</Button></div>
       </>}
     </DialogContent>
   </Dialog>;

@@ -32,6 +32,9 @@ async function publicationReadModels(db){
 void test('publication accounting stays singular across retry, archive and Undo read models',async(t)=>{
   const db=await localDatabase(t);
   await seedChat(db,{id:'consistency-chat',owner:'u',platform:'whatsapp',status:'ready'});
+  await db.prepare(`INSERT INTO chat_profiles
+    (chat_id,cadence,weekdays_json,custom_interval_days,next_allowed_on,directions_json,note,review_status,source,updated_at)
+    VALUES ('consistency-chat','any','[]',NULL,NULL,'[]','','confirmed','manual',1)`).run();
   await db.prepare(`INSERT INTO library_items(id,user_id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,created_at,updated_at)
     VALUES ('consistency-ad','u','advertisement','advertisement',1,'Оголошення','Текст','','','[]','["whatsapp"]',1,1)`).run();
 

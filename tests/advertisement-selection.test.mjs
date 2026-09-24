@@ -101,7 +101,8 @@ void test('selection exposes confirmed profile cadence and weekday blocks before
 void test('manual publish dialog explains profile rule blocks and prevents confirmation', () => {
   const source = readFileSync(join(process.cwd(), 'components', 'chat-publish-dialog.tsx'), 'utf8');
   assert.match(source, /Публікація зараз недоступна:/);
-  assert.match(source, /disabled=\{busy\|\|!publicationRule\.allowed\|\|\(quickMode&&!selected\)\}/);
+  assert.match(source, /profileRequired/);
+  assert.match(source, /disabled=\{loading\|\|busy\|\|profileRequired\|\|!publicationRule\.allowed\|\|\(quickMode&&!selected\)\}/);
   assert.match(source, /publicationAllowed!==false/);
 });
 
@@ -154,6 +155,9 @@ void test('publish UI shows current focus, stale diff and explicit refresh/keep 
 void test('manual publication undo restores advertisement usedToday and selectability', async (t) => {
   const db = await localDatabase(t);
   const chat = await seedChat(db, { id: 'ad-undo-chat', owner: 'u', platform: 'whatsapp', status: 'ready' });
+  await db.prepare(`INSERT INTO chat_profiles
+    (chat_id,cadence,weekdays_json,custom_interval_days,next_allowed_on,directions_json,note,review_status,source,updated_at)
+    VALUES ('ad-undo-chat','any','[]',NULL,NULL,'[]','','confirmed','manual',1)`).run();
   await db.prepare(`INSERT INTO library_items(id,user_id,kind,title,uk_text,tags_json,platforms_json,created_at,updated_at)
     VALUES ('ad-undo','u','advertisement','Оголошення','Текст','[]','["whatsapp"]',1,1)`).run();
 

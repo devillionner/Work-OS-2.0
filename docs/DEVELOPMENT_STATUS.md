@@ -1,5 +1,15 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Confirmed-profile normal publication gate — v0.2.46
+
+- Ordinary publication now requires a confirmed profile in the publication domain and again in the atomic INSERT. A stale/direct request cannot create a publication fact after the profile becomes draft/missing.
+- WhatsApp/Viber quick publication remains the explicit exception for urgent manual work. It still requires a material, preserves draft/missing profile state and keeps the chat in profile clarification.
+- In Platforms, a draft/missing ready chat opens profile editing as the primary normal-mode action; when quick mode is intentionally enabled, the primary action returns to publication preparation.
+- `availableToday` now represents normal publication readiness: confirmed profile plus existing cadence/day/next-date, snooze, qualification and account constraints. Legacy confirmed profiles with nullable cadence/weekdays use canonical permissive defaults instead of disappearing.
+- Existing publication/Undo regression fixtures were updated to declare confirmed-profile preconditions explicitly, plus focused ordinary-vs-quick and legacy-profile coverage. Full local lint/typecheck/full-tests and physical Safari/live UX acceptance are not inferred from source contracts.
+- WhatsApp Web live executor acceptance remains blocked by the unavailable Opera Browser Connector/CDP endpoint; no messenger callback was executed.
+
+
 ## 2026-09-24 Analytics exact-range decision overview — v0.2.45
 
 - The decision-first Analytics overview now consumes the exact active analytics query. Day/week/month/year/custom changes therefore update plan/change/bottleneck evidence to the same period as the four canonical metrics.
