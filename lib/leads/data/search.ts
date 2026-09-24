@@ -57,10 +57,20 @@ export function leadSearchAliases(value: string): LeadSearchAlias[] {
     .map(([alias]) => alias);
 }
 
+function matchesPlatformTerm(normalized: string, term: string) {
+  if (normalized === term || normalized.includes(term)) return true;
+  // Incremental search is useful for operator-facing names, but expanding a
+  // one/two-character fragment (for example "a") would silently match several
+  // unrelated platforms and pollute the authoritative D1 result set.
+  return normalized.length >= 3 && term.startsWith(normalized);
+}
+
 export function leadPlatformSearchValues(value: string): string[] {
   const normalized = value.trim().toLocaleLowerCase('uk-UA');
   if (!normalized) return [];
   return Object.entries(platformTerms)
-    .filter(([platform, terms]) => platform.includes(normalized) || terms.some((term) => term.includes(normalized) || normalized.includes(term)))
+    .filter(([platform, terms]) =>
+      matchesPlatformTerm(normalized, platform) || terms.some((term) => matchesPlatformTerm(normalized, term)),
+    )
     .map(([platform]) => platform);
 }
