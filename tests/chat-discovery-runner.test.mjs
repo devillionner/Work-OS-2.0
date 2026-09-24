@@ -11,6 +11,13 @@ void test('runner consumes paired executor tasks and posts guarded callbacks',()
   assert.match(source,/action:'inspect'/);
   assert.match(source,/action:'executor-leave'/);
 });
+void test('runner automates verified WhatsApp leave via CDP and retains operator-confirmed fallback',()=>{
+  assert.match(source,/leaveWhatsappTaskViaCdp/);
+  assert.match(source,/Verified WhatsApp leave accepted by Work OS/);
+  assert.match(source,/leave automation stopped fail-closed/);
+  assert.match(source,/if\(!process\.stdin\.isTTY\)return true/);
+});
+
 void test('runner requires operator confirmation before reporting external leave',()=>{
   const prompt=source.indexOf('Confirm only AFTER you actually left the chat');
   const callback=source.indexOf("action:'executor-leave'");

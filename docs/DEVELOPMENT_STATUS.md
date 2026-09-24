@@ -1,5 +1,12 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Verified WhatsApp external leave automation — v0.2.50
+
+- WhatsApp Web executor now handles `leave` tasks through the same optional loopback-only CDP path as join/check instead of always stopping for manual confirmation.
+- The runner first reopens the exact invite, reaches the exact joined chat, verifies the rendered target, opens its info surface, finds the localized leave control, confirms the leave dialog and waits for factual post-leave UI evidence before posting `executor-leave` to Work OS.
+- Wrong/unknown target, missing controls, unauthenticated browser, disappeared controls or missing post-leave confirmation all stop fail-closed with no callback. Non-interactive runners never fall back to guessing; interactive runner keeps the existing manual confirmation fallback.
+- This closes a real lifecycle action for joined rejected/unavailable WhatsApp chats. Live browser acceptance still depends on an available authorized browser/CDP session and is not inferred from source code.
+
 ## 2026-09-24 Functional-value reprioritization
 
 - Поточний P4 більше не трактується як acceptance-first етап. Значний reliability/UX baseline уже існує, але він не є заміною відсутнього operator workflow.

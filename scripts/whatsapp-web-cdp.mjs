@@ -11,6 +11,9 @@ const unavailablePatterns = [
 
 const joinPattern = /^(?:join(?: group| chat)?|request to join|приєднатися(?: до групи| до чату)?|подати запит на вступ|присоединиться(?: к группе| к чату)?|отправить запрос на вступление)$/iu;
 const viewPattern = /^(?:view(?: group| chat)?|open(?: group| chat)?|continue to chat|переглянути(?: групу| чат)?|відкрити(?: групу| чат)?|продовжити до чату|просмотреть(?: группу| чат)?|открыть(?: группу| чат)?|продолжить в чат)$/iu;
+const leavePattern = /^(?:exit group|leave group|вийти з групи|покинути групу|выйти из группы|покинуть группу)$/iu;
+const confirmLeavePattern = /^(?:exit|leave|вийти|покинути|выйти|покинуть)$/iu;
+const leftPattern = /(?:you (?:left|are no longer a participant)|ви (?:вийшли|більше не є учасником)|вы (?:вышли|больше не участник))/iu;
 
 export function normalizeTargetLabel(value) {
   return String(value || '')
@@ -164,6 +167,67 @@ export function classifyWhatsAppSnapshot(task, snapshot) {
   return { kind: 'blocked', reason: 'membership_not_confirmed' };
 }
 
+export async function leaveWhatsappTaskViaCdp(
+  task,
+  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS } = {},
+) {
+  if (task.runtime !== 'whatsapp_web' || task.platform !== 'whatsapp' || task.action !== 'leave') {
+    return { kind: 'blocked', reason: 'unsupported_runtime' };
+  }
+  const targetUrl = toWhatsAppWebInviteUrl(task.expectedTarget?.link || task.link);
+  if (!targetUrl) return { kind: 'blocked', reason: 'invalid_whatsapp_link' };
+  if (!cdpBaseUrl) return { kind: 'blocked', reason: 'cdp_not_configured' };
+  const base = normalizeLocalCdpBaseUrl(cdpBaseUrl);
+  if (!base) return { kind: 'blocked', reason: 'cdp_not_local' };
+
+  const page = await findOrCreateWhatsappPage(base);
+  if (!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl)) {
+    return { kind: 'blocked', reason: 'cdp_websocket_not_local' };
+  }
+  const client = await createCdpClient(page.webSocketDebuggerUrl);
+  try {
+    await client.send('Page.enable');
+    await client.send('Runtime.enable');
+    await client.send('Page.navigate', { url: targetUrl });
+
+    let opened = await waitForClassification(client, { ...task, action: 'inspect' }, timeoutMs);
+    if (opened.kind === 'action' && opened.action === 'view') {
+      const clicked = await clickExactButton(client, opened.buttonText, task.expectedTarget?.name || task.name);
+      if (!clicked) return { kind: 'blocked', reason: 'expected_control_disappeared' };
+      opened = await waitForClassification(client, { ...task, action: 'inspect' }, timeoutMs, 'view');
+    }
+    if (opened.kind !== 'result' || opened.result.membershipState !== 'joined' || opened.result.targetVerified !== true) {
+      return { kind: 'blocked', reason: opened.reason || 'joined_target_not_verified' };
+    }
+
+    if (!await clickExactHeader(client, task.expectedTarget?.name || task.name)) {
+      return { kind: 'blocked', reason: 'target_header_disappeared' };
+    }
+    const leaveControl = await waitForExactControl(client, leavePattern, timeoutMs, false);
+    if (!leaveControl) return { kind: 'blocked', reason: 'leave_control_not_found' };
+    if (!await clickDocumentControl(client, leaveControl, task.expectedTarget?.name || task.name)) {
+      return { kind: 'blocked', reason: 'leave_control_disappeared' };
+    }
+    const confirmControl = await waitForExactControl(client, confirmLeavePattern, timeoutMs, true);
+    if (!confirmControl) return { kind: 'blocked', reason: 'leave_confirmation_not_found' };
+    if (!await clickDialogControl(client, confirmControl)) {
+      return { kind: 'blocked', reason: 'leave_confirmation_disappeared' };
+    }
+
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const snapshot = await readSnapshot(client);
+      if (leftPattern.test(String(snapshot.bodyText || '')) && !snapshot.composer) {
+        return { kind: 'result', result: { targetVerified: true, left: true } };
+      }
+      await sleep(POLL_MS);
+    }
+    return { kind: 'blocked', reason: 'leave_not_confirmed' };
+  } finally {
+    client.close();
+  }
+}
+
 export async function inspectWhatsappTaskViaCdp(
   task,
   { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS } = {},
@@ -270,6 +334,7 @@ async function readSnapshot(client) {
       targetTexts,
       targetRegionText: dialog?.innerText || '',
       buttons,
+      dialogButtons: dialog ? read(dialog, ['button', '[role="button"]']) : [],
       composer,
       adminOnly: ${adminOnlyPattern}.test(bodyText),
       hasQr,
@@ -281,6 +346,63 @@ async function readSnapshot(client) {
     awaitPromise: true,
   });
   return response?.result?.value || {};
+}
+
+async function clickExactHeader(client, expectedName) {
+  const expression = `(() => {
+    const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim().toLocaleLowerCase('uk-UA');
+    const target = ${JSON.stringify(String(expectedName || '').trim().toLocaleLowerCase('uk-UA'))};
+    const nodes = [...document.querySelectorAll('[data-testid="conversation-info-header"] [title], header [title], header h1, header h2')];
+    const node = nodes.find((item) => normalize(item.getAttribute('title') || item.textContent) === target);
+    if (!node) return false;
+    (node.closest('button, [role="button"]') || node).click();
+    return true;
+  })()`;
+  const response = await client.send('Runtime.evaluate', { expression, returnByValue: true });
+  return response?.result?.value === true;
+}
+async function waitForExactControl(client, pattern, timeoutMs, dialogOnly) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const snapshot = await readSnapshot(client);
+    const values = dialogOnly ? snapshot.dialogButtons || [] : snapshot.buttons || [];
+    const found = values.find((value) => pattern.test(String(value).trim()));
+    if (found) return found;
+    await sleep(POLL_MS);
+  }
+  return null;
+}
+async function clickDocumentControl(client, label, expectedName) {
+  const expression = `(() => {
+    const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim().toLocaleLowerCase('uk-UA');
+    const expected = ${JSON.stringify(String(label || '').trim().toLocaleLowerCase('uk-UA'))};
+    const target = ${JSON.stringify(String(expectedName || '').trim().toLocaleLowerCase('uk-UA'))};
+    const headerMatches = [...document.querySelectorAll('[data-testid="conversation-info-header"] [title], header [title], header h1, header h2')]
+      .some((node) => normalize(node.getAttribute('title') || node.textContent) === target);
+    if (!headerMatches) return false;
+    const nodes = [...document.querySelectorAll('button, [role="button"]')];
+    const node = nodes.find((item) => normalize(item.textContent) === expected && !item.hasAttribute('disabled'));
+    if (!node) return false;
+    node.click();
+    return true;
+  })()`;
+  const response = await client.send('Runtime.evaluate', { expression, returnByValue: true });
+  return response?.result?.value === true;
+}
+async function clickDialogControl(client, label) {
+  const expression = `(() => {
+    const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim().toLocaleLowerCase('uk-UA');
+    const expected = ${JSON.stringify(String(label || '').trim().toLocaleLowerCase('uk-UA'))};
+    const dialog = document.querySelector('[role="dialog"]');
+    if (!dialog) return false;
+    const nodes = [...dialog.querySelectorAll('button, [role="button"]')];
+    const node = nodes.find((item) => normalize(item.textContent) === expected && !item.hasAttribute('disabled'));
+    if (!node) return false;
+    node.click();
+    return true;
+  })()`;
+  const response = await client.send('Runtime.evaluate', { expression, returnByValue: true });
+  return response?.result?.value === true;
 }
 
 async function clickExactButton(client, label, expectedName) {

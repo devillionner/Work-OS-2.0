@@ -2,7 +2,7 @@
 import { execFile } from 'node:child_process';
 import process from 'node:process';
 import readline from 'node:readline/promises';
-import { inspectWhatsappTaskViaCdp, toWhatsAppWebInviteUrl } from './whatsapp-web-cdp.mjs';
+import { inspectWhatsappTaskViaCdp, leaveWhatsappTaskViaCdp, toWhatsAppWebInviteUrl } from './whatsapp-web-cdp.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const token=process.env.WORK_OS_EXECUTOR_TOKEN||'';
@@ -68,6 +68,21 @@ async function runOnce(){
   const queue=await api('/api/chat-discovery/executor?limit=1');
   const task=queue.tasks?.[0]; if(!task)return false;
   if(task.action==='leave'){
+    if(task.runtime==='whatsapp_web'&&whatsappCdp){
+      try{
+        const automated=await leaveWhatsappTaskViaCdp(task,{cdpBaseUrl:whatsappCdp});
+        if(automated.kind==='result'&&automated.result.left===true){
+          await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'executor-leave',candidateId:task.candidateId,version:task.candidateVersion,chatStateToken:task.chatStateToken,targetVerified:true})});
+          console.log('Verified WhatsApp leave accepted by Work OS.');
+          return true;
+        }
+        console.warn(`WhatsApp leave automation stopped fail-closed: ${automated.reason}`);
+      }catch(error){
+        console.warn(`WhatsApp leave CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
+      }
+      if(!process.stdin.isTTY)return true;
+      console.log('Falling back to operator-confirmed leave; no callback was sent for the ambiguous browser state.');
+    }
     openUrl(task.link);
     console.log(`\nLeave requested: ${task.name}`);
     const targetVerified=yes(await terminal.question(`Exact target verified as "${task.expectedTarget?.name||task.name}"? [y/N] `));

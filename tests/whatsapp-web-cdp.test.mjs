@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   classifyWhatsAppSnapshot,
+  leaveWhatsappTaskViaCdp,
   isLocalCdpWebSocketUrl,
   normalizeLocalCdpBaseUrl,
   normalizeTargetLabel,
@@ -181,4 +182,9 @@ void test('CDP control is restricted to unauthenticated loopback endpoints', () 
   assert.equal(isLocalCdpWebSocketUrl('ws://localhost:9222/devtools/page/1'), true);
   assert.equal(isLocalCdpWebSocketUrl('wss://127.0.0.1:9222/devtools/page/1'), false);
   assert.equal(isLocalCdpWebSocketUrl('ws://10.0.0.2:9222/devtools/page/1'), false);
+});
+
+
+void test('leave automation helper is exported for verified WhatsApp executor leave tasks', () => {
+  assert.equal(typeof leaveWhatsappTaskViaCdp, 'function');
 });
