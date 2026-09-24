@@ -122,3 +122,45 @@ void test('generated placeholder names never satisfy exact target verification',
   });
   assert.deepEqual(result, { kind: 'blocked', reason: 'target_not_verified' });
 });
+
+
+void test('known unavailable text is ignored outside the exact invite context', () => {
+  const result = classifyWhatsAppSnapshot(task, {
+    url: 'https://web.whatsapp.com/',
+    targetTexts: [],
+    headerTitles: [],
+    buttons: [],
+    bodyText: 'This invite link is invalid or was reset',
+  });
+  assert.deepEqual(result, { kind: 'blocked', reason: 'target_not_verified' });
+});
+
+void test('known unavailable text is accepted only while the expected invite code is active', () => {
+  const result = classifyWhatsAppSnapshot(task, {
+    url: 'https://web.whatsapp.com/accept?code=AbCdEfGh1234',
+    targetTexts: [],
+    headerTitles: [],
+    buttons: [],
+    bodyText: 'This invite link is invalid or was reset',
+  });
+  assert.equal(result.kind, 'result');
+  assert.equal(result.result.reason, 'invalid_whatsapp_link');
+  assert.equal(result.result.targetVerified, false);
+});
+
+void test('verified pending target may use the WhatsApp Continue to Chat control', () => {
+  const result = classifyWhatsAppSnapshot(
+    { ...task, action: 'check_membership_and_inspect' },
+    {
+      targetTexts: ['Українці Варшава'],
+      headerTitles: [],
+      buttons: ['Continue to Chat'],
+      bodyText: '',
+    },
+  );
+  assert.deepEqual(result, {
+    kind: 'action',
+    action: 'view',
+    buttonText: 'Continue to Chat',
+  });
+});

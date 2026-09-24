@@ -3,9 +3,9 @@
 ## Unreleased — WhatsApp Web CDP executor adapter
 
 - Chat Discovery's reference runner now supports an optional `WORK_OS_WHATSAPP_CDP` endpoint for an already-authorized Chromium/Opera profile. It converts `chat.whatsapp.com` invites to WhatsApp Web, verifies the exact rendered target before any join/request click, and reports only factual joined/pending/inaccessible states.
-- Target mismatch, generated placeholder name, unauthenticated browser, missing/changed controls and ambiguous membership all fail closed. No executor callback is sent from the automated path in those cases; an interactive runner may fall back to the existing operator-confirmed flow.
+- Target mismatch, generated placeholder name, unauthenticated browser, missing/changed controls and ambiguous membership all fail closed. Known-unavailable text is trusted only while the browser URL still carries the exact expected invite code, preventing stale/global WhatsApp DOM from rejecting another candidate. No executor callback is sent from the automated path in those cases; an interactive runner may fall back to the existing operator-confirmed flow.
 - The adapter does not infer topic fit, ad permission or activity from weak DOM signals. Writeability is reported only when the exact chat header is verified and the composer/admin-only state is factual.
-- Regression coverage was added for invite conversion, exact-target verification, join gating, pending/joined states, invalid invites and the runner's no-callback ambiguous-state path.
+- Regression coverage was added for invite conversion, exact-target verification, join gating, pending/joined states, exact-invite-scoped invalid-link handling, verified `Continue to Chat`, and the runner's no-callback ambiguous-state path.
 - Live browser acceptance is still open: Opera is running on the authorized CachyOS device, but Browser Connector is disabled and the current browser process exposes no CDP endpoint. No live WhatsApp action/callback is claimed by this source slice.
 - DATA-06 remains intentionally gated by ROADMAP; the premature IndexedDB outbox experiment was reverted in `16a9c785` before this work continued.
 

@@ -10,7 +10,7 @@ const unavailablePatterns = [
 ];
 
 const joinPattern = /^(?:join(?: group| chat)?|request to join|приєднатися(?: до групи| до чату)?|подати запит на вступ|присоединиться(?: к группе| к чату)?|отправить запрос на вступление)$/iu;
-const viewPattern = /^(?:view(?: group| chat)?|open(?: group| chat)?|переглянути(?: групу| чат)?|відкрити(?: групу| чат)?|просмотреть(?: группу| чат)?|открыть(?: группу| чат)?)$/iu;
+const viewPattern = /^(?:view(?: group| chat)?|open(?: group| chat)?|continue to chat|переглянути(?: групу| чат)?|відкрити(?: групу| чат)?|продовжити до чату|просмотреть(?: группу| чат)?|открыть(?: группу| чат)?|продолжить в чат)$/iu;
 
 export function normalizeTargetLabel(value) {
   return String(value || '')
@@ -55,9 +55,13 @@ function firstMatchingButton(snapshot, pattern) {
 
 export function classifyWhatsAppSnapshot(task, snapshot) {
   const bodyText = String(snapshot.bodyText || '');
+  const expectedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);
+  const expectedInviteContext = expectedInviteCode
+    ? String(snapshot.url || '').includes(expectedInviteCode)
+    : false;
 
   for (const entry of unavailablePatterns) {
-    if (entry.pattern.test(bodyText)) {
+    if (expectedInviteContext && entry.pattern.test(bodyText)) {
       return {
         kind: 'result',
         result: {
