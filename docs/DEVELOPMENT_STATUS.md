@@ -1,5 +1,11 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Quota-safe staging code-only deploy fallback
+
+- Cloudflare Workers Build for v0.2.58 completed the application build but staging deploy was blocked because the staging D1 free-tier daily row-read quota was exhausted while Wrangler tried to list migrations.
+- `deploy-staging.mjs` now recognizes that specific quota failure and may bypass only the migration-list read when it can independently prove the release is code-only since the exact currently deployed staging `/api/build` SHA.
+- The proof compares the deployed staging build SHA to the current build through GitHub and refuses fallback if any `migrations/*.sql` file changed, if staging identity is unavailable/invalid, or if the deployed SHA is not an ancestor. Production remains untouched.
+
 ## 2026-09-24 Viber joined-today expandable panel — v0.2.58
 
 - Viber now has a compact expandable «Приєднані сьогодні» panel directly below the queue/quick-mode controls and above the main chat toolbar.

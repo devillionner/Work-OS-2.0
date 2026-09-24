@@ -1,10 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
-import { parseStagingMigrationList } from './staging-migration-preflight.mjs';
+import { isD1DailyRowReadLimit, parseStagingMigrationList, verifyQuotaSafeCodeOnlyDeploy } from './staging-migration-preflight.mjs';
 
 const configPath = 'dist/server/wrangler.json';
 const sourceConfigPath = 'wrangler.jsonc';
+const stagingBuildUrl = 'https://work-os-2-staging.devillionner.workers.dev/api/build';
+const repository = 'devillionner/Work-OS-2.0';
 const expected = {
   worker: 'work-os-2-staging',
   database: 'work-os-2-staging-db',
@@ -53,11 +55,44 @@ const migrationCheck = spawnSync(
 if (migrationCheck.stdout) process.stdout.write(migrationCheck.stdout);
 if (migrationCheck.stderr) process.stderr.write(migrationCheck.stderr);
 if (migrationCheck.error) throw migrationCheck.error;
+const migrationOutput = (migrationCheck.stdout || '') + '\n' + (migrationCheck.stderr || '');
+let quotaSafeCodeOnlyDeploy = false;
 if (migrationCheck.status !== 0) {
-  throw new Error('Refusing deploy: could not verify staging D1 migration state (exit ' + (migrationCheck.status ?? 'unknown') + ').');
+  if (!isD1DailyRowReadLimit(migrationOutput)) {
+    throw new Error('Refusing deploy: could not verify staging D1 migration state (exit ' + (migrationCheck.status ?? 'unknown') + ').');
+  }
+
+  const gitHead = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', shell: false });
+  if (gitHead.error) throw gitHead.error;
+  const currentSha = gitHead.status === 0 ? String(gitHead.stdout || '').trim() : '';
+  const fallback = await verifyQuotaSafeCodeOnlyDeploy({
+    currentSha,
+    stagingBuildUrl,
+    repository,
+  });
+  if (!fallback.allowed) {
+    const migrationDetail = fallback.migrationFiles.length
+      ? ' Pending code contains migration changes: ' + fallback.migrationFiles.join(', ') + '.'
+      : '';
+    throw new Error(
+      'Refusing deploy: staging D1 daily row-read quota is exhausted and code-only fallback is unsafe (' +
+        fallback.reason +
+        ').' +
+        migrationDetail +
+        ' Production was not touched.',
+    );
+  }
+  quotaSafeCodeOnlyDeploy = true;
+  console.log(
+    'Staging D1 daily row-read quota is exhausted, but deploy is code-only since deployed staging build ' +
+      fallback.deployedBuildId +
+      '. Migration preflight bypass is allowed for this build only.',
+  );
 }
 
-let migrationState = parseStagingMigrationList((migrationCheck.stdout || '') + '\n' + (migrationCheck.stderr || ''));
+let migrationState = quotaSafeCodeOnlyDeploy
+  ? { pending: false, names: [] }
+  : parseStagingMigrationList(migrationOutput);
 if (migrationState.pending) {
   console.log(
     'Applying pending migrations to exact staging D1 only: ' + migrationState.names.join(', ') + '.',
@@ -126,7 +161,9 @@ if (migrationState.pending) {
 }
 
 console.log('Staging guard passed: ' + config.name + ' -> ' + db.database_name);
-console.log('Staging migration preflight passed: no pending remote D1 migrations.');
+console.log(quotaSafeCodeOnlyDeploy
+  ? 'Staging migration preflight: quota-safe code-only fallback verified against deployed build identity.'
+  : 'Staging migration preflight passed: no pending remote D1 migrations.');
 
 const result = spawnSync(
   process.execPath,
