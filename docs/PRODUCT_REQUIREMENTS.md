@@ -1,6 +1,6 @@
 # Work OS 2.0 — канонічні продуктові вимоги
 
-Оновлено: 2026-09-23. Реєстр стосується **Work OS 2.0**, а не готовності функцій у Prototype Checker. Мета: приватний, надійний, швидкий і зручний щоденний ручний процес на Windows, Linux та iPhone через Workers + D1. AI, генерація оголошень і автопостинг — пізніша окрема фаза.
+Оновлено: 2026-09-24. Реєстр стосується **Work OS 2.0**, а не готовності функцій у Prototype Checker. Мета: приватний, надійний і швидкий Work OS для щоденної роботи на Windows, Linux та iPhone через Workers + D1, де ручний workflow лишається recovery/fallback, а пріоритет — функції, що реально скорочують операторську роботу. WhatsApp Web/Chat Discovery automation є активним scope; AI-генерація лишається пізнішою фазою, а Viber real-chat autopost потребує окремого прямого дозволу.
 
 Пріоритет: останнє пряме рішення користувача → цей реєстр → roadmap → технічна документація → історичні джерела. Відсутність реалізації не скасовує вимогу. ID попереднього реєстру збережені без пропусків.
 
@@ -16,11 +16,11 @@
 | [Work OS README](../README.md), [ARCHITECTURE](ARCHITECTURE.md), [DEVELOPMENT_STATUS](DEVELOPMENT_STATUS.md) | Реальна структура застосунку, межі реалізації, актуальний стек |
 | [MIGRATION](MIGRATION.md), [DATA_PROTECTION](DATA_PROTECTION.md), [CUTOVER](CUTOVER-2026-09-04.md) | Резервні копії, restore, контрольні приклади та умови переносу |
 | [LEADS_PR6_REVIEW](LEADS_PR6_REVIEW.md), [LEADS_PR6_STAGING_RUNBOOK](LEADS_PR6_STAGING_RUNBOOK.md) | Конкурентність, повторна доставка, бізнес-дати, локальні перевірки, межі chunked import |
-| Прямі вимоги користувача 2026-09-10—16 | main, малі коміти, manual-first, D1 як source of truth, автоматичний staging deploy після verify, cross-device sync, кероване автооновлення клієнта, production тільки за окремим дозволом |
+| Прямі вимоги користувача 2026-09-10—24 | main-only, D1 як source of truth, автоматичний staging deploy після verify, cross-device sync, кероване автооновлення клієнта, production тільки за окремим дозволом; з 2026-09-24 — functional-value-first: WhatsApp Web/Discovery operator automation вище QA-only acceptance, manual workflow лишається fallback |
 
 База початкового аудиту Work OS: `main` `f4e65f5` після UX PR #87–#89. Актуальна звірка 2026-09-16 виконана проти `main` `6590e9b` перед docs/release sync. Prototype: 55cd4c56cd6ffa3d994475b3ff577fda1e290e11; read-only git ls-remote підтвердив збіг з GitHub HEAD 2026-09-10. Prototype не змінювався. Production D1 не читалася й не змінювалася для цієї звірки; стан production не виводиться зі стану main. Посилання на код — підтвердження наявного фрагмента, а не доказ повного acceptance.
 
-Доповнення 2026-09-11: ручне розпізнавання/попередній перегляд посилань звірено read-only з Work-OS.html у Prototype 7b8a1bc. Це цільова перевірка масового додавання, не повторний аудит усіх наступних змін Prototype. Нові функції автопостингу лишаються P6.
+Доповнення 2026-09-11: ручне розпізнавання/попередній перегляд посилань звірено read-only з Work-OS.html у Prototype 7b8a1bc. Це цільова перевірка масового додавання, не повторний аудит усіх наступних змін Prototype. Рішення 2026-09-24 замінює старе відкладення автопостингу: bounded WhatsApp Web operator automation після стабільного Discovery є активним P4 scope; AI-генерація лишається P6, Viber real-chat autopost — лише після окремого дозволу.
 
 ## Перевірка 2026-09-23
 
@@ -422,7 +422,7 @@
 | CRM-03 | частково | Невідома дата/час лишається unknown; response/booking/lesson dates незалежні, DST Europe/Kyiv, retry не дублює результат. Leads та календарні межі чатів покриті локально; історичний UI і точна застарілість звіту ще неповні. |
 | CRM-04 | готово | Історія довгих переписок пагінується; query count і payload не ростуть без обмеження. | Картка читає останні 30 повідомлень і cursor-pages до 50; ordinary commands не завантажують історію, edit читає лише addressed message. `.txt` export стрімиться owner-scoped bounded pages по 100 з version guard між chunks; 205-message regression проходить 100/100/5, виключає deleted/foreign rows і перевіряє fail-closed concurrency. [Repository](../lib/leads/data/repository.ts), [Export](../lib/leads/application/conversation-export.ts), [UI](../components/leads/conversation.tsx), [Tests](../tests/leads-domain.test.mjs), [Export tests](../tests/crm-export-stream.test.mjs). |
 | SCHED-01 | готово | Telegram manual selection не додає невибрані чати; недостатній набір блокує генерацію з поясненням. elapsed = ts <= now, future = ts > now, published — окремий факт. | Manual Telegram scheduler використовує лише explicitly selected eligible chats поточного account ID; insufficient capacity блокується до будь-якого write, elapsed/future/published states ізольовані. |
-| LATER-01 | відкладено | AI-функції, генерація оголошень і можливий автопостинг — окрема P6 після ручного acceptance, з переглядом і підтвердженням зовнішніх дій. |
+| LATER-01 | відкладено | AI-функції та генерація/адаптація оголошень — окрема P6. WhatsApp Web operator automation та confirmed-send autopost більше не належать до LATER/P6: це активний functional P4 scope після стабільного Discovery. Viber real-chat autopost лишається забороненим до окремого прямого дозволу. |
 | LATER-02 | відкладено | Desktop-обгортка після доведеної потреби; одна доменна логіка та D1. Native push для закритого iPhone/PWA — окрема перевірювана можливість, не обіцянка поточного браузера. |
 
 ## Зведення
@@ -441,7 +441,7 @@
 - Archived chats are tombstones for duplicate prevention and normally cannot be permanently deleted. Permanent deletion is allowed only when the archive reason explicitly means that the chat/link no longer exists; this destructive action requires confirmation and audit.
 - Lesson reminders on Today are grouped by the lesson-relative intent: “Завтра” and “Сьогодні” are separate sections and must not be mixed. Default reminder slot #1 is visible throughout the calendar day before the lesson as “Завтра”; slot #2 is visible throughout the lesson date as “Сьогодні”. Today must never mix the two intent groups. Missing lesson data becomes an explicit clarification task instead of a misleading sendable reminder.
 - Main navigation has exactly one Settings entry, anchored in the lower utility area. Goal/focus editing is not a second Settings navigation item.
-- Pre-UX functional development remains frozen except for regressions or requirements needed to make the UX coherent. Current phase is UI/UX.
+- Рішення 2026-09-24 скасовує freeze функціональної розробки як головний режим. P4 працює за FUNCTIONAL VALUE FIRST: відсутній operator workflow має вищий пріоритет за QA-only/Safari/a11y acceptance, якщо acceptance не блокує цей workflow.
 - UX foundation implementation: one Settings entry; Today separates lesson reminders by Today/Tomorrow; report calendar uses explicit planned/completed lesson and lead-event labels; report event details are progressive disclosure; subject analytics lives in Analytics; manager schedule is one tap from the calendar/report workspace; chat history remains available as a secondary action.
 - UX hardening evidence 2026-09-15: keyboard/a11y contracts exist; screenshot regression and physical iPhone/Safari QA remain outstanding.
 
@@ -464,7 +464,7 @@
 - Цільовий WhatsApp adapter працює через **WhatsApp Web у браузері** та постійну авторизовану сесію; окремий WhatsApp Desktop app не є product dependency. Розпізнавання pending/joined/unavailable, chat identity та writeability повинне бути fail-closed.
 - Viber використовує native desktop/deep-link path і **не має WhatsApp-style pending approval вкладки**. Linux/CachyOS acceptance target — системно зареєстрований Viber handler (`viber.desktop`, `x-scheme-handler/viber`), а не standalone AppImage.
 - Viber safe-mode для «Мої нотатки» є окремим smoke path: використовує owner-scoped idempotent leased executor task, вимагає exact `my_notes` target verification і confirmed send, а прострочений lease fail-closed блокує фінальний callback. Цей path ніколи не створює publication fact; real-chat Viber autopost лишається забороненим без окремого підтвердження.
-- Після Discovery messenger acceptance операторська автоматизація переходить до autoposting: WhatsApp Web adapter, потім Viber desktop adapter. Перед send треба підтвердити target chat identity; publication fact створюється лише після підтвердженої відправки. Wrong chat / read-only / admin-only / unknown UI state / adapter failure не можуть тихо рахуватися як publication.
+- Після стабільного Discovery операторська автоматизація переходить до bounded WhatsApp Web autoposting. Перед send треба підтвердити target chat identity; publication fact створюється лише після підтвердженої відправки. Wrong chat / read-only / admin-only / unknown UI state / adapter failure / ambiguous result не можуть тихо рахуватися як publication або запускати blind retry. Viber real-chat adapter не входить у цей active scope без окремого прямого дозволу.
 
 - v0.2.35: Platforms archive-reason dialog uses native fieldset/legend semantics while preserving responsive touch targets; UX regression coverage guards the accessible grouping.
 

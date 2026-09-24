@@ -1,5 +1,14 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Functional-value reprioritization
+
+- Поточний P4 більше не трактується як acceptance-first етап. Значний reliability/UX baseline уже існує, але він не є заміною відсутнього operator workflow.
+- Активний порядок: реальний WhatsApp Web executor → pending approval automation → повний Chat Discovery lifecycle → bounded confirmed-send WhatsApp autopost.
+- Publication consistency, exact-target verification, leases/fencing, loading contract і D1 source-of-truth лишаються обов'язковими gates усередині кожного functional slice.
+- Physical Safari, exhaustive a11y, broad cross-device/offline matrices переносяться після functional backlog або виконуються раніше лише коли реально блокують поточну функцію.
+- Manual workflows не видаляються: вони лишаються recovery/fallback. AI generation лишається P6. Viber real-chat autopost лишається забороненим до окремого прямого дозволу.
+- Це зміна пріоритетів/документації, не окремий user-facing release; APP_VERSION не піднімається.
+
 ## 2026-09-24 WhatsApp executor lease fencing — v0.2.49
 
 - Discovery executor claim/reclaim now advances the candidate version and returns that claimed version as the task fencing token.
