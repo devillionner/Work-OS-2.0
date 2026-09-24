@@ -379,7 +379,7 @@ button:not([data-slot="button"]) { color: inherit; }
 .platform-header-actions [data-slot="button"] { min-height:42px; }
 .platform-picker { width:max-content; max-width:100%; display:flex; gap:4px; padding:4px; overflow-x:auto; border:1px solid #e5e9f0; border-radius:11px; background:#f2f4f8; scrollbar-width:none; }
 .platform-picker::-webkit-scrollbar { display:none; }
-.platform-picker button { min-height:38px; display:flex; align-items:center; gap:7px; flex:0 0 auto; padding:0 12px; border:1px solid transparent; border-radius:8px; background:transparent; color:#626977; cursor:pointer; font-size:13px; font-weight:700; }
+.platform-picker button { min-height:42px; display:flex; align-items:center; gap:7px; flex:0 0 auto; padding:0 12px; border:1px solid transparent; border-radius:8px; background:transparent; color:#626977; cursor:pointer; font-size:13px; font-weight:700; }
 .platform-picker button[aria-selected='true'] { border-color:#e1e5ec; background:#fff; color:#17191e; box-shadow:0 2px 8px rgb(20 25 36 / .07); }
 .platform-picker i { width:8px; height:8px; border-radius:50%; }
 .platform-overview { display:grid; grid-template-columns:.8fr 1.1fr repeat(3,minmax(0,1fr)); overflow:hidden; }
