@@ -805,7 +805,7 @@ void test('inspection cannot overwrite canonical joined membership with a stale 
     () => applyDiscoveryInspection(db, 'u', {
       candidateId: stored.id,
       expectedVersion: stored.version,
-      result: { status:'inspected', membershipState:'not_checked' },
+      result: { status:'inspected', targetVerified:true, membershipState:'not_checked' },
     }, 111),
     error => error?.status === 409 && /фактичному стану чату/i.test(error.message),
   );
@@ -834,7 +834,7 @@ void test('inspection cannot fake an external leave for an imported chat', async
     () => applyDiscoveryInspection(db, 'u', {
       candidateId: stored.id,
       expectedVersion: stored.version,
-      result: { status:'inspected', membershipState:'left' },
+      result: { status:'inspected', targetVerified:true, membershipState:'left' },
     }, 111),
     error => error?.status === 409 && /leave-checklist/i.test(error.message),
   );
