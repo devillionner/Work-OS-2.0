@@ -216,7 +216,7 @@ void test('Platform queue adapts to its own width without compressing or overlap
   assert.match(css, /\.chat-list \{ display:grid; grid-auto-rows:max-content; align-content:start; \}/);
   assert.match(css, /@container platform-browser \(max-width: 820px\)[\s\S]*\.chat-row \{ grid-template-columns:minmax\(0,1fr\); grid-auto-rows:max-content; align-items:start; gap:10px; min-height:0; \}/);
   assert.match(css, /@container platform-browser \(max-width: 820px\)[\s\S]*\.chat-actions \{ width:100%; min-width:0; flex-wrap:wrap; justify-content:flex-start; align-items:stretch; gap:8px; \}/);
-  assert.match(css, /@container platform-browser \(max-width: 640px\)[\s\S]*\.queue-tabs \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); \}/);
+  assert.match(css, /@media \(max-width:720px\)[\s\S]*\.queue-tabs \{ display:flex; overflow-x:auto;[^}]*scrollbar-width:none; \}/);
   assert.match(css, /\.platform-browser \.chat-list \{ flex:1 1 auto; min-height:0; overflow:auto;/);
 });
 
