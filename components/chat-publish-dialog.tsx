@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Copy, ExternalLink, LoaderCircle, Send, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Copy, ExternalLink, Send, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { ChatProfile } from '@/lib/chats/profile';
+import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 
 type PublishChat = { id:string; name:string; link:string; platform:string; profileConfirmed:boolean; profile:ChatProfile };
 type PublicationDetails = { advertisementId:string|null; language:'uk'|'ru'|null };
@@ -30,6 +31,7 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,fina
   const [publicationRule,setPublicationRule]=useState<{allowed:boolean;reason:string|null}>({allowed:true,reason:null});
   const [focusPlan,setFocusPlan]=useState<FocusPlan|null>(null);
   const [focusDecision,setFocusDecision]=useState<'kept'|'refreshed'|null>(null);
+  const selectionCache=useRef(new Map<string,SelectionPayload>());
   const chatId=chat?.id;
   const chatLanguage=chat?.profile.language;
 
@@ -38,10 +40,32 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,fina
     let cancelled=false;
     const controller=new AbortController();
     const timeout=setTimeout(()=>controller.abort(),30_000);
-    queueMicrotask(()=>{
-      if(!cancelled){
-        setLoading(true);setBusy(false);setError('');setNotice('');setItems([]);setSelectedId(null);setSearch('');setLanguage(chatLanguage==='ru'?'ru':'uk');setPublicationRule({allowed:true,reason:null});setFocusPlan(null);setFocusDecision(null);
+    const applySelection=(payload:SelectionPayload)=>{
+      setItems(payload.items);
+      setPublicationRule({allowed:payload.publicationAllowed!==false,reason:payload.publicationReason||null});
+      setFocusPlan(payload.focusPlan||null);
+      setSelectedId(current=>{
+        if(current&&payload.items.some(item=>item.id===current&&item.selectable))return current;
+        if(quickMode&&preferredAdvertisementId){
+          const preferred=payload.items.find(item=>item.id===preferredAdvertisementId);
+          return preferred?.selectable?preferred.id:null;
+        }
+        return null;
+      });
+      if(quickMode&&preferredAdvertisementId){
+        const preferred=payload.items.find(item=>item.id===preferredAdvertisementId);
+        if(preferred?.selectable){
+          setLanguage(preferred.suggestedLanguage||(chatLanguage==='ru'?'ru':'uk'));
+          setNotice('Матеріал швидкого режиму підставлено автоматично.');
+        } else setNotice('Матеріал швидкого режиму не підходить цьому чату за відомими правилами. Пропустіть чат або завершіть швидкий режим.');
       }
+    };
+    const cached=selectionCache.current.get(chatId);
+    queueMicrotask(()=>{
+      if(cancelled)return;
+      setLoading(true);setBusy(false);setError('');setNotice('');setSelectedId(null);setSearch('');setLanguage(chatLanguage==='ru'?'ru':'uk');setFocusDecision(null);
+      if(cached)applySelection(cached);
+      else {setItems([]);setPublicationRule({allowed:true,reason:null});setFocusPlan(null);}
     });
     fetch(`/api/chats/advertisements?chatId=${encodeURIComponent(chatId)}`,{cache:'no-store',signal:controller.signal})
       .then(async response=>{
@@ -50,12 +74,8 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,fina
         if(!value||typeof value!=='object'||!Array.isArray((value as SelectionPayload).items))throw new Error('Не вдалося прочитати підбір оголошень.');
         if(!cancelled){
           const payload=value as SelectionPayload;
-          setItems(payload.items);setPublicationRule({allowed:payload.publicationAllowed!==false,reason:payload.publicationReason||null});setFocusPlan(payload.focusPlan||null);
-          if(quickMode&&preferredAdvertisementId){
-            const preferred=payload.items.find(item=>item.id===preferredAdvertisementId);
-            if(preferred?.selectable){setSelectedId(preferred.id);setLanguage(preferred.suggestedLanguage||(chatLanguage==='ru'?'ru':'uk'));setNotice('Матеріал швидкого режиму підставлено автоматично.');}
-            else setNotice('Матеріал швидкого режиму не підходить цьому чату за відомими правилами. Пропустіть чат або завершіть швидкий режим.');
-          }
+          selectionCache.current.set(chatId,payload);
+          applySelection(payload);
         }
       })
       .catch(reason=>{
@@ -131,9 +151,9 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,fina
         {!publicationRule.allowed&&<output className="chat-publish-warning">Публікація зараз недоступна: {publicationRule.reason||'правила профілю не дозволяють публікацію на цю дату.'}</output>}
         {quickMode&&preferredAdvertisementId&&!loading&&!selected&&<output className="chat-publish-warning">Зафіксований матеріал швидкого режиму тут недоступний. Чат не буде позначено опублікованим без цього матеріалу.</output>}
         {quickMode&&preferredAdvertisementId?<div className="chat-publish-locked-material"><strong>Матеріал швидкого режиму</strong><span>Зафіксовано після першої публікації. Для цього чату перевіряються його відомі правила.</span></div>:<label className="chat-publish-search" htmlFor="chat-publish-search">Матеріал<Input id="chat-publish-search" value={search} disabled={busy} onChange={event=>setSearch(event.target.value)} placeholder="Пошук оголошення…" /></label>}
-        {loading?<p className="workspace-loading"><LoaderCircle/>Підбираємо матеріали…</p>:visible.length?<div className="chat-publish-items" aria-label="Оголошення">{visible.map(item=><button type="button" aria-pressed={selectedId===item.id} className={selectedId===item.id?'is-selected':''} disabled={busy||!item.selectable} key={item.id} onClick={()=>selectItem(item)}><strong>{item.title}</strong><small>{item.ukText||item.ruText}</small><small className="muted-note">{item.recommended?'Рекомендовано · ':''}{item.usedToday?'Використано сьогодні · ':''}{item.directionMatch==='matched'?'Напрямок збігається':item.directionMatch==='other'?'Інший напрямок':'Без жорсткої прив’язки до напрямку'}</small>{item.note&&<small className="muted-note">{item.note}</small>}</button>)}</div>:<p className="muted-note">{quickMode?'Для швидкого режиму потрібен придатний активний матеріал. Пропустіть цей чат або завершіть швидкий режим.':'Придатних активних оголошень для цієї платформи не знайдено. Публікацію все ще можна відмітити без прив’язаного матеріалу.'}</p>}
+        {loading&&!items.length?<WorkspaceInlineLoading label="Підбираємо матеріали…"/>:<>{loading&&items.length?<WorkspaceInlineLoading label="Перевіряємо актуальність матеріалів…"/>:null}{visible.length?<div className="chat-publish-items" aria-label="Оголошення">{visible.map(item=><button type="button" aria-pressed={selectedId===item.id} className={selectedId===item.id?'is-selected':''} disabled={loading||busy||!item.selectable} key={item.id} onClick={()=>selectItem(item)}><strong>{item.title}</strong><small>{item.ukText||item.ruText}</small><small className="muted-note">{item.recommended?'Рекомендовано · ':''}{item.usedToday?'Використано сьогодні · ':''}{item.directionMatch==='matched'?'Напрямок збігається':item.directionMatch==='other'?'Інший напрямок':'Без жорсткої прив’язки до напрямку'}</small>{item.note&&<small className="muted-note">{item.note}</small>}</button>)}</div>:<p className="muted-note">{quickMode?'Для швидкого режиму потрібен придатний активний матеріал. Пропустіть цей чат або завершіть швидкий режим.':'Придатних активних оголошень для цієї платформи не знайдено. Публікацію все ще можна відмітити без прив’язаного матеріалу.'}</p>}</>}
         {selected&&<section className="chat-publish-preview"><div className="chat-publish-preview-head"><strong>{selected.title}</strong><div className="chat-publish-language"><Button type="button" variant="outline" size="sm" aria-pressed={language==='uk'} disabled={busy||!selected.ukText} onClick={()=>setLanguage('uk')}>UA</Button><Button type="button" variant="outline" size="sm" aria-pressed={language==='ru'} disabled={busy||!selected.ruText} onClick={()=>setLanguage('ru')}>RU</Button></div></div><Textarea readOnly rows={8} value={text} aria-label="Текст оголошення"/><div className="chat-publish-preview-actions"><Button type="button" variant="outline" size="sm" disabled={busy||!text} onClick={()=>void copyText()}><Copy data-icon="inline-start"/>Скопіювати текст</Button></div></section>}
-        <div className="dialog-actions"><Button variant="outline" disabled={busy} onClick={onClose}>Скасувати</Button><Button disabled={busy||!publicationRule.allowed||(quickMode&&!selected)} onClick={()=>void publish()}><Send data-icon="inline-start"/>{busy?'Зберігаємо…':selected?'Відмітити публікацію':quickMode?'Оберіть матеріал':'Відмітити без матеріалу'}</Button></div>
+        <div className="dialog-actions"><Button variant="outline" disabled={busy} onClick={onClose}>Скасувати</Button><Button disabled={loading||busy||!publicationRule.allowed||(quickMode&&!selected)} onClick={()=>void publish()}><Send data-icon="inline-start"/>{busy?'Зберігаємо…':selected?'Відмітити публікацію':quickMode?'Оберіть матеріал':'Відмітити без матеріалу'}</Button></div>
       </>}
     </DialogContent>
   </Dialog>;
