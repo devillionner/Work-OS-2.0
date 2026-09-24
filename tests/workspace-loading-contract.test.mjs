@@ -183,3 +183,22 @@ void test('Library never renders a previous collection under a new view identity
   assert.match(library,/if\(cached\)\{setItems\(cached\);setLoadedKey\(key\);\} else setLoadedKey\(''\)/);
   assert.match(library,/!viewReady\?<WorkspaceInitialLoading/);
 });
+
+
+void test('dialog and CRM state sync uses props instead of remount keys',()=>{
+  const platform=read('components/platform-workspace.tsx');
+  assert.doesNotMatch(platform,/profileOpenKey|historyOpenKey|publishOpenKey/);
+  assert.doesNotMatch(platform,/<ChatProfileDialog key=|<ChatHistoryDialog key=|<ChatPublishDialog key=/);
+
+  const profile=read('components/chat-profile-dialog.tsx');
+  assert.doesNotMatch(profile,/return <ChatProfileDialogForm key=/);
+  assert.match(profile,/useEffect\(\(\)=>\{[\s\S]*setName\(chat\.name\)[\s\S]*setReviewStatus/);
+
+  const leads=read('components/leads/workspace.tsx');
+  assert.doesNotMatch(leads,/<Conversation key=\{current\.lead\.version\}/);
+
+  const conversation=read('components/leads/conversation.tsx');
+  assert.match(conversation,/const leadIdentity = useRef\(detail\.lead\.id\)/);
+  assert.match(conversation,/mediaVersion\.current=detail\.lead\.version/);
+  assert.match(conversation,/if\(leadIdentity\.current===detail\.lead\.id\)return/);
+});
