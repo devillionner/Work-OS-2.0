@@ -1,5 +1,6 @@
 export const DATA_SYNC_EVENT = 'work-os:data-sync';
 export const DATA_SYNC_CHANNEL = 'work-os-data';
+export const DATA_SYNC_REQUEST_EVENT = 'work-os:data-sync-request';
 
 export type DataSyncScope =
   | 'all'
@@ -30,4 +31,11 @@ export function announceDataChange(scope: DataSyncScope = 'all'): void {
   const channel = new BroadcastChannel(DATA_SYNC_CHANNEL);
   channel.postMessage(detail);
   channel.close();
+}
+
+
+export function requestDataSync(reason: 'focus' | 'online' = 'focus'): void {
+  if (typeof window === 'undefined') return;
+  const detail: DataSyncDetail = { scope: 'all', reason, at: Date.now() };
+  window.dispatchEvent(new CustomEvent<DataSyncDetail>(DATA_SYNC_REQUEST_EVENT, { detail }));
 }
