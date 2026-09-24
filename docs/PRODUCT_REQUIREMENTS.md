@@ -60,7 +60,7 @@
 - User-facing release metadata централізовано в `lib/app-meta.ts`; кнопка версії в нижній utility-навігації показує `APP_VERSION` і відкриває діалог із поточними `APP_CHANGES`. Для релізу 2026-09-16 версія піднята до `0.2.3`; release metadata є частиною release gate, щоб навігація не показувала застарілий changelog.
 - Відкрита вкладка перевіряє `/api/build` за compiled Git SHA. Новий build показує banner → fullscreen update → автоматичне document reload → finishing state. Поточний розділ і scroll зберігаються. Реальний staging-тест автоматичного update UX пройдено 2026-09-16 без ручного F5.
 - Останній розділ Work OS зберігається в `localStorage` окремо на конкретному браузері/пристрої. Reload/автооновлення/повторне відкриття не повинні скидати користувача на Today. Інший пристрій має свій незалежний last-view state.
-- Cross-device data sync використовує існуючий монотонний server revision. Видимий online-клієнт читає легкий `/api/sync` приблизно кожні 10 с та на focus/online; `router.refresh()` виконується лише якщо authoritative revision змінилася. BroadcastChannel пришвидшує вкладки одного браузера. D1 лишається source of truth.
+- Cross-device data sync використовує існуючий монотонний server revision. Після активності/зміни видимий online-клієнт може перевіряти `/api/sync` через 10 с, але незмінний стан автоматично сповільнюється до 30–60 с, repeated server/D1 failures — до 5 хв; focus/online/local-write лишаються event-driven. `router.refresh()` виконується лише якщо authoritative revision змінилася. BroadcastChannel пришвидшує вкладки одного браузера. D1 лишається source of truth.
 - Workday синхронізується швидше власним read path; після випадкового завершення є `Повернути день`, яке зберігає original start/active time, і підтверджуваний `Скинути день`, який дозволений тільки для завершеного workday за сьогодні та не видаляє інші робочі дані.
 - GitHub `main` підключено до Cloudflare Workers Builds для `work-os-2-staging`: `npm run verify` → `npm run deploy:staging`. `scripts/deploy-staging.mjs` блокує неправильний Worker/D1 та `CLOUDFLARE_ENV=production`. Production і remote migrations цим pipeline не змінюються.
 - Великі gaps лишаються незмінними: real chat names, CRM media, REPORT-22 source/manual diff, PAY, KNOW, offline/outbox, final migration parity. Новий sync/update pipeline не є підставою автоматично підвищувати їхні статуси.
@@ -511,3 +511,14 @@
 - Hidden persistent workspaces must close portal overlays and disable global shortcuts while inactive so preserved state cannot leak interaction into the active screen.
 - Ordinary navigation must not force an RSC/document refresh. A lightweight revision check decides whether an authoritative refresh is actually required; document reload remains reserved for application build updates.
 - Shared primitives are `WorkspaceInitialLoading`, `WorkspaceInlineLoading` and `WorkspaceRefreshIndicator`. Reintroducing the legacy blocking `workspace-loading` pattern in product components is a regression.
+
+
+## D1 resource-budget requirements — 2026-09-24
+
+- D1 `rows_read` є обмеженим operational budget, а read-only SQL/CLI reads теж його витрачають.
+- Будь-який D1-backed polling має visibility/online gate, unchanged idle backoff та сильніший error backoff; fixed high-frequency idle polling без backoff заборонений.
+- Speculative fan-out у кілька D1-backed endpoints/queues без user intent заборонений. Exact-view cache дозволений; sibling data завантажуються on demand.
+- Code-only staging deploy не робить remote D1 migration reads, коли deployed migration fingerprint доводить незмінність schema.
+- Для кожного нового recurring/background D1 path потрібні worst-case requests/day reasoning і regression contract.
+- Daily quota exhaustion зупиняє автоматичні D1 retries до reset; build/deploy identity перевіряється через non-D1 path.
+- Production D1 не використовується для development health checks, quota probes або staging verification.

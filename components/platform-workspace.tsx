@@ -58,8 +58,6 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const [mobileListState,setMobileListState] = useState({key:'',count:MOBILE_LIST_CHUNK});
   const [loadedData,setData] = useState<ResponseData|null>(null);
   const viewCache=useRef(new Map<string,ResponseData>());
-  const prefetching=useRef(new Set<string>());
-  const cacheEpoch=useRef(0);
   const [undo,setUndo] = useState<UndoState|null>(null);
   const [bulkOpen,setBulkOpen]=useState(false);
   const [discoveryOpen,setDiscoveryOpen]=useState(false);
@@ -114,6 +112,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     if(active)return;
     setBulkOpen(false);
     setDiscoveryOpen(false);
+    setJoinedTodayOpen(false);
     setDuplicatesOpen(false);
     setProfileChat(null);
     setHistoryChat(null);
@@ -176,7 +175,6 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   useEffect(()=>{void refreshExpiredBreak.current(clock,document.visibilityState==='visible'&&navigator.onLine&&activeBreakExpired(accounts,accountId,clock),loadAccounts).catch(()=>{});},[accounts,accountId,clock,loadAccounts]);
 
   const invalidateQueueCache=useCallback((target?:Platform)=>{
-    cacheEpoch.current++;
     if(!target){viewCache.current.clear();return;}
     const prefix=`${target}:`;
     for(const key of viewCache.current.keys())if(key.startsWith(prefix))viewCache.current.delete(key);
@@ -199,21 +197,6 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       if(!response.ok) throw new Error(body.error || 'Не вдалося завантажити чати.');
       const next={...body,requestKey};
       viewCache.current.set(requestKey,next);setData(next);hasLoadedData.current=true;
-      if(!search&&profileFilter==='all'&&offset===0){
-        const epoch=cacheEpoch.current;
-        for(const item of queues){
-          if(item.key===queue)continue;
-          const nextKey=`${platform}:${item.key}::all:0:${requestAccountId||''}`;
-          if(viewCache.current.has(nextKey)||prefetching.current.has(nextKey))continue;
-          prefetching.current.add(nextKey);
-          const nextParams=new URLSearchParams({platform,status:item.key,search:'',offset:'0',profile:'all'});
-          if(requestAccountId)nextParams.set('account',requestAccountId);
-          void fetch(`/api/chats?${nextParams}`,{cache:'no-store'}).then(async nextResponse=>{
-            const nextBody=await nextResponse.json() as ResponseData & {error?:string};
-            if(nextResponse.ok&&epoch===cacheEpoch.current)viewCache.current.set(nextKey,{...nextBody,requestKey:nextKey});
-          }).catch(()=>{}).finally(()=>prefetching.current.delete(nextKey));
-        }
-      }
     } catch (reason) { if(!controller.signal.aborted && requestNumber===loadNumber.current) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити чати.'); }
     finally { if(!silent&&!controller.signal.aborted && requestNumber===loadNumber.current) setLoading(false); }
   },[platform,queue,search,profileFilter,offset,requestAccountId,requestKey]);
@@ -260,7 +243,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     if(next===platform)return;
     writePlatformView(platform,{queue,search,offset,scrollY:window.scrollY,lastChatId:lastOpenedByPlatform[platform]||null});
     const saved=readPlatformView(next);
-    setQuickPublishMode(false); setQuickAdvertisementId(null);
+    setQuickPublishMode(false); setQuickAdvertisementId(null); setJoinedTodayOpen(false);
     setPlatform(next); setQueue(saved?.queue||'to_join'); setSearch(saved?.search||''); setProfileFilter('all'); setOffset(saved?.offset||0);
     previousFilter.current=`${next}:${saved?.queue||'to_join'}:${saved?.search||''}:all`;
     setLastOpenedByPlatform(current=>({...current,[next]:saved?.lastChatId||null})); restoreScroll.current=saved?.scrollY??null;
@@ -516,17 +499,17 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
           ? <Button type="button" size="sm" disabled={busy!==null} onClick={()=>void startWhatsAppAutopostBatch()}><Send data-icon="inline-start"/>Автопост черги</Button>
           : <Button type="button" size="sm" variant={quickPublishMode?'outline':'default'} disabled={busy!==null} onClick={()=>{setQuickPublishMode(value=>{const next=!value;if(!next)setQuickAdvertisementId(null);return next;});}}><Send data-icon="inline-start"/>{quickPublishMode?'Завершити':'Увімкнути'}</Button>}
       </div>}
-      {platform==='viber'&&data&&<section className={'joined-today-panel '+(joinedTodayOpen?'is-open':'')} aria-label="Viber чати, приєднані сьогодні">
+      {(platform==='viber'||platform==='whatsapp')&&data&&<section className={'joined-today-panel '+(joinedTodayOpen?'is-open':'')} aria-label={`${selected.label} чати, приєднані сьогодні`}>
         <button className="joined-today-toggle" type="button" aria-expanded={joinedTodayOpen} onClick={()=>setJoinedTodayOpen(value=>!value)}>
-          <span><strong>Приєднані сьогодні</strong><small>Актуальні Viber-чати, у які приєдналися сьогодні</small></span>
+          <span><strong>Приєднані сьогодні</strong><small>{`Актуальні ${selected.label}-чати, у які приєдналися сьогодні`}</small></span>
           <span className="joined-today-toggle-meta"><b>{data.joinedToday.length}</b><ChevronDown/></span>
         </button>
         {joinedTodayOpen&&<div className="joined-today-list">
           {data.joinedToday.length
-            ? data.joinedToday.map(item=><button className="joined-today-item" type="button" key={item.id||item.link} disabled={!item.link} onClick={()=>{if(item.link)openNativeChat('viber',item.link);}}>
-                <span><strong>{item.name||'Viber чат'}</strong><small>{item.link?compactChatLink(item.link):'Посилання відсутнє'}</small></span><ExternalLink/>
+            ? data.joinedToday.map(item=><button className="joined-today-item" type="button" key={item.id||item.link} disabled={!item.link} onClick={()=>{if(item.link)openNativeChat(platform,item.link);}}>
+                <span><strong>{item.name||`${selected.label} чат`}</strong><small>{item.link?compactChatLink(item.link):'Посилання відсутнє'}</small></span><ExternalLink/>
               </button>)
-            : <p className="joined-today-empty">Сьогодні ще немає актуальних Viber-чатів, у які приєдналися.</p>}
+            : <p className="joined-today-empty">{`Сьогодні ще немає актуальних ${selected.label}-чатів, у які приєдналися.`}</p>}
         </div>}
       </section>}
       <div className="chat-toolbar">

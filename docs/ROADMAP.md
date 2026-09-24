@@ -179,7 +179,7 @@ P4 documentation is source-reconciled against current `main` code and regression
 ## v0.2.42 — Platforms queue transition cleanup
 
 - [x] Keep a per-view in-memory queue cache keyed by platform/queue/search/profile/page/account.
-- [x] Prefetch sibling queues after the canonical default view loads, so normal queue-tab switching does not blank the chat list into a full loader.
+- [x] Superseded by v0.2.59 quota hardening: exact-view cache remains, but automatic sibling queue prefetch is removed; D1-backed queues load on demand instead of speculatively.
 - [x] Treat prefetched views as UX cache only: successful mutations, imports/profile changes and server revision sync invalidate affected cache before canonical reconciliation.
 - [x] Keep the full loader only for a genuinely uncached first request or new search/filter/page.
 - [x] Add source regression coverage for cache, prefetch and invalidation behavior.
@@ -244,3 +244,13 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [ ] Historical legacy advertisements still need explicit operator cleanup before AD-02 can be promoted from partial; no automatic text generation or silent rewrite is performed.
 - [ ] Full `verify:local` and live desktop/narrow/mobile/Safari acceptance remain release evidence gates. Canonical Workers staging build and `/api/build` identity are checked separately after the release commit.
 - Next: resume real WhatsApp Web executor acceptance when browser control is available; otherwise continue the next evidence-backed non-physical P4 parity/reliability gap from current main.
+
+
+## v0.2.59 — D1 budget hardening + joined-today parity
+
+- [x] Global D1-backed revision sync uses adaptive 10s active → 30s → 60s unchanged backoff and up to 5m error backoff; focus/online/local-write remain immediate event-driven wakeups.
+- [x] Platforms no longer prefetches sibling queues without user intent; exact-view cache remains.
+- [x] D1 budget regression contract protects sync backoff, no speculative queue prefetch, Discovery runner backoff/heartbeat/task limits and code-only deploy migration-read skipping.
+- [x] WhatsApp and Viber both expose the expandable «Приєднані сьогодні» block.
+- [x] Canonical autonomous-development prompt moved into the repository with mandatory D1 budget rules.
+- [ ] Canonical Workers staging build must reach this exact HEAD; data-backed live acceptance waits for the current D1 daily quota reset instead of retrying the exhausted database.

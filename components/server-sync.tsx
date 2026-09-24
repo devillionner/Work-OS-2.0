@@ -10,8 +10,12 @@ import {
 } from '@/lib/client-sync';
 
 type SyncResponse = { revision?: number };
+type SyncCheckResult = 'changed' | 'same' | 'skipped' | 'failed';
 
-const SERVER_SYNC_MS = 10_000;
+const SERVER_SYNC_ACTIVE_MS = 10_000;
+const SERVER_SYNC_IDLE_MIN_MS = 30_000;
+const SERVER_SYNC_IDLE_MAX_MS = 60_000;
+const SERVER_SYNC_ERROR_MAX_MS = 300_000;
 const MIN_REFRESH_GAP_MS = 1_200;
 
 export function ServerSync() {
@@ -22,14 +26,14 @@ export function ServerSync() {
   const lastRefreshAt = useRef(0);
   const businessDateRef = useRef(readKyivBusinessDate());
 
-  const checkRevision = useCallback(async (reason: DataSyncDetail['reason']) => {
+  const checkRevision = useCallback(async (reason: DataSyncDetail['reason']): Promise<SyncCheckResult> => {
     if (checkingRef.current) {
       if (reason !== 'poll') pendingCheckRef.current = reason;
-      return;
+      return 'skipped';
     }
-    if (typeof document === 'undefined') return;
-    if (document.visibilityState !== 'visible' && reason === 'poll') return;
-    if (document.querySelector('.app-update-backdrop')) return;
+    if (typeof document === 'undefined') return 'skipped';
+    if (document.visibilityState !== 'visible' && reason === 'poll') return 'skipped';
+    if (document.querySelector('.app-update-backdrop')) return 'skipped';
 
     checkingRef.current = true;
     try {
@@ -37,9 +41,9 @@ export function ServerSync() {
         cache: 'no-store',
         headers: { Accept: 'application/json' },
       });
-      if (!response.ok) return;
+      if (!response.ok) return 'failed';
       const result = await response.json() as SyncResponse;
-      if (!Number.isSafeInteger(result.revision)) return;
+      if (!Number.isSafeInteger(result.revision)) return 'failed';
 
       const revision = Number(result.revision);
       const renderedRevision = readRenderedRevision();
@@ -51,26 +55,22 @@ export function ServerSync() {
       }
       const previous = revisionRef.current;
 
-      // The page exposes the revision used for its server render. This catches a
-      // write that lands between SSR and the first client poll instead of
-      // incorrectly accepting the newer server value as a baseline.
       if (previous === null || revision === previous) {
         revisionRef.current = revision;
-        return;
+        return 'same';
       }
 
       const now = Date.now();
-      // Never consume a newer authoritative revision merely because a previous
-      // refresh happened recently. Polls can retry it; explicit local/cross-tab
-      // writes refresh immediately so derived workspaces cannot stay stale.
-      if (reason === 'poll' && now - lastRefreshAt.current < MIN_REFRESH_GAP_MS) return;
+      if (reason === 'poll' && now - lastRefreshAt.current < MIN_REFRESH_GAP_MS) return 'changed';
+
       revisionRef.current = revision;
       lastRefreshAt.current = now;
       const detail: DataSyncDetail = { scope: 'all', reason, at: now };
       window.dispatchEvent(new CustomEvent<DataSyncDetail>(DATA_SYNC_EVENT, { detail }));
       router.refresh();
+      return 'changed';
     } catch {
-      // Temporary sync failures are retried on the next poll/focus/online event.
+      return 'failed';
     } finally {
       checkingRef.current = false;
       const pending = pendingCheckRef.current;
@@ -92,36 +92,96 @@ export function ServerSync() {
   }, [router]);
 
   useEffect(() => {
-    if (!refreshBusinessDay()) void checkRevision('poll');
+    let stopped = false;
+    let pollTimer: number | null = null;
+    let pollDelay = SERVER_SYNC_ACTIVE_MS;
+    let failureDelay = 0;
 
-    const onFocus = () => { if (!refreshBusinessDay()) void checkRevision('focus'); };
-    const onOnline = () => { if (!refreshBusinessDay()) void checkRevision('online'); };
+    const schedulePoll = (delay: number) => {
+      if (stopped) return;
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
+      pollTimer = window.setTimeout(() => void poll(), delay);
+    };
+
+    const recordOutcome = (outcome: SyncCheckResult) => {
+      if (outcome === 'changed') {
+        pollDelay = SERVER_SYNC_ACTIVE_MS;
+        failureDelay = 0;
+        return;
+      }
+      if (outcome === 'same') {
+        pollDelay = pollDelay <= SERVER_SYNC_ACTIVE_MS
+          ? SERVER_SYNC_IDLE_MIN_MS
+          : Math.min(SERVER_SYNC_IDLE_MAX_MS, pollDelay * 2);
+        failureDelay = 0;
+        return;
+      }
+      if (outcome === 'failed') {
+        failureDelay = failureDelay === 0
+          ? SERVER_SYNC_IDLE_MIN_MS
+          : Math.min(SERVER_SYNC_ERROR_MAX_MS, failureDelay * 2);
+        pollDelay = failureDelay;
+        return;
+      }
+      pollDelay = Math.max(SERVER_SYNC_IDLE_MIN_MS, pollDelay);
+    };
+
+    async function poll() {
+      if (stopped) return;
+      if (refreshBusinessDay()) {
+        pollDelay = SERVER_SYNC_ACTIVE_MS;
+        failureDelay = 0;
+        schedulePoll(pollDelay);
+        return;
+      }
+      if (!navigator.onLine) {
+        pollDelay = SERVER_SYNC_IDLE_MAX_MS;
+        schedulePoll(pollDelay);
+        return;
+      }
+      recordOutcome(await checkRevision('poll'));
+      schedulePoll(pollDelay);
+    }
+
+    const wake = (reason: DataSyncDetail['reason']) => {
+      if (refreshBusinessDay()) {
+        pollDelay = SERVER_SYNC_ACTIVE_MS;
+        failureDelay = 0;
+        schedulePoll(pollDelay);
+        return;
+      }
+      void checkRevision(reason).then((outcome) => {
+        if (stopped) return;
+        recordOutcome(outcome);
+        if (outcome !== 'failed' && outcome !== 'skipped') {
+          pollDelay = SERVER_SYNC_ACTIVE_MS;
+          failureDelay = 0;
+        }
+        schedulePoll(pollDelay);
+      });
+    };
+
+    const onFocus = () => wake('focus');
+    const onOnline = () => wake('online');
     const onVisibility = () => {
-      if (document.visibilityState === 'visible' && !refreshBusinessDay()) void checkRevision('focus');
+      if (document.visibilityState === 'visible') wake('focus');
     };
     const onLocalData = (event: Event) => {
       const detail = (event as CustomEvent<DataSyncDetail>).detail;
-      // A local workflow reconciles its own component immediately, then this
-      // authoritative revision refresh updates Today/Reports/Analytics and all
-      // other server-derived workspaces in the same tab.
-      if (detail?.reason === 'local-write') void checkRevision('cross-tab');
+      if (detail?.reason === 'local-write') wake('cross-tab');
     };
     const onSyncRequest = (event: Event) => {
       const detail = (event as CustomEvent<DataSyncDetail>).detail;
-      void checkRevision(detail?.reason === 'online' ? 'online' : 'focus');
+      wake(detail?.reason === 'online' ? 'online' : 'focus');
     };
 
     let channel: BroadcastChannel | null = null;
     if ('BroadcastChannel' in window) {
       channel = new BroadcastChannel(DATA_SYNC_CHANNEL);
-      channel.onmessage = () => void checkRevision('cross-tab');
+      channel.onmessage = () => wake('cross-tab');
     }
 
-    const timer = window.setInterval(() => {
-      if (refreshBusinessDay()) return;
-      if (navigator.onLine) void checkRevision('poll');
-    }, SERVER_SYNC_MS);
-
+    schedulePoll(0);
     window.addEventListener('focus', onFocus);
     window.addEventListener('online', onOnline);
     window.addEventListener(DATA_SYNC_EVENT, onLocalData);
@@ -129,7 +189,8 @@ export function ServerSync() {
     document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
-      window.clearInterval(timer);
+      stopped = true;
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('online', onOnline);
       window.removeEventListener(DATA_SYNC_EVENT, onLocalData);
@@ -149,7 +210,6 @@ function readRenderedRevision(): number | null {
   const value = Number(raw);
   return Number.isSafeInteger(value) ? value : null;
 }
-
 
 function readKyivBusinessDate(date = new Date()): string {
   const parts = new Intl.DateTimeFormat('en-CA', {

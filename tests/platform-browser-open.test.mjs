@@ -21,3 +21,11 @@ void test('WhatsApp invite links open directly in WhatsApp Web while Viber uses 
   assert.match(workspace, /'invite\.viber\.com','chats\.viber\.com'/);
   assert.match(workspace, /viber:\/\/community_invite\?data=/);
 });
+
+
+void test('WhatsApp and Viber expose the same expandable joined-today operator block', async () => {
+  const workspace = await readFile(new URL('../components/platform-workspace.tsx', import.meta.url), 'utf8');
+  assert.match(workspace, /\(platform==='viber'\|\|platform==='whatsapp'\)&&data&&<section/);
+  assert.match(workspace, /openNativeChat\(platform,item\.link\)/);
+  assert.match(workspace, /selected\.label.*приєднані сьогодні/);
+});

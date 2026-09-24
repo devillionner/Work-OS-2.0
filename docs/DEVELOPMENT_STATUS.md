@@ -1,5 +1,16 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 D1 budget incident hardening / v0.2.59
+
+- Global server revision sync keeps a 10s active path after activity/change, then backs off to 30s and 60s while unchanged. Repeated sync/server failures back off up to 5 minutes instead of retrying D1 every 10 seconds.
+- Platforms keeps exact-view cache but no longer speculatively prefetches sibling queues. D1-backed queues load only when requested.
+- Discovery quota guards remain mandatory: 15→30→60s runner idle backoff, one executor heartbeat write per 60s/device, no task-limit multiplication, and no remote migration-list read for fingerprint-proven code-only deploys.
+- `tests/d1-budget-contract.test.mjs` prevents regression of the above budget rules.
+- WhatsApp now shares the Viber expandable «Приєднані сьогодні» block and uses the existing WhatsApp Web open path.
+- Canonical autonomous-development instructions now live in `docs/AUTONOMOUS_DEVELOPMENT_PROMPT.md`.
+- Production Worker/D1 are untouched.
+
+
 ## 2026-09-24 D1 quota hardening for executor polling
 
 - The desktop Discovery runner no longer polls the D1-backed executor stack every 3 seconds while idle. It now uses adaptive 15s → 30s → 60s idle backoff and returns to 3s only after real work is completed.
