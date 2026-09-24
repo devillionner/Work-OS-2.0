@@ -18,6 +18,13 @@ export function WorkspaceInitialLoading({
   </div>;
 }
 
+export function WorkspaceInlineLoading({ label='Завантажуємо…' }: { label?:string }) {
+  return <div className="workspace-inline-loading" role="status" aria-live="polite">
+    <i aria-hidden="true"/>
+    <span>{label}</span>
+  </div>;
+}
+
 export function WorkspaceRefreshIndicator({
   active,
   label='Оновлюємо…',
