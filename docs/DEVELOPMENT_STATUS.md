@@ -1,5 +1,14 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 WhatsApp runtime readiness gate / v0.2.67
+
+- A non-interactive executor process without `WORK_OS_WHATSAPP_CDP` exits before the first Work OS API/D1 poll. There is no useful autonomous work it can safely complete in that state.
+- Transient WhatsApp runtime failures (`whatsapp_not_authenticated`, `page_not_ready`, local CDP/socket failures) now block new Discovery source advancement for five minutes. Existing messenger tasks remain fail-closed; no callback is invented.
+- A factual successful WhatsApp inspect/leave/autopost clears the runtime block immediately. Interactive TTY mode can still use the explicit operator-confirmed fallback.
+- The canonical autonomous prompt now preserves the 60s empty-source cadence and runtime-readiness/cooldown rule so later development cannot silently regress the D1 guardrail.
+- No schema migration, staging D1 probe or production operation is part of this slice.
+
+
 ## 2026-09-24 active Discovery source budget / v0.2.66
 
 - The executor runner now distinguishes messenger work from source crawling. Real join/inspect/leave/autopost work and a source step that just created candidates keep the 3s handoff cadence; a source step with no new candidate waits 60s before another source crawl.

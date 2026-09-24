@@ -76,6 +76,20 @@ void test('runner separates fast messenger work from bounded source advancement 
   assert.match(source,/waitMs=SOURCE_ADVANCE_MS/);
   assert.match(source,/Math\.min\(IDLE_POLL_MAX_MS,idleDelayMs\*2\)/);
   assert.match(source,/canAdvanceDiscoverySource\(\)/);
-  assert.match(source,/configure WORK_OS_WHATSAPP_CDP or run interactively/);
+  assert.match(source,/Non-interactive Discovery runner requires WORK_OS_WHATSAPP_CDP/);
+  assert.match(source,/WHATSAPP_RUNTIME_COOLDOWN_MS=300000/);
+  assert.match(source,/markWhatsappRuntimeBlocked/);
+  assert.match(source,/Date\.now\(\)>=whatsappRuntimeBlockedUntil/);
+  assert.match(source,/no new join tasks will be collected/);
   assert.match(source,/backing off until the browser adapter is available/);
+});
+
+
+void test('non-interactive runner fails before API polling without a WhatsApp runtime and transient CDP state pauses source crawl',()=>{
+  const startupGuard=source.indexOf('Non-interactive Discovery runner requires WORK_OS_WHATSAPP_CDP');
+  const firstApi=source.indexOf("api('/api/chat-discovery/executor?limit=1')");
+  assert.ok(startupGuard>0&&firstApi>startupGuard);
+  assert.match(source,/WHATSAPP_RUNTIME_TRANSIENT_REASONS\.has\(automated\.reason\)/);
+  assert.match(source,/markWhatsappRuntimeBlocked\('cdp_unavailable'\)/);
+  assert.match(source,/clearWhatsappRuntimeBlock\(\)/);
 });

@@ -1,9 +1,9 @@
-export const APP_VERSION = '0.2.66';
+export const APP_VERSION = '0.2.67';
 export const APP_RELEASE_DATE = '2026-09-24';
 
 // User-facing copy only. Keep each note short and plain; technical details belong in docs and commits.
 export const APP_CHANGES = [
-  'Discovery source search більше не крутиться кожні 3 секунди: порожній source-advance має мінімум 60 секунд до наступного.',
-  '3-секундний цикл зберігається лише для реальної messenger task або щойно знайденого кандидата, щоб join/inspect не затримувався.',
-  'Non-interactive runner без WhatsApp CDP не накопичує нові join tasks, а один source-advance обробляє менший bounded batch.',
+  'Фоновий Discovery runner без WhatsApp CDP тепер завершується до першого Work OS/D1 poll замість марного фонового циклу.',
+  'Якщо WhatsApp Web розлогінений, page/CDP не готові або CDP відвалився, новий source crawl ставиться на 5-хвилинний cooldown.',
+  'Успішна підтверджена WhatsApp дія знімає runtime block; task-specific неоднозначність і далі fail-closed не створює вигаданих фактів.',
 ] as const;

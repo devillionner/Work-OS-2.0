@@ -319,3 +319,13 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Reduce one Telegram source advance to 1 seed query / 2 public previews and public-web fallback to 2 queries.
 - [x] D1 budget contract protects active-source cadence and batch fan-out, not only idle polling.
 - [ ] Live 8h rows_read/search-rate measurement waits for staging D1 quota reset.
+
+
+## v0.2.67 — WhatsApp runtime readiness gate
+
+- [x] Non-interactive runner without WhatsApp CDP exits before any executor/API polling.
+- [x] WhatsApp auth/page/CDP transient failures pause new Discovery source crawl for 5 minutes instead of accumulating unprocessable candidates.
+- [x] Verified successful WhatsApp runtime work clears the cooldown immediately; interactive manual fallback stays available.
+- [x] Canonical autonomous prompt locks the active-source cadence/runtime readiness rule.
+- [x] D1 regression contract protects startup fail-closed and runtime cooldown.
+- [ ] Physical WhatsApp Web acceptance remains blocked until a real CDP-enabled authenticated session is available.

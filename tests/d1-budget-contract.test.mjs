@@ -30,6 +30,9 @@ void test('Discovery executor and staging deploy retain quota-safe guards',()=>{
   const domain=read('lib/chat-discovery/domain.ts');
   assert.match(runner,/TASK_POLL_MS=3000/);
   assert.match(runner,/SOURCE_ADVANCE_MS=60000/);
+  assert.match(runner,/WHATSAPP_RUNTIME_COOLDOWN_MS=300000/);
+  assert.match(runner,/Non-interactive Discovery runner requires WORK_OS_WHATSAPP_CDP/);
+  assert.match(runner,/Date\.now\(\)>=whatsappRuntimeBlockedUntil/);
   assert.match(runner,/IDLE_POLL_MIN_MS=15000/);
   assert.match(runner,/IDLE_POLL_MAX_MS=60000/);
   assert.match(runner,/canAdvanceDiscoverySource\(\)/);

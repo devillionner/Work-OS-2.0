@@ -36,6 +36,8 @@ Production Worker і production D1 не читати, не мігрувати й
 - Новий recurring/background D1 path не готовий без worst-case requests/day reasoning і regression-test на backoff/fan-out.
 - При daily D1 quota exhaustion припини автоматичні D1-backed probes до reset. Для deploy identity використовуй `/api/build` і Cloudflare build/deployment state.
 - Один operator request не повинен приховано множитися у десятки candidate/queue reads.
+- Autonomous Discovery source crawl без нового кандидата не повинен працювати частіше разу на 60 секунд; 3-секундний cadence дозволений лише для реальної messenger task або immediate handoff після знайденого кандидата.
+- Non-interactive executor без працездатного WhatsApp runtime/CDP повинен fail-closed до source crawl; transient logout/page-not-ready/CDP failure ставить source advancement на cooldown замість накопичення кандидатів.
 - Не послаблюй `tests/d1-budget-contract.test.mjs`; архітектурна заміна повинна бути рівноцінною або сильнішою.
 
 ## Verification і deploy
