@@ -696,3 +696,13 @@ separate gates after local validation and the required direct confirmation.
 - The target-proof requirement is executor-only: manual qualification in the authenticated Work OS UI keeps its existing path and is not accidentally blocked by adapter policy.
 - Executor tasks carry expected chat identity, runtime intent and a fail-closed safety marker. External leave requires the same proof before Work OS archives or records canonical leave state.
 - Reference-runner and UI contract regressions cover the wiring. Live WhatsApp Web automation acceptance and full verify:local remain separate evidence gates and are not claimed here.
+
+
+## Platforms operator UX cleanup — v0.2.41
+
+- Replaced the large decorative Platforms hero with a compact task header and moved platform switching into the same surface.
+- Consolidated publication pace, daily goal, available, joined and published facts into one overview; the old stacked today-links/posting-pace surfaces are removed.
+- Quick-publish now lives inside the ready queue where it is contextually relevant. The redundant toolbar queue badge was removed because the active queue tab already owns that count.
+- The chat-row primary action is now «Підготувати», matching its actual behavior of opening the preparation dialog. Only the final dialog action records a publication fact.
+- Removed obsolete platform-hero/today-links/posting-pace/quick-publish-bar code paths and extracted the overview/copy behavior into `components/platform-overview.tsx` to reduce the main workspace component.
+- Source/UX regression coverage was updated for the compact hierarchy and responsive behavior. Cloudflare build and live staging visual acceptance are not yet claimed in this entry.
