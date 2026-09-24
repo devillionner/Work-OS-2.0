@@ -35,7 +35,7 @@ void test('cross-device sync uses the existing monotonic backup revision as sour
 
 void test('global server sync refreshes only after authoritative revision changes', () => {
   const sync = read('components/server-sync.tsx'); const clientSync = read('lib/client-sync.ts'); const layout = read('app/layout.tsx');
-  assert.match(sync, /const SERVER_SYNC_ACTIVE_MS = 10_000/); assert.match(sync, /const SERVER_SYNC_IDLE_MIN_MS = 30_000/); assert.match(sync, /const SERVER_SYNC_IDLE_MAX_MS = 60_000/); assert.match(sync, /const SERVER_SYNC_ERROR_MAX_MS = 300_000/); assert.doesNotMatch(sync, /setInterval/); assert.match(sync, /fetch\(`\/api\/sync\?t=\$\{Date\.now\(\)\}`/); assert.match(sync, /readRenderedRevision\(\)/); assert.doesNotMatch(sync, /pendingLocalAckRef/); assert.match(sync, /revision === previous/); assert.match(sync, /detail\?\.reason === 'local-write'\) void checkRevision\('cross-tab'\)/); assert.match(sync, /router\.refresh\(\)/); assert.match(sync, /new BroadcastChannel\(DATA_SYNC_CHANNEL\)/); assert.match(sync, /visibilitychange/); assert.match(sync, /window\.addEventListener\('online'/); assert.match(sync, /DATA_SYNC_REQUEST_EVENT/); assert.match(sync, /onSyncRequest/); assert.match(clientSync, /announceDataChange/); assert.match(clientSync, /requestDataSync/); assert.match(clientSync, /DATA_SYNC_REQUEST_EVENT/); assert.match(layout, /<ServerSync \/>/);
+  assert.match(sync, /const SERVER_SYNC_ACTIVE_MS = 10_000/); assert.match(sync, /const SERVER_SYNC_IDLE_MIN_MS = 30_000/); assert.match(sync, /const SERVER_SYNC_IDLE_MAX_MS = 60_000/); assert.match(sync, /const SERVER_SYNC_ERROR_MAX_MS = 300_000/); assert.doesNotMatch(sync, /setInterval/); assert.match(sync, /fetch\(`\/api\/sync\?t=\$\{Date\.now\(\)\}`/); assert.match(sync, /readRenderedRevision\(\)/); assert.doesNotMatch(sync, /pendingLocalAckRef/); assert.match(sync, /revision === previous/); assert.match(sync, /detail\?\.reason === 'local-write'\) wake\('cross-tab'\)/); assert.match(sync, /router\.refresh\(\)/); assert.match(sync, /new BroadcastChannel\(DATA_SYNC_CHANNEL\)/); assert.match(sync, /visibilitychange/); assert.match(sync, /window\.addEventListener\('online'/); assert.match(sync, /DATA_SYNC_REQUEST_EVENT/); assert.match(sync, /onSyncRequest/); assert.match(clientSync, /announceDataChange/); assert.match(clientSync, /requestDataSync/); assert.match(clientSync, /DATA_SYNC_REQUEST_EVENT/); assert.match(layout, /<ServerSync \/>/);
 });
 
 void test('authoritative revision refreshes persistent workspaces without remount keys', () => {
@@ -62,18 +62,18 @@ void test('global sync refreshes every workspace when the Kyiv business date cha
   const sync = read('components/server-sync.tsx');
   assert.match(sync,/businessDateRef = useRef\(readKyivBusinessDate\(\)\)/);
   assert.match(sync,/timeZone: 'Europe\/Kyiv'/);
-  assert.match(sync,/if \(refreshBusinessDay\(\)\) return/);
+  assert.match(sync,/if \(refreshBusinessDay\(\)\) \{/);
   assert.match(sync,/router\.refresh\(\)/);
 });
 
 
 void test('sync never consumes a newer server revision when poll refresh is throttled', () => {
   const sync = read('components/server-sync.tsx');
-  const throttle = sync.indexOf("if (reason === 'poll' && now - lastRefreshAt.current < MIN_REFRESH_GAP_MS) return;");
+  const throttle = sync.indexOf("if (reason === 'poll' && now - lastRefreshAt.current < MIN_REFRESH_GAP_MS) return 'changed';");
   const assign = sync.indexOf('revisionRef.current = revision;', throttle);
   assert.ok(throttle >= 0);
   assert.ok(assign > throttle);
-  assert.match(sync,/explicit local\/cross-tab\s+\*\/);
+  assert.match(sync,/pendingCheckRef\.current = reason/);
 });
 
 
