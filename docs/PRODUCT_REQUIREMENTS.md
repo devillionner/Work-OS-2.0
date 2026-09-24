@@ -460,7 +460,7 @@
 
 ## Messenger automation requirements — 2026-09-23
 
-- **WhatsApp pending approval** є окремою WhatsApp-only функцією. «Очікування» показує лише чати, де після join request потрібне підтвердження адміністратора. «Перевірити зараз» має запускати фактичну messenger-side перевірку; adapter згодом може виконувати bounded background rechecks. `joined` дозволено виставляти лише після перевіреного результату, а не після таймера чи відкриття invite.
+- **WhatsApp pending approval** є окремою WhatsApp-only функцією. «Очікування» показує лише чати, де після join request потрібне підтвердження адміністратора. «Перевірити зараз» має запускати фактичну messenger-side перевірку. Після factual `pending` executor ставить canonical `next_check_at` через 3 хвилини; до цього candidate не видається повторно, після дедлайну автоматично повертається в queue. `joined` дозволено виставляти лише після перевіреного результату, а не після таймера чи відкриття invite.
 - **Verified WhatsApp external leave**: якщо вже приєднаний чат після перевірки став rejected/unavailable, browser executor може вийти автоматично лише після exact target verification, явного leave control + confirmation і factual post-leave state; інакше callback не надсилається. Ручний leave лишається fallback.
 - Цільовий WhatsApp adapter працює через **WhatsApp Web у браузері** та постійну авторизовану сесію; окремий WhatsApp Desktop app не є product dependency. Розпізнавання pending/joined/unavailable, chat identity та writeability повинне бути fail-closed.
 - Viber використовує native desktop/deep-link path і **не має WhatsApp-style pending approval вкладки**. Linux/CachyOS acceptance target — системно зареєстрований Viber handler (`viber.desktop`, `x-scheme-handler/viber`), а не standalone AppImage.

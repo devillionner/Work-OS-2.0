@@ -1,5 +1,12 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 WhatsApp bounded pending recheck — v0.2.51
+
+- WhatsApp pending approval now has a canonical server-side cadence instead of being reissued to the runner every polling cycle.
+- A factual `pending` inspection stores `executor_next_check_at = now + 180s`; executor queue excludes that candidate until the due time, then automatically exposes `check_membership_and_inspect` again.
+- The due time lives in D1, so runner restarts and multiple paired devices share the same schedule. Joined/unavailable/other inspection outcomes clear the pending cadence on the next canonical inspection update.
+- Migration `0036_chat_discovery_pending_recheck.sql` adds only the staging-safe timestamp/index. Production is untouched. Live WhatsApp browser acceptance remains separate evidence.
+
 ## 2026-09-24 Verified WhatsApp external leave automation — v0.2.50
 
 - WhatsApp Web executor now handles `leave` tasks through the same optional loopback-only CDP path as join/check instead of always stopping for manual confirmation.

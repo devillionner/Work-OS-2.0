@@ -647,6 +647,38 @@ void test('executor queue exposes only the next safe external action and clears 
 });
 
 
+void test('WhatsApp pending executor callbacks schedule a bounded server-side recheck', async (t) => {
+  const { db, candidate } = await importedCandidate(t, 'PendingRecheck123');
+  const first = await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 200);
+  assert.equal(first.tasks.length, 1);
+
+  const pending = await applyDiscoveryInspection(db, 'u', {
+    candidateId:candidate.id,
+    expectedVersion:first.tasks[0].candidateVersion,
+    executorDeviceId:'device-a',
+    requireTargetVerification:true,
+    result:{
+      status:'inspected',
+      targetVerified:true,
+      accessible:true,
+      membershipState:'pending',
+      observedName:'Українці Praha',
+    },
+  }, 201);
+  assert.equal(pending.membershipState, 'pending');
+  assert.equal(pending.workflowStatus, 'waiting');
+
+  const stored = await db.prepare('SELECT executor_next_check_at FROM chat_discovery_candidates WHERE id=?1')
+    .bind(candidate.id).first();
+  assert.equal(stored.executor_next_check_at, 381);
+
+  assert.equal((await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 202)).tasks.length, 0);
+  assert.equal((await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 380)).tasks.length, 0);
+  const due = await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 381);
+  assert.equal(due.tasks.length, 1);
+  assert.equal(due.tasks[0].action, 'check_membership_and_inspect');
+});
+
 void test('executor claims are exclusive per device and recover after a bounded lease', async (t) => {
   const { db, candidate } = await importedCandidate(t, 'ExecutorLease123');
   const first = await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 10, 200);

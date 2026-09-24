@@ -38,23 +38,26 @@ type CandidateTaskRow = {
   inspection_state: 'not_checked' | 'inspected' | 'failed';
   decision: DiscoveryDecision;
   imported_chat_id: string;
+  executor_next_check_at: number | null;
 };
 
 export async function readDiscoveryExecutorQueue(
   db: D1Database,
   userId: string,
   limitInput: unknown,
+  now = Number.MAX_SAFE_INTEGER,
 ): Promise<{ tasks: DiscoveryExecutorTask[] }> {
   const limit = boundedLimit(limitInput);
   const [candidateRows, latestRun] = await Promise.all([
-    db.prepare(`SELECT id,version,platform,name,normalized_link,membership_state,inspection_state,decision,imported_chat_id
+    db.prepare(`SELECT id,version,platform,name,normalized_link,membership_state,inspection_state,decision,imported_chat_id,executor_next_check_at
       FROM chat_discovery_candidates
       WHERE user_id=?1 AND imported_chat_id IS NOT NULL AND membership_state<>'left'
         AND platform IN ('whatsapp','viber')
+        AND (platform<>'whatsapp' OR membership_state<>'pending' OR executor_next_check_at IS NULL OR executor_next_check_at<=?2)
       ORDER BY CASE WHEN platform='whatsapp' AND membership_state='pending' THEN 0 ELSE 1 END,
         CASE decision WHEN 'rejected' THEN 0 WHEN 'unavailable' THEN 0 WHEN 'review' THEN 1 ELSE 2 END,
         updated_at ASC,id
-      LIMIT ?2`).bind(userId, Math.max(limit * 3, 20)).all<CandidateTaskRow>(),
+      LIMIT ?3`).bind(userId, now, Math.max(limit * 3, 20)).all<CandidateTaskRow>(),
     db.prepare(`SELECT min_members FROM chat_discovery_runs WHERE user_id=?1 ORDER BY updated_at DESC LIMIT 1`)
       .bind(userId).first<{ min_members: number }>(),
   ]);
@@ -96,7 +99,7 @@ export async function claimDiscoveryExecutorQueue(
 ): Promise<{ tasks: DiscoveryExecutorTask[]; leaseSeconds: number }> {
   const leaseSeconds = 90;
   const limit = boundedLimit(limitInput);
-  const queue = await readDiscoveryExecutorQueue(db, userId, Math.max(limit * 3, 20));
+  const queue = await readDiscoveryExecutorQueue(db, userId, Math.max(limit * 3, 20), now);
   const tasks: DiscoveryExecutorTask[] = [];
   for (const task of queue.tasks) {
     if (tasks.length >= limit) break;

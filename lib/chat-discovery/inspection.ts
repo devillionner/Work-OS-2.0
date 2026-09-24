@@ -140,16 +140,20 @@ export async function applyDiscoveryInspection(
     linkState,
   }, minMembers);
 
+  const nextExecutorCheckAt = candidate.platform === 'whatsapp' && membershipState === 'pending'
+    ? now + 180
+    : null;
+
   const update = await db.prepare(`UPDATE chat_discovery_candidates SET
     name=?1,checked_at=?2,member_count=?3,chat_type=?4,activity_state=?5,topic_match=?6,
     can_write=?7,ads_policy=?8,membership_state=?9,access_state=?10,link_state=?11,
-    inspection_state=?12,decision=?13,reason_codes_json=?14,updated_at=?2,version=version+1
-    WHERE id=?15 AND user_id=?16 AND version=?17 AND imported_chat_id=?18
-      AND (?19 IS NULL OR (executor_lease_device_id=?19 AND executor_lease_expires_at>?2))
+    inspection_state=?12,decision=?13,reason_codes_json=?14,executor_next_check_at=?15,updated_at=?2,version=version+1
+    WHERE id=?16 AND user_id=?17 AND version=?18 AND imported_chat_id=?19
+      AND (?20 IS NULL OR (executor_lease_device_id=?20 AND executor_lease_expires_at>?2))
     RETURNING version`)
     .bind(nextName, now, memberCount, chatType, activityState, nextTopic,
       canWrite === null ? null : Number(canWrite), adsPolicy, membershipState, accessState, linkState,
-      inspectionState, evaluated.decision, JSON.stringify(evaluated.reasonCodes),
+      inspectionState, evaluated.decision, JSON.stringify(evaluated.reasonCodes), nextExecutorCheckAt,
       candidate.id, userId, expectedVersion, candidate.imported_chat_id,input.executorDeviceId??null)
     .first<{ version: number }>();
   if (!update) throw new DiscoveryError('Кандидат змінився під час автоперевірки. Оновіть список.', 409);

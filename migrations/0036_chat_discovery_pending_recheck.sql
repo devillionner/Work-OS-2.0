@@ -1,0 +1,4 @@
+ALTER TABLE chat_discovery_candidates ADD COLUMN executor_next_check_at INTEGER;
+
+CREATE INDEX chat_discovery_candidates_executor_next_check_idx
+ON chat_discovery_candidates(user_id,platform,membership_state,executor_next_check_at,updated_at);
