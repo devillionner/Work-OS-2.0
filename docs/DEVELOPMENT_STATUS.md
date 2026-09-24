@@ -1,5 +1,13 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Telegram-derived Discovery coverage / v0.2.62
+
+- Autonomous Telegram-derived Discovery keeps the existing deterministic seed cursor, but each seed task now has a strict `chat.whatsapp.com` search and one bounded broader `WhatsApp` fallback only when the strict result does not expose enough Telegram source pages.
+- Public `t.me/<channel>` and `telegram.me/<channel>` results are converted to `t.me/s/<channel>` history previews before fetch, preserving a numeric message tail and bounded `before/after` cursor when present. This lets source inspection see the public channel history instead of only the landing card.
+- Private `t.me/+`, joinchat, internal `/c/` and Telegram service links are never converted into crawl targets. Fetch volume remains bounded by two search variants and the existing per-task pageLimit.
+- Candidate provenance remains the exact fetched Telegram preview URL plus the canonical seed query. No D1 schema or production operation changed.
+
+
 ## 2026-09-24 remaining D1 poller hardening / v0.2.61
 
 - Workday cross-device sync no longer issues a D1-backed GET every 5 seconds forever. The local elapsed-time clock still updates every second without network access, while server polling uses 5s active → 15s → 30s → 60s unchanged backoff and up to 5 minutes after repeated failures.

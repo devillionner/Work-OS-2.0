@@ -14,7 +14,7 @@ import {
 } from '../lib/chat-discovery/domain.ts';
 import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
 import { assertDiscoveryExecutorLease, claimDiscoveryExecutorQueue, completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
-import { buildTelegramSearchPlan, discoverPublicWeb, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl } from '../lib/chat-discovery/public-web.ts';
+import { buildTelegramSearchPlan, discoverPublicWeb, discoverTelegramPublic, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl, telegramPublicPreviewUrl, telegramPublicSearchQueries } from '../lib/chat-discovery/public-web.ts';
 import { changeChatLeave } from '../lib/chats/leave.ts';
 import { readChatState } from '../lib/chats/state.ts';
 import { transitionChat } from '../lib/chats/transitions.ts';
@@ -128,6 +128,52 @@ void test('Telegram keyword plan is deterministic, bounded and resolves workbook
   const next = buildTelegramSearchPlan(first.nextCursor, 3);
   assert.equal(next.cursor, first.nextCursor);
   assert.ok(next.tasks.every(task => task.cursor >= first.nextCursor));
+});
+
+void test('Telegram public discovery broadens search only when the strict result lacks enough public sources', async () => {
+  const task = buildTelegramSearchPlan(0,1).tasks[0];
+  assert.equal(telegramPublicSearchQueries(task).length,2);
+  assert.match(telegramPublicSearchQueries(task)[0],/chat\.whatsapp\.com/);
+  assert.match(telegramPublicSearchQueries(task)[1],/WhatsApp/);
+
+  const calls = [];
+  const result = await discoverTelegramPublic({cursor:0,maxQueries:1,pageLimit:2}, async (url) => {
+    calls.push(String(url));
+    if (String(url).includes('search.brave.com')) {
+      const decoded=decodeURIComponent(String(url));
+      if (decoded.includes('chat.whatsapp.com')) {
+        return html('<a href="https://t.me/ua_source_one/42">one</a>');
+      }
+      return html('<a href="https://telegram.me/ua_source_two">two</a>');
+    }
+    if (String(url)==='https://t.me/s/ua_source_one/42') {
+      return html('<article>Українці Berlin батьки https://chat.whatsapp.com/TelegramCoverageA123</article>');
+    }
+    if (String(url)==='https://t.me/s/ua_source_two') {
+      return html('<article>Українці Berlin допомога https://chat.whatsapp.com/TelegramCoverageB123</article>');
+    }
+    return html('');
+  });
+
+  assert.equal(result.searched,1);
+  assert.equal(result.errors,0);
+  assert.equal(calls.filter(url=>url.includes('search.brave.com')).length,2);
+  assert.ok(calls.includes('https://t.me/s/ua_source_one/42'));
+  assert.ok(calls.includes('https://t.me/s/ua_source_two'));
+  assert.deepEqual(new Set(result.records.map(item=>item.link)),new Set([
+    'https://chat.whatsapp.com/TelegramCoverageA123',
+    'https://chat.whatsapp.com/TelegramCoverageB123',
+  ]));
+});
+
+void test('Telegram public discovery prefers bounded history previews and rejects non-public Telegram targets', () => {
+  assert.equal(telegramPublicPreviewUrl('https://t.me/ua_berlin_public'),'https://t.me/s/ua_berlin_public');
+  assert.equal(telegramPublicPreviewUrl('https://telegram.me/ua_berlin_public/123'),'https://t.me/s/ua_berlin_public/123');
+  assert.equal(telegramPublicPreviewUrl('https://t.me/s/ua_berlin_public?before=99'),'https://t.me/s/ua_berlin_public?before=99');
+  assert.equal(telegramPublicPreviewUrl('https://t.me/+PrivateInvite'),null);
+  assert.equal(telegramPublicPreviewUrl('https://t.me/joinchat/PrivateInvite'),null);
+  assert.equal(telegramPublicPreviewUrl('https://t.me/c/123456/7'),null);
+  assert.equal(telegramPublicPreviewUrl('https://example.org/ua_berlin_public'),null);
 });
 
 void test('discovery run clamps target member threshold to the required 700-18000 range', async (t) => {

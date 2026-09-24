@@ -348,6 +348,39 @@ export async function discoverPublicWeb(input: {
   };
 }
 
+export function telegramPublicSearchQueries(task: TelegramSearchTask): string[] {
+  const values = [
+    `site:t.me "${task.query}" "chat.whatsapp.com"`,
+    `site:t.me "${task.query}" WhatsApp`,
+  ];
+  return [...new Set(values)];
+}
+
+export function telegramPublicPreviewUrl(value: string): string | null {
+  let url: URL;
+  try { url = new URL(value); } catch { return null; }
+  const host = url.hostname.toLowerCase();
+  if (host !== 't.me' && host !== 'telegram.me') return null;
+  const parts = url.pathname.split('/').filter(Boolean);
+  if (!parts.length) return null;
+
+  let channel = parts[0];
+  let tail = parts.slice(1);
+  if (channel.toLowerCase() === 's') {
+    channel = parts[1] || '';
+    tail = parts.slice(2);
+  }
+  const blocked = new Set(['joinchat','share','proxy','socks','login','iv','c','addstickers','addemoji','boost']);
+  if (!channel || channel.startsWith('+') || blocked.has(channel.toLowerCase()) || !/^[A-Za-z0-9_]{3,}$/.test(channel)) return null;
+
+  const preview = new URL(`https://t.me/s/${channel}${tail.length ? `/${tail.join('/')}` : ''}`);
+  const before = url.searchParams.get('before');
+  const after = url.searchParams.get('after');
+  if (before && /^\d+$/.test(before)) preview.searchParams.set('before', before);
+  else if (after && /^\d+$/.test(after)) preview.searchParams.set('after', after);
+  return preview.toString();
+}
+
 export async function discoverTelegramPublic(input: {
   cursor?: number;
   maxQueries?: number;
@@ -361,12 +394,17 @@ export async function discoverTelegramPublic(input: {
   let errors = 0;
 
   const outcomes = await mapPool(plan.tasks, 2, async (task) => {
-    const searchQuery = `site:t.me "${task.query}" "chat.whatsapp.com"`;
-    const searchUrl = `${SEARCH_HOST}?q=${encodeURIComponent(searchQuery)}&source=web`;
-    try {
+    const contextPrefix = [task.query, task.city, task.country, 'Telegram'].filter(Boolean).join(' · ');
+    const taskRecords: DiscoveryRecord[] = [];
+    const pageUrls: string[] = [];
+    const seenPages = new Set<string>();
+    let successfulSearches = 0;
+
+    for (const searchQuery of telegramPublicSearchQueries(task)) {
+      const searchUrl = `${SEARCH_HOST}?q=${encodeURIComponent(searchQuery)}&source=web`;
       const body = await fetchText(searchUrl, fetcher, 10_000);
-      if (!body) return [];
-      const contextPrefix = [task.query, task.city, task.country, 'Telegram'].filter(Boolean).join(' · ');
+      if (!body) continue;
+      successfulSearches += 1;
       const base = {
         platforms: ['whatsapp'] as DiscoveryPlatform[],
         kind: 'telegram_global' as const,
@@ -377,37 +415,48 @@ export async function discoverTelegramPublic(input: {
         seedKind: task.seedKind,
         contextPrefix,
       };
-      const found = recordsFromPage(body, base);
-      if (!pageLimit) return found;
+      for (const item of recordsFromPage(body, base)) pushBounded(taskRecords, item);
 
-      const telegramLinks = extractSearchResultLinks(body)
-        .filter((link) => {
-          try {
-            const host = new URL(link).hostname.toLowerCase();
-            return host === 't.me' || host === 'telegram.me';
-          } catch {
-            return false;
-          }
-        })
-        .slice(0, pageLimit);
-      const pages = await mapPool(telegramLinks, 2, async (link) => {
-        try {
-          const page = await fetchText(link, fetcher, 10_000);
-          if (!page) return [];
-          return recordsFromPage(page, {
-            ...base,
-            sourceUrl: link,
-            sourceTitle: `Telegram · ${task.seedLabel}`,
-          });
-        } catch {
-          return [];
+      if (pageLimit) {
+        for (const link of extractSearchResultLinks(body)) {
+          const preview = telegramPublicPreviewUrl(link);
+          if (!preview || seenPages.has(preview)) continue;
+          seenPages.add(preview);
+          pageUrls.push(preview);
+          if (pageUrls.length >= pageLimit) break;
         }
-      });
-      return [...found, ...pages.flat()];
-    } catch {
+      }
+
+      // The strict query remains the cheap fast path. Only broaden search when
+      // it did not surface enough Telegram pages (or any direct invite).
+      if (
+        searchQuery === telegramPublicSearchQueries(task)[0] &&
+        (pageLimit ? pageUrls.length >= pageLimit : taskRecords.length > 0)
+      ) break;
+    }
+
+    if (!successfulSearches) {
       errors += 1;
       return [];
     }
+    if (!pageLimit) return taskRecords;
+
+    const pages = await mapPool(pageUrls.slice(0, pageLimit), 2, async (link) => {
+      const page = await fetchText(link, fetcher, 10_000);
+      if (!page) return [];
+      return recordsFromPage(page, {
+        platforms: ['whatsapp'] as DiscoveryPlatform[],
+        kind: 'telegram_global' as const,
+        sourceUrl: link,
+        sourceTitle: `Telegram · ${task.seedLabel}`,
+        query: task.query,
+        seedLabel: task.seedLabel,
+        seedKind: task.seedKind,
+        contextPrefix,
+      });
+    });
+    for (const item of pages.flat()) pushBounded(taskRecords, item);
+    return taskRecords;
   });
   for (const item of outcomes.flat()) pushBounded(records, item);
 

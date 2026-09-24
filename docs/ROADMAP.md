@@ -272,3 +272,13 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] D1 budget contracts protect both paths from returning to fixed high-frequency request intervals.
 - [ ] Live data-backed acceptance waits for the current D1 daily quota reset; deploy identity may be checked only through non-D1 `/api/build`.
 - Next functional slice after the quota incident: resume WhatsApp Web executor/live acceptance when D1 and local browser control are available; otherwise continue canonical Library image/media support without weakening quota rules.
+
+
+## v0.2.62 — Telegram-derived Discovery coverage
+
+- [x] Keep the deterministic workbook seed cursor but add one bounded broader Telegram search variant only when the strict `chat.whatsapp.com` query does not expose enough sources.
+- [x] Convert public Telegram channel/message results to `t.me/s` history previews before extraction so older public posts can contribute WhatsApp invites.
+- [x] Reject private invite/internal/service Telegram URLs from the crawler; preserve safe-public URL and bounded fetch limits.
+- [x] Preserve exact Telegram preview provenance on extracted candidates.
+- [ ] Live yield comparison waits for D1 quota reset; do not start an autonomous run against the exhausted staging DB only to measure coverage.
+- Next: after D1 reset + browser control, run real WhatsApp Discovery/executor acceptance; otherwise continue code-only canonical Library image/media design without pushing a migration until staging D1 can preflight it.
