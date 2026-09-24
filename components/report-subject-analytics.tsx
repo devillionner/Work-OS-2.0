@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import type { SubjectAnalytics, SubjectPeriod } from '@/lib/reports/subjects';
 import { analyticsPercentLabel } from '@/lib/analytics-rate';
+import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 
 const PERIODS: Array<{ key: SubjectPeriod; label: string }> = [
   { key: 'day', label: 'День' },
@@ -43,7 +44,7 @@ export function ReportSubjectAnalytics({ date }: { date: string }) {
   }, [date, period]);
 
   return (
-    <section className="report-subjects" aria-labelledby="report-subjects-title">
+    <section className="report-subjects" aria-labelledby="report-subjects-title" aria-busy={loading}>
       <div className="report-checkpoints-head">
         <div>
           <p className="eyebrow">Предмети</p>
@@ -68,7 +69,7 @@ export function ReportSubjectAnalytics({ date }: { date: string }) {
       </div>
       {error && <p className="workspace-error" role="alert">{error}</p>}
       {loading && !data ? (
-        <p className="muted-note">Завантажуємо предмети…</p>
+        <WorkspaceInlineLoading label="Завантажуємо предмети…"/>
       ) : data ? (
         <>
           <div className="report-subject-table hidden md:block" role="region" aria-label="Таблиця предметів" tabIndex={0}>
