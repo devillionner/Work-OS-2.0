@@ -636,7 +636,7 @@ void test('executor queue exposes only the next safe external action and clears 
     candidateId: candidate.id,
     expectedVersion: candidate.version,
     result: {
-      status:'inspected', accessible:true, membershipState:'joined',
+      status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
       observedName:'Українці Praha', chatType:'group', memberCount:900,
       topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
     },
@@ -679,7 +679,7 @@ void test('executor leave result archives a rejected joined WhatsApp chat and co
     candidateId: candidate.id,
     expectedVersion: candidate.version,
     result: {
-      status:'inspected', accessible:true, membershipState:'joined',
+      status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
       observedName:'Random chat', chatType:'group', memberCount:900,
       topicMatch:'mismatch', canWrite:true, adsPolicy:'allowed', activityState:'active',
     },
@@ -705,6 +705,7 @@ void test('executor leave result archives a rejected joined WhatsApp chat and co
     candidateId: task.candidateId,
     expectedVersion: task.candidateVersion,
     chatStateToken: task.chatStateToken,
+    targetVerified: true,
   }, 112);
   assert.equal(completed.ok, true);
   const chat = await readChatState(db, 'u', chatId);
@@ -721,7 +722,7 @@ void test('inspection promotes an accepted WhatsApp target into ready workflow',
     candidateId: candidate.id,
     expectedVersion: candidate.version,
     result: {
-      status:'inspected', accessible:true, membershipState:'joined',
+      status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
       observedName:'Українці Praha допомога', chatType:'group', memberCount:900,
       topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
     },
@@ -746,7 +747,7 @@ void test('confirmed leave adds the membership blocker to an already-review cand
     candidateId: candidate.id,
     expectedVersion: candidate.version,
     result: {
-      status:'inspected', accessible:true, membershipState:'joined',
+      status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
       observedName:'Українці Brno батьки', chatType:'group', memberCount:900,
       topicMatch:'match', canWrite:true, adsPolicy:'unknown', activityState:'active',
     },
@@ -775,13 +776,24 @@ void test('confirmed leave adds the membership blocker to an already-review cand
   assert.deepEqual(stored.reasonCodes, ['unknown_ads_allowed']);
 });
 
+void test('executor inspection fails closed when the exact target chat was not verified', async (t) => {
+  const { db, candidate, chatId } = await importedCandidate(t, 'InspectTargetVerification123');
+  await assert.rejects(() => applyDiscoveryInspection(db, 'u', {
+    candidateId:candidate.id, expectedVersion:candidate.version,
+    result:{status:'inspected', accessible:true, membershipState:'joined', observedName:'Wrong or unknown chat', chatType:'group', memberCount:900, topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active'},
+  }, 110), error => error?.status === 409 && /цільовий чат/i.test(error.message));
+  assert.equal((await readChatState(db, 'u', chatId)).workflow_status, 'to_join');
+  const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.membershipState, 'not_checked');
+});
+
 void test('inspection cannot overwrite canonical joined membership with a stale manual state', async (t) => {
   const { db, candidate, chatId } = await importedCandidate(t, 'InspectMembershipCanonical123');
   const joined = await applyDiscoveryInspection(db, 'u', {
     candidateId: candidate.id,
     expectedVersion: candidate.version,
     result: {
-      status:'inspected', accessible:true, membershipState:'joined',
+      status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
       observedName:'Українці Graz батьки', chatType:'group', memberCount:900,
       topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
     },
@@ -810,7 +822,7 @@ void test('inspection cannot fake an external leave for an imported chat', async
     candidateId: candidate.id,
     expectedVersion: candidate.version,
     result: {
-      status:'inspected', accessible:true, membershipState:'joined',
+      status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
       observedName:'Українці Wien батьки', chatType:'group', memberCount:900,
       topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
     },
@@ -839,7 +851,7 @@ void test('confirmed external leave downgrades a target back to review', async (
     candidateId: candidate.id,
     expectedVersion: candidate.version,
     result: {
-      status:'inspected', accessible:true, membershipState:'joined',
+      status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
       observedName:'Українці Praha допомога', chatType:'group', memberCount:900,
       topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
     },
@@ -909,7 +921,7 @@ void test('restoring an archived discovery chat resets membership instead of rev
     candidateId: candidate.id,
     expectedVersion: candidate.version,
     result: {
-      status:'inspected', accessible:true, membershipState:'joined',
+      status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
       observedName:'Українці Praha допомога', chatType:'group', memberCount:900,
       topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
     },
@@ -953,7 +965,7 @@ void test('restoring an archived discovery chat resets membership instead of rev
     candidateId: stored.id,
     expectedVersion: stored.version,
     result: {
-      status:'inspected', accessible:true, membershipState:'joined',
+      status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
       observedName:'Українці Praha допомога', chatType:'group', memberCount:900,
       topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
     },
@@ -967,7 +979,7 @@ void test('joined inspection with unknown rules stays ready but explicitly needs
     candidateId: candidate.id,
     expectedVersion: candidate.version,
     result: {
-      status:'inspected', accessible:true, membershipState:'joined',
+      status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
       observedName:'Українці Praha допомога', chatType:'group', memberCount:900,
       canWrite:null, adsPolicy:'unknown', activityState:'unknown',
     },
@@ -988,7 +1000,7 @@ void test('inspection can record observed audience mismatch instead of trusting 
     candidateId: candidate.id,
     expectedVersion: candidate.version,
     result: {
-      status:'inspected', accessible:true, membershipState:'joined',
+      status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
       observedName:'Прага community', chatType:'group', memberCount:900,
       topicMatch:'mismatch', canWrite:true, adsPolicy:'allowed', activityState:'active',
     },
@@ -1006,7 +1018,7 @@ void test('joined rejected chat is not hidden before external leave succeeds', a
     candidateId: candidate.id,
     expectedVersion: candidate.version,
     result: {
-      status:'inspected', accessible:true, membershipState:'joined',
+      status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
       observedName:'Українці Praha допомога', chatType:'group', memberCount:500,
       canWrite:true, adsPolicy:'allowed', activityState:'active',
     },
@@ -1033,7 +1045,7 @@ void test('joined rejected Viber candidate can complete the canonical external-l
     candidateId: candidate.id,
     expectedVersion: candidate.version,
     result: {
-      status:'inspected', accessible:true, membershipState:'joined',
+      status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
       observedName:'Українці Praha допомога', chatType:'group', memberCount:500,
       topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
     },
@@ -1053,6 +1065,7 @@ void test('joined rejected Viber candidate can complete the canonical external-l
     candidateId: task.candidateId,
     expectedVersion: task.candidateVersion,
     chatStateToken: task.chatStateToken,
+    targetVerified: true,
   }, 112);
   assert.equal(completed.ok, true);
 
@@ -1062,6 +1075,19 @@ void test('joined rejected Viber candidate can complete the canonical external-l
   const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
   assert.equal(stored.membershipState, 'left');
   assert.equal(stored.decision, 'rejected');
+});
+
+void test('external leave refuses an unverified target even with a fresh state token', async (t) => {
+  const { db, candidate, chatId } = await importedCandidate(t, 'LeaveTargetVerification123');
+  const joined = await applyDiscoveryInspection(db, 'u', {
+    candidateId:candidate.id, expectedVersion:candidate.version,
+    result:{status:'inspected', targetVerified:true, accessible:true, membershipState:'joined', observedName:'Українці Praha допомога', chatType:'group', memberCount:500, topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active'},
+  }, 110);
+  assert.equal(joined.needsExternalLeave, true);
+  const task = (await readDiscoveryExecutorQueue(db, 'u', 10)).tasks.find(item => item.candidateId === candidate.id);
+  assert.ok(task);
+  await assert.rejects(() => completeDiscoveryExternalLeave(db, 'u', {candidateId:task.candidateId, expectedVersion:task.candidateVersion, chatStateToken:task.chatStateToken, targetVerified:false}, 111), error => error?.status === 409 && /цільовий чат/i.test(error.message));
+  assert.equal((await readChatState(db, 'u', chatId)).workflow_status, 'ready');
 });
 
 void test('known invalid invite before join is safely archived without claiming an external leave', async (t) => {
@@ -1087,14 +1113,14 @@ void test('inspection is owner scoped and optimistic', async (t) => {
   await assert.rejects(
     applyDiscoveryInspection(db, 'other', {
       candidateId:candidate.id, expectedVersion:candidate.version,
-      result:{status:'pending',accessible:true,membershipState:'pending'},
+      result:{status:'pending',targetVerified:true,accessible:true,membershipState:'pending'},
     }, 110),
     /Кандидат не знайдений/,
   );
   await assert.rejects(
     applyDiscoveryInspection(db, 'u', {
       candidateId:candidate.id, expectedVersion:candidate.version + 1,
-      result:{status:'pending',accessible:true,membershipState:'pending'},
+      result:{status:'pending',targetVerified:true,accessible:true,membershipState:'pending'},
     }, 110),
     /Кандидат уже змінився/,
   );
