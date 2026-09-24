@@ -99,7 +99,7 @@ export async function claimDiscoveryExecutorQueue(
 ): Promise<{ tasks: DiscoveryExecutorTask[]; leaseSeconds: number }> {
   const leaseSeconds = 90;
   const limit = boundedLimit(limitInput);
-  const queue = await readDiscoveryExecutorQueue(db, userId, Math.max(limit * 3, 20), now);
+  // readDiscoveryExecutorQueue already overfetches candidate rows internally. Keep the requested task\n  // limit here so a one-task desktop poll cannot multiply into a 20-task/60-candidate read.\n  const queue = await readDiscoveryExecutorQueue(db, userId, limit, now);
   const tasks: DiscoveryExecutorTask[] = [];
   for (const task of queue.tasks) {
     if (tasks.length >= limit) break;
