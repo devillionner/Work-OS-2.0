@@ -476,3 +476,11 @@
 - Archiving a chat after publication must not erase the historical publication from reports or analytics. Cancelled publication events must not count in Today, Reports or Analytics.
 - All daily publication views and midnight rollover use the Europe/Kyiv business date. Daily read-models must switch dates without requiring F5.
 - If a publication request has an ambiguous network outcome, the client must reread canonical state before encouraging a retry.
+
+
+## Platforms operator-density requirement — 2026-09-24
+
+- Platforms is a dense operator workspace, not a marketing/dashboard landing page. Decorative hero copy, duplicated queue totals and repeated daily cards must not push the active chat queue below the fold on normal desktop widths.
+- Daily pace/goal/available/joined/published facts should share one compact summary surface; the queue owns quick-publish controls and search/filter tools.
+- A row action that only opens preparation/material selection must be labelled as preparation. Only the final confirmed mutation may use publication wording or affect publication accounting.
+- Desktop/narrow/mobile must preserve the same action hierarchy: chat identity first, frequent action second, history/archive/utility controls visually secondary. Responsive compaction must not hide business state or reduce mobile touch targets below 44px.
