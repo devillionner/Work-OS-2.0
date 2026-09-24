@@ -18,10 +18,11 @@ import type { DashboardSnapshot } from '@/lib/dashboard';
 type Props = {
   user: { displayName: string; email: string };
   snapshot: DashboardSnapshot;
+  active?: boolean;
   onRefresh: () => void;
 };
 
-export function SettingsWorkspace({ user, snapshot, onRefresh }: Props) {
+export function SettingsWorkspace({ user, snapshot, active=true, onRefresh }: Props) {
   const [focusOpen, setFocusOpen] = useState(false);
   const [goalHistoryOpen, setGoalHistoryOpen] = useState(false);
   const [updatePreviewOpen, setUpdatePreviewOpen] = useState(false);
@@ -34,6 +35,16 @@ export function SettingsWorkspace({ user, snapshot, onRefresh }: Props) {
   const [platformNotice, setPlatformNotice] = useState('');
   const snapshotPlatformsKey=snapshot.enabledPlatforms.join('|');
   const lastSnapshotPlatformsKey=useRef(snapshotPlatformsKey);
+  useEffect(()=>{
+    if(active)return;
+    setFocusOpen(false);
+    setGoalHistoryOpen(false);
+    setUpdatePreviewOpen(false);
+    setRestoreOpen(false);
+    setDuplicatesOpen(false);
+    setCsvOpen(false);
+    setNamesOpen(false);
+  },[active]);
   useEffect(()=>{
     if(lastSnapshotPlatformsKey.current===snapshotPlatformsKey)return;
     lastSnapshotPlatformsKey.current=snapshotPlatformsKey;
