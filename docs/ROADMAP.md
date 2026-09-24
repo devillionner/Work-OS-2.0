@@ -184,3 +184,17 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Add source regression coverage for cache, prefetch and invalidation behavior.
 - Build discipline: prefer one coherent commit per completed slice so Cloudflare Workers Builds does not queue and skip a chain of intermediate commits.
 - [ ] Staging /api/build and live transition acceptance remain the release evidence gate.
+
+
+## v0.2.43 — Unified loading and transition architecture
+
+- [x] Keep visited main workspaces mounted instead of remounting them on every navigation change.
+- [x] Introduce shared initial, inline and delayed background-refresh loading states and remove the legacy blocking workspace loader from product components.
+- [x] Preserve exact-view data while revalidating Platforms, CRM, Analytics, Reports and Library; Library and Reports explicitly guard view identity so stale data cannot appear under a different collection/date/month.
+- [x] Cache high-frequency nested surfaces including chat/report/lead history, analytics metric details, publication preparation, duplicate management, Telegram warmup/schedule and report correction helpers.
+- [x] Remove remount-key refresh patterns from chat profile, chat history, publication preparation and CRM conversation state.
+- [x] Returning to Today requests a lightweight authoritative revision check instead of forcing an unconditional RSC refresh.
+- [x] Persistent hidden workspaces close overlays and suppress hidden shortcuts/portal children.
+- [x] Add repo-wide regression coverage that forbids the old blocking loader and remount-based refresh pattern.
+- [ ] Full verify evidence and live staging desktop/narrow/mobile transition acceptance remain the release gate.
+- Next after the release gate: continue the highest-priority unfinished ROADMAP slice, currently Chat Discovery external executor / WhatsApp Web acceptance unless main documentation changes first.

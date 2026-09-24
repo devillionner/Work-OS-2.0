@@ -715,3 +715,16 @@ separate gates after local validation and the required direct confirmation.
 - The recurring full-list spinner is removed for normal queue switching while a genuine uncached first request/search/filter/page still has an explicit loading state.
 - The Cloudflare skipped builds visible during the previous cleanup are superseded intermediate main commits, not failed release evidence. GitHub-first work should be batched into one coherent commit per slice where possible to avoid unnecessary intermediate Workers Builds.
 - Full verify and staging /api/build match are not claimed until Cloudflare finishes the release commit.
+
+
+## Unified loading and transition architecture — v0.2.43
+
+- Core navigation now keeps each visited workspace mounted. Platforms, CRM, Analytics, Reports, Library and Settings retain their local UI state instead of being destroyed and recreated on every navigation change.
+- Loading semantics are shared: first load may render a stable skeleton, same-view revalidation keeps useful data mounted, and background refresh feedback is non-blocking and delayed to avoid visual flicker on fast requests.
+- Library uses exact collection/archive/search view keys with request sequencing; Reports keeps date/month caches; high-frequency history/detail/preparation surfaces keep context-specific caches instead of clearing to empty arrays before every fetch.
+- React `key` is no longer used as the refresh mechanism for chat profile/history/publish preparation or CRM conversation updates. Prop/revision synchronization owns those transitions.
+- Returning to Today now dispatches a revision-check request. ServerSync performs the lightweight authoritative check and only uses RSC refresh when the server revision or Kyiv business date actually requires it.
+- Persistent hidden workspaces close portal overlays and disable hidden keyboard handlers/portal-heavy children so retained state cannot interact with the active view.
+- Regression coverage now scans product components for the legacy `workspace-loading` class, guards exact-view Library identity, persistent workspace wiring, nested loading caches and remount-key regressions.
+- Source review found and removed a stale release-date regression that still required 2026-09-23; release-date coverage now validates canonical ISO metadata rather than hardcoding yesterday's date.
+- Full lint/typecheck/test/build evidence and live staging transition acceptance are not claimed until the release build provides them.

@@ -484,3 +484,14 @@
 - Daily pace/goal/available/joined/published facts should share one compact summary surface; the queue owns quick-publish controls and search/filter tools.
 - A row action that only opens preparation/material selection must be labelled as preparation. Only the final confirmed mutation may use publication wording or affect publication accounting.
 - Desktop/narrow/mobile must preserve the same action hierarchy: chat identity first, frequent action second, history/archive/utility controls visually secondary. Responsive compaction must not hide business state or reduce mobile touch targets below 44px.
+
+
+## Unified loading / transition architecture — 2026-09-24
+
+- Work OS uses one shared loading contract across core workspaces and nested data surfaces. A blocking initial loading state is allowed only when there is no usable data for the exact requested view.
+- Background revalidation must preserve the currently rendered data for that same view. It may show a delayed, non-blocking refresh indicator, but it must not blank the workspace, list, editor or dialog.
+- View identity is explicit: platform/queue/filter/search/page/account/date/collection context must resolve to data cached for that exact identity. Data from another view must never be rendered under a newly selected view while its request is pending.
+- Main workspaces remain mounted after their first visit so navigation preserves local UI state. Authoritative server revision sync refreshes data without using React remount keys as an update mechanism.
+- Hidden persistent workspaces must close portal overlays and disable global shortcuts while inactive so preserved state cannot leak interaction into the active screen.
+- Ordinary navigation must not force an RSC/document refresh. A lightweight revision check decides whether an authoritative refresh is actually required; document reload remains reserved for application build updates.
+- Shared primitives are `WorkspaceInitialLoading`, `WorkspaceInlineLoading` and `WorkspaceRefreshIndicator`. Reintroducing the legacy blocking `workspace-loading` pattern in product components is a regression.
