@@ -44,15 +44,17 @@ export function LibraryWorkspace({ syncRevision=0, active=true }: { syncRevision
   const [notice,setNotice]=useState('');
   const [viberJob,setViberJob]=useState<ViberSafeJob|null>(null);
   const [viberBusy,setViberBusy]=useState(false);
-  const hasLoaded=useRef(false);
+  const [loadedKey,setLoadedKey]=useState('');
   const viewCache=useRef(new Map<string,Item[]>());
+  const loadSeq=useRef(0);
   const lastSyncRevision=useRef(syncRevision);
 
   const load=useCallback(async(silent=false)=>{
     const key=libraryViewKey(collection,archived,search);
+    const request=++loadSeq.current;
     const cached=viewCache.current.get(key);
-    if(cached&&!hasLoaded.current){setItems(cached);hasLoaded.current=true;setLoading(false);}
-    if(!silent&&!hasLoaded.current)setLoading(true);
+    if(cached){setItems(cached);setLoadedKey(key);setLoading(false);}
+    else if(!silent)setLoading(true);
     setRefreshing(true);setError('');
     try{
       const params=new URLSearchParams({kind:'all',collection,archived:String(archived),search});
@@ -60,9 +62,13 @@ export function LibraryWorkspace({ syncRevision=0, active=true }: { syncRevision
       const body=await response.json() as {items?:Item[];error?:string};
       if(!response.ok)throw new Error(body.error||'Не вдалося завантажити бібліотеку.');
       const next=body.items||[];
-      viewCache.current.set(key,next);setItems(next);hasLoaded.current=true;
-    }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося завантажити бібліотеку.');}
-    finally{setLoading(false);setRefreshing(false);}
+      viewCache.current.set(key,next);
+      if(request===loadSeq.current){setItems(next);setLoadedKey(key);}
+    }catch(reason){
+      if(request===loadSeq.current)setError(reason instanceof Error?reason.message:'Не вдалося завантажити бібліотеку.');
+    }finally{
+      if(request===loadSeq.current){setLoading(false);setRefreshing(false);}
+    }
   },[collection,archived,search]);
   useEffect(()=>{const timer=setTimeout(()=>void load(),search?250:0);return()=>clearTimeout(timer);},[load,search]);
   useEffect(()=>{
@@ -86,14 +92,16 @@ export function LibraryWorkspace({ syncRevision=0, active=true }: { syncRevision
     setEditorOpen(open);setSelected(item);setForm(item?{title:item.title,ukText:item.ukText,ruText:item.ruText,notes:item.notes,tags:[...item.tags],platforms:[...editPlatforms]}:newForm(collection));setNotice('');setError('');
   }
   function switchCollection(next:Collection){
-    const cached=viewCache.current.get(libraryViewKey(next,false,''));
-    if(cached)setItems(cached);
+    const key=libraryViewKey(next,false,search);
+    const cached=viewCache.current.get(key);
+    if(cached){setItems(cached);setLoadedKey(key);} else setLoadedKey('');
     setCollection(next);setArchived(false);setPlatformFilter('all');edit(null,false);
   }
   function switchArchived(){
     const next=!archived;
-    const cached=viewCache.current.get(libraryViewKey(collection,next,search));
-    if(cached)setItems(cached);
+    const key=libraryViewKey(collection,next,search);
+    const cached=viewCache.current.get(key);
+    if(cached){setItems(cached);setLoadedKey(key);} else setLoadedKey('');
     setArchived(next);setPlatformFilter('all');edit(null,false);
   }
 
@@ -145,19 +153,23 @@ export function LibraryWorkspace({ syncRevision=0, active=true }: { syncRevision
   }
   const isKnowledge=collection==='knowledge';
   const platformOptions=collection==='advertisement'?[...LIBRARY_ADVERTISEMENT_PLATFORMS]:[];
-  const visibleItems=platformFilter==='all'?items:items.filter(item=>item.platforms.length===0||item.platforms.some(value=>canonicalLibraryPlatform(value)===platformFilter));
+  const currentViewKey=libraryViewKey(collection,archived,search);
+  const cachedView=viewCache.current.get(currentViewKey);
+  const viewReady=loadedKey===currentViewKey||cachedView!==undefined;
+  const viewItems=loadedKey===currentViewKey?items:(cachedView||[]);
+  const visibleItems=platformFilter==='all'?viewItems:viewItems.filter(item=>item.platforms.length===0||item.platforms.some(value=>canonicalLibraryPlatform(value)===platformFilter));
   const selectedDirections=SUBJECT_OPTIONS.filter(subject=>form.tags.some(tag=>canonicalKnownSubject(tag)===subject));
   const extraTags=form.tags.filter(tag=>canonicalKnownSubject(tag)===null);
   const unsupportedPlatforms=collection==='advertisement'&&selected?selected.platforms.filter(value=>!canonicalLibraryPlatform(value)):[];
-  const emptyWorkspace=!loading&&!editorOpen&&visibleItems.length===0;
+  const emptyWorkspace=viewReady&&!editorOpen&&visibleItems.length===0;
   return <div className={`library-workspace ${editorOpen ? 'has-editor' : ''} ${emptyWorkspace ? 'is-empty' : ''}`} aria-busy={refreshing}>
     <LibraryHistoryDialog open={historyOpen} item={selected?{id:selected.id,title:selected.title}:null} onClose={()=>setHistoryOpen(false)} finalFocus={()=>historyTrigger.current}/>
-    <WorkspaceRefreshIndicator active={refreshing&&hasLoaded.current} label="Оновлюємо бібліотеку…" />
+    <WorkspaceRefreshIndicator active={refreshing&&viewReady} label="Оновлюємо бібліотеку…" />
     <ConfirmDialog open={archiveCandidate!==null} title="Перемістити матеріал в архів?" description={archiveCandidate?`«${archiveCandidate.title}» зникне з активної бібліотеки, але його можна буде відновити з архіву.`:''} confirmLabel="В архів" destructive busy={saving} onCancel={()=>setArchiveCandidate(null)} onConfirm={()=>{const item=archiveCandidate;if(!item)return;setArchiveCandidate(null);void changeArchive(item);}}/>
     <section className="library-hero"><div><p className="eyebrow">Єдине місце для робочих матеріалів</p><h2>Бібліотека</h2><p>Офіційні й особисті скрипти розділені, важливі інструкції мають власну історію версій.</p></div><Button disabled={saving||archived} onClick={()=>edit(null)}><FilePlus2 data-icon="inline-start"/>Додати</Button></section>
     {error&&<div className="workspace-error" role="alert">{error}</div>}{notice&&<output className="reports-notice">{notice}</output>}
     <div className="library-toolbar"><div className="library-kind-picker" role="tablist" aria-label="Колекція матеріалів">{(Object.keys(collectionLabels) as Collection[]).map(value=><button type="button" role="tab" disabled={saving} aria-selected={collection===value} tabIndex={collection===value?0:-1} key={value} onKeyDown={handleTabKeyNavigation} onClick={()=>switchCollection(value)}>{collectionLabels[value]}</button>)}</div><label className="library-search" htmlFor="library-search"><Search/><Input id="library-search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Пошук за назвою, текстом або тегом…"/></label>{collection==='advertisement'&&<label className="library-platform-filter"><span className="sr-only">Фільтр оголошень за платформою</span><select value={platformFilter} disabled={saving} onChange={event=>{setPlatformFilter(event.target.value);edit(null,false);}}><option value="all">Усі платформи</option>{platformOptions.map(value=><option key={value} value={value}>{platformLabel(value)}</option>)}</select></label>}<Button size="sm" variant={archived?'secondary':'outline'} disabled={saving} onClick={switchArchived}>{archived?'Показати активні':'Архів'}</Button></div>
-    <div className="library-layout"><section className="library-list">{loading&&!hasLoaded.current?<WorkspaceInitialLoading compact label="Завантажуємо бібліотеку…"/>:visibleItems.length?visibleItems.map(item=><button type="button" className={`library-item ${selected?.id===item.id?'is-selected':''}`} key={item.id} disabled={saving} onClick={()=>edit(item)}><span><strong>{item.title}</strong><small>{item.ukText||item.ruText}</small>{collection==='advertisement'&&<><span className="library-item-platforms">{displayPlatforms(item.platforms).map(value=><Badge key={value} variant="secondary">{platformLabel(value)}</Badge>)}</span>{item.usedTodayPlatforms.length>0&&<span className="library-item-used"><small>Сьогодні:</small>{cleanLibraryPlatforms(item.usedTodayPlatforms).map(value=><Badge key={value} variant="outline">{platformLabel(value)}</Badge>)}</span>}</>}</span><Badge variant="outline">v{item.version}</Badge></button>):<div className="workspace-empty"><BookOpenText/><strong>{platformFilter!=='all'?'Немає оголошень для цієї платформи':archived?'Архів порожній':'Матеріалів ще немає'}</strong><p>{platformFilter!=='all'?'Зміни платформу або очисть пошук.':archived?'У цій колекції немає архівних матеріалів.':`Додай перший матеріал у «${collectionLabels[collection]}».`}</p></div>}</section>
+    <div className="library-layout"><section className="library-list">{!viewReady?<WorkspaceInitialLoading compact label="Завантажуємо бібліотеку…"/>:visibleItems.length?visibleItems.map(item=><button type="button" className={`library-item ${selected?.id===item.id?'is-selected':''}`} key={item.id} disabled={saving} onClick={()=>edit(item)}><span><strong>{item.title}</strong><small>{item.ukText||item.ruText}</small>{collection==='advertisement'&&<><span className="library-item-platforms">{displayPlatforms(item.platforms).map(value=><Badge key={value} variant="secondary">{platformLabel(value)}</Badge>)}</span>{item.usedTodayPlatforms.length>0&&<span className="library-item-used"><small>Сьогодні:</small>{cleanLibraryPlatforms(item.usedTodayPlatforms).map(value=><Badge key={value} variant="outline">{platformLabel(value)}</Badge>)}</span>}</>}</span><Badge variant="outline">v{item.version}</Badge></button>):<div className="workspace-empty"><BookOpenText/><strong>{platformFilter!=='all'?'Немає оголошень для цієї платформи':archived?'Архів порожній':'Матеріалів ще немає'}</strong><p>{platformFilter!=='all'?'Зміни платформу або очисть пошук.':archived?'У цій колекції немає архівних матеріалів.':`Додай перший матеріал у «${collectionLabels[collection]}».`}</p></div>}</section>
       <section className="library-editor">{editorOpen?<><Button type="button" variant="ghost" className="library-mobile-back" onClick={()=>edit(null,false)}>← До бібліотеки</Button><div className="card-heading"><div><p className="eyebrow">{collectionLabels[collection]}</p><h3>{selected?selected.title:`Новий матеріал`}</h3>{selected&&<small>Поточна версія: v{selected.version}</small>}</div>{selected&&<div className="lead-actions"><Button ref={historyTrigger} variant="ghost" size="sm" disabled={saving} onClick={()=>setHistoryOpen(true)}><History data-icon="inline-start"/>Історія</Button><Button variant="ghost" size="sm" disabled={saving} onClick={()=>{if(selected.archivedAt===null)setArchiveCandidate(selected);else void changeArchive(selected);}}>{selected.archivedAt===null?<Archive data-icon="inline-start"/>:<RotateCcw data-icon="inline-start"/>}{selected.archivedAt===null?'В архів':'Відновити'}</Button></div>}</div>
         <label htmlFor="library-title">Назва<Input id="library-title" disabled={saving||archived} value={form.title} onChange={event=>setForm({...form,title:event.target.value})} placeholder={isKnowledge?'Наприклад: Як підготувати учня до пробного':'Наприклад: Англійська — батьки школярів'}/></label>
         <div className="library-language-grid">
