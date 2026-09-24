@@ -387,6 +387,31 @@ export function telegramPublicPreviewUrl(value: string): string | null {
   return preview.toString();
 }
 
+export function telegramOlderPreviewUrl(html: string, currentUrl: string): string | null {
+  const current = telegramPublicPreviewUrl(currentUrl);
+  if (!current) return null;
+  const currentParsed = new URL(current);
+  const currentParts = currentParsed.pathname.split('/').filter(Boolean);
+  const currentChannel = currentParts[0] === 's' ? currentParts[1] : currentParts[0];
+  if (!currentChannel) return null;
+
+  const decoded = decodeHtml(html).replaceAll('\\/', '/');
+  for (const match of decoded.matchAll(/href=["']([^"']+)["']/gi)) {
+    const href = match[1].trim();
+    if (!/[?&]before=\d+/i.test(href)) continue;
+    let resolved: string;
+    try { resolved = new URL(href, current).toString(); } catch { continue; }
+    const preview = telegramPublicPreviewUrl(resolved);
+    if (!preview) continue;
+    const parsed = new URL(preview);
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    const channel = parts[0] === 's' ? parts[1] : parts[0];
+    if (channel !== currentChannel || !/^\d+$/.test(parsed.searchParams.get('before') || '')) continue;
+    return preview;
+  }
+  return null;
+}
+
 export async function discoverTelegramPublic(input: {
   cursor?: number;
   maxQueries?: number;
@@ -447,8 +472,8 @@ export async function discoverTelegramPublic(input: {
 
     const pages = await mapPool(pageUrls.slice(0, pageLimit), 2, async (link) => {
       const page = await fetchText(link, fetcher, 10_000);
-      if (!page) return [];
-      return recordsFromPage(page, {
+      if (!page) return { records: [] as DiscoveryRecord[], older: null as string | null };
+      const pageRecords = recordsFromPage(page, {
         platforms: ['whatsapp'] as DiscoveryPlatform[],
         kind: 'telegram_global' as const,
         sourceUrl: link,
@@ -458,8 +483,31 @@ export async function discoverTelegramPublic(input: {
         seedKind: task.seedKind,
         contextPrefix,
       });
+      return {
+        records: pageRecords,
+        older: pageRecords.length ? null : telegramOlderPreviewUrl(page, link),
+      };
     });
-    for (const item of pages.flat()) pushBounded(taskRecords, item);
+    for (const page of pages) {
+      for (const item of page.records) pushBounded(taskRecords, item);
+    }
+
+    const older = pages.find(page => page.older)?.older || null;
+    if (older) {
+      const page = await fetchText(older, fetcher, 10_000);
+      if (page) {
+        for (const item of recordsFromPage(page, {
+          platforms: ['whatsapp'] as DiscoveryPlatform[],
+          kind: 'telegram_global' as const,
+          sourceUrl: older,
+          sourceTitle: `Telegram history · ${task.seedLabel}`,
+          query: task.query,
+          seedLabel: task.seedLabel,
+          seedKind: task.seedKind,
+          contextPrefix,
+        })) pushBounded(taskRecords, item);
+      }
+    }
     return taskRecords;
   });
   for (const item of outcomes.flat()) pushBounded(records, item);

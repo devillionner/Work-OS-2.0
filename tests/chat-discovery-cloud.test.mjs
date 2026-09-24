@@ -14,7 +14,7 @@ import {
 } from '../lib/chat-discovery/domain.ts';
 import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
 import { assertDiscoveryExecutorLease, claimDiscoveryExecutorQueue, completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
-import { buildTelegramSearchPlan, discoverPublicWeb, discoverTelegramPublic, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl, telegramPublicPreviewUrl, telegramPublicSearchQueries } from '../lib/chat-discovery/public-web.ts';
+import { buildTelegramSearchPlan, discoverPublicWeb, discoverTelegramPublic, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl, telegramOlderPreviewUrl, telegramPublicPreviewUrl, telegramPublicSearchQueries } from '../lib/chat-discovery/public-web.ts';
 import { changeChatLeave } from '../lib/chats/leave.ts';
 import { readChatState } from '../lib/chats/state.ts';
 import { transitionChat } from '../lib/chats/transitions.ts';
@@ -169,6 +169,44 @@ void test('Telegram public discovery broadens search only when the strict result
     'https://chat.whatsapp.com/TelegramCoverageA123',
     'https://chat.whatsapp.com/TelegramCoverageB123',
   ]));
+});
+
+void test('Telegram public history follow-up is same-channel, before-only and bounded to one extra page per task', async () => {
+  assert.equal(
+    telegramOlderPreviewUrl('<a href="/s/ua_history?before=77">older</a>','https://t.me/s/ua_history'),
+    'https://t.me/s/ua_history?before=77',
+  );
+  assert.equal(
+    telegramOlderPreviewUrl('<a href="/s/other?before=77">other</a>','https://t.me/s/ua_history'),
+    null,
+  );
+  assert.equal(
+    telegramOlderPreviewUrl('<a href="/s/ua_history?after=77">newer</a>','https://t.me/s/ua_history'),
+    null,
+  );
+
+  const calls=[];
+  const result=await discoverTelegramPublic({cursor:0,maxQueries:1,pageLimit:1},async(url)=>{
+    calls.push(String(url));
+    if(String(url).includes('search.brave.com'))return html('<a href="https://t.me/ua_history">source</a>');
+    if(String(url)==='https://t.me/s/ua_history')return html('<a href="/s/ua_history?before=77">older</a><article>Українці Berlin без invite</article>');
+    if(String(url)==='https://t.me/s/ua_history?before=77')return html('<article>Українці Berlin батьки https://chat.whatsapp.com/HistoryInvite123</article>');
+    throw new Error('unexpected extra history fetch: '+url);
+  });
+  assert.ok(result.records.some(item=>item.link==='https://chat.whatsapp.com/HistoryInvite123'));
+  assert.equal(calls.filter(url=>url.includes('t.me/s/ua_history?before=')).length,1);
+});
+
+void test('Telegram public history does not paginate when the first preview already contains an invite', async () => {
+  const calls=[];
+  const result=await discoverTelegramPublic({cursor:0,maxQueries:1,pageLimit:1},async(url)=>{
+    calls.push(String(url));
+    if(String(url).includes('search.brave.com'))return html('<a href="https://t.me/ua_history_hit">source</a>');
+    if(String(url)==='https://t.me/s/ua_history_hit')return html('<a href="/s/ua_history_hit?before=55">older</a><article>Українці Berlin https://chat.whatsapp.com/CurrentPreview123</article>');
+    throw new Error('older page should not be fetched');
+  });
+  assert.ok(result.records.some(item=>item.link==='https://chat.whatsapp.com/CurrentPreview123'));
+  assert.equal(calls.some(url=>url.includes('before=55')),false);
 });
 
 void test('Telegram public discovery prefers bounded history previews and rejects non-public Telegram targets', () => {

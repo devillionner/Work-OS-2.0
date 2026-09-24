@@ -1,5 +1,13 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 bounded Telegram history follow-up / v0.2.64
+
+- When a fetched public `t.me/s/<channel>` preview yields no WhatsApp invite, Discovery may follow exactly one same-channel numeric `?before=` history link for that seed task.
+- The follow-up is deliberately non-recursive: at most one extra Telegram history fetch per task, only after an empty first preview. A current preview that already yields an invite never paginates.
+- Foreign-channel, `after=`, private/internal/service or malformed pagination links are ignored. Candidate provenance records the exact older preview URL when it supplies the invite.
+- Worst-case external fan-out for the production autonomous call remains bounded: per task at most 3 search variants + `pageLimit` current previews + 1 older preview. D1 polling/query cadence is unchanged and no schema migration is involved.
+
+
 ## 2026-09-24 Telegram city-alias coverage / v0.2.63
 
 - Telegram seed tasks now retain the seed workbook's native/Latin city name alongside the Ukrainian display name.

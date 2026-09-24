@@ -291,3 +291,12 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Keep the same seed cursor/task count and D1 persistence semantics; only public-source discovery coverage changes.
 - [x] Bound search fan-out to at most three variants per seed task and the existing Telegram pageLimit.
 - [ ] Live yield/target-rate comparison waits for staging D1 quota reset.
+
+
+## v0.2.64 — bounded Telegram history follow-up
+
+- [x] Follow one same-channel numeric `?before=` history page only when the current public Telegram preview yields no invite.
+- [x] Never recurse history pagination; cap the additional crawl at +1 fetch per seed task.
+- [x] Skip history pagination when the current preview already yields an invite.
+- [x] Reject foreign-channel/newer/private/internal pagination targets and preserve exact older-preview provenance.
+- [ ] Live yield comparison remains blocked by the exhausted staging D1 quota; do not start a run solely to measure this before reset.
