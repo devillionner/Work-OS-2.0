@@ -21,10 +21,11 @@ import { Lessons } from './lessons';
 import { Conversation } from './conversation';
 import { LeadHistoryDialog } from './history';
 import { TodayLeadsPanel } from './today-activity';
+import { WorkspaceInitialLoading, WorkspaceRefreshIndicator } from '@/components/workspace-load-state';
 
 const MOBILE_LIST_CHUNK = 12;
 
-export function LeadsWorkspace({ account, initialLeadId }: { account: string; initialLeadId?: string | null }) {
+export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=true }: { account: string; initialLeadId?: string | null; syncRevision?:number; active?:boolean }) {
   const [postCommand] = useState(() => createBrowserCommandClient(account));
   const [filter, setFilter] = useState('active');
   const [search, setSearch] = useState('');
@@ -36,6 +37,8 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
   const [detail, setDetail] = useState<LeadDetail | null>(null);
   const [listError, setListError] = useState('');
   const [detailError, setDetailError] = useState('');
+  const [listLoading, setListLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [editor, setEditor] = useState<'create' | 'update' | null>(null);
   const [archive, setArchive] = useState(false);
@@ -47,6 +50,9 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
   const searchInput = useRef<HTMLInputElement>(null);
   const historyTrigger = useRef<HTMLButtonElement>(null);
   const focusSelection = useRef<string | null>(null);
+  const detailCache = useRef(new Map<string,LeadDetail>());
+  const lastSyncRevision = useRef(syncRevision);
+  const lastInitialLeadId = useRef(initialLeadId ?? null);
   const reload = useCallback(() => setRefresh((v) => v + 1), []);
   const resetListControls = useCallback(() => {
     setFilter('active');
@@ -86,20 +92,25 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
   const mobileVisibleLeads = mobileListState.key === mobileListKey ? mobileListState.count : MOBILE_LIST_CHUNK;
   useEffect(() => {
     const controller = new AbortController();
+    setListLoading(true);
     const url = `/api/leads?view=${encodeURIComponent(filter)}&search=${encodeURIComponent(query)}&offset=${offset}`;
     void getJson<LeadList>(url, controller.signal)
       .then((data) => {
         if (controller.signal.aborted) return;
         setList(data);
         setListError('');
+        setListLoading(false);
       })
       .catch((error) => {
-        if (!controller.signal.aborted) setListError(error.message);
+        if (!controller.signal.aborted) { setListError(error.message); setListLoading(false); }
       });
     return () => controller.abort();
   }, [filter, query, offset, refresh]);
   useEffect(() => {
-    if (!selected) return;
+    if (!selected) { setDetailLoading(false); return; }
+    const cached=detailCache.current.get(selected);
+    if(cached)setDetail(cached);
+    setDetailLoading(true);
     const controller = new AbortController();
     void getJson<LeadDetail>(
       `/api/leads?id=${encodeURIComponent(selected)}`,
@@ -107,6 +118,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
     )
       .then((data) => {
         if (controller.signal.aborted) return;
+        detailCache.current.set(data.lead.id,data);
         setDetail((current) =>
           current?.lead.id === data.lead.id &&
           current.lead.version > data.lead.version
@@ -114,9 +126,10 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
             : data,
         );
         setDetailError('');
+        setDetailLoading(false);
       })
       .catch((error) => {
-        if (!controller.signal.aborted) setDetailError(error.message);
+        if (!controller.signal.aborted) { setDetailError(error.message); setDetailLoading(false); }
       });
     return () => controller.abort();
   }, [selected, refresh]);
@@ -134,7 +147,8 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
       );
       setSelected(id);
       setNotice('Збережено.');
-      setDetail(null);
+      detailCache.current.delete(id);
+      setDetail((current)=>current?.lead.id===id?current:null);
       reload();
     } catch (error) {
       reload();
@@ -143,7 +157,18 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
       busy.current = false;
     }
   };
-  const current = detail?.lead.id === selected ? detail : null;
+  const current = detail?.lead.id === selected ? detail : selected ? detailCache.current.get(selected)||null : null;
+  useEffect(() => {
+    if (initialLeadId && initialLeadId !== lastInitialLeadId.current) {
+      lastInitialLeadId.current = initialLeadId;
+      openLead(initialLeadId);
+    }
+  }, [initialLeadId, openLead]);
+  useEffect(() => {
+    if (!active || lastSyncRevision.current === syncRevision) return;
+    lastSyncRevision.current = syncRevision;
+    reload();
+  }, [active, syncRevision, reload]);
   useEffect(() => {
     if (current && focusSelection.current === current.lead.id) {
       heading.current?.focus();
@@ -178,8 +203,9 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [search]);
   return (
-    <div className={`leads-workspace ${selected ? 'has-selection' : ''}`}>
+    <div className={`leads-workspace ${selected ? 'has-selection' : ''}`} aria-busy={listLoading||detailLoading}>
       <LeadHistoryDialog open={historyOpen} lead={current?.lead ? { id: current.lead.id, name: current.lead.name } : null} onClose={() => setHistoryOpen(false)} finalFocus={() => historyTrigger.current} />
+      <WorkspaceRefreshIndicator active={(listLoading&&list!==null)||(detailLoading&&current!==null)} label="Оновлюємо CRM…" />
       <section className="leads-hero">
         <div>
           <p className="eyebrow">CRM та супровід</p>
@@ -236,7 +262,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
               </Button>
             </p>
           ) : !list ? (
-            <output>Завантаження…</output>
+            <WorkspaceInitialLoading compact label="Завантажуємо ліди…"/>
           ) : (
             <>
               <p className="muted-note">Знайдено: {list.total}</p>
@@ -316,7 +342,7 @@ export function LeadsWorkspace({ account, initialLeadId }: { account: string; in
               <p>Відкрийте контакт зі списку або створіть новий.</p>
             </div>
           ) : !current ? (
-            <output>Завантаження картки…</output>
+            <WorkspaceInitialLoading compact label="Завантажуємо картку ліда…"/>
           ) : (
             <div key={current.lead.id}>
               <section className="lead-panel lead-summary">
