@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import type { DiscoveryCandidate, DiscoveryDecision, DiscoveryRun } from '@/lib/chat-discovery/domain';
 import type { DiscoveryPlatform, TelegramSearchPlan } from '@/lib/chat-discovery/public-web';
+import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 
 type Workspace = {
   run: DiscoveryRun | null;
@@ -544,8 +545,9 @@ export function ChatDiscoveryDialog({
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
-            {loading
-              ? <div className="workspace-loading"><LoaderCircle/>Завантажуємо кандидатів…</div>
+            {loading&&workspace.candidates.length>0?<WorkspaceInlineLoading label="Оновлюємо кандидатів…"/>:null}
+            {loading&&workspace.candidates.length===0
+              ? <WorkspaceInlineLoading label="Завантажуємо кандидатів…"/>
               : workspace.candidates.length
                 ? <div className="grid gap-3">
                   {workspace.candidates.map(candidate => {
