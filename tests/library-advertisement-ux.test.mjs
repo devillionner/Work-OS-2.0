@@ -60,3 +60,15 @@ void test('structured advertisement controls stay responsive on narrow and mobil
   assert.match(css,/\.library-choice-grid, \.library-direction-grid \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); \}/);
   assert.match(css,/\.library-choice span \{ min-height:44px; \}/);
 });
+
+
+void test('library exposes canonical same-day advertisement usage by platform',()=>{
+  const route=readFileSync(new URL('../app/api/library/route.ts',import.meta.url),'utf8');
+  assert.match(route,/p\.published_on=\?2 AND p\.advertisement_id IS NOT NULL/);
+  assert.match(route,/GROUP BY p\.advertisement_id,c\.platform/);
+  assert.match(route,/usageByAdvertisement/);
+  assert.match(route,/businessDate:today/);
+  assert.match(workspace,/usedTodayPlatforms:string\[\]/);
+  assert.match(workspace,/Сьогодні:/);
+  assert.match(workspace,/Сьогодні вже використано:/);
+});

@@ -15,6 +15,7 @@ import {
 } from '@/lib/library';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { subjectSearchVariants } from '@/lib/subjects';
+import { businessDate } from '@/lib/business-time';
 
 const KINDS = new Set(['advertisement', 'script']);
 const REQUEST_MAX_BYTES = 64 * 1024;
@@ -35,15 +36,27 @@ export async function GET(request: Request): Promise<Response> {
   const subjectTagSearch = subjectTerms.length
     ? ` OR ${subjectTerms.map((_, index) => `instr(tags_json, ?${index + 7})>0`).join(' OR ')}`
     : '';
-  const result = await env.DB.prepare(`SELECT id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,archived_at,created_at,updated_at
-    FROM library_items WHERE user_id=?1
-      AND ((?6=0 AND archived_at IS NULL) OR (?6=1 AND archived_at IS NOT NULL))
-      AND (?2='' OR collection=?2)
-      AND (?3='all' OR kind=?3)
-      AND NOT (?3='script' AND ?2='' AND collection='knowledge')
-      AND (?4='' OR lower(title) LIKE ?5 ESCAPE '\\' OR lower(uk_text) LIKE ?5 ESCAPE '\\' OR lower(ru_text) LIKE ?5 ESCAPE '\\' OR lower(notes) LIKE ?5 ESCAPE '\\' OR lower(tags_json) LIKE ?5 ESCAPE '\\'${subjectTagSearch})
-    ORDER BY updated_at DESC,title LIMIT 200`).bind(user.id, collection, kind, search, pattern, Number(archived), ...subjectTerms).all<LibraryRow>();
-  return Response.json({ items: result.results.map(publicItem) }, { headers: { 'Cache-Control': 'no-store' } });
+  const today=businessDate(Math.floor(Date.now()/1000));
+  const [itemsResult,usageResult] = await env.DB.batch([
+    env.DB.prepare(`SELECT id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,archived_at,created_at,updated_at
+      FROM library_items WHERE user_id=?1
+        AND ((?6=0 AND archived_at IS NULL) OR (?6=1 AND archived_at IS NOT NULL))
+        AND (?2='' OR collection=?2)
+        AND (?3='all' OR kind=?3)
+        AND NOT (?3='script' AND ?2='' AND collection='knowledge')
+        AND (?4='' OR lower(title) LIKE ?5 ESCAPE '\\' OR lower(uk_text) LIKE ?5 ESCAPE '\\' OR lower(ru_text) LIKE ?5 ESCAPE '\\' OR lower(notes) LIKE ?5 ESCAPE '\\' OR lower(tags_json) LIKE ?5 ESCAPE '\\'${subjectTagSearch})
+      ORDER BY updated_at DESC,title LIMIT 200`).bind(user.id, collection, kind, search, pattern, Number(archived), ...subjectTerms),
+    env.DB.prepare(`SELECT p.advertisement_id,c.platform
+      FROM chat_publications p JOIN chats c ON c.id=p.chat_id AND c.user_id=p.user_id
+      WHERE p.user_id=?1 AND p.published_on=?2 AND p.advertisement_id IS NOT NULL
+      GROUP BY p.advertisement_id,c.platform`).bind(user.id,today),
+  ]);
+  const usageByAdvertisement=new Map<string,string[]>();
+  for(const row of usageResult.results as Array<{advertisement_id:string;platform:string}>){
+    const platforms=usageByAdvertisement.get(row.advertisement_id)||[];
+    platforms.push(row.platform);usageByAdvertisement.set(row.advertisement_id,platforms);
+  }
+  return Response.json({ items: (itemsResult.results as LibraryRow[]).map(row=>publicItem(row,usageByAdvertisement.get(row.id)||[])), businessDate:today }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -116,7 +129,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 type LibraryRow = { id: string; kind: string; collection:string; version:number; title: string; uk_text: string; ru_text: string; notes: string; tags_json: string; platforms_json: string; archived_at:number|null; created_at: number; updated_at: number };
-function publicItem(row: LibraryRow) { return { id: row.id, kind: row.kind, collection:row.collection, version:Number(row.version), title: row.title, ukText: row.uk_text, ruText: row.ru_text, notes: row.notes, tags: parseList(row.tags_json), platforms: parseList(row.platforms_json), archivedAt:row.archived_at, createdAt: row.created_at, updatedAt: row.updated_at }; }
+function publicItem(row: LibraryRow,usedTodayPlatforms:string[]) { return { id: row.id, kind: row.kind, collection:row.collection, version:Number(row.version), title: row.title, ukText: row.uk_text, ruText: row.ru_text, notes: row.notes, tags: parseList(row.tags_json), platforms: parseList(row.platforms_json), usedTodayPlatforms, archivedAt:row.archived_at, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function parseList(value: string): string[] { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []; } catch { return []; } }
 function escapeLike(value: string) { return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_'); }
 function positiveInteger(value:unknown){const number=Number(value);return Number.isSafeInteger(number)&&number>0?number:null;}
