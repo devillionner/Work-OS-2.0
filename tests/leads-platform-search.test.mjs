@@ -4,12 +4,17 @@ import { listLeads } from '../lib/leads/data/list.ts';
 import { leadPlatformSearchValues } from '../lib/leads/data/search.ts';
 import { localDatabase } from './helpers/local-d1.mjs';
 
-void test('CRM platform search resolves operator-facing UA/RU aliases', () => {
+void test('CRM platform search resolves operator-facing UA/RU aliases without broad short-fragment expansion', () => {
   assert.deepEqual(leadPlatformSearchValues('телеграм'), ['telegram']);
+  assert.deepEqual(leadPlatformSearchValues('тел'), ['telegram']);
   assert.deepEqual(leadPlatformSearchValues('вайбер'), ['viber']);
   assert.deepEqual(leadPlatformSearchValues('ватсап'), ['whatsapp']);
   assert.deepEqual(leadPlatformSearchValues('фейсбук'), ['facebook']);
   assert.deepEqual(leadPlatformSearchValues('тредс'), ['threads']);
+  assert.deepEqual(leadPlatformSearchValues('тг'), ['telegram']);
+  assert.deepEqual(leadPlatformSearchValues('wa'), ['whatsapp']);
+  assert.deepEqual(leadPlatformSearchValues('a'), []);
+  assert.deepEqual(leadPlatformSearchValues('в'), []);
 });
 
 void test('CRM platform aliases filter canonical stored platform values owner-safely', async (t) => {
