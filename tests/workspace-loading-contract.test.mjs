@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import test from 'node:test';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const read=(path)=>readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 
@@ -54,7 +56,9 @@ void test('core screens use one stable loading language and never clear usable d
 void test('known transition hot spots retain data while revalidating',()=>{
   const library=read('components/library-workspace.tsx');
   assert.match(library,/viewCache=useRef\(new Map<string,Item\[]>\(\)\)/);
-  assert.match(library,/refreshing&&hasLoaded\.current/);
+  assert.match(library,/const \[loadedKey,setLoadedKey\]=useState\(''\)/);
+  assert.match(library,/const viewReady=loadedKey===currentViewKey\|\|cachedView!==undefined/);
+  assert.match(library,/request===loadSeq\.current/);
   assert.match(library,/void load\(true\)/);
 
   const reports=read('components/reports-workspace.tsx');
@@ -127,4 +131,55 @@ void test('nested loading surfaces use the shared inline state and do not replac
   const checkpoints=read('components/report-checkpoints.tsx');
   assert.match(checkpoints,/cache=useRef\(new Map<string,Checkpoint\[]>\(\)\)/);
   assert.match(checkpoints,/loading&&loadedDate!==date \? <WorkspaceInlineLoading/);
+});
+
+
+void test('no component may bring back the legacy blocking workspace loader',()=>{
+  const root=fileURLToPath(new URL('../components',import.meta.url));
+  const files=[];
+  const walk=(dir)=>{
+    for(const name of readdirSync(dir)){
+      const path=join(dir,name);
+      if(statSync(path).isDirectory())walk(path);
+      else if(name.endsWith('.tsx'))files.push(path);
+    }
+  };
+  walk(root);
+  for(const path of files){
+    if(path.endsWith('workspace-load-state.tsx'))continue;
+    const source=readFileSync(path,'utf8');
+    assert.doesNotMatch(source,/className=["']workspace-loading["']/,path);
+  }
+});
+
+void test('history and preparation dialogs retain cache instead of remounting into loaders',()=>{
+  const platform=read('components/platform-workspace.tsx');
+  assert.doesNotMatch(platform,/historyOpenKey|publishOpenKey/);
+  assert.doesNotMatch(platform,/<ChatHistoryDialog key=/);
+  assert.doesNotMatch(platform,/<ChatPublishDialog key=/);
+
+  for(const file of [
+    'components/chat-history-dialog.tsx',
+    'components/analytics-metric-dialog.tsx',
+    'components/library-history-dialog.tsx',
+    'components/report-history-dialog.tsx',
+    'components/leads/history.tsx',
+    'components/leads/lesson-history.tsx',
+  ]){
+    const source=read(file);
+    assert.match(source,/WorkspaceInlineLoading/);
+    assert.match(source,/useRef\(new Map</);
+  }
+
+  const publish=read('components/chat-publish-dialog.tsx');
+  assert.match(publish,/selectionCache=useRef\(new Map<string,SelectionPayload>\(\)\)/);
+  assert.match(publish,/WorkspaceInlineLoading/);
+});
+
+void test('Library never renders a previous collection under a new view identity',()=>{
+  const library=read('components/library-workspace.tsx');
+  assert.match(library,/const currentViewKey=libraryViewKey\(collection,archived,search\)/);
+  assert.match(library,/const viewItems=loadedKey===currentViewKey\?items:\(cachedView\|\|\[\]\)/);
+  assert.match(library,/if\(cached\)\{setItems\(cached\);setLoadedKey\(key\);\} else setLoadedKey\(''\)/);
+  assert.match(library,/!viewReady\?<WorkspaceInitialLoading/);
 });
