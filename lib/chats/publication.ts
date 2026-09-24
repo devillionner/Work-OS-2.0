@@ -46,6 +46,12 @@ export async function recordManualPublication(
     if (!rule.allowed) return { ok:false,error:rule.reason || 'Публікація зараз недоступна.' };
   }
   const nextAllowedOn = profile?.reviewStatus === 'confirmed' ? nextProfilePublicationDate(date,profile.cadence,profile.customIntervalDays) : null;
+  const activeAutopost = chat.platform === 'whatsapp'
+    ? await db.prepare(`SELECT id FROM whatsapp_autopost_jobs
+        WHERE user_id=?1 AND chat_id=?2 AND published_on=?3 AND status IN ('pending','claimed') LIMIT 1`)
+      .bind(userId,chat.id,date).first<{id:string}>()
+    : null;
+  if (activeAutopost) return { ok:false,error:'Для цього чату вже виконується WhatsApp автопублікація.' };
   const availability = publicationAvailability(chat, now);
   if (!availability.availableNow) {
     return { ok: false, ...availability, error: chat.workflow_status !== 'ready'
@@ -106,6 +112,79 @@ export async function recordManualPublication(
   const results = await db.batch(statements);
   return results[0].meta.changes ? { ok: true, publicationId, undoExpiresAt: now + MANUAL_PUBLICATION_UNDO_WINDOW_SECONDS }
     : { ok: false, error: 'Чат уже змінено або сьогодні в ньому вже публікували. Оновіть список.' };
+}
+
+export async function recordConfirmedWhatsappAutopostPublication(
+  db: D1Database,
+  input: {
+    userId:string; chatId:string; advertisementId:string; language:'uk'|'ru';
+    now:number; date:string; sourceKey:string; automationJobId:string;
+  },
+): Promise<{ok:true;publicationId:string;existing:boolean}|{ok:false;error:string}> {
+  const chat = await db.prepare(`SELECT id,platform,workflow_status,joined_at,snoozed_until
+    FROM chats WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(input.chatId,input.userId).first<PublicationChat>();
+  if(!chat||chat.platform!=='whatsapp') return {ok:false,error:'WhatsApp-чат для автопублікації не знайдено.'};
+
+  const existing = await db.prepare(`SELECT id,source_key FROM chat_publications
+    WHERE user_id=?1 AND chat_id=?2 AND published_on=?3 LIMIT 1`)
+    .bind(input.userId,input.chatId,input.date).first<{id:string;source_key:string}>();
+  if(existing) {
+    return existing.source_key===input.sourceKey
+      ? {ok:true,publicationId:existing.id,existing:true}
+      : {ok:false,error:'У цьому чаті вже є інша підтверджена публікація за сьогодні.'};
+  }
+
+  const profileRow = await db.prepare(`SELECT p.cadence,p.weekdays_json,p.custom_interval_days,p.next_allowed_on,p.review_status
+    FROM chat_profiles p JOIN chats c ON c.id=p.chat_id WHERE p.chat_id=?1 AND c.user_id=?2 LIMIT 1`)
+    .bind(input.chatId,input.userId).first<Record<string,unknown>>();
+  const profile = publicationProfile(profileRow);
+  const publicationId=crypto.randomUUID();
+  const nextAllowedOn=profile?.reviewStatus==='confirmed'
+    ? nextProfilePublicationDate(input.date,profile.cadence,profile.customIntervalDays)
+    : null;
+  const metadata=JSON.stringify({
+    advertisementId:input.advertisementId,
+    language:input.language,
+    automation:{kind:'whatsapp_autopost',jobId:input.automationJobId,sendConfirmed:true},
+  });
+  const statements=[
+    db.prepare(`INSERT INTO chat_publications
+      (id,user_id,chat_id,published_on,published_at,advertisement_id,source,source_key,created_at,telegram_account_id)
+      SELECT ?1,c.user_id,c.id,?2,?3,?4,'whatsapp_autopost',?5,?3,NULL
+      FROM chats c
+      WHERE c.id=?6 AND c.user_id=?7 AND c.platform='whatsapp'
+        AND NOT EXISTS(SELECT 1 FROM chat_publications p
+          WHERE p.user_id=c.user_id AND p.chat_id=c.id AND p.published_on=?2)
+        AND EXISTS(SELECT 1 FROM library_items li
+          WHERE li.id=?4 AND li.user_id=c.user_id AND li.kind='advertisement')
+      ON CONFLICT(user_id,chat_id,published_on) DO NOTHING`)
+      .bind(publicationId,input.date,input.now,input.advertisementId,input.sourceKey,input.chatId,input.userId),
+    db.prepare(`INSERT INTO activity_events
+      (id,user_id,event_type,platform,chat_id,lead_id,lesson_id,occurred_at,event_date,metadata_json,source_key,telegram_account_id)
+      SELECT ?1,p.user_id,'publication','whatsapp',p.chat_id,NULL,NULL,p.published_at,p.published_on,
+        ?4,p.source_key,NULL
+      FROM chat_publications p
+      WHERE p.id=?2 AND p.user_id=?3`)
+      .bind(crypto.randomUUID(),publicationId,input.userId,metadata),
+  ];
+  if(profile?.reviewStatus==='confirmed') statements.push(
+    db.prepare(`UPDATE chat_profiles SET next_allowed_on=?1,updated_at=?2
+      WHERE chat_id=?3 AND EXISTS(SELECT 1 FROM chat_publications p WHERE p.id=?4 AND p.user_id=?5)`)
+      .bind(nextAllowedOn,input.now,input.chatId,publicationId,input.userId),
+  );
+  statements.push(
+    db.prepare(`UPDATE chats SET updated_at=?1 WHERE id=?2 AND user_id=?3
+      AND EXISTS(SELECT 1 FROM chat_publications p WHERE p.id=?4 AND p.user_id=?3)`)
+      .bind(input.now,input.chatId,input.userId,publicationId),
+  );
+  const results=await db.batch(statements);
+  if(results[0].meta.changes)return {ok:true,publicationId,existing:false};
+  const reconciled=await db.prepare(`SELECT id,source_key FROM chat_publications
+    WHERE user_id=?1 AND chat_id=?2 AND published_on=?3 LIMIT 1`)
+    .bind(input.userId,input.chatId,input.date).first<{id:string;source_key:string}>();
+  return reconciled?.source_key===input.sourceKey
+    ? {ok:true,publicationId:reconciled.id,existing:true}
+    : {ok:false,error:'Підтверджений send не вдалося безпечно зв’язати з canonical publication fact.'};
 }
 
 export async function undoManualPublication(

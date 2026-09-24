@@ -55,3 +55,13 @@ void test('runner uses optional WhatsApp Web CDP automation but sends no callbac
   assert.match(source,/if\(!result\)return true/);
   assert.match(source,/toWhatsAppWebInviteUrl/);
 });
+
+
+void test('runner claims WhatsApp autopost only after Discovery messenger tasks and posts a confirmed-send callback',()=>{
+  assert.match(source,/\/api\/messenger-automation\/executor\?platform=whatsapp/);
+  assert.match(source,/sendWhatsappAutopostViaCdp/);
+  assert.match(source,/complete-whatsapp-autopost/);
+  assert.match(source,/sendConfirmed:true/);
+  assert.match(source,/WhatsApp autopost stopped fail-closed/);
+  assert.match(source,/Confirmed WhatsApp autopost accepted by Work OS/);
+});

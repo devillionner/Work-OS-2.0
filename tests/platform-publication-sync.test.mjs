@@ -33,3 +33,23 @@ void test('ambiguous publication network failures force canonical reconciliation
   assert.match(workspace,/timeout cannot[\s\S]*duplicate manual action/);
   assert.match(workspace,/result=\{ok:false,error,refresh:publicationAction\}/);
 });
+
+
+void test('WhatsApp ready rows expose cancellable autopost jobs and disable conflicting manual publication', () => {
+  const workspace=read('components/platform-workspace.tsx');
+  const route=read('app/api/chats/route.ts');
+  assert.match(workspace,/action:'whatsapp-autopost'/);
+  assert.match(workspace,/cancel-whatsapp-autopost/);
+  assert.match(workspace,/Автопост у черзі/);
+  assert.match(workspace,/Скасувати автопост/);
+  assert.match(workspace,/Boolean\(chat\.autopostJobId\)/);
+  assert.match(route,/whatsapp_autopost_jobs/);
+  assert.match(route,/autopostJobId/);
+});
+
+
+void test('active WhatsApp autopost is a server-side chat mutation fence, not only a disabled button', () => {
+  const route=read('app/api/chats/route.ts');
+  assert.match(route,/status IN \('pending','claimed'\)/);
+  assert.match(route,/виконується WhatsApp автопублікація/);
+});

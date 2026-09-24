@@ -473,6 +473,11 @@
 - Viber використовує native desktop/deep-link path і **не має WhatsApp-style pending approval вкладки**. Linux/CachyOS acceptance target — системно зареєстрований Viber handler (`viber.desktop`, `x-scheme-handler/viber`), а не standalone AppImage.
 - Viber safe-mode для «Мої нотатки» є окремим smoke path: використовує owner-scoped idempotent leased executor task, вимагає exact `my_notes` target verification і confirmed send, а прострочений lease fail-closed блокує фінальний callback. Цей path ніколи не створює publication fact; real-chat Viber autopost лишається забороненим без окремого підтвердження.
 - Після стабільного Discovery операторська автоматизація переходить до bounded WhatsApp Web autoposting. Перед send треба підтвердити target chat identity; publication fact створюється лише після підтвердженої відправки. Wrong chat / read-only / admin-only / unknown UI state / adapter failure / ambiguous result не можуть тихо рахуватися як publication або запускати blind retry. Viber real-chat adapter не входить у цей active scope без окремого прямого дозволу.
+- **WhatsApp autopost text contract**: job owner-scoped та idempotent, має 90-секундний executor lease, snapshot exact chat/material/version/date і один active job на chat/day.
+- Eligibility перевіряється перед claim/send; під час active job manual publication і return-to-join блокуються.
+- `sent` callback приймається лише з exact target verification + factual send confirmation.
+- Після confirmed send accounting є fact-first: пізня зміна Library/profile не може стерти реальну відправку; unique chat/day publication guard не допускає дубль.
+- UI дозволяє cancel, поки job ще pending; unexpired claimed job не скасовується, бо send уже може бути в польоті. Після lease expiry cancel знову безпечний. Поточний v0.2.55 path текстовий; image/media потребує окремого canonical Library media model.
 
 - v0.2.35: Platforms archive-reason dialog uses native fieldset/legend semantics while preserving responsive touch targets; UX regression coverage guards the accessible grouping.
 

@@ -5,6 +5,7 @@ import {
   classifyWhatsAppSnapshot,
   deriveWhatsappQualification,
   leaveWhatsappTaskViaCdp,
+  sendWhatsappAutopostViaCdp,
   isLocalCdpWebSocketUrl,
   normalizeLocalCdpBaseUrl,
   normalizeTargetLabel,
@@ -308,4 +309,11 @@ void test('exact invite identity may resolve an approximate non-generated source
   assert.equal(result.kind,'action');
   assert.equal(result.observedName,'Українці Варшава | Допомога');
   assert.equal(result.action,'join');
+});
+
+
+void test('confirmed-send WhatsApp autopost helper is exported and target normalization remains exact', () => {
+  assert.equal(typeof sendWhatsappAutopostViaCdp, 'function');
+  assert.equal(normalizeTargetLabel('Українці Berlin'), normalizeTargetLabel('  УКРАЇНЦІ   Berlin '));
+  assert.notEqual(normalizeTargetLabel('Українці Berlin'), normalizeTargetLabel('Українці Hamburg'));
 });

@@ -242,6 +242,74 @@ export async function leaveWhatsappTaskViaCdp(
   }
 }
 
+export async function sendWhatsappAutopostViaCdp(
+  task,
+  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS } = {},
+) {
+  if (task?.kind !== 'whatsapp_autopost') return { kind:'blocked', reason:'unsupported_runtime' };
+  const targetUrl = toWhatsAppWebInviteUrl(task.target?.expectedLink);
+  if (!targetUrl) return { kind:'blocked', reason:'invalid_whatsapp_link' };
+  if (!cdpBaseUrl) return { kind:'blocked', reason:'cdp_not_configured' };
+  const base = normalizeLocalCdpBaseUrl(cdpBaseUrl);
+  if (!base) return { kind:'blocked', reason:'cdp_not_local' };
+  const text = String(task.material?.text || '');
+  if (!text.trim()) return { kind:'blocked', reason:'empty_material' };
+
+  const page = await findOrCreateWhatsappPage(base);
+  if (!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl)) return { kind:'blocked', reason:'cdp_websocket_not_local' };
+  const client = await createCdpClient(page.webSocketDebuggerUrl);
+  try {
+    await client.send('Page.enable');
+    await client.send('Runtime.enable');
+    await client.send('Page.navigate', { url: targetUrl });
+    const inspectTask = {
+      runtime:'whatsapp_web', platform:'whatsapp', action:'inspect',
+      name:task.target.expectedName,
+      link:task.target.expectedLink,
+      expectedTarget:{name:task.target.expectedName,link:task.target.expectedLink},
+    };
+    let classified = await waitForClassification(client, inspectTask, timeoutMs);
+    if (classified.kind === 'action' && classified.action === 'view') {
+      const clicked = await clickExactButton(client, classified.buttonText, classified.observedName || task.target.expectedName);
+      if (!clicked) return { kind:'blocked', reason:'expected_control_disappeared' };
+      const observedTask = classified.observedName
+        ? { ...inspectTask, name:classified.observedName, expectedTarget:{...inspectTask.expectedTarget,name:classified.observedName} }
+        : inspectTask;
+      classified = await waitForClassification(client, observedTask, timeoutMs, 'view');
+    }
+    if (classified.kind !== 'result' || classified.result.targetVerified !== true || classified.result.membershipState !== 'joined') {
+      return { kind:'blocked', reason:classified.reason || 'joined_target_not_verified' };
+    }
+    const observedTarget = classified.result.observedName || task.target.expectedName;
+    const before = await readSnapshot(client);
+    if (!before.composer) return { kind:'blocked', reason:before.adminOnly ? 'admin_only' : 'read_only' };
+    const beforeKeys = new Set((before.messageRows || []).map((row) => row.key).filter(Boolean));
+    if (!await focusAndClearComposer(client)) return { kind:'blocked', reason:'composer_not_found' };
+    await client.send('Input.insertText', { text });
+    const prepared = await waitForComposerText(client, text, Math.min(timeoutMs, 5_000));
+    if (!prepared) return { kind:'blocked', reason:'composer_content_mismatch' };
+
+    await client.send('Input.dispatchKeyEvent', { type:'keyDown', key:'Enter', code:'Enter', windowsVirtualKeyCode:13, nativeVirtualKeyCode:13 });
+    await client.send('Input.dispatchKeyEvent', { type:'keyUp', key:'Enter', code:'Enter', windowsVirtualKeyCode:13, nativeVirtualKeyCode:13 });
+
+    const expected = normalizeMessageText(text);
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const snapshot = await readSnapshot(client);
+      const confirmed = (snapshot.messageRows || []).some((row) =>
+        row.key && !beforeKeys.has(row.key) && normalizeMessageText(row.text) === expected
+      );
+      if (confirmed && !normalizeMessageText(snapshot.composerText || '')) {
+        return { kind:'result', result:{ status:'sent', observedTarget, targetVerified:true, sendConfirmed:true } };
+      }
+      await sleep(POLL_MS);
+    }
+    return { kind:'blocked', reason:'send_not_confirmed' };
+  } finally {
+    client.close();
+  }
+}
+
 export async function inspectWhatsappTaskViaCdp(
   task,
   { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS } = {},
@@ -355,9 +423,15 @@ async function readSnapshot(client) {
       .slice(-30).map((node) => clean(node.innerText || node.textContent || '').slice(0,1200)));
     const messageMeta = unique([...document.querySelectorAll('#main [data-pre-plain-text]')]
       .slice(-30).map((node) => node.getAttribute('data-pre-plain-text') || ''));
-    const composer = Boolean(document.querySelector(
+    const composerNode = document.querySelector(
       'footer [contenteditable="true"][role="textbox"], footer [contenteditable="true"], [data-testid="conversation-compose-box-input"]'
-    ));
+    );
+    const composer = Boolean(composerNode);
+    const composerText = clean(composerNode?.innerText || composerNode?.textContent || '');
+    const messageRows = [...document.querySelectorAll('[data-testid="msg-container"]')].slice(-50).map((node) => {
+      const identified = node.getAttribute('data-id') ? node : node.querySelector('[data-id]');
+      return { key: identified?.getAttribute('data-id') || '', text: clean(node.innerText || node.textContent || '') };
+    }).filter((row) => row.key && row.text);
     const hasQr = Boolean(document.querySelector('canvas[aria-label*="QR" i], [data-ref] canvas'));
     return {
       url: location.href,
@@ -374,6 +448,8 @@ async function readSnapshot(client) {
       messageMeta,
       nowMs: Date.now(),
       composer,
+      composerText,
+      messageRows,
       adminOnly: ${adminOnlyPattern}.test(bodyText),
       hasQr,
     };
@@ -465,6 +541,41 @@ async function enrichJoinedQualification(client, task, result) {
     };
   }
   return { ...result, ...combined };
+}
+
+async function focusAndClearComposer(client) {
+  const expression = `(() => {
+    const node = document.querySelector(
+      'footer [contenteditable="true"][role="textbox"], footer [contenteditable="true"], [data-testid="conversation-compose-box-input"]'
+    );
+    if (!node) return false;
+    node.focus();
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.execCommand('delete');
+    node.dispatchEvent(new InputEvent('input', { bubbles:true, inputType:'deleteContentBackward', data:null }));
+    return true;
+  })()`;
+  const response = await client.send('Runtime.evaluate', { expression, returnByValue:true });
+  return response?.result?.value === true;
+}
+
+async function waitForComposerText(client, expectedText, timeoutMs) {
+  const expected = normalizeMessageText(expectedText);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const snapshot = await readSnapshot(client);
+    if (snapshot.composer && normalizeMessageText(snapshot.composerText || '') === expected) return true;
+    await sleep(POLL_MS);
+  }
+  return false;
+}
+
+function normalizeMessageText(value) {
+  return String(value || '').replace(/\r\n/gu, '\n').replace(/\u00a0/gu, ' ').trim();
 }
 
 async function clickExactHeader(client, expectedName) {

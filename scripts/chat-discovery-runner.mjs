@@ -2,7 +2,7 @@
 import { execFile } from 'node:child_process';
 import process from 'node:process';
 import readline from 'node:readline/promises';
-import { inspectWhatsappTaskViaCdp, leaveWhatsappTaskViaCdp, toWhatsAppWebInviteUrl } from './whatsapp-web-cdp.mjs';
+import { inspectWhatsappTaskViaCdp, leaveWhatsappTaskViaCdp, sendWhatsappAutopostViaCdp, toWhatsAppWebInviteUrl } from './whatsapp-web-cdp.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const token=process.env.WORK_OS_EXECUTOR_TOKEN||'';
@@ -68,6 +68,36 @@ async function runOnce(){
   const queue=await api('/api/chat-discovery/executor?limit=1');
   const task=queue.tasks?.[0];
   if(!task){
+    const automation=await api('/api/messenger-automation/executor?platform=whatsapp');
+    if(automation.task?.kind==='whatsapp_autopost'){
+      const job=automation.task;
+      if(!whatsappCdp){
+        console.warn('WhatsApp autopost requires WORK_OS_WHATSAPP_CDP; lease will be retried later.');
+        return true;
+      }
+      let automated;
+      try{automated=await sendWhatsappAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp});}
+      catch(error){
+        console.warn(`WhatsApp autopost CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
+        return true;
+      }
+      if(automated.kind==='result'&&automated.result.sendConfirmed===true){
+        await api('/api/messenger-automation/executor',{method:'POST',body:JSON.stringify({
+          action:'complete-whatsapp-autopost',jobId:job.jobId,status:'sent',
+          observedTarget:automated.result.observedTarget,targetVerified:true,sendConfirmed:true,
+        })});
+        console.log(`Confirmed WhatsApp autopost accepted by Work OS for ${automated.result.observedTarget}.`);
+        return true;
+      }
+      console.warn(`WhatsApp autopost stopped fail-closed: ${automated.reason}`);
+      if(!['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready'].includes(automated.reason)){
+        await api('/api/messenger-automation/executor',{method:'POST',body:JSON.stringify({
+          action:'complete-whatsapp-autopost',jobId:job.jobId,status:'failed',
+          observedTarget:job.target.expectedName,targetVerified:false,sendConfirmed:false,errorCode:automated.reason,
+        })});
+      }
+      return true;
+    }
     const source=await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'advance-discovery'})});
     if(source.advanced){
       console.log(`Discovery source advanced via ${source.source}: searched ${source.batch?.searched||0}, added ${source.batch?.added||0}, duplicates ${source.batch?.duplicates||0}; targets ${source.run?.targetCount||0}/${source.run?.goal||0}`);

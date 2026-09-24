@@ -1,5 +1,5 @@
 import { DiscoveryError } from './domain.ts';
-import { releaseViberSafeJobsForDevice } from '../messenger-automation.ts';
+import { releaseMessengerAutomationJobsForDevice } from '../messenger-automation.ts';
 
 export type DiscoveryExecutorDevice = {
   id: string;
@@ -54,7 +54,7 @@ export async function revokeDiscoveryExecutorDevice(
   await db.prepare(`UPDATE chat_discovery_candidates
     SET executor_lease_device_id=NULL,executor_lease_expires_at=NULL
     WHERE user_id=?1 AND executor_lease_device_id=?2`).bind(userId, deviceId).run();
-  await releaseViberSafeJobsForDevice(db,userId,deviceId,now);
+  await releaseMessengerAutomationJobsForDevice(db,userId,deviceId,now);
   return { ok: true };
 }
 

@@ -1,5 +1,16 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 WhatsApp confirmed-send text autopost — v0.2.55
+
+- Ready WhatsApp chats now expose a bounded «Автопост» action. Work OS automatically selects an eligible Library advertisement/language and creates an owner-scoped, idempotent job instead of marking publication optimistically.
+- The job snapshots exact chat identity, chat state, material version/text and Europe/Kyiv publication date. Claim rechecks ready/target state, current material, profile eligibility and same-day reuse immediately before any external send.
+- The existing paired browser runner claims WhatsApp autopost only when no Discovery messenger task is due. CDP verifies the exact joined target and writable composer, inserts the exact text, sends it, then requires a newly visible outbound message DOM id with exact text plus cleared composer before returning `sendConfirmed=true`.
+- Wrong target, admin-only/read-only, missing composer, ambiguous DOM or unconfirmed send fail closed. Authentication/CDP outages send no false failure callback and the bounded lease can be retried.
+- Canonical publication accounting is created only after confirmed send with source `whatsapp_autopost`. Manual publish is blocked while the job is active; chat/day uniqueness protects retries. After a factual send, accounting is fact-first and is not discarded because Library/profile policy changed after claim.
+- The UI shows «Автопост у черзі». Pending jobs can be cancelled; an unexpired claimed job cannot be cancelled because a send may already be in flight, and it becomes cancellable again after lease expiry. Chat mutations/return-to-join are server-blocked while the job is active.
+- Migration `0038_whatsapp_autopost_jobs.sql` is staging-only through the normal guarded migration pipeline. Production remains untouched.
+- This release is text-only. Batch queue autopost and canonical advertisement image/media support remain the next functional slices; live WhatsApp browser acceptance is still separate evidence.
+
 ## 2026-09-24 WhatsApp factual post-join qualification — v0.2.54
 
 - WhatsApp exact-target verification now uses the exact invite code as identity on the invite screen, so an approximate or generated source name can be safely replaced by the observed WhatsApp group name before later header matching.

@@ -30,7 +30,7 @@ type Platform = 'telegram' | 'whatsapp' | 'viber' | 'facebook';
 type WorkflowQueue = 'to_join' | 'waiting' | 'ready' | 'archived';
 type Queue = WorkflowQueue | 'profile_review';
 type ProfileFilter = 'all' | 'needs_review';
-type Chat = { id:string; name:string; link:string; platform:Platform; status:WorkflowQueue; archiveReason:string|null; archivedAt:number|null; profileConfirmed:boolean; profile:ChatProfile; publishedToday:boolean; joinedAt:number|null; snoozedUntil:number|null; snoozeCount:number; leftAt:number|null; availableAt:number|null; availableNow:boolean; telegramAccountId:string|null; stateToken:string; discoveryDecision:'review'|'target'|'rejected'|'unavailable'|null };
+type Chat = { id:string; name:string; link:string; platform:Platform; status:WorkflowQueue; archiveReason:string|null; archivedAt:number|null; profileConfirmed:boolean; profile:ChatProfile; publishedToday:boolean; joinedAt:number|null; snoozedUntil:number|null; snoozeCount:number; leftAt:number|null; availableAt:number|null; availableNow:boolean; telegramAccountId:string|null; stateToken:string; discoveryDecision:'review'|'target'|'rejected'|'unavailable'|null; autopostJobId:string|null };
 type ProfileCounts = { confirmed:number; draft:number; empty:number; needsReview:number };
 type PublicationState = { chatId:string; chatPublishedToday:boolean; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:PublicationPace };
 type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; profileCounts:Record<string,ProfileCounts>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:PublicationPace; requestKey?:string };
@@ -340,6 +340,38 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     if((await act(item.chat,item.action)).ok) setNotice('Дію скасовано.');
   }
 
+  async function toggleWhatsAppAutopost(chat:Chat) {
+    if(chat.platform!=='whatsapp'||busy!==null)return;
+    await runAction.current(async()=>{
+      setBusy(chat.id);setError('');setNotice('');setUndo(null);
+      try{
+        const cancelling=Boolean(chat.autopostJobId);
+        const response=await fetch('/api/messenger-automation',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(cancelling
+            ? {action:'cancel-whatsapp-autopost',jobId:chat.autopostJobId}
+            : {action:'whatsapp-autopost',requestKey:crypto.randomUUID(),chatId:chat.id}),
+        });
+        const body=await response.json() as {error?:string;job?:{id:string}};
+        if(!response.ok)throw new Error(body.error||'Не вдалося оновити WhatsApp автопублікацію.');
+        setData(current=>{
+          if(!current||current.requestKey!==requestKey)return current;
+          return {...current,chats:current.chats.map(item=>item.id===chat.id
+            ? {...item,autopostJobId:cancelling?null:(body.job?.id||item.autopostJobId)}
+            : item)};
+        });
+        invalidateQueueCache('whatsapp');
+        announceDataChange('all');
+        setNotice(cancelling
+          ? 'WhatsApp автопублікацію скасовано до підтвердженої відправки.'
+          : 'WhatsApp автопублікацію поставлено в executor queue. Publication fact з’явиться тільки після підтвердженого send.');
+      }catch(reason){
+        setError(reason instanceof Error?reason.message:'Не вдалося оновити WhatsApp автопублікацію.');
+        await reloadChats.current(true);
+      }finally{setBusy(null);}
+    });
+  }
+
   function toggleArchive(id:string) {
     setError('');
     setArchiveId(current=>{const next=current===id?null:id;if(next) setCustomArchiveReason('');return next;});
@@ -461,14 +493,14 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       {!data&&(loading||switchingList) ? <WorkspaceInitialLoading compact label={`Завантажуємо ${selected.label}…`}/> : data?.chats.length ? <>
         <div className="chat-list">
         {data.chats.map((chat,index)=><article className={`chat-row ${chat.publishedToday?'is-published':''} ${lastOpenedByPlatform[platform]===chat.id?'is-last-opened':''} ${index>=mobileVisibleChats?'mobile-progressive-hidden':''}`} key={chat.id}>
-          <div className="chat-main"><div className="chat-name-line"><strong>{chat.name}</strong>{lastOpenedByPlatform[platform]===chat.id&&<Badge variant="outline">Останній відкритий</Badge>}{!chat.profileConfirmed&&(queue==='ready'||queue==='profile_review')&&<Badge variant="outline">Профіль пізніше</Badge>}{queue==='profile_review'&&<Badge variant="secondary">{chat.status==='waiting'?'Очікування':'Для публікації'}</Badge>}{queue==='ready'&&chat.discoveryDecision&&chat.discoveryDecision!=='target'&&<Badge variant="outline">Потрібна кваліфікація</Badge>}{chat.publishedToday&&<Badge variant="secondary">Опубліковано сьогодні</Badge>}</div><button className="chat-native-link" type="button" title={chat.link} aria-label={`Відкрити ${selected.label}: ${chat.link}`} onClick={()=>openChat(chat)}>{compactChatLink(chat.link)}</button>{chat.archiveReason&&<small>Причина: {chat.archiveReason}</small>}{queue==='archived'&&chat.archivedAt&&<small>Архівовано {formatDateTime(chat.archivedAt)}</small>}{queue==='archived'&&supportsChatLeaveChecklist(platform)&&chat.joinedAt!==null&&<small>{chat.leftAt?`Вихід із чату підтверджено ${formatDateTime(chat.leftAt)}`:'Ще потрібно вручну вийти з чату й підтвердити це тут.'}</small>}{chat.snoozedUntil&&chat.snoozedUntil>clock/1000&&<small>Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{(queue==='waiting'||queue==='ready')&&shouldSuggestChatArchive(chat.snoozeCount)&&<div><small>Відкладали {chat.snoozeCount} рази. Якщо чат уже неактуальний, краще перенести його в архів.</small><Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>toggleArchive(chat.id)}><Archive data-icon="inline-start"/>Архівувати</Button></div>}{queue==='ready'&&!canPublish(chat,clock)&&(chat.discoveryDecision&&chat.discoveryDecision!=='target'
+          <div className="chat-main"><div className="chat-name-line"><strong>{chat.name}</strong>{lastOpenedByPlatform[platform]===chat.id&&<Badge variant="outline">Останній відкритий</Badge>}{!chat.profileConfirmed&&(queue==='ready'||queue==='profile_review')&&<Badge variant="outline">Профіль пізніше</Badge>}{queue==='profile_review'&&<Badge variant="secondary">{chat.status==='waiting'?'Очікування':'Для публікації'}</Badge>}{queue==='ready'&&chat.discoveryDecision&&chat.discoveryDecision!=='target'&&<Badge variant="outline">Потрібна кваліфікація</Badge>}{chat.autopostJobId&&<Badge variant="secondary">Автопост у черзі</Badge>}{chat.publishedToday&&<Badge variant="secondary">Опубліковано сьогодні</Badge>}</div><button className="chat-native-link" type="button" title={chat.link} aria-label={`Відкрити ${selected.label}: ${chat.link}`} onClick={()=>openChat(chat)}>{compactChatLink(chat.link)}</button>{chat.archiveReason&&<small>Причина: {chat.archiveReason}</small>}{queue==='archived'&&chat.archivedAt&&<small>Архівовано {formatDateTime(chat.archivedAt)}</small>}{queue==='archived'&&supportsChatLeaveChecklist(platform)&&chat.joinedAt!==null&&<small>{chat.leftAt?`Вихід із чату підтверджено ${formatDateTime(chat.leftAt)}`:'Ще потрібно вручну вийти з чату й підтвердити це тут.'}</small>}{chat.snoozedUntil&&chat.snoozedUntil>clock/1000&&<small>Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{(queue==='waiting'||queue==='ready')&&shouldSuggestChatArchive(chat.snoozeCount)&&<div><small>Відкладали {chat.snoozeCount} рази. Якщо чат уже неактуальний, краще перенести його в архів.</small><Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>toggleArchive(chat.id)}><Archive data-icon="inline-start"/>Архівувати</Button></div>}{queue==='ready'&&!canPublish(chat,clock)&&(chat.discoveryDecision&&chat.discoveryDecision!=='target'
   ? <small className="wait-note"><Clock3/>Публікація заблокована до завершення кваліфікації чату.</small>
   : <small className="wait-note"><Clock3/>Публікація буде доступна {formatDateTime(chat.availableAt!)}</small>)}</div>
           <div className="chat-actions">
             {platform==='telegram'&&queue!=='to_join'&&queue!=='profile_review'&&<select disabled={busy!==null} className="chat-account-select" value={chat.telegramAccountId||''} onChange={event=>assignAccount(chat,event.target.value)} aria-label="Telegram-акаунт чату">{accounts.filter(item=>item.enabled||item.id===chat.telegramAccountId).map(account=><option value={account.id} key={account.id}>{account.name} · #{account.number}</option>)}</select>}
             {queue==='to_join'&&<><Button size="icon" onClick={()=>act(chat,'joined')} disabled={busy!==null} aria-label="Успішно приєднано"><Check/></Button>{(platform==='telegram'||platform==='whatsapp')&&<Button variant="outline" size="icon" onClick={()=>act(chat,'waiting')} disabled={busy!==null} aria-label="Очікуємо запрошення"><Clock3/></Button>}<Button variant="outline" size="icon" onClick={()=>act(chat,'failed',{reason:'Не вдалося приєднатися'},{action:'restore',label:'Невдале приєднання можна скасувати протягом 8 секунд.'})} disabled={busy!==null} aria-label="Не вдалося приєднатися"><X/></Button></>}
             {queue==='waiting'&&<Button onClick={()=>act(chat,'approved')} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>Прийняли</Button>}
-            {queue==='ready'&&<>{!chat.publishedToday&&<Button onClick={(event)=>{if(!chat.profileConfirmed&&!quickPublishMode){profileTrigger.current=event.currentTarget;setProfileChat(chat);return;}publishTrigger.current=event.currentTarget;setPublishChat(chat);}} disabled={busy!==null||Boolean(chat.discoveryDecision&&chat.discoveryDecision!=='target')||((chat.profileConfirmed||quickPublishMode)&&!canPublish(chat,clock))}>{!chat.profileConfirmed&&!quickPublishMode?<UserRoundCheck data-icon="inline-start"/>:<Send data-icon="inline-start"/>}{readyActionLabel(chat,clock,quickPublishMode)}</Button>}{platform==='whatsapp'&&<Button variant="outline" size="icon" onClick={()=>setConfirmation({kind:'return',chat})} disabled={busy!==null} aria-label="Повернути для приєднання"><Undo2/></Button>}</>}
+            {queue==='ready'&&<>{!chat.publishedToday&&<Button onClick={(event)=>{if(!chat.profileConfirmed&&!quickPublishMode){profileTrigger.current=event.currentTarget;setProfileChat(chat);return;}publishTrigger.current=event.currentTarget;setPublishChat(chat);}} disabled={busy!==null||Boolean(chat.autopostJobId)||Boolean(chat.discoveryDecision&&chat.discoveryDecision!=='target')||((chat.profileConfirmed||quickPublishMode)&&!canPublish(chat,clock))}>{!chat.profileConfirmed&&!quickPublishMode?<UserRoundCheck data-icon="inline-start"/>:<Send data-icon="inline-start"/>}{readyActionLabel(chat,clock,quickPublishMode)}</Button>}{platform==='whatsapp'&&!chat.publishedToday&&<Button type="button" variant={chat.autopostJobId?'outline':'default'} size="sm" disabled={busy!==null||Boolean(chat.discoveryDecision&&chat.discoveryDecision!=='target')||(!chat.autopostJobId&&!canPublish(chat,clock))} onClick={()=>void toggleWhatsAppAutopost(chat)}><Send data-icon="inline-start"/>{chat.autopostJobId?'Скасувати автопост':'Автопост'}</Button>}{platform==='whatsapp'&&<Button variant="outline" size="icon" onClick={()=>setConfirmation({kind:'return',chat})} disabled={busy!==null||Boolean(chat.autopostJobId)} aria-label="Повернути для приєднання"><Undo2/></Button>}</>}
             {(queue==='waiting'||queue==='ready'||queue==='profile_review')&&<Button variant={queue==='profile_review'?'default':'outline'} onClick={(event)=>{profileTrigger.current=event.currentTarget;setProfileChat(chat);}} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>{queue==='profile_review'?'Уточнити профіль':'Профіль'}</Button>}
             {(queue==='waiting'||queue==='ready')&&<Button variant="outline" title={isSnoozed(chat,clock)?'Скасувати відкладення':'Відкласти на 3 календарні дні'} onClick={()=>{const snoozed=isSnoozed(chat,clock);return act(chat,snoozed?'unsnooze':'snooze',{},snoozed?undefined:{action:'unsnooze',label:'Відкладення можна скасувати протягом 8 секунд.'});}} disabled={busy!==null||chat.publishedToday}>{isSnoozed(chat,clock)?'Повернути зараз':'+3 дні'}</Button>}
             {queue==='archived'&&supportsChatLeaveChecklist(platform)&&chat.joinedAt!==null&&<Button variant="outline" onClick={()=>act(chat,chat.leftAt?'undo_leave':'confirm_leave')} disabled={busy!==null}>{chat.leftAt?<><Undo2 data-icon="inline-start"/>Скасувати вихід</>:<><Check data-icon="inline-start"/>Я вийшов</>}</Button>}

@@ -26,7 +26,7 @@ type ChatRow = {
   profile_language: string | null; profile_cadence: string | null; profile_weekdays: string | null;
   profile_custom_interval_days: number | null; profile_next_allowed_on: string | null;
   profile_directions: string | null; profile_note: string | null;
-  telegram_account_id: string | null; state_token: string; discovery_decision: string | null;
+  telegram_account_id: string | null; state_token: string; discovery_decision: string | null; autopost_job_id: string | null;
 };
 
 export async function GET(request: Request): Promise<Response> {
@@ -53,7 +53,7 @@ export async function GET(request: Request): Promise<Response> {
   const rowAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?9 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
   const totalAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?6 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
   const statements = [
-    env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.archived_at,${chatSnoozeCountSql()} AS snooze_count,${chatLeftAtSql()} AS left_at,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.custom_interval_days AS profile_custom_interval_days,p.next_allowed_on AS profile_next_allowed_on,p.directions_json AS profile_directions,p.note AS profile_note,(SELECT dc.decision FROM chat_discovery_candidates dc WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id ORDER BY dc.updated_at DESC,dc.id LIMIT 1) AS discovery_decision,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?6) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE ${filter}${rowAccountFilter} ORDER BY published_today ASC,CASE WHEN c.snoozed_until IS NOT NULL AND c.snoozed_until>?7 THEN 1 ELSE 0 END,c.updated_at DESC,c.name LIMIT 50 OFFSET ?8`).bind(user.id, platform, status, search, pattern, today, now, offset, ...(accountId?[accountId]:[])),
+    env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.archived_at,${chatSnoozeCountSql()} AS snooze_count,${chatLeftAtSql()} AS left_at,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.custom_interval_days AS profile_custom_interval_days,p.next_allowed_on AS profile_next_allowed_on,p.directions_json AS profile_directions,p.note AS profile_note,(SELECT dc.decision FROM chat_discovery_candidates dc WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id ORDER BY dc.updated_at DESC,dc.id LIMIT 1) AS discovery_decision,(SELECT wa.id FROM whatsapp_autopost_jobs wa WHERE wa.user_id=c.user_id AND wa.chat_id=c.id AND wa.published_on=?6 AND wa.status IN ('pending','claimed') ORDER BY wa.created_at DESC LIMIT 1) AS autopost_job_id,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?6) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE ${filter}${rowAccountFilter} ORDER BY published_today ASC,CASE WHEN c.snoozed_until IS NOT NULL AND c.snoozed_until>?7 THEN 1 ELSE 0 END,c.updated_at DESC,c.name LIMIT 50 OFFSET ?8`).bind(user.id, platform, status, search, pattern, today, now, offset, ...(accountId?[accountId]:[])),
     env.DB.prepare(`SELECT COUNT(*) AS count ${totalSource} WHERE ${filter}${totalAccountFilter}`).bind(user.id, platform, status, search, pattern, ...(accountId?[accountId]:[])),
     platform === 'telegram'
       ? env.DB.prepare(`SELECT c.workflow_status,COUNT(*) AS count,SUM(CASE WHEN p.review_status='confirmed' THEN 1 ELSE 0 END) AS confirmed_count,SUM(CASE WHEN p.review_status='draft' THEN 1 ELSE 0 END) AS draft_count,SUM(CASE WHEN p.chat_id IS NULL THEN 1 ELSE 0 END) AS empty_count FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 AND (c.telegram_account_id=?3 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join')) GROUP BY c.workflow_status`).bind(user.id,platform,accountId)
@@ -74,6 +74,7 @@ export async function GET(request: Request): Promise<Response> {
     status: row.workflow_status, archiveReason: row.archive_reason, archivedAt: row.archived_at,
     telegramAccountId: row.telegram_account_id, stateToken: row.state_token,
     discoveryDecision: row.discovery_decision === 'target' || row.discovery_decision === 'review' || row.discovery_decision === 'rejected' || row.discovery_decision === 'unavailable' ? row.discovery_decision : null,
+    autopostJobId: row.autopost_job_id || null,
     profileConfirmed: row.profile_status === 'confirmed',
     profile: { language: row.profile_language === 'uk' || row.profile_language === 'ru' ? row.profile_language : null,
       cadence: typeof row.profile_cadence === 'string' && PROFILE_CADENCES.includes(row.profile_cadence as typeof PROFILE_CADENCES[number]) ? row.profile_cadence : 'any', weekdays: parseNumberList(row.profile_weekdays), customIntervalDays: row.profile_custom_interval_days === null ? null : Number(row.profile_custom_interval_days), nextAllowedOn: row.profile_next_allowed_on || null, directions: parseStringList(row.profile_directions),
@@ -111,6 +112,12 @@ export async function POST(request: Request): Promise<Response> {
   if (!chat) return Response.json({ error: 'Чат не знайдено.' }, { status: 404 });
   if (body.stateToken !== chat.state_token) return Response.json({error:'Стан чату вже змінився. Оновіть список.',refresh:true},{status:409});
   const now = unixNow();
+  if(chat.platform==='whatsapp'){
+    const activeAutopost=await env.DB.prepare(`SELECT id FROM whatsapp_autopost_jobs
+      WHERE user_id=?1 AND chat_id=?2 AND status IN ('pending','claimed') LIMIT 1`)
+      .bind(user.id,chat.id).first<{id:string}>();
+    if(activeAutopost)return Response.json({error:'Для цього чату виконується WhatsApp автопублікація. Дочекайтеся результату або скасуйте pending job.'},{status:409});
+  }
   const requestedAccount = typeof body.accountId === 'string' ? body.accountId : null;
   const accountId = chat.platform === 'telegram' ? (chat.telegram_account_id || await selectedTelegramAccount(user.id,requestedAccount)) : null;
   if (chat.platform === 'telegram' && !accountId && !['restore','archive','failed','profile','confirm_leave','undo_leave','permanent_delete'].includes(action)) return Response.json({error:'Оберіть активний Telegram-акаунт.'},{status:409});
