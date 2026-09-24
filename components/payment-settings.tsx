@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { CalendarClock, TrendingUp, WalletCards } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 import {
   DEFAULT_PAYMENT_RULES,
   type BonusPeriodMode,
@@ -88,7 +89,7 @@ export function PaymentSettings({ onSaved }: { onSaved?: () => void }) {
       </Button>
     </div>
 
-    {loading ? <p className="muted-note">Завантажуємо правила виплат…</p> : <>
+    {loading&&!summary ? <WorkspaceInlineLoading label="Завантажуємо правила виплат…"/> : <>{loading&&summary?<WorkspaceInlineLoading label="Оновлюємо правила виплат…"/>:null}
       <div className="payment-config-grid">
         <label>
           <span>Період зарплати</span>
