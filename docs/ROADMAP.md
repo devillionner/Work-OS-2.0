@@ -144,3 +144,12 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Regression coverage guards atomic publication/event facts, cancellation, report revisions, Library reuse state, Telegram scheduler restore/account isolation and archive-history preservation.
 - [ ] Final staging full-gate acceptance for v0.2.36: `verify:local` + guarded deploy + `/api/build` must match the release HEAD/version before this slice is called deployed.
 - v0.2.38 completes the current Library advertisement data/UX slice: supported platforms are canonical and server-validated, platform/direction selection is structured, legacy/custom tags are preserved, generic all-platform ads remain visible in filtered views, UA/RU editing is responsive, and same-day advertisement usage is visible by platform. Native Viber safe-mode implementation is next; physical native acceptance remains separate because Desktop Commander is reserved for website automation.
+
+
+## v0.2.39 — Viber safe-mode operator slice
+
+- [x] Library can enqueue a Viber safe-note job from an eligible active advertisement and selected UA/RU material.
+- [x] Active job state reconciles from the server and can be cancelled from Library.
+- [x] UI and server contract state that the target is only «Мої нотатки» and the smoke test creates no publication accounting fact.
+- [ ] Native CachyOS/Viber send acceptance remains a separate manual/future gate; real Viber chats stay disabled until explicit approval.
+- Next: continue Chat Discovery/external executor acceptance and website-based WhatsApp automation without weakening fail-closed target verification.
