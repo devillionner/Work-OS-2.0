@@ -15,7 +15,7 @@ import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { resolveDailyPublicationGoal } from '@/lib/publication-goal';
 
 const PLATFORMS = new Set(['telegram', 'whatsapp', 'viber', 'facebook']);
-const STATUSES = new Set(['to_join', 'waiting', 'ready', 'archived']);
+const STATUSES = new Set(['to_join', 'waiting', 'ready', 'profile_review', 'archived']);
 const ACTIONS = new Set(['joined', 'waiting', 'approved', 'failed', 'archive', 'restore', 'snooze', 'unsnooze', 'confirm_leave', 'undo_leave', 'permanent_delete', 'published', 'undo_published', 'assign_account', 'return_to_join', 'profile']);
 const REQUEST_MAX_BYTES = 64 * 1024;
 
@@ -46,8 +46,9 @@ export async function GET(request: Request): Promise<Response> {
   const now = unixNow();
   const today = businessDate(now);
   const pattern = `%${escapeLike(search.toLowerCase())}%`;
-  const profileFilter = profile === 'needs_review' ? ` AND (p.review_status IS NULL OR p.review_status!='confirmed')` : '';
-  const filter = `c.user_id=?1 AND c.platform=?2 AND c.workflow_status=?3 AND (?4='' OR lower(c.name) LIKE ?5 ESCAPE '\\' OR lower(c.link) LIKE ?5 ESCAPE '\\')${profileFilter}`;
+  const profileFilter = status === 'profile_review' || profile === 'needs_review' ? ` AND (p.review_status IS NULL OR p.review_status!='confirmed')` : '';
+  const workflowFilter = `((?3='profile_review' AND c.workflow_status IN ('waiting','ready')) OR c.workflow_status=?3)`;
+  const filter = `c.user_id=?1 AND c.platform=?2 AND ${workflowFilter} AND (?4='' OR lower(c.name) LIKE ?5 ESCAPE '\\' OR lower(c.link) LIKE ?5 ESCAPE '\\')${profileFilter}`;
   const totalSource = profileFilter ? 'FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id' : 'FROM chats c';
   const rowAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?9 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
   const totalAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?6 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
@@ -87,6 +88,10 @@ export async function GET(request: Request): Promise<Response> {
   const countRows = countsResult.results as Array<{workflow_status:string;count:number;confirmed_count:number;draft_count:number;empty_count:number}>;
   const counts = Object.fromEntries(countRows.map((row) => [row.workflow_status, Number(row.count)]));
   const profileCounts = Object.fromEntries(countRows.map((row) => { const confirmed=Number(row.confirmed_count)||0; const draft=Number(row.draft_count)||0; const empty=Number(row.empty_count)||0; return [row.workflow_status,{confirmed,draft,empty,needsReview:draft+empty}]; }));
+  const waitingProfiles=profileCounts.waiting || {confirmed:0,draft:0,empty:0,needsReview:0};
+  const readyProfiles=profileCounts.ready || {confirmed:0,draft:0,empty:0,needsReview:0};
+  profileCounts.profile_review={confirmed:0,draft:waitingProfiles.draft+readyProfiles.draft,empty:waitingProfiles.empty+readyProfiles.empty,needsReview:waitingProfiles.needsReview+readyProfiles.needsReview};
+  counts.profile_review=profileCounts.profile_review.needsReview;
   const goalValue = (goalResult.results[0] as {value_json?:string}|undefined)?.value_json;
   const completedPublications = Number((publicationCountResult.results[0] as {count?:number}|undefined)?.count || 0);
   return Response.json({ chats, total: Number((totalResult.results[0] as {count?:number})?.count || 0), offset, counts, profileCounts, accountId, joinedToday: joinedResult.results, publishedToday: publishedResult.results, availableToday: availableResult.results, publicationPace: { ratePerHour: 7, completed: completedPublications, target: resolveDailyPublicationGoal(goalValue,today) } });

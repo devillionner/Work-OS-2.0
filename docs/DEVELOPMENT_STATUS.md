@@ -1,5 +1,15 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Profile clarification queue — v0.2.44
+
+- Platforms now has a dedicated «Уточнити профіль» queue. It is a virtual server view over canonical `waiting` + `ready` chats with draft/missing profiles; no workflow state is duplicated or rewritten just to populate the queue.
+- Each row exposes its real underlying workflow as «Очікування» or «Для публікації». The primary action is profile editing, while quick-publish and join actions remain in their canonical queues.
+- The aggregate queue count is derived from the existing per-workflow profile counts. Confirming a profile invalidates/reconciles the Platforms cache, so the row leaves the clarification queue without F5.
+- Five queue tabs remain container-responsive: desktop uses five columns, narrow containers wrap to three columns, and mobile keeps the horizontal 48px touch-friendly tab strip.
+- Added focused source regression coverage for the virtual server filter, combined count, queue semantics and responsive tab layout. Full local lint/typecheck/tests and live Safari/physical acceptance are recorded separately and are not inferred from source contracts.
+- The WhatsApp Web CDP adapter remains source-complete but live browser acceptance is still blocked by the unavailable Opera Browser Connector/CDP endpoint; no external messenger callback is claimed.
+
+
 ## Unreleased — WhatsApp Web CDP executor adapter
 
 - Chat Discovery's reference runner now supports an optional `WORK_OS_WHATSAPP_CDP` endpoint for an already-authorized Chromium/Opera profile. It converts `chat.whatsapp.com` invites to WhatsApp Web, verifies the exact rendered target before any join/request click, and reports only factual joined/pending/inaccessible states.
