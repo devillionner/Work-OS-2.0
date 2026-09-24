@@ -24,6 +24,7 @@ import { AppReleaseDialog } from '@/components/app-release-dialog';
 import { WorkdayCard } from '@/components/workday-card';
 import { createBrowserCommandClient } from '@/components/leads/client';
 import { APP_VERSION } from '@/lib/app-meta';
+import { requestDataSync } from '@/lib/client-sync';
 import { useRouter } from 'next/navigation';
 import type { DashboardSnapshot } from '@/lib/dashboard';
 
@@ -92,7 +93,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkO
     setActiveView(next);
     setMobileOpen(false);
     if (fromDrawer) requestAnimationFrame(() => pageHeadingRef.current?.focus());
-    if (next === 'today' && activeView !== 'today') router.refresh();
+    if (next === 'today' && activeView !== 'today') requestDataSync('focus');
   };
 
   const orderedLeadTasks = [...snapshot.leadTasks].sort((a, b) => {
