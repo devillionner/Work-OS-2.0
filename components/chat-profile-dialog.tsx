@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,15 +14,23 @@ type ChatProfileDialogProps = {open:boolean;chat:ProfileChat|null;onClose:()=>vo
 const cadenceNames:Record<string,string>={any:'Без обмежень',daily:'Раз на день',several_week:'Кілька разів на тиждень',weekly:'Раз на тиждень',monthly:'Раз на місяць',custom:'Власний інтервал'};
 const weekdays=['Пн','Вт','Ср','Чт','Пт','Сб','Нд'];
 
-export function ChatProfileDialog(props:ChatProfileDialogProps) {
-  const key=`${props.open?'open':'closed'}:${props.chat?.id||'none'}:${props.chat?.stateToken||'none'}`;
-  return <ChatProfileDialogForm key={key} {...props}/>;
-}
-
-function ChatProfileDialogForm({open,chat,onClose,onSaved,onOpenChat,finalFocus}:ChatProfileDialogProps) {
+export function ChatProfileDialog({open,chat,onClose,onSaved,onOpenChat,finalFocus}:ChatProfileDialogProps) {
   const [name,setName]=useState(chat?.name||''); const [language,setLanguage]=useState<'uk'|'ru'|''>(chat?.profile.language||''); const [cadence,setCadence]=useState<ProfileCadence>(chat?.profile.cadence||'any');
   const [weekdaysSelected,setWeekdaysSelected]=useState<number[]>(chat?.profile.weekdays||[]); const [customIntervalDays,setCustomIntervalDays]=useState(chat?.profile.customIntervalDays?String(chat.profile.customIntervalDays):''); const [nextAllowedOn,setNextAllowedOn]=useState(chat?.profile.nextAllowedOn||''); const [directions,setDirections]=useState(chat?.profile.directions.join('\n')||''); const [note,setNote]=useState(chat?.profile.note||''); const [reviewStatus,setReviewStatus]=useState<'draft'|'confirmed'>(chat?.profile.reviewStatus||'draft');
   const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const gate=useRef(createActionGate());
+  useEffect(()=>{
+    if(!open||!chat)return;
+    setName(chat.name);
+    setLanguage(chat.profile.language||'');
+    setCadence(chat.profile.cadence||'any');
+    setWeekdaysSelected(chat.profile.weekdays||[]);
+    setCustomIntervalDays(chat.profile.customIntervalDays?String(chat.profile.customIntervalDays):'');
+    setNextAllowedOn(chat.profile.nextAllowedOn||'');
+    setDirections(chat.profile.directions.join('\n'));
+    setNote(chat.profile.note||'');
+    setReviewStatus(chat.profile.reviewStatus||'draft');
+    setError('');
+  },[open,chat?.id,chat?.stateToken]);
   async function save() {
     if(!chat)return;
     await gate.current(async()=>{setBusy(true);setError('');const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),30_000);
