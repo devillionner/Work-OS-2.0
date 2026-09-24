@@ -40,6 +40,8 @@ export function LibraryWorkspace() {
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
+  const [viberJob,setViberJob]=useState<ViberSafeJob|null>(null);
+  const [viberBusy,setViberBusy]=useState(false);
 
   const load=useCallback(async()=>{
     setLoading(true);setError('');
@@ -87,6 +89,28 @@ export function LibraryWorkspace() {
     finally{setSaving(false);}
   }
 
+  async function runViberSafeNote(language:'uk'|'ru'){
+    if(!selected)return;
+    setViberBusy(true);setError('');setNotice('');
+    try{
+      const requestKey='viber_'+crypto.randomUUID().replaceAll('-','');
+      const response=await fetch('/api/messenger-automation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'viber-safe-note',requestKey,advertisementId:selected.id,language})});
+      const body=await response.json() as {job?:ViberSafeJob;error?:string};
+      if(!response.ok||!body.job)throw new Error(body.error||'Не вдалося запустити Viber safe-mode тест.');
+      setViberJob(body.job);setNotice('Viber safe-mode: задача створена. Відправлення дозволене лише в «Мої нотатки».');
+    }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося запустити Viber safe-mode тест.');}
+    finally{setViberBusy(false);}
+  }
+  async function cancelViberSafeNote(){
+    if(!viberJob)return;
+    setViberBusy(true);setError('');
+    try{
+      const response=await fetch('/api/messenger-automation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'cancel-viber-safe-note',jobId:viberJob.id})});
+      const body=await response.json() as {error?:string};if(!response.ok)throw new Error(body.error||'Не вдалося скасувати Viber safe-mode тест.');
+      setViberJob({...viberJob,status:'cancelled'});setNotice('Viber safe-mode тест скасовано. Публікацію не зараховано.');
+    }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося скасувати Viber safe-mode тест.');}
+    finally{setViberBusy(false);}
+  }
   const isKnowledge=collection==='knowledge';
   const platformOptions=collection==='advertisement'?[...LIBRARY_ADVERTISEMENT_PLATFORMS]:[];
   const visibleItems=platformFilter==='all'?items:items.filter(item=>item.platforms.length===0||item.platforms.some(value=>canonicalLibraryPlatform(value)===platformFilter));
@@ -114,6 +138,7 @@ export function LibraryWorkspace() {
           <label htmlFor="library-extra-tags">Додаткові теги<Input id="library-extra-tags" disabled={saving||archived} value={extraTags.join(', ')} onChange={event=>setForm(current=>({...current,tags:[...selectedDirections,...split(event.target.value)]}))} placeholder="Наприклад: батьки, НМТ, 1–4 клас"/></label>
           {selected&&selected.usedTodayPlatforms.length>0&&<p className="library-used-today" role="status">Сьогодні вже використано: {cleanLibraryPlatforms(selected.usedTodayPlatforms).map(platformLabel).join(', ')}. Повтор на тій самій платформі залежить від наявності невикористаних придатних оголошень.</p>}
           {unsupportedPlatforms.length>0&&<p className="library-legacy-warning" role="status">Є старі невідомі платформи: {unsupportedPlatforms.join(', ')}. Обери актуальні платформи зі списку перед збереженням.</p>}
+          {selected&&selected.archivedAt===null&&cleanLibraryPlatforms(selected.platforms).includes('viber')&&<div className="library-choice-group" aria-label="Viber safe-mode"><strong>Viber safe-mode · «Мої нотатки»</strong><p className="library-choice-hint">Безпечний тест executor: він не створює publication fact і не впливає на Today, Reports чи Analytics. Реальні Viber-чати тут недоступні.</p><div className="lead-actions">{selected.ukText.trim()&&<Button type="button" size="sm" variant="outline" disabled={saving||viberBusy||viberJob?.status==='pending'||viberJob?.status==='claimed'} onClick={()=>void runViberSafeNote('uk')}>{viberBusy?'Запускаємо…':'Тест UA'}</Button>}{selected.ruText.trim()&&<Button type="button" size="sm" variant="outline" disabled={saving||viberBusy||viberJob?.status==='pending'||viberJob?.status==='claimed'} onClick={()=>void runViberSafeNote('ru')}>{viberBusy?'Запускаємо…':'Тест RU'}</Button>}{viberJob&&(viberJob.status==='pending'||viberJob.status==='claimed')&&<Button type="button" size="sm" variant="ghost" disabled={viberBusy} onClick={()=>void cancelViberSafeNote()}>Скасувати тест</Button>}</div>{viberJob&&<p className="library-used-today" role="status">Стан safe-mode: {viberJobStatus(viberJob.status)}.</p>}</div>}
         </div>:<div className="library-two-fields"><label htmlFor="library-tags">Теги<Input id="library-tags" disabled={saving||archived} value={form.tags.join(', ')} onChange={event=>setForm({...form,tags:split(event.target.value)})} placeholder={isKnowledge?'бот, підготовка, техпідтримка':'відповідь, запис, ціна'}/></label><label htmlFor="library-platforms">Платформи<Input id="library-platforms" disabled={saving||archived} value={form.platforms.join(', ')} onChange={event=>setForm({...form,platforms:split(event.target.value)})} placeholder="telegram, viber"/></label></div>}
         {!archived&&<Button onClick={()=>void save()} disabled={saving||!form.title.trim()||(!form.ukText.trim()&&!form.ruText.trim())||(collection==='advertisement'&&!form.platforms.length)}>{saving?'Зберігаємо…':'Зберегти нову версію'}</Button>}
       </>:<div className="workspace-empty"><BookOpenText/><strong>Обери матеріал</strong><p>{archived?'Відкрий архівний матеріал, щоб переглянути історію або відновити його.':'Або натисни «Додати».'}</p></div>}</section></div>
@@ -135,3 +160,6 @@ function displayPlatforms(values:string[]){
   return [...known,...extras];
 }
 function platformLabel(value:string){return ({all:'Усі платформи',telegram:'Telegram',whatsapp:'WhatsApp',viber:'Viber',facebook:'Facebook'} as Record<string,string>)[value.toLowerCase()]||value;}
+
+type ViberSafeJob={id:string;status:'pending'|'claimed'|'sent'|'failed'|'cancelled';result:Record<string,unknown>|null};
+function viberJobStatus(status:ViberSafeJob['status']){return ({pending:'очікує executor',claimed:'виконується',sent:'підтверджено в «Мої нотатки»',failed:'завершено без підтвердженої відправки',cancelled:'скасовано'} as const)[status];}
