@@ -706,3 +706,12 @@ separate gates after local validation and the required direct confirmation.
 - The chat-row primary action is now «Підготувати», matching its actual behavior of opening the preparation dialog. Only the final dialog action records a publication fact.
 - Removed obsolete platform-hero/today-links/posting-pace/quick-publish-bar code paths and extracted the overview/copy behavior into `components/platform-overview.tsx` to reduce the main workspace component.
 - Source/UX regression coverage was updated for the compact hierarchy and responsive behavior. Cloudflare build and live staging visual acceptance are not yet claimed in this entry.
+
+
+## Platforms queue transition cleanup — v0.2.42
+
+- The recorded queue-tab flash was caused by intentionally nulling the effective dataset whenever requestKey changed. Platforms now reuses a matching in-memory view and prefetches sibling queues after the canonical first load.
+- Cached views remain provisional UX state. Chat mutations, imports/profile changes and server revision sync invalidate cache, then the existing silent authoritative reload reconciles D1 state.
+- The recurring full-list spinner is removed for normal queue switching while a genuine uncached first request/search/filter/page still has an explicit loading state.
+- The Cloudflare skipped builds visible during the previous cleanup are superseded intermediate main commits, not failed release evidence. GitHub-first work should be batched into one coherent commit per slice where possible to avoid unnecessary intermediate Workers Builds.
+- Full verify and staging /api/build match are not claimed until Cloudflare finishes the release commit.

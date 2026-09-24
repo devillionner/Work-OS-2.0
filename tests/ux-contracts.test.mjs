@@ -240,6 +240,12 @@ void test('Platform mutations and sync revisions reconcile without remounting or
   const loadBlock = workspace.slice(loadStart, loadEnd);
   assert.doesNotMatch(loadBlock, /setData\(null\)/);
   assert.match(workspace, /const load = useCallback\(async \(silent=false\)/);
+  assert.match(workspace, /const viewCache=useRef\(new Map<string,ResponseData>\(\)\)/);
+  assert.match(workspace, /const cachedData=viewCache\.current\.get\(requestKey\)\|\|null/);
+  assert.match(workspace, /const data=loadedData\?\.requestKey===requestKey\?loadedData:cachedData/);
+  assert.match(workspace, /prefetching\.current\.add\(nextKey\)/);
+  assert.match(workspace, /viewCache\.current\.set\(nextKey,\{\.\.\.nextBody,requestKey:nextKey\}\)/);
+  assert.match(workspace, /invalidateQueueCache\(chat\.platform\)/);
   assert.match(workspace, /await reloadChats\.current\(true\)/);
   assert.match(workspace, /syncRevision\?: number/);
   assert.doesNotMatch(workspace, /router\.refresh\(\)/);

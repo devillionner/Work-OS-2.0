@@ -55,6 +55,9 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const [profileFilter,setProfileFilter] = useState<ProfileFilter>('all');
   const [mobileListState,setMobileListState] = useState({key:'',count:MOBILE_LIST_CHUNK});
   const [loadedData,setData] = useState<ResponseData|null>(null);
+  const viewCache=useRef(new Map<string,ResponseData>());
+  const prefetching=useRef(new Set<string>());
+  const cacheEpoch=useRef(0);
   const [undo,setUndo] = useState<UndoState|null>(null);
   const [bulkOpen,setBulkOpen]=useState(false);
   const [discoveryOpen,setDiscoveryOpen]=useState(false);
@@ -99,8 +102,9 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const availablePlatforms = useMemo(() => platforms.filter((item) => !enabledPlatforms || enabledPlatforms.includes(item.key)), [enabledPlatforms]);
   const requestAccountId=platform==='telegram'?accountId:null;
   const requestKey=`${platform}:${queue}:${search}:${profileFilter}:${offset}:${requestAccountId||''}`;
-  const switchingList=loadedData!==null&&loadedData.requestKey!==requestKey;
-  const data=switchingList?null:loadedData;
+  const cachedData=viewCache.current.get(requestKey)||null;
+  const data=loadedData?.requestKey===requestKey?loadedData:cachedData;
+  const switchingList=data===null&&loadedData!==null&&loadedData.requestKey!==requestKey;
   const filterKey=`${platform}:${queue}:${search}:${profileFilter}`;
   const mobileListKey=`${filterKey}:${offset}:${requestAccountId||''}`;
   const mobileVisibleChats=mobileListState.key===mobileListKey?mobileListState.count:MOBILE_LIST_CHUNK;
@@ -156,11 +160,21 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   useEffect(()=>{const timer=setInterval(()=>setClock(Date.now()),1000);return()=>clearInterval(timer);},[]);
   useEffect(()=>{void refreshExpiredBreak.current(clock,document.visibilityState==='visible'&&navigator.onLine&&activeBreakExpired(accounts,accountId,clock),loadAccounts).catch(()=>{});},[accounts,accountId,clock,loadAccounts]);
 
+  const invalidateQueueCache=useCallback((target?:Platform)=>{
+    cacheEpoch.current++;
+    if(!target){viewCache.current.clear();return;}
+    const prefix=`${target}:`;
+    for(const key of viewCache.current.keys())if(key.startsWith(prefix))viewCache.current.delete(key);
+  },[]);
+
   const load = useCallback(async (silent=false) => {
     activeLoad.current?.abort();
     const controller=new AbortController(); activeLoad.current=controller;
     const requestNumber=++loadNumber.current;
-    if(!silent) setLoading(true); setError('');
+    const cached=viewCache.current.get(requestKey)||null;
+    if(!silent&&!cached) setLoading(true);
+    else if(!silent) setLoading(false);
+    setError('');
     try {
       const params = new URLSearchParams({platform,status:queue,search,offset:String(offset),profile:profileFilter});
       if(requestAccountId) params.set('account',requestAccountId);
@@ -168,7 +182,23 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       const body = await response.json() as ResponseData & {error?:string};
       if(controller.signal.aborted || requestNumber!==loadNumber.current) return;
       if(!response.ok) throw new Error(body.error || 'Не вдалося завантажити чати.');
-      setData({...body,requestKey}); hasLoadedData.current=true;
+      const next={...body,requestKey};
+      viewCache.current.set(requestKey,next);setData(next);hasLoadedData.current=true;
+      if(!search&&profileFilter==='all'&&offset===0){
+        const epoch=cacheEpoch.current;
+        for(const item of queues){
+          if(item.key===queue)continue;
+          const nextKey=`${platform}:${item.key}::all:0:${requestAccountId||''}`;
+          if(viewCache.current.has(nextKey)||prefetching.current.has(nextKey))continue;
+          prefetching.current.add(nextKey);
+          const nextParams=new URLSearchParams({platform,status:item.key,search:'',offset:'0',profile:'all'});
+          if(requestAccountId)nextParams.set('account',requestAccountId);
+          void fetch(`/api/chats?${nextParams}`,{cache:'no-store'}).then(async nextResponse=>{
+            const nextBody=await nextResponse.json() as ResponseData & {error?:string};
+            if(nextResponse.ok&&epoch===cacheEpoch.current)viewCache.current.set(nextKey,{...nextBody,requestKey:nextKey});
+          }).catch(()=>{}).finally(()=>prefetching.current.delete(nextKey));
+        }
+      }
     } catch (reason) { if(!controller.signal.aborted && requestNumber===loadNumber.current) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити чати.'); }
     finally { if(!silent&&!controller.signal.aborted && requestNumber===loadNumber.current) setLoading(false); }
   },[platform,queue,search,profileFilter,offset,requestAccountId,requestKey]);
@@ -180,13 +210,15 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     const previous=lastSyncKey.current;
     lastSyncKey.current=nextSyncKey;
     if(previous===nextSyncKey||!hasLoadedData.current)return;
+    invalidateQueueCache();
     void reloadChats.current(true);
     if(platform==='telegram') queueMicrotask(()=>void loadAccounts().catch(()=>{}));
-  },[syncRevision,businessDate,platform,loadAccounts]);
+  },[syncRevision,businessDate,platform,loadAccounts,invalidateQueueCache]);
 
   useEffect(()=>{if(!notice)return;const delay=undo?Math.max(0,undo.expiresAt-Date.now()):8000;const timer=setTimeout(()=>{setNotice('');setUndo(null);},delay);return()=>clearTimeout(timer);},[notice,undo]);
 
   function addedChats(result:BulkResult) {
+    invalidateQueueCache();
     const target=availablePlatforms.find(item=>(result.counts[item.key]||0)>0)?.key||platform;
     setQuickPublishMode(false); setQuickAdvertisementId(null);
     setNotice(`Додано ${result.added} чатів: ${Object.entries(result.counts).map(([key,count])=>`${CHAT_PLATFORM_NAMES[key as ChatPlatform]} — ${count}`).join(', ')}.`);
@@ -196,10 +228,12 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   }
 
   function savedProfile() {
+    invalidateQueueCache(platform);
     setProfileChat(null); void reloadChats.current(true);
   }
 
   function importedDiscoveryChat(nextPlatform:'whatsapp'|'viber') {
+    invalidateQueueCache(nextPlatform);
     const changesFilter=nextPlatform!==platform||queue!=='to_join'||search!==''||offset!==0;
     setQuickPublishMode(false); setQuickAdvertisementId(null);
     setNotice('Новий чат із пошуку додано в чергу «Для приєднання».');
@@ -254,6 +288,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
           return {...current,chats,publishedToday:publicationState.publishedToday,availableToday:publicationState.availableToday,publicationPace:publicationState.publicationPace};
         });
       }
+      invalidateQueueCache(chat.platform);
       announceDataChange('all');
       setArchiveId(null); setCustomArchiveReason('');
       if(action==='published'||action==='undo_published') void reloadChats.current(true);

@@ -173,3 +173,14 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Remove obsolete today-links, posting-pace, quick-publish-bar and platform-hero styling paths; extract the daily overview from the already-large workspace component.
 - [x] Preserve container-responsive chat rows, silent server reconciliation and 44px mobile action targets.
 - [ ] Canonical Workers build/staging /api/build and live desktop/narrow/mobile visual acceptance remain the release evidence gate.
+
+
+## v0.2.42 — Platforms queue transition cleanup
+
+- [x] Keep a per-view in-memory queue cache keyed by platform/queue/search/profile/page/account.
+- [x] Prefetch sibling queues after the canonical default view loads, so normal queue-tab switching does not blank the chat list into a full loader.
+- [x] Treat prefetched views as UX cache only: successful mutations, imports/profile changes and server revision sync invalidate affected cache before canonical reconciliation.
+- [x] Keep the full loader only for a genuinely uncached first request or new search/filter/page.
+- [x] Add source regression coverage for cache, prefetch and invalidation behavior.
+- Build discipline: prefer one coherent commit per completed slice so Cloudflare Workers Builds does not queue and skip a chain of intermediate commits.
+- [ ] Staging /api/build and live transition acceptance remain the release evidence gate.
