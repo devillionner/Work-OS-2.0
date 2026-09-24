@@ -143,7 +143,8 @@ export async function completeViberSafeNoteJob(db:D1Database,userId:string,devic
   const result={requestedStatus:requestedSent?'sent':'failed',observedTarget,targetVerified,sendConfirmed,errorCode};
   const update=await db.prepare(`UPDATE messenger_automation_jobs
     SET status=?1,active_key=NULL,executor_device_id=NULL,lease_expires_at=NULL,result_json=?2,updated_at=?3,completed_at=?3
-    WHERE id=?4 AND user_id=?5 AND status='claimed' AND executor_device_id=?6`)
+    WHERE id=?4 AND user_id=?5 AND status='claimed' AND executor_device_id=?6
+      AND lease_expires_at>?3`)
     .bind(sent?'sent':'failed',JSON.stringify(result),now,jobId,userId,deviceId).run();
   if(Number(update.meta.changes||0)!==1)throw new MessengerAutomationError('Viber safe-mode результат уже змінився.',409);
   return {ok:true,status:sent?'sent':'failed',createsPublication:false,result};

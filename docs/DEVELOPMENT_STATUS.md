@@ -1,5 +1,13 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Viber safe-mode lease completion hardening — v0.2.48
+
+- Viber «Мої нотатки» safe-mode already has the complete source path: Library material → owner-scoped idempotent job → leased executor task → exact `my_notes` verification → confirmed send callback, with zero publication/accounting facts.
+- Completion now repeats the lease-expiry guard inside the final conditional UPDATE. A callback that loses its lease between the preliminary read and the write cannot commit `sent` or `failed`; it returns conflict and leaves the job reclaimable/inspectable.
+- Regression coverage includes an expiry-boundary callback and reasserts that neither `chat_publications` nor publication activity events are created by the smoke flow.
+- This closes the remaining source-level Viber safe-mode reliability gap. Native Viber physical acceptance remains a separate gate; Remote Desktop Commander is not used for native Viber.
+- Full local lint/typecheck/full-tests/build and canonical staging `/api/build` identity are recorded separately and are not inferred from source contracts.
+
 ## 2026-09-24 Bilingual advertisement save invariant — v0.2.47
 
 - Advertisement create/update now requires non-empty UA and RU text in the Library API. Scripts and knowledge entries retain the previous at-least-one-language rule.

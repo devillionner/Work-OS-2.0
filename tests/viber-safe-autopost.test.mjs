@@ -57,6 +57,22 @@ void test('Viber safe note completion fails closed on wrong or unconfirmed targe
   assert.equal(await db.prepare("SELECT COUNT(*) FROM activity_events WHERE event_type='publication'").first('COUNT(*)'),0);
 });
 
+void test('Viber safe note completion cannot commit after its executor lease expires',async t=>{
+  const db=await localDatabase(t);await seedAdvertisement(db);await seedDevice(db);
+  const job=await createViberSafeNoteJob(db,'u',{requestKey:'request_expired_lease',advertisementId:'ad',language:'uk'},NOW);
+  const task=await claimViberSafeNoteJob(db,'u','device',NOW+1);
+  assert.ok(task);
+  await assert.rejects(
+    completeViberSafeNoteJob(db,'u','device',{
+      jobId:job.id,status:'sent',observedTarget:'my_notes',targetVerified:true,sendConfirmed:true,
+    },task.leaseExpiresAt),
+    error=>error instanceof MessengerAutomationError&&error.status===409,
+  );
+  assert.equal((await readLatestViberSafeNoteJob(db,'u'))?.status,'claimed');
+  assert.equal(await db.prepare("SELECT COUNT(*) FROM chat_publications").first('COUNT(*)'),0);
+  assert.equal(await db.prepare("SELECT COUNT(*) FROM activity_events WHERE event_type='publication'").first('COUNT(*)'),0);
+});
+
 void test('Viber safe note accepts only active Viber material with requested language and one active job',async t=>{
   const db=await localDatabase(t);await seedAdvertisement(db,{id:'wa',platforms:['whatsapp']});await seedAdvertisement(db,{id:'viber'});
   await assert.rejects(
