@@ -1,5 +1,12 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Telegram city-alias coverage / v0.2.63
+
+- Telegram seed tasks now retain the seed workbook's native/Latin city name alongside the Ukrainian display name.
+- Public Telegram search tries the canonical strict query first, then a strict Latin-city alias when different, and only then the single broader WhatsApp fallback. It exits early as soon as the configured source page limit is filled.
+- This improves diaspora queries such as `Ukrainian in Berlin` without changing the deterministic seed cursor, goal accounting or D1 schema. External search remains bounded to at most three search variants per seed task.
+
+
 ## 2026-09-24 Telegram-derived Discovery coverage / v0.2.62
 
 - Autonomous Telegram-derived Discovery keeps the existing deterministic seed cursor, but each seed task now has a strict `chat.whatsapp.com` search and one bounded broader `WhatsApp` fallback only when the strict result does not expose enough Telegram source pages.

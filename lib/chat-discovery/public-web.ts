@@ -73,6 +73,7 @@ export type TelegramSearchTask = {
   seedKind: 'country' | 'city';
   country: string;
   city: string;
+  cityLatin: string;
 };
 
 export type TelegramSearchPlan = {
@@ -119,9 +120,10 @@ export function buildTelegramSearchPlan(cursor = 0, limit = 6): TelegramSearchPl
       const city = cities[pair.cityIndex];
       const template = cityTemplates[pair.templateIndex];
       const cityLabel = String(city?.uk || city?.name || '').trim();
+      const cityLatin = String(city?.name || '').trim();
       const country = String(city?.country || '').trim();
       const query = renderTelegramTemplate(template, cityLabel, country, 'city');
-      if (query) tasks.push({ cursor:index, template, query, seedLabel:cityLabel, seedKind:'city', country, city:cityLabel });
+      if (query) tasks.push({ cursor:index, template, query, seedLabel:cityLabel, seedKind:'city', country, city:cityLabel, cityLatin });
       continue;
     }
     const local = index - cityTotal;
@@ -129,7 +131,7 @@ export function buildTelegramSearchPlan(cursor = 0, limit = 6): TelegramSearchPl
     const template = countryTemplates[local % countryTemplates.length];
     const country = countries[countryIndex];
     const query = renderTelegramTemplate(template, '', country, 'country');
-    if (query) tasks.push({ cursor:index, template, query, seedLabel:country, seedKind:'country', country, city:'' });
+    if (query) tasks.push({ cursor:index, template, query, seedLabel:country, seedKind:'country', country, city:'', cityLatin:'' });
   }
 
   const nextCursor = Math.min(totalTasks, start + count);
@@ -349,10 +351,14 @@ export async function discoverPublicWeb(input: {
 }
 
 export function telegramPublicSearchQueries(task: TelegramSearchTask): string[] {
-  const values = [
-    `site:t.me "${task.query}" "chat.whatsapp.com"`,
-    `site:t.me "${task.query}" WhatsApp`,
-  ];
+  const strictQueries = [task.query];
+  if (task.city && task.cityLatin && task.city.localeCompare(task.cityLatin, undefined, { sensitivity:'accent' }) !== 0) {
+    const latinQuery = task.query.replaceAll(task.city, task.cityLatin);
+    if (latinQuery !== task.query) strictQueries.push(latinQuery);
+  }
+  const values = strictQueries.map(query => `site:t.me "${query}" "chat.whatsapp.com"`);
+  const broadQuery = strictQueries.at(-1) || task.query;
+  values.push(`site:t.me "${broadQuery}" WhatsApp`);
   return [...new Set(values)];
 }
 
@@ -400,7 +406,8 @@ export async function discoverTelegramPublic(input: {
     const seenPages = new Set<string>();
     let successfulSearches = 0;
 
-    for (const searchQuery of telegramPublicSearchQueries(task)) {
+    const searchQueries = telegramPublicSearchQueries(task);
+    for (const searchQuery of searchQueries) {
       const searchUrl = `${SEARCH_HOST}?q=${encodeURIComponent(searchQuery)}&source=web`;
       const body = await fetchText(searchUrl, fetcher, 10_000);
       if (!body) continue;
@@ -427,12 +434,9 @@ export async function discoverTelegramPublic(input: {
         }
       }
 
-      // The strict query remains the cheap fast path. Only broaden search when
-      // it did not surface enough Telegram pages (or any direct invite).
-      if (
-        searchQuery === telegramPublicSearchQueries(task)[0] &&
-        (pageLimit ? pageUrls.length >= pageLimit : taskRecords.length > 0)
-      ) break;
+      // Stop as soon as strict canonical/Latin queries provide enough sources.
+      // The broader WhatsApp fallback is therefore used only when still needed.
+      if (pageLimit ? pageUrls.length >= pageLimit : taskRecords.length > 0) break;
     }
 
     if (!successfulSearches) {

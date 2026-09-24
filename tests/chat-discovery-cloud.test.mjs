@@ -108,6 +108,7 @@ void test('Telegram keyword plan is deterministic, bounded and resolves workbook
   assert.ok(first.tasks.every(task => task.query.length > 0));
   assert.ok(first.tasks.every(task => !/назва |\(назва| або країни| або міста/iu.test(task.query)));
   assert.equal(first.tasks[0].seedKind, 'city');
+  assert.ok(first.tasks.some(task => task.cityLatin && task.cityLatin !== task.city));
   assert.ok(new Set(first.tasks.map(task => task.city)).size >= 2);
   const all = buildTelegramSearchPlan(0, 20);
   assert.ok(all.totalTasks > 1000);
@@ -132,9 +133,12 @@ void test('Telegram keyword plan is deterministic, bounded and resolves workbook
 
 void test('Telegram public discovery broadens search only when the strict result lacks enough public sources', async () => {
   const task = buildTelegramSearchPlan(0,1).tasks[0];
-  assert.equal(telegramPublicSearchQueries(task).length,2);
-  assert.match(telegramPublicSearchQueries(task)[0],/chat\.whatsapp\.com/);
-  assert.match(telegramPublicSearchQueries(task)[1],/WhatsApp/);
+  const queries=telegramPublicSearchQueries(task);
+  assert.ok(queries.length>=2&&queries.length<=3);
+  assert.match(queries[0],/chat\.whatsapp\.com/);
+  assert.ok(queries.some(query=>query.includes(task.city)));
+  if(task.cityLatin&&task.cityLatin!==task.city)assert.ok(queries.some(query=>query.includes(task.cityLatin)));
+  assert.match(queries.at(-1),/WhatsApp/);
 
   const calls = [];
   const result = await discoverTelegramPublic({cursor:0,maxQueries:1,pageLimit:2}, async (url) => {
@@ -157,7 +161,8 @@ void test('Telegram public discovery broadens search only when the strict result
 
   assert.equal(result.searched,1);
   assert.equal(result.errors,0);
-  assert.equal(calls.filter(url=>url.includes('search.brave.com')).length,2);
+  assert.ok(calls.filter(url=>url.includes('search.brave.com')).length>=2);
+  assert.ok(calls.filter(url=>url.includes('search.brave.com')).length<=3);
   assert.ok(calls.includes('https://t.me/s/ua_source_one/42'));
   assert.ok(calls.includes('https://t.me/s/ua_source_two'));
   assert.deepEqual(new Set(result.records.map(item=>item.link)),new Set([

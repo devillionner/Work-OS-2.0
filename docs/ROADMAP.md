@@ -282,3 +282,12 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Preserve exact Telegram preview provenance on extracted candidates.
 - [ ] Live yield comparison waits for D1 quota reset; do not start an autonomous run against the exhausted staging DB only to measure coverage.
 - Next: after D1 reset + browser control, run real WhatsApp Discovery/executor acceptance; otherwise continue code-only canonical Library image/media design without pushing a migration until staging D1 can preflight it.
+
+
+## v0.2.63 — Telegram city aliases
+
+- [x] Preserve Latin/native city names from the seed workbook in each deterministic Telegram search task.
+- [x] Search canonical and Latin city spellings before the broader WhatsApp fallback, with early exit once enough public Telegram sources are found.
+- [x] Keep the same seed cursor/task count and D1 persistence semantics; only public-source discovery coverage changes.
+- [x] Bound search fan-out to at most three variants per seed task and the existing Telegram pageLimit.
+- [ ] Live yield/target-rate comparison waits for staging D1 quota reset.
