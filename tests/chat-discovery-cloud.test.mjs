@@ -779,7 +779,7 @@ void test('confirmed leave adds the membership blocker to an already-review cand
 void test('executor inspection fails closed when the exact target chat was not verified', async (t) => {
   const { db, candidate, chatId } = await importedCandidate(t, 'InspectTargetVerification123');
   await assert.rejects(() => applyDiscoveryInspection(db, 'u', {
-    candidateId:candidate.id, expectedVersion:candidate.version,
+    candidateId:candidate.id, expectedVersion:candidate.version, requireTargetVerification:true,
     result:{status:'inspected', accessible:true, membershipState:'joined', observedName:'Wrong or unknown chat', chatType:'group', memberCount:900, topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active'},
   }, 110), error => error?.status === 409 && /цільовий чат/i.test(error.message));
   assert.equal((await readChatState(db, 'u', chatId)).workflow_status, 'to_join');
