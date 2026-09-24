@@ -203,12 +203,12 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkO
             </div>
           </section>
         </div></WorkspacePane>
-        {visitedViews.has('platforms') && <WorkspacePane active={activeView === 'platforms'}><PlatformWorkspace enabledPlatforms={snapshot.enabledPlatforms} syncRevision={syncRevision} businessDate={snapshot.today} /></WorkspacePane>}
+        {visitedViews.has('platforms') && <WorkspacePane active={activeView === 'platforms'}><PlatformWorkspace enabledPlatforms={snapshot.enabledPlatforms} syncRevision={syncRevision} businessDate={snapshot.today} active={activeView === 'platforms'} /></WorkspacePane>}
         {visitedViews.has('leads') && <WorkspacePane active={activeView === 'leads'}><LeadsWorkspace account={user.email} initialLeadId={leadToOpen} syncRevision={syncRevision} active={activeView === 'leads'} /></WorkspacePane>}
         {visitedViews.has('analytics') && <WorkspacePane active={activeView === 'analytics'}><AnalyticsWorkspace syncRevision={syncRevision} active={activeView === 'analytics'} /></WorkspacePane>}
         {visitedViews.has('reports') && <WorkspacePane active={activeView === 'reports'}><ReportsWorkspace syncRevision={syncRevision} active={activeView === 'reports'} onOpenLead={(leadId) => { setLeadToOpen(leadId); navigateTo('leads'); }} /></WorkspacePane>}
         {visitedViews.has('library') && <WorkspacePane active={activeView === 'library'}><LibraryWorkspace syncRevision={syncRevision} active={activeView === 'library'} /></WorkspacePane>}
-        {visitedViews.has('settings') && <WorkspacePane active={activeView === 'settings'}><SettingsWorkspace user={user} snapshot={snapshot} onRefresh={() => router.refresh()} /></WorkspacePane>}
+        {visitedViews.has('settings') && <WorkspacePane active={activeView === 'settings'}><SettingsWorkspace user={user} snapshot={snapshot} active={activeView === 'settings'} onRefresh={() => router.refresh()} /></WorkspacePane>}
 
         <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
           {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => <button type="button" aria-current={activeView === key ? 'page' : undefined} key={key} onClick={() => navigateTo(key)}><Icon /><span>{label}</span></button>)}
