@@ -30,7 +30,7 @@ export function ChatProfileDialog({open,chat,onClose,onSaved,onOpenChat,finalFoc
     setNote(chat.profile.note||'');
     setReviewStatus(chat.profile.reviewStatus||'draft');
     setError('');
-  },[open,chat?.id,chat?.stateToken]);
+  },[open,chat]);
   async function save() {
     if(!chat)return;
     await gate.current(async()=>{setBusy(true);setError('');const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),30_000);
