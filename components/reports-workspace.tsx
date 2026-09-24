@@ -49,14 +49,18 @@ export function ReportsWorkspace({ onOpenLead, syncRevision=0, active=true }: { 
   const leadCommandScopeRef = useRef<string | null>(null);
   const leadCommandRef = useRef<ReturnType<typeof createBrowserCommandClient> | null>(null);
   const dataCache = useRef(new Map<string,ReportData>());
+  const monthCache = useRef(new Map<string,ReportData>());
   const lastSyncRevision = useRef(syncRevision);
 
   const load = useCallback(async (date = selectedDate, signal?: AbortSignal) => {
     const requestId = ++latestLoad.current;
     const key=reportViewKey(month,date);
     const cached=dataCache.current.get(key);
+    const cachedMonth=monthCache.current.get(month);
     if(cached){
       setData(cached);setDataKey(key);setText(cached.selected?.text||cached.suggestedText||'');
+    } else if(cachedMonth){
+      setData(cachedMonth);setDataKey('');
     }
     setLoading(true); setError('');
     try {
@@ -69,7 +73,7 @@ export function ReportsWorkspace({ onOpenLead, syncRevision=0, active=true }: { 
         leadCommandScopeRef.current = body.leadCommandScope;
         leadCommandRef.current = createBrowserCommandClient(body.leadCommandScope);
       }
-      dataCache.current.set(key,body); setData(body); setDataKey(key); setText(body.selected?.text || body.suggestedText || ''); setReportConflict(false);
+      dataCache.current.set(key,body);monthCache.current.set(month,body); setData(body); setDataKey(key); setText(body.selected?.text || body.suggestedText || ''); setReportConflict(false);
     } catch (reason) { if (requestId === latestLoad.current && !signal?.aborted) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити звіти.'); }
     finally { if (requestId === latestLoad.current && !signal?.aborted) setLoading(false); }
   }, [month, selectedDate]);
@@ -87,7 +91,7 @@ export function ReportsWorkspace({ onOpenLead, syncRevision=0, active=true }: { 
   useEffect(() => {
     if (!active || lastSyncRevision.current === syncRevision) return;
     lastSyncRevision.current = syncRevision;
-    dataCache.current.clear();
+    dataCache.current.clear();monthCache.current.clear();
     void load(selectedDate);
   }, [active, syncRevision, load, selectedDate]);
 
@@ -129,8 +133,8 @@ export function ReportsWorkspace({ onOpenLead, syncRevision=0, active=true }: { 
     if (saving) return;
     latestLoad.current++; setLoading(true); setNotice(''); setReportConflict(false);
     const next=shiftMonth(month,offset);
-    const cached=dataCache.current.get(reportViewKey(next,null));
-    if(cached){setData(cached);setDataKey(reportViewKey(next,null));setText(cached.selected?.text||cached.suggestedText||'');}
+    const cached=dataCache.current.get(reportViewKey(next,null))||monthCache.current.get(next);
+    if(cached){setData(cached);setDataKey(cached.selected?reportViewKey(next,cached.selected.date):reportViewKey(next,null));setText(cached.selected?.text||cached.suggestedText||'');}
     setMonth(next);setSelectedDate(null);
   }
   async function save(submitted = false) {
