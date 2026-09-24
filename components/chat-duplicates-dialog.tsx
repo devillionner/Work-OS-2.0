@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { ExternalLink, LoaderCircle } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 
 type Platform='telegram'|'whatsapp'|'viber'|'facebook';
 type Account={id:string;number:number;name:string;enabled:boolean;selected:boolean};
@@ -24,6 +25,8 @@ export function ChatDuplicatesDialog({open,onClose}:{open:boolean;onClose:()=>vo
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
   const [archiveCandidate,setArchiveCandidate]=useState<Chat|null>(null);
+  const [loadedKey,setLoadedKey]=useState('');
+  const cache=useRef(new Map<string,{groups:Group[];names:Record<string,string>}>());
 
   const loadAccounts=useCallback(async()=>{
     const response=await fetch('/api/telegram-accounts',{cache:'no-store'});
@@ -36,7 +39,11 @@ export function ChatDuplicatesDialog({open,onClose}:{open:boolean;onClose:()=>vo
 
   const load=useCallback(async()=>{
     if(!open)return;
-    if(platform==='telegram'&&!accountId){setGroups([]);return;}
+    if(platform==='telegram'&&!accountId){setGroups([]);setLoadedKey('');return;}
+    const key=`${platform}:${platform==='telegram'?accountId:'-'}`;
+    const cached=cache.current.get(key);
+    if(cached){setGroups(cached.groups);setNames(cached.names);setLoadedKey(key);}
+    else setLoadedKey('');
     setLoading(true);setError('');
     try{
       const params=new URLSearchParams({platform});
@@ -44,8 +51,9 @@ export function ChatDuplicatesDialog({open,onClose}:{open:boolean;onClose:()=>vo
       const response=await fetch(`/api/chats/duplicates?${params}`,{cache:'no-store'});
       const body=await response.json() as {groups?:Group[];error?:string};
       if(!response.ok)throw new Error(body.error||'Не вдалося завантажити дублікати.');
-      const next=body.groups||[];setGroups(next);
-      setNames(Object.fromEntries(next.flatMap(group=>group.chats.map(chat=>[chat.id,chat.name]))));
+      const next=body.groups||[];
+      const nextNames=Object.fromEntries(next.flatMap(group=>group.chats.map(chat=>[chat.id,chat.name])));
+      cache.current.set(key,{groups:next,names:nextNames});setGroups(next);setNames(nextNames);setLoadedKey(key);
     }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося завантажити дублікати.');}
     finally{setLoading(false);}
   },[open,platform,accountId]);
@@ -86,6 +94,6 @@ export function ChatDuplicatesDialog({open,onClose}:{open:boolean;onClose:()=>vo
       </div>
       {error&&<div className="workspace-error" role="alert">{error}</div>}
       {notice&&<output className="reports-notice">{notice}</output>}
-      {loading?<div className="workspace-loading"><LoaderCircle/>Шукаємо дублікати…</div>:groups.length?<div className="chat-list">{groups.map(group=><section key={group.key} className="settings-panel"><div className="card-heading"><div><strong>{group.chats[0]?.name}</strong><p>{group.chats.length} записів для перевірки</p></div><Badge variant={group.match==='link'?'secondary':'outline'}>{group.match==='link'?'Точне посилання':'Однакова назва — перевірити'}</Badge></div>{group.chats.map(chat=><div key={chat.id} className="chat-row"><div className="chat-main"><Input aria-label={`Назва ${chat.name}`} value={names[chat.id]??chat.name} disabled={busy!==null} onChange={event=>setNames(current=>({...current,[chat.id]:event.target.value}))}/><a className="chat-native-link" href={chat.link} target="_blank" rel="noreferrer"><ExternalLink data-icon="inline-start"/>{chat.link}</a><small>{chat.status==='archived'?`Архів${chat.archiveReason?` · ${chat.archiveReason}`:''}`:chat.status}</small></div><div className="chat-actions"><Button variant="outline" size="sm" disabled={busy!==null||!(names[chat.id]||'').trim()||(names[chat.id]||'').trim()===chat.name} onClick={()=>void rename(chat)}>Зберегти назву</Button>{chat.status!=='archived'&&<Button variant="outline" size="sm" disabled={busy!==null} onClick={()=>setArchiveCandidate(chat)}>Архівувати як дублікат</Button>}</div></div>)}</section>)}</div>:<div className="workspace-empty"><strong>Кандидатів не знайдено</strong><p>На цій платформі немає повторів за нормалізованим посиланням або назвою.</p></div>}
+      {loading&&loadedKey!==`${platform}:${platform==='telegram'?accountId:'-'}`?<WorkspaceInlineLoading label="Шукаємо дублікати…"/>:<>{loading?<WorkspaceInlineLoading label="Оновлюємо дублікати…"/>:null}{groups.length?<div className="chat-list">{groups.map(group=><section key={group.key} className="settings-panel"><div className="card-heading"><div><strong>{group.chats[0]?.name}</strong><p>{group.chats.length} записів для перевірки</p></div><Badge variant={group.match==='link'?'secondary':'outline'}>{group.match==='link'?'Точне посилання':'Однакова назва — перевірити'}</Badge></div>{group.chats.map(chat=><div key={chat.id} className="chat-row"><div className="chat-main"><Input aria-label={`Назва ${chat.name}`} value={names[chat.id]??chat.name} disabled={busy!==null} onChange={event=>setNames(current=>({...current,[chat.id]:event.target.value}))}/><a className="chat-native-link" href={chat.link} target="_blank" rel="noreferrer"><ExternalLink data-icon="inline-start"/>{chat.link}</a><small>{chat.status==='archived'?`Архів${chat.archiveReason?` · ${chat.archiveReason}`:''}`:chat.status}</small></div><div className="chat-actions"><Button variant="outline" size="sm" disabled={busy!==null||!(names[chat.id]||'').trim()||(names[chat.id]||'').trim()===chat.name} onClick={()=>void rename(chat)}>Зберегти назву</Button>{chat.status!=='archived'&&<Button variant="outline" size="sm" disabled={busy!==null} onClick={()=>setArchiveCandidate(chat)}>Архівувати як дублікат</Button>}</div></div>)}</section>)}</div>:<div className="workspace-empty"><strong>Кандидатів не знайдено</strong><p>На цій платформі немає повторів за нормалізованим посиланням або назвою.</p></div>}</>}
     </DialogContent></Dialog></>;
 }
