@@ -399,7 +399,7 @@ button:not([data-slot="button"]) { color: inherit; }
   .platform-stat { border-left:0; border-top:1px solid var(--border); }
   .platform-stat:nth-child(even) { border-left:1px solid var(--border); }
   .platform-stat:nth-child(-n+2) { border-top:0; }
-  .platform-stat:last-child { grid-column:1 / -1; }
+  .platform-overview.has-available .platform-stat:last-child { grid-column:1 / -1; }
 }
 .telegram-accounts { display: grid; gap: 10px; padding: 12px; }
 .telegram-account-tabs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -756,7 +756,7 @@ button:not([data-slot="button"]) { color: inherit; }
   .platform-stat { min-height:76px; padding:11px 12px; border-top:1px solid var(--border); }
   .platform-stat:nth-child(odd) { border-left:0; }
   .platform-stat:nth-child(-n+2) { border-top:0; }
-  .platform-stat:last-child { grid-column:1 / -1; }
+  .platform-overview.has-available .platform-stat:last-child { grid-column:1 / -1; }
   .platform-queue-context { align-items:stretch; flex-direction:column; gap:8px; padding:10px 12px; }
   .platform-queue-context > div { align-items:flex-start; flex-direction:column; gap:3px; }
   .platform-queue-context span { white-space:normal; }
