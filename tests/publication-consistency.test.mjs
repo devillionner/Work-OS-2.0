@@ -80,3 +80,28 @@ void test('publication accounting stays singular across retry, archive and Undo 
   const secondRevision=Number(await db.prepare(`SELECT revision FROM activity_day_revisions WHERE user_id='u' AND event_date=?1`).bind(DATE).first('revision')||0);
   assert.ok(secondRevision>firstRevision);
 });
+
+
+void test('concurrent manual publication attempts commit exactly one accounting fact',async(t)=>{
+  const db=await localDatabase(t);
+  await seedChat(db,{id:'consistency-chat',owner:'u',platform:'whatsapp',status:'ready'});
+  await db.prepare(`INSERT INTO chat_profiles
+    (chat_id,cadence,weekdays_json,custom_interval_days,next_allowed_on,directions_json,note,review_status,source,updated_at)
+    VALUES ('consistency-chat','any','[]',NULL,NULL,'[]','','confirmed','manual',1)`).run();
+  await db.prepare(`INSERT INTO library_items(id,user_id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,created_at,updated_at)
+    VALUES ('consistency-ad','u','advertisement','advertisement',1,'Оголошення','Текст','','','[]','["whatsapp"]',1,1)`).run();
+
+  const initial=await readChatState(db,'u','consistency-chat');
+  const input={
+    userId:'u',chat:initial,accountId:null,advertisementId:'consistency-ad',language:'uk',
+    now:NOW,date:DATE,stateToken:initial.state_token,
+  };
+  const results=await Promise.all([
+    recordManualPublication(db,input),
+    recordManualPublication(db,input),
+  ]);
+  assert.equal(results.filter(result=>result.ok).length,1);
+  assert.equal(results.filter(result=>!result.ok).length,1);
+  assert.deepEqual(await publicationCounts(db),{publicationCount:1,activeEventCount:1,totalEventCount:1});
+  assert.deepEqual(await publicationReadModels(db),{todayAndReports:1,analytics:1,usedToday:true});
+});

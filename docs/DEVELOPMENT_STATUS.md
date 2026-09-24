@@ -1,5 +1,12 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Publication concurrent-write regression gate
+
+- Publication consistency coverage now includes two simultaneous manual publication attempts against the same canonical chat state/day, not only sequential retry.
+- The expected invariant is explicit: exactly one domain call succeeds, one fails closed, and D1 contains one publication row plus one active publication event. Today/Reports, Analytics and Library reuse all still read one fact.
+- This strengthens source-level evidence for double-click/race safety without changing the publication domain or adding a second read model.
+- Full local lint/typecheck/full-tests/build and live two-device/offline acceptance remain separate evidence gates; this entry does not claim them.
+
 ## 2026-09-24 Viber safe-mode lease completion hardening — v0.2.48
 
 - Viber «Мої нотатки» safe-mode already has the complete source path: Library material → owner-scoped idempotent job → leased executor task → exact `my_notes` verification → confirmed send callback, with zero publication/accounting facts.
