@@ -300,3 +300,12 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Skip history pagination when the current preview already yields an invite.
 - [x] Reject foreign-channel/newer/private/internal pagination targets and preserve exact older-preview provenance.
 - [ ] Live yield comparison remains blocked by the exhausted staging D1 quota; do not start a run solely to measure this before reset.
+
+
+## v0.2.65 — Telegram source diversity
+
+- [x] Deduplicate Telegram search results by case-insensitive public channel username before applying pageLimit.
+- [x] Treat t.me / telegram.me posts from the same channel as one source-budget slot while preserving the first exact URL as provenance.
+- [x] Keep same-channel bounded history follow-up compatible with canonical channel identity.
+- [x] Regression coverage proves duplicate posts cannot consume multiple Telegram preview slots.
+- [ ] Live source-diversity/yield comparison waits for staging D1 quota reset.

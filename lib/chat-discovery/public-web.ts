@@ -387,12 +387,18 @@ export function telegramPublicPreviewUrl(value: string): string | null {
   return preview.toString();
 }
 
+export function telegramPublicChannelKey(value: string): string | null {
+  const preview = telegramPublicPreviewUrl(value);
+  if (!preview) return null;
+  const parts = new URL(preview).pathname.split('/').filter(Boolean);
+  const channel = parts[0] === 's' ? parts[1] : parts[0];
+  return channel ? channel.toLocaleLowerCase('en-US') : null;
+}
+
 export function telegramOlderPreviewUrl(html: string, currentUrl: string): string | null {
   const current = telegramPublicPreviewUrl(currentUrl);
   if (!current) return null;
-  const currentParsed = new URL(current);
-  const currentParts = currentParsed.pathname.split('/').filter(Boolean);
-  const currentChannel = currentParts[0] === 's' ? currentParts[1] : currentParts[0];
+  const currentChannel = telegramPublicChannelKey(current);
   if (!currentChannel) return null;
 
   const decoded = decodeHtml(html).replaceAll('\\/', '/');
@@ -404,8 +410,7 @@ export function telegramOlderPreviewUrl(html: string, currentUrl: string): strin
     const preview = telegramPublicPreviewUrl(resolved);
     if (!preview) continue;
     const parsed = new URL(preview);
-    const parts = parsed.pathname.split('/').filter(Boolean);
-    const channel = parts[0] === 's' ? parts[1] : parts[0];
+    const channel = telegramPublicChannelKey(preview);
     if (channel !== currentChannel || !/^\d+$/.test(parsed.searchParams.get('before') || '')) continue;
     return preview;
   }
@@ -428,7 +433,7 @@ export async function discoverTelegramPublic(input: {
     const contextPrefix = [task.query, task.city, task.country, 'Telegram'].filter(Boolean).join(' · ');
     const taskRecords: DiscoveryRecord[] = [];
     const pageUrls: string[] = [];
-    const seenPages = new Set<string>();
+    const seenChannels = new Set<string>();
     let successfulSearches = 0;
 
     const searchQueries = telegramPublicSearchQueries(task);
@@ -452,8 +457,9 @@ export async function discoverTelegramPublic(input: {
       if (pageLimit) {
         for (const link of extractSearchResultLinks(body)) {
           const preview = telegramPublicPreviewUrl(link);
-          if (!preview || seenPages.has(preview)) continue;
-          seenPages.add(preview);
+          const channelKey = preview ? telegramPublicChannelKey(preview) : null;
+          if (!preview || !channelKey || seenChannels.has(channelKey)) continue;
+          seenChannels.add(channelKey);
           pageUrls.push(preview);
           if (pageUrls.length >= pageLimit) break;
         }

@@ -14,7 +14,7 @@ import {
 } from '../lib/chat-discovery/domain.ts';
 import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
 import { assertDiscoveryExecutorLease, claimDiscoveryExecutorQueue, completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
-import { buildTelegramSearchPlan, discoverPublicWeb, discoverTelegramPublic, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl, telegramOlderPreviewUrl, telegramPublicPreviewUrl, telegramPublicSearchQueries } from '../lib/chat-discovery/public-web.ts';
+import { buildTelegramSearchPlan, discoverPublicWeb, discoverTelegramPublic, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl, telegramOlderPreviewUrl, telegramPublicChannelKey, telegramPublicPreviewUrl, telegramPublicSearchQueries } from '../lib/chat-discovery/public-web.ts';
 import { changeChatLeave } from '../lib/chats/leave.ts';
 import { readChatState } from '../lib/chats/state.ts';
 import { transitionChat } from '../lib/chats/transitions.ts';
@@ -169,6 +169,32 @@ void test('Telegram public discovery broadens search only when the strict result
     'https://chat.whatsapp.com/TelegramCoverageA123',
     'https://chat.whatsapp.com/TelegramCoverageB123',
   ]));
+});
+
+void test('Telegram public source budget is channel-deduplicated before page fetch', async () => {
+  assert.equal(telegramPublicChannelKey('https://t.me/UA_Berlin/12'),'ua_berlin');
+  assert.equal(telegramPublicChannelKey('https://telegram.me/ua_berlin/99'),'ua_berlin');
+  assert.equal(telegramPublicChannelKey('https://t.me/+private'),null);
+
+  const calls=[];
+  const result=await discoverTelegramPublic({cursor:0,maxQueries:1,pageLimit:2},async(url)=>{
+    calls.push(String(url));
+    if(String(url).includes('search.brave.com'))return html([
+      '<a href="https://t.me/ua_same/10">first same channel post</a>',
+      '<a href="https://t.me/ua_same/20">second same channel post</a>',
+      '<a href="https://t.me/ua_other/30">other channel post</a>',
+    ].join(''));
+    if(String(url)==='https://t.me/s/ua_same/10')return html('<article>Українці Berlin https://chat.whatsapp.com/SameChannel123</article>');
+    if(String(url)==='https://t.me/s/ua_other/30')return html('<article>Українці Berlin https://chat.whatsapp.com/OtherChannel123</article>');
+    throw new Error('duplicate channel should not consume page budget: '+url);
+  });
+
+  assert.deepEqual(new Set(result.records.map(item=>item.link)),new Set([
+    'https://chat.whatsapp.com/SameChannel123',
+    'https://chat.whatsapp.com/OtherChannel123',
+  ]));
+  assert.equal(calls.includes('https://t.me/s/ua_same/20'),false);
+  assert.equal(calls.filter(url=>url.startsWith('https://t.me/s/')).length,2);
 });
 
 void test('Telegram public history follow-up is same-channel, before-only and bounded to one extra page per task', async () => {

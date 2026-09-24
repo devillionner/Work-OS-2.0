@@ -1,5 +1,13 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Telegram source diversity / v0.2.65
+
+- Public Telegram source discovery now deduplicates search hits by case-insensitive channel username before spending the per-task preview page budget.
+- Multiple post URLs from the same `t.me` / `telegram.me` channel no longer crowd out other channels. The first exact public post/preview URL remains provenance, while the next preview slot is reserved for a different channel.
+- Same-channel history follow-up remains compatible with this canonical channel key and still has the +1 non-recursive cap.
+- This reduces redundant external fetches and improves source diversity without any D1 schema/polling change.
+
+
 ## 2026-09-24 bounded Telegram history follow-up / v0.2.64
 
 - When a fetched public `t.me/s/<channel>` preview yields no WhatsApp invite, Discovery may follow exactly one same-channel numeric `?before=` history link for that seed task.
