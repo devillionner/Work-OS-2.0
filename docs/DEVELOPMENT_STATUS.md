@@ -680,3 +680,11 @@ separate gates after local validation and the required direct confirmation.
 - UA/RU editing uses a two-column layout when space allows and collapses to one column on mobile; structured controls retain 44px mobile targets.
 - Library GET derives same-day advertisement usage from canonical `chat_publications` grouped by platform and current Europe/Kyiv business date. Because manual Undo deletes the exact publication row, reuse visibility returns automatically without a second Library-specific accounting source.
 - Feature commits `c7fca593` and `2e4b18af` both completed the canonical Cloudflare Workers staging build check successfully. Full `verify:local` was not run in this environment and is not claimed.
+
+
+## Viber safe-mode operator flow — v0.2.39
+
+- Library exposes a Viber-only safe-mode action for active Viber-compatible advertisements, with separate UA/RU material choices.
+- The operator flow creates the existing idempotent `safe_note` job, polls canonical server state, exposes cancellation, and explicitly states that only «Мої нотатки» is allowed.
+- Safe-mode remains non-accounting: its executor contract cannot create `chat_publications` or publication `activity_events`; real Viber chats remain outside this gate.
+- Native Viber acceptance was not performed and is not claimed. Desktop Commander remains excluded because this is a native-app flow.
