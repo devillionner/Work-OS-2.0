@@ -17,3 +17,13 @@ void test('runner requires operator confirmation before reporting external leave
   assert.ok(prompt>0&&callback>prompt);
   assert.match(source,/xdg-open/);
 });
+
+void test('runner verifies the exact messenger target before inspection or leave callbacks',()=>{
+  const targetPrompt=source.indexOf('Exact target verified as');
+  const inspectCallback=source.indexOf("action:'inspect'");
+  const leaveCallback=source.indexOf("action:'executor-leave'");
+  assert.ok(targetPrompt>0&&inspectCallback>targetPrompt);
+  assert.match(source,/targetVerified:true/);
+  assert.ok(leaveCallback>targetPrompt);
+  assert.match(source,/leave skipped fail-closed/);
+});
