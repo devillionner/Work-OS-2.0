@@ -20,6 +20,7 @@ export type AnalyticsOverviewTargets = {
 };
 
 export type AnalyticsOverview = {
+  range: { from:string; to:string; days:number };
   monthlyGoal: {
     target: number;
     actual: number;
@@ -43,15 +44,16 @@ export type AnalyticsOverview = {
 };
 
 const stages: Array<{ key:keyof AnalyticsOverviewTargets; label:string }> = [
-  { key:'publicationRate', label:'Публікації → приєднані' },
-  { key:'responseRate', label:'Відгуки → публікації' },
-  { key:'bookingRate', label:'Записи → відгуки' },
-  { key:'completionRate', label:'Проведені → записи' },
+  { key:'publicationRate', label:'Публікації від приєднань' },
+  { key:'responseRate', label:'Відгуки від публікацій' },
+  { key:'bookingRate', label:'Записи від відгуків' },
+  { key:'completionRate', label:'Проведені від записів' },
 ];
 
 export function buildAnalyticsOverview(args:{
   totals: AnalyticsOverviewTotals;
   targets: AnalyticsOverviewTargets;
+  range: { from:string; to:string; days:number };
   monthlyGoal: { target:number; actual:number };
   previousBookings: number;
   recommendation: AnalyticsRecommendation;
@@ -72,6 +74,7 @@ export function buildAnalyticsOverview(args:{
     .sort((a,b)=>b.gap-a.gap||a.label.localeCompare(b.label,'uk'))[0]||null;
 
   return {
+    range:args.range,
     monthlyGoal:{
       target,
       actual,

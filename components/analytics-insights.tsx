@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import type { AnalyticsOverview } from '@/lib/analytics-overview';
 
@@ -23,18 +23,27 @@ const archiveReasonLabels: Record<string, string> = {
   other: 'Інше',
 };
 
-export function AnalyticsInsights({ insights }: { insights: InsightData }) {
-  const [overview,setOverview]=useState<AnalyticsOverview|null>(null);
-  const [overviewError,setOverviewError]=useState(false);
+export function AnalyticsInsights({ insights, query }: { insights: InsightData; query:string }) {
+  const cache=useRef(new Map<string,AnalyticsOverview>());
+  const [loaded,setLoaded]=useState<{query:string;data:AnalyticsOverview}|null>(null);
+  const [errorQuery,setErrorQuery]=useState<string|null>(null);
+  const overview=loaded?.query===query?loaded.data:cache.current.get(query)||null;
+  const overviewError=errorQuery===query;
   useEffect(()=>{
-    let cancelled=false;
-    void fetch('/api/analytics/overview',{cache:'no-store'}).then(async response=>{
+    const controller=new AbortController();
+    const cached=cache.current.get(query);
+    if(cached)setLoaded({query,data:cached});
+    setErrorQuery(current=>current===query?null:current);
+    void fetch(`/api/analytics/overview?${query}`,{cache:'no-store',signal:controller.signal}).then(async response=>{
       if(!response.ok)throw new Error('overview');
       const body=await response.json() as AnalyticsOverview;
-      if(!cancelled)setOverview(body);
-    }).catch(()=>{if(!cancelled)setOverviewError(true);});
-    return()=>{cancelled=true;};
-  },[]);
+      if(controller.signal.aborted)return;
+      cache.current.set(query,body);
+      setLoaded({query,data:body});
+      setErrorQuery(null);
+    }).catch(()=>{if(!controller.signal.aborted)setErrorQuery(query);});
+    return()=>controller.abort();
+  },[query]);
 
   const recommendationLabel = insights.recommendation.kind === 'check_low_efficiency'
     ? 'Потребує перевірки'
@@ -45,7 +54,7 @@ export function AnalyticsInsights({ insights }: { insights: InsightData }) {
   return <section className="analytics-card" aria-labelledby="analytics-insight-title">
     <div className="card-heading">
       <div><p className="eyebrow">Що важливо зараз</p><h3 id="analytics-insight-title">План, зміна і наступна дія</h3></div>
-      <Badge variant="outline">Місяць до сьогодні</Badge>
+      <Badge variant="outline">{overview?formatRange(overview.range.from,overview.range.to):'Обраний період'}</Badge>
     </div>
     {overview ? <div className="funnel-grid">
       <div className="funnel-step"><span>План / факт записів</span><strong>{overview.monthlyGoal.actual} / {overview.monthlyGoal.target}</strong><small>{overview.monthlyGoal.target>0 ? (overview.monthlyGoal.remaining>0 ? `Виконано ${overview.monthlyGoal.progress}% · ще ${overview.monthlyGoal.remaining}` : `Ціль виконано · ${overview.monthlyGoal.progress}%`) : 'Місячну ціль ще не задано'}</small></div>
@@ -62,4 +71,10 @@ export function AnalyticsInsights({ insights }: { insights: InsightData }) {
       </div> : <p className="analytics-empty">У вибраному періоді архівацій немає.</p>}
     </details>
   </section>;
+}
+
+
+function formatRange(from:string,to:string):string {
+  const format=(value:string)=>new Intl.DateTimeFormat('uk-UA',{day:'2-digit',month:'2-digit',timeZone:'Europe/Kyiv'}).format(new Date(`${value}T12:00:00Z`));
+  return from===to?format(to):`${format(from)}–${format(to)}`;
 }

@@ -60,7 +60,7 @@ export function AnalyticsWorkspace({ syncRevision=0, active=true }: { syncRevisi
   const [period, setPeriod] = useState<AnalyticsPeriod>('month');
   const [customFrom, setCustomFrom] = useState(`${today.slice(0, 7)}-01`);
   const [customTo, setCustomTo] = useState(today);
-  const [data, setData] = useState<AnalyticsData | null>(null);
+  const [loadedData, setLoadedData] = useState<{key:string;data:AnalyticsData} | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [detailMetric, setDetailMetric] = useState<AnalyticsMetricKey | null>(null);
@@ -68,6 +68,15 @@ export function AnalyticsWorkspace({ syncRevision=0, active=true }: { syncRevisi
   const [chatDirection, setChatDirection] = useState('all');
   const [chatLanguage, setChatLanguage] = useState('all');
   const lastSyncRevision = useRef(syncRevision);
+  const viewCache=useRef(new Map<string,AnalyticsData>());
+  const requestSequence=useRef(0);
+  const queryKey=useMemo(()=>{
+    const value=new URLSearchParams({period});
+    if(period==='custom'){value.set('from',customFrom);value.set('to',customTo);}
+    return value.toString();
+  },[period,customFrom,customTo]);
+  const data=loadedData?.key===queryKey?loadedData.data:viewCache.current.get(queryKey)||null;
+  const switchingView=data===null&&loadedData!==null&&loadedData.key!==queryKey;
 
   const chatPlatforms = useMemo(
     () => [...new Map((data?.chats || []).map((chat) => [chat.platform, chat.platformName])).entries()]
@@ -90,26 +99,25 @@ export function AnalyticsWorkspace({ syncRevision=0, active=true }: { syncRevisi
   );
 
   const params = useCallback((format?: 'csv') => {
-    const value = new URLSearchParams({ period });
-    if (period === 'custom') {
-      value.set('from', customFrom);
-      value.set('to', customTo);
-    }
+    const value = new URLSearchParams(queryKey);
     if (format) value.set('format', format);
     return value;
-  }, [period, customFrom, customTo]);
+  }, [queryKey]);
 
   const load = useCallback(async () => {
+    const requestNumber=++requestSequence.current;
     setLoading(true); setError('');
     try {
-      const response = await fetch(`/api/analytics?${params().toString()}`, { cache: 'no-store' });
+      const response = await fetch(`/api/analytics?${queryKey}`, { cache: 'no-store' });
       const body = await response.json() as AnalyticsData & { error?: string };
+      if(requestNumber!==requestSequence.current)return;
       if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити аналітику.');
-      setData(body);
+      viewCache.current.set(queryKey,body);
+      setLoadedData({key:queryKey,data:body});
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити аналітику.');
-    } finally { setLoading(false); }
-  }, [params]);
+      if(requestNumber===requestSequence.current)setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити аналітику.');
+    } finally { if(requestNumber===requestSequence.current)setLoading(false); }
+  }, [queryKey]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -118,6 +126,7 @@ export function AnalyticsWorkspace({ syncRevision=0, active=true }: { syncRevisi
   useEffect(() => {
     if (!active || lastSyncRevision.current === syncRevision) return;
     lastSyncRevision.current = syncRevision;
+    viewCache.current.clear();
     void load();
   }, [active, syncRevision, load]);
 
@@ -126,8 +135,8 @@ export function AnalyticsWorkspace({ syncRevision=0, active=true }: { syncRevisi
   }
 
   return (
-    <div className="analytics-workspace" aria-busy={loading}>
-      <AnalyticsMetricDialog open={detailMetric !== null} metric={detailMetric} query={params().toString()} onClose={() => setDetailMetric(null)} />
+    <div className="analytics-workspace" aria-busy={loading||switchingView}>
+      <AnalyticsMetricDialog open={detailMetric !== null} metric={detailMetric} query={queryKey} onClose={() => setDetailMetric(null)} />
       <WorkspaceRefreshIndicator active={loading && data !== null} label="Оновлюємо аналітику…" />
       <section className="analytics-hero">
         <div>
@@ -149,7 +158,7 @@ export function AnalyticsWorkspace({ syncRevision=0, active=true }: { syncRevisi
       </section>
 
       {error && <div className="workspace-error" role="alert">{error}</div>}
-      {loading && !data ? <WorkspaceInitialLoading label="Рахуємо показники…" /> : data ? <>
+      {!data && (loading||switchingView) ? <WorkspaceInitialLoading label="Рахуємо показники…" /> : data ? <>
         <section className="analytics-metrics">
           <Metric metric="publications" label="Публікації" value={data.totals.publications} hint={rateHint(data.totals.publicationRate,data.targets.publicationRate,'від приєднань',data.totals.joined)} onOpen={setDetailMetric} />
           <Metric metric="responses" label="Відгуки" value={data.totals.responses} hint={rateHint(data.totals.responseRate,data.targets.responseRate,'від публікацій',data.totals.publications)} onOpen={setDetailMetric} />
@@ -157,7 +166,7 @@ export function AnalyticsWorkspace({ syncRevision=0, active=true }: { syncRevisi
           <Metric metric="completed" label="Проведені уроки" value={data.totals.completed} hint={rateHint(data.totals.completionRate,data.targets.completionRate,'від записів',data.totals.bookings)} onOpen={setDetailMetric} />
         </section>
 
-        <AnalyticsInsights insights={data.insights} />
+        <AnalyticsInsights insights={data.insights} query={queryKey} />
         <AnalyticsTrends points={data.trends} />
         <section className="analytics-card analytics-outcomes">
           <div className="card-heading"><div><p className="eyebrow">Доходимість</p><h3>Результат уроків</h3><p className="muted-note analytics-card-note">Події уроків за тим самим вибраним періодом; перенесення не створює нового запису.</p></div><Badge variant="outline">{formatRange(data.range.from, data.range.to)}</Badge></div>

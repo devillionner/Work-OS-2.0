@@ -1,5 +1,15 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Analytics exact-range decision overview — v0.2.45
+
+- The decision-first Analytics overview now consumes the exact active analytics query. Day/week/month/year/custom changes therefore update plan/change/bottleneck evidence to the same period as the four canonical metrics.
+- Historical plan/fact uses the monthly goal effective at the range end and counts month activity only through that date; later events in the same month cannot leak into an older snapshot.
+- Comparison uses the immediately preceding equal-length period. Chat recommendation sampling uses the selected range rather than an unrelated current-month window.
+- Analytics workspace and overview both use exact-query cache identity. A period transition may show that exact view's cache or a stable loader, never stale values from the previous period.
+- Focused regression coverage protects range propagation, historical isolation and exact-view loading contracts. Full local lint/typecheck/full-tests and physical Safari/live UX acceptance are not inferred from source contracts.
+- WhatsApp Web live executor acceptance remains blocked by the unavailable Opera Browser Connector/CDP endpoint; no messenger callback was executed.
+
+
 ## 2026-09-24 Profile clarification queue — v0.2.44
 
 - Platforms now has a dedicated «Уточнити профіль» queue. It is a virtual server view over canonical `waiting` + `ready` chats with draft/missing profiles; no workflow state is duplicated or rewritten just to populate the queue.
