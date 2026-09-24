@@ -42,18 +42,14 @@ void test('quota-safe code-only deploy allows only a migration-free diff from ex
   const { verifyQuotaSafeCodeOnlyDeploy } = await import('../scripts/staging-migration-preflight.mjs');
   const deployed='1111111111111111111111111111111111111111';
   const current='2222222222222222222222222222222222222222';
-  const responses=[
-    {ok:true,json:async()=>({buildId:deployed,version:'0.2.57'})},
-    {ok:true,json:async()=>({status:'ahead',files:[
-      {filename:'components/platform-workspace.tsx'},
-      {filename:'app/globals.css'},
-    ]})},
-  ];
   const result=await verifyQuotaSafeCodeOnlyDeploy({
     currentSha:current,
     stagingBuildUrl:'https://staging.example/api/build',
-    repository:'owner/repo',
-    fetcher:async()=>responses.shift(),
+    fetcher:async()=>({ok:true,json:async()=>({buildId:deployed,version:'0.2.57'})}),
+    compareCommits:async()=>({ok:true,files:[
+      'components/platform-workspace.tsx',
+      'app/globals.css',
+    ]}),
   });
   assert.deepEqual(result,{
     allowed:true,reason:'code_only_since_deployed_staging',deployedBuildId:deployed,migrationFiles:[],
@@ -64,20 +60,31 @@ void test('quota-safe fallback refuses deploy when any migration changed since d
   const { verifyQuotaSafeCodeOnlyDeploy } = await import('../scripts/staging-migration-preflight.mjs');
   const deployed='1111111111111111111111111111111111111111';
   const current='2222222222222222222222222222222222222222';
-  const responses=[
-    {ok:true,json:async()=>({buildId:deployed})},
-    {ok:true,json:async()=>({status:'ahead',files:[
-      {filename:'migrations/0038_whatsapp_autopost_jobs.sql'},
-      {filename:'components/platform-workspace.tsx'},
-    ]})},
-  ];
   const result=await verifyQuotaSafeCodeOnlyDeploy({
     currentSha:current,
     stagingBuildUrl:'https://staging.example/api/build',
-    repository:'owner/repo',
-    fetcher:async()=>responses.shift(),
+    fetcher:async()=>({ok:true,json:async()=>({buildId:deployed})}),
+    compareCommits:async()=>({ok:true,files:[
+      'migrations/0038_whatsapp_autopost_jobs.sql',
+      'components/platform-workspace.tsx',
+    ]}),
   });
   assert.equal(result.allowed,false);
   assert.equal(result.reason,'migration_delta_present');
   assert.deepEqual(result.migrationFiles,['migrations/0038_whatsapp_autopost_jobs.sql']);
+});
+
+
+void test('quota-safe fallback fails closed when local git comparison cannot be proven', async () => {
+  const { verifyQuotaSafeCodeOnlyDeploy } = await import('../scripts/staging-migration-preflight.mjs');
+  const deployed='1111111111111111111111111111111111111111';
+  const current='2222222222222222222222222222222222222222';
+  const result=await verifyQuotaSafeCodeOnlyDeploy({
+    currentSha:current,
+    stagingBuildUrl:'https://staging.example/api/build',
+    fetcher:async()=>({ok:true,json:async()=>({buildId:deployed})}),
+    compareCommits:async()=>({ok:false,reason:'deployed_commit_not_in_checkout',files:[]}),
+  });
+  assert.equal(result.allowed,false);
+  assert.equal(result.reason,'deployed_commit_not_in_checkout');
 });

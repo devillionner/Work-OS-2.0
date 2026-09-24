@@ -1,17 +1,51 @@
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
-import { isD1DailyRowReadLimit, parseStagingMigrationList, verifyQuotaSafeCodeOnlyDeploy } from './staging-migration-preflight.mjs';
+import { isD1DailyRowReadLimit, migrationFilesFromComparison, parseStagingMigrationList, verifyQuotaSafeCodeOnlyDeploy } from './staging-migration-preflight.mjs';
 
 const configPath = 'dist/server/wrangler.json';
 const sourceConfigPath = 'wrangler.jsonc';
 const stagingBuildUrl = 'https://work-os-2-staging.devillionner.workers.dev/api/build';
-const repository = 'devillionner/Work-OS-2.0';
 const expected = {
   worker: 'work-os-2-staging',
   database: 'work-os-2-staging-db',
   databaseId: '740312bc-bd1f-4d69-826f-d31208789598',
 };
+
+function runGit(args) {
+  return spawnSync('git', args, { encoding:'utf8', shell:false });
+}
+
+function ensureCommitAvailable(sha) {
+  const probe = runGit(['cat-file','-e',sha + '^{commit}']);
+  if (probe.status === 0) return {ok:true};
+  const fetchResult = runGit(['fetch','--no-tags','--depth=128','origin',sha]);
+  if (fetchResult.stdout) process.stdout.write(fetchResult.stdout);
+  if (fetchResult.stderr) process.stderr.write(fetchResult.stderr);
+  if (fetchResult.error) return {ok:false,reason:'git_fetch_failed'};
+  if (fetchResult.status !== 0) return {ok:false,reason:'git_fetch_failed'};
+  const recheck = runGit(['cat-file','-e',sha + '^{commit}']);
+  return recheck.status === 0 ? {ok:true} : {ok:false,reason:'deployed_commit_not_in_checkout'};
+}
+
+async function compareLocalGitCommits({deployedBuildId,currentSha}) {
+  const available = ensureCommitAvailable(deployedBuildId);
+  if (!available.ok) return {ok:false,reason:available.reason,files:[],migrationFiles:[]};
+
+  const currentAvailable = ensureCommitAvailable(currentSha);
+  if (!currentAvailable.ok) return {ok:false,reason:'current_commit_not_in_checkout',files:[],migrationFiles:[]};
+
+  const ancestor = runGit(['merge-base','--is-ancestor',deployedBuildId,currentSha]);
+  if (ancestor.error) return {ok:false,reason:'git_ancestor_check_failed',files:[],migrationFiles:[]};
+  if (ancestor.status !== 0) return {ok:false,reason:'staging_not_ancestor_of_build',files:[],migrationFiles:[]};
+
+  const diff = runGit(['diff','--name-only',deployedBuildId + '..' + currentSha]);
+  if (diff.error || diff.status !== 0) {
+    return {ok:false,reason:'git_diff_failed',files:[],migrationFiles:[]};
+  }
+  const files = String(diff.stdout || '').split(/\r?\n/u).map(value=>value.trim()).filter(Boolean);
+  return {ok:true,files,migrationFiles:migrationFilesFromComparison(files)};
+}
 
 if (process.env.CLOUDFLARE_ENV === 'production') {
   throw new Error('Refusing staging deploy with CLOUDFLARE_ENV=production.');
@@ -68,7 +102,7 @@ if (migrationCheck.status !== 0) {
   const fallback = await verifyQuotaSafeCodeOnlyDeploy({
     currentSha,
     stagingBuildUrl,
-    repository,
+    compareCommits: compareLocalGitCommits,
   });
   if (!fallback.allowed) {
     const migrationDetail = fallback.migrationFiles.length

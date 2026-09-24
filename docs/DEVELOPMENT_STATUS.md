@@ -1,5 +1,11 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Quota fallback uses local git comparison
+
+- The first quota-safe fallback depended on GitHub REST Compare and a Cloudflare build failed with `commit_comparison_unreachable` even though the repository had already cloned successfully.
+- The deploy guard now compares the exact deployed staging `/api/build` SHA to current HEAD using the local Cloudflare build checkout (`git merge-base` + `git diff --name-only`). If the deployed commit is absent from a shallow clone, it fetches only that commit from `origin` and retries locally.
+- No GitHub REST Compare API is required. Any migration delta, non-ancestor staging SHA, missing commit, failed fetch or failed git diff still fails closed. Production remains untouched.
+
 ## 2026-09-24 Quota-safe staging code-only deploy fallback
 
 - Cloudflare Workers Build for v0.2.58 completed the application build but staging deploy was blocked because the staging D1 free-tier daily row-read quota was exhausted while Wrangler tried to list migrations.
