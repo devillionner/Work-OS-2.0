@@ -211,10 +211,12 @@ button:not([data-slot="button"]) { color: inherit; }
 .workspace-loading-skeleton i { display:block; height:12px; border-radius:999px; background:linear-gradient(90deg,#eef0f4 0%,#f7f8fb 45%,#eef0f4 100%); background-size:220% 100%; animation:workspace-skeleton 1.25s ease-in-out infinite; }
 .workspace-loading-skeleton i:nth-child(2) { width:82%; }
 .workspace-loading-skeleton i:nth-child(3) { width:64%; }
+.workspace-inline-loading { min-height:44px; display:flex; align-items:center; gap:9px; padding:10px 0; color:var(--muted-foreground); font-size:12px; }
+.workspace-inline-loading i { width:54px; height:10px; flex:0 0 auto; border-radius:999px; background:linear-gradient(90deg,#eef0f4 0%,#f7f8fb 45%,#eef0f4 100%); background-size:220% 100%; animation:workspace-skeleton 1.25s ease-in-out infinite; }
 .workspace-refresh-indicator { position:absolute; z-index:8; top:10px; right:12px; min-height:32px; display:inline-flex; align-items:center; gap:7px; padding:5px 9px; border:1px solid var(--border); border-radius:999px; background:rgba(255,255,255,.92); box-shadow:0 5px 18px rgb(20 25 36 / .08); color:var(--muted-foreground); font-size:11px; font-weight:700; pointer-events:none; backdrop-filter:blur(10px); }
 .workspace-refresh-indicator svg { width:14px; height:14px; }
 @keyframes workspace-skeleton { 0%{background-position:100% 0} 100%{background-position:-120% 0} }
-@media (prefers-reduced-motion:reduce) { .workspace-loading-skeleton i { animation:none; } }
+@media (prefers-reduced-motion:reduce) { .workspace-loading-skeleton i,.workspace-inline-loading i { animation:none; } }
 
 .work-main { min-height: 100svh; }
 .topbar { height: 90px; display: flex; align-items: center; gap: 18px; padding: 18px clamp(22px, 4vw, 54px); border-bottom: 1px solid var(--border); background: rgba(255,255,255,.86); backdrop-filter: blur(16px); }
