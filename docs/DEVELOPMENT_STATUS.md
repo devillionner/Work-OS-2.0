@@ -1,5 +1,15 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Bilingual advertisement save invariant — v0.2.47
+
+- Advertisement create/update now requires non-empty UA and RU text in the Library API. Scripts and knowledge entries retain the previous at-least-one-language rule.
+- Library mirrors the server invariant: both advertisement fields are labeled required and Save stays disabled until UA+RU and platform selection are complete.
+- Legacy one-language advertisements are preserved rather than rewritten or deleted. List/editor copy identifies the missing language and requires repair only when a new version is saved.
+- This closes the forward-write invariant for AD-02 without pretending historical data was migrated. AD-02 remains partial until legacy items are explicitly reconciled and live responsive acceptance is complete.
+- Source regression coverage was updated for the bilingual API/UI contract. Full local lint/typecheck/full-tests are not inferred from source contracts.
+- WhatsApp Web live executor acceptance remains blocked by the unavailable Opera Browser Connector/CDP endpoint; no messenger callback was executed.
+
+
 ## 2026-09-24 Confirmed-profile normal publication gate — v0.2.46
 
 - Ordinary publication now requires a confirmed profile in the publication domain and again in the atomic INSERT. A stale/direct request cannot create a publication fact after the profile becomes draft/missing.

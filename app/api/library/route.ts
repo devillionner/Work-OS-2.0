@@ -95,7 +95,11 @@ export async function POST(request: Request): Promise<Response> {
   const ukText = cleanLibraryBody(body.ukText, 20000);
   const ruText = cleanLibraryBody(body.ruText, 20000);
   const notes = cleanLibraryBody(body.notes, 4000);
-  if (!title || (!ukText.trim() && !ruText.trim())) return Response.json({ error: 'Вкажіть назву та хоча б одну мовну версію.' }, { status: 400 });
+  if (!title) return Response.json({ error: 'Вкажіть назву матеріалу.' }, { status: 400 });
+  if (kind === 'advertisement' && (!ukText.trim() || !ruText.trim()))
+    return Response.json({ error: 'Для оголошення заповніть українську та російську версії.' }, { status: 400 });
+  if (kind !== 'advertisement' && !ukText.trim() && !ruText.trim())
+    return Response.json({ error: 'Вкажіть хоча б одну мовну версію.' }, { status: 400 });
   const tags = cleanLibraryTags(body.tags);
   if (kind === 'advertisement' && hasUnsupportedLibraryPlatforms(body.platforms))
     return Response.json({ error: 'Оберіть платформи зі списку Work OS.' }, { status: 400 });

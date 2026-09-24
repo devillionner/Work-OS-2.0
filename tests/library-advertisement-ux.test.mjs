@@ -38,7 +38,17 @@ void test('advertisement editor uses structured platforms and canonical subject 
   assert.match(workspace,/updatePlatformChoice/);
   assert.match(workspace,/updateDirectionChoice/);
   assert.match(workspace,/library-extra-tags/);
-  assert.match(workspace,/collection==='advertisement'&&!form\.platforms\.length/);
+  assert.match(workspace,/collection==='advertisement'\?\(!form\.ukText\.trim\(\)\|\|!form\.ruText\.trim\(\)\|\|!form\.platforms\.length\)/);
+});
+
+void test('advertisement save requires both UA and RU while legacy one-language rows stay visible for repair',()=>{
+  const route=readFileSync(new URL('../app/api/library/route.ts',import.meta.url),'utf8');
+  assert.match(route,/kind === 'advertisement' && \(!ukText\.trim\(\) \|\| !ruText\.trim\(\)\)/);
+  assert.match(route,/Для оголошення заповніть українську та російську версії/);
+  assert.match(workspace,/Українська версія · обов’язково/);
+  assert.match(workspace,/Російська версія · обов’язково/);
+  assert.match(workspace,/Старий однолокальний матеріал не видаляється/);
+  assert.match(workspace,/Потрібно додати \{item\.ukText\.trim\(\)\?'RU':'UA'\} версію/);
 });
 
 void test('all-platform advertisements remain visible under a specific platform filter',()=>{
