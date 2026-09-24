@@ -66,6 +66,11 @@ export function LibraryWorkspace({ syncRevision=0, active=true }: { syncRevision
   },[collection,archived,search]);
   useEffect(()=>{const timer=setTimeout(()=>void load(),search?250:0);return()=>clearTimeout(timer);},[load,search]);
   useEffect(()=>{
+    if(active)return;
+    setHistoryOpen(false);
+    setArchiveCandidate(null);
+  },[active]);
+  useEffect(()=>{
     if(!active||lastSyncRevision.current===syncRevision)return;
     lastSyncRevision.current=syncRevision;
     viewCache.current.clear();
