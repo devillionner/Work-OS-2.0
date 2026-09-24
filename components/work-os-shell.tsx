@@ -60,6 +60,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkO
   const [taskBusy, setTaskBusy] = useState<string | null>(null);
   const [taskNotice, setTaskNotice] = useState('');
   const [activeView, setActiveView] = useState<ViewKey>('today');
+  const [visitedViews, setVisitedViews] = useState<Set<ViewKey>>(() => new Set<ViewKey>(['today']));
   useEffect(() => {
     if (!mobileOpen) return;
     const frame = requestAnimationFrame(() => mobileCloseRef.current?.focus());
@@ -85,9 +86,9 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkO
     requestAnimationFrame(() => trigger?.focus());
   };
   const activeLabel = activeView === 'settings' ? 'Налаштування' : navigation.find((item) => item.key === activeView)?.label || 'Сьогодні';
-  const dataSyncKey = `${syncRevision}:${snapshot.today}`;
   const navigateTo = (next: ViewKey) => {
     const fromDrawer = mobileOpen;
+    setVisitedViews((current) => current.has(next) ? current : new Set(current).add(next));
     setActiveView(next);
     setMobileOpen(false);
     if (fromDrawer) requestAnimationFrame(() => pageHeadingRef.current?.focus());
@@ -162,7 +163,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkO
           </div>
         </header>
 
-        {activeView === 'today' ? <div className="dashboard-grid">
+        <WorkspacePane active={activeView === 'today'}><div className="dashboard-grid">
           <section className="focus-card" aria-labelledby="focus-title">
             <div className="focus-heading">
               <div><p className="eyebrow">Фокус дня</p><h2 id="focus-title">Почни з поточних чатів і лідів</h2><p>{snapshot.chats} активних чатів і {snapshot.leads} лідів уже доступні у хмарній базі.</p>{snapshot.focusDirections.length ? <div className="focus-direction-list">{snapshot.focusDirections.map((direction) => <Badge variant="secondary" key={direction}>{direction}</Badge>)}</div> : <p className="focus-empty-note">Фокус напрямків ще не налаштований.</p>}</div>
@@ -201,7 +202,13 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkO
               {snapshot.platforms.filter((platform) => snapshot.enabledPlatforms.includes(platform.key) || platform.key === 'threads' || platform.key === 'unknown').map((platform) => <div className="platform-row" key={platform.key}><span className="platform-name"><i style={{ background: platform.color }} />{platform.name}</span><strong>{platform.publications}</strong><strong>{platform.joined}</strong><strong>{platform.responses}</strong><strong>{platform.bookings}</strong></div>)}
             </div>
           </section>
-        </div> : activeView === 'platforms' ? <PlatformWorkspace enabledPlatforms={snapshot.enabledPlatforms} syncRevision={syncRevision} businessDate={snapshot.today} /> : activeView === 'leads' ? <LeadsWorkspace key={`leads:${user.email}:${dataSyncKey}`} account={user.email} initialLeadId={leadToOpen} /> : activeView === 'analytics' ? <AnalyticsWorkspace key={`analytics:${dataSyncKey}`} /> : activeView === 'reports' ? <ReportsWorkspace key={`reports:${dataSyncKey}`} onOpenLead={(leadId) => { setLeadToOpen(leadId); navigateTo('leads'); }} /> : activeView === 'library' ? <LibraryWorkspace key={`library:${dataSyncKey}`} /> : activeView === 'settings' ? <SettingsWorkspace key={`settings:${dataSyncKey}`} user={user} snapshot={snapshot} onRefresh={() => router.refresh()} /> : <div className="coming-soon"><p className="eyebrow">Наступний модуль</p><h2>{activeLabel}</h2><p>Дані вже в хмарі. Цей екран буде підключено після завершення основного процесу платформ.</p></div>}
+        </div></WorkspacePane>
+        {visitedViews.has('platforms') && <WorkspacePane active={activeView === 'platforms'}><PlatformWorkspace enabledPlatforms={snapshot.enabledPlatforms} syncRevision={syncRevision} businessDate={snapshot.today} /></WorkspacePane>}
+        {visitedViews.has('leads') && <WorkspacePane active={activeView === 'leads'}><LeadsWorkspace account={user.email} initialLeadId={leadToOpen} /></WorkspacePane>}
+        {visitedViews.has('analytics') && <WorkspacePane active={activeView === 'analytics'}><AnalyticsWorkspace /></WorkspacePane>}
+        {visitedViews.has('reports') && <WorkspacePane active={activeView === 'reports'}><ReportsWorkspace onOpenLead={(leadId) => { setLeadToOpen(leadId); navigateTo('leads'); }} /></WorkspacePane>}
+        {visitedViews.has('library') && <WorkspacePane active={activeView === 'library'}><LibraryWorkspace /></WorkspacePane>}
+        {visitedViews.has('settings') && <WorkspacePane active={activeView === 'settings'}><SettingsWorkspace user={user} snapshot={snapshot} onRefresh={() => router.refresh()} /></WorkspacePane>}
 
         <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
           {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => <button type="button" aria-current={activeView === key ? 'page' : undefined} key={key} onClick={() => navigateTo(key)}><Icon /><span>{label}</span></button>)}
@@ -213,6 +220,10 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkO
       </main>
     </div>
   );
+}
+
+function WorkspacePane({ active, children }: { active: boolean; children: React.ReactNode }) {
+  return <div className="workspace-pane" hidden={!active} aria-hidden={active ? undefined : true}>{children}</div>;
 }
 
 function taskSection(item: DashboardSnapshot['leadTasks'][number], today: string) {
