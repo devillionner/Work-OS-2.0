@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const button = readFileSync(join(process.cwd(), 'components', 'ui', 'button.tsx'), 'utf8');
+const select = readFileSync(join(process.cwd(), 'components', 'ui', 'select.tsx'), 'utf8');
+const nativeSelect = readFileSync(join(process.cwd(), 'components', 'ui', 'native-select.tsx'), 'utf8');
+
+void test('shared primary action uses the readable blue accent hierarchy', () => {
+  assert.match(button, /default: 'bg-primary text-primary-foreground hover:bg-primary\/90'/);
+  assert.match(button, /link: 'text-accent-foreground/);
+});
+
+void test('shared button sizes keep the design-system minimum interaction target', () => {
+  assert.match(button, /default:\s*\n\s*'h-\[42px\]/);
+  assert.match(button, /xs: "h-\[42px\]/);
+  assert.match(button, /sm: "h-\[42px\]/);
+  assert.match(button, /lg: 'h-11/);
+  assert.match(button, /icon: 'size-\[42px\]'/);
+  assert.match(button, /'icon-xs':\s*\n\s*"size-\[42px\]/);
+  assert.match(button, /'icon-sm':\s*\n\s*'size-\[42px\]/);
+  assert.match(button, /'icon-lg': 'size-11'/);
+});
+
+void test('shared select trigger and options keep the design-system minimum interaction target', () => {
+  assert.match(select, /data-\[size=default\]:h-\[42px\]/);
+  assert.match(select, /data-\[size=sm\]:h-\[42px\]/);
+  assert.match(select, /min-h-\[42px\]/);
+});
+
+void test('native select keeps the same minimum interaction target as custom selects', () => {
+  assert.match(nativeSelect, /h-\[42px\]/);
+  assert.match(nativeSelect, /data-\[size=sm\]:h-\[42px\]/);
+});
