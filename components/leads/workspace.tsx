@@ -437,11 +437,13 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
                   <output>{notice}</output>
                 </div>
               </section>
-              <FollowUp detail={current} mutate={mutate} />
-              <LeadScripts lead={current.lead} />
-              <Lessons detail={current} mutate={mutate} />
-              <Students detail={current} mutate={mutate} />
-              <Conversation key={current.lead.version} detail={current} mutate={mutate} onChanged={reload} />
+              {active&&<>
+                <FollowUp detail={current} mutate={mutate} />
+                <LeadScripts lead={current.lead} />
+                <Lessons detail={current} mutate={mutate} />
+                <Students detail={current} mutate={mutate} />
+                <Conversation key={current.lead.version} detail={current} mutate={mutate} onChanged={reload} />
+              </>}
             </div>
           )}
         </div>
