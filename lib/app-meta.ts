@@ -1,8 +1,9 @@
-export const APP_VERSION = '0.2.48';
+export const APP_VERSION = '0.2.49';
 export const APP_RELEASE_DATE = '2026-09-24';
 
 // User-facing copy only. Keep each note short and plain; technical details belong in docs and commits.
 export const APP_CHANGES = [
+  'WhatsApp Web executor отримав lease fencing: після reclaim старий runner більше не може підтвердити вступ або змінити стан чату своїм застарілим callback.',
   'Viber safe-mode executor тепер повторно перевіряє чинність lease безпосередньо в фінальному записі: прострочений callback не може підтвердити відправку навіть у race між перевіркою та update.',
   'Нові та відредаговані оголошення тепер зберігаються лише з українською та російською версіями — API і кнопка збереження перевіряють це однаково.',
   'Старі оголошення з однією мовою не видаляються: Бібліотека позначає, яку версію треба додати, і просить доповнити її перед наступним збереженням.',

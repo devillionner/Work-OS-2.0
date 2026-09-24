@@ -56,7 +56,7 @@ export type DiscoveryInspectionOutcome = {
 export async function applyDiscoveryInspection(
   db: D1Database,
   userId: string,
-  input: { candidateId: string; expectedVersion: number; result: unknown; minMembers?: unknown; requireTargetVerification?: boolean },
+  input: { candidateId: string; expectedVersion: number; result: unknown; minMembers?: unknown; requireTargetVerification?: boolean; executorDeviceId?: string },
   now: number,
 ): Promise<DiscoveryInspectionOutcome> {
   const candidate = await readCandidate(db, userId, input.candidateId);
@@ -86,13 +86,15 @@ export async function applyDiscoveryInspection(
     throw new DiscoveryError('Вихід із приєднаного чату підтверджується лише через архівний leave-checklist.', 409);
   }
   if (reportedMembership === 'pending' && candidate.platform === 'whatsapp' && chat.workflow_status === 'to_join') {
-    const moved = await transitionChat(db, { userId, chat, action:'waiting', accountId:null, now });
+    const moved = await transitionChat(db, { userId, chat, action:'waiting', accountId:null, now,
+      executorFence: executorFence(input, expectedVersion) });
     if (!moved.ok) throw new DiscoveryError(moved.error || 'Стан чату вже змінився. Оновіть список.', 409);
     expectedVersion += 1;
     chat = await requiredChat(db, userId, candidate.imported_chat_id);
   } else if (reportedMembership === 'joined' && (chat.workflow_status === 'to_join' || chat.workflow_status === 'waiting')) {
     const action = chat.workflow_status === 'waiting' ? 'approved' : 'joined';
-    const moved = await transitionChat(db, { userId, chat, action, accountId:null, now });
+    const moved = await transitionChat(db, { userId, chat, action, accountId:null, now,
+      executorFence: executorFence(input, expectedVersion) });
     if (!moved.ok) throw new DiscoveryError(moved.error || 'Стан чату вже змінився. Оновіть список.', 409);
     expectedVersion += 1;
     chat = await requiredChat(db, userId, candidate.imported_chat_id);
@@ -143,11 +145,12 @@ export async function applyDiscoveryInspection(
     can_write=?7,ads_policy=?8,membership_state=?9,access_state=?10,link_state=?11,
     inspection_state=?12,decision=?13,reason_codes_json=?14,updated_at=?2,version=version+1
     WHERE id=?15 AND user_id=?16 AND version=?17 AND imported_chat_id=?18
+      AND (?19 IS NULL OR (executor_lease_device_id=?19 AND executor_lease_expires_at>?2))
     RETURNING version`)
     .bind(nextName, now, memberCount, chatType, activityState, nextTopic,
       canWrite === null ? null : Number(canWrite), adsPolicy, membershipState, accessState, linkState,
       inspectionState, evaluated.decision, JSON.stringify(evaluated.reasonCodes),
-      candidate.id, userId, expectedVersion, candidate.imported_chat_id)
+      candidate.id, userId, expectedVersion, candidate.imported_chat_id,input.executorDeviceId??null)
     .first<{ version: number }>();
   if (!update) throw new DiscoveryError('Кандидат змінився під час автоперевірки. Оновіть список.', 409);
 
@@ -164,6 +167,7 @@ export async function applyDiscoveryInspection(
       accountId:null,
       now,
       reason:'Автопошук: чат не відповідає критеріям',
+      executorFence: executorFence(input, Number(update.version)),
     });
     autoArchived = archived.ok;
     if (archived.ok) workflowStatus = 'archived';
@@ -256,6 +260,10 @@ async function applyUnlinkedInspection(
     autoArchived: false,
     version: update.version,
   };
+}
+
+function executorFence(input: {candidateId:string;executorDeviceId?:string}, candidateVersion:number) {
+  return input.executorDeviceId ? {candidateId:input.candidateId,candidateVersion,deviceId:input.executorDeviceId} : undefined;
 }
 
 function linkedMembershipState(chat: ChatState, fallback: DiscoveryCandidate['membershipState']): DiscoveryCandidate['membershipState'] {

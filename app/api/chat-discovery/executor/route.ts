@@ -39,6 +39,7 @@ export async function POST(request: Request): Promise<Response> {
         result: body.result,
         minMembers: body.minMembers,
         requireTargetVerification: true,
+        executorDeviceId: executor.deviceId,
       }, now));
     }
     if (body.action === 'executor-leave') {

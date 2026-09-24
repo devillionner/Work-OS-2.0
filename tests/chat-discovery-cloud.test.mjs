@@ -657,20 +657,40 @@ void test('executor claims are exclusive per device and recover after a bounded 
   const competing = await claimDiscoveryExecutorQueue(db, 'u', 'device-b', 10, 201);
   assert.equal(competing.tasks.length, 0);
   await assert.rejects(
-    assertDiscoveryExecutorLease(db, 'u', 'device-b', candidate.id, candidate.version, 201),
+    assertDiscoveryExecutorLease(db, 'u', 'device-b', candidate.id, first.tasks[0].candidateVersion, 201),
     /більше не належить цьому пристрою/,
   );
   await assert.doesNotReject(
-    assertDiscoveryExecutorLease(db, 'u', 'device-a', candidate.id, candidate.version, 201),
+    assertDiscoveryExecutorLease(db, 'u', 'device-a', candidate.id, first.tasks[0].candidateVersion, 201),
   );
 
   const recovered = await claimDiscoveryExecutorQueue(db, 'u', 'device-b', 10, 291);
   assert.equal(recovered.tasks.length, 1);
   assert.equal(recovered.tasks[0].candidateId, candidate.id);
+  assert.ok(recovered.tasks[0].candidateVersion>first.tasks[0].candidateVersion);
   await assert.rejects(
-    assertDiscoveryExecutorLease(db, 'u', 'device-a', candidate.id, candidate.version, 291),
+    assertDiscoveryExecutorLease(db, 'u', 'device-a', candidate.id, first.tasks[0].candidateVersion, 291),
     /більше не належить цьому пристрою/,
   );
+});
+
+void test('reclaimed executor lease fences stale join callback before chat state changes', async (t) => {
+  const { db, candidate, chatId } = await importedCandidate(t, 'ExecutorFence123');
+  const first = await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 200);
+  assert.equal(first.tasks.length, 1);
+  const recovered = await claimDiscoveryExecutorQueue(db, 'u', 'device-b', 1, 291);
+  assert.equal(recovered.tasks.length, 1);
+  await assert.rejects(
+    applyDiscoveryInspection(db, 'u', {
+      candidateId:candidate.id, expectedVersion:first.tasks[0].candidateVersion,
+      executorDeviceId:'device-a', requireTargetVerification:true,
+      result:{status:'inspected',targetVerified:true,accessible:true,membershipState:'joined',observedName:'Українці Praha'},
+    }, 291),
+    /Кандидат уже змінився|Стан чату вже змінився/,
+  );
+  const chat = await readChatState(db, 'u', chatId);
+  assert.equal(chat.workflow_status, 'to_join');
+  assert.equal(chat.joined_at, null);
 });
 
 void test('executor leave result archives a rejected joined WhatsApp chat and confirms the real external leave', async (t) => {

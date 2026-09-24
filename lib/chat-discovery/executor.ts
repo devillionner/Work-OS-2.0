@@ -102,12 +102,14 @@ export async function claimDiscoveryExecutorQueue(
     if (tasks.length >= limit) break;
     const leaseExpiresAt = now + leaseSeconds;
     const claimed = await db.prepare(`UPDATE chat_discovery_candidates
-      SET executor_lease_device_id=?1,executor_lease_expires_at=?2
+      SET executor_lease_device_id=?1,executor_lease_expires_at=?2,version=version+1
       WHERE id=?3 AND user_id=?4 AND version=?5
-        AND (executor_lease_device_id=?1 OR executor_lease_expires_at IS NULL OR executor_lease_expires_at<=?6)`)
-      .bind(deviceId, leaseExpiresAt, task.candidateId, userId, task.candidateVersion, now).run();
-    if (Number(claimed.meta.changes || 0) !== 1) continue;
-    tasks.push({ ...task, leaseExpiresAt });
+        AND (executor_lease_device_id=?1 OR executor_lease_expires_at IS NULL OR executor_lease_expires_at<=?6)
+      RETURNING version`)
+      .bind(deviceId, leaseExpiresAt, task.candidateId, userId, task.candidateVersion, now)
+      .first<{version:number}>();
+    if (!claimed) continue;
+    tasks.push({ ...task, candidateVersion:Number(claimed.version), leaseExpiresAt });
   }
   return { tasks, leaseSeconds };
 }

@@ -1,5 +1,13 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 WhatsApp executor lease fencing — v0.2.49
+
+- Discovery executor claim/reclaim now advances the candidate version and returns that claimed version as the task fencing token.
+- Executor inspection callbacks carry the authenticated device into the domain. Join/pending/archive transitions use an optional SQL fence requiring the exact candidate, claimed version, device and unexpired lease; ordinary manual chat transitions remain unchanged.
+- Final inspection persistence also rechecks the executor device and lease. A reclaimed task therefore cannot mutate candidate qualification or linked chat workflow through a stale runner callback.
+- Regression coverage verifies that a second device can reclaim after lease expiry and the first device's old join callback leaves the chat in `to_join`.
+- Live WhatsApp Web acceptance is still a separate gate; no external messenger action is claimed by this source slice. Full local lint/typecheck/full-tests are not inferred from source contracts.
+
 ## 2026-09-24 Publication concurrent-write regression gate
 
 - Publication consistency coverage now includes two simultaneous manual publication attempts against the same canonical chat state/day, not only sequential retry.

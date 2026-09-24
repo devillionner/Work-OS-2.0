@@ -38,5 +38,6 @@ void test('dedicated executor bridge leases tasks to the authenticated device be
   assert.match(route, /claimDiscoveryExecutorQueue\(env\.DB, executor\.userId, executor\.deviceId/);
   assert.match(route, /assertDiscoveryExecutorLease\(env\.DB, executor\.userId, executor\.deviceId/);
   assert.match(route, /requireTargetVerification: true/);
+  assert.match(route, /executorDeviceId: executor\.deviceId/);
   assert.match(route, /targetVerified: body\.targetVerified/);
 });
