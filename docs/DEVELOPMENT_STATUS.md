@@ -1,5 +1,12 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Viber joined-today expandable panel — v0.2.58
+
+- Viber now has a compact expandable «Приєднані сьогодні» panel directly below the queue/quick-mode controls and above the main chat toolbar.
+- The panel uses the canonical `joinedToday` data already returned by `/api/chats`; opening it shows current chat names/links and lets the operator open each Viber chat directly.
+- `joinedTodayStatement` now counts only chats that are still genuinely joined in the working flow (`waiting` or `ready` with `joined_at`). Archived, failed and returned-to-join chats drop out immediately instead of remaining in the daily joined list.
+- The panel is responsive: multi-column on wider workspace widths and one-column with bounded scrolling on narrow/mobile layouts.
+
 ## 2026-09-24 WhatsApp batch confirmed-send autopost — v0.2.57
 
 - WhatsApp ready queue now has «Автопост черги»: one operator action queues up to 30 currently eligible chats instead of opening each row separately.

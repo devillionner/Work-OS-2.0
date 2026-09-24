@@ -15,7 +15,7 @@ import type { BulkResult } from '@/lib/chats/bulk';
 import type { ChatProfile } from '@/lib/chats/profile';
 import { supportsChatLeaveChecklist } from '@/lib/chats/leave-policy';
 import { shouldSuggestChatArchive } from '@/lib/chats/snooze-history';
-import { Archive, Check, ChevronLeft, ChevronRight, Clock3, ExternalLink, History, Plus, RotateCcw, Search, Send, Settings2, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
+import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, ExternalLink, History, Plus, RotateCcw, Search, Send, Settings2, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -63,6 +63,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const [undo,setUndo] = useState<UndoState|null>(null);
   const [bulkOpen,setBulkOpen]=useState(false);
   const [discoveryOpen,setDiscoveryOpen]=useState(false);
+  const [joinedTodayOpen,setJoinedTodayOpen]=useState(false);
   const [duplicatesOpen,setDuplicatesOpen]=useState(false);
   const [notice,setNotice]=useState('');
   const [profileChat,setProfileChat]=useState<Chat|null>(null);
@@ -515,6 +516,19 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
           ? <Button type="button" size="sm" disabled={busy!==null} onClick={()=>void startWhatsAppAutopostBatch()}><Send data-icon="inline-start"/>Автопост черги</Button>
           : <Button type="button" size="sm" variant={quickPublishMode?'outline':'default'} disabled={busy!==null} onClick={()=>{setQuickPublishMode(value=>{const next=!value;if(!next)setQuickAdvertisementId(null);return next;});}}><Send data-icon="inline-start"/>{quickPublishMode?'Завершити':'Увімкнути'}</Button>}
       </div>}
+      {platform==='viber'&&data&&<section className={'joined-today-panel '+(joinedTodayOpen?'is-open':'')} aria-label="Viber чати, приєднані сьогодні">
+        <button className="joined-today-toggle" type="button" aria-expanded={joinedTodayOpen} onClick={()=>setJoinedTodayOpen(value=>!value)}>
+          <span><strong>Приєднані сьогодні</strong><small>Актуальні Viber-чати, у які приєдналися сьогодні</small></span>
+          <span className="joined-today-toggle-meta"><b>{data.joinedToday.length}</b><ChevronDown/></span>
+        </button>
+        {joinedTodayOpen&&<div className="joined-today-list">
+          {data.joinedToday.length
+            ? data.joinedToday.map(item=><button className="joined-today-item" type="button" key={item.id||item.link} disabled={!item.link} onClick={()=>{if(item.link)openNativeChat('viber',item.link);}}>
+                <span><strong>{item.name||'Viber чат'}</strong><small>{item.link?compactChatLink(item.link):'Посилання відсутнє'}</small></span><ExternalLink/>
+              </button>)
+            : <p className="joined-today-empty">Сьогодні ще немає актуальних Viber-чатів, у які приєдналися.</p>}
+        </div>}
+      </section>}
       <div className="chat-toolbar">
         <label htmlFor="chat-search"><Search/><Input id="chat-search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Пошук за назвою або посиланням"/><span className="sr-only">Пошук чатів</span></label>
         {(queue==='waiting'||queue==='ready')&&<><Button type="button" variant="outline" size="sm" title={profileSummary?`Підтверджені: ${profileSummary.confirmed}; чернетки: ${profileSummary.draft}; без профілю: ${profileSummary.empty}`:'Фільтр профілів'} aria-pressed={profileFilter==='needs_review'} onClick={()=>{setProfileFilter(value=>value==='all'?'needs_review':'all');setOffset(0);}}><UserRoundCheck data-icon="inline-start"/>{profileFilter==='needs_review'?`Усі профілі (${data?.counts[queue]||0})`:`Потребують правил (${profileSummary?.needsReview||0})`}</Button>{profileSummary&&<span className="profile-counts" aria-label={`Профілі: підтверджені ${profileSummary.confirmed}, чернетки ${profileSummary.draft}, без профілю ${profileSummary.empty}`}>✓ {profileSummary.confirmed} · чернетки {profileSummary.draft} · без профілю {profileSummary.empty}</span>}</>}{queue==='profile_review'&&profileSummary&&<span className="profile-counts" role="status" aria-label={`Потрібно уточнити профілі: чернетки ${profileSummary.draft}, без профілю ${profileSummary.empty}`}>Чернетки {profileSummary.draft} · без профілю {profileSummary.empty}</span>}
