@@ -49,7 +49,7 @@ const queues: Array<{key:Queue;label:string}> = [
   {key:'ready',label:'Для публікації'}, {key:'archived',label:'Архів'},
 ];
 
-export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate }: { enabledPlatforms?: string[]; syncRevision?: number; businessDate?: string }) {
+export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate, active=true }: { enabledPlatforms?: string[]; syncRevision?: number; businessDate?: string; active?: boolean }) {
   const [platform,setPlatform] = useState<Platform>('telegram');
   const [queue,setQueue] = useState<Queue>('to_join');
   const [search,setSearch] = useState('');
@@ -110,6 +110,21 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const mobileListKey=`${filterKey}:${offset}:${requestAccountId||''}`;
   const mobileVisibleChats=mobileListState.key===mobileListKey?mobileListState.count:MOBILE_LIST_CHUNK;
   const previousFilter=useRef(filterKey);
+
+  useEffect(()=>{
+    if(active)return;
+    setBulkOpen(false);
+    setDiscoveryOpen(false);
+    setDuplicatesOpen(false);
+    setProfileChat(null);
+    setHistoryChat(null);
+    setPublishChat(null);
+    setConfirmation(null);
+    setArchiveId(null);
+    setCustomArchiveReason('');
+    setDeleteChat(null);
+    setManageAccounts(false);
+  },[active]);
 
   useEffect(()=>{
     if(availablePlatforms.some((item)=>item.key===platform)||!availablePlatforms[0])return;
@@ -210,11 +225,11 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     const nextSyncKey=`${syncRevision ?? ''}:${businessDate ?? ''}`;
     const previous=lastSyncKey.current;
     lastSyncKey.current=nextSyncKey;
-    if(previous===nextSyncKey||!hasLoadedData.current)return;
+    if(previous===nextSyncKey||!hasLoadedData.current||!active)return;
     invalidateQueueCache();
     void reloadChats.current(true);
     if(platform==='telegram') queueMicrotask(()=>void loadAccounts().catch(()=>{}));
-  },[syncRevision,businessDate,platform,loadAccounts,invalidateQueueCache]);
+  },[syncRevision,businessDate,platform,loadAccounts,invalidateQueueCache,active]);
 
   useEffect(()=>{if(!notice)return;const delay=undo?Math.max(0,undo.expiresAt-Date.now()):8000;const timer=setTimeout(()=>{setNotice('');setUndo(null);},delay);return()=>clearTimeout(timer);},[notice,undo]);
 
