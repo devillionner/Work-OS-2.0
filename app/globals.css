@@ -202,6 +202,9 @@ button:not([data-slot="button"]) { color: inherit; }
 .collapse-button { border-top: 1px solid #2d313c; border-radius: 0; margin-top: 6px; padding-top: 9px; }
 .sidebar-close-mobile, .mobile-menu { display: none; border: 0; background: transparent; cursor: pointer; }
 
+.workspace-pane { min-width:0; }
+.workspace-pane[hidden] { display:none !important; }
+
 .work-main { min-height: 100svh; }
 .topbar { height: 90px; display: flex; align-items: center; gap: 18px; padding: 18px clamp(22px, 4vw, 54px); border-bottom: 1px solid var(--border); background: rgba(255,255,255,.86); backdrop-filter: blur(16px); }
 .topbar h1 { margin: 0; font-size: 25px; line-height: 1; letter-spacing: -.025em; }
