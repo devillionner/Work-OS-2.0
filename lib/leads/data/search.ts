@@ -41,10 +41,26 @@ const aliasTerms: Record<LeadSearchAlias, readonly string[]> = {
   lost: ['закритий', 'закрита', 'закрытый', 'lost'],
 };
 
+const platformTerms: Record<string, readonly string[]> = {
+  telegram: ['telegram', 'телеграм', 'тг'],
+  whatsapp: ['whatsapp', 'whatapp', 'вацап', 'ватсап', 'вотсап', 'wa'],
+  viber: ['viber', 'вайбер'],
+  facebook: ['facebook', 'фейсбук', 'fb'],
+  threads: ['threads', 'тредс'],
+};
+
 export function leadSearchAliases(value: string): LeadSearchAlias[] {
   const normalized = value.trim().toLocaleLowerCase('uk-UA');
   if (!normalized) return [];
   return (Object.entries(aliasTerms) as Array<[LeadSearchAlias, readonly string[]]>)
     .filter(([, terms]) => terms.some((term) => normalized.includes(term)))
     .map(([alias]) => alias);
+}
+
+export function leadPlatformSearchValues(value: string): string[] {
+  const normalized = value.trim().toLocaleLowerCase('uk-UA');
+  if (!normalized) return [];
+  return Object.entries(platformTerms)
+    .filter(([platform, terms]) => platform.includes(normalized) || terms.some((term) => term.includes(normalized) || normalized.includes(term)))
+    .map(([platform]) => platform);
 }
