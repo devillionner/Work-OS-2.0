@@ -374,7 +374,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const breakSeconds=activeAccount?.breakUntil?Math.max(0,activeAccount.breakUntil-Math.floor(clock/1000)):0;
   const publishQuickMode=quickPublishMode&&(publishChat?.platform==='whatsapp'||publishChat?.platform==='viber');
   const archiveChat=archiveId?data?.chats.find(chat=>chat.id===archiveId)||null:null;
-  return <div className="platform-workspace">
+  return <div className="platform-workspace" aria-busy={loading}>
     <ConfirmDialog open={confirmation!==null} title={confirmation?.kind==='assign'?'Перепризначити Telegram-акаунт?':'Повернути чат до приєднання?'} description={confirmation?.kind==='assign'?`Чат перейде з «${confirmation.currentName}» на «${confirmation.nextName}». Членство в самому Telegram потрібно змінити вручну.`:'Чат повернеться в чергу «Для приєднання». Історія чату не видаляється.'} confirmLabel={confirmation?.kind==='assign'?'Перепризначити':'Повернути'} busy={busy!==null} onCancel={()=>setConfirmation(null)} onConfirm={confirmPlatformAction}/>
     <ConfirmDialog open={deleteChat!==null} title="Остаточно видалити чат?" description={deleteChat?`«${deleteChat.name}» більше не блокуватиме повторне додавання. Дію не можна скасувати; вона доступна лише для неіснуючого чату без публікацій, лідів або активного розкладу.`:''} confirmLabel="Видалити назавжди" destructive busy={busy!==null} onCancel={()=>setDeleteChat(null)} onConfirm={()=>{const chat=deleteChat;setDeleteChat(null);if(chat)void act(chat,'permanent_delete',{confirmation:'PERMANENTLY_DELETE_NONEXISTENT_CHAT'});}}/>
     <Dialog open={archiveChat!==null} onOpenChange={(next)=>{if(!next&&busy===null){setArchiveId(null);setCustomArchiveReason('');setError('');}}}>
