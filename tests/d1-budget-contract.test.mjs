@@ -39,6 +39,8 @@ void test('Discovery executor and staging deploy retain quota-safe guards',()=>{
   assert.match(runner,/added>0\?'source_added':'source_advanced'/);
   assert.match(auth,/EXECUTOR_HEARTBEAT_SECONDS = 60/);
   assert.match(executor,/readDiscoveryExecutorQueue\(db, userId, limit, now\)/);
+  assert.match(executor,/LIMIT \?3`\)\.bind\(userId, now, limit\)\.all<CandidateTaskRow>\(\)/);
+  assert.doesNotMatch(executor,/Math\.max\(limit \* 3, 20\)/);
   assert.match(deploy,/if \(fingerprintCheck\.allowed\)/);
   assert.match(deploy,/Skipping remote D1 migration list for this code-only deploy/);
   assert.match(domain,/discoverTelegramPublic\(\{ cursor:claimed\.telegram_cursor, maxQueries:1, pageLimit:2 \}/);
