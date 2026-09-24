@@ -428,7 +428,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
 
     {platform==='telegram'&&accountId&&<TelegramSchedule accountId={accountId} refreshKey={scheduleRefreshKey} />}
 
-    {data&&<PlatformOverview pace={data.publicationPace} available={data.availableToday} joined={data.joinedToday} published={data.publishedToday}/>}
+    {data&&<PlatformOverview pace={data.publicationPace} available={queue==='ready'?data.availableToday:undefined} joined={data.joinedToday} published={data.publishedToday}/>}
 
     <section className="platform-browser">
       <div className="queue-tabs" role="tablist" aria-label="Черга чатів">
