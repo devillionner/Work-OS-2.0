@@ -59,6 +59,21 @@ void test('public discovery rejects generic and spam WhatsApp groups before pers
   assert.equal(extractInviteRecords('Українці Berlin батьки chat.whatsapp.com/Good456', ['whatsapp'], base)[0].link, 'https://chat.whatsapp.com/Good456');
 });
 
+void test('factual recent ad evidence can complete target qualification without manual ads confirmation', () => {
+  assert.deepEqual(evaluateDiscoveryCandidate({
+    chatType:'group',
+    memberCount:1200,
+    topicMatch:'match',
+    canWrite:true,
+    adsPolicy:'inferred_allowed',
+    activityState:'active',
+    membershipState:'joined',
+    inspectionState:'inspected',
+    accessState:'available',
+    linkState:'valid',
+  }), { decision:'target', reasonCodes:['all_required_confirmed'] });
+});
+
 void test('public discovery rejects local/literal hosts and searches a bounded seed batch', async () => {
   assert.equal(safePublicUrl('http://127.0.0.1/test'), false);
   assert.equal(safePublicUrl('http://localhost/test'), false);
@@ -573,6 +588,19 @@ void test('archived unavailable WhatsApp history suppresses rediscovery and auto
   assert.equal(queue.tasks.some(item => item.candidateId === candidate.id), false);
 });
 
+void test('autonomous source advancement has a shared cooldown after a source batch', async (t) => {
+  const db = await localDatabase(t);
+  await startDiscoveryRun(db,'u',{platforms:['whatsapp'],goal:50,minMembers:700},100);
+  const fetcher = async () => html('');
+  const first = await advanceAutonomousDiscoveryRun(db,'u','device-a',101,fetcher);
+  assert.equal(first.advanced,true);
+  const immediate = await advanceAutonomousDiscoveryRun(db,'u','device-b',102,fetcher);
+  assert.equal(immediate.advanced,false);
+  assert.equal(immediate.source,'busy');
+  const afterCooldown = await advanceAutonomousDiscoveryRun(db,'u','device-b',116,fetcher);
+  assert.equal(afterCooldown.advanced,true);
+});
+
 void test('discovery run persists one canonical candidate, provenance and owner isolation', async (t) => {
   const db = await localDatabase(t);
   const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
@@ -738,6 +766,22 @@ async function importedCandidate(t, suffix) {
   assert.ok(fresh);
   return { db, candidate: fresh, chatId: handed.chatId };
 }
+
+void test('verified WhatsApp UI name replaces an approximate discovery source name', async (t) => {
+  const { db, candidate } = await importedCandidate(t, 'ObservedName123');
+  const outcome = await applyDiscoveryInspection(db, 'u', {
+    candidateId:candidate.id,
+    expectedVersion:candidate.version,
+    requireTargetVerification:true,
+    result:{
+      status:'inspected',targetVerified:true,accessible:true,membershipState:'joined',
+      observedName:'Українці Прага — офіційний чат',chatType:'group',
+    },
+  }, 110);
+  assert.equal(outcome.membershipState,'joined');
+  const stored = (await readDiscoveryWorkspace(db,'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.name,'Українці Прага — офіційний чат');
+});
 
 void test('executor queue exposes only the next safe external action and clears completed targets', async (t) => {
   const { db, candidate, chatId } = await importedCandidate(t, 'ExecutorQueue123');

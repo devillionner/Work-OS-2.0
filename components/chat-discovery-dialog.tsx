@@ -654,7 +654,7 @@ function candidateCriteria(candidate: DiscoveryCandidate): CriterionItem[] {
     { label: 'Учасники', value: count === null ? 'Невідомо' : String(count), state: count === null ? 'warn' : memberOk ? 'ok' : 'bad' },
     { label: 'Активність', value: activityLabel(candidate.activityState), state: candidate.activityState === 'active' ? 'ok' : candidate.activityState === 'dead' ? 'bad' : 'warn' },
     { label: 'Можна писати', value: candidate.canWrite === null ? 'Невідомо' : candidate.canWrite ? 'Так' : 'Ні', state: candidate.canWrite === true ? 'ok' : candidate.canWrite === false ? 'bad' : 'warn' },
-    { label: 'Оголошення', value: adsPolicyLabel(candidate.adsPolicy), state: candidate.adsPolicy === 'allowed' || candidate.adsPolicy === 'operator_confirmed' ? 'ok' : candidate.adsPolicy === 'forbidden' ? 'bad' : 'warn' },
+    { label: 'Оголошення', value: adsPolicyLabel(candidate.adsPolicy), state: candidate.adsPolicy === 'allowed' || candidate.adsPolicy === 'operator_confirmed' || candidate.adsPolicy === 'inferred_allowed' ? 'ok' : candidate.adsPolicy === 'forbidden' ? 'bad' : 'warn' },
     { label: 'Аудиторія', value: topicMatchLabel(candidate.topicMatch), state: candidate.topicMatch === 'match' ? 'ok' : candidate.topicMatch === 'mismatch' ? 'bad' : 'warn' },
     { label: 'Вступ', value: membershipLabel(candidate.membershipState), state: candidate.membershipState === 'joined' ? 'ok' : candidate.membershipState === 'left' ? 'bad' : 'warn' },
     { label: 'Перевірка', value: inspectionLabel(candidate.inspectionState), state: candidate.inspectionState === 'inspected' ? 'ok' : candidate.inspectionState === 'failed' ? 'bad' : 'warn' },
@@ -697,7 +697,7 @@ function activityLabel(value: DiscoveryCandidate['activityState']) {
 
 function adsPolicyLabel(value: DiscoveryCandidate['adsPolicy']) {
   return value === 'allowed' || value === 'operator_confirmed' ? 'можна'
-    : value === 'inferred_allowed' ? 'ймовірно можна — перевірити'
+    : value === 'inferred_allowed' ? 'є фактичні оголошення'
       : value === 'forbidden' ? 'заборонено'
         : 'невідомо';
 }

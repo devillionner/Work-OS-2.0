@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   classifyWhatsAppSnapshot,
+  deriveWhatsappQualification,
   leaveWhatsappTaskViaCdp,
   isLocalCdpWebSocketUrl,
   normalizeLocalCdpBaseUrl,
@@ -87,9 +88,9 @@ void test('joined exact chat reports writeability without inventing qualificatio
   assert.equal(result.kind, 'result');
   assert.equal(result.result.membershipState, 'joined');
   assert.equal(result.result.canWrite, true);
-  assert.equal(result.result.adsPolicy, 'unknown');
-  assert.equal(result.result.activityState, 'unknown');
-  assert.equal(result.result.topicMatch, 'unknown');
+  assert.equal('adsPolicy' in result.result, false);
+  assert.equal('activityState' in result.result, false);
+  assert.equal('topicMatch' in result.result, false);
 });
 
 void test('known invalid invite can be reported inaccessible without claiming target verification', () => {
@@ -108,7 +109,7 @@ void test('known invalid invite can be reported inaccessible without claiming ta
   });
 });
 
-void test('generated placeholder names never satisfy exact target verification', () => {
+void test('generated or approximate names require exact invite-code context before WhatsApp action', () => {
   const generatedTask = {
     ...task,
     name: 'WhatsApp · AbCdEfGh',
@@ -117,13 +118,30 @@ void test('generated placeholder names never satisfy exact target verification',
       name: 'WhatsApp · AbCdEfGh',
     },
   };
-  const result = classifyWhatsAppSnapshot(generatedTask, {
-    targetTexts: ['WhatsApp · AbCdEfGh'],
-    headerTitles: [],
-    buttons: ['Join group'],
-    bodyText: 'Join group',
+  const outsideInvite = classifyWhatsAppSnapshot(generatedTask, {
+    url:'https://web.whatsapp.com/',
+    targetHeadings:['Справжня назва групи'],
+    targetTexts:['Справжня назва групи'],
+    headerTitles:[],
+    buttons:['Join group'],
+    bodyText:'Join group',
   });
-  assert.deepEqual(result, { kind: 'blocked', reason: 'target_not_verified' });
+  assert.deepEqual(outsideInvite, { kind:'blocked', reason:'target_not_verified' });
+
+  const exactInvite = classifyWhatsAppSnapshot(generatedTask, {
+    url:'https://web.whatsapp.com/accept?code=AbCdEfGh1234',
+    targetHeadings:['Справжня назва групи'],
+    targetTexts:['Справжня назва групи'],
+    headerTitles:[],
+    buttons:['Join group'],
+    bodyText:'Join group',
+  });
+  assert.deepEqual(exactInvite, {
+    kind:'action',
+    action:'join',
+    buttonText:'Join group',
+    observedName:'Справжня назва групи',
+  });
 });
 
 
@@ -187,4 +205,107 @@ void test('CDP control is restricted to unauthenticated loopback endpoints', () 
 
 void test('leave automation helper is exported for verified WhatsApp executor leave tasks', () => {
   assert.equal(typeof leaveWhatsappTaskViaCdp, 'function');
+});
+
+
+void test('joined qualification extracts factual member, recent activity and explicit ads evidence', () => {
+  const facts = deriveWhatsappQualification({
+    groupInfoText:'Українська спільнота · 1 234 participants · Advertising allowed',
+    mainText:'Today 12:10 Hello',
+    messageTexts:['Привіт усім','Шукаю квартиру'],
+    messageMeta:[],
+    headerTitles:['Українці Варшава'],
+  });
+  assert.equal(facts.memberCount,1234);
+  assert.equal(facts.activityState,'active');
+  assert.equal(facts.adsPolicy,'allowed');
+  assert.equal(facts.topicMatch,undefined);
+});
+
+void test('recent repeated advertisement evidence may satisfy inferred ads policy without inventing explicit permission', () => {
+  const facts = deriveWhatsappQualification({
+    groupInfoText:'1,250 participants',
+    mainText:'Today',
+    messageTexts:['Продам дитяче крісло','Послуги репетитора англійської','Звичайне повідомлення'],
+    messageMeta:[],
+    headerTitles:['Українці Berlin'],
+  });
+  assert.equal(facts.memberCount,1250);
+  assert.equal(facts.activityState,'active');
+  assert.equal(facts.adsPolicy,'inferred_allowed');
+});
+
+void test('obvious spam evidence overrides source topic assumptions', () => {
+  const facts = deriveWhatsappQualification({
+    groupInfoText:'950 participants',
+    mainText:'Today',
+    messageTexts:['Crypto signals Bitcoin airdrop','Casino betting','Forex crypto signals'],
+    messageMeta:[],
+    headerTitles:['Українці Berlin'],
+  });
+  assert.equal(facts.topicMatch,'mismatch');
+});
+
+void test('joined admin-only chat reports factual non-writeability', () => {
+  const result = classifyWhatsAppSnapshot(
+    { ...task, action:'inspect' },
+    {
+      targetTexts:[],
+      targetHeadings:[],
+      headerTitles:['Українці Варшава'],
+      buttons:[],
+      bodyText:'Only admins can send messages',
+      mainText:'Today',
+      composer:false,
+      adminOnly:true,
+    },
+  );
+  assert.equal(result.kind,'result');
+  assert.equal(result.result.membershipState,'joined');
+  assert.equal(result.result.canWrite,false);
+});
+
+
+void test('message timestamps classify recent activity and clearly stale chats without guessing the middle window', () => {
+  const now = Date.UTC(2026,8,24,12);
+  const recent = deriveWhatsappQualification({
+    groupInfoText:'900 participants',
+    mainText:'',
+    messageTexts:['Привіт'],
+    messageMeta:['[10:15, 24/09/2026] User:'],
+    nowMs:now,
+  });
+  assert.equal(recent.activityState,'active');
+
+  const stale = deriveWhatsappQualification({
+    groupInfoText:'900 participants',
+    mainText:'',
+    messageTexts:['Старе повідомлення'],
+    messageMeta:['[10:15, 01/09/2026] User:'],
+    nowMs:now,
+  });
+  assert.equal(stale.activityState,'dead');
+
+  const uncertain = deriveWhatsappQualification({
+    groupInfoText:'900 participants',
+    mainText:'',
+    messageTexts:['Повідомлення'],
+    messageMeta:['[10:15, 18/09/2026] User:'],
+    nowMs:now,
+  });
+  assert.equal(uncertain.activityState,undefined);
+});
+
+void test('exact invite identity may resolve an approximate non-generated source name to the observed WhatsApp name', () => {
+  const result = classifyWhatsAppSnapshot(task, {
+    url:'https://web.whatsapp.com/accept?code=AbCdEfGh1234',
+    targetHeadings:['Українці Варшава | Допомога'],
+    targetTexts:['Українці Варшава | Допомога'],
+    headerTitles:[],
+    buttons:['Join group'],
+    bodyText:'Join group',
+  });
+  assert.equal(result.kind,'action');
+  assert.equal(result.observedName,'Українці Варшава | Допомога');
+  assert.equal(result.action,'join');
 });

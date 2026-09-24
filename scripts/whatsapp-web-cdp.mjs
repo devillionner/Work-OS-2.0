@@ -14,6 +14,11 @@ const viewPattern = /^(?:view(?: group| chat)?|open(?: group| chat)?|continue to
 const leavePattern = /^(?:exit group|leave group|вийти з групи|покинути групу|выйти из группы|покинуть группу)$/iu;
 const confirmLeavePattern = /^(?:exit|leave|вийти|покинути|выйти|покинуть)$/iu;
 const leftPattern = /(?:you (?:left|are no longer a participant)|ви (?:вийшли|більше не є учасником)|вы (?:вышли|больше не участник))/iu;
+const spamPattern = /(?:crypto|крипт|bitcoin|forex|casino|казино|betting|ставк[аи]|dating|знакомств|знайомств|escort|ескорт|onlyfans|adult|18\+|nft|airdrop|signals?\b|binary options)/iu;
+const adsForbiddenPattern = /(?:no\s+(?:ads?|advertis(?:ing|ements?))|advertis(?:ing|ements?)\s+(?:is\s+)?(?:forbidden|prohibited)|(?:реклам[ауи]|оголошення)\s+(?:суворо\s+)?заборонен|без\s+реклами|(?:реклам[ауы]|объявления)\s+(?:строго\s+)?запрещен|без\s+рекламы)/iu;
+const adsAllowedPattern = /(?:ads?\s+allowed|advertis(?:ing|ements?)\s+allowed|оголошення\s+дозволен|реклам[ауи]\s+дозволен|объявления\s+разрешен|реклам[ауы]\s+разрешен)/iu;
+const adLikeMessagePattern = /(?:продам|куплю|послуг|урок|репетитор|оренд|здам|робот[ауи]|ваканс|доставк|перевез|advert|for\s+sale|services?|rent|job|vacanc)/iu;
+const recentActivityPattern = /(?:^|\s)(?:today|yesterday|сьогодні|вчора|сегодня|вчера)(?:\s|$)/iu;
 
 export function normalizeTargetLabel(value) {
   return String(value || '')
@@ -73,10 +78,21 @@ function isLoopbackHost(hostname) {
 
 function exactTarget(snapshot, task) {
   const expected = task.expectedTarget?.name || task.name;
-  if (!expected || isGeneratedExpectedName(expected)) return null;
-  const normalizedExpected = normalizeTargetLabel(expected);
-  const candidates = [...(snapshot.headerTitles || []), ...(snapshot.targetTexts || [])];
-  return candidates.find((value) => normalizeTargetLabel(value) === normalizedExpected) || null;
+  if (!expected) return null;
+  if (!isGeneratedExpectedName(expected)) {
+    const normalizedExpected = normalizeTargetLabel(expected);
+    const candidates = [...(snapshot.headerTitles || []), ...(snapshot.targetHeadings || []), ...(snapshot.targetTexts || [])];
+    const exact = candidates.find((value) => normalizeTargetLabel(value) === normalizedExpected);
+    if (exact) return exact;
+  }
+
+  const code = whatsappInviteCode(task.expectedTarget?.link || task.link);
+  const exactInviteContext = code ? String(snapshot.url || '').includes(code) : false;
+  if (!exactInviteContext) return null;
+  const headings = [...(snapshot.targetHeadings || []), ...(snapshot.targetTexts || [])]
+    .map((value) => String(value || '').trim())
+    .filter((value) => value && !joinPattern.test(value) && !viewPattern.test(value));
+  return headings[0] || null;
 }
 
 function firstMatchingButton(snapshot, pattern) {
@@ -113,9 +129,9 @@ export function classifyWhatsAppSnapshot(task, snapshot) {
     return { kind: 'blocked', reason: 'target_not_verified' };
   }
 
-  const normalizedExpected = normalizeTargetLabel(task.expectedTarget?.name || task.name);
+  const normalizedObserved = normalizeTargetLabel(observedName);
   const headerMatches = (snapshot.headerTitles || []).some(
-    (value) => normalizeTargetLabel(value) === normalizedExpected,
+    (value) => normalizeTargetLabel(value) === normalizedObserved,
   );
 
   if (headerMatches) {
@@ -129,9 +145,7 @@ export function classifyWhatsAppSnapshot(task, snapshot) {
         observedName,
         chatType: 'group',
         canWrite: snapshot.composer ? true : snapshot.adminOnly ? false : undefined,
-        adsPolicy: 'unknown',
-        activityState: 'unknown',
-        topicMatch: 'unknown',
+        ...deriveWhatsappQualification(snapshot),
       },
     };
   }
@@ -156,12 +170,12 @@ export function classifyWhatsAppSnapshot(task, snapshot) {
 
   const viewButtonText = firstMatchingButton(snapshot, viewPattern);
   if (viewButtonText && task.action !== 'join_and_inspect') {
-    return { kind: 'action', action: 'view', buttonText: viewButtonText };
+    return { kind: 'action', action: 'view', buttonText: viewButtonText, observedName };
   }
 
   const joinButtonText = firstMatchingButton(snapshot, joinPattern);
   if (joinButtonText && task.action === 'join_and_inspect') {
-    return { kind: 'action', action: 'join', buttonText: joinButtonText };
+    return { kind: 'action', action: 'join', buttonText: joinButtonText, observedName };
   }
 
   return { kind: 'blocked', reason: 'membership_not_confirmed' };
@@ -251,11 +265,20 @@ export async function inspectWhatsappTaskViaCdp(
     await client.send('Runtime.enable');
     await client.send('Page.navigate', { url: targetUrl });
 
-    let classified = await waitForClassification(client, task, timeoutMs);
+    let currentTask = task;
+    let classified = await waitForClassification(client, currentTask, timeoutMs);
     if (classified.kind === 'action') {
-      const clicked = await clickExactButton(client, classified.buttonText, task.expectedTarget?.name || task.name);
+      const observedName = classified.observedName || currentTask.expectedTarget?.name || currentTask.name;
+      const clicked = await clickExactButton(client, classified.buttonText, observedName);
       if (!clicked) return { kind: 'blocked', reason: 'expected_control_disappeared' };
-      classified = await waitForClassification(client, task, timeoutMs, classified.action);
+      const observedTask = classified.observedName
+        ? { ...currentTask, name:classified.observedName, expectedTarget:{ ...currentTask.expectedTarget, name:classified.observedName } }
+        : currentTask;
+      classified = await waitForClassification(client, observedTask, timeoutMs, classified.action);
+      currentTask = observedTask;
+    }
+    if (classified.kind === 'result' && classified.result.membershipState === 'joined' && classified.result.targetVerified === true) {
+      classified = { kind:'result', result:await enrichJoinedQualification(client, currentTask, classified.result) };
     }
     return classified;
   } finally {
@@ -321,20 +344,35 @@ async function readSnapshot(client) {
       'header h2',
     ]);
     const dialog = document.querySelector('[role="dialog"]');
+    const targetHeadings = dialog ? read(dialog, ['h1', 'h2', 'h3', '[title]']) : [];
     const targetTexts = dialog ? read(dialog, ['[title]', 'h1', 'h2', 'h3', 'span']) : [];
     const buttons = read(document, ['button', '[role="button"]']);
+    const main = document.querySelector('#main');
+    const mainText = clean(main?.innerText || '').slice(-30000);
+    const info = document.querySelector('[data-testid="drawer-right"], [data-testid="chat-info-drawer"]');
+    const groupInfoText = clean(info?.innerText || '').slice(0,30000);
+    const messageTexts = unique([...document.querySelectorAll('[data-testid="msg-container"], #main [data-pre-plain-text]')]
+      .slice(-30).map((node) => clean(node.innerText || node.textContent || '').slice(0,1200)));
+    const messageMeta = unique([...document.querySelectorAll('#main [data-pre-plain-text]')]
+      .slice(-30).map((node) => node.getAttribute('data-pre-plain-text') || ''));
     const composer = Boolean(document.querySelector(
       'footer [contenteditable="true"][role="textbox"], footer [contenteditable="true"], [data-testid="conversation-compose-box-input"]'
     ));
     const hasQr = Boolean(document.querySelector('canvas[aria-label*="QR" i], [data-ref] canvas'));
     return {
       url: location.href,
-      bodyText,
+      bodyText: bodyText.slice(-50000),
       headerTitles,
+      targetHeadings,
       targetTexts,
       targetRegionText: dialog?.innerText || '',
       buttons,
       dialogButtons: dialog ? read(dialog, ['button', '[role="button"]']) : [],
+      mainText,
+      groupInfoText,
+      messageTexts,
+      messageMeta,
+      nowMs: Date.now(),
       composer,
       adminOnly: ${adminOnlyPattern}.test(bodyText),
       hasQr,
@@ -346,6 +384,87 @@ async function readSnapshot(client) {
     awaitPromise: true,
   });
   return response?.result?.value || {};
+}
+
+export function deriveWhatsappQualification(snapshot) {
+  const infoText = String(snapshot.groupInfoText || snapshot.headerText || '');
+  const chatText = String(snapshot.mainText || '');
+  const messages = Array.isArray(snapshot.messageTexts) ? snapshot.messageTexts.map(String) : [];
+  const meta = Array.isArray(snapshot.messageMeta) ? snapshot.messageMeta.map(String) : [];
+  const memberCount = parseMemberCount(infoText);
+  const activityState = inferMessageActivity(meta, Number(snapshot.nowMs) || Date.now())
+    || (recentActivityPattern.test(chatText) || recentActivityPattern.test(meta.join('\n')) ? 'active' : undefined);
+  const identityText = [infoText, ...(snapshot.headerTitles || [])].join('\n');
+  const spamMessages = messages.slice(-20).filter((value) => spamPattern.test(value)).length;
+  const topicMatch = spamPattern.test(identityText) || spamMessages >= 3 ? 'mismatch' : undefined;
+  let adsPolicy;
+  if (adsForbiddenPattern.test(infoText)) adsPolicy = 'forbidden';
+  else if (adsAllowedPattern.test(infoText)) adsPolicy = 'allowed';
+  else if (activityState === 'active' && messages.filter((value) => adLikeMessagePattern.test(value)).length >= 2) {
+    adsPolicy = 'inferred_allowed';
+  }
+  return {
+    ...(memberCount === undefined ? {} : { memberCount }),
+    ...(activityState ? { activityState } : {}),
+    ...(topicMatch ? { topicMatch } : {}),
+    ...(adsPolicy ? { adsPolicy } : {}),
+  };
+}
+
+function inferMessageActivity(meta, nowMs) {
+  const stamps = meta.map((value) => parseMessageTimestamp(value, nowMs)).filter((value) => Number.isFinite(value));
+  if (!stamps.length) return undefined;
+  const latest = Math.max(...stamps);
+  const ageMs = Math.max(0, nowMs - latest);
+  if (ageMs <= 72 * 60 * 60 * 1000) return 'active';
+  if (ageMs >= 14 * 24 * 60 * 60 * 1000) return 'dead';
+  return undefined;
+}
+
+function parseMessageTimestamp(value, nowMs) {
+  const text = String(value || '');
+  const match = text.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/u);
+  if (!match) return NaN;
+  const a = Number(match[1]);
+  const b = Number(match[2]);
+  let year = Number(match[3]);
+  if (year < 100) year += 2000;
+  const candidates = [[a,b],[b,a]]
+    .filter(([day,month]) => day >= 1 && day <= 31 && month >= 1 && month <= 12)
+    .map(([day,month]) => Date.UTC(year, month - 1, day, 12))
+    .filter((stamp) => Number.isFinite(stamp) && stamp <= nowMs + 24 * 60 * 60 * 1000);
+  if (!candidates.length) return NaN;
+  return Math.max(...candidates);
+}
+
+function parseMemberCount(value) {
+  const text = String(value || '');
+  const match = text.match(/(\d[\d\s.,\u00a0]{0,12})\s*(?:participants?|members?|учасник(?:ів|и|а)?|участник(?:ов|а|и)?)/iu);
+  if (!match) return undefined;
+  const digits = match[1].replace(/\D/gu, '');
+  if (!digits) return undefined;
+  const count = Number(digits);
+  return Number.isSafeInteger(count) && count >= 0 && count <= 10_000_000 ? count : undefined;
+}
+
+async function enrichJoinedQualification(client, task, result) {
+  const before = await readSnapshot(client);
+  let combined = { ...deriveWhatsappQualification(before) };
+  const expectedName = result.observedName || task.expectedTarget?.name || task.name;
+  if (expectedName && await clickExactHeader(client, expectedName)) {
+    await sleep(600);
+    const infoSnapshot = await readSnapshot(client);
+    combined = {
+      ...combined,
+      ...deriveWhatsappQualification({
+        ...infoSnapshot,
+        mainText: before.mainText,
+        messageTexts: before.messageTexts,
+        messageMeta: before.messageMeta,
+      }),
+    };
+  }
+  return { ...result, ...combined };
 }
 
 async function clickExactHeader(client, expectedName) {

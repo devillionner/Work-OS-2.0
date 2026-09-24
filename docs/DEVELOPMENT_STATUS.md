@@ -1,5 +1,14 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 WhatsApp factual post-join qualification — v0.2.54
+
+- WhatsApp exact-target verification now uses the exact invite code as identity on the invite screen, so an approximate or generated source name can be safely replaced by the observed WhatsApp group name before later header matching.
+- Joined inspection enriches the callback with factual qualification evidence from the verified chat: member count from group info, composer/admin-only writeability, explicit ad rules, recent repeated ad-like message evidence, obvious spam/topic mismatch and visible message timestamps.
+- Activity is conservative: <=72h latest-message evidence is `active`; >=14d is `dead`; the middle/unknown case stays `review`. Missing DOM evidence never invents `dead` or `target`.
+- `inferred_allowed` is accepted only when the adapter observed recent activity plus at least two ad-like visible messages and no explicit ad prohibition. Explicit forbidden rules, admin-only, spam/topic mismatch, dead activity and member-threshold failures become canonical rejection facts and therefore flow into the existing verified leave/archive path after join.
+- Joined `review` candidates keep the 10-minute bounded reinspection cadence. Target-count reconciliation now receives the candidate's `discovery_run_id`; a late target can update a run even after source exhaustion.
+- Live WhatsApp browser acceptance is still external evidence and is not claimed while the Browser Connector/CDP session is unavailable.
+
 ## 2026-09-24 Goal-driven autonomous WhatsApp Discovery core — v0.2.53
 
 - Discovery is redefined around operator outcome rather than raw link yield. The default run goal is 50 new confirmed target chats; raw candidates/imports do not complete a run.

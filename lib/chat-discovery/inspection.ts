@@ -112,7 +112,8 @@ export async function applyDiscoveryInspection(
   }
 
   const observedName = cleanChatName(result.observedName || '');
-  const nextName = observedName && isGeneratedName(current.name) ? observedName : current.name;
+  const nextName = observedName && (isGeneratedName(current.name) || (input.requireTargetVerification === true && result.targetVerified === true))
+    ? observedName : current.name;
   const nextTopic = result.topicMatch ?? current.topic_match;
   const reason = (result.reason || '').slice(0, 100);
   const knownUnavailable = result.accessible === false && KNOWN_UNAVAILABLE.has(reason);
@@ -349,7 +350,7 @@ function isGeneratedName(name: string) {
 async function readCandidate(db: D1Database, userId: string, candidateId: string) {
   return db.prepare(`SELECT id,user_id,platform,name,chat_type,member_count,activity_state,topic_match,can_write,
     ads_policy,membership_state,access_state,link_state,inspection_state,decision,reason_codes_json,
-    imported_chat_id,version FROM chat_discovery_candidates WHERE id=?1 AND user_id=?2 LIMIT 1`)
+    imported_chat_id,discovery_run_id,version FROM chat_discovery_candidates WHERE id=?1 AND user_id=?2 LIMIT 1`)
     .bind(candidateId, userId).first<CandidateRow>();
 }
 

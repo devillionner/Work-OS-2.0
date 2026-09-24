@@ -195,10 +195,10 @@ export async function advanceAutonomousDiscoveryRun(
     });
     const advanced = await db.prepare(`UPDATE chat_discovery_runs SET
       telegram_cursor=?1,searched_queries=searched_queries+?2,
-      error_message=?3,source_lease_device_id=NULL,source_lease_expires_at=NULL,updated_at=?4,version=version+1
-      WHERE id=?5 AND user_id=?6 AND status='running' AND source_lease_device_id=?7 RETURNING id`)
+      error_message=?3,source_lease_device_id=NULL,source_lease_expires_at=?4,updated_at=?5,version=version+1
+      WHERE id=?6 AND user_id=?7 AND status='running' AND source_lease_device_id=?8 RETURNING id`)
       .bind(found.nextCursor, found.searched, found.errors ? `Telegram/public search: ${found.errors} джерел не прочитано; пошук продовжиться.` : null,
-        now, claimed.id, userId, deviceId).first<{id:string}>();
+        now + 15, now, claimed.id, userId, deviceId).first<{id:string}>();
     if (!advanced) throw new DiscoveryError('Автопошук уже змінився в іншому executor. Оновіть стан.', 409);
     const run = await reconcileDiscoveryRunGoal(db, userId, claimed.id, now);
     return { advanced:true, source:'telegram', run, batch:{searched:found.searched,added:merged.added,duplicates:merged.duplicates,errors:found.errors} };
@@ -221,8 +221,8 @@ export async function advanceAutonomousDiscoveryRun(
       done: web.done,
       errors: web.errors,
     });
-    await db.prepare(`UPDATE chat_discovery_runs SET source_lease_device_id=NULL,source_lease_expires_at=NULL
-      WHERE id=?1 AND user_id=?2 AND source_lease_device_id=?3`).bind(claimed.id, userId, deviceId).run();
+    await db.prepare(`UPDATE chat_discovery_runs SET source_lease_device_id=NULL,source_lease_expires_at=?4
+      WHERE id=?1 AND user_id=?2 AND source_lease_device_id=?3`).bind(claimed.id, userId, deviceId, now + 15).run();
     const run = await reconcileDiscoveryRunGoal(db, userId, claimed.id, now);
     return { advanced:true, source:'public_web', run, batch:{searched:web.searched,added:merged.added,duplicates:merged.duplicates,errors:web.errors} };
   }
@@ -248,15 +248,18 @@ export async function reconcileDiscoveryRunGoal(
   const publicDone = row.source_cursor >= buildPublicSearchTasks(parsePlatforms(row.platforms_json)).length;
   const completionReason = targetCount >= row.goal ? 'goal_reached'
     : telegramDone && publicDone ? 'sources_exhausted' : null;
-  if (row.status === 'running') {
+  if (row.status === 'running' || (row.status === 'completed' && row.completion_reason === 'sources_exhausted')) {
+    const finalReason = targetCount >= row.goal ? 'goal_reached'
+      : row.status === 'completed' ? 'sources_exhausted' : completionReason;
+    const finalStatus = finalReason ? 'completed' : 'running';
     await db.prepare(`UPDATE chat_discovery_runs SET target_count=?1,completion_reason=?2,
       status=?3,completed_at=?4,updated_at=?5,
       source_lease_device_id=CASE WHEN ?3='completed' THEN NULL ELSE source_lease_device_id END,
       source_lease_expires_at=CASE WHEN ?3='completed' THEN NULL ELSE source_lease_expires_at END,
       version=version+1
-      WHERE id=?6 AND user_id=?7 AND status='running'`)
-      .bind(targetCount, completionReason, completionReason ? 'completed' : 'running',
-        completionReason ? now : null, now, runId, userId).run();
+      WHERE id=?6 AND user_id=?7 AND status IN ('running','completed')`)
+      .bind(targetCount, finalReason, finalStatus,
+        finalReason ? (row.completed_at || now) : null, now, runId, userId).run();
   }
   const fresh = await readRun(db, userId, runId);
   if (!fresh) throw new DiscoveryError('Запуск пошуку зник.', 404);
@@ -490,7 +493,7 @@ export function evaluateDiscoveryCandidate(input: {
     [Number.isFinite(input.memberCount) && Number(input.memberCount) >= minMembers && Number(input.memberCount) <= maxMembers, 'unknown_member_count'],
     [input.topicMatch === 'match', 'unknown_topic_match'],
     [input.canWrite === true, 'unknown_can_write'],
-    [['allowed', 'operator_confirmed'].includes(input.adsPolicy || 'unknown'), 'unknown_ads_allowed'],
+    [['allowed', 'operator_confirmed', 'inferred_allowed'].includes(input.adsPolicy || 'unknown'), 'unknown_ads_allowed'],
     [input.activityState === 'active', 'unknown_activity'],
     [input.membershipState === 'joined', 'unknown_membership'],
     [input.inspectionState === 'inspected', 'unknown_inspection'],
