@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Copy, LoaderCircle, RefreshCw, Shuffle, Trash2, Unlink } from 'lucide-react';
+import { Copy, RefreshCw, Shuffle, Trash2, Unlink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { TelegramWarmup } from '@/components/telegram-warmup';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 import { businessDate, businessDateTime, lessonEpoch } from '@/lib/leads/domain/time';
 
 type Settings = {
@@ -156,7 +157,7 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
     </summary>
     <div className="telegram-disclosure-body">
     {error&&<div className="workspace-error" role="alert">{error}</div>}
-    {loading&&!data?<div className="workspace-loading"><LoaderCircle/>Завантажуємо розклад…</div>:null}
+    {loading&&!data?<WorkspaceInlineLoading label="Завантажуємо розклад…"/>:null}
     {data&&<>
       <div className="telegram-schedule-controls">
         <label htmlFor="telegram-rate">Публікацій/год</label><Input id="telegram-rate" inputMode="decimal" value={rateText} disabled={busy||disabled} onChange={event=>changeRate(event.target.value)}/>
