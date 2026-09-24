@@ -79,6 +79,12 @@ export function ReportsWorkspace({ onOpenLead, syncRevision=0, active=true }: { 
     return () => { clearTimeout(timer); controller.abort(); };
   }, [load, selectedDate]);
   useEffect(() => {
+    if (!active) {
+      setHistoryOpen(false);
+      setBackdatedLeadOpen(false);
+    }
+  }, [active]);
+  useEffect(() => {
     if (!active || lastSyncRevision.current === syncRevision) return;
     lastSyncRevision.current = syncRevision;
     dataCache.current.clear();
