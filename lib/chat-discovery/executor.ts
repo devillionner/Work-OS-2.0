@@ -22,6 +22,9 @@ export type DiscoveryExecutorTask = {
   decision: DiscoveryDecision;
   minMembers: number;
   resultAction: 'inspect' | 'executor-leave';
+  runtime: 'whatsapp_web' | 'viber_native';
+  expectedTarget: { name: string; link: string };
+  safety: { requiresTargetVerification: true; unknownState: 'fail_closed' };
   leaseExpiresAt?: number;
 };
 
@@ -75,6 +78,9 @@ export async function readDiscoveryExecutorQueue(
       decision: candidate.decision,
       minMembers: Number(latestRun?.min_members || 700),
       resultAction: action === 'leave' ? 'executor-leave' : 'inspect',
+      runtime: candidate.platform === 'whatsapp' ? 'whatsapp_web' : 'viber_native',
+      expectedTarget: { name: candidate.name, link: candidate.normalized_link },
+      safety: { requiresTargetVerification: true, unknownState: 'fail_closed' },
     });
   }
   return { tasks };
@@ -126,9 +132,10 @@ export async function assertDiscoveryExecutorLease(
 export async function completeDiscoveryExternalLeave(
   db: D1Database,
   userId: string,
-  input: { candidateId: string; expectedVersion: number; chatStateToken: string },
+  input: { candidateId: string; expectedVersion: number; chatStateToken: string; targetVerified?: unknown },
   now: number,
 ) {
+  if (input.targetVerified !== true) throw new DiscoveryError('Executor не підтвердив, що відкрито саме цільовий чат.', 409);
   const candidate = await db.prepare(`SELECT id,version,decision,membership_state,imported_chat_id
     FROM chat_discovery_candidates WHERE id=?1 AND user_id=?2 LIMIT 1`)
     .bind(input.candidateId, userId)
