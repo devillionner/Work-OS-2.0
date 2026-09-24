@@ -18,5 +18,5 @@ void test('release version is aligned across app and package metadata', () => {
 
 void test('release date uses canonical ISO metadata', () => {
   const appMeta = readFileSync(join(root,'lib','app-meta.ts'),'utf8');
-  assert.match(appMeta,/APP_RELEASE_DATE = '\\d{4}-\\d{2}-\\d{2}'/);
+  assert.match(appMeta,/APP_RELEASE_DATE = '\d{4}-\d{2}-\d{2}'/);
 });
