@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { ReportHistoryItem } from '@/lib/reports/history';
 import { diffReportText, type ReportTextDiff } from '@/lib/reports/diff';
+import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 
 export function ReportHistoryDialog({ open, date, currentRevision, onClose, onRestored, finalFocus }: { open: boolean; date: string | null; currentRevision: number; onClose: () => void; onRestored?: () => void; finalFocus?: () => HTMLElement | null }) {
   const [events, setEvents] = useState<ReportHistoryItem[]>([]);
@@ -12,18 +13,21 @@ export function ReportHistoryDialog({ open, date, currentRevision, onClose, onRe
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [compareId, setCompareId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [loadedDate,setLoadedDate]=useState('');
+  const cache=useRef(new Map<string,ReportHistoryItem[]>());
 
   useEffect(() => {
     if (!open || !date) return;
     const controller = new AbortController();
     let active = true;
-    queueMicrotask(() => { if (active) { setBusy(true); setError(''); setEvents([]); setCompareId(null); } });
+    const cached=cache.current.get(date);
+    queueMicrotask(() => { if (active) { setBusy(true); setError(''); setCompareId(null); if(cached){setEvents(cached);setLoadedDate(date);} else setLoadedDate(''); } });
     fetch(`/api/reports/history?date=${encodeURIComponent(date)}`, { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
         const value: unknown = await response.json();
         if (!response.ok) throw new Error(value && typeof value === 'object' && 'error' in value && typeof value.error === 'string' ? value.error : 'Не вдалося завантажити історію звіту.');
         if (!value || typeof value !== 'object' || !Array.isArray((value as { events?: unknown }).events)) throw new Error('Не вдалося прочитати історію звіту.');
-        if (!controller.signal.aborted) setEvents((value as { events: ReportHistoryItem[] }).events);
+        if (!controller.signal.aborted) { const next=(value as { events: ReportHistoryItem[] }).events; cache.current.set(date,next);setEvents(next);setLoadedDate(date); }
       })
       .catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити історію звіту.'); })
       .finally(() => { if (!controller.signal.aborted) setBusy(false); });
@@ -45,10 +49,10 @@ export function ReportHistoryDialog({ open, date, currentRevision, onClose, onRe
 
   const blocked = busy || Boolean(restoringId);
   const current = events[0] || null;
-  return <Dialog open={open} onOpenChange={(next) => { if (!next && !blocked) onClose(); }}><DialogContent className="report-history-dialog" showCloseButton={!blocked} finalFocus={finalFocus}><DialogHeader><DialogTitle>Версії звіту</DialogTitle><DialogDescription>{date ? 'Звіт за ' + formatDate(date) + ' · відновлення створює нову версію' : ''}</DialogDescription></DialogHeader>{error && <p className="workspace-error" role="alert">{error}</p>}{busy ? <output className="workspace-loading">Завантажуємо історію…</output> : events.length ? <ol className="report-history-list">{events.map((event, index) => {
+  return <Dialog open={open} onOpenChange={(next) => { if (!next && !blocked) onClose(); }}><DialogContent className="report-history-dialog" showCloseButton={!blocked} finalFocus={finalFocus}><DialogHeader><DialogTitle>Версії звіту</DialogTitle><DialogDescription>{date ? 'Звіт за ' + formatDate(date) + ' · відновлення створює нову версію' : ''}</DialogDescription></DialogHeader>{error && <p className="workspace-error" role="alert">{error}</p>}{busy&&loadedDate!==date?<WorkspaceInlineLoading label="Завантажуємо історію…"/>:<>{busy?<WorkspaceInlineLoading label="Оновлюємо історію…"/>:null}{events.length ? <ol className="report-history-list">{events.map((event, index) => {
     const comparison = compareId === event.id && current ? diffReportText(event.text, current.text) : null;
     return <li key={event.id}><details open={index === 0 || compareId === event.id}><summary><span><strong>Версія {event.revision}</strong><small>{event.source === 'import' ? 'Імпорт' : 'Ручна зміна'}</small></span><time dateTime={new Date(event.occurredAt * 1000).toISOString()}>{formatTime(event.occurredAt)}</time></summary><div className="report-history-meta">{event.submittedAt ? 'Здано' : 'Чернетка'}</div>{event.manualAdjustments ? <div className="report-history-meta">{formatAdjustments(event.manualAdjustments)}</div> : null}<pre>{event.text || 'Текст відсутній.'}</pre>{index > 0 && <div className="report-history-actions"><Button type="button" variant="outline" size="sm" disabled={blocked} aria-pressed={compareId === event.id} onClick={() => setCompareId((value) => value === event.id ? null : event.id)}>{compareId === event.id ? 'Сховати порівняння' : 'Порівняти з поточною'}</Button><Button type="button" variant="outline" size="sm" disabled={blocked} onClick={() => void restore(event)}>{restoringId === event.id ? 'Відновлюємо…' : 'Відновити цю версію'}</Button></div>}{comparison ? <ReportVersionDiff diff={comparison} currentRevision={current.revision} /> : null}</details></li>;
-  })}</ol> : <p className="muted-note">Історія ще порожня.</p>}<div className="dialog-actions"><Button variant="outline" onClick={onClose} disabled={blocked}>Закрити</Button></div></DialogContent></Dialog>;
+  })}</ol> : <p className="muted-note">Історія ще порожня.</p>}</>}<div className="dialog-actions"><Button variant="outline" onClick={onClose} disabled={blocked}>Закрити</Button></div></DialogContent></Dialog>;
 }
 
 function ReportVersionDiff({ diff, currentRevision }: { diff: ReportTextDiff; currentRevision: number }) {
