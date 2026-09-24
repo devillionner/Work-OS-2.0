@@ -54,58 +54,66 @@ if (!process.env.npm_execpath) {
 }
 
 const wranglerEnv = { ...process.env, WRANGLER_SEND_METRICS: 'false' };
-const migrationCheck = spawnSync(
-  process.execPath,
-  [
-    process.env.npm_execpath,
-    'exec',
-    '--',
-    'wrangler',
-    'd1',
-    'migrations',
-    'list',
-    expected.database,
-    '--remote',
-    '--config',
-    sourceConfigPath,
-  ],
-  { encoding: 'utf8', env: wranglerEnv, shell: false },
-);
+const currentFingerprint = currentMigrationFingerprint();
+const fingerprintCheck = await verifyQuotaSafeMigrationFingerprint({
+  currentFingerprint,
+  stagingBuildUrl,
+  knownBaselines: knownMigrationBaselines,
+});
 
-if (migrationCheck.stdout) process.stdout.write(migrationCheck.stdout);
-if (migrationCheck.stderr) process.stderr.write(migrationCheck.stderr);
-if (migrationCheck.error) throw migrationCheck.error;
-const migrationOutput = (migrationCheck.stdout || '') + '\n' + (migrationCheck.stderr || '');
-let quotaSafeCodeOnlyDeploy = false;
-if (migrationCheck.status !== 0) {
-  if (!isD1DailyRowReadLimit(migrationOutput)) {
-    throw new Error('Refusing deploy: could not verify staging D1 migration state (exit ' + (migrationCheck.status ?? 'unknown') + ').');
-  }
+let skippedRemoteMigrationRead = false;
+let migrationState = { pending: false, names: [] };
 
-  const currentFingerprint = currentMigrationFingerprint();
-  const fallback = await verifyQuotaSafeMigrationFingerprint({
-    currentFingerprint,
-    stagingBuildUrl,
-    knownBaselines: knownMigrationBaselines,
-  });
-  if (!fallback.allowed) {
+if (fingerprintCheck.allowed) {
+  skippedRemoteMigrationRead = true;
+  console.log(
+    'Staging migration fingerprint matches deployed build ' +
+      fingerprintCheck.deployedBuildId +
+      '. Skipping remote D1 migration list for this code-only deploy.',
+  );
+} else {
+  const migrationCheck = spawnSync(
+    process.execPath,
+    [
+      process.env.npm_execpath,
+      'exec',
+      '--',
+      'wrangler',
+      'd1',
+      'migrations',
+      'list',
+      expected.database,
+      '--remote',
+      '--config',
+      sourceConfigPath,
+    ],
+    { encoding: 'utf8', env: wranglerEnv, shell: false },
+  );
+
+  if (migrationCheck.stdout) process.stdout.write(migrationCheck.stdout);
+  if (migrationCheck.stderr) process.stderr.write(migrationCheck.stderr);
+  if (migrationCheck.error) throw migrationCheck.error;
+
+  const migrationOutput = (migrationCheck.stdout || '') + '\n' + (migrationCheck.stderr || '');
+  if (migrationCheck.status !== 0) {
+    if (isD1DailyRowReadLimit(migrationOutput)) {
+      throw new Error(
+        'Refusing deploy: staging D1 daily row-read quota is exhausted and deployed migration fingerprint ' +
+          'does not prove this build is code-only (' +
+          fingerprintCheck.reason +
+          '). Production was not touched.',
+      );
+    }
     throw new Error(
-      'Refusing deploy: staging D1 daily row-read quota is exhausted and migration fingerprint fallback is unsafe (' +
-        fallback.reason +
-        '). Production was not touched.',
+      'Refusing deploy: could not verify staging D1 migration state (exit ' +
+        (migrationCheck.status ?? 'unknown') +
+        ').',
     );
   }
-  quotaSafeCodeOnlyDeploy = true;
-  console.log(
-    'Staging D1 daily row-read quota is exhausted, but migration fingerprint matches deployed staging build ' +
-      fallback.deployedBuildId +
-      '. Migration preflight bypass is allowed for this build.',
-  );
+
+  migrationState = parseStagingMigrationList(migrationOutput);
 }
 
-let migrationState = quotaSafeCodeOnlyDeploy
-  ? { pending: false, names: [] }
-  : parseStagingMigrationList(migrationOutput);
 if (migrationState.pending) {
   console.log(
     'Applying pending migrations to exact staging D1 only: ' + migrationState.names.join(', ') + '.',
@@ -174,9 +182,11 @@ if (migrationState.pending) {
 }
 
 console.log('Staging guard passed: ' + config.name + ' -> ' + db.database_name);
-console.log(quotaSafeCodeOnlyDeploy
-  ? 'Staging migration preflight: quota-safe code-only fallback verified against deployed build identity.'
-  : 'Staging migration preflight passed: no pending remote D1 migrations.');
+console.log(
+  skippedRemoteMigrationRead
+    ? 'Staging migration preflight: deployed migration fingerprint matched; remote D1 read was skipped.'
+    : 'Staging migration preflight passed: no pending remote D1 migrations.',
+);
 
 const result = spawnSync(
   process.execPath,
