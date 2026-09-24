@@ -15,7 +15,7 @@ import type { BulkResult } from '@/lib/chats/bulk';
 import type { ChatProfile } from '@/lib/chats/profile';
 import { supportsChatLeaveChecklist } from '@/lib/chats/leave-policy';
 import { shouldSuggestChatArchive } from '@/lib/chats/snooze-history';
-import { Archive, Check, ChevronLeft, ChevronRight, Clock3, ExternalLink, History, LoaderCircle, Plus, RotateCcw, Search, Send, Settings2, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
+import { Archive, Check, ChevronLeft, ChevronRight, Clock3, ExternalLink, History, Plus, RotateCcw, Search, Send, Settings2, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { handleTabKeyNavigation } from '@/lib/tab-navigation';
 import { announceDataChange } from '@/lib/client-sync';
 import { PlatformOverview, type PlatformLinkItem as LinkItem, type PublicationPace } from '@/components/platform-overview';
+import { WorkspaceInitialLoading } from '@/components/workspace-load-state';
 
 type Platform = 'telegram' | 'whatsapp' | 'viber' | 'facebook';
 type Queue = 'to_join' | 'waiting' | 'ready' | 'archived';
@@ -444,7 +445,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
         <Button type="button" variant="outline" size="sm" disabled={busy!==null||platform==='telegram'&&!accountId} onClick={()=>setDuplicatesOpen(true)}>Дублікати</Button>
       </div>
       {error && <div className="workspace-error" role="alert">{error} <Button variant="outline" size="sm" disabled={loading||busy!==null} onClick={()=>void reloadChats.current()}>Оновити список</Button></div>}
-      {!data&&(loading||switchingList) ? <div className="workspace-loading"><LoaderCircle/>Завантажуємо {selected.label}…</div> : data?.chats.length ? <>
+      {!data&&(loading||switchingList) ? <WorkspaceInitialLoading compact label={`Завантажуємо ${selected.label}…`}/> : data?.chats.length ? <>
         <div className="chat-list">
         {data.chats.map((chat,index)=><article className={`chat-row ${chat.publishedToday?'is-published':''} ${lastOpenedByPlatform[platform]===chat.id?'is-last-opened':''} ${index>=mobileVisibleChats?'mobile-progressive-hidden':''}`} key={chat.id}>
           <div className="chat-main"><div className="chat-name-line"><strong>{chat.name}</strong>{lastOpenedByPlatform[platform]===chat.id&&<Badge variant="outline">Останній відкритий</Badge>}{!chat.profileConfirmed&&queue==='ready'&&<Badge variant="outline">Профіль пізніше</Badge>}{queue==='ready'&&chat.discoveryDecision&&chat.discoveryDecision!=='target'&&<Badge variant="outline">Потрібна кваліфікація</Badge>}{chat.publishedToday&&<Badge variant="secondary">Опубліковано сьогодні</Badge>}</div><button className="chat-native-link" type="button" title={chat.link} aria-label={`Відкрити ${selected.label}: ${chat.link}`} onClick={()=>openChat(chat)}>{compactChatLink(chat.link)}</button>{chat.archiveReason&&<small>Причина: {chat.archiveReason}</small>}{queue==='archived'&&chat.archivedAt&&<small>Архівовано {formatDateTime(chat.archivedAt)}</small>}{queue==='archived'&&supportsChatLeaveChecklist(platform)&&chat.joinedAt!==null&&<small>{chat.leftAt?`Вихід із чату підтверджено ${formatDateTime(chat.leftAt)}`:'Ще потрібно вручну вийти з чату й підтвердити це тут.'}</small>}{chat.snoozedUntil&&chat.snoozedUntil>clock/1000&&<small>Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{(queue==='waiting'||queue==='ready')&&shouldSuggestChatArchive(chat.snoozeCount)&&<div><small>Відкладали {chat.snoozeCount} рази. Якщо чат уже неактуальний, краще перенести його в архів.</small><Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>toggleArchive(chat.id)}><Archive data-icon="inline-start"/>Архівувати</Button></div>}{queue==='ready'&&!canPublish(chat,clock)&&(chat.discoveryDecision&&chat.discoveryDecision!=='target'
