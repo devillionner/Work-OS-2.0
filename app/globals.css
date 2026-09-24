@@ -1489,7 +1489,7 @@ body { background:var(--background); }
   .dashboard-grid,.platform-workspace,.analytics-workspace,.reports-workspace,.library-workspace,.settings-workspace { padding:12px 12px calc(88px + env(safe-area-inset-bottom)); }
   .leads-workspace { padding:0 12px calc(100px + env(safe-area-inset-bottom)); }
   .focus-card,.analytics-hero,.reports-hero,.library-hero,.settings-hero,.leads-hero { padding:18px 16px; border-radius:16px; }
-  .focus-heading h2 h2,.analytics-hero h2,.reports-hero h2,.library-hero h2,.settings-hero h2,.leads-hero h2 { font-size:27px; }
+  .focus-heading h2,.analytics-hero h2,.reports-hero h2,.library-hero h2,.settings-hero h2,.leads-hero h2 { font-size:27px; }
   .analytics-chat-table { max-height:440px; }
   .goal-card,.queue-card,.platform-card,.analytics-card,.reports-calendar-card,.reports-editor-card,.settings-panel { padding:16px 14px; }
 }
