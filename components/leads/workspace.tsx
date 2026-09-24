@@ -176,6 +176,7 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
     }
   }, [current]);
   useEffect(() => {
+    if(!active)return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
       if (document.querySelector('[data-slot="dialog-content"]')) return;
@@ -201,7 +202,7 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [search]);
+  }, [search,active]);
   return (
     <div className={`leads-workspace ${selected ? 'has-selection' : ''}`} aria-busy={listLoading||detailLoading}>
       <LeadHistoryDialog open={historyOpen} lead={current?.lead ? { id: current.lead.id, name: current.lead.name } : null} onClose={() => setHistoryOpen(false)} finalFocus={() => historyTrigger.current} />
