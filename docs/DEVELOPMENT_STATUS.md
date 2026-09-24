@@ -1,5 +1,13 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 locale-aware WhatsApp activity dates / v0.2.72
+
+- WhatsApp Web snapshots now include the factual browser `navigator.language`.
+- Ambiguous numeric dates where both first fields are ≤12 use `Intl.DateTimeFormat(locale).formatToParts()` to determine day/month order. Unambiguous dates still work without locale.
+- Missing/invalid/unsupported locale leaves an ambiguous timestamp unknown instead of choosing the later interpretation and risking false activity.
+- This preserves the existing ≤72h active / ≥14d dead thresholds while making the evidence source fail-closed. No D1 schema or production operation changed.
+
+
 ## 2026-09-24 WhatsApp activity timestamp correctness / v0.2.71
 
 - Visible WhatsApp message metadata now parses year-first `YYYY-MM-DD` / `YYYY.MM.DD` / `YYYY/MM/DD` separately before ambiguous day/month formats, preventing a partial match inside a four-digit year.

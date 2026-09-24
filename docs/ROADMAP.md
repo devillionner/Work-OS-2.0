@@ -365,3 +365,13 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Preserve the existing ≤72h active / ≥14d dead / middle unknown thresholds.
 - [x] Regression coverage protects ISO recent/stale and invalid-date unknown cases.
 - [ ] Physical WhatsApp Web acceptance remains pending until a CDP-enabled authenticated session is available.
+
+
+## v0.2.72 — locale-aware WhatsApp activity dates
+
+- [x] Capture browser locale in the WhatsApp Web factual snapshot.
+- [x] Resolve ambiguous numeric message dates using the locale's actual day/month ordering.
+- [x] Keep unambiguous and ISO dates locale-independent.
+- [x] Treat ambiguous dates with missing/invalid locale as unknown instead of guessing.
+- [x] Regression coverage proves en-US vs uk-UA divergence and no-locale fail-closed behavior.
+- [ ] Physical WhatsApp Web acceptance remains pending until a CDP-enabled authenticated session is available.

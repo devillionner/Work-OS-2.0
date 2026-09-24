@@ -448,6 +448,7 @@ async function readSnapshot(client) {
       messageTexts,
       messageMeta,
       nowMs: Date.now(),
+      locale: navigator.language || '',
       composer,
       composerText,
       messageRows,
@@ -469,7 +470,7 @@ export function deriveWhatsappQualification(snapshot) {
   const messages = Array.isArray(snapshot.messageTexts) ? snapshot.messageTexts.map(String) : [];
   const meta = Array.isArray(snapshot.messageMeta) ? snapshot.messageMeta.map(String) : [];
   const memberCount = parseMemberCount(infoText);
-  const activityState = inferMessageActivity(meta, Number(snapshot.nowMs) || Date.now())
+  const activityState = inferMessageActivity(meta, Number(snapshot.nowMs) || Date.now(), snapshot.locale)
     || (recentActivityPattern.test(chatText) || recentActivityPattern.test(meta.join('\n')) ? 'active' : undefined);
   const identityText = [infoText, ...(snapshot.headerTitles || [])].join('\n');
   const spamMessages = messages.slice(-20).filter((value) => spamPattern.test(value)).length;
@@ -490,8 +491,8 @@ export function deriveWhatsappQualification(snapshot) {
   };
 }
 
-function inferMessageActivity(meta, nowMs) {
-  const stamps = meta.map((value) => parseMessageTimestamp(value, nowMs)).filter((value) => Number.isFinite(value));
+function inferMessageActivity(meta, nowMs, locale) {
+  const stamps = meta.map((value) => parseMessageTimestamp(value, nowMs, locale)).filter((value) => Number.isFinite(value));
   if (!stamps.length) return undefined;
   const latest = Math.max(...stamps);
   const ageMs = Math.max(0, nowMs - latest);
@@ -500,7 +501,7 @@ function inferMessageActivity(meta, nowMs) {
   return undefined;
 }
 
-function parseMessageTimestamp(value, nowMs) {
+function parseMessageTimestamp(value, nowMs, locale) {
   const text = String(value || '');
   const iso = text.match(/(?:^|[^\d])(\d{4})[./-](\d{1,2})[./-](\d{1,2})(?!\d)/u);
   if (iso) {
@@ -514,11 +515,39 @@ function parseMessageTimestamp(value, nowMs) {
   const b = Number(match[2]);
   let year = Number(match[3]);
   if (year < 100) year += 2000;
-  const candidates = [[a,b],[b,a]]
-    .map(([day,month]) => validCalendarStamp(year, month, day, nowMs))
-    .filter((stamp) => stamp !== null);
-  if (!candidates.length) return NaN;
-  return Math.max(...candidates);
+
+  let day;
+  let month;
+  if (a > 12 && b <= 12) {
+    day = a; month = b;
+  } else if (b > 12 && a <= 12) {
+    day = b; month = a;
+  } else if (a <= 12 && b <= 12) {
+    const order = localeDayMonthOrder(locale);
+    if (order === 'day-month') { day = a; month = b; }
+    else if (order === 'month-day') { day = b; month = a; }
+    else return NaN;
+  } else {
+    return NaN;
+  }
+  const stamp = validCalendarStamp(year, month, day, nowMs);
+  return stamp ?? NaN;
+}
+
+function localeDayMonthOrder(locale) {
+  if (!String(locale || '').trim()) return null;
+  try {
+    const sample = new Date(Date.UTC(2026, 10, 22, 12));
+    const parts = new Intl.DateTimeFormat(String(locale), {
+      day:'numeric', month:'numeric', year:'numeric', timeZone:'UTC',
+    }).formatToParts(sample);
+    const order = parts.map((part) => part.type).filter((type) => type === 'day' || type === 'month');
+    if (order[0] === 'day' && order[1] === 'month') return 'day-month';
+    if (order[0] === 'month' && order[1] === 'day') return 'month-day';
+  } catch {
+    // Unknown locale must remain ambiguous rather than guessing a date order.
+  }
+  return null;
 }
 
 function validCalendarStamp(year, month, day, nowMs) {

@@ -394,6 +394,7 @@ void test('message timestamps classify recent activity and clearly stale chats w
     messageTexts:['Старе повідомлення'],
     messageMeta:['[10:15, 01/09/2026] User:'],
     nowMs:now,
+    locale:'uk-UA',
   });
   assert.equal(stale.activityState,'dead');
 
@@ -426,6 +427,27 @@ void test('message timestamp activity handles ISO year-first metadata without pa
     nowMs:now,
   });
   assert.equal(stale.activityState,'dead');
+});
+
+void test('ambiguous WhatsApp dates use the observed browser locale and never guess without one', () => {
+  const now=Date.UTC(2026,8,2,18);
+  const us=deriveWhatsappQualification({
+    groupInfoText:'900 participants', mainText:'', messageTexts:['Hello'],
+    messageMeta:['[10:15, 09/01/2026] User:'], nowMs:now, locale:'en-US',
+  });
+  assert.equal(us.activityState,'active');
+
+  const ua=deriveWhatsappQualification({
+    groupInfoText:'900 participants', mainText:'', messageTexts:['Привіт'],
+    messageMeta:['[10:15, 09/01/2026] User:'], nowMs:now, locale:'uk-UA',
+  });
+  assert.equal(ua.activityState,'dead');
+
+  const unknown=deriveWhatsappQualification({
+    groupInfoText:'900 participants', mainText:'', messageTexts:['Message'],
+    messageMeta:['[10:15, 09/01/2026] User:'], nowMs:now,
+  });
+  assert.equal(unknown.activityState,undefined);
 });
 
 void test('invalid calendar metadata stays unknown instead of normalizing into another date', () => {
