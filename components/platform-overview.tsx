@@ -17,7 +17,7 @@ export function PlatformOverview({
   joined:PlatformLinkItem[];
   published:PlatformLinkItem[];
 }) {
-  return <section className="platform-overview" aria-label="Сьогоднішній стан">
+  return <section className={`platform-overview ${available?'has-available':''}`} aria-label="Сьогоднішній стан">
     <DailyStat label="Темп" value={`${pace.ratePerHour}/год`} />
     <DailyStat label="Ціль" value={`${pace.completed} / ${pace.target}`} />
     {available&&<DailyLinkStat label="Доступні" items={available} />}
