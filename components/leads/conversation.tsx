@@ -34,6 +34,7 @@ export function Conversation({
   const [mediaError, setMediaError] = useState('');
   const [uploadingMessageId, setUploadingMessageId] = useState<string | null>(null);
   const mediaVersion = useRef(detail.lead.version);
+  const leadIdentity = useRef(detail.lead.id);
   const uploadTarget = useRef<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [olderMessages, setOlderMessages] = useState<LeadDetail['messages']>([]);
@@ -42,6 +43,24 @@ export function Conversation({
   const [olderError, setOlderError] = useState('');
   const pending = useRef<AbortController | null>(null);
   useEffect(() => () => pending.current?.abort(), []);
+  useEffect(() => {
+    mediaVersion.current=detail.lead.version;
+    if(leadIdentity.current===detail.lead.id)return;
+    leadIdentity.current=detail.lead.id;
+    pending.current?.abort();
+    pending.current=null;
+    setEditing(null);
+    setDeleting(null);
+    setDeletingAttachment(null);
+    setMediaError('');
+    setUploadingMessageId(null);
+    setOlderMessages([]);
+    setOlderPage(null);
+    setOlderBusy(false);
+    setOlderError('');
+    uploadTarget.current=null;
+    if(fileInput.current)fileInput.current.value='';
+  },[detail.lead.id,detail.lead.version]);
   const messages = [...olderMessages, ...detail.messages];
   const current = messages.find((m) => m.id === editing);
   const archived = detail.lead.archivedAt !== null;
