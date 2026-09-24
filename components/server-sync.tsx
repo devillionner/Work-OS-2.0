@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   DATA_SYNC_CHANNEL,
   DATA_SYNC_EVENT,
+  DATA_SYNC_REQUEST_EVENT,
   type DataSyncDetail,
 } from '@/lib/client-sync';
 
@@ -105,6 +106,10 @@ export function ServerSync() {
       // other server-derived workspaces in the same tab.
       if (detail?.reason === 'local-write') void checkRevision('cross-tab');
     };
+    const onSyncRequest = (event: Event) => {
+      const detail = (event as CustomEvent<DataSyncDetail>).detail;
+      void checkRevision(detail?.reason === 'online' ? 'online' : 'focus');
+    };
 
     let channel: BroadcastChannel | null = null;
     if ('BroadcastChannel' in window) {
@@ -120,6 +125,7 @@ export function ServerSync() {
     window.addEventListener('focus', onFocus);
     window.addEventListener('online', onOnline);
     window.addEventListener(DATA_SYNC_EVENT, onLocalData);
+    window.addEventListener(DATA_SYNC_REQUEST_EVENT, onSyncRequest);
     document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
@@ -127,6 +133,7 @@ export function ServerSync() {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('online', onOnline);
       window.removeEventListener(DATA_SYNC_EVENT, onLocalData);
+      window.removeEventListener(DATA_SYNC_REQUEST_EVENT, onSyncRequest);
       document.removeEventListener('visibilitychange', onVisibility);
       channel?.close();
     };
