@@ -502,18 +502,32 @@ function inferMessageActivity(meta, nowMs) {
 
 function parseMessageTimestamp(value, nowMs) {
   const text = String(value || '');
-  const match = text.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/u);
+  const iso = text.match(/(?:^|[^\d])(\d{4})[./-](\d{1,2})[./-](\d{1,2})(?!\d)/u);
+  if (iso) {
+    const stamp = validCalendarStamp(Number(iso[1]), Number(iso[2]), Number(iso[3]), nowMs);
+    return stamp ?? NaN;
+  }
+
+  const match = text.match(/(?:^|[^\d])(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})(?!\d)/u);
   if (!match) return NaN;
   const a = Number(match[1]);
   const b = Number(match[2]);
   let year = Number(match[3]);
   if (year < 100) year += 2000;
   const candidates = [[a,b],[b,a]]
-    .filter(([day,month]) => day >= 1 && day <= 31 && month >= 1 && month <= 12)
-    .map(([day,month]) => Date.UTC(year, month - 1, day, 12))
-    .filter((stamp) => Number.isFinite(stamp) && stamp <= nowMs + 24 * 60 * 60 * 1000);
+    .map(([day,month]) => validCalendarStamp(year, month, day, nowMs))
+    .filter((stamp) => stamp !== null);
   if (!candidates.length) return NaN;
   return Math.max(...candidates);
+}
+
+function validCalendarStamp(year, month, day, nowMs) {
+  if (!Number.isSafeInteger(year) || !Number.isSafeInteger(month) || !Number.isSafeInteger(day)) return null;
+  if (year < 2000 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const stamp = Date.UTC(year, month - 1, day, 12);
+  const date = new Date(stamp);
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return stamp <= nowMs + 24 * 60 * 60 * 1000 ? stamp : null;
 }
 
 function parseMemberCount(value) {

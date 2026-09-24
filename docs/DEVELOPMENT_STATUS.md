@@ -1,5 +1,13 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 WhatsApp activity timestamp correctness / v0.2.71
+
+- Visible WhatsApp message metadata now parses year-first `YYYY-MM-DD` / `YYYY.MM.DD` / `YYYY/MM/DD` separately before ambiguous day/month formats, preventing a partial match inside a four-digit year.
+- Day/month and month/day formats still use the conservative valid-candidate rule and only accept timestamps no later than one day beyond the observed clock.
+- Invalid calendar dates are rejected by component round-trip validation instead of JavaScript date normalization.
+- The existing activity thresholds remain unchanged: ≤72h = active, ≥14d = dead, middle/unknown evidence = unknown. No D1 schema or production operation changed.
+
+
 ## 2026-09-24 broader factual WhatsApp ad evidence / v0.2.70
 
 - WhatsApp Web ad-like message evidence now covers common UA/RU/EN marketplace, give-away, exchange, wanted, services, work, rent and transport wording instead of a narrow handful of stems.

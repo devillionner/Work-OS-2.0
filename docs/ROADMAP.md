@@ -356,3 +356,12 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Preserve explicit prohibition precedence and fail closed for one-message/inactive evidence.
 - [x] Regression coverage protects positive and negative inference cases.
 - [ ] Physical WhatsApp Web acceptance remains pending until a CDP-enabled authenticated session is available.
+
+
+## v0.2.71 — WhatsApp activity timestamp correctness
+
+- [x] Parse year-first visible WhatsApp message dates before ambiguous day/month formats.
+- [x] Reject partial-year matches and impossible calendar dates.
+- [x] Preserve the existing ≤72h active / ≥14d dead / middle unknown thresholds.
+- [x] Regression coverage protects ISO recent/stale and invalid-date unknown cases.
+- [ ] Physical WhatsApp Web acceptance remains pending until a CDP-enabled authenticated session is available.

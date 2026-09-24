@@ -407,6 +407,39 @@ void test('message timestamps classify recent activity and clearly stale chats w
   assert.equal(uncertain.activityState,undefined);
 });
 
+void test('message timestamp activity handles ISO year-first metadata without partial-year misparse', () => {
+  const now=Date.UTC(2026,8,24,18);
+  const recent=deriveWhatsappQualification({
+    groupInfoText:'900 participants',
+    mainText:'',
+    messageTexts:['Привіт'],
+    messageMeta:['[10:15, 2026-09-24] User:'],
+    nowMs:now,
+  });
+  assert.equal(recent.activityState,'active');
+
+  const stale=deriveWhatsappQualification({
+    groupInfoText:'900 participants',
+    mainText:'',
+    messageTexts:['Старе'],
+    messageMeta:['[10:15, 2026-08-30] User:'],
+    nowMs:now,
+  });
+  assert.equal(stale.activityState,'dead');
+});
+
+void test('invalid calendar metadata stays unknown instead of normalizing into another date', () => {
+  const now=Date.UTC(2026,8,24,18);
+  const invalid=deriveWhatsappQualification({
+    groupInfoText:'900 participants',
+    mainText:'',
+    messageTexts:['Повідомлення'],
+    messageMeta:['[10:15, 31/02/2026] User:'],
+    nowMs:now,
+  });
+  assert.equal(invalid.activityState,undefined);
+});
+
 void test('exact invite identity may resolve an approximate non-generated source name to the observed WhatsApp name', () => {
   const result = classifyWhatsAppSnapshot(task, {
     url:'https://web.whatsapp.com/accept?code=AbCdEfGh1234',
