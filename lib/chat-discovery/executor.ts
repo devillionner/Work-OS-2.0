@@ -57,7 +57,7 @@ export async function readDiscoveryExecutorQueue(
       ORDER BY CASE WHEN platform='whatsapp' AND membership_state='pending' THEN 0 ELSE 1 END,
         CASE decision WHEN 'rejected' THEN 0 WHEN 'unavailable' THEN 0 WHEN 'review' THEN 1 ELSE 2 END,
         updated_at ASC,id
-      LIMIT ?3`).bind(userId, now, Math.max(limit * 3, 20)).all<CandidateTaskRow>(),
+      LIMIT ?3`).bind(userId, now, limit).all<CandidateTaskRow>(),
     db.prepare(`SELECT min_members FROM chat_discovery_runs WHERE user_id=?1 ORDER BY updated_at DESC LIMIT 1`)
       .bind(userId).first<{ min_members: number }>(),
   ]);
@@ -99,7 +99,7 @@ export async function claimDiscoveryExecutorQueue(
 ): Promise<{ tasks: DiscoveryExecutorTask[]; leaseSeconds: number }> {
   const leaseSeconds = 90;
   const limit = boundedLimit(limitInput);
-  // readDiscoveryExecutorQueue already overfetches candidate rows internally. Keep the requested task\n  // limit here so a one-task desktop poll cannot multiply into a 20-task/60-candidate read.\n  const queue = await readDiscoveryExecutorQueue(db, userId, limit, now);
+  const queue = await readDiscoveryExecutorQueue(db, userId, limit, now);
   const tasks: DiscoveryExecutorTask[] = [];
   for (const task of queue.tasks) {
     if (tasks.length >= limit) break;
