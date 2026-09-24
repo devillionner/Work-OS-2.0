@@ -35,20 +35,19 @@ void test('cross-device sync uses the existing monotonic backup revision as sour
 
 void test('global server sync refreshes only after authoritative revision changes', () => {
   const sync = read('components/server-sync.tsx'); const clientSync = read('lib/client-sync.ts'); const layout = read('app/layout.tsx');
-  assert.match(sync, /const SERVER_SYNC_MS = 10_000/); assert.match(sync, /fetch\(`\/api\/sync\?t=\$\{Date\.now\(\)\}`/); assert.match(sync, /readRenderedRevision\(\)/); assert.doesNotMatch(sync, /pendingLocalAckRef/); assert.match(sync, /revision === previous/); assert.match(sync, /detail\?\.reason === 'local-write'\) void checkRevision\('cross-tab'\)/); assert.match(sync, /router\.refresh\(\)/); assert.match(sync, /new BroadcastChannel\(DATA_SYNC_CHANNEL\)/); assert.match(sync, /visibilitychange/); assert.match(sync, /window\.addEventListener\('online'/); assert.match(clientSync, /announceDataChange/); assert.match(clientSync, /reason: 'local-write'/); assert.match(layout, /<ServerSync \/>/);
+  assert.match(sync, /const SERVER_SYNC_MS = 10_000/); assert.match(sync, /fetch\(`\/api\/sync\?t=\$\{Date\.now\(\)\}`/); assert.match(sync, /readRenderedRevision\(\)/); assert.doesNotMatch(sync, /pendingLocalAckRef/); assert.match(sync, /revision === previous/); assert.match(sync, /detail\?\.reason === 'local-write'\) void checkRevision\('cross-tab'\)/); assert.match(sync, /router\.refresh\(\)/); assert.match(sync, /new BroadcastChannel\(DATA_SYNC_CHANNEL\)/); assert.match(sync, /visibilitychange/); assert.match(sync, /window\.addEventListener\('online'/); assert.match(sync, /DATA_SYNC_REQUEST_EVENT/); assert.match(sync, /onSyncRequest/); assert.match(clientSync, /announceDataChange/); assert.match(clientSync, /requestDataSync/); assert.match(clientSync, /DATA_SYNC_REQUEST_EVENT/); assert.match(layout, /<ServerSync \/>/);
 });
 
-void test('authoritative revision and Kyiv date refresh data workspaces without resetting Platforms', () => {
+void test('authoritative revision refreshes persistent workspaces without remount keys', () => {
   const shell = read('components/work-os-shell.tsx');
   const platform = read('components/platform-workspace.tsx');
-  assert.match(shell, /const dataSyncKey = `\$\{syncRevision\}:\$\{snapshot\.today\}`/);
-  assert.match(shell, /<PlatformWorkspace enabledPlatforms=\{snapshot\.enabledPlatforms\} syncRevision=\{syncRevision\} businessDate=\{snapshot\.today\} \/>/);
-  assert.doesNotMatch(shell, /<PlatformWorkspace key=/);
-  assert.match(shell, /<AnalyticsWorkspace key=\{\`analytics:\$\{dataSyncKey\}\`\}/);
-  assert.match(shell, /<ReportsWorkspace key=\{\`reports:\$\{dataSyncKey\}\`\}/);
-  assert.match(shell, /<LibraryWorkspace key=\{\`library:\$\{dataSyncKey\}\`\}/);
-  assert.match(platform, /const lastSyncKey=useRef\(\`\$\{syncRevision \?\? ''\}:\$\{businessDate \?\? ''\}\`\)/);
-  assert.match(platform, /\[syncRevision,businessDate,platform,loadAccounts\]/);
+  assert.match(shell, /<PlatformWorkspace enabledPlatforms=\{snapshot\.enabledPlatforms\} syncRevision=\{syncRevision\} businessDate=\{snapshot\.today\} active=\{activeView === 'platforms'\} \/>/);
+  assert.match(shell, /<AnalyticsWorkspace syncRevision=\{syncRevision\} active=\{activeView === 'analytics'\} \/>/);
+  assert.match(shell, /<ReportsWorkspace syncRevision=\{syncRevision\} active=\{activeView === 'reports'\}/);
+  assert.match(shell, /<LibraryWorkspace syncRevision=\{syncRevision\} active=\{activeView === 'library'\} \/>/);
+  assert.doesNotMatch(shell, /(?:PlatformWorkspace|AnalyticsWorkspace|ReportsWorkspace|LibraryWorkspace) key=/);
+  assert.match(platform, /const lastSyncKey=useRef\(`\$\{syncRevision \?\? ''\}:\$\{businessDate \?\? ''\}`\)/);
+  assert.match(platform, /\[syncRevision,businessDate,platform,loadAccounts,invalidateQueueCache,active\]/);
 });
 
 void test('lead writes broadcast fresh server state to other open clients', () => { const commands = read('lib/leads/client/commands.ts'); assert.match(commands, /announceDataChange\('leads'\)/); });
@@ -83,4 +82,14 @@ void test('local and cross-tab writes are replayed when a revision poll is alrea
   assert.match(sync,/pendingCheckRef = useRef<DataSyncDetail\['reason'\] \| null>\(null\)/);
   assert.match(sync,/if \(checkingRef\.current\) \{[\s\S]*reason !== 'poll'[\s\S]*pendingCheckRef\.current = reason/);
   assert.match(sync,/const pending = pendingCheckRef\.current;[\s\S]*window\.setTimeout\(\(\) => void checkRevision\(pending\), 0\)/);
+});
+
+
+void test('returning to Today requests a revision check instead of forcing an RSC refresh', () => {
+  const shell=read('components/work-os-shell.tsx');
+  assert.match(shell,/if \(next === 'today' && activeView !== 'today'\) requestDataSync\('focus'\)/);
+  const start=shell.indexOf('const navigateTo');
+  const end=shell.indexOf('const orderedLeadTasks',start);
+  assert.ok(start>=0&&end>start);
+  assert.doesNotMatch(shell.slice(start,end),/router\.refresh\(\)/);
 });
