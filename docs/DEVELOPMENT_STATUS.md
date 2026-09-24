@@ -688,3 +688,11 @@ separate gates after local validation and the required direct confirmation.
 - The operator flow creates the existing idempotent `safe_note` job, polls canonical server state, exposes cancellation, and explicitly states that only «Мої нотатки» is allowed.
 - Safe-mode remains non-accounting: its executor contract cannot create `chat_publications` or publication `activity_events`; real Viber chats remain outside this gate.
 - Native Viber acceptance was not performed and is not claimed. Desktop Commander remains excluded because this is a native-app flow.
+
+
+## Discovery executor target verification — v0.2.40
+
+- WhatsApp/Viber external inspection can no longer promote membership or store an accessible inspected result without explicit exact-target confirmation.
+- The target-proof requirement is executor-only: manual qualification in the authenticated Work OS UI keeps its existing path and is not accidentally blocked by adapter policy.
+- Executor tasks carry expected chat identity, runtime intent and a fail-closed safety marker. External leave requires the same proof before Work OS archives or records canonical leave state.
+- Reference-runner and UI contract regressions cover the wiring. Live WhatsApp Web automation acceptance and full verify:local remain separate evidence gates and are not claimed here.
