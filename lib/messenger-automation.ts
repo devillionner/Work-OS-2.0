@@ -248,6 +248,49 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
   return publicWhatsAppAutopostJob(created);
 }
 
+export async function createWhatsAppAutopostBatch(
+  db:D1Database,
+  userId:string,
+  input:{limit?:unknown},
+  now:number,
+  date:string,
+):Promise<{created:number;skipped:number;jobs:WhatsAppAutopostJob[]}>{
+  const rawLimit=Number(input.limit);
+  const limit=Number.isSafeInteger(rawLimit)?Math.max(1,Math.min(50,rawLimit)):30;
+  const rows=await db.prepare(`SELECT c.id
+    FROM chats c
+    WHERE c.user_id=?1 AND c.platform='whatsapp' AND c.workflow_status='ready'
+      AND (c.snoozed_until IS NULL OR c.snoozed_until<=?2)
+      AND NOT EXISTS(SELECT 1 FROM chat_publications p
+        WHERE p.user_id=c.user_id AND p.chat_id=c.id AND p.published_on=?3)
+      AND NOT EXISTS(SELECT 1 FROM whatsapp_autopost_jobs j
+        WHERE j.user_id=c.user_id AND j.chat_id=c.id AND j.published_on=?3 AND j.status IN ('pending','claimed'))
+      AND NOT EXISTS(SELECT 1 FROM chat_discovery_candidates dc
+        WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.decision!='target')
+    ORDER BY c.updated_at DESC,c.id
+    LIMIT ?4`).bind(userId,now,date,Math.min(200,limit*4)).all<{id:string}>();
+
+  const jobs:WhatsAppAutopostJob[]=[];
+  let skipped=0;
+  for(const row of rows.results){
+    if(jobs.length>=limit)break;
+    try{
+      const job=await createWhatsAppAutopostJob(db,userId,{
+        requestKey:`batch_${crypto.randomUUID()}`,
+        chatId:row.id,
+      },now,date);
+      jobs.push(job);
+    }catch(error){
+      if(error instanceof MessengerAutomationError&&[404,409].includes(error.status)){
+        skipped+=1;
+        continue;
+      }
+      throw error;
+    }
+  }
+  return {created:jobs.length,skipped,jobs};
+}
+
 export async function readLatestWhatsAppAutopostJob(db:D1Database,userId:string):Promise<WhatsAppAutopostJob|null>{
   const row=await db.prepare(`SELECT * FROM whatsapp_autopost_jobs
     WHERE user_id=?1 ORDER BY created_at DESC,id DESC LIMIT 1`).bind(userId).first<WhatsAppAutopostRow>();
@@ -287,7 +330,7 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,devic
       WHERE user_id=?1 AND imported_chat_id=?2 ORDER BY updated_at DESC,id LIMIT 1`)
       .bind(userId,row.chat_id).first<{decision:string}>();
     const payload=material?(row.language==='uk'?material.uk_text:material.ru_text).trim():'';
-    const selection=chat ? await readPublicationAdvertisementSelection(db,{userId,chatId:row.chat_id,date:row.published_on}) : null;
+    const selection=chat ? await readPublicationAdvertisementSelection(db,{userId,chatId:row.chat_id,date:row.published_on,excludeAutomationJobId:row.id}) : null;
     const selected=selection?.items.find(item=>item.id===row.advertisement_id);
     const valid=Boolean(
       chat&&chat.platform==='whatsapp'&&chat.workflow_status==='ready'&&chat.state_token===row.chat_state_token

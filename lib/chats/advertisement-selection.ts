@@ -74,22 +74,34 @@ type RankedAdvertisement = PublicationAdvertisement & { updatedAt: number };
 
 export async function readPublicationAdvertisementSelection(
   db: D1Database,
-  input: { userId: string; chatId: string; date: string },
+  input: { userId: string; chatId: string; date: string; excludeAutomationJobId?: string },
 ): Promise<PublicationAdvertisementSelection | null> {
   const chat = await db.prepare(`SELECT c.platform,p.language,p.directions_json,p.review_status,p.cadence,p.weekdays_json,p.custom_interval_days,p.next_allowed_on
     FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id
     WHERE c.id=?1 AND c.user_id=?2 AND c.workflow_status='ready' LIMIT 1`).bind(input.chatId, input.userId).first<SelectionChatRow>();
   if (!chat) return null;
 
+  const usedStatement = chat.platform === 'whatsapp'
+    ? db.prepare(`SELECT DISTINCT advertisement_id FROM (
+        SELECT p.advertisement_id AS advertisement_id
+        FROM chat_publications p JOIN chats c ON c.id=p.chat_id AND c.user_id=p.user_id
+        WHERE p.user_id=?1 AND c.platform='whatsapp' AND p.published_on=?2 AND p.advertisement_id IS NOT NULL
+        UNION
+        SELECT j.advertisement_id AS advertisement_id
+        FROM whatsapp_autopost_jobs j
+        WHERE j.user_id=?1 AND j.published_on=?2 AND j.status IN ('pending','claimed')
+          AND (?3='' OR j.id<>?3)
+      ) WHERE advertisement_id IS NOT NULL`).bind(input.userId,input.date,input.excludeAutomationJobId||'')
+    : db.prepare(`SELECT DISTINCT p.advertisement_id
+        FROM chat_publications p JOIN chats c ON c.id=p.chat_id AND c.user_id=p.user_id
+        WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 AND p.advertisement_id IS NOT NULL`)
+      .bind(input.userId,chat.platform,input.date);
   const [advertisementsResult, usedResult, focusResult, workdayResult] = await db.batch([
     db.prepare(`SELECT id,title,uk_text,ru_text,notes,tags_json,platforms_json,updated_at
       FROM library_items
       WHERE user_id=?1 AND kind='advertisement' AND archived_at IS NULL
       ORDER BY updated_at DESC,title LIMIT 500`).bind(input.userId),
-    db.prepare(`SELECT DISTINCT p.advertisement_id
-      FROM chat_publications p JOIN chats c ON c.id=p.chat_id AND c.user_id=p.user_id
-      WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 AND p.advertisement_id IS NOT NULL`)
-      .bind(input.userId, chat.platform, input.date),
+    usedStatement,
     db.prepare(`SELECT value_json,updated_at FROM user_settings
       WHERE user_id=?1 AND setting_key='focus_directions' LIMIT 1`).bind(input.userId),
     db.prepare(`SELECT w.id,w.work_date,w.status,w.version,p.value_json AS plan_json

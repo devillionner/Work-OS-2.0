@@ -1,5 +1,15 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 WhatsApp batch confirmed-send autopost — v0.2.57
+
+- WhatsApp ready queue now has «Автопост черги»: one operator action queues up to 30 currently eligible chats instead of opening each row separately.
+- Batch selection excludes already published chats, snoozed/non-ready chats, active chat/day jobs and Discovery candidates that are not target. Per-chat creation still rechecks canonical publication/profile/material rules, so one ineligible chat is skipped without failing the rest of the batch.
+- Active pending/claimed WhatsApp jobs are now reservations in same-day advertisement selection. As long as unused eligible Library materials exist, queued jobs receive different materials instead of all snapshotting the same first-ranked advertisement before any send completes.
+- Executor claim excludes the job's own reservation while still respecting reservations of sibling jobs, so a valid queued job does not invalidate itself.
+- The existing exact-target, 90-second lease, confirmed-send DOM evidence, chat mutation fence and fact-first publication accounting remain unchanged per job.
+- The parallel v0.2.56 direct WhatsApp Web invite-opening fix is preserved; batch work is layered on top of canonical main.
+- No new external send is claimed by this source release; live WhatsApp Web/CDP acceptance remains separate. Image/media automation remains the next functional slice.
+
 ## 2026-09-24 Direct WhatsApp Web invite opening — v0.2.56
 
 - Platform chat links no longer open the generic `chat.whatsapp.com` landing page. Work OS extracts the exact invite code and opens `https://web.whatsapp.com/accept?code=...` in a new browser tab.

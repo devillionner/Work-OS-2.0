@@ -53,3 +53,18 @@ void test('active WhatsApp autopost is a server-side chat mutation fence, not on
   assert.match(route,/status IN \('pending','claimed'\)/);
   assert.match(route,/виконується WhatsApp автопублікація/);
 });
+
+
+void test('WhatsApp ready queue can create a reservation-aware autopost batch from one operator action', () => {
+  const workspace=read('components/platform-workspace.tsx');
+  const automationRoute=read('app/api/messenger-automation/route.ts');
+  const selection=read('lib/chats/advertisement-selection.ts');
+  assert.match(workspace,/startWhatsAppAutopostBatch/);
+  assert.match(workspace,/whatsapp-autopost-batch/);
+  assert.match(workspace,/Автопост черги/);
+  assert.match(workspace,/limit:30/);
+  assert.match(automationRoute,/createWhatsAppAutopostBatch/);
+  assert.match(automationRoute,/body\.action==='whatsapp-autopost-batch'/);
+  assert.match(selection,/whatsapp_autopost_jobs/);
+  assert.match(selection,/excludeAutomationJobId/);
+});

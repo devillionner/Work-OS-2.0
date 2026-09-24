@@ -1,9 +1,10 @@
-export const APP_VERSION = '0.2.56';
+export const APP_VERSION = '0.2.57';
 export const APP_RELEASE_DATE = '2026-09-24';
 
 // User-facing copy only. Keep each note short and plain; technical details belong in docs and commits.
 export const APP_CHANGES = [
-  'Посилання WhatsApp-чатів із Work OS тепер одразу відкриваються у WhatsApp Web без проміжної invite-сторінки.',
-  'Код запрошення переноситься напряму у web.whatsapp.com/accept, тому браузер не пропонує відкривати desktop WhatsApp.',
-  'Інші платформи зберігають попередню поведінку відкриття.',
+  'У WhatsApp «Для публікації» тепер можна одним натисканням поставити до 30 доступних чатів у автопост.',
+  'Work OS резервує різні невикористані оголошення між активними задачами, щоб черга не брала один і той самий матеріал, поки є альтернативи.',
+  'Неактуальні, уже опубліковані або некваліфіковані чати пропускаються без зупинки всієї черги.',
+  'Кожен чат як і раніше зараховується тільки після exact-target і підтвердженого send у WhatsApp Web.',
 ] as const;

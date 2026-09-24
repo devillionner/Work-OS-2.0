@@ -5,6 +5,7 @@ import {
   MessengerAutomationError,
   claimWhatsAppAutopostJob,
   completeWhatsAppAutopostJob,
+  createWhatsAppAutopostBatch,
   createWhatsAppAutopostJob,
   cancelWhatsAppAutopostJob,
   readLatestWhatsAppAutopostJob,
@@ -154,4 +155,51 @@ void test('claimed WhatsApp autopost cannot be cancelled while a send may be in 
   },NOW+3);
   assert.equal(completed.status,'sent');
   assert.equal(await db.prepare('SELECT COUNT(*) FROM chat_publications').first('COUNT(*)'),1);
+});
+
+
+void test('batch autopost queues multiple ready chats and reserves distinct unused materials when available',async t=>{
+  const db=await localDatabase(t);
+  await seedDevice(db);
+  await seedAdvertisement(db,'batch-ad-a');
+  await db.prepare("UPDATE library_items SET title='A material',updated_at=2 WHERE id='batch-ad-a'").run();
+  await seedAdvertisement(db,'batch-ad-b');
+  await db.prepare("UPDATE library_items SET title='B material',updated_at=1 WHERE id='batch-ad-b'").run();
+
+  for(const suffix of ['a','b']){
+    await seedChat(db,{id:'batch-chat-'+suffix,owner:'u',platform:'whatsapp',status:'ready',joined:10});
+    await db.prepare("UPDATE chats SET name=?1,link=?2,normalized_link=?2,updated_at=?3 WHERE id=?4")
+      .bind('Українці '+suffix.toUpperCase(),'https://chat.whatsapp.com/BatchAutopost'+suffix+'123',10+suffix.charCodeAt(0),'batch-chat-'+suffix).run();
+  }
+
+  const batch=await createWhatsAppAutopostBatch(db,'u',{limit:30},NOW,DATE);
+  assert.equal(batch.created,2);
+  assert.equal(batch.skipped,0);
+  assert.equal(new Set(batch.jobs.map(job=>job.chatId)).size,2);
+  assert.equal(new Set(batch.jobs.map(job=>job.advertisementId)).size,2);
+
+  const repeated=await createWhatsAppAutopostBatch(db,'u',{limit:30},NOW+1,DATE);
+  assert.equal(repeated.created,0);
+
+  const firstTask=await claimWhatsAppAutopostJob(db,'u','device',NOW+2);
+  assert.ok(firstTask);
+  assert.ok(batch.jobs.some(job=>job.id===firstTask.jobId));
+  assert.ok(batch.jobs.some(job=>job.advertisementId===firstTask.material.advertisementId));
+});
+
+void test('batch autopost skips chats without a safe material instead of failing the whole queue',async t=>{
+  const db=await localDatabase(t);
+  await seedDevice(db);
+  await seedAdvertisement(db,'only-wa');
+  await seedChat(db,{id:'batch-ok',owner:'u',platform:'whatsapp',status:'ready',joined:10});
+  await seedChat(db,{id:'batch-published',owner:'u',platform:'whatsapp',status:'ready',joined:10});
+  await db.prepare("UPDATE chats SET name='Українці OK',link='https://chat.whatsapp.com/BatchOk123',normalized_link='https://chat.whatsapp.com/BatchOk123' WHERE id='batch-ok'").run();
+  await db.prepare("UPDATE chats SET name='Українці Published',link='https://chat.whatsapp.com/BatchPublished123',normalized_link='https://chat.whatsapp.com/BatchPublished123' WHERE id='batch-published'").run();
+  await db.prepare(\`INSERT INTO chat_publications
+    (id,user_id,chat_id,published_on,published_at,advertisement_id,source,source_key,created_at)
+    VALUES ('pub','u','batch-published',?1,?2,'only-wa','manual','manual:pub',?2)\`).bind(DATE,NOW).run();
+
+  const batch=await createWhatsAppAutopostBatch(db,'u',{limit:30},NOW+1,DATE);
+  assert.equal(batch.created,1);
+  assert.equal(batch.jobs[0].chatId,'batch-ok');
 });

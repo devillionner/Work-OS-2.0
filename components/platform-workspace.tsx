@@ -390,6 +390,33 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     else void act(item.chat,'return_to_join');
   }
 
+  async function startWhatsAppAutopostBatch() {
+    if(platform!=='whatsapp'||queue!=='ready'||busy!==null)return;
+    await runAction.current(async()=>{
+      setBusy('whatsapp-autopost-batch');setError('');setNotice('');setUndo(null);
+      setQuickPublishMode(false);setQuickAdvertisementId(null);
+      try{
+        const response=await fetch('/api/messenger-automation',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'whatsapp-autopost-batch',limit:30}),
+        });
+        const body=await response.json() as {created?:number;skipped?:number;error?:string};
+        if(!response.ok)throw new Error(body.error||'Не вдалося запустити автопост черги.');
+        invalidateQueueCache('whatsapp');
+        announceDataChange('all');
+        await reloadChats.current(true);
+        const created=Number(body.created||0);
+        const skipped=Number(body.skipped||0);
+        setNotice(created
+          ? 'Поставлено в WhatsApp автопост: '+created+' чатів'+(skipped?'; пропущено '+skipped+' без безпечного material/rule match':'')+'. Executor відправлятиме їх по одному з confirmed-send перевіркою.'
+          : 'Нових чатів для безпечного автопосту зараз немає.');
+      }catch(reason){
+        setError(reason instanceof Error?reason.message:'Не вдалося запустити автопост черги.');
+        await reloadChats.current(true);
+      }finally{setBusy(null);}
+    });
+  }
+
   async function accountAction(action:string,id?:string,extra:Record<string,unknown>={}) {
     await runAction.current(async()=>{
     setBusy(id||'accounts'); setError('');
@@ -480,9 +507,13 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       <div className="queue-tabs" role="tablist" aria-label="Черга чатів">
         {queues.map(item=><button type="button" key={item.key} role="tab" aria-selected={queue===item.key} tabIndex={queue===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{if(item.key!=='ready'){setQuickPublishMode(false);setQuickAdvertisementId(null);}setQueue(item.key);setProfileFilter('all');setOffset(0)}}>{item.label}<span>{data?.counts[item.key] || 0}</span></button>)}
       </div>
-      {queue==='ready'&&(platform==='whatsapp'||platform==='viber')&&<div className={`platform-queue-context ${quickPublishMode?'is-active':''}`}>
-        <div><strong>{quickPublishMode?'Швидкий режим увімкнено':'Швидкий режим'}</strong><span>{quickPublishMode?(quickAdvertisementId?'Матеріал серії вже зафіксовано. Підтверджуйте тільки фактично зроблені публікації.':'Оберіть матеріал у першому чаті — далі він лишатиметься для серії.'):'Один матеріал для серії чатів, із ручним підтвердженням кожної фактичної публікації.'}</span></div>
-        <Button type="button" size="sm" variant={quickPublishMode?'outline':'default'} disabled={busy!==null} onClick={()=>{setQuickPublishMode(value=>{const next=!value;if(!next)setQuickAdvertisementId(null);return next;});}}><Send data-icon="inline-start"/>{quickPublishMode?'Завершити':'Увімкнути'}</Button>
+      {queue==='ready'&&(platform==='whatsapp'||platform==='viber')&&<div className={'platform-queue-context '+(quickPublishMode?'is-active':'')}>
+        <div><strong>{platform==='whatsapp'?'Автопублікація черги':quickPublishMode?'Швидкий режим увімкнено':'Швидкий режим'}</strong><span>{platform==='whatsapp'
+          ? 'Work OS сам підбере невикористані матеріали й поставить до 30 доступних чатів у confirmed-send executor queue.'
+          : quickPublishMode?(quickAdvertisementId?'Матеріал серії вже зафіксовано. Підтверджуйте тільки фактично зроблені публікації.':'Оберіть матеріал у першому чаті — далі він лишатиметься для серії.'):'Один матеріал для серії чатів, із ручним підтвердженням кожної фактичної публікації.'}</span></div>
+        {platform==='whatsapp'
+          ? <Button type="button" size="sm" disabled={busy!==null} onClick={()=>void startWhatsAppAutopostBatch()}><Send data-icon="inline-start"/>Автопост черги</Button>
+          : <Button type="button" size="sm" variant={quickPublishMode?'outline':'default'} disabled={busy!==null} onClick={()=>{setQuickPublishMode(value=>{const next=!value;if(!next)setQuickAdvertisementId(null);return next;});}}><Send data-icon="inline-start"/>{quickPublishMode?'Завершити':'Увімкнути'}</Button>}
       </div>}
       <div className="chat-toolbar">
         <label htmlFor="chat-search"><Search/><Input id="chat-search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Пошук за назвою або посиланням"/><span className="sr-only">Пошук чатів</span></label>

@@ -7,6 +7,7 @@ import {
   cancelViberSafeNoteJob,
   cancelWhatsAppAutopostJob,
   createViberSafeNoteJob,
+  createWhatsAppAutopostBatch,
   createWhatsAppAutopostJob,
   readLatestViberSafeNoteJob,
   readLatestWhatsAppAutopostJob,
@@ -47,6 +48,9 @@ export async function POST(request:Request):Promise<Response>{
       return json({job:await createWhatsAppAutopostJob(env.DB,user.id,{
         requestKey:body.requestKey,chatId:body.chatId,advertisementId:body.advertisementId,language:body.language,
       },now,businessDate(now))});
+    }
+    if(body.action==='whatsapp-autopost-batch'){
+      return json(await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit},now,businessDate(now)));
     }
     if(body.action==='cancel-whatsapp-autopost'){
       if(typeof body.jobId!=='string'||!body.jobId)throw new MessengerAutomationError('WhatsApp autopost задача не вказана.');

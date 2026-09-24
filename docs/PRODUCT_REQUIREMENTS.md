@@ -477,7 +477,9 @@
 - Eligibility перевіряється перед claim/send; під час active job manual publication і return-to-join блокуються.
 - `sent` callback приймається лише з exact target verification + factual send confirmation.
 - Після confirmed send accounting є fact-first: пізня зміна Library/profile не може стерти реальну відправку; unique chat/day publication guard не допускає дубль.
-- UI дозволяє cancel, поки job ще pending; unexpired claimed job не скасовується, бо send уже може бути в польоті. Після lease expiry cancel знову безпечний. Поточний v0.2.55 path текстовий; image/media потребує окремого canonical Library media model.
+- UI дозволяє cancel, поки job ще pending; unexpired claimed job не скасовується, бо send уже може бути в польоті. Після lease expiry cancel знову безпечний.
+- **Batch autopost**: одна дія може поставити до 30 eligible ready WhatsApp chats у чергу. Active pending/claimed jobs резервують свої advertisement IDs у same-day WhatsApp selection, тому різні невикористані придатні матеріали розподіляються між jobs до повторного використання. Claim виключає власну reservation із перевірки, але бачить reservations інших jobs. Повторний batch не дублює активні chat/day jobs.
+- Поточний v0.2.57 path текстовий; image/media потребує окремого canonical Library media model.
 
 - v0.2.35: Platforms archive-reason dialog uses native fieldset/legend semantics while preserving responsive touch targets; UX regression coverage guards the accessible grouping.
 
