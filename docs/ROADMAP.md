@@ -153,3 +153,12 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] UI and server contract state that the target is only «Мої нотатки» and the smoke test creates no publication accounting fact.
 - [ ] Native CachyOS/Viber send acceptance remains a separate manual/future gate; real Viber chats stay disabled until explicit approval.
 - Next: continue Chat Discovery/external executor acceptance and website-based WhatsApp automation without weakening fail-closed target verification.
+
+
+## v0.2.40 — executor target-verification hardening
+
+- [x] Discovery executor tasks expose the expected target, runtime (whatsapp_web / viber_native) and a fail-closed target-verification requirement.
+- [x] External executor membership/inspection callbacks that assert accessible/pending/joined/inspected state require targetVerified=true; manual operator qualification remains a separate trusted UI path.
+- [x] External leave requires the same target proof before any archive/leave mutation.
+- [x] The reference runner short-circuits unknown/wrong targets, and the pairing panel documents WhatsApp Web vs Viber native behavior.
+- [ ] Real WhatsApp Web automation acceptance remains open; this slice hardens the server/runner contract and does not claim a live browser result.
