@@ -243,8 +243,8 @@ void test('Platform mutations and sync revisions reconcile without remounting or
   assert.match(workspace, /const viewCache=useRef\(new Map<string,ResponseData>\(\)\)/);
   assert.match(workspace, /const cachedData=viewCache\.current\.get\(requestKey\)\|\|null/);
   assert.match(workspace, /const data=loadedData\?\.requestKey===requestKey\?loadedData:cachedData/);
-  assert.match(workspace, /prefetching\.current\.add\(nextKey\)/);
-  assert.match(workspace, /viewCache\.current\.set\(nextKey,\{\.\.\.nextBody,requestKey:nextKey\}\)/);
+  assert.doesNotMatch(workspace, /prefetching|cacheEpoch/);
+  assert.doesNotMatch(loadBlock, /for\(const item of queues\)[\s\S]*fetch\(`\/api\/chats/);
   assert.match(workspace, /invalidateQueueCache\(chat\.platform\)/);
   assert.match(workspace, /await reloadChats\.current\(true\)/);
   assert.match(workspace, /syncRevision\?: number/);
