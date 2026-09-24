@@ -382,15 +382,14 @@ button:not([data-slot="button"]) { color: inherit; }
 .platform-picker button { min-height: 42px; display:flex; align-items:center; gap:7px; flex:0 0 auto; padding:0 12px; border:1px solid transparent; border-radius:8px; background:transparent; color:#626977; cursor:pointer; font-size:13px; font-weight:700; }
 .platform-picker button[aria-selected='true'] { border-color:#e1e5ec; background:#fff; color:#17191e; box-shadow:0 2px 8px rgb(20 25 36 / .07); }
 .platform-picker i { width:8px; height:8px; border-radius:50%; }
-.platform-overview { display:grid; grid-template-columns:.8fr 1.1fr repeat(3,minmax(0,1fr)); overflow:hidden; }
+.platform-overview { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); overflow:hidden; }
 .platform-stat { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:2px 10px; padding:13px 15px; border-left:1px solid var(--border); }
 .platform-stat:first-child { border-left:0; }
 .platform-stat > span { color:var(--muted-foreground); font-size:11px; font-weight:700; }
 .platform-stat > strong { grid-row:1 / span 2; grid-column:2; color:var(--foreground); font-size:18px; line-height:1; font-variant-numeric:tabular-nums; }
-.platform-stat > small { color:var(--muted-foreground); font-size:10px; }
 .platform-stat.has-actions { grid-template-columns:minmax(0,1fr) auto; }
 .platform-stat-actions { grid-column:1 / -1; display:flex; align-items:center; gap:2px; margin-top:3px; }
-.platform-stat-actions [data-slot="button"] { min-height:30px; height:30px; padding-inline:7px; box-shadow:none; color:var(--muted-foreground); }
+.platform-stat-actions [data-slot="button"] { min-height:36px; height:36px; padding-inline:8px; box-shadow:none; color:var(--muted-foreground); }
 .platform-stat-actions [data-slot="button"]:hover:not(:disabled) { background:#f2f4f7; color:var(--foreground); box-shadow:none; }
 
 @container platform-workspace (max-width:900px) {
@@ -765,9 +764,6 @@ button:not([data-slot="button"]) { color: inherit; }
   .telegram-break { align-items: stretch; flex-direction: column; }
   .telegram-account-editor { grid-template-columns: 28px minmax(0,1fr) auto; }
   .telegram-account-create { grid-template-columns: 1fr; }
-  .queue-tabs { grid-template-columns: repeat(2,1fr); }
-  .queue-tabs button:nth-child(2) { border-right: 0; }
-  .queue-tabs button:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
   .chat-toolbar { flex-wrap: wrap; padding: 12px; }
   .chat-toolbar label { min-width: 100%; }
   .chat-row { grid-template-columns: 1fr; padding: 14px; }
