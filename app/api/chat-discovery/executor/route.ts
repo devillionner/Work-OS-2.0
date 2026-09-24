@@ -50,6 +50,7 @@ export async function POST(request: Request): Promise<Response> {
         candidateId: body.candidateId,
         expectedVersion: Number(body.version),
         chatStateToken: body.chatStateToken,
+        targetVerified: body.targetVerified,
       }, now));
     }
     throw new DiscoveryError('Невідома executor-дія.');
