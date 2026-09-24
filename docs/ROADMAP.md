@@ -347,3 +347,12 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Require a member/participant label so unrelated compact numbers remain unknown.
 - [x] Regression coverage protects English/Ukrainian/Russian compact formats and non-member numbers.
 - [ ] Physical WhatsApp Web acceptance remains pending until a CDP-enabled authenticated session is available.
+
+
+## v0.2.70 — broader factual WhatsApp ad evidence
+
+- [x] Expand ad-like evidence to common UA/RU/EN marketplace, wanted, service, work, rent and transport wording.
+- [x] Preserve the threshold of recent activity + at least two visible ad-like messages.
+- [x] Preserve explicit prohibition precedence and fail closed for one-message/inactive evidence.
+- [x] Regression coverage protects positive and negative inference cases.
+- [ ] Physical WhatsApp Web acceptance remains pending until a CDP-enabled authenticated session is available.

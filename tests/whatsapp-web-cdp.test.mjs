@@ -298,6 +298,54 @@ void test('runtime spam mismatch has priority over an otherwise positive Ukraini
   assert.equal(facts.topicMatch,'mismatch');
 });
 
+void test('recent repeated marketplace/service evidence supports inferred ads policy across UA/RU/EN wording', () => {
+  for (const messages of [
+    ['Віддам дитячі речі','Обмін велосипеда на самокат'],
+    ['Продаю стіл','Ищу репетитора английского'],
+    ['Looking for apartment','Services: math tutor'],
+  ]) {
+    const facts=deriveWhatsappQualification({
+      groupInfoText:'Українці Berlin · 1 200 participants',
+      mainText:'Today',
+      messageTexts:messages,
+      messageMeta:[],
+      headerTitles:['Українці Berlin'],
+    });
+    assert.equal(facts.activityState,'active');
+    assert.equal(facts.adsPolicy,'inferred_allowed');
+  }
+});
+
+void test('ads inference remains fail-closed with one ad-like message, inactive evidence or explicit prohibition', () => {
+  const one=deriveWhatsappQualification({
+    groupInfoText:'Українці Berlin · 1 200 participants',
+    mainText:'Today',
+    messageTexts:['Продаю стіл','Звичайне повідомлення'],
+    messageMeta:[],
+    headerTitles:['Українці Berlin'],
+  });
+  assert.equal(one.adsPolicy,undefined);
+
+  const inactive=deriveWhatsappQualification({
+    groupInfoText:'Українці Berlin · 1 200 participants',
+    mainText:'',
+    messageTexts:['Продаю стіл','Шукаю квартиру'],
+    messageMeta:[],
+    headerTitles:['Українці Berlin'],
+  });
+  assert.equal(inactive.activityState,undefined);
+  assert.equal(inactive.adsPolicy,undefined);
+
+  const forbidden=deriveWhatsappQualification({
+    groupInfoText:'Українці Berlin · 1 200 participants · Реклама заборонена',
+    mainText:'Today',
+    messageTexts:['Продаю стіл','Шукаю квартиру'],
+    messageMeta:[],
+    headerTitles:['Українці Berlin'],
+  });
+  assert.equal(forbidden.adsPolicy,'forbidden');
+});
+
 void test('obvious spam evidence overrides source topic assumptions', () => {
   const facts = deriveWhatsappQualification({
     groupInfoText:'950 participants',

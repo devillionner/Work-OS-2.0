@@ -1,5 +1,13 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 broader factual WhatsApp ad evidence / v0.2.70
+
+- WhatsApp Web ad-like message evidence now covers common UA/RU/EN marketplace, give-away, exchange, wanted, services, work, rent and transport wording instead of a narrow handful of stems.
+- The decision threshold did not change: `inferred_allowed` still requires factual recent activity plus at least two visible ad-like messages.
+- A single ad-like message, missing/recent-activity evidence, or any explicit ad prohibition cannot become `inferred_allowed`; explicit prohibition still wins.
+- This reduces false `unknown_ads_allowed` reviews without turning normal conversation into permission evidence. No D1 schema or production operation changed.
+
+
 ## 2026-09-24 factual compact WhatsApp member counts / v0.2.69
 
 - WhatsApp Web factual qualification now parses localized compact counts such as `1.2K members`, `1,2K participants`, `1,2 тис. учасників` and `1.2 тыс. участников`.
