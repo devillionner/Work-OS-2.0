@@ -21,6 +21,8 @@ void test('server revision refreshes persistent data workspaces without remount 
   assert.match(shell,/AnalyticsWorkspace[^>]+syncRevision=\{syncRevision\}[^>]+active=\{activeView === 'analytics'\}/);
   assert.match(shell,/ReportsWorkspace[^>]+syncRevision=\{syncRevision\}[^>]+active=\{activeView === 'reports'\}/);
   assert.match(shell,/LibraryWorkspace[^>]+syncRevision=\{syncRevision\}[^>]+active=\{activeView === 'library'\}/);
+  assert.match(shell,/PlatformWorkspace[^>]+syncRevision=\{syncRevision\}[^>]+active=\{activeView === 'platforms'\}/);
+  assert.match(shell,/SettingsWorkspace[^>]+active=\{activeView === 'settings'\}/);
   for(const file of ['components/leads/workspace.tsx','components/analytics-workspace.tsx','components/reports-workspace.tsx','components/library-workspace.tsx']){
     const source=read(file);
     assert.match(source,/lastSyncRevision/);
@@ -72,4 +74,30 @@ void test('persistent settings re-syncs server props instead of depending on a r
   const settings=read('components/settings-workspace.tsx');
   assert.match(settings,/lastSnapshotPlatformsKey=useRef\(snapshotPlatformsKey\)/);
   assert.match(settings,/setEnabledPlatforms\(snapshot\.enabledPlatforms\)/);
+});
+
+void test('persistent hidden workspaces close portal overlays and disable hidden global shortcuts',()=>{
+  const platform=read('components/platform-workspace.tsx');
+  for(const setter of ['setBulkOpen(false)','setDiscoveryOpen(false)','setDuplicatesOpen(false)','setProfileChat(null)','setHistoryChat(null)','setPublishChat(null)','setConfirmation(null)','setArchiveId(null)','setDeleteChat(null)']) {
+    assert.match(platform,new RegExp(setter.replace(/[()]/g,'\\$&')));
+  }
+
+  const leads=read('components/leads/workspace.tsx');
+  assert.match(leads,/if \(active\) return;[\s\S]*setHistoryOpen\(false\)[\s\S]*setEditor\(null\)[\s\S]*setArchive\(false\)[\s\S]*setResponseChange\(false\)/);
+  assert.match(leads,/if\(!active\)return;[\s\S]*document\.addEventListener\('keydown'/);
+
+  const analytics=read('components/analytics-workspace.tsx');
+  assert.match(analytics,/if \(!active\) setDetailMetric\(null\)/);
+
+  const reports=read('components/reports-workspace.tsx');
+  assert.match(reports,/if \(!active\) \{[\s\S]*setHistoryOpen\(false\)[\s\S]*setBackdatedLeadOpen\(false\)/);
+  assert.match(reports,/if\(!active\)return;[\s\S]*window\.addEventListener\('keydown'/);
+
+  const library=read('components/library-workspace.tsx');
+  assert.match(library,/if\(active\)return;[\s\S]*setHistoryOpen\(false\)[\s\S]*setArchiveCandidate\(null\)/);
+
+  const settings=read('components/settings-workspace.tsx');
+  for(const setter of ['setFocusOpen(false)','setGoalHistoryOpen(false)','setUpdatePreviewOpen(false)','setRestoreOpen(false)','setDuplicatesOpen(false)','setCsvOpen(false)','setNamesOpen(false)']) {
+    assert.match(settings,new RegExp(setter.replace(/[()]/g,'\\$&')));
+  }
 });
