@@ -531,7 +531,7 @@ void test('autonomous Discovery advances the seed matrix through public Telegram
     if (String(url).includes('search.brave.com')) {
       return html('<a href="https://t.me/ua_berlin_public">Telegram result</a>');
     }
-    if (String(url) === 'https://t.me/ua_berlin_public') {
+    if (String(url) === 'https://t.me/s/ua_berlin_public') {
       return html('<article>Українці Berlin батьки · https://chat.whatsapp.com/AutonomousTelegram123</article>');
     }
     return html('');
@@ -560,7 +560,7 @@ void test('Discovery goal counts only new confirmed targets, never raw invite yi
     if (String(url).includes('search.brave.com')) {
       return html('<a href="https://t.me/ua_goal">Telegram result</a>');
     }
-    if (String(url) === 'https://t.me/ua_goal') {
+    if (String(url) === 'https://t.me/s/ua_goal') {
       return html(
         '<p>Українці Berlin батьки https://chat.whatsapp.com/GoalTargetOne123</p>' +
         '<p>Українці Berlin community https://chat.whatsapp.com/GoalTargetTwo123</p>'
@@ -599,7 +599,7 @@ void test('archived unavailable WhatsApp history suppresses rediscovery and auto
   const firstRun = await startDiscoveryRun(db, 'u', { platforms:['whatsapp'], goal:5, minMembers:700 }, 100);
   const fetcher = async (url) => {
     if (String(url).includes('search.brave.com')) return html('<a href="https://t.me/ua_suppression">Telegram result</a>');
-    if (String(url) === 'https://t.me/ua_suppression') {
+    if (String(url) === 'https://t.me/s/ua_suppression') {
       return html('<p>Українці Berlin https://chat.whatsapp.com/NeverRejoinArchived123</p>');
     }
     return html('');
