@@ -1,5 +1,13 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 factual compact WhatsApp member counts / v0.2.69
+
+- WhatsApp Web factual qualification now parses localized compact counts such as `1.2K members`, `1,2K participants`, `1,2 тис. учасників` and `1.2 тыс. участников`.
+- Compact conversion is accepted only when the number is directly tied to a recognized member/participant label; unrelated counts such as views remain unknown.
+- Existing full integer formats remain supported and canonical target thresholds stay 700–18,000.
+- This reduces false `unknown_member_count` reviews without inferring a count from unrelated UI text. No D1 schema or production operation changed.
+
+
 ## 2026-09-24 factual WhatsApp topic qualification / v0.2.68
 
 - WhatsApp Web runtime qualification can now emit factual `topicMatch='match'` when the observed group identity (header/info drawer) itself contains a strong Ukrainian/Ukrainians/Ukraine/🇺🇦 signal.

@@ -518,7 +518,14 @@ function parseMessageTimestamp(value, nowMs) {
 
 function parseMemberCount(value) {
   const text = String(value || '');
-  const match = text.match(/(\d[\d\s.,\u00a0]{0,12})\s*(?:participants?|members?|учасник(?:ів|и|а)?|участник(?:ов|а|и)?)/iu);
+  const label = '(?:participants?|members?|учасник(?:ів|и|а)?|участник(?:ов|а|и)?)';
+  const compact = text.match(new RegExp('(\\d{1,3}(?:[.,]\\d{1,2})?)\\s*(?:k|тис\\.?|тыс\\.?)\\s*'+label, 'iu'));
+  if (compact) {
+    const amount = Number(compact[1].replace(',', '.'));
+    const count = Math.round(amount * 1000);
+    return Number.isFinite(amount) && amount > 0 && Number.isSafeInteger(count) && count <= 10_000_000 ? count : undefined;
+  }
+  const match = text.match(new RegExp('(\\d[\\d\\s.,\\u00a0]{0,12})\\s*'+label, 'iu'));
   if (!match) return undefined;
   const digits = match[1].replace(/\D/gu, '');
   if (!digits) return undefined;

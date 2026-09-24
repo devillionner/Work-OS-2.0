@@ -223,6 +223,37 @@ void test('joined qualification extracts factual member, recent activity and exp
   assert.equal(facts.topicMatch,'match');
 });
 
+void test('joined qualification parses compact factual member counts used by localized WhatsApp UI', () => {
+  for (const [label, expected] of [
+    ['Ukrainians Berlin · 1.2K members',1200],
+    ['Українці Berlin · 1,2K participants',1200],
+    ['Українці Berlin · 1,2 тис. учасників',1200],
+    ['Українці Berlin · 1.2 тыс. участников',1200],
+    ['Українці Berlin · 999 members',999],
+    ['Українці Berlin · 1,234 members',1234],
+  ]) {
+    const facts=deriveWhatsappQualification({
+      groupInfoText:label,
+      mainText:'',
+      messageTexts:[],
+      messageMeta:[],
+      headerTitles:['Українці Berlin'],
+    });
+    assert.equal(facts.memberCount,expected,label);
+  }
+});
+
+void test('member count stays unknown when a compact number has no factual participant label', () => {
+  const facts=deriveWhatsappQualification({
+    groupInfoText:'Українці Berlin · 1.2K views',
+    mainText:'',
+    messageTexts:[],
+    messageMeta:[],
+    headerTitles:['Українці Berlin'],
+  });
+  assert.equal(facts.memberCount,undefined);
+});
+
 void test('recent repeated advertisement evidence may satisfy inferred ads policy without inventing explicit permission', () => {
   const facts = deriveWhatsappQualification({
     groupInfoText:'1,250 participants',

@@ -338,3 +338,12 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Preserve spam/topic mismatch precedence over Ukrainian identity.
 - [x] Regression coverage protects positive, unknown and mismatch runtime cases.
 - [ ] Physical WhatsApp Web acceptance remains pending until a CDP-enabled authenticated session is available.
+
+
+## v0.2.69 — factual compact WhatsApp member counts
+
+- [x] Parse K/тис./тыс. compact member counts from observed WhatsApp group info.
+- [x] Preserve full localized integer counts and the canonical 700–18,000 target threshold.
+- [x] Require a member/participant label so unrelated compact numbers remain unknown.
+- [x] Regression coverage protects English/Ukrainian/Russian compact formats and non-member numbers.
+- [ ] Physical WhatsApp Web acceptance remains pending until a CDP-enabled authenticated session is available.
