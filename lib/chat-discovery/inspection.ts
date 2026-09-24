@@ -4,6 +4,7 @@ import { transitionChat } from '../chats/transitions.ts';
 import {
   DiscoveryError,
   evaluateDiscoveryCandidate,
+  reconcileDiscoveryRunGoal,
   type DiscoveryCandidate,
   type DiscoveryDecision,
 } from './domain.ts';
@@ -37,6 +38,7 @@ type CandidateRow = {
   decision: DiscoveryDecision;
   reason_codes_json: string;
   imported_chat_id: string | null;
+  discovery_run_id: string | null;
   version: number;
 };
 
@@ -111,7 +113,7 @@ export async function applyDiscoveryInspection(
 
   const observedName = cleanChatName(result.observedName || '');
   const nextName = observedName && isGeneratedName(current.name) ? observedName : current.name;
-  const nextTopic = result.topicMatch ?? 'unknown';
+  const nextTopic = result.topicMatch ?? current.topic_match;
   const reason = (result.reason || '').slice(0, 100);
   const knownUnavailable = result.accessible === false && KNOWN_UNAVAILABLE.has(reason);
   const accessState = result.accessible === true ? 'available'
@@ -140,10 +142,6 @@ export async function applyDiscoveryInspection(
     linkState,
   }, minMembers);
 
-  const nextExecutorCheckAt = candidate.platform === 'whatsapp' && membershipState === 'pending'
-    ? now + 180
-    : null;
-
   const update = await db.prepare(`UPDATE chat_discovery_candidates SET
     name=?1,checked_at=?2,member_count=?3,chat_type=?4,activity_state=?5,topic_match=?6,
     can_write=?7,ads_policy=?8,membership_state=?9,access_state=?10,link_state=?11,
@@ -153,7 +151,10 @@ export async function applyDiscoveryInspection(
     RETURNING version`)
     .bind(nextName, now, memberCount, chatType, activityState, nextTopic,
       canWrite === null ? null : Number(canWrite), adsPolicy, membershipState, accessState, linkState,
-      inspectionState, evaluated.decision, JSON.stringify(evaluated.reasonCodes), nextExecutorCheckAt,
+      inspectionState, evaluated.decision, JSON.stringify(evaluated.reasonCodes),
+      candidate.platform === 'whatsapp' && membershipState === 'pending' ? now + 180
+        : candidate.platform === 'whatsapp' && membershipState === 'joined' && evaluated.decision === 'review' ? now + 600
+        : null,
       candidate.id, userId, expectedVersion, candidate.imported_chat_id,input.executorDeviceId??null)
     .first<{ version: number }>();
   if (!update) throw new DiscoveryError('Кандидат змінився під час автоперевірки. Оновіть список.', 409);
@@ -183,6 +184,9 @@ export async function applyDiscoveryInspection(
 
   const needsExternalLeave = membershipState === 'joined'
     && (evaluated.decision === 'rejected' || evaluated.decision === 'unavailable');
+  if (finalCandidate.discovery_run_id) {
+    await reconcileDiscoveryRunGoal(db, userId, finalCandidate.discovery_run_id, now);
+  }
   return {
     candidateId: candidate.id,
     chatId: candidate.imported_chat_id,

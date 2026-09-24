@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  advanceAutonomousDiscoveryRun,
   cancelDiscoveryRun,
   continueDiscoveryRun,
   evaluateDiscoveryCandidate,
@@ -458,6 +459,118 @@ void test('qualification is fail-closed until every target criterion is confirme
     linkState: 'invalid',
     accessState: 'unavailable',
   }), { decision: 'unavailable', reasonCodes: ['invalid_invite'] });
+});
+
+void test('autonomous Discovery advances the seed matrix through public Telegram pages without operator query input', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms:['whatsapp'], goal:50, minMembers:700 }, 100);
+  const calls = [];
+  const result = await advanceAutonomousDiscoveryRun(db, 'u', 'device-source', 101, async (url) => {
+    calls.push(String(url));
+    if (String(url).includes('search.brave.com')) {
+      return html('<a href="https://t.me/ua_berlin_public">Telegram result</a>');
+    }
+    if (String(url) === 'https://t.me/ua_berlin_public') {
+      return html('<article>Українці Berlin батьки · https://chat.whatsapp.com/AutonomousTelegram123</article>');
+    }
+    return html('');
+  });
+
+  assert.equal(result.advanced, true);
+  assert.equal(result.source, 'telegram');
+  assert.ok(result.batch.searched >= 1);
+  assert.ok(calls.some(url => url.includes('site%3At.me') || url.includes('site%3At.me'.toLowerCase()) || decodeURIComponent(url).includes('site:t.me')));
+  const workspace = await readDiscoveryWorkspace(db, 'u');
+  const candidate = workspace.candidates.find(item => item.link === 'https://chat.whatsapp.com/AutonomousTelegram123');
+  assert.ok(candidate);
+  assert.ok(candidate.importedChatId);
+  assert.equal(candidate.decision, 'review');
+  assert.equal(workspace.run?.targetCount, 0);
+  assert.equal(workspace.run?.status, 'running');
+  const queue = await readDiscoveryExecutorQueue(db, 'u', 10);
+  assert.equal(queue.tasks.find(item => item.candidateId === candidate.id)?.action, 'join_and_inspect');
+  assert.ok(workspace.run?.telegramCursor > run.telegramCursor);
+});
+
+void test('Discovery goal counts only new confirmed targets, never raw invite yield', async (t) => {
+  const db = await localDatabase(t);
+  await startDiscoveryRun(db, 'u', { platforms:['whatsapp'], goal:2, minMembers:700 }, 100);
+  await advanceAutonomousDiscoveryRun(db, 'u', 'device-source', 101, async (url) => {
+    if (String(url).includes('search.brave.com')) {
+      return html('<a href="https://t.me/ua_goal">Telegram result</a>');
+    }
+    if (String(url) === 'https://t.me/ua_goal') {
+      return html(
+        '<p>Українці Berlin батьки https://chat.whatsapp.com/GoalTargetOne123</p>' +
+        '<p>Українці Berlin community https://chat.whatsapp.com/GoalTargetTwo123</p>'
+      );
+    }
+    return html('');
+  });
+  let workspace = await readDiscoveryWorkspace(db, 'u');
+  const candidates = workspace.candidates.filter(item => item.link.includes('GoalTarget'));
+  assert.equal(candidates.length, 2);
+  assert.equal(workspace.run?.foundCount, 2);
+  assert.equal(workspace.run?.targetCount, 0);
+  assert.equal(workspace.run?.status, 'running');
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const current = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidates[index].id);
+    assert.ok(current);
+    await applyDiscoveryInspection(db, 'u', {
+      candidateId:current.id,
+      expectedVersion:current.version,
+      result:{
+        status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
+        observedName:`Українці Berlin target ${index + 1}`, chatType:'group', memberCount:900,
+        topicMatch:'match', canWrite:true, adsPolicy:'allowed', activityState:'active',
+      },
+    }, 110 + index);
+    workspace = await readDiscoveryWorkspace(db, 'u');
+    assert.equal(workspace.run?.targetCount, index + 1);
+    assert.equal(workspace.run?.status, index === candidates.length - 1 ? 'completed' : 'running');
+  }
+  assert.equal(workspace.run?.completionReason, 'goal_reached');
+});
+
+void test('archived unavailable WhatsApp history suppresses rediscovery and automatic rejoin in later runs', async (t) => {
+  const db = await localDatabase(t);
+  const firstRun = await startDiscoveryRun(db, 'u', { platforms:['whatsapp'], goal:5, minMembers:700 }, 100);
+  const fetcher = async (url) => {
+    if (String(url).includes('search.brave.com')) return html('<a href="https://t.me/ua_suppression">Telegram result</a>');
+    if (String(url) === 'https://t.me/ua_suppression') {
+      return html('<p>Українці Berlin https://chat.whatsapp.com/NeverRejoinArchived123</p>');
+    }
+    return html('');
+  };
+  await advanceAutonomousDiscoveryRun(db, 'u', 'device-source', 101, fetcher);
+  let workspace = await readDiscoveryWorkspace(db, 'u');
+  const candidate = workspace.candidates.find(item => item.link.endsWith('NeverRejoinArchived123'));
+  assert.ok(candidate?.importedChatId);
+  const rejected = await applyDiscoveryInspection(db, 'u', {
+    candidateId:candidate.id,
+    expectedVersion:candidate.version,
+    result:{status:'failed',accessible:false,reason:'invalid_whatsapp_link'},
+  }, 102);
+  assert.equal(rejected.workflowStatus, 'archived');
+  assert.equal(rejected.autoArchived, true);
+
+  workspace = await readDiscoveryWorkspace(db, 'u');
+  assert.ok(workspace.run);
+  await cancelDiscoveryRun(db, 'u', firstRun.id, workspace.run.version, 103);
+  const secondRun = await startDiscoveryRun(db, 'u', { platforms:['whatsapp'], goal:5, minMembers:700 }, 104);
+  const second = await advanceAutonomousDiscoveryRun(db, 'u', 'device-source', 105, fetcher);
+  assert.equal(second.advanced, true);
+  assert.equal(second.batch.added, 0);
+  assert.ok(second.batch.duplicates >= 1);
+
+  workspace = await readDiscoveryWorkspace(db, 'u');
+  assert.equal(workspace.candidates.filter(item => item.link.endsWith('NeverRejoinArchived123')).length, 1);
+  assert.notEqual(workspace.candidates.find(item => item.id === candidate.id)?.decision, 'target');
+  assert.equal(workspace.run?.id, secondRun.id);
+  assert.equal(workspace.run?.targetCount, 0);
+  const queue = await readDiscoveryExecutorQueue(db, 'u', 20);
+  assert.equal(queue.tasks.some(item => item.candidateId === candidate.id), false);
 });
 
 void test('discovery run persists one canonical candidate, provenance and owner isolation', async (t) => {

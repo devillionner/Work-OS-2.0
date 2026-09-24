@@ -10,22 +10,26 @@ void test('Platforms exposes a real Chat Discovery workflow instead of an API-on
 
   assert.match(workspace, /ChatDiscoveryDialog/);
   assert.match(workspace, /Знайти чати/);
-  assert.match(dialog, /Почати Telegram-пошук/);
-  assert.match(dialog, /Web fallback/);
-  assert.match(dialog, /Зупинити/);
+  assert.match(dialog, /Запустити автопошук/);
+  assert.match(dialog, /Нових цільових чатів/);
+  assert.match(dialog, /Зупинити автопошук/);
   assert.match(dialog, /Додати на перевірку/);
   assert.match(dialog, /Звідки знайдено/);
   assert.match(dialog, /unknown_member_count/);
   assert.match(dialog, /unknown_invite_validity/);
   assert.match(dialog, /unknown_access/);
-  assert.match(dialog, /while \(run\.status === 'running'/);
+  assert.match(dialog, /run\.targetCount/);
+  assert.doesNotMatch(dialog, /while \(run\.status === 'running'/);
 });
 
-void test('discovery UI keeps candidate goal distinct from confirmed target qualification', async () => {
+void test('discovery UI goal means confirmed targets and needs no keyword, city or time input', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
-  assert.match(dialog, /Нових кандидатів/);
-  assert.match(dialog, /Мінімум учасників/);
-  assert.match(dialog, /Невідомі критерії не зараховуються/);
+  assert.match(dialog, /Нових цільових чатів/);
+  assert.match(dialog, /useState\(50\)/);
+  assert.match(dialog, /const minMembers = 700/);
+  assert.match(dialog, /весь seed-корпус міст і ключових шаблонів сам/);
+  assert.match(dialog, /тільки нові підтверджені WhatsApp-чати/);
+  assert.doesNotMatch(dialog, /id="discovery-min-members"/);
 });
 
 
@@ -58,12 +62,14 @@ void test('WhatsApp waiting is a dedicated server-filtered queue with an executo
   assert.match(executor, /platform='whatsapp' AND membership_state='pending'/);
 });
 
-void test('discovery UI exposes the Telegram to WhatsApp ingestion bridge', async () => {
+void test('manual Telegram ingestion remains a collapsed recovery fallback, not the primary workflow', async () => {
   const [dialog, route] = await Promise.all([
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../app/api/chat-discovery/route.ts', import.meta.url), 'utf8'),
   ]);
-  assert.match(dialog, /Telegram → WhatsApp/);
+  assert.match(dialog, /Recovery: ручне Telegram-джерело/);
+  assert.match(dialog, /Ручний Telegram fallback/);
+  assert.match(dialog, /Не потрібен для звичайного автопошуку/);
   assert.match(dialog, /Результати пошуку Telegram/);
   assert.match(dialog, /Зберегти джерело/);
   assert.match(dialog, /Завершити query → наступний/);
@@ -72,20 +78,20 @@ void test('discovery UI exposes the Telegram to WhatsApp ingestion bridge', asyn
   assert.match(route, /ingestTelegramDiscovery/);
 });
 
-void test('Telegram keyword plan is the primary discovery flow and public web is explicitly fallback', async () => {
-  const [dialog, route, domain] = await Promise.all([
+void test('autonomous seed plan is primary and public web fallback is server-owned', async () => {
+  const [dialog, domain, runner] = await Promise.all([
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
-    readFile(new URL('../app/api/chat-discovery/route.ts', import.meta.url), 'utf8'),
     readFile(new URL('../lib/chat-discovery/domain.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../scripts/chat-discovery-runner.mjs', import.meta.url), 'utf8'),
   ]);
-  assert.match(dialog, /Почати Telegram-пошук/);
-  assert.match(dialog, /Черга Telegram-запитів/);
-  assert.match(dialog, /«Завершити query» просуває cursor рівно на один крок/);
-  assert.match(dialog, /Web fallback/);
-  assert.match(dialog, /run\.telegramCursor/);
-  assert.doesNotMatch(route, /body\.action === 'advance-telegram-plan'/);
-  assert.match(domain, /telegram_cursor/);
+  assert.match(dialog, /Запустити автопошук/);
+  assert.match(dialog, /Цільові: <strong[^>]*>\{run\.targetCount\} \/ \{run\.goal\}/);
+  assert.doesNotMatch(dialog, />Web fallback</);
+  assert.match(domain, /advanceAutonomousDiscoveryRun/);
+  assert.match(domain, /discoverTelegramPublic/);
   assert.match(domain, /buildTelegramSearchPlan/);
+  assert.match(domain, /buildPublicSearchTasks/);
+  assert.match(runner, /action:'advance-discovery'/);
 });
 
 void test('Telegram ingestion and advancement use the persistent plan query as the only query source', async () => {
@@ -147,13 +153,13 @@ void test('candidate cards expose the WhatsApp link and every target qualificati
   assert.match(dialog, /topicMatchLabel/);
 });
 
-void test('discovery run and candidate actions cover both WhatsApp and Viber', async () => {
+void test('autonomous discovery launch is WhatsApp-only while domain keeps Viber recovery support', async () => {
   const [dialog, domain, executor] = await Promise.all([
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../lib/chat-discovery/domain.ts', import.meta.url), 'utf8'),
     readFile(new URL('../lib/chat-discovery/executor.ts', import.meta.url), 'utf8'),
   ]);
-  assert.match(dialog, /const platforms: DiscoveryPlatform\[\] = \['whatsapp', 'viber'\]/);
+  assert.match(dialog, /const platforms: DiscoveryPlatform\[\] = \['whatsapp'\]/);
   assert.match(dialog, /candidate\.platform === 'viber' \? 'invalid_viber_link' : 'invalid_whatsapp_link'/);
   assert.match(domain, /item === 'whatsapp' \|\| item === 'viber'/);
   assert.match(executor, /\['whatsapp','viber'\]\.includes\(chat\.platform\)/);

@@ -1,6 +1,6 @@
 import { businessDate } from '../business-time.ts';
 import { cleanChatName, normalizeGroupLink, suggestedChatName, type ChatPlatform } from '../chats/bulk-input.ts';
-import { buildTelegramSearchPlan, discoverPublicWeb, extractInviteRecords, type DiscoveryPlatform, type DiscoveryRecord, type DiscoverySource, type TelegramSearchPlan } from './public-web.ts';
+import { buildPublicSearchTasks, buildTelegramSearchPlan, discoverPublicWeb, discoverTelegramPublic, extractInviteRecords, type DiscoveryPlatform, type DiscoveryRecord, type DiscoverySource, type TelegramSearchPlan } from './public-web.ts';
 
 export type DiscoveryDecision = 'review' | 'target' | 'rejected' | 'unavailable';
 export type DiscoveryRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
@@ -17,6 +17,8 @@ export type DiscoveryRun = {
   foundCount: number;
   duplicateCount: number;
   importedCount: number;
+  targetCount: number;
+  completionReason: 'goal_reached' | 'sources_exhausted' | null;
   errorMessage: string;
   startedAt: number;
   updatedAt: number;
@@ -61,8 +63,8 @@ export class DiscoveryError extends Error {
 type RunRow = {
   id: string; status: DiscoveryRunStatus; platforms_json: string; goal: number; min_members: number;
   source_cursor: number; telegram_cursor: number; searched_queries: number; found_count: number; duplicate_count: number;
-  imported_count: number; error_message: string | null; started_at: number; updated_at: number;
-  completed_at: number | null; version: number;
+  imported_count: number; target_count: number; completion_reason: string | null; error_message: string | null; started_at: number; updated_at: number;
+  completed_at: number | null; version: number; source_lease_device_id: string | null; source_lease_expires_at: number | null;
 };
 type CandidateRow = {
   id: string; platform: ChatPlatform; name: string; link: string; normalized_link: string;
@@ -72,7 +74,7 @@ type CandidateRow = {
   ads_policy: DiscoveryCandidate['adsPolicy']; membership_state: DiscoveryCandidate['membershipState'];
   access_state: DiscoveryCandidate['accessState']; link_state: DiscoveryCandidate['linkState'];
   inspection_state: DiscoveryCandidate['inspectionState']; decision: DiscoveryDecision;
-  reason_codes_json: string; imported_chat_id: string | null; updated_at: number; version: number;
+  reason_codes_json: string; imported_chat_id: string | null; discovery_run_id: string | null; updated_at: number; version: number;
 };
 type SourceRow = {
   candidate_id: string; source_kind: DiscoverySource['kind']; source_url: string; source_title: string;
@@ -87,12 +89,13 @@ export async function startDiscoveryRun(
   now: number,
 ): Promise<DiscoveryRun> {
   const platforms = validatePlatforms(input.platforms);
-  const goal = boundedInteger(input.goal, 1, 100, 30);
+  const goal = boundedInteger(input.goal, 1, 100, 50);
   const minMembers = boundedInteger(input.minMembers, 700, 18_000, 700);
   const existing = await activeRun(db, userId);
   if (existing) return mapRun(existing);
   const previous = await latestRun(db, userId);
-  const telegramCursor = Math.max(0, Number(previous?.telegram_cursor || 0));
+  const previousTelegramCursor = Math.max(0, Number(previous?.telegram_cursor || 0));
+  const telegramCursor = buildTelegramSearchPlan(previousTelegramCursor, 1).done ? 0 : previousTelegramCursor;
   const id = crypto.randomUUID();
   try {
     await db.prepare(`INSERT INTO chat_discovery_runs
@@ -112,7 +115,7 @@ export async function startDiscoveryRun(
 
 export async function cancelDiscoveryRun(db: D1Database, userId: string, runId: string, expectedVersion: number, now: number) {
   const result = await db.prepare(`UPDATE chat_discovery_runs
-    SET status='cancelled',completed_at=?1,updated_at=?1,version=version+1
+    SET status='cancelled',completed_at=?1,updated_at=?1,source_lease_device_id=NULL,source_lease_expires_at=NULL,version=version+1
     WHERE id=?2 AND user_id=?3 AND status='running' AND version=?4 RETURNING id`)
     .bind(now, runId, userId, expectedVersion).all<{ id: string }>();
   if (!result.results.length) throw new DiscoveryError('Пошук уже змінився в іншій вкладці. Оновіть стан.', 409);
@@ -146,7 +149,118 @@ export async function continueDiscoveryRun(
     done: web.done,
     errors: web.errors,
   });
-  return { run: merged.run, batch: { searched: web.searched, added: merged.added, duplicates: merged.duplicates, errors: web.errors } };
+  const reconciled = await reconcileDiscoveryRunGoal(db, userId, runId, now);
+  return { run: reconciled, batch: { searched: web.searched, added: merged.added, duplicates: merged.duplicates, errors: web.errors } };
+}
+
+export async function advanceAutonomousDiscoveryRun(
+  db: D1Database,
+  userId: string,
+  deviceId: string,
+  now: number,
+  fetcher: (input: string, init?: RequestInit) => Promise<Response> = fetch,
+): Promise<{ advanced: boolean; source: 'telegram' | 'public_web' | 'idle' | 'busy'; run: DiscoveryRun | null; batch: { searched: number; added: number; duplicates: number; errors: number } }> {
+  const active = await activeRun(db, userId);
+  if (!active) {
+    const latest = await latestRun(db, userId);
+    return { advanced:false, source:'idle', run:latest ? mapRun(latest) : null, batch:{searched:0,added:0,duplicates:0,errors:0} };
+  }
+  const before = await reconcileDiscoveryRunGoal(db, userId, active.id, now);
+  if (before.status !== 'running') {
+    return { advanced:false, source:'idle', run:before, batch:{searched:0,added:0,duplicates:0,errors:0} };
+  }
+  const row = await readRun(db, userId, active.id);
+  if (!row) throw new DiscoveryError('Запуск пошуку не знайдено.', 404);
+  const leaseExpiresAt = now + 120;
+  const claimed = await db.prepare(`UPDATE chat_discovery_runs
+    SET source_lease_device_id=?1,source_lease_expires_at=?2,version=version+1
+    WHERE id=?3 AND user_id=?4 AND status='running' AND version=?5
+      AND (source_lease_device_id=?1 OR source_lease_expires_at IS NULL OR source_lease_expires_at<=?6)
+    RETURNING *`).bind(deviceId, leaseExpiresAt, row.id, userId, row.version, now).first<RunRow>();
+  if (!claimed) {
+    const current = await readRun(db, userId, row.id);
+    return { advanced:false, source:'busy', run:current ? mapRun(current) : before, batch:{searched:0,added:0,duplicates:0,errors:0} };
+  }
+
+  const telegramPlan = buildTelegramSearchPlan(claimed.telegram_cursor, 1);
+  if (!telegramPlan.done) {
+    const found = await discoverTelegramPublic({ cursor:claimed.telegram_cursor, maxQueries:2, pageLimit:3 }, fetcher);
+    const merged = await persistDiscoveryBatch(db, userId, claimed, found.records, {
+      now,
+      nextCursor: claimed.source_cursor,
+      searched: 0,
+      done: false,
+      errors: found.errors,
+      completeAtGoal: false,
+    });
+    const advanced = await db.prepare(`UPDATE chat_discovery_runs SET
+      telegram_cursor=?1,searched_queries=searched_queries+?2,
+      error_message=?3,source_lease_device_id=NULL,source_lease_expires_at=NULL,updated_at=?4,version=version+1
+      WHERE id=?5 AND user_id=?6 AND status='running' AND source_lease_device_id=?7 RETURNING id`)
+      .bind(found.nextCursor, found.searched, found.errors ? `Telegram/public search: ${found.errors} джерел не прочитано; пошук продовжиться.` : null,
+        now, claimed.id, userId, deviceId).first<{id:string}>();
+    if (!advanced) throw new DiscoveryError('Автопошук уже змінився в іншому executor. Оновіть стан.', 409);
+    const run = await reconcileDiscoveryRunGoal(db, userId, claimed.id, now);
+    return { advanced:true, source:'telegram', run, batch:{searched:found.searched,added:merged.added,duplicates:merged.duplicates,errors:found.errors} };
+  }
+
+  const platforms = parsePlatforms(claimed.platforms_json);
+  const publicTotal = buildPublicSearchTasks(platforms).length;
+  if (claimed.source_cursor < publicTotal) {
+    const web = await discoverPublicWeb({
+      platforms,
+      cursor: claimed.source_cursor,
+      maxQueries: 4,
+      pageLimit: 1,
+      includeCurated: claimed.source_cursor === 0,
+    }, fetcher);
+    const merged = await persistDiscoveryBatch(db, userId, claimed, web.records, {
+      now,
+      nextCursor: web.nextCursor,
+      searched: web.searched,
+      done: web.done,
+      errors: web.errors,
+    });
+    await db.prepare(`UPDATE chat_discovery_runs SET source_lease_device_id=NULL,source_lease_expires_at=NULL
+      WHERE id=?1 AND user_id=?2 AND source_lease_device_id=?3`).bind(claimed.id, userId, deviceId).run();
+    const run = await reconcileDiscoveryRunGoal(db, userId, claimed.id, now);
+    return { advanced:true, source:'public_web', run, batch:{searched:web.searched,added:merged.added,duplicates:merged.duplicates,errors:web.errors} };
+  }
+
+  await db.prepare(`UPDATE chat_discovery_runs SET source_lease_device_id=NULL,source_lease_expires_at=NULL
+    WHERE id=?1 AND user_id=?2 AND source_lease_device_id=?3`).bind(claimed.id, userId, deviceId).run();
+  const run = await reconcileDiscoveryRunGoal(db, userId, claimed.id, now);
+  return { advanced:false, source:'idle', run, batch:{searched:0,added:0,duplicates:0,errors:0} };
+}
+
+export async function reconcileDiscoveryRunGoal(
+  db: D1Database,
+  userId: string,
+  runId: string,
+  now: number,
+): Promise<DiscoveryRun> {
+  const row = await readRun(db, userId, runId);
+  if (!row) throw new DiscoveryError('Запуск пошуку не знайдено.', 404);
+  const target = await db.prepare(`SELECT COUNT(*) AS count FROM chat_discovery_candidates
+    WHERE user_id=?1 AND discovery_run_id=?2 AND decision='target'`).bind(userId, runId).first<{count:number}>();
+  const targetCount = Number(target?.count || 0);
+  const telegramDone = buildTelegramSearchPlan(row.telegram_cursor, 1).done;
+  const publicDone = row.source_cursor >= buildPublicSearchTasks(parsePlatforms(row.platforms_json)).length;
+  const completionReason = targetCount >= row.goal ? 'goal_reached'
+    : telegramDone && publicDone ? 'sources_exhausted' : null;
+  if (row.status === 'running') {
+    await db.prepare(`UPDATE chat_discovery_runs SET target_count=?1,completion_reason=?2,
+      status=?3,completed_at=?4,updated_at=?5,
+      source_lease_device_id=CASE WHEN ?3='completed' THEN NULL ELSE source_lease_device_id END,
+      source_lease_expires_at=CASE WHEN ?3='completed' THEN NULL ELSE source_lease_expires_at END,
+      version=version+1
+      WHERE id=?6 AND user_id=?7 AND status='running'`)
+      .bind(targetCount, completionReason, completionReason ? 'completed' : 'running',
+        completionReason ? now : null, now, runId, userId).run();
+  }
+  const fresh = await readRun(db, userId, runId);
+  if (!fresh) throw new DiscoveryError('Запуск пошуку зник.', 404);
+  return mapRun(fresh);
 }
 
 export async function ingestTelegramDiscovery(
@@ -222,8 +336,9 @@ export async function ingestTelegramDiscovery(
   if (!advanced) throw new DiscoveryError('Telegram-план уже змінився в іншій вкладці. Оновіть стан.', 409);
   const fresh = await readRun(db, userId, runId);
   if (!fresh) throw new DiscoveryError('Не вдалося прочитати оновлений Telegram-план.', 500);
+  const reconciled = await reconcileDiscoveryRunGoal(db, userId, runId, now);
   return {
-    run: mapRun(fresh),
+    run: reconciled,
     queryCompleted: true,
     batch: { extracted: records.length, added: merged.added, duplicates: merged.duplicates },
   };
@@ -433,7 +548,9 @@ async function persistDiscoveryBatch(
     const existing = existingCandidates.get(`${item.platform}|${item.link}`);
     const candidateId = existing?.id || await stableId('candidate', `${userId}:${item.platform}:${item.link}`);
     const name = item.name || suggestedChatName(normalizeGroupLink(item.link)!);
-    const topicMatch = existing?.topic_match || 'unknown';
+    const topicMatch = existing?.topic_match && existing.topic_match !== 'unknown'
+      ? existing.topic_match
+      : inferDiscoveryTopicMatch(name, item.sources);
     const evaluated = evaluateDiscoveryCandidate({
       chatType: existing?.chat_type || 'unknown',
       memberCount: existing?.member_count ?? null,
@@ -455,9 +572,9 @@ async function persistDiscoveryBatch(
     statements.push(db.prepare(`INSERT INTO chat_discovery_candidates
       (id,user_id,platform,name,link,normalized_link,discovered_at,checked_at,member_count,chat_type,activity_state,topic_match,
        can_write,ads_policy,membership_state,access_state,link_state,inspection_state,decision,reason_codes_json,
-       imported_chat_id,created_at,updated_at,version)
+       imported_chat_id,discovery_run_id,created_at,updated_at,version)
       SELECT ?1,?2,?3,?4,?5,?5,?6,NULL,NULL,'unknown','unknown',?7,NULL,'unknown','not_checked','unknown','valid',
-        'not_checked',?8,?9,NULL,?6,?6,1
+        'not_checked',?8,?9,NULL,?10,?6,?6,1
       WHERE EXISTS(SELECT 1 FROM chat_discovery_runs WHERE id=?10 AND user_id=?2 AND status='running' AND version=?11)
       ON CONFLICT(user_id,platform,normalized_link) DO UPDATE SET
         name=CASE WHEN chat_discovery_candidates.name='' OR chat_discovery_candidates.name LIKE 'WhatsApp · %'
@@ -480,15 +597,14 @@ async function persistDiscoveryBatch(
     }
   }
 
-  const projectedFound = run.found_count + added;
-  const completed = progress.done || (progress.completeAtGoal !== false && projectedFound >= run.goal);
   const errorMessage = progress.errors ? `Не вдалося прочитати ${progress.errors} джерел; пошук можна продовжити.` : null;
+  const nextSourceCursor = progress.completeAtGoal === false ? run.source_cursor : progress.nextCursor;
   statements.push(db.prepare(`UPDATE chat_discovery_runs SET
-    status=?1,source_cursor=?2,searched_queries=searched_queries+?3,found_count=found_count+?4,
-    duplicate_count=duplicate_count+?5,error_message=?6,updated_at=?7,completed_at=?8,version=version+1
-    WHERE id=?9 AND user_id=?10 AND status='running' AND version=?11 RETURNING id`)
-    .bind(completed ? 'completed' : 'running', progress.nextCursor, progress.searched, added, duplicates,
-      errorMessage, progress.now, completed ? progress.now : null, run.id, userId, run.version));
+    source_cursor=?1,searched_queries=searched_queries+?2,found_count=found_count+?3,
+    duplicate_count=duplicate_count+?4,error_message=?5,updated_at=?6,version=version+1
+    WHERE id=?7 AND user_id=?8 AND status='running' AND version=?9 RETURNING id`)
+    .bind(nextSourceCursor, progress.searched, added, duplicates,
+      errorMessage, progress.now, run.id, userId, run.version));
 
   const results = await db.batch(statements);
   const final = results.at(-1);
@@ -505,9 +621,8 @@ async function persistDiscoveryBatch(
     }
   }
 
-  const updated = await readRun(db, userId, run.id);
-  if (!updated) throw new DiscoveryError('Не вдалося прочитати оновлений запуск пошуку.', 500);
-  return { run: mapRun(updated), added, duplicates };
+  const updated = await reconcileDiscoveryRunGoal(db, userId, run.id, progress.now);
+  return { run: updated, added, duplicates };
 }
 
 async function readExistingCanonicalLinks(db: D1Database, userId: string, platforms: DiscoveryPlatform[]) {
@@ -593,6 +708,8 @@ function mapRun(row: RunRow): DiscoveryRun {
     foundCount: row.found_count,
     duplicateCount: row.duplicate_count,
     importedCount: row.imported_count,
+    targetCount: Number(row.target_count || 0),
+    completionReason: row.completion_reason === 'goal_reached' || row.completion_reason === 'sources_exhausted' ? row.completion_reason : null,
     errorMessage: row.error_message || '',
     startedAt: row.started_at,
     updatedAt: row.updated_at,

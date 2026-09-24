@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 
-void test('Telegram plan advances only through ingestion of the current planned query', async () => {
+void test('manual Telegram recovery stays tied to the planned query while autonomous source advancement is executor-owned', async () => {
   const [dialog, route, domain] = await Promise.all([
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../app/api/chat-discovery/route.ts', import.meta.url), 'utf8'),
@@ -12,6 +12,8 @@ void test('Telegram plan advances only through ingestion of the current planned 
   assert.match(dialog, /action: 'ingest-telegram'/);
   assert.doesNotMatch(dialog, /action: 'advance-telegram-plan'/);
   assert.doesNotMatch(route, /body\.action === 'advance-telegram-plan'/);
+  assert.match(domain, /advanceAutonomousDiscoveryRun/);
+  assert.match(domain, /discoverTelegramPublic/);
   assert.match(domain, /query !== expectedQuery/);
   assert.match(domain, /SET telegram_cursor=\?1,searched_queries=searched_queries\+1/);
   assert.match(domain, /input\.completeQuery === true/);

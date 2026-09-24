@@ -1,5 +1,15 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Goal-driven autonomous WhatsApp Discovery core — v0.2.53
+
+- Discovery is redefined around operator outcome rather than raw link yield. The default run goal is 50 new confirmed target chats; raw candidates/imports do not complete a run.
+- A candidate is associated with the run that first discovered it. `target_count` therefore counts only new targets from that run. Completion is explicit: `goal_reached` or `sources_exhausted`.
+- The paired executor advances the source plan whenever no messenger action is due. It walks the existing seed corpus automatically: public Telegram/t.me-derived search first, then bounded public-web fallback. A source lease in D1 prevents paired executors from advancing the same run concurrently.
+- New WhatsApp candidates continue to auto-handoff into `to_join`. Previously known chats/candidates, including archived/rejected/unavailable history, remain deduplicated and are not auto-joined again in later runs.
+- The primary UI is one-click: target count + «Запустити автопошук». Manual Telegram paste/query controls remain only inside a collapsed recovery section.
+- Pending WhatsApp remains on its 3-minute factual recheck. Joined candidates that still lack qualification facts receive a bounded 10-minute reinspection cadence instead of a tight runner loop.
+- Migration `0037_autonomous_discovery_goal.sql` adds run target/completion/source-lease state plus first-run candidate attribution. Production is untouched. Post-join factual qualification is the next functional slice before this workflow is fully unattended end-to-end.
+
 ## 2026-09-24 Automatic WhatsApp Discovery handoff — v0.2.52
 
 - Newly discovered WhatsApp invites that already passed the existing public/Telegram prefilter are automatically handed off into the canonical `to_join` chat workflow after persistence. The operator no longer has to press «Додати на перевірку» for every new WhatsApp candidate.

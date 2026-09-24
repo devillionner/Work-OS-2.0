@@ -10,6 +10,8 @@ void test('runner consumes paired executor tasks and posts guarded callbacks',()
   assert.match(source,/\/api\/chat-discovery\/executor\?limit=1/);
   assert.match(source,/action:'inspect'/);
   assert.match(source,/action:'executor-leave'/);
+  assert.match(source,/action:'advance-discovery'/);
+  assert.match(source,/Discovery source advanced via/);
 });
 void test('runner automates verified WhatsApp leave via CDP and retains operator-confirmed fallback',()=>{
   assert.match(source,/leaveWhatsappTaskViaCdp/);

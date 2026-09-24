@@ -66,7 +66,15 @@ async function inspectTask(task){
 
 async function runOnce(){
   const queue=await api('/api/chat-discovery/executor?limit=1');
-  const task=queue.tasks?.[0]; if(!task)return false;
+  const task=queue.tasks?.[0];
+  if(!task){
+    const source=await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'advance-discovery'})});
+    if(source.advanced){
+      console.log(`Discovery source advanced via ${source.source}: searched ${source.batch?.searched||0}, added ${source.batch?.added||0}, duplicates ${source.batch?.duplicates||0}; targets ${source.run?.targetCount||0}/${source.run?.goal||0}`);
+      return true;
+    }
+    return false;
+  }
   if(task.action==='leave'){
     if(task.runtime==='whatsapp_web'&&whatsappCdp){
       try{

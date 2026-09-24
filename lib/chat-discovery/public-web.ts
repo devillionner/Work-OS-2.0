@@ -83,6 +83,16 @@ export type TelegramSearchPlan = {
   tasks: TelegramSearchTask[];
 };
 
+export type TelegramPublicResult = {
+  searched: number;
+  cursor: number;
+  nextCursor: number;
+  done: boolean;
+  totalTasks: number;
+  records: DiscoveryRecord[];
+  errors: number;
+};
+
 export function buildTelegramSearchPlan(cursor = 0, limit = 6): TelegramSearchPlan {
   const countries = [...new Set(SEEDS.cities.map(city => String(city.country || '').trim()).filter(Boolean))];
   const cities = interleaveCitiesByCountry(uniqueTelegramCities(SEEDS.cities));
@@ -333,6 +343,80 @@ export async function discoverPublicWeb(input: {
     nextCursor: cursor + batch.length,
     done: cursor + batch.length >= tasks.length,
     totalTasks: tasks.length,
+    records,
+    errors,
+  };
+}
+
+export async function discoverTelegramPublic(input: {
+  cursor?: number;
+  maxQueries?: number;
+  pageLimit?: number;
+}, fetcher: FetchLike = fetch): Promise<TelegramPublicResult> {
+  const cursor = Math.max(0, Number(input.cursor) || 0);
+  const maxQueries = clampInt(input.maxQueries, 1, 6, 2);
+  const pageLimit = clampInt(input.pageLimit, 0, 6, 3);
+  const plan = buildTelegramSearchPlan(cursor, maxQueries);
+  const records: DiscoveryRecord[] = [];
+  let errors = 0;
+
+  const outcomes = await mapPool(plan.tasks, 2, async (task) => {
+    const searchQuery = `site:t.me "${task.query}" "chat.whatsapp.com"`;
+    const searchUrl = `${SEARCH_HOST}?q=${encodeURIComponent(searchQuery)}&source=web`;
+    try {
+      const body = await fetchText(searchUrl, fetcher, 10_000);
+      if (!body) return [];
+      const contextPrefix = [task.query, task.city, task.country, 'Telegram'].filter(Boolean).join(' · ');
+      const base = {
+        platforms: ['whatsapp'] as DiscoveryPlatform[],
+        kind: 'telegram_global' as const,
+        sourceUrl: searchUrl,
+        sourceTitle: `Telegram search · ${task.seedLabel}`,
+        query: task.query,
+        seedLabel: task.seedLabel,
+        seedKind: task.seedKind,
+        contextPrefix,
+      };
+      const found = recordsFromPage(body, base);
+      if (!pageLimit) return found;
+
+      const telegramLinks = extractSearchResultLinks(body)
+        .filter((link) => {
+          try {
+            const host = new URL(link).hostname.toLowerCase();
+            return host === 't.me' || host === 'telegram.me';
+          } catch {
+            return false;
+          }
+        })
+        .slice(0, pageLimit);
+      const pages = await mapPool(telegramLinks, 2, async (link) => {
+        try {
+          const page = await fetchText(link, fetcher, 10_000);
+          if (!page) return [];
+          return recordsFromPage(page, {
+            ...base,
+            sourceUrl: link,
+            sourceTitle: `Telegram · ${task.seedLabel}`,
+          });
+        } catch {
+          return [];
+        }
+      });
+      return [...found, ...pages.flat()];
+    } catch {
+      errors += 1;
+      return [];
+    }
+  });
+  for (const item of outcomes.flat()) pushBounded(records, item);
+
+  return {
+    searched: plan.tasks.length,
+    cursor: plan.cursor,
+    nextCursor: plan.nextCursor,
+    done: plan.done,
+    totalTasks: plan.totalTasks,
     records,
     errors,
   };

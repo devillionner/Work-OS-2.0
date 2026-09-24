@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, CircleAlert, ExternalLink, LoaderCircle, Search, Square, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { ChatDiscoveryExecutorPanel } from '@/components/chat-discovery-executor-panel';
@@ -19,11 +19,6 @@ type Workspace = {
   importedCount: number;
   waitingWhatsAppCount: number;
   candidates: DiscoveryCandidate[];
-  error?: string;
-};
-type ContinueResponse = {
-  run: DiscoveryRun;
-  batch: { searched: number; added: number; duplicates: number; errors: number };
   error?: string;
 };
 type ImportResponse = { chatId?: string; existing?: boolean; workflowStatus?: string; error?: string };
@@ -57,12 +52,11 @@ export function ChatDiscoveryDialog({
   onImported: (platform: DiscoveryPlatform) => void;
 }) {
   const [workspace, setWorkspace] = useState<Workspace>({ run: null, telegramPlan: null, counts: EMPTY_COUNTS, importedCount: 0, waitingWhatsAppCount: 0, candidates: [] });
-  const platforms: DiscoveryPlatform[] = ['whatsapp', 'viber'];
-  const [goal, setGoal] = useState(30);
-  const [minMembers, setMinMembers] = useState(700);
+  const platforms: DiscoveryPlatform[] = ['whatsapp'];
+  const [goal, setGoal] = useState(50);
+  const minMembers = 700;
   const [filter, setFilter] = useState<DecisionFilter>('all');
   const [loading, setLoading] = useState(false);
-  const [searching, setSearching] = useState(false);
   const [importingId, setImportingId] = useState<string | null>(null);
   const [inspectingId, setInspectingId] = useState<string | null>(null);
   const [manualDraft, setManualDraft] = useState<ManualInspectionDraft | null>(null);
@@ -72,7 +66,6 @@ export function ChatDiscoveryDialog({
   const [telegramSourceUrl, setTelegramSourceUrl] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
-  const stopRequested = useRef(false);
   const telegramHasInvite = /(?:https?:\/\/)?chat\.whatsapp\.com\//iu.test(telegramText.replaceAll('\\/', '/'));
 
   const load = useCallback(async (decision: DecisionFilter = filter) => {
@@ -123,58 +116,18 @@ export function ChatDiscoveryDialog({
     return run;
   }
 
-  async function startTelegramSearch() {
+  async function startAutonomousSearch() {
     if (telegramBusy) return;
     setTelegramBusy(true);
     setError('');
     try {
       const run = await ensureTelegramRun();
-      const fresh = await load(filter);
-      const query = fresh?.telegramPlan?.tasks[0]?.query || '';
-      setNotice(query
-        ? `Telegram-план готовий. Запит №${run.telegramCursor + 1}: ${query}`
-        : 'Telegram keyword plan завершено.');
+      await load(filter);
+      setNotice(`Автопошук запущено: ціль ${run.goal} нових підтверджених цільових WhatsApp-чатів. Seed-план, Telegram/public sources, дедуп і executor працюють автоматично.`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не вдалося запустити Telegram-пошук.');
     } finally {
       setTelegramBusy(false);
-    }
-  }
-
-  async function startOrContinue() {
-    if (searching) return;
-    stopRequested.current = false;
-    setSearching(true);
-    setError('');
-    setNotice('');
-    try {
-      let run = workspace.run?.status === 'running' ? workspace.run : null;
-      if (!run) {
-        const payload = await post({ action: 'start', platforms, goal, minMembers });
-        run = payload.run as DiscoveryRun;
-        setWorkspace(current => ({ ...current, run }));
-      }
-
-      while (run.status === 'running' && !stopRequested.current) {
-        const payload = await post({ action: 'continue', runId: run.id }) as unknown as ContinueResponse;
-        run = payload.run;
-        setNotice(batchLabel(payload.batch));
-        await load(filter);
-      }
-
-      if (run.status === 'running' && stopRequested.current) {
-        await post({ action: 'cancel', runId: run.id, version: run.version });
-        setNotice('Пошук зупинено після поточної порції.');
-      } else if (run.status === 'completed') {
-        setNotice('Пошук завершено. Кандидати нижче готові до перевірки.');
-      }
-      await load(filter);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Пошук чатів не завершено.');
-      await load(filter);
-    } finally {
-      setSearching(false);
-      stopRequested.current = false;
     }
   }
 
@@ -334,11 +287,6 @@ export function ChatDiscoveryDialog({
   }
 
   function close() {
-    if (searching) {
-      stopRequested.current = true;
-      setNotice('Зупиняємо після поточної порції…');
-      return;
-    }
     onClose();
   }
 
@@ -363,16 +311,17 @@ export function ChatDiscoveryDialog({
             <Badge variant="secondary">WhatsApp discovery</Badge>
           </div>
           <DialogDescription className="max-w-3xl text-xs sm:text-sm">
-            Telegram — основне джерело. Кандидат стає цільовим тільки після фактичного вступу та повної перевірки критеріїв. Невідомі критерії не зараховуються.
+            Один запуск проходить весь seed-корпус міст і ключових шаблонів сам. У ціль зараховуються тільки нові підтверджені WhatsApp-чати після фактичної перевірки; дублі, archived/rejected і unknown не зараховуються.
           </DialogDescription>
         </DialogHeader>
         <Button className="absolute right-4 top-4" variant="ghost" size="icon" aria-label="Закрити" onClick={close}><X/></Button>
 
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <StatTile label="Цільові" value={run ? `${run.targetCount} / ${run.goal}` : `0 / ${goal}`} />
           <StatTile label="Query" value={workspace.telegramPlan ? `${workspace.telegramPlan.cursor} / ${workspace.telegramPlan.totalTasks}` : '—'} />
           <StatTile label="Знайдено" value={String(run?.foundCount ?? total)} />
-          <StatTile label="На перевірку" value={String(workspace.counts.review)} />
-          <StatTile label="У Work OS" value={String(workspace.importedCount)} />
+          <StatTile label="Перевіряються" value={String(workspace.counts.review)} />
+          <StatTile label="Відсіяно" value={String(workspace.counts.rejected + workspace.counts.unavailable)} />
         </div>
       </header>
 
@@ -394,121 +343,119 @@ export function ChatDiscoveryDialog({
                 <Badge>WhatsApp</Badge>
               </div>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="mt-4 grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)] sm:items-end">
                 <label htmlFor="discovery-goal" className="grid gap-1.5 text-xs font-medium">
-                  Нових кандидатів
+                  Нових цільових чатів
                   <Input
                     id="discovery-goal"
                     type="number"
                     min={1}
                     max={100}
                     value={goal}
-                    disabled={searching || run?.status === 'running'}
-                    onChange={event => setGoal(clampNumber(event.target.value, 1, 100, 30))}
+                    disabled={run?.status === 'running'}
+                    onChange={event => setGoal(clampNumber(event.target.value, 1, 100, 50))}
                   />
                 </label>
-                <label htmlFor="discovery-min-members" className="grid gap-1.5 text-xs font-medium">
-                  Мінімум учасників
-                  <Input
-                    id="discovery-min-members"
-                    type="number"
-                    min={700}
-                    max={18_000}
-                    value={minMembers}
-                    disabled={searching || run?.status === 'running'}
-                    onChange={event => setMinMembers(clampNumber(event.target.value, 700, 18_000, 700))}
-                  />
-                </label>
+                <div className="text-xs leading-relaxed text-muted-foreground">
+                  Критерії фіксовані: українська/українська діаспора, 700–18 000 учасників, живе спілкування, учасники можуть писати, оголошення не заборонені.
+                </div>
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <Button type="button" disabled={telegramBusy || searching || run?.status === 'running'} onClick={() => void startTelegramSearch()}>
-                  {telegramBusy ? <LoaderCircle data-icon="inline-start"/> : <Search data-icon="inline-start"/>}
-                  {run?.status === 'running' ? 'Telegram-план активний' : 'Почати Telegram-пошук'}
-                </Button>
-                {searching
-                  ? <Button type="button" variant="outline" onClick={() => { stopRequested.current = true; }}><Square data-icon="inline-start"/>Зупинити fallback</Button>
-                  : <Button type="button" variant="outline" onClick={() => void startOrContinue()}>Web fallback</Button>}
+                {run?.status === 'running'
+                  ? <Button type="button" variant="outline" onClick={() => void post({ action:'cancel', runId:run.id, version:run.version }).then(() => load(filter)).catch(reason => setError(reason instanceof Error ? reason.message : 'Не вдалося зупинити автопошук.'))}><Square data-icon="inline-start"/>Зупинити автопошук</Button>
+                  : <Button type="button" disabled={telegramBusy} onClick={() => void startAutonomousSearch()}>
+                      {telegramBusy ? <LoaderCircle data-icon="inline-start"/> : <Search data-icon="inline-start"/>}
+                      Запустити автопошук
+                    </Button>}
               </div>
 
               {run && <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                <span>Опрацьовано: <strong className="text-foreground">{run.searchedQueries}</strong></span>
-                <span>Знайдено: <strong className="text-foreground">{run.foundCount}</strong></span>
-                <span>Дублі: <strong className="text-foreground">{run.duplicateCount}</strong></span>
+                <span>Цільові: <strong className="text-foreground">{run.targetCount} / {run.goal}</strong></span>
+                <span>Опрацьовано query: <strong className="text-foreground">{run.searchedQueries}</strong></span>
+                <span>Знайдено invite: <strong className="text-foreground">{run.foundCount}</strong></span>
+                <span>Дублі/відомі: <strong className="text-foreground">{run.duplicateCount}</strong></span>
               </div>}
+              {run?.completionReason === 'goal_reached' && <p className="mt-2 text-xs font-medium">Ціль досягнута: знайдено {run.targetCount} нових підтверджених цільових чатів.</p>}
+              {run?.completionReason === 'sources_exhausted' && <p className="mt-2 text-xs text-muted-foreground">Доступний seed/source plan вичерпано. Знайдено {run.targetCount} із {run.goal} підтверджених цільових чатів; система не вигадує відсутній результат.</p>}
               {run?.errorMessage && <p className="mt-2 text-xs text-destructive">{run.errorMessage}</p>}
             </section>
 
-            <section className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm" aria-label="Telegram джерело WhatsApp">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-semibold">Telegram → WhatsApp</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">Працюй по одному query. Для нього можна зберегти кілька Telegram-джерел.</p>
-                </div>
-                {workspace.telegramPlan && <Badge variant="outline">{workspace.telegramPlan.cursor} / {workspace.telegramPlan.totalTasks}</Badge>}
-              </div>
-
-              {workspace.telegramPlan && <div className="mt-4 rounded-xl border border-border/70 bg-muted/25 p-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold">Черга Telegram-запитів</span>
-                  <span className="text-[11px] tabular-nums text-muted-foreground">{workspace.telegramPlan.cursor} / {workspace.telegramPlan.totalTasks}</span>
-                </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${telegramProgress}%` }} />
-                </div>
-                {currentTask ? <div className="mt-3">
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Поточний query · {currentTask.cursor + 1}</div>
-                  <div className="mt-1 break-words text-base font-semibold">{currentTask.query}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {currentTask.seedKind === 'city' ? currentTask.city : currentTask.country} · {currentTask.template}
-                  </div>
-                  {workspace.telegramPlan.tasks.length > 1 && <details className="mt-3">
-                    <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Наступні query · {workspace.telegramPlan.tasks.length - 1}</summary>
-                    <div className="mt-2 grid gap-1.5 border-l border-border pl-3 text-xs text-muted-foreground">
-                      {workspace.telegramPlan.tasks.slice(1).map(task => <div key={task.cursor}>{task.cursor + 1}. {task.query}</div>)}
+            <details className="rounded-2xl border border-border/70 bg-background shadow-sm">
+              <summary className="cursor-pointer select-none px-4 py-3 text-xs font-medium text-muted-foreground">Recovery: ручне Telegram-джерело</summary>
+              <div className="border-t border-border/70 p-4">
+                <section className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm" aria-label="Telegram джерело WhatsApp">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold">Telegram → WhatsApp</h3>
+                      <p className="mt-1 text-xs text-muted-foreground">Працюй по одному query. Для нього можна зберегти кілька Telegram-джерел.</p>
                     </div>
-                  </details>}
-                </div> : <p className="mt-3 text-sm text-muted-foreground">Keyword plan завершено.</p>}
-              </div>}
+                    {workspace.telegramPlan && <Badge variant="outline">{workspace.telegramPlan.cursor} / {workspace.telegramPlan.totalTasks}</Badge>}
+                  </div>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-1.5 text-xs font-medium" htmlFor="telegram-source-title">
-                  Telegram-чат
-                  <Input id="telegram-source-title" required={telegramHasInvite} value={telegramSourceTitle} disabled={telegramBusy} onChange={event => setTelegramSourceTitle(event.target.value)} placeholder="Українці в Берліні" />
-                </label>
-                <label className="grid gap-1.5 text-xs font-medium" htmlFor="telegram-source-url">
-                  Посилання на джерело
-                  <Input id="telegram-source-url" type="url" required={telegramHasInvite} value={telegramSourceUrl} disabled={telegramBusy} onChange={event => setTelegramSourceUrl(event.target.value)} placeholder="https://t.me/…" />
-                </label>
+                  {workspace.telegramPlan && <div className="mt-4 rounded-xl border border-border/70 bg-muted/25 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold">Черга Telegram-запитів</span>
+                      <span className="text-[11px] tabular-nums text-muted-foreground">{workspace.telegramPlan.cursor} / {workspace.telegramPlan.totalTasks}</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${telegramProgress}%` }} />
+                    </div>
+                    {currentTask ? <div className="mt-3">
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Поточний query · {currentTask.cursor + 1}</div>
+                      <div className="mt-1 break-words text-base font-semibold">{currentTask.query}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {currentTask.seedKind === 'city' ? currentTask.city : currentTask.country} · {currentTask.template}
+                      </div>
+                      {workspace.telegramPlan.tasks.length > 1 && <details className="mt-3">
+                        <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Наступні query · {workspace.telegramPlan.tasks.length - 1}</summary>
+                        <div className="mt-2 grid gap-1.5 border-l border-border pl-3 text-xs text-muted-foreground">
+                          {workspace.telegramPlan.tasks.slice(1).map(task => <div key={task.cursor}>{task.cursor + 1}. {task.query}</div>)}
+                        </div>
+                      </details>}
+                    </div> : <p className="mt-3 text-sm text-muted-foreground">Keyword plan завершено.</p>}
+                  </div>}
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <label className="grid gap-1.5 text-xs font-medium" htmlFor="telegram-source-title">
+                      Telegram-чат
+                      <Input id="telegram-source-title" required={telegramHasInvite} value={telegramSourceTitle} disabled={telegramBusy} onChange={event => setTelegramSourceTitle(event.target.value)} placeholder="Українці в Берліні" />
+                    </label>
+                    <label className="grid gap-1.5 text-xs font-medium" htmlFor="telegram-source-url">
+                      Посилання на джерело
+                      <Input id="telegram-source-url" type="url" required={telegramHasInvite} value={telegramSourceUrl} disabled={telegramBusy} onChange={event => setTelegramSourceUrl(event.target.value)} placeholder="https://t.me/…" />
+                    </label>
+                  </div>
+
+                  <label className="mt-3 grid gap-1.5 text-xs font-medium" htmlFor="telegram-query">
+                    Поточний query
+                    <Input id="telegram-query" value={currentTask?.query || ''} readOnly aria-readonly="true" disabled={telegramBusy} placeholder="Спочатку запусти Telegram-пошук" />
+                  </label>
+
+                  <label className="mt-3 grid gap-1.5 text-xs font-medium" htmlFor="telegram-scan">
+                    Результати пошуку Telegram
+                    <Textarea id="telegram-scan" rows={5} value={telegramText} disabled={telegramBusy} onChange={event => setTelegramText(event.target.value)} placeholder="Встав текст повідомлень або результатів пошуку з chat.whatsapp.com…" />
+                  </label>
+
+                  {telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim()) && <div className="mt-2 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
+                    <CircleAlert className="size-3.5"/> Для invite вкажи назву Telegram-чату та посилання на джерело.
+                  </div>}
+
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    <Button type="button" variant="outline" disabled={telegramBusy || !telegramText.trim() || (telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim())) || workspace.run?.status !== 'running' || !currentTask?.query} onClick={() => void ingestTelegramScan(false)}>
+                      {telegramBusy ? <LoaderCircle data-icon="inline-start"/> : <ExternalLink data-icon="inline-start"/>}
+                      {telegramBusy ? 'Обробляємо…' : 'Зберегти джерело'}
+                    </Button>
+                    <Button type="button" disabled={telegramBusy || !telegramText.trim() || (telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim())) || workspace.run?.status !== 'running' || !currentTask?.query} onClick={() => void ingestTelegramScan(true)}>
+                      Завершити query → наступний
+                    </Button>
+                  </div>
+                  <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                    «Зберегти джерело» не рухає план. «Завершити query» просуває cursor рівно на один крок.
+                  </p>
+                </section>
               </div>
-
-              <label className="mt-3 grid gap-1.5 text-xs font-medium" htmlFor="telegram-query">
-                Поточний query
-                <Input id="telegram-query" value={currentTask?.query || ''} readOnly aria-readonly="true" disabled={telegramBusy} placeholder="Спочатку запусти Telegram-пошук" />
-              </label>
-
-              <label className="mt-3 grid gap-1.5 text-xs font-medium" htmlFor="telegram-scan">
-                Результати пошуку Telegram
-                <Textarea id="telegram-scan" rows={5} value={telegramText} disabled={telegramBusy} onChange={event => setTelegramText(event.target.value)} placeholder="Встав текст повідомлень або результатів пошуку з chat.whatsapp.com…" />
-              </label>
-
-              {telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim()) && <div className="mt-2 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
-                <CircleAlert className="size-3.5"/> Для invite вкажи назву Telegram-чату та посилання на джерело.
-              </div>}
-
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                <Button type="button" variant="outline" disabled={telegramBusy || searching || !telegramText.trim() || (telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim())) || workspace.run?.status !== 'running' || !currentTask?.query} onClick={() => void ingestTelegramScan(false)}>
-                  {telegramBusy ? <LoaderCircle data-icon="inline-start"/> : <ExternalLink data-icon="inline-start"/>}
-                  {telegramBusy ? 'Обробляємо…' : 'Зберегти джерело'}
-                </Button>
-                <Button type="button" disabled={telegramBusy || searching || !telegramText.trim() || (telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim())) || workspace.run?.status !== 'running' || !currentTask?.query} onClick={() => void ingestTelegramScan(true)}>
-                  Завершити query → наступний
-                </Button>
-              </div>
-              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                «Зберегти джерело» не рухає план. «Завершити query» просуває cursor рівно на один крок.
-              </p>
-            </section>
+            </details>
           </div>
         </div>
 
@@ -669,7 +616,7 @@ export function ChatDiscoveryDialog({
                     </article>;
                   })}
                 </div>
-                : <div className="workspace-empty"><Search aria-hidden="true"/><strong>Кандидатів ще немає</strong><p>Запусти Telegram-пошук або зміни фільтр.</p></div>}
+                : <div className="workspace-empty"><Search aria-hidden="true"/><strong>Кандидатів ще немає</strong><p>Запусти автопошук або зміни фільтр.</p></div>}
           </div>
         </section>
       </div>
@@ -714,10 +661,6 @@ function candidateCriteria(candidate: DiscoveryCandidate): CriterionItem[] {
     { label: 'Invite', value: linkStateLabel(candidate.linkState), state: candidate.linkState === 'valid' ? 'ok' : candidate.linkState === 'invalid' ? 'bad' : 'warn' },
     { label: 'Доступ', value: accessStateLabel(candidate.accessState), state: candidate.accessState === 'available' ? 'ok' : candidate.accessState === 'unavailable' ? 'bad' : 'warn' },
   ];
-}
-
-function batchLabel(batch: ContinueResponse['batch']) {
-  return `Порція: запитів ${batch.searched}, нових ${batch.added}, дублів ${batch.duplicates}, помилок джерел ${batch.errors}.`;
 }
 
 function platformLabel(value: string) {

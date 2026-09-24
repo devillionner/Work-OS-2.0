@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { readJsonObject } from '@/lib/http-json';
-import { DiscoveryError } from '@/lib/chat-discovery/domain';
+import { advanceAutonomousDiscoveryRun, DiscoveryError } from '@/lib/chat-discovery/domain';
 import { applyDiscoveryInspection } from '@/lib/chat-discovery/inspection';
 import { assertDiscoveryExecutorLease, claimDiscoveryExecutorQueue, completeDiscoveryExternalLeave } from '@/lib/chat-discovery/executor';
 import { authenticateDiscoveryExecutor } from '@/lib/chat-discovery/executor-auth';
@@ -28,6 +28,9 @@ export async function POST(request: Request): Promise<Response> {
     const executor = await authenticateDiscoveryExecutor(env.DB, request, now);
     const body = await readJsonObject(request, 64 * 1024);
     if (body instanceof Response) return body;
+    if (body.action === 'advance-discovery') {
+      return json(await advanceAutonomousDiscoveryRun(env.DB, executor.userId, executor.deviceId, now));
+    }
     if (body.action === 'inspect') {
       if (typeof body.candidateId !== 'string' || !Number.isSafeInteger(body.version)) {
         throw new DiscoveryError('Некоректний результат executor.');
