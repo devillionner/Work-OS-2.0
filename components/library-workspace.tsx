@@ -55,6 +55,7 @@ export function LibraryWorkspace() {
     finally{setLoading(false);}
   },[collection,archived,search]);
   useEffect(()=>{const timer=setTimeout(()=>void load(),search?250:0);return()=>clearTimeout(timer);},[load,search]);
+  useEffect(()=>{if(!viberJob||(viberJob.status!=='pending'&&viberJob.status!=='claimed'))return;const timer=setInterval(()=>{void (async()=>{try{const response=await fetch('/api/messenger-automation',{cache:'no-store'});const body=await response.json() as {job?:ViberSafeJob|null};if(response.ok&&body.job?.id===viberJob.id)setViberJob(body.job);}catch{/* transient poll failures keep the last confirmed state */}})();},2000);return()=>clearInterval(timer);},[viberJob]);
 
   function edit(item:Item|null,open=true){
     const knownPlatforms=item?cleanLibraryPlatforms(item.platforms):[];
