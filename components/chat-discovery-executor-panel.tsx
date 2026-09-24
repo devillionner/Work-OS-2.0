@@ -58,7 +58,8 @@ export function ChatDiscoveryExecutorPanel() {
       <Cable className="mt-0.5 size-4 shrink-0"/>
       <div className="min-w-0 flex-1">
         <h3 className="font-semibold">Executor</h3>
-        <p className="mt-1 text-xs text-muted-foreground">Окреме підключення для runner, який виконує реальні дії у WhatsApp/Viber. Token показується один раз.</p>
+        <p className="mt-1 text-xs text-muted-foreground">Окреме підключення для runner: WhatsApp працює через авторизований WhatsApp Web, Viber — через native desktop path. Token показується один раз.</p>
+        <p className="mt-1 text-xs text-muted-foreground">Невідомий або не підтверджений target завжди зупиняє дію: Work OS не приймає membership, inspection чи leave навмання.</p>
       </div>
     </div>
     <div className="mt-3 flex flex-col gap-2 sm:flex-row">
