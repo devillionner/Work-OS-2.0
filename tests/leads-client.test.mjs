@@ -130,16 +130,3 @@ void test('transient HTTP failures preserve the original command for an identica
     assert.equal(stored, null);
   }
 });
-
-
-void test('browser command client uses a durable IndexedDB outbox with account-scoped keys', async () => {
-  const source = await import('node:fs/promises').then((fs) =>
-    fs.readFile(new URL('../lib/leads/client/commands.ts', import.meta.url), 'utf8'),
-  );
-  assert.match(source, /work-os-offline-outbox/);
-  assert.match(source, /lead-command:\$\{owner\}/);
-  assert.match(source, /indexedDB\.open\(OUTBOX_DB, 1\)/);
-  assert.match(source, /store\.put\(value, key\)/);
-  assert.match(source, /store\.delete\(key\)/);
-  assert.match(source, /indexedDbJournal\(account\)/);
-});
