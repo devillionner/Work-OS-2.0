@@ -183,3 +183,10 @@ void test('imported WhatsApp candidates have a manual qualification fallback usi
   assert.match(dialog, /topicMatch: manualDraft\.topicMatch/);
   assert.match(dialog, /action: 'inspect'/);
 });
+
+void test('executor panel explains browser/native runtime and fail-closed target safety', async () => {
+  const panel = await readFile(new URL('../components/chat-discovery-executor-panel.tsx', import.meta.url), 'utf8');
+  assert.match(panel, /WhatsApp Web/);
+  assert.match(panel, /native desktop path/);
+  assert.match(panel, /не підтверджений target/);
+});
