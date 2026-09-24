@@ -11,16 +11,21 @@ import {
   createWhatsAppAutopostJob,
   readLatestViberSafeNoteJob,
   readLatestWhatsAppAutopostJob,
+  readViberSafeNoteJob,
 } from '@/lib/messenger-automation';
 
 function json(value:unknown,status=200){
   return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});
 }
 
-export async function GET():Promise<Response>{
+export async function GET(request:Request):Promise<Response>{
   const user=await getCurrentUser();
   if(!user)return json({error:'Потрібна авторизація.'},401);
-  try{return json({job:await readLatestViberSafeNoteJob(env.DB,user.id),whatsappAutopost:await readLatestWhatsAppAutopostJob(env.DB,user.id)});}
+  try{
+    const viberJobId=new URL(request.url).searchParams.get('viberJobId')?.trim()||'';
+    if(viberJobId)return json({job:await readViberSafeNoteJob(env.DB,user.id,viberJobId)});
+    return json({job:await readLatestViberSafeNoteJob(env.DB,user.id),whatsappAutopost:await readLatestWhatsAppAutopostJob(env.DB,user.id)});
+  }
   catch(error){
     console.error('Messenger automation read failed',error instanceof Error?error.name:'unknown');
     return json({error:'Не вдалося прочитати messenger automation стан.'},500);

@@ -34,3 +34,21 @@ void test('Discovery executor and staging deploy retain quota-safe guards',()=>{
   assert.match(deploy,/if \(fingerprintCheck\.allowed\)/);
   assert.match(deploy,/Skipping remote D1 migration list for this code-only deploy/);
 });
+
+void test('workday and Viber safe-mode polling have bounded D1 backoff and no fixed request interval',()=>{
+  const workday=read('components/workday-card.tsx');
+  const library=read('components/library-workspace.tsx');
+  const route=read('app/api/messenger-automation/route.ts');
+  assert.match(workday,/SYNC_ACTIVE_MS = 5_000/);
+  assert.match(workday,/SYNC_IDLE_MIN_MS = 15_000/);
+  assert.match(workday,/SYNC_IDLE_MAX_MS = 60_000/);
+  assert.match(workday,/SYNC_ERROR_MAX_MS = 300_000/);
+  assert.doesNotMatch(workday,/setInterval\(\(\) => \{[\s\S]{0,240}refreshWorkday/);
+  assert.match(library,/VIBER_JOB_POLL_ACTIVE_MS=5_000/);
+  assert.match(library,/VIBER_JOB_POLL_IDLE_MAX_MS=60_000/);
+  assert.match(library,/VIBER_JOB_POLL_ERROR_MAX_MS=300_000/);
+  assert.match(library,/messenger-automation\?viberJobId=/);
+  assert.doesNotMatch(library,/setInterval\(.*messenger-automation/s);
+  assert.match(route,/viberJobId/);
+  assert.match(route,/readViberSafeNoteJob\(env\.DB,user\.id,viberJobId\)/);
+});

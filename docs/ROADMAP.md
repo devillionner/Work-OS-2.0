@@ -263,3 +263,12 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Non-quota exceptions remain real errors and are not hidden by the recovery screen.
 - [x] Regression coverage protects direct/nested quota error recognition and the no-retry recovery path.
 - [ ] Live authenticated acceptance waits for the daily D1 reset; do not probe the exhausted database to prove the fallback.
+
+## v0.2.61 — remaining recurring D1 pollers
+
+- [x] Workday keeps a local 1s display clock but replaces fixed 5s D1 polling with adaptive 5s active → 15s → 30s → 60s unchanged backoff and up to 5m error backoff.
+- [x] Workday polling is visibility/online gated; focus/online/BroadcastChannel remain immediate wake signals.
+- [x] Viber safe-mode replaces fixed 2s broad messenger polling with a targeted owner-scoped job read and 5s → 10s → 20s → 40s → 60s backoff.
+- [x] D1 budget contracts protect both paths from returning to fixed high-frequency request intervals.
+- [ ] Live data-backed acceptance waits for the current D1 daily quota reset; deploy identity may be checked only through non-D1 `/api/build`.
+- Next functional slice after the quota incident: resume WhatsApp Web executor/live acceptance when D1 and local browser control are available; otherwise continue canonical Library image/media support without weakening quota rules.

@@ -24,7 +24,12 @@ type WorkdayResponse = {
   unfinishedCount?: number;
 };
 
-const SYNC_INTERVAL_MS = 5_000;
+type WorkdaySyncResult = 'changed' | 'same' | 'skipped' | 'failed';
+
+const SYNC_ACTIVE_MS = 5_000;
+const SYNC_IDLE_MIN_MS = 15_000;
+const SYNC_IDLE_MAX_MS = 60_000;
+const SYNC_ERROR_MAX_MS = 300_000;
 const SYNC_CHANNEL = 'work-os-workday';
 
 export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthlyGoal, focusDirections }: Props) {
@@ -36,8 +41,10 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
   const [confirmCount, setConfirmCount] = useState<number | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const busyRef = useRef(false);
+  const syncingRef = useRef(false);
   const syncGeneration = useRef(0);
   const channelRef = useRef<BroadcastChannel | null>(null);
+  const workdaySignatureRef = useRef(workdaySignature(initial, today));
 
   useEffect(() => {
     if (workday?.status !== 'active') return;
@@ -45,8 +52,9 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
     return () => window.clearInterval(timer);
   }, [workday?.status]);
 
-  const refreshWorkday = useCallback(async () => {
-    if (busyRef.current) return;
+  const refreshWorkday = useCallback(async (): Promise<WorkdaySyncResult> => {
+    if (busyRef.current || syncingRef.current) return 'skipped';
+    syncingRef.current = true;
     const generation = syncGeneration.current;
     try {
       const response = await fetch('/api/workday', {
@@ -54,41 +62,91 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
         cache: 'no-store',
         headers: { Accept: 'application/json' },
       });
-      if (!response.ok) return;
+      if (!response.ok) return 'failed';
       const result = await response.json() as WorkdayResponse;
-      if (generation !== syncGeneration.current || busyRef.current) return;
+      if (generation !== syncGeneration.current || busyRef.current) return 'skipped';
       const next = result.workday ?? null;
+      const nextToday = result.today || today;
+      const signature = workdaySignature(next, nextToday);
+      const changed = signature !== workdaySignatureRef.current;
+      workdaySignatureRef.current = signature;
       setWorkday(next);
-      setCurrentToday(result.today || today);
+      setCurrentToday(nextToday);
       setNow(next?.asOf ?? Math.floor(Date.now() / 1000));
+      return changed ? 'changed' : 'same';
     } catch {
-      // A temporary background sync failure must not interrupt the running timer UI.
+      return 'failed';
+    } finally {
+      syncingRef.current = false;
     }
   }, [today]);
 
   useEffect(() => {
-    void refreshWorkday();
-    const onFocus = () => void refreshWorkday();
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') void refreshWorkday();
-    };
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void refreshWorkday();
-    }, SYNC_INTERVAL_MS);
+    let stopped = false;
+    let timer: number | null = null;
+    let pollDelay = SYNC_ACTIVE_MS;
+    let failureDelay = 0;
 
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVisibility);
+    const schedule = (delay: number) => {
+      if (stopped) return;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => void poll(), delay);
+    };
+    const record = (result: WorkdaySyncResult) => {
+      if (result === 'changed') {
+        pollDelay = SYNC_ACTIVE_MS;
+        failureDelay = 0;
+      } else if (result === 'same') {
+        pollDelay = pollDelay <= SYNC_ACTIVE_MS
+          ? SYNC_IDLE_MIN_MS
+          : Math.min(SYNC_IDLE_MAX_MS, pollDelay * 2);
+        failureDelay = 0;
+      } else if (result === 'failed') {
+        failureDelay = failureDelay === 0
+          ? SYNC_IDLE_MIN_MS
+          : Math.min(SYNC_ERROR_MAX_MS, failureDelay * 2);
+        pollDelay = failureDelay;
+      } else {
+        pollDelay = Math.max(SYNC_IDLE_MIN_MS, pollDelay);
+      }
+    };
+    async function poll() {
+      if (stopped) return;
+      if (document.visibilityState !== 'visible' || !navigator.onLine) {
+        pollDelay = SYNC_IDLE_MAX_MS;
+        schedule(pollDelay);
+        return;
+      }
+      record(await refreshWorkday());
+      schedule(pollDelay);
+    }
+    const wake = () => {
+      if (document.visibilityState !== 'visible' || !navigator.onLine) return;
+      schedule(0);
+    };
+    const onFocus = () => wake();
+    const onOnline = () => wake();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') wake();
+    };
 
     let channel: BroadcastChannel | null = null;
     if ('BroadcastChannel' in window) {
       channel = new BroadcastChannel(SYNC_CHANNEL);
       channelRef.current = channel;
-      channel.onmessage = () => void refreshWorkday();
+      channel.onmessage = () => wake();
     }
 
+    schedule(0);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisibility);
+
     return () => {
-      window.clearInterval(interval);
+      stopped = true;
+      if (timer !== null) window.clearTimeout(timer);
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVisibility);
       channel?.close();
       if (channelRef.current === channel) channelRef.current = null;
@@ -136,6 +194,7 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
         syncGeneration.current += 1;
         setWorkday(null);
         setCurrentToday(result.today || today);
+        workdaySignatureRef.current = workdaySignature(null, result.today || today);
         setNow(Math.floor(Date.now() / 1000));
         setConfirmCount(null);
         setResetOpen(false);
@@ -145,6 +204,7 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
       if (!result.workday) throw new Error('Сервер не повернув стан робочого дня.');
       syncGeneration.current += 1;
       setWorkday(result.workday);
+      workdaySignatureRef.current = workdaySignature(result.workday, currentToday);
       setNow(result.workday.asOf);
       setConfirmCount(null);
       channelRef.current?.postMessage({ type: 'workday-changed', version: result.workday.version });
@@ -230,4 +290,10 @@ function formatTime(value: number | null) {
   return new Intl.DateTimeFormat('uk-UA', {
     hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Kyiv',
   }).format(new Date(value * 1000));
+}
+
+function workdaySignature(value: WorkdaySnapshot | null, today: string) {
+  return value
+    ? [today,value.id,value.workDate,value.status,value.version,value.activeSince,value.pausedAt,value.endedAt,value.plan?.createdAt ?? ''].join(':')
+    : today + ':idle';
 }

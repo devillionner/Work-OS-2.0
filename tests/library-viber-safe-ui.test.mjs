@@ -10,5 +10,9 @@ void test('Library exposes Viber safe-note only as a non-publication My Notes fl
   assert.match(source,/не створює publication fact/);
   assert.match(source,/Реальні Viber-чати тут недоступні/);
   assert.match(source,/cleanLibraryPlatforms\(selected\.platforms\)\.includes\('viber'\)/);
-  assert.match(source,/fetch\('\/api\/messenger-automation',\{cache:'no-store'\}\)/);
+  assert.match(source,/VIBER_JOB_POLL_ACTIVE_MS=5_000/);
+  assert.match(source,/VIBER_JOB_POLL_IDLE_MAX_MS=60_000/);
+  assert.match(source,/VIBER_JOB_POLL_ERROR_MAX_MS=300_000/);
+  assert.match(source,/messenger-automation\?viberJobId=/);
+  assert.doesNotMatch(source,/setInterval\(.*messenger-automation/s);
 });

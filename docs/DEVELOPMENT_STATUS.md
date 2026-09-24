@@ -1,5 +1,14 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 remaining D1 poller hardening / v0.2.61
+
+- Workday cross-device sync no longer issues a D1-backed GET every 5 seconds forever. The local elapsed-time clock still updates every second without network access, while server polling uses 5s active → 15s → 30s → 60s unchanged backoff and up to 5 minutes after repeated failures.
+- An unchanged visible Workday tab therefore settles at at most 1,440 GETs/day instead of 17,280; hidden/offline tabs do not poll. Focus, online and BroadcastChannel events still wake sync immediately.
+- Viber safe-mode no longer polls the broad messenger-automation state every 2 seconds. It reads only its exact owner-scoped job ID and backs off 5s → 10s → 20s → 40s → 60s, with the same 5-minute error ceiling and visibility/online gate.
+- An indefinitely pending visible Viber safe-mode job settles at at most 1,440 targeted GETs/day instead of 43,200 broad GETs/day. The route no longer reads the unrelated latest WhatsApp job for this status check.
+- D1 budget regression coverage now includes both paths. No schema migration, production read or production write is involved.
+
+
 ## 2026-09-24 quota recovery surface / v0.2.60
 
 - The root server render now recognizes Cloudflare D1 free-tier daily row-read exhaustion and renders a first-party recovery surface instead of falling through to the generic browser «This page couldn't load» error.

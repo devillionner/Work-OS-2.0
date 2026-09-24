@@ -6,6 +6,7 @@ import {
   completeViberSafeNoteJob,
   createViberSafeNoteJob,
   readLatestViberSafeNoteJob,
+  readViberSafeNoteJob,
 } from '../lib/messenger-automation.ts';
 import { localDatabase } from './helpers/local-d1.mjs';
 
@@ -84,4 +85,12 @@ void test('Viber safe note accepts only active Viber material with requested lan
     createViberSafeNoteJob(db,'u',{requestKey:'request_active_two',advertisementId:'viber',language:'uk'},NOW+2),
     error=>error instanceof MessengerAutomationError&&error.status===409,
   );
+});
+
+void test('Viber safe note targeted read is owner scoped and returns only the requested job',async t=>{
+  const db=await localDatabase(t);await seedAdvertisement(db);await seedDevice(db);
+  const job=await createViberSafeNoteJob(db,'u',{requestKey:'request_targeted_read',advertisementId:'ad',language:'uk'},NOW);
+  assert.equal((await readViberSafeNoteJob(db,'u',job.id))?.id,job.id);
+  assert.equal(await readViberSafeNoteJob(db,'other',job.id),null);
+  assert.equal(await readViberSafeNoteJob(db,'u','missing'),null);
 });

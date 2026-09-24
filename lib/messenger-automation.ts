@@ -87,6 +87,15 @@ export async function readLatestViberSafeNoteJob(db:D1Database,userId:string):Pr
   return row?publicJob(row):null;
 }
 
+export async function readViberSafeNoteJob(db:D1Database,userId:string,jobId:string):Promise<ViberSafeNoteJob|null>{
+  const id=jobId.trim();
+  if(!id)return null;
+  const row=await db.prepare(`SELECT * FROM messenger_automation_jobs
+    WHERE id=?1 AND user_id=?2 AND platform='viber' AND mode='safe_note' LIMIT 1`)
+    .bind(id,userId).first<JobRow>();
+  return row?publicJob(row):null;
+}
+
 export async function readActiveViberSafeNoteJob(db:D1Database,userId:string):Promise<ViberSafeNoteJob|null>{
   const row=await db.prepare(`SELECT * FROM messenger_automation_jobs
     WHERE user_id=?1 AND active_key=?2 AND status IN ('pending','claimed') LIMIT 1`)

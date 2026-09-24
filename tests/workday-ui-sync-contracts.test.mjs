@@ -12,12 +12,18 @@ void test('workday exposes an uncached authenticated server snapshot for cross-d
   assert.match(route, /'Cache-Control': 'no-store'/);
 });
 
-void test('workday card refreshes remote state while visible and when returning to the tab', () => {
-  assert.match(card, /const SYNC_INTERVAL_MS = 5_000/);
+void test('workday card keeps fast event recovery but backs off unchanged D1 polling', () => {
+  assert.match(card, /const SYNC_ACTIVE_MS = 5_000/);
+  assert.match(card, /const SYNC_IDLE_MIN_MS = 15_000/);
+  assert.match(card, /const SYNC_IDLE_MAX_MS = 60_000/);
+  assert.match(card, /const SYNC_ERROR_MAX_MS = 300_000/);
   assert.match(card, /fetch\('\/api\/workday',[\s\S]*method: 'GET',[\s\S]*cache: 'no-store'/);
+  assert.match(card, /window\.setTimeout\(\(\) => void poll\(\), delay\)/);
   assert.match(card, /document\.addEventListener\('visibilitychange', onVisibility\)/);
   assert.match(card, /window\.addEventListener\('focus', onFocus\)/);
+  assert.match(card, /window\.addEventListener\('online', onOnline\)/);
   assert.match(card, /new BroadcastChannel\(SYNC_CHANNEL\)/);
+  assert.doesNotMatch(card, /setInterval\(\(\) => \{[\s\S]{0,240}refreshWorkday/);
 });
 
 void test('workday mutations broadcast changes and recover from stale cross-device versions', () => {

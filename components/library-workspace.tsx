@@ -24,6 +24,10 @@ type Form = { title:string; ukText:string; ruText:string; notes:string; tags:str
 const collectionLabels:Record<Collection,string>={advertisement:'Оголошення',official_script:'Офіційні скрипти',personal_script:'Особисті скрипти',knowledge:'База знань'};
 const blankForm=():Form=>({title:'',ukText:'',ruText:'',notes:'',tags:[],platforms:[]});
 const newForm=(collection:Collection):Form=>({...blankForm(),platforms:collection==='advertisement'?[...LIBRARY_ADVERTISEMENT_PLATFORMS]:[]});
+const VIBER_JOB_POLL_ACTIVE_MS=5_000;
+const VIBER_JOB_POLL_IDLE_MIN_MS=10_000;
+const VIBER_JOB_POLL_IDLE_MAX_MS=60_000;
+const VIBER_JOB_POLL_ERROR_MAX_MS=300_000;
 
 export function LibraryWorkspace({ syncRevision=0, active=true }: { syncRevision?:number; active?:boolean } = {}) {
   const [collection,setCollection]=useState<Collection>('advertisement');
@@ -82,7 +86,46 @@ export function LibraryWorkspace({ syncRevision=0, active=true }: { syncRevision
     viewCache.current.clear();
     void load(true);
   },[active,syncRevision,load]);
-  useEffect(()=>{if(!viberJob||(viberJob.status!=='pending'&&viberJob.status!=='claimed'))return;const timer=setInterval(()=>{void (async()=>{try{const response=await fetch('/api/messenger-automation',{cache:'no-store'});const body=await response.json() as {job?:ViberSafeJob|null};if(response.ok&&body.job?.id===viberJob.id)setViberJob(body.job);}catch{/* transient poll failures keep the last confirmed state */}})();},2000);return()=>clearInterval(timer);},[viberJob]);
+  useEffect(()=>{
+    if(!active||!viberJob||(viberJob.status!=='pending'&&viberJob.status!=='claimed'))return;
+    let stopped=false;
+    let timer:number|null=null;
+    let pollDelay=VIBER_JOB_POLL_ACTIVE_MS;
+    let failureDelay=0;
+    const schedule=(delay:number)=>{
+      if(stopped)return;
+      if(timer!==null)window.clearTimeout(timer);
+      timer=window.setTimeout(()=>void poll(),delay);
+    };
+    const wake=()=>{if(document.visibilityState==='visible'&&navigator.onLine)schedule(0);};
+    async function poll(){
+      if(stopped)return;
+      if(document.visibilityState!=='visible'||!navigator.onLine){pollDelay=VIBER_JOB_POLL_IDLE_MAX_MS;schedule(pollDelay);return;}
+      try{
+        const response=await fetch('/api/messenger-automation?viberJobId='+encodeURIComponent(viberJob.id),{cache:'no-store'});
+        const body=await response.json() as {job?:ViberSafeJob|null};
+        if(!response.ok)throw new Error('Viber job status unavailable');
+        if(body.job?.id===viberJob.id){
+          const changed=body.job.status!==viberJob.status||body.job.updatedAt!==viberJob.updatedAt;
+          if(changed)setViberJob(body.job);
+          failureDelay=0;
+          pollDelay=changed?VIBER_JOB_POLL_ACTIVE_MS:pollDelay<=VIBER_JOB_POLL_ACTIVE_MS
+            ?VIBER_JOB_POLL_IDLE_MIN_MS:Math.min(VIBER_JOB_POLL_IDLE_MAX_MS,pollDelay*2);
+          if(body.job.status!=='pending'&&body.job.status!=='claimed')return;
+        }else{
+          pollDelay=Math.min(VIBER_JOB_POLL_IDLE_MAX_MS,Math.max(VIBER_JOB_POLL_IDLE_MIN_MS,pollDelay*2));
+        }
+      }catch{
+        failureDelay=failureDelay===0?VIBER_JOB_POLL_IDLE_MIN_MS:Math.min(VIBER_JOB_POLL_ERROR_MAX_MS,failureDelay*2);
+        pollDelay=failureDelay;
+      }
+      schedule(pollDelay);
+    }
+    schedule(VIBER_JOB_POLL_ACTIVE_MS);
+    document.addEventListener('visibilitychange',wake);
+    window.addEventListener('online',wake);
+    return()=>{stopped=true;if(timer!==null)window.clearTimeout(timer);document.removeEventListener('visibilitychange',wake);window.removeEventListener('online',wake);};
+  },[active,viberJob]);
 
   function edit(item:Item|null,open=true){
     const knownPlatforms=item?cleanLibraryPlatforms(item.platforms):[];
