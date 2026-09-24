@@ -30,14 +30,15 @@ export function LibraryHistoryDialog({open,item,onClose,finalFocus}:{open:boolea
       .finally(()=>{if(!controller.signal.aborted)setLoading(false);});
     return()=>controller.abort();
   },[open,item]);
+  const viewReady=Boolean(item)&&loadedId===item.id;
   return <Dialog open={open} onOpenChange={next=>{if(!next&&!loading)onClose();}}><DialogContent className="library-history-dialog" finalFocus={finalFocus}>
     <DialogHeader><DialogTitle>Історія матеріалу</DialogTitle><DialogDescription>{item?.title}</DialogDescription></DialogHeader>
     {error&&<div className="workspace-error" role="alert">{error}</div>}
-    {loading&&loadedId!==item?.id?<WorkspaceInlineLoading label="Завантажуємо версії…"/>:<>{loading?<WorkspaceInlineLoading label="Оновлюємо версії…"/>:null}{versions.length?<ol className="chat-history-list">{versions.map(version=><li key={version.id}>
+    {loading&&!viewReady?<WorkspaceInlineLoading label="Завантажуємо версії…"/>:<>{loading&&viewReady?<WorkspaceInlineLoading label="Оновлюємо версії…"/>:null}{viewReady&&versions.length?<ol className="chat-history-list">{versions.map(version=><li key={version.id}>
       <div><strong>v{version.versionNumber} · {actions[version.action]||version.action}</strong><span> · {collections[version.collection]||version.collection}</span>{version.title!==item?.title&&<small> · {version.title}</small>}
         <details><summary>Показати збережену версію</summary>{version.notes&&<p>{version.notes}</p>}{version.ukText&&<pre className="lead-preserve">{version.ukText}</pre>}{version.ruText&&<pre className="lead-preserve">{version.ruText}</pre>}<small>Теги: {version.tags.join(', ')||'—'} · Платформи: {version.platforms.join(', ')||'—'}</small></details>
       </div><time dateTime={new Date(version.savedAt*1000).toISOString()}>{new Intl.DateTimeFormat('uk-UA',{dateStyle:'medium',timeStyle:'short',timeZone:'Europe/Kyiv'}).format(new Date(version.savedAt*1000))}</time>
-    </li>)}</ol>:<p className="muted-note">Історія ще порожня.</p>}</>}
+    </li>)}</ol>:viewReady?<p className="muted-note">Історія ще порожня.</p>:null}</>}
     <div className="dialog-actions"><Button variant="outline" onClick={onClose} disabled={loading}>Закрити</Button></div>
   </DialogContent></Dialog>;
 }

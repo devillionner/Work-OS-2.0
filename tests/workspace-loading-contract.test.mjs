@@ -202,3 +202,26 @@ void test('dialog and CRM state sync uses props instead of remount keys',()=>{
   assert.match(conversation,/mediaVersion\.current=detail\.lead\.version/);
   assert.match(conversation,/if\(leadIdentity\.current===detail\.lead\.id\)return/);
 });
+
+
+void test('cached dialogs never reveal a previous view after a new-view request fails',()=>{
+  const duplicates=read('components/chat-duplicates-dialog.tsx');
+  assert.match(duplicates,/const viewReady=Boolean\(currentKey\)&&loadedKey===currentKey/);
+  assert.match(duplicates,/viewReady&&groups\.length/);
+
+  const libraryHistory=read('components/library-history-dialog.tsx');
+  assert.match(libraryHistory,/const viewReady=Boolean\(item\)&&loadedId===item\.id/);
+  assert.match(libraryHistory,/viewReady&&versions\.length/);
+
+  const reportHistory=read('components/report-history-dialog.tsx');
+  assert.match(reportHistory,/const viewReady=Boolean\(date\)&&loadedDate===date/);
+  assert.match(reportHistory,/viewReady&&events\.length/);
+
+  const leadHistory=read('components/leads/history.tsx');
+  assert.match(leadHistory,/const viewReady=Boolean\(lead\)&&loadedId===lead\.id/);
+  assert.match(leadHistory,/viewReady&&events\.length/);
+
+  const lessonHistory=read('components/leads/lesson-history.tsx');
+  assert.match(lessonHistory,/const viewReady=Boolean\(lesson\)&&loadedId===lesson\.id/);
+  assert.match(lessonHistory,/viewReady&&events\.length/);
+});
