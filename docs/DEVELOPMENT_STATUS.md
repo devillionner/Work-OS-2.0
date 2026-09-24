@@ -1,5 +1,13 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 factual WhatsApp topic qualification / v0.2.68
+
+- WhatsApp Web runtime qualification can now emit factual `topicMatch='match'` when the observed group identity (header/info drawer) itself contains a strong Ukrainian/Ukrainians/Ukraine/🇺🇦 signal.
+- Generic group names remain `unknown`; source/search provenance is not injected into this runtime decision.
+- Existing spam evidence still wins first and emits `mismatch`, so names such as «Українці … crypto signals» cannot be promoted by the Ukrainian token.
+- This closes the runtime/manual-source `unknown_topic_match` gap while preserving fail-closed qualification. No D1 schema or production operation changed.
+
+
 ## 2026-09-24 WhatsApp runtime readiness gate / v0.2.67
 
 - A non-interactive executor process without `WORK_OS_WHATSAPP_CDP` exits before the first Work OS API/D1 poll. There is no useful autonomous work it can safely complete in that state.

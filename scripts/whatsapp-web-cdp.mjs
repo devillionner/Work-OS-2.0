@@ -15,6 +15,7 @@ const leavePattern = /^(?:exit group|leave group|вийти з групи|пок
 const confirmLeavePattern = /^(?:exit|leave|вийти|покинути|выйти|покинуть)$/iu;
 const leftPattern = /(?:you (?:left|are no longer a participant)|ви (?:вийшли|більше не є учасником)|вы (?:вышли|больше не участник))/iu;
 const spamPattern = /(?:crypto|крипт|bitcoin|forex|casino|казино|betting|ставк[аи]|dating|знакомств|знайомств|escort|ескорт|onlyfans|adult|18\+|nft|airdrop|signals?\b|binary options)/iu;
+const ukrainianIdentityPattern = /(?:україн|украин|ukrain|🇺🇦)/iu;
 const adsForbiddenPattern = /(?:no\s+(?:ads?|advertis(?:ing|ements?))|advertis(?:ing|ements?)\s+(?:is\s+)?(?:forbidden|prohibited)|(?:реклам[ауи]|оголошення)\s+(?:суворо\s+)?заборонен|без\s+реклами|(?:реклам[ауы]|объявления)\s+(?:строго\s+)?запрещен|без\s+рекламы)/iu;
 const adsAllowedPattern = /(?:ads?\s+allowed|advertis(?:ing|ements?)\s+allowed|оголошення\s+дозволен|реклам[ауи]\s+дозволен|объявления\s+разрешен|реклам[ауы]\s+разрешен)/iu;
 const adLikeMessagePattern = /(?:продам|куплю|послуг|урок|репетитор|оренд|здам|робот[ауи]|ваканс|доставк|перевез|advert|for\s+sale|services?|rent|job|vacanc)/iu;
@@ -472,7 +473,9 @@ export function deriveWhatsappQualification(snapshot) {
     || (recentActivityPattern.test(chatText) || recentActivityPattern.test(meta.join('\n')) ? 'active' : undefined);
   const identityText = [infoText, ...(snapshot.headerTitles || [])].join('\n');
   const spamMessages = messages.slice(-20).filter((value) => spamPattern.test(value)).length;
-  const topicMatch = spamPattern.test(identityText) || spamMessages >= 3 ? 'mismatch' : undefined;
+  const topicMatch = spamPattern.test(identityText) || spamMessages >= 3
+    ? 'mismatch'
+    : ukrainianIdentityPattern.test(identityText) ? 'match' : undefined;
   let adsPolicy;
   if (adsForbiddenPattern.test(infoText)) adsPolicy = 'forbidden';
   else if (adsAllowedPattern.test(infoText)) adsPolicy = 'allowed';

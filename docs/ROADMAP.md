@@ -329,3 +329,12 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Canonical autonomous prompt locks the active-source cadence/runtime readiness rule.
 - [x] D1 regression contract protects startup fail-closed and runtime cooldown.
 - [ ] Physical WhatsApp Web acceptance remains blocked until a real CDP-enabled authenticated session is available.
+
+
+## v0.2.68 — factual WhatsApp topic qualification
+
+- [x] Derive positive WhatsApp topic match from observed Ukrainian group identity, not from the search query/source text.
+- [x] Keep generic/non-Ukrainian identity as unknown instead of guessing.
+- [x] Preserve spam/topic mismatch precedence over Ukrainian identity.
+- [x] Regression coverage protects positive, unknown and mismatch runtime cases.
+- [ ] Physical WhatsApp Web acceptance remains pending until a CDP-enabled authenticated session is available.

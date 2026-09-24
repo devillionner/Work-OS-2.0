@@ -220,7 +220,7 @@ void test('joined qualification extracts factual member, recent activity and exp
   assert.equal(facts.memberCount,1234);
   assert.equal(facts.activityState,'active');
   assert.equal(facts.adsPolicy,'allowed');
-  assert.equal(facts.topicMatch,undefined);
+  assert.equal(facts.topicMatch,'match');
 });
 
 void test('recent repeated advertisement evidence may satisfy inferred ads policy without inventing explicit permission', () => {
@@ -234,6 +234,37 @@ void test('recent repeated advertisement evidence may satisfy inferred ads polic
   assert.equal(facts.memberCount,1250);
   assert.equal(facts.activityState,'active');
   assert.equal(facts.adsPolicy,'inferred_allowed');
+});
+
+void test('runtime topic match needs factual Ukrainian identity and never comes from a generic group name', () => {
+  const ukrainian = deriveWhatsappQualification({
+    groupInfoText:'1 120 participants',
+    mainText:'Today',
+    messageTexts:['Звичайне повідомлення'],
+    messageMeta:[],
+    headerTitles:['Ukrainians in Berlin'],
+  });
+  assert.equal(ukrainian.topicMatch,'match');
+
+  const generic = deriveWhatsappQualification({
+    groupInfoText:'1 120 participants',
+    mainText:'Today',
+    messageTexts:['Hello parents'],
+    messageMeta:[],
+    headerTitles:['Berlin Parents Community'],
+  });
+  assert.equal(generic.topicMatch,undefined);
+});
+
+void test('runtime spam mismatch has priority over an otherwise positive Ukrainian identity', () => {
+  const facts = deriveWhatsappQualification({
+    groupInfoText:'Українці Berlin crypto signals · 1 400 participants',
+    mainText:'Today',
+    messageTexts:['Привіт'],
+    messageMeta:[],
+    headerTitles:['Українці Berlin crypto signals'],
+  });
+  assert.equal(facts.topicMatch,'mismatch');
 });
 
 void test('obvious spam evidence overrides source topic assumptions', () => {
