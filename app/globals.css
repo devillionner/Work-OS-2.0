@@ -433,7 +433,9 @@ button:not([data-slot="button"]) { color: inherit; }
 .chat-list { display:grid; grid-auto-rows:max-content; align-content:start; }
 .chat-row { position:relative; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:center; min-height:68px; padding:11px 14px; border-top:1px solid #eceef2; }
 .chat-row:first-child { border-top: 0; }
-.chat-row:hover { background: #fafbff; }
+.chat-row:hover { background:#fafbff; }
+.chat-row.is-published { background:#fbfcfd; }
+.chat-row.is-published:hover { background:#f7f9fc; }
 .chat-main { min-width: 0; display: grid; gap: 4px; }
 .chat-name-line { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .chat-name-line strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
