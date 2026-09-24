@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import {
   rankLeadScripts,
@@ -64,7 +65,7 @@ export function LeadScripts({ lead }: { lead: LeadDetail['lead'] }) {
         <Badge variant="outline">{scripts.length}</Badge>
       </div>
       <p className="muted-note">Підбір за предметом, платформою, етапом і кваліфікацією. Джерело — єдина Бібліотека Work OS.</p>
-      {error ? <p className="lead-error" role="alert">{error}</p> : loading ? <output>Завантаження скриптів…</output> : scripts.length ? (
+      {error ? <p className="lead-error" role="alert">{error}</p> : loading&&!items.length ? <WorkspaceInlineLoading label="Завантажуємо скрипти…"/> : scripts.length ? (
         <ul className="lead-simple-list">
           {scripts.map((script) => (
             <li key={script.id}>
