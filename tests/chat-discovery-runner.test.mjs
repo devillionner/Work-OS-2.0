@@ -37,3 +37,12 @@ void test('runner fails closed on ambiguous membership and requires a confirmed 
   const inspected=source.indexOf("status:'inspected'");
   assert.ok(guard>0&&inspected>guard);
 });
+
+
+void test('runner uses optional WhatsApp Web CDP automation but sends no callback for ambiguous browser state',()=>{
+  assert.match(source,/WORK_OS_WHATSAPP_CDP/);
+  assert.match(source,/inspectWhatsappTaskViaCdp/);
+  assert.match(source,/automation stopped fail-closed/);
+  assert.match(source,/if\(!result\)return true/);
+  assert.match(source,/toWhatsAppWebInviteUrl/);
+});

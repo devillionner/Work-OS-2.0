@@ -161,7 +161,8 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] External executor membership/inspection callbacks that assert accessible/pending/joined/inspected state require targetVerified=true; manual operator qualification remains a separate trusted UI path.
 - [x] External leave requires the same target proof before any archive/leave mutation.
 - [x] The reference runner short-circuits unknown/wrong targets, and the pairing panel documents WhatsApp Web vs Viber native behavior.
-- [ ] Real WhatsApp Web automation acceptance remains open; this slice hardens the server/runner contract and does not claim a live browser result.
+- [x] Reference runner now has an optional CDP-backed WhatsApp Web adapter: it opens the exact web invite inside an already-authorized browser profile, verifies the rendered target name before any join/request click, distinguishes joined/pending/known-invalid states, derives writeability only from the actual composer/admin-only UI, and leaves topic/ads/activity unknown rather than inventing qualification facts. Generated placeholder names cannot pass target verification.
+- [ ] Real WhatsApp Web automation acceptance remains open: the current Opera session has no Browser Connector/CDP endpoint exposed, so no live callback was claimed. Manual runner fallback remains available and ambiguous CDP state sends no executor callback.
 
 
 ## v0.2.41 — Platforms operator UX cleanup

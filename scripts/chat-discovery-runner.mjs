@@ -2,9 +2,11 @@
 import { execFile } from 'node:child_process';
 import process from 'node:process';
 import readline from 'node:readline/promises';
+import { inspectWhatsappTaskViaCdp, toWhatsAppWebInviteUrl } from './whatsapp-web-cdp.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const token=process.env.WORK_OS_EXECUTOR_TOKEN||'';
+const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
 if(!baseUrl||!token){console.error('Set WORK_OS_URL and WORK_OS_EXECUTOR_TOKEN.');process.exit(2);}
 const terminal=readline.createInterface({input:process.stdin,output:process.stdout});
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -26,7 +28,8 @@ function numberOrNull(value){const n=Number(value.replace(/\s/g,''));return Numb
 function membershipState(value){const v=value.trim().toLowerCase();return ['joined','pending','not_checked','left'].includes(v)?v:null;}
 
 async function inspect(task){
-  openUrl(task.link);
+  const manualUrl=task.runtime==='whatsapp_web'?(toWhatsAppWebInviteUrl(task.link)||task.link):task.link;
+  openUrl(manualUrl);
   console.log(`\n[${task.platform}] ${task.name}\n${task.link}\nAction: ${task.action}`);
   console.log('Complete the requested messenger action manually, then record only what you actually observed.');
   const targetVerified=yes(await terminal.question(`Exact target verified as "${task.expectedTarget?.name||task.name}"? [y/N] `));
@@ -43,6 +46,24 @@ async function inspect(task){
   const active=tri(await terminal.question('Active recently? [y/n/blank unknown] '),'active','dead')||'unknown';
   return {status:'inspected',targetVerified:true,accessible,membershipState:membership,observedName,chatType:'group',memberCount:members,topicMatch:topic,canWrite,adsPolicy:ads,activityState:active};
 }
+async function inspectTask(task){
+  if(task.runtime==='whatsapp_web'&&whatsappCdp){
+    try{
+      const automated=await inspectWhatsappTaskViaCdp(task,{cdpBaseUrl:whatsappCdp});
+      if(automated.kind==='result'){
+        console.log(`WhatsApp Web observed safely: ${automated.result.membershipState||automated.result.reason||automated.result.status}`);
+        return automated.result;
+      }
+      console.warn(`WhatsApp Web automation stopped fail-closed: ${automated.reason}`);
+    }catch(error){
+      console.warn(`WhatsApp Web CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
+    }
+    if(!process.stdin.isTTY)return null;
+    console.log('Falling back to operator-confirmed inspection; no callback was sent for the ambiguous browser state.');
+  }
+  return inspect(task);
+}
+
 async function runOnce(){
   const queue=await api('/api/chat-discovery/executor?limit=1');
   const task=queue.tasks?.[0]; if(!task)return false;
@@ -54,7 +75,8 @@ async function runOnce(){
     if(!yes(await terminal.question('Confirm only AFTER you actually left the chat [y/N]: '))) return true;
     await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'executor-leave',candidateId:task.candidateId,version:task.candidateVersion,chatStateToken:task.chatStateToken,targetVerified:true})});
   }else{
-    const result=await inspect(task);
+    const result=await inspectTask(task);
+    if(!result)return true;
     await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'inspect',candidateId:task.candidateId,version:task.candidateVersion,minMembers:task.minMembers,result})});
   }
   console.log('Result accepted by Work OS.'); return true;
