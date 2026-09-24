@@ -1122,8 +1122,8 @@ button:not([data-slot="button"]) { color: inherit; }
   .chat-actions { align-items:stretch; gap:8px; }
   .chat-actions > button, .chat-account-select { min-height:44px; }
   .chat-account-select { max-width:100%; flex:1 1 170px; }
-  .platform-stat-actions [data-slot="button"] { min-height:36px; }
-  .platform-stat-actions [data-slot="button"][data-size="icon"] { min-width:36px; }
+  .platform-stat-actions [data-slot="button"] { min-height:44px; }
+  .platform-stat-names { display:none; }
 }
 .library-mobile-back { display:none; }
 @media (min-width:721px) and (max-width:1024px) {
