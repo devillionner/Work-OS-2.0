@@ -66,11 +66,16 @@ void test('runner claims WhatsApp autopost only after Discovery messenger tasks 
   assert.match(source,/Confirmed WhatsApp autopost accepted by Work OS/);
 });
 
-void test('runner backs off idle polling instead of hammering D1 every three seconds',()=>{
-  assert.match(source,/const ACTIVE_POLL_MS=3000/);
+void test('runner separates fast messenger work from bounded source advancement and idle D1 backoff',()=>{
+  assert.match(source,/const TASK_POLL_MS=3000/);
+  assert.match(source,/const SOURCE_ADVANCE_MS=60000/);
   assert.match(source,/const IDLE_POLL_MIN_MS=15000/);
   assert.match(source,/const IDLE_POLL_MAX_MS=60000/);
-  assert.match(source,/const waitMs=progressed\?ACTIVE_POLL_MS:idleDelayMs/);
+  assert.match(source,/outcome==='task'\|\|outcome==='source_added'/);
+  assert.match(source,/outcome==='source_advanced'/);
+  assert.match(source,/waitMs=SOURCE_ADVANCE_MS/);
   assert.match(source,/Math\.min\(IDLE_POLL_MAX_MS,idleDelayMs\*2\)/);
+  assert.match(source,/canAdvanceDiscoverySource\(\)/);
+  assert.match(source,/configure WORK_OS_WHATSAPP_CDP or run interactively/);
   assert.match(source,/backing off until the browser adapter is available/);
 });

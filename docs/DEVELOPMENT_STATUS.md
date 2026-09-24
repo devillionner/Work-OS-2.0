@@ -1,5 +1,14 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 active Discovery source budget / v0.2.66
+
+- The executor runner now distinguishes messenger work from source crawling. Real join/inspect/leave/autopost work and a source step that just created candidates keep the 3s handoff cadence; a source step with no new candidate waits 60s before another source crawl.
+- A non-interactive runner without `WORK_OS_WHATSAPP_CDP` no longer advances Discovery sources at all. This prevents an unattended process from accumulating join tasks it cannot inspect and from burning D1/search budget toward a goal it cannot confirm.
+- One Telegram source advancement is reduced from 2 seed queries / 3 preview channels to 1 seed query / 2 preview channels. Public-web fallback is reduced from 4 to 2 queries per advancement.
+- Worst-case continuously active empty-source cadence is therefore capped at 1,440 source advancements/day per runner, with one Telegram seed task per advancement. This is a ceiling, not a target; messenger work, idle backoff, completion and runtime blockers reduce it further.
+- D1 budget regression tests now lock source cadence, runtime gating and batch bounds. No schema migration or production operation is involved.
+
+
 ## 2026-09-24 Telegram source diversity / v0.2.65
 
 - Public Telegram source discovery now deduplicates search hits by case-insensitive channel username before spending the per-task preview page budget.

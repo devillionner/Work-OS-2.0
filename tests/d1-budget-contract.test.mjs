@@ -27,12 +27,19 @@ void test('Discovery executor and staging deploy retain quota-safe guards',()=>{
   const auth=read('lib/chat-discovery/executor-auth.ts');
   const executor=read('lib/chat-discovery/executor.ts');
   const deploy=read('scripts/deploy-staging.mjs');
+  const domain=read('lib/chat-discovery/domain.ts');
+  assert.match(runner,/TASK_POLL_MS=3000/);
+  assert.match(runner,/SOURCE_ADVANCE_MS=60000/);
   assert.match(runner,/IDLE_POLL_MIN_MS=15000/);
   assert.match(runner,/IDLE_POLL_MAX_MS=60000/);
+  assert.match(runner,/canAdvanceDiscoverySource\(\)/);
+  assert.match(runner,/added>0\?'source_added':'source_advanced'/);
   assert.match(auth,/EXECUTOR_HEARTBEAT_SECONDS = 60/);
   assert.match(executor,/readDiscoveryExecutorQueue\(db, userId, limit, now\)/);
   assert.match(deploy,/if \(fingerprintCheck\.allowed\)/);
   assert.match(deploy,/Skipping remote D1 migration list for this code-only deploy/);
+  assert.match(domain,/discoverTelegramPublic\(\{ cursor:claimed\.telegram_cursor, maxQueries:1, pageLimit:2 \}/);
+  assert.match(domain,/maxQueries: 2,[\s\S]{0,80}pageLimit: 1/);
 });
 
 void test('workday and Viber safe-mode polling have bounded D1 backoff and no fixed request interval',()=>{

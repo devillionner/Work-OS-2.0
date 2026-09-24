@@ -309,3 +309,13 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Keep same-channel bounded history follow-up compatible with canonical channel identity.
 - [x] Regression coverage proves duplicate posts cannot consume multiple Telegram preview slots.
 - [ ] Live source-diversity/yield comparison waits for staging D1 quota reset.
+
+
+## v0.2.66 — active Discovery source budget
+
+- [x] Separate 3s messenger-task handoff from source crawling; an empty source advance waits 60s.
+- [x] Keep 3s follow-up only after real messenger work or when source discovery actually added a candidate.
+- [x] Pause autonomous source discovery in non-interactive runner when WhatsApp CDP is not configured, so impossible join/inspect work cannot accumulate.
+- [x] Reduce one Telegram source advance to 1 seed query / 2 public previews and public-web fallback to 2 queries.
+- [x] D1 budget contract protects active-source cadence and batch fan-out, not only idle polling.
+- [ ] Live 8h rows_read/search-rate measurement waits for staging D1 quota reset.
