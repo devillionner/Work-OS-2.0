@@ -13,24 +13,23 @@ export function PlatformOverview({
   published,
 }:{
   pace:PublicationPace;
-  available:PlatformLinkItem[];
+  available?:PlatformLinkItem[];
   joined:PlatformLinkItem[];
   published:PlatformLinkItem[];
 }) {
   return <section className="platform-overview" aria-label="Сьогоднішній стан">
     <DailyStat label="Темп" value={`${pace.ratePerHour}/год`} />
-    <DailyStat label="Ціль" value={`${pace.completed} / ${pace.target}`} hint={`${Math.max(0,pace.target-pace.completed)} залишилось`} />
-    <DailyLinkStat label="Доступні" items={available} />
+    <DailyStat label="Ціль" value={`${pace.completed} / ${pace.target}`} />
+    {available&&<DailyLinkStat label="Доступні" items={available} />}
     <DailyLinkStat label="Приєднано" items={joined} />
     <DailyLinkStat label="Опубліковано" items={published} />
   </section>;
 }
 
-function DailyStat({label,value,hint}:{label:string;value:string;hint?:string}) {
+function DailyStat({label,value}:{label:string;value:string}) {
   return <div className="platform-stat">
     <span>{label}</span>
     <strong>{value}</strong>
-    {hint&&<small>{hint}</small>}
   </div>;
 }
 
