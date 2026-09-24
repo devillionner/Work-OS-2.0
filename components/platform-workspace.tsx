@@ -30,8 +30,9 @@ type ProfileFilter = 'all' | 'needs_review';
 type Chat = { id:string; name:string; link:string; platform:Platform; status:Queue; archiveReason:string|null; archivedAt:number|null; profileConfirmed:boolean; profile:ChatProfile; publishedToday:boolean; joinedAt:number|null; snoozedUntil:number|null; snoozeCount:number; leftAt:number|null; availableAt:number|null; availableNow:boolean; telegramAccountId:string|null; stateToken:string; discoveryDecision:'review'|'target'|'rejected'|'unavailable'|null };
 type LinkItem = { id?:string; name?:string; link?:string };
 type ProfileCounts = { confirmed:number; draft:number; empty:number; needsReview:number };
-type PublicationState = { chatId:string; chatPublishedToday:boolean; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:{ratePerHour:number;completed:number;target:number} };
-type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; profileCounts:Record<string,ProfileCounts>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:{ratePerHour:number;completed:number;target:number}; requestKey?:string };
+type PublicationPace = { ratePerHour:number; completed:number; target:number };
+type PublicationState = { chatId:string; chatPublishedToday:boolean; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:PublicationPace };
+type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; profileCounts:Record<string,ProfileCounts>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:PublicationPace; requestKey?:string };
 type UndoSpec = { action:'restore'|'unsnooze'|'undo_published'; label:string };
 type UndoState = UndoSpec & { chat:Chat; expiresAt:number };
 type ChatActionResult = { ok:true } | { ok:false; error:string; refresh:boolean };
@@ -360,11 +361,13 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     <ChatHistoryDialog key={historyOpenKey} open={historyChat!==null} chat={historyChat} onClose={()=>setHistoryChat(null)} finalFocus={()=>historyTrigger.current}/>
     <ChatPublishDialog key={publishOpenKey} open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={async({advertisementId,language})=>{if(!publishChat)return false;const quick=quickPublishMode&&(publishChat.platform==='whatsapp'||publishChat.platform==='viber');const result=await act(publishChat,'published',{advertisementId,language,quick},{action:'undo_published',label:'Публікацію можна скасувати протягом 8 секунд.'});if(!result.ok){if(result.refresh){setPublishChat(null);setNotice(`${result.error} Список уже оновлено — відкрийте актуальний чат повторно.`);return false;}throw new Error(result.error);}if(quick&&advertisementId&&!quickAdvertisementId){setQuickAdvertisementId(advertisementId);setNotice('Матеріал швидкого режиму зафіксовано. Публікацію можна скасувати кнопкою поруч; матеріал серії залишиться обраним.');}return true;}} onOpenChat={()=>{if(publishChat)openChat(publishChat);}} finalFocus={()=>publishTrigger.current} quickMode={publishQuickMode} preferredAdvertisementId={quickAdvertisementId}/>
     {notice&&<output className="reports-notice"><span>{notice}</span>{undo&&<Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>void undoLast()}>Скасувати</Button>}</output>}
-    <section className="platform-hero">
-      <div><p className="eyebrow">Робочі платформи</p><h2>Чати без зайвих переходів</h2><p>Приєднуйся, перевіряй очікування та відмічай публікації в одному стабільному процесі.</p></div>
-      <div className="platform-hero-actions">
-        <Button variant="outline" disabled={busy!==null} onClick={()=>setDiscoveryOpen(true)}><Search data-icon="inline-start"/>Знайти чати</Button>
-        <Button disabled={busy!==null} onClick={()=>setBulkOpen(true)}><Plus data-icon="inline-start"/>Додати чати</Button>
+    <section className="platform-header">
+      <div className="platform-header-main">
+        <div><p className="eyebrow">Робочі платформи</p><h2>Платформи</h2><p>Черги чатів, приєднання та підтверджені публікації — без зайвих проміжних екранів.</p></div>
+        <div className="platform-header-actions">
+          <Button variant="outline" disabled={busy!==null} onClick={()=>setDiscoveryOpen(true)}><Search data-icon="inline-start"/>Знайти чати</Button>
+          <Button disabled={busy!==null} onClick={()=>setBulkOpen(true)}><Plus data-icon="inline-start"/>Додати чати</Button>
+        </div>
       </div>
       <div className="platform-picker" role="tablist" aria-label="Платформа">
         {availablePlatforms.map(item=><button type="button" key={item.key} role="tab" aria-selected={platform===item.key} tabIndex={platform===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>selectPlatform(item.key)}><i style={{background:item.color}} />{item.label}</button>)}
@@ -391,30 +394,20 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
 
     {platform==='telegram'&&accountId&&<TelegramSchedule accountId={accountId} refreshKey={scheduleRefreshKey} />}
 
-    {data?.publicationPace&&<section className="posting-pace" aria-label="Темп публікацій">
-      <div><span>Робочий темп</span><strong>{data.publicationPace.ratePerHour}/год</strong></div>
-      <div><span>Денна ціль</span><strong>{data.publicationPace.completed} / {data.publicationPace.target}</strong></div>
-      <small>{Math.max(0,data.publicationPace.target-data.publicationPace.completed)} публікацій залишилось сьогодні</small>
-    </section>}
-    {queue==='ready'&&(platform==='whatsapp'||platform==='viber')&&<section className={`quick-publish-bar ${quickPublishMode?'is-active':''}`} aria-label="Швидка публікація">
-      <div><strong>Швидка публікація</strong><span>{quickPublishMode?(quickAdvertisementId?'Матеріал зафіксовано для цієї серії. Відкривайте доступні чати й підтверджуйте факт вручну.':'Відкрийте перший доступний чат і один раз оберіть матеріал. Після першої публікації він зафіксується для серії.'):'Оберіть один матеріал і вручну пройдіть доступні чати без обов’язкового заповнення кожного профілю.'}</span></div>
-      <Button type="button" variant={quickPublishMode?'outline':'default'} disabled={busy!==null} onClick={()=>{setQuickPublishMode(value=>{const next=!value;if(!next)setQuickAdvertisementId(null);return next;});}}><Send data-icon="inline-start"/>{quickPublishMode?'Завершити швидкий режим':'Почати швидку публікацію'}</Button>
-    </section>}
-    <section className={`today-links ${queue==='ready'?'has-available':''}`}>
-      {queue==='ready'&&<TodayLinks title="Доступні зараз" items={data?.availableToday || []} />}
-      <TodayLinks title="Приєднано сьогодні" items={data?.joinedToday || []} />
-      <TodayLinks title="Опубліковано сьогодні" items={data?.publishedToday || []} />
-    </section>
+    {data&&<PlatformOverview pace={data.publicationPace} available={data.availableToday} joined={data.joinedToday} published={data.publishedToday}/>}
 
     <section className="platform-browser">
       <div className="queue-tabs" role="tablist" aria-label="Черга чатів">
         {queues.map(item=><button type="button" key={item.key} role="tab" aria-selected={queue===item.key} tabIndex={queue===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{if(item.key!=='ready'){setQuickPublishMode(false);setQuickAdvertisementId(null);}setQueue(item.key);setOffset(0)}}>{item.label}<span>{data?.counts[item.key] || 0}</span></button>)}
       </div>
+      {queue==='ready'&&(platform==='whatsapp'||platform==='viber')&&<div className={`platform-queue-context ${quickPublishMode?'is-active':''}`}>
+        <div><strong>{quickPublishMode?'Швидкий режим увімкнено':'Швидкий режим'}</strong><span>{quickPublishMode?(quickAdvertisementId?'Матеріал серії вже зафіксовано. Підтверджуйте тільки фактично зроблені публікації.':'Оберіть матеріал у першому чаті — далі він лишатиметься для серії.'):'Один матеріал для серії чатів, із ручним підтвердженням кожної фактичної публікації.'}</span></div>
+        <Button type="button" size="sm" variant={quickPublishMode?'outline':'default'} disabled={busy!==null} onClick={()=>{setQuickPublishMode(value=>{const next=!value;if(!next)setQuickAdvertisementId(null);return next;});}}><Send data-icon="inline-start"/>{quickPublishMode?'Завершити':'Увімкнути'}</Button>
+      </div>}
       <div className="chat-toolbar">
         <label htmlFor="chat-search"><Search/><Input id="chat-search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Пошук за назвою або посиланням"/><span className="sr-only">Пошук чатів</span></label>
-        {(queue==='waiting'||queue==='ready')&&<><Button type="button" variant="outline" size="sm" title={profileSummary?`Підтверджені: ${profileSummary.confirmed}; чернетки: ${profileSummary.draft}; без профілю: ${profileSummary.empty}`:'Фільтр профілів'} aria-pressed={profileFilter==='needs_review'} onClick={()=>{setProfileFilter(value=>value==='all'?'needs_review':'all');setOffset(0);}}><UserRoundCheck data-icon="inline-start"/>{profileFilter==='needs_review'?`Усі профілі (${data?.counts[queue]||0})`:`Потребують правил (${profileSummary?.needsReview||0})`}</Button>{profileSummary&&<span className="profile-counts" aria-label={`Профілі: підтверджені ${profileSummary.confirmed}, чернетки ${profileSummary.draft}, без профілю ${profileSummary.empty}`}>Профілі: ✓ {profileSummary.confirmed} · чернетки {profileSummary.draft} · без профілю {profileSummary.empty}</span>}</>}
+        {(queue==='waiting'||queue==='ready')&&<><Button type="button" variant="outline" size="sm" title={profileSummary?`Підтверджені: ${profileSummary.confirmed}; чернетки: ${profileSummary.draft}; без профілю: ${profileSummary.empty}`:'Фільтр профілів'} aria-pressed={profileFilter==='needs_review'} onClick={()=>{setProfileFilter(value=>value==='all'?'needs_review':'all');setOffset(0);}}><UserRoundCheck data-icon="inline-start"/>{profileFilter==='needs_review'?`Усі профілі (${data?.counts[queue]||0})`:`Потребують правил (${profileSummary?.needsReview||0})`}</Button>{profileSummary&&<span className="profile-counts" aria-label={`Профілі: підтверджені ${profileSummary.confirmed}, чернетки ${profileSummary.draft}, без профілю ${profileSummary.empty}`}>✓ {profileSummary.confirmed} · чернетки {profileSummary.draft} · без профілю {profileSummary.empty}</span>}</>}
         <Button type="button" variant="outline" size="sm" disabled={busy!==null||platform==='telegram'&&!accountId} onClick={()=>setDuplicatesOpen(true)}>Дублікати</Button>
-        <Badge variant="secondary">{data?.total || 0} у черзі</Badge>
       </div>
       {error && <div className="workspace-error" role="alert">{error} <Button variant="outline" size="sm" disabled={loading||busy!==null} onClick={()=>void reloadChats.current()}>Оновити список</Button></div>}
       {!data&&(loading||switchingList) ? <div className="workspace-loading"><LoaderCircle/>Завантажуємо {selected.label}…</div> : data?.chats.length ? <>
@@ -429,7 +422,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
             <Button variant="outline" size="icon" type="button" onClick={()=>openChat(chat)} aria-label={`Відкрити чат у ${selected.label}`}><ExternalLink/></Button>
             {queue==='to_join'&&<><Button size="icon" onClick={()=>act(chat,'joined')} disabled={busy!==null} aria-label="Успішно приєднано"><Check/></Button>{(platform==='telegram'||platform==='whatsapp')&&<Button variant="outline" size="icon" onClick={()=>act(chat,'waiting')} disabled={busy!==null} aria-label="Очікуємо запрошення"><Clock3/></Button>}<Button variant="outline" size="icon" onClick={()=>act(chat,'failed',{reason:'Не вдалося приєднатися'},{action:'restore',label:'Невдале приєднання можна скасувати протягом 8 секунд.'})} disabled={busy!==null} aria-label="Не вдалося приєднатися"><X/></Button></>}
             {queue==='waiting'&&<><Button onClick={()=>act(chat,'approved')} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>Прийняли</Button></>}
-            {queue==='ready'&&<><Button onClick={(event)=>{publishTrigger.current=event.currentTarget;setPublishChat(chat);setPublishOpenKey(value=>value+1);}} disabled={busy!==null||chat.publishedToday||!canPublish(chat,clock)}><Send data-icon="inline-start"/>{chat.publishedToday?'Готово':chat.discoveryDecision&&chat.discoveryDecision!=='target'?'Кваліфікація':canPublish(chat,clock)?'Опублікувати':isSnoozed(chat,clock)?'Відкладено':'Очікування 6 год'}</Button>{platform==='whatsapp'&&<Button variant="outline" size="icon" onClick={()=>setConfirmation({kind:'return',chat})} disabled={busy!==null} aria-label="Повернути для приєднання"><Undo2/></Button>}</>}
+            {queue==='ready'&&<><Button onClick={(event)=>{publishTrigger.current=event.currentTarget;setPublishChat(chat);setPublishOpenKey(value=>value+1);}} disabled={busy!==null||chat.publishedToday||!canPublish(chat,clock)}><Send data-icon="inline-start"/>{readyActionLabel(chat,clock)}</Button>{platform==='whatsapp'&&<Button variant="outline" size="icon" onClick={()=>setConfirmation({kind:'return',chat})} disabled={busy!==null} aria-label="Повернути для приєднання"><Undo2/></Button>}</>}
             {(queue==='waiting'||queue==='ready')&&<Button variant="outline" onClick={(event)=>{profileTrigger.current=event.currentTarget;setProfileChat(chat);setProfileOpenKey(value=>value+1);}} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>Профіль</Button>}
             {(queue==='waiting'||queue==='ready')&&<Button variant="outline" title={isSnoozed(chat,clock)?'Скасувати відкладення':'Відкласти на 3 календарні дні'} onClick={()=>{const snoozed=isSnoozed(chat,clock);return act(chat,snoozed?'unsnooze':'snooze',{},snoozed?undefined:{action:'unsnooze',label:'Відкладення можна скасувати протягом 8 секунд.'});}} disabled={busy!==null||chat.publishedToday}>{isSnoozed(chat,clock)?'Повернути зараз':'+3 дні'}</Button>}
             {queue==='archived'&&supportsChatLeaveChecklist(platform)&&chat.joinedAt!==null&&<Button variant="outline" onClick={()=>act(chat,chat.leftAt?'undo_leave':'confirm_leave')} disabled={busy!==null}>{chat.leftAt?<><Undo2 data-icon="inline-start"/>Скасувати вихід</>:<><Check data-icon="inline-start"/>Я вийшов</>}</Button>}
@@ -444,12 +437,34 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   </div>;
 }
 
-function TodayLinks({title,items}:{title:string;items:LinkItem[]}) {
+function PlatformOverview({pace,available,joined,published}:{pace:PublicationPace;available:LinkItem[];joined:LinkItem[];published:LinkItem[]}) {
+  return <section className="platform-overview" aria-label="Сьогоднішній стан">
+    <DailyStat label="Темп" value={`${pace.ratePerHour}/год`} />
+    <DailyStat label="Ціль" value={`${pace.completed} / ${pace.target}`} hint={`${Math.max(0,pace.target-pace.completed)} залишилось`} />
+    <DailyLinkStat label="Доступні" items={available} />
+    <DailyLinkStat label="Приєднано" items={joined} />
+    <DailyLinkStat label="Опубліковано" items={published} />
+  </section>;
+}
+
+function DailyStat({label,value,hint}:{label:string;value:string;hint?:string}) {
+  return <div className="platform-stat"><span>{label}</span><strong>{value}</strong>{hint&&<small>{hint}</small>}</div>;
+}
+
+function DailyLinkStat({label,items}:{label:string;items:LinkItem[]}) {
   async function copy(names:boolean) {
     const lines=items.flatMap((item,index)=>[`${names&&item.name?`${item.name} — `:''}${item.link||''}`, ...((index+1)%5===0&&index<items.length-1?['']:[])]);
     await navigator.clipboard.writeText(lines.join('\n'));
   }
-  return <div><div><span>{title}</span><strong>{items.length}</strong></div><div className="today-link-actions"><Button variant="outline" size="sm" onClick={()=>copy(false)} disabled={!items.length}><Copy data-icon="inline-start"/>Посилання</Button><Button variant="outline" size="sm" onClick={()=>copy(true)} disabled={!items.length}>Назва + посилання</Button></div></div>;
+  return <div className="platform-stat has-actions"><span>{label}</span><strong>{items.length}</strong><div className="platform-stat-actions"><Button variant="ghost" size="icon" title={`Копіювати посилання · ${label}`} aria-label={`Копіювати посилання · ${label}`} onClick={()=>void copy(false)} disabled={!items.length}><Copy/></Button><Button variant="ghost" size="sm" title={`Копіювати назви й посилання · ${label}`} onClick={()=>void copy(true)} disabled={!items.length}>З назвами</Button></div></div>;
+}
+
+function readyActionLabel(chat:Chat,clock:number) {
+  if(chat.publishedToday)return 'Готово';
+  if(chat.discoveryDecision&&chat.discoveryDecision!=='target')return 'Кваліфікація';
+  if(canPublish(chat,clock))return 'Підготувати';
+  if(isSnoozed(chat,clock))return 'Відкладено';
+  return 'Очікування 6 год';
 }
 
 function MessageSquareEmpty(){ return <Send aria-hidden="true"/>; }
