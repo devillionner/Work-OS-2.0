@@ -11,6 +11,15 @@ type GoalRow = { value:number };
 
 export const GOAL_RESTORE_VERSION_BASE = 1_000_000;
 
+export async function readMonthlyGoalProgress(db:D1Database,userId:string,date:string):Promise<{target:number;actual:number}> {
+  const monthStart=`${date.slice(0,7)}-01`;
+  const [target,events]=await Promise.all([
+    readGoal(db,userId,'monthly_booking_goal',monthStart),
+    activitySummaryStatement(db,userId,monthStart,date).all<ActivitySummaryRow>(),
+  ]);
+  return {target,actual:activityTotals(events.results).bookings};
+}
+
 export async function readGoalPlanFact(db:D1Database,userId:string,date:string):Promise<GoalPlanFact> {
   const monthStart=`${date.slice(0,7)}-01`;
   const monthEnd=endOfMonth(date);
