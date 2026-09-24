@@ -105,6 +105,7 @@ export function ReportsWorkspace({ onOpenLead, syncRevision=0, active=true }: { 
   }, [month, saving, selectedDate, today]);
 
   useEffect(() => {
+    if(!active)return;
     function onKeyDown(event: KeyboardEvent) {
       if (!event.altKey || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
       event.preventDefault();
@@ -116,7 +117,7 @@ export function ReportsWorkspace({ onOpenLead, syncRevision=0, active=true }: { 
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [chooseDate, saving, selected, today]);
+  }, [active, chooseDate, saving, selected, today]);
 
   function moveMonth(offset: number) {
     if (saving) return;
