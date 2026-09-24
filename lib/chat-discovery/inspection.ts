@@ -77,6 +77,11 @@ export async function applyDiscoveryInspection(
 
   let expectedVersion = candidate.version;
   const reportedMembership = normalizeMembership(result.membershipState);
+  const requiresVerifiedTarget = result.accessible === true || result.status === 'inspected'
+    || reportedMembership === 'pending' || reportedMembership === 'joined';
+  if (requiresVerifiedTarget && result.targetVerified !== true) {
+    throw new DiscoveryError('Executor не підтвердив, що відкрито саме цільовий чат.', 409);
+  }
   if (reportedMembership === 'left') {
     throw new DiscoveryError('Вихід із приєднаного чату підтверджується лише через архівний leave-checklist.', 409);
   }
@@ -275,6 +280,7 @@ function parseInspectionResult(value: unknown) {
     adsPolicy: optionalEnum(raw.adsPolicy, ADS_POLICIES, 'adsPolicy'),
     activityState: optionalEnum(raw.activityState, ACTIVITY_STATES, 'activityState'),
     topicMatch: optionalEnum(raw.topicMatch, TOPIC_MATCHES, 'topicMatch'),
+    targetVerified: optionalBoolean(raw.targetVerified, 'targetVerified'),
     reason: optionalString(raw.reason, 200, 'reason'),
   };
 }
