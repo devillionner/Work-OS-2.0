@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
 import { AnalyticsInsights } from '@/components/analytics-insights';
 import { AnalyticsTrends } from '@/components/analytics-trends';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AnalyticsMetricDialog, type AnalyticsMetricKey } from '@/components/analytics-metric-dialog';
+import { WorkspaceInitialLoading, WorkspaceRefreshIndicator } from '@/components/workspace-load-state';
 import { analyticsPercentLabel } from '@/lib/analytics-rate';
 import {
   CHAT_RANKING_MIN_PUBLICATIONS,
@@ -54,7 +55,7 @@ const periods: Array<{ key: AnalyticsPeriod; label: string }> = [
   { key: 'custom', label: 'Довільно' },
 ];
 
-export function AnalyticsWorkspace() {
+export function AnalyticsWorkspace({ syncRevision=0, active=true }: { syncRevision?:number; active?:boolean } = {}) {
   const today = currentDate();
   const [period, setPeriod] = useState<AnalyticsPeriod>('month');
   const [customFrom, setCustomFrom] = useState(`${today.slice(0, 7)}-01`);
@@ -66,6 +67,7 @@ export function AnalyticsWorkspace() {
   const [chatPlatform, setChatPlatform] = useState('all');
   const [chatDirection, setChatDirection] = useState('all');
   const [chatLanguage, setChatLanguage] = useState('all');
+  const lastSyncRevision = useRef(syncRevision);
 
   const chatPlatforms = useMemo(
     () => [...new Map((data?.chats || []).map((chat) => [chat.platform, chat.platformName])).entries()]
@@ -110,14 +112,20 @@ export function AnalyticsWorkspace() {
   }, [params]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!active || lastSyncRevision.current === syncRevision) return;
+    lastSyncRevision.current = syncRevision;
+    void load();
+  }, [active, syncRevision, load]);
 
   function exportCsv() {
     window.location.assign(`/api/analytics?${params('csv').toString()}`);
   }
 
   return (
-    <div className="analytics-workspace">
+    <div className="analytics-workspace" aria-busy={loading}>
       <AnalyticsMetricDialog open={detailMetric !== null} metric={detailMetric} query={params().toString()} onClose={() => setDetailMetric(null)} />
+      <WorkspaceRefreshIndicator active={loading && data !== null} label="Оновлюємо аналітику…" />
       <section className="analytics-hero">
         <div>
           <p className="eyebrow">Рішення на основі даних</p>
@@ -138,7 +146,7 @@ export function AnalyticsWorkspace() {
       </section>
 
       {error && <div className="workspace-error" role="alert">{error}</div>}
-      {loading && !data ? <div className="workspace-loading"><RefreshCw className="is-spinning" /><span>Рахуємо показники…</span></div> : data ? <>
+      {loading && !data ? <WorkspaceInitialLoading label="Рахуємо показники…" /> : data ? <>
         <section className="analytics-metrics">
           <Metric metric="publications" label="Публікації" value={data.totals.publications} hint={rateHint(data.totals.publicationRate,data.targets.publicationRate,'від приєднань',data.totals.joined)} onOpen={setDetailMetric} />
           <Metric metric="responses" label="Відгуки" value={data.totals.responses} hint={rateHint(data.totals.responseRate,data.targets.responseRate,'від публікацій',data.totals.publications)} onOpen={setDetailMetric} />
