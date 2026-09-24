@@ -1,7 +1,9 @@
 import { canonicalSubjectList } from './subjects.ts';
 
 export const LIBRARY_COLLECTIONS = ['advertisement','official_script','personal_script','knowledge'] as const;
+export const LIBRARY_ADVERTISEMENT_PLATFORMS = ['telegram','whatsapp','viber','facebook'] as const;
 export type LibraryCollection = (typeof LIBRARY_COLLECTIONS)[number];
+export type LibraryAdvertisementPlatform = (typeof LIBRARY_ADVERTISEMENT_PLATFORMS)[number];
 export type LibraryKind = 'advertisement'|'script';
 export type LibraryAction = 'create'|'update'|'archive'|'restore';
 
@@ -23,6 +25,30 @@ export function cleanLibraryBody(value:unknown,max:number) {
 export function cleanLibraryList(value:unknown):string[] {
   if(!Array.isArray(value))return [];
   return [...new Set(value.filter((item):item is string=>typeof item==='string').map(item=>cleanLibraryText(item,50)).filter(Boolean))].slice(0,20);
+}
+
+export function canonicalLibraryPlatform(value:unknown):LibraryAdvertisementPlatform|null {
+  const clean=cleanLibraryText(value,50).toLocaleLowerCase('en-US');
+  return (LIBRARY_ADVERTISEMENT_PLATFORMS as readonly string[]).includes(clean)
+    ? clean as LibraryAdvertisementPlatform
+    : null;
+}
+
+export function cleanLibraryPlatforms(value:unknown):LibraryAdvertisementPlatform[] {
+  if(!Array.isArray(value))return [];
+  const result:LibraryAdvertisementPlatform[]=[];
+  const seen=new Set<LibraryAdvertisementPlatform>();
+  for(const item of value){
+    const platform=canonicalLibraryPlatform(item);
+    if(!platform||seen.has(platform))continue;
+    seen.add(platform);result.push(platform);
+  }
+  return result;
+}
+
+export function hasUnsupportedLibraryPlatforms(value:unknown):boolean {
+  if(!Array.isArray(value))return false;
+  return value.some(item=>typeof item==='string'&&Boolean(cleanLibraryText(item,50))&&!canonicalLibraryPlatform(item));
 }
 
 export function cleanLibraryTags(value:unknown):string[] {

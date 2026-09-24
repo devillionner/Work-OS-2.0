@@ -3,10 +3,12 @@ import { getCurrentUser } from '@/lib/auth';
 import {
   cleanLibraryBody,
   cleanLibraryList,
+  cleanLibraryPlatforms,
   cleanLibraryTags,
   cleanLibraryText,
   defaultCollection,
   isLibraryCollection,
+  hasUnsupportedLibraryPlatforms,
   libraryKind,
   libraryVersionStatement,
   type LibraryCollection,
@@ -82,7 +84,11 @@ export async function POST(request: Request): Promise<Response> {
   const notes = cleanLibraryBody(body.notes, 4000);
   if (!title || (!ukText.trim() && !ruText.trim())) return Response.json({ error: 'Вкажіть назву та хоча б одну мовну версію.' }, { status: 400 });
   const tags = cleanLibraryTags(body.tags);
-  const platforms = cleanLibraryList(body.platforms);
+  if (kind === 'advertisement' && hasUnsupportedLibraryPlatforms(body.platforms))
+    return Response.json({ error: 'Оберіть платформи зі списку Work OS.' }, { status: 400 });
+  const platforms = kind === 'advertisement' ? cleanLibraryPlatforms(body.platforms) : cleanLibraryList(body.platforms);
+  if (kind === 'advertisement' && platforms.length === 0)
+    return Response.json({ error: 'Оберіть хоча б одну платформу для оголошення.' }, { status: 400 });
   const itemId = id || crypto.randomUUID();
 
   if (id) {
