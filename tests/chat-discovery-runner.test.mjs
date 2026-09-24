@@ -17,7 +17,7 @@ void test('runner automates verified WhatsApp leave via CDP and retains operator
   assert.match(source,/leaveWhatsappTaskViaCdp/);
   assert.match(source,/Verified WhatsApp leave accepted by Work OS/);
   assert.match(source,/leave automation stopped fail-closed/);
-  assert.match(source,/if\(!process\.stdin\.isTTY\)return false/);
+  assert.match(source,/if\(!process\.stdin\.isTTY\)return 'idle'/);
 });
 
 void test('runner requires operator confirmation before reporting external leave',()=>{
@@ -52,7 +52,7 @@ void test('runner uses optional WhatsApp Web CDP automation but sends no callbac
   assert.match(source,/WORK_OS_WHATSAPP_CDP/);
   assert.match(source,/inspectWhatsappTaskViaCdp/);
   assert.match(source,/automation stopped fail-closed/);
-  assert.match(source,/if\(!result\)return false/);
+  assert.match(source,/if\(!result\)return 'idle'/);
   assert.match(source,/toWhatsAppWebInviteUrl/);
 });
 
