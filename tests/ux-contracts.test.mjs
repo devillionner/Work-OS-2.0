@@ -190,6 +190,8 @@ void test('Platforms uses a compact operator hierarchy and an unambiguous public
   assert.doesNotMatch(workspace, /return 'Готово'/);
   assert.doesNotMatch(workspace, /className="platform-hero"|today-links|quick-publish-bar|posting-pace/);
   assert.match(css, /\.platform-overview \{ display:grid;/);
+  assert.match(css, /\.platform-workspace \{[^}]*container-type:inline-size; container-name:platform-workspace;/);
+  assert.match(css, /@container platform-workspace \(max-width:900px\)[\s\S]*\.platform-overview \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); \}/);
   assert.match(css, /\.platform-queue-context \{ display:flex;/);
   assert.match(css, /\.chat-action-utilities \{ display:flex;/);
   assert.match(css, /\.chat-row\.is-published \{ background:#fbfcfd; \}/);
