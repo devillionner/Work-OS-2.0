@@ -1,5 +1,13 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 D1 quota hardening for executor polling
+
+- The desktop Discovery runner no longer polls the D1-backed executor stack every 3 seconds while idle. It now uses adaptive 15s → 30s → 60s idle backoff and returns to 3s only after real work is completed.
+- Transient WhatsApp/CDP unavailability is treated as idle instead of a successful iteration, so a missing browser adapter cannot create a tight retry loop.
+- Executor authentication still validates every bearer token request, but `last_seen_at` heartbeat writes are throttled to at most once per 60 seconds per device instead of writing on every poll.
+- No schema migration is required, so this hardening can deploy while staging D1 is read-quota exhausted. Production remains untouched.
+
+
 ## 2026-09-24 Migration-fingerprint quota fallback
 
 - Repeated staging retries showed that D1 quota handling should not depend on GitHub Compare or local git history inside Workers Builds.

@@ -10,6 +10,9 @@ const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
 if(!baseUrl||!token){console.error('Set WORK_OS_URL and WORK_OS_EXECUTOR_TOKEN.');process.exit(2);}
 const terminal=readline.createInterface({input:process.stdin,output:process.stdout});
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const ACTIVE_POLL_MS=3000;
+const IDLE_POLL_MIN_MS=15000;
+const IDLE_POLL_MAX_MS=60000;
 
 async function api(path,init={}){
   const response=await fetch(baseUrl+path,{...init,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json',...init.headers}});
@@ -72,14 +75,14 @@ async function runOnce(){
     if(automation.task?.kind==='whatsapp_autopost'){
       const job=automation.task;
       if(!whatsappCdp){
-        console.warn('WhatsApp autopost requires WORK_OS_WHATSAPP_CDP; lease will be retried later.');
-        return true;
+        console.warn('WhatsApp autopost requires WORK_OS_WHATSAPP_CDP; backing off until the browser adapter is available.');
+        return false;
       }
       let automated;
       try{automated=await sendWhatsappAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp});}
       catch(error){
         console.warn(`WhatsApp autopost CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
-        return true;
+        return false;
       }
       if(automated.kind==='result'&&automated.result.sendConfirmed===true){
         await api('/api/messenger-automation/executor',{method:'POST',body:JSON.stringify({
@@ -90,12 +93,12 @@ async function runOnce(){
         return true;
       }
       console.warn(`WhatsApp autopost stopped fail-closed: ${automated.reason}`);
-      if(!['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready'].includes(automated.reason)){
-        await api('/api/messenger-automation/executor',{method:'POST',body:JSON.stringify({
-          action:'complete-whatsapp-autopost',jobId:job.jobId,status:'failed',
-          observedTarget:job.target.expectedName,targetVerified:false,sendConfirmed:false,errorCode:automated.reason,
-        })});
-      }
+      const transientReasons=['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready'];
+      if(transientReasons.includes(automated.reason))return false;
+      await api('/api/messenger-automation/executor',{method:'POST',body:JSON.stringify({
+        action:'complete-whatsapp-autopost',jobId:job.jobId,status:'failed',
+        observedTarget:job.target.expectedName,targetVerified:false,sendConfirmed:false,errorCode:automated.reason,
+      })});
       return true;
     }
     const source=await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'advance-discovery'})});
@@ -118,21 +121,30 @@ async function runOnce(){
       }catch(error){
         console.warn(`WhatsApp leave CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
       }
-      if(!process.stdin.isTTY)return true;
+      if(!process.stdin.isTTY)return false;
       console.log('Falling back to operator-confirmed leave; no callback was sent for the ambiguous browser state.');
     }
     openUrl(task.link);
     console.log(`\nLeave requested: ${task.name}`);
     const targetVerified=yes(await terminal.question(`Exact target verified as "${task.expectedTarget?.name||task.name}"? [y/N] `));
-    if(!targetVerified){console.log('Target was not verified; leave skipped fail-closed.');return true;}
-    if(!yes(await terminal.question('Confirm only AFTER you actually left the chat [y/N]: '))) return true;
+    if(!targetVerified){console.log('Target was not verified; leave skipped fail-closed.');return false;}
+    if(!yes(await terminal.question('Confirm only AFTER you actually left the chat [y/N]: '))) return false;
     await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'executor-leave',candidateId:task.candidateId,version:task.candidateVersion,chatStateToken:task.chatStateToken,targetVerified:true})});
   }else{
     const result=await inspectTask(task);
-    if(!result)return true;
+    if(!result)return false;
     await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'inspect',candidateId:task.candidateId,version:task.candidateVersion,minMembers:task.minMembers,result})});
   }
   console.log('Result accepted by Work OS.'); return true;
 }
 console.log('Work OS Discovery runner started. Ctrl+C to stop.');
-while(true){await runOnce().catch(error=>console.error(error instanceof Error?error.message:String(error)));await sleep(3000);}
+let idleDelayMs=IDLE_POLL_MIN_MS;
+while(true){
+  let progressed=false;
+  try{progressed=await runOnce();}
+  catch(error){console.error(error instanceof Error?error.message:String(error));}
+  const waitMs=progressed?ACTIVE_POLL_MS:idleDelayMs;
+  if(progressed)idleDelayMs=IDLE_POLL_MIN_MS;
+  else idleDelayMs=Math.min(IDLE_POLL_MAX_MS,idleDelayMs*2);
+  await sleep(waitMs);
+}

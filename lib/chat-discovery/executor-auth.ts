@@ -1,6 +1,8 @@
 import { DiscoveryError } from './domain.ts';
 import { releaseMessengerAutomationJobsForDevice } from '../messenger-automation.ts';
 
+const EXECUTOR_HEARTBEAT_SECONDS = 60;
+
 export type DiscoveryExecutorDevice = {
   id: string;
   name: string;
@@ -68,11 +70,16 @@ export async function authenticateDiscoveryExecutor(
   const token = authorization.slice(7).trim();
   if (!token.startsWith('wos_exec_') || token.length > 200) throw new DiscoveryError('Недійсний executor token.', 401);
   const tokenHash = await hashExecutorToken(token);
-  const row = await db.prepare(`SELECT id,user_id FROM chat_discovery_executor_devices
-    WHERE token_hash=?1 AND revoked_at IS NULL LIMIT 1`).bind(tokenHash).first<{id:string;user_id:string}>();
+  const row = await db.prepare(`SELECT id,user_id,last_seen_at FROM chat_discovery_executor_devices
+    WHERE token_hash=?1 AND revoked_at IS NULL LIMIT 1`).bind(tokenHash).first<{id:string;user_id:string;last_seen_at:number|null}>();
   if (!row) throw new DiscoveryError('Executor token відкликано або він недійсний.', 401);
-  await db.prepare(`UPDATE chat_discovery_executor_devices SET last_seen_at=?1 WHERE id=?2 AND revoked_at IS NULL`)
-    .bind(now, row.id).run();
+  const heartbeatCutoff = now - EXECUTOR_HEARTBEAT_SECONDS;
+  if (row.last_seen_at === null || row.last_seen_at <= heartbeatCutoff) {
+    await db.prepare(`UPDATE chat_discovery_executor_devices
+      SET last_seen_at=?1
+      WHERE id=?2 AND revoked_at IS NULL AND (last_seen_at IS NULL OR last_seen_at<=?3)`)
+      .bind(now, row.id, heartbeatCutoff).run();
+  }
   return { userId: row.user_id, deviceId: row.id };
 }
 

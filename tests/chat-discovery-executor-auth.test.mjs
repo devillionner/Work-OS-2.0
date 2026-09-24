@@ -28,8 +28,28 @@ void test('executor pairing returns a one-time bearer token and stores only its 
     110,
   );
   assert.deepEqual(authenticated, { userId: 'u', deviceId: paired.device.id });
-  const devices = await listDiscoveryExecutorDevices(db, 'u');
+  let devices = await listDiscoveryExecutorDevices(db, 'u');
   assert.equal(devices[0].lastSeenAt, 110);
+
+  await authenticateDiscoveryExecutor(
+    db,
+    new Request('https://work-os.test/api/chat-discovery/executor', {
+      headers: { Authorization: `Bearer ${paired.token}` },
+    }),
+    150,
+  );
+  devices = await listDiscoveryExecutorDevices(db, 'u');
+  assert.equal(devices[0].lastSeenAt, 110);
+
+  await authenticateDiscoveryExecutor(
+    db,
+    new Request('https://work-os.test/api/chat-discovery/executor', {
+      headers: { Authorization: `Bearer ${paired.token}` },
+    }),
+    170,
+  );
+  devices = await listDiscoveryExecutorDevices(db, 'u');
+  assert.equal(devices[0].lastSeenAt, 170);
   assert.equal((await listDiscoveryExecutorDevices(db, 'other')).length, 0);
 });
 

@@ -17,7 +17,7 @@ void test('runner automates verified WhatsApp leave via CDP and retains operator
   assert.match(source,/leaveWhatsappTaskViaCdp/);
   assert.match(source,/Verified WhatsApp leave accepted by Work OS/);
   assert.match(source,/leave automation stopped fail-closed/);
-  assert.match(source,/if\(!process\.stdin\.isTTY\)return true/);
+  assert.match(source,/if\(!process\.stdin\.isTTY\)return false/);
 });
 
 void test('runner requires operator confirmation before reporting external leave',()=>{
@@ -52,7 +52,7 @@ void test('runner uses optional WhatsApp Web CDP automation but sends no callbac
   assert.match(source,/WORK_OS_WHATSAPP_CDP/);
   assert.match(source,/inspectWhatsappTaskViaCdp/);
   assert.match(source,/automation stopped fail-closed/);
-  assert.match(source,/if\(!result\)return true/);
+  assert.match(source,/if\(!result\)return false/);
   assert.match(source,/toWhatsAppWebInviteUrl/);
 });
 
@@ -64,4 +64,13 @@ void test('runner claims WhatsApp autopost only after Discovery messenger tasks 
   assert.match(source,/sendConfirmed:true/);
   assert.match(source,/WhatsApp autopost stopped fail-closed/);
   assert.match(source,/Confirmed WhatsApp autopost accepted by Work OS/);
+});
+
+void test('runner backs off idle polling instead of hammering D1 every three seconds',()=>{
+  assert.match(source,/const ACTIVE_POLL_MS=3000/);
+  assert.match(source,/const IDLE_POLL_MIN_MS=15000/);
+  assert.match(source,/const IDLE_POLL_MAX_MS=60000/);
+  assert.match(source,/const waitMs=progressed\?ACTIVE_POLL_MS:idleDelayMs/);
+  assert.match(source,/Math\.min\(IDLE_POLL_MAX_MS,idleDelayMs\*2\)/);
+  assert.match(source,/backing off until the browser adapter is available/);
 });
