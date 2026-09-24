@@ -670,3 +670,13 @@ separate gates after local validation and the required direct confirmation.
 - Advertisement rows expose platform badges with operator-friendly Telegram/WhatsApp/Viber/Facebook labels, so platform scope is visible before opening the editor.
 - Narrow/mobile Library toolbar is now a real one-column grid; collection tabs scroll horizontally and platform select keeps a 44px touch target instead of overflowing.
 - Added source regression coverage for platform filtering, row context and responsive controls. This is code/test evidence; canonical staging full-gate acceptance remains required before marking the release deployed.
+
+
+## Library advertisement operator metadata — v0.2.38
+
+- Advertisement platforms now use one canonical supported set (Telegram, WhatsApp, Viber, Facebook). New/edited advertisement writes normalize casing/deduplicate and reject unsupported platform names; legacy rows are not rewritten in place.
+- The advertisement editor replaces comma-separated platform entry with explicit controls and uses the shared subject vocabulary for structured directions while preserving extra custom/legacy tags.
+- Legacy advertisements with an empty platform list remain semantically universal and now stay visible when a specific platform filter is selected. Existing unsupported metadata is surfaced to the operator instead of being silently trusted.
+- UA/RU editing uses a two-column layout when space allows and collapses to one column on mobile; structured controls retain 44px mobile targets.
+- Library GET derives same-day advertisement usage from canonical `chat_publications` grouped by platform and current Europe/Kyiv business date. Because manual Undo deletes the exact publication row, reuse visibility returns automatically without a second Library-specific accounting source.
+- Feature commits `c7fca593` and `2e4b18af` both completed the canonical Cloudflare Workers staging build check successfully. Full `verify:local` was not run in this environment and is not claimed.
