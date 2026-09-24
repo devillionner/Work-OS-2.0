@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import {
   classifyWhatsAppSnapshot,
+  isLocalCdpWebSocketUrl,
+  normalizeLocalCdpBaseUrl,
   normalizeTargetLabel,
   toWhatsAppWebInviteUrl,
   whatsappInviteCode,
@@ -163,4 +165,20 @@ void test('verified pending target may use the WhatsApp Continue to Chat control
     action: 'view',
     buttonText: 'Continue to Chat',
   });
+});
+
+
+void test('CDP control is restricted to unauthenticated loopback endpoints', () => {
+  assert.equal(normalizeLocalCdpBaseUrl('http://127.0.0.1:9222/'), 'http://127.0.0.1:9222');
+  assert.equal(normalizeLocalCdpBaseUrl('http://localhost:9222'), 'http://localhost:9222');
+  assert.equal(normalizeLocalCdpBaseUrl('http://[::1]:9222'), 'http://[::1]:9222');
+  assert.equal(normalizeLocalCdpBaseUrl('https://127.0.0.1:9222'), null);
+  assert.equal(normalizeLocalCdpBaseUrl('http://user:pass@127.0.0.1:9222'), null);
+  assert.equal(normalizeLocalCdpBaseUrl('http://192.168.1.50:9222'), null);
+  assert.equal(normalizeLocalCdpBaseUrl('https://debug.example.test'), null);
+
+  assert.equal(isLocalCdpWebSocketUrl('ws://127.0.0.1:9222/devtools/page/1'), true);
+  assert.equal(isLocalCdpWebSocketUrl('ws://localhost:9222/devtools/page/1'), true);
+  assert.equal(isLocalCdpWebSocketUrl('wss://127.0.0.1:9222/devtools/page/1'), false);
+  assert.equal(isLocalCdpWebSocketUrl('ws://10.0.0.2:9222/devtools/page/1'), false);
 });

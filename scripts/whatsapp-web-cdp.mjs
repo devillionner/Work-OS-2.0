@@ -41,6 +41,33 @@ export function toWhatsAppWebInviteUrl(link) {
   return code ? `https://web.whatsapp.com/accept?code=${encodeURIComponent(code)}` : null;
 }
 
+export function normalizeLocalCdpBaseUrl(value) {
+  if (!value) return null;
+  let url;
+  try {
+    url = new URL(String(value));
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' || url.username || url.password) return null;
+  if (!isLoopbackHost(url.hostname)) return null;
+  return url.origin;
+}
+
+export function isLocalCdpWebSocketUrl(value) {
+  let url;
+  try {
+    url = new URL(String(value));
+  } catch {
+    return false;
+  }
+  return url.protocol === 'ws:' && !url.username && !url.password && isLoopbackHost(url.hostname);
+}
+
+function isLoopbackHost(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+}
+
 function exactTarget(snapshot, task) {
   const expected = task.expectedTarget?.name || task.name;
   if (!expected || isGeneratedExpectedName(expected)) return null;
@@ -146,10 +173,14 @@ export async function inspectWhatsappTaskViaCdp(
   }
   const targetUrl = toWhatsAppWebInviteUrl(task.expectedTarget?.link || task.link);
   if (!targetUrl) return { kind: 'blocked', reason: 'invalid_whatsapp_link' };
-  const base = String(cdpBaseUrl || '').replace(/\/$/u, '');
-  if (!base) return { kind: 'blocked', reason: 'cdp_not_configured' };
+  if (!cdpBaseUrl) return { kind: 'blocked', reason: 'cdp_not_configured' };
+  const base = normalizeLocalCdpBaseUrl(cdpBaseUrl);
+  if (!base) return { kind: 'blocked', reason: 'cdp_not_local' };
 
   const page = await findOrCreateWhatsappPage(base);
+  if (!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl)) {
+    return { kind: 'blocked', reason: 'cdp_websocket_not_local' };
+  }
   const client = await createCdpClient(page.webSocketDebuggerUrl);
   try {
     await client.send('Page.enable');
