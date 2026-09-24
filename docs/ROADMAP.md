@@ -254,3 +254,12 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] WhatsApp and Viber both expose the expandable «Приєднані сьогодні» block.
 - [x] Canonical autonomous-development prompt moved into the repository with mandatory D1 budget rules.
 - [ ] Canonical Workers staging build must reach this exact HEAD; data-backed live acceptance waits for the current D1 daily quota reset instead of retrying the exhausted database.
+
+
+## v0.2.60 — D1 quota recovery UX
+
+- [x] Root server render detects the known Cloudflare D1 daily row-read limit failure and shows a dedicated Work OS recovery screen.
+- [x] The recovery path performs no additional D1 reads and does not expose a retry loop.
+- [x] Non-quota exceptions remain real errors and are not hidden by the recovery screen.
+- [x] Regression coverage protects direct/nested quota error recognition and the no-retry recovery path.
+- [ ] Live authenticated acceptance waits for the daily D1 reset; do not probe the exhausted database to prove the fallback.

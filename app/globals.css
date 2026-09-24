@@ -158,6 +158,10 @@ button:not([data-slot="button"]) { color: inherit; }
   .import-actions { padding-inline: 18px; }
 }
 .auth-note { margin: 14px 0 0; color: var(--muted-foreground); font-size: 12px; text-align: center; }
+.quota-recovery-card { max-width: 600px; }
+.quota-recovery-note { display:grid; gap:5px; margin:0 0 6px; padding:14px 16px; border:1px solid #d8def8; border-radius:12px; background:#f5f7ff; }
+.quota-recovery-note strong { font-size:13px; }
+.quota-recovery-note span { color:var(--muted-foreground); font-size:12px; line-height:1.5; }
 
 .work-layout { --sidebar-width: 248px; min-height: 100svh; padding-left: var(--sidebar-width); transition: padding .2s ease; }
 .work-layout.is-collapsed { --sidebar-width: 78px; }

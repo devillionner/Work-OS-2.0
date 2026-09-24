@@ -1,5 +1,13 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 quota recovery surface / v0.2.60
+
+- The root server render now recognizes Cloudflare D1 free-tier daily row-read exhaustion and renders a first-party recovery surface instead of falling through to the generic browser «This page couldn't load» error.
+- Recovery copy states that data is not deleted/corrupted and deliberately offers no retry loop/button that would encourage repeated D1 probes.
+- Unknown/non-quota server errors are still rethrown; the fallback does not mask unrelated defects.
+- This is code-only and adds no migration or production operation.
+
+
 ## 2026-09-24 D1 budget incident hardening / v0.2.59
 
 - Global server revision sync keeps a 10s active path after activity/change, then backs off to 30s and 60s while unchanged. Repeated sync/server failures back off up to 5 minutes instead of retrying D1 every 10 seconds.
