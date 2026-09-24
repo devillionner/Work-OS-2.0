@@ -27,3 +27,13 @@ void test('runner verifies the exact messenger target before inspection or leave
   assert.ok(leaveCallback>targetPrompt);
   assert.match(source,/leave skipped fail-closed/);
 });
+
+void test('runner fails closed on ambiguous membership and requires a confirmed join for join tasks',()=>{
+  assert.match(source,/function membershipState/);
+  assert.match(source,/membership_not_confirmed/);
+  assert.match(source,/task\.action==='join_and_inspect'&&membership!=='joined'/);
+  assert.match(source,/join_not_confirmed/);
+  const guard=source.indexOf("reason:'join_not_confirmed'");
+  const inspected=source.indexOf("status:'inspected'");
+  assert.ok(guard>0&&inspected>guard);
+});

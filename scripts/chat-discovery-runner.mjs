@@ -23,6 +23,7 @@ function openUrl(url){
 function yes(value){return /^(y|так|т|yes)$/i.test(value.trim());}
 function tri(value,yesValue,noValue){const v=value.trim().toLowerCase();if(['y','yes','так','т'].includes(v))return yesValue;if(['n','no','ні','н'].includes(v))return noValue;return null;}
 function numberOrNull(value){const n=Number(value.replace(/\s/g,''));return Number.isFinite(n)&&n>=0?n:null;}
+function membershipState(value){const v=value.trim().toLowerCase();return ['joined','pending','not_checked','left'].includes(v)?v:null;}
 
 async function inspect(task){
   openUrl(task.link);
@@ -31,14 +32,16 @@ async function inspect(task){
   const targetVerified=yes(await terminal.question(`Exact target verified as "${task.expectedTarget?.name||task.name}"? [y/N] `));
   if(!targetVerified)return {status:'failed',targetVerified:false,reason:'target_not_verified'};
   const accessible=yes(await terminal.question('Chat accessible? [y/N] '));
-  const membership=await terminal.question('Membership [joined/pending/not_checked/left]: ');
+  const membership=membershipState(await terminal.question('Membership [joined/pending/not_checked/left]: '));
+  if(!membership)return {status:'failed',targetVerified:true,reason:'membership_not_confirmed'};
+  if(task.action==='join_and_inspect'&&membership!=='joined')return {status:'failed',targetVerified:true,reason:'join_not_confirmed'};
   const observedName=(await terminal.question('Observed name (blank keeps current): ')).trim()||task.name;
   const members=numberOrNull(await terminal.question('Member count (blank unknown): '));
   const topic=tri(await terminal.question('Topic matches? [y/n/blank unknown] '),'match','mismatch')||'unknown';
   const canWrite=tri(await terminal.question('Can write? [y/n/blank unknown] '),true,false);
   const ads=tri(await terminal.question('Ads allowed? [y/n/blank unknown] '),'allowed','forbidden')||'unknown';
   const active=tri(await terminal.question('Active recently? [y/n/blank unknown] '),'active','dead')||'unknown';
-  return {status:'inspected',targetVerified:true,accessible,membershipState:membership||'not_checked',observedName,chatType:'group',memberCount:members,topicMatch:topic,canWrite,adsPolicy:ads,activityState:active};
+  return {status:'inspected',targetVerified:true,accessible,membershipState:membership,observedName,chatType:'group',memberCount:members,topicMatch:topic,canWrite,adsPolicy:ads,activityState:active};
 }
 async function runOnce(){
   const queue=await api('/api/chat-discovery/executor?limit=1');
