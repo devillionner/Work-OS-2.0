@@ -1,8 +1,11 @@
-export const APP_VERSION = '0.2.39';
+export const APP_VERSION = '0.2.40';
 export const APP_RELEASE_DATE = '2026-09-24';
 
 // User-facing copy only. Keep each note short and plain; technical details belong in docs and commits.
 export const APP_CHANGES = [
+  'WhatsApp/Viber executor приймає membership та inspection лише після явного підтвердження саме цільового чату.',
+  'Зовнішній leave fail-closed: без target verification Work OS не архівує чат і не фіксує вихід.',
+  'Executor panel тепер чітко пояснює WhatsApp Web, Viber native path і правило зупинки на невідомому target.',
   'У Viber-сумісного оголошення в Бібліотеці є окремий safe-mode тест лише для «Мої нотатки».',
   'Safe-mode показує стан executor, дозволяє скасувати активну задачу та ніколи не зараховує тест як робочу публікацію.',
   'У Бібліотеці платформи оголошення тепер обираються явно, а невідомі значення не можуть тихо потрапити в нові записи.',
