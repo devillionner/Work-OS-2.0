@@ -180,9 +180,9 @@ P4 documentation is source-reconciled against current `main` code and regression
 
 - [x] Keep a per-view in-memory queue cache keyed by platform/queue/search/profile/page/account.
 - [x] Superseded by v0.2.59 quota hardening: exact-view cache remains, but automatic sibling queue prefetch is removed; D1-backed queues load on demand instead of speculatively.
-- [x] Treat prefetched views as UX cache only: successful mutations, imports/profile changes and server revision sync invalidate affected cache before canonical reconciliation.
+- [x] Treat cached views as UX cache only: successful mutations, imports/profile changes and server revision sync invalidate affected cache before canonical reconciliation.
 - [x] Keep the full loader only for a genuinely uncached first request or new search/filter/page.
-- [x] Add source regression coverage for cache, prefetch and invalidation behavior.
+- [x] Add source regression coverage for exact-view cache, on-demand loading and invalidation behavior.
 - Build discipline: prefer one coherent commit per completed slice so Cloudflare Workers Builds does not queue and skip a chain of intermediate commits.
 - [ ] Staging /api/build and live transition acceptance remain the release evidence gate.
 
