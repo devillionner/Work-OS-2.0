@@ -250,7 +250,7 @@ void test('Platform mutations and sync revisions reconcile without remounting or
   assert.match(workspace, /syncRevision\?: number/);
   assert.doesNotMatch(workspace, /router\.refresh\(\)/);
   assert.doesNotMatch(workspace, /useRouter/);
-  assert.match(shell, /<PlatformWorkspace enabledPlatforms=\{snapshot\.enabledPlatforms\} syncRevision=\{syncRevision\} businessDate=\{snapshot\.today\} \/>/);
+  assert.match(shell, /<PlatformWorkspace enabledPlatforms=\{snapshot\.enabledPlatforms\} syncRevision=\{syncRevision\} businessDate=\{snapshot\.today\} active=\{activeView === 'platforms'\} \/>/);
   assert.doesNotMatch(shell, /<PlatformWorkspace key=/);
   assert.match(workspace, /!data&&\(loading\|\|switchingList\) \? <WorkspaceInitialLoading compact/);
 });
