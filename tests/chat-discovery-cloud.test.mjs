@@ -690,6 +690,9 @@ void test('executor leave result archives a rejected joined WhatsApp chat and co
   const task = queue.tasks[0];
   assert.equal(task.action, 'leave');
   assert.equal(task.resultAction, 'executor-leave');
+  assert.equal(task.runtime, 'whatsapp_web');
+  assert.deepEqual(task.expectedTarget, {name:candidate.name,link:candidate.link});
+  assert.deepEqual(task.safety, {requiresTargetVerification:true,unknownState:'fail_closed'});
   assert.equal(task.chatId, chatId);
 
   await assert.rejects(
@@ -697,6 +700,7 @@ void test('executor leave result archives a rejected joined WhatsApp chat and co
       candidateId: task.candidateId,
       expectedVersion: task.candidateVersion,
       chatStateToken: 'stale-token',
+      targetVerified: true,
     }, 111),
     /Чат уже змінився/,
   );
