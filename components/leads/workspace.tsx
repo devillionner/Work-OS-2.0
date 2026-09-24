@@ -336,7 +336,7 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
           )}
         </section>
         <div className="lead-detail" aria-label="Картка ліда">
-          {selected && <Button type="button" variant="ghost" className="lead-mobile-back" onClick={() => { setSelected(null); setDetail(null); setDetailError(''); setNotice(''); }}>← До списку лідів</Button>}
+          {selected && <Button type="button" variant="ghost" className="lead-mobile-back" onClick={() => { setSelected(null); setDetailError(''); setNotice(''); }}>← До списку лідів</Button>}
           {detailError ? (
             <p className="lead-error" role="alert">
               {detailError}{' '}
