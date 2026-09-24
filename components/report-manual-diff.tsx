@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { ReportEventDetail } from '@/lib/reports/details';
 import type { ReportManualAdjustments } from '@/lib/reports/manual-adjustments';
+import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 
 type Payload = {
   date: string;
@@ -90,7 +91,7 @@ export function ReportManualDiff({ date }: { date: string }) {
 
   const invalidTotal = data ? metrics.some(({ key }) => data.facts[key] + draft[key] < 0) : false;
 
-  return <section className="report-checkpoints" aria-label="Звірка автоматичних і ручних чисел">
+  return <section className="report-checkpoints" aria-label="Звірка автоматичних і ручних чисел" aria-busy={loading}>
     <div className="report-checkpoints-head">
       <div><p className="eyebrow">REPORT-22</p><h4>Факт і ручна корекція</h4></div>
       <span className="muted-note">Подієвий факт не переписується.</span>
@@ -98,7 +99,7 @@ export function ReportManualDiff({ date }: { date: string }) {
     <p className="muted-note">Авто-числа походять з activity events. Корекція зберігається лише у звіті як явна різниця; Today та Analytics від неї не змінюються.</p>
     {error && <p className="workspace-error" role="alert">{error}</p>}
     {notice && <output className="reports-notice">{notice}</output>}
-    {loading ? <p className="muted-note">Завантажуємо звірку…</p> : data ? <>
+    {loading && !data ? <WorkspaceInlineLoading label="Завантажуємо звірку…"/> : data ? <>
       {!data.reportExists && <p className="workspace-error">Спочатку збережіть чернетку звіту — після цього ручну корекцію можна буде зафіксувати окремо.</p>}
       <div className="grid gap-3 md:grid-cols-3">
         {metrics.map(({ key, label }) => {
@@ -132,7 +133,7 @@ export function ReportManualDiff({ date }: { date: string }) {
       </div>
       {invalidTotal && <p className="workspace-error" role="alert">Підсумкове число не може бути від’ємним.</p>}
       <div className="reports-editor-actions">
-        <Button variant="outline" onClick={() => void load()} disabled={saving}>Оновити факт</Button>
+        <Button variant="outline" onClick={() => void load()} disabled={saving||loading}>{loading?'Оновлюємо…':'Оновити факт'}</Button>
         <Button onClick={() => void save()} disabled={!data.reportExists || data.revision === null || saving || invalidTotal}>
           {saving ? 'Зберігаємо…' : 'Зберегти корекцію'}
         </Button>
