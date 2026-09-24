@@ -1,11 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { LoaderCircle, Plus, Search } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { announceDataChange } from '@/lib/client-sync';
+import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 
 type Chat = { id:string; name:string; link:string; platform:string; status:string; telegramAccountId:string|null };
 type Account = { id:string; number:number; name:string; enabled:boolean };
@@ -17,6 +18,7 @@ const PLATFORM_LABELS:Record<string,string>={telegram:'Telegram',whatsapp:'Whats
 export function ReportPublicationCorrection({date}:{date:string}) {
   const [open,setOpen]=useState(false);
   const [loading,setLoading]=useState(false);
+  const [loaded,setLoaded]=useState(false);
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
@@ -40,12 +42,13 @@ export function ReportPublicationCorrection({date}:{date:string}) {
       const body=await response.json() as Options;
       if(!response.ok)throw new Error(body.error||'Не вдалося завантажити чати для корекції.');
       if(signal?.aborted)return;
-      setOptions(body);
+      setOptions(body);setLoaded(true);
       setChatId(current=>body.chats.some(chat=>chat.id===current)?current:'');
     }catch(reason){if(!signal?.aborted)setError(reason instanceof Error?reason.message:'Не вдалося завантажити чати для корекції.');}
     finally{if(!signal?.aborted)setLoading(false);}
   },[date,platform,search]);
 
+  useEffect(()=>{setLoaded(false);setOptions({chats:[],accounts:[],advertisements:[]});setChatId('');},[date]);
   useEffect(()=>{
     if(!open)return;
     const controller=new AbortController();
@@ -87,7 +90,7 @@ export function ReportPublicationCorrection({date}:{date:string}) {
     <Dialog open={open} onOpenChange={next=>{if(!saving)setOpen(next);}}><DialogContent className="report-correction-dialog"><DialogHeader><DialogTitle>Історична публікація</DialogTitle><DialogDescription>Дата обліку: {formatDate(date)}. Оберіть чат, у якому публікація реально була цього дня.</DialogDescription></DialogHeader>
       {error&&<div className="workspace-error" role="alert">{error}</div>}
       <form onSubmit={event=>{event.preventDefault();void load();}} className="reports-editor-actions"><Input value={search} onChange={event=>setSearch(event.target.value)} placeholder="Назва або посилання чату" aria-label="Пошук чату"/><select value={platform} onChange={event=>setPlatform(event.target.value)} aria-label="Платформа"><option value="">Усі платформи</option>{Object.entries(PLATFORM_LABELS).map(([value,label])=><option value={value} key={value}>{label}</option>)}</select><Button type="submit" size="sm" variant="outline" disabled={loading}><Search data-icon="inline-start"/>Знайти</Button></form>
-      {loading?<p className="workspace-loading"><LoaderCircle/>Завантажуємо чати…</p>:options.chats.length?<div className="chat-publish-items" aria-label="Чати для корекції">{options.chats.map(chat=><button type="button" key={chat.id} aria-pressed={chat.id===chatId} className={chat.id===chatId?'is-selected':''} onClick={()=>selectChat(chat)}><strong>{chat.name}</strong><small>{PLATFORM_LABELS[chat.platform]||chat.platform} · {chat.status} · {chat.link}</small></button>)}</div>:<p className="muted-note">Чатів без уже зафіксованої публікації на цю дату не знайдено.</p>}
+      {loading&&!loaded?<WorkspaceInlineLoading label="Завантажуємо чати…"/>:<>{loading&&loaded?<WorkspaceInlineLoading label="Оновлюємо список…"/>:null}{options.chats.length?<div className="chat-publish-items" aria-label="Чати для корекції">{options.chats.map(chat=><button type="button" key={chat.id} aria-pressed={chat.id===chatId} className={chat.id===chatId?'is-selected':''} onClick={()=>selectChat(chat)}><strong>{chat.name}</strong><small>{PLATFORM_LABELS[chat.platform]||chat.platform} · {chat.status} · {chat.link}</small></button>)}</div>:<p className="muted-note">Чатів без уже зафіксованої публікації на цю дату не знайдено.</p>}</>}
       {selectedChat&&<div className="report-correction-fields">{selectedChat.platform==='telegram'&&<label>Telegram-акаунт<select value={accountId} onChange={event=>setAccountId(event.target.value)}><option value="">Оберіть акаунт</option>{options.accounts.map(account=><option value={account.id} key={account.id}>#{account.number} {account.name}{account.enabled?'':' · вимкнений'}</option>)}</select></label>}<label>Оголошення<select value={advertisementId} onChange={event=>setAdvertisementId(event.target.value)}><option value="">Без прив’язаного матеріалу</option>{options.advertisements.map(item=><option value={item.id} key={item.id}>{item.title}</option>)}</select></label><label>Мова<select value={language} onChange={event=>setLanguage(event.target.value)}><option value="">Не вказувати</option><option value="uk">Українська</option><option value="ru">Російська</option></select></label></div>}
       <div className="dialog-actions"><Button type="button" variant="outline" disabled={saving} onClick={()=>setOpen(false)}>Скасувати</Button><Button type="button" disabled={!selectedChat||saving} onClick={()=>void save()}>{saving?'Зберігаємо…':'Додати до звіту'}</Button></div>
     </DialogContent></Dialog>
