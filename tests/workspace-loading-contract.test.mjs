@@ -70,5 +70,6 @@ void test('known transition hot spots retain data while revalidating',()=>{
 
 void test('persistent settings re-syncs server props instead of depending on a remount',()=>{
   const settings=read('components/settings-workspace.tsx');
-  assert.match(settings,/useEffect\(\(\)=>\{if\(!savingPlatforms\)setEnabledPlatforms\(snapshot\.enabledPlatforms\);\}/);
+  assert.match(settings,/lastSnapshotPlatformsKey=useRef\(snapshotPlatformsKey\)/);
+  assert.match(settings,/setEnabledPlatforms\(snapshot\.enabledPlatforms\)/);
 });
