@@ -15,7 +15,7 @@ import type { BulkResult } from '@/lib/chats/bulk';
 import type { ChatProfile } from '@/lib/chats/profile';
 import { supportsChatLeaveChecklist } from '@/lib/chats/leave-policy';
 import { shouldSuggestChatArchive } from '@/lib/chats/snooze-history';
-import { Archive, Check, ChevronLeft, ChevronRight, Clock3, Copy, ExternalLink, History, LoaderCircle, Plus, RotateCcw, Search, Send, Settings2, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
+import { Archive, Check, ChevronLeft, ChevronRight, Clock3, ExternalLink, History, LoaderCircle, Plus, RotateCcw, Search, Send, Settings2, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,14 +23,13 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { handleTabKeyNavigation } from '@/lib/tab-navigation';
 import { announceDataChange } from '@/lib/client-sync';
+import { PlatformOverview, type PlatformLinkItem as LinkItem, type PublicationPace } from '@/components/platform-overview';
 
 type Platform = 'telegram' | 'whatsapp' | 'viber' | 'facebook';
 type Queue = 'to_join' | 'waiting' | 'ready' | 'archived';
 type ProfileFilter = 'all' | 'needs_review';
 type Chat = { id:string; name:string; link:string; platform:Platform; status:Queue; archiveReason:string|null; archivedAt:number|null; profileConfirmed:boolean; profile:ChatProfile; publishedToday:boolean; joinedAt:number|null; snoozedUntil:number|null; snoozeCount:number; leftAt:number|null; availableAt:number|null; availableNow:boolean; telegramAccountId:string|null; stateToken:string; discoveryDecision:'review'|'target'|'rejected'|'unavailable'|null };
-type LinkItem = { id?:string; name?:string; link?:string };
 type ProfileCounts = { confirmed:number; draft:number; empty:number; needsReview:number };
-type PublicationPace = { ratePerHour:number; completed:number; target:number };
 type PublicationState = { chatId:string; chatPublishedToday:boolean; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:PublicationPace };
 type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; profileCounts:Record<string,ProfileCounts>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:PublicationPace; requestKey?:string };
 type UndoSpec = { action:'restore'|'unsnooze'|'undo_published'; label:string };
@@ -435,28 +434,6 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       {!loading&&data&&data.total>50&&<div className="chat-pagination"><Button variant="outline" size="sm" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-50))}><ChevronLeft data-icon="inline-start"/>Назад</Button><span>{offset+1}–{Math.min(offset+50,data.total)} із {data.total}</span><Button variant="outline" size="sm" disabled={offset+50>=data.total} onClick={()=>setOffset(offset+50)}>Далі<ChevronRight data-icon="inline-end"/></Button></div>}
     </section>
   </div>;
-}
-
-function PlatformOverview({pace,available,joined,published}:{pace:PublicationPace;available:LinkItem[];joined:LinkItem[];published:LinkItem[]}) {
-  return <section className="platform-overview" aria-label="Сьогоднішній стан">
-    <DailyStat label="Темп" value={`${pace.ratePerHour}/год`} />
-    <DailyStat label="Ціль" value={`${pace.completed} / ${pace.target}`} hint={`${Math.max(0,pace.target-pace.completed)} залишилось`} />
-    <DailyLinkStat label="Доступні" items={available} />
-    <DailyLinkStat label="Приєднано" items={joined} />
-    <DailyLinkStat label="Опубліковано" items={published} />
-  </section>;
-}
-
-function DailyStat({label,value,hint}:{label:string;value:string;hint?:string}) {
-  return <div className="platform-stat"><span>{label}</span><strong>{value}</strong>{hint&&<small>{hint}</small>}</div>;
-}
-
-function DailyLinkStat({label,items}:{label:string;items:LinkItem[]}) {
-  async function copy(names:boolean) {
-    const lines=items.flatMap((item,index)=>[`${names&&item.name?`${item.name} — `:''}${item.link||''}`, ...((index+1)%5===0&&index<items.length-1?['']:[])]);
-    await navigator.clipboard.writeText(lines.join('\n'));
-  }
-  return <div className="platform-stat has-actions"><span>{label}</span><strong>{items.length}</strong><div className="platform-stat-actions"><Button variant="ghost" size="icon" title={`Копіювати посилання · ${label}`} aria-label={`Копіювати посилання · ${label}`} onClick={()=>void copy(false)} disabled={!items.length}><Copy/></Button><Button variant="ghost" size="sm" title={`Копіювати назви й посилання · ${label}`} onClick={()=>void copy(true)} disabled={!items.length}>З назвами</Button></div></div>;
 }
 
 function readyActionLabel(chat:Chat,clock:number) {
