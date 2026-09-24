@@ -38,6 +38,7 @@ export async function POST(request: Request): Promise<Response> {
         expectedVersion: Number(body.version),
         result: body.result,
         minMembers: body.minMembers,
+        requireTargetVerification: true,
       }, now));
     }
     if (body.action === 'executor-leave') {
