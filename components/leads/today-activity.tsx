@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { TodayLeadsActivity } from '@/lib/leads/today';
+import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 import { labels } from './client';
 
 export function TodayLeadsPanel({
@@ -62,7 +63,7 @@ export function TodayLeadsPanel({
         Лічильники показують усі події. У списках один контакт не дублюється: якщо сьогодні вже є запис, він показаний у записах.
       </p>
       {error && <p className="lead-error" role="alert">{error}</p>}
-      {loading && !data ? <p className="muted-note">Завантажуємо активність…</p> : data ? (
+      {loading && !data ? <WorkspaceInlineLoading label="Завантажуємо активність…"/> : data ? (
         <div className="leads-today-lists">
           <TodayList title="Записи сьогодні" items={data.bookings} onSelect={onSelect} showCount />
           <TodayList title="Відгуки сьогодні" items={data.responses} onSelect={onSelect} />
