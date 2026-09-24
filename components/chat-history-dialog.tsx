@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { ChatHistoryItem } from '@/lib/chats/history';
 import type { ChatAnalyticsEvent, ChatAnalyticsPeriod, ChatAnalyticsSnapshot } from '@/lib/chats/analytics';
+import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 
 type HistoryChat = { id:string; name:string; link:string };
 const eventNames:Record<string,string>={
@@ -28,27 +29,38 @@ export function ChatHistoryDialog({open,chat,onClose,finalFocus}:{
   const [metric,setMetric]=useState<string>('all');
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
+  const [loadedKey,setLoadedKey]=useState('');
+  const cache=useRef(new Map<string,{events:ChatHistoryItem[];analytics:ChatAnalyticsSnapshot|null}>());
 
   useEffect(()=>{
     if(!open||!chat)return;
     let cancelled=false;
+    const key=`${chat.id}:${period}`;
+    const cached=cache.current.get(key);
     queueMicrotask(()=>{
-      if(!cancelled){setEvents([]);setAnalytics(null);setBusy(true);setError('');}
+      if(cancelled)return;
+      setBusy(true);setError('');setMetric('all');
+      if(cached){setEvents(cached.events);setAnalytics(cached.analytics);setLoadedKey(key);}
+      else setLoadedKey('');
     });
     fetch(`/api/chats/history?id=${encodeURIComponent(chat.id)}&period=${period}`,{cache:'no-store'})
       .then(async response=>{
         const value:unknown=await response.json();
         if(!response.ok)throw new Error(readError(value));
         if(!cancelled&&value&&typeof value==='object'){
-          setEvents(Array.isArray((value as {events?:unknown}).events)?(value as {events:ChatHistoryItem[]}).events:[]);
-          setAnalytics((value as {analytics?:ChatAnalyticsSnapshot}).analytics||null);
+          const nextEvents=Array.isArray((value as {events?:unknown}).events)?(value as {events:ChatHistoryItem[]}).events:[];
+          const nextAnalytics=(value as {analytics?:ChatAnalyticsSnapshot}).analytics||null;
+          cache.current.set(key,{events:nextEvents,analytics:nextAnalytics});
+          setEvents(nextEvents);setAnalytics(nextAnalytics);setLoadedKey(key);
         }
       })
       .catch(reason=>{if(!cancelled)setError(reason instanceof Error?reason.message:'Не вдалося завантажити історію.');})
       .finally(()=>{if(!cancelled)setBusy(false);});
     return()=>{cancelled=true;};
   },[open,chat,period]);
-  const resultEvents=filterAnalyticsEvents(analytics?.events||[],metric);
+  const viewKey=chat?`${chat.id}:${period}`:'';
+  const viewReady=loadedKey===viewKey;
+  const resultEvents=filterAnalyticsEvents(viewReady?analytics?.events||[]:[],metric);
   return <Dialog open={open} onOpenChange={next=>{if(!next&&!busy)onClose();}}>
     <DialogContent className="chat-history-dialog" showCloseButton={false} finalFocus={finalFocus}>
       <DialogHeader><DialogTitle>Історія чату</DialogTitle><DialogDescription>{chat?.name} · {chat?.link}</DialogDescription></DialogHeader>
@@ -61,10 +73,10 @@ export function ChatHistoryDialog({open,chat,onClose,finalFocus}:{
               <Button key={value} type="button" size="sm" variant={period===value?'secondary':'outline'} aria-pressed={period===value} disabled={busy} onClick={()=>{setMetric('all');setPeriod(value);}}>{label}</Button>)}
           </fieldset>
         </div>
-        {analytics?<ChatResultMetrics analytics={analytics} metric={metric} setMetric={setMetric}/>:null}
-        {metric!=='all'&&<AnalyticsEvents events={resultEvents}/>}
+        {viewReady&&analytics?<ChatResultMetrics analytics={analytics} metric={metric} setMetric={setMetric}/>:null}
+        {viewReady&&metric!=='all'&&<AnalyticsEvents events={resultEvents}/>}
       </section>
-      {busy?<p className="workspace-loading">Завантажуємо історію…</p>:events.length?<HistoryList events={events}/>:<p className="muted-note">Історія ще порожня.</p>}
+      {busy&&!viewReady?<WorkspaceInlineLoading label="Завантажуємо історію…"/>:<>{busy&&viewReady?<WorkspaceInlineLoading label="Оновлюємо історію…"/>:null}{viewReady&&events.length?<HistoryList events={events}/>:viewReady?<p className="muted-note">Історія ще порожня.</p>:null}</>}
       <div className="dialog-actions"><Button variant="outline" onClick={onClose}>Закрити</Button></div>
     </DialogContent>
   </Dialog>;
