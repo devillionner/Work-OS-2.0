@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   BarChart3, BookOpenText, ChevronLeft, ChevronRight,
   FileText, LayoutDashboard, Menu, MessageSquareText,
@@ -222,7 +222,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkO
   );
 }
 
-function WorkspacePane({ active, children }: { active: boolean; children: React.ReactNode }) {
+function WorkspacePane({ active, children }: { active: boolean; children: ReactNode }) {
   return <div className="workspace-pane" hidden={!active} aria-hidden={active ? undefined : true}>{children}</div>;
 }
 
