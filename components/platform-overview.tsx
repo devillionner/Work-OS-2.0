@@ -48,7 +48,7 @@ function DailyLinkStat({label,items}:{label:string;items:PlatformLinkItem[]}) {
     <strong>{items.length}</strong>
     <div className="platform-stat-actions">
       <Button variant="ghost" size="icon" title={`Копіювати посилання · ${label}`} aria-label={`Копіювати посилання · ${label}`} onClick={()=>void copy(false)} disabled={!items.length}><Copy/></Button>
-      <Button variant="ghost" size="sm" title={`Копіювати назви й посилання · ${label}`} onClick={()=>void copy(true)} disabled={!items.length}>З назвами</Button>
+      <Button className="platform-stat-names" variant="ghost" size="sm" title={`Копіювати назви й посилання · ${label}`} onClick={()=>void copy(true)} disabled={!items.length}>З назвами</Button>
     </div>
   </div>;
 }
