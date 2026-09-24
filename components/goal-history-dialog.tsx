@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 
 type GoalHistoryItem = {
   id: string;
@@ -27,6 +28,7 @@ export function GoalHistoryDialog({ open, onClose }: { open: boolean; onClose: (
   const [items, setItems] = useState<GoalHistoryItem[]>([]);
   const [unversioned, setUnversioned] = useState<UnversionedGoal[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -37,8 +39,6 @@ export function GoalHistoryDialog({ open, onClose }: { open: boolean; onClose: (
       if (!active) return;
       setLoading(true);
       setError('');
-      setItems([]);
-      setUnversioned([]);
     });
     fetch('/api/settings/goal-history', { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
@@ -47,6 +47,7 @@ export function GoalHistoryDialog({ open, onClose }: { open: boolean; onClose: (
         if (!controller.signal.aborted) {
           setItems(body.history || []);
           setUnversioned(body.unversioned || []);
+          setLoaded(true);
         }
       })
       .catch((reason) => {
@@ -72,10 +73,10 @@ export function GoalHistoryDialog({ open, onClose }: { open: boolean; onClose: (
         <DialogDescription>Нова ціль діє від своєї дати й не переписує план минулих днів або місяців.</DialogDescription>
       </DialogHeader>
       {error && <p className="workspace-error" role="alert">{error}</p>}
-      {loading ? <output className="workspace-loading">Завантажуємо історію…</output> : <div className="grid gap-4 md:grid-cols-2">
+      {loading&&!loaded ? <WorkspaceInlineLoading label="Завантажуємо історію…"/> : <>{loading?<WorkspaceInlineLoading label="Оновлюємо історію…"/>:null}<div className="grid gap-4 md:grid-cols-2">
         <GoalHistoryList title="Денна ціль" items={daily} unversioned={dailyUnversioned} />
         <GoalHistoryList title="Місячна ціль" items={monthly} unversioned={monthlyUnversioned} />
-      </div>}
+      </div></>}
       <div className="dialog-actions"><Button variant="outline" onClick={onClose}>Закрити</Button></div>
     </DialogContent>
   </Dialog>;
