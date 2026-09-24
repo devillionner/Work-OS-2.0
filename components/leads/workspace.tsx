@@ -159,6 +159,13 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
   };
   const current = detail?.lead.id === selected ? detail : selected ? detailCache.current.get(selected)||null : null;
   useEffect(() => {
+    if (active) return;
+    setHistoryOpen(false);
+    setEditor(null);
+    setArchive(false);
+    setResponseChange(false);
+  }, [active]);
+  useEffect(() => {
     if (initialLeadId && initialLeadId !== lastInitialLeadId.current) {
       lastInitialLeadId.current = initialLeadId;
       openLead(initialLeadId);
