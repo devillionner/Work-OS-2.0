@@ -1,2 +1,0 @@
-# Cloudflare D1 remote migration parser requires LF around trigger bodies on Windows.
-migrations/*.sql text eol=lf

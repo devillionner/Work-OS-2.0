@@ -1,5 +1,0 @@
-ALTER TABLE chat_discovery_candidates ADD COLUMN executor_lease_device_id TEXT;
-ALTER TABLE chat_discovery_candidates ADD COLUMN executor_lease_expires_at INTEGER;
-
-CREATE INDEX chat_discovery_candidates_executor_lease_idx
-ON chat_discovery_candidates(user_id,executor_lease_expires_at,updated_at);

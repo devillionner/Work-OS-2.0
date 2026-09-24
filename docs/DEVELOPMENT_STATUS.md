@@ -661,7 +661,7 @@ separate gates after local validation and the required direct confirmation.
 - Historical report publication correction now broadcasts the same authoritative refresh instead of asking the operator to update manually.
 - Regression coverage now guards publication→Undo consistency across `chat_publications`, active `activity_events`, report summary/day revision, available-today links, Library `usedToday`, Telegram schedule restoration/account isolation, and publication history after later chat archiving.
 - Ambiguous publication network failures force a canonical reread before a retry, while the existing action gate, state token and unique chat/day publication constraint continue to prevent duplicate writes.
-- Staging deployment now runs the repository's full `verify:local` gate before the guarded staging deploy command. Replit remains unable to read the private GitHub repository in the current connection, so Replit itself cannot provide an independent full-suite run; staging acceptance is the required remaining verification gate for this release candidate.
+- Workers Builds remains the reliable staging build/deploy gate. The attempted change that ran full `verify:local` inside Workers Builds caused persistent failing GitHub checks and was reverted; `verify:local` remains the stronger separate pre-release gate when a suitable runner is available. Staging acceptance still requires a green Workers Build plus `/api/build` matching the release HEAD/version.
 
 
 ## Library advertisement UX cleanup — v0.2.37

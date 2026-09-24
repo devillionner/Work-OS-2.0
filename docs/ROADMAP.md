@@ -1,6 +1,6 @@
 # Work OS 2.0 — поетапний roadmap
 
-Оновлено: 2026-09-21. Обсяг і статус кожної вимоги — у [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md). Етап завершується за доказами приймання, а не за наявністю екрана. Працюємо напряму в `main` невеликими комітами. Для staging діє Cloudflare Workers Builds: кожен новий push у `main` проходить `npm run verify`, staging-only guard і автоматичний deploy у `work-os-2-staging`. Production лишається окремою явною операцією й не оновлюється цим pipeline. AI й автопостинг не випереджають ручну роботу.
+Оновлено: 2026-09-21. Обсяг і статус кожної вимоги — у [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md). Етап завершується за доказами приймання, а не за наявністю екрана. Працюємо напряму в `main` невеликими комітами. Для staging діє Cloudflare Workers Builds: кожен новий push у `main` проходить production build через `npm run verify`, staging-only guard і автоматичний deploy у `work-os-2-staging`. Повний `verify:local` (lint → typecheck → full tests → build) є окремим pre-release gate і не дублюється всередині Workers Builds. Production лишається окремою явною операцією й не оновлюється цим pipeline. AI й автопостинг не випереджають ручну роботу.
 
 | Етап | Обсяг | Критерії готовності | Стан |
 | --- | --- | --- | --- |
@@ -73,7 +73,7 @@ P4 documentation is source-reconciled against current `main` code and regression
 
 - Достатньо конкретний обсяг, без змін Prototype Checker.
 - Релевантні доменні/regression перевірки для ризикової логіки; проста текстова/візуальна зміна не потребує тесту, який лише дублює реалізацію.
-- `npm run verify` = lint → tests → build. У staging pipeline цей gate виконує Cloudflare Workers Builds перед deploy.
+- `npm run verify` у Cloudflare Workers Builds = production build gate. Повний `npm run verify:local` = lint → typecheck → full tests → production build і виконується окремо лише там, де доступний придатний runner; його відсутність не маскується як green.
 - Push у `main` **означає автоматичний staging build/deploy**, якщо verify та staging guard пройшли. Це не означає production deploy.
 - Cloudflare Workers Builds є єдиним staging pre-deploy verify/deploy gate; не тримати окремий дублюючий GitHub Actions workflow без конкретної додаткової перевірки.
 - Звичайний push може застосувати лише pending SQL migrations до exact staging D1 після staging guard. Жодних production migrations/writes, resync або restore-drill від звичайного push.

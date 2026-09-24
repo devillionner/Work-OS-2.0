@@ -1,1 +1,0 @@
-ALTER TABLE daily_reports ADD COLUMN revision_count INTEGER NOT NULL DEFAULT 1;
