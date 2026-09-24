@@ -422,6 +422,7 @@ async function persistDiscoveryBatch(
   const existingCandidates = await readExistingCandidates(db, userId, [...canonical.values()].map((item) => item.link));
   let duplicates = 0;
   let added = 0;
+  const autoHandoffIds: string[] = [];
   const statements: D1PreparedStatement[] = [];
 
   for (const item of canonical.values()) {
@@ -447,7 +448,10 @@ async function persistDiscoveryBatch(
     }, run.min_members);
 
     if (existing) duplicates += 1;
-    else added += 1;
+    else {
+      added += 1;
+      if (item.platform === 'whatsapp') autoHandoffIds.push(candidateId);
+    }
     statements.push(db.prepare(`INSERT INTO chat_discovery_candidates
       (id,user_id,platform,name,link,normalized_link,discovered_at,checked_at,member_count,chat_type,activity_state,topic_match,
        can_write,ads_policy,membership_state,access_state,link_state,inspection_state,decision,reason_codes_json,
@@ -489,6 +493,18 @@ async function persistDiscoveryBatch(
   const results = await db.batch(statements);
   const final = results.at(-1);
   if (!final?.results.length) throw new DiscoveryError('Пошук уже продовжили в іншій вкладці. Оновіть стан.', 409);
+  for (const candidateId of autoHandoffIds) {
+    const candidate = await db.prepare(`SELECT version,imported_chat_id,decision FROM chat_discovery_candidates
+      WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(candidateId, userId)
+      .first<{version:number;imported_chat_id:string|null;decision:DiscoveryDecision}>();
+    if (!candidate || candidate.imported_chat_id || !['review','target'].includes(candidate.decision)) continue;
+    try {
+      await handoffDiscoveryCandidate(db, userId, candidateId, candidate.version, progress.now);
+    } catch (error) {
+      if (!(error instanceof DiscoveryError) || ![409,404].includes(error.status)) throw error;
+    }
+  }
+
   const updated = await readRun(db, userId, run.id);
   if (!updated) throw new DiscoveryError('Не вдалося прочитати оновлений запуск пошуку.', 500);
   return { run: mapRun(updated), added, duplicates };

@@ -1,5 +1,12 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Automatic WhatsApp Discovery handoff — v0.2.52
+
+- Newly discovered WhatsApp invites that already passed the existing public/Telegram prefilter are automatically handed off into the canonical `to_join` chat workflow after persistence. The operator no longer has to press «Додати на перевірку» for every new WhatsApp candidate.
+- Auto-handoff is WhatsApp-only. Viber remains manual/native-safe, and existing/raced candidates preserve the existing idempotent handoff behavior.
+- The created chat immediately becomes an executor `join_and_inspect` task. If the invite is factually invalid/unavailable before join, canonical inspection archives that chat without claiming a join or external leave.
+- This is a functional lifecycle step, not a background acceptance-only change. Live WhatsApp browser execution remains separate evidence.
+
 ## 2026-09-24 WhatsApp bounded pending recheck — v0.2.51
 
 - WhatsApp pending approval now has a canonical server-side cadence instead of being reissued to the runner every polling cycle.

@@ -478,11 +478,14 @@ void test('discovery run persists one canonical candidate, provenance and owner 
 
   const workspace = await readDiscoveryWorkspace(db, 'u');
   assert.equal(workspace.candidates.length, 1);
-  assert.equal(workspace.importedCount, 0);
+  assert.equal(workspace.importedCount, 1);
   assert.equal(workspace.candidates[0].platform, 'whatsapp');
   assert.equal(workspace.candidates[0].decision, 'review');
   assert.ok(workspace.candidates[0].reasonCodes.includes('unknown_member_count'));
+  assert.ok(workspace.candidates[0].importedChatId);
   assert.ok(workspace.candidates[0].sources.length >= 1);
+  const queued = await readDiscoveryExecutorQueue(db, 'u', 10);
+  assert.equal(queued.tasks[0]?.action, 'join_and_inspect');
 
   const foreign = await readDiscoveryWorkspace(db, 'other');
   assert.equal(foreign.candidates.length, 0);
@@ -535,7 +538,7 @@ void test('discovery membership follows real chat transitions and ignores stale 
   assert.equal((await readDiscoveryWorkspace(db, 'u')).candidates[0].membershipState, 'joined');
 });
 
-void test('invalid WhatsApp invite is rejected before handoff without creating a chat row', async (t) => {
+void test('invalid auto-imported WhatsApp invite is archived safely without claiming a join', async (t) => {
   const db = await localDatabase(t);
   const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
   await ingestTelegramDiscovery(db, 'u', run.id, {
@@ -546,27 +549,27 @@ void test('invalid WhatsApp invite is rejected before handoff without creating a
     context:'українська спільнота',
   }, 101);
   const candidate = (await readDiscoveryWorkspace(db, 'u')).candidates[0];
-  assert.ok(candidate);
-  assert.equal(candidate.importedChatId, null);
+  assert.ok(candidate?.importedChatId);
 
   const outcome = await applyDiscoveryInspection(db, 'u', {
     candidateId:candidate.id,
     expectedVersion:candidate.version,
     result:{status:'failed',accessible:false,reason:'invalid_whatsapp_link'},
   }, 102);
-  assert.equal(outcome.chatId, null);
-  assert.equal(outcome.workflowStatus, 'not_imported');
+  assert.equal(outcome.chatId, candidate.importedChatId);
+  assert.equal(outcome.workflowStatus, 'archived');
   assert.equal(outcome.decision, 'unavailable');
+  assert.equal(outcome.autoArchived, true);
+  assert.equal(outcome.needsExternalLeave, false);
   assert.ok(outcome.reasonCodes.includes('invalid_invite'));
 
   const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
-  assert.equal(stored.importedChatId, null);
+  assert.equal(stored.importedChatId, candidate.importedChatId);
   assert.equal(stored.linkState, 'invalid');
-  const count = await db.prepare(`SELECT COUNT(*) AS count FROM chats WHERE user_id='u'`).first();
-  assert.equal(Number(count.count), 0);
+  assert.equal((await readChatState(db, 'u', candidate.importedChatId)).workflow_status, 'archived');
 });
 
-void test('discovery handoff creates one to-join chat and is idempotent', async (t) => {
+void test('new WhatsApp discovery auto-handoffs to one to-join chat and manual handoff stays idempotent', async (t) => {
   const db = await localDatabase(t);
   const run = await startDiscoveryRun(db, 'u', { platforms: ['whatsapp'], goal: 30, minMembers: 700 }, 100);
   const fetcher = async (url) => url.includes('search.brave.com')
@@ -577,8 +580,9 @@ void test('discovery handoff creates one to-join chat and is idempotent', async 
   const candidate = before.candidates[0];
   assert.ok(candidate);
 
+  assert.ok(candidate.importedChatId);
   const first = await handoffDiscoveryCandidate(db, 'u', candidate.id, candidate.version, 102);
-  assert.equal(first.existing, false);
+  assert.equal(first.existing, true);
   assert.equal(first.workflowStatus, 'to_join');
 
   const chat = await db.prepare(`SELECT id,user_id,platform,workflow_status,normalized_link
