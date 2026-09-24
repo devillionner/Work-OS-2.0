@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 
-void test('WhatsApp links stay in browser while Viber uses the registered desktop protocol handler', async () => {
+void test('WhatsApp invite links open directly in WhatsApp Web while Viber uses the desktop protocol handler', async () => {
   const workspace = await readFile(new URL('../components/platform-workspace.tsx', import.meta.url), 'utf8');
 
   assert.match(workspace, /if\(platform==='whatsapp'\)/);
   assert.match(workspace, /host==='chat\.whatsapp\.com'/);
-  assert.match(workspace, /window\.open\(url\.toString\(\),'_blank','noopener,noreferrer'\)/);
+  assert.match(workspace, /https:\/\/web\.whatsapp\.com\/accept\?code=/);
+  assert.match(workspace, /encodeURIComponent\(safeDecode\(code\)\)/);
+  assert.doesNotMatch(workspace, /window\.open\(url\.toString\(\),'_blank','noopener,noreferrer'\)/);
 
   const whatsappBranch = workspace.slice(
     workspace.indexOf("if(platform==='whatsapp')"),

@@ -566,7 +566,9 @@ function openNativeChat(platform:Platform, link:string) {
     try { url=new URL(link.trim()); } catch { return; }
     const host=url.hostname.toLowerCase().replace(/^www\./,'');
     if(url.protocol==='https:'&&host==='chat.whatsapp.com') {
-      window.open(url.toString(),'_blank','noopener,noreferrer');
+      const parts=url.pathname.split('/').filter(Boolean);
+      const code=parts[0]?.toLowerCase()==='invite'?parts[1]:parts[0];
+      if(code) window.open(`https://web.whatsapp.com/accept?code=${encodeURIComponent(safeDecode(code))}`,'_blank','noopener,noreferrer');
     }
     return;
   }

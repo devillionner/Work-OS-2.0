@@ -1,5 +1,11 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Direct WhatsApp Web invite opening — v0.2.56
+
+- Platform chat links no longer open the generic `chat.whatsapp.com` landing page. Work OS extracts the exact invite code and opens `https://web.whatsapp.com/accept?code=...` in a new browser tab.
+- This keeps the operator inside WhatsApp Web and avoids the intermediate browser prompt that tries to hand the invite to the desktop application.
+- Viber/Telegram/Facebook opening behavior is unchanged. Production is untouched.
+
 ## 2026-09-24 WhatsApp confirmed-send text autopost — v0.2.55
 
 - Ready WhatsApp chats now expose a bounded «Автопост» action. Work OS automatically selects an eligible Library advertisement/language and creates an owner-scoped, idempotent job instead of marking publication optimistically.
