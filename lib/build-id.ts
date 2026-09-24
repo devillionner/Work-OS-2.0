@@ -1,4 +1,5 @@
 declare const __WORK_OS_BUILD_ID__: string | undefined;
+declare const __WORK_OS_MIGRATION_FINGERPRINT__: string | undefined;
 
 /**
  * Unique identity of the compiled Work OS bundle.
@@ -10,4 +11,10 @@ declare const __WORK_OS_BUILD_ID__: string | undefined;
 export const APP_BUILD_ID =
   typeof __WORK_OS_BUILD_ID__ === 'string' && __WORK_OS_BUILD_ID__.trim()
     ? __WORK_OS_BUILD_ID__
+    : 'development';
+
+
+export const APP_MIGRATION_FINGERPRINT =
+  typeof __WORK_OS_MIGRATION_FINGERPRINT__ === 'string' && __WORK_OS_MIGRATION_FINGERPRINT__.trim()
+    ? __WORK_OS_MIGRATION_FINGERPRINT__
     : 'development';

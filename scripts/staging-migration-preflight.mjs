@@ -25,66 +25,50 @@ export function migrationFilesFromComparison(files) {
     .filter((name) => typeof name === 'string' && /^migrations\/.*\.sql$/i.test(name));
 }
 
-export async function verifyQuotaSafeCodeOnlyDeploy({
-  currentSha,
+export async function verifyQuotaSafeMigrationFingerprint({
+  currentFingerprint,
   stagingBuildUrl,
-  compareCommits,
+  knownBaselines = {},
   fetcher = fetch,
 }) {
-  if (!/^[0-9a-f]{40}$/i.test(String(currentSha || ''))) {
-    return { allowed:false,reason:'current_build_sha_unknown',deployedBuildId:null,migrationFiles:[] };
+  if (!/^[0-9a-f]{64}$/i.test(String(currentFingerprint || ''))) {
+    return { allowed:false,reason:'current_migration_fingerprint_invalid',deployedBuildId:null,deployedFingerprint:null };
   }
 
-  let buildResponse;
+  let response;
   try {
-    buildResponse = await fetcher(stagingBuildUrl, {
+    response = await fetcher(stagingBuildUrl, {
       headers:{Accept:'application/json','Cache-Control':'no-cache'},
       cache:'no-store',
     });
   } catch {
-    return { allowed:false,reason:'staging_build_identity_unreachable',deployedBuildId:null,migrationFiles:[] };
+    return { allowed:false,reason:'staging_build_identity_unreachable',deployedBuildId:null,deployedFingerprint:null };
   }
-  if (!buildResponse?.ok) {
-    return { allowed:false,reason:'staging_build_identity_unreachable',deployedBuildId:null,migrationFiles:[] };
+  if (!response?.ok) {
+    return { allowed:false,reason:'staging_build_identity_unreachable',deployedBuildId:null,deployedFingerprint:null };
   }
 
   let build;
-  try {
-    build = await buildResponse.json();
-  } catch {
-    return { allowed:false,reason:'staging_build_identity_invalid',deployedBuildId:null,migrationFiles:[] };
+  try { build = await response.json(); }
+  catch {
+    return { allowed:false,reason:'staging_build_identity_invalid',deployedBuildId:null,deployedFingerprint:null };
   }
 
   const deployedBuildId = typeof build?.buildId === 'string' ? build.buildId.trim() : '';
   if (!/^[0-9a-f]{40}$/i.test(deployedBuildId)) {
-    return { allowed:false,reason:'staging_build_identity_invalid',deployedBuildId:deployedBuildId||null,migrationFiles:[] };
-  }
-  if (deployedBuildId === currentSha) {
-    return { allowed:true,reason:'already_deployed',deployedBuildId,migrationFiles:[] };
-  }
-  if (typeof compareCommits !== 'function') {
-    return { allowed:false,reason:'local_comparator_missing',deployedBuildId,migrationFiles:[] };
+    return { allowed:false,reason:'staging_build_identity_invalid',deployedBuildId:deployedBuildId||null,deployedFingerprint:null };
   }
 
-  let comparison;
-  try {
-    comparison = await compareCommits({ deployedBuildId, currentSha });
-  } catch {
-    return { allowed:false,reason:'local_commit_comparison_failed',deployedBuildId,migrationFiles:[] };
+  const advertised = typeof build?.migrationFingerprint === 'string' ? build.migrationFingerprint.trim() : '';
+  const baseline = typeof knownBaselines?.[deployedBuildId] === 'string' ? knownBaselines[deployedBuildId] : '';
+  const deployedFingerprint = /^[0-9a-f]{64}$/i.test(advertised) ? advertised : baseline;
+
+  if (!/^[0-9a-f]{64}$/i.test(deployedFingerprint)) {
+    return { allowed:false,reason:'staging_migration_fingerprint_unknown',deployedBuildId,deployedFingerprint:null };
   }
-  if (!comparison || comparison.ok !== true) {
-    return {
-      allowed:false,
-      reason:comparison?.reason || 'local_commit_comparison_failed',
-      deployedBuildId,
-      migrationFiles:comparison?.migrationFiles || [],
-    };
+  if (deployedFingerprint !== currentFingerprint) {
+    return { allowed:false,reason:'migration_fingerprint_mismatch',deployedBuildId,deployedFingerprint };
   }
 
-  const migrationFiles = migrationFilesFromComparison(comparison.files);
-  if (migrationFiles.length > 0) {
-    return { allowed:false,reason:'migration_delta_present',deployedBuildId,migrationFiles };
-  }
-
-  return { allowed:true,reason:'code_only_since_deployed_staging',deployedBuildId,migrationFiles:[] };
+  return { allowed:true,reason:'migration_fingerprint_match',deployedBuildId,deployedFingerprint };
 }

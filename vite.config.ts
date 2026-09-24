@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
 import tailwindcss from '@tailwindcss/postcss';
 import vinext from 'vinext';
 import { defineConfig } from 'vite';
@@ -19,6 +21,23 @@ function resolveBuildId(): string {
   }
 }
 
+function resolveMigrationFingerprint(): string {
+  const entries = readdirSync('migrations', { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.sql'))
+    .map((entry) => {
+      const path = `migrations/${entry.name}`;
+      const bytes = readFileSync(path);
+      const blobSha = createHash('sha1')
+        .update(Buffer.from(`blob ${bytes.length}\0`))
+        .update(bytes)
+        .digest('hex');
+      return `${path}:${blobSha}`;
+    })
+    .sort();
+
+  return createHash('sha256').update(entries.join('\n')).digest('hex');
+}
+
 export default defineConfig(async () => {
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
@@ -29,10 +48,12 @@ export default defineConfig(async () => {
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
   const { cloudflare } = await import('@cloudflare/vite-plugin');
   const buildId = resolveBuildId();
+  const migrationFingerprint = resolveMigrationFingerprint();
 
   return {
     define: {
       __WORK_OS_BUILD_ID__: JSON.stringify(buildId),
+      __WORK_OS_MIGRATION_FINGERPRINT__: JSON.stringify(migrationFingerprint),
     },
     css: { postcss: { plugins: [tailwindcss()] } },
     server: isCodexSeatbeltSandbox

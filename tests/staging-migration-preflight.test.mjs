@@ -38,53 +38,56 @@ void test('D1 daily row read quota errors are detected explicitly', async () => 
   assert.equal(isD1DailyRowReadLimit('authentication failed'), false);
 });
 
-void test('quota-safe code-only deploy allows only a migration-free diff from exact deployed staging build', async () => {
-  const { verifyQuotaSafeCodeOnlyDeploy } = await import('../scripts/staging-migration-preflight.mjs');
-  const deployed='1111111111111111111111111111111111111111';
-  const current='2222222222222222222222222222222222222222';
-  const result=await verifyQuotaSafeCodeOnlyDeploy({
-    currentSha:current,
+void test('quota-safe migration fingerprint accepts exact advertised staging fingerprint', async () => {
+  const { verifyQuotaSafeMigrationFingerprint } = await import('../scripts/staging-migration-preflight.mjs');
+  const fingerprint='640ab66af09ac341fff5684db0baf556fe63f1491c6bf97a88488e91d51616f5';
+  const result=await verifyQuotaSafeMigrationFingerprint({
+    currentFingerprint:fingerprint,
     stagingBuildUrl:'https://staging.example/api/build',
-    fetcher:async()=>({ok:true,json:async()=>({buildId:deployed,version:'0.2.57'})}),
-    compareCommits:async()=>({ok:true,files:[
-      'components/platform-workspace.tsx',
-      'app/globals.css',
-    ]}),
+    fetcher:async()=>({ok:true,json:async()=>({
+      buildId:'1111111111111111111111111111111111111111',
+      migrationFingerprint:fingerprint,
+    })}),
   });
-  assert.deepEqual(result,{
-    allowed:true,reason:'code_only_since_deployed_staging',deployedBuildId:deployed,migrationFiles:[],
-  });
+  assert.equal(result.allowed,true);
+  assert.equal(result.reason,'migration_fingerprint_match');
 });
 
-void test('quota-safe fallback refuses deploy when any migration changed since deployed staging', async () => {
-  const { verifyQuotaSafeCodeOnlyDeploy } = await import('../scripts/staging-migration-preflight.mjs');
-  const deployed='1111111111111111111111111111111111111111';
-  const current='2222222222222222222222222222222222222222';
-  const result=await verifyQuotaSafeCodeOnlyDeploy({
-    currentSha:current,
+void test('quota-safe migration fingerprint supports one known pre-fingerprint staging baseline', async () => {
+  const { verifyQuotaSafeMigrationFingerprint } = await import('../scripts/staging-migration-preflight.mjs');
+  const buildId='8a6a06cfe00dcfa652a7582db6f6a19247a79a45';
+  const fingerprint='640ab66af09ac341fff5684db0baf556fe63f1491c6bf97a88488e91d51616f5';
+  const result=await verifyQuotaSafeMigrationFingerprint({
+    currentFingerprint:fingerprint,
     stagingBuildUrl:'https://staging.example/api/build',
-    fetcher:async()=>({ok:true,json:async()=>({buildId:deployed})}),
-    compareCommits:async()=>({ok:true,files:[
-      'migrations/0038_whatsapp_autopost_jobs.sql',
-      'components/platform-workspace.tsx',
-    ]}),
+    knownBaselines:{[buildId]:fingerprint},
+    fetcher:async()=>({ok:true,json:async()=>({buildId,version:'0.2.55'})}),
   });
-  assert.equal(result.allowed,false);
-  assert.equal(result.reason,'migration_delta_present');
-  assert.deepEqual(result.migrationFiles,['migrations/0038_whatsapp_autopost_jobs.sql']);
+  assert.equal(result.allowed,true);
+  assert.equal(result.deployedBuildId,buildId);
 });
 
-
-void test('quota-safe fallback fails closed when local git comparison cannot be proven', async () => {
-  const { verifyQuotaSafeCodeOnlyDeploy } = await import('../scripts/staging-migration-preflight.mjs');
-  const deployed='1111111111111111111111111111111111111111';
-  const current='2222222222222222222222222222222222222222';
-  const result=await verifyQuotaSafeCodeOnlyDeploy({
-    currentSha:current,
+void test('quota-safe migration fingerprint refuses any migration mismatch', async () => {
+  const { verifyQuotaSafeMigrationFingerprint } = await import('../scripts/staging-migration-preflight.mjs');
+  const result=await verifyQuotaSafeMigrationFingerprint({
+    currentFingerprint:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     stagingBuildUrl:'https://staging.example/api/build',
-    fetcher:async()=>({ok:true,json:async()=>({buildId:deployed})}),
-    compareCommits:async()=>({ok:false,reason:'deployed_commit_not_in_checkout',files:[]}),
+    fetcher:async()=>({ok:true,json:async()=>({
+      buildId:'1111111111111111111111111111111111111111',
+      migrationFingerprint:'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    })}),
   });
   assert.equal(result.allowed,false);
-  assert.equal(result.reason,'deployed_commit_not_in_checkout');
+  assert.equal(result.reason,'migration_fingerprint_mismatch');
+});
+
+void test('quota-safe migration fingerprint fails closed when old staging baseline is unknown', async () => {
+  const { verifyQuotaSafeMigrationFingerprint } = await import('../scripts/staging-migration-preflight.mjs');
+  const result=await verifyQuotaSafeMigrationFingerprint({
+    currentFingerprint:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    stagingBuildUrl:'https://staging.example/api/build',
+    fetcher:async()=>({ok:true,json:async()=>({buildId:'1111111111111111111111111111111111111111'})}),
+  });
+  assert.equal(result.allowed,false);
+  assert.equal(result.reason,'staging_migration_fingerprint_unknown');
 });

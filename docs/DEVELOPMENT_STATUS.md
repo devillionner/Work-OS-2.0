@@ -1,5 +1,13 @@
 # Development status — 2026-09-24
 
+## 2026-09-24 Migration-fingerprint quota fallback
+
+- Repeated staging retries showed that D1 quota handling should not depend on GitHub Compare or local git history inside Workers Builds.
+- The build now embeds a deterministic fingerprint of all `migrations/*.sql` into `/api/build`. On a D1 daily row-read quota failure, deploy compares the current local migration fingerprint to the fingerprint advertised by deployed staging.
+- The currently deployed pre-fingerprint baseline `8a6a06c...` is pinned to the exact migration fingerprint independently verified from its Git tree. GitHub comparison confirmed there are zero migration changes from that deployed build to current main.
+- Any changed/added/removed migration changes the fingerprint and blocks the quota fallback. After this release deploys, future staging builds advertise the fingerprint directly, so the one-time baseline is no longer needed for normal comparison.
+- Production remains untouched.
+
 ## 2026-09-24 Quota fallback uses local git comparison
 
 - The first quota-safe fallback depended on GitHub REST Compare and a Cloudflare build failed with `commit_comparison_unreachable` even though the repository had already cloned successfully.

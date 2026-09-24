@@ -1,7 +1,8 @@
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
-import { isD1DailyRowReadLimit, migrationFilesFromComparison, parseStagingMigrationList, verifyQuotaSafeCodeOnlyDeploy } from './staging-migration-preflight.mjs';
+import { isD1DailyRowReadLimit, parseStagingMigrationList, verifyQuotaSafeMigrationFingerprint } from './staging-migration-preflight.mjs';
 
 const configPath = 'dist/server/wrangler.json';
 const sourceConfigPath = 'wrangler.jsonc';
@@ -12,39 +13,24 @@ const expected = {
   databaseId: '740312bc-bd1f-4d69-826f-d31208789598',
 };
 
-function runGit(args) {
-  return spawnSync('git', args, { encoding:'utf8', shell:false });
-}
+const knownMigrationBaselines = {
+  '8a6a06cfe00dcfa652a7582db6f6a19247a79a45': '640ab66af09ac341fff5684db0baf556fe63f1491c6bf97a88488e91d51616f5',
+};
 
-function ensureCommitAvailable(sha) {
-  const probe = runGit(['cat-file','-e',sha + '^{commit}']);
-  if (probe.status === 0) return {ok:true};
-  const fetchResult = runGit(['fetch','--no-tags','--depth=128','origin',sha]);
-  if (fetchResult.stdout) process.stdout.write(fetchResult.stdout);
-  if (fetchResult.stderr) process.stderr.write(fetchResult.stderr);
-  if (fetchResult.error) return {ok:false,reason:'git_fetch_failed'};
-  if (fetchResult.status !== 0) return {ok:false,reason:'git_fetch_failed'};
-  const recheck = runGit(['cat-file','-e',sha + '^{commit}']);
-  return recheck.status === 0 ? {ok:true} : {ok:false,reason:'deployed_commit_not_in_checkout'};
-}
-
-async function compareLocalGitCommits({deployedBuildId,currentSha}) {
-  const available = ensureCommitAvailable(deployedBuildId);
-  if (!available.ok) return {ok:false,reason:available.reason,files:[],migrationFiles:[]};
-
-  const currentAvailable = ensureCommitAvailable(currentSha);
-  if (!currentAvailable.ok) return {ok:false,reason:'current_commit_not_in_checkout',files:[],migrationFiles:[]};
-
-  const ancestor = runGit(['merge-base','--is-ancestor',deployedBuildId,currentSha]);
-  if (ancestor.error) return {ok:false,reason:'git_ancestor_check_failed',files:[],migrationFiles:[]};
-  if (ancestor.status !== 0) return {ok:false,reason:'staging_not_ancestor_of_build',files:[],migrationFiles:[]};
-
-  const diff = runGit(['diff','--name-only',deployedBuildId + '..' + currentSha]);
-  if (diff.error || diff.status !== 0) {
-    return {ok:false,reason:'git_diff_failed',files:[],migrationFiles:[]};
-  }
-  const files = String(diff.stdout || '').split(/\r?\n/u).map(value=>value.trim()).filter(Boolean);
-  return {ok:true,files,migrationFiles:migrationFilesFromComparison(files)};
+function currentMigrationFingerprint() {
+  const entries = readdirSync('migrations', { withFileTypes:true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.sql'))
+    .map((entry) => {
+      const path = `migrations/${entry.name}`;
+      const bytes = readFileSync(path);
+      const blobSha = createHash('sha1')
+        .update(Buffer.from(`blob ${bytes.length}\0`))
+        .update(bytes)
+        .digest('hex');
+      return `${path}:${blobSha}`;
+    })
+    .sort();
+  return createHash('sha256').update(entries.join('\n')).digest('hex');
 }
 
 if (process.env.CLOUDFLARE_ENV === 'production') {
@@ -96,31 +82,24 @@ if (migrationCheck.status !== 0) {
     throw new Error('Refusing deploy: could not verify staging D1 migration state (exit ' + (migrationCheck.status ?? 'unknown') + ').');
   }
 
-  const gitHead = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', shell: false });
-  if (gitHead.error) throw gitHead.error;
-  const currentSha = gitHead.status === 0 ? String(gitHead.stdout || '').trim() : '';
-  const fallback = await verifyQuotaSafeCodeOnlyDeploy({
-    currentSha,
+  const currentFingerprint = currentMigrationFingerprint();
+  const fallback = await verifyQuotaSafeMigrationFingerprint({
+    currentFingerprint,
     stagingBuildUrl,
-    compareCommits: compareLocalGitCommits,
+    knownBaselines: knownMigrationBaselines,
   });
   if (!fallback.allowed) {
-    const migrationDetail = fallback.migrationFiles.length
-      ? ' Pending code contains migration changes: ' + fallback.migrationFiles.join(', ') + '.'
-      : '';
     throw new Error(
-      'Refusing deploy: staging D1 daily row-read quota is exhausted and code-only fallback is unsafe (' +
+      'Refusing deploy: staging D1 daily row-read quota is exhausted and migration fingerprint fallback is unsafe (' +
         fallback.reason +
-        ').' +
-        migrationDetail +
-        ' Production was not touched.',
+        '). Production was not touched.',
     );
   }
   quotaSafeCodeOnlyDeploy = true;
   console.log(
-    'Staging D1 daily row-read quota is exhausted, but deploy is code-only since deployed staging build ' +
+    'Staging D1 daily row-read quota is exhausted, but migration fingerprint matches deployed staging build ' +
       fallback.deployedBuildId +
-      '. Migration preflight bypass is allowed for this build only.',
+      '. Migration preflight bypass is allowed for this build.',
   );
 }
 
