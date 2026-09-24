@@ -37,4 +37,6 @@ void test('dedicated executor bridge leases tasks to the authenticated device be
   const route = await readFile(new URL('../app/api/chat-discovery/executor/route.ts', import.meta.url), 'utf8');
   assert.match(route, /claimDiscoveryExecutorQueue\(env\.DB, executor\.userId, executor\.deviceId/);
   assert.match(route, /assertDiscoveryExecutorLease\(env\.DB, executor\.userId, executor\.deviceId/);
+  assert.match(route, /requireTargetVerification: true/);
+  assert.match(route, /targetVerified: body\.targetVerified/);
 });
