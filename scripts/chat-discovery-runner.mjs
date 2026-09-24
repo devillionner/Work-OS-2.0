@@ -28,6 +28,8 @@ async function inspect(task){
   openUrl(task.link);
   console.log(`\n[${task.platform}] ${task.name}\n${task.link}\nAction: ${task.action}`);
   console.log('Complete the requested messenger action manually, then record only what you actually observed.');
+  const targetVerified=yes(await terminal.question(`Exact target verified as "${task.expectedTarget?.name||task.name}"? [y/N] `));
+  if(!targetVerified)return {status:'failed',targetVerified:false,reason:'target_not_verified'};
   const accessible=yes(await terminal.question('Chat accessible? [y/N] '));
   const membership=await terminal.question('Membership [joined/pending/not_checked/left]: ');
   const observedName=(await terminal.question('Observed name (blank keeps current): ')).trim()||task.name;
@@ -36,7 +38,7 @@ async function inspect(task){
   const canWrite=tri(await terminal.question('Can write? [y/n/blank unknown] '),true,false);
   const ads=tri(await terminal.question('Ads allowed? [y/n/blank unknown] '),'allowed','forbidden')||'unknown';
   const active=tri(await terminal.question('Active recently? [y/n/blank unknown] '),'active','dead')||'unknown';
-  return {status:'inspected',accessible,membershipState:membership||'not_checked',observedName,chatType:'group',memberCount:members,topicMatch:topic,canWrite,adsPolicy:ads,activityState:active};
+  return {status:'inspected',targetVerified:true,accessible,membershipState:membership||'not_checked',observedName,chatType:'group',memberCount:members,topicMatch:topic,canWrite,adsPolicy:ads,activityState:active};
 }
 async function runOnce(){
   const queue=await api('/api/chat-discovery/executor?limit=1');
@@ -44,8 +46,10 @@ async function runOnce(){
   if(task.action==='leave'){
     openUrl(task.link);
     console.log(`\nLeave requested: ${task.name}`);
+    const targetVerified=yes(await terminal.question(`Exact target verified as "${task.expectedTarget?.name||task.name}"? [y/N] `));
+    if(!targetVerified){console.log('Target was not verified; leave skipped fail-closed.');return true;}
     if(!yes(await terminal.question('Confirm only AFTER you actually left the chat [y/N]: '))) return true;
-    await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'executor-leave',candidateId:task.candidateId,version:task.candidateVersion,chatStateToken:task.chatStateToken})});
+    await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'executor-leave',candidateId:task.candidateId,version:task.candidateVersion,chatStateToken:task.chatStateToken,targetVerified:true})});
   }else{
     const result=await inspect(task);
     await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'inspect',candidateId:task.candidateId,version:task.candidateVersion,minMembers:task.minMembers,result})});
