@@ -177,6 +177,20 @@ void test('Today dashboard keeps primary work controls readable and touch friend
   assert.match(css, /\.text-action:focus-visible \{ outline:3px solid var\(--ring\);/);
 });
 
+void test('Platforms uses a compact operator hierarchy and an unambiguous publication CTA', () => {
+  const workspace = text(join(componentsDir, 'platform-workspace.tsx'));
+  const css = text(join(root, 'app', 'globals.css'));
+  assert.match(workspace, /<section className="platform-header">/);
+  assert.match(workspace, /<PlatformOverview pace=\{data\.publicationPace\}/);
+  assert.match(workspace, /className=\{\`platform-queue-context/);
+  assert.match(workspace, /if\(canPublish\(chat,clock\)\)return 'Підготувати';/);
+  assert.doesNotMatch(workspace, /className="platform-hero"|today-links|quick-publish-bar|posting-pace/);
+  assert.match(css, /\.platform-overview \{ display:grid;/);
+  assert.match(css, /\.platform-queue-context \{ display:flex;/);
+  assert.match(css, /\.queue-tabs button\[aria-selected='true'\] \{ background:#fff; color:#2445cf;/);
+  assert.doesNotMatch(css, /\.today-links|\.quick-publish-bar|\.posting-pace/);
+});
+
 void test('Platform daily workflow uses desktop-sized controls and keyboard focus', () => {
   const css = text(join(root, 'app', 'globals.css'));
   assert.match(css, /\.platform-picker button \{ min-height: 42px;/);
@@ -404,7 +418,8 @@ void test('Confirmed staging layout defects stay compact at intermediate widths'
   const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
   const warmup = readFileSync(new URL('../components/telegram-warmup.tsx', import.meta.url), 'utf8');
   const schedule = readFileSync(new URL('../components/telegram-schedule.tsx', import.meta.url), 'utf8');
-  assert.match(css, /@media \(max-width:1500px\)[\s\S]*\.today-links > div \{ align-items:flex-start; flex-direction:column/);
+  assert.match(css, /\.platform-overview \{ display:grid; grid-template-columns:[^;]+; overflow:hidden;/);
+  assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.platform-overview \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); \}/);
   assert.match(css, /@media \(max-width: 1180px\)[\s\S]*\.workday-card \{ display:grid; grid-template-columns:44px minmax\(0,1fr\)/);
   assert.match(css, /\.queue-card:has\(\.queue-empty\) \{ align-self:start; \}/);
   assert.match(warmup, /<details className="telegram-warmup"/);
