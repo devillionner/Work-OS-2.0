@@ -56,7 +56,7 @@ export type DiscoveryInspectionOutcome = {
 export async function applyDiscoveryInspection(
   db: D1Database,
   userId: string,
-  input: { candidateId: string; expectedVersion: number; result: unknown; minMembers?: unknown },
+  input: { candidateId: string; expectedVersion: number; result: unknown; minMembers?: unknown; requireTargetVerification?: boolean },
   now: number,
 ): Promise<DiscoveryInspectionOutcome> {
   const candidate = await readCandidate(db, userId, input.candidateId);
@@ -79,7 +79,7 @@ export async function applyDiscoveryInspection(
   const reportedMembership = normalizeMembership(result.membershipState);
   const requiresVerifiedTarget = result.accessible === true || result.status === 'inspected'
     || reportedMembership === 'pending' || reportedMembership === 'joined';
-  if (requiresVerifiedTarget && result.targetVerified !== true) {
+  if (input.requireTargetVerification === true && requiresVerifiedTarget && result.targetVerified !== true) {
     throw new DiscoveryError('Executor не підтвердив, що відкрито саме цільовий чат.', 409);
   }
   if (reportedMembership === 'left') {
