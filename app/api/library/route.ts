@@ -16,6 +16,7 @@ import {
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { subjectSearchVariants } from '@/lib/subjects';
 import { businessDate } from '@/lib/business-time';
+import { revisionCacheRequest, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
 
 const KINDS = new Set(['advertisement', 'script']);
 const REQUEST_MAX_BYTES = 64 * 1024;
@@ -37,6 +38,9 @@ export async function GET(request: Request): Promise<Response> {
     ? ` OR ${subjectTerms.map((_, index) => `instr(tags_json, ?${index + 7})>0`).join(' OR ')}`
     : '';
   const today=businessDate(Math.floor(Date.now()/1000));
+  const cacheRequest=await revisionCacheRequest(env.DB,user.id,'library',`${kind}:${collection}:${archived ? 1 : 0}:${search}:${today}`);
+  const cached=await matchRevisionJson(cacheRequest);
+  if(cached)return cached;
   const [itemsResult,usageResult] = await env.DB.batch([
     env.DB.prepare(`SELECT id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,archived_at,created_at,updated_at
       FROM library_items WHERE user_id=?1
@@ -56,7 +60,9 @@ export async function GET(request: Request): Promise<Response> {
     const platforms=usageByAdvertisement.get(row.advertisement_id)||[];
     platforms.push(row.platform);usageByAdvertisement.set(row.advertisement_id,platforms);
   }
-  return Response.json({ items: (itemsResult.results as LibraryRow[]).map(row=>publicItem(row,usageByAdvertisement.get(row.id)||[])), businessDate:today }, { headers: { 'Cache-Control': 'no-store' } });
+  const payload={ items: (itemsResult.results as LibraryRow[]).map(row=>publicItem(row,usageByAdvertisement.get(row.id)||[])), businessDate:today };
+  await putRevisionJson(cacheRequest,payload,120);
+  return Response.json(payload,{headers:{'Cache-Control':'no-store','X-Work-OS-Cache':'MISS'}});
 }
 
 export async function POST(request: Request): Promise<Response> {

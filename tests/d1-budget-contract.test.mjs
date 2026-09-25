@@ -78,3 +78,24 @@ void test('workday and Viber safe-mode polling have bounded D1 backoff and no fi
   assert.match(route,/viberJobId/);
   assert.match(route,/readViberSafeNoteJob\(env\.DB,user\.id,viberJobId\)/);
 });
+
+
+void test('high-cost workspace reads use revision-aware Worker cache',()=>{
+  const helper=read('lib/revision-cache.ts');
+  assert.match(helper,/readSyncRevision/);
+  assert.match(helper,/caches\.default/);
+  assert.match(helper,/X-Work-OS-Cache/);
+  for(const path of [
+    'app/api/chats/route.ts',
+    'app/api/analytics/route.ts',
+    'app/api/analytics/overview/route.ts',
+    'app/api/library/route.ts',
+    'app/api/reports/route.ts',
+    'app/api/leads/route.ts',
+  ]) {
+    const source=read(path);
+    assert.match(source,/revisionCacheRequest/);
+    assert.match(source,/matchRevisionJson/);
+    assert.match(source,/putRevisionJson/);
+  }
+});

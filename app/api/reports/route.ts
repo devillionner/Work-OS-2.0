@@ -10,6 +10,7 @@ import { readFinalReportState } from '@/lib/reports/final';
 import { readGoalPlanFact } from '@/lib/goals';
 import { saveReportText } from '@/lib/reports/write';
 import { composeDailyReportText } from '@/lib/reports/compose';
+import { revisionCacheRequest, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
 
 const REQUEST_MAX_BYTES = 32 * 1024;
 type ReportRow = { id: string; report_date: string; report_text: string; submitted_at: number | null; updated_at: number; revision_count: number; stale?: number };
@@ -23,6 +24,10 @@ export async function GET(request: Request): Promise<Response> {
   if (validDate(date) && date > kyivDate()) return Response.json({ error: 'Майбутні звіти недоступні.' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
   const start = `${month}-01`;
   const end = shiftMonth(start, 1);
+  const now=Math.floor(Date.now()/1000);
+  const cacheRequest=await revisionCacheRequest(env.DB,user.id,'reports',`${month}:${date || ''}:${Math.floor(now/30)}`);
+  const cached=await matchRevisionJson(cacheRequest);
+  if(cached)return cached;
   const [calendar, calendarContext, selectedResult] = await Promise.all([
     readReportCalendar(env.DB, user.id, start, end),
     readCalendarContext(env.DB, user.id, start, end),
@@ -34,14 +39,16 @@ export async function GET(request: Request): Promise<Response> {
     selectedDate ? eventSummary(user.id, selectedDate) : Promise.resolve([]),
     selectedDate ? readReportEventDetails(env.DB, user.id, selectedDate) : Promise.resolve([]),
     readPreviousReportReminder(env.DB, user.id, kyivDate()),
-    selectedDate ? readFinalReportState(env.DB,user.id,selectedDate,Math.floor(Date.now()/1000),kyivDate()) : Promise.resolve(null),
+    selectedDate ? readFinalReportState(env.DB,user.id,selectedDate,now,kyivDate()) : Promise.resolve(null),
     selectedDate ? readGoalPlanFact(env.DB,user.id,selectedDate) : Promise.resolve(null),
   ]);
   const selectedPublic = selected
     ? { ...publicReport(selected), stale: calendar.find((item) => item.id === selected.id)?.stale ?? false }
     : null;
   const suggestedText = selectedDate && !selected ? composeDailyReportText(selectedDate, summary, details) : '';
-  return Response.json({ month, reports: calendar, calendarContext, selected: selectedPublic, suggestedText, summary, details, previousReportReminder, finalReportState, goalPlanFact, leadCommandScope: `reports:${user.id}` }, { headers: { 'Cache-Control': 'no-store' } });
+  const payload={ month, reports: calendar, calendarContext, selected: selectedPublic, suggestedText, summary, details, previousReportReminder, finalReportState, goalPlanFact, leadCommandScope: `reports:${user.id}` };
+  await putRevisionJson(cacheRequest,payload,45);
+  return Response.json(payload,{headers:{'Cache-Control':'no-store','X-Work-OS-Cache':'MISS'}});
 }
 
 export async function POST(request: Request): Promise<Response> {

@@ -9,6 +9,7 @@ import { prepareConversationExport } from '@/lib/leads/application/conversation-
 import { commandBody, errorResponse, json } from '@/lib/leads/application/http';
 import { LeadError } from '@/lib/leads/domain/validation';
 import { overdue } from '@/lib/leads/domain/time';
+import { revisionCacheRequest, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
 
 const LEAD_LIST_VIEWS: readonly LeadListView[] = [
   'active',
@@ -57,21 +58,27 @@ export async function GET(request: Request): Promise<Response> {
         : params.get('overdue') === 'true'
           ? 'overdue'
           : 'active';
+    const search=(params.get('search') ?? '').slice(0, 200);
+    const cacheRequest=await revisionCacheRequest(env.DB,user.id,'leads-list',`${view}:${search}:${offset}:${Math.floor(now/30)}`);
+    const cached=await matchRevisionJson(cacheRequest);
+    if(cached)return cached;
     const result = await listLeads(
       env.DB,
       user.id,
       {
         view,
-        search: (params.get('search') ?? '').slice(0, 200),
+        search,
         offset,
       },
       now,
     );
-    return json({
+    const payload={
       ...result,
       leads: result.leads.map((lead) => ({ ...lead, overdue: overdue(lead, now) })),
       serverNow: now,
-    });
+    };
+    await putRevisionJson(cacheRequest,payload,45);
+    return Response.json(payload,{headers:{'Cache-Control':'no-store','X-Work-OS-Cache':'MISS'}});
   } catch (error) {
     return errorResponse(error);
   }
