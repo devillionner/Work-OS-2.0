@@ -14,6 +14,8 @@ void test('Platforms exposes an explicit autonomous outcome loop plus a local ma
   assert.match(dialog, /Запустити автопошук/);
   assert.match(dialog, /action:'start'/);
   assert.match(dialog, /runId:run\.id/);
+  assert.match(dialog, /persistedBacklog=workspace\.candidates\.filter/);
+  assert.match(dialog, /!candidate\.importedChatId/);
   assert.match(dialog, /продовжує до \$\{run\.goal\} цільових чатів/);
   assert.match(dialog, /work-os:chat-discovery-local-preview:v1/);
   assert.match(dialog, /sessionStorage/);

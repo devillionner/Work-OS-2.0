@@ -171,27 +171,36 @@ export function ChatDiscoveryDialog({
       const run=payload.run as DiscoveryRun;
       setWorkspace(current=>({...current,run}));
 
-      const adoptedIds=new Set<string>();
+      const persistedBacklog=workspace.candidates.filter(candidate=>
+        !candidate.importedChatId
+        && candidate.platform==='whatsapp'
+        && (candidate.decision==='review'||candidate.decision==='target')
+      );
+      const candidatesToAdopt=[...localPreview.candidates,...persistedBacklog];
+      const adoptedLocalIds=new Set<string>();
+      let adoptedPersisted=0;
       let failedToAdopt=0;
-      for(const candidate of localPreview.candidates){
+      for(const candidate of candidatesToAdopt){
         try{
           await postPreview({
             action:'confirm',platform:candidate.platform,link:candidate.link,name:candidate.name,
             sources:candidate.sources,minMembers,runId:run.id,
           });
-          adoptedIds.add(candidate.id);
+          if(isLocalPreview(candidate))adoptedLocalIds.add(candidate.id);
+          else adoptedPersisted+=1;
           onImported(candidate.platform as DiscoveryPlatform);
         }catch{
           failedToAdopt+=1;
         }
       }
-      if(adoptedIds.size){
-        setLocalPreview(current=>({...current,candidates:current.candidates.filter(candidate=>!adoptedIds.has(candidate.id))}));
+      if(adoptedLocalIds.size){
+        setLocalPreview(current=>({...current,candidates:current.candidates.filter(candidate=>!adoptedLocalIds.has(candidate.id))}));
       }
       await load(filter,{silent:true});
-      const adoptedText=adoptedIds.size?` Локальних кандидатів передано в цикл: ${adoptedIds.size}.`:'';
-      const failedText=failedToAdopt?` Не вдалося автоматично передати: ${failedToAdopt}; вони лишились у ручному preview.`:'';
-      setNotice(`Автопошук активний: Work OS сам шукає, відкриває exact WhatsApp target, перевіряє вступ і критерії, відсіює нецільові та продовжує до ${run.goal} цільових чатів або чесного вичерпання джерел.${adoptedText}${failedText}`);
+      const adoptedLocalText=adoptedLocalIds.size?` Локальних кандидатів передано в цикл: ${adoptedLocalIds.size}.`:'';
+      const adoptedPersistedText=adoptedPersisted?` Старих неперевірених кандидатів передано executor-у: ${adoptedPersisted}.`:'';
+      const failedText=failedToAdopt?` Не вдалося автоматично передати: ${failedToAdopt}; вони залишились доступними для повторної перевірки.`:'';
+      setNotice(`Автопошук активний: Work OS сам шукає, відкриває exact WhatsApp target, перевіряє вступ і критерії, відсіює нецільові та продовжує до ${run.goal} цільових чатів або чесного вичерпання джерел.${adoptedLocalText}${adoptedPersistedText}${failedText}`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не вдалося запустити автономний пошук.');
     } finally {
@@ -464,7 +473,7 @@ export function ChatDiscoveryDialog({
                 <span className="grid gap-0.5"><span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Локально</span><strong className="text-sm text-foreground">{localPreview.candidates.length}</strong></span>
                 <span className="grid gap-0.5"><span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Query</span><strong className="text-sm text-foreground">{displayedQueries}</strong></span>
                 <span className="grid gap-0.5"><span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Дублі / відомі</span><strong className="text-sm text-foreground">{localPreview.duplicates}</strong></span>
-                <span className="grid gap-0.5"><span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">D1 до підтвердження</span><strong className="text-sm text-foreground">0</strong></span>
+                <span className="grid gap-0.5"><span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Ручний preview D1</span><strong className="text-sm text-foreground">0 до confirm</strong></span>
               </div>
               {autonomousRunning&&<p className="mt-2 text-xs font-medium leading-5 text-foreground/75">Автономний цикл активний · {displayedTargetCount}/{displayedGoal} цільових. Нецільові результати executor відсіює та архівує сам.</p>}
               {workspace.run?.completionReason==='sources_exhausted'&&<p className="mt-2 text-xs leading-5 text-muted-foreground">Source plan вичерпано: знайдено {workspace.run.targetCount} цільових із {workspace.run.goal}. Критерії не послаблювались.</p>}
