@@ -2,6 +2,7 @@
 
 ## 2026-09-25 live WhatsApp post-invite target verification
 
+- Live leave-control diagnosis: current WhatsApp renders «Вийти з групи» as an aria-label on an icon-prefixed role button; control discovery/clicking now prefers accessible labels before textContent, preserving exact matching.
 - Physical CDP diagnosis reproduced current WhatsApp Web behavior where an invite resolves into the joined chat and the browser URL returns to `https://web.whatsapp.com/`; the chat itself shows factual «Ви приєдналися за запрошенням».
 - The adapter now treats that localized post-invite join evidence plus the conversation header as exact-target proof for the invite code that the runner itself navigated to. A generic header without that evidence still fails closed.
 - Verified leave now follows the observed WhatsApp target name rather than the noisy source-derived name, so a factual non-target joined chat can be exited and archived automatically.

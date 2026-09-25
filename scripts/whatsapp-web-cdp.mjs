@@ -496,7 +496,9 @@ async function readSnapshot(client) {
     const clean = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
     const unique = (values) => [...new Set(values.map(clean).filter(Boolean))];
     const read = (root, selectors) => unique(selectors.flatMap((selector) =>
-      [...root.querySelectorAll(selector)].map((node) => node.getAttribute('title') || node.textContent || '')
+      [...root.querySelectorAll(selector)].map((node) =>
+        node.getAttribute('title') || node.getAttribute('aria-label') || node.textContent || ''
+      )
     ));
     const bodyText = document.body?.innerText || '';
     const headerNames = read(document, [
@@ -763,7 +765,8 @@ async function clickDocumentControl(client, label, expectedName) {
       .some((node) => normalize(node.getAttribute('title') || node.textContent) === target);
     if (!headerMatches) return false;
     const nodes = [...document.querySelectorAll('button, [role="button"]')];
-    const node = nodes.find((item) => normalize(item.textContent) === expected && !item.hasAttribute('disabled'));
+    const labelOf = (item) => item.getAttribute('aria-label') || item.getAttribute('title') || item.textContent || '';
+    const node = nodes.find((item) => normalize(labelOf(item)) === expected && !item.hasAttribute('disabled'));
     if (!node) return false;
     node.click();
     return true;
@@ -778,7 +781,8 @@ async function clickDialogControl(client, label) {
     const dialog = document.querySelector('[role="dialog"]');
     if (!dialog) return false;
     const nodes = [...dialog.querySelectorAll('button, [role="button"]')];
-    const node = nodes.find((item) => normalize(item.textContent) === expected && !item.hasAttribute('disabled'));
+    const labelOf = (item) => item.getAttribute('aria-label') || item.getAttribute('title') || item.textContent || '';
+    const node = nodes.find((item) => normalize(labelOf(item)) === expected && !item.hasAttribute('disabled'));
     if (!node) return false;
     node.click();
     return true;

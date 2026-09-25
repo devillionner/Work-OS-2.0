@@ -111,6 +111,8 @@ void test('current WhatsApp DOM reads semantic conversation names before helper 
   );
   assert.match(source, /#main header \[dir="auto"\]/);
   assert.match(source, /headerNames/);
+  assert.match(source, /node\.getAttribute\('aria-label'\)/);
+  assert.match(source, /labelOf = \(item\) => item\.getAttribute\('aria-label'\)/);
   assert.match(source, /li-delete-group|leavePattern/);
 });
 
