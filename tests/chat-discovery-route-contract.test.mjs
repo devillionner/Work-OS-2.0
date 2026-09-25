@@ -18,7 +18,8 @@ void test('Chat Discovery mutation route preserves the browser API contract', as
   assert.match(route, /handoffDiscoveryCandidate\(env\.DB, user\.id, body\.candidateId, Number\(body\.version\), now\)/);
   assert.match(route, /if \(body\.action === 'executor-leave'\)/);
   assert.match(route, /completeDiscoveryExternalLeave\(env\.DB, user\.id/);
-  assert.match(route, /completeQuery: body\.completeQuery/);
+  assert.match(route, /Source search тепер працює локально/);
+  assert.match(route, /Telegram source preview тепер локальний/);
   assert.doesNotMatch(route, /body\.action === 'handoff'/);
   assert.doesNotMatch(route, /body\.expectedVersion/);
 });
@@ -41,5 +42,6 @@ void test('dedicated executor bridge leases tasks to the authenticated device be
   assert.match(route, /executorDeviceId: executor\.deviceId/);
   assert.match(route, /targetVerified: body\.targetVerified/);
   assert.match(route, /body\.action === 'advance-discovery'/);
-  assert.match(route, /advanceAutonomousDiscoveryRun\(env\.DB, executor\.userId, executor\.deviceId, now\)/);
+  assert.match(route, /Source crawl moved to browser-local preview/);
+  assert.doesNotMatch(route, /advanceAutonomousDiscoveryRun/);
 });

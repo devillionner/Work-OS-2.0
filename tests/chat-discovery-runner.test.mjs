@@ -10,8 +10,8 @@ void test('runner consumes paired executor tasks and posts guarded callbacks',()
   assert.match(source,/\/api\/chat-discovery\/executor\?limit=1/);
   assert.match(source,/action:'inspect'/);
   assert.match(source,/action:'executor-leave'/);
-  assert.match(source,/action:'advance-discovery'/);
-  assert.match(source,/Discovery source advanced via/);
+  assert.doesNotMatch(source,/action:'advance-discovery'/);
+  assert.doesNotMatch(source,/Discovery source advanced via/);
 });
 void test('runner automates verified WhatsApp leave via CDP and retains operator-confirmed fallback',()=>{
   assert.match(source,/leaveWhatsappTaskViaCdp/);
@@ -66,26 +66,23 @@ void test('runner claims WhatsApp autopost only after Discovery messenger tasks 
   assert.match(source,/Confirmed WhatsApp autopost accepted by Work OS/);
 });
 
-void test('runner separates fast messenger work from bounded source advancement and idle D1 backoff',()=>{
+void test('runner handles only confirmed messenger work and uses idle D1 backoff',()=>{
   assert.match(source,/const TASK_POLL_MS=3000/);
-  assert.match(source,/const SOURCE_ADVANCE_MS=60000/);
   assert.match(source,/const IDLE_POLL_MIN_MS=15000/);
   assert.match(source,/const IDLE_POLL_MAX_MS=60000/);
-  assert.match(source,/outcome==='task'\|\|outcome==='source_added'/);
-  assert.match(source,/outcome==='source_advanced'/);
-  assert.match(source,/waitMs=SOURCE_ADVANCE_MS/);
+  assert.match(source,/outcome==='task'/);
   assert.match(source,/Math\.min\(IDLE_POLL_MAX_MS,idleDelayMs\*2\)/);
-  assert.match(source,/canAdvanceDiscoverySource\(\)/);
+  assert.doesNotMatch(source,/SOURCE_ADVANCE_MS/);
+  assert.doesNotMatch(source,/canAdvanceDiscoverySource/);
+  assert.doesNotMatch(source,/action:'advance-discovery'/);
   assert.match(source,/Non-interactive Discovery runner requires WORK_OS_WHATSAPP_CDP/);
   assert.match(source,/WHATSAPP_RUNTIME_COOLDOWN_MS=300000/);
   assert.match(source,/markWhatsappRuntimeBlocked/);
-  assert.match(source,/Date\.now\(\)>=whatsappRuntimeBlockedUntil/);
-  assert.match(source,/no new join tasks will be collected/);
   assert.match(source,/backing off until the browser adapter is available/);
 });
 
 
-void test('non-interactive runner fails before API polling without a WhatsApp runtime and transient CDP state pauses source crawl',()=>{
+void test('non-interactive runner fails before API polling without a WhatsApp runtime and transient CDP state pauses automated messenger work',()=>{
   const startupGuard=source.indexOf('Non-interactive Discovery runner requires WORK_OS_WHATSAPP_CDP');
   const firstApi=source.indexOf("api('/api/chat-discovery/executor?limit=1')");
   assert.ok(startupGuard>0&&firstApi>startupGuard);

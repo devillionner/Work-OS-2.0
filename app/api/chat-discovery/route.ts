@@ -7,9 +7,7 @@ import { createDiscoveryExecutorDevice, listDiscoveryExecutorDevices, revokeDisc
 import {
   DiscoveryError,
   cancelDiscoveryRun,
-  continueDiscoveryRun,
   handoffDiscoveryCandidate,
-  ingestTelegramDiscovery,
   readDiscoveryWorkspace,
   readTelegramDiscoveryPlan,
   startDiscoveryRun,
@@ -71,8 +69,7 @@ export async function POST(request: Request): Promise<Response> {
       return json(await readTelegramDiscoveryPlan(env.DB, user.id, body.runId, Number(body.limit) || 6));
     }
     if (body.action === 'continue') {
-      if (typeof body.runId !== 'string' || !body.runId) throw new DiscoveryError('Запуск пошуку не вказаний.');
-      return json(await continueDiscoveryRun(env.DB, user.id, body.runId, now));
+      throw new DiscoveryError('Source search тепер працює локально в браузері. Сирі кандидати не записуються в D1.', 409);
     }
     if (body.action === 'cancel') {
       if (typeof body.runId !== 'string' || !body.runId || !Number.isSafeInteger(body.version)) {
@@ -81,16 +78,7 @@ export async function POST(request: Request): Promise<Response> {
       return json(await cancelDiscoveryRun(env.DB, user.id, body.runId, Number(body.version), now));
     }
     if (body.action === 'ingest-telegram') {
-      if (typeof body.runId !== 'string' || !body.runId) throw new DiscoveryError('Запуск пошуку не вказаний.');
-      return json(await ingestTelegramDiscovery(env.DB, user.id, body.runId, {
-        text: body.text,
-        sourceUrl: body.sourceUrl,
-        sourceTitle: body.sourceTitle,
-        query: body.query,
-        seedLabel: body.seedLabel,
-        context: body.context,
-        completeQuery: body.completeQuery,
-      }, now));
+      throw new DiscoveryError('Telegram source preview тепер локальний. Використовуйте preview API; запис у D1 відбувається лише після підтвердження.', 409);
     }
     if (body.action === 'import') {
       if (typeof body.candidateId !== 'string' || !body.candidateId || !Number.isSafeInteger(body.version)) {

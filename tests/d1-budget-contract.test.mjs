@@ -36,29 +36,26 @@ void test('Platforms GET uses queue counters and an index-friendly page order',(
   assert.match(migration,/CREATE INDEX chats_user_platform_status_updated_idx/);
 });
 
-void test('Discovery executor and staging deploy retain quota-safe guards',()=>{
+void test('Discovery executor is persistence-only for confirmed candidates and staging deploy retains quota guards',()=>{
   const runner=read('scripts/chat-discovery-runner.mjs');
   const auth=read('lib/chat-discovery/executor-auth.ts');
   const executor=read('lib/chat-discovery/executor.ts');
   const deploy=read('scripts/deploy-staging.mjs');
-  const domain=read('lib/chat-discovery/domain.ts');
+  const preview=read('lib/chat-discovery/local-preview.ts');
   assert.match(runner,/TASK_POLL_MS=3000/);
-  assert.match(runner,/SOURCE_ADVANCE_MS=60000/);
   assert.match(runner,/WHATSAPP_RUNTIME_COOLDOWN_MS=300000/);
-  assert.match(runner,/Non-interactive Discovery runner requires WORK_OS_WHATSAPP_CDP/);
-  assert.match(runner,/Date\.now\(\)>=whatsappRuntimeBlockedUntil/);
   assert.match(runner,/IDLE_POLL_MIN_MS=15000/);
   assert.match(runner,/IDLE_POLL_MAX_MS=60000/);
-  assert.match(runner,/canAdvanceDiscoverySource\(\)/);
-  assert.match(runner,/added>0\?'source_added':'source_advanced'/);
+  assert.doesNotMatch(runner,/advance-discovery/);
+  assert.doesNotMatch(runner,/SOURCE_ADVANCE_MS/);
   assert.match(auth,/EXECUTOR_HEARTBEAT_SECONDS = 60/);
   assert.match(executor,/readDiscoveryExecutorQueue\(db, userId, limit, now\)/);
   assert.match(executor,/LIMIT \?3`\)\.bind\(userId, now, limit\)\.all<CandidateTaskRow>\(\)/);
   assert.doesNotMatch(executor,/Math\.max\(limit \* 3, 20\)/);
   assert.match(deploy,/if \(fingerprintCheck\.allowed\)/);
   assert.match(deploy,/Skipping remote D1 migration list for this code-only deploy/);
-  assert.match(domain,/discoverTelegramPublic\(\{ cursor:claimed\.telegram_cursor, maxQueries:1, pageLimit:2 \}/);
-  assert.match(domain,/maxQueries: 2,[\s\S]{0,80}pageLimit: 1/);
+  assert.match(preview,/normalized_link IN \(SELECT value FROM json_each\(\?2\)\)/);
+  assert.doesNotMatch(preview,/LIMIT 10001/);
 });
 
 void test('workday and Viber safe-mode polling have bounded D1 backoff and no fixed request interval',()=>{

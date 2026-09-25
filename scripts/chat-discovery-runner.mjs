@@ -15,7 +15,6 @@ if(!process.stdin.isTTY&&!whatsappCdp){
 const terminal=readline.createInterface({input:process.stdin,output:process.stdout});
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const TASK_POLL_MS=3000;
-const SOURCE_ADVANCE_MS=60000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
 const IDLE_POLL_MIN_MS=15000;
 const IDLE_POLL_MAX_MS=60000;
@@ -77,16 +76,12 @@ async function inspectTask(task){
   return inspect(task);
 }
 
-let sourceBlockedNoticeShown=false;
 let whatsappRuntimeBlockedUntil=0;
 function markWhatsappRuntimeBlocked(reason){
   whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+WHATSAPP_RUNTIME_COOLDOWN_MS);
-  console.warn(`WhatsApp runtime temporarily blocks new Discovery source crawl (${reason}); retry after cooldown.`);
+  console.warn(`WhatsApp runtime temporarily blocks automated WhatsApp actions (${reason}); retry after cooldown.`);
 }
 function clearWhatsappRuntimeBlock(){whatsappRuntimeBlockedUntil=0;}
-function canAdvanceDiscoverySource(){
-  return Boolean(process.stdin.isTTY||(whatsappCdp&&Date.now()>=whatsappRuntimeBlockedUntil));
-}
 
 async function runOnce(){
   const queue=await api('/api/chat-discovery/executor?limit=1');
@@ -125,20 +120,6 @@ async function runOnce(){
         observedTarget:job.target.expectedName,targetVerified:false,sendConfirmed:false,errorCode:automated.reason,
       })});
       return 'task';
-    }
-    if(!canAdvanceDiscoverySource()){
-      if(!sourceBlockedNoticeShown){
-        console.warn('Discovery source advancement paused until a capable WhatsApp runtime is available; no new join tasks will be collected.');
-        sourceBlockedNoticeShown=true;
-      }
-      return 'idle';
-    }
-    sourceBlockedNoticeShown=false;
-    const source=await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'advance-discovery'})});
-    if(source.advanced){
-      const added=Math.max(0,Number(source.batch?.added)||0);
-      console.log(`Discovery source advanced via ${source.source}: searched ${source.batch?.searched||0}, added ${added}, duplicates ${source.batch?.duplicates||0}; targets ${source.run?.targetCount||0}/${source.run?.goal||0}`);
-      return added>0?'source_added':'source_advanced';
     }
     return 'idle';
   }
@@ -181,11 +162,8 @@ while(true){
   try{outcome=await runOnce();}
   catch(error){console.error(error instanceof Error?error.message:String(error));}
   let waitMs=idleDelayMs;
-  if(outcome==='task'||outcome==='source_added'){
+  if(outcome==='task'){
     waitMs=TASK_POLL_MS;
-    idleDelayMs=IDLE_POLL_MIN_MS;
-  }else if(outcome==='source_advanced'){
-    waitMs=SOURCE_ADVANCE_MS;
     idleDelayMs=IDLE_POLL_MIN_MS;
   }else{
     idleDelayMs=Math.min(IDLE_POLL_MAX_MS,idleDelayMs*2);
