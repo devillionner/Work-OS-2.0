@@ -90,3 +90,12 @@ void test('non-interactive runner fails before API polling without a WhatsApp ru
   assert.match(source,/markWhatsappRuntimeBlocked\('cdp_unavailable'\)/);
   assert.match(source,/clearWhatsappRuntimeBlock\(\)/);
 });
+
+
+void test('runner can read the one-time executor token from Wayland clipboard without putting the secret in argv',()=>{
+  assert.match(source,/--token-from-clipboard/);
+  assert.match(source,/execFileSync\('wl-paste',\['--no-newline'\]/);
+  assert.match(source,/execFileSync\('wl-copy',\['--clear'\]/);
+  assert.match(source,/Executor token loaded from clipboard/);
+  assert.doesNotMatch(source,/console\.log\([^\n]*\btoken\b[^\n]*\)/i);
+});

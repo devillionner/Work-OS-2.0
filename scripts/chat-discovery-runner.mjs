@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import process from 'node:process';
 import readline from 'node:readline/promises';
 import { inspectWhatsappTaskViaCdp, leaveWhatsappTaskViaCdp, sendWhatsappAutopostViaCdp, toWhatsAppWebInviteUrl } from './whatsapp-web-cdp.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
-const token=process.env.WORK_OS_EXECUTOR_TOKEN||'';
+const token=resolveExecutorToken();
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
-if(!baseUrl||!token){console.error('Set WORK_OS_URL and WORK_OS_EXECUTOR_TOKEN.');process.exit(2);}
+if(!baseUrl||!token){console.error('Set WORK_OS_URL and WORK_OS_EXECUTOR_TOKEN, or pass --token-from-clipboard on Linux.');process.exit(2);}
 if(!process.stdin.isTTY&&!whatsappCdp){
   console.error('Non-interactive Discovery runner requires WORK_OS_WHATSAPP_CDP; exiting before any Work OS/D1 polling.');
   process.exit(2);
@@ -19,6 +19,33 @@ const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
 const IDLE_POLL_MIN_MS=15000;
 const IDLE_POLL_MAX_MS=60000;
 const WHATSAPP_RUNTIME_TRANSIENT_REASONS=new Set(['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready']);
+
+function resolveExecutorToken(){
+  const configured=process.env.WORK_OS_EXECUTOR_TOKEN||'';
+  if(configured)return configured;
+  if(!process.argv.includes('--token-from-clipboard'))return '';
+  if(process.platform!=='linux'){
+    console.error('--token-from-clipboard is supported only on Linux.');
+    return '';
+  }
+  try{
+    const value=execFileSync('wl-paste',['--no-newline'],{
+      encoding:'utf8',
+      stdio:['ignore','pipe','ignore'],
+      maxBuffer:4096,
+    }).trim();
+    if(value.length<32||value.length>512){
+      console.error('Executor token was not found in the clipboard.');
+      return '';
+    }
+    try{execFileSync('wl-copy',['--clear'],{stdio:'ignore'});}catch{}
+    console.log('Executor token loaded from clipboard; clipboard cleared when supported.');
+    return value;
+  }catch{
+    console.error('Could not read executor token from the Wayland clipboard.');
+    return '';
+  }
+}
 
 async function api(path,init={}){
   const response=await fetch(baseUrl+path,{...init,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json',...init.headers}});
