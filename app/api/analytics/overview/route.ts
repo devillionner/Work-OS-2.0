@@ -6,6 +6,7 @@ import { buildAnalyticsRecommendation } from '@/lib/analytics-insights';
 import { resolveAnalyticsRange } from '@/lib/analytics-range';
 import { readMonthlyGoalProgress } from '@/lib/goals';
 import { shiftBusinessDate } from '@/lib/business-time';
+import { revisionCacheRequest, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
 
 export async function GET(request:Request):Promise<Response> {
   const user=await getCurrentUser();
@@ -18,6 +19,9 @@ export async function GET(request:Request):Promise<Response> {
     return Response.json({error:error instanceof Error?error.message:'Некоректний період аналітики.'},{status:400,headers:{'Cache-Control':'no-store'}});
   }
   const {from,to,days}=range;
+  const cacheRequest=await revisionCacheRequest(env.DB,user.id,'analytics-overview',`${from}:${to}`);
+  const cached=await matchRevisionJson(cacheRequest);
+  if(cached)return cached;
   const previousEnd=shiftBusinessDate(from,-1);
   const previousStart=shiftBusinessDate(previousEnd,-(days-1));
 
@@ -45,7 +49,9 @@ export async function GET(request:Request):Promise<Response> {
   const targets={publicationRate:targetMap.get('target_publication_rate')||0,responseRate:targetMap.get('target_response_rate')||0,bookingRate:targetMap.get('target_booking_rate')||0,completionRate:targetMap.get('target_completion_rate')||0};
   const chats=chatResult.results.map(row=>({...row,publications:Number(row.publications||0),responses:Number(row.responses||0),responseRate:rate(Number(row.responses||0),Number(row.publications||0))}));
   const recommendation=buildAnalyticsRecommendation(chats,days);
-  return Response.json(buildAnalyticsOverview({range:{from,to,days},totals,targets,monthlyGoal,previousBookings:previous.bookings,recommendation}),{headers:{'Cache-Control':'no-store'}});
+  const payload=buildAnalyticsOverview({range:{from,to,days},totals,targets,monthlyGoal,previousBookings:previous.bookings,recommendation});
+  await putRevisionJson(cacheRequest,payload,180);
+  return Response.json(payload,{headers:{'Cache-Control':'no-store','X-Work-OS-Cache':'MISS'}});
 }
 
 function countEvent(rows:ActivitySummaryRow[],eventType:string):number{return rows.filter(row=>row.event_type===eventType).reduce((sum,row)=>sum+Number(row.count||0),0);}

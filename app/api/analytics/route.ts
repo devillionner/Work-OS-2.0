@@ -9,6 +9,7 @@ import { resolveAnalyticsRange } from '@/lib/analytics-range';
 import { readAnalyticsTrends } from '@/lib/analytics-trends';
 import { businessDayStart, shiftBusinessDate } from '@/lib/business-time';
 import { readSubjectAnalyticsRange } from '@/lib/reports/subjects';
+import { revisionCacheRequest, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
 
 const PLATFORM_META: Record<string, { name: string; color: string }> = {
   telegram: { name: 'Telegram', color: '#2563eb' },
@@ -41,6 +42,12 @@ export async function GET(request: Request): Promise<Response> {
     );
   }
   const { from, to } = range;
+  const wantsCsv = url.searchParams.get('format') === 'csv';
+  const cacheRequest = wantsCsv ? null : await revisionCacheRequest(env.DB, user.id, 'analytics', `${from}:${to}`);
+  if (cacheRequest) {
+    const cached = await matchRevisionJson(cacheRequest);
+    if (cached) return cached;
+  }
   const archiveFrom = businessDayStart(from);
   const archiveTo = businessDayStart(shiftBusinessDate(to, 1));
 
@@ -186,7 +193,7 @@ export async function GET(request: Request): Promise<Response> {
     },
   };
 
-  if (url.searchParams.get('format') === 'csv') {
+  if (wantsCsv) {
     return new Response(analyticsCsv(data), {
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
@@ -208,7 +215,9 @@ export async function GET(request: Request): Promise<Response> {
     archiveReasons,
     archivedChats: archiveReasons.reduce((sum, row) => sum + row.count, 0),
   };
-  return Response.json({ ...data, targets, outcomes, insights, trends, subjects }, { headers: { 'Cache-Control': 'no-store' } });
+  const payload = { ...data, targets, outcomes, insights, trends, subjects };
+  if (cacheRequest) await putRevisionJson(cacheRequest, payload, 180);
+  return Response.json(payload, { headers: { 'Cache-Control': 'no-store', 'X-Work-OS-Cache':'MISS' } });
 }
 
 function settingPercent(value:string):number { try { const parsed=JSON.parse(value); return Number.isInteger(parsed)&&parsed>=0&&parsed<=100?parsed:0; } catch { return 0; } }

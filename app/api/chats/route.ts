@@ -13,6 +13,7 @@ import type { ChatProfileInput } from '@/lib/chats/profile';
 import { permanentlyDeleteChat } from '@/lib/chats/permanent-delete';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { resolveDailyPublicationGoal } from '@/lib/publication-goal';
+import { revisionCacheRequest, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
 
 const PLATFORMS = new Set(['telegram', 'whatsapp', 'viber', 'facebook']);
 const STATUSES = new Set(['to_join', 'waiting', 'ready', 'profile_review', 'archived']);
@@ -45,6 +46,10 @@ export async function GET(request: Request): Promise<Response> {
 
   const now = unixNow();
   const today = businessDate(now);
+  const cacheRequest = await revisionCacheRequest(env.DB, user.id, 'chats',
+    `${platform}:${status}:${profile}:${search}:${offset}:${accountId || ''}:${today}:${Math.floor(now/30)}`);
+  const cached = await matchRevisionJson(cacheRequest);
+  if (cached) return cached;
   const pattern = `%${escapeLike(search.toLowerCase())}%`;
   const profileFilter = status === 'profile_review' || profile === 'needs_review' ? ` AND (p.review_status IS NULL OR p.review_status!='confirmed')` : '';
   const workflowFilter = `((?3='profile_review' AND c.workflow_status IN ('waiting','ready')) OR c.workflow_status=?3)`;
@@ -108,7 +113,9 @@ export async function GET(request: Request): Promise<Response> {
   counts.profile_review=profileCounts.profile_review.needsReview;
   const goalValue = (goalResult.results[0] as {value_json?:string}|undefined)?.value_json;
   const completedPublications = Number((publicationCountResult.results[0] as {count?:number}|undefined)?.count || 0);
-  return Response.json({ chats, total: Number((totalResult.results[0] as {count?:number})?.count || 0), offset, counts, profileCounts, accountId, joinedToday: joinedResult.results, publishedToday: publishedResult.results, availableToday: availableResult.results, publicationPace: { ratePerHour: 7, completed: completedPublications, target: resolveDailyPublicationGoal(goalValue,today) } });
+  const payload = { chats, total: Number((totalResult.results[0] as {count?:number})?.count || 0), offset, counts, profileCounts, accountId, joinedToday: joinedResult.results, publishedToday: publishedResult.results, availableToday: availableResult.results, publicationPace: { ratePerHour: 7, completed: completedPublications, target: resolveDailyPublicationGoal(goalValue,today) } };
+  await putRevisionJson(cacheRequest, payload, 45);
+  return Response.json(payload, { headers: { 'Cache-Control':'no-store', 'X-Work-OS-Cache':'MISS' } });
 }
 
 export async function POST(request: Request): Promise<Response> {
