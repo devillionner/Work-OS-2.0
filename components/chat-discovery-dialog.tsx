@@ -620,7 +620,7 @@ export function ChatDiscoveryDialog({
                 <h3 className="text-base font-semibold">Автоматична перевірка</h3>
                 <p className="mt-0.5 text-xs text-foreground/65">{autonomousRunning?'Work OS обробляє чергу сам. Відкривати або кваліфікувати кожен чат вручну не потрібно.':'Тут видно результати останньої перевірки.'}</p>
               </div>
-              <Badge variant="outline">{filter === 'all' ? 'Усі' : filter === 'waiting-whatsapp' ? 'WhatsApp · Очікування' : decisionLabel(filter)} · {filter === 'all' ? total : filter === 'waiting-whatsapp' ? workspace.waitingWhatsAppCount : filter==='review' ? reviewCount : workspace.counts[filter]}</Badge>
+
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Фільтр кандидатів">
               {([
