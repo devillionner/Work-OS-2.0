@@ -131,7 +131,7 @@ export async function confirmLocalDiscoveryPreview(
 
   const sources=cleanSources(input.sources);
   const name=cleanChatName(typeof input.name==='string'?input.name:'')||suggestedChatName(parsed);
-  const topicMatch=inferDiscoveryTopicMatch(name,sources)==='mismatch'?'match':'match';
+  const topicMatch:'match'='match';
   const minMembers=boundedInteger(input.minMembers,700,18_000,700);
   const evaluated=evaluateDiscoveryCandidate({
     chatType:'unknown',memberCount:null,topicMatch,canWrite:null,adsPolicy:'unknown',
