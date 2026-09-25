@@ -1,5 +1,14 @@
 # Development status — 2026-09-25
 
+## 2026-09-25 — autonomous Discovery live progression
+
+- Exact staging build `c06cbcf674984acac61d713f1b3a5f868506195e` physically completed a real rejected-chat path: WhatsApp joined `Technical Support`, Work OS observed 18 members and admin-only posting, classified it rejected, then the refreshed adapter completed verified external leave; the canonical callback archives the chat before persisting `membership_state=left`.
+- The runner was moved into a transient user service for acceptance so it survives the tool terminal session while remaining volatile and outside the repository.
+- The live run continued across multiple candidates and advanced the autonomous source plan. This exposed a new blocker: fully inspected joined chats with incomplete factual target evidence remained `review` and were eligible for repeated inspection, while source-derived audience inference could survive a real messenger inspection.
+- Current blocker fix makes exact executor inspection authoritative for audience evidence and fail-closes a fully inspected joined chat with unresolved required target criteria to `rejected/leave` rather than manual review. Manual/recovery inspection keeps the existing `review` behavior.
+- WhatsApp group-info enrichment now waits briefly for the current drawer to render before reading member count/policy facts, reducing false unknowns without weakening target criteria.
+- GO-LIVE-02 and the factual joined half of GO-LIVE-03 are now physically accepted. GO-LIVE-04 has physical rejected/leave/archive evidence but remains open until a real target reaches usable ready state.
+
 ## 2026-09-25 live WhatsApp post-invite target verification
 
 - Live leave-control diagnosis: current WhatsApp renders «Вийти з групи» as an aria-label on an icon-prefixed role button; control discovery/clicking now prefers accessible labels before textContent, preserving exact matching.

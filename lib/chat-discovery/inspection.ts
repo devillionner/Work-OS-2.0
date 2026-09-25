@@ -114,7 +114,14 @@ export async function applyDiscoveryInspection(
   const observedName = cleanChatName(result.observedName || '');
   const nextName = observedName && (isGeneratedName(current.name) || (input.requireTargetVerification === true && result.targetVerified === true))
     ? observedName : current.name;
-  const nextTopic = result.topicMatch ?? current.topic_match;
+  const nextTopic = result.topicMatch ?? (
+    input.requireTargetVerification === true
+      && result.status === 'inspected'
+      && result.targetVerified === true
+      && canonicalMembership === 'joined'
+      ? 'unknown'
+      : current.topic_match
+  );
   const reason = (result.reason || '').slice(0, 100);
   const retryableJoinFailure = candidate.platform === 'whatsapp' && reason === 'whatsapp_join_retry_later';
   const knownUnavailable = result.accessible === false && KNOWN_UNAVAILABLE.has(reason);
@@ -131,7 +138,7 @@ export async function applyDiscoveryInspection(
   const adsPolicy = result.adsPolicy ?? current.ads_policy;
   const activityState = result.activityState ?? current.activity_state;
   const minMembers = boundedMinMembers(input.minMembers);
-  const evaluated = evaluateDiscoveryCandidate({
+  let evaluated = evaluateDiscoveryCandidate({
     chatType,
     memberCount,
     topicMatch: nextTopic,
@@ -143,6 +150,18 @@ export async function applyDiscoveryInspection(
     accessState,
     linkState,
   }, minMembers);
+  if (
+    input.requireTargetVerification === true
+    && result.status === 'inspected'
+    && result.targetVerified === true
+    && membershipState === 'joined'
+    && evaluated.decision === 'review'
+  ) {
+    evaluated = {
+      decision: 'rejected',
+      reasonCodes: [...new Set([...evaluated.reasonCodes, 'qualification_unverified'])],
+    };
+  }
 
   const update = await db.prepare(`UPDATE chat_discovery_candidates SET
     name=?1,checked_at=?2,member_count=?3,chat_type=?4,activity_state=?5,topic_match=?6,

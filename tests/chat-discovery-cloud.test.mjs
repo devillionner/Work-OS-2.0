@@ -1326,6 +1326,35 @@ void test('joined inspection with unknown rules stays ready but explicitly needs
   assert.ok(outcome.reasonCodes.includes('unknown_activity'));
 });
 
+void test('verified executor inspection rejects joined chats when target criteria remain unverified', async (t) => {
+  const { db, candidate } = await importedCandidate(t, 'StrictAutonomousReview123');
+  assert.equal(candidate.topicMatch, 'match');
+
+  const outcome = await applyDiscoveryInspection(db, 'u', {
+    candidateId: candidate.id,
+    expectedVersion: candidate.version,
+    requireTargetVerification: true,
+    result: {
+      status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
+      observedName:'G22 ADMISSION PROCESS 2025', chatType:'group',
+      canWrite:true, activityState:'active',
+    },
+  }, 110);
+
+  assert.equal(outcome.decision, 'rejected');
+  assert.equal(outcome.needsQualification, false);
+  assert.equal(outcome.needsExternalLeave, true);
+  assert.ok(outcome.reasonCodes.includes('unknown_member_count'));
+  assert.ok(outcome.reasonCodes.includes('unknown_topic_match'));
+  assert.ok(outcome.reasonCodes.includes('unknown_ads_allowed'));
+  assert.ok(outcome.reasonCodes.includes('qualification_unverified'));
+
+  const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
+  assert.equal(stored.topicMatch, 'unknown');
+  const queue = await readDiscoveryExecutorQueue(db, 'u', 10);
+  assert.equal(queue.tasks.find(item => item.candidateId === candidate.id)?.action, 'leave');
+});
+
 void test('inspection can record observed audience mismatch instead of trusting source inference', async (t) => {
   const { db, candidate } = await importedCandidate(t, 'InspectAudienceMismatch123');
   const outcome = await applyDiscoveryInspection(db, 'u', {

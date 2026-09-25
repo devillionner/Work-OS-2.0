@@ -682,8 +682,15 @@ async function enrichJoinedQualification(client, task, result) {
   let combined = { ...deriveWhatsappQualification(before) };
   const expectedName = result.observedName || task.expectedTarget?.name || task.name;
   if (expectedName && await clickExactHeader(client, expectedName)) {
-    await sleep(600);
-    const infoSnapshot = await readSnapshot(client);
+    const expected = normalizeTargetLabel(expectedName);
+    const deadline = Date.now() + 5_000;
+    let infoSnapshot = await readSnapshot(client);
+    while (Date.now() < deadline) {
+      const infoText = normalizeTargetLabel(infoSnapshot.groupInfoText || '');
+      if (infoText && (!expected || infoText.includes(expected))) break;
+      await sleep(POLL_MS);
+      infoSnapshot = await readSnapshot(client);
+    }
     combined = {
       ...combined,
       ...deriveWhatsappQualification({
