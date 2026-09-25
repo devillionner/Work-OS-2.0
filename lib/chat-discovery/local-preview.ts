@@ -221,7 +221,7 @@ async function prepareLocalPreviews(
     const key=`${item.platform}|${item.link}`;
     if(known.has(key)){duplicates++;continue;}
     const name=item.name||suggestedChatName(normalizeGroupLink(item.link)!);
-    const topicMatch=inferDiscoveryTopicMatch(name,item.sources);
+    const topicMatch=inferLocalPreviewTopicMatch(name,item.sources);
     const evaluated=evaluateDiscoveryCandidate({
       chatType:'unknown',memberCount:null,topicMatch,canWrite:null,adsPolicy:'unknown',activityState:'unknown',
       membershipState:'not_checked',inspectionState:'not_checked',accessState:'unknown',linkState:'valid',
@@ -235,6 +235,23 @@ async function prepareLocalPreviews(
     });
   }
   return {previews,duplicates};
+}
+
+export function inferLocalPreviewTopicMatch(name:string,sources:DiscoverySource[]):DiscoveryCandidate['topicMatch']{
+  const sanitized=sources.map(source=>({
+    ...source,
+    context:stripSourceQueryContext(source),
+  }));
+  return inferDiscoveryTopicMatch(name,sanitized);
+}
+
+function stripSourceQueryContext(source:DiscoverySource){
+  let context=String(source.context||'');
+  for(const value of [source.query,source.seedLabel,source.seedKind,'Telegram']){
+    const token=String(value||'').trim();
+    if(token)context=context.split(token).join(' ');
+  }
+  return context.replace(/\s+/g,' ').trim();
 }
 
 function safeDiscoveryNameHint(value:string){

@@ -16,6 +16,7 @@ import {
 import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
 import { assertDiscoveryExecutorLease, claimDiscoveryExecutorQueue, completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
 import { buildTelegramSearchPlan, discoverPublicWeb, discoverTelegramPublic, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl, telegramOlderPreviewUrl, telegramPublicChannelKey, telegramPublicPreviewUrl, telegramPublicSearchQueries } from '../lib/chat-discovery/public-web.ts';
+import { inferLocalPreviewTopicMatch } from '../lib/chat-discovery/local-preview.ts';
 import { changeChatLeave } from '../lib/chats/leave.ts';
 import { readChatState } from '../lib/chats/state.ts';
 import { transitionChat } from '../lib/chats/transitions.ts';
@@ -24,6 +25,20 @@ import { localDatabase } from './helpers/local-d1.mjs';
 function html(body) {
   return new Response(body, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
+
+void test('local preview relevance ignores the search query itself as evidence', () => {
+  const noisySource = {
+    kind:'telegram_global',
+    sourceUrl:'https://search.brave.com/search?q=test',
+    sourceTitle:'Telegram search · Париж',
+    query:'Українці в Париж',
+    seedLabel:'Париж',
+    seedKind:'city',
+    context:'Українці в Париж · Париж · Франція · Telegram · NOTÍCIAS E INFORMAÇÕES mercado financeiro. Whatsapp Grupo 14',
+  };
+  assert.equal(inferLocalPreviewTopicMatch('Telegram NOTÍCIAS mercado financeiro Whatsapp Grupo 14', [noisySource]), 'unknown');
+  assert.equal(inferLocalPreviewTopicMatch('Українці Париж · барахолка та допомога', [noisySource]), 'match');
+});
 
 void test('public discovery extracts canonical WhatsApp/Viber invites and keeps provenance', async () => {
   const source = {
