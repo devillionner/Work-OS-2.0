@@ -35,7 +35,7 @@ export async function searchLocalDiscoveryPreview(
   const platforms=cleanPlatforms(input.platforms);
   const telegramCursor=boundedInteger(input.telegramCursor,0,1_000_000,0);
   const sourceCursor=boundedInteger(input.sourceCursor,0,1_000_000,0);
-  const minMembers=activeRun?.min_members??boundedInteger(input.minMembers,700,18_000,700);
+  const minMembers=boundedInteger(input.minMembers,700,18_000,700);
   const knownLinks=cleanKnownLinks(input.knownLinks);
 
   const telegramPlan=buildTelegramSearchPlan(telegramCursor,1);

@@ -10,6 +10,7 @@ import {
   ingestTelegramDiscovery,
   readDiscoveryWorkspace,
   readTelegramDiscoveryPlan,
+  resetDiscoveryWorkspace,
   startDiscoveryRun,
 } from '../lib/chat-discovery/domain.ts';
 import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
@@ -251,6 +252,37 @@ void test('discovery run clamps target member threshold to the required 700-1800
   assert.equal(low.minMembers, 700);
   const high = await startDiscoveryRun(db, 'other', { platforms: ['whatsapp'], goal: 30, minMembers: 99_999 }, 100);
   assert.equal(high.minMembers, 18_000);
+});
+
+void test('Discovery reset removes only discovery workspace state and preserves linked chats for dedupe', async (t) => {
+  const db = await localDatabase(t);
+  const run = await startDiscoveryRun(db, 'u', { platforms:['whatsapp'], goal:10, minMembers:700 }, 100);
+  await continueDiscoveryRun(db, 'u', run.id, 101, async (url) =>
+    String(url).includes('search.brave.com')
+      ? html('<div>Українці Berlin батьки https://chat.whatsapp.com/ResetKeepsChat123</div>')
+      : html('<html></html>'));
+  const before = await readDiscoveryWorkspace(db, 'u');
+  assert.ok(before.candidates.length > 0);
+  const linkedChatId = before.candidates[0].importedChatId;
+  assert.ok(linkedChatId);
+
+  const reset = await resetDiscoveryWorkspace(db, 'u');
+  assert.equal(reset.reset, true);
+  assert.ok(reset.removedCandidates > 0);
+  assert.ok(reset.removedRuns > 0);
+  assert.equal(reset.preservedChats, 1);
+
+  const after = await readDiscoveryWorkspace(db, 'u');
+  assert.equal(after.run, null);
+  assert.equal(after.candidates.length, 0);
+  assert.deepEqual(after.counts, { review:0, target:0, rejected:0, unavailable:0 });
+  const chat = await db.prepare('SELECT id FROM chats WHERE id=?1 AND user_id=?2').bind(linkedChatId,'u').first();
+  assert.equal(chat?.id, linkedChatId);
+
+  const fresh = await startDiscoveryRun(db, 'u', { platforms:['whatsapp'], goal:10, minMembers:700 }, 102);
+  assert.equal(fresh.telegramCursor, 0);
+  assert.equal(fresh.cursor, 0);
+  assert.equal(fresh.searchedQueries, 0);
 });
 
 void test('Telegram plan cursor persists independently from public web cursor', async (t) => {

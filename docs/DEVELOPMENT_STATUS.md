@@ -1,5 +1,13 @@
 # Development status — 2026-09-25
 
+## 2026-09-25 — clean Discovery restart support
+
+- Added an authenticated `reset` action for Chat Discovery that removes only Discovery runs, candidate rows and their source rows for the current user.
+- Linked Work OS chats are intentionally preserved and remain dedupe anchors, so a clean Discovery restart does not delete real chat records and does not immediately rediscover the same old links.
+- A reset deletes run history, so the next run starts at Telegram/public source cursor 0 with clean progress counters.
+- Fixed a stale `activeRun` reference in the browser-local preview path; its member threshold now comes from the explicit request as intended.
+- This reset is intended for recovery from a stale/backlogged acceptance run before starting a fresh autonomous source search.
+
 ## 2026-09-25 — Discovery operator UX clarity
 
 - Live screenshot review showed that the modal exposed implementation concepts (`Query`, local/D1 state, raw candidate count, executor card) more prominently than the actual operator goal.

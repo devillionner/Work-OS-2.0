@@ -10,6 +10,7 @@ import {
   handoffDiscoveryCandidate,
   readDiscoveryWorkspace,
   readTelegramDiscoveryPlan,
+  resetDiscoveryWorkspace,
   startDiscoveryRun,
 } from '@/lib/chat-discovery/domain';
 
@@ -55,6 +56,9 @@ export async function POST(request: Request): Promise<Response> {
     if (body.action === 'revoke-executor') {
       if (typeof body.deviceId !== 'string' || !body.deviceId) throw new DiscoveryError('Підключення executor не вказано.');
       return json(await revokeDiscoveryExecutorDevice(env.DB, user.id, body.deviceId, now));
+    }
+    if (body.action === 'reset') {
+      return json(await resetDiscoveryWorkspace(env.DB, user.id));
     }
     if (body.action === 'start') {
       const run = await startDiscoveryRun(env.DB, user.id, {

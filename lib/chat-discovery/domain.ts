@@ -135,6 +135,24 @@ export async function cancelDiscoveryRun(db: D1Database, userId: string, runId: 
   return { cancelled: true };
 }
 
+export async function resetDiscoveryWorkspace(db: D1Database, userId: string) {
+  const linked = await db.prepare(`SELECT COUNT(DISTINCT imported_chat_id) AS count
+    FROM chat_discovery_candidates WHERE user_id=?1 AND imported_chat_id IS NOT NULL`)
+    .bind(userId).first<{ count:number }>();
+  const [sources,candidates,runs] = await db.batch([
+    db.prepare(`DELETE FROM chat_discovery_sources WHERE user_id=?1 RETURNING id`).bind(userId),
+    db.prepare(`DELETE FROM chat_discovery_candidates WHERE user_id=?1 RETURNING id`).bind(userId),
+    db.prepare(`DELETE FROM chat_discovery_runs WHERE user_id=?1 RETURNING id`).bind(userId),
+  ]);
+  return {
+    reset:true,
+    removedSources:sources.results.length,
+    removedCandidates:candidates.results.length,
+    removedRuns:runs.results.length,
+    preservedChats:Number(linked?.count || 0),
+  };
+}
+
 export async function continueDiscoveryRun(
   db: D1Database,
   userId: string,
