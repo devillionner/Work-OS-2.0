@@ -55,8 +55,8 @@ export async function GET(request: Request): Promise<Response> {
   const accountKey = platform === 'telegram' ? accountId || '' : '';
   const counterAccountFilter = platform === 'telegram'
     ? ` AND (account_key=?3 OR (account_key='' AND workflow_status='to_join'))`
-    : ` AND account_key=''`;
-  const counterBindings = platform === 'telegram' ? [user.id, platform, accountKey] : [user.id, platform];
+    : ` AND account_key=?3`;
+  const counterBindings = [user.id, platform, accountKey];
   const counterTotalSql = status === 'profile_review'
     ? `SELECT COALESCE(SUM(profile_draft_count+profile_empty_count),0) AS count FROM chat_queue_counts WHERE user_id=?1 AND platform=?2 AND workflow_status IN ('waiting','ready')${counterAccountFilter}`
     : profileFilter
