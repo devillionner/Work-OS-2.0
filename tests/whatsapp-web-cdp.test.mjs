@@ -219,6 +219,22 @@ void test('verified invite navigation survives WhatsApp SPA URL rewrite for comm
   assert.deepEqual(wrongNavigation, { kind:'blocked', reason:'target_not_verified' });
 });
 
+void test('join retry-later modal is factual but does not mark the invite unavailable', () => {
+  const result = classifyWhatsAppSnapshot(task, {
+    url:'https://web.whatsapp.com/',
+    navigatedInviteCode:'AbCdEfGh1234',
+    targetHeadings:[],
+    targetTexts:[],
+    headerTitles:[],
+    buttons:['Скасувати'],
+    bodyText:'Не вдалося приєднатися до цієї групи. Повторіть спробу пізніше.',
+  });
+  assert.deepEqual(result, {
+    kind:'result',
+    result:{status:'failed',targetVerified:true,reason:'whatsapp_join_retry_later'},
+  });
+});
+
 void test('known unavailable text is ignored outside the exact invite context', () => {
   const result = classifyWhatsAppSnapshot(task, {
     url: 'https://web.whatsapp.com/',

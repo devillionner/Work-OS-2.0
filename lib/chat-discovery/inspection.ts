@@ -116,6 +116,7 @@ export async function applyDiscoveryInspection(
     ? observedName : current.name;
   const nextTopic = result.topicMatch ?? current.topic_match;
   const reason = (result.reason || '').slice(0, 100);
+  const retryableJoinFailure = candidate.platform === 'whatsapp' && reason === 'whatsapp_join_retry_later';
   const knownUnavailable = result.accessible === false && KNOWN_UNAVAILABLE.has(reason);
   const accessState = result.accessible === true ? 'available'
     : knownUnavailable ? 'unavailable' : current.access_state;
@@ -153,7 +154,8 @@ export async function applyDiscoveryInspection(
     .bind(nextName, now, memberCount, chatType, activityState, nextTopic,
       canWrite === null ? null : Number(canWrite), adsPolicy, membershipState, accessState, linkState,
       inspectionState, evaluated.decision, JSON.stringify(evaluated.reasonCodes),
-      candidate.platform === 'whatsapp' && membershipState === 'pending' ? now + 180
+      retryableJoinFailure ? now + 300
+        : candidate.platform === 'whatsapp' && membershipState === 'pending' ? now + 180
         : candidate.platform === 'whatsapp' && membershipState === 'joined' && evaluated.decision === 'review' ? now + 600
         : null,
       candidate.id, userId, expectedVersion, candidate.imported_chat_id,input.executorDeviceId??null)

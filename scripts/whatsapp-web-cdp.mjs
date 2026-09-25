@@ -4,6 +4,7 @@ const POLL_MS = 400;
 const pendingPattern = /(?:request(?: to join)? sent|request pending|запит (?:на вступ )?надіслано|запит очікує|заявк[ау] (?:на вступление )?отправлен[а]?|заявк[ау] ожидает)/iu;
 const adminOnlyPattern = /(?:only admins can send messages|лише адміністратори можуть надсилати повідомлення|только администраторы могут отправлять сообщения)/iu;
 const authPattern = /(?:link with phone number|log in to whatsapp|увійти у whatsapp|войти в whatsapp)/iu;
+const joinRetryLaterPattern = /(?:could(?:n['’]?t| not) join (?:this )?(?:group|community)|try again later|не вдалося приєднатися до (?:цієї )?(?:групи|спільноти)|повторіть спробу пізніше|не удалось присоединиться к (?:этой )?(?:группе|сообществу)|повторите попытку позже)/iu;
 const unavailablePatterns = [
   { pattern: /(?:invite link).*(?:invalid|reset|expired)|(?:недійсне|скинуте|прострочене).*(?:посилання|запрошення)|(?:недействительн|сброшен|истек).*(?:ссылк|приглашен)/iu, reason: 'invalid_whatsapp_link' },
   { pattern: /(?:group).*(?:no longer available|does not exist)|(?:група).*(?:більше недоступна|не існує)|(?:группа).*(?:больше недоступна|не существует)/iu, reason: 'whatsapp_chat_missing' },
@@ -188,6 +189,13 @@ export function classifyWhatsAppSnapshot(task, snapshot) {
 
   if (snapshot.hasQr || authPattern.test(bodyText)) {
     return { kind: 'blocked', reason: 'whatsapp_not_authenticated' };
+  }
+
+  if (expectedInviteContext && joinRetryLaterPattern.test(bodyText)) {
+    return {
+      kind:'result',
+      result:{ status:'failed', targetVerified:true, reason:'whatsapp_join_retry_later' },
+    };
   }
 
   const observedName = exactTarget(snapshot, task);
