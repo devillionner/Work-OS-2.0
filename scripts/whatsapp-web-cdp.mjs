@@ -479,6 +479,115 @@ export async function leaveWhatsappTaskViaCdp(
   }
 }
 
+async function injectWhatsappImage(client, media) {
+  const openAttach = `(() => {
+    const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
+    const inputs=[...document.querySelectorAll('input[type="file"]')].filter((node)=>/image|video/i.test(node.getAttribute('accept')||''));
+    if(inputs.length)return 'ready';
+    const controls=[...document.querySelectorAll('footer button, footer [role="button"], #main footer button, #main footer [role="button"]')].filter(visible);
+    const label=(node)=>String(node.getAttribute('aria-label')||node.getAttribute('title')||node.textContent||'').trim();
+    const button=controls.find((node)=>/attach|прикріп|прикреп|додати|добавить/i.test(label(node)))
+      ||controls.find((node)=>node.querySelector('[data-icon*="plus"], [data-icon*="attach"], [data-testid*="attach"]'));
+    if(!button)return 'missing';
+    button.click();
+    return 'clicked';
+  })()`;
+  const opened=await client.send('Runtime.evaluate',{expression:openAttach,returnByValue:true});
+  if(opened?.result?.value==='missing')return false;
+  if(opened?.result?.value==='clicked')await sleep(350);
+  const expression=`(() => {
+    const inputs=[...document.querySelectorAll('input[type="file"]')];
+    const input=inputs.find((node)=>/image|video/i.test(node.getAttribute('accept')||''))||inputs[0];
+    if(!input||typeof DataTransfer==='undefined')return false;
+    try{
+      const raw=atob(${JSON.stringify(String(media.base64||''))});
+      const bytes=new Uint8Array(raw.length);
+      for(let i=0;i<raw.length;i+=1)bytes[i]=raw.charCodeAt(i);
+      const file=new File([bytes],${JSON.stringify(String(media.fileName||'work-os.jpg'))},{type:${JSON.stringify(String(media.contentType||'image/jpeg'))}});
+      const transfer=new DataTransfer();
+      transfer.items.add(file);
+      input.files=transfer.files;
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+      input.dispatchEvent(new Event('change',{bubbles:true}));
+      return input.files?.length===1;
+    }catch{return false;}
+  })()`;
+  const response=await client.send('Runtime.evaluate',{expression,returnByValue:true});
+  return response?.result?.value===true;
+}
+
+async function waitForWhatsappMediaPreview(client,timeoutMs){
+  const deadline=Date.now()+timeoutMs;
+  while(Date.now()<deadline){
+    const expression=`(() => {
+      const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
+      const editors=[...document.querySelectorAll('[contenteditable="true"][role="textbox"], [contenteditable="true"]')].filter(visible);
+      const caption=editors.find((node)=>!node.closest('footer'));
+      const send=[...document.querySelectorAll('button, [role="button"]')].filter(visible).find((node)=>{
+        const label=String(node.getAttribute('aria-label')||node.getAttribute('title')||node.textContent||'').trim();
+        return /^(send|надіслати|відправити|отправить)$/i.test(label)||Boolean(node.querySelector('[data-icon="send"], [data-testid*="send"]'));
+      });
+      return Boolean(caption&&send);
+    })()`;
+    const response=await client.send('Runtime.evaluate',{expression,returnByValue:true});
+    if(response?.result?.value===true)return true;
+    await sleep(POLL_MS);
+  }
+  return false;
+}
+
+async function focusAndClearWhatsappMediaCaption(client){
+  const expression=`(() => {
+    const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
+    const editors=[...document.querySelectorAll('[contenteditable="true"][role="textbox"], [contenteditable="true"]')].filter(visible);
+    const node=editors.find((item)=>!item.closest('footer'));
+    if(!node)return false;
+    node.focus();
+    const selection=window.getSelection();
+    const range=document.createRange();
+    range.selectNodeContents(node);
+    selection.removeAllRanges();selection.addRange(range);
+    document.execCommand('delete');
+    node.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'deleteContentBackward',data:null}));
+    return true;
+  })()`;
+  const response=await client.send('Runtime.evaluate',{expression,returnByValue:true});
+  return response?.result?.value===true;
+}
+
+async function waitForWhatsappMediaCaption(client,expectedText,timeoutMs){
+  const expected=normalizeMessageText(expectedText);
+  const deadline=Date.now()+timeoutMs;
+  while(Date.now()<deadline){
+    const expression=`(() => {
+      const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
+      const editors=[...document.querySelectorAll('[contenteditable="true"][role="textbox"], [contenteditable="true"]')].filter(visible);
+      const node=editors.find((item)=>!item.closest('footer'));
+      return String(node?.innerText||node?.textContent||'');
+    })()`;
+    const response=await client.send('Runtime.evaluate',{expression,returnByValue:true});
+    if(normalizeMessageText(response?.result?.value||'')===expected)return true;
+    await sleep(POLL_MS);
+  }
+  return false;
+}
+
+async function clickWhatsappMediaSend(client){
+  const expression=`(() => {
+    const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
+    const controls=[...document.querySelectorAll('button, [role="button"]')].filter(visible);
+    const matches=(node)=>{
+      const label=String(node.getAttribute('aria-label')||node.getAttribute('title')||node.textContent||'').trim();
+      return /^(send|надіслати|відправити|отправить)$/i.test(label)||Boolean(node.querySelector('[data-icon="send"], [data-testid*="send"]'));
+    };
+    const button=controls.find((node)=>!node.closest('footer')&&matches(node))||controls.find(matches);
+    if(!button||button.hasAttribute('disabled'))return false;
+    button.click();return true;
+  })()`;
+  const response=await client.send('Runtime.evaluate',{expression,returnByValue:true});
+  return response?.result?.value===true;
+}
+
 export async function sendWhatsappAutopostViaCdp(
   task,
   { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS } = {},
@@ -522,6 +631,27 @@ export async function sendWhatsappAutopostViaCdp(
     const before = await readSnapshot(client);
     if (!before.composer) return { kind:'blocked', reason:before.adminOnly ? 'admin_only' : 'read_only' };
     const beforeKeys = new Set((before.messageRows || []).map((row) => row.key).filter(Boolean));
+    const media=task.material?.media;
+    if(media?.base64){
+      if(!/^image\/(jpeg|png|webp)$/u.test(String(media.contentType||'')))return {kind:'blocked',reason:'unsupported_media_type'};
+      if(!await injectWhatsappImage(client,media))return {kind:'blocked',reason:'media_attach_failed'};
+      if(!await waitForWhatsappMediaPreview(client,Math.min(timeoutMs,8_000)))return {kind:'blocked',reason:'media_preview_not_ready'};
+      if(!await focusAndClearWhatsappMediaCaption(client))return {kind:'blocked',reason:'media_caption_not_found'};
+      await client.send('Input.insertText',{text});
+      if(!await waitForWhatsappMediaCaption(client,text,Math.min(timeoutMs,5_000)))return {kind:'blocked',reason:'media_caption_mismatch'};
+      if(!await clickWhatsappMediaSend(client))return {kind:'blocked',reason:'media_send_control_not_found'};
+      const expected=normalizeMessageText(text);
+      const deadline=Date.now()+timeoutMs;
+      while(Date.now()<deadline){
+        const snapshot=await readSnapshot(client);
+        const confirmed=(snapshot.messageRows||[]).some((row)=>
+          row.key&&!beforeKeys.has(row.key)&&row.hasMedia===true&&normalizeMessageText(row.text||'').includes(expected)
+        );
+        if(confirmed)return {kind:'result',result:{status:'sent',observedTarget,targetVerified:true,sendConfirmed:true,mediaConfirmed:true}};
+        await sleep(POLL_MS);
+      }
+      return {kind:'blocked',reason:'media_send_not_confirmed'};
+    }
     if (!await focusAndClearComposer(client)) return { kind:'blocked', reason:'composer_not_found' };
     await client.send('Input.insertText', { text });
     const prepared = await waitForComposerText(client, text, Math.min(timeoutMs, 5_000));
@@ -678,8 +808,12 @@ async function readSnapshot(client) {
     const composerText = clean(composerNode?.innerText || composerNode?.textContent || '');
     const messageRows = [...document.querySelectorAll('[data-testid="msg-container"]')].slice(-50).map((node) => {
       const identified = node.getAttribute('data-id') ? node : node.querySelector('[data-id]');
-      return { key: identified?.getAttribute('data-id') || '', text: clean(node.innerText || node.textContent || '') };
-    }).filter((row) => row.key && row.text);
+      return {
+        key: identified?.getAttribute('data-id') || '',
+        text: clean(node.innerText || node.textContent || ''),
+        hasMedia: Boolean(node.querySelector('img, video, canvas, [data-testid*="image"], [data-testid*="media"]')),
+      };
+    }).filter((row) => row.key && (row.text || row.hasMedia));
     const hasQr = Boolean(document.querySelector('canvas[aria-label*="QR" i], [data-ref] canvas'));
     return {
       url: location.href,

@@ -2,6 +2,7 @@ import { cleanLibraryPlatforms } from './library.ts';
 import { readPublicationAdvertisementSelection } from './chats/advertisement-selection.ts';
 import { publicationAvailability, recordConfirmedWhatsappAutopostPublication } from './chats/publication.ts';
 import { readChatState } from './chats/state.ts';
+import { readWhatsAppAutopostImage } from './whatsapp-autopost-media.ts';
 
 const VIBER_SAFE_LEASE_SECONDS=90;
 const WHATSAPP_AUTOPOST_LEASE_SECONDS=90;
@@ -28,7 +29,10 @@ export type ViberSafeNoteTask={
   kind:'viber_safe_note';
   jobId:string;
   target:{kind:'my_notes';expectedLabel:'Мої нотатки'};
-  material:{advertisementId:string;advertisementVersion:number;language:'uk'|'ru';text:string};
+  material:{
+    advertisementId:string;advertisementVersion:number;language:'uk'|'ru';text:string;
+    media:{fileName:string;contentType:string;sizeBytes:number;sha256:string;base64:string}|null;
+  };
   safety:{createsPublication:false;requiresTargetVerification:true;requiresSendConfirmation:true};
   leaseExpiresAt:number;
 };
@@ -359,11 +363,16 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,devic
         AND (status='pending' OR (status='claimed' AND lease_expires_at<=?3))`)
       .bind(deviceId,leaseExpiresAt,now,row.id,userId).run();
     if(Number(claimed.meta.changes||0)!==1)continue;
+    const image=await readWhatsAppAutopostImage(db,userId,true);
     return {
       kind:'whatsapp_autopost',
       jobId:row.id,
       target:{chatId:row.chat_id,expectedName:row.expected_name,expectedLink:row.expected_link},
-      material:{advertisementId:row.advertisement_id,advertisementVersion:Number(row.advertisement_version),language:row.language,text:row.payload_text},
+      material:{
+        advertisementId:row.advertisement_id,advertisementVersion:Number(row.advertisement_version),
+        language:row.language,text:row.payload_text,
+        media:image?{fileName:image.fileName,contentType:image.contentType,sizeBytes:image.sizeBytes,sha256:image.sha256,base64:image.base64}:null,
+      },
       publishedOn:row.published_on,
       safety:{createsPublication:'after_confirmed_send',requiresTargetVerification:true,requiresSendConfirmation:true},
       leaseExpiresAt,

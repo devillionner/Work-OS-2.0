@@ -15,7 +15,7 @@ import type { BulkResult } from '@/lib/chats/bulk';
 import type { ChatProfile } from '@/lib/chats/profile';
 import { supportsChatLeaveChecklist } from '@/lib/chats/leave-policy';
 import { shouldSuggestChatArchive } from '@/lib/chats/snooze-history';
-import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, ExternalLink, History, Plus, RotateCcw, Search, Send, Settings2, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
+import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, ExternalLink, History, ImagePlus, Plus, RotateCcw, Search, Send, Settings2, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,6 +33,7 @@ type ProfileFilter = 'all' | 'needs_review';
 type Chat = { id:string; name:string; link:string; platform:Platform; status:WorkflowQueue; archiveReason:string|null; archivedAt:number|null; profileConfirmed:boolean; profile:ChatProfile; publishedToday:boolean; joinedAt:number|null; snoozedUntil:number|null; snoozeCount:number; leftAt:number|null; availableAt:number|null; availableNow:boolean; telegramAccountId:string|null; stateToken:string; discoveryDecision:'review'|'target'|'rejected'|'unavailable'|null; autopostJobId:string|null };
 type ProfileCounts = { confirmed:number; draft:number; empty:number; needsReview:number };
 type PublicationState = { chatId:string; chatPublishedToday:boolean; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:PublicationPace };
+type WhatsAppAutopostImage = { fileName:string; contentType:string; sizeBytes:number; sha256:string; updatedAt:number };
 type ResponseData = { chats:Chat[]; total:number; offset:number; counts:Record<string,number>; profileCounts:Record<string,ProfileCounts>; accountId:string|null; joinedToday:LinkItem[]; publishedToday:LinkItem[]; availableToday:LinkItem[]; publicationPace:PublicationPace; requestKey?:string };
 type UndoSpec = { action:'restore'|'unsnooze'|'undo_published'; label:string };
 type UndoState = UndoSpec & { chat:Chat; expiresAt:number };
@@ -72,6 +73,9 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const publishTrigger=useRef<HTMLButtonElement|null>(null);
   const [quickPublishMode,setQuickPublishMode]=useState(false);
   const [quickAdvertisementId,setQuickAdvertisementId]=useState<string|null>(null);
+  const [whatsappAutopostImage,setWhatsappAutopostImage]=useState<WhatsAppAutopostImage|null>(null);
+  const [whatsappAutopostImageLoaded,setWhatsappAutopostImageLoaded]=useState(false);
+  const whatsappAutopostImageInput=useRef<HTMLInputElement|null>(null);
   const [loading,setLoading] = useState(true);
   const [busy,setBusy] = useState<string|null>(null);
   const runAction=useRef(createActionGate());
@@ -171,6 +175,19 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   },[]);
 
   useEffect(()=>{if(platform!=='telegram')return;const timer=setTimeout(()=>void loadAccounts().catch(reason=>setError(reason instanceof Error?reason.message:'Не вдалося завантажити акаунти.')),0);return()=>clearTimeout(timer);},[loadAccounts,platform]);
+  useEffect(()=>{
+    if(!active||platform!=='whatsapp')return;
+    let cancelled=false;
+    setWhatsappAutopostImageLoaded(false);
+    void fetch('/api/messenger-automation',{cache:'no-store'})
+      .then(async response=>{
+        const body=await response.json() as {whatsappAutopostImage?:WhatsAppAutopostImage|null};
+        if(!cancelled&&response.ok)setWhatsappAutopostImage(body.whatsappAutopostImage||null);
+      })
+      .catch(()=>{})
+      .finally(()=>{if(!cancelled)setWhatsappAutopostImageLoaded(true);});
+    return()=>{cancelled=true;};
+  },[active,platform,syncRevision]);
   useEffect(()=>{const timer=setInterval(()=>setClock(Date.now()),1000);return()=>clearInterval(timer);},[]);
   useEffect(()=>{void refreshExpiredBreak.current(clock,document.visibilityState==='visible'&&navigator.onLine&&activeBreakExpired(accounts,accountId,clock),loadAccounts).catch(()=>{});},[accounts,accountId,clock,loadAccounts]);
 
@@ -374,8 +391,39 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     else void act(item.chat,'return_to_join');
   }
 
+  async function uploadWhatsAppAutopostImage(file:File) {
+    if(busy!==null)return;
+    await runAction.current(async()=>{
+      setBusy('whatsapp-autopost-image');setError('');setNotice('');
+      try{
+        const normalized=await normalizeWhatsAppAutopostImage(file);
+        const form=new FormData();form.append('file',normalized,normalized.name);
+        const response=await fetch('/api/messenger-automation/media',{method:'POST',body:form});
+        const body=await response.json() as {image?:WhatsAppAutopostImage;error?:string};
+        if(!response.ok||!body.image)throw new Error(body.error||'Не вдалося зберегти фото автопоста.');
+        setWhatsappAutopostImage(body.image);setWhatsappAutopostImageLoaded(true);
+        setNotice('Фото автопоста збережено. Наступний WhatsApp автопост відправлятиме фото з текстом як підписом.');
+      }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося підготувати фото автопоста.');}
+      finally{setBusy(null);if(whatsappAutopostImageInput.current)whatsappAutopostImageInput.current.value='';}
+    });
+  }
+
+  async function removeWhatsAppAutopostImage() {
+    if(busy!==null)return;
+    await runAction.current(async()=>{
+      setBusy('whatsapp-autopost-image-remove');setError('');setNotice('');
+      try{
+        const response=await fetch('/api/messenger-automation/media',{method:'DELETE'});
+        const body=await response.json() as {error?:string};
+        if(!response.ok)throw new Error(body.error||'Не вдалося видалити фото автопоста.');
+        setWhatsappAutopostImage(null);setWhatsappAutopostImageLoaded(true);setNotice('Фото автопоста прибрано.');
+      }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося видалити фото автопоста.');}
+      finally{setBusy(null);}
+    });
+  }
+
   async function startWhatsAppAutopostBatch() {
-    if(platform!=='whatsapp'||queue!=='ready'||busy!==null)return;
+    if(platform!=='whatsapp'||queue!=='ready'||busy!==null||!whatsappAutopostImage)return;
     await runAction.current(async()=>{
       setBusy('whatsapp-autopost-batch');setError('');setNotice('');setUndo(null);
       setQuickPublishMode(false);setQuickAdvertisementId(null);
@@ -493,10 +541,17 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       </div>
       {queue==='ready'&&(platform==='whatsapp'||platform==='viber')&&<div className={'platform-queue-context '+(quickPublishMode?'is-active':'')}>
         <div><strong>{platform==='whatsapp'?'Автопублікація черги':quickPublishMode?'Швидкий режим увімкнено':'Швидкий режим'}</strong><span>{platform==='whatsapp'
-          ? 'Work OS сам підбере невикористані матеріали й поставить до 30 доступних чатів у confirmed-send executor queue.'
+          ? (whatsappAutopostImage
+            ? `Фото «${whatsappAutopostImage.fileName}» буде додано до кожного повідомлення; текст піде підписом. Профілі вручну підтверджувати не потрібно — якщо правила вже підтверджені, Work OS їх врахує.`
+            : 'Додайте одне фото для автопоста. Після цього Work OS сам підбере матеріали й поставить до 30 чатів у confirmed-send чергу; профілі вручну підтверджувати не потрібно.')
           : quickPublishMode?(quickAdvertisementId?'Матеріал серії вже зафіксовано. Підтверджуйте тільки фактично зроблені публікації.':'Оберіть матеріал у першому чаті — далі він лишатиметься для серії.'):'Один матеріал для серії чатів, із ручним підтвердженням кожної фактичної публікації.'}</span></div>
         {platform==='whatsapp'
-          ? <Button type="button" size="sm" disabled={busy!==null} onClick={()=>void startWhatsAppAutopostBatch()}><Send data-icon="inline-start"/>Автопост черги</Button>
+          ? <div className="lead-actions">
+              <input ref={whatsappAutopostImageInput} className="sr-only" type="file" accept="image/*" onChange={event=>{const file=event.target.files?.[0];if(file)void uploadWhatsAppAutopostImage(file);}} />
+              <Button type="button" size="sm" variant="outline" disabled={busy!==null} onClick={()=>whatsappAutopostImageInput.current?.click()}><ImagePlus data-icon="inline-start"/>{whatsappAutopostImage?'Замінити фото':'Додати фото'}</Button>
+              {whatsappAutopostImage&&<Button type="button" size="sm" variant="ghost" disabled={busy!==null} onClick={()=>void removeWhatsAppAutopostImage()}>Прибрати фото</Button>}
+              <Button type="button" size="sm" disabled={busy!==null||!whatsappAutopostImageLoaded||!whatsappAutopostImage} onClick={()=>void startWhatsAppAutopostBatch()}><Send data-icon="inline-start"/>Автопост черги</Button>
+            </div>
           : <Button type="button" size="sm" variant={quickPublishMode?'outline':'default'} disabled={busy!==null} onClick={()=>{setQuickPublishMode(value=>{const next=!value;if(!next)setQuickAdvertisementId(null);return next;});}}><Send data-icon="inline-start"/>{quickPublishMode?'Завершити':'Увімкнути'}</Button>}
       </div>}
       {(platform==='viber'||platform==='whatsapp')&&data&&<section className={'joined-today-panel '+(joinedTodayOpen?'is-open':'')} aria-label={`${selected.label} чати, приєднані сьогодні`}>
@@ -528,7 +583,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
             {platform==='telegram'&&queue!=='to_join'&&queue!=='profile_review'&&<select disabled={busy!==null} className="chat-account-select" value={chat.telegramAccountId||''} onChange={event=>assignAccount(chat,event.target.value)} aria-label="Telegram-акаунт чату">{accounts.filter(item=>item.enabled||item.id===chat.telegramAccountId).map(account=><option value={account.id} key={account.id}>{account.name} · #{account.number}</option>)}</select>}
             {queue==='to_join'&&<><Button size="icon" onClick={()=>act(chat,'joined')} disabled={busy!==null} aria-label="Успішно приєднано"><Check/></Button>{(platform==='telegram'||platform==='whatsapp')&&<Button variant="outline" size="icon" onClick={()=>act(chat,'waiting')} disabled={busy!==null} aria-label="Очікуємо запрошення"><Clock3/></Button>}<Button variant="outline" size="icon" onClick={()=>act(chat,'failed',{reason:'Не вдалося приєднатися'},{action:'restore',label:'Невдале приєднання можна скасувати протягом 8 секунд.'})} disabled={busy!==null} aria-label="Не вдалося приєднатися"><X/></Button></>}
             {queue==='waiting'&&<Button onClick={()=>act(chat,'approved')} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>Прийняли</Button>}
-            {queue==='ready'&&<>{!chat.publishedToday&&<Button onClick={(event)=>{if(!chat.profileConfirmed&&!quickPublishMode){profileTrigger.current=event.currentTarget;setProfileChat(chat);return;}publishTrigger.current=event.currentTarget;setPublishChat(chat);}} disabled={busy!==null||Boolean(chat.autopostJobId)||Boolean(chat.discoveryDecision&&chat.discoveryDecision!=='target')||((chat.profileConfirmed||quickPublishMode)&&!canPublish(chat,clock))}>{!chat.profileConfirmed&&!quickPublishMode?<UserRoundCheck data-icon="inline-start"/>:<Send data-icon="inline-start"/>}{readyActionLabel(chat,clock,quickPublishMode)}</Button>}{platform==='whatsapp'&&!chat.publishedToday&&<Button type="button" variant={chat.autopostJobId?'outline':'default'} size="sm" disabled={busy!==null||Boolean(chat.discoveryDecision&&chat.discoveryDecision!=='target')||(!chat.autopostJobId&&!canPublish(chat,clock))} onClick={()=>void toggleWhatsAppAutopost(chat)}><Send data-icon="inline-start"/>{chat.autopostJobId?'Скасувати автопост':'Автопост'}</Button>}{platform==='whatsapp'&&<Button variant="outline" size="icon" onClick={()=>setConfirmation({kind:'return',chat})} disabled={busy!==null||Boolean(chat.autopostJobId)} aria-label="Повернути для приєднання"><Undo2/></Button>}</>}
+            {queue==='ready'&&<>{!chat.publishedToday&&<Button onClick={(event)=>{if(!chat.profileConfirmed&&!quickPublishMode){profileTrigger.current=event.currentTarget;setProfileChat(chat);return;}publishTrigger.current=event.currentTarget;setPublishChat(chat);}} disabled={busy!==null||Boolean(chat.autopostJobId)||Boolean(chat.discoveryDecision&&chat.discoveryDecision!=='target')||((chat.profileConfirmed||quickPublishMode)&&!canPublish(chat,clock))}>{!chat.profileConfirmed&&!quickPublishMode?<UserRoundCheck data-icon="inline-start"/>:<Send data-icon="inline-start"/>}{readyActionLabel(chat,clock,quickPublishMode)}</Button>}{platform==='whatsapp'&&!chat.publishedToday&&<Button type="button" variant={chat.autopostJobId?'outline':'default'} size="sm" disabled={busy!==null||Boolean(chat.discoveryDecision&&chat.discoveryDecision!=='target')||(!chat.autopostJobId&&(!whatsappAutopostImageLoaded||!whatsappAutopostImage||!canPublish(chat,clock)))} onClick={()=>void toggleWhatsAppAutopost(chat)}><Send data-icon="inline-start"/>{chat.autopostJobId?'Скасувати автопост':'Автопост'}</Button>}{platform==='whatsapp'&&<Button variant="outline" size="icon" onClick={()=>setConfirmation({kind:'return',chat})} disabled={busy!==null||Boolean(chat.autopostJobId)} aria-label="Повернути для приєднання"><Undo2/></Button>}</>}
             {(queue==='waiting'||queue==='ready'||queue==='profile_review')&&<Button variant={queue==='profile_review'?'default':'outline'} onClick={(event)=>{profileTrigger.current=event.currentTarget;setProfileChat(chat);}} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>{queue==='profile_review'?'Уточнити профіль':'Профіль'}</Button>}
             {(queue==='waiting'||queue==='ready')&&<Button variant="outline" title={isSnoozed(chat,clock)?'Скасувати відкладення':'Відкласти на 3 календарні дні'} onClick={()=>{const snoozed=isSnoozed(chat,clock);return act(chat,snoozed?'unsnooze':'snooze',{},snoozed?undefined:{action:'unsnooze',label:'Відкладення можна скасувати протягом 8 секунд.'});}} disabled={busy!==null||chat.publishedToday}>{isSnoozed(chat,clock)?'Повернути зараз':'+3 дні'}</Button>}
             {queue==='archived'&&supportsChatLeaveChecklist(platform)&&chat.joinedAt!==null&&<Button variant="outline" onClick={()=>act(chat,chat.leftAt?'undo_leave':'confirm_leave')} disabled={busy!==null}>{chat.leftAt?<><Undo2 data-icon="inline-start"/>Скасувати вихід</>:<><Check data-icon="inline-start"/>Я вийшов</>}</Button>}
@@ -546,6 +601,36 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       {!loading&&data&&data.total>50&&<div className="chat-pagination"><Button variant="outline" size="sm" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-50))}><ChevronLeft data-icon="inline-start"/>Назад</Button><span>{offset+1}–{Math.min(offset+50,data.total)} із {data.total}</span><Button variant="outline" size="sm" disabled={offset+50>=data.total} onClick={()=>setOffset(offset+50)}>Далі<ChevronRight data-icon="inline-end"/></Button></div>}
     </section>
   </div>;
+}
+
+const WHATSAPP_AUTOPOST_IMAGE_MAX_BYTES=640*1024;
+async function normalizeWhatsAppAutopostImage(file:File):Promise<File>{
+  if(!file.type.startsWith('image/'))throw new Error('Оберіть зображення.');
+  if(['image/jpeg','image/png','image/webp'].includes(file.type)&&file.size<=WHATSAPP_AUTOPOST_IMAGE_MAX_BYTES)return file;
+  const url=URL.createObjectURL(file);
+  try{
+    const image=await new Promise<HTMLImageElement>((resolve,reject)=>{
+      const node=new Image();
+      node.onload=()=>resolve(node);node.onerror=()=>reject(new Error('Не вдалося прочитати зображення. Спробуйте JPG або PNG.'));node.src=url;
+    });
+    for(const maxDimension of [1600,1400,1200,1000,800]){
+      const scale=Math.min(1,maxDimension/Math.max(image.naturalWidth,image.naturalHeight));
+      const width=Math.max(1,Math.round(image.naturalWidth*scale));
+      const height=Math.max(1,Math.round(image.naturalHeight*scale));
+      const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+      const context=canvas.getContext('2d');
+      if(!context)throw new Error('Браузер не може підготувати фото.');
+      context.drawImage(image,0,0,width,height);
+      for(const quality of [0.84,0.74,0.64,0.54]){
+        const blob=await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/jpeg',quality));
+        if(blob&&blob.size<=WHATSAPP_AUTOPOST_IMAGE_MAX_BYTES){
+          const base=file.name.replace(/\.[^.]+$/u,'').slice(0,120)||'work-os-autopost';
+          return new File([blob],base+'.jpg',{type:'image/jpeg',lastModified:Date.now()});
+        }
+      }
+    }
+    throw new Error('Фото завелике навіть після стискання. Виберіть інше зображення.');
+  }finally{URL.revokeObjectURL(url);}
 }
 
 function compactChatLink(link:string) {

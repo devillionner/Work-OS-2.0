@@ -13,6 +13,7 @@ import {
   readLatestWhatsAppAutopostJob,
   readViberSafeNoteJob,
 } from '@/lib/messenger-automation';
+import { publicWhatsAppAutopostImage, readWhatsAppAutopostImage } from '@/lib/whatsapp-autopost-media';
 
 function json(value:unknown,status=200){
   return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});
@@ -24,7 +25,12 @@ export async function GET(request:Request):Promise<Response>{
   try{
     const viberJobId=new URL(request.url).searchParams.get('viberJobId')?.trim()||'';
     if(viberJobId)return json({job:await readViberSafeNoteJob(env.DB,user.id,viberJobId)});
-    return json({job:await readLatestViberSafeNoteJob(env.DB,user.id),whatsappAutopost:await readLatestWhatsAppAutopostJob(env.DB,user.id)});
+    const [job,whatsappAutopost,image]=await Promise.all([
+      readLatestViberSafeNoteJob(env.DB,user.id),
+      readLatestWhatsAppAutopostJob(env.DB,user.id),
+      readWhatsAppAutopostImage(env.DB,user.id),
+    ]);
+    return json({job,whatsappAutopost,whatsappAutopostImage:image?publicWhatsAppAutopostImage(image):null});
   }
   catch(error){
     console.error('Messenger automation read failed',error instanceof Error?error.name:'unknown');
