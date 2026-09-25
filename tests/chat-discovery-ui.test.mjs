@@ -12,29 +12,30 @@ void test('Platforms exposes an explicit autonomous outcome loop plus a local ma
   assert.match(workspace, /ChatDiscoveryDialog/);
   assert.match(workspace, /Знайти чати/);
   assert.match(dialog, /Запустити автопошук/);
-  assert.match(dialog, /action:'start'/);
-  assert.match(dialog, /runId:run\.id/);
-  assert.match(dialog, /persistedBacklog=workspace\.candidates\.filter/);
-  assert.match(dialog, /!candidate\.importedChatId/);
-  assert.match(dialog, /продовжує до \$\{run\.goal\} цільових чатів/);
-  assert.match(dialog, /work-os:chat-discovery-local-preview:v1/);
+  assert.doesNotMatch(dialog, /action:'start'/);
+  assert.match(dialog, /work-os:chat-discovery-local-preview:v2/);
+  assert.match(dialog, /running:true/);
+  assert.match(dialog, /action:'search'/);
+  assert.match(dialog, /Додати \$\{localPreview\.candidates\.length\} до приєднання/);
+  assert.match(dialog, /D1 writes = 0/);
   assert.match(dialog, /sessionStorage/);
-  assert.match(dialog, /Ручний preview/);
-  assert.match(dialog, /Підходить → додати/);
+  assert.match(dialog, /Відкинути preview/);
   assert.match(previewRoute, /body\.action==='confirm'/);
   assert.match(previewDomain, /confirmLocalDiscoveryPreview/);
 });
 
 void test('browser-local source crawl uses targeted D1 dedupe and no owner-wide 10k scan', async () => {
   const preview = await readFile(new URL('../lib/chat-discovery/local-preview.ts', import.meta.url), 'utf8');
-  assert.match(preview, /discoverTelegramPublic/);
-  assert.match(preview, /discoverPublicWeb/);
+  assert.match(preview, /buildTelegramSearchPlan\(telegramCursor,6\)/);
+  assert.match(preview, /maxQueries:6,pageLimit:2/);
+  assert.match(preview, /maxQueries:6,pageLimit:1/);
   assert.match(preview, /normalized_link IN \(SELECT value FROM json_each\(\?2\)\)/);
   assert.doesNotMatch(preview, /LIMIT 10001/);
   const searchStart=preview.indexOf('export async function searchLocalDiscoveryPreview');
   const confirmStart=preview.indexOf('export async function confirmLocalDiscoveryPreview');
   const searchBody=preview.slice(searchStart,confirmStart);
   assert.doesNotMatch(searchBody,/INSERT INTO chat_discovery_candidates/);
+  assert.doesNotMatch(searchBody,/UPDATE chat_discovery_runs/);
 });
 
 void test('confirmed local preview is the persistence boundary', async () => {
@@ -48,17 +49,17 @@ void test('confirmed local preview is the persistence boundary', async () => {
   assert.match(preview, /handoffDiscoveryCandidate/);
 });
 
-void test('Discovery executor source-crawls only for an explicit active autonomous run', async () => {
+void test('Discovery executor cannot source-crawl or persist search candidates before operator confirmation', async () => {
   const [runner, route, executor] = await Promise.all([
     readFile(new URL('../scripts/chat-discovery-runner.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../app/api/chat-discovery/executor/route.ts', import.meta.url), 'utf8'),
     readFile(new URL('../lib/chat-discovery/executor.ts', import.meta.url), 'utf8'),
   ]);
-  assert.match(runner,/queue\?\.sourceAdvanceNeeded===true/);
-  assert.match(runner,/action:'advance-discovery'/);
-  assert.match(runner,/SOURCE_ADVANCE_MS=20000/);
-  assert.match(route,/advanceAutonomousDiscoveryRun/);
-  assert.match(executor,/sourceAdvanceNeeded: latestRun\?\.status === 'running'/);
+  assert.match(runner,/function canAdvanceDiscoverySource\(\)\{\s*return false;/);
+  assert.match(route,/Source discovery тепер локальний і не пише проміжні результати в D1/);
+  assert.doesNotMatch(route,/advanceAutonomousDiscoveryRun/);
+  assert.match(executor,/sourceAdvanceNeeded: false/);
+  assert.doesNotMatch(executor,/SELECT min_members,status FROM chat_discovery_runs/);
 });
 
 void test('manual Telegram recovery stays local until confirmation', async () => {
@@ -75,7 +76,7 @@ void test('manual Telegram recovery stays local until confirmation', async () =>
 
 void test('discovery UI goal remains WhatsApp-first and requires no manual keyword inputs', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
-  assert.match(dialog, /Нових цільових чатів/);
+  assert.match(dialog, /Відібрати чатів/);
   assert.match(dialog, /useState\(50\)/);
   assert.match(dialog, /const minMembers = 700/);
   assert.match(dialog, /const platforms: DiscoveryPlatform\[\] = \['whatsapp'\]/);
@@ -104,7 +105,7 @@ void test('Chat Discovery modal uses a wide split layout with independent candid
   assert.match(dialog, /min-h-0 flex-1 overflow-y-auto/);
   assert.match(dialog, /Фільтр кандидатів/);
   assert.match(dialog, /Автопошук працює/);
-  assert.match(dialog, /Поки автопошук активний, втручання не потрібне/);
+  assert.match(dialog, /У D1 нічого не записується/);
   assert.match(dialog, /StatTile/);
 });
 
@@ -187,22 +188,25 @@ void test('source name hints fail closed when they contain markup or URL noise',
   assert.match(preview, /suggestedChatName/);
 });
 
-void test('operator-first Discovery UI hides technical counters behind disclosures', async () => {
+void test('operator-first Discovery UI shows useful local throughput and keeps technical details secondary', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
-  assert.match(dialog, /0? із \{displayedGoal\} цільових|із \{displayedGoal\} цільових/);
-  assert.match(dialog, /У роботі/);
-  assert.match(dialog, /Очікує WhatsApp/);
+  assert.match(dialog, /із \{displayedGoal\} цільових/);
+  assert.match(dialog, /Опрацьовано/);
+  assert.match(dialog, /Відібрано/);
+  assert.match(dialog, /Відсіяно/);
+  assert.match(dialog, /Дублі \/ відомі/);
   assert.match(dialog, /Технічні деталі/);
-  assert.match(dialog, /Підключення executor/);
+  assert.match(dialog, /Executor після додавання до приєднання/);
+  assert.match(dialog, /D1 writes до підтвердження/);
   assert.doesNotMatch(dialog, /<StatTile label="Query"/);
-  assert.doesNotMatch(dialog, /<StatTile label="Локально"/);
 });
 
-void test('Discovery shows live source progress without extra server polling', async () => {
+void test('Discovery shows live source progress without recurring D1 workspace polling', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
   assert.match(dialog, /Пошукових запитів:/);
   assert.match(dialog, /пакетами до 6/);
   assert.match(dialog, /lastRunActivitySeconds/);
   assert.match(dialog, /setInterval\(\(\)=>setClockMs\(Date\.now\(\)\),1000\)/);
-  assert.match(dialog, /delayMs=nextUpdated!==lastUpdated\?15_000/);
+  assert.doesNotMatch(dialog, /workspace\.run\?\.status!=='running'/);
+  assert.doesNotMatch(dialog, /delayMs=nextUpdated/);
 });

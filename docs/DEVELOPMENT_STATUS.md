@@ -1,15 +1,14 @@
 # Development status — 2026-09-25
 
-## 2026-09-25 — fast source burst with D1 budget guard
+## 2026-09-25 — local-first fast Discovery with strict D1 boundary
 
-- Previous live run showed about one source query per minute, which is too slow for the operator target of 15–30 qualified chats/day.
-- Source throughput is increased by batching external discovery, not by multiplying D1 cycles: one autonomous Telegram advance now searches up to 6 plan queries through the existing bounded fetch pool, then performs one targeted dedupe/persist/reconcile batch.
-- Public-web fallback likewise advances up to 6 search tasks per persisted source cycle.
-- Runner source cadence is reduced from 60s to 20s. Queue polling remains bounded/backed off; the UI still polls D1 on its existing 15–60s adaptive schedule.
-- After a messenger task, a nearly empty executor queue may refill source discovery immediately. Pending membership does not serialize the whole source pipeline.
-- The Discovery UI now exposes query count and a local 1-second “last activity” age. That heartbeat is browser-only and causes no D1 traffic.
-- Targeted link reads, queue LIMIT 3, executor leases, 5-minute WhatsApp failure cooldown, and no owner-wide candidate/chat scan remain unchanged.
-- Autonomous D1 persistence is additionally capped at 6 candidates × 3 provenance sources per source burst, preventing a high-yield external search page from turning into an unbounded write spike.
+- The operator clarified the persistence model: autonomous search must not create D1 run/candidate/source/chat rows while it is still discovering and filtering.
+- Discovery source crawl now lives in browser session state. One local cycle searches up to 6 Telegram/public queries and immediately continues until the requested shortlist is reached or sources are exhausted.
+- The source endpoint performs no INSERT/UPDATE during search. If a burst actually finds invite links, it performs only targeted indexed duplicate reads for those exact normalized links; an empty-yield burst performs no candidate/chat dedupe reads.
+- Local UI progress records processed invites, selected candidates, source-level rejects, duplicates, query count and last activity without recurring D1 workspace polling.
+- The operator can remove bad local rows and review the shortlist. Only the explicit final «Додати … до приєднання» action crosses the persistence boundary and creates canonical D1 candidate/chat state.
+- Full criteria that require messenger facts (member count when unavailable publicly, activity, write permission and ad policy) remain post-join qualification facts; the local search result is therefore a prequalified shortlist rather than a falsely claimed final target.
+- The paired executor is hard-disabled from source crawling and its idle queue read no longer queries the latest Discovery run, reducing background D1 reads.
 
 ## 2026-09-25 — stale Discovery imports cleanup
 

@@ -48,19 +48,15 @@ export async function readDiscoveryExecutorQueue(
   now = Number.MAX_SAFE_INTEGER,
 ): Promise<{ tasks: DiscoveryExecutorTask[]; sourceAdvanceNeeded: boolean }> {
   const limit = boundedLimit(limitInput);
-  const [candidateRows, latestRun] = await Promise.all([
-    db.prepare(`SELECT id,version,platform,name,normalized_link,membership_state,inspection_state,decision,imported_chat_id,executor_next_check_at
-      FROM chat_discovery_candidates
-      WHERE user_id=?1 AND imported_chat_id IS NOT NULL AND membership_state<>'left'
-        AND platform IN ('whatsapp','viber')
-        AND (platform<>'whatsapp' OR executor_next_check_at IS NULL OR executor_next_check_at<=?2)
-      ORDER BY CASE WHEN platform='whatsapp' AND membership_state='pending' THEN 0 ELSE 1 END,
-        CASE decision WHEN 'rejected' THEN 0 WHEN 'unavailable' THEN 0 WHEN 'review' THEN 1 ELSE 2 END,
-        updated_at ASC,id
-      LIMIT ?3`).bind(userId, now, limit).all<CandidateTaskRow>(),
-    db.prepare(`SELECT min_members,status FROM chat_discovery_runs WHERE user_id=?1 ORDER BY updated_at DESC LIMIT 1`)
-      .bind(userId).first<{ min_members: number; status: string }>(),
-  ]);
+  const candidateRows = await db.prepare(`SELECT id,version,platform,name,normalized_link,membership_state,inspection_state,decision,imported_chat_id,executor_next_check_at
+    FROM chat_discovery_candidates
+    WHERE user_id=?1 AND imported_chat_id IS NOT NULL AND membership_state<>'left'
+      AND platform IN ('whatsapp','viber')
+      AND (platform<>'whatsapp' OR executor_next_check_at IS NULL OR executor_next_check_at<=?2)
+    ORDER BY CASE WHEN platform='whatsapp' AND membership_state='pending' THEN 0 ELSE 1 END,
+      CASE decision WHEN 'rejected' THEN 0 WHEN 'unavailable' THEN 0 WHEN 'review' THEN 1 ELSE 2 END,
+      updated_at ASC,id
+    LIMIT ?3`).bind(userId, now, limit).all<CandidateTaskRow>();
 
   const tasks: DiscoveryExecutorTask[] = [];
   for (const candidate of candidateRows.results) {
@@ -79,14 +75,14 @@ export async function readDiscoveryExecutorQueue(
       link: candidate.normalized_link,
       action,
       decision: candidate.decision,
-      minMembers: Number(latestRun?.min_members || 700),
+      minMembers: 700,
       resultAction: action === 'leave' ? 'executor-leave' : 'inspect',
       runtime: candidate.platform === 'whatsapp' ? 'whatsapp_web' : 'viber_native',
       expectedTarget: { name: candidate.name, link: candidate.normalized_link },
       safety: { requiresTargetVerification: true, unknownState: 'fail_closed' },
     });
   }
-  return { tasks, sourceAdvanceNeeded: latestRun?.status === 'running' };
+  return { tasks, sourceAdvanceNeeded: false };
 }
 
 

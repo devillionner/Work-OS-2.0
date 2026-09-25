@@ -144,11 +144,8 @@ function markWhatsappRuntimeBlocked(reason){
   console.warn(`WhatsApp runtime temporarily blocks automated WhatsApp actions (${reason}); retry after cooldown.`);
 }
 function clearWhatsappRuntimeBlock(){whatsappRuntimeBlockedUntil=0;}
-function canAdvanceDiscoverySource(queue){
-  return queue?.sourceAdvanceNeeded===true
-    && Boolean(whatsappCdp)
-    && Date.now()>=whatsappRuntimeBlockedUntil
-    && Date.now()>=nextSourceAdvanceAt;
+function canAdvanceDiscoverySource(){
+  return false;
 }
 async function advanceDiscoverySource(){
   nextSourceAdvanceAt=Date.now()+SOURCE_ADVANCE_MS;

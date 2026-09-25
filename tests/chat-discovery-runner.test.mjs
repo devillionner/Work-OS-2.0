@@ -10,8 +10,7 @@ void test('runner consumes paired executor tasks and posts guarded callbacks',()
   assert.match(source,/\/api\/chat-discovery\/executor\?limit=\$\{EXECUTOR_QUEUE_LIMIT\}/);
   assert.match(source,/action:'inspect'/);
   assert.match(source,/action:'executor-leave'/);
-  assert.match(source,/action:'advance-discovery'/);
-  assert.match(source,/Discovery source advanced via/);
+  assert.match(source,/function canAdvanceDiscoverySource\(\)\{\s*return false;/);
 });
 void test('runner automates verified WhatsApp leave via CDP and retains operator-confirmed fallback',()=>{
   assert.match(source,/leaveWhatsappTaskViaCdp/);
@@ -66,19 +65,11 @@ void test('runner claims WhatsApp autopost only after Discovery messenger tasks 
   assert.match(source,/Confirmed WhatsApp autopost accepted by Work OS/);
 });
 
-void test('runner advances an explicit Discovery run with bounded cadence and idle D1 backoff',()=>{
+void test('runner never source-crawls through D1 and keeps bounded idle queue polling',()=>{
   assert.match(source,/const TASK_POLL_MS=3000/);
-  assert.match(source,/const SOURCE_ADVANCE_MS=20000/);
   assert.match(source,/const IDLE_POLL_MIN_MS=15000/);
   assert.match(source,/const IDLE_POLL_MAX_MS=60000/);
-  assert.match(source,/queue\?\.sourceAdvanceNeeded===true/);
-  assert.match(source,/Date\.now\(\)>=whatsappRuntimeBlockedUntil/);
-  assert.match(source,/Date\.now\(\)>=nextSourceAdvanceAt/);
-  assert.match(source,/action:'advance-discovery'/);
-  assert.match(source,/outcome==='task'\|\|outcome==='source_added'/);
-  assert.match(source,/outcome==='source_advanced'/);
-  assert.match(source,/queuedTasks\.length<=1&&canAdvanceDiscoverySource\(queue\)/);
-  assert.match(source,/waitMs=SOURCE_ADVANCE_MS/);
+  assert.match(source,/function canAdvanceDiscoverySource\(\)\{\s*return false;/);
   assert.match(source,/Math\.min\(IDLE_POLL_MAX_MS,idleDelayMs\*2\)/);
   assert.match(source,/Non-interactive Discovery runner requires WORK_OS_WHATSAPP_CDP/);
   assert.match(source,/WHATSAPP_RUNTIME_COOLDOWN_MS=300000/);

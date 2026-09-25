@@ -25,7 +25,26 @@ type Workspace = {
 type ImportResponse = { chatId?: string; existing?: boolean; workflowStatus?: string; error?: string };
 type PreviewTelegramResponse = { previews:LocalDiscoveryPreview[]; batch:{extracted:number;added:number;duplicates:number}; error?:string };
 type LocalPreviewSession = {
-  telegramCursor:number; sourceCursor:number; searched:number; duplicates:number; done:boolean; candidates:LocalDiscoveryPreview[];
+  telegramCursor:number;
+  sourceCursor:number;
+  searched:number;
+  processed:number;
+  duplicates:number;
+  rejected:number;
+  done:boolean;
+  running:boolean;
+  goal:number;
+  lastActivityAt:number|null;
+  completionReason:'goal_reached'|'sources_exhausted'|null;
+  candidates:LocalDiscoveryPreview[];
+};
+type SearchPreviewResponse={
+  source:'telegram'|'public_web'|'idle';
+  telegramCursor:number;
+  sourceCursor:number;
+  done:boolean;
+  previews:LocalDiscoveryPreview[];
+  batch:{searched:number;added:number;duplicates:number;errors:number};
 };
 type ManualInspectionDraft = {
   candidateId: string;
@@ -45,8 +64,11 @@ const EMPTY_COUNTS: Record<DiscoveryDecision, number> = {
   rejected: 0,
   unavailable: 0,
 };
-const LOCAL_PREVIEW_KEY='work-os:chat-discovery-local-preview:v1';
-const EMPTY_LOCAL_PREVIEW:LocalPreviewSession={telegramCursor:0,sourceCursor:0,searched:0,duplicates:0,done:false,candidates:[]};
+const LOCAL_PREVIEW_KEY='work-os:chat-discovery-local-preview:v2';
+const EMPTY_LOCAL_PREVIEW:LocalPreviewSession={
+  telegramCursor:0,sourceCursor:0,searched:0,processed:0,duplicates:0,rejected:0,
+  done:false,running:false,goal:50,lastActivityAt:null,completionReason:null,candidates:[],
+};
 
 export function ChatDiscoveryDialog({
   open,
@@ -124,29 +146,64 @@ export function ChatDiscoveryDialog({
   },[open,localPreviewHydrated,localPreview]);
 
   useEffect(()=>{
-    if(!open||workspace.run?.status!=='running')return;
+    if(!open||!localPreviewHydrated||!localPreview.running)return;
     let cancelled=false;
-    let timer:number|undefined;
-    let delayMs=15_000;
-    let lastUpdated=workspace.run.updatedAt;
-    const schedule=()=>{timer=window.setTimeout(()=>{void tick();},delayMs);};
-    const tick=async()=>{
+    const timer=window.setTimeout(async()=>{
       if(cancelled)return;
-      if(document.visibilityState!=='visible'||!navigator.onLine){
-        delayMs=Math.min(60_000,delayMs*2);
-        schedule();
+      if(!navigator.onLine){
+        setError('Немає мережі. Локальний автопошук призупинено.');
+        setLocalPreview(current=>({...current,running:false,lastActivityAt:Date.now()}));
         return;
       }
-      const fresh=await load(filter,{silent:true});
-      if(cancelled)return;
-      const nextUpdated=fresh?.run?.updatedAt??lastUpdated;
-      delayMs=nextUpdated!==lastUpdated?15_000:Math.min(60_000,delayMs*2);
-      lastUpdated=nextUpdated;
-      if(fresh?.run?.status==='running')schedule();
-    };
-    schedule();
-    return()=>{cancelled=true;if(timer!==undefined)window.clearTimeout(timer);};
-  },[open,workspace.run?.id,workspace.run?.status,filter,load]);
+      try{
+        const payload=await postPreview({
+          action:'search',
+          platforms,
+          telegramCursor:localPreview.telegramCursor,
+          sourceCursor:localPreview.sourceCursor,
+          knownLinks:localPreview.candidates.map(candidate=>candidate.link),
+          minMembers,
+        }) as unknown as SearchPreviewResponse;
+        if(cancelled)return;
+        setLocalPreview(current=>{
+          if(!current.running)return current;
+          const byKey=new Map(current.candidates.map(candidate=>[`${candidate.platform}|${candidate.link}`,candidate]));
+          let rejected=current.rejected;
+          for(const candidate of payload.previews){
+            const key=`${candidate.platform}|${candidate.link}`;
+            if(candidate.topicMatch==='match')byKey.set(key,candidate);
+            else rejected+=1;
+          }
+          const candidates=[...byKey.values()].slice(0,current.goal);
+          const reached=candidates.length>=current.goal;
+          const exhausted=payload.done&&!reached;
+          return {
+            ...current,
+            telegramCursor:safeNonNegativeInt(payload.telegramCursor),
+            sourceCursor:safeNonNegativeInt(payload.sourceCursor),
+            searched:current.searched+safeNonNegativeInt(payload.batch.searched),
+            processed:current.processed+safeNonNegativeInt(payload.batch.added)+safeNonNegativeInt(payload.batch.duplicates),
+            duplicates:current.duplicates+safeNonNegativeInt(payload.batch.duplicates),
+            rejected,
+            candidates,
+            running:!(reached||exhausted),
+            done:reached||exhausted,
+            completionReason:reached?'goal_reached':exhausted?'sources_exhausted':null,
+            lastActivityAt:Date.now(),
+          };
+        });
+      }catch(reason){
+        if(cancelled)return;
+        setError(reason instanceof Error?reason.message:'Локальний автопошук не завершив пакет.');
+        setLocalPreview(current=>({...current,running:false,lastActivityAt:Date.now()}));
+      }
+    },500);
+    return()=>{cancelled=true;window.clearTimeout(timer);};
+  },[
+    open,localPreviewHydrated,localPreview.running,localPreview.telegramCursor,
+    localPreview.sourceCursor,localPreview.candidates.length,localPreview.goal,
+  ]);
+
 
   async function post(body: Record<string, unknown>) {
     const response = await fetch('/api/chat-discovery', {
@@ -169,68 +226,59 @@ export function ChatDiscoveryDialog({
   }
 
   async function startAutonomousSearch() {
-    if (telegramBusy) return;
-    setTelegramBusy(true);
+    if(telegramBusy)return;
     setError('');
     setNotice('');
-    try {
-      const payload=await post({action:'start',platforms,goal,minMembers});
-      const run=payload.run as DiscoveryRun;
-      setWorkspace(current=>({...current,run}));
-
-      const persistedBacklog=workspace.candidates.filter(candidate=>
-        !candidate.importedChatId
-        && candidate.platform==='whatsapp'
-        && (candidate.decision==='review'||candidate.decision==='target')
-      );
-      const candidatesToAdopt=[...localPreview.candidates,...persistedBacklog];
-      const adoptedLocalIds=new Set<string>();
-      let adoptedPersisted=0;
-      let failedToAdopt=0;
-      for(const candidate of candidatesToAdopt){
-        try{
-          await postPreview({
-            action:'confirm',platform:candidate.platform,link:candidate.link,name:candidate.name,
-            sources:candidate.sources,minMembers,runId:run.id,
-          });
-          if(isLocalPreview(candidate))adoptedLocalIds.add(candidate.id);
-          else adoptedPersisted+=1;
-          onImported(candidate.platform as DiscoveryPlatform);
-        }catch{
-          failedToAdopt+=1;
-        }
-      }
-      if(adoptedLocalIds.size){
-        setLocalPreview(current=>({...current,candidates:current.candidates.filter(candidate=>!adoptedLocalIds.has(candidate.id))}));
-      }
-      await load(filter,{silent:true});
-      const adoptedLocalText=adoptedLocalIds.size?` Локальних кандидатів передано в цикл: ${adoptedLocalIds.size}.`:'';
-      const adoptedPersistedText=adoptedPersisted?` Старих неперевірених кандидатів передано executor-у: ${adoptedPersisted}.`:'';
-      const failedText=failedToAdopt?` Не вдалося автоматично передати: ${failedToAdopt}; вони залишились доступними для повторної перевірки.`:'';
-      setNotice(`Автопошук активний: Work OS сам шукає, відкриває exact WhatsApp target, перевіряє вступ і критерії, відсіює нецільові та продовжує до ${run.goal} цільових чатів або чесного вичерпання джерел.${adoptedLocalText}${adoptedPersistedText}${failedText}`);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Не вдалося запустити автономний пошук.');
-    } finally {
-      setTelegramBusy(false);
-    }
+    setFilter('review');
+    setLocalPreview({
+      ...EMPTY_LOCAL_PREVIEW,
+      running:true,
+      goal,
+      lastActivityAt:Date.now(),
+    });
+    setNotice('Локальний автопошук запущено. Пошук і проміжні результати не записуються в D1; запис буде тільки після твого підтвердження.');
   }
 
   async function stopAutonomousSearch(){
     if(telegramBusy)return;
+    setLocalPreview(current=>({...current,running:false,lastActivityAt:Date.now()}));
+    setNotice('Локальний автопошук зупинено. Знайдені результати залишились тільки в цій браузерній сесії; D1 не змінено.');
+  }
+
+  async function addLocalTargetsToJoin(){
+    if(telegramBusy||localPreview.running||!localPreview.candidates.length)return;
     setTelegramBusy(true);
     setError('');
+    setNotice('');
+    const imported=new Set<string>();
+    let existing=0;
+    let failed=0;
     try{
-      const fresh=await load(filter,{silent:true});
-      const run=fresh?.run;
-      if(!run||run.status!=='running'){
-        setNotice('Автопошук уже не активний.');
-        return;
+      for(const candidate of localPreview.candidates){
+        try{
+          const payload=await postPreview({
+            action:'confirm',
+            platform:candidate.platform,
+            link:candidate.link,
+            name:candidate.name,
+            sources:candidate.sources,
+            minMembers,
+          }) as unknown as ImportResponse;
+          imported.add(candidate.id);
+          if(payload.existing)existing+=1;
+          onImported(candidate.platform as DiscoveryPlatform);
+        }catch{
+          failed+=1;
+        }
       }
-      await post({action:'cancel',runId:run.id,version:run.version});
+      setLocalPreview(current=>({
+        ...current,
+        candidates:current.candidates.filter(candidate=>!imported.has(candidate.id)),
+        running:false,
+      }));
       await load(filter,{silent:true});
-      setNotice('Автопошук зупинено. Уже перевірені факти та цільові чати збережені.');
-    }catch(reason){
-      setError(reason instanceof Error?reason.message:'Не вдалося зупинити автопошук.');
+      const added=Math.max(0,imported.size-existing);
+      setNotice(`Підтверджено: ${added} нових чатів додано «Для приєднання» і лише тепер записано в D1.${existing?` Уже відомих: ${existing}.`:''}${failed?` Не додано через помилку: ${failed}.`:''}`);
     }finally{
       setTelegramBusy(false);
     }
@@ -389,26 +437,18 @@ export function ChatDiscoveryDialog({
   const persistedTotal = Object.values(workspace.counts).reduce((sum, value) => sum + value, 0);
   const total = persistedTotal + localPreview.candidates.length;
   const reviewCount=workspace.counts.review+localPreview.candidates.length;
-  const autonomousRunning=workspace.run?.status==='running';
-  const displayedTargetCount=workspace.run?.targetCount??workspace.counts.target;
-  const displayedGoal=autonomousRunning?workspace.run?.goal??goal:goal;
-  const displayedQueries=workspace.run?.searchedQueries??localPreview.searched;
-  const discardedCount=workspace.counts.rejected+workspace.counts.unavailable;
+  const autonomousRunning=localPreview.running;
+  const displayedTargetCount=localPreview.candidates.length;
+  const displayedGoal=localPreview.running||localPreview.done?localPreview.goal:goal;
+  const displayedQueries=localPreview.searched;
+  const discardedCount=localPreview.rejected;
   const progressPercent=displayedGoal>0?Math.min(100,Math.round((displayedTargetCount/displayedGoal)*100)):0;
-  const lastRunActivitySeconds=workspace.run?.updatedAt?Math.max(0,Math.floor((clockMs-workspace.run.updatedAt*1000)/1000)):null;
-  const activeCandidate=workspace.candidates.find(candidate=>candidate.membershipState==='pending')
-    ?? workspace.candidates.find(candidate=>candidate.membershipState==='joined'&&candidate.decision==='review')
-    ?? workspace.candidates.find(candidate=>candidate.decision==='review'&&Boolean(candidate.importedChatId))
-    ?? null;
+  const lastRunActivitySeconds=localPreview.lastActivityAt?Math.max(0,Math.floor((clockMs-localPreview.lastActivityAt)/1000)):null;
   const runActivity=autonomousRunning
-    ? workspace.waitingWhatsAppCount>0
-      ? 'Очікуємо схвалення вступу в WhatsApp'
-      : activeCandidate
-        ? `Перевіряємо: ${candidateDisplayName(activeCandidate)}`
-        : 'Шукаємо нові WhatsApp-чати'
-    : workspace.run?.completionReason==='goal_reached'
-      ? 'Мета виконана'
-      : workspace.run?.completionReason==='sources_exhausted'
+    ? 'Шукаємо й відсіюємо нові WhatsApp-чати локально'
+    : localPreview.completionReason==='goal_reached'
+      ? 'Потрібну кількість відібрано — перевір список перед додаванням'
+      : localPreview.completionReason==='sources_exhausted'
         ? 'Доступні джерела вичерпано'
         : 'Автопошук зупинений';
   const displayCandidates:DiscoveryCandidate[]=(filter==='all'||filter==='review')
@@ -433,7 +473,7 @@ export function ChatDiscoveryDialog({
             <Badge variant="secondary">WhatsApp discovery</Badge>
           </div>
           <DialogDescription className="max-w-3xl text-xs leading-5 text-foreground/70 sm:text-sm">
-            Work OS сам шукає, перевіряє й відсіює чати. Поки автопошук активний, втручання не потрібне.
+            Пошук і проміжний відсів працюють локально. У D1 нічого не записується, доки ти сам не підтвердиш фінальний список.
           </DialogDescription>
         </DialogHeader>
         <Button className="absolute right-3 top-3 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground sm:right-4 sm:top-4" variant="ghost" size="icon" aria-label="Закрити" onClick={close}><X/></Button>
@@ -469,10 +509,10 @@ export function ChatDiscoveryDialog({
             </div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <StatTile label="У роботі" value={String(reviewCount)} />
-            <StatTile label="Очікує WhatsApp" value={String(workspace.waitingWhatsAppCount)} />
-            <StatTile label="Відхилено" value={String(workspace.counts.rejected)} />
-            <StatTile label="Недоступні" value={String(workspace.counts.unavailable)} />
+            <StatTile label="Опрацьовано" value={String(localPreview.processed)} />
+            <StatTile label="Відібрано" value={String(localPreview.candidates.length)} />
+            <StatTile label="Відсіяно" value={String(localPreview.rejected)} />
+            <StatTile label="Дублі / відомі" value={String(localPreview.duplicates)} />
           </div>
         </div>
       </header>
@@ -489,14 +529,14 @@ export function ChatDiscoveryDialog({
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <h3 className="text-base font-semibold">Керування</h3>
-                  <p className="mt-1 text-xs leading-5 text-foreground/70">{autonomousRunning?'Пошук уже працює. Можна просто залишити його відкритим.':'Вкажи, скільки цільових чатів потрібно знайти.'}</p>
+                  <p className="mt-1 text-xs leading-5 text-foreground/70">{autonomousRunning?'Пошук уже працює локально. D1 не змінюється.':'Вкажи, скільки попередньо цільових чатів потрібно відібрати.'}</p>
                 </div>
                 <Badge>WhatsApp</Badge>
               </div>
 
               <div className="mt-4 grid gap-3">
                 <label htmlFor="discovery-goal" className="grid gap-1.5 text-xs font-medium">
-                  Нових цільових чатів
+                  Відібрати чатів
                   <Input
                     className="h-10 bg-background text-base font-semibold"
                     id="discovery-goal"
@@ -511,7 +551,7 @@ export function ChatDiscoveryDialog({
                 <details className="rounded-xl border border-border/70 bg-background">
                   <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-foreground/75">Що вважаємо цільовим чатом</summary>
                   <div className="border-t border-border/60 px-3 py-2.5 text-xs leading-5 text-foreground/70">
-                    Українська аудиторія · 700–18 000 учасників · активний груповий чат · учасники можуть писати · оголошення дозволені або фактично публікуються.
+                    На етапі пошуку Work OS відсіює за валідністю invite, українською/релевантною аудиторією та контекстом джерела. Учасники, активність, можливість писати й правила оголошень остаточно підтверджуються вже після вступу в WhatsApp.
                   </div>
                 </details>
               </div>
@@ -524,27 +564,30 @@ export function ChatDiscoveryDialog({
                   : <Button className="w-full justify-center" type="button" disabled={telegramBusy} onClick={() => void startAutonomousSearch()}>
                       {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<Search data-icon="inline-start"/>}{telegramBusy?'Запускаємо…':'Запустити автопошук'}
                     </Button>}
-                {localPreview.candidates.length>0&&<Button className="w-full" type="button" size="sm" variant="ghost" disabled={telegramBusy} onClick={()=>setLocalPreview(EMPTY_LOCAL_PREVIEW)}>Очистити локальний preview</Button>}
+                {!autonomousRunning&&localPreview.candidates.length>0&&<Button className="w-full justify-center" type="button" disabled={telegramBusy} onClick={()=>void addLocalTargetsToJoin()}>
+                  {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<CheckCircle2 data-icon="inline-start"/>}{telegramBusy?'Додаємо…':`Додати ${localPreview.candidates.length} до приєднання`}
+                </Button>}
+                {localPreview.candidates.length>0&&<Button className="w-full" type="button" size="sm" variant="ghost" disabled={telegramBusy} onClick={()=>setLocalPreview({...EMPTY_LOCAL_PREVIEW,goal})}>Очистити локальні результати</Button>}
               </div>
 
               {autonomousRunning&&<div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs font-medium leading-5 text-foreground/80">
-                Система працює самостійно: нецільові чати відхиляються, а після фактичного вступу Work OS за потреби сам виходить із них.
+                Система перебирає джерела пакетами. Кандидати та прогрес живуть лише в sessionStorage цього браузера; D1 writes = 0.
               </div>}
-              {workspace.run?.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">Джерела вичерпано: знайдено {workspace.run.targetCount} цільових із {workspace.run.goal}. Критерії не послаблювались.</div>}
-              {workspace.run?.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: знайдено {workspace.run.targetCount}/{workspace.run.goal} цільових чатів.</div>}
+              {localPreview.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">Джерела вичерпано: відібрано {localPreview.candidates.length} із {localPreview.goal}. У D1 нічого не записано.</div>}
+              {localPreview.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: локально відібрано {localPreview.candidates.length}/{localPreview.goal}. Перевір список і натисни «Додати до приєднання», якщо він підходить.</div>}
               <details className="mt-3 border-t border-border/60 pt-3">
                 <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Технічні деталі</summary>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                   <span>Пошукових запитів <strong className="ml-1 text-foreground">{displayedQueries}</strong></span>
                   <span>Дублів <strong className="ml-1 text-foreground">{localPreview.duplicates}</strong></span>
-                  <span>Ручний preview <strong className="ml-1 text-foreground">{localPreview.candidates.length}</strong></span>
-                  <span>Відсіяно всього <strong className="ml-1 text-foreground">{discardedCount}</strong></span>
+                  <span>Опрацьовано invite <strong className="ml-1 text-foreground">{localPreview.processed}</strong></span>
+                  <span>D1 writes до підтвердження <strong className="ml-1 text-foreground">0</strong></span>
                 </div>
               </details>
             </section>
 
             <details className="rounded-2xl border border-border/70 bg-background">
-              <summary className="cursor-pointer select-none px-4 py-3 text-xs font-medium text-muted-foreground hover:text-foreground">Підключення executor</summary>
+              <summary className="cursor-pointer select-none px-4 py-3 text-xs font-medium text-muted-foreground hover:text-foreground">Executor після додавання до приєднання</summary>
               <div className="border-t border-border/70 p-3"><ChatDiscoveryExecutorPanel /></div>
             </details>
 
@@ -813,8 +856,14 @@ function readLocalPreviewSession():LocalPreviewSession{
       telegramCursor:safeNonNegativeInt(value.telegramCursor),
       sourceCursor:safeNonNegativeInt(value.sourceCursor),
       searched:safeNonNegativeInt(value.searched),
+      processed:safeNonNegativeInt(value.processed),
       duplicates:safeNonNegativeInt(value.duplicates),
+      rejected:safeNonNegativeInt(value.rejected),
       done:value.done===true,
+      running:value.running===true,
+      goal:clampNumber(value.goal,1,100,50),
+      lastActivityAt:Number.isFinite(Number(value.lastActivityAt))?Number(value.lastActivityAt):null,
+      completionReason:value.completionReason==='goal_reached'||value.completionReason==='sources_exhausted'?value.completionReason:null,
       candidates,
     };
   }catch{return EMPTY_LOCAL_PREVIEW;}
@@ -822,7 +871,13 @@ function readLocalPreviewSession():LocalPreviewSession{
 function mergeLocalTelegramPreview(current:LocalPreviewSession,payload:PreviewTelegramResponse):LocalPreviewSession{
   const byKey=new Map(current.candidates.map(candidate=>[`${candidate.platform}|${candidate.link}`,candidate]));
   for(const candidate of payload.previews)byKey.set(`${candidate.platform}|${candidate.link}`,candidate);
-  return {...current,duplicates:current.duplicates+safeNonNegativeInt(payload.batch.duplicates),candidates:[...byKey.values()].slice(0,250)};
+  return {
+    ...current,
+    processed:current.processed+safeNonNegativeInt(payload.batch.added)+safeNonNegativeInt(payload.batch.duplicates),
+    duplicates:current.duplicates+safeNonNegativeInt(payload.batch.duplicates),
+    candidates:[...byKey.values()].slice(0,250),
+    lastActivityAt:Date.now(),
+  };
 }
 function safeNonNegativeInt(value:unknown){const number=Number(value);return Number.isSafeInteger(number)&&number>=0?number:0;}
 function isLocalPreview(candidate:DiscoveryCandidate):candidate is LocalDiscoveryPreview{

@@ -36,37 +36,36 @@ void test('Platforms GET uses queue counters and an index-friendly page order',(
   assert.match(migration,/CREATE INDEX chats_user_platform_status_updated_idx/);
 });
 
-void test('Discovery autonomous outcome loop is bounded and uses targeted D1 reads',()=>{
+void test('Discovery search is local-first and D1 work stays targeted until explicit confirmation',()=>{
   const runner=read('scripts/chat-discovery-runner.mjs');
   const auth=read('lib/chat-discovery/executor-auth.ts');
   const executor=read('lib/chat-discovery/executor.ts');
+  const route=read('app/api/chat-discovery/executor/route.ts');
   const deploy=read('scripts/deploy-staging.mjs');
   const preview=read('lib/chat-discovery/local-preview.ts');
-  const domain=read('lib/chat-discovery/domain.ts');
-  assert.match(runner,/TASK_POLL_MS=3000/);
-  assert.match(runner,/SOURCE_ADVANCE_MS=20000/);
+  assert.match(runner,/function canAdvanceDiscoverySource\(\)\{\s*return false;/);
   assert.match(runner,/EXECUTOR_QUEUE_LIMIT=3/);
-  assert.match(runner,/WHATSAPP_RUNTIME_COOLDOWN_MS=300000/);
-  assert.match(runner,/queue\?\.sourceAdvanceNeeded===true/);
-  assert.match(runner,/Date\.now\(\)>=nextSourceAdvanceAt/);
   assert.match(runner,/IDLE_POLL_MIN_MS=15000/);
   assert.match(runner,/IDLE_POLL_MAX_MS=60000/);
   assert.match(auth,/EXECUTOR_HEARTBEAT_SECONDS = 60/);
-  assert.match(executor,/sourceAdvanceNeeded: latestRun\?\.status === 'running'/);
+  assert.match(executor,/sourceAdvanceNeeded: false/);
+  assert.doesNotMatch(executor,/SELECT min_members,status FROM chat_discovery_runs/);
   assert.match(executor,/LIMIT \?3`\)\.bind\(userId, now, limit\)\.all<CandidateTaskRow>\(\)/);
   assert.doesNotMatch(executor,/Math\.max\(limit \* 3, 20\)/);
+  assert.match(route,/Source discovery тепер локальний і не пише проміжні результати в D1/);
+  assert.doesNotMatch(route,/advanceAutonomousDiscoveryRun/);
   assert.match(deploy,/if \(fingerprintCheck\.allowed\)/);
   assert.match(deploy,/Skipping remote D1 migration list for this code-only deploy/);
+  assert.match(preview,/buildTelegramSearchPlan\(telegramCursor,6\)/);
+  assert.match(preview,/maxQueries:6,pageLimit:2/);
+  assert.match(preview,/maxQueries:6,pageLimit:1/);
   assert.match(preview,/normalized_link IN \(SELECT value FROM json_each\(\?2\)\)/);
-  assert.match(domain,/normalized_link IN \(SELECT value FROM json_each\(\?2\)\)/);
-  assert.match(domain,/buildTelegramSearchPlan\(claimed\.telegram_cursor, 6\)/);
-  assert.match(domain,/discoverTelegramPublic\(\{ cursor:claimed\.telegram_cursor, maxQueries:6, pageLimit:2 \}/);
-  assert.match(domain,/maxQueries: 6/);
-  assert.match(domain,/candidateLimit: 6/);
-  assert.match(domain,/sourceLimit: 3/);
-  assert.match(domain,/canonicalItems = \[\.\.\.canonical\.values\(\)\]\.slice\(0, candidateLimit\)/);
-  assert.match(domain,/item\.sources\.slice\(0, sourceLimit\)/);
-  assert.doesNotMatch(domain,/LIMIT 10001/);
+  const searchStart=preview.indexOf('export async function searchLocalDiscoveryPreview');
+  const confirmStart=preview.indexOf('export async function confirmLocalDiscoveryPreview');
+  const searchBody=preview.slice(searchStart,confirmStart);
+  assert.doesNotMatch(searchBody,/INSERT INTO/);
+  assert.doesNotMatch(searchBody,/UPDATE chat_discovery_runs/);
+  assert.doesNotMatch(preview,/LIMIT 10001/);
 });
 
 void test('workday and Viber safe-mode polling have bounded D1 backoff and no fixed request interval',()=>{

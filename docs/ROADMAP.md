@@ -421,5 +421,5 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [ ] Tune source yield/false-positive rate against real WhatsApp groups; do not weaken fail-closed qualification to reach the target count.
 
 
-- [x] **FAST-SOURCE-01:** source discovery прискорено без множення D1 cycle: до 6 зовнішніх query за один bounded D1 advance, мінімальний cadence 20 с, targeted dedupe збережено.
-- [ ] **FAST-SOURCE-02:** live staging acceptance: підтвердити, що чистий run проходить source plan пакетами, UI показує рух, а WhatsApp qualification і source refill співіснують без starvation.
+- [x] **FAST-SOURCE-01:** source discovery moved to browser-local burst mode: up to 6 external queries per batch, zero intermediate D1 writes, only targeted duplicate reads for exact found links.
+- [ ] **FAST-SOURCE-02:** live staging acceptance: confirm the local run visibly advances processed/rejected/selected counters, reaches a useful shortlist quickly, and only the explicit final «Додати … до приєднання» action creates D1 rows.

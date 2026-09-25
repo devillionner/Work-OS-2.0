@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { readJsonObject } from '@/lib/http-json';
-import { advanceAutonomousDiscoveryRun, DiscoveryError } from '@/lib/chat-discovery/domain';
+import { DiscoveryError } from '@/lib/chat-discovery/domain';
 import { applyDiscoveryInspection } from '@/lib/chat-discovery/inspection';
 import { assertDiscoveryExecutorLease, claimDiscoveryExecutorQueue, completeDiscoveryExternalLeave } from '@/lib/chat-discovery/executor';
 import { authenticateDiscoveryExecutor } from '@/lib/chat-discovery/executor-auth';
@@ -29,7 +29,7 @@ export async function POST(request: Request): Promise<Response> {
     const body = await readJsonObject(request, 64 * 1024);
     if (body instanceof Response) return body;
     if (body.action === 'advance-discovery') {
-      return json(await advanceAutonomousDiscoveryRun(env.DB, executor.userId, executor.deviceId, now));
+      throw new DiscoveryError('Source discovery тепер локальний і не пише проміжні результати в D1.', 409);
     }
     if (body.action === 'inspect') {
       if (typeof body.candidateId !== 'string' || !Number.isSafeInteger(body.version)) {
