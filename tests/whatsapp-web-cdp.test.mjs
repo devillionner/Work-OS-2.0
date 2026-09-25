@@ -182,6 +182,43 @@ void test('HTML or URL source noise uses exact invite context instead of trustin
   });
 });
 
+void test('verified invite navigation survives WhatsApp SPA URL rewrite for community join', () => {
+  const noisyTask = {
+    ...task,
+    name: 'om <img src="',
+    expectedTarget: {
+      ...task.expectedTarget,
+      name: 'om <img src="',
+    },
+  };
+  const rewritten = classifyWhatsAppSnapshot(noisyTask, {
+    url:'https://web.whatsapp.com/',
+    navigatedInviteCode:'AbCdEfGh1234',
+    targetHeadings:['UGC NET JRF DECEMBER 2025 GROUP'],
+    targetTexts:['UGC NET JRF DECEMBER 2025 GROUP'],
+    headerTitles:[],
+    buttons:['Приєднатися до спільноти'],
+    bodyText:'Приєднатися до спільноти',
+  });
+  assert.deepEqual(rewritten, {
+    kind:'action',
+    action:'join',
+    buttonText:'Приєднатися до спільноти',
+    observedName:'UGC NET JRF DECEMBER 2025 GROUP',
+  });
+
+  const wrongNavigation = classifyWhatsAppSnapshot(noisyTask, {
+    url:'https://web.whatsapp.com/',
+    navigatedInviteCode:'DifferentCode999',
+    targetHeadings:['UGC NET JRF DECEMBER 2025 GROUP'],
+    targetTexts:['UGC NET JRF DECEMBER 2025 GROUP'],
+    headerTitles:[],
+    buttons:['Приєднатися до спільноти'],
+    bodyText:'Приєднатися до спільноти',
+  });
+  assert.deepEqual(wrongNavigation, { kind:'blocked', reason:'target_not_verified' });
+});
+
 void test('known unavailable text is ignored outside the exact invite context', () => {
   const result = classifyWhatsAppSnapshot(task, {
     url: 'https://web.whatsapp.com/',

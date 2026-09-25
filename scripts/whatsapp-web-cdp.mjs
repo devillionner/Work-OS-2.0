@@ -9,7 +9,7 @@ const unavailablePatterns = [
   { pattern: /(?:group).*(?:no longer available|does not exist)|(?:група).*(?:більше недоступна|не існує)|(?:группа).*(?:больше недоступна|не существует)/iu, reason: 'whatsapp_chat_missing' },
 ];
 
-const joinPattern = /^(?:join(?: group| chat)?|request to join|приєднатися(?: до групи| до чату)?|подати запит на вступ|присоединиться(?: к группе| к чату)?|отправить запрос на вступление)$/iu;
+const joinPattern = /^(?:join(?: group| chat| community)?|request to join|приєднатися(?: до групи| до чату| до спільноти)?|подати запит на вступ|присоединиться(?: к группе| к чату| к сообществу)?|отправить запрос на вступление)$/iu;
 const viewPattern = /^(?:view(?: group| chat)?|open(?: group| chat)?|continue to chat|переглянути(?: групу| чат)?|відкрити(?: групу| чат)?|продовжити до чату|просмотреть(?: группу| чат)?|открыть(?: группу| чат)?|продолжить в чат)$/iu;
 const leavePattern = /^(?:exit group|leave group|вийти з групи|покинути групу|выйти из группы|покинуть группу)$/iu;
 const confirmLeavePattern = /^(?:exit|leave|вийти|покинути|выйти|покинуть)$/iu;
@@ -141,6 +141,12 @@ function isLoopbackHost(hostname) {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
 }
 
+function inviteContextMatches(snapshot, task) {
+  const code = whatsappInviteCode(task.expectedTarget?.link || task.link);
+  if (!code) return false;
+  return String(snapshot.url || '').includes(code) || snapshot.navigatedInviteCode === code;
+}
+
 function exactTarget(snapshot, task) {
   const expected = task.expectedTarget?.name || task.name;
   if (!expected) return null;
@@ -151,9 +157,7 @@ function exactTarget(snapshot, task) {
     if (exact) return exact;
   }
 
-  const code = whatsappInviteCode(task.expectedTarget?.link || task.link);
-  const exactInviteContext = code ? String(snapshot.url || '').includes(code) : false;
-  if (!exactInviteContext) return null;
+  if (!inviteContextMatches(snapshot, task)) return null;
   const headings = [...(snapshot.targetHeadings || []), ...(snapshot.targetTexts || [])]
     .map((value) => String(value || '').trim())
     .filter((value) => value && !joinPattern.test(value) && !viewPattern.test(value));
@@ -166,10 +170,7 @@ function firstMatchingButton(snapshot, pattern) {
 
 export function classifyWhatsAppSnapshot(task, snapshot) {
   const bodyText = String(snapshot.bodyText || '');
-  const expectedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);
-  const expectedInviteContext = expectedInviteCode
-    ? String(snapshot.url || '').includes(expectedInviteCode)
-    : false;
+  const expectedInviteContext = inviteContextMatches(snapshot, task);
 
   for (const entry of unavailablePatterns) {
     if (expectedInviteContext && entry.pattern.test(bodyText)) {
@@ -269,11 +270,12 @@ export async function leaveWhatsappTaskViaCdp(
     await client.send('Runtime.enable');
     await client.send('Page.navigate', { url: targetUrl });
 
-    let opened = await waitForClassification(client, { ...task, action: 'inspect' }, timeoutMs);
+    const navigatedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);
+    let opened = await waitForClassification(client, { ...task, action: 'inspect' }, timeoutMs, null, navigatedInviteCode);
     if (opened.kind === 'action' && opened.action === 'view') {
       const clicked = await clickExactButton(client, opened.buttonText, task.expectedTarget?.name || task.name);
       if (!clicked) return { kind: 'blocked', reason: 'expected_control_disappeared' };
-      opened = await waitForClassification(client, { ...task, action: 'inspect' }, timeoutMs, 'view');
+      opened = await waitForClassification(client, { ...task, action: 'inspect' }, timeoutMs, 'view', navigatedInviteCode);
     }
     if (opened.kind !== 'result' || opened.result.membershipState !== 'joined' || opened.result.targetVerified !== true) {
       return { kind: 'blocked', reason: opened.reason || 'joined_target_not_verified' };
@@ -333,14 +335,15 @@ export async function sendWhatsappAutopostViaCdp(
       link:task.target.expectedLink,
       expectedTarget:{name:task.target.expectedName,link:task.target.expectedLink},
     };
-    let classified = await waitForClassification(client, inspectTask, timeoutMs);
+    const navigatedInviteCode = whatsappInviteCode(task.target?.expectedLink);
+    let classified = await waitForClassification(client, inspectTask, timeoutMs, null, navigatedInviteCode);
     if (classified.kind === 'action' && classified.action === 'view') {
       const clicked = await clickExactButton(client, classified.buttonText, classified.observedName || task.target.expectedName);
       if (!clicked) return { kind:'blocked', reason:'expected_control_disappeared' };
       const observedTask = classified.observedName
         ? { ...inspectTask, name:classified.observedName, expectedTarget:{...inspectTask.expectedTarget,name:classified.observedName} }
         : inspectTask;
-      classified = await waitForClassification(client, observedTask, timeoutMs, 'view');
+      classified = await waitForClassification(client, observedTask, timeoutMs, 'view', navigatedInviteCode);
     }
     if (classified.kind !== 'result' || classified.result.targetVerified !== true || classified.result.membershipState !== 'joined') {
       return { kind:'blocked', reason:classified.reason || 'joined_target_not_verified' };
@@ -398,8 +401,9 @@ export async function inspectWhatsappTaskViaCdp(
     await client.send('Runtime.enable');
     await client.send('Page.navigate', { url: targetUrl });
 
+    const navigatedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);
     let currentTask = task;
-    let classified = await waitForClassification(client, currentTask, timeoutMs);
+    let classified = await waitForClassification(client, currentTask, timeoutMs, null, navigatedInviteCode);
     if (classified.kind === 'action') {
       const observedName = classified.observedName || currentTask.expectedTarget?.name || currentTask.name;
       const clicked = await clickExactButton(client, classified.buttonText, observedName);
@@ -407,7 +411,7 @@ export async function inspectWhatsappTaskViaCdp(
       const observedTask = classified.observedName
         ? { ...currentTask, name:classified.observedName, expectedTarget:{ ...currentTask.expectedTarget, name:classified.observedName } }
         : currentTask;
-      classified = await waitForClassification(client, observedTask, timeoutMs, classified.action);
+      classified = await waitForClassification(client, observedTask, timeoutMs, classified.action, navigatedInviteCode);
       currentTask = observedTask;
     }
     if (classified.kind === 'result' && classified.result.membershipState === 'joined' && classified.result.targetVerified === true) {
@@ -440,11 +444,12 @@ async function findOrCreateWhatsappPage(base) {
   return page;
 }
 
-async function waitForClassification(client, task, timeoutMs, afterAction = null) {
+async function waitForClassification(client, task, timeoutMs, afterAction = null, navigatedInviteCode = null) {
   const deadline = Date.now() + timeoutMs;
   let last = { kind: 'blocked', reason: 'page_not_ready' };
   while (Date.now() < deadline) {
     const snapshot = await readSnapshot(client);
+    if (navigatedInviteCode) snapshot.navigatedInviteCode = navigatedInviteCode;
     last = classifyWhatsAppSnapshot(task, snapshot);
     if (last.kind === 'result') return last;
     if (last.kind === 'action') {
@@ -477,7 +482,7 @@ async function readSnapshot(client) {
       'header h2',
     ]);
     const dialog = document.querySelector('[role="dialog"]');
-    const targetHeadings = dialog ? read(dialog, ['h1', 'h2', 'h3', '[title]']) : [];
+    const targetHeadings = dialog ? read(dialog, ['[data-testid="group-join-modal-group-name"]', 'h1', 'h2', 'h3', '[title]']) : [];
     const targetTexts = dialog ? read(dialog, ['[title]', 'h1', 'h2', 'h3', 'span']) : [];
     const buttons = read(document, ['button', '[role="button"]']);
     const main = document.querySelector('#main');
