@@ -1,6 +1,8 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
+import { readChatState } from '@/lib/chats/state';
+import { transitionChat } from '@/lib/chats/transitions';
 import { applyDiscoveryInspection } from '@/lib/chat-discovery/inspection';
 import { completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '@/lib/chat-discovery/executor';
 import { createDiscoveryExecutorDevice, listDiscoveryExecutorDevices, revokeDiscoveryExecutorDevice } from '@/lib/chat-discovery/executor-auth';
@@ -16,6 +18,49 @@ import {
 
 function json(value: unknown, status = 200) {
   return Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
+}
+
+async function archiveStaleDiscoveryImports(db:D1Database,userId:string,now:number){
+  const rows=await db.prepare(`SELECT DISTINCT c.id
+    FROM chats c
+    WHERE c.user_id=?1 AND c.platform='whatsapp'
+      AND c.workflow_status IN ('to_join','waiting','ready')
+      AND c.joined_at IS NULL
+      AND EXISTS(
+        SELECT 1 FROM activity_events e
+        WHERE e.user_id=c.user_id AND e.chat_id=c.id AND e.event_type='chat_discovery_imported'
+      )
+      AND NOT EXISTS(
+        SELECT 1 FROM chat_discovery_candidates dc
+        WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id
+      )
+      AND NOT EXISTS(SELECT 1 FROM chat_publications p WHERE p.user_id=c.user_id AND p.chat_id=c.id)
+      AND NOT EXISTS(SELECT 1 FROM leads l WHERE l.user_id=c.user_id AND l.source_chat_id=c.id)
+    ORDER BY c.updated_at,c.id LIMIT 200`).bind(userId).all<{id:string}>();
+  let archived=0;
+  for(const row of rows.results){
+    const chat=await readChatState(db,userId,row.id);
+    if(!chat||chat.joined_at!==null||!['to_join','waiting','ready'].includes(chat.workflow_status))continue;
+    const result=await transitionChat(db,{
+      userId,chat,action:'archive',accountId:null,now,
+      reason:'Очищено: старий автопошук',
+    });
+    if(result.ok)archived++;
+  }
+  const joined=await db.prepare(`SELECT COUNT(DISTINCT c.id) AS count
+    FROM chats c
+    WHERE c.user_id=?1 AND c.platform='whatsapp'
+      AND c.workflow_status IN ('to_join','waiting','ready')
+      AND c.joined_at IS NOT NULL
+      AND EXISTS(
+        SELECT 1 FROM activity_events e
+        WHERE e.user_id=c.user_id AND e.chat_id=c.id AND e.event_type='chat_discovery_imported'
+      )
+      AND NOT EXISTS(
+        SELECT 1 FROM chat_discovery_candidates dc
+        WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id
+      )`).bind(userId).first<{count:number}>();
+  return { archived, requiresExternalLeave:Number(joined?.count||0) };
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -59,6 +104,9 @@ export async function POST(request: Request): Promise<Response> {
     }
     if (body.action === 'reset') {
       return json(await resetDiscoveryWorkspace(env.DB, user.id));
+    }
+    if (body.action === 'archive-stale-imports') {
+      return json(await archiveStaleDiscoveryImports(env.DB, user.id, now));
     }
     if (body.action === 'start') {
       const run = await startDiscoveryRun(env.DB, user.id, {

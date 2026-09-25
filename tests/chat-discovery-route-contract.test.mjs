@@ -8,6 +8,10 @@ void test('Chat Discovery mutation route preserves the browser API contract', as
   assert.match(route, /readJsonObject\(request, 256 \* 1024\)/);
   assert.match(route, /Math\.floor\(Date\.now\(\) \/ 1000\)/);
   assert.match(route, /if \(body\.action === 'start'\)/);
+  assert.match(route, /if \(body\.action === 'archive-stale-imports'\)/);
+  assert.match(route, /event_type='chat_discovery_imported'/);
+  assert.match(route, /joined_at IS NULL/);
+  assert.match(route, /Очищено: старий автопошук/);
   assert.match(route, /return json\(\{ run \}\)/);
   assert.match(route, /if \(body\.action === 'cancel'\)/);
   assert.match(route, /Number\.isSafeInteger\(body\.version\)/);

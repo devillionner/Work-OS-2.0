@@ -1,5 +1,12 @@
 # Development status — 2026-09-25
 
+## 2026-09-25 — stale Discovery imports cleanup
+
+- The clean Discovery reset intentionally preserved linked Work OS chats as dedupe anchors, which left old auto-imported rows visible in the main WhatsApp queues.
+- Added a recovery action that archives only stale WhatsApp chats proven to originate from `chat_discovery_imported`, have no current Discovery candidate, have never been joined, and have no publications or leads.
+- The cleanup preserves those rows as dedupe anchors so the fresh run does not immediately rediscover the same old links.
+- Any stale imported chat that was actually joined is reported separately and is not silently archived; it requires verified external WhatsApp leave first.
+
 ## 2026-09-25 — clean Discovery restart support
 
 - Added an authenticated `reset` action for Chat Discovery that removes only Discovery runs, candidate rows and their source rows for the current user.
