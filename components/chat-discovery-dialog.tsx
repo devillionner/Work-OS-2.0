@@ -324,7 +324,6 @@ export function ChatDiscoveryDialog({
     onClose();
   }
 
-  const run = workspace.run;
   const persistedTotal = Object.values(workspace.counts).reduce((sum, value) => sum + value, 0);
   const total = persistedTotal + localPreview.candidates.length;
   const reviewCount=workspace.counts.review+localPreview.candidates.length;
