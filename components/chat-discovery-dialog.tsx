@@ -256,7 +256,7 @@ export function ChatDiscoveryDialog({
     if(telegramBusy)return;
     setError('');
     setNotice('');
-    setFilter('review');
+    setFilter('target');
     try{window.sessionStorage.removeItem(LOCAL_PREFLIGHT_RESULTS_KEY);}catch{}
     setLocalPreview({
       ...EMPTY_LOCAL_PREVIEW,
@@ -454,7 +454,9 @@ export function ChatDiscoveryDialog({
       if(isLocalPreview(candidate))removeLocalPreview(candidate.id);
       setNotice(payload.existing
         ? 'Чат уже був у Work OS — локальний preview прибрано без дубля.'
-        : 'Підтверджено: чат записано в D1 і додано в чергу «Для приєднання».');
+        : isLocalPreview(candidate)
+          ? 'Підтверджено: фактично цільовий чат записано в D1 як уже приєднаний і готовий.'
+          : 'Підтверджено: чат записано в D1 і додано в чергу «Для приєднання».');
       onImported(candidate.platform as DiscoveryPlatform);
       await load(filter);
     } catch (reason) {
@@ -600,7 +602,7 @@ export function ChatDiscoveryDialog({
                 <details className="rounded-xl border border-border/70 bg-background">
                   <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-foreground/75">Що вважаємо цільовим чатом</summary>
                   <div className="border-t border-border/60 px-3 py-2.5 text-xs leading-5 text-foreground/70">
-                    На етапі пошуку Work OS відсіює за валідністю invite, українською/релевантною аудиторією та контекстом джерела. Учасники, активність, можливість писати й правила оголошень остаточно підтверджуються вже після вступу в WhatsApp.
+                    Work OS відсіює дублі й невалідні invite, відкриває потенційні чати у WhatsApp та вступає лише коли доступний прямий вступ. Чати з approval/request-to-join пропускаються. Після вступу система підтверджує 700–18 000 учасників, українську аудиторію, активність, можливість писати й правила оголошень.
                   </div>
                 </details>
               </div>
@@ -622,7 +624,7 @@ export function ChatDiscoveryDialog({
               {autonomousRunning&&<div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs font-medium leading-5 text-foreground/80">
                 Система сама відкриває потенційні invite у WhatsApp. Прямий вступ → фактична перевірка критеріїв. Чати із запитом на схвалення пропускаються без відправлення заявки. D1 writes = 0 до твого підтвердження.
               </div>}
-              {localPreview.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">Джерела вичерпано: відібрано {localPreview.candidates.length} із {localPreview.goal}. У D1 нічого не записано.</div>}
+              {localPreview.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">Джерела вичерпано: фактично підтверджено {localTargets.length} із {localPreview.goal}. У D1 нічого не записано.</div>}
               {localPreview.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: фактично підтверджено {localTargets.length}/{localPreview.goal} цільових чатів. Перевір список і запиши їх у Work OS.</div>}
               <details className="mt-3 border-t border-border/60 pt-3">
                 <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Технічні деталі</summary>

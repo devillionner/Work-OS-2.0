@@ -124,3 +124,10 @@ void test('runner skips a locally blocked candidate instead of starving the exec
   assert.match(source,/another candidate may continue/);
   assert.doesNotMatch(source,/executor\?limit=20/);
 });
+
+
+void test('source topic cannot substitute factual WhatsApp audience during local preflight',()=>{
+  assert.match(source,/const topic=result\.topicMatch\|\|'unknown'/);
+  assert.doesNotMatch(source,/topic=result\.topicMatch\|\|task\.topicMatch/);
+  assert.doesNotMatch(source,/!result\.topicMatch&&task\.topicMatch==='match'/);
+});

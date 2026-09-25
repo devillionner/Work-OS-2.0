@@ -12,7 +12,7 @@ const unavailablePatterns = [
   { pattern: /(?:group).*(?:no longer available|does not exist)|(?:група).*(?:більше недоступна|не існує)|(?:группа).*(?:больше недоступна|не существует)/iu, reason: 'whatsapp_chat_missing' },
 ];
 
-const requestJoinPattern = /^(?:request to join|подати запит на вступ|отправить запрос на вступление)$/iu;
+const requestJoinPattern = /^(?:request(?: to join)?(?: group| chat| community)?|send (?:a )?request(?: to join)?|подати запит(?: на вступ)?|надіслати запит(?: на вступ)?|отправить запрос(?: на вступление)?|подать заявку(?: на вступление)?)$/iu;
 const directJoinPattern = /^(?:join(?: group| chat| community)?|приєднатися(?: до групи| до чату| до спільноти)?|присоединиться(?: к группе| к чату| к сообществу)?)$/iu;
 const joinPattern = /^(?:join(?: group| chat| community)?|request to join|приєднатися(?: до групи| до чату| до спільноти)?|подати запит на вступ|присоединиться(?: к группе| к чату| к сообществу)?|отправить запрос на вступление)$/iu;
 const viewPattern = /^(?:view(?: group| chat)?|open(?: group| chat)?|continue to chat|переглянути(?: групу| чат)?|відкрити(?: групу| чат)?|продовжити до чату|просмотреть(?: группу| чат)?|открыть(?: группу| чат)?|продолжить в чат)$/iu;
@@ -349,7 +349,7 @@ export function classifyWhatsAppSnapshot(task, snapshot) {
   }
 
   const viewButtonText = firstMatchingButton(snapshot, viewPattern);
-  if (viewButtonText && task.action !== 'join_and_inspect') {
+  if (viewButtonText) {
     return { kind: 'action', action: 'view', buttonText: viewButtonText, observedName };
   }
 
@@ -554,14 +554,15 @@ export async function inspectWhatsappTaskViaCdp(
     const navigatedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);
     let currentTask = task;
     let classified = await waitForClassification(client, currentTask, timeoutMs, null, navigatedInviteCode);
-    if (classified.kind === 'action') {
+    for (let step = 0; step < 3 && classified.kind === 'action'; step += 1) {
       const observedName = classified.observedName || currentTask.expectedTarget?.name || currentTask.name;
       const clicked = await clickExactButton(client, classified.buttonText, observedName);
       if (!clicked) return { kind: 'blocked', reason: 'expected_control_disappeared' };
       const observedTask = classified.observedName
         ? { ...currentTask, name:classified.observedName, expectedTarget:{ ...currentTask.expectedTarget, name:classified.observedName } }
         : currentTask;
-      classified = await waitForClassification(client, observedTask, timeoutMs, classified.action, navigatedInviteCode);
+      const action = classified.action;
+      classified = await waitForClassification(client, observedTask, timeoutMs, action, navigatedInviteCode);
       currentTask = observedTask;
     }
     if (classified.kind === 'result' && classified.result.membershipState === 'joined' && classified.result.targetVerified === true) {

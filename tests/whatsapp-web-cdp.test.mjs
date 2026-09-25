@@ -61,18 +61,20 @@ void test('join is allowed only after exact target verification', () => {
 });
 
 void test('approval-required invite is skipped without sending a join request', () => {
-  const result = classifyWhatsAppSnapshot(task, {
-    url:'https://web.whatsapp.com/accept?code=AbCdEfGh1234',
-    navigatedInviteCode:'AbCdEfGh1234',
-    targetTexts:['Українці Варшава'],
-    headerTitles:[],
-    buttons:['Request to join'],
-    bodyText:'Request to join',
-  });
-  assert.equal(result.kind,'result');
-  assert.equal(result.result.reason,'approval_required');
-  assert.equal(result.result.membershipState,'not_checked');
-  assert.equal(result.result.targetVerified,true);
+  for(const label of ['Request to join','Подати запит на вступ','Надіслати запит на вступ']){
+    const result = classifyWhatsAppSnapshot(task, {
+      url:'https://web.whatsapp.com/accept?code=AbCdEfGh1234',
+      navigatedInviteCode:'AbCdEfGh1234',
+      targetTexts:['Українці Варшава'],
+      headerTitles:[],
+      buttons:[label],
+      bodyText:label,
+    });
+    assert.equal(result.kind,'result',label);
+    assert.equal(result.result.reason,'approval_required',label);
+    assert.equal(result.result.membershipState,'not_checked',label);
+    assert.equal(result.result.targetVerified,true,label);
+  }
 });
 
 void test('approval hint blocks a generic join button before it can send a request', () => {
@@ -87,6 +89,20 @@ void test('approval hint blocks a generic join button before it can send a reque
   assert.equal(result.kind,'result');
   assert.equal(result.result.reason,'approval_required');
   assert.equal(result.result.membershipState,'not_checked');
+});
+
+void test('join preflight may safely open a verified view/continue control before the join step', () => {
+  const result=classifyWhatsAppSnapshot(task,{
+    url:'https://web.whatsapp.com/accept?code=AbCdEfGh1234',
+    navigatedInviteCode:'AbCdEfGh1234',
+    targetTexts:['Українці Варшава'],
+    headerTitles:[],
+    buttons:['Continue to Chat'],
+    bodyText:'Continue to Chat',
+  });
+  assert.deepEqual(result,{
+    kind:'action',action:'view',buttonText:'Continue to Chat',observedName:'Українці Варшава',
+  });
 });
 
 void test('pending membership is reported only for the verified target', () => {

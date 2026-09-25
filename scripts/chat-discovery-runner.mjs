@@ -170,7 +170,7 @@ function evaluateLocalPreflight(task,result){
   const reasons=[];
   const minMembers=Math.max(700,Number(task.minMembers)||700);
   const maxMembers=18000;
-  const topic=result.topicMatch||task.topicMatch||'unknown';
+  const topic=result.topicMatch||'unknown';
   if(result.membershipState!=='joined')reasons.push(result.reason==='approval_required'?'approval_required':'join_not_confirmed');
   if(result.chatType!=='group'&&result.chatType!=='community')reasons.push(result.chatType?'not_discussion_group':'unknown_chat_type');
   if(!Number.isFinite(result.memberCount))reasons.push('unknown_member_count');
@@ -203,7 +203,6 @@ async function processLocalPreflight(task){
   }
 
   const result={...inspected.result};
-  if(!result.topicMatch&&task.topicMatch==='match')result.topicMatch='match';
   if(result.reason==='approval_required'||result.membershipState==='pending'){
     await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
       decision:'skipped',reasonCodes:['approval_required'],result,completedAt:Date.now(),

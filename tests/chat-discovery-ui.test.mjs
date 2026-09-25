@@ -226,3 +226,11 @@ void test('Discovery shows live source progress without recurring D1 workspace p
   assert.doesNotMatch(dialog, /workspace\.run\?\.status!=='running'/);
   assert.doesNotMatch(dialog, /delayMs=nextUpdated/);
 });
+
+
+void test('factual target tab becomes the active local-run view and source exhaustion reports factual count', async () => {
+  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  assert.match(dialog,/setFilter\('target'\)/);
+  assert.match(dialog,/Джерела вичерпано: фактично підтверджено \{localTargets\.length\}/);
+  assert.match(dialog,/фактично цільовий чат записано в D1 як уже приєднаний і готовий/);
+});

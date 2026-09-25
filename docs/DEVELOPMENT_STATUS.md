@@ -1142,3 +1142,5 @@ separate gates after local validation and the required direct confirmation.
 - The local WhatsApp bridge skips factual admin-approval/request-to-join invites without clicking the request control. Existing canonical pending lifecycle remains for older/manual chats, but pending candidates do not count toward autonomous Discovery goal.
 - Joined non-targets are left through the exact-target verified leave adapter before the local result is finalized. A second invite resolving to the same observed chat identity is suppressed rather than inflating target count.
 - Focused source/runner/UI/WhatsApp adapter regressions pass 68/68 in an ephemeral test workspace. Physical live acceptance is not yet claimed: after the workstation reboot Opera is running without the required local CDP endpoint and the Discovery runner is not active.
+
+- Strict follow-up after preflight correction: post-join Ukrainian audience may no longer fall back to source-topic inference; additional request-to-join labels are skipped; WhatsApp preflight can traverse bounded View/Continue → Join steps; final local UI defaults to factual targets and source exhaustion reports factual target count.
