@@ -185,7 +185,7 @@ async function prepareLocalPreviews(
     const key=`${parsed.platform}|${parsed.link}`;
     if(input.knownLinks.has(key)){duplicates++;continue;}
     const current=canonical.get(key)||{platform:parsed.platform,link:parsed.link,name:'',sources:[]};
-    const hint=cleanChatName(record.nameHint||'');
+    const hint=safeDiscoveryNameHint(record.nameHint||'');
     if(!current.name&&hint)current.name=hint;
     const identity=sourceIdentity(record.source);
     if(!current.sources.some(source=>sourceIdentity(source)===identity))current.sources.push(record.source);
@@ -221,6 +221,14 @@ async function prepareLocalPreviews(
     });
   }
   return {previews,duplicates};
+}
+
+function safeDiscoveryNameHint(value:string){
+  const cleaned=cleanChatName(value);
+  if(!cleaned)return '';
+  if(/<\/?[a-z][^>]*>|(?:src|href|class|id)\s*=\s*["']|https?:\/\/|chat\.whatsapp\.com/iu.test(cleaned))return '';
+  if(/(?:notion-|svelte|data-testid|aria-label)/iu.test(cleaned))return '';
+  return /\p{L}/u.test(cleaned)?cleaned:'';
 }
 
 function cleanPlatforms(value:unknown):DiscoveryPlatform[]{

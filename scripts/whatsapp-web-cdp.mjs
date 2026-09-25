@@ -33,6 +33,15 @@ function isGeneratedExpectedName(value) {
   return /^whatsapp\s*·/iu.test(String(value || '').trim());
 }
 
+function isWeakExpectedName(value) {
+  const text=String(value || '').trim();
+  if(!text) return true;
+  if(isGeneratedExpectedName(text)) return true;
+  if(/<\/?[a-z][^>]*>|(?:src|href|class|id)\s*=\s*["']|https?:\/\/|chat\.whatsapp\.com/iu.test(text)) return true;
+  if(/(?:notion-|svelte|data-testid|aria-label)/iu.test(text)) return true;
+  return !/\p{L}/u.test(text);
+}
+
 export function whatsappInviteCode(link) {
   let url;
   try {
@@ -135,7 +144,7 @@ function isLoopbackHost(hostname) {
 function exactTarget(snapshot, task) {
   const expected = task.expectedTarget?.name || task.name;
   if (!expected) return null;
-  if (!isGeneratedExpectedName(expected)) {
+  if (!isWeakExpectedName(expected)) {
     const normalizedExpected = normalizeTargetLabel(expected);
     const candidates = [...(snapshot.headerTitles || []), ...(snapshot.targetHeadings || []), ...(snapshot.targetTexts || [])];
     const exact = candidates.find((value) => normalizeTargetLabel(value) === normalizedExpected);

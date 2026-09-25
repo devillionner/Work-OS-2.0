@@ -147,6 +147,41 @@ void test('generated or approximate names require exact invite-code context befo
 });
 
 
+void test('HTML or URL source noise uses exact invite context instead of trusting the broken name', () => {
+  const noisyTask = {
+    ...task,
+    name: 'om <img src="',
+    expectedTarget: {
+      ...task.expectedTarget,
+      name: 'om <img src="',
+    },
+  };
+  const outsideInvite = classifyWhatsAppSnapshot(noisyTask, {
+    url:'https://web.whatsapp.com/',
+    targetHeadings:['Українці Берлін'],
+    targetTexts:['Українці Берлін'],
+    headerTitles:[],
+    buttons:['Join group'],
+    bodyText:'Join group',
+  });
+  assert.deepEqual(outsideInvite, { kind:'blocked', reason:'target_not_verified' });
+
+  const exactInvite = classifyWhatsAppSnapshot(noisyTask, {
+    url:'https://web.whatsapp.com/accept?code=AbCdEfGh1234',
+    targetHeadings:['Українці Берлін'],
+    targetTexts:['Українці Берлін'],
+    headerTitles:[],
+    buttons:['Join group'],
+    bodyText:'Join group',
+  });
+  assert.deepEqual(exactInvite, {
+    kind:'action',
+    action:'join',
+    buttonText:'Join group',
+    observedName:'Українці Берлін',
+  });
+});
+
 void test('known unavailable text is ignored outside the exact invite context', () => {
   const result = classifyWhatsAppSnapshot(task, {
     url: 'https://web.whatsapp.com/',

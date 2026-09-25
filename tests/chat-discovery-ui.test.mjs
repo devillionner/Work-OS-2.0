@@ -169,3 +169,11 @@ void test('executor panel explains browser/native runtime and fail-closed target
   assert.match(panel, /native desktop path/);
   assert.match(panel, /не підтверджений target/);
 });
+
+
+void test('source name hints fail closed when they contain markup or URL noise', async () => {
+  const preview = await readFile(new URL('../lib/chat-discovery/local-preview.ts', import.meta.url), 'utf8');
+  assert.match(preview, /safeDiscoveryNameHint/);
+  assert.match(preview, /src\|href\|class\|id/);
+  assert.match(preview, /suggestedChatName/);
+});
