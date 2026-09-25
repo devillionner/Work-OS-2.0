@@ -4,7 +4,7 @@
 
 - GO-LIVE-01 is accepted: canonical staging build `1abb3289999c5f0feaf58bfa502e776b077ab7fe` matched remote `main`, Opera exposed local CDP on `127.0.0.1:9222`, authenticated WhatsApp Web was present, and the canonical Discovery runner paired by reading its executor token from the staging Work OS page.
 - GO-LIVE-02 remains open. A real confirmed persisted candidate (`EIGS1EMXVbSJxR7HgeZUXy`) reached the exact WhatsApp invite through the executor. WhatsApp factually returned «Не вдалося приєднатися до цієї групи. Повторіть спробу пізніше.»; direct runtime observation completed in about 23s and returned `whatsapp_join_retry_later` with `targetVerified=true`. No joined/pending state was fabricated.
-- The previous 20s adapter deadline could expire before that factual modal appeared, surfacing `target_not_verified`. Commit `998d2312e9714f5ae1fac362af323b8e704d9720` raises only the WhatsApp invite-resolution default to 45s; qualification criteria, D1 schema and fail-closed semantics are unchanged.
+- The previous 20s adapter deadline could expire before that factual modal appeared, surfacing `target_not_verified`. Commit `d62734136fee5615ccfdd4655232e84529503514` is the corrected timeout change: WhatsApp invite resolution now has a 45s default, and the module passes `node --check` plus a real ESM import smoke. Qualification criteria, D1 schema and fail-closed semantics are unchanged.
 - Next acceptance blocker is external/runtime factual outcome: a confirmed real invite must actually reach `joined` or `pending`; retry-later remains retryable and cannot close GO-LIVE-02.
 
 # Development status — 2026-09-24
