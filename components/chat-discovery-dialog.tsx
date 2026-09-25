@@ -716,9 +716,9 @@ function Criterion({ label, value, state }: CriterionItem) {
     : state === 'bad'
       ? 'bg-destructive'
       : 'bg-amber-500';
-  return <div className="min-w-0 rounded-xl border border-border/60 bg-background px-3 py-2.5">
-    <div className="flex items-center gap-1.5 truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground"><span className={`size-1.5 shrink-0 rounded-full ${dot}`}/>{label}</div>
-    <div className="mt-0.5 truncate text-sm font-medium text-foreground">{value}</div>
+  return <div className="min-w-0 rounded-xl border border-border/70 bg-card px-3 py-2.5 text-card-foreground">
+    <div className="flex items-center gap-1.5 truncate text-[10px] font-semibold uppercase tracking-wide text-foreground/70"><span className={`size-1.5 shrink-0 rounded-full ${dot}`}/>{label}</div>
+    <div className="mt-0.5 truncate text-sm font-semibold text-foreground">{value}</div>
   </div>;
 }
 
