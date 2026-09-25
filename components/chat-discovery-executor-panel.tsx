@@ -53,14 +53,18 @@ export function ChatDiscoveryExecutorPanel() {
     finally{setBusy(false);}
   }
 
-  return <section className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm" aria-label="Executor пошуку чатів">
+  return <section className="rounded-2xl border border-border/70 bg-card p-4 shadow-sm" aria-label="Executor пошуку чатів">
     <div className="flex items-start gap-3">
-      <Cable className="mt-0.5 size-4 shrink-0"/>
-      <div className="min-w-0 flex-1">
-        <h3 className="font-semibold">Executor</h3>
-        <p className="mt-1 text-xs text-muted-foreground">Окреме підключення для runner: WhatsApp працює через авторизований WhatsApp Web, Viber — через native desktop path. Token показується один раз.</p>
-        <p className="mt-1 text-xs text-muted-foreground">Невідомий або не підтверджений target завжди зупиняє дію: Work OS не приймає membership, inspection чи leave навмання.</p>
+      <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+        <Cable className="size-4"/>
       </div>
+      <div className="min-w-0 flex-1">
+        <h3 className="text-base font-semibold">Executor</h3>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">Підключення runner до авторизованого WhatsApp Web. Token показується лише один раз.</p>
+      </div>
+    </div>
+    <div className="mt-3 rounded-xl bg-muted/30 px-3 py-2 text-[11px] leading-4 text-muted-foreground ring-1 ring-border/50">
+      Непідтверджений target зупиняє дію — Work OS не зараховує вступ, перевірку або вихід навмання.
     </div>
     <div className="mt-3 flex flex-col gap-2 sm:flex-row">
       <Input aria-label="Назва executor" value={name} onChange={event=>setName(event.target.value)} maxLength={80}/>
@@ -77,7 +81,7 @@ export function ChatDiscoveryExecutorPanel() {
     </div>}
     {error&&<div className="workspace-error mt-3" role="alert">{error}</div>}
     {devices.length>0&&<div className="mt-3 grid gap-2">
-      {devices.map(device=><div key={device.id} className="flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2">
+      {devices.map(device=><div key={device.id} className="flex min-w-0 items-center gap-2 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5">
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{device.name}</div>
           <div className="text-xs text-muted-foreground">{device.lastSeenAt?'Онлайн був '+formatTime(device.lastSeenAt):'Ще не підключався'}</div>
