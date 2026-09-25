@@ -6,6 +6,7 @@
 - A direct benchmark of the existing curated sources returned 32 WhatsApp invite records in about 2.2 seconds, proving the useful supply was already available but ordered behind thousands of low-yield search tasks.
 - Clean local Discovery now runs one curated bootstrap batch first, then continues through the workbook Telegram/public search plan.
 - Added four additional verified public Ukrainian-community sources for Berlin/Germany, the Netherlands and Prague. These remain read-only external sources and do not change the D1 persistence boundary.
+- Added eight more directly verified Ukrainian-community pages spanning Spain, Italy, Austria, the Netherlands, Finland, Germany and Slovakia; the benchmark exposed 11 additional canonical WhatsApp invite links before D1 dedupe.
 - Search remains local-first: only exact invite dedupe reads may touch D1 before operator confirmation; no intermediate candidate/run/source writes are reintroduced.
 
 ## 2026-09-25 — local-first fast Discovery with strict D1 boundary

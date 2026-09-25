@@ -67,6 +67,14 @@ const CURATED_SOURCES = [
   ['UA-DE HELP · Німеччина', 'https://t.me/s/ua_de_help?before=53', 'українці Німеччина допомога міста WhatsApp'],
   ['Українці в Нідерландах', 'https://t.me/s/ukrainians_nl?before=296', 'українці Нідерланди громада WhatsApp'],
   ['ДП Документ · Прага', 'https://t.me/s/prahaPD?before=10161', 'українці Прага Чехія WhatsApp'],
+  ['Ukrainians Abroad · Іспанія', 'https://t.me/s/uaabroad?before=69', 'українці за кордоном Іспанія допомога WhatsApp'],
+  ['PoradaUA · Італія', 'https://poradaua.it/1-veresnia-forum-ukrainskykh-pedahohichnykh-pratsivnykiv-v-italii/', 'українці Італія вчителі спільнота WhatsApp'],
+  ['Українці в Карінтії', 'https://t.me/s/ukrainer_in_kaernten?q=%23gkk', 'українці Австрія Карінтія допомога WhatsApp'],
+  ['Український Дім · Роттердам', 'https://t.me/s/ukrdam?after=4373', 'українці Нідерланди Роттердам WhatsApp'],
+  ['Українці · Куопіо', 'https://t.me/s/kuopio_ua?after=337', 'українці Фінляндія Куопіо WhatsApp'],
+  ['Українці · Швельм', 'https://t.me/s/UA_Schwelm?before=5671', 'українці Німеччина Швельм WhatsApp'],
+  ['Українці в Австрії · житло', 'https://t.me/s/Shelter_in_Austria/51', 'українці Австрія допомога житло WhatsApp'],
+  ['Українці в Словаччині', 'https://t.me/s/ukrajincivsk?before=2699', 'українці Словаччина WhatsApp'],
 ] as const;
 
 export type TelegramSearchTask = {
