@@ -56,7 +56,7 @@ void test('Discovery executor source-crawls only for an explicit active autonomo
   ]);
   assert.match(runner,/queue\?\.sourceAdvanceNeeded===true/);
   assert.match(runner,/action:'advance-discovery'/);
-  assert.match(runner,/SOURCE_ADVANCE_MS=60000/);
+  assert.match(runner,/SOURCE_ADVANCE_MS=20000/);
   assert.match(route,/advanceAutonomousDiscoveryRun/);
   assert.match(executor,/sourceAdvanceNeeded: latestRun\?\.status === 'running'/);
 });

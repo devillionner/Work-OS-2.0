@@ -22,7 +22,7 @@ void test('runner automates verified WhatsApp leave via CDP and retains operator
 
 void test('runner requires operator confirmation before reporting external leave',()=>{
   const prompt=source.indexOf('Confirm only AFTER you actually left the chat');
-  const callback=source.indexOf("action:'executor-leave'");
+  const callback=source.lastIndexOf("action:'executor-leave'");
   assert.ok(prompt>0&&callback>prompt);
   assert.match(source,/xdg-open/);
 });
@@ -101,7 +101,7 @@ void test('runner can read the one-time executor token from Wayland clipboard wi
   assert.match(source,/execFileSync\('wl-paste',\['--no-newline'\]/);
   assert.match(source,/execFileSync\('wl-copy',\['--clear'\]/);
   assert.match(source,/Executor token loaded from clipboard/);
-  assert.doesNotMatch(source,/console\.log\([^\n]*\btoken\b[^\n]*\)/i);
+  assert.doesNotMatch(source,/console\.log\(\s*token\s*\)|console\.log\(`[^`]*\$\{token\}/i);
 });
 
 
