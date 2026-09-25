@@ -243,3 +243,11 @@ void test('Preview API transient HTML/5xx does not stop local autonomous search'
   assert.match(dialog,/Автопошук продовжить спроби автоматично/);
   assert.match(dialog,/running:true,lastActivityAt:Date\.now\(\)/);
 });
+
+void test('local Discovery continues when the modal is closed', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.ok(dialog.includes("setLocalPreview(readLocalPreviewSession())"));
+  assert.ok(dialog.includes("if(!localPreviewHydrated)return;"));
+  assert.ok(dialog.includes("if(!localPreviewHydrated||!localPreview.running)return;"));
+  assert.equal(dialog.includes("if(!open||!localPreviewHydrated||!localPreview.running)return;"), false);
+});

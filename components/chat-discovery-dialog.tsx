@@ -145,18 +145,17 @@ export function ChatDiscoveryDialog({
   },[open]);
 
   useEffect(()=>{
-    if(!open)return;
     setLocalPreview(readLocalPreviewSession());
     setLocalPreviewHydrated(true);
-  },[open]);
+  },[]);
 
   useEffect(()=>{
-    if(!open||!localPreviewHydrated)return;
+    if(!localPreviewHydrated)return;
     try{window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(localPreview));}catch{}
-  },[open,localPreviewHydrated,localPreview]);
+  },[localPreviewHydrated,localPreview]);
 
   useEffect(()=>{
-    if(!open||!localPreviewHydrated)return;
+    if(!localPreviewHydrated)return;
     const timer=window.setInterval(()=>{
       let results:Record<string,LocalPreflightPayload>={};
       try{results=JSON.parse(window.sessionStorage.getItem(LOCAL_PREFLIGHT_RESULTS_KEY)||'{}') as Record<string,LocalPreflightPayload>;}catch{}
@@ -164,10 +163,10 @@ export function ChatDiscoveryDialog({
       setLocalPreview(current=>applyLocalPreflightResults(current,results));
     },750);
     return()=>window.clearInterval(timer);
-  },[open,localPreviewHydrated]);
+  },[localPreviewHydrated]);
 
   useEffect(()=>{
-    if(!open||!localPreviewHydrated||!localPreview.running)return;
+    if(!localPreviewHydrated||!localPreview.running)return;
     const targetCount=localPreview.candidates.filter(candidate=>candidate.preflightState==='target').length;
     if(targetCount>=localPreview.goal){
       setLocalPreview(current=>({...current,running:false,done:true,completionReason:'goal_reached',lastActivityAt:Date.now()}));
@@ -228,7 +227,7 @@ export function ChatDiscoveryDialog({
     },350);
     return()=>{cancelled=true;window.clearTimeout(timer);};
   },[
-    open,localPreviewHydrated,localPreview.running,localPreview.telegramCursor,
+    localPreviewHydrated,localPreview.running,localPreview.telegramCursor,
     localPreview.sourceCursor,localPreview.candidates,localPreview.goal,localPreview.sourceExhausted,
   ]);
 
