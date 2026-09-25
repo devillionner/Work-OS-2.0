@@ -1133,3 +1133,12 @@ separate gates after local validation and the required direct confirmation.
 - Default target remains 50 confirmed target chats. This is a search goal, not a guaranteed yield; source exhaustion must be reported honestly.
 - Local-first persistence and D1 budget work from the previous slice are prerequisites, not the final acceptance.
 - Until GO-LIVE-01…09 in ROADMAP are closed, unrelated feature development is intentionally paused.
+
+
+## 2026-09-25 — Discovery local WhatsApp preflight correction
+
+- Product correction after live UI review: a local invite/source match is not a target. The autonomous goal now counts only candidates that are factually opened in WhatsApp Web, directly joined and qualified against the target criteria.
+- Search/preflight remains D1-write-free. Browser session state carries queued/target/rejected/skipped candidates; D1 is used during search only for targeted exact-link duplicate reads. Final operator confirmation is the first Discovery persistence boundary for new target chats.
+- The local WhatsApp bridge skips factual admin-approval/request-to-join invites without clicking the request control. Existing canonical pending lifecycle remains for older/manual chats, but pending candidates do not count toward autonomous Discovery goal.
+- Joined non-targets are left through the exact-target verified leave adapter before the local result is finalized. A second invite resolving to the same observed chat identity is suppressed rather than inflating target count.
+- Focused source/runner/UI/WhatsApp adapter regressions pass 68/68 in an ephemeral test workspace. Physical live acceptance is not yet claimed: after the workstation reboot Opera is running without the required local CDP endpoint and the Discovery runner is not active.

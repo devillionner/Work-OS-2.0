@@ -37,7 +37,7 @@ export async function POST(request:Request):Promise<Response>{
     }
     if(body.action==='confirm'){
       return json(await confirmLocalDiscoveryPreview(env.DB,user.id,{
-        platform:body.platform,link:body.link,name:body.name,sources:body.sources,minMembers:body.minMembers,runId:body.runId,
+        platform:body.platform,link:body.link,name:body.name,sources:body.sources,minMembers:body.minMembers,runId:body.runId,preflight:body.preflight,
       },now));
     }
     throw new DiscoveryError('Невідома preview-дія.');

@@ -2,12 +2,21 @@
 import { execFile, execFileSync } from 'node:child_process';
 import process from 'node:process';
 import readline from 'node:readline/promises';
-import { inspectWhatsappTaskViaCdp, leaveWhatsappTaskViaCdp, readWorkOsExecutorTokenViaCdp, sendWhatsappAutopostViaCdp, toWhatsAppWebInviteUrl } from './whatsapp-web-cdp.mjs';
+import {
+  inspectWhatsappTaskViaCdp,
+  leaveWhatsappTaskViaCdp,
+  readWorkOsExecutorTokenViaCdp,
+  readWorkOsLocalDiscoveryTaskViaCdp,
+  writeWorkOsLocalDiscoveryResultViaCdp,
+  sendWhatsappAutopostViaCdp,
+  toWhatsAppWebInviteUrl,
+} from './whatsapp-web-cdp.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
 const token=await resolveExecutorToken();
-if(!baseUrl||!token){console.error('Set WORK_OS_URL and WORK_OS_EXECUTOR_TOKEN, or use a supported local pairing flag.');process.exit(2);}
+if(!baseUrl){console.error('Set WORK_OS_URL.');process.exit(2);}
+if(!token)console.warn('No executor token yet: local WhatsApp preflight can run, but D1-backed post-confirmation tasks stay paused.');
 if(!process.stdin.isTTY&&!whatsappCdp){
   console.error('Non-interactive Discovery runner requires WORK_OS_WHATSAPP_CDP; exiting before any Work OS/D1 polling.');
   process.exit(2);
@@ -15,6 +24,7 @@ if(!process.stdin.isTTY&&!whatsappCdp){
 const terminal=readline.createInterface({input:process.stdin,output:process.stdout});
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const TASK_POLL_MS=3000;
+const LOCAL_PREFLIGHT_POLL_MS=1500;
 const SOURCE_ADVANCE_MS=20000;
 const EXECUTOR_QUEUE_LIMIT=3;
 const TASK_BLOCK_COOLDOWN_MS=300000;
@@ -156,7 +166,99 @@ async function advanceDiscoverySource(){
   return added>0?'source_added':'source_advanced';
 }
 
+function evaluateLocalPreflight(task,result){
+  const reasons=[];
+  const minMembers=Math.max(700,Number(task.minMembers)||700);
+  const maxMembers=18000;
+  const topic=result.topicMatch||task.topicMatch||'unknown';
+  if(result.membershipState!=='joined')reasons.push(result.reason==='approval_required'?'approval_required':'join_not_confirmed');
+  if(result.chatType!=='group'&&result.chatType!=='community')reasons.push(result.chatType?'not_discussion_group':'unknown_chat_type');
+  if(!Number.isFinite(result.memberCount))reasons.push('unknown_member_count');
+  else if(result.memberCount<minMembers)reasons.push('too_few_members');
+  else if(result.memberCount>maxMembers)reasons.push('too_many_members');
+  if(topic!=='match')reasons.push(topic==='mismatch'?'topic_mismatch':'unknown_topic_match');
+  if(result.canWrite!==true)reasons.push(result.canWrite===false?'cannot_write':'unknown_can_write');
+  if(!['allowed','inferred_allowed','operator_confirmed'].includes(result.adsPolicy||''))reasons.push(result.adsPolicy==='forbidden'?'ads_forbidden':'unknown_ads_allowed');
+  if(result.activityState!=='active')reasons.push(result.activityState==='dead'?'inactive_chat':'unknown_activity');
+  if(result.accessible!==true)reasons.push('access_unavailable');
+  if(result.targetVerified!==true)reasons.push('target_not_verified');
+  return {decision:reasons.length?'rejected':'target',reasonCodes:reasons,topicMatch:topic};
+}
+
+async function processLocalPreflight(task){
+  let inspected;
+  try{
+    inspected=await inspectWhatsappTaskViaCdp(task,{cdpBaseUrl:whatsappCdp});
+  }catch(error){
+    console.warn(`Local WhatsApp preflight CDP unavailable: ${error instanceof Error?error.message:String(error)}`);
+    return 'local_wait';
+  }
+  if(inspected.kind!=='result'){
+    if(WHATSAPP_RUNTIME_TRANSIENT_REASONS.has(inspected.reason))return 'local_wait';
+    await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
+      decision:'unavailable',reasonCodes:[inspected.reason||'preflight_blocked'],
+      result:{status:'failed',reason:inspected.reason||'preflight_blocked'},completedAt:Date.now(),
+    },{cdpBaseUrl:whatsappCdp});
+    return 'local_task';
+  }
+
+  const result={...inspected.result};
+  if(!result.topicMatch&&task.topicMatch==='match')result.topicMatch='match';
+  if(result.reason==='approval_required'||result.membershipState==='pending'){
+    await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
+      decision:'skipped',reasonCodes:['approval_required'],result,completedAt:Date.now(),
+    },{cdpBaseUrl:whatsappCdp});
+    console.log(`Skipped approval-required WhatsApp candidate: ${result.observedName||task.name}`);
+    return 'local_task';
+  }
+  if(result.membershipState!=='joined'){
+    await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
+      decision:'unavailable',reasonCodes:[result.reason||'join_not_confirmed'],result,completedAt:Date.now(),
+    },{cdpBaseUrl:whatsappCdp});
+    return 'local_task';
+  }
+
+  const evaluated=evaluateLocalPreflight(task,result);
+  let leftAfterCheck=false;
+  let leaveReason=null;
+  if(evaluated.decision!=='target'){
+    const leaveTask={
+      ...task,action:'leave',name:result.observedName||task.name,
+      expectedTarget:{name:result.observedName||task.name,link:task.link},
+    };
+    try{
+      const left=await leaveWhatsappTaskViaCdp(leaveTask,{cdpBaseUrl:whatsappCdp});
+      leftAfterCheck=left.kind==='result'&&left.result.left===true;
+      if(!leftAfterCheck)leaveReason=left.reason||'leave_not_confirmed';
+    }catch(error){
+      leaveReason='leave_cdp_unavailable';
+    }
+  }
+  await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
+    decision:evaluated.decision,
+    reasonCodes:evaluated.reasonCodes,
+    result:{...result,topicMatch:evaluated.topicMatch},
+    leftAfterCheck,leaveReason,completedAt:Date.now(),
+  },{cdpBaseUrl:whatsappCdp});
+  console.log(evaluated.decision==='target'
+    ? `Local target verified: ${result.observedName||task.name}`
+    : `Local candidate rejected after join: ${result.observedName||task.name}`);
+  return 'local_task';
+}
+
 async function runOnce(){
+  if(whatsappCdp){
+    try{
+      const local=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp});
+      if(local.kind==='result'&&local.active===true){
+        if(local.task)return processLocalPreflight(local.task);
+        return 'local_wait';
+      }
+    }catch(error){
+      console.warn(`Local Discovery bridge unavailable: ${error instanceof Error?error.message:String(error)}`);
+    }
+  }
+  if(!token)return 'idle';
   const queue=await api(`/api/chat-discovery/executor?limit=${EXECUTOR_QUEUE_LIMIT}`);
   const queuedTasks=Array.isArray(queue.tasks)?queue.tasks:[];
   const task=queuedTasks.find(item=>!taskIsLocallyBlocked(item));
@@ -253,7 +355,10 @@ while(true){
   try{outcome=await runOnce();}
   catch(error){console.error(error instanceof Error?error.message:String(error));}
   let waitMs=idleDelayMs;
-  if(outcome==='task'||outcome==='source_added'){
+  if(outcome==='local_task'||outcome==='local_wait'){
+    waitMs=LOCAL_PREFLIGHT_POLL_MS;
+    idleDelayMs=IDLE_POLL_MIN_MS;
+  }else if(outcome==='task'||outcome==='source_added'){
     waitMs=TASK_POLL_MS;
     idleDelayMs=IDLE_POLL_MIN_MS;
   }else if(outcome==='source_advanced'){

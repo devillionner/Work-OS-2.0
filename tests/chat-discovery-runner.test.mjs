@@ -12,6 +12,17 @@ void test('runner consumes paired executor tasks and posts guarded callbacks',()
   assert.match(source,/action:'executor-leave'/);
   assert.match(source,/function canAdvanceDiscoverySource\(\)\{\s*return false;/);
 });
+void test('runner performs local WhatsApp preflight before any D1-backed executor polling',()=>{
+  assert.match(source,/readWorkOsLocalDiscoveryTaskViaCdp/);
+  assert.match(source,/writeWorkOsLocalDiscoveryResultViaCdp/);
+  assert.match(source,/processLocalPreflight/);
+  assert.match(source,/if\(!token\)return 'idle'/);
+  assert.match(source,/approval_required/);
+  const local=source.indexOf('readWorkOsLocalDiscoveryTaskViaCdp');
+  const d1=source.indexOf('api(\`/api/chat-discovery/executor?limit=');
+  assert.ok(local>0&&d1>local);
+});
+
 void test('runner automates verified WhatsApp leave via CDP and retains operator-confirmed fallback',()=>{
   assert.match(source,/leaveWhatsappTaskViaCdp/);
   assert.match(source,/Verified WhatsApp leave accepted by Work OS/);

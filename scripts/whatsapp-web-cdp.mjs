@@ -3,6 +3,7 @@ const DEFAULT_TIMEOUT_MS = 45_000;
 const POLL_MS = 400;
 
 const pendingPattern = /(?:request(?: to join)? sent|request pending|запит (?:на вступ )?надіслано|запит очікує|заявк[ау] (?:на вступление )?отправлен[а]?|заявк[ау] ожидает)/iu;
+const approvalRequiredPattern = /(?:admin(?:istrator)? approval (?:is )?(?:required|turned on)|an admin (?:must|needs to) approve|request to join|потрібне схвалення адміністратор|адміністратор має схвалити|потрібно подати запит на вступ|требуется одобрение администратора|администратор должен одобрить|нужно отправить запрос на вступление)/iu;
 const adminOnlyPattern = /(?:only admins can send messages|лише адміністратори можуть надсилати повідомлення|только администраторы могут отправлять сообщения)/iu;
 const authPattern = /(?:link with phone number|log in to whatsapp|увійти у whatsapp|войти в whatsapp)/iu;
 const joinRetryLaterPattern = /(?:could(?:n['’]?t| not) join (?:this )?(?:group|community)|try again later|не вдалося приєднатися до (?:цієї )?(?:групи|спільноти)|повторіть спробу пізніше|не удалось присоединиться к (?:этой )?(?:группе|сообществу)|повторите попытку позже)/iu;
@@ -11,6 +12,8 @@ const unavailablePatterns = [
   { pattern: /(?:group).*(?:no longer available|does not exist)|(?:група).*(?:більше недоступна|не існує)|(?:группа).*(?:больше недоступна|не существует)/iu, reason: 'whatsapp_chat_missing' },
 ];
 
+const requestJoinPattern = /^(?:request to join|подати запит на вступ|отправить запрос на вступление)$/iu;
+const directJoinPattern = /^(?:join(?: group| chat| community)?|приєднатися(?: до групи| до чату| до спільноти)?|присоединиться(?: к группе| к чату| к сообществу)?)$/iu;
 const joinPattern = /^(?:join(?: group| chat| community)?|request to join|приєднатися(?: до групи| до чату| до спільноти)?|подати запит на вступ|присоединиться(?: к группе| к чату| к сообществу)?|отправить запрос на вступление)$/iu;
 const viewPattern = /^(?:view(?: group| chat)?|open(?: group| chat)?|continue to chat|переглянути(?: групу| чат)?|відкрити(?: групу| чат)?|продовжити до чату|просмотреть(?: группу| чат)?|открыть(?: группу| чат)?|продолжить в чат)$/iu;
 const leavePattern = /^(?:exit group|leave group|вийти з групи|покинути групу|выйти из группы|покинуть группу)$/iu;
@@ -140,6 +143,98 @@ export async function readWorkOsExecutorTokenViaCdp(
   }
 }
 
+const WORK_OS_LOCAL_PREVIEW_KEY='work-os:chat-discovery-local-preview:v3';
+const WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY='work-os:chat-discovery-local-preflight-results:v1';
+
+export async function readWorkOsLocalDiscoveryTaskViaCdp(
+  workOsUrl,
+  { cdpBaseUrl } = {},
+) {
+  const pageResult=await findWorkOsPageForCdp(workOsUrl,cdpBaseUrl);
+  if(pageResult.kind==='blocked')return pageResult;
+  const client=await createCdpClient(pageResult.page.webSocketDebuggerUrl);
+  try{
+    const response=await client.send('Runtime.evaluate',{
+      expression:`(()=>{
+        const raw=sessionStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_PREVIEW_KEY)});
+        if(!raw)return {active:false,task:null};
+        let state;try{state=JSON.parse(raw);}catch{return {active:false,task:null};}
+        const resultRaw=sessionStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY)});
+        let results={};try{results=resultRaw?JSON.parse(resultRaw):{};}catch{}
+        const candidates=Array.isArray(state?.candidates)?state.candidates:[];
+        const candidate=candidates.find((item)=>
+          item&&item.localOnly===true&&item.preflightState==='queued'&&typeof item.id==='string'
+          &&typeof item.link==='string'&&!results[item.id]
+        )||null;
+        return {
+          active:state?.running===true,
+          goal:Number(state?.goal)||0,
+          task:candidate?{
+            candidateId:candidate.id,
+            runtime:'whatsapp_web',
+            platform:'whatsapp',
+            action:'join_and_inspect',
+            name:String(candidate.name||'WhatsApp candidate'),
+            link:String(candidate.link||''),
+            topicMatch:candidate.topicMatch||'unknown',
+            minMembers:700,
+            expectedTarget:{name:String(candidate.name||'WhatsApp candidate'),link:String(candidate.link||'')},
+          }:null,
+        };
+      })()`,
+      returnByValue:true,
+    });
+    return {kind:'result',...(response?.result?.value||{active:false,task:null})};
+  }finally{client.close();}
+}
+
+export async function writeWorkOsLocalDiscoveryResultViaCdp(
+  workOsUrl,
+  candidateId,
+  payload,
+  { cdpBaseUrl } = {},
+) {
+  const pageResult=await findWorkOsPageForCdp(workOsUrl,cdpBaseUrl);
+  if(pageResult.kind==='blocked')return pageResult;
+  const client=await createCdpClient(pageResult.page.webSocketDebuggerUrl);
+  try{
+    const response=await client.send('Runtime.evaluate',{
+      expression:`(()=>{
+        const key=${JSON.stringify(WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY)};
+        let results={};try{results=JSON.parse(sessionStorage.getItem(key)||'{}');}catch{}
+        results[${JSON.stringify(String(candidateId||''))}]=${JSON.stringify(payload)};
+        const entries=Object.entries(results).slice(-300);
+        sessionStorage.setItem(key,JSON.stringify(Object.fromEntries(entries)));
+        return true;
+      })()`,
+      returnByValue:true,
+    });
+    return response?.result?.value===true?{kind:'result'}:{kind:'blocked',reason:'work_os_result_write_failed'};
+  }finally{client.close();}
+}
+
+async function findWorkOsPageForCdp(workOsUrl,cdpBaseUrl){
+  if(!cdpBaseUrl)return {kind:'blocked',reason:'cdp_not_configured'};
+  const base=normalizeLocalCdpBaseUrl(cdpBaseUrl);
+  if(!base)return {kind:'blocked',reason:'cdp_not_local'};
+  let expectedOrigin;
+  try{
+    const url=new URL(String(workOsUrl||''));
+    if(!['http:','https:'].includes(url.protocol)||url.username||url.password)return {kind:'blocked',reason:'work_os_origin_invalid'};
+    expectedOrigin=url.origin;
+  }catch{return {kind:'blocked',reason:'work_os_origin_invalid'};}
+  const response=await fetch(`${base}/json/list`,{signal:AbortSignal.timeout(4_000)});
+  if(!response.ok)throw new Error(`CDP list HTTP ${response.status}`);
+  const pages=await response.json();
+  const page=Array.isArray(pages)?pages.find((item)=>{
+    if(item?.type!=='page'||!item?.webSocketDebuggerUrl)return false;
+    try{return new URL(item.url||'').origin===expectedOrigin;}catch{return false;}
+  }):null;
+  if(!page)return {kind:'blocked',reason:'work_os_page_not_found'};
+  if(!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl))return {kind:'blocked',reason:'cdp_websocket_not_local'};
+  return {kind:'result',page};
+}
+
 function isLoopbackHost(hostname) {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
 }
@@ -258,7 +353,38 @@ export function classifyWhatsAppSnapshot(task, snapshot) {
     return { kind: 'action', action: 'view', buttonText: viewButtonText, observedName };
   }
 
-  const joinButtonText = firstMatchingButton(snapshot, joinPattern);
+  if (task.action === 'join_and_inspect' && approvalRequiredPattern.test(targetRegionText)) {
+    return {
+      kind:'result',
+      result:{
+        status:'failed',
+        targetVerified:true,
+        accessible:true,
+        membershipState:'not_checked',
+        observedName,
+        chatType:'group',
+        reason:'approval_required',
+      },
+    };
+  }
+
+  const requestButtonText = firstMatchingButton(snapshot, requestJoinPattern);
+  if (requestButtonText && task.action === 'join_and_inspect') {
+    return {
+      kind:'result',
+      result:{
+        status:'failed',
+        targetVerified:true,
+        accessible:true,
+        membershipState:'not_checked',
+        observedName,
+        chatType:'group',
+        reason:'approval_required',
+      },
+    };
+  }
+
+  const joinButtonText = firstMatchingButton(snapshot, directJoinPattern);
   if (joinButtonText && task.action === 'join_and_inspect') {
     return { kind: 'action', action: 'join', buttonText: joinButtonText, observedName };
   }

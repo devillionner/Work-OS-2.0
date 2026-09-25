@@ -36,9 +36,9 @@ Production Worker і production D1 не читати, не мігрувати й
 - Новий recurring/background D1 path не готовий без worst-case requests/day reasoning і regression-test на backoff/fan-out.
 - При daily D1 quota exhaustion припини автоматичні D1-backed probes до reset. Для deploy identity використовуй `/api/build` і Cloudflare build/deployment state.
 - Один operator request не повинен приховано множитися у десятки candidate/queue reads.
-- Ручний/recovery Discovery preview є browser-local і не записує raw candidates/sources/chats у D1 до явного «Підходить → додати».
-- Натискання «Запустити автопошук» є окремою явною authorization boundary: активний goal-driven run може persist-ити bounded candidate work items, auto-handoff WhatsApp candidates у `to_join` і передавати їх executor-у без ручного confirm кожного invite.
-- Executor source-crawl дозволений тільки для explicit active Discovery run, тільки за наявності придатного WhatsApp Web/CDP runtime, з task-first backpressure, bounded source cadence та targeted dedupe. Поза активним run source-crawl заборонений.
+- Discovery source search, raw invite shortlist, WhatsApp preflight і rejected/skipped state є browser-local і не записують candidates/sources/chats у D1 до фінального operator confirm.
+- Натискання «Запустити автопошук» запускає browser-local goal-driven pipeline: source crawl → exact-link dedupe → WhatsApp direct join → factual qualification → verified cleanup. До D1 переходять лише factual targets після явного «Додати N цільових у Work OS».
+- D1-backed executor не source-crawl-ить. Browser-local Discovery може подавати кандидати локальному WhatsApp/CDP bridge з bounded queue; bridge не пише intermediate Discovery state в D1.
 - Goal рахується тільки за фактичними `decision='target'` після messenger qualification; сирі invite/review/pending не наближають goal.
 - Non-interactive executor без працездатного WhatsApp runtime/CDP повинен fail-closed до messenger action; transient logout/page-not-ready/CDP failure не може вигадувати join/pending/joined або накопичувати повторні actions.
 - Не послаблюй `tests/d1-budget-contract.test.mjs`; архітектурна заміна повинна бути рівноцінною або сильнішою.
@@ -66,11 +66,11 @@ Production Worker і production D1 не читати, не мігрувати й
 6. після commit перевір exact staging build/identity; D1-backed smoke роби лише коли він потрібний для цього gate;
 7. онови ROADMAP/DEVELOPMENT_STATUS тільки фактами: implemented / deployed / physically accepted не змішувати.
 
-**Definition of Done:** UI local discovery → explicit confirm → real WhatsApp join/request → pending recheck або factual joined → qualification → target ready / rejected verified leave, без manual SQL/API втручання в normal operator flow, плюс D1 warm-read sanity. Default goal 50 продовжує source plan до 50 confirmed targets або чесного `sources_exhausted`.
+**Definition of Done:** UI local discovery → exact-link dedupe → real WhatsApp direct join → factual qualification → target / rejected verified leave; factual approval-required/request-to-join chats пропускаються без заявки. Goal рахує лише factual targets. Після набору goal оператор підтверджує фінальний список, і лише тоді target chats записуються в D1/Work OS. Без manual SQL/API втручання, плюс D1 warm-read sanity.
 
 Заборонено як fallback до закриття P4-A: cosmetic refactor, broad parity cleanup, Viber real-chat autopost, AI, offline/PWA, production cutover, нові unrelated domains. Manual flow лишається recovery/fallback. Production Worker/D1 — тільки після окремого прямого дозволу.
 
 Кожен запуск має завершуватися короткою відповіддю: який GO-LIVE gate закрито/просунуто, exact main SHA, staging status, що конкретно блокує наступний gate.
 
 
-- **Local-first Discovery / D1 budget rule:** source search, progress, filtering and shortlist state stay in browser sessionStorage. Search may run up to 6 external queries per batch. During search, do not INSERT/UPDATE Discovery runs, candidates, sources or chats. D1 may be consulted only with targeted indexed duplicate lookups for invite links actually found in the current batch. Persist only after explicit operator confirmation via «Додати … до приєднання»; post-join messenger qualification starts after that boundary.
+- **Local-first Discovery / D1 budget rule:** source search, progress, filtering, WhatsApp direct join/qualification and shortlist state stay in browser/runtime session. Search may run up to 6 external queries per batch. Before final confirmation, do not INSERT/UPDATE Discovery runs, candidates, sources or chats. D1 may be consulted only with targeted indexed duplicate lookups for exact invite links found in the current batch. Persist only factual targets after explicit «Додати N цільових у Work OS».

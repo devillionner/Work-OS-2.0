@@ -405,6 +405,15 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [ ] Physical WhatsApp Web acceptance remains pending until a CDP-enabled authenticated session is available.
 
 
+## v0.2.73 — local WhatsApp factual preflight
+
+- [x] Autosearch no longer treats the first N invite URLs as N targets; goal counts only browser-verified target chats.
+- [x] Exact invite URLs are deduped before WhatsApp work; post-join duplicate identity is also suppressed so refreshed invite codes cannot inflate the goal.
+- [x] Browser-local executor opens candidates in WhatsApp Web, auto-joins only direct-join chats, inspects factual criteria, and leaves rejected joined chats with exact-target verification.
+- [x] Factual request/admin-approval invites are skipped without clicking the request control and do not enter the goal.
+- [x] D1 persistence remains after factual qualification and explicit operator confirmation; intermediate search/preflight remains local.
+- [ ] Live acceptance after reboot: CDP-enabled Opera runtime + local executor must be active, then prove 10-target and 30-target runs against real WhatsApp Web.
+
 ## 2026-09-25 — D1 read-budget + local-first Discovery
 
 - [x] Replace Platforms owner-wide queue counts with maintained `chat_queue_counts` read-model and index-friendly 50-row paging.
@@ -413,13 +422,13 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Replace Discovery's up-to-10k owner-wide duplicate scan with targeted `normalized_link IN (...)` lookups for the current preview batch.
 - [x] Move Telegram/public source crawl out of executor persistence and into browser-local preview.
 - [x] Persist raw Discovery candidates nowhere in D1 before explicit operator confirmation.
-- [x] Keep local candidates through F5 in `sessionStorage`, visibly label them «Локально · не в D1», allow local reject, and use «Підходить → додати» as the D1 persistence boundary.
-- [x] Executor processes only confirmed persisted candidates (join / pending recheck / qualification / verified leave) and never advances source discovery.
+- [x] Keep local candidates through F5 in `sessionStorage`; raw invite/search/preflight state stays local and only factual targets may cross the D1 persistence boundary after explicit operator confirmation.
+- [x] Executor never advances source discovery through D1. The local WhatsApp bridge may preflight browser-local candidates before persistence: exact invite → direct join → factual qualification → verified leave when rejected.
 - [x] Regression contracts guard cache coverage, targeted dedupe and the local-first persistence boundary.
-- [ ] Physical end-to-end WhatsApp Web acceptance with a real authenticated CDP session: local discovery → confirm → join/pending → factual qualification → target/reject → verified cleanup.
+- [ ] Physical end-to-end WhatsApp Web acceptance with a real authenticated CDP session: local discovery → exact-link dedupe → direct join (approval-required skipped) → factual qualification → target/reject → verified cleanup → final operator confirm → D1 persistence.
 - [ ] Measure real staging rows_read after quota reset for cold Platforms, warm Platforms, Analytics and Discovery preview; treat any ordinary unchanged warm view that still consumes thousands of rows as a regression.
 - [ ] Tune source yield/false-positive rate against real WhatsApp groups; do not weaken fail-closed qualification to reach the target count.
 
 
 - [x] **FAST-SOURCE-01:** source discovery moved to browser-local burst mode: up to 6 external queries per batch, zero intermediate D1 writes, only targeted duplicate reads for exact found links.
-- [ ] **FAST-SOURCE-02:** live staging acceptance: confirm the local run visibly advances processed/rejected/selected counters, reaches a useful shortlist quickly, and only the explicit final «Додати … до приєднання» action creates D1 rows.
+- [ ] **FAST-SOURCE-02:** live staging acceptance: confirm the local run visibly advances found/WhatsApp-checked/rejected/duplicate/target counters, reaches 10 then 30 factual targets in practical time, skips approval-required chats, and only the explicit final «Додати N цільових у Work OS» action creates Discovery rows in D1.

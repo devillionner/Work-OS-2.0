@@ -60,6 +60,35 @@ void test('join is allowed only after exact target verification', () => {
   });
 });
 
+void test('approval-required invite is skipped without sending a join request', () => {
+  const result = classifyWhatsAppSnapshot(task, {
+    url:'https://web.whatsapp.com/accept?code=AbCdEfGh1234',
+    navigatedInviteCode:'AbCdEfGh1234',
+    targetTexts:['Українці Варшава'],
+    headerTitles:[],
+    buttons:['Request to join'],
+    bodyText:'Request to join',
+  });
+  assert.equal(result.kind,'result');
+  assert.equal(result.result.reason,'approval_required');
+  assert.equal(result.result.membershipState,'not_checked');
+  assert.equal(result.result.targetVerified,true);
+});
+
+void test('approval hint blocks a generic join button before it can send a request', () => {
+  const result = classifyWhatsAppSnapshot(task, {
+    url:'https://web.whatsapp.com/accept?code=AbCdEfGh1234',
+    navigatedInviteCode:'AbCdEfGh1234',
+    targetTexts:['Українці Варшава'],
+    headerTitles:[],
+    buttons:['Join group'],
+    bodyText:'Admin approval is required before you can join this group. Join group',
+  });
+  assert.equal(result.kind,'result');
+  assert.equal(result.result.reason,'approval_required');
+  assert.equal(result.result.membershipState,'not_checked');
+});
+
 void test('pending membership is reported only for the verified target', () => {
   const result = classifyWhatsAppSnapshot(
     { ...task, action: 'check_membership_and_inspect' },

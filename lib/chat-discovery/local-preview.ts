@@ -6,6 +6,7 @@ import {
   inferDiscoveryTopicMatch,
   type DiscoveryCandidate,
 } from './domain.ts';
+import { applyDiscoveryInspection } from './inspection.ts';
 import {
   buildPublicSearchTasks,
   buildTelegramSearchPlan,
@@ -115,7 +116,7 @@ export async function previewTelegramDiscoveryText(
 export async function confirmLocalDiscoveryPreview(
   db:D1Database,
   userId:string,
-  input:{platform?:unknown;link?:unknown;name?:unknown;sources?:unknown;minMembers?:unknown;runId?:unknown},
+  input:{platform?:unknown;link?:unknown;name?:unknown;sources?:unknown;minMembers?:unknown;runId?:unknown;preflight?:unknown},
   now:number,
 ){
   const platform=input.platform==='whatsapp'||input.platform==='viber'?input.platform:null;
@@ -155,7 +156,7 @@ export async function confirmLocalDiscoveryPreview(
         RETURNING version`).bind(runId,now,existingCandidate.id,userId).first<{version:number}>();
       if(attached)existingCandidate.version=Number(attached.version);
     }
-    return handoffDiscoveryCandidate(db,userId,existingCandidate.id,Number(existingCandidate.version),now);
+    return handoffConfirmedLocalCandidate(db,userId,existingCandidate.id,Number(existingCandidate.version),now,input.preflight,activeRun?.min_members??boundedInteger(input.minMembers,700,18_000,700));
   }
 
   const sources=cleanSources(input.sources);
@@ -197,7 +198,65 @@ export async function confirmLocalDiscoveryPreview(
       .bind(candidate.imported_chat_id,userId).first<{id:string;workflow_status:string}>();
     if(chat)return {chatId:chat.id,existing:true,workflowStatus:chat.workflow_status};
   }
-  return handoffDiscoveryCandidate(db,userId,candidate.id,Number(candidate.version),now);
+  return handoffConfirmedLocalCandidate(db,userId,candidate.id,Number(candidate.version),now,input.preflight,minMembers);
+}
+
+async function handoffConfirmedLocalCandidate(
+  db:D1Database,userId:string,candidateId:string,expectedVersion:number,now:number,preflightInput:unknown,minMembers:number,
+){
+  const preflight=validateTargetPreflight(preflightInput,minMembers);
+  const handed=await handoffDiscoveryCandidate(db,userId,candidateId,expectedVersion,now);
+  if(!preflight)return handed;
+  const current=await db.prepare('SELECT version FROM chat_discovery_candidates WHERE id=?1 AND user_id=?2 LIMIT 1')
+    .bind(candidateId,userId).first<{version:number}>();
+  if(!current)throw new DiscoveryError('Підтверджений кандидат зник перед збереженням preflight.',409);
+  const outcome=await applyDiscoveryInspection(db,userId,{
+    candidateId,
+    expectedVersion:Number(current.version),
+    result:preflight,
+    minMembers,
+    requireTargetVerification:true,
+  },now);
+  if(outcome.decision!=='target'){
+    throw new DiscoveryError('Preflight більше не підтверджує всі цільові критерії. Чат не зараховано.',409);
+  }
+  return {...handed,workflowStatus:outcome.workflowStatus,decision:outcome.decision};
+}
+
+function validateTargetPreflight(value:unknown,minMembers:number){
+  if(!value||typeof value!=='object'||Array.isArray(value))return null;
+  const raw=value as Record<string,unknown>;
+  const memberCount=Number(raw.memberCount);
+  const result={
+    status:'inspected',
+    accessible:raw.accessible===true,
+    targetVerified:raw.targetVerified===true,
+    membershipState:raw.membershipState==='joined'?'joined':'not_checked',
+    observedName:typeof raw.observedName==='string'?cleanChatName(raw.observedName):'',
+    chatType:raw.chatType==='community'?'community':raw.chatType==='group'?'group':'unknown',
+    memberCount:Number.isSafeInteger(memberCount)?memberCount:null,
+    topicMatch:raw.topicMatch==='match'?'match':raw.topicMatch==='mismatch'?'mismatch':'unknown',
+    canWrite:typeof raw.canWrite==='boolean'?raw.canWrite:null,
+    adsPolicy:['allowed','operator_confirmed','inferred_allowed','forbidden'].includes(String(raw.adsPolicy))
+      ? String(raw.adsPolicy) as DiscoveryCandidate['adsPolicy']:'unknown',
+    activityState:raw.activityState==='active'?'active':raw.activityState==='dead'?'dead':'unknown',
+  };
+  const evaluated=evaluateDiscoveryCandidate({
+    chatType:result.chatType,
+    memberCount:result.memberCount,
+    topicMatch:result.topicMatch,
+    canWrite:result.canWrite,
+    adsPolicy:result.adsPolicy,
+    activityState:result.activityState,
+    membershipState:result.membershipState,
+    inspectionState:'inspected',
+    accessState:result.accessible?'available':'unavailable',
+    linkState:result.accessible?'valid':'invalid',
+  },minMembers);
+  if(result.targetVerified!==true||evaluated.decision!=='target'){
+    throw new DiscoveryError('До D1 можна підтвердити лише фактично перевірений цільовий чат.',409);
+  }
+  return result;
 }
 
 async function prepareLocalPreviews(

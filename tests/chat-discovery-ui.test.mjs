@@ -13,15 +13,31 @@ void test('Platforms exposes an explicit autonomous outcome loop plus a local ma
   assert.match(workspace, /Знайти чати/);
   assert.match(dialog, /Запустити автопошук/);
   assert.doesNotMatch(dialog, /action:'start'/);
-  assert.match(dialog, /work-os:chat-discovery-local-preview:v2/);
+  assert.match(dialog, /work-os:chat-discovery-local-preview:v3/);
   assert.match(dialog, /running:true/);
   assert.match(dialog, /action:'search'/);
-  assert.match(dialog, /Додати \$\{localPreview\.candidates\.length\} до приєднання/);
+  assert.match(dialog, /localTargets\.length/);
+  assert.match(dialog, /цільових у Work OS/);
   assert.match(dialog, /D1 writes = 0/);
   assert.match(dialog, /sessionStorage/);
   assert.match(dialog, /Відкинути preview/);
   assert.match(previewRoute, /body\.action==='confirm'/);
   assert.match(previewDomain, /confirmLocalDiscoveryPreview/);
+});
+
+void test('local autonomous preflight exposes only factual targets before D1 confirmation', async () => {
+  const [dialog, runner, preview] = await Promise.all([
+    readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../scripts/chat-discovery-runner.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../lib/chat-discovery/local-preview.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(dialog,/LOCAL_PREFLIGHT_RESULTS_KEY/);
+  assert.match(dialog,/preflightState==='target'/);
+  assert.match(dialog,/Тут з'являються тільки підтверджені цільові чати/);
+  assert.match(runner,/readWorkOsLocalDiscoveryTaskViaCdp/);
+  assert.match(runner,/writeWorkOsLocalDiscoveryResultViaCdp/);
+  assert.match(runner,/approval_required/);
+  assert.match(preview,/До D1 можна підтвердити лише фактично перевірений цільовий чат/);
 });
 
 void test('browser-local source crawl uses targeted D1 dedupe and no owner-wide 10k scan', async () => {
@@ -76,7 +92,7 @@ void test('manual Telegram recovery stays local until confirmation', async () =>
 
 void test('discovery UI goal remains WhatsApp-first and requires no manual keyword inputs', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
-  assert.match(dialog, /Відібрати чатів/);
+  assert.match(dialog, /Цільових чатів/);
   assert.match(dialog, /useState\(50\)/);
   assert.match(dialog, /const minMembers = 700/);
   assert.match(dialog, /const platforms: DiscoveryPlatform\[\] = \['whatsapp'\]/);
@@ -190,13 +206,13 @@ void test('source name hints fail closed when they contain markup or URL noise',
 
 void test('operator-first Discovery UI shows useful local throughput and keeps technical details secondary', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
-  assert.match(dialog, /із \{displayedGoal\} цільових/);
-  assert.match(dialog, /Опрацьовано/);
-  assert.match(dialog, /Відібрано/);
+  assert.match(dialog, /із \{displayedGoal\} підтверджених цільових/);
+  assert.match(dialog, /Знайдено invite/);
+  assert.match(dialog, /Перевірено WhatsApp/);
   assert.match(dialog, /Відсіяно/);
   assert.match(dialog, /Дублі \/ відомі/);
   assert.match(dialog, /Технічні деталі/);
-  assert.match(dialog, /Executor після додавання до приєднання/);
+  assert.match(dialog, /Локальний WhatsApp executor/);
   assert.match(dialog, /D1 writes до підтвердження/);
   assert.doesNotMatch(dialog, /<StatTile label="Query"/);
 });
