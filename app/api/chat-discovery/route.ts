@@ -47,7 +47,7 @@ async function archiveStaleDiscoveryImports(db:D1Database,userId:string,now:numb
     });
     if(result.ok)archived++;
   }
-  const joined=await db.prepare(`SELECT COUNT(DISTINCT c.id) AS count
+  const joined=await db.prepare(`SELECT DISTINCT c.id,c.name,c.link,c.workflow_status
     FROM chats c
     WHERE c.user_id=?1 AND c.platform='whatsapp'
       AND c.workflow_status IN ('to_join','waiting','ready')
@@ -59,8 +59,13 @@ async function archiveStaleDiscoveryImports(db:D1Database,userId:string,now:numb
       AND NOT EXISTS(
         SELECT 1 FROM chat_discovery_candidates dc
         WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id
-      )`).bind(userId).first<{count:number}>();
-  return { archived, requiresExternalLeave:Number(joined?.count||0) };
+      )
+    ORDER BY c.updated_at,c.id LIMIT 20`).bind(userId).all<{id:string;name:string;link:string;workflow_status:string}>();
+  return {
+    archived,
+    requiresExternalLeave:joined.results.length,
+    joinedStale:joined.results.map(row=>({id:row.id,name:row.name,link:row.link,status:row.workflow_status})),
+  };
 }
 
 export async function GET(request: Request): Promise<Response> {
