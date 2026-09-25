@@ -350,17 +350,17 @@ export function ChatDiscoveryDialog({
             <Badge variant="secondary">WhatsApp discovery</Badge>
           </div>
           <DialogDescription className="max-w-3xl text-xs sm:text-sm">
-            Один запуск проходить весь seed-корпус міст і ключових шаблонів сам. У ціль зараховуються тільки нові підтверджені WhatsApp-чати після фактичної перевірки; дублі, archived/rejected і unknown не зараховуються.
+            Автопошук проходить seed-корпус міст і ключових шаблонів та тримає нові invite локально в цій вкладці. D1 змінюється лише після твого «Підходить → додати»; дублі й уже відомі чати відсіюються до запису.
           </DialogDescription>
         </DialogHeader>
         <Button className="absolute right-4 top-4" variant="ghost" size="icon" aria-label="Закрити" onClick={close}><X/></Button>
 
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
-          <StatTile label="Цільові" value={run ? `${run.targetCount} / ${run.goal}` : `0 / ${goal}`} />
-          <StatTile label="Query" value={workspace.telegramPlan ? `${workspace.telegramPlan.cursor} / ${workspace.telegramPlan.totalTasks}` : '—'} />
-          <StatTile label="Знайдено" value={String(run?.foundCount ?? total)} />
-          <StatTile label="Перевіряються" value={String(workspace.counts.review)} />
-          <StatTile label="Відсіяно" value={String(workspace.counts.rejected + workspace.counts.unavailable)} />
+          <StatTile label="Цільові" value={`${workspace.counts.target} / ${goal}`} />
+          <StatTile label="Локально" value={String(localPreview.candidates.length)} />
+          <StatTile label="Query" value={String(localPreview.searched)} />
+          <StatTile label="Перевіряються" value={String(reviewCount)} />
+          <StatTile label="Відсіяно" value={String(workspace.counts.rejected + workspace.counts.unavailable + localPreview.duplicates)} />
         </div>
       </header>
 
@@ -391,7 +391,7 @@ export function ChatDiscoveryDialog({
                     min={1}
                     max={100}
                     value={goal}
-                    disabled={run?.status === 'running'}
+                    disabled={telegramBusy}
                     onChange={event => setGoal(clampNumber(event.target.value, 1, 100, 50))}
                   />
                 </label>
@@ -401,23 +401,21 @@ export function ChatDiscoveryDialog({
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                {run?.status === 'running'
-                  ? <Button type="button" variant="outline" onClick={() => void post({ action:'cancel', runId:run.id, version:run.version }).then(() => load(filter)).catch(reason => setError(reason instanceof Error ? reason.message : 'Не вдалося зупинити автопошук.'))}><Square data-icon="inline-start"/>Зупинити автопошук</Button>
-                  : <Button type="button" disabled={telegramBusy} onClick={() => void startAutonomousSearch()}>
-                      {telegramBusy ? <LoaderCircle data-icon="inline-start"/> : <Search data-icon="inline-start"/>}
-                      Запустити автопошук
+                {telegramBusy
+                  ? <Button type="button" variant="outline" onClick={()=>{stopLocalSearch.current=true;}}><Square data-icon="inline-start"/>Зупинити автопошук</Button>
+                  : <Button type="button" onClick={() => void startAutonomousSearch()}>
+                      <Search data-icon="inline-start"/>Запустити автопошук
                     </Button>}
+                {localPreview.candidates.length>0&&<Button type="button" variant="outline" disabled={telegramBusy} onClick={()=>setLocalPreview(EMPTY_LOCAL_PREVIEW)}>Очистити локальний preview</Button>}
               </div>
 
-              {run && <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                <span>Цільові: <strong className="text-foreground">{run.targetCount} / {run.goal}</strong></span>
-                <span>Опрацьовано query: <strong className="text-foreground">{run.searchedQueries}</strong></span>
-                <span>Знайдено invite: <strong className="text-foreground">{run.foundCount}</strong></span>
-                <span>Дублі/відомі: <strong className="text-foreground">{run.duplicateCount}</strong></span>
-              </div>}
-              {run?.completionReason === 'goal_reached' && <p className="mt-2 text-xs font-medium">Ціль досягнута: знайдено {run.targetCount} нових підтверджених цільових чатів.</p>}
-              {run?.completionReason === 'sources_exhausted' && <p className="mt-2 text-xs text-muted-foreground">Доступний seed/source plan вичерпано. Знайдено {run.targetCount} із {run.goal} підтверджених цільових чатів; система не вигадує відсутній результат.</p>}
-              {run?.errorMessage && <p className="mt-2 text-xs text-destructive">{run.errorMessage}</p>}
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span>Локально: <strong className="text-foreground">{localPreview.candidates.length}</strong></span>
+                <span>Опрацьовано query: <strong className="text-foreground">{localPreview.searched}</strong></span>
+                <span>Дублі/відомі: <strong className="text-foreground">{localPreview.duplicates}</strong></span>
+                <span>D1: <strong className="text-foreground">0 записів до підтвердження</strong></span>
+              </div>
+              {localPreview.done&&<p className="mt-2 text-xs text-muted-foreground">Доступний source plan для цього локального сеансу вичерпано.</p>}
             </section>
 
             <details className="rounded-2xl border border-border/70 bg-background shadow-sm">
@@ -481,16 +479,16 @@ export function ChatDiscoveryDialog({
                   </div>}
 
                   <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                    <Button type="button" variant="outline" disabled={telegramBusy || !telegramText.trim() || (telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim())) || workspace.run?.status !== 'running' || !currentTask?.query} onClick={() => void ingestTelegramScan(false)}>
+                    <Button type="button" variant="outline" disabled={telegramBusy || !telegramText.trim() || (telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim()))} onClick={() => void ingestTelegramScan(false)}>
                       {telegramBusy ? <LoaderCircle data-icon="inline-start"/> : <ExternalLink data-icon="inline-start"/>}
-                      {telegramBusy ? 'Обробляємо…' : 'Зберегти джерело'}
+                      {telegramBusy ? 'Обробляємо…' : 'Додати локально'}
                     </Button>
-                    <Button type="button" disabled={telegramBusy || !telegramText.trim() || (telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim())) || workspace.run?.status !== 'running' || !currentTask?.query} onClick={() => void ingestTelegramScan(true)}>
-                      Завершити query → наступний
+                    <Button type="button" disabled={telegramBusy || !telegramText.trim() || (telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim()))} onClick={() => void ingestTelegramScan(true)}>
+                      Додати локально й очистити
                     </Button>
                   </div>
                   <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                    «Зберегти джерело» не рухає план. «Завершити query» просуває cursor рівно на один крок.
+                    Обидві дії додають знайдені invite лише в sessionStorage. Друга також очищає поля ручного джерела.
                   </p>
                 </section>
               </div>
@@ -503,15 +501,15 @@ export function ChatDiscoveryDialog({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="font-semibold">Кандидати</h3>
-                <p className="text-xs text-muted-foreground">{total} знайдено · {workspace.importedCount} уже в Work OS</p>
+                <p className="text-xs text-muted-foreground">{total} разом · {localPreview.candidates.length} локально · {workspace.importedCount} уже в Work OS</p>
               </div>
-              <Badge variant="secondary">{filter === 'all' ? 'Усі' : filter === 'waiting-whatsapp' ? 'WhatsApp · Очікування' : decisionLabel(filter)} · {filter === 'all' ? total : filter === 'waiting-whatsapp' ? workspace.waitingWhatsAppCount : workspace.counts[filter]}</Badge>
+              <Badge variant="secondary">{filter === 'all' ? 'Усі' : filter === 'waiting-whatsapp' ? 'WhatsApp · Очікування' : decisionLabel(filter)} · {filter === 'all' ? total : filter === 'waiting-whatsapp' ? workspace.waitingWhatsAppCount : filter==='review' ? reviewCount : workspace.counts[filter]}</Badge>
             </div>
             <div className="mt-3 flex gap-1 overflow-x-auto rounded-xl bg-muted/50 p-1" role="tablist" aria-label="Фільтр кандидатів">
               {([
                 ['all', 'Усі', total],
                 ['waiting-whatsapp', 'WA · Очікування', workspace.waitingWhatsAppCount],
-                ['review', 'Перевірка', workspace.counts.review],
+                ['review', 'Перевірка', reviewCount],
                 ['target', 'Цільові', workspace.counts.target],
                 ['rejected', 'Відхилені', workspace.counts.rejected],
                 ['unavailable', 'Недоступні', workspace.counts.unavailable],
@@ -531,12 +529,12 @@ export function ChatDiscoveryDialog({
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
-            {loading&&workspace.candidates.length>0?<WorkspaceInlineLoading label="Оновлюємо кандидатів…"/>:null}
-            {loading&&workspace.candidates.length===0
+            {loading&&displayCandidates.length>0?<WorkspaceInlineLoading label="Оновлюємо підтверджених кандидатів…"/>:null}
+            {loading&&displayCandidates.length===0
               ? <WorkspaceInlineLoading label="Завантажуємо кандидатів…"/>
-              : workspace.candidates.length
+              : displayCandidates.length
                 ? <div className="grid gap-3">
-                  {workspace.candidates.map(candidate => {
+                  {displayCandidates.map(candidate => {
                     const criteria = candidateCriteria(candidate);
                     return <article key={candidate.id} className="min-w-0 rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
                       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -544,6 +542,7 @@ export function ChatDiscoveryDialog({
                           <div className="flex flex-wrap items-center gap-1.5">
                             <Badge variant={candidate.decision === 'target' ? 'default' : candidate.decision === 'review' ? 'secondary' : 'outline'}>{decisionLabel(candidate.decision)}</Badge>
                             <Badge variant="outline">{platformLabel(candidate.platform)}</Badge>
+                            {isLocalPreview(candidate)&&<Badge variant="outline">Локально · не в D1</Badge>}
                             {candidate.importedChatId && <Badge variant="outline">{membershipLabel(candidate.membershipState)}</Badge>}
                           </div>
                           <h4 className="mt-2 break-words font-semibold leading-snug">{candidate.name || candidate.link}</h4>
@@ -572,12 +571,12 @@ export function ChatDiscoveryDialog({
                         {!candidate.importedChatId && candidate.decision === 'review' &&
                           <Button type="button" size="sm" variant="outline" disabled={inspectingId !== null} onClick={() => void markInviteInvalid(candidate)}>
                             {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                            Invite недійсний
+                            {isLocalPreview(candidate)?'Відкинути локально':'Invite недійсний'}
                           </Button>}
                         {!candidate.importedChatId && (candidate.decision === 'review' || candidate.decision === 'target') &&
                           <Button type="button" size="sm" disabled={importingId !== null || inspectingId !== null} onClick={() => void importCandidate(candidate)}>
                             {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                            Додати на перевірку
+                            {isLocalPreview(candidate)?'Підходить → додати':'Додати на перевірку'}
                           </Button>}
                         {candidate.importedChatId && candidate.membershipState !== 'left' &&
                           <Button type="button" size="sm" variant="outline" onClick={() => toggleManualInspection(candidate)}>
