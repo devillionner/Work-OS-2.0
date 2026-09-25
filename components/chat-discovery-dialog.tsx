@@ -338,23 +338,23 @@ export function ChatDiscoveryDialog({
 
   return <Dialog open={open} onOpenChange={next => { if (!next) close(); }}>
     <DialogContent
-      className="h-[min(94dvh,980px)] w-[calc(100vw-20px)] !max-w-[1320px] !flex !flex-col gap-0 overflow-hidden !rounded-[24px] border-border/80 bg-background !p-0 shadow-2xl sm:w-[calc(100vw-32px)] sm:!max-w-[1320px]"
+      className="h-[min(92dvh,920px)] w-[calc(100vw-20px)] !max-w-[1240px] !flex !flex-col gap-0 overflow-hidden !rounded-[20px] border-border/80 bg-background !p-0 shadow-xl sm:w-[calc(100vw-32px)] sm:!max-w-[1240px]"
       overlayClassName="bg-black/45 supports-backdrop-filter:backdrop-blur-[2px]"
       showCloseButton={false}
     >
-      <header className="relative border-b border-border/70 bg-background/98 px-5 py-4 backdrop-blur sm:px-6 sm:py-5">
-        <DialogHeader className="gap-1.5 pr-14">
+      <header className="relative border-b border-border/70 bg-background px-4 py-4 sm:px-6">
+        <DialogHeader className="gap-1 pr-14">
           <div className="flex flex-wrap items-center gap-2">
-            <DialogTitle className="text-xl font-bold tracking-tight">Пошук нових чатів</DialogTitle>
+            <DialogTitle className="text-lg font-semibold tracking-tight sm:text-xl">Пошук нових чатів</DialogTitle>
             <Badge variant="secondary">WhatsApp discovery</Badge>
           </div>
-          <DialogDescription className="max-w-4xl text-sm leading-5 text-muted-foreground">
-            Автопошук проходить seed-корпус міст і ключових шаблонів та тримає нові invite локально в цій вкладці. D1 змінюється лише після твого «Підходить → додати»; дублі й уже відомі чати відсіюються до запису.
+          <DialogDescription className="max-w-3xl text-xs leading-5 text-muted-foreground sm:text-sm">
+            Знайдені invite спочатку залишаються локально. У Work OS вони потрапляють тільки після «Підходить → додати».
           </DialogDescription>
         </DialogHeader>
-        <Button className="absolute right-4 top-4 rounded-xl border border-border/70 bg-background shadow-sm sm:right-5 sm:top-5" variant="ghost" size="icon" aria-label="Закрити" onClick={close}><X/></Button>
+        <Button className="absolute right-3 top-3 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground sm:right-4 sm:top-4" variant="ghost" size="icon" aria-label="Закрити" onClick={close}><X/></Button>
 
-        <div className="mt-4 grid grid-cols-2 gap-2.5 lg:grid-cols-5">
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
           <StatTile label="Цільові" value={`${workspace.counts.target} / ${goal}`} />
           <StatTile label="Локально" value={String(localPreview.candidates.length)} />
           <StatTile label="Query" value={String(localPreview.searched)} />
@@ -368,10 +368,10 @@ export function ChatDiscoveryDialog({
         {notice && !error && <output className="reports-notice">{notice}</output>}
       </div>}
 
-      <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[360px_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[390px_minmax(0,1fr)]">
-        <div className="border-b border-border/70 bg-muted/20 p-4 sm:p-5 lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-4 xl:p-5">
+      <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[330px_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[350px_minmax(0,1fr)]">
+        <div className="border-b border-border/70 bg-muted/10 p-4 lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r">
           <div className="grid gap-3">
-            <section className="rounded-2xl border border-border/70 bg-card p-4 shadow-sm" aria-label="Параметри пошуку">
+            <section className="rounded-2xl border border-border/70 bg-background p-4" aria-label="Параметри пошуку">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <h3 className="text-base font-semibold">Запуск пошуку</h3>
@@ -394,8 +394,8 @@ export function ChatDiscoveryDialog({
                     onChange={event => setGoal(clampNumber(event.target.value, 1, 100, 50))}
                   />
                 </label>
-                <div className="rounded-xl bg-muted/35 px-3 py-2.5 text-xs leading-5 text-muted-foreground ring-1 ring-border/60">
-                  Критерії фіксовані: українська/українська діаспора, 700–18 000 учасників, живе спілкування, учасники можуть писати, оголошення не заборонені.
+                <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
+                  Українська аудиторія · 700–18 000 учасників · активний чат · можна писати й публікувати оголошення.
                 </div>
               </div>
 
@@ -408,7 +408,7 @@ export function ChatDiscoveryDialog({
                 {localPreview.candidates.length>0&&<Button className="w-full" type="button" size="sm" variant="ghost" disabled={telegramBusy} onClick={()=>setLocalPreview(EMPTY_LOCAL_PREVIEW)}>Очистити локальний preview</Button>}
               </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-muted/25 p-3 text-xs">
+              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border/60 pt-3 text-xs">
                 <span className="grid gap-0.5"><span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Локально</span><strong className="text-sm text-foreground">{localPreview.candidates.length}</strong></span>
                 <span className="grid gap-0.5"><span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Query</span><strong className="text-sm text-foreground">{localPreview.searched}</strong></span>
                 <span className="grid gap-0.5"><span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Дублі / відомі</span><strong className="text-sm text-foreground">{localPreview.duplicates}</strong></span>
@@ -419,8 +419,8 @@ export function ChatDiscoveryDialog({
 
             <ChatDiscoveryExecutorPanel />
 
-            <details className="rounded-2xl border border-border/70 bg-card shadow-sm">
-              <summary className="cursor-pointer select-none px-4 py-3 text-xs font-medium text-muted-foreground">Recovery: ручне Telegram-джерело</summary>
+            <details className="rounded-2xl border border-border/70 bg-background">
+              <summary className="cursor-pointer select-none px-4 py-3 text-xs font-medium text-muted-foreground hover:text-foreground">Ручне джерело з Telegram</summary>
               <div className="border-t border-border/70 p-4">
                 <section className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm" aria-label="Telegram джерело WhatsApp">
                   <div className="flex items-start justify-between gap-3">
@@ -497,7 +497,7 @@ export function ChatDiscoveryDialog({
           </div>
         </div>
 
-        <section className="flex min-h-[480px] min-w-0 flex-col bg-muted/10 lg:min-h-0" aria-label="Кандидати">
+        <section className="flex min-h-[480px] min-w-0 flex-col bg-background lg:min-h-0" aria-label="Кандидати">
           <div className="border-b border-border/70 bg-background px-4 py-3 sm:px-5 sm:py-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -522,14 +522,14 @@ export function ChatDiscoveryDialog({
                   aria-selected={filter === key}
                   disabled={loading}
                   onClick={() => void changeFilter(key)}
-                  className={`shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${filter === key ? 'bg-foreground text-background shadow-sm' : 'bg-muted/35 text-muted-foreground ring-1 ring-border/60 hover:bg-muted/60 hover:text-foreground'}`}
+                  className={`shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${filter === key ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/60 bg-background text-muted-foreground hover:bg-muted/50 hover:text-foreground'}`}
                 >
                   {label} <span className="ml-1 tabular-nums">{count}</span>
                 </button>)}
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4 xl:p-5">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-muted/10 p-3 sm:p-4">
             {loading&&displayCandidates.length>0?<WorkspaceInlineLoading label="Оновлюємо підтверджених кандидатів…"/>:null}
             {loading&&displayCandidates.length===0
               ? <WorkspaceInlineLoading label="Завантажуємо кандидатів…"/>
@@ -537,7 +537,7 @@ export function ChatDiscoveryDialog({
                 ? <div className="grid gap-3">
                   {displayCandidates.map(candidate => {
                     const criteria = candidateCriteria(candidate);
-                    return <article key={candidate.id} className="min-w-0 rounded-2xl border border-border/70 bg-card p-4 shadow-sm sm:p-5">
+                    return <article key={candidate.id} className="min-w-0 rounded-2xl border border-border/70 bg-background p-4">
                       <div className="flex min-w-0 items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-1.5">
@@ -702,23 +702,23 @@ function isLocalPreview(candidate:DiscoveryCandidate):candidate is LocalDiscover
 }
 
 function StatTile({ label, value }: { label: string; value: string }) {
-  return <div className="min-w-0 rounded-xl bg-muted/35 px-3.5 py-2.5 ring-1 ring-border/60">
-    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-    <div className="mt-0.5 truncate text-base font-bold tabular-nums text-foreground">{value}</div>
+  return <div className="flex min-w-[132px] shrink-0 items-baseline justify-between gap-3 rounded-xl border border-border/60 bg-muted/15 px-3 py-2">
+    <div className="truncate text-[11px] font-medium text-muted-foreground">{label}</div>
+    <div className="shrink-0 text-sm font-semibold tabular-nums text-foreground">{value}</div>
   </div>;
 }
 
 type CriterionItem = { label: string; value: string; state: 'ok' | 'warn' | 'bad' };
 
 function Criterion({ label, value, state }: CriterionItem) {
-  const tone = state === 'ok'
-    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-950 dark:text-emerald-100'
+  const dot = state === 'ok'
+    ? 'bg-emerald-500'
     : state === 'bad'
-      ? 'border-destructive/30 bg-destructive/10 text-destructive'
-      : 'border-amber-500/25 bg-amber-500/10 text-amber-950 dark:text-amber-100';
-  return <div className={`min-w-0 rounded-xl border px-3 py-2.5 ${tone}`}>
-    <div className="truncate text-[10px] font-semibold uppercase tracking-wide opacity-70">{label}</div>
-    <div className="mt-0.5 truncate text-sm font-semibold">{value}</div>
+      ? 'bg-destructive'
+      : 'bg-amber-500';
+  return <div className="min-w-0 rounded-xl border border-border/60 bg-background px-3 py-2.5">
+    <div className="flex items-center gap-1.5 truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground"><span className={`size-1.5 shrink-0 rounded-full ${dot}`}/>{label}</div>
+    <div className="mt-0.5 truncate text-sm font-medium text-foreground">{value}</div>
   </div>;
 }
 
