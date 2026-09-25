@@ -203,6 +203,10 @@ async function processLocalPreflight(task){
   }
 
   const result={...inspected.result};
+  if(result.reason==='whatsapp_join_retry_later'){
+    markWhatsappRuntimeBlocked('whatsapp_join_retry_later');
+    return 'local_wait';
+  }
   if(result.reason==='approval_required'||result.membershipState==='pending'){
     await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
       decision:'skipped',reasonCodes:['approval_required'],result,completedAt:Date.now(),
@@ -249,6 +253,7 @@ async function runOnce(){
   if(whatsappCdp){
     try{
       const local=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp});
+      if(local.kind==='result'&&local.active===true&&Date.now()<whatsappRuntimeBlockedUntil)return 'local_wait';
       if(local.kind==='result'&&local.active===true){
         if(local.task)return processLocalPreflight(local.task);
         return 'local_wait';
