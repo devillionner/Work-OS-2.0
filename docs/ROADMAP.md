@@ -16,10 +16,11 @@
 
 **Stop condition:** не переходити до наступного roadmap slice, доки цей блок не має live staging acceptance або конкретного зовнішнього blocker, який неможливо усунути кодом/конфігурацією в поточному запуску.
 
-- [x] Local-first source preview: raw findings не пишуться в D1.
+- [x] Manual/recovery source preview лишається local-first: raw findings не пишуться в D1 до ручного confirm.
 - [x] Targeted dedupe замість owner-wide candidate/chat scan.
-- [x] Explicit confirm → persisted candidate → canonical `to_join`.
-- [x] Executor source crawl вимкнений; executor обробляє тільки confirmed persisted messenger tasks.
+- [x] Manual confirm → persisted candidate → canonical `to_join`.
+- [x] Explicit «Запустити автопошук» запускає окремий goal-driven autonomous run: bounded source crawl → persisted work item → auto-handoff → messenger qualification без ручного confirm кожного invite.
+- [x] Executor просуває source plan лише для active run, task-first і з bounded cadence; поза active run source crawl вимкнений.
 - [x] WhatsApp Web CDP adapter має exact-target/fail-closed inspection, pending/joined facts, factual qualification і verified leave primitives.
 - [x] **GO-LIVE-01:** staging exact HEAD green; authenticated WhatsApp Web runtime реально доступний executor-у.
 - [ ] **GO-LIVE-02:** один реальний local candidate проходить UI → confirm → exact WhatsApp target → join/request without manual API/SQL.\n  - 2026-09-25 live evidence: confirmed persisted candidate reached authenticated Opera/WhatsApp Web through the paired executor. The exact invite produced a factual WhatsApp «Повторіть спробу пізніше» response after ~23s; no joined/pending state was invented. Runtime default wait was raised from 20s to 45s so this factual outcome is observed instead of timing out as `target_not_verified`. Gate remains open until a real invite actually reaches joined or pending.

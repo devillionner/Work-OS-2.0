@@ -92,7 +92,20 @@ export async function startDiscoveryRun(
   const goal = boundedInteger(input.goal, 1, 100, 50);
   const minMembers = boundedInteger(input.minMembers, 700, 18_000, 700);
   const existing = await activeRun(db, userId);
-  if (existing) return mapRun(existing);
+  if (existing) {
+    if (existing.goal !== goal) {
+      const retargeted = await db.prepare(`UPDATE chat_discovery_runs
+        SET goal=?1,updated_at=?2,version=version+1
+        WHERE id=?3 AND user_id=?4 AND status='running' AND version=?5 RETURNING id`)
+        .bind(goal, now, existing.id, userId, existing.version).first<{id:string}>();
+      if (!retargeted) {
+        const concurrent = await activeRun(db, userId);
+        if (concurrent) return reconcileDiscoveryRunGoal(db, userId, concurrent.id, now);
+        throw new DiscoveryError('Активний автопошук змінився. Запусти його ще раз.', 409);
+      }
+    }
+    return reconcileDiscoveryRunGoal(db, userId, existing.id, now);
+  }
   const previous = await latestRun(db, userId);
   const previousTelegramCursor = Math.max(0, Number(previous?.telegram_cursor || 0));
   const telegramCursor = buildTelegramSearchPlan(previousTelegramCursor, 1).done ? 0 : previousTelegramCursor;
@@ -535,9 +548,9 @@ async function persistDiscoveryBatch(
     canonical.set(key, item);
   }
 
-  const platforms = parsePlatforms(run.platforms_json);
-  const existingChats = await readExistingCanonicalLinks(db, userId, platforms);
-  const existingCandidates = await readExistingCandidates(db, userId, [...canonical.values()].map((item) => item.link));
+  const canonicalLinks = [...canonical.values()].map((item) => item.link);
+  const existingChats = await readExistingCanonicalLinks(db, userId, canonicalLinks);
+  const existingCandidates = await readExistingCandidates(db, userId, canonicalLinks);
   let duplicates = 0;
   let added = 0;
   const autoHandoffIds: string[] = [];
@@ -628,11 +641,12 @@ async function persistDiscoveryBatch(
   return { run: updated, added, duplicates };
 }
 
-async function readExistingCanonicalLinks(db: D1Database, userId: string, platforms: DiscoveryPlatform[]) {
+async function readExistingCanonicalLinks(db: D1Database, userId: string, links: string[]) {
+  const canonicalLinks = [...new Set(links)].slice(0, 250);
+  if (!canonicalLinks.length) return new Set<string>();
   const result = await db.prepare(`SELECT id,platform,link,normalized_link,workflow_status FROM chats
-    WHERE user_id=?1 AND platform IN (SELECT value FROM json_each(?2)) LIMIT 10001`)
-    .bind(userId, JSON.stringify(platforms)).all<ExistingChat>();
-  if (result.results.length > 10_000) throw new DiscoveryError('У базі понад 10 000 чатів на вибраних платформах. Спочатку перевірте дублікати.', 409);
+    WHERE user_id=?1 AND normalized_link IN (SELECT value FROM json_each(?2))`)
+    .bind(userId, JSON.stringify(canonicalLinks)).all<ExistingChat>();
   const keys = new Set<string>();
   for (const chat of result.results) {
     for (const value of [chat.link, chat.normalized_link]) {
@@ -652,14 +666,13 @@ async function readExistingCandidates(db: D1Database, userId: string, links: str
 }
 
 async function findExistingChat(db: D1Database, userId: string, platform: string, canonicalLink: string) {
-  const rows = await db.prepare(`SELECT id,platform,link,normalized_link,workflow_status FROM chats
-    WHERE user_id=?1 AND platform=?2 LIMIT 10001`).bind(userId, platform).all<ExistingChat>();
-  if (rows.results.length > 10_000) throw new DiscoveryError('На платформі понад 10 000 чатів. Потрібна перевірка дублікатів.', 409);
-  return rows.results.find((row) => {
-    const direct = normalizeGroupLink(row.link);
-    const stored = normalizeGroupLink(row.normalized_link);
-    return direct?.link === canonicalLink || stored?.link === canonicalLink;
-  }) || null;
+  const normalized = await db.prepare(`SELECT id,platform,link,normalized_link,workflow_status FROM chats
+    WHERE user_id=?1 AND platform=?2 AND normalized_link=?3 LIMIT 1`)
+    .bind(userId, platform, canonicalLink).first<ExistingChat>();
+  if (normalized) return normalized;
+  return db.prepare(`SELECT id,platform,link,normalized_link,workflow_status FROM chats
+    WHERE user_id=?1 AND platform=?2 AND link=?3 LIMIT 1`)
+    .bind(userId, platform, canonicalLink).first<ExistingChat>();
 }
 
 async function readSources(db: D1Database, userId: string, candidateIds: string[]) {

@@ -15,6 +15,7 @@ if(!process.stdin.isTTY&&!whatsappCdp){
 const terminal=readline.createInterface({input:process.stdin,output:process.stdout});
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const TASK_POLL_MS=3000;
+const SOURCE_ADVANCE_MS=60000;
 const EXECUTOR_QUEUE_LIMIT=3;
 const TASK_BLOCK_COOLDOWN_MS=300000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
@@ -125,6 +126,7 @@ async function inspectTask(task){
 }
 
 let whatsappRuntimeBlockedUntil=0;
+let nextSourceAdvanceAt=0;
 const taskBlockedUntil=new Map();
 function markTaskBlocked(task,reason){
   taskBlockedUntil.set(task.candidateId,Date.now()+TASK_BLOCK_COOLDOWN_MS);
@@ -142,6 +144,20 @@ function markWhatsappRuntimeBlocked(reason){
   console.warn(`WhatsApp runtime temporarily blocks automated WhatsApp actions (${reason}); retry after cooldown.`);
 }
 function clearWhatsappRuntimeBlock(){whatsappRuntimeBlockedUntil=0;}
+function canAdvanceDiscoverySource(queue){
+  return queue?.sourceAdvanceNeeded===true
+    && Boolean(whatsappCdp)
+    && Date.now()>=whatsappRuntimeBlockedUntil
+    && Date.now()>=nextSourceAdvanceAt;
+}
+async function advanceDiscoverySource(){
+  nextSourceAdvanceAt=Date.now()+SOURCE_ADVANCE_MS;
+  const source=await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'advance-discovery'})});
+  if(!source.advanced)return null;
+  const added=Math.max(0,Number(source.batch?.added)||0);
+  console.log(`Discovery source advanced via ${source.source}: searched ${source.batch?.searched||0}, added ${added}, duplicates ${source.batch?.duplicates||0}; qualified targets ${source.run?.targetCount||0}/${source.run?.goal||0}`);
+  return added>0?'source_added':'source_advanced';
+}
 
 async function runOnce(){
   const queue=await api(`/api/chat-discovery/executor?limit=${EXECUTOR_QUEUE_LIMIT}`);
@@ -149,6 +165,11 @@ async function runOnce(){
   const task=queuedTasks.find(item=>!taskIsLocallyBlocked(item));
   if(!task){
     if(queuedTasks.length)return 'idle';
+
+    if(canAdvanceDiscoverySource(queue)){
+      const sourceOutcome=await advanceDiscoverySource();
+      if(sourceOutcome)return sourceOutcome;
+    }
 
     const automation=await api('/api/messenger-automation/executor?platform=whatsapp');
     if(automation.task?.kind==='whatsapp_autopost'){
@@ -230,8 +251,11 @@ while(true){
   try{outcome=await runOnce();}
   catch(error){console.error(error instanceof Error?error.message:String(error));}
   let waitMs=idleDelayMs;
-  if(outcome==='task'){
+  if(outcome==='task'||outcome==='source_added'){
     waitMs=TASK_POLL_MS;
+    idleDelayMs=IDLE_POLL_MIN_MS;
+  }else if(outcome==='source_advanced'){
+    waitMs=SOURCE_ADVANCE_MS;
     idleDelayMs=IDLE_POLL_MIN_MS;
   }else{
     idleDelayMs=Math.min(IDLE_POLL_MAX_MS,idleDelayMs*2);

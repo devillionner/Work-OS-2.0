@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 
-void test('Platforms exposes local-first Chat Discovery instead of persisting raw finds', async () => {
+void test('Platforms exposes an explicit autonomous outcome loop plus a local manual fallback', async () => {
   const [workspace, dialog, previewRoute, previewDomain] = await Promise.all([
     readFile(new URL('../components/platform-workspace.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
@@ -12,12 +12,13 @@ void test('Platforms exposes local-first Chat Discovery instead of persisting ra
   assert.match(workspace, /ChatDiscoveryDialog/);
   assert.match(workspace, /Знайти чати/);
   assert.match(dialog, /Запустити автопошук/);
+  assert.match(dialog, /action:'start'/);
+  assert.match(dialog, /runId:run\.id/);
+  assert.match(dialog, /продовжує до \$\{run\.goal\} цільових чатів/);
   assert.match(dialog, /work-os:chat-discovery-local-preview:v1/);
   assert.match(dialog, /sessionStorage/);
   assert.match(dialog, /Локально · не в D1/);
   assert.match(dialog, /Підходить → додати/);
-  assert.match(dialog, /D1: <strong[^>]*>0 записів до підтвердження/);
-  assert.match(previewRoute, /body\.action==='search'/);
   assert.match(previewRoute, /body\.action==='confirm'/);
   assert.match(previewDomain, /confirmLocalDiscoveryPreview/);
 });
@@ -45,15 +46,17 @@ void test('confirmed local preview is the persistence boundary', async () => {
   assert.match(preview, /handoffDiscoveryCandidate/);
 });
 
-void test('Discovery executor handles confirmed candidates only and never source-crawls', async () => {
-  const [runner, route] = await Promise.all([
+void test('Discovery executor source-crawls only for an explicit active autonomous run', async () => {
+  const [runner, route, executor] = await Promise.all([
     readFile(new URL('../scripts/chat-discovery-runner.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../app/api/chat-discovery/executor/route.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../lib/chat-discovery/executor.ts', import.meta.url), 'utf8'),
   ]);
-  assert.doesNotMatch(runner,/action:'advance-discovery'/);
-  assert.doesNotMatch(runner,/SOURCE_ADVANCE_MS/);
-  assert.match(route,/Source crawl moved to browser-local preview/);
-  assert.doesNotMatch(route,/advanceAutonomousDiscoveryRun/);
+  assert.match(runner,/queue\?\.sourceAdvanceNeeded===true/);
+  assert.match(runner,/action:'advance-discovery'/);
+  assert.match(runner,/SOURCE_ADVANCE_MS=60000/);
+  assert.match(route,/advanceAutonomousDiscoveryRun/);
+  assert.match(executor,/sourceAdvanceNeeded: latestRun\?\.status === 'running'/);
 });
 
 void test('manual Telegram recovery stays local until confirmation', async () => {
@@ -61,7 +64,7 @@ void test('manual Telegram recovery stays local until confirmation', async () =>
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../app/api/chat-discovery/preview/route.ts', import.meta.url), 'utf8'),
   ]);
-  assert.match(dialog, /Recovery: ручне Telegram-джерело/);
+  assert.match(dialog, /Ручне джерело з Telegram/);
   assert.match(dialog, /Додати локально/);
   assert.match(dialog, /Додати локально й очистити/);
   assert.match(dialog, /action:'telegram'/);
@@ -93,9 +96,9 @@ void test('persisted Discovery keeps membership, qualification and cleanup lifec
 
 void test('Chat Discovery modal uses a wide split layout with independent candidate scrolling', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
-  assert.match(dialog, /!max-w-\[1180px\]/);
-  assert.match(dialog, /h-\[min\(92dvh,940px\)\]/);
-  assert.match(dialog, /lg:grid-cols-\[minmax\(0,0\.92fr\)_minmax\(460px,1\.08fr\)\]/);
+  assert.match(dialog, /!max-w-\[1240px\]/);
+  assert.match(dialog, /h-\[min\(92dvh,920px\)\]/);
+  assert.match(dialog, /lg:grid-cols-\[330px_minmax\(0,1fr\)\]/);
   assert.match(dialog, /min-h-0 flex-1 overflow-y-auto/);
   assert.match(dialog, /Фільтр кандидатів/);
   assert.match(dialog, /StatTile/);
@@ -105,7 +108,7 @@ void test('candidate cards present qualification as a compact criteria grid inst
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
   assert.match(dialog, /candidateCriteria\(candidate\)/);
   assert.match(dialog, /Що потребує уваги/);
-  assert.match(dialog, /grid-cols-2 gap-1\.5 sm:grid-cols-3/);
+  assert.match(dialog, /grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4/);
   assert.match(dialog, /Criterion/);
 });
 

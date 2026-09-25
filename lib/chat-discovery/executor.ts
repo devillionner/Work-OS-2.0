@@ -46,7 +46,7 @@ export async function readDiscoveryExecutorQueue(
   userId: string,
   limitInput: unknown,
   now = Number.MAX_SAFE_INTEGER,
-): Promise<{ tasks: DiscoveryExecutorTask[] }> {
+): Promise<{ tasks: DiscoveryExecutorTask[]; sourceAdvanceNeeded: boolean }> {
   const limit = boundedLimit(limitInput);
   const [candidateRows, latestRun] = await Promise.all([
     db.prepare(`SELECT id,version,platform,name,normalized_link,membership_state,inspection_state,decision,imported_chat_id,executor_next_check_at
@@ -58,8 +58,8 @@ export async function readDiscoveryExecutorQueue(
         CASE decision WHEN 'rejected' THEN 0 WHEN 'unavailable' THEN 0 WHEN 'review' THEN 1 ELSE 2 END,
         updated_at ASC,id
       LIMIT ?3`).bind(userId, now, limit).all<CandidateTaskRow>(),
-    db.prepare(`SELECT min_members FROM chat_discovery_runs WHERE user_id=?1 ORDER BY updated_at DESC LIMIT 1`)
-      .bind(userId).first<{ min_members: number }>(),
+    db.prepare(`SELECT min_members,status FROM chat_discovery_runs WHERE user_id=?1 ORDER BY updated_at DESC LIMIT 1`)
+      .bind(userId).first<{ min_members: number; status: string }>(),
   ]);
 
   const tasks: DiscoveryExecutorTask[] = [];
@@ -86,7 +86,7 @@ export async function readDiscoveryExecutorQueue(
       safety: { requiresTargetVerification: true, unknownState: 'fail_closed' },
     });
   }
-  return { tasks };
+  return { tasks, sourceAdvanceNeeded: latestRun?.status === 'running' };
 }
 
 
@@ -96,7 +96,7 @@ export async function claimDiscoveryExecutorQueue(
   deviceId: string,
   limitInput: unknown,
   now: number,
-): Promise<{ tasks: DiscoveryExecutorTask[]; leaseSeconds: number }> {
+): Promise<{ tasks: DiscoveryExecutorTask[]; leaseSeconds: number; sourceAdvanceNeeded: boolean }> {
   const leaseSeconds = 90;
   const limit = boundedLimit(limitInput);
   const queue = await readDiscoveryExecutorQueue(db, userId, limit, now);
@@ -114,7 +114,7 @@ export async function claimDiscoveryExecutorQueue(
     if (!claimed) continue;
     tasks.push({ ...task, candidateVersion:Number(claimed.version), leaseExpiresAt });
   }
-  return { tasks, leaseSeconds };
+  return { tasks, leaseSeconds, sourceAdvanceNeeded: queue.sourceAdvanceNeeded };
 }
 
 export async function assertDiscoveryExecutorLease(

@@ -1,5 +1,13 @@
 # Development status — 2026-09-25
 
+## 2026-09-25 autonomous Discovery outcome-loop correction
+
+- Після live UX перевірки уточнено product intent: число в полі «Нових цільових чатів» — це goal фактично кваліфікованих target chats, а не кількість сирих invite у local preview.
+- Primary «Запустити автопошук» тепер запускає explicit autonomous run. Paired executor має task-first source advancement, auto-handoff, factual WhatsApp join/pending/qualification, auto-archive до вступу та verified leave/archive після вступу.
+- Manual Telegram/local preview лишається recovery path і не пише в D1 без confirm; локальні preview, що вже є на момент старту autonomous run, можуть бути автоматично adopted у цей run.
+- Source advancement використовує targeted dedupe поточного batch і не повертає owner-wide 10k chat scan. Source cadence bounded до 60 секунд, а без active run додатковий source advance не виконується.
+- Physical staging acceptance цього нового outcome-loop ще не заявляється: потрібно прогнати реальні invites до target/reject і підтвердити goal continuation / sources_exhausted.
+
 ## 2026-09-25 P4-A WhatsApp Discovery GO-LIVE evidence
 
 - GO-LIVE-01 is accepted: canonical staging build `1abb3289999c5f0feaf58bfa502e776b077ab7fe` matched remote `main`, Opera exposed local CDP on `127.0.0.1:9222`, authenticated WhatsApp Web was present, and the canonical Discovery runner paired by reading its executor token from the staging Work OS page.

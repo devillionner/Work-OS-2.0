@@ -36,8 +36,10 @@ Production Worker і production D1 не читати, не мігрувати й
 - Новий recurring/background D1 path не готовий без worst-case requests/day reasoning і regression-test на backoff/fan-out.
 - При daily D1 quota exhaustion припини автоматичні D1-backed probes до reset. Для deploy identity використовуй `/api/build` і Cloudflare build/deployment state.
 - Один operator request не повинен приховано множитися у десятки candidate/queue reads.
-- Discovery source crawl є browser-local preview і не має права записувати raw candidates/sources/chats у D1. D1 до confirm використовується тільки для bounded dedupe/read-model reads.
-- Executor не запускає source crawl. Він обробляє тільки explicit-confirmed persisted messenger tasks.
+- Ручний/recovery Discovery preview є browser-local і не записує raw candidates/sources/chats у D1 до явного «Підходить → додати».
+- Натискання «Запустити автопошук» є окремою явною authorization boundary: активний goal-driven run може persist-ити bounded candidate work items, auto-handoff WhatsApp candidates у `to_join` і передавати їх executor-у без ручного confirm кожного invite.
+- Executor source-crawl дозволений тільки для explicit active Discovery run, тільки за наявності придатного WhatsApp Web/CDP runtime, з task-first backpressure, bounded source cadence та targeted dedupe. Поза активним run source-crawl заборонений.
+- Goal рахується тільки за фактичними `decision='target'` після messenger qualification; сирі invite/review/pending не наближають goal.
 - Non-interactive executor без працездатного WhatsApp runtime/CDP повинен fail-closed до messenger action; transient logout/page-not-ready/CDP failure не може вигадувати join/pending/joined або накопичувати повторні actions.
 - Не послаблюй `tests/d1-budget-contract.test.mjs`; архітектурна заміна повинна бути рівноцінною або сильнішою.
 

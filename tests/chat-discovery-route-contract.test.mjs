@@ -42,6 +42,6 @@ void test('dedicated executor bridge leases tasks to the authenticated device be
   assert.match(route, /executorDeviceId: executor\.deviceId/);
   assert.match(route, /targetVerified: body\.targetVerified/);
   assert.match(route, /body\.action === 'advance-discovery'/);
-  assert.match(route, /Source crawl moved to browser-local preview/);
-  assert.doesNotMatch(route, /advanceAutonomousDiscoveryRun/);
+  assert.match(route, /advanceAutonomousDiscoveryRun/);
+  assert.match(route, /advanceAutonomousDiscoveryRun\(env\.DB, executor\.userId, executor\.deviceId, now\)/);
 });

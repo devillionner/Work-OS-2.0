@@ -35,7 +35,7 @@ export async function searchLocalDiscoveryPreview(
   const platforms=cleanPlatforms(input.platforms);
   const telegramCursor=boundedInteger(input.telegramCursor,0,1_000_000,0);
   const sourceCursor=boundedInteger(input.sourceCursor,0,1_000_000,0);
-  const minMembers=boundedInteger(input.minMembers,700,18_000,700);
+  const minMembers=activeRun?.min_members??boundedInteger(input.minMembers,700,18_000,700);
   const knownLinks=cleanKnownLinks(input.knownLinks);
 
   const telegramPlan=buildTelegramSearchPlan(telegramCursor,1);
@@ -100,7 +100,7 @@ export async function previewTelegramDiscoveryText(
 export async function confirmLocalDiscoveryPreview(
   db:D1Database,
   userId:string,
-  input:{platform?:unknown;link?:unknown;name?:unknown;sources?:unknown;minMembers?:unknown},
+  input:{platform?:unknown;link?:unknown;name?:unknown;sources?:unknown;minMembers?:unknown;runId?:unknown},
   now:number,
 ){
   const platform=input.platform==='whatsapp'||input.platform==='viber'?input.platform:null;
@@ -109,6 +109,13 @@ export async function confirmLocalDiscoveryPreview(
   if(!platform||!parsed||parsed.platform!==platform||!['whatsapp','viber'].includes(parsed.platform)){
     throw new DiscoveryError('Некоректний локальний кандидат.');
   }
+  const requestedRunId=typeof input.runId==='string'?input.runId.trim():'';
+  const activeRun=requestedRunId
+    ? await db.prepare(`SELECT id,min_members FROM chat_discovery_runs WHERE id=?1 AND user_id=?2 AND status='running' LIMIT 1`)
+      .bind(requestedRunId,userId).first<{id:string;min_members:number}>()
+    : null;
+  if(requestedRunId&&!activeRun)throw new DiscoveryError('Автопошук уже завершився або змінився. Запусти його ще раз.',409);
+  const runId=activeRun?.id||null;
   const existingChat=await db.prepare(`SELECT id,workflow_status FROM chats
     WHERE user_id=?1 AND platform=?2 AND normalized_link=?3 LIMIT 1`)
     .bind(userId,platform,parsed.link).first<{id:string;workflow_status:string}>();
@@ -125,6 +132,13 @@ export async function confirmLocalDiscoveryPreview(
     }
     if(existingCandidate.decision==='rejected'||existingCandidate.decision==='unavailable'){
       throw new DiscoveryError('Цей чат уже був відхилений або позначений недоступним. Перегляньте його історію перед повторним додаванням.',409);
+    }
+    if(runId){
+      const attached=await db.prepare(`UPDATE chat_discovery_candidates
+        SET discovery_run_id=?1,updated_at=?2,version=version+1
+        WHERE id=?3 AND user_id=?4 AND imported_chat_id IS NULL AND decision IN ('review','target')
+        RETURNING version`).bind(runId,now,existingCandidate.id,userId).first<{version:number}>();
+      if(attached)existingCandidate.version=Number(attached.version);
     }
     return handoffDiscoveryCandidate(db,userId,existingCandidate.id,Number(existingCandidate.version),now);
   }
@@ -145,9 +159,9 @@ export async function confirmLocalDiscoveryPreview(
        can_write,ads_policy,membership_state,access_state,link_state,inspection_state,decision,reason_codes_json,
        imported_chat_id,discovery_run_id,created_at,updated_at,version)
       VALUES (?1,?2,?3,?4,?5,?5,?6,NULL,NULL,'unknown','unknown','match',NULL,'unknown','not_checked','unknown','valid',
-        'not_checked',?7,?8,NULL,NULL,?6,?6,1)
+        'not_checked',?7,?8,NULL,?9,?6,?6,1)
       ON CONFLICT(user_id,platform,normalized_link) DO NOTHING`)
-      .bind(candidateId,userId,platform,name,parsed.link,now,evaluated.decision,JSON.stringify(evaluated.reasonCodes)),
+      .bind(candidateId,userId,platform,name,parsed.link,now,evaluated.decision,JSON.stringify(evaluated.reasonCodes),runId),
   ];
   for(const source of sources.slice(0,8)){
     const identity=sourceIdentity(source);
