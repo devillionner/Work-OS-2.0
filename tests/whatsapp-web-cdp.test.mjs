@@ -56,6 +56,7 @@ void test('join is allowed only after exact target verification', () => {
     kind: 'action',
     action: 'join',
     buttonText: 'Join group',
+    observedName: 'Українці Варшава',
   });
 });
 
@@ -130,13 +131,14 @@ void test('joined exact chat reports writeability without inventing qualificatio
   assert.equal(result.result.canWrite, true);
   assert.equal('adsPolicy' in result.result, false);
   assert.equal('activityState' in result.result, false);
-  assert.equal('topicMatch' in result.result, false);
+  assert.equal(result.result.topicMatch, 'match');
 });
 
 void test('known invalid invite can be reported inaccessible without claiming target verification', () => {
   const result = classifyWhatsAppSnapshot(task, {
     targetTexts: [],
     headerTitles: [],
+    url:'https://web.whatsapp.com/accept?code=AbCdEfGh1234',
     buttons: [],
     bodyText: 'This invite link is invalid or was reset',
   });
@@ -311,6 +313,7 @@ void test('verified pending target may use the WhatsApp Continue to Chat control
     kind: 'action',
     action: 'view',
     buttonText: 'Continue to Chat',
+    observedName: 'Українці Варшава',
   });
 });
 
