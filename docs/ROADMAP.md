@@ -21,8 +21,8 @@
 - [x] Explicit confirm → persisted candidate → canonical `to_join`.
 - [x] Executor source crawl вимкнений; executor обробляє тільки confirmed persisted messenger tasks.
 - [x] WhatsApp Web CDP adapter має exact-target/fail-closed inspection, pending/joined facts, factual qualification і verified leave primitives.
-- [ ] **GO-LIVE-01:** staging exact HEAD green; authenticated WhatsApp Web runtime реально доступний executor-у.
-- [ ] **GO-LIVE-02:** один реальний local candidate проходить UI → confirm → exact WhatsApp target → join/request without manual API/SQL.
+- [x] **GO-LIVE-01:** staging exact HEAD green; authenticated WhatsApp Web runtime реально доступний executor-у.
+- [ ] **GO-LIVE-02:** один реальний local candidate проходить UI → confirm → exact WhatsApp target → join/request without manual API/SQL.\n  - 2026-09-25 live evidence: confirmed persisted candidate reached authenticated Opera/WhatsApp Web through the paired executor. The exact invite produced a factual WhatsApp «Повторіть спробу пізніше» response after ~23s; no joined/pending state was invented. Runtime default wait was raised from 20s to 45s so this factual outcome is observed instead of timing out as `target_not_verified`. Gate remains open until a real invite actually reaches joined or pending.
 - [ ] **GO-LIVE-03:** factual pending автоматично recheck-иться; factual joined автоматично переходить у qualification. Не виробляти synthetic state, якщо pending природно не трапився.
 - [ ] **GO-LIVE-04:** real joined target стає usable ready chat; real rejected/unavailable joined chat проходить verified leave/archive.
 - [ ] **GO-LIVE-05:** restart/F5/reconnect не створює дубль, не губить local preview і не повторює вже підтверджену messenger action.
