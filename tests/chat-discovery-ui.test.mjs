@@ -43,7 +43,7 @@ void test('confirmed local preview is the persistence boundary', async () => {
     readFile(new URL('../lib/chat-discovery/local-preview.ts', import.meta.url), 'utf8'),
   ]);
   assert.match(dialog, /action:'confirm'/);
-  assert.match(dialog, /Відкинути локально/);
+  assert.match(dialog, /Відкинути preview/);
   assert.match(preview, /INSERT INTO chat_discovery_candidates/);
   assert.match(preview, /handoffDiscoveryCandidate/);
 });
