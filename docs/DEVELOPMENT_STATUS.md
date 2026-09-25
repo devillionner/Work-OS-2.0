@@ -1,5 +1,15 @@
 # Development status — 2026-09-25
 
+## 2026-09-25 — fast source burst with D1 budget guard
+
+- Previous live run showed about one source query per minute, which is too slow for the operator target of 15–30 qualified chats/day.
+- Source throughput is increased by batching external discovery, not by multiplying D1 cycles: one autonomous Telegram advance now searches up to 6 plan queries through the existing bounded fetch pool, then performs one targeted dedupe/persist/reconcile batch.
+- Public-web fallback likewise advances up to 6 search tasks per persisted source cycle.
+- Runner source cadence is reduced from 60s to 20s. Queue polling remains bounded/backed off; the UI still polls D1 on its existing 15–60s adaptive schedule.
+- After a messenger task, a nearly empty executor queue may refill source discovery immediately. Pending membership does not serialize the whole source pipeline.
+- The Discovery UI now exposes query count and a local 1-second “last activity” age. That heartbeat is browser-only and causes no D1 traffic.
+- Targeted link reads, queue LIMIT 3, executor leases, 5-minute WhatsApp failure cooldown, and no owner-wide candidate/chat scan remain unchanged.
+
 ## 2026-09-25 — stale Discovery imports cleanup
 
 - The clean Discovery reset intentionally preserved linked Work OS chats as dedupe anchors, which left old auto-imported rows visible in the main WhatsApp queues.

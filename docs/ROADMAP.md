@@ -419,3 +419,7 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [ ] Physical end-to-end WhatsApp Web acceptance with a real authenticated CDP session: local discovery → confirm → join/pending → factual qualification → target/reject → verified cleanup.
 - [ ] Measure real staging rows_read after quota reset for cold Platforms, warm Platforms, Analytics and Discovery preview; treat any ordinary unchanged warm view that still consumes thousands of rows as a regression.
 - [ ] Tune source yield/false-positive rate against real WhatsApp groups; do not weaken fail-closed qualification to reach the target count.
+
+
+- [x] **FAST-SOURCE-01:** source discovery прискорено без множення D1 cycle: до 6 зовнішніх query за один bounded D1 advance, мінімальний cadence 20 с, targeted dedupe збережено.
+- [ ] **FAST-SOURCE-02:** live staging acceptance: підтвердити, що чистий run проходить source plan пакетами, UI показує рух, а WhatsApp qualification і source refill співіснують без starvation.

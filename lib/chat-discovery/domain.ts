@@ -213,9 +213,9 @@ export async function advanceAutonomousDiscoveryRun(
     return { advanced:false, source:'busy', run:current ? mapRun(current) : before, batch:{searched:0,added:0,duplicates:0,errors:0} };
   }
 
-  const telegramPlan = buildTelegramSearchPlan(claimed.telegram_cursor, 1);
+  const telegramPlan = buildTelegramSearchPlan(claimed.telegram_cursor, 6);
   if (!telegramPlan.done) {
-    const found = await discoverTelegramPublic({ cursor:claimed.telegram_cursor, maxQueries:1, pageLimit:2 }, fetcher);
+    const found = await discoverTelegramPublic({ cursor:claimed.telegram_cursor, maxQueries:6, pageLimit:2 }, fetcher);
     const merged = await persistDiscoveryBatch(db, userId, claimed, found.records, {
       now,
       nextCursor: claimed.source_cursor,
@@ -241,7 +241,7 @@ export async function advanceAutonomousDiscoveryRun(
     const web = await discoverPublicWeb({
       platforms,
       cursor: claimed.source_cursor,
-      maxQueries: 2,
+      maxQueries: 6,
       pageLimit: 1,
       includeCurated: claimed.source_cursor === 0,
     }, fetcher);

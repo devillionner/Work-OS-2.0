@@ -197,3 +197,12 @@ void test('operator-first Discovery UI hides technical counters behind disclosur
   assert.doesNotMatch(dialog, /<StatTile label="Query"/);
   assert.doesNotMatch(dialog, /<StatTile label="Локально"/);
 });
+
+void test('Discovery shows live source progress without extra server polling', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.match(dialog, /Пошукових запитів:/);
+  assert.match(dialog, /пакетами до 6/);
+  assert.match(dialog, /lastRunActivitySeconds/);
+  assert.match(dialog, /setInterval\(\(\)=>setClockMs\(Date\.now\(\)\),1000\)/);
+  assert.match(dialog, /delayMs=nextUpdated!==lastUpdated\?15_000/);
+});

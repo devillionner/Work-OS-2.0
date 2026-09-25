@@ -640,7 +640,7 @@ void test('autonomous Discovery advances the seed matrix through public Telegram
 
   assert.equal(result.advanced, true);
   assert.equal(result.source, 'telegram');
-  assert.ok(result.batch.searched >= 1);
+  assert.equal(result.batch.searched, 6);
   assert.ok(calls.some(url => url.includes('site%3At.me') || url.includes('site%3At.me'.toLowerCase()) || decodeURIComponent(url).includes('site:t.me')));
   const workspace = await readDiscoveryWorkspace(db, 'u');
   const candidate = workspace.candidates.find(item => item.link === 'https://chat.whatsapp.com/AutonomousTelegram123');
@@ -746,6 +746,7 @@ void test('autonomous source advancement has a shared cooldown after a source ba
   assert.equal(immediate.source,'busy');
   const afterCooldown = await advanceAutonomousDiscoveryRun(db,'u','device-b',116,fetcher);
   assert.equal(afterCooldown.advanced,true);
+  assert.equal(first.batch.searched,6);
 });
 
 void test('discovery run persists one canonical candidate, provenance and owner isolation', async (t) => {

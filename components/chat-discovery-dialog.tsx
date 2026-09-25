@@ -62,6 +62,7 @@ export function ChatDiscoveryDialog({
   const [goal, setGoal] = useState(50);
   const minMembers = 700;
   const [filter, setFilter] = useState<DecisionFilter>('review');
+  const [clockMs,setClockMs]=useState(()=>Date.now());
   const [loading, setLoading] = useState(false);
   const [importingId, setImportingId] = useState<string | null>(null);
   const [inspectingId, setInspectingId] = useState<string | null>(null);
@@ -104,6 +105,12 @@ export function ChatDiscoveryDialog({
     const timer = setTimeout(() => { void load(); }, 0);
     return () => clearTimeout(timer);
   }, [open, load]);
+
+  useEffect(()=>{
+    if(!open)return;
+    const timer=window.setInterval(()=>setClockMs(Date.now()),1000);
+    return()=>window.clearInterval(timer);
+  },[open]);
 
   useEffect(()=>{
     if(!open)return;
@@ -388,6 +395,7 @@ export function ChatDiscoveryDialog({
   const displayedQueries=workspace.run?.searchedQueries??localPreview.searched;
   const discardedCount=workspace.counts.rejected+workspace.counts.unavailable;
   const progressPercent=displayedGoal>0?Math.min(100,Math.round((displayedTargetCount/displayedGoal)*100)):0;
+  const lastRunActivitySeconds=workspace.run?.updatedAt?Math.max(0,Math.floor((clockMs-workspace.run.updatedAt*1000)/1000)):null;
   const activeCandidate=workspace.candidates.find(candidate=>candidate.membershipState==='pending')
     ?? workspace.candidates.find(candidate=>candidate.membershipState==='joined'&&candidate.decision==='review')
     ?? workspace.candidates.find(candidate=>candidate.decision==='review'&&Boolean(candidate.importedChatId))
@@ -453,6 +461,11 @@ export function ChatDiscoveryDialog({
                 {autonomousRunning?<LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-primary"/>:<CheckCircle2 className="mt-0.5 size-4 shrink-0 text-muted-foreground"/>}
                 <span className="min-w-0 break-words">{runActivity}</span>
               </div>
+              {autonomousRunning&&<div className="mt-1 text-xs tabular-nums text-muted-foreground">
+                Пошукових запитів: <strong className="text-foreground/80">{displayedQueries}</strong>
+                {' · '}пакетами до 6
+                {lastRunActivitySeconds!==null&&<>{' · '}остання активність {lastRunActivitySeconds<5?'щойно':`${lastRunActivitySeconds} с тому`}</>}
+              </div>}
             </div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">

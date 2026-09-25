@@ -44,7 +44,7 @@ void test('Discovery autonomous outcome loop is bounded and uses targeted D1 rea
   const preview=read('lib/chat-discovery/local-preview.ts');
   const domain=read('lib/chat-discovery/domain.ts');
   assert.match(runner,/TASK_POLL_MS=3000/);
-  assert.match(runner,/SOURCE_ADVANCE_MS=60000/);
+  assert.match(runner,/SOURCE_ADVANCE_MS=20000/);
   assert.match(runner,/EXECUTOR_QUEUE_LIMIT=3/);
   assert.match(runner,/WHATSAPP_RUNTIME_COOLDOWN_MS=300000/);
   assert.match(runner,/queue\?\.sourceAdvanceNeeded===true/);
@@ -59,6 +59,9 @@ void test('Discovery autonomous outcome loop is bounded and uses targeted D1 rea
   assert.match(deploy,/Skipping remote D1 migration list for this code-only deploy/);
   assert.match(preview,/normalized_link IN \(SELECT value FROM json_each\(\?2\)\)/);
   assert.match(domain,/normalized_link IN \(SELECT value FROM json_each\(\?2\)\)/);
+  assert.match(domain,/buildTelegramSearchPlan\(claimed\.telegram_cursor, 6\)/);
+  assert.match(domain,/discoverTelegramPublic\(\{ cursor:claimed\.telegram_cursor, maxQueries:6, pageLimit:2 \}/);
+  assert.match(domain,/maxQueries: 6/);
   assert.doesNotMatch(domain,/LIMIT 10001/);
 });
 

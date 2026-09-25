@@ -15,7 +15,7 @@ if(!process.stdin.isTTY&&!whatsappCdp){
 const terminal=readline.createInterface({input:process.stdin,output:process.stdout});
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const TASK_POLL_MS=3000;
-const SOURCE_ADVANCE_MS=60000;
+const SOURCE_ADVANCE_MS=20000;
 const EXECUTOR_QUEUE_LIMIT=3;
 const TASK_BLOCK_COOLDOWN_MS=300000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
@@ -242,7 +242,12 @@ async function runOnce(){
     await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'inspect',candidateId:task.candidateId,version:task.candidateVersion,minMembers:task.minMembers,result:inspection.result})});
   }
   clearTaskBlock(task);
-  console.log('Result accepted by Work OS.'); return 'task';
+  console.log('Result accepted by Work OS.');
+  if(queuedTasks.length<=1&&canAdvanceDiscoverySource(queue)){
+    try{await advanceDiscoverySource();}
+    catch(error){console.warn(`Discovery source refill deferred: ${error instanceof Error?error.message:String(error)}`);}
+  }
+  return 'task';
 }
 console.log('Work OS Discovery runner started. Ctrl+C to stop.');
 let idleDelayMs=IDLE_POLL_MIN_MS;

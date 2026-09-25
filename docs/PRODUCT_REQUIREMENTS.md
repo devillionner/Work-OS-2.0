@@ -546,3 +546,6 @@ Definition of Done для реального використання на stagi
 - Production D1 не використовується для development health checks, quota probes або staging verification.
 - Звичайний повторний перегляд незміненої workspace має використовувати revision-aware Worker cache, а не повторювати дорогі D1 aggregates. Cache key обов'язково містить owner + authoritative revision + exact view identity; time-sensitive views додають короткий time bucket.
 - Owner-wide scans заради UI counters/duplicate checks заборонені, коли той самий результат можна отримати через maintained read-model або точковий indexed lookup поточного batch. Platforms queue counts підтримуються materialized `chat_queue_counts`; Discovery dedupe читає тільки links поточного preview batch.
+
+
+- **Source throughput / D1 guardrail — рішення 2026-09-25:** autonomous source search працює bounded burst-ами: до 6 зовнішніх Telegram/public search queries за один source advance. Усі результати одного burst проходять targeted link dedupe і один persisted batch/reconcile у D1; заборонено перетворювати кожен зовнішній query на окремий D1 polling/write cycle. Мінімальний runner cadence між source advances — 20 секунд. WhatsApp task лишається пріоритетним, але після task executor може refill-ити source plan, якщо черга майже порожня; pending approval не повинен блокувати пошук нових джерел.
