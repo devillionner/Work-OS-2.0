@@ -14,7 +14,7 @@ const unavailablePatterns = [
 const joinPattern = /^(?:join(?: group| chat| community)?|request to join|приєднатися(?: до групи| до чату| до спільноти)?|подати запит на вступ|присоединиться(?: к группе| к чату| к сообществу)?|отправить запрос на вступление)$/iu;
 const viewPattern = /^(?:view(?: group| chat)?|open(?: group| chat)?|continue to chat|переглянути(?: групу| чат)?|відкрити(?: групу| чат)?|продовжити до чату|просмотреть(?: группу| чат)?|открыть(?: группу| чат)?|продолжить в чат)$/iu;
 const leavePattern = /^(?:exit group|leave group|вийти з групи|покинути групу|выйти из группы|покинуть группу)$/iu;
-const confirmLeavePattern = /^(?:exit|leave|вийти|покинути|выйти|покинуть)$/iu;
+const confirmLeavePattern = /^(?:exit(?: group)?|leave(?: group)?|вийти(?: з групи)?|покинути(?: групу)?|выйти(?: из группы)?|покинуть(?: группу)?)$/iu;
 const leftPattern = /(?:you (?:left|are no longer a participant)|ви (?:вийшли|більше не є учасником)|вы (?:вышли|больше не участник))/iu;
 const joinedViaInvitePattern = /(?:you (?:joined|were added) (?:via|using|through) (?:an? )?(?:invite|invitation|invite link)|joined (?:via|using) (?:the )?(?:group )?invite|ви приєдналися за (?:посиланням[- ]?)?запрошенням|вы присоединились по (?:ссылке[- ]?)?приглашени[юя])/iu;
 const spamPattern = /(?:crypto|крипт|bitcoin|forex|casino|казино|betting|ставк[аи]|dating|знакомств|знайомств|escort|ескорт|onlyfans|adult|18\+|nft|airdrop|signals?\b|binary options)/iu;
@@ -512,7 +512,7 @@ async function readSnapshot(client) {
       'header h1',
       'header h2',
     ]);
-    const dialog = document.querySelector('[role="dialog"]');
+    const dialog = document.querySelector('[role="dialog"], [data-animate-modal-popup="true"]');
     const targetHeadings = dialog ? read(dialog, ['[data-testid="group-join-modal-group-name"]', 'h1', 'h2', 'h3', '[title]']) : [];
     const targetTexts = dialog ? read(dialog, ['[title]', 'h1', 'h2', 'h3', 'span']) : [];
     const buttons = read(document, ['button', '[role="button"]']);
@@ -778,7 +778,7 @@ async function clickDialogControl(client, label) {
   const expression = `(() => {
     const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim().toLocaleLowerCase('uk-UA');
     const expected = ${JSON.stringify(String(label || '').trim().toLocaleLowerCase('uk-UA'))};
-    const dialog = document.querySelector('[role="dialog"]');
+    const dialog = document.querySelector('[role="dialog"], [data-animate-modal-popup="true"]');
     if (!dialog) return false;
     const nodes = [...dialog.querySelectorAll('button, [role="button"]')];
     const labelOf = (item) => item.getAttribute('aria-label') || item.getAttribute('title') || item.textContent || '';

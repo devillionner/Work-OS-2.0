@@ -336,6 +336,14 @@ void test('CDP control is restricted to unauthenticated loopback endpoints', () 
 });
 
 
+void test('leave confirmation accepts current localized full group-exit labels but remains exact', async () => {
+  const source = await import('node:fs/promises').then(({readFile}) =>
+    readFile(new URL('../scripts/whatsapp-web-cdp.mjs', import.meta.url), 'utf8')
+  );
+  assert.match(source, /вийти\(\?: з групи\)\?/);
+  assert.match(source, /data-animate-modal-popup/);
+});
+
 void test('leave automation helper is exported for verified WhatsApp executor leave tasks', () => {
   assert.equal(typeof leaveWhatsappTaskViaCdp, 'function');
 });
