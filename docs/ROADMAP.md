@@ -375,3 +375,19 @@ P4 documentation is source-reconciled against current `main` code and regression
 - [x] Treat ambiguous dates with missing/invalid locale as unknown instead of guessing.
 - [x] Regression coverage proves en-US vs uk-UA divergence and no-locale fail-closed behavior.
 - [ ] Physical WhatsApp Web acceptance remains pending until a CDP-enabled authenticated session is available.
+
+
+## 2026-09-25 — D1 read-budget + local-first Discovery
+
+- [x] Replace Platforms owner-wide queue counts with maintained `chat_queue_counts` read-model and index-friendly 50-row paging.
+- [x] Add revision-aware Worker cache to Platforms, Analytics/overview, Library, Reports and Leads list reads. Repeated unchanged views hit Worker cache; writes change the authoritative revision and naturally invalidate the cache key.
+- [x] Keep short time buckets on time-sensitive views so snooze/deadline/final-report state cannot remain stale behind a stable revision.
+- [x] Replace Discovery's up-to-10k owner-wide duplicate scan with targeted `normalized_link IN (...)` lookups for the current preview batch.
+- [x] Move Telegram/public source crawl out of executor persistence and into browser-local preview.
+- [x] Persist raw Discovery candidates nowhere in D1 before explicit operator confirmation.
+- [x] Keep local candidates through F5 in `sessionStorage`, visibly label them «Локально · не в D1», allow local reject, and use «Підходить → додати» as the D1 persistence boundary.
+- [x] Executor processes only confirmed persisted candidates (join / pending recheck / qualification / verified leave) and never advances source discovery.
+- [x] Regression contracts guard cache coverage, targeted dedupe and the local-first persistence boundary.
+- [ ] Physical end-to-end WhatsApp Web acceptance with a real authenticated CDP session: local discovery → confirm → join/pending → factual qualification → target/reject → verified cleanup.
+- [ ] Measure real staging rows_read after quota reset for cold Platforms, warm Platforms, Analytics and Discovery preview; treat any ordinary unchanged warm view that still consumes thousands of rows as a regression.
+- [ ] Tune source yield/false-positive rate against real WhatsApp groups; do not weaken fail-closed qualification to reach the target count.
