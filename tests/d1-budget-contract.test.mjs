@@ -43,6 +43,8 @@ void test('Discovery executor is persistence-only for confirmed candidates and s
   const deploy=read('scripts/deploy-staging.mjs');
   const preview=read('lib/chat-discovery/local-preview.ts');
   assert.match(runner,/TASK_POLL_MS=3000/);
+  assert.match(runner,/EXECUTOR_QUEUE_LIMIT=3/);
+  assert.match(runner,/TASK_BLOCK_COOLDOWN_MS=300000/);
   assert.match(runner,/WHATSAPP_RUNTIME_COOLDOWN_MS=300000/);
   assert.match(runner,/IDLE_POLL_MIN_MS=15000/);
   assert.match(runner,/IDLE_POLL_MAX_MS=60000/);

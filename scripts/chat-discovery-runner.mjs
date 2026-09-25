@@ -15,6 +15,8 @@ if(!process.stdin.isTTY&&!whatsappCdp){
 const terminal=readline.createInterface({input:process.stdin,output:process.stdout});
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const TASK_POLL_MS=3000;
+const EXECUTOR_QUEUE_LIMIT=3;
+const TASK_BLOCK_COOLDOWN_MS=300000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
 const IDLE_POLL_MIN_MS=15000;
 const IDLE_POLL_MAX_MS=60000;
@@ -107,21 +109,34 @@ async function inspectTask(task){
       if(automated.kind==='result'){
         clearWhatsappRuntimeBlock();
         console.log(`WhatsApp Web observed safely: ${automated.result.membershipState||automated.result.reason||automated.result.status}`);
-        return automated.result;
+        return {kind:'result',result:automated.result};
       }
       if(WHATSAPP_RUNTIME_TRANSIENT_REASONS.has(automated.reason))markWhatsappRuntimeBlocked(automated.reason);
       console.warn(`WhatsApp Web automation stopped fail-closed: ${automated.reason}`);
+      if(!process.stdin.isTTY)return {kind:'blocked',reason:automated.reason};
     }catch(error){
       markWhatsappRuntimeBlocked('cdp_unavailable');
       console.warn(`WhatsApp Web CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
+      if(!process.stdin.isTTY)return {kind:'blocked',reason:'cdp_unavailable'};
     }
-    if(!process.stdin.isTTY)return null;
     console.log('Falling back to operator-confirmed inspection; no callback was sent for the ambiguous browser state.');
   }
-  return inspect(task);
+  return {kind:'result',result:await inspect(task)};
 }
 
 let whatsappRuntimeBlockedUntil=0;
+const taskBlockedUntil=new Map();
+function markTaskBlocked(task,reason){
+  taskBlockedUntil.set(task.candidateId,Date.now()+TASK_BLOCK_COOLDOWN_MS);
+  console.warn(`Discovery task paused locally after fail-closed ${reason}; another candidate may continue.`);
+}
+function taskIsLocallyBlocked(task){
+  const until=Number(taskBlockedUntil.get(task.candidateId)||0);
+  if(!until)return false;
+  if(until<=Date.now()){taskBlockedUntil.delete(task.candidateId);return false;}
+  return true;
+}
+function clearTaskBlock(task){taskBlockedUntil.delete(task.candidateId);}
 function markWhatsappRuntimeBlocked(reason){
   whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+WHATSAPP_RUNTIME_COOLDOWN_MS);
   console.warn(`WhatsApp runtime temporarily blocks automated WhatsApp actions (${reason}); retry after cooldown.`);
@@ -129,9 +144,12 @@ function markWhatsappRuntimeBlocked(reason){
 function clearWhatsappRuntimeBlock(){whatsappRuntimeBlockedUntil=0;}
 
 async function runOnce(){
-  const queue=await api('/api/chat-discovery/executor?limit=1');
-  const task=queue.tasks?.[0];
+  const queue=await api(`/api/chat-discovery/executor?limit=${EXECUTOR_QUEUE_LIMIT}`);
+  const queuedTasks=Array.isArray(queue.tasks)?queue.tasks:[];
+  const task=queuedTasks.find(item=>!taskIsLocallyBlocked(item));
   if(!task){
+    if(queuedTasks.length)return 'idle';
+
     const automation=await api('/api/messenger-automation/executor?platform=whatsapp');
     if(automation.task?.kind==='whatsapp_autopost'){
       const job=automation.task;
@@ -180,6 +198,7 @@ async function runOnce(){
         }
         if(WHATSAPP_RUNTIME_TRANSIENT_REASONS.has(automated.reason))markWhatsappRuntimeBlocked(automated.reason);
         console.warn(`WhatsApp leave automation stopped fail-closed: ${automated.reason}`);
+        markTaskBlocked(task,automated.reason);
       }catch(error){
         markWhatsappRuntimeBlocked('cdp_unavailable');
         console.warn(`WhatsApp leave CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
@@ -194,10 +213,14 @@ async function runOnce(){
     if(!yes(await terminal.question('Confirm only AFTER you actually left the chat [y/N]: '))) return 'idle';
     await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'executor-leave',candidateId:task.candidateId,version:task.candidateVersion,chatStateToken:task.chatStateToken,targetVerified:true})});
   }else{
-    const result=await inspectTask(task);
-    if(!result)return 'idle';
-    await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'inspect',candidateId:task.candidateId,version:task.candidateVersion,minMembers:task.minMembers,result})});
+    const inspection=await inspectTask(task);
+    if(inspection.kind==='blocked'){
+      markTaskBlocked(task,inspection.reason);
+      return 'idle';
+    }
+    await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'inspect',candidateId:task.candidateId,version:task.candidateVersion,minMembers:task.minMembers,result:inspection.result})});
   }
+  clearTaskBlock(task);
   console.log('Result accepted by Work OS.'); return 'task';
 }
 console.log('Work OS Discovery runner started. Ctrl+C to stop.');

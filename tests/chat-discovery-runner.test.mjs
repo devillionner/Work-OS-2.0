@@ -107,3 +107,14 @@ void test('runner can bootstrap its token from the exact Work OS page over local
   assert.match(source,/Executor token loaded from the Work OS page through local CDP/);
   assert.match(source,/requires WORK_OS_URL and local WORK_OS_WHATSAPP_CDP/);
 });
+
+
+void test('runner skips a locally blocked candidate instead of starving the executor queue',()=>{
+  assert.match(source,/const EXECUTOR_QUEUE_LIMIT=3/);
+  assert.match(source,/const TASK_BLOCK_COOLDOWN_MS=300000/);
+  assert.match(source,/const taskBlockedUntil=new Map/);
+  assert.match(source,/queuedTasks\.find\(item=>!taskIsLocallyBlocked\(item\)\)/);
+  assert.match(source,/markTaskBlocked\(task,inspection\.reason\)/);
+  assert.match(source,/another candidate may continue/);
+  assert.doesNotMatch(source,/executor\?limit=20/);
+});
