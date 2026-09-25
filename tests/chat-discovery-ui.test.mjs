@@ -19,7 +19,7 @@ void test('Platforms exposes an explicit autonomous outcome loop plus a local ma
   assert.match(dialog, /продовжує до \$\{run\.goal\} цільових чатів/);
   assert.match(dialog, /work-os:chat-discovery-local-preview:v1/);
   assert.match(dialog, /sessionStorage/);
-  assert.match(dialog, /Локально · не в D1/);
+  assert.match(dialog, /Ручний preview/);
   assert.match(dialog, /Підходить → додати/);
   assert.match(previewRoute, /body\.action==='confirm'/);
   assert.match(previewDomain, /confirmLocalDiscoveryPreview/);
@@ -90,8 +90,8 @@ void test('persisted Discovery keeps membership, qualification and cleanup lifec
   ]);
   assert.match(dialog, /Очікує схвалення/);
   assert.match(dialog, /Приєднано/);
-  assert.match(dialog, /Кваліфікувати/);
-  assert.match(dialog, /Потрібен підтверджений вихід із месенджера/);
+  assert.match(dialog, /Кваліфікувати вручну/);
+  assert.match(dialog, /Work OS виходить із нього та архівує/);
   assert.match(route, /body\.action === 'inspect'/);
   assert.match(executor, /platform='whatsapp' AND membership_state='pending'/);
 });
@@ -103,15 +103,18 @@ void test('Chat Discovery modal uses a wide split layout with independent candid
   assert.match(dialog, /lg:grid-cols-\[330px_minmax\(0,1fr\)\]/);
   assert.match(dialog, /min-h-0 flex-1 overflow-y-auto/);
   assert.match(dialog, /Фільтр кандидатів/);
+  assert.match(dialog, /Автопошук працює/);
+  assert.match(dialog, /Поки автопошук активний, втручання не потрібне/);
   assert.match(dialog, /StatTile/);
 });
 
-void test('candidate cards present qualification as a compact criteria grid instead of a flat text wall', async () => {
+void test('candidate cards lead with human-readable automation status and keep criteria collapsed', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
-  assert.match(dialog, /candidateCriteria\(candidate\)/);
-  assert.match(dialog, /Що потребує уваги/);
+  assert.match(dialog, /candidateStatus\(candidate\)/);
+  assert.match(dialog, /Деталі перевірки · підтверджено/);
   assert.match(dialog, /grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4/);
-  assert.match(dialog, /Criterion/);
+  assert.match(dialog, /Ручні дії/);
+  assert.match(dialog, /candidateDisplayName/);
 });
 
 void test('candidate cards expose the WhatsApp link and every target qualification criterion', async () => {
@@ -158,7 +161,7 @@ void test('left discovery chats require restore and rejoin before manual qualifi
 
 void test('imported WhatsApp candidates have a manual qualification fallback using the inspection contract', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
-  assert.match(dialog, /Кваліфікувати/);
+  assert.match(dialog, /Кваліфікувати вручну/);
   assert.match(dialog, /Зберегти кваліфікацію/);
   assert.match(dialog, /Писати можуть учасники/);
   assert.match(dialog, /Дозволені/);
@@ -181,4 +184,15 @@ void test('source name hints fail closed when they contain markup or URL noise',
   assert.match(preview, /safeDiscoveryNameHint/);
   assert.match(preview, /src\|href\|class\|id/);
   assert.match(preview, /suggestedChatName/);
+});
+
+void test('operator-first Discovery UI hides technical counters behind disclosures', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.match(dialog, /0? із \{displayedGoal\} цільових|із \{displayedGoal\} цільових/);
+  assert.match(dialog, /У роботі/);
+  assert.match(dialog, /Очікує WhatsApp/);
+  assert.match(dialog, /Технічні деталі/);
+  assert.match(dialog, /Підключення executor/);
+  assert.doesNotMatch(dialog, /<StatTile label="Query"/);
+  assert.doesNotMatch(dialog, /<StatTile label="Локально"/);
 });

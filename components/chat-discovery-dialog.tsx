@@ -61,7 +61,7 @@ export function ChatDiscoveryDialog({
   const platforms: DiscoveryPlatform[] = ['whatsapp'];
   const [goal, setGoal] = useState(50);
   const minMembers = 700;
-  const [filter, setFilter] = useState<DecisionFilter>('all');
+  const [filter, setFilter] = useState<DecisionFilter>('review');
   const [loading, setLoading] = useState(false);
   const [importingId, setImportingId] = useState<string | null>(null);
   const [inspectingId, setInspectingId] = useState<string | null>(null);
@@ -386,6 +386,23 @@ export function ChatDiscoveryDialog({
   const displayedTargetCount=workspace.run?.targetCount??workspace.counts.target;
   const displayedGoal=autonomousRunning?workspace.run?.goal??goal:goal;
   const displayedQueries=workspace.run?.searchedQueries??localPreview.searched;
+  const discardedCount=workspace.counts.rejected+workspace.counts.unavailable;
+  const progressPercent=displayedGoal>0?Math.min(100,Math.round((displayedTargetCount/displayedGoal)*100)):0;
+  const activeCandidate=workspace.candidates.find(candidate=>candidate.membershipState==='pending')
+    ?? workspace.candidates.find(candidate=>candidate.membershipState==='joined'&&candidate.decision==='review')
+    ?? workspace.candidates.find(candidate=>candidate.decision==='review'&&Boolean(candidate.importedChatId))
+    ?? null;
+  const runActivity=autonomousRunning
+    ? workspace.waitingWhatsAppCount>0
+      ? 'Очікуємо схвалення вступу в WhatsApp'
+      : activeCandidate
+        ? `Перевіряємо: ${candidateDisplayName(activeCandidate)}`
+        : 'Шукаємо нові WhatsApp-чати'
+    : workspace.run?.completionReason==='goal_reached'
+      ? 'Мета виконана'
+      : workspace.run?.completionReason==='sources_exhausted'
+        ? 'Доступні джерела вичерпано'
+        : 'Автопошук зупинений';
   const displayCandidates:DiscoveryCandidate[]=(filter==='all'||filter==='review')
     ? [...localPreview.candidates,...workspace.candidates]
     : workspace.candidates;
@@ -408,17 +425,42 @@ export function ChatDiscoveryDialog({
             <Badge variant="secondary">WhatsApp discovery</Badge>
           </div>
           <DialogDescription className="max-w-3xl text-xs leading-5 text-foreground/70 sm:text-sm">
-            Автономний режим сам шукає WhatsApp-чати, перевіряє їх у месенджері, відсіює непридатні й працює до заданої кількості цільових чатів. Локальний preview нижче лишається ручним fallback.
+            Work OS сам шукає, перевіряє й відсіює чати. Поки автопошук активний, втручання не потрібне.
           </DialogDescription>
         </DialogHeader>
         <Button className="absolute right-3 top-3 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground sm:right-4 sm:top-4" variant="ghost" size="icon" aria-label="Закрити" onClick={close}><X/></Button>
 
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-          <StatTile label="Цільові" value={`${displayedTargetCount} / ${displayedGoal}`} />
-          <StatTile label="Локально" value={String(localPreview.candidates.length)} />
-          <StatTile label="Query" value={String(displayedQueries)} />
-          <StatTile label="Перевіряються" value={String(reviewCount)} />
-          <StatTile label="Відсіяно" value={String(workspace.counts.rejected + workspace.counts.unavailable + localPreview.duplicates)} />
+        <div className="mt-4 rounded-2xl border border-border/70 bg-muted/20 p-4 sm:p-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="min-w-[180px]">
+              <div className="flex items-center gap-2 text-xs font-semibold text-foreground/70">
+                {autonomousRunning&&<span className="relative flex size-2">
+                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-50"/>
+                  <span className="relative inline-flex size-2 rounded-full bg-emerald-500"/>
+                </span>}
+                {autonomousRunning?'Автопошук працює':'Автопошук'}
+              </div>
+              <div className="mt-1 flex items-end gap-2">
+                <strong className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">{displayedTargetCount}</strong>
+                <span className="pb-1 text-sm font-semibold text-foreground/55">із {displayedGoal} цільових</span>
+              </div>
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="h-2.5 overflow-hidden rounded-full bg-background ring-1 ring-border/70">
+                <div className="h-full rounded-full bg-primary transition-[width] duration-500" style={{width:`${progressPercent}%`}}/>
+              </div>
+              <div className="mt-2 flex items-start gap-2 text-sm font-medium text-foreground/80">
+                {autonomousRunning?<LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-primary"/>:<CheckCircle2 className="mt-0.5 size-4 shrink-0 text-muted-foreground"/>}
+                <span className="min-w-0 break-words">{runActivity}</span>
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <StatTile label="У роботі" value={String(reviewCount)} />
+            <StatTile label="Очікує WhatsApp" value={String(workspace.waitingWhatsAppCount)} />
+            <StatTile label="Відхилено" value={String(workspace.counts.rejected)} />
+            <StatTile label="Недоступні" value={String(workspace.counts.unavailable)} />
+          </div>
         </div>
       </header>
 
@@ -433,8 +475,8 @@ export function ChatDiscoveryDialog({
             <section className="rounded-2xl border border-border/70 bg-background p-4" aria-label="Параметри пошуку">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <h3 className="text-base font-semibold">Запуск пошуку</h3>
-                  <p className="mt-1 text-xs leading-5 text-foreground/70">Ціль: українські активні групи, 700–18 000 учасників.</p>
+                  <h3 className="text-base font-semibold">Керування</h3>
+                  <p className="mt-1 text-xs leading-5 text-foreground/70">{autonomousRunning?'Пошук уже працює. Можна просто залишити його відкритим.':'Вкажи, скільки цільових чатів потрібно знайти.'}</p>
                 </div>
                 <Badge>WhatsApp</Badge>
               </div>
@@ -448,14 +490,17 @@ export function ChatDiscoveryDialog({
                     type="number"
                     min={1}
                     max={100}
-                    value={goal}
+                    value={autonomousRunning?displayedGoal:goal}
                     disabled={telegramBusy||autonomousRunning}
                     onChange={event => setGoal(clampNumber(event.target.value, 1, 100, 50))}
                   />
                 </label>
-                <div className="rounded-xl border border-border/70 bg-background px-3 py-2.5 text-xs font-medium leading-5 text-foreground/75">
-                  Українська аудиторія · 700–18 000 учасників · активний чат · можна писати й публікувати оголошення.
-                </div>
+                <details className="rounded-xl border border-border/70 bg-background">
+                  <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-foreground/75">Що вважаємо цільовим чатом</summary>
+                  <div className="border-t border-border/60 px-3 py-2.5 text-xs leading-5 text-foreground/70">
+                    Українська аудиторія · 700–18 000 учасників · активний груповий чат · учасники можуть писати · оголошення дозволені або фактично публікуються.
+                  </div>
+                </details>
               </div>
 
               <div className="mt-4 grid gap-2">
@@ -469,18 +514,26 @@ export function ChatDiscoveryDialog({
                 {localPreview.candidates.length>0&&<Button className="w-full" type="button" size="sm" variant="ghost" disabled={telegramBusy} onClick={()=>setLocalPreview(EMPTY_LOCAL_PREVIEW)}>Очистити локальний preview</Button>}
               </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border/60 pt-3 text-xs">
-                <span className="grid gap-0.5"><span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Локально</span><strong className="text-sm text-foreground">{localPreview.candidates.length}</strong></span>
-                <span className="grid gap-0.5"><span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Query</span><strong className="text-sm text-foreground">{displayedQueries}</strong></span>
-                <span className="grid gap-0.5"><span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Дублі / відомі</span><strong className="text-sm text-foreground">{localPreview.duplicates}</strong></span>
-                <span className="grid gap-0.5"><span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Ручний preview D1</span><strong className="text-sm text-foreground">0 до confirm</strong></span>
-              </div>
-              {autonomousRunning&&<p className="mt-2 text-xs font-medium leading-5 text-foreground/75">Автономний цикл активний · {displayedTargetCount}/{displayedGoal} цільових. Нецільові результати executor відсіює та архівує сам.</p>}
-              {workspace.run?.completionReason==='sources_exhausted'&&<p className="mt-2 text-xs leading-5 text-muted-foreground">Source plan вичерпано: знайдено {workspace.run.targetCount} цільових із {workspace.run.goal}. Критерії не послаблювались.</p>}
-              {workspace.run?.completionReason==='goal_reached'&&<p className="mt-2 text-xs font-medium leading-5 text-foreground">Ціль досягнута: {workspace.run.targetCount}/{workspace.run.goal} цільових чатів.</p>}
+              {autonomousRunning&&<div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs font-medium leading-5 text-foreground/80">
+                Система працює самостійно: нецільові чати відхиляються, а після фактичного вступу Work OS за потреби сам виходить із них.
+              </div>}
+              {workspace.run?.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">Джерела вичерпано: знайдено {workspace.run.targetCount} цільових із {workspace.run.goal}. Критерії не послаблювались.</div>}
+              {workspace.run?.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: знайдено {workspace.run.targetCount}/{workspace.run.goal} цільових чатів.</div>}
+              <details className="mt-3 border-t border-border/60 pt-3">
+                <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Технічні деталі</summary>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                  <span>Пошукових запитів <strong className="ml-1 text-foreground">{displayedQueries}</strong></span>
+                  <span>Дублів <strong className="ml-1 text-foreground">{localPreview.duplicates}</strong></span>
+                  <span>Ручний preview <strong className="ml-1 text-foreground">{localPreview.candidates.length}</strong></span>
+                  <span>Відсіяно всього <strong className="ml-1 text-foreground">{discardedCount}</strong></span>
+                </div>
+              </details>
             </section>
 
-            <ChatDiscoveryExecutorPanel />
+            <details className="rounded-2xl border border-border/70 bg-background">
+              <summary className="cursor-pointer select-none px-4 py-3 text-xs font-medium text-muted-foreground hover:text-foreground">Підключення executor</summary>
+              <div className="border-t border-border/70 p-3"><ChatDiscoveryExecutorPanel /></div>
+            </details>
 
             <details className="rounded-2xl border border-border/70 bg-background">
               <summary className="cursor-pointer select-none px-4 py-3 text-xs font-medium text-muted-foreground hover:text-foreground">Ручне джерело з Telegram</summary>
@@ -564,19 +617,19 @@ export function ChatDiscoveryDialog({
           <div className="border-b border-border/70 bg-background px-4 py-3 sm:px-5 sm:py-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h3 className="text-base font-semibold">Кандидати</h3>
-                <p className="mt-0.5 text-xs text-foreground/65">{total} разом · {localPreview.candidates.length} локально · {workspace.importedCount} уже в Work OS</p>
+                <h3 className="text-base font-semibold">Автоматична перевірка</h3>
+                <p className="mt-0.5 text-xs text-foreground/65">{autonomousRunning?'Work OS обробляє чергу сам. Відкривати або кваліфікувати кожен чат вручну не потрібно.':'Тут видно результати останньої перевірки.'}</p>
               </div>
               <Badge variant="outline">{filter === 'all' ? 'Усі' : filter === 'waiting-whatsapp' ? 'WhatsApp · Очікування' : decisionLabel(filter)} · {filter === 'all' ? total : filter === 'waiting-whatsapp' ? workspace.waitingWhatsAppCount : filter==='review' ? reviewCount : workspace.counts[filter]}</Badge>
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Фільтр кандидатів">
               {([
-                ['all', 'Усі', total],
-                ['waiting-whatsapp', 'WA · Очікування', workspace.waitingWhatsAppCount],
-                ['review', 'Перевірка', reviewCount],
+                ['review', 'У роботі', reviewCount],
+                ['waiting-whatsapp', 'Очікує WhatsApp', workspace.waitingWhatsAppCount],
                 ['target', 'Цільові', workspace.counts.target],
                 ['rejected', 'Відхилені', workspace.counts.rejected],
                 ['unavailable', 'Недоступні', workspace.counts.unavailable],
+                ['all', 'Усі', total],
               ] as Array<[DecisionFilter, string, number]>).map(([key, label, count]) =>
                 <button
                   key={key}
@@ -600,60 +653,86 @@ export function ChatDiscoveryDialog({
                 ? <div className="grid gap-3">
                   {displayCandidates.map(candidate => {
                     const criteria = candidateCriteria(candidate);
+                    const status = candidateStatus(candidate);
+                    const confirmedCriteria=criteria.filter(item=>item.state==='ok').length;
                     return <article key={candidate.id} className="min-w-0 rounded-2xl border border-border bg-background p-4 shadow-sm sm:p-5">
-                      <div className="flex min-w-0 items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <Badge variant={candidate.decision === 'target' ? 'default' : candidate.decision === 'review' ? 'secondary' : 'outline'}>{decisionLabel(candidate.decision)}</Badge>
-                            <Badge variant="outline">{platformLabel(candidate.platform)}</Badge>
-                            {isLocalPreview(candidate)&&<Badge variant="outline">Локально · не в D1</Badge>}
-                            {candidate.importedChatId && <Badge variant="outline">{membershipLabel(candidate.membershipState)}</Badge>}
+                      <div className={`rounded-xl border px-3 py-2.5 ${status.tone}`}>
+                        <div className="flex items-start gap-2">
+                          {status.busy?<LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin"/>:<span className="mt-1 size-2 shrink-0 rounded-full bg-current opacity-70"/>}
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold uppercase tracking-wide">{status.label}</div>
+                            <div className="mt-0.5 text-xs leading-5 opacity-80">{status.detail}</div>
                           </div>
-                          <h4 className="mt-2 break-words text-base font-semibold leading-snug">{candidate.name || candidate.link}</h4>
-                          <div className="mt-1 max-w-full truncate font-mono text-[11px] font-medium text-foreground/60">{candidate.link}</div>
                         </div>
-                        {candidate.importedChatId && <span className="shrink-0 rounded-md bg-muted/40 px-2 py-1 text-[11px] font-medium text-foreground/65">У Work OS</span>}
                       </div>
 
-                      <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
-                        {criteria.map(item => <Criterion key={item.label} {...item} />)}
+                      <div className="mt-3 flex min-w-0 items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h4 className="break-words text-base font-semibold leading-snug">{candidateDisplayName(candidate)}</h4>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <Badge variant="outline">{platformLabel(candidate.platform)}</Badge>
+                            {candidate.membershipState==='pending'&&<Badge variant="secondary">Очікує вступу</Badge>}
+                            {candidate.membershipState==='joined'&&<Badge variant="secondary">Приєднано</Badge>}
+                            {isLocalPreview(candidate)&&<Badge variant="outline">Ручний preview</Badge>}
+                          </div>
+                        </div>
+                        {candidate.decision==='target'&&<Badge>Цільовий</Badge>}
                       </div>
 
-                      {candidate.reasonCodes.length > 0 && <details className="mt-3 rounded-xl border border-border/70 bg-background px-3 py-2.5">
-                        <summary className="cursor-pointer select-none text-xs font-semibold text-foreground/80">
-                          Що потребує уваги · {candidate.reasonCodes.length}
+                      {candidate.reasonCodes.length>0&&candidate.decision!=='target'&&<div className="mt-3 flex flex-wrap gap-1.5">
+                        {candidate.reasonCodes.slice(0,3).map(code=><span key={code} className="rounded-lg bg-muted/50 px-2 py-1 text-[11px] font-medium text-foreground/70">{reasonLabel(code)}</span>)}
+                        {candidate.reasonCodes.length>3&&<span className="rounded-lg bg-muted/50 px-2 py-1 text-[11px] font-medium text-muted-foreground">+{candidate.reasonCodes.length-3}</span>}
+                      </div>}
+
+                      <details className="mt-3 rounded-xl border border-border/70 bg-muted/10">
+                        <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-foreground/75">
+                          Деталі перевірки · підтверджено {confirmedCriteria} з {criteria.length}
                         </summary>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {candidate.reasonCodes.map(code => <span key={code} className="rounded-md bg-muted/35 px-2 py-1 text-[11px] font-medium text-foreground/75 ring-1 ring-border/70">{reasonLabel(code)}</span>)}
+                        <div className="border-t border-border/60 p-3">
+                          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+                            {criteria.map(item => <Criterion key={item.label} {...item} />)}
+                          </div>
+                          <div className="mt-3 truncate font-mono text-[11px] font-medium text-foreground/50">{candidate.link}</div>
+                          {candidate.sources.length > 0 && <details className="mt-3">
+                            <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Звідки знайдено · {candidate.sources.length}</summary>
+                            <div className="mt-2 grid gap-2">
+                              {candidate.sources.slice(0, 4).map((source, index) =>
+                                <div key={`${source.sourceUrl}:${source.query}:${index}`} className="rounded-lg bg-background p-2 text-xs">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <strong>{source.sourceTitle || source.seedLabel || source.kind}</strong>
+                                    {source.sourceUrl && <a className="inline-flex items-center gap-1 underline" href={source.sourceUrl} target="_blank" rel="noreferrer">джерело <ExternalLink className="size-3"/></a>}
+                                  </div>
+                                  {source.query && <div className="mt-1 text-muted-foreground">Запит: {source.query}</div>}
+                                </div>)}
+                            </div>
+                          </details>}
                         </div>
-                      </details>}
+                      </details>
 
-                      <div className="mt-4 flex flex-wrap gap-2 border-t border-border/60 pt-4">
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
                         <a className="inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-border bg-background px-2.5 text-[0.8rem] font-semibold hover:bg-muted" href={candidate.link} target="_blank" rel="noreferrer">
                           Відкрити {platformLabel(candidate.platform)} <ExternalLink className="size-3.5"/>
                         </a>
-                        {!candidate.importedChatId && candidate.decision === 'review' &&
-                          <Button type="button" size="sm" variant="outline" disabled={inspectingId !== null} onClick={() => void markInviteInvalid(candidate)}>
-                            {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                            {isLocalPreview(candidate)?'Відкинути локально':'Invite недійсний'}
-                          </Button>}
-                        {!candidate.importedChatId && (candidate.decision === 'review' || candidate.decision === 'target') &&
-                          <Button type="button" size="sm" disabled={importingId !== null || inspectingId !== null} onClick={() => void importCandidate(candidate)}>
-                            {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                            {isLocalPreview(candidate)?'Підходить → додати':'Додати на перевірку'}
-                          </Button>}
-                        {candidate.importedChatId && candidate.membershipState !== 'left' &&
-                          <Button type="button" size="sm" variant="outline" onClick={() => toggleManualInspection(candidate)}>
-                            {manualDraft?.candidateId === candidate.id ? 'Закрити кваліфікацію' : 'Кваліфікувати'}
-                          </Button>}
+                        <details className="group">
+                          <summary className="cursor-pointer select-none rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">Ручні дії</summary>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {!candidate.importedChatId && candidate.decision === 'review' &&
+                              <Button type="button" size="sm" variant="outline" disabled={inspectingId !== null} onClick={() => void markInviteInvalid(candidate)}>
+                                {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
+                                {isLocalPreview(candidate)?'Відкинути preview':'Invite недійсний'}
+                              </Button>}
+                            {!candidate.importedChatId && (candidate.decision === 'review' || candidate.decision === 'target') &&
+                              <Button type="button" size="sm" disabled={importingId !== null || inspectingId !== null} onClick={() => void importCandidate(candidate)}>
+                                {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
+                                {isLocalPreview(candidate)?'Підходить → додати':'Додати на перевірку'}
+                              </Button>}
+                            {candidate.importedChatId && candidate.membershipState !== 'left' &&
+                              <Button type="button" size="sm" variant="outline" onClick={() => toggleManualInspection(candidate)}>
+                                {manualDraft?.candidateId === candidate.id ? 'Закрити кваліфікацію' : 'Кваліфікувати вручну'}
+                              </Button>}
+                          </div>
+                        </details>
                       </div>
-
-                      {candidate.importedChatId && candidate.membershipState === 'left' &&
-                        <div className="mt-3 rounded-xl border border-border/70 bg-background px-3 py-2.5 text-xs font-medium leading-5 text-foreground/75">Чат уже покинуто. Для нової кваліфікації спочатку віднови його та підтвердь повторний вступ.</div>}
-                      {candidate.importedChatId && candidate.membershipState === 'joined' && candidate.decision === 'review' &&
-                        <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-500/45 bg-background px-3 py-2.5 text-xs font-semibold leading-5 text-foreground"><CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-600"/>Приєднано, але бракує підтверджених фактів. Executor перевірить їх повторно автоматично; ручна кваліфікація нижче — fallback.</div>}
-                      {candidate.importedChatId && candidate.membershipState === 'joined' && (candidate.decision === 'rejected' || candidate.decision === 'unavailable') &&
-                        <div className="workspace-error mt-3">Чат уже приєднаний, але не відповідає критеріям. Executor має виконати verified leave; після підтвердження Work OS архівує його автоматично.</div>}
 
                       {manualDraft?.candidateId === candidate.id && candidate.importedChatId && candidate.membershipState !== 'left' && <div className="mt-3 grid gap-3 rounded-xl border border-border/70 bg-muted/20 p-3">
                         <div className="flex items-center gap-2">
@@ -700,25 +779,10 @@ export function ChatDiscoveryDialog({
                           Зберегти кваліфікацію
                         </Button>
                       </div>}
-
-                      {candidate.sources.length > 0 && <details className="mt-3 border-t border-border/60 pt-3">
-                        <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Звідки знайдено · {candidate.sources.length}</summary>
-                        <div className="mt-2 grid gap-2">
-                          {candidate.sources.slice(0, 4).map((source, index) =>
-                            <div key={`${source.sourceUrl}:${source.query}:${index}`} className="rounded-lg bg-muted/30 p-2 text-xs">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <strong>{source.sourceTitle || source.seedLabel || source.kind}</strong>
-                                {source.sourceUrl && <a className="inline-flex items-center gap-1 underline" href={source.sourceUrl} target="_blank" rel="noreferrer">джерело <ExternalLink className="size-3"/></a>}
-                              </div>
-                              {source.query && <div className="mt-1 text-muted-foreground">Запит: {source.query}</div>}
-                              {source.context && <div className="mt-1 text-muted-foreground">{source.context}</div>}
-                            </div>)}
-                        </div>
-                      </details>}
                     </article>;
                   })}
                 </div>
-                : <div className="workspace-empty"><Search aria-hidden="true"/><strong>Кандидатів ще немає</strong><p>Запусти автопошук або зміни фільтр.</p></div>}
+                : <div className="workspace-empty"><Search aria-hidden="true"/><strong>Тут поки порожньо</strong><p>{autonomousRunning?'Система продовжує пошук і сама додасть сюди результати.':'Запусти автопошук або зміни фільтр.'}</p></div>}
           </div>
         </section>
       </div>
@@ -789,6 +853,25 @@ function candidateCriteria(candidate: DiscoveryCandidate): CriterionItem[] {
     { label: 'Invite', value: linkStateLabel(candidate.linkState), state: candidate.linkState === 'valid' ? 'ok' : candidate.linkState === 'invalid' ? 'bad' : 'warn' },
     { label: 'Доступ', value: accessStateLabel(candidate.accessState), state: candidate.accessState === 'available' ? 'ok' : candidate.accessState === 'unavailable' ? 'bad' : 'warn' },
   ];
+}
+
+function candidateDisplayName(candidate:DiscoveryCandidate){
+  const source=String(candidate.name||'').replace(/<[^>]*>/g,' ').replace(/&[a-z]+;/giu,' ').replace(/https?:\/\/\S+/giu,' ').replace(/\s+/g,' ').trim();
+  const noisy=/class=|style=|notion-|chat\.whatsapp\.com|t\.me\//iu.test(String(candidate.name||''));
+  if(source&&!noisy&&source.length<=90)return source;
+  const code=String(candidate.link||'').split('/').filter(Boolean).at(-1)||'invite';
+  return `WhatsApp-кандидат · ${code.slice(0,7)}…`;
+}
+
+function candidateStatus(candidate:DiscoveryCandidate){
+  if(candidate.decision==='target')return {label:'Цільовий чат',detail:'Усі потрібні критерії підтверджені. Чат готовий до роботи.',tone:'border-emerald-500/30 bg-emerald-500/5 text-emerald-800 dark:text-emerald-300',busy:false};
+  if(candidate.decision==='rejected')return {label:'Відхилено автоматично',detail:candidate.membershipState==='joined'?'Чат не відповідає критеріям. Work OS виходить із нього та архівує.':'Чат не відповідає критеріям і не буде зарахований у ціль.',tone:'border-border bg-muted/25 text-foreground/70',busy:false};
+  if(candidate.decision==='unavailable')return {label:'Недоступний',detail:'Invite або сам чат недоступний. Work OS переходить до наступного кандидата.',tone:'border-border bg-muted/25 text-foreground/70',busy:false};
+  if(candidate.membershipState==='pending')return {label:'Очікуємо схвалення в WhatsApp',detail:'Запит на вступ уже відправлено. Система перевірить його повторно сама.',tone:'border-primary/30 bg-primary/5 text-foreground',busy:true};
+  if(candidate.membershipState==='joined')return {label:'Перевіряємо чат',detail:'Вступ підтверджено. Work OS збирає факти й перевіряє критерії.',tone:'border-primary/30 bg-primary/5 text-foreground',busy:true};
+  if(candidate.inspectionState==='failed')return {label:'Спробуємо ще раз',detail:'Попередня перевірка не завершилась. Кандидат лишається в автоматичній черзі.',tone:'border-amber-500/30 bg-amber-500/5 text-foreground',busy:true};
+  if(isLocalPreview(candidate))return {label:'Ручний preview',detail:'Цей кандидат ще не передано автономному executor-у.',tone:'border-border bg-muted/20 text-foreground/70',busy:false};
+  return {label:'У черзі',detail:'Work OS перевірить цей чат автоматично. Втручання не потрібне.',tone:'border-border bg-muted/15 text-foreground/75',busy:true};
 }
 
 function platformLabel(value: string) {
@@ -871,6 +954,7 @@ function reasonLabel(value: string) {
     inactive_chat: 'чат неактивний',
     not_discussion_group: 'не груповий чат',
     access_unavailable: 'чат недоступний',
+    qualification_unverified: 'не вдалося підтвердити всі критерії',
   };
   return labels[value] || value;
 }

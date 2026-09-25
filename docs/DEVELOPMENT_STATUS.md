@@ -1,5 +1,13 @@
 # Development status — 2026-09-25
 
+## 2026-09-25 — Discovery operator UX clarity
+
+- Live screenshot review showed that the modal exposed implementation concepts (`Query`, local/D1 state, raw candidate count, executor card) more prominently than the actual operator goal.
+- The modal is now goal-first: a single progress card shows confirmed targets versus the active goal, current autonomous activity, work queue, WhatsApp pending, rejected and unavailable counts.
+- The active run goal is shown consistently in the disabled goal field (for example 10 rather than stale local default 50).
+- Default candidate view is `У роботі`; candidate cards lead with a plain-language automation state and keep the 10-point qualification grid, raw link/source details and manual controls collapsed.
+- Noisy scraped source names are sanitized/fallback-labelled in the main list. Executor and search-source counters remain available under technical disclosures instead of dominating the workflow.
+
 ## 2026-09-25 — autonomous Discovery live progression
 
 - Exact staging build `c06cbcf674984acac61d713f1b3a5f868506195e` physically completed a real rejected-chat path: WhatsApp joined `Technical Support`, Work OS observed 18 members and admin-only posting, classified it rejected, then the refreshed adapter completed verified external leave; the canonical callback archives the chat before persisting `membership_state=left`.
