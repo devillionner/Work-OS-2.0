@@ -22,6 +22,20 @@ void test('Platforms never speculatively prefetches sibling D1 queues',()=>{
   assert.doesNotMatch(platform,/for\(const item of queues\)[\s\S]{0,1600}fetch\(\`\/api\/chats/);
 });
 
+void test('Platforms GET uses queue counters and an index-friendly page order',()=>{
+  const route=read('app/api/chats/route.ts');
+  const migration=read('migrations/0039_chat_queue_read_model.sql');
+  assert.match(route,/FROM chat_queue_counts/);
+  assert.match(route,/const totalStatement = search/);
+  assert.match(route,/ORDER BY c\.updated_at DESC,c\.id LIMIT 50 OFFSET/);
+  assert.doesNotMatch(route,/ORDER BY published_today ASC,CASE WHEN c\.snoozed_until/);
+  assert.match(migration,/CREATE TABLE chat_queue_counts/);
+  assert.match(migration,/CREATE TRIGGER chat_queue_counts_chat_insert/);
+  assert.match(migration,/CREATE TRIGGER chat_queue_counts_chat_move/);
+  assert.match(migration,/CREATE TRIGGER chat_queue_counts_profile_insert/);
+  assert.match(migration,/CREATE INDEX chats_user_platform_status_updated_idx/);
+});
+
 void test('Discovery executor and staging deploy retain quota-safe guards',()=>{
   const runner=read('scripts/chat-discovery-runner.mjs');
   const auth=read('lib/chat-discovery/executor-auth.ts');

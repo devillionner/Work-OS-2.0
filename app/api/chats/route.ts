@@ -52,12 +52,23 @@ export async function GET(request: Request): Promise<Response> {
   const totalSource = profileFilter ? 'FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id' : 'FROM chats c';
   const rowAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?9 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
   const totalAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?6 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
+  const accountKey = platform === 'telegram' ? accountId || '' : '';
+  const counterAccountFilter = platform === 'telegram'
+    ? ` AND (account_key=?3 OR (account_key='' AND workflow_status='to_join'))`
+    : ` AND account_key=''`;
+  const counterBindings = platform === 'telegram' ? [user.id, platform, accountKey] : [user.id, platform];
+  const counterTotalSql = status === 'profile_review'
+    ? `SELECT COALESCE(SUM(profile_draft_count+profile_empty_count),0) AS count FROM chat_queue_counts WHERE user_id=?1 AND platform=?2 AND workflow_status IN ('waiting','ready')${counterAccountFilter}`
+    : profileFilter
+      ? `SELECT COALESCE(SUM(profile_draft_count+profile_empty_count),0) AS count FROM chat_queue_counts WHERE user_id=?1 AND platform=?2 AND workflow_status=?4${counterAccountFilter}`
+      : `SELECT COALESCE(SUM(chat_count),0) AS count FROM chat_queue_counts WHERE user_id=?1 AND platform=?2 AND workflow_status=?4${counterAccountFilter}`;
+  const totalStatement = search
+    ? env.DB.prepare(`SELECT COUNT(*) AS count ${totalSource} WHERE ${filter}${totalAccountFilter}`).bind(user.id, platform, status, search, pattern, ...(accountId?[accountId]:[]))
+    : env.DB.prepare(counterTotalSql).bind(...counterBindings, status);
   const statements = [
-    env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.archived_at,${chatSnoozeCountSql()} AS snooze_count,${chatLeftAtSql()} AS left_at,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.custom_interval_days AS profile_custom_interval_days,p.next_allowed_on AS profile_next_allowed_on,p.directions_json AS profile_directions,p.note AS profile_note,(SELECT dc.decision FROM chat_discovery_candidates dc WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id ORDER BY dc.updated_at DESC,dc.id LIMIT 1) AS discovery_decision,(SELECT wa.id FROM whatsapp_autopost_jobs wa WHERE wa.user_id=c.user_id AND wa.chat_id=c.id AND wa.published_on=?6 AND wa.status IN ('pending','claimed') ORDER BY wa.created_at DESC LIMIT 1) AS autopost_job_id,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?6) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE ${filter}${rowAccountFilter} ORDER BY published_today ASC,CASE WHEN c.snoozed_until IS NOT NULL AND c.snoozed_until>?7 THEN 1 ELSE 0 END,c.updated_at DESC,c.name LIMIT 50 OFFSET ?8`).bind(user.id, platform, status, search, pattern, today, now, offset, ...(accountId?[accountId]:[])),
-    env.DB.prepare(`SELECT COUNT(*) AS count ${totalSource} WHERE ${filter}${totalAccountFilter}`).bind(user.id, platform, status, search, pattern, ...(accountId?[accountId]:[])),
-    platform === 'telegram'
-      ? env.DB.prepare(`SELECT c.workflow_status,COUNT(*) AS count,SUM(CASE WHEN p.review_status='confirmed' THEN 1 ELSE 0 END) AS confirmed_count,SUM(CASE WHEN p.review_status='draft' THEN 1 ELSE 0 END) AS draft_count,SUM(CASE WHEN p.chat_id IS NULL THEN 1 ELSE 0 END) AS empty_count FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 AND (c.telegram_account_id=?3 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join')) GROUP BY c.workflow_status`).bind(user.id,platform,accountId)
-      : env.DB.prepare(`SELECT c.workflow_status,COUNT(*) AS count,SUM(CASE WHEN p.review_status='confirmed' THEN 1 ELSE 0 END) AS confirmed_count,SUM(CASE WHEN p.review_status='draft' THEN 1 ELSE 0 END) AS draft_count,SUM(CASE WHEN p.chat_id IS NULL THEN 1 ELSE 0 END) AS empty_count FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 GROUP BY c.workflow_status`).bind(user.id,platform),
+    env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.archived_at,${chatSnoozeCountSql()} AS snooze_count,${chatLeftAtSql()} AS left_at,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.custom_interval_days AS profile_custom_interval_days,p.next_allowed_on AS profile_next_allowed_on,p.directions_json AS profile_directions,p.note AS profile_note,(SELECT dc.decision FROM chat_discovery_candidates dc WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id ORDER BY dc.updated_at DESC,dc.id LIMIT 1) AS discovery_decision,(SELECT wa.id FROM whatsapp_autopost_jobs wa WHERE wa.user_id=c.user_id AND wa.chat_id=c.id AND wa.published_on=?6 AND wa.status IN ('pending','claimed') ORDER BY wa.created_at DESC LIMIT 1) AS autopost_job_id,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?6) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE ${filter}${rowAccountFilter} ORDER BY c.updated_at DESC,c.id LIMIT 50 OFFSET ?8`).bind(user.id, platform, status, search, pattern, today, now, offset, ...(accountId?[accountId]:[])),
+    totalStatement,
+    env.DB.prepare(`SELECT workflow_status,SUM(chat_count) AS count,SUM(profile_confirmed_count) AS confirmed_count,SUM(profile_draft_count) AS draft_count,SUM(profile_empty_count) AS empty_count FROM chat_queue_counts WHERE user_id=?1 AND platform=?2${counterAccountFilter} GROUP BY workflow_status`).bind(...counterBindings),
     joinedTodayStatement(env.DB,{userId:user.id,platform,date:today,accountId}),
     platform === 'telegram'
       ? env.DB.prepare(`SELECT c.id,c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 AND p.telegram_account_id=?4 ORDER BY p.published_at,p.created_at`).bind(user.id,platform,today,accountId)
@@ -86,6 +97,8 @@ export async function GET(request: Request): Promise<Response> {
     leftAt: row.left_at === null || row.left_at === undefined ? null : Number(row.left_at),
     ...publicationAvailability(row, now),
   }));
+  chats.sort((a,b) => Number(a.publishedToday)-Number(b.publishedToday)
+    || Number(Boolean(a.snoozedUntil && a.snoozedUntil>now))-Number(Boolean(b.snoozedUntil && b.snoozedUntil>now)));
   const countRows = countsResult.results as Array<{workflow_status:string;count:number;confirmed_count:number;draft_count:number;empty_count:number}>;
   const counts = Object.fromEntries(countRows.map((row) => [row.workflow_status, Number(row.count)]));
   const profileCounts = Object.fromEntries(countRows.map((row) => { const confirmed=Number(row.confirmed_count)||0; const draft=Number(row.draft_count)||0; const empty=Number(row.empty_count)||0; return [row.workflow_status,{confirmed,draft,empty,needsReview:draft+empty}]; }));
