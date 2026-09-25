@@ -6,6 +6,8 @@
 - The adapter now treats that localized post-invite join evidence plus the conversation header as exact-target proof for the invite code that the runner itself navigated to. A generic header without that evidence still fails closed.
 - Verified leave now follows the observed WhatsApp target name rather than the noisy source-derived name, so a factual non-target joined chat can be exited and archived automatically.
 - Live reproduced non-target evidence: `Technical Support`, 18 members, admin-only posting. Final autonomous goal acceptance still requires the refreshed runner to process the flow end-to-end.
+- Follow-up DOM inspection showed that current WhatsApp stores the real group name in `#main header [dir="auto"]`, while `[title]` contains helper text such as «Деталі профілю» or participant lists. Target verification/clicking now prefers the semantic header name.
+- Current group-info leave control is a role button with `data-testid="li-delete-group"` and text «Вийти з групи»; once the semantic header opens the correct drawer, the existing exact leave/confirmation path can operate fail-closed.
 
 ## 2026-09-25 autonomous Discovery outcome-loop correction
 

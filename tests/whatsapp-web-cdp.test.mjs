@@ -89,7 +89,8 @@ void test('post-invite joined chat verifies the navigated target after WhatsApp 
     navigatedInviteCode:'AbCdEfGh1234',
     targetHeadings:[],
     targetTexts:[],
-    headerTitles:['Technical Support'],
+    headerNames:['Technical Support'],
+    headerTitles:['Деталі профілю', '+967 775 052 664, +962 7 9558 5434'],
     buttons:[],
     bodyText:'Ви приєдналися за запрошенням\n18 учасників\nЛише адміністратори можуть надсилати повідомлення',
     mainText:'Ви приєдналися за запрошенням',
@@ -101,6 +102,15 @@ void test('post-invite joined chat verifies the navigated target after WhatsApp 
   assert.equal(result.result.membershipState, 'joined');
   assert.equal(result.result.observedName, 'Technical Support');
   assert.equal(result.result.canWrite, false);
+});
+
+void test('current WhatsApp DOM reads semantic conversation names before helper title attributes', async () => {
+  const source = await import('node:fs/promises').then(({readFile}) =>
+    readFile(new URL('../scripts/whatsapp-web-cdp.mjs', import.meta.url), 'utf8')
+  );
+  assert.match(source, /#main header \[dir="auto"\]/);
+  assert.match(source, /headerNames/);
+  assert.match(source, /li-delete-group|leavePattern/);
 });
 
 void test('joined exact chat reports writeability without inventing qualification facts', () => {

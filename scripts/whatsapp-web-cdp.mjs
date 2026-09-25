@@ -155,7 +155,7 @@ function exactTarget(snapshot, task) {
   if (!expected) return null;
   if (!isWeakExpectedName(expected)) {
     const normalizedExpected = normalizeTargetLabel(expected);
-    const candidates = [...(snapshot.headerTitles || []), ...(snapshot.targetHeadings || []), ...(snapshot.targetTexts || [])];
+    const candidates = [...(snapshot.headerNames || []), ...(snapshot.headerTitles || []), ...(snapshot.targetHeadings || []), ...(snapshot.targetTexts || [])];
     const exact = candidates.find((value) => normalizeTargetLabel(value) === normalizedExpected);
     if (exact) return exact;
   }
@@ -164,7 +164,7 @@ function exactTarget(snapshot, task) {
 
   const postInviteText = [snapshot.targetRegionText, snapshot.mainText, snapshot.bodyText].filter(Boolean).join('\n');
   if (joinedViaInvitePattern.test(postInviteText)) {
-    const joinedHeader = (snapshot.headerTitles || [])
+    const joinedHeader = (snapshot.headerNames || [])
       .map((value) => String(value || '').trim())
       .find(Boolean);
     if (joinedHeader) return joinedHeader;
@@ -215,7 +215,7 @@ export function classifyWhatsAppSnapshot(task, snapshot) {
   }
 
   const normalizedObserved = normalizeTargetLabel(observedName);
-  const headerMatches = (snapshot.headerTitles || []).some(
+  const headerMatches = [...(snapshot.headerNames || []), ...(snapshot.headerTitles || [])].some(
     (value) => normalizeTargetLabel(value) === normalizedObserved,
   );
 
@@ -499,6 +499,11 @@ async function readSnapshot(client) {
       [...root.querySelectorAll(selector)].map((node) => node.getAttribute('title') || node.textContent || '')
     ));
     const bodyText = document.body?.innerText || '';
+    const headerNames = read(document, [
+      '#main header [data-testid="conversation-info-header-chat-title"]',
+      '#main header [dir="auto"]',
+      '[data-testid="conversation-info-header"] [dir="auto"]',
+    ]);
     const headerTitles = read(document, [
       '[data-testid="conversation-info-header"] [title]',
       'header [title]',
@@ -530,6 +535,7 @@ async function readSnapshot(client) {
     return {
       url: location.href,
       bodyText: bodyText.slice(-50000),
+      headerNames,
       headerTitles,
       targetHeadings,
       targetTexts,
@@ -565,7 +571,7 @@ export function deriveWhatsappQualification(snapshot) {
   const memberCount = parseMemberCount(infoText);
   const activityState = inferMessageActivity(meta, Number(snapshot.nowMs) || Date.now(), snapshot.locale)
     || (recentActivityPattern.test(chatText) || recentActivityPattern.test(meta.join('\n')) ? 'active' : undefined);
-  const identityText = [infoText, ...(snapshot.headerTitles || [])].join('\n');
+  const identityText = [infoText, ...(snapshot.headerNames || []), ...(snapshot.headerTitles || [])].join('\n');
   const spamMessages = messages.slice(-20).filter((value) => spamPattern.test(value)).length;
   const topicMatch = spamPattern.test(identityText) || spamMessages >= 3
     ? 'mismatch'
@@ -728,7 +734,7 @@ async function clickExactHeader(client, expectedName) {
   const expression = `(() => {
     const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim().toLocaleLowerCase('uk-UA');
     const target = ${JSON.stringify(String(expectedName || '').trim().toLocaleLowerCase('uk-UA'))};
-    const nodes = [...document.querySelectorAll('[data-testid="conversation-info-header"] [title], header [title], header h1, header h2')];
+    const nodes = [...document.querySelectorAll('#main header [data-testid="conversation-info-header-chat-title"], #main header [dir="auto"], [data-testid="conversation-info-header"] [dir="auto"], [data-testid="conversation-info-header"] [title], header [title], header h1, header h2')];
     const node = nodes.find((item) => normalize(item.getAttribute('title') || item.textContent) === target);
     if (!node) return false;
     (node.closest('button, [role="button"]') || node).click();
@@ -753,7 +759,7 @@ async function clickDocumentControl(client, label, expectedName) {
     const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim().toLocaleLowerCase('uk-UA');
     const expected = ${JSON.stringify(String(label || '').trim().toLocaleLowerCase('uk-UA'))};
     const target = ${JSON.stringify(String(expectedName || '').trim().toLocaleLowerCase('uk-UA'))};
-    const headerMatches = [...document.querySelectorAll('[data-testid="conversation-info-header"] [title], header [title], header h1, header h2')]
+    const headerMatches = [...document.querySelectorAll('#main header [data-testid="conversation-info-header-chat-title"], #main header [dir="auto"], [data-testid="conversation-info-header"] [dir="auto"], [data-testid="conversation-info-header"] [title], header [title], header h1, header h2')]
       .some((node) => normalize(node.getAttribute('title') || node.textContent) === target);
     if (!headerMatches) return false;
     const nodes = [...document.querySelectorAll('button, [role="button"]')];
