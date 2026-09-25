@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, CircleAlert, ExternalLink, LoaderCircle, Search, Square, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { ChatDiscoveryExecutorPanel } from '@/components/chat-discovery-executor-panel';
@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import type { DiscoveryCandidate, DiscoveryDecision, DiscoveryRun } from '@/lib/chat-discovery/domain';
 import type { DiscoveryPlatform, TelegramSearchPlan } from '@/lib/chat-discovery/public-web';
+import type { LocalDiscoveryPreview } from '@/lib/chat-discovery/local-preview';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 
 type Workspace = {
@@ -22,7 +23,14 @@ type Workspace = {
   error?: string;
 };
 type ImportResponse = { chatId?: string; existing?: boolean; workflowStatus?: string; error?: string };
-type TelegramIngestResponse = { run: DiscoveryRun; queryCompleted: boolean; batch: { extracted: number; added: number; duplicates: number }; error?: string };
+type PreviewSearchResponse = {
+  source:'telegram'|'public_web'|'idle'; telegramCursor:number; sourceCursor:number; done:boolean;
+  previews:LocalDiscoveryPreview[]; batch:{searched:number;added:number;duplicates:number;errors:number}; error?:string;
+};
+type PreviewTelegramResponse = { previews:LocalDiscoveryPreview[]; batch:{extracted:number;added:number;duplicates:number}; error?:string };
+type LocalPreviewSession = {
+  telegramCursor:number; sourceCursor:number; searched:number; duplicates:number; done:boolean; candidates:LocalDiscoveryPreview[];
+};
 type ManualInspectionDraft = {
   candidateId: string;
   memberCount: string;
@@ -41,6 +49,8 @@ const EMPTY_COUNTS: Record<DiscoveryDecision, number> = {
   rejected: 0,
   unavailable: 0,
 };
+const LOCAL_PREVIEW_KEY='work-os:chat-discovery-local-preview:v1';
+const EMPTY_LOCAL_PREVIEW:LocalPreviewSession={telegramCursor:0,sourceCursor:0,searched:0,duplicates:0,done:false,candidates:[]};
 
 export function ChatDiscoveryDialog({
   open,
@@ -66,6 +76,9 @@ export function ChatDiscoveryDialog({
   const [telegramSourceUrl, setTelegramSourceUrl] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [localPreview,setLocalPreview]=useState<LocalPreviewSession>(EMPTY_LOCAL_PREVIEW);
+  const [localPreviewHydrated,setLocalPreviewHydrated]=useState(false);
+  const stopLocalSearch=useRef(false);
   const telegramHasInvite = /(?:https?:\/\/)?chat\.whatsapp\.com\//iu.test(telegramText.replaceAll('\\/', '/'));
 
   const load = useCallback(async (decision: DecisionFilter = filter) => {
@@ -94,6 +107,17 @@ export function ChatDiscoveryDialog({
     return () => clearTimeout(timer);
   }, [open, load]);
 
+  useEffect(()=>{
+    if(!open)return;
+    setLocalPreview(readLocalPreviewSession());
+    setLocalPreviewHydrated(true);
+  },[open]);
+
+  useEffect(()=>{
+    if(!open||!localPreviewHydrated)return;
+    try{window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(localPreview));}catch{}
+  },[open,localPreviewHydrated,localPreview]);
+
 
 
   async function post(body: Record<string, unknown>) {
@@ -107,75 +131,82 @@ export function ChatDiscoveryDialog({
     return payload;
   }
 
-  async function ensureTelegramRun() {
-    let run = workspace.run?.status === 'running' ? workspace.run : null;
-    if (run) return run;
-    const payload = await post({ action: 'start', platforms, goal, minMembers });
-    run = payload.run as DiscoveryRun;
-    setWorkspace(current => ({ ...current, run }));
-    return run;
+  async function postPreview(body:Record<string,unknown>){
+    const response=await fetch('/api/chat-discovery/preview',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),
+    });
+    const payload=await response.json() as Record<string,unknown>&{error?:string};
+    if(!response.ok)throw new Error(payload.error||'Локальний preview пошуку не завершено.');
+    return payload;
   }
 
   async function startAutonomousSearch() {
     if (telegramBusy) return;
+    if(localPreview.candidates.length>=goal){
+      setNotice(`У локальному preview вже є ${localPreview.candidates.length} кандидатів. Підтвердь потрібні або відкинь зайві — D1 до цього не змінюється.`);
+      return;
+    }
     setTelegramBusy(true);
+    stopLocalSearch.current=false;
     setError('');
+    setNotice('Автопошук працює локально: нові invite не записуються в D1 до твого підтвердження.');
+    let session=localPreview;
     try {
-      const run = await ensureTelegramRun();
-      await load(filter);
-      setNotice(`Автопошук запущено: ціль ${run.goal} нових підтверджених цільових WhatsApp-чатів. Seed-план, Telegram/public sources, дедуп і executor працюють автоматично.`);
+      for(let batchIndex=0;batchIndex<60&&!stopLocalSearch.current&&!session.done&&session.candidates.length<goal;batchIndex++){
+        const before=`${session.telegramCursor}:${session.sourceCursor}`;
+        const payload=await postPreview({
+          action:'search',platforms,telegramCursor:session.telegramCursor,sourceCursor:session.sourceCursor,
+          knownLinks:session.candidates.map(candidate=>candidate.link),minMembers,
+        }) as unknown as PreviewSearchResponse;
+        session=mergeLocalPreviewSession(session,payload);
+        setLocalPreview(session);
+        setNotice(`Локально знайдено ${session.candidates.length} із ${goal}; опрацьовано query: ${session.searched}; дублі/відомі: ${session.duplicates}. У D1 нічого не записано.`);
+        const after=`${session.telegramCursor}:${session.sourceCursor}`;
+        if(before===after&&!payload.previews.length)break;
+      }
+      if(stopLocalSearch.current)setNotice(`Автопошук зупинено. ${session.candidates.length} локальних кандидатів залишились у sessionStorage й не записані в D1.`);
+      else if(session.candidates.length>=goal)setNotice(`Локальний пакет готовий: ${session.candidates.length} кандидатів. Переглянь їх і підтвердь потрібні — лише тоді вони потраплять у Work OS/D1.`);
+      else if(session.done)setNotice(`Доступний source plan вичерпано. Локально знайдено ${session.candidates.length} кандидатів; D1 не змінювався.`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Не вдалося запустити Telegram-пошук.');
+      setError(reason instanceof Error ? reason.message : 'Не вдалося продовжити локальний автопошук.');
     } finally {
       setTelegramBusy(false);
     }
   }
 
-  async function ingestTelegramScan(completeQuery: boolean) {
+  async function ingestTelegramScan(clearAfter: boolean) {
     if (telegramBusy || !telegramText.trim()) return;
-    const displayedQuery = workspace.telegramPlan?.tasks[0]?.query || '';
-    if (!displayedQuery) {
-      setError('Поточний Telegram-запит не знайдений. Оновіть пошук.');
-      return;
-    }
     setTelegramBusy(true);
     setError('');
     setNotice('');
     try {
-      const run = await ensureTelegramRun();
-      const fresh = await load(filter);
-      const freshQuery = fresh?.run?.id === run.id ? fresh.telegramPlan?.tasks[0]?.query || '' : '';
-      if (freshQuery !== displayedQuery) {
-        throw new Error('Telegram-запит уже змінився в іншій вкладці. Скан не передано — оновіть поточний query.');
+      const query=workspace.telegramPlan?.tasks[0]?.query||telegramSourceTitle.trim()||'Ручне Telegram-джерело';
+      const payload=await postPreview({
+        action:'telegram',text:telegramText,sourceUrl:telegramSourceUrl,sourceTitle:telegramSourceTitle,
+        query,seedLabel:telegramSourceTitle||query,context:query,
+        knownLinks:localPreview.candidates.map(candidate=>candidate.link),minMembers,
+      }) as unknown as PreviewTelegramResponse;
+      const merged=mergeLocalTelegramPreview(localPreview,payload);
+      setLocalPreview(merged);
+      setNotice(`Telegram preview: витягнуто ${payload.batch.extracted}, локально нових ${payload.batch.added}, дублів/відомих ${payload.batch.duplicates}. D1 не змінено.`);
+      if(clearAfter){
+        setTelegramSourceTitle('');
+        setTelegramSourceUrl('');
+        setTelegramText('');
       }
-      const query = displayedQuery;
-      const payload = await post({
-        action: 'ingest-telegram',
-        runId: run.id,
-        text: telegramText,
-        sourceUrl: telegramSourceUrl,
-        sourceTitle: telegramSourceTitle,
-        query,
-        seedLabel: telegramSourceTitle || query || 'Telegram',
-        context: query,
-        completeQuery,
-      }) as unknown as TelegramIngestResponse;
-      setWorkspace(current => ({ ...current, run: payload.run }));
-      setNotice(payload.queryCompleted
-        ? `Telegram: витягнуто ${payload.batch.extracted}, нових ${payload.batch.added}, дублів ${payload.batch.duplicates}. Поточний запит завершено, план перейшов далі.`
-        : `Telegram: витягнуто ${payload.batch.extracted}, нових ${payload.batch.added}, дублів ${payload.batch.duplicates}. Джерело збережено, поточний query ще активний.`);
-      setTelegramSourceTitle('');
-      setTelegramSourceUrl('');
-      setTelegramText('');
-      await load(filter);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Не вдалося передати Telegram-результати в пошук.');
+      setError(reason instanceof Error ? reason.message : 'Не вдалося додати Telegram-результати в локальний preview.');
     } finally {
       setTelegramBusy(false);
     }
   }
 
   async function markInviteInvalid(candidate: DiscoveryCandidate) {
+    if(isLocalPreview(candidate)){
+      removeLocalPreview(candidate.id);
+      setNotice('Локальний кандидат відкинуто. У D1 нічого не записувалось.');
+      return;
+    }
     if (inspectingId) return;
     setInspectingId(candidate.id);
     setError('');
@@ -264,21 +295,24 @@ export function ChatDiscoveryDialog({
     setImportingId(candidate.id);
     setError('');
     try {
-      const payload = await post({
-        action: 'import',
-        candidateId: candidate.id,
-        version: candidate.version,
-      }) as unknown as ImportResponse;
+      const payload = isLocalPreview(candidate)
+        ? await postPreview({action:'confirm',platform:candidate.platform,link:candidate.link,name:candidate.name,sources:candidate.sources,minMembers}) as unknown as ImportResponse
+        : await post({action:'import',candidateId:candidate.id,version:candidate.version}) as unknown as ImportResponse;
+      if(isLocalPreview(candidate))removeLocalPreview(candidate.id);
       setNotice(payload.existing
-        ? 'Чат уже був у Work OS — кандидат зв’язаний з ним.'
-        : 'Чат додано в чергу «Для приєднання».');
+        ? 'Чат уже був у Work OS — локальний preview прибрано без дубля.'
+        : 'Підтверджено: чат записано в D1 і додано в чергу «Для приєднання».');
       onImported(candidate.platform as DiscoveryPlatform);
       await load(filter);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Не вдалося додати чат на перевірку.');
+      setError(reason instanceof Error ? reason.message : 'Не вдалося підтвердити чат.');
     } finally {
       setImportingId(null);
     }
+  }
+
+  function removeLocalPreview(id:string){
+    setLocalPreview(current=>({...current,candidates:current.candidates.filter(candidate=>candidate.id!==id)}));
   }
 
   async function changeFilter(next: DecisionFilter) {
@@ -291,7 +325,12 @@ export function ChatDiscoveryDialog({
   }
 
   const run = workspace.run;
-  const total = Object.values(workspace.counts).reduce((sum, value) => sum + value, 0);
+  const persistedTotal = Object.values(workspace.counts).reduce((sum, value) => sum + value, 0);
+  const total = persistedTotal + localPreview.candidates.length;
+  const reviewCount=workspace.counts.review+localPreview.candidates.length;
+  const displayCandidates:DiscoveryCandidate[]=(filter==='all'||filter==='review')
+    ? [...localPreview.candidates,...workspace.candidates]
+    : workspace.candidates;
 
   const currentTask = workspace.telegramPlan?.tasks[0] ?? null;
   const telegramProgress = workspace.telegramPlan
@@ -622,6 +661,44 @@ export function ChatDiscoveryDialog({
       </div>
     </DialogContent>
   </Dialog>;
+}
+
+function readLocalPreviewSession():LocalPreviewSession{
+  try{
+    const raw=window.sessionStorage.getItem(LOCAL_PREVIEW_KEY);
+    if(!raw)return EMPTY_LOCAL_PREVIEW;
+    const value=JSON.parse(raw) as Partial<LocalPreviewSession>;
+    const candidates=Array.isArray(value.candidates)?value.candidates.filter((item):item is LocalDiscoveryPreview=>Boolean(item&&typeof item==='object'&&(item as LocalDiscoveryPreview).localOnly===true&&typeof (item as LocalDiscoveryPreview).link==='string')).slice(0,250):[];
+    return {
+      telegramCursor:safeNonNegativeInt(value.telegramCursor),
+      sourceCursor:safeNonNegativeInt(value.sourceCursor),
+      searched:safeNonNegativeInt(value.searched),
+      duplicates:safeNonNegativeInt(value.duplicates),
+      done:value.done===true,
+      candidates,
+    };
+  }catch{return EMPTY_LOCAL_PREVIEW;}
+}
+function mergeLocalPreviewSession(current:LocalPreviewSession,payload:PreviewSearchResponse):LocalPreviewSession{
+  const byKey=new Map(current.candidates.map(candidate=>[`${candidate.platform}|${candidate.link}`,candidate]));
+  for(const candidate of payload.previews)byKey.set(`${candidate.platform}|${candidate.link}`,candidate);
+  return {
+    telegramCursor:safeNonNegativeInt(payload.telegramCursor),
+    sourceCursor:safeNonNegativeInt(payload.sourceCursor),
+    searched:current.searched+safeNonNegativeInt(payload.batch.searched),
+    duplicates:current.duplicates+safeNonNegativeInt(payload.batch.duplicates),
+    done:payload.done===true,
+    candidates:[...byKey.values()].slice(0,250),
+  };
+}
+function mergeLocalTelegramPreview(current:LocalPreviewSession,payload:PreviewTelegramResponse):LocalPreviewSession{
+  const byKey=new Map(current.candidates.map(candidate=>[`${candidate.platform}|${candidate.link}`,candidate]));
+  for(const candidate of payload.previews)byKey.set(`${candidate.platform}|${candidate.link}`,candidate);
+  return {...current,duplicates:current.duplicates+safeNonNegativeInt(payload.batch.duplicates),candidates:[...byKey.values()].slice(0,250)};
+}
+function safeNonNegativeInt(value:unknown){const number=Number(value);return Number.isSafeInteger(number)&&number>=0?number:0;}
+function isLocalPreview(candidate:DiscoveryCandidate):candidate is LocalDiscoveryPreview{
+  return (candidate as Partial<LocalDiscoveryPreview>).localOnly===true;
 }
 
 function StatTile({ label, value }: { label: string; value: string }) {
