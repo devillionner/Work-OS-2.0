@@ -223,6 +223,8 @@ export async function advanceAutonomousDiscoveryRun(
       done: false,
       errors: found.errors,
       completeAtGoal: false,
+      candidateLimit: 6,
+      sourceLimit: 3,
     });
     const advanced = await db.prepare(`UPDATE chat_discovery_runs SET
       telegram_cursor=?1,searched_queries=searched_queries+?2,
@@ -251,6 +253,8 @@ export async function advanceAutonomousDiscoveryRun(
       searched: web.searched,
       done: web.done,
       errors: web.errors,
+      candidateLimit: 6,
+      sourceLimit: 3,
     });
     await db.prepare(`UPDATE chat_discovery_runs SET source_lease_device_id=NULL,source_lease_expires_at=?4
       WHERE id=?1 AND user_id=?2 AND source_lease_device_id=?3`).bind(claimed.id, userId, deviceId, now + 15).run();
@@ -551,7 +555,10 @@ async function persistDiscoveryBatch(
   userId: string,
   run: RunRow,
   records: DiscoveryRecord[],
-  progress: { now: number; nextCursor: number; searched: number; done: boolean; errors: number; completeAtGoal?: boolean },
+  progress: {
+    now: number; nextCursor: number; searched: number; done: boolean; errors: number;
+    completeAtGoal?: boolean; candidateLimit?: number; sourceLimit?: number;
+  },
 ): Promise<{ run: DiscoveryRun; added: number; duplicates: number }> {
   const canonical = new Map<string, { platform: DiscoveryPlatform; link: string; name: string; sources: DiscoverySource[] }>();
   for (const record of records) {
@@ -566,7 +573,10 @@ async function persistDiscoveryBatch(
     canonical.set(key, item);
   }
 
-  const canonicalLinks = [...canonical.values()].map((item) => item.link);
+  const candidateLimit = Math.max(1, Math.min(250, Number(progress.candidateLimit) || 250));
+  const sourceLimit = Math.max(1, Math.min(12, Number(progress.sourceLimit) || 12));
+  const canonicalItems = [...canonical.values()].slice(0, candidateLimit);
+  const canonicalLinks = canonicalItems.map((item) => item.link);
   const existingChats = await readExistingCanonicalLinks(db, userId, canonicalLinks);
   const existingCandidates = await readExistingCandidates(db, userId, canonicalLinks);
   let duplicates = 0;
@@ -574,7 +584,7 @@ async function persistDiscoveryBatch(
   const autoHandoffIds: string[] = [];
   const statements: D1PreparedStatement[] = [];
 
-  for (const item of canonical.values()) {
+  for (const item of canonicalItems) {
     if (existingChats.has(`${item.platform}|${item.link}`)) {
       duplicates += 1;
       continue;
@@ -619,7 +629,7 @@ async function persistDiscoveryBatch(
         existing ? existing.decision : evaluated.decision, JSON.stringify(existing ? safeReasons(existing.reason_codes_json) : evaluated.reasonCodes),
         run.id, run.version));
 
-    for (const source of item.sources.slice(0, 12)) {
+    for (const source of item.sources.slice(0, sourceLimit)) {
       const sourceKey = await stableId('source', `${candidateId}:${sourceIdentity(source)}`);
       statements.push(db.prepare(`INSERT INTO chat_discovery_sources
         (id,candidate_id,user_id,source_key,source_kind,source_url,source_title,query_text,seed_label,seed_kind,context,discovered_at)

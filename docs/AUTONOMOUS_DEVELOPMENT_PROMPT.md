@@ -73,4 +73,4 @@ Production Worker і production D1 не читати, не мігрувати й
 Кожен запуск має завершуватися короткою відповіддю: який GO-LIVE gate закрито/просунуто, exact main SHA, staging status, що конкретно блокує наступний gate.
 
 
-- **D1-safe fast source burst:** source discovery має виконувати до 6 зовнішніх search queries за один source advance, не частіше одного D1 source-cycle на 20 секунд. Один burst повинен завершуватись одним targeted dedupe/persist/reconcile batch; не роби окремий D1 cycle на кожен зовнішній query. WhatsApp task має пріоритет, але pending approval не блокує refill джерел.
+- **D1-safe fast source burst:** source discovery має виконувати до 6 зовнішніх search queries за один source advance, не частіше одного D1 source-cycle на 20 секунд. Один burst повинен завершуватись одним targeted dedupe/persist/reconcile batch; не роби окремий D1 cycle на кожен зовнішній query. Autonomous persistence cap: максимум 6 кандидатів і 3 provenance-джерела на кандидата за burst. WhatsApp task має пріоритет, але pending approval не блокує refill джерел.

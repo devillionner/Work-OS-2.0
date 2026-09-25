@@ -62,6 +62,10 @@ void test('Discovery autonomous outcome loop is bounded and uses targeted D1 rea
   assert.match(domain,/buildTelegramSearchPlan\(claimed\.telegram_cursor, 6\)/);
   assert.match(domain,/discoverTelegramPublic\(\{ cursor:claimed\.telegram_cursor, maxQueries:6, pageLimit:2 \}/);
   assert.match(domain,/maxQueries: 6/);
+  assert.match(domain,/candidateLimit: 6/);
+  assert.match(domain,/sourceLimit: 3/);
+  assert.match(domain,/canonicalItems = \[\.\.\.canonical\.values\(\)\]\.slice\(0, candidateLimit\)/);
+  assert.match(domain,/item\.sources\.slice\(0, sourceLimit\)/);
   assert.doesNotMatch(domain,/LIMIT 10001/);
 });
 

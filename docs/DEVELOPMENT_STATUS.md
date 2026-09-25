@@ -9,6 +9,7 @@
 - After a messenger task, a nearly empty executor queue may refill source discovery immediately. Pending membership does not serialize the whole source pipeline.
 - The Discovery UI now exposes query count and a local 1-second “last activity” age. That heartbeat is browser-only and causes no D1 traffic.
 - Targeted link reads, queue LIMIT 3, executor leases, 5-minute WhatsApp failure cooldown, and no owner-wide candidate/chat scan remain unchanged.
+- Autonomous D1 persistence is additionally capped at 6 candidates × 3 provenance sources per source burst, preventing a high-yield external search page from turning into an unbounded write spike.
 
 ## 2026-09-25 — stale Discovery imports cleanup
 
