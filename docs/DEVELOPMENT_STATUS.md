@@ -1146,3 +1146,5 @@ separate gates after local validation and the required direct confirmation.
 - Strict follow-up after preflight correction: post-join Ukrainian audience may no longer fall back to source-topic inference; additional request-to-join labels are skipped; WhatsApp preflight can traverse bounded View/Continue → Join steps; final local UI defaults to factual targets and source exhaustion reports factual target count.
 
 - Reboot/live acceptance exposed a browser bridge bug when more than one Work OS tab shared the same origin: the runner could bind to an inactive tab and leave local candidates queued forever. The CDP bridge now scans all matching Work OS tabs, selects the one with an active local run/task, and writes the result back only to the tab containing that exact candidate.
+
+- Live run after reboot processed 55 invite candidates, eliminated 35 duplicates and completed 20 WhatsApp preflights before one transient HTML/5xx preview response stopped the browser loop. This is now non-fatal: source search retries preview calls up to 3 times with bounded backoff and keeps the local run active instead of resetting/stopping it.

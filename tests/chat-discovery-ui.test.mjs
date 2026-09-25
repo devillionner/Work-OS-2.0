@@ -234,3 +234,12 @@ void test('factual target tab becomes the active local-run view and source exhau
   assert.match(dialog,/Джерела вичерпано: фактично підтверджено \{localTargets\.length\}/);
   assert.match(dialog,/фактично цільовий чат записано в D1 як уже приєднаний і готовий/);
 });
+
+void test('Preview API transient HTML/5xx does not stop local autonomous search', async () => {
+  const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
+  assert.match(dialog,/const attempts=body\.action==='search'\?3:1/);
+  assert.match(dialog,/Preview API повернув не-JSON відповідь/);
+  assert.match(dialog,/response\.status>=500/);
+  assert.match(dialog,/Автопошук продовжить спроби автоматично/);
+  assert.match(dialog,/running:true,lastActivityAt:Date\.now\(\)/);
+});

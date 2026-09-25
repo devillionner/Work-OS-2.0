@@ -221,8 +221,9 @@ export function ChatDiscoveryDialog({
         });
       }catch(reason){
         if(cancelled)return;
-        setError(reason instanceof Error?reason.message:'Локальний автопошук не завершив пакет.');
-        setLocalPreview(current=>({...current,running:false,lastActivityAt:Date.now()}));
+        const message=reason instanceof Error?reason.message:'Локальний автопошук тимчасово не завершив пакет.';
+        setError(`${message} Автопошук продовжить спроби автоматично.`);
+        setLocalPreview(current=>({...current,running:true,lastActivityAt:Date.now()}));
       }
     },350);
     return()=>{cancelled=true;window.clearTimeout(timer);};
@@ -244,12 +245,44 @@ export function ChatDiscoveryDialog({
   }
 
   async function postPreview(body:Record<string,unknown>){
-    const response=await fetch('/api/chat-discovery/preview',{
-      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),
-    });
-    const payload=await response.json() as Record<string,unknown>&{error?:string};
-    if(!response.ok)throw new Error(payload.error||'Локальний preview пошуку не завершено.');
-    return payload;
+    const attempts=body.action==='search'?3:1;
+    let lastError='Локальний preview пошуку не завершено.';
+    for(let attempt=1;attempt<=attempts;attempt+=1){
+      try{
+        const response=await fetch('/api/chat-discovery/preview',{
+          method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),
+        });
+        const raw=await response.text();
+        let payload:Record<string,unknown>&{error?:string};
+        try{
+          payload=raw?JSON.parse(raw) as Record<string,unknown>&{error?:string}:{};
+        }catch{
+          lastError=`Preview API повернув не-JSON відповідь (HTTP ${response.status}).`;
+          if(attempt<attempts){
+            await new Promise(resolve=>window.setTimeout(resolve,750*attempt));
+            continue;
+          }
+          throw new Error(lastError);
+        }
+        if(!response.ok){
+          lastError=typeof payload.error==='string'&&payload.error?payload.error:`Preview API HTTP ${response.status}.`;
+          if(body.action==='search'&&attempt<attempts&&response.status>=500){
+            await new Promise(resolve=>window.setTimeout(resolve,750*attempt));
+            continue;
+          }
+          throw new Error(lastError);
+        }
+        return payload;
+      }catch(reason){
+        lastError=reason instanceof Error?reason.message:lastError;
+        if(body.action==='search'&&attempt<attempts){
+          await new Promise(resolve=>window.setTimeout(resolve,750*attempt));
+          continue;
+        }
+        throw new Error(lastError);
+      }
+    }
+    throw new Error(lastError);
   }
 
   async function startAutonomousSearch() {
