@@ -1,4 +1,4 @@
-const DEFAULT_TIMEOUT_MS = 20_000;
+// Real WhatsApp invite resolution can exceed 20s before the factual join/retry modal appears.\nconst DEFAULT_TIMEOUT_MS = 45_000;
 const POLL_MS = 400;
 
 const pendingPattern = /(?:request(?: to join)? sent|request pending|запит (?:на вступ )?надіслано|запит очікує|заявк[ау] (?:на вступление )?отправлен[а]?|заявк[ау] ожидает)/iu;
