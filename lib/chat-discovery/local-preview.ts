@@ -38,6 +38,21 @@ export async function searchLocalDiscoveryPreview(
   const minMembers=boundedInteger(input.minMembers,700,18_000,700);
   const knownLinks=cleanKnownLinks(input.knownLinks);
 
+  if(telegramCursor===0&&sourceCursor===0){
+    const found=await discoverPublicWeb({
+      platforms,cursor:0,maxQueries:1,pageLimit:0,includeCurated:true,
+    },fetcher);
+    const preview=await prepareLocalPreviews(db,userId,found.records,{knownLinks,minMembers,now});
+    return {
+      source:'public_web' as const,
+      telegramCursor,
+      sourceCursor:Math.max(1,found.nextCursor),
+      done:false,
+      previews:preview.previews,
+      batch:{searched:found.searched,added:preview.previews.length,duplicates:preview.duplicates,errors:found.errors},
+    };
+  }
+
   const telegramPlan=buildTelegramSearchPlan(telegramCursor,6);
   if(!telegramPlan.done){
     const found=await discoverTelegramPublic({cursor:telegramCursor,maxQueries:6,pageLimit:2},fetcher);

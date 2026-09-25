@@ -114,6 +114,26 @@ void test('public discovery rejects local/literal hosts and searches a bounded s
   assert.ok(result.records.every((item) => item.source.query.includes('українці')));
 });
 
+void test('local-first discovery bootstraps curated high-yield sources before broad Telegram search', async (t) => {
+  const { searchLocalDiscoveryPreview } = await import('../lib/chat-discovery/local-preview.ts');
+  const db = await localDatabase(t);
+  const calls = [];
+  const result = await searchLocalDiscoveryPreview(db,'u',{
+    platforms:['whatsapp'],telegramCursor:0,sourceCursor:0,knownLinks:[],minMembers:700,
+  },100,async (url) => {
+    calls.push(String(url));
+    if(String(url).includes('uahelp.wiki/german-city-chats')) {
+      return html('<p>Українці Berlin https://chat.whatsapp.com/CuratedBootstrap123</p>');
+    }
+    return html('');
+  });
+  assert.equal(result.source,'public_web');
+  assert.equal(result.telegramCursor,0);
+  assert.ok(result.sourceCursor>=1);
+  assert.ok(calls.some(url=>url.includes('uahelp.wiki/german-city-chats')));
+  assert.equal(result.previews.some(item=>item.link==='https://chat.whatsapp.com/CuratedBootstrap123'),true);
+});
+
 void test('Telegram keyword plan is deterministic, bounded and resolves workbook placeholders', () => {
   const first = buildTelegramSearchPlan(0, 6);
   assert.equal(first.cursor, 0);

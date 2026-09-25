@@ -63,6 +63,10 @@ const CURATED_SOURCES = [
   ['ETF · українці в ЄС', 'https://www.etf.europa.eu/uk/faqs/social-media-and-messenger-channels-used-ukrainians-eu-countries', 'українці країни ЄС Viber допомога'],
   ['DeutschPortal · Німеччина', 'https://deutschportal.info/chaty-dlya-bezhencev-v-germanii/', 'українці Німеччина міста біженці чати'],
   ['InfoChatUkraine · допомога', 'https://t.me/s/infochatukraine?before=46', 'українці допомога Польща Європа житло транспорт медицина переклад'],
+  ['Kehrenbürger · Берлін', 'https://kehrenbuerger-lichtenberg.org/messenger-gruppen/', 'українці Берлін допомога чати'],
+  ['UA-DE HELP · Німеччина', 'https://t.me/s/ua_de_help?before=53', 'українці Німеччина допомога міста WhatsApp'],
+  ['Українці в Нідерландах', 'https://t.me/s/ukrainians_nl?before=296', 'українці Нідерланди громада WhatsApp'],
+  ['ДП Документ · Прага', 'https://t.me/s/prahaPD?before=10161', 'українці Прага Чехія WhatsApp'],
 ] as const;
 
 export type TelegramSearchTask = {
