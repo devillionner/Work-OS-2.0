@@ -5,6 +5,7 @@ import {
   classifyWhatsAppSnapshot,
   deriveWhatsappQualification,
   leaveWhatsappTaskViaCdp,
+  readWorkOsExecutorTokenViaCdp,
   sendWhatsappAutopostViaCdp,
   isLocalCdpWebSocketUrl,
   normalizeLocalCdpBaseUrl,
@@ -481,4 +482,11 @@ void test('confirmed-send WhatsApp autopost helper is exported and target normal
   assert.equal(typeof sendWhatsappAutopostViaCdp, 'function');
   assert.equal(normalizeTargetLabel('Українці Berlin'), normalizeTargetLabel('  УКРАЇНЦІ   Berlin '));
   assert.notEqual(normalizeTargetLabel('Українці Berlin'), normalizeTargetLabel('Українці Hamburg'));
+});
+
+
+void test('Work OS pairing token helper is exported and remains part of the loopback-only CDP surface',()=>{
+  assert.equal(typeof readWorkOsExecutorTokenViaCdp,'function');
+  assert.equal(normalizeLocalCdpBaseUrl('http://127.0.0.1:9222'),'http://127.0.0.1:9222');
+  assert.equal(normalizeLocalCdpBaseUrl('http://192.168.1.5:9222'),null);
 });

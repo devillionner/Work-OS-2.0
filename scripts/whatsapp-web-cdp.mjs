@@ -73,6 +73,61 @@ export function isLocalCdpWebSocketUrl(value) {
   return url.protocol === 'ws:' && !url.username && !url.password && isLoopbackHost(url.hostname);
 }
 
+
+export async function readWorkOsExecutorTokenViaCdp(
+  workOsUrl,
+  { cdpBaseUrl } = {},
+) {
+  if (!cdpBaseUrl) return { kind:'blocked', reason:'cdp_not_configured' };
+  const base = normalizeLocalCdpBaseUrl(cdpBaseUrl);
+  if (!base) return { kind:'blocked', reason:'cdp_not_local' };
+
+  let expectedOrigin;
+  try {
+    const url = new URL(String(workOsUrl || ''));
+    if (!['http:','https:'].includes(url.protocol) || url.username || url.password) {
+      return { kind:'blocked', reason:'work_os_origin_invalid' };
+    }
+    expectedOrigin = url.origin;
+  } catch {
+    return { kind:'blocked', reason:'work_os_origin_invalid' };
+  }
+
+  const response = await fetch(`${base}/json/list`, { signal:AbortSignal.timeout(4_000) });
+  if (!response.ok) throw new Error(`CDP list HTTP ${response.status}`);
+  const pages = await response.json();
+  const page = Array.isArray(pages)
+    ? pages.find((item) => {
+        if (item?.type !== 'page' || !item?.webSocketDebuggerUrl) return false;
+        try { return new URL(item.url || '').origin === expectedOrigin; }
+        catch { return false; }
+      })
+    : null;
+  if (!page) return { kind:'blocked', reason:'work_os_page_not_found' };
+  if (!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl)) {
+    return { kind:'blocked', reason:'cdp_websocket_not_local' };
+  }
+
+  const client = await createCdpClient(page.webSocketDebuggerUrl);
+  try {
+    const result = await client.send('Runtime.evaluate', {
+      expression: `(()=>{
+        const panel=document.querySelector('[aria-label="Executor пошуку чатів"]');
+        const token=panel?.querySelector('code')?.textContent?.trim()||'';
+        return token;
+      })()`,
+      returnByValue:true,
+    });
+    const token=String(result?.result?.value||'').trim();
+    if (token.length < 32 || token.length > 512) {
+      return { kind:'blocked', reason:'executor_token_not_visible' };
+    }
+    return { kind:'result', token };
+  } finally {
+    client.close();
+  }
+}
+
 function isLoopbackHost(hostname) {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
 }

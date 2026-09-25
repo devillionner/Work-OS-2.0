@@ -2,12 +2,12 @@
 import { execFile, execFileSync } from 'node:child_process';
 import process from 'node:process';
 import readline from 'node:readline/promises';
-import { inspectWhatsappTaskViaCdp, leaveWhatsappTaskViaCdp, sendWhatsappAutopostViaCdp, toWhatsAppWebInviteUrl } from './whatsapp-web-cdp.mjs';
+import { inspectWhatsappTaskViaCdp, leaveWhatsappTaskViaCdp, readWorkOsExecutorTokenViaCdp, sendWhatsappAutopostViaCdp, toWhatsAppWebInviteUrl } from './whatsapp-web-cdp.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
-const token=resolveExecutorToken();
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
-if(!baseUrl||!token){console.error('Set WORK_OS_URL and WORK_OS_EXECUTOR_TOKEN, or pass --token-from-clipboard on Linux.');process.exit(2);}
+const token=await resolveExecutorToken();
+if(!baseUrl||!token){console.error('Set WORK_OS_URL and WORK_OS_EXECUTOR_TOKEN, or use a supported local pairing flag.');process.exit(2);}
 if(!process.stdin.isTTY&&!whatsappCdp){
   console.error('Non-interactive Discovery runner requires WORK_OS_WHATSAPP_CDP; exiting before any Work OS/D1 polling.');
   process.exit(2);
@@ -20,9 +20,27 @@ const IDLE_POLL_MIN_MS=15000;
 const IDLE_POLL_MAX_MS=60000;
 const WHATSAPP_RUNTIME_TRANSIENT_REASONS=new Set(['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready']);
 
-function resolveExecutorToken(){
+async function resolveExecutorToken(){
   const configured=process.env.WORK_OS_EXECUTOR_TOKEN||'';
   if(configured)return configured;
+  if(process.argv.includes('--token-from-work-os-page')){
+    if(!baseUrl||!whatsappCdp){
+      console.error('--token-from-work-os-page requires WORK_OS_URL and local WORK_OS_WHATSAPP_CDP.');
+      return '';
+    }
+    try{
+      const result=await readWorkOsExecutorTokenViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp});
+      if(result.kind==='result'){
+        console.log('Executor token loaded from the Work OS page through local CDP.');
+        return result.token;
+      }
+      console.error(`Could not read executor token from the Work OS page (${result.reason}).`);
+      return '';
+    }catch{
+      console.error('Could not read executor token from the Work OS page.');
+      return '';
+    }
+  }
   if(!process.argv.includes('--token-from-clipboard'))return '';
   if(process.platform!=='linux'){
     console.error('--token-from-clipboard is supported only on Linux.');

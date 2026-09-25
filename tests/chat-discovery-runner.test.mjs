@@ -99,3 +99,11 @@ void test('runner can read the one-time executor token from Wayland clipboard wi
   assert.match(source,/Executor token loaded from clipboard/);
   assert.doesNotMatch(source,/console\.log\([^\n]*\btoken\b[^\n]*\)/i);
 });
+
+
+void test('runner can bootstrap its token from the exact Work OS page over local CDP',()=>{
+  assert.match(source,/--token-from-work-os-page/);
+  assert.match(source,/readWorkOsExecutorTokenViaCdp/);
+  assert.match(source,/Executor token loaded from the Work OS page through local CDP/);
+  assert.match(source,/requires WORK_OS_URL and local WORK_OS_WHATSAPP_CDP/);
+});
