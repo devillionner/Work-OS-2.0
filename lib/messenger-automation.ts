@@ -3,6 +3,7 @@ import { readPublicationAdvertisementSelection } from './chats/advertisement-sel
 import { publicationAvailability, recordConfirmedWhatsappAutopostPublication } from './chats/publication.ts';
 import { readChatState } from './chats/state.ts';
 import { readWhatsAppAutopostImage } from './whatsapp-autopost-media.ts';
+import { cleanWhatsAppAutopostCaption, readWhatsAppAutopostCaption } from './whatsapp-autopost-caption.ts';
 
 const VIBER_SAFE_LEASE_SECONDS=90;
 const WHATSAPP_AUTOPOST_LEASE_SECONDS=90;
@@ -29,10 +30,7 @@ export type ViberSafeNoteTask={
   kind:'viber_safe_note';
   jobId:string;
   target:{kind:'my_notes';expectedLabel:'Мої нотатки'};
-  material:{
-    advertisementId:string;advertisementVersion:number;language:'uk'|'ru';text:string;
-    media:{fileName:string;contentType:string;sizeBytes:number;sha256:string;base64:string}|null;
-  };
+  material:{advertisementId:string;advertisementVersion:number;language:'uk'|'ru';text:string};
   safety:{createsPublication:false;requiresTargetVerification:true;requiresSendConfirmation:true};
   leaseExpiresAt:number;
 };
@@ -185,7 +183,10 @@ export type WhatsAppAutopostTask={
   kind:'whatsapp_autopost';
   jobId:string;
   target:{chatId:string;expectedName:string;expectedLink:string};
-  material:{advertisementId:string;advertisementVersion:number;language:'uk'|'ru';text:string};
+  material:{
+    advertisementId:string;advertisementVersion:number;language:'uk'|'ru';text:string;
+    media:{fileName:string;contentType:string;sizeBytes:number;sha256:string;base64:string}|null;
+  };
   publishedOn:string;
   safety:{createsPublication:'after_confirmed_send';requiresTargetVerification:true;requiresSendConfirmation:true};
   leaseExpiresAt:number;
@@ -199,7 +200,7 @@ type WhatsAppAutopostRow={
 };
 
 export async function createWhatsAppAutopostJob(db:D1Database,userId:string,input:{
-  requestKey:unknown;chatId:unknown;advertisementId?:unknown;language?:unknown;
+  requestKey:unknown;chatId:unknown;advertisementId?:unknown;language?:unknown;caption?:unknown;
 },now:number,date:string):Promise<WhatsAppAutopostJob>{
   const requestKey=cleanRequestKey(input.requestKey);
   const chatId=typeof input.chatId==='string'?input.chatId.trim():'';
@@ -236,8 +237,14 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
   const requestedLanguage=input.language==='uk'||input.language==='ru'?input.language:null;
   const language=requestedLanguage||item.suggestedLanguage||selection.profileLanguage||(item.ukText.trim()?'uk':item.ruText.trim()?'ru':null);
   if(!language)throw new MessengerAutomationError('Для вибраного оголошення немає тексту.',409);
-  const payload=(language==='uk'?item.ukText:item.ruText).trim();
-  if(!payload)throw new MessengerAutomationError(`Для ${language.toUpperCase()} немає тексту оголошення.`,409);
+  const libraryPayload=(language==='uk'?item.ukText:item.ruText).trim();
+  if(!libraryPayload)throw new MessengerAutomationError(`Для ${language.toUpperCase()} немає тексту оголошення.`,409);
+  let captionOverride='';
+  if(input.caption!==undefined){
+    try{captionOverride=cleanWhatsAppAutopostCaption(input.caption);}
+    catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
+  }else captionOverride=(await readWhatsAppAutopostCaption(db,userId))?.text||'';
+  const payload=captionOverride||libraryPayload;
 
   const library=await db.prepare(`SELECT version FROM library_items WHERE id=?1 AND user_id=?2 LIMIT 1`)
     .bind(item.id,userId).first<{version:number}>();
@@ -264,12 +271,17 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
 export async function createWhatsAppAutopostBatch(
   db:D1Database,
   userId:string,
-  input:{limit?:unknown},
+  input:{limit?:unknown;caption?:unknown},
   now:number,
   date:string,
 ):Promise<{created:number;skipped:number;jobs:WhatsAppAutopostJob[]}>{
   const rawLimit=Number(input.limit);
   const limit=Number.isSafeInteger(rawLimit)?Math.max(1,Math.min(50,rawLimit)):30;
+  let caption='';
+  if(input.caption!==undefined){
+    try{caption=cleanWhatsAppAutopostCaption(input.caption);}
+    catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
+  }else caption=(await readWhatsAppAutopostCaption(db,userId))?.text||'';
   const rows=await db.prepare(`SELECT c.id
     FROM chats c
     WHERE c.user_id=?1 AND c.platform='whatsapp' AND c.workflow_status='ready'
@@ -291,6 +303,7 @@ export async function createWhatsAppAutopostBatch(
       const job=await createWhatsAppAutopostJob(db,userId,{
         requestKey:`batch_${crypto.randomUUID()}`,
         chatId:row.id,
+        caption,
       },now,date);
       jobs.push(job);
     }catch(error){
@@ -342,15 +355,14 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,devic
     const discovery=await db.prepare(`SELECT decision FROM chat_discovery_candidates
       WHERE user_id=?1 AND imported_chat_id=?2 ORDER BY updated_at DESC,id LIMIT 1`)
       .bind(userId,row.chat_id).first<{decision:string}>();
-    const payload=material?(row.language==='uk'?material.uk_text:material.ru_text).trim():'';
     const selection=chat ? await readPublicationAdvertisementSelection(db,{userId,chatId:row.chat_id,date:row.published_on,excludeAutomationJobId:row.id}) : null;
     const selected=selection?.items.find(item=>item.id===row.advertisement_id);
     const valid=Boolean(
       chat&&chat.platform==='whatsapp'&&chat.workflow_status==='ready'&&chat.state_token===row.chat_state_token
       &&!publication&&(!discovery||discovery.decision==='target')&&material&&!material.archived_at
-      &&Number(material.version)===Number(row.advertisement_version)&&payload===row.payload_text
+      &&Number(material.version)===Number(row.advertisement_version)
       &&selection?.publicationAllowed&&selected?.selectable
-      &&((row.language==='uk'?selected?.ukText:selected?.ruText)||'').trim()===row.payload_text
+      &&row.payload_text.trim().length>0
     );
     if(!valid){
       await failWhatsAppAutopostJob(db,userId,row.id,'stale_precondition',now);

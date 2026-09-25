@@ -14,6 +14,12 @@ import {
   readViberSafeNoteJob,
 } from '@/lib/messenger-automation';
 import { publicWhatsAppAutopostImage, readWhatsAppAutopostImage } from '@/lib/whatsapp-autopost-media';
+import {
+  cleanWhatsAppAutopostCaption,
+  deleteWhatsAppAutopostCaption,
+  readWhatsAppAutopostCaption,
+  saveWhatsAppAutopostCaption,
+} from '@/lib/whatsapp-autopost-caption';
 
 function json(value:unknown,status=200){
   return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});
@@ -25,12 +31,18 @@ export async function GET(request:Request):Promise<Response>{
   try{
     const viberJobId=new URL(request.url).searchParams.get('viberJobId')?.trim()||'';
     if(viberJobId)return json({job:await readViberSafeNoteJob(env.DB,user.id,viberJobId)});
-    const [job,whatsappAutopost,image]=await Promise.all([
+    const [job,whatsappAutopost,image,caption]=await Promise.all([
       readLatestViberSafeNoteJob(env.DB,user.id),
       readLatestWhatsAppAutopostJob(env.DB,user.id),
       readWhatsAppAutopostImage(env.DB,user.id),
+      readWhatsAppAutopostCaption(env.DB,user.id),
     ]);
-    return json({job,whatsappAutopost,whatsappAutopostImage:image?publicWhatsAppAutopostImage(image):null});
+    return json({
+      job,
+      whatsappAutopost,
+      whatsappAutopostImage:image?publicWhatsAppAutopostImage(image):null,
+      whatsappAutopostCaption:caption?.text||'',
+    });
   }
   catch(error){
     console.error('Messenger automation read failed',error instanceof Error?error.name:'unknown');
@@ -55,13 +67,35 @@ export async function POST(request:Request):Promise<Response>{
       if(typeof body.jobId!=='string'||!body.jobId)throw new MessengerAutomationError('Viber safe-mode задача не вказана.');
       return json(await cancelViberSafeNoteJob(env.DB,user.id,body.jobId,now));
     }
+    if(body.action==='save-whatsapp-autopost-caption'){
+      let text:string;
+      try{text=cleanWhatsAppAutopostCaption(body.text);}
+      catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
+      const caption=text
+        ? await saveWhatsAppAutopostCaption(env.DB,user.id,text,now)
+        : (await deleteWhatsAppAutopostCaption(env.DB,user.id),null);
+      return json({caption:caption?.text||''});
+    }
+    if(body.action==='clear-whatsapp-autopost-caption'){
+      await deleteWhatsAppAutopostCaption(env.DB,user.id);
+      return json({caption:''});
+    }
     if(body.action==='whatsapp-autopost'){
       return json({job:await createWhatsAppAutopostJob(env.DB,user.id,{
-        requestKey:body.requestKey,chatId:body.chatId,advertisementId:body.advertisementId,language:body.language,
+        requestKey:body.requestKey,chatId:body.chatId,advertisementId:body.advertisementId,language:body.language,caption:body.caption,
       },now,businessDate(now))});
     }
     if(body.action==='whatsapp-autopost-batch'){
-      return json(await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit},now,businessDate(now)));
+      let caption:unknown=body.caption;
+      if(body.caption!==undefined){
+        let cleaned:string;
+        try{cleaned=cleanWhatsAppAutopostCaption(body.caption);}
+        catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
+        if(cleaned)await saveWhatsAppAutopostCaption(env.DB,user.id,cleaned,now);
+        else await deleteWhatsAppAutopostCaption(env.DB,user.id);
+        caption=cleaned;
+      }
+      return json(await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,caption},now,businessDate(now)));
     }
     if(body.action==='cancel-whatsapp-autopost'){
       if(typeof body.jobId!=='string'||!body.jobId)throw new MessengerAutomationError('WhatsApp autopost задача не вказана.');

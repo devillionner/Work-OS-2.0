@@ -19,6 +19,7 @@ import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Externa
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { handleTabKeyNavigation } from '@/lib/tab-navigation';
@@ -76,6 +77,8 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const [whatsappAutopostImage,setWhatsappAutopostImage]=useState<WhatsAppAutopostImage|null>(null);
   const [whatsappAutopostImageLoaded,setWhatsappAutopostImageLoaded]=useState(false);
   const whatsappAutopostImageInput=useRef<HTMLInputElement|null>(null);
+  const [whatsappAutopostCaption,setWhatsappAutopostCaption]=useState('');
+  const [whatsappAutopostCaptionLoaded,setWhatsappAutopostCaptionLoaded]=useState(false);
   const [loading,setLoading] = useState(true);
   const [busy,setBusy] = useState<string|null>(null);
   const runAction=useRef(createActionGate());
@@ -178,14 +181,17 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   useEffect(()=>{
     if(!active||platform!=='whatsapp')return;
     let cancelled=false;
-    setWhatsappAutopostImageLoaded(false);
+    setWhatsappAutopostImageLoaded(false);setWhatsappAutopostCaptionLoaded(false);
     void fetch('/api/messenger-automation',{cache:'no-store'})
       .then(async response=>{
-        const body=await response.json() as {whatsappAutopostImage?:WhatsAppAutopostImage|null};
-        if(!cancelled&&response.ok)setWhatsappAutopostImage(body.whatsappAutopostImage||null);
+        const body=await response.json() as {whatsappAutopostImage?:WhatsAppAutopostImage|null;whatsappAutopostCaption?:string};
+        if(!cancelled&&response.ok){
+          setWhatsappAutopostImage(body.whatsappAutopostImage||null);
+          setWhatsappAutopostCaption(typeof body.whatsappAutopostCaption==='string'?body.whatsappAutopostCaption:'');
+        }
       })
       .catch(()=>{})
-      .finally(()=>{if(!cancelled)setWhatsappAutopostImageLoaded(true);});
+      .finally(()=>{if(!cancelled){setWhatsappAutopostImageLoaded(true);setWhatsappAutopostCaptionLoaded(true);}});
     return()=>{cancelled=true;};
   },[active,platform,syncRevision]);
   useEffect(()=>{const timer=setInterval(()=>setClock(Date.now()),1000);return()=>clearInterval(timer);},[]);
@@ -351,7 +357,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
           method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify(cancelling
             ? {action:'cancel-whatsapp-autopost',jobId:chat.autopostJobId}
-            : {action:'whatsapp-autopost',requestKey:crypto.randomUUID(),chatId:chat.id}),
+            : {action:'whatsapp-autopost',requestKey:crypto.randomUUID(),chatId:chat.id,caption:whatsappAutopostCaption}),
         });
         const body=await response.json() as {error?:string;job?:{id:string}};
         if(!response.ok)throw new Error(body.error||'Не вдалося оновити WhatsApp автопублікацію.');
@@ -422,15 +428,51 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     });
   }
 
+  async function saveWhatsAppAutopostCaption() {
+    if(busy!==null||!whatsappAutopostCaptionLoaded)return;
+    await runAction.current(async()=>{
+      setBusy('whatsapp-autopost-caption');setError('');setNotice('');
+      try{
+        const response=await fetch('/api/messenger-automation',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'save-whatsapp-autopost-caption',text:whatsappAutopostCaption}),
+        });
+        const body=await response.json() as {caption?:string;error?:string};
+        if(!response.ok)throw new Error(body.error||'Не вдалося зберегти текст автопоста.');
+        setWhatsappAutopostCaption(body.caption||'');
+        setNotice(body.caption?'Текст автопоста збережено.':'Власний текст очищено — Work OS братиме текст із Library.');
+      }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося зберегти текст автопоста.');}
+      finally{setBusy(null);}
+    });
+  }
+
+  async function clearWhatsAppAutopostCaption() {
+    if(busy!==null)return;
+    await runAction.current(async()=>{
+      setBusy('whatsapp-autopost-caption-clear');setError('');setNotice('');
+      try{
+        const response=await fetch('/api/messenger-automation',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'clear-whatsapp-autopost-caption'}),
+        });
+        const body=await response.json() as {error?:string};
+        if(!response.ok)throw new Error(body.error||'Не вдалося очистити текст автопоста.');
+        setWhatsappAutopostCaption('');
+        setNotice('Власний текст очищено — Work OS братиме текст із Library.');
+      }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося очистити текст автопоста.');}
+      finally{setBusy(null);}
+    });
+  }
+
   async function startWhatsAppAutopostBatch() {
-    if(platform!=='whatsapp'||queue!=='ready'||busy!==null||!whatsappAutopostImage)return;
+    if(platform!=='whatsapp'||queue!=='ready'||busy!==null||!whatsappAutopostImage||!whatsappAutopostCaptionLoaded)return;
     await runAction.current(async()=>{
       setBusy('whatsapp-autopost-batch');setError('');setNotice('');setUndo(null);
       setQuickPublishMode(false);setQuickAdvertisementId(null);
       try{
         const response=await fetch('/api/messenger-automation',{
           method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({action:'whatsapp-autopost-batch',limit:30}),
+          body:JSON.stringify({action:'whatsapp-autopost-batch',limit:30,caption:whatsappAutopostCaption}),
         });
         const body=await response.json() as {created?:number;skipped?:number;error?:string};
         if(!response.ok)throw new Error(body.error||'Не вдалося запустити автопост черги.');
@@ -546,11 +588,20 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
             : 'Додайте одне фото для автопоста. Після цього Work OS сам підбере матеріали й поставить до 30 чатів у confirmed-send чергу; профілі вручну підтверджувати не потрібно.')
           : quickPublishMode?(quickAdvertisementId?'Матеріал серії вже зафіксовано. Підтверджуйте тільки фактично зроблені публікації.':'Оберіть матеріал у першому чаті — далі він лишатиметься для серії.'):'Один матеріал для серії чатів, із ручним підтвердженням кожної фактичної публікації.'}</span></div>
         {platform==='whatsapp'
-          ? <div className="lead-actions">
-              <input ref={whatsappAutopostImageInput} className="sr-only" type="file" accept="image/*" onChange={event=>{const file=event.target.files?.[0];if(file)void uploadWhatsAppAutopostImage(file);}} />
-              <Button type="button" size="sm" variant="outline" disabled={busy!==null} onClick={()=>whatsappAutopostImageInput.current?.click()}><ImagePlus data-icon="inline-start"/>{whatsappAutopostImage?'Замінити фото':'Додати фото'}</Button>
-              {whatsappAutopostImage&&<Button type="button" size="sm" variant="ghost" disabled={busy!==null} onClick={()=>void removeWhatsAppAutopostImage()}>Прибрати фото</Button>}
-              <Button type="button" size="sm" disabled={busy!==null||!whatsappAutopostImageLoaded||!whatsappAutopostImage} onClick={()=>void startWhatsAppAutopostBatch()}><Send data-icon="inline-start"/>Автопост черги</Button>
+          ? <div>
+              <label className="chat-publish-search" htmlFor="whatsapp-autopost-caption">
+                <span>Текст автопоста</span>
+                <Textarea id="whatsapp-autopost-caption" rows={6} maxLength={4000} disabled={busy!==null||!whatsappAutopostCaptionLoaded} value={whatsappAutopostCaption} onChange={event=>setWhatsappAutopostCaption(event.target.value)} placeholder="Вставте текст, який має піти під фото. Залиште порожнім — Work OS візьме текст із Library." />
+                <small className="muted-note">{whatsappAutopostCaption.trim()?'Цей текст буде використано як підпис до фото для нових автопостів.':'Поле порожнє — для кожного чату Work OS використає відповідний текст із Library.'}</small>
+              </label>
+              <div className="lead-actions">
+                <input ref={whatsappAutopostImageInput} className="sr-only" type="file" accept="image/*" onChange={event=>{const file=event.target.files?.[0];if(file)void uploadWhatsAppAutopostImage(file);}} />
+                <Button type="button" size="sm" variant="outline" disabled={busy!==null} onClick={()=>whatsappAutopostImageInput.current?.click()}><ImagePlus data-icon="inline-start"/>{whatsappAutopostImage?'Замінити фото':'Додати фото'}</Button>
+                {whatsappAutopostImage&&<Button type="button" size="sm" variant="ghost" disabled={busy!==null} onClick={()=>void removeWhatsAppAutopostImage()}>Прибрати фото</Button>}
+                <Button type="button" size="sm" variant="outline" disabled={busy!==null||!whatsappAutopostCaptionLoaded} onClick={()=>void saveWhatsAppAutopostCaption()}>Зберегти текст</Button>
+                {whatsappAutopostCaption&&<Button type="button" size="sm" variant="ghost" disabled={busy!==null} onClick={()=>void clearWhatsAppAutopostCaption()}>Очистити текст</Button>}
+                <Button type="button" size="sm" disabled={busy!==null||!whatsappAutopostImageLoaded||!whatsappAutopostImage||!whatsappAutopostCaptionLoaded} onClick={()=>void startWhatsAppAutopostBatch()}><Send data-icon="inline-start"/>Автопост черги</Button>
+              </div>
             </div>
           : <Button type="button" size="sm" variant={quickPublishMode?'outline':'default'} disabled={busy!==null} onClick={()=>{setQuickPublishMode(value=>{const next=!value;if(!next)setQuickAdvertisementId(null);return next;});}}><Send data-icon="inline-start"/>{quickPublishMode?'Завершити':'Увімкнути'}</Button>}
       </div>}
