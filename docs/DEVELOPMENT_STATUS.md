@@ -7,6 +7,7 @@
 - Clean local Discovery now runs one curated bootstrap batch first, then continues through the workbook Telegram/public search plan.
 - Added four additional verified public Ukrainian-community sources for Berlin/Germany, the Netherlands and Prague. These remain read-only external sources and do not change the D1 persistence boundary.
 - Added eight more directly verified Ukrainian-community pages spanning Spain, Italy, Austria, the Netherlands, Finland, Germany and Slovakia; the benchmark exposed 11 additional canonical WhatsApp invite links before D1 dedupe.
+- Added four more verified Telegram community sources for Bremen, Toronto, Waterloo and London. Local preview naming now prefers a clean source/community label when HTML extraction yields truncated or markup-like text.
 - Search remains local-first: only exact invite dedupe reads may touch D1 before operator confirmation; no intermediate candidate/run/source writes are reintroduced.
 
 ## 2026-09-25 — local-first fast Discovery with strict D1 boundary

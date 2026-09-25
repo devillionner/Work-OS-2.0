@@ -75,6 +75,10 @@ const CURATED_SOURCES = [
   ['Українці · Швельм', 'https://t.me/s/UA_Schwelm?before=5671', 'українці Німеччина Швельм WhatsApp'],
   ['Українці в Австрії · житло', 'https://t.me/s/Shelter_in_Austria/51', 'українці Австрія допомога житло WhatsApp'],
   ['Українці в Словаччині', 'https://t.me/s/ukrajincivsk?before=2699', 'українці Словаччина WhatsApp'],
+  ['Українці · Бремен', 'https://t.me/s/ukrainebremen?q=WhatsApp', 'українці Німеччина Бремен WhatsApp'],
+  ['Українці · Торонто', 'https://t.me/s/new_life_in_canada?q=WhatsApp', 'українці Канада Торонто WhatsApp'],
+  ['Razom · Waterloo', 'https://t.me/s/razom_waterloo?q=WhatsApp', 'українці Канада Ватерлу WhatsApp'],
+  ['Українці · Лондон', 'https://t.me/s/ukrainianlondon?q=WhatsApp', 'українці Великобританія Лондон WhatsApp'],
 ] as const;
 
 export type TelegramSearchTask = {

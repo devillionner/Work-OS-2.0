@@ -235,7 +235,8 @@ async function prepareLocalPreviews(
   for(const item of canonical.values()){
     const key=`${item.platform}|${item.link}`;
     if(known.has(key)){duplicates++;continue;}
-    const name=item.name||suggestedChatName(normalizeGroupLink(item.link)!);
+    const sourceName=item.sources.map(source=>safeDiscoveryNameHint(source.sourceTitle||source.seedLabel||'')).find(Boolean)||'';
+    const name=preferLocalPreviewName(item.name,sourceName)||suggestedChatName(normalizeGroupLink(item.link)!);
     const topicMatch=inferLocalPreviewTopicMatch(name,item.sources);
     const evaluated=evaluateDiscoveryCandidate({
       chatType:'unknown',memberCount:null,topicMatch,canWrite:null,adsPolicy:'unknown',activityState:'unknown',
@@ -267,6 +268,12 @@ function stripSourceQueryContext(source:DiscoverySource){
     if(token)context=context.split(token).join(' ');
   }
   return context.replace(/\s+/g,' ').trim();
+}
+
+function preferLocalPreviewName(hint:string,sourceName:string){
+  const value=safeDiscoveryNameHint(hint);
+  if(value&&value.length>=6&&!/^(?:e|ngen|ch|p|rселона|о |нка |ерия )/iu.test(value))return value;
+  return safeDiscoveryNameHint(sourceName);
 }
 
 function safeDiscoveryNameHint(value:string){

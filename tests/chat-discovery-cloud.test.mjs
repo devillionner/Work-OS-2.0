@@ -26,6 +26,23 @@ function html(body) {
   return new Response(body, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
+void test('local preview falls back to a clean source label when extracted HTML name is noisy', async (t) => {
+  const { searchLocalDiscoveryPreview } = await import('../lib/chat-discovery/local-preview.ts');
+  const db = await localDatabase(t);
+  const result = await searchLocalDiscoveryPreview(db,'u',{
+    platforms:['whatsapp'],telegramCursor:0,sourceCursor:0,knownLinks:[],minMembers:700,
+  },100,async (url) => {
+    if(String(url).includes('uahelp.wiki/german-city-chats')) {
+      return html('<li class="notion-list-item">ngen <a href="https://chat.whatsapp.com/CleanSourceName123">WhatsApp</a></li>');
+    }
+    return html('');
+  });
+  const item=result.previews.find(candidate=>candidate.link==='https://chat.whatsapp.com/CleanSourceName123');
+  assert.ok(item);
+  assert.doesNotMatch(item.name,/notion|ngen/i);
+  assert.match(item.name,/Німеччина|UAHELP|WhatsApp/i);
+});
+
 void test('local preview relevance ignores the search query itself as evidence', () => {
   const noisySource = {
     kind:'telegram_global',
