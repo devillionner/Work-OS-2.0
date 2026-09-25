@@ -75,6 +75,34 @@ void test('pending membership is reported only for the verified target', () => {
   assert.equal(result.result.accessible, true);
 });
 
+void test('post-invite joined chat verifies the navigated target after WhatsApp drops the invite URL', () => {
+  const generatedTask = {
+    ...task,
+    name: 'WhatsApp · AbCdEfGh1234',
+    expectedTarget: {
+      ...task.expectedTarget,
+      name: 'WhatsApp · AbCdEfGh1234',
+    },
+  };
+  const result = classifyWhatsAppSnapshot(generatedTask, {
+    url:'https://web.whatsapp.com/',
+    navigatedInviteCode:'AbCdEfGh1234',
+    targetHeadings:[],
+    targetTexts:[],
+    headerTitles:['Technical Support'],
+    buttons:[],
+    bodyText:'Ви приєдналися за запрошенням\n18 учасників\nЛише адміністратори можуть надсилати повідомлення',
+    mainText:'Ви приєдналися за запрошенням',
+    composer:false,
+    adminOnly:true,
+  });
+  assert.equal(result.kind, 'result');
+  assert.equal(result.result.targetVerified, true);
+  assert.equal(result.result.membershipState, 'joined');
+  assert.equal(result.result.observedName, 'Technical Support');
+  assert.equal(result.result.canWrite, false);
+});
+
 void test('joined exact chat reports writeability without inventing qualification facts', () => {
   const result = classifyWhatsAppSnapshot(
     { ...task, action: 'inspect' },

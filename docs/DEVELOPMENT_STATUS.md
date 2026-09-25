@@ -1,5 +1,12 @@
 # Development status — 2026-09-25
 
+## 2026-09-25 live WhatsApp post-invite target verification
+
+- Physical CDP diagnosis reproduced current WhatsApp Web behavior where an invite resolves into the joined chat and the browser URL returns to `https://web.whatsapp.com/`; the chat itself shows factual «Ви приєдналися за запрошенням».
+- The adapter now treats that localized post-invite join evidence plus the conversation header as exact-target proof for the invite code that the runner itself navigated to. A generic header without that evidence still fails closed.
+- Verified leave now follows the observed WhatsApp target name rather than the noisy source-derived name, so a factual non-target joined chat can be exited and archived automatically.
+- Live reproduced non-target evidence: `Technical Support`, 18 members, admin-only posting. Final autonomous goal acceptance still requires the refreshed runner to process the flow end-to-end.
+
 ## 2026-09-25 autonomous Discovery outcome-loop correction
 
 - Після live UX перевірки уточнено product intent: число в полі «Нових цільових чатів» — це goal фактично кваліфікованих target chats, а не кількість сирих invite у local preview.

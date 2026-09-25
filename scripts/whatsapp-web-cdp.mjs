@@ -16,6 +16,7 @@ const viewPattern = /^(?:view(?: group| chat)?|open(?: group| chat)?|continue to
 const leavePattern = /^(?:exit group|leave group|вийти з групи|покинути групу|выйти из группы|покинуть группу)$/iu;
 const confirmLeavePattern = /^(?:exit|leave|вийти|покинути|выйти|покинуть)$/iu;
 const leftPattern = /(?:you (?:left|are no longer a participant)|ви (?:вийшли|більше не є учасником)|вы (?:вышли|больше не участник))/iu;
+const joinedViaInvitePattern = /(?:you (?:joined|were added) (?:via|using|through) (?:an? )?(?:invite|invitation|invite link)|joined (?:via|using) (?:the )?(?:group )?invite|ви приєдналися за (?:посиланням[- ]?)?запрошенням|вы присоединились по (?:ссылке[- ]?)?приглашени[юя])/iu;
 const spamPattern = /(?:crypto|крипт|bitcoin|forex|casino|казино|betting|ставк[аи]|dating|знакомств|знайомств|escort|ескорт|onlyfans|adult|18\+|nft|airdrop|signals?\b|binary options)/iu;
 const ukrainianIdentityPattern = /(?:україн|украин|ukrain|🇺🇦)/iu;
 const adsForbiddenPattern = /(?:no\s+(?:ads?|advertis(?:ing|ements?))|advertis(?:ing|ements?)\s+(?:is\s+)?(?:forbidden|prohibited)|(?:реклам[ауи]|оголошення)\s+(?:суворо\s+)?заборонен|без\s+реклами|(?:реклам[ауы]|объявления)\s+(?:строго\s+)?запрещен|без\s+рекламы)/iu;
@@ -160,6 +161,15 @@ function exactTarget(snapshot, task) {
   }
 
   if (!inviteContextMatches(snapshot, task)) return null;
+
+  const postInviteText = [snapshot.targetRegionText, snapshot.mainText, snapshot.bodyText].filter(Boolean).join('\n');
+  if (joinedViaInvitePattern.test(postInviteText)) {
+    const joinedHeader = (snapshot.headerTitles || [])
+      .map((value) => String(value || '').trim())
+      .find(Boolean);
+    if (joinedHeader) return joinedHeader;
+  }
+
   const headings = [...(snapshot.targetHeadings || []), ...(snapshot.targetTexts || [])]
     .map((value) => String(value || '').trim())
     .filter((value) => value && !joinPattern.test(value) && !viewPattern.test(value));
@@ -282,20 +292,25 @@ export async function leaveWhatsappTaskViaCdp(
     const navigatedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);
     let opened = await waitForClassification(client, { ...task, action: 'inspect' }, timeoutMs, null, navigatedInviteCode);
     if (opened.kind === 'action' && opened.action === 'view') {
-      const clicked = await clickExactButton(client, opened.buttonText, task.expectedTarget?.name || task.name);
+      const observedTarget = opened.observedName || task.expectedTarget?.name || task.name;
+      const clicked = await clickExactButton(client, opened.buttonText, observedTarget);
       if (!clicked) return { kind: 'blocked', reason: 'expected_control_disappeared' };
-      opened = await waitForClassification(client, { ...task, action: 'inspect' }, timeoutMs, 'view', navigatedInviteCode);
+      const observedTask = opened.observedName
+        ? { ...task, name:opened.observedName, expectedTarget:{ ...task.expectedTarget, name:opened.observedName } }
+        : { ...task, action:'inspect' };
+      opened = await waitForClassification(client, { ...observedTask, action: 'inspect' }, timeoutMs, 'view', navigatedInviteCode);
     }
     if (opened.kind !== 'result' || opened.result.membershipState !== 'joined' || opened.result.targetVerified !== true) {
       return { kind: 'blocked', reason: opened.reason || 'joined_target_not_verified' };
     }
 
-    if (!await clickExactHeader(client, task.expectedTarget?.name || task.name)) {
+    const observedTarget = opened.result.observedName || task.expectedTarget?.name || task.name;
+    if (!await clickExactHeader(client, observedTarget)) {
       return { kind: 'blocked', reason: 'target_header_disappeared' };
     }
     const leaveControl = await waitForExactControl(client, leavePattern, timeoutMs, false);
     if (!leaveControl) return { kind: 'blocked', reason: 'leave_control_not_found' };
-    if (!await clickDocumentControl(client, leaveControl, task.expectedTarget?.name || task.name)) {
+    if (!await clickDocumentControl(client, leaveControl, observedTarget)) {
       return { kind: 'blocked', reason: 'leave_control_disappeared' };
     }
     const confirmControl = await waitForExactControl(client, confirmLeavePattern, timeoutMs, true);
