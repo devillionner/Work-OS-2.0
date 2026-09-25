@@ -1030,3 +1030,17 @@ separate gates after local validation and the required direct confirmation.
 - Regression coverage now scans product components for the legacy `workspace-loading` class, guards exact-view Library identity, persistent workspace wiring, nested loading caches and remount-key regressions.
 - Source review found and removed a stale release-date regression that still required 2026-09-23; release-date coverage now validates canonical ISO metadata rather than hardcoding yesterday's date.
 - Full lint/typecheck/test/build evidence and live staging transition acceptance are not claimed until the release build provides them.
+
+
+## 2026-09-25 — D1 read-budget hardening and local-first Discovery
+
+- Platforms' ordinary GET no longer recomputes queue totals/profile counts across all chats. Migration `0039_chat_queue_read_model.sql` creates owner/platform/account/status counters maintained by chat/profile triggers and adds index-friendly chat/discovery indexes.
+- The visible chat page is selected by indexed `updated_at DESC,id` with `LIMIT 50`; published/snoozed presentation ordering is applied only to that fetched page instead of forcing a full computed sort before the limit.
+- High-cost workspace reads now use a revision-aware Cloudflare Worker Cache API layer: Platforms, Analytics, Analytics overview, Library, Reports and Leads list. Cache identity includes owner + authoritative `backup_revisions.revision` + exact view; writes therefore invalidate by key without explicit cache deletion. Time-sensitive views use short time buckets.
+- Discovery duplicate checks no longer load up to 10,000 existing chats. Local preview batches issue targeted indexed lookups only for links actually found in that batch.
+- Product storage semantics changed: public/Telegram source results are preview-only and live in browser `sessionStorage`; search itself does not insert candidates, sources or chats into D1. The UI labels these rows «Локально · не в D1».
+- «Відкинути локально» removes a preview with no D1 write. «Підходить → додати» is the explicit persistence boundary: only then is the candidate/source stored and handed off to canonical `to_join`.
+- The paired executor no longer advances source crawl. It handles only confirmed persisted messenger tasks and retains exact-target/fail-closed rules for join, pending recheck, qualification and leave.
+- Old server `continue` / `ingest-telegram` persistence paths are blocked; manual Telegram recovery now also feeds local preview.
+- Cloudflare Workers builds through the local-preview/UI commits are green. Production and production D1 were not changed.
+- Remaining Discovery acceptance gap is physical end-to-end WhatsApp Web validation and real-world source-yield tuning, not the core source/dedupe/persistence state machine.
