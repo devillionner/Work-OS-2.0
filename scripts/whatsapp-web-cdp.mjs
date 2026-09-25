@@ -150,42 +150,48 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
   workOsUrl,
   { cdpBaseUrl } = {},
 ) {
-  const pageResult=await findWorkOsPageForCdp(workOsUrl,cdpBaseUrl);
-  if(pageResult.kind==='blocked')return pageResult;
-  const client=await createCdpClient(pageResult.page.webSocketDebuggerUrl);
-  try{
-    const response=await client.send('Runtime.evaluate',{
-      expression:`(()=>{
-        const raw=sessionStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_PREVIEW_KEY)});
-        if(!raw)return {active:false,task:null};
-        let state;try{state=JSON.parse(raw);}catch{return {active:false,task:null};}
-        const resultRaw=sessionStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY)});
-        let results={};try{results=resultRaw?JSON.parse(resultRaw):{};}catch{}
-        const candidates=Array.isArray(state?.candidates)?state.candidates:[];
-        const candidate=candidates.find((item)=>
-          item&&item.localOnly===true&&item.preflightState==='queued'&&typeof item.id==='string'
-          &&typeof item.link==='string'&&!results[item.id]
-        )||null;
-        return {
-          active:state?.running===true,
-          goal:Number(state?.goal)||0,
-          task:candidate?{
-            candidateId:candidate.id,
-            runtime:'whatsapp_web',
-            platform:'whatsapp',
-            action:'join_and_inspect',
-            name:String(candidate.name||'WhatsApp candidate'),
-            link:String(candidate.link||''),
-            topicMatch:candidate.topicMatch||'unknown',
-            minMembers:700,
-            expectedTarget:{name:String(candidate.name||'WhatsApp candidate'),link:String(candidate.link||'')},
-          }:null,
-        };
-      })()`,
-      returnByValue:true,
-    });
-    return {kind:'result',...(response?.result?.value||{active:false,task:null})};
-  }finally{client.close();}
+  const pagesResult=await listWorkOsPagesForCdp(workOsUrl,cdpBaseUrl);
+  if(pagesResult.kind==='blocked')return pagesResult;
+  let fallback={kind:'result',active:false,goal:0,task:null};
+  for(const page of pagesResult.pages){
+    const client=await createCdpClient(page.webSocketDebuggerUrl);
+    try{
+      const response=await client.send('Runtime.evaluate',{
+        expression:`(()=>{
+          const raw=sessionStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_PREVIEW_KEY)});
+          if(!raw)return {active:false,goal:0,task:null};
+          let state;try{state=JSON.parse(raw);}catch{return {active:false,goal:0,task:null};}
+          const resultRaw=sessionStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY)});
+          let results={};try{results=resultRaw?JSON.parse(resultRaw):{};}catch{}
+          const candidates=Array.isArray(state?.candidates)?state.candidates:[];
+          const candidate=candidates.find((item)=>
+            item&&item.localOnly===true&&item.preflightState==='queued'&&typeof item.id==='string'
+            &&typeof item.link==='string'&&!results[item.id]
+          )||null;
+          return {
+            active:state?.running===true,
+            goal:Number(state?.goal)||0,
+            task:candidate?{
+              candidateId:candidate.id,
+              runtime:'whatsapp_web',
+              platform:'whatsapp',
+              action:'join_and_inspect',
+              name:String(candidate.name||'WhatsApp candidate'),
+              link:String(candidate.link||''),
+              topicMatch:candidate.topicMatch||'unknown',
+              minMembers:700,
+              expectedTarget:{name:String(candidate.name||'WhatsApp candidate'),link:String(candidate.link||'')},
+            }:null,
+          };
+        })()`,
+        returnByValue:true,
+      });
+      const value=response?.result?.value||{active:false,goal:0,task:null};
+      if(value.active===true||value.task)return {kind:'result',...value};
+      fallback={kind:'result',...value};
+    }finally{client.close();}
+  }
+  return fallback;
 }
 
 export async function writeWorkOsLocalDiscoveryResultViaCdp(
@@ -194,26 +200,34 @@ export async function writeWorkOsLocalDiscoveryResultViaCdp(
   payload,
   { cdpBaseUrl } = {},
 ) {
-  const pageResult=await findWorkOsPageForCdp(workOsUrl,cdpBaseUrl);
-  if(pageResult.kind==='blocked')return pageResult;
-  const client=await createCdpClient(pageResult.page.webSocketDebuggerUrl);
-  try{
-    const response=await client.send('Runtime.evaluate',{
-      expression:`(()=>{
-        const key=${JSON.stringify(WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY)};
-        let results={};try{results=JSON.parse(sessionStorage.getItem(key)||'{}');}catch{}
-        results[${JSON.stringify(String(candidateId||''))}]=${JSON.stringify(payload)};
-        const entries=Object.entries(results).slice(-300);
-        sessionStorage.setItem(key,JSON.stringify(Object.fromEntries(entries)));
-        return true;
-      })()`,
-      returnByValue:true,
-    });
-    return response?.result?.value===true?{kind:'result'}:{kind:'blocked',reason:'work_os_result_write_failed'};
-  }finally{client.close();}
+  const pagesResult=await listWorkOsPagesForCdp(workOsUrl,cdpBaseUrl);
+  if(pagesResult.kind==='blocked')return pagesResult;
+  for(const page of pagesResult.pages){
+    const client=await createCdpClient(page.webSocketDebuggerUrl);
+    try{
+      const response=await client.send('Runtime.evaluate',{
+        expression:`(()=>{
+          const raw=sessionStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_PREVIEW_KEY)});
+          if(!raw)return false;
+          let state;try{state=JSON.parse(raw);}catch{return false;}
+          const candidates=Array.isArray(state?.candidates)?state.candidates:[];
+          if(!candidates.some((item)=>item&&item.id===${JSON.stringify(String(candidateId||''))}))return false;
+          const key=${JSON.stringify(WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY)};
+          let results={};try{results=JSON.parse(sessionStorage.getItem(key)||'{}');}catch{}
+          results[${JSON.stringify(String(candidateId||''))}]=${JSON.stringify(payload)};
+          const entries=Object.entries(results).slice(-300);
+          sessionStorage.setItem(key,JSON.stringify(Object.fromEntries(entries)));
+          return true;
+        })()`,
+        returnByValue:true,
+      });
+      if(response?.result?.value===true)return {kind:'result'};
+    }finally{client.close();}
+  }
+  return {kind:'blocked',reason:'work_os_result_target_not_found'};
 }
 
-async function findWorkOsPageForCdp(workOsUrl,cdpBaseUrl){
+async function listWorkOsPagesForCdp(workOsUrl,cdpBaseUrl){
   if(!cdpBaseUrl)return {kind:'blocked',reason:'cdp_not_configured'};
   const base=normalizeLocalCdpBaseUrl(cdpBaseUrl);
   if(!base)return {kind:'blocked',reason:'cdp_not_local'};
@@ -225,14 +239,20 @@ async function findWorkOsPageForCdp(workOsUrl,cdpBaseUrl){
   }catch{return {kind:'blocked',reason:'work_os_origin_invalid'};}
   const response=await fetch(`${base}/json/list`,{signal:AbortSignal.timeout(4_000)});
   if(!response.ok)throw new Error(`CDP list HTTP ${response.status}`);
-  const pages=await response.json();
-  const page=Array.isArray(pages)?pages.find((item)=>{
+  const listed=await response.json();
+  const pages=Array.isArray(listed)?listed.filter((item)=>{
     if(item?.type!=='page'||!item?.webSocketDebuggerUrl)return false;
+    if(!isLocalCdpWebSocketUrl(item.webSocketDebuggerUrl))return false;
     try{return new URL(item.url||'').origin===expectedOrigin;}catch{return false;}
-  }):null;
-  if(!page)return {kind:'blocked',reason:'work_os_page_not_found'};
-  if(!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl))return {kind:'blocked',reason:'cdp_websocket_not_local'};
-  return {kind:'result',page};
+  }):[];
+  if(!pages.length)return {kind:'blocked',reason:'work_os_page_not_found'};
+  return {kind:'result',pages};
+}
+
+async function findWorkOsPageForCdp(workOsUrl,cdpBaseUrl){
+  const result=await listWorkOsPagesForCdp(workOsUrl,cdpBaseUrl);
+  if(result.kind==='blocked')return result;
+  return {kind:'result',page:result.pages[0]};
 }
 
 function isLoopbackHost(hostname) {

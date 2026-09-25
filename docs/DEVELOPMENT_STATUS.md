@@ -1144,3 +1144,5 @@ separate gates after local validation and the required direct confirmation.
 - Focused source/runner/UI/WhatsApp adapter regressions pass 68/68 in an ephemeral test workspace. Physical live acceptance is not yet claimed: after the workstation reboot Opera is running without the required local CDP endpoint and the Discovery runner is not active.
 
 - Strict follow-up after preflight correction: post-join Ukrainian audience may no longer fall back to source-topic inference; additional request-to-join labels are skipped; WhatsApp preflight can traverse bounded View/Continue → Join steps; final local UI defaults to factual targets and source exhaustion reports factual target count.
+
+- Reboot/live acceptance exposed a browser bridge bug when more than one Work OS tab shared the same origin: the runner could bind to an inactive tab and leave local candidates queued forever. The CDP bridge now scans all matching Work OS tabs, selects the one with an active local run/task, and writes the result back only to the tab containing that exact candidate.

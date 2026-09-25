@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
@@ -14,6 +15,8 @@ import {
   whatsappInviteCode,
 } from '../scripts/whatsapp-web-cdp.mjs';
 
+const source=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+
 const task = {
   runtime: 'whatsapp_web',
   platform: 'whatsapp',
@@ -24,6 +27,13 @@ const task = {
     link: 'https://chat.whatsapp.com/AbCdEfGh1234',
   },
 };
+
+void test('Work OS local preflight bridge finds the active tab when duplicate Work OS tabs are open', () => {
+  assert.match(source,/listWorkOsPagesForCdp/);
+  assert.match(source,/for\(const page of pagesResult\.pages\)/);
+  assert.match(source,/if\(value\.active===true\|\|value\.task\)/);
+  assert.match(source,/work_os_result_target_not_found/);
+});
 
 void test('WhatsApp invite conversion keeps only the exact invite code', () => {
   assert.equal(whatsappInviteCode(task.expectedTarget.link), 'AbCdEfGh1234');
