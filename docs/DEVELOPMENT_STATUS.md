@@ -1044,3 +1044,13 @@ separate gates after local validation and the required direct confirmation.
 - Old server `continue` / `ingest-telegram` persistence paths are blocked; manual Telegram recovery now also feeds local preview.
 - Cloudflare Workers builds through the local-preview/UI commits are green. Production and production D1 were not changed.
 - Remaining Discovery acceptance gap is physical end-to-end WhatsApp Web validation and real-world source-yield tuning, not the core source/dedupe/persistence state machine.
+
+
+## 2026-09-25 — WhatsApp Discovery GO-LIVE mode
+
+- Product mode changed from open-ended autonomous development to a bounded go-live campaign.
+- The only active P0 outcome is real operator-usable WhatsApp Discovery on staging: local source preview → explicit confirm → canonical to_join → real WhatsApp Web join/pending → factual qualification → target ready or verified reject/leave.
+- Code-only improvements do not close this outcome. Completion requires physical authenticated WhatsApp Web evidence on exact staging HEAD and no manual SQL/API intervention in the normal flow.
+- Default target remains 50 confirmed target chats. This is a search goal, not a guaranteed yield; source exhaustion must be reported honestly.
+- Local-first persistence and D1 budget work from the previous slice are prerequisites, not the final acceptance.
+- Until GO-LIVE-01…09 in ROADMAP are closed, unrelated feature development is intentionally paused.

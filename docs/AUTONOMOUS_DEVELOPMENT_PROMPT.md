@@ -1,6 +1,6 @@
 # Work OS 2.0 — canonical autonomous development prompt
 
-Оновлено: 2026-09-24. Цей файл замінює довгі копії погодинного prompt. У новому чаті достатньо: **«Продовжуй Work OS 2.0 за docs/AUTONOMOUS_DEVELOPMENT_PROMPT.md»**.
+Оновлено: 2026-09-25. Цей файл замінює довгі копії погодинного prompt. У новому чаті достатньо: **«Продовжуй Work OS 2.0 за docs/AUTONOMOUS_DEVELOPMENT_PROMPT.md»**.
 
 ## Роль і режим
 
@@ -36,8 +36,9 @@ Production Worker і production D1 не читати, не мігрувати й
 - Новий recurring/background D1 path не готовий без worst-case requests/day reasoning і regression-test на backoff/fan-out.
 - При daily D1 quota exhaustion припини автоматичні D1-backed probes до reset. Для deploy identity використовуй `/api/build` і Cloudflare build/deployment state.
 - Один operator request не повинен приховано множитися у десятки candidate/queue reads.
-- Autonomous Discovery source crawl без нового кандидата не повинен працювати частіше разу на 60 секунд; 3-секундний cadence дозволений лише для реальної messenger task або immediate handoff після знайденого кандидата.
-- Non-interactive executor без працездатного WhatsApp runtime/CDP повинен fail-closed до source crawl; transient logout/page-not-ready/CDP failure ставить source advancement на cooldown замість накопичення кандидатів.
+- Discovery source crawl є browser-local preview і не має права записувати raw candidates/sources/chats у D1. D1 до confirm використовується тільки для bounded dedupe/read-model reads.
+- Executor не запускає source crawl. Він обробляє тільки explicit-confirmed persisted messenger tasks.
+- Non-interactive executor без працездатного WhatsApp runtime/CDP повинен fail-closed до messenger action; transient logout/page-not-ready/CDP failure не може вигадувати join/pending/joined або накопичувати повторні actions.
 - Не послаблюй `tests/d1-budget-contract.test.mjs`; архітектурна заміна повинна бути рівноцінною або сильнішою.
 
 ## Verification і deploy
@@ -50,8 +51,21 @@ Production Worker і production D1 не читати, не мігрувати й
 - staging smoke не повинен читати D1 без необхідності;
 - якщо D1 quota exhausted, data-backed live QA чекає reset замість повторних retries.
 
-## Пріоритет
+## Пріоритет — WHATSAPP DISCOVERY GO-LIVE MODE
 
-FUNCTIONAL VALUE FIRST. Manual flow лишається recovery/fallback. WhatsApp Web/Discovery automation — активний scope; Viber real-chat autopost — лише після окремого прямого дозволу.
+До окремої зміни цієї директиви **не веди відкриту нескінченну розробку Work OS**. Єдиний активний product outcome — закрити P4-A / GO-LIVE-01…09 з ROADMAP і довести WhatsApp Discovery до реального щоденного використання на staging.
 
-Після завершення одного slice одразу бери наступний реально незавершений пункт ROADMAP, якщо немає зовнішнього blocker. Завжди розрізняй implemented, verified locally, deployed to staging та physically accepted.
+На кожному запуску:
+1. прочитай P4-A і поточний DEVELOPMENT_STATUS;
+2. визнач **перший незакритий GO-LIVE gate**, а не “найцікавіший наступний slice”;
+3. виконай найкоротший vertical slice, який реально наближає цей gate;
+4. якщо gate потребує physical WhatsApp Web/browser acceptance і доступний відповідний desktop/browser control — використовуй його;
+5. якщо physical runtime недоступний, працюй тільки над конкретним blocker, який заважає наступному live acceptance; не переходь до unrelated features;
+6. після commit перевір exact staging build/identity; D1-backed smoke роби лише коли він потрібний для цього gate;
+7. онови ROADMAP/DEVELOPMENT_STATUS тільки фактами: implemented / deployed / physically accepted не змішувати.
+
+**Definition of Done:** UI local discovery → explicit confirm → real WhatsApp join/request → pending recheck або factual joined → qualification → target ready / rejected verified leave, без manual SQL/API втручання в normal operator flow, плюс D1 warm-read sanity. Default goal 50 продовжує source plan до 50 confirmed targets або чесного `sources_exhausted`.
+
+Заборонено як fallback до закриття P4-A: cosmetic refactor, broad parity cleanup, Viber real-chat autopost, AI, offline/PWA, production cutover, нові unrelated domains. Manual flow лишається recovery/fallback. Production Worker/D1 — тільки після окремого прямого дозволу.
+
+Кожен запуск має завершуватися короткою відповіддю: який GO-LIVE gate закрито/просунуто, exact main SHA, staging status, що конкретно блокує наступний gate.

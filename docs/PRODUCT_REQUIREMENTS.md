@@ -1,6 +1,6 @@
 # Work OS 2.0 — канонічні продуктові вимоги
 
-Оновлено: 2026-09-24. Реєстр стосується **Work OS 2.0**, а не готовності функцій у Prototype Checker. Мета: приватний, надійний і швидкий Work OS для щоденної роботи на Windows, Linux та iPhone через Workers + D1, де ручний workflow лишається recovery/fallback, а пріоритет — функції, що реально скорочують операторську роботу. WhatsApp Web/Chat Discovery automation є активним scope; AI-генерація лишається пізнішою фазою, а Viber real-chat autopost потребує окремого прямого дозволу.
+Оновлено: 2026-09-25. Реєстр стосується **Work OS 2.0**, а не готовності функцій у Prototype Checker. Мета: приватний, надійний і швидкий Work OS для щоденної роботи на Windows, Linux та iPhone через Workers + D1, де ручний workflow лишається recovery/fallback, а пріоритет — функції, що реально скорочують операторську роботу. WhatsApp Web/Chat Discovery automation є активним scope; AI-генерація лишається пізнішою фазою, а Viber real-chat autopost потребує окремого прямого дозволу.
 
 Пріоритет: останнє пряме рішення користувача → цей реєстр → roadmap → технічна документація → історичні джерела. Відсутність реалізації не скасовує вимогу. ID попереднього реєстру збережені без пропусків.
 
@@ -453,6 +453,28 @@
 - Last active view — локальний preference конкретного пристрою/браузера. Він переживає F5/auto-update, але не повинен примусово синхронізуватися між телефоном і ПК.
 - Staging deploy є автоматичним після green verify на `main`; production — лише окремо й явно. Після exact worker/database-id guard staging pipeline може застосувати pending D1 migrations тільки до `work-os-2-staging-db`, повторно перевіряє migration state й лише тоді deploy-ить Worker; production migrations автоматично не запускаються.
 - Workday `Повернути день` — recovery без втрати timeline; `Скинути день` — destructive confirmed reset лише завершеного сьогоднішнього workday. Інші дані при reset не видаляються.
+
+## WhatsApp Discovery GO-LIVE requirement — 2026-09-25
+
+Це **єдиний активний P0 product outcome до live acceptance**. До його завершення не брати unrelated feature work, cosmetic refactors, broad parity cleanup, Viber real-chat automation, AI, offline/PWA або інші roadmap slices, якщо вони прямо не блокують WhatsApp Discovery go-live.
+
+Definition of Done для реального використання на staging:
+
+- оператор із Platforms натискає один «Запустити автопошук» без ручного введення keywords/міст/query;
+- Telegram/public source crawl повертає нові WhatsApp invite у browser-local preview; до явного підтвердження немає INSERT/UPDATE сирого candidate/source/chat у D1;
+- F5 не втрачає local preview у межах браузерної сесії; duplicate/history lookup не створює дубль і не робить owner-wide scan;
+- «Підходить → додати» є єдиною межею persistence: після неї candidate/chat потрапляє у canonical `to_join`;
+- paired executor на реально авторизованому WhatsApp Web фактично відкриває exact invite/target і fail-closed виконує join/request-to-join;
+- factual `pending` автоматично повертається на перевірку після canonical delay; factual `joined` переходить до qualification без ручного DB/CLI втручання;
+- qualification використовує тільки фактичні browser observations для target criteria; unknown не підмінюється позитивним фактом;
+- target переходить у робочу WhatsApp queue; rejected/unavailable already-joined chat проходить exact-target verified leave + archive;
+- після browser reload/reconnect/restart незавершений persisted lifecycle продовжується без повторного join або дублювання;
+- нормальний operator flow не потребує ручного SQL, wrangler D1 commands, ручної правки state token або прямого API виклику;
+- live acceptance фіксує реальний end-to-end прохід на кількох справжніх кандидатах та окремо перевіряє щонайменше один фактичний join або pending→joined lifecycle, якщо такий стан реально зустрівся; тестові/вигадані messenger states заборонені;
+- target count default = 50. Система продовжує source plan до 50 confirmed target chats або чесно завершується `sources_exhausted`; вона не обіцяє результат, якого джерела фактично не дали;
+- D1 budget після warm repeat view не повинен повертатися до owner-wide thousands-of-rows reads. Будь-який ordinary unchanged warm Platforms refresh у тисячі rows — regression/blocker для go-live.
+
+Після виконання цього Definition of Done режим нескінченної розробки припиняється: спочатку зафіксувати acceptance evidence і тільки потім обирати наступний product outcome.
 
 ## Platforms responsive requirement — 2026-09-23
 

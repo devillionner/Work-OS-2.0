@@ -1,6 +1,6 @@
 # Work OS 2.0 — поетапний roadmap
 
-Оновлено: 2026-09-24. Обсяг і статус кожної вимоги — у [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md). Етап завершується за доказами приймання, а не за наявністю екрана. Працюємо напряму в `main` невеликими комітами. Для staging діє Cloudflare Workers Builds: кожен новий push у `main` проходить production build через `npm run verify`, staging-only guard і автоматичний deploy у `work-os-2-staging`. Повний `verify:local` (lint → typecheck → full tests → build) є окремим pre-release gate і не дублюється всередині Workers Builds. Production лишається окремою явною операцією й не оновлюється цим pipeline. Ручний workflow лишається recovery/fallback, але активний пріоритет визначається functional value: WhatsApp/Discovery automation має скорочувати реальну операторську роботу; AI-генерація не випереджає цей functional automation baseline.
+Оновлено: 2026-09-25. Обсяг і статус кожної вимоги — у [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md). Етап завершується за доказами приймання, а не за наявністю екрана. Працюємо напряму в `main` невеликими комітами. Для staging діє Cloudflare Workers Builds: кожен новий push у `main` проходить production build через `npm run verify`, staging-only guard і автоматичний deploy у `work-os-2-staging`. Повний `verify:local` (lint → typecheck → full tests → build) є окремим pre-release gate і не дублюється всередині Workers Builds. Production лишається окремою явною операцією й не оновлюється цим pipeline. Ручний workflow лишається recovery/fallback, але активний пріоритет визначається functional value: WhatsApp/Discovery automation має скорочувати реальну операторську роботу; AI-генерація не випереджає цей functional automation baseline.
 
 | Етап | Обсяг | Критерії готовності | Стан |
 | --- | --- | --- | --- |
@@ -11,6 +11,33 @@
 | P4. Functional automation + reliability/parity | WhatsApp Web executor, pending approval, Chat Discovery lifecycle, WhatsApp confirmed-send autopost; решта CORE/QA/DATA, OPS-05–07, BACKUP, PAY, PWA/offline | Спочатку відсутні operator workflows доведені end-to-end: invite → join/check → pending recheck → qualification → workflow/archive/leave; далі WhatsApp send із exact-target verification і publication fact тільки після confirmed send. Reliability/UX/QA є gates усередині цих slices, а не заміною функціональної реалізації. Після functional backlog — physical Safari/cross-device/offline/a11y acceptance. | **Активний етап. FUNCTIONAL VALUE FIRST.** База reliability вже значна; головний незавершений результат — реальний WhatsApp Web/Discovery workflow, потім confirmed-send WhatsApp autopost. |
 | P5. Контрольований release та фінальний синхронний перенос | OPS-03/04, MIG, DATA-09/15–17, BACKUP-01/02 | P1–P4 прийняті; production target перевірений окремо; користувач прямо підтвердив остаточний перенос. Одна узгоджена свіжа копія замість щоденного resync; production не очищується; усі відмінності пояснені; є rollback коду та перевірені копії | Заблоковано критеріями parity, не починати |
 | P6. AI та додаткова генерація | Відкладені AI/генеративні PROFILE/AD, DATA-07, desktop/native push за потреби | AI/генерація мають окремо визначені джерела, приватність, витрати та людський контроль. WhatsApp Web operator automation більше не відкладається сюди: вона активна в P4. Viber real-chat autopost лишається поза активним scope до окремого прямого дозволу. Локальний AI — тільки за новим прямим дозволом. | Відкладено |
+
+## P4-A — WhatsApp Discovery GO-LIVE — єдиний активний пріоритет
+
+**Stop condition:** не переходити до наступного roadmap slice, доки цей блок не має live staging acceptance або конкретного зовнішнього blocker, який неможливо усунути кодом/конфігурацією в поточному запуску.
+
+- [x] Local-first source preview: raw findings не пишуться в D1.
+- [x] Targeted dedupe замість owner-wide candidate/chat scan.
+- [x] Explicit confirm → persisted candidate → canonical `to_join`.
+- [x] Executor source crawl вимкнений; executor обробляє тільки confirmed persisted messenger tasks.
+- [x] WhatsApp Web CDP adapter має exact-target/fail-closed inspection, pending/joined facts, factual qualification і verified leave primitives.
+- [ ] **GO-LIVE-01:** staging exact HEAD green; authenticated WhatsApp Web runtime реально доступний executor-у.
+- [ ] **GO-LIVE-02:** один реальний local candidate проходить UI → confirm → exact WhatsApp target → join/request without manual API/SQL.
+- [ ] **GO-LIVE-03:** factual pending автоматично recheck-иться; factual joined автоматично переходить у qualification. Не виробляти synthetic state, якщо pending природно не трапився.
+- [ ] **GO-LIVE-04:** real joined target стає usable ready chat; real rejected/unavailable joined chat проходить verified leave/archive.
+- [ ] **GO-LIVE-05:** restart/F5/reconnect не створює дубль, не губить local preview і не повторює вже підтверджену messenger action.
+- [ ] **GO-LIVE-06:** провести реальний multi-candidate acceptance run без ручного DB/CLI між кандидатами; зібрати factual yield/errors і виправити blockers до operator-usable стану.
+- [ ] **GO-LIVE-07:** перевірити D1 rows_read cold vs warm Platforms/Discovery; warm unchanged view не має коштувати тисячі reads.
+- [ ] **GO-LIVE-08:** default goal 50 працює як outcome loop: продовжує source plan до 50 confirmed targets або чесно `sources_exhausted`; не знижувати qualification criteria заради цифри.
+- [ ] **GO-LIVE-09:** у DEVELOPMENT_STATUS зафіксовані exact SHA, staging build, live messenger evidence, залишкові known limitations і чітке рішення «operator-usable: yes/no».
+
+Поки GO-LIVE-01…09 не закриті, дозволені тільки:
+1. blocker fixes цього workflow;
+2. D1/performance fixes, без яких acceptance дорого/нестабільно запускати;
+3. minimal UX changes, потрібні для нормального operator use;
+4. tests/docs, що захищають фактичний go-live behavior.
+
+Не брати unrelated ROADMAP work як fallback. Якщо browser/runtime acceptance потребує desktop/browser control, використовувати його; не замінювати physical acceptance ще одним code-only refactor.
 
 ## Поточний стан P4 — 2026-09-23
 
