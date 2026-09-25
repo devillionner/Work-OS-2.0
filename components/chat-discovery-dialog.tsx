@@ -348,7 +348,7 @@ export function ChatDiscoveryDialog({
             <DialogTitle className="text-lg font-semibold tracking-tight sm:text-xl">Пошук нових чатів</DialogTitle>
             <Badge variant="secondary">WhatsApp discovery</Badge>
           </div>
-          <DialogDescription className="max-w-3xl text-xs leading-5 text-muted-foreground sm:text-sm">
+          <DialogDescription className="max-w-3xl text-xs leading-5 text-foreground/70 sm:text-sm">
             Знайдені invite спочатку залишаються локально. У Work OS вони потрапляють тільки після «Підходить → додати».
           </DialogDescription>
         </DialogHeader>
@@ -375,7 +375,7 @@ export function ChatDiscoveryDialog({
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <h3 className="text-base font-semibold">Запуск пошуку</h3>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">Ціль: українські активні групи, 700–18 000 учасників.</p>
+                  <p className="mt-1 text-xs leading-5 text-foreground/70">Ціль: українські активні групи, 700–18 000 учасників.</p>
                 </div>
                 <Badge>WhatsApp</Badge>
               </div>
@@ -394,7 +394,7 @@ export function ChatDiscoveryDialog({
                     onChange={event => setGoal(clampNumber(event.target.value, 1, 100, 50))}
                   />
                 </label>
-                <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
+                <div className="rounded-xl border border-border/70 bg-background px-3 py-2.5 text-xs font-medium leading-5 text-foreground/75">
                   Українська аудиторія · 700–18 000 учасників · активний чат · можна писати й публікувати оголошення.
                 </div>
               </div>
@@ -475,7 +475,7 @@ export function ChatDiscoveryDialog({
                     <Textarea id="telegram-scan" rows={5} value={telegramText} disabled={telegramBusy} onChange={event => setTelegramText(event.target.value)} placeholder="Встав текст повідомлень або результатів пошуку з chat.whatsapp.com…" />
                   </label>
 
-                  {telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim()) && <div className="mt-2 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
+                  {telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim()) && <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-foreground">
                     <CircleAlert className="size-3.5"/> Для invite вкажи назву Telegram-чату та посилання на джерело.
                   </div>}
 
@@ -502,7 +502,7 @@ export function ChatDiscoveryDialog({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="text-base font-semibold">Кандидати</h3>
-                <p className="mt-0.5 text-xs text-muted-foreground">{total} разом · {localPreview.candidates.length} локально · {workspace.importedCount} уже в Work OS</p>
+                <p className="mt-0.5 text-xs text-foreground/65">{total} разом · {localPreview.candidates.length} локально · {workspace.importedCount} уже в Work OS</p>
               </div>
               <Badge variant="outline">{filter === 'all' ? 'Усі' : filter === 'waiting-whatsapp' ? 'WhatsApp · Очікування' : decisionLabel(filter)} · {filter === 'all' ? total : filter === 'waiting-whatsapp' ? workspace.waitingWhatsAppCount : filter==='review' ? reviewCount : workspace.counts[filter]}</Badge>
             </div>
@@ -522,7 +522,7 @@ export function ChatDiscoveryDialog({
                   aria-selected={filter === key}
                   disabled={loading}
                   onClick={() => void changeFilter(key)}
-                  className={`shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${filter === key ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/60 bg-background text-muted-foreground hover:bg-muted/50 hover:text-foreground'}`}
+                  className={`shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${filter === key ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border/70 bg-background text-foreground/70 hover:bg-muted/40 hover:text-foreground'}`}
                 >
                   {label} <span className="ml-1 tabular-nums">{count}</span>
                 </button>)}
@@ -537,7 +537,7 @@ export function ChatDiscoveryDialog({
                 ? <div className="grid gap-3">
                   {displayCandidates.map(candidate => {
                     const criteria = candidateCriteria(candidate);
-                    return <article key={candidate.id} className="min-w-0 rounded-2xl border border-border/70 bg-background p-4">
+                    return <article key={candidate.id} className="min-w-0 rounded-2xl border border-border bg-background p-4 shadow-sm sm:p-5">
                       <div className="flex min-w-0 items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-1.5">
@@ -547,21 +547,21 @@ export function ChatDiscoveryDialog({
                             {candidate.importedChatId && <Badge variant="outline">{membershipLabel(candidate.membershipState)}</Badge>}
                           </div>
                           <h4 className="mt-2 break-words text-base font-semibold leading-snug">{candidate.name || candidate.link}</h4>
-                          <div className="mt-1 max-w-full truncate font-mono text-[11px] text-muted-foreground">{candidate.link}</div>
+                          <div className="mt-1 max-w-full truncate font-mono text-[11px] font-medium text-foreground/60">{candidate.link}</div>
                         </div>
-                        {candidate.importedChatId && <span className="shrink-0 text-[11px] text-muted-foreground">У Work OS</span>}
+                        {candidate.importedChatId && <span className="shrink-0 rounded-md bg-muted/40 px-2 py-1 text-[11px] font-medium text-foreground/65">У Work OS</span>}
                       </div>
 
-                      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+                      <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
                         {criteria.map(item => <Criterion key={item.label} {...item} />)}
                       </div>
 
-                      {candidate.reasonCodes.length > 0 && <details className="mt-3 rounded-xl bg-muted/30 px-3 py-2">
-                        <summary className="cursor-pointer select-none text-xs font-medium">
+                      {candidate.reasonCodes.length > 0 && <details className="mt-3 rounded-xl border border-border/70 bg-background px-3 py-2.5">
+                        <summary className="cursor-pointer select-none text-xs font-semibold text-foreground/80">
                           Що потребує уваги · {candidate.reasonCodes.length}
                         </summary>
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          {candidate.reasonCodes.map(code => <span key={code} className="rounded-md bg-background px-2 py-1 text-[11px] text-muted-foreground ring-1 ring-border/60">{reasonLabel(code)}</span>)}
+                          {candidate.reasonCodes.map(code => <span key={code} className="rounded-md bg-muted/35 px-2 py-1 text-[11px] font-medium text-foreground/75 ring-1 ring-border/70">{reasonLabel(code)}</span>)}
                         </div>
                       </details>}
 
@@ -586,9 +586,9 @@ export function ChatDiscoveryDialog({
                       </div>
 
                       {candidate.importedChatId && candidate.membershipState === 'left' &&
-                        <div className="mt-3 rounded-xl border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Чат уже покинуто. Для нової кваліфікації спочатку віднови його та підтвердь повторний вступ.</div>}
+                        <div className="mt-3 rounded-xl border border-border/70 bg-background px-3 py-2.5 text-xs font-medium leading-5 text-foreground/75">Чат уже покинуто. Для нової кваліфікації спочатку віднови його та підтвердь повторний вступ.</div>}
                       {candidate.importedChatId && candidate.membershipState === 'joined' && candidate.decision === 'review' &&
-                        <div className="mt-3 rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-xs font-medium leading-5 text-amber-950 dark:text-amber-100">Приєднано, але бракує підтверджених фактів. Заповни кваліфікацію нижче.</div>}
+                        <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-500/45 bg-background px-3 py-2.5 text-xs font-semibold leading-5 text-foreground"><CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-600"/>Приєднано, але бракує підтверджених фактів. Заповни кваліфікацію нижче.</div>}
                       {candidate.importedChatId && candidate.membershipState === 'joined' && (candidate.decision === 'rejected' || candidate.decision === 'unavailable') &&
                         <div className="workspace-error mt-3">Чат уже приєднаний, але не відповідає критеріям. Потрібен підтверджений вихід із месенджера.</div>}
 
@@ -702,8 +702,8 @@ function isLocalPreview(candidate:DiscoveryCandidate):candidate is LocalDiscover
 }
 
 function StatTile({ label, value }: { label: string; value: string }) {
-  return <div className="flex min-w-[132px] shrink-0 items-baseline justify-between gap-3 rounded-xl border border-border/60 bg-muted/15 px-3 py-2">
-    <div className="truncate text-[11px] font-medium text-muted-foreground">{label}</div>
+  return <div className="flex min-w-[132px] shrink-0 items-baseline justify-between gap-3 rounded-xl border border-border/70 bg-background px-3 py-2">
+    <div className="truncate text-[11px] font-semibold text-foreground/65">{label}</div>
     <div className="shrink-0 text-sm font-semibold tabular-nums text-foreground">{value}</div>
   </div>;
 }
@@ -716,9 +716,9 @@ function Criterion({ label, value, state }: CriterionItem) {
     : state === 'bad'
       ? 'bg-destructive'
       : 'bg-amber-500';
-  return <div className="min-w-0 rounded-xl border border-border/70 bg-card px-3 py-2.5 text-card-foreground">
-    <div className="flex items-center gap-1.5 truncate text-[10px] font-semibold uppercase tracking-wide text-foreground/70"><span className={`size-1.5 shrink-0 rounded-full ${dot}`}/>{label}</div>
-    <div className="mt-0.5 truncate text-sm font-semibold text-foreground">{value}</div>
+  return <div className="min-w-0 rounded-xl border border-border/80 bg-background px-3 py-2.5">
+    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-foreground/65"><span className={`size-1.5 shrink-0 rounded-full ${dot}`}/><span className="truncate">{label}</span></div>
+    <div className="mt-1 break-words text-sm font-semibold leading-4 text-foreground">{value}</div>
   </div>;
 }
 
