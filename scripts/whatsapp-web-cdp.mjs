@@ -195,7 +195,10 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
               link:String(candidate.link||''),
               topicMatch:candidate.topicMatch||'unknown',
               minMembers:700,
-              expectedTarget:{name:String(candidate.name||'WhatsApp candidate'),link:String(candidate.link||'')},
+              expectedTarget:{
+                name:'WhatsApp · '+String(candidate.link||'').split('/').filter(Boolean).at(-1)?.split('?')[0],
+                link:String(candidate.link||''),
+              },
             }:null,
           };
         })()`,
