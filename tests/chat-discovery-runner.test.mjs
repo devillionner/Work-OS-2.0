@@ -180,3 +180,10 @@ void test('local Discovery can refill sources while WhatsApp qualification is in
   assert.match(source,/startLocalSourceRefill\(local\)/);
   assert.match(source,/if\(local\.task\)return processLocalPreflight\(local\.task\)/);
 });
+
+
+void test('local Discovery keeps a local source pump filled while WhatsApp runs',()=>{
+  assert.match(source,/while\(local\?\.active===true&&local\.sourceExhausted!==true&&Number\(local\.queuedCount\|\|0\)<8\)/);
+  assert.match(source,/startLocalSourceRefill\(local\);/);
+  assert.doesNotMatch(source,/await startLocalSourceRefill\(local\)/);
+});
