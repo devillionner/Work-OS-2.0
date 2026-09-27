@@ -51,7 +51,7 @@ type SearchTask = {
 };
 
 const SEEDS: SeedData = seedData;
-const MAX_PAGE_BYTES = 1_500_000;
+const MAX_PAGE_BYTES = 650_000;
 const FETCH_TIMEOUT_MS = 8_000;
 const MAX_REDIRECTS = 2;
 const MAX_RECORDS = 250;
@@ -550,7 +550,12 @@ export function extractInviteRecords(
   platforms: DiscoveryPlatform[],
   source: Omit<DiscoverySource, 'kind'> & { kind?: DiscoverySourceKind },
 ): DiscoveryRecord[] {
-  const decoded = decodeHtml(text).replaceAll('\\/', '/');
+  const raw=String(text||'');
+  const hasRequestedInvite=
+    (platforms.includes('whatsapp')&&/chat\.whatsapp\.com/iu.test(raw))
+    ||(platforms.includes('viber')&&/(?:invite\.viber\.com|chats\.viber\.com|vb\.me)/iu.test(raw));
+  if(!hasRequestedInvite)return [];
+  const decoded = decodeHtml(raw).replaceAll('\\/', '/');
   const pattern = /(?:https?:\/\/)?(?:chat\.whatsapp\.com|invite\.viber\.com|chats\.viber\.com|vb\.me)\/?[^\s<>"'\\]*/gi;
   const records: DiscoveryRecord[] = [];
   for (const match of decoded.matchAll(pattern)) {

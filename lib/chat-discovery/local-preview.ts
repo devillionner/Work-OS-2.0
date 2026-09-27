@@ -39,24 +39,9 @@ export async function searchLocalDiscoveryPreview(
   const minMembers=boundedInteger(input.minMembers,700,18_000,700);
   const knownLinks=cleanKnownLinks(input.knownLinks);
 
-  if(telegramCursor===0&&sourceCursor===0){
-    const found=await discoverPublicWeb({
-      platforms,cursor:0,maxQueries:1,pageLimit:0,includeCurated:true,
-    },fetcher);
-    const preview=await prepareLocalPreviews(db,userId,found.records,{knownLinks,minMembers,now});
-    return {
-      source:'public_web' as const,
-      telegramCursor,
-      sourceCursor:Math.max(1,found.nextCursor),
-      done:false,
-      previews:preview.previews,
-      batch:{searched:found.searched,added:preview.previews.length,duplicates:preview.duplicates,errors:found.errors},
-    };
-  }
-
-  const telegramPlan=buildTelegramSearchPlan(telegramCursor,6);
+  const telegramPlan=buildTelegramSearchPlan(telegramCursor,3);
   if(!telegramPlan.done){
-    const found=await discoverTelegramPublic({cursor:telegramCursor,maxQueries:6,pageLimit:2},fetcher);
+    const found=await discoverTelegramPublic({cursor:telegramCursor,maxQueries:3,pageLimit:1},fetcher);
     const preview=await prepareLocalPreviews(db,userId,found.records,{knownLinks,minMembers,now});
     return {
       source:'telegram' as const,
@@ -72,7 +57,7 @@ export async function searchLocalDiscoveryPreview(
   if(sourceCursor>=totalPublicTasks){
     return {source:'idle' as const,telegramCursor,sourceCursor,done:true,previews:[],batch:{searched:0,added:0,duplicates:0,errors:0}};
   }
-  const found=await discoverPublicWeb({platforms,cursor:sourceCursor,maxQueries:6,pageLimit:1,includeCurated:sourceCursor===0},fetcher);
+  const found=await discoverPublicWeb({platforms,cursor:sourceCursor,maxQueries:3,pageLimit:1,includeCurated:false},fetcher);
   const preview=await prepareLocalPreviews(db,userId,found.records,{knownLinks,minMembers,now});
   return {
     source:'public_web' as const,

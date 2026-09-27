@@ -42,9 +42,9 @@ void test('local autonomous preflight exposes only factual targets before D1 con
 
 void test('browser-local source crawl uses targeted D1 dedupe and no owner-wide 10k scan', async () => {
   const preview = await readFile(new URL('../lib/chat-discovery/local-preview.ts', import.meta.url), 'utf8');
-  assert.match(preview, /buildTelegramSearchPlan\(telegramCursor,6\)/);
-  assert.match(preview, /maxQueries:6,pageLimit:2/);
-  assert.match(preview, /maxQueries:6,pageLimit:1/);
+  assert.match(preview, /buildTelegramSearchPlan\(telegramCursor,3\)/);
+  assert.match(preview, /maxQueries:3,pageLimit:1/);
+  assert.match(preview, /maxQueries:3,pageLimit:1/);
   assert.match(preview, /normalized_link IN \(SELECT value FROM json_each\(\?2\)\)/);
   assert.doesNotMatch(preview, /LIMIT 10001/);
   const searchStart=preview.indexOf('export async function searchLocalDiscoveryPreview');
@@ -250,4 +250,17 @@ void test('local Discovery continues when the modal is closed', async () => {
   assert.ok(dialog.includes("if(!localPreviewHydrated)return;"));
   assert.ok(dialog.includes("if(!localPreviewHydrated||!localPreview.running)return;"));
   assert.equal(dialog.includes("if(!open||!localPreviewHydrated||!localPreview.running)return;"), false);
+});
+
+
+void test('browser-local Discovery source requests stay below the Worker CPU-risk envelope', async () => {
+  const [preview, publicWeb] = await Promise.all([
+    readFile(new URL('../lib/chat-discovery/local-preview.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../lib/chat-discovery/public-web.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(preview,/maxQueries:3,pageLimit:1/);
+  assert.match(preview,/includeCurated:false/);
+  assert.doesNotMatch(preview,/includeCurated:true/);
+  assert.match(publicWeb,/MAX_PAGE_BYTES = 650_000/);
+  assert.match(publicWeb,/if\(!hasRequestedInvite\)return \[\]/);
 });

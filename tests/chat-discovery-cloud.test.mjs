@@ -131,7 +131,7 @@ void test('public discovery rejects local/literal hosts and searches a bounded s
   assert.ok(result.records.every((item) => item.source.query.includes('українці')));
 });
 
-void test('local-first discovery bootstraps curated high-yield sources before broad Telegram search', async (t) => {
+void test('local-first discovery starts with bounded Telegram batches and avoids the heavy curated bootstrap', async (t) => {
   const { searchLocalDiscoveryPreview } = await import('../lib/chat-discovery/local-preview.ts');
   const db = await localDatabase(t);
   const calls = [];
@@ -139,18 +139,20 @@ void test('local-first discovery bootstraps curated high-yield sources before br
     platforms:['whatsapp'],telegramCursor:0,sourceCursor:0,knownLinks:[],minMembers:700,
   },100,async (url) => {
     calls.push(String(url));
-    if(String(url).includes('uahelp.wiki/german-city-chats')) {
-      return html('<p>Українці Berlin https://chat.whatsapp.com/CuratedBootstrap123</p>');
+    if(String(url).includes('search.brave.com')) {
+      return html('<a href="https://t.me/ua_bounded_source/42">source</a>');
+    }
+    if(String(url)==='https://t.me/s/ua_bounded_source/42') {
+      return html('<p>Українці Berlin https://chat.whatsapp.com/TelegramBootstrap123</p>');
     }
     return html('');
   });
-  assert.equal(result.source,'public_web');
-  assert.equal(result.telegramCursor,0);
-  assert.ok(result.sourceCursor>=1);
-  assert.ok(calls.some(url=>url.includes('uahelp.wiki/german-city-chats')));
-  assert.equal(result.previews.some(item=>item.link==='https://chat.whatsapp.com/CuratedBootstrap123'),true);
+  assert.equal(result.source,'telegram');
+  assert.ok(result.telegramCursor>0&&result.telegramCursor<=3);
+  assert.equal(result.sourceCursor,0);
+  assert.equal(calls.some(url=>url.includes('uahelp.wiki')||url.includes('deutschportal.info')),false);
+  assert.equal(result.previews.some(item=>item.link==='https://chat.whatsapp.com/TelegramBootstrap123'),true);
 });
-
 void test('Telegram keyword plan is deterministic, bounded and resolves workbook placeholders', () => {
   const first = buildTelegramSearchPlan(0, 6);
   assert.equal(first.cursor, 0);
