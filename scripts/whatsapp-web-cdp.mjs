@@ -435,8 +435,10 @@ export async function leaveWhatsappTaskViaCdp(
     await client.send('Runtime.enable');
     await client.send('Page.navigate', { url: targetUrl });
 
+    const operationDeadline = Date.now() + timeoutMs;
+    const remainingBudget = () => Math.max(POLL_MS, operationDeadline - Date.now());
     const navigatedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);
-    let opened = await waitForClassification(client, { ...task, action: 'inspect' }, timeoutMs, null, navigatedInviteCode);
+    let opened = await waitForClassification(client, { ...task, action: 'inspect' }, remainingBudget(), null, navigatedInviteCode);
     if (opened.kind === 'action' && opened.action === 'view') {
       const observedTarget = opened.observedName || task.expectedTarget?.name || task.name;
       const clicked = await clickExactButton(client, opened.buttonText, observedTarget);
@@ -444,7 +446,7 @@ export async function leaveWhatsappTaskViaCdp(
       const observedTask = opened.observedName
         ? { ...task, name:opened.observedName, expectedTarget:{ ...task.expectedTarget, name:opened.observedName } }
         : { ...task, action:'inspect' };
-      opened = await waitForClassification(client, { ...observedTask, action: 'inspect' }, timeoutMs, 'view', navigatedInviteCode);
+      opened = await waitForClassification(client, { ...observedTask, action: 'inspect' }, remainingBudget(), 'view', navigatedInviteCode);
     }
     if (opened.kind !== 'result' || opened.result.membershipState !== 'joined' || opened.result.targetVerified !== true) {
       return { kind: 'blocked', reason: opened.reason || 'joined_target_not_verified' };
@@ -454,19 +456,18 @@ export async function leaveWhatsappTaskViaCdp(
     if (!await clickExactHeader(client, observedTarget)) {
       return { kind: 'blocked', reason: 'target_header_disappeared' };
     }
-    const leaveControl = await waitForExactControl(client, leavePattern, timeoutMs, false);
+    const leaveControl = await waitForExactControl(client, leavePattern, remainingBudget(), false);
     if (!leaveControl) return { kind: 'blocked', reason: 'leave_control_not_found' };
     if (!await clickDocumentControl(client, leaveControl, observedTarget)) {
       return { kind: 'blocked', reason: 'leave_control_disappeared' };
     }
-    const confirmControl = await waitForExactControl(client, confirmLeavePattern, timeoutMs, true);
+    const confirmControl = await waitForExactControl(client, confirmLeavePattern, remainingBudget(), true);
     if (!confirmControl) return { kind: 'blocked', reason: 'leave_confirmation_not_found' };
     if (!await clickDialogControl(client, confirmControl)) {
       return { kind: 'blocked', reason: 'leave_confirmation_disappeared' };
     }
 
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
+    while (Date.now() < operationDeadline) {
       const snapshot = await readSnapshot(client);
       if (leftPattern.test(String(snapshot.bodyText || '')) && !snapshot.composer) {
         return { kind: 'result', result: { targetVerified: true, left: true } };
@@ -701,9 +702,11 @@ export async function inspectWhatsappTaskViaCdp(
     await client.send('Runtime.enable');
     await client.send('Page.navigate', { url: targetUrl });
 
+    const operationDeadline = Date.now() + timeoutMs;
+    const remainingBudget = () => Math.max(POLL_MS, operationDeadline - Date.now());
     const navigatedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);
     let currentTask = task;
-    let classified = await waitForClassification(client, currentTask, timeoutMs, null, navigatedInviteCode);
+    let classified = await waitForClassification(client, currentTask, remainingBudget(), null, navigatedInviteCode);
     for (let step = 0; step < 3 && classified.kind === 'action'; step += 1) {
       const observedName = classified.observedName || currentTask.expectedTarget?.name || currentTask.name;
       const clicked = await clickExactButton(client, classified.buttonText, observedName);
@@ -712,7 +715,7 @@ export async function inspectWhatsappTaskViaCdp(
         ? { ...currentTask, name:classified.observedName, expectedTarget:{ ...currentTask.expectedTarget, name:classified.observedName } }
         : currentTask;
       const action = classified.action;
-      classified = await waitForClassification(client, observedTask, timeoutMs, action, navigatedInviteCode);
+      classified = await waitForClassification(client, observedTask, remainingBudget(), action, navigatedInviteCode);
       currentTask = observedTask;
     }
     if (classified.kind === 'result' && classified.result.membershipState === 'joined' && classified.result.targetVerified === true) {

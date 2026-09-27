@@ -14,7 +14,7 @@ import {
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
-const token=await resolveExecutorToken();
+let token=await resolveExecutorToken();
 if(!baseUrl){console.error('Set WORK_OS_URL.');process.exit(2);}
 if(!token)console.warn('No executor token yet: local WhatsApp preflight can run, but D1-backed post-confirmation tasks stay paused.');
 if(!process.stdin.isTTY&&!whatsappCdp){
@@ -29,7 +29,7 @@ const SOURCE_ADVANCE_MS=20000;
 const EXECUTOR_QUEUE_LIMIT=3;
 const TASK_BLOCK_COOLDOWN_MS=300000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
-const LOCAL_RETRY_LATER_COOLDOWN_MS=15000;
+const TOKEN_REFRESH_MS=60000;
 const IDLE_POLL_MIN_MS=15000;
 const IDLE_POLL_MAX_MS=60000;
 const WHATSAPP_RUNTIME_TRANSIENT_REASONS=new Set(['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready']);
@@ -77,6 +77,14 @@ async function resolveExecutorToken(){
     console.error('Could not read executor token from the Wayland clipboard.');
     return '';
   }
+}
+
+let nextTokenResolveAt=0;
+async function refreshExecutorTokenIfNeeded(){
+  if(token||!process.argv.includes('--token-from-work-os-page')||Date.now()<nextTokenResolveAt)return;
+  nextTokenResolveAt=Date.now()+TOKEN_REFRESH_MS;
+  const resolved=await resolveExecutorToken();
+  if(resolved)token=resolved;
 }
 
 async function api(path,init={}){
@@ -208,8 +216,7 @@ async function processLocalPreflight(task){
     await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
       decision:'skipped',reasonCodes:['whatsapp_join_retry_later'],result,completedAt:Date.now(),
     },{cdpBaseUrl:whatsappCdp});
-    whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+LOCAL_RETRY_LATER_COOLDOWN_MS);
-    console.warn('WhatsApp asked to retry this invite later; skipped for this run and pausing local preflight for 15s.');
+    console.warn('WhatsApp asked to retry this invite later; skipped for this run and continuing with the next candidate.');
     return 'local_task';
   }
   if(result.reason==='approval_required'||result.membershipState==='pending'){
@@ -267,7 +274,10 @@ async function runOnce(){
       console.warn(`Local Discovery bridge unavailable: ${error instanceof Error?error.message:String(error)}`);
     }
   }
-  if(!token)return 'idle';
+  if(!token){
+    await refreshExecutorTokenIfNeeded();
+    if(!token)return 'idle';
+  }
   const queue=await api(`/api/chat-discovery/executor?limit=${EXECUTOR_QUEUE_LIMIT}`);
   const queuedTasks=Array.isArray(queue.tasks)?queue.tasks:[];
   const task=queuedTasks.find(item=>!taskIsLocallyBlocked(item));

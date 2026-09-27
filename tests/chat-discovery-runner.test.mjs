@@ -139,3 +139,16 @@ void test('retry-later skips only the affected local candidate with short cooldo
   assert.match(source,/LOCAL_RETRY_LATER_COOLDOWN_MS=15000/);
   assert.doesNotMatch(source,/markWhatsappRuntimeBlocked\('whatsapp_join_retry_later'\)/);
 });
+
+
+void test('local retry-later skips only that invite and does not globally freeze WhatsApp preflight',()=>{
+  assert.match(source,/decision:'skipped',reasonCodes:\['whatsapp_join_retry_later'\]/);
+  assert.doesNotMatch(source,/LOCAL_RETRY_LATER_COOLDOWN_MS/);
+  assert.match(source,/continuing with the next candidate/);
+});
+
+void test('background runner can acquire the Work OS executor token after Opera opens later',()=>{
+  assert.match(source,/let token=await resolveExecutorToken\(\)/);
+  assert.match(source,/async function refreshExecutorTokenIfNeeded\(\)/);
+  assert.match(source,/TOKEN_REFRESH_MS=60000/);
+});

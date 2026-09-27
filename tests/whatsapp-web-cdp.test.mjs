@@ -684,3 +684,12 @@ void test('Work OS pairing token helper is exported and remains part of the loop
   assert.equal(normalizeLocalCdpBaseUrl('http://127.0.0.1:9222'),'http://127.0.0.1:9222');
   assert.equal(normalizeLocalCdpBaseUrl('http://192.168.1.5:9222'),null);
 });
+
+
+void test('WhatsApp inspect and leave share one bounded operation timeout instead of resetting 45s at every UI phase',()=>{
+  const deadlineUses=[...source.matchAll(/const operationDeadline = Date\.now\(\) \+ timeoutMs;/g)].length;
+  assert.ok(deadlineUses>=2);
+  assert.match(source,/remainingBudget = \(\) => Math\.max\(POLL_MS, operationDeadline - Date\.now\(\)\)/);
+  assert.doesNotMatch(source,/waitForClassification\(client, observedTask, timeoutMs, 'view'/);
+  assert.doesNotMatch(source,/waitForClassification\(client, observedTask, timeoutMs, action/);
+});
