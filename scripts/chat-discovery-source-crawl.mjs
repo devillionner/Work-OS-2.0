@@ -210,4 +210,8 @@ function decode(value) {
   });
 }
 function strip(value) { return decode(value).replace(/<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>/giu,' ').replace(/<[^>]+>/gu,' ').replace(/\s+/gu,' ').trim(); }
-function escapeRegExp(value) { return String(value).replace(/[.*+?^$()|[\]\\{}]/g,'\\function escapeRegExp(value) { return String(value).replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&'); }'); }
+function escapeRegExp(value) {
+  const slash=String.fromCharCode(92);
+  const specials='^$.*+?()[]{}|'+slash;
+  return String(value).split('').map((char)=>specials.includes(char)?slash+char:char).join('');
+}
