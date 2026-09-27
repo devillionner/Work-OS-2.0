@@ -283,17 +283,24 @@ async function processLocalPreflight(task){
   return 'local_task';
 }
 
-async function startLocalSourceRefill(local){
-  if(localSourceInFlight||local?.sourceExhausted===true||Number(local?.queuedCount||0)>=8)return;
-  if(Date.now()<nextLocalSourceAt)return;
-  nextLocalSourceAt=Date.now()+LOCAL_SOURCE_MIN_MS;
-  const cursor=Number(local?.sourceCursor)||0;
+function startLocalSourceRefill(initialLocal){
+  if(localSourceInFlight||initialLocal?.sourceExhausted===true||Number(initialLocal?.queuedCount||0)>=8)return;
   localSourceInFlight=(async()=>{
+    let local=initialLocal;
     try{
-      const batch=await crawlLocalDiscoverySource(cursor);
-      const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp});
-      if(applied.kind==='result'){
+      while(local?.active===true&&local.sourceExhausted!==true&&Number(local.queuedCount||0)<8){
+        const wait=Math.max(0,nextLocalSourceAt-Date.now());
+        if(wait>0)await sleep(wait);
+        const cursor=Number(local.sourceCursor)||0;
+        const batch=await crawlLocalDiscoverySource(cursor);
+        const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp});
+        nextLocalSourceAt=Date.now()+LOCAL_SOURCE_MIN_MS;
+        if(applied.kind!=='result')break;
         console.log('Local source crawl: cursor '+batch.nextCursor+', sources '+batch.sources.length+', added '+(applied.added||0)+', duplicates '+(applied.duplicates||0));
+        if(batch.done===true)break;
+        const refreshed=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp,skipCandidateIds:[]});
+        if(refreshed.kind!=='result')break;
+        local=refreshed;
       }
     }catch(error){
       console.warn('Local source refill failed: '+(error instanceof Error?error.message:String(error)));
@@ -311,7 +318,7 @@ async function runOnce(){
         .map(([candidateId])=>candidateId);
       const local=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp,skipCandidateIds});
       if(local.kind==='result'&&local.active===true){
-        await startLocalSourceRefill(local);
+        startLocalSourceRefill(local);
         if(Date.now()<whatsappRuntimeBlockedUntil)return 'local_wait';
         if(local.task)return processLocalPreflight(local.task);
         return 'local_wait';
