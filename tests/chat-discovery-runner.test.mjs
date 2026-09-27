@@ -160,3 +160,16 @@ void test('a single slow WhatsApp page cannot trap the browser-local queue forev
   assert.match(source,/LOCAL_PAGE_RECOVERY_MS=5000/);
   assert.match(source,/allowing 5s recovery before the next candidate/);
 });
+
+
+void test('unknown factual qualification is deferred instead of rejected or used as a destructive leave reason',()=>{
+  assert.match(source,/decision:incomplete\?'incomplete'/);
+  assert.match(source,/qualification_incomplete/);
+  assert.match(source,/INCOMPLETE_QUALIFICATION_COOLDOWN_MS=60000/);
+  assert.match(source,/keeping it queued and continuing with another candidate/);
+});
+
+void test('local Discovery can skip temporarily blocked candidates and continue the queue',()=>{
+  assert.match(source,/skipCandidateIds=\[\.\.\.taskBlockedUntil\.entries\(\)\]/);
+  assert.match(source,/PAGE_RECOVERY_COOLDOWN_MS=15000/);
+});

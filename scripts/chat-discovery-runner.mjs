@@ -28,9 +28,10 @@ const LOCAL_PREFLIGHT_POLL_MS=1500;
 const SOURCE_ADVANCE_MS=20000;
 const EXECUTOR_QUEUE_LIMIT=3;
 const TASK_BLOCK_COOLDOWN_MS=300000;
+const INCOMPLETE_QUALIFICATION_COOLDOWN_MS=60000;
+const PAGE_RECOVERY_COOLDOWN_MS=15000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
 const TOKEN_REFRESH_MS=60000;
-const LOCAL_PAGE_RECOVERY_MS=5000;
 const IDLE_POLL_MIN_MS=15000;
 const IDLE_POLL_MAX_MS=60000;
 const WHATSAPP_RUNTIME_TRANSIENT_REASONS=new Set(['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready']);
@@ -148,8 +149,8 @@ async function inspectTask(task){
 let whatsappRuntimeBlockedUntil=0;
 let nextSourceAdvanceAt=0;
 const taskBlockedUntil=new Map();
-function markTaskBlocked(task,reason){
-  taskBlockedUntil.set(task.candidateId,Date.now()+TASK_BLOCK_COOLDOWN_MS);
+function markTaskBlocked(task,reason,cooldownMs=TASK_BLOCK_COOLDOWN_MS){
+  taskBlockedUntil.set(task.candidateId,Date.now()+cooldownMs);
   console.warn(`Discovery task paused locally after fail-closed ${reason}; another candidate may continue.`);
 }
 function taskIsLocallyBlocked(task){
@@ -192,7 +193,9 @@ function evaluateLocalPreflight(task,result){
   if(result.activityState!=='active')reasons.push(result.activityState==='dead'?'inactive_chat':'unknown_activity');
   if(result.accessible!==true)reasons.push('access_unavailable');
   if(result.targetVerified!==true)reasons.push('target_not_verified');
-  return {decision:reasons.length?'rejected':'target',reasonCodes:reasons,topicMatch:topic};
+  const incompleteReasons=new Set(['unknown_chat_type','unknown_member_count','unknown_topic_match','unknown_can_write','unknown_ads_allowed','unknown_activity']);
+  const incomplete=reasons.length>0&&reasons.every(reason=>incompleteReasons.has(reason));
+  return {decision:incomplete?'incomplete':reasons.length?'rejected':'target',reasonCodes:reasons,topicMatch:topic};
 }
 
 async function processLocalPreflight(task){
@@ -205,12 +208,8 @@ async function processLocalPreflight(task){
   }
   if(inspected.kind!=='result'){
     if(inspected.reason==='page_not_ready'){
-      await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
-        decision:'skipped',reasonCodes:['page_not_ready'],
-        result:{status:'failed',reason:'page_not_ready'},completedAt:Date.now(),
-      },{cdpBaseUrl:whatsappCdp});
-      whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+LOCAL_PAGE_RECOVERY_MS);
-      console.warn('WhatsApp page did not become ready in time; skipped this invite and allowing 5s recovery before the next candidate.');
+      markTaskBlocked(task,'page_not_ready',PAGE_RECOVERY_COOLDOWN_MS);
+      console.warn('WhatsApp page did not become ready in time; deferring this invite for 15s and continuing with another candidate.');
       return 'local_task';
     }
     if(WHATSAPP_RUNTIME_TRANSIENT_REASONS.has(inspected.reason)){
@@ -247,6 +246,11 @@ async function processLocalPreflight(task){
   }
 
   const evaluated=evaluateLocalPreflight(task,result);
+  if(evaluated.decision==='incomplete'){
+    markTaskBlocked(task,'qualification_incomplete',INCOMPLETE_QUALIFICATION_COOLDOWN_MS);
+    console.warn(`WhatsApp qualification incomplete for ${result.observedName||task.name}; keeping it queued and continuing with another candidate.`);
+    return 'local_task';
+  }
   let leftAfterCheck=false;
   let leaveReason=null;
   if(evaluated.decision!=='target'){
@@ -277,7 +281,10 @@ async function processLocalPreflight(task){
 async function runOnce(){
   if(whatsappCdp){
     try{
-      const local=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp});
+      const skipCandidateIds=[...taskBlockedUntil.entries()]
+        .filter(([,until])=>until>Date.now())
+        .map(([candidateId])=>candidateId);
+      const local=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp,skipCandidateIds});
       if(local.kind==='result'&&local.active===true&&Date.now()<whatsappRuntimeBlockedUntil)return 'local_wait';
       if(local.kind==='result'&&local.active===true){
         if(local.task)return processLocalPreflight(local.task);

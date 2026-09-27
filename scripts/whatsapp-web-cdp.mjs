@@ -148,7 +148,7 @@ const WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY='work-os:chat-discovery-local-prefligh
 
 export async function readWorkOsLocalDiscoveryTaskViaCdp(
   workOsUrl,
-  { cdpBaseUrl } = {},
+  { cdpBaseUrl, skipCandidateIds=[] } = {},
 ) {
   const pagesResult=await listWorkOsPagesForCdp(workOsUrl,cdpBaseUrl);
   if(pagesResult.kind==='blocked')return pagesResult;
@@ -164,6 +164,7 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
           const resultRaw=sessionStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY)});
           let results={};try{results=resultRaw?JSON.parse(resultRaw):{};}catch{}
           const candidates=Array.isArray(state?.candidates)?state.candidates:[];
+          const skipped=new Set(${JSON.stringify(Array.isArray(skipCandidateIds)?skipCandidateIds.map(String).slice(0,250):[])});
           const priority=(item)=>{
             const name=String(item?.name||'');
             let score=0;
@@ -177,7 +178,7 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
           };
           const candidate=candidates
             .filter((item)=>item&&item.localOnly===true&&item.preflightState==='queued'&&typeof item.id==='string'
-              &&typeof item.link==='string'&&!results[item.id])
+              &&typeof item.link==='string'&&!results[item.id]&&!skipped.has(item.id))
             .sort((a,b)=>priority(b)-priority(a))[0]||null;
           return {
             active:state?.running===true,
@@ -809,14 +810,15 @@ async function readSnapshot(client) {
     const buttons = read(document, ['button', '[role="button"]']);
     const main = document.querySelector('#main');
     const mainText = clean(main?.innerText || '').slice(-30000);
-    const info = document.querySelector('[data-testid="drawer-right"], [data-testid="chat-info-drawer"]');
+    const headerText = clean(main?.querySelector('header')?.innerText || '').slice(0,5000);
+    const info = document.querySelector('[data-testid="drawer-right"], [data-testid="chat-info-drawer"], [role="complementary"]');
     const groupInfoText = clean(info?.innerText || '').slice(0,30000);
     const messageTexts = unique([...document.querySelectorAll('[data-testid="msg-container"], #main [data-pre-plain-text]')]
       .slice(-30).map((node) => clean(node.innerText || node.textContent || '').slice(0,1200)));
     const messageMeta = unique([...document.querySelectorAll('#main [data-pre-plain-text]')]
       .slice(-30).map((node) => node.getAttribute('data-pre-plain-text') || ''));
     const composerNode = document.querySelector(
-      'footer [contenteditable="true"][role="textbox"], footer [contenteditable="true"], [data-testid="conversation-compose-box-input"]'
+      '#main footer [contenteditable="true"][role="textbox"], #main [contenteditable="true"][role="textbox"], footer [contenteditable="true"], [data-testid="conversation-compose-box-input"], [aria-label*="message" i][contenteditable="true"], [aria-label*="повідом" i][contenteditable="true"], [aria-label*="сообщ" i][contenteditable="true"]'
     );
     const composer = Boolean(composerNode);
     const composerText = clean(composerNode?.innerText || composerNode?.textContent || '');
@@ -840,6 +842,7 @@ async function readSnapshot(client) {
       buttons,
       dialogButtons: dialog ? read(dialog, ['button', '[role="button"]']) : [],
       mainText,
+      headerText,
       groupInfoText,
       messageTexts,
       messageMeta,
@@ -868,7 +871,7 @@ export function deriveWhatsappQualification(snapshot) {
   const memberCount = parseMemberCount(infoText);
   const activityState = inferMessageActivity(meta, Number(snapshot.nowMs) || Date.now(), snapshot.locale)
     || (recentActivityPattern.test(chatText) || recentActivityPattern.test(meta.join('\n')) ? 'active' : undefined);
-  const identityText = [infoText, ...(snapshot.headerNames || []), ...(snapshot.headerTitles || [])].join('\n');
+  const identityText = [infoText, snapshot.headerText || '', ...(snapshot.headerNames || []), ...(snapshot.headerTitles || [])].join('\n');
   const spamMessages = messages.slice(-20).filter((value) => spamPattern.test(value)).length;
   const topicMatch = spamPattern.test(identityText) || spamMessages >= 3
     ? 'mismatch'

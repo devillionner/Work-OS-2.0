@@ -701,3 +701,15 @@ void test('local Discovery checks high-signal Ukrainian candidates before malfor
   assert.match(source,/score-=8/);
   assert.match(source,/\.sort\(\(a,b\)=>priority\(b\)-priority\(a\)\)/);
 });
+
+
+void test('current WhatsApp header and composer surfaces are included in factual qualification',()=>{
+  assert.match(source,/const headerText = clean\(main\?\.querySelector\('header'\)\?\.innerText/);
+  assert.match(source,/headerText,/);
+  assert.match(source,/#main \[contenteditable="true"\]\[role="textbox"\]/);
+});
+
+void test('browser-local task reader accepts a temporary skip list so one incomplete candidate cannot block the queue',()=>{
+  assert.match(source,/skipCandidateIds=\[\]/);
+  assert.match(source,/!skipped\.has\(item\.id\)/);
+});
