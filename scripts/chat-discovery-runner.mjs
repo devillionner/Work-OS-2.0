@@ -152,6 +152,7 @@ async function inspectTask(task){
 let whatsappRuntimeBlockedUntil=0;
 let nextSourceAdvanceAt=0;
 let nextLocalSourceAt=0;
+let localSourceInFlight=null;
 const taskBlockedUntil=new Map();
 function markTaskBlocked(task,reason,cooldownMs=TASK_BLOCK_COOLDOWN_MS){
   taskBlockedUntil.set(task.candidateId,Date.now()+cooldownMs);
@@ -282,6 +283,26 @@ async function processLocalPreflight(task){
   return 'local_task';
 }
 
+async function startLocalSourceRefill(local){
+  if(localSourceInFlight||local?.sourceExhausted===true||Number(local?.queuedCount||0)>=8)return;
+  if(Date.now()<nextLocalSourceAt)return;
+  nextLocalSourceAt=Date.now()+LOCAL_SOURCE_MIN_MS;
+  const cursor=Number(local?.sourceCursor)||0;
+  localSourceInFlight=(async()=>{
+    try{
+      const batch=await crawlLocalDiscoverySource(cursor);
+      const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp});
+      if(applied.kind==='result'){
+        console.log('Local source crawl: cursor '+batch.nextCursor+', sources '+batch.sources.length+', added '+(applied.added||0)+', duplicates '+(applied.duplicates||0));
+      }
+    }catch(error){
+      console.warn('Local source refill failed: '+(error instanceof Error?error.message:String(error)));
+    }finally{
+      localSourceInFlight=null;
+    }
+  })();
+}
+
 async function runOnce(){
   if(whatsappCdp){
     try{
@@ -289,18 +310,10 @@ async function runOnce(){
         .filter(([,until])=>until>Date.now())
         .map(([candidateId])=>candidateId);
       const local=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp,skipCandidateIds});
-      if(local.kind==='result'&&local.active===true&&Date.now()<whatsappRuntimeBlockedUntil)return 'local_wait';
       if(local.kind==='result'&&local.active===true){
+        await startLocalSourceRefill(local);
+        if(Date.now()<whatsappRuntimeBlockedUntil)return 'local_wait';
         if(local.task)return processLocalPreflight(local.task);
-        if(local.sourceExhausted===true)return 'local_wait';
-        if(Date.now()<nextLocalSourceAt)return 'local_wait';
-        nextLocalSourceAt=Date.now()+LOCAL_SOURCE_MIN_MS;
-        const batch=await crawlLocalDiscoverySource(local.sourceCursor||0);
-        const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp});
-        if(applied.kind==='result'){
-          console.log('Local source crawl: cursor '+batch.nextCursor+', sources '+batch.sources.length+', added '+(applied.added||0)+', duplicates '+(applied.duplicates||0));
-          return 'source_advanced';
-        }
         return 'local_wait';
       }
     }catch(error){
