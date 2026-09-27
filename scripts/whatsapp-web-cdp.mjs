@@ -939,15 +939,19 @@ async function readSnapshot(client) {
     const profileButton = [...document.querySelectorAll('[role="button"][aria-label]')]
       .find((node) => /(?:деталі профілю|profile details|данные профиля|сведения о профиле)/iu.test(node.getAttribute('aria-label') || ''));
     const modernHeaderRegion = profileButton?.parentElement || document.querySelector('#main header');
-    const modernHeaderNames = modernHeaderRegion ? unique(
-      [...modernHeaderRegion.querySelectorAll('[role="button"], [title], [dir="auto"], h1, h2')]
+    const modernRegionFirstLine = modernHeaderRegion
+      ? String(modernHeaderRegion.innerText || modernHeaderRegion.textContent || '').trim().split(String.fromCharCode(10))[0] || ''
+      : '';
+    const modernHeaderNames = modernHeaderRegion ? unique([
+      modernRegionFirstLine,
+      ...[...modernHeaderRegion.querySelectorAll('[role="button"], [title], [dir="auto"], h1, h2')]
         .flatMap((node) => {
           const raw = String(node.innerText || node.textContent || '').trim();
           const firstLine = raw.split(String.fromCharCode(10))[0] || '';
           return [firstLine, node.getAttribute('title') || ''];
         })
-        .filter((value) => value && !/^(?:пошук|меню|search|menu)$/iu.test(clean(value)))
-    ) : [];
+        .filter((value) => value && !/^(?:пошук|меню|search|menu)$/iu.test(clean(value))),
+    ]) : [];
     const headerNames = unique([
       ...read(document, [
         '#main header [data-testid="conversation-info-header-chat-title"]',
