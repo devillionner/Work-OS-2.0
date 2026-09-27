@@ -42,7 +42,7 @@ function rankTelegramSources(html, place) {
     if (!sourceUrl || seen.has(sourceUrl)) continue;
     seen.add(sourceUrl);
     const i = match.index || 0;
-    const context = strip(decoded.slice(Math.max(0,i-900), Math.min(decoded.length,i+1800)));
+    const context = searchResultContext(decoded,i);
     const path = telegramChannel(sourceUrl) || '';
     if (SPAM.test(context) || SPAM.test(path)) continue;
     let score = 0;
@@ -55,6 +55,16 @@ function rankTelegramSources(html, place) {
     ranked.push({ sourceUrl, score });
   }
   return ranked.sort((a,b)=>b.score-a.score).map(item=>item.sourceUrl);
+}
+
+function searchResultContext(html,index) {
+  const blockStart = html.lastIndexOf('<div class="snippet', index);
+  const nextBlock = html.indexOf('<div class="snippet', index + 1);
+  if (blockStart >= 0) {
+    const end = nextBlock > blockStart ? nextBlock : Math.min(html.length, blockStart + 12000);
+    return strip(html.slice(blockStart, end));
+  }
+  return strip(html.slice(Math.max(0,index-500), Math.min(html.length,index+2500)));
 }
 
 function extractRelevantInviteSnippets(html,title) {
