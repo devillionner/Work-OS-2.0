@@ -19,7 +19,7 @@ export async function crawlLocalDiscoverySource(cursor, { fetcher = fetch } = {}
   search.searchParams.set('source', 'web');
   const html = await fetchText(search.toString(), fetcher, 12000, 350000);
   if (!html) return { searched:1, nextCursor:index+1, done:index+1>=PLAN_SIZE, query, sources:[] };
-  const candidates = rankTelegramSources(html, place).slice(0, 3);
+  const candidates = rankTelegramSources(html, place).slice(0, 6);
   const sources = [];
   for (const sourceUrl of candidates) {
     const page = await fetchText(sourceUrl, fetcher, 12000, 900000);
@@ -37,21 +37,16 @@ function rankTelegramSources(html, place) {
   const seen = new Set();
   const ranked = [];
   const re = /https:\/\/t\.me\/(?:s\/)?[A-Za-z0-9_]+(?:\?before=\d+)?/giu;
+  let order = 0;
   for (const match of decoded.matchAll(re)) {
     const sourceUrl = normalizeTelegramPreview(match[0]);
     if (!sourceUrl || seen.has(sourceUrl)) continue;
     seen.add(sourceUrl);
-    const i = match.index || 0;
-    const context = searchResultContext(decoded,i);
     const path = telegramChannel(sourceUrl) || '';
-    if (SPAM.test(context) || SPAM.test(path)) continue;
-    let score = 0;
-    if (UA.test(context)) score += 12;
-    if (new RegExp(escapeRegExp(place), 'iu').test(context)) score += 5;
-    if (/(?:^|[_-])(?:ua|ukr|ukraine|ukrainian)(?:[_-]|$)/iu.test(path)) score += 7;
-    if (/chat\.whatsapp\.com/iu.test(context)) score += 10;
-    if (/(?:допомог|help|refuge|біжен|community|громад|diaspora)/iu.test(context)) score += 2;
-    if (score < 7) continue;
+    if (/(?:whatsapp\d*|kiwifarms|intelslava|pilotblog|rfuenglish)/iu.test(path)) continue;
+    let score = 100 - order++;
+    if (/(?:ukrain|ukr|[_-]ua|ua[_-]|help|vpo)/iu.test(path)) score += 40;
+    if (new RegExp(escapeRegExp(place),'iu').test(path)) score += 20;
     ranked.push({ sourceUrl, score });
   }
   return ranked.sort((a,b)=>b.score-a.score).map(item=>item.sourceUrl);
