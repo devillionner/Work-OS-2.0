@@ -1,3 +1,6 @@
+import { execFile as execFileCallback } from 'node:child_process';
+import { promisify } from 'node:util';
+const execFile = promisify(execFileCallback);
 const SEARCH_URL = 'https://search.brave.com/search';
 const USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36';
 const PLACES = ['Берлін','Гамбург','Мюнхен','Кельн','Франкфурт','Дюссельдорф','Бремен','Ганновер','Лейпциг','Прага','Варшава','Краків','Вроцлав','Гданськ','Відень','Братислава','Будапешт','Амстердам','Роттердам','Гаага','Брюссель','Антверпен','Лондон','Манчестер','Дублін','Барселона','Мадрид','Валенсія','Рим','Мілан','Неаполь','Лісабон','Порту','Париж','Ліон','Цюрих','Женева','Осло','Стокгольм','Копенгаген','Гельсінкі','Торонто','Ванкувер','Монреаль','Нью-Йорк','Чикаго','Філадельфія'];
@@ -115,6 +118,16 @@ function telegramTitle(html,sourceUrl) {
   return strip(decode(title || telegramChannel(sourceUrl)));
 }
 async function fetchText(url,fetcher,timeout,limit) {
+  try {
+    const host=new URL(url).hostname.toLowerCase();
+    if(host==='search.brave.com'){
+      const {stdout}=await execFile('/usr/bin/curl',[
+        '-L','-sS','--compressed','--max-time',String(Math.ceil(timeout/1000)),
+        '-A',USER_AGENT,'-H','Accept-Language: uk,en;q=0.8',url,
+      ],{encoding:'utf8',maxBuffer:Math.max(limit+200000,700000)});
+      return String(stdout||'').slice(0,limit);
+    }
+  }catch{}
   const controller = new AbortController();
   const timer = setTimeout(()=>controller.abort(),timeout);
   try {
