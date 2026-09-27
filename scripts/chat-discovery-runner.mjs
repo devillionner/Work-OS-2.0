@@ -27,7 +27,7 @@ const terminal=readline.createInterface({input:process.stdin,output:process.stdo
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const TASK_POLL_MS=3000;
 const LOCAL_PREFLIGHT_POLL_MS=1500;
-const LOCAL_SOURCE_MIN_MS=2500;
+const LOCAL_SOURCE_MIN_MS=2000;
 const SOURCE_ADVANCE_MS=20000;
 const EXECUTOR_QUEUE_LIMIT=3;
 const TASK_BLOCK_COOLDOWN_MS=300000;
@@ -283,6 +283,19 @@ async function processLocalPreflight(task){
   return 'local_task';
 }
 
+async function crawlLocalDiscoveryBatch(cursor){
+  const start=Math.max(0,Number(cursor)||0);
+  const width=start>=15?2:1;
+  const batches=await Promise.all(Array.from({length:width},(_,index)=>crawlLocalDiscoverySource(start+index)));
+  return {
+    searched:batches.reduce((sum,item)=>sum+(Number(item?.searched)||0),0),
+    nextCursor:batches.reduce((max,item)=>Math.max(max,Number(item?.nextCursor)||start),start),
+    done:batches.at(-1)?.done===true,
+    query:batches.map(item=>item?.query||'').filter(Boolean).join(' | '),
+    sources:batches.flatMap(item=>Array.isArray(item?.sources)?item.sources:[]).slice(0,4),
+  };
+}
+
 function startLocalSourceRefill(initialLocal){
   if(localSourceInFlight||initialLocal?.sourceExhausted===true||Number(initialLocal?.queuedCount||0)>=8)return;
   localSourceInFlight=(async()=>{
@@ -292,7 +305,7 @@ function startLocalSourceRefill(initialLocal){
         const wait=Math.max(0,nextLocalSourceAt-Date.now());
         if(wait>0)await sleep(wait);
         const cursor=Number(local.sourceCursor)||0;
-        const batch=await crawlLocalDiscoverySource(cursor);
+        const batch=await crawlLocalDiscoveryBatch(cursor);
         const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp});
         nextLocalSourceAt=Date.now()+LOCAL_SOURCE_MIN_MS;
         if(applied.kind!=='result')break;
