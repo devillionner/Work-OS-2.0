@@ -47,9 +47,16 @@ export function rankTelegramSources(html, place) {
     seen.add(sourceUrl);
     const path = telegramChannel(sourceUrl) || '';
     if (/(?:whatsapp\d*|kiwifarms|intelslava|pilotblog|rfuenglish)/iu.test(path)) continue;
+
+    const context = searchResultContext(decoded, match.index || 0);
+    if (SPAM.test(context)) continue;
+
     let score = 100 - order++;
-    if (/(?:ukrain|ukr|[_-]ua|ua[_-]|help|vpo)/iu.test(path)) score += 40;
-    if (new RegExp(escapeRegExp(place),'iu').test(path)) score += 20;
+    if (/chat\.whatsapp\.com/iu.test(context)) score += 140;
+    if (UA.test(context)) score += 45;
+    if (new RegExp(escapeRegExp(place),'iu').test(context)) score += 20;
+    if (/(?:ukrain|ukr|[_-]ua|ua[_-]|help|vpo)/iu.test(path)) score += 18;
+    if (/(?:допомог|help|refuge|біжен|community|громад|diaspora)/iu.test(context)) score += 6;
     ranked.push({ sourceUrl, score });
   }
   return ranked.sort((a,b)=>b.score-a.score).map(item=>item.sourceUrl);
