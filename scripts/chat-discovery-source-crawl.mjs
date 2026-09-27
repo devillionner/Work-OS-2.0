@@ -16,7 +16,7 @@ export async function crawlLocalDiscoverySource(cursor, { fetcher = fetch } = {}
   if (index >= PLAN_SIZE) return { searched:0, nextCursor:index, done:true, query:'', sources:[] };
   const place = PLACES[index % PLACES.length];
   const intent = INTENTS[Math.floor(index / PLACES.length) % INTENTS.length];
-  const query = 'site:t.me/s "' + place + '" ' + intent + ' chat.whatsapp.com';
+  const query = 'site:t.me/s ' + place + ' ' + intent + ' chat.whatsapp.com';
   const search = new URL(SEARCH_URL);
   search.searchParams.set('q', query);
   search.searchParams.set('source', 'web');
