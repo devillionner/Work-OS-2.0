@@ -177,7 +177,7 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
             if(/(?:впо|біжен|refuge|допомог|help|diaspora|community|громад)/iu.test(evidence))score+=4;
             if(/(?:bremen|berlin|rotterdam|london|toronto|slovak|нідерланд|німеч|австр|куопіо|карінт|швельм)/iu.test(evidence))score+=2;
             if(/^(?:tiktok|facebook|instagram|whatsapp|telegram)$/iu.test(name.trim()))score-=14;
-            if(/(?:eventbrite|реєстрац|майстер-клас|майстер клас|\bviews?\b|ref=share|\/groups\/|<span|https?:\/\/|href=|style=)/iu.test(name))score-=10;
+            if(/(?:eventbrite|реєстрац|майстер-клас|майстер клас|\\bviews?\\b|ref=share|\\/groups\\/|<span|https?:\\/\\/|href=|style=)/iu.test(name))score-=10;
             if(name.length>140)score-=6;
             if(source?.kind==='telegram_global')score+=2;
             else if(source?.kind==='curated')score+=1;
