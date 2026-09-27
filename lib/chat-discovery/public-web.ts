@@ -369,15 +369,31 @@ export async function discoverPublicWeb(input: {
 }
 
 export function telegramPublicSearchQueries(task: TelegramSearchTask): string[] {
-  const strictQueries = [task.query];
-  if (task.city && task.cityLatin && task.city.localeCompare(task.cityLatin, undefined, { sensitivity:'accent' }) !== 0) {
-    const latinQuery = task.query.replaceAll(task.city, task.cityLatin);
-    if (latinQuery !== task.query) strictQueries.push(latinQuery);
+  const place=task.city||task.seedLabel||task.country;
+  const intent=telegramSearchIntent(task.template);
+  const values:string[]=[];
+  if(task.city){
+    values.push(`site:t.me/s "${task.city}" ${intent} chat.whatsapp.com`);
+    if(task.cityLatin&&task.city.localeCompare(task.cityLatin,undefined,{sensitivity:'accent'})!==0){
+      values.push(`site:t.me/s "${task.cityLatin}" Ukrainian chat.whatsapp.com`);
+    }
+    values.push(`site:t.me "${task.city}" WhatsApp ${intent}`);
+  }else{
+    values.push(`site:t.me/s "${place}" українці chat.whatsapp.com`);
+    values.push(`site:t.me "${place}" WhatsApp Ukraine`);
+    values.push(`site:t.me "${task.query}" WhatsApp`);
   }
-  const values = strictQueries.map(query => `site:t.me "${query}" "chat.whatsapp.com"`);
-  const broadQuery = strictQueries.at(-1) || task.query;
-  values.push(`site:t.me "${broadQuery}" WhatsApp`);
-  return [...new Set(values)];
+  return [...new Set(values.filter(Boolean))].slice(0,3);
+}
+
+function telegramSearchIntent(template:string){
+  const text=template.toLocaleLowerCase('uk-UA');
+  if(/допомога|помощь|біжен/u.test(text))return 'допомога українцям';
+  if(/мамоч|батьки/u.test(text))return 'українці батьки';
+  if(/барахол|оголош|объявлен|віддам|обмін|продаж/u.test(text))return 'українці оголошення';
+  if(/перевіз|перевез|передач/u.test(text))return 'українці перевезення';
+  if(/оренд|житло|ріелтор/u.test(text))return 'українці житло';
+  return 'українці';
 }
 
 export function telegramPublicPreviewUrl(value: string): string | null {
@@ -450,9 +466,9 @@ export async function discoverTelegramPublic(input: {
   const outcomes = await mapPool(plan.tasks, 2, async (task) => {
     const contextPrefix = [task.query, task.city, task.country, 'Telegram'].filter(Boolean).join(' · ');
     const taskRecords: DiscoveryRecord[] = [];
-    const pageUrls: string[] = [];
-    const seenChannels = new Set<string>();
+    const sourceCandidates=new Map<string,{preview:string;score:number;order:number}>();
     let successfulSearches = 0;
+    let sourceOrder=0;
 
     const searchQueries = telegramPublicSearchQueries(task);
     for (const searchQuery of searchQueries) {
@@ -470,24 +486,18 @@ export async function discoverTelegramPublic(input: {
         seedKind: task.seedKind,
         contextPrefix,
       };
-      // Search snippets may contain the exact historical Telegram post with an invite.
-      // extractInviteRecords now requires Ukrainian evidence adjacent to the invite itself,
-      // so query/seed text cannot promote an unrelated catalogue into the candidate pool.
       for (const item of recordsFromPage(body, base)) pushBounded(taskRecords, item);
+      if(taskRecords.length)return taskRecords;
 
       if (pageLimit) {
-        for (const preview of extractTelegramSearchResultLinks(body, task)) {
-          const channelKey = telegramPublicChannelKey(preview);
-          if (!channelKey || seenChannels.has(channelKey)) continue;
-          seenChannels.add(channelKey);
-          pageUrls.push(preview);
-          if (pageUrls.length >= pageLimit) break;
+        for (const candidate of extractTelegramSearchResultLinks(body, task)) {
+          const channelKey=telegramPublicChannelKey(candidate.preview);
+          if(!channelKey)continue;
+          const previous=sourceCandidates.get(channelKey);
+          const ranked={...candidate,order:sourceOrder++};
+          if(!previous||ranked.score>previous.score)sourceCandidates.set(channelKey,ranked);
         }
       }
-
-      // Stop as soon as strict canonical/Latin queries provide enough sources.
-      // The broader WhatsApp fallback is therefore used only when still needed.
-      if (pageLimit ? pageUrls.length >= pageLimit : taskRecords.length > 0) break;
     }
 
     if (!successfulSearches) {
@@ -496,7 +506,12 @@ export async function discoverTelegramPublic(input: {
     }
     if (!pageLimit) return taskRecords;
 
-    const pages = await mapPool(pageUrls.slice(0, pageLimit), 2, async (link) => {
+    const pageUrls=[...sourceCandidates.values()]
+      .sort((left,right)=>right.score-left.score||left.order-right.order)
+      .slice(0,pageLimit)
+      .map(item=>item.preview);
+
+    const pages = await mapPool(pageUrls, 2, async (link) => {
       const page = await fetchText(link, fetcher, 10_000);
       if (!page) return { records: [] as DiscoveryRecord[], older: null as string | null };
       const pageRecords = recordsFromPage(page, {
@@ -663,7 +678,7 @@ function recordsFromPage(body: string, input: {
   });
 }
 
-function extractTelegramSearchResultLinks(html: string, task: TelegramSearchTask): string[] {
+function extractTelegramSearchResultLinks(html: string, task: TelegramSearchTask): Array<{preview:string;score:number}> {
   const decoded = decodeHtml(html).replaceAll('\\/', '/');
   const ranked: Array<{ preview:string; score:number; order:number }> = [];
   const seen = new Set<string>();
@@ -693,7 +708,7 @@ function extractTelegramSearchResultLinks(html: string, task: TelegramSearchTask
   return ranked
     .filter(item => item.score > 0)
     .sort((left,right)=>right.score-left.score||left.order-right.order)
-    .map(item=>item.preview);
+    .map(({preview,score})=>({preview,score}));
 }
 
 function extractSearchResultLinks(html: string): string[] {

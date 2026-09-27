@@ -229,10 +229,11 @@ void test('Telegram public discovery broadens search only when the strict result
   const task = buildTelegramSearchPlan(0,1).tasks[0];
   const queries=telegramPublicSearchQueries(task);
   assert.ok(queries.length>=2&&queries.length<=3);
+  assert.match(queries[0],/site:t\.me\/s/);
   assert.match(queries[0],/chat\.whatsapp\.com/);
   assert.ok(queries.some(query=>query.includes(task.city)));
   if(task.cityLatin&&task.cityLatin!==task.city)assert.ok(queries.some(query=>query.includes(task.cityLatin)));
-  assert.match(queries.at(-1),/WhatsApp/);
+  assert.ok(queries.some(query=>/WhatsApp/i.test(query)));
 
   const calls = [];
   const result = await discoverTelegramPublic({cursor:0,maxQueries:1,pageLimit:2}, async (url) => {
@@ -265,24 +266,27 @@ void test('Telegram public discovery broadens search only when the strict result
   ]));
 });
 
-void test('Telegram source ranking ignores a generic WhatsApp catalogue and follows the Ukrainian result with invite evidence', async () => {
+void test('Telegram source ranking compares all query variants before fetching the single best source', async () => {
   const calls=[];
+  let searchCall=0;
   const result=await discoverTelegramPublic({cursor:0,maxQueries:1,pageLimit:1},async(url)=>{
     calls.push(String(url));
-    if(String(url).includes('search.brave.com'))return html([
-      '<section><a href="https://t.me/s/GroupsWhatsaps?before=1293">روابط مجموعات واتساب – Telegram</a> روابط قروبات واتس اب https://chat.whatsapp.com/ForeignCatalogue123</section>',
-      '<section><a href="https://t.me/s/ua_de_help?before=53">Допомога українцям Німеччина 🇺🇦</a> Українці Berlin допомога https://chat.whatsapp.com/UkrainianSource123</section>',
-    ].join(''));
-    if(String(url)==='https://t.me/s/ua_de_help?before=53')return html(
-      '<article>Українці Berlin · допомога https://chat.whatsapp.com/UkrainianSource123</article>'
+    if(String(url).includes('search.brave.com')){
+      searchCall+=1;
+      if(searchCall===1)return html('<section><a href="https://t.me/s/ua_generic">Українці Berlin community</a></section>');
+      if(searchCall===2)return html('<section><a href="https://t.me/s/ua_best?before=77">Українці Berlin 🇺🇦</a> WhatsApp chat.whatsapp.com</section>');
+      return html('');
+    }
+    if(String(url)==='https://t.me/s/ua_best?before=77')return html(
+      '<article>Українці Berlin · допомога https://chat.whatsapp.com/UkrainianBestSource123</article>'
     );
-    throw new Error('irrelevant Telegram catalogue should not be fetched: '+url);
+    throw new Error('lower-ranked Telegram source should not be fetched: '+url);
   });
-  assert.ok(result.records.some(item=>item.link==='https://chat.whatsapp.com/UkrainianSource123'));
-  assert.equal(calls.some(url=>url.includes('GroupsWhatsaps')),false);
-  assert.ok(calls.includes('https://t.me/s/ua_de_help?before=53'));
+  assert.ok(result.records.some(item=>item.link==='https://chat.whatsapp.com/UkrainianBestSource123'));
+  assert.equal(calls.some(url=>url==='https://t.me/s/ua_generic'),false);
+  assert.ok(calls.includes('https://t.me/s/ua_best?before=77'));
+  assert.ok(searchCall>=2);
 });
-
 void test('high-intent Ukrainian templates outrank the bare-city Telegram query', () => {
   const first=buildTelegramSearchPlan(0,5).tasks;
   assert.equal(first.some(task=>task.template==='Просто назва міста'),false);
