@@ -39,7 +39,7 @@ export async function searchLocalDiscoveryPreview(
   const minMembers=boundedInteger(input.minMembers,700,18_000,700);
   const knownLinks=cleanKnownLinks(input.knownLinks);
 
-  const batchSize=3;
+  const batchSize=1;
   const telegramPlan=buildTelegramSearchPlan(telegramCursor,batchSize);
   const totalPublicTasks=buildPublicSearchTasks(platforms).length;
   const telegramDone=telegramPlan.done;
@@ -49,7 +49,7 @@ export async function searchLocalDiscoveryPreview(
   }
 
   const completedBatches=Math.floor(telegramCursor/batchSize)+Math.floor(sourceCursor/batchSize);
-  const usePublic=!publicDone&&(telegramDone||completedBatches%6===5);
+  const usePublic=!publicDone&&(telegramDone||completedBatches%3===2);
   if(!usePublic&&!telegramDone){
     const found=await discoverTelegramPublic({cursor:telegramCursor,maxQueries:batchSize,pageLimit:1},fetcher);
     const preview=await prepareLocalPreviews(db,userId,found.records,{knownLinks,minMembers,now});

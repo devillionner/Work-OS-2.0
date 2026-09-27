@@ -51,7 +51,7 @@ type SearchTask = {
 };
 
 const SEEDS: SeedData = seedData;
-const MAX_PAGE_BYTES = 650_000;
+const MAX_PAGE_BYTES = 450_000;
 const FETCH_TIMEOUT_MS = 8_000;
 const MAX_REDIRECTS = 2;
 const MAX_RECORDS = 250;

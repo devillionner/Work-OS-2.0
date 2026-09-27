@@ -258,10 +258,10 @@ void test('browser-local Discovery source requests stay below the Worker CPU-ris
     readFile(new URL('../lib/chat-discovery/local-preview.ts', import.meta.url), 'utf8'),
     readFile(new URL('../lib/chat-discovery/public-web.ts', import.meta.url), 'utf8'),
   ]);
-  assert.match(preview,/maxQueries:3,pageLimit:1/);
+  assert.match(preview,/maxQueries:batchSize,pageLimit:1/);
   assert.match(preview,/includeCurated:false/);
   assert.doesNotMatch(preview,/includeCurated:true/);
-  assert.match(publicWeb,/MAX_PAGE_BYTES = 650_000/);
+  assert.match(publicWeb,/MAX_PAGE_BYTES = 450_000/);
   assert.match(publicWeb,/if\(!hasRequestedInvite\)return \[\]/);
 });
 
@@ -272,4 +272,11 @@ void test('empty Discovery source batches back off instead of hammering the Work
   assert.match(dialog,/emptySourceBatches>=3\?5_000/);
   assert.match(dialog,/emptySourceBatches>=1\?2_000:700/);
   assert.doesNotMatch(dialog,/\},350\);/);
+});
+
+
+void test('each autonomous source request is a single bounded task and public search is interleaved every third batch', async () => {
+  const preview=await readFile(new URL('../lib/chat-discovery/local-preview.ts', import.meta.url),'utf8');
+  assert.match(preview,/const batchSize=1/);
+  assert.match(preview,/completedBatches%3===2/);
 });

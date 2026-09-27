@@ -1580,13 +1580,13 @@ void test('local source search interleaves public-web batches before exhausting 
   const db = await localDatabase(t);
   const calls=[];
   const result=await searchLocalDiscoveryPreview(db,'u',{
-    platforms:['whatsapp'],telegramCursor:15,sourceCursor:0,knownLinks:[],minMembers:700,
+    platforms:['whatsapp'],telegramCursor:2,sourceCursor:0,knownLinks:[],minMembers:700,
   },100,async(url)=>{
     calls.push(String(url));
     return html('<p>Українці Berlin https://chat.whatsapp.com/InterleavePublic123</p>');
   });
   assert.equal(result.source,'public_web');
-  assert.equal(result.telegramCursor,15);
-  assert.equal(result.sourceCursor,3);
+  assert.equal(result.telegramCursor,2);
+  assert.equal(result.sourceCursor,1);
   assert.ok(calls.some(url=>url.includes('search.brave.com')));
 });

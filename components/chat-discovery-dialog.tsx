@@ -590,7 +590,7 @@ export function ChatDiscoveryDialog({
               </div>
               {autonomousRunning&&<div className="mt-1 text-xs tabular-nums text-muted-foreground">
                 Пошукових запитів: <strong className="text-foreground/80">{displayedQueries}</strong>
-                {' · '}пакетами до 6
+                {' · '}короткими пакетами
                 {lastRunActivitySeconds!==null&&<>{' · '}остання активність {lastRunActivitySeconds<5?'щойно':`${lastRunActivitySeconds} с тому`}</>}
               </div>}
             </div>
