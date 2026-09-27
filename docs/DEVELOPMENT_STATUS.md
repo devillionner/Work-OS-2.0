@@ -1,5 +1,15 @@
 # Development status — 2026-09-25
 
+## 2026-09-27 — Discovery runtime startup + latency hardening
+
+- Current CachyOS acceptance machine now has an enabled user service `work-os-discovery.service`. It starts automatically after login, downloads the canonical Discovery runner + WhatsApp CDP adapter from current GitHub `main` into `/run/user/1000/work-os-discovery-runtime`, and runs them without a persistent local clone. If Opera/Work OS is not ready yet, the runner idles and can acquire the executor token later.
+- `whatsapp_join_retry_later` no longer freezes the whole browser-local queue for five minutes. That invite is skipped for the current run and the next candidate may continue immediately.
+- WhatsApp inspect and verified leave now share one 45-second operation budget instead of resetting the full timeout at each UI phase. A page that remains `page_not_ready` through the budget is skipped for the current run with a short 5-second browser recovery pause, preventing one slow invite from trapping the queue indefinitely.
+- Local task ordering now prefers strong Ukrainian-community labels and demotes obviously malformed scraped labels. This changes only processing order; factual target qualification criteria remain unchanged.
+- Exact staging build `cee2731b77d760f0d26ada371d460c2ce56bc52f` is live and matches `main`.
+- Live acceptance run after the hardening observed 54 discovered invites, 34 duplicates and 13 completed local outcomes with 8 still queued at the observation point. WhatsApp itself returned several factual `retry later` and approval-required outcomes; no target had reached the final local list yet. The remaining throughput limit is therefore primarily real WhatsApp invite/join latency and external retry behavior rather than the previous runner-wide stall.
+
+
 ## 2026-09-25 — Discovery yield bootstrap
 
 - Live diagnosis found the main yield bug: local-first Discovery exhausted the huge Telegram keyword plan before it ever reached the existing curated Ukrainian chat directories.
