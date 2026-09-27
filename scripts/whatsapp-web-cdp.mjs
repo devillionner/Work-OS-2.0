@@ -418,7 +418,7 @@ function exactTarget(snapshot, task) {
   if (!inviteContextMatches(snapshot, task)) return null;
 
   const postInviteText = [snapshot.targetRegionText, snapshot.mainText, snapshot.bodyText].filter(Boolean).join('\n');
-  if (joinedViaInvitePattern.test(postInviteText)) {
+  if (joinedViaInvitePattern.test(postInviteText) || leftPattern.test(postInviteText)) {
     const joinedHeader = (snapshot.headerNames || [])
       .map((value) => String(value || '').trim())
       .find(Boolean);
@@ -473,6 +473,21 @@ export function classifyWhatsAppSnapshot(task, snapshot) {
   const headerMatches = [...(snapshot.headerNames || []), ...(snapshot.headerTitles || [])].some(
     (value) => normalizeTargetLabel(value) === normalizedObserved,
   );
+
+  if (headerMatches && expectedInviteContext && leftPattern.test(bodyText)) {
+    return {
+      kind:'result',
+      result:{
+        status:'failed',
+        targetVerified:true,
+        accessible:true,
+        membershipState:'left',
+        observedName,
+        chatType:'group',
+        reason:'membership_left',
+      },
+    };
+  }
 
   if (headerMatches) {
     return {
