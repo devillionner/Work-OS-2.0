@@ -39,9 +39,19 @@ export async function searchLocalDiscoveryPreview(
   const minMembers=boundedInteger(input.minMembers,700,18_000,700);
   const knownLinks=cleanKnownLinks(input.knownLinks);
 
-  const telegramPlan=buildTelegramSearchPlan(telegramCursor,3);
-  if(!telegramPlan.done){
-    const found=await discoverTelegramPublic({cursor:telegramCursor,maxQueries:3,pageLimit:1},fetcher);
+  const batchSize=3;
+  const telegramPlan=buildTelegramSearchPlan(telegramCursor,batchSize);
+  const totalPublicTasks=buildPublicSearchTasks(platforms).length;
+  const telegramDone=telegramPlan.done;
+  const publicDone=sourceCursor>=totalPublicTasks;
+  if(telegramDone&&publicDone){
+    return {source:'idle' as const,telegramCursor,sourceCursor,done:true,previews:[],batch:{searched:0,added:0,duplicates:0,errors:0}};
+  }
+
+  const completedBatches=Math.floor(telegramCursor/batchSize)+Math.floor(sourceCursor/batchSize);
+  const usePublic=!publicDone&&(telegramDone||completedBatches%6===5);
+  if(!usePublic&&!telegramDone){
+    const found=await discoverTelegramPublic({cursor:telegramCursor,maxQueries:batchSize,pageLimit:1},fetcher);
     const preview=await prepareLocalPreviews(db,userId,found.records,{knownLinks,minMembers,now});
     return {
       source:'telegram' as const,
@@ -53,17 +63,13 @@ export async function searchLocalDiscoveryPreview(
     };
   }
 
-  const totalPublicTasks=buildPublicSearchTasks(platforms).length;
-  if(sourceCursor>=totalPublicTasks){
-    return {source:'idle' as const,telegramCursor,sourceCursor,done:true,previews:[],batch:{searched:0,added:0,duplicates:0,errors:0}};
-  }
-  const found=await discoverPublicWeb({platforms,cursor:sourceCursor,maxQueries:3,pageLimit:1,includeCurated:false},fetcher);
+  const found=await discoverPublicWeb({platforms,cursor:sourceCursor,maxQueries:batchSize,pageLimit:1,includeCurated:false},fetcher);
   const preview=await prepareLocalPreviews(db,userId,found.records,{knownLinks,minMembers,now});
   return {
     source:'public_web' as const,
     telegramCursor,
     sourceCursor:found.nextCursor,
-    done:found.done,
+    done:telegramDone&&found.done,
     previews:preview.previews,
     batch:{searched:found.searched,added:preview.previews.length,duplicates:preview.duplicates,errors:found.errors},
   };

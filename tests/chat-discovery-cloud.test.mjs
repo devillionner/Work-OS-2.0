@@ -1573,3 +1573,20 @@ void test('inspection is owner scoped and optimistic', async (t) => {
     /Кандидат уже змінився/,
   );
 });
+
+
+void test('local source search interleaves public-web batches before exhausting the long Telegram plan', async (t) => {
+  const { searchLocalDiscoveryPreview } = await import('../lib/chat-discovery/local-preview.ts');
+  const db = await localDatabase(t);
+  const calls=[];
+  const result=await searchLocalDiscoveryPreview(db,'u',{
+    platforms:['whatsapp'],telegramCursor:15,sourceCursor:0,knownLinks:[],minMembers:700,
+  },100,async(url)=>{
+    calls.push(String(url));
+    return html('<p>Українці Berlin https://chat.whatsapp.com/InterleavePublic123</p>');
+  });
+  assert.equal(result.source,'public_web');
+  assert.equal(result.telegramCursor,15);
+  assert.equal(result.sourceCursor,3);
+  assert.ok(calls.some(url=>url.includes('search.brave.com')));
+});

@@ -31,6 +31,7 @@ type LocalPreviewSession = {
   processed:number;
   duplicates:number;
   rejected:number;
+  emptySourceBatches:number;
   done:boolean;
   running:boolean;
   sourceExhausted:boolean;
@@ -76,7 +77,7 @@ const EMPTY_COUNTS: Record<DiscoveryDecision, number> = {
 const LOCAL_PREVIEW_KEY='work-os:chat-discovery-local-preview:v3';
 const LOCAL_PREFLIGHT_RESULTS_KEY='work-os:chat-discovery-local-preflight-results:v1';
 const EMPTY_LOCAL_PREVIEW:LocalPreviewSession={
-  telegramCursor:0,sourceCursor:0,searched:0,processed:0,duplicates:0,rejected:0,
+  telegramCursor:0,sourceCursor:0,searched:0,processed:0,duplicates:0,rejected:0,emptySourceBatches:0,
   done:false,running:false,sourceExhausted:false,goal:50,lastActivityAt:null,completionReason:null,candidates:[],
 };
 
@@ -179,6 +180,7 @@ export function ChatDiscoveryDialog({
       return;
     }
     let cancelled=false;
+    const sourceDelayMs=localPreview.emptySourceBatches>=6?10_000:localPreview.emptySourceBatches>=3?5_000:localPreview.emptySourceBatches>=1?2_000:700;
     const timer=window.setTimeout(async()=>{
       if(cancelled)return;
       if(!navigator.onLine){
@@ -213,6 +215,9 @@ export function ChatDiscoveryDialog({
             processed:current.processed+safeNonNegativeInt(payload.batch.added)+safeNonNegativeInt(payload.batch.duplicates),
             duplicates:current.duplicates+safeNonNegativeInt(payload.batch.duplicates),
             rejected,
+            emptySourceBatches:safeNonNegativeInt(payload.batch.added)>0
+              ? 0
+              : Math.min(12,current.emptySourceBatches+1+(safeNonNegativeInt(payload.batch.errors)>0?1:0)),
             candidates:[...byKey.values()].slice(0,250),
             sourceExhausted:current.sourceExhausted||payload.done,
             lastActivityAt:Date.now(),
@@ -228,7 +233,7 @@ export function ChatDiscoveryDialog({
     return()=>{cancelled=true;window.clearTimeout(timer);};
   },[
     localPreviewHydrated,localPreview.running,localPreview.telegramCursor,
-    localPreview.sourceCursor,localPreview.candidates,localPreview.goal,localPreview.sourceExhausted,
+    localPreview.sourceCursor,localPreview.candidates,localPreview.goal,localPreview.sourceExhausted,localPreview.emptySourceBatches,
   ]);
 
 
@@ -1017,6 +1022,7 @@ function readLocalPreviewSession():LocalPreviewSession{
       processed:safeNonNegativeInt(value.processed),
       duplicates:safeNonNegativeInt(value.duplicates),
       rejected:safeNonNegativeInt(value.rejected),
+      emptySourceBatches:safeNonNegativeInt(value.emptySourceBatches),
       done:value.done===true,
       running:value.running===true,
       sourceExhausted:value.sourceExhausted===true,

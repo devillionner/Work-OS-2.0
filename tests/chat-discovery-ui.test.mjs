@@ -264,3 +264,12 @@ void test('browser-local Discovery source requests stay below the Worker CPU-ris
   assert.match(publicWeb,/MAX_PAGE_BYTES = 650_000/);
   assert.match(publicWeb,/if\(!hasRequestedInvite\)return \[\]/);
 });
+
+
+void test('empty Discovery source batches back off instead of hammering the Worker every 350ms', async () => {
+  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url),'utf8');
+  assert.match(dialog,/emptySourceBatches>=6\?10_000/);
+  assert.match(dialog,/emptySourceBatches>=3\?5_000/);
+  assert.match(dialog,/emptySourceBatches>=1\?2_000:700/);
+  assert.doesNotMatch(dialog,/\},350\);/);
+});
