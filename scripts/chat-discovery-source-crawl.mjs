@@ -5,7 +5,25 @@ const SEARCH_URL = 'https://search.brave.com/search';
 const USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36';
 const PLACES = ['Берлін','Гамбург','Мюнхен','Кельн','Франкфурт','Дюссельдорф','Бремен','Ганновер','Лейпциг','Прага','Варшава','Краків','Вроцлав','Гданськ','Відень','Братислава','Будапешт','Амстердам','Роттердам','Гаага','Брюссель','Антверпен','Лондон','Манчестер','Дублін','Барселона','Мадрид','Валенсія','Рим','Мілан','Неаполь','Лісабон','Порту','Париж','Ліон','Цюрих','Женева','Осло','Стокгольм','Копенгаген','Гельсінкі','Торонто','Ванкувер','Монреаль','Нью-Йорк','Чикаго','Філадельфія'];
 const INTENTS = ['українці','допомога українцям','українці оголошення','українці батьки','українці житло','українці перевезення'];
-const PLAN_SIZE = PLACES.length * INTENTS.length;
+const BOOTSTRAP_SOURCES = [
+  ['Українці · Швейцарія','https://t.me/s/UkrainianSwitzerland?before=14532','Швейцарія'],
+  ['UA-DE HELP · Німеччина','https://t.me/s/ua_de_help?before=53','Німеччина'],
+  ['Українці · Нідерланди','https://t.me/s/ukrainians_nl?before=296','Нідерланди'],
+  ['ДП Документ · Прага','https://t.me/s/prahaPD?before=10161','Прага'],
+  ['Ukrainians Abroad','https://t.me/s/uaabroad?before=69','Європа'],
+  ['Українці · Карінтія','https://t.me/s/ukrainer_in_kaernten?q=%23gkk','Карінтія'],
+  ['Український Дім · Роттердам','https://t.me/s/ukrdam?after=4373','Роттердам'],
+  ['Українці · Куопіо','https://t.me/s/kuopio_ua?after=337','Куопіо'],
+  ['Українці · Швельм','https://t.me/s/UA_Schwelm?before=5671','Швельм'],
+  ['Українці · Австрія','https://t.me/s/Shelter_in_Austria/51','Австрія'],
+  ['Українці · Словаччина','https://t.me/s/ukrajincivsk?before=2699','Словаччина'],
+  ['Українці · Бремен','https://t.me/s/ukrainebremen?q=WhatsApp','Бремен'],
+  ['Українці · Торонто','https://t.me/s/new_life_in_canada?q=WhatsApp','Торонто'],
+  ['Українці · Waterloo','https://t.me/s/razom_waterloo?q=WhatsApp','Waterloo'],
+  ['Українці · Лондон','https://t.me/s/ukrainianlondon?q=WhatsApp','Лондон'],
+];
+const SEARCH_PLAN_SIZE = PLACES.length * INTENTS.length;
+const PLAN_SIZE = BOOTSTRAP_SOURCES.length + SEARCH_PLAN_SIZE;
 const UA = /(?:україн|украин|ukrain|🇺🇦)/iu;
 const SPAM = /(?:crypto|bitcoin|forex|casino|казино|betting|dating|escort|onlyfans|nft|airdrop|signals?\b|قروبات|روابط\s+مجموعات|مجموعات\s+واتساب|technical\s+support)/iu;
 
@@ -14,8 +32,32 @@ export function localDiscoveryPlanSize() { return PLAN_SIZE; }
 export async function crawlLocalDiscoverySource(cursor, { fetcher = fetch } = {}) {
   const index = Math.max(0, Number(cursor) || 0);
   if (index >= PLAN_SIZE) return { searched:0, nextCursor:index, done:true, query:'', sources:[] };
-  const place = PLACES[index % PLACES.length];
-  const intent = INTENTS[Math.floor(index / PLACES.length) % INTENTS.length];
+
+  if (index < BOOTSTRAP_SOURCES.length) {
+    const [seedTitle, sourceUrl, place] = BOOTSTRAP_SOURCES[index];
+    const page = await fetchText(sourceUrl, fetcher, 12000, 900000);
+    const title = page ? telegramTitle(page, sourceUrl) : seedTitle;
+    const snippets = page ? extractRelevantInviteSnippets(page, title) : [];
+    const sources = snippets.length ? [{
+      sourceUrl,
+      sourceTitle:title || seedTitle,
+      query:'verified Telegram bootstrap ' + place,
+      seedLabel:place,
+      context:title || seedTitle,
+      text:snippets.join('\n\n').slice(0,45000),
+    }] : [];
+    return {
+      searched:1,
+      nextCursor:index+1,
+      done:index+1>=PLAN_SIZE,
+      query:'verified Telegram bootstrap ' + place,
+      sources,
+    };
+  }
+
+  const searchIndex = index - BOOTSTRAP_SOURCES.length;
+  const place = PLACES[searchIndex % PLACES.length];
+  const intent = INTENTS[Math.floor(searchIndex / PLACES.length) % INTENTS.length];
   const query = 'site:t.me/s ' + place + ' ' + intent + ' chat.whatsapp.com';
   const search = new URL(SEARCH_URL);
   search.searchParams.set('q', query);
@@ -30,7 +72,14 @@ export async function crawlLocalDiscoverySource(cursor, { fetcher = fetch } = {}
     const title = telegramTitle(page, sourceUrl);
     const snippets = extractRelevantInviteSnippets(page, title);
     if (!snippets.length) continue;
-    sources.push({ sourceUrl, sourceTitle:title || telegramChannel(sourceUrl) || ('Telegram · ' + place), query, seedLabel:place, context:title || place, text:snippets.join('\n\n').slice(0,45000) });
+    sources.push({
+      sourceUrl,
+      sourceTitle:title || telegramChannel(sourceUrl) || ('Telegram · ' + place),
+      query,
+      seedLabel:place,
+      context:title || place,
+      text:snippets.join('\n\n').slice(0,45000),
+    });
   }
   return { searched:1, nextCursor:index+1, done:index+1>=PLAN_SIZE, query, sources };
 }
