@@ -173,3 +173,10 @@ void test('local Discovery can skip temporarily blocked candidates and continue 
   assert.match(source,/skipCandidateIds=\[\.\.\.taskBlockedUntil\.entries\(\)\]/);
   assert.match(source,/PAGE_RECOVERY_COOLDOWN_MS=15000/);
 });
+
+
+void test('local Discovery can refill sources while WhatsApp qualification is in flight',()=>{
+  assert.match(source,/let localSourceInFlight=null/);
+  assert.match(source,/startLocalSourceRefill\(local\)/);
+  assert.match(source,/if\(local\.task\)return processLocalPreflight\(local\.task\)/);
+});
