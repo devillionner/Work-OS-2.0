@@ -253,7 +253,7 @@ export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
     nextCursor:Math.max(0,Number(batch?.nextCursor)||0),
     searched:Math.max(0,Number(batch?.searched)||0),
     done:batch?.done===true,
-    sources:Array.isArray(batch?.sources)?batch.sources.slice(0,3).map(item=>({
+    sources:Array.isArray(batch?.sources)?batch.sources.slice(0,4).map(item=>({
       sourceUrl:String(item?.sourceUrl||'').slice(0,1000),
       sourceTitle:String(item?.sourceTitle||'').slice(0,180),
       query:String(item?.query||'').slice(0,500),
