@@ -470,9 +470,11 @@ export async function discoverTelegramPublic(input: {
         seedKind: task.seedKind,
         contextPrefix,
       };
-      // Brave is discovery transport only for Telegram mode. Never treat WhatsApp
-      // links embedded in arbitrary search-result snippets as candidates: follow the
-      // public t.me source and require factual Ukrainian evidence next to the invite.
+      // Search snippets may contain the exact historical Telegram post with an invite.
+      // extractInviteRecords now requires Ukrainian evidence adjacent to the invite itself,
+      // so query/seed text cannot promote an unrelated catalogue into the candidate pool.
+      for (const item of recordsFromPage(body, base)) pushBounded(taskRecords, item);
+
       if (pageLimit) {
         for (const preview of extractTelegramSearchResultLinks(body, task)) {
           const channelKey = telegramPublicChannelKey(preview);

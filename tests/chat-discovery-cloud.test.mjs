@@ -102,24 +102,23 @@ void test('search instructions cannot make unrelated WhatsApp invites look Ukrai
   ).length,1);
 });
 
-void test('Telegram discovery follows factual t.me sources and never emits invite links directly from Brave snippets', async () => {
+void test('Telegram discovery accepts only factual Ukrainian invite snippets from Brave and rejects unrelated catalogues', async () => {
   const calls=[];
   const result=await discoverTelegramPublic({cursor:0,maxQueries:1,pageLimit:1},async(url)=>{
     calls.push(String(url));
     if(String(url).includes('search.brave.com'))return html([
-      '<div>Українці Берлін https://chat.whatsapp.com/SearchSnippetMustNotEmit123</div>',
-      '<a href="https://t.me/ua_real_source/42">real Telegram source</a>',
+      '<section>روابط مجموعات واتساب https://chat.whatsapp.com/SearchArabicMustNotEmit123</section>',
+      '<section>Українці Прага · зробили групу у WhatsApp https://chat.whatsapp.com/SearchUkrainianEmit123 <a href="https://t.me/s/prahaPD?before=10161">ДП Документ Прага</a></section>',
     ].join(''));
-    if(String(url)==='https://t.me/s/ua_real_source/42')return html(
-      '<article>Українці Берлін · живий чат https://chat.whatsapp.com/FactualTelegramInvite123</article>'
+    if(String(url)==='https://t.me/s/prahaPD?before=10161')return html(
+      '<article>Українці Прага · група https://chat.whatsapp.com/SearchUkrainianEmit123</article>'
     );
     return html('');
   });
-  assert.equal(result.records.some(item=>item.link==='https://chat.whatsapp.com/SearchSnippetMustNotEmit123'),false);
-  assert.equal(result.records.some(item=>item.link==='https://chat.whatsapp.com/FactualTelegramInvite123'),true);
-  assert.ok(calls.includes('https://t.me/s/ua_real_source/42'));
+  assert.equal(result.records.some(item=>item.link==='https://chat.whatsapp.com/SearchArabicMustNotEmit123'),false);
+  assert.equal(result.records.some(item=>item.link==='https://chat.whatsapp.com/SearchUkrainianEmit123'),true);
+  assert.ok(calls.includes('https://t.me/s/prahaPD?before=10161'));
 });
-
 void test('public discovery rejects generic and spam WhatsApp groups before persistence', () => {
   assert.equal(isLikelyUkrainianCommunity('Українці Berlin батьки community'), true);
   assert.equal(isLikelyUkrainianCommunity('Berlin expats international community'), false);
