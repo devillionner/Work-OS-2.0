@@ -906,8 +906,17 @@ async function findOrCreateWhatsappPage(base) {
 async function waitForClassification(client, task, timeoutMs, afterAction = null, navigatedInviteCode = null) {
   const deadline = Date.now() + timeoutMs;
   let last = { kind: 'blocked', reason: 'page_not_ready' };
+  let diagnostic = null;
   while (Date.now() < deadline) {
     const snapshot = await readSnapshot(client);
+    diagnostic = {
+      url:String(snapshot.url||''),
+      headerNames:(snapshot.headerNames||[]).slice(0,6),
+      headerTitles:(snapshot.headerTitles||[]).slice(0,6),
+      left:leftPattern.test(String(snapshot.bodyText||'')),
+      joined:joinedViaInvitePattern.test(String(snapshot.bodyText||'')),
+      composer:snapshot.composer===true,
+    };
     if (navigatedInviteCode) snapshot.navigatedInviteCode = navigatedInviteCode;
     last = classifyWhatsAppSnapshot(task, snapshot);
     if (last.kind === 'result') return last;
@@ -922,6 +931,9 @@ async function waitForClassification(client, task, timeoutMs, afterAction = null
       return last;
     }
     await sleep(POLL_MS);
+  }
+  if(last?.kind==='blocked'&&last.reason==='target_not_verified'&&diagnostic){
+    return {...last,diagnostic};
   }
   return last;
 }
