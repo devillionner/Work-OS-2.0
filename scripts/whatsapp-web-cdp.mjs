@@ -164,10 +164,21 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
           const resultRaw=sessionStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY)});
           let results={};try{results=resultRaw?JSON.parse(resultRaw):{};}catch{}
           const candidates=Array.isArray(state?.candidates)?state.candidates:[];
-          const candidate=candidates.find((item)=>
-            item&&item.localOnly===true&&item.preflightState==='queued'&&typeof item.id==='string'
-            &&typeof item.link==='string'&&!results[item.id]
-          )||null;
+          const priority=(item)=>{
+            const name=String(item?.name||'');
+            let score=0;
+            if(/(?:україн|украин|ukrain|🇺🇦)/iu.test(name))score+=8;
+            if(/(?:впо|біжен|refuge|допомог|help|diaspora|community|громад)/iu.test(name))score+=2;
+            if(/(?:background|style=|href=|wp-block|https?:\\/\\/|<\\/?a\\b)/iu.test(name))score-=8;
+            const source=Array.isArray(item?.sources)?item.sources[0]:null;
+            if(source?.kind==='telegram_global')score+=2;
+            else if(source?.kind==='curated')score+=1;
+            return score;
+          };
+          const candidate=candidates
+            .filter((item)=>item&&item.localOnly===true&&item.preflightState==='queued'&&typeof item.id==='string'
+              &&typeof item.link==='string'&&!results[item.id])
+            .sort((a,b)=>priority(b)-priority(a))[0]||null;
           return {
             active:state?.running===true,
             goal:Number(state?.goal)||0,

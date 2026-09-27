@@ -693,3 +693,11 @@ void test('WhatsApp inspect and leave share one bounded operation timeout instea
   assert.doesNotMatch(source,/waitForClassification\(client, observedTask, timeoutMs, 'view'/);
   assert.doesNotMatch(source,/waitForClassification\(client, observedTask, timeoutMs, action/);
 });
+
+
+void test('local Discovery checks high-signal Ukrainian candidates before malformed low-signal rows without changing qualification criteria',()=>{
+  assert.match(source,/const priority=\(item\)=>/);
+  assert.match(source,/score\+=8/);
+  assert.match(source,/score-=8/);
+  assert.match(source,/\.sort\(\(a,b\)=>priority\(b\)-priority\(a\)\)/);
+});
