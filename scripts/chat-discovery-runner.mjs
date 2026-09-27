@@ -29,6 +29,7 @@ const SOURCE_ADVANCE_MS=20000;
 const EXECUTOR_QUEUE_LIMIT=3;
 const TASK_BLOCK_COOLDOWN_MS=300000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
+const LOCAL_RETRY_LATER_COOLDOWN_MS=15000;
 const IDLE_POLL_MIN_MS=15000;
 const IDLE_POLL_MAX_MS=60000;
 const WHATSAPP_RUNTIME_TRANSIENT_REASONS=new Set(['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready']);
@@ -204,8 +205,12 @@ async function processLocalPreflight(task){
 
   const result={...inspected.result};
   if(result.reason==='whatsapp_join_retry_later'){
-    markWhatsappRuntimeBlocked('whatsapp_join_retry_later');
-    return 'local_wait';
+    await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
+      decision:'skipped',reasonCodes:['whatsapp_join_retry_later'],result,completedAt:Date.now(),
+    },{cdpBaseUrl:whatsappCdp});
+    whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+LOCAL_RETRY_LATER_COOLDOWN_MS);
+    console.warn('WhatsApp asked to retry this invite later; skipped for this run and pausing local preflight for 15s.');
+    return 'local_task';
   }
   if(result.reason==='approval_required'||result.membershipState==='pending'){
     await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
