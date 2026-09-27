@@ -132,8 +132,10 @@ void test('source topic cannot substitute factual WhatsApp audience during local
   assert.doesNotMatch(source,/!result\.topicMatch&&task\.topicMatch==='match'/);
 });
 
-void test('retry-later pauses local WhatsApp preflight instead of discarding candidates',()=>{
+void test('retry-later skips only the affected local candidate with short cooldown',()=>{
   assert.match(source,/result\.reason==='whatsapp_join_retry_later'/);
-  assert.match(source,/markWhatsappRuntimeBlocked\('whatsapp_join_retry_later'\)/);
-  assert.match(source,/Date\.now\(\)<whatsappRuntimeBlockedUntil/);
+  assert.match(source,/decision:'skipped'/);
+  assert.match(source,/reasonCodes:\['whatsapp_join_retry_later'\]/);
+  assert.match(source,/LOCAL_RETRY_LATER_COOLDOWN_MS=15000/);
+  assert.doesNotMatch(source,/markWhatsappRuntimeBlocked\('whatsapp_join_retry_later'\)/);
 });
