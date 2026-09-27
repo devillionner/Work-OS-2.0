@@ -80,6 +80,46 @@ void test('public discovery extracts canonical WhatsApp/Viber invites and keeps 
   assert.match(records[1].link, /^https:\/\/invite\.viber\.com\/\?g2=/);
 });
 
+void test('search instructions cannot make unrelated WhatsApp invites look Ukrainian', () => {
+  const syntheticSource = {
+    kind:'telegram_global',
+    sourceUrl:'https://search.brave.com/search?q=site%3At.me+Ukrainians+Berlin',
+    sourceTitle:'Telegram search · Берлін',
+    query:'Українці Берлін чат',
+    seedLabel:'Берлін',
+    seedKind:'city',
+    context:'Українці Берлін · Німеччина · Telegram',
+  };
+  assert.equal(extractInviteRecords(
+    '<article>روابط مجموعات واتساب https://chat.whatsapp.com/ArabicCatalog123</article>',
+    ['whatsapp'],
+    syntheticSource,
+  ).length,0);
+  assert.equal(extractInviteRecords(
+    '<article>Українці Берлін · допомога та оголошення https://chat.whatsapp.com/UkrainianBerlin123</article>',
+    ['whatsapp'],
+    syntheticSource,
+  ).length,1);
+});
+
+void test('Telegram discovery follows factual t.me sources and never emits invite links directly from Brave snippets', async () => {
+  const calls=[];
+  const result=await discoverTelegramPublic({cursor:0,maxQueries:1,pageLimit:1},async(url)=>{
+    calls.push(String(url));
+    if(String(url).includes('search.brave.com'))return html([
+      '<div>Українці Берлін https://chat.whatsapp.com/SearchSnippetMustNotEmit123</div>',
+      '<a href="https://t.me/ua_real_source/42">real Telegram source</a>',
+    ].join(''));
+    if(String(url)==='https://t.me/s/ua_real_source/42')return html(
+      '<article>Українці Берлін · живий чат https://chat.whatsapp.com/FactualTelegramInvite123</article>'
+    );
+    return html('');
+  });
+  assert.equal(result.records.some(item=>item.link==='https://chat.whatsapp.com/SearchSnippetMustNotEmit123'),false);
+  assert.equal(result.records.some(item=>item.link==='https://chat.whatsapp.com/FactualTelegramInvite123'),true);
+  assert.ok(calls.includes('https://t.me/s/ua_real_source/42'));
+});
+
 void test('public discovery rejects generic and spam WhatsApp groups before persistence', () => {
   assert.equal(isLikelyUkrainianCommunity('Українці Berlin батьки community'), true);
   assert.equal(isLikelyUkrainianCommunity('Berlin expats international community'), false);

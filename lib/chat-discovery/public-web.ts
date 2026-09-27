@@ -468,8 +468,9 @@ export async function discoverTelegramPublic(input: {
         seedKind: task.seedKind,
         contextPrefix,
       };
-      for (const item of recordsFromPage(body, base)) pushBounded(taskRecords, item);
-
+      // Brave is discovery transport only for Telegram mode. Never treat WhatsApp
+      // links embedded in arbitrary search-result snippets as candidates: follow the
+      // public t.me source and require factual Ukrainian evidence next to the invite.
       if (pageLimit) {
         for (const link of extractSearchResultLinks(body)) {
           const preview = telegramPublicPreviewUrl(link);
@@ -563,8 +564,14 @@ export function extractInviteRecords(
     const parsed = normalizeGroupLink(raw);
     if (!parsed || (parsed.platform !== 'whatsapp' && parsed.platform !== 'viber') || !platforms.includes(parsed.platform)) continue;
     const context = pageContext(decoded, match.index || 0, raw.length);
-    const evidence = [source.context, source.sourceTitle, source.seedLabel, source.query, context].filter(Boolean).join(' · ');
-    if (!isLikelyUkrainianCommunity(evidence)) continue;
+    // Search query / seed labels are discovery instructions, not evidence about this exact invite.
+    // Otherwise a query such as "Українці Горлівка" can make an unrelated Arabic/Russian
+    // WhatsApp catalogue look Ukrainian. Only factual text adjacent to the invite counts;
+    // hand-curated sources may additionally contribute their trusted directory context.
+    const factualEvidence = source.kind === 'curated'
+      ? [source.context, source.sourceTitle, context].filter(Boolean).join(' · ')
+      : context;
+    if (!isLikelyUkrainianCommunity(factualEvidence)) continue;
     records.push({
       platform: parsed.platform,
       link: parsed.link,
@@ -576,7 +583,9 @@ export function extractInviteRecords(
         query: bound(source.query, 500),
         seedLabel: bound(source.seedLabel, 180),
         seedKind: bound(source.seedKind, 40),
-        context: bound([source.context, context].filter(Boolean).join(' · '), 700),
+        context: bound(source.kind === 'curated'
+          ? [source.context, context].filter(Boolean).join(' · ')
+          : context, 700),
       },
     });
   }
