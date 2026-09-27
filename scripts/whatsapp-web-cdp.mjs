@@ -887,10 +887,25 @@ async function readSnapshot(client) {
       )
     ));
     const bodyText = document.body?.innerText || '';
-    const headerNames = read(document, [
-      '#main header [data-testid="conversation-info-header-chat-title"]',
-      '#main header [dir="auto"]',
-      '[data-testid="conversation-info-header"] [dir="auto"]',
+    const profileButton = [...document.querySelectorAll('#main [role="button"][aria-label]')]
+      .find((node) => /(?:деталі профілю|profile details|данные профиля|сведения о профиле)/iu.test(node.getAttribute('aria-label') || ''));
+    const modernHeaderRegion = profileButton?.parentElement || document.querySelector('#main header');
+    const modernHeaderNames = modernHeaderRegion ? unique(
+      [...modernHeaderRegion.querySelectorAll('[role="button"], [title], [dir="auto"], h1, h2')]
+        .flatMap((node) => {
+          const raw = String(node.innerText || node.textContent || '').trim();
+          const firstLine = raw.split(String.fromCharCode(10))[0] || '';
+          return [firstLine, node.getAttribute('title') || ''];
+        })
+        .filter((value) => value && !/^(?:пошук|меню|search|menu)$/iu.test(clean(value)))
+    ) : [];
+    const headerNames = unique([
+      ...read(document, [
+        '#main header [data-testid="conversation-info-header-chat-title"]',
+        '#main header [dir="auto"]',
+        '[data-testid="conversation-info-header"] [dir="auto"]',
+      ]),
+      ...modernHeaderNames,
     ]);
     const headerTitles = read(document, [
       '[data-testid="conversation-info-header"] [title]',
@@ -1135,8 +1150,19 @@ async function clickExactHeader(client, expectedName) {
   const expression = `(() => {
     const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim().toLocaleLowerCase('uk-UA');
     const target = ${JSON.stringify(String(expectedName || '').trim().toLocaleLowerCase('uk-UA'))};
-    const nodes = [...document.querySelectorAll('#main header [data-testid="conversation-info-header-chat-title"], #main header [dir="auto"], [data-testid="conversation-info-header"] [dir="auto"], [data-testid="conversation-info-header"] [title], header [title], header h1, header h2')];
-    const node = nodes.find((item) => normalize(item.getAttribute('title') || item.textContent) === target);
+    const profileButton = [...document.querySelectorAll('#main [role="button"][aria-label]')]
+      .find((node) => /(?:деталі профілю|profile details|данные профиля|сведения о профиле)/iu.test(node.getAttribute('aria-label') || ''));
+    const modernRegion = profileButton?.parentElement || document.querySelector('#main header');
+    const nodes = [
+      ...document.querySelectorAll('#main header [data-testid="conversation-info-header-chat-title"], #main header [dir="auto"], [data-testid="conversation-info-header"] [dir="auto"], [data-testid="conversation-info-header"] [title], header [title], header h1, header h2'),
+      ...(modernRegion ? modernRegion.querySelectorAll('[role="button"], [title], [dir="auto"], h1, h2') : []),
+    ];
+    const node = nodes.find((item) => {
+      const raw = String(item.innerText || item.textContent || '').trim();
+      const firstLine = raw.split(String.fromCharCode(10))[0] || '';
+      const values = [item.getAttribute('title') || '', firstLine, raw].map(normalize).filter(Boolean);
+      return values.some((value) => value === target || value.startsWith(target + ' '));
+    });
     if (!node) return false;
     (node.closest('button, [role="button"]') || node).click();
     return true;
