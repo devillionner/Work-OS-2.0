@@ -165,6 +165,29 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
           const resultRaw=sessionStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY)});
           let results={};try{results=resultRaw?JSON.parse(resultRaw):{};}catch{}
           const candidates=Array.isArray(state?.candidates)?state.candidates:[];
+          let stateChanged=false;
+          const hardNoise=(item)=>{
+            const label=String(item?.name||'').trim().toLocaleLowerCase('uk-UA');
+            const hasDigit=[...label].some((char)=>char>='0'&&char<='9');
+            return ['tiktok','facebook','instagram'].includes(label)
+              ||label.includes('eventbrite')
+              ||label.includes('майстер-клас')
+              ||label.includes('майстер клас')
+              ||(label.includes('реєстрац')&&hasDigit);
+          };
+          for(const item of candidates){
+            if(item?.preflightState==='queued'&&hardNoise(item)){
+              item.preflightState='rejected';
+              item.preflightReasonCodes=['source_event_specific'];
+              item.leftAfterCheck=false;
+              stateChanged=true;
+            }
+          }
+          if(stateChanged){
+            state.candidates=candidates;
+            sessionStorage.setItem('work-os:chat-discovery-local-preview:v3',JSON.stringify(state));
+            window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
+          }
           const skipped=new Set(${JSON.stringify(Array.isArray(skipCandidateIds)?skipCandidateIds.map(String).slice(0,250):[])});
           const priority=(item)=>{
             const name=String(item?.name||'');
