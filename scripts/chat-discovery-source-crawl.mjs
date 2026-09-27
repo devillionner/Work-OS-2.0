@@ -35,7 +35,7 @@ export async function crawlLocalDiscoverySource(cursor, { fetcher = fetch } = {}
   return { searched:1, nextCursor:index+1, done:index+1>=PLAN_SIZE, query, sources };
 }
 
-function rankTelegramSources(html, place) {
+export function rankTelegramSources(html, place) {
   const decoded = decode(html).replaceAll('\\/', '/');
   const seen = new Set();
   const ranked = [];
@@ -65,7 +65,7 @@ function searchResultContext(html,index) {
   return strip(html.slice(Math.max(0,index-500), Math.min(html.length,index+2500)));
 }
 
-function extractRelevantInviteSnippets(html,title) {
+export function extractRelevantInviteSnippets(html,title) {
   const decoded = decode(html).replaceAll('\\/', '/');
   const titleEvidence = strip(title || '');
   const result = [];
