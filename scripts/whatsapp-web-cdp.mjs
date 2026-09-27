@@ -936,7 +936,7 @@ async function readSnapshot(client) {
       )
     ));
     const bodyText = document.body?.innerText || '';
-    const profileButton = [...document.querySelectorAll('#main [role="button"][aria-label]')]
+    const profileButton = [...document.querySelectorAll('[role="button"][aria-label]')]
       .find((node) => /(?:деталі профілю|profile details|данные профиля|сведения о профиле)/iu.test(node.getAttribute('aria-label') || ''));
     const modernHeaderRegion = profileButton?.parentElement || document.querySelector('#main header');
     const modernHeaderNames = modernHeaderRegion ? unique(
@@ -1199,7 +1199,7 @@ async function clickExactHeader(client, expectedName) {
   const expression = `(() => {
     const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim().toLocaleLowerCase('uk-UA');
     const target = ${JSON.stringify(String(expectedName || '').trim().toLocaleLowerCase('uk-UA'))};
-    const profileButton = [...document.querySelectorAll('#main [role="button"][aria-label]')]
+    const profileButton = [...document.querySelectorAll('[role="button"][aria-label]')]
       .find((node) => /(?:деталі профілю|profile details|данные профиля|сведения о профиле)/iu.test(node.getAttribute('aria-label') || ''));
     const modernRegion = profileButton?.parentElement || document.querySelector('#main header');
     const nodes = [
