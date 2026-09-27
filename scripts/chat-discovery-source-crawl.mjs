@@ -210,4 +210,4 @@ function decode(value) {
   });
 }
 function strip(value) { return decode(value).replace(/<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>/giu,' ').replace(/<[^>]+>/gu,' ').replace(/\s+/gu,' ').trim(); }
-function escapeRegExp(value) { return String(value).replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&'); }
+function escapeRegExp(value) { return String(value).replace(/[.*+?^$()|[\]\\{}]/g,'\\function escapeRegExp(value) { return String(value).replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&'); }'); }
