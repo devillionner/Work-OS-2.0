@@ -253,7 +253,7 @@ async function processLocalPreflight(task){
   const evaluated=evaluateLocalPreflight(task,result);
   if(evaluated.decision==='incomplete'){
     markTaskBlocked(task,'qualification_incomplete',INCOMPLETE_QUALIFICATION_COOLDOWN_MS);
-    console.warn(`WhatsApp qualification incomplete for ${result.observedName||task.name}; keeping it queued and continuing with another candidate.`);
+    console.warn(`WhatsApp qualification incomplete for ${result.observedName||task.name}: ${evaluated.reasonCodes.join(', ')}; keeping it queued and continuing with another candidate.`);
     return 'local_task';
   }
   let leftAfterCheck=false;
