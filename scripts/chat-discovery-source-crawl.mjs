@@ -64,23 +64,23 @@ export async function crawlLocalDiscoverySource(cursor, { fetcher = fetch } = {}
   search.searchParams.set('source', 'web');
   const html = await fetchText(search.toString(), fetcher, 12000, 350000);
   if (!html) return { searched:1, nextCursor:index+1, done:index+1>=PLAN_SIZE, query, sources:[] };
-  const candidates = rankTelegramSources(html, place).slice(0, 6);
-  const sources = [];
-  for (const sourceUrl of candidates) {
+  const candidates = rankTelegramSources(html, place).slice(0, 3);
+  const sourceResults = await Promise.all(candidates.map(async (sourceUrl) => {
     const page = await fetchText(sourceUrl, fetcher, 12000, 900000);
-    if (!page) continue;
+    if (!page) return null;
     const title = telegramTitle(page, sourceUrl);
     const snippets = extractRelevantInviteSnippets(page, title);
-    if (!snippets.length) continue;
-    sources.push({
+    if (!snippets.length) return null;
+    return {
       sourceUrl,
       sourceTitle:title || telegramChannel(sourceUrl) || ('Telegram · ' + place),
       query,
       seedLabel:place,
       context:title || place,
       text:snippets.join('\n\n').slice(0,45000),
-    });
-  }
+    };
+  }));
+  const sources = sourceResults.filter(Boolean);
   return { searched:1, nextCursor:index+1, done:index+1>=PLAN_SIZE, query, sources };
 }
 
