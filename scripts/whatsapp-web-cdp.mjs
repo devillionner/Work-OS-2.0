@@ -168,11 +168,17 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
           const skipped=new Set(${JSON.stringify(Array.isArray(skipCandidateIds)?skipCandidateIds.map(String).slice(0,250):[])});
           const priority=(item)=>{
             const name=String(item?.name||'');
-            let score=0;
-            if(/(?:україн|украин|ukrain|🇺🇦)/iu.test(name))score+=8;
-            if(/(?:впо|біжен|refuge|допомог|help|diaspora|community|громад)/iu.test(name))score+=2;
-            if(/(?:background|style=|href=|wp-block|https?:\\/\\/|<\\/?a\\b)/iu.test(name))score-=8;
             const source=Array.isArray(item?.sources)?item.sources[0]:null;
+            const sourceTitle=String(source?.sourceTitle||'');
+            const evidence=name+' '+sourceTitle;
+            let score=0;
+            if(/(?:україн|украин|ukrain|🇺🇦)/iu.test(sourceTitle))score+=12;
+            if(/(?:україн|украин|ukrain|🇺🇦)/iu.test(name))score+=8;
+            if(/(?:впо|біжен|refuge|допомог|help|diaspora|community|громад)/iu.test(evidence))score+=4;
+            if(/(?:bremen|berlin|rotterdam|london|toronto|slovak|нідерланд|німеч|австр|куопіо|карінт|швельм)/iu.test(evidence))score+=2;
+            if(/^(?:tiktok|facebook|instagram|whatsapp|telegram)$/iu.test(name.trim()))score-=14;
+            if(/(?:eventbrite|реєстрац|майстер-клас|майстер клас|\bviews?\b|ref=share|\/groups\/|<span|https?:\/\/|href=|style=)/iu.test(name))score-=10;
+            if(name.length>140)score-=6;
             if(source?.kind==='telegram_global')score+=2;
             else if(source?.kind==='curated')score+=1;
             return score;
