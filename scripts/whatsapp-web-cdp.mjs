@@ -183,6 +183,9 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
           return {
             active:state?.running===true,
             goal:Number(state?.goal)||0,
+            sourceCursor:Number(state?.telegramCursor)||0,
+            sourceExhausted:state?.sourceExhausted===true,
+            queuedCount:candidates.filter(item=>item?.preflightState==='queued'&&!results[item?.id]).length,
             task:candidate?{
               candidateId:candidate.id,
               runtime:'whatsapp_web',
@@ -204,6 +207,87 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
     }finally{client.close();}
   }
   return fallback;
+}
+
+export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
+  workOsUrl,
+  batch,
+  { cdpBaseUrl } = {},
+) {
+  const pagesResult=await listWorkOsPagesForCdp(workOsUrl,cdpBaseUrl);
+  if(pagesResult.kind==='blocked')return pagesResult;
+  const safeBatch={
+    nextCursor:Math.max(0,Number(batch?.nextCursor)||0),
+    searched:Math.max(0,Number(batch?.searched)||0),
+    done:batch?.done===true,
+    sources:Array.isArray(batch?.sources)?batch.sources.slice(0,3).map(item=>({
+      sourceUrl:String(item?.sourceUrl||'').slice(0,1000),
+      sourceTitle:String(item?.sourceTitle||'').slice(0,180),
+      query:String(item?.query||'').slice(0,500),
+      seedLabel:String(item?.seedLabel||'').slice(0,180),
+      context:String(item?.context||'').slice(0,700),
+      text:String(item?.text||'').slice(0,45000),
+    })):[],
+  };
+  for(const page of pagesResult.pages){
+    const client=await createCdpClient(page.webSocketDebuggerUrl);
+    try{
+      const response=await client.send('Runtime.evaluate',{
+        expression:`(async()=>{
+          const stateKey=${JSON.stringify(WORK_OS_LOCAL_PREVIEW_KEY)};
+          const raw=sessionStorage.getItem(stateKey);
+          if(!raw)return {applied:false,reason:'state_missing'};
+          let state;try{state=JSON.parse(raw);}catch{return {applied:false,reason:'state_invalid'};}
+          if(state?.running!==true)return {applied:false,reason:'not_running'};
+          const batch=${JSON.stringify(safeBatch)};
+          const byKey=new Map((Array.isArray(state.candidates)?state.candidates:[]).map(item=>[String(item.platform)+'|'+String(item.link),item]));
+          let added=0,duplicates=0,rejected=0,errors=0;
+          for(const source of batch.sources){
+            if(!source.text||!source.sourceUrl)continue;
+            try{
+              const knownLinks=[...byKey.values()].map(item=>item.link).filter(Boolean);
+              const res=await fetch('/api/chat-discovery/preview',{
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({
+                  action:'telegram',text:source.text,sourceUrl:source.sourceUrl,sourceTitle:source.sourceTitle,
+                  query:source.query,seedLabel:source.seedLabel,context:source.context,knownLinks,minMembers:700,
+                }),
+              });
+              const payload=await res.json().catch(()=>null);
+              if(!res.ok||!payload){errors+=1;continue;}
+              added+=Number(payload.batch?.added)||0;
+              duplicates+=Number(payload.batch?.duplicates)||0;
+              for(const candidate of Array.isArray(payload.previews)?payload.previews:[]){
+                const key=String(candidate.platform)+'|'+String(candidate.link);
+                if(candidate.topicMatch==='match')byKey.set(key,{...candidate,preflightState:'queued',preflightReasonCodes:[],leftAfterCheck:false});
+                else rejected+=1;
+              }
+            }catch{errors+=1;}
+          }
+          state={
+            ...state,
+            telegramCursor:batch.nextCursor,
+            searched:(Number(state.searched)||0)+batch.searched,
+            processed:(Number(state.processed)||0)+added+duplicates,
+            duplicates:(Number(state.duplicates)||0)+duplicates,
+            rejected:(Number(state.rejected)||0)+rejected,
+            candidates:[...byKey.values()].slice(0,250),
+            sourceExhausted:state.sourceExhausted===true||batch.done,
+            lastActivityAt:Date.now(),
+          };
+          sessionStorage.setItem(stateKey,JSON.stringify(state));
+          window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
+          return {applied:true,added,duplicates,rejected,errors,candidateCount:state.candidates.length};
+        })()`,
+        returnByValue:true,
+        awaitPromise:true,
+      });
+      const value=response?.result?.value;
+      if(value?.applied===true)return {kind:'result',...value};
+    }finally{client.close();}
+  }
+  return {kind:'blocked',reason:'work_os_source_state_not_found'};
 }
 
 export async function writeWorkOsLocalDiscoveryResultViaCdp(
