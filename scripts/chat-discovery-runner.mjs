@@ -8,9 +8,11 @@ import {
   readWorkOsExecutorTokenViaCdp,
   readWorkOsLocalDiscoveryTaskViaCdp,
   writeWorkOsLocalDiscoveryResultViaCdp,
+  applyWorkOsLocalDiscoverySourceBatchViaCdp,
   sendWhatsappAutopostViaCdp,
   toWhatsAppWebInviteUrl,
 } from './whatsapp-web-cdp.mjs';
+import { crawlLocalDiscoverySource } from './chat-discovery-source-crawl.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
@@ -25,6 +27,7 @@ const terminal=readline.createInterface({input:process.stdin,output:process.stdo
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const TASK_POLL_MS=3000;
 const LOCAL_PREFLIGHT_POLL_MS=1500;
+const LOCAL_SOURCE_MIN_MS=2500;
 const SOURCE_ADVANCE_MS=20000;
 const EXECUTOR_QUEUE_LIMIT=3;
 const TASK_BLOCK_COOLDOWN_MS=300000;
@@ -148,6 +151,7 @@ async function inspectTask(task){
 
 let whatsappRuntimeBlockedUntil=0;
 let nextSourceAdvanceAt=0;
+let nextLocalSourceAt=0;
 const taskBlockedUntil=new Map();
 function markTaskBlocked(task,reason,cooldownMs=TASK_BLOCK_COOLDOWN_MS){
   taskBlockedUntil.set(task.candidateId,Date.now()+cooldownMs);
@@ -288,6 +292,15 @@ async function runOnce(){
       if(local.kind==='result'&&local.active===true&&Date.now()<whatsappRuntimeBlockedUntil)return 'local_wait';
       if(local.kind==='result'&&local.active===true){
         if(local.task)return processLocalPreflight(local.task);
+        if(local.sourceExhausted===true)return 'local_wait';
+        if(Date.now()<nextLocalSourceAt)return 'local_wait';
+        nextLocalSourceAt=Date.now()+LOCAL_SOURCE_MIN_MS;
+        const batch=await crawlLocalDiscoverySource(local.sourceCursor||0);
+        const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp});
+        if(applied.kind==='result'){
+          console.log('Local source crawl: cursor '+batch.nextCursor+', sources '+batch.sources.length+', added '+(applied.added||0)+', duplicates '+(applied.duplicates||0));
+          return 'source_advanced';
+        }
         return 'local_wait';
       }
     }catch(error){
