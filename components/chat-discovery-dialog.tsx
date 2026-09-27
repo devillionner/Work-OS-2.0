@@ -174,68 +174,17 @@ export function ChatDiscoveryDialog({
       return;
     }
     const queuedCount=localPreview.candidates.filter(candidate=>candidate.preflightState==='queued').length;
-    if(queuedCount>=8)return;
-    if(localPreview.sourceExhausted){
-      if(queuedCount===0)setLocalPreview(current=>({...current,running:false,done:true,completionReason:'sources_exhausted',lastActivityAt:Date.now()}));
-      return;
+    if(localPreview.sourceExhausted&&queuedCount===0){
+      setLocalPreview(current=>({...current,running:false,done:true,completionReason:'sources_exhausted',lastActivityAt:Date.now()}));
     }
-    let cancelled=false;
-    const sourceDelayMs=localPreview.emptySourceBatches>=6?10_000:localPreview.emptySourceBatches>=3?5_000:localPreview.emptySourceBatches>=1?2_000:700;
-    const timer=window.setTimeout(async()=>{
-      if(cancelled)return;
-      if(!navigator.onLine){
-        setError('Немає мережі. Локальний автопошук призупинено.');
-        setLocalPreview(current=>({...current,running:false,lastActivityAt:Date.now()}));
-        return;
-      }
-      try{
-        const payload=await postPreview({
-          action:'search',
-          platforms,
-          telegramCursor:localPreview.telegramCursor,
-          sourceCursor:localPreview.sourceCursor,
-          knownLinks:localPreview.candidates.map(candidate=>candidate.link),
-          minMembers,
-        }) as unknown as SearchPreviewResponse;
-        if(cancelled)return;
-        setLocalPreview(current=>{
-          if(!current.running)return current;
-          const byKey=new Map(current.candidates.map(candidate=>[`${candidate.platform}|${candidate.link}`,candidate]));
-          let rejected=current.rejected;
-          for(const candidate of payload.previews){
-            const key=`${candidate.platform}|${candidate.link}`;
-            if(candidate.topicMatch==='match')byKey.set(key,{...candidate,preflightState:'queued',preflightReasonCodes:[],leftAfterCheck:false});
-            else rejected+=1;
-          }
-          return {
-            ...current,
-            telegramCursor:safeNonNegativeInt(payload.telegramCursor),
-            sourceCursor:safeNonNegativeInt(payload.sourceCursor),
-            searched:current.searched+safeNonNegativeInt(payload.batch.searched),
-            processed:current.processed+safeNonNegativeInt(payload.batch.added)+safeNonNegativeInt(payload.batch.duplicates),
-            duplicates:current.duplicates+safeNonNegativeInt(payload.batch.duplicates),
-            rejected,
-            emptySourceBatches:safeNonNegativeInt(payload.batch.added)>0
-              ? 0
-              : Math.min(12,current.emptySourceBatches+1+(safeNonNegativeInt(payload.batch.errors)>0?1:0)),
-            candidates:[...byKey.values()].slice(0,250),
-            sourceExhausted:current.sourceExhausted||payload.done,
-            lastActivityAt:Date.now(),
-          };
-        });
-      }catch(reason){
-        if(cancelled)return;
-        const message=reason instanceof Error?reason.message:'Локальний автопошук тимчасово не завершив пакет.';
-        setError(`${message} Автопошук продовжить спроби автоматично.`);
-        setLocalPreview(current=>({...current,running:true,lastActivityAt:Date.now()}));
-      }
-    },350);
-    return()=>{cancelled=true;window.clearTimeout(timer);};
-  },[
-    localPreviewHydrated,localPreview.running,localPreview.telegramCursor,
-    localPreview.sourceCursor,localPreview.candidates,localPreview.goal,localPreview.sourceExhausted,localPreview.emptySourceBatches,
-  ]);
+  },[localPreviewHydrated,localPreview.running,localPreview.goal,localPreview.sourceExhausted,localPreview.candidates]);
 
+  useEffect(()=>{
+    if(!localPreviewHydrated)return;
+    const sync=()=>setLocalPreview(readLocalPreviewSession());
+    window.addEventListener('work-os:chat-discovery-local-update',sync);
+    return()=>window.removeEventListener('work-os:chat-discovery-local-update',sync);
+  },[localPreviewHydrated]);
 
   async function post(body: Record<string, unknown>) {
     const response = await fetch('/api/chat-discovery', {
@@ -617,7 +566,7 @@ export function ChatDiscoveryDialog({
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <h3 className="text-base font-semibold">Керування</h3>
-                  <p className="mt-1 text-xs leading-5 text-foreground/70">{autonomousRunning?'Пошук уже працює локально. D1 не змінюється.':'Вкажи, скільки фактично цільових чатів потрібно знайти й перевірити.'}</p>
+                  <p className="mt-1 text-xs leading-5 text-foreground/70">{autonomousRunning?'Пошук джерел і WhatsApp-перевірка працюють локально. D1 не змінюється.':'Вкажи, скільки фактично цільових чатів потрібно знайти й перевірити.'}</p>
                 </div>
                 <Badge>WhatsApp</Badge>
               </div>
