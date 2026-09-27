@@ -30,6 +30,7 @@ const EXECUTOR_QUEUE_LIMIT=3;
 const TASK_BLOCK_COOLDOWN_MS=300000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
 const TOKEN_REFRESH_MS=60000;
+const LOCAL_PAGE_RECOVERY_MS=5000;
 const IDLE_POLL_MIN_MS=15000;
 const IDLE_POLL_MAX_MS=60000;
 const WHATSAPP_RUNTIME_TRANSIENT_REASONS=new Set(['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready']);
@@ -203,7 +204,19 @@ async function processLocalPreflight(task){
     return 'local_wait';
   }
   if(inspected.kind!=='result'){
-    if(WHATSAPP_RUNTIME_TRANSIENT_REASONS.has(inspected.reason))return 'local_wait';
+    if(inspected.reason==='page_not_ready'){
+      await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
+        decision:'skipped',reasonCodes:['page_not_ready'],
+        result:{status:'failed',reason:'page_not_ready'},completedAt:Date.now(),
+      },{cdpBaseUrl:whatsappCdp});
+      whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+LOCAL_PAGE_RECOVERY_MS);
+      console.warn('WhatsApp page did not become ready in time; skipped this invite and allowing 5s recovery before the next candidate.');
+      return 'local_task';
+    }
+    if(WHATSAPP_RUNTIME_TRANSIENT_REASONS.has(inspected.reason)){
+      markWhatsappRuntimeBlocked(inspected.reason);
+      return 'local_wait';
+    }
     await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
       decision:'unavailable',reasonCodes:[inspected.reason||'preflight_blocked'],
       result:{status:'failed',reason:inspected.reason||'preflight_blocked'},completedAt:Date.now(),
