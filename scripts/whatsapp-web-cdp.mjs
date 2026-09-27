@@ -270,8 +270,19 @@ export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
               duplicates+=Number(payload.batch?.duplicates)||0;
               for(const candidate of Array.isArray(payload.previews)?payload.previews:[]){
                 const key=String(candidate.platform)+'|'+String(candidate.link);
-                if(candidate.topicMatch==='match')byKey.set(key,{...candidate,preflightState:'queued',preflightReasonCodes:[],leftAfterCheck:false});
-                else rejected+=1;
+                const label=String(candidate.name||'').trim().toLocaleLowerCase('uk-UA');
+                const hasDigit=[...label].some((char)=>char>='0'&&char<='9');
+                const hardNoise=['tiktok','facebook','instagram'].includes(label)
+                  ||label.includes('eventbrite')
+                  ||label.includes('майстер-клас')
+                  ||label.includes('майстер клас')
+                  ||(label.includes('реєстрац')&&hasDigit);
+                if(candidate.topicMatch==='match'&&!hardNoise){
+                  byKey.set(key,{...candidate,preflightState:'queued',preflightReasonCodes:[],leftAfterCheck:false});
+                }else{
+                  rejected+=1;
+                  if(hardNoise)byKey.set(key,{...candidate,preflightState:'rejected',preflightReasonCodes:['source_event_specific'],leftAfterCheck:false});
+                }
               }
             }catch{errors+=1;}
           }
