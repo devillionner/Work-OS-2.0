@@ -713,3 +713,11 @@ void test('browser-local task reader accepts a temporary skip list so one incomp
   assert.match(source,/skipCandidateIds=\[\]/);
   assert.match(source,/!skipped\.has\(item\.id\)/);
 });
+
+
+void test('noisy source labels are treated as weak identity hints instead of exact WhatsApp names',()=>{
+  assert.match(source,/text\.length>140/);
+  assert.match(source,/\\\/groups\\\//);
+  assert.match(source,/ref=share/);
+  assert.match(source,/\\bviews\?\\b/);
+});
