@@ -43,8 +43,9 @@ function isWeakExpectedName(value) {
   const text=String(value || '').trim();
   if(!text) return true;
   if(isGeneratedExpectedName(text)) return true;
+  if(text.length>140) return true;
   if(/<\/?[a-z][^>]*>|(?:src|href|class|id)\s*=\s*["']|https?:\/\/|chat\.whatsapp\.com/iu.test(text)) return true;
-  if(/(?:notion-|svelte|data-testid|aria-label)/iu.test(text)) return true;
+  if(/(?:notion-|svelte|data-testid|aria-label|\/groups\/|ref=share|\bviews?\b|[_-]{5,})/iu.test(text)) return true;
   return !/\p{L}/u.test(text);
 }
 
