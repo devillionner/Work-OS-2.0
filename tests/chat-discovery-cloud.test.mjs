@@ -266,6 +266,31 @@ void test('Telegram public discovery broadens search only when the strict result
   ]));
 });
 
+void test('Telegram source ranking ignores a generic WhatsApp catalogue and follows the Ukrainian result with invite evidence', async () => {
+  const calls=[];
+  const result=await discoverTelegramPublic({cursor:0,maxQueries:1,pageLimit:1},async(url)=>{
+    calls.push(String(url));
+    if(String(url).includes('search.brave.com'))return html([
+      '<section><a href="https://t.me/s/GroupsWhatsaps?before=1293">روابط مجموعات واتساب – Telegram</a> روابط قروبات واتس اب https://chat.whatsapp.com/ForeignCatalogue123</section>',
+      '<section><a href="https://t.me/s/ua_de_help?before=53">Допомога українцям Німеччина 🇺🇦</a> Українці Berlin допомога https://chat.whatsapp.com/UkrainianSource123</section>',
+    ].join(''));
+    if(String(url)==='https://t.me/s/ua_de_help?before=53')return html(
+      '<article>Українці Berlin · допомога https://chat.whatsapp.com/UkrainianSource123</article>'
+    );
+    throw new Error('irrelevant Telegram catalogue should not be fetched: '+url);
+  });
+  assert.ok(result.records.some(item=>item.link==='https://chat.whatsapp.com/UkrainianSource123'));
+  assert.equal(calls.some(url=>url.includes('GroupsWhatsaps')),false);
+  assert.ok(calls.includes('https://t.me/s/ua_de_help?before=53'));
+});
+
+void test('high-intent Ukrainian templates outrank the bare-city Telegram query', () => {
+  const first=buildTelegramSearchPlan(0,5).tasks;
+  assert.equal(first.some(task=>task.template==='Просто назва міста'),false);
+  assert.ok(first.some(task=>/Українці в місті/u.test(task.template)));
+  assert.ok(first.some(task=>/Допомога українцям|Помощь украинцам/u.test(task.template)));
+});
+
 void test('Telegram public source budget is channel-deduplicated before page fetch', async () => {
   assert.equal(telegramPublicChannelKey('https://t.me/UA_Berlin/12'),'ua_berlin');
   assert.equal(telegramPublicChannelKey('https://telegram.me/ua_berlin/99'),'ua_berlin');

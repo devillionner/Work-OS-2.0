@@ -216,15 +216,17 @@ function interleaveCitiesByCountry(cities: readonly SeedCity[]): SeedCity[] {
 
 function telegramTemplatePriority(template: string) {
   const text = template.toLocaleLowerCase('uk-UA');
-  if (text === 'просто назва міста') return 0;
-  if (/українці в (місті|країні)/u.test(text)) return 1;
+  // Start with intent-rich Ukrainian-community queries. A bare city name has
+  // much lower precision and previously dominated early batches with generic catalogues.
+  if (/українці в (місті|країні)/u.test(text)) return 0;
+  if (/допомога українцям|помощь украинцам|допомога біженцям/u.test(text)) return 1;
   if (/назва міста чат/u.test(text)) return 2;
-  if (/допомога українцям|помощь украинцам|допомога біженцям/u.test(text)) return 3;
-  if (/мамоч|батьки/u.test(text)) return 4;
-  if (/барахол|оголош|объявлен|віддам|обмін|продаж/u.test(text)) return 5;
+  if (/мамоч|батьки/u.test(text)) return 3;
+  if (/барахол|оголош|объявлен|віддам|обмін|продаж/u.test(text)) return 4;
+  if (/перевіз|перевез|передач/u.test(text)) return 5;
   if (/оренд|зніму житло|ріелтор/u.test(text)) return 6;
-  if (/перевіз|перевез|передач/u.test(text)) return 7;
-  if (text === 'ukrainian in' || text === 'ukrainians' || text === 'ukraine chat') return 8;
+  if (text === 'ukrainian in' || text === 'ukrainians' || text === 'ukraine chat') return 7;
+  if (text === 'просто назва міста') return 12;
   return 20;
 }
 
@@ -472,10 +474,9 @@ export async function discoverTelegramPublic(input: {
       // links embedded in arbitrary search-result snippets as candidates: follow the
       // public t.me source and require factual Ukrainian evidence next to the invite.
       if (pageLimit) {
-        for (const link of extractSearchResultLinks(body)) {
-          const preview = telegramPublicPreviewUrl(link);
-          const channelKey = preview ? telegramPublicChannelKey(preview) : null;
-          if (!preview || !channelKey || seenChannels.has(channelKey)) continue;
+        for (const preview of extractTelegramSearchResultLinks(body, task)) {
+          const channelKey = telegramPublicChannelKey(preview);
+          if (!channelKey || seenChannels.has(channelKey)) continue;
           seenChannels.add(channelKey);
           pageUrls.push(preview);
           if (pageUrls.length >= pageLimit) break;
@@ -658,6 +659,39 @@ function recordsFromPage(body: string, input: {
     seedKind: input.seedKind,
     context: input.contextPrefix,
   });
+}
+
+function extractTelegramSearchResultLinks(html: string, task: TelegramSearchTask): string[] {
+  const decoded = decodeHtml(html).replaceAll('\\/', '/');
+  const ranked: Array<{ preview:string; score:number; order:number }> = [];
+  const seen = new Set<string>();
+  let order = 0;
+  for (const match of decoded.matchAll(/href=["'](https?:\/\/[^"']+)["']/gi)) {
+    const link = match[1].trim();
+    const preview = telegramPublicPreviewUrl(link);
+    if (!preview) continue;
+    const channelKey = telegramPublicChannelKey(preview);
+    if (!channelKey || seen.has(channelKey)) continue;
+    seen.add(channelKey);
+    const context = pageContext(decoded, match.index || 0, match[0].length);
+    const pathSignal = (()=>{ try{return new URL(preview).pathname;}catch{return '';} })();
+    const factual = [context, pathSignal].filter(Boolean).join(' · ');
+    if (!isLikelyUkrainianCommunity(factual)) continue;
+
+    const normalized = factual.toLocaleLowerCase('uk-UA').normalize('NFKC');
+    let score = 20;
+    if (/chat\.whatsapp\.com/u.test(normalized)) score += 14;
+    if (task.city && normalized.includes(task.city.toLocaleLowerCase('uk-UA'))) score += 5;
+    if (task.cityLatin && normalized.includes(task.cityLatin.toLocaleLowerCase('en-US'))) score += 4;
+    if (task.country && normalized.includes(task.country.toLocaleLowerCase('uk-UA'))) score += 3;
+    if (/(?:ukr|ukrain|ua[_-]|[_-]ua|help)/iu.test(pathSignal)) score += 4;
+    if (/(?:whatsapp\s*(?:чаты|chat|groups?)|каталог\s*(?:груп|чат)|эмигрант|expat[_ -]?chats?|قروبات|روابط|مجموعات)/iu.test(normalized)) score -= 18;
+    ranked.push({ preview, score, order:order++ });
+  }
+  return ranked
+    .filter(item => item.score > 0)
+    .sort((left,right)=>right.score-left.score||left.order-right.order)
+    .map(item=>item.preview);
 }
 
 function extractSearchResultLinks(html: string): string[] {
