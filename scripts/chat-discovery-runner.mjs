@@ -206,7 +206,7 @@ function evaluateLocalPreflight(task,result){
 async function processLocalPreflight(task){
   let inspected;
   try{
-    inspected=await inspectWhatsappTaskViaCdp(task,{cdpBaseUrl:whatsappCdp});
+    inspected=await inspectWhatsappTaskViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:28_000});
   }catch(error){
     console.warn(`Local WhatsApp preflight CDP unavailable: ${error instanceof Error?error.message:String(error)}`);
     return 'local_wait';
