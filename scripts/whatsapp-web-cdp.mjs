@@ -1073,7 +1073,15 @@ export async function inspectWhatsappTaskViaCdp(
   try {
     await client.send('Page.enable');
     await client.send('Runtime.enable');
-    await client.send('Page.navigate', { url: targetUrl });
+    let alreadyOnExactInvite=false;
+    try{
+      const currentUrl=new URL(String(page.url||''));
+      const targetParsed=new URL(targetUrl);
+      alreadyOnExactInvite=currentUrl.origin===targetParsed.origin
+        &&currentUrl.pathname===targetParsed.pathname
+        &&currentUrl.searchParams.get('code')===targetParsed.searchParams.get('code');
+    }catch{}
+    if(!alreadyOnExactInvite)await client.send('Page.navigate',{url:targetUrl});
 
     const operationDeadline = Date.now() + timeoutMs;
     const remainingBudget = () => Math.max(POLL_MS, operationDeadline - Date.now());

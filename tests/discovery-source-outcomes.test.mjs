@@ -26,6 +26,16 @@ void test('workbook plan includes compatible keywords, countries and city aliase
   assert.ok(plan.every(item=>!item.query.includes('назва села')));
 });
 
+void test('retries on the same WhatsApp invite do not restart deep-link loading',async()=>{
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  const start=adapter.indexOf('export async function inspectWhatsappTaskViaCdp');
+  const end=adapter.indexOf('async function findOrCreateWhatsappPage',start);
+  const block=adapter.slice(start,end);
+  assert.match(block,/alreadyOnExactInvite/u);
+  assert.match(block,/searchParams\.get\('code'\)===targetParsed\.searchParams\.get\('code'\)/u);
+  assert.match(block,/if\(!alreadyOnExactInvite\)await client\.send\('Page\.navigate'/u);
+});
+
 void test('Discovery waits for a healthy WhatsApp home before reopening invite deep links',async()=>{
   const runner=await readFile(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8');
   assert.match(runner,/readWhatsappHomeHealthViaCdp/u);
