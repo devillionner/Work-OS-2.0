@@ -221,6 +221,26 @@ void test('TG.ME post result can feed a WhatsApp invite directly into local prev
   assert.ok(result.sources.some(source=>source.text.includes(invite)));
 });
 
+void test('directory channel result is searched inside Telegram for group invites',async()=>{
+  const calls=[];
+  const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async(url)=>{
+    const value=String(url); calls.push(value);
+    if(value.includes('tg.me/search'))return response('<div>Українці Берлін <a href="/berlin_ua2">channel</a></div>');
+    if(value.includes('t.me/s/berlin_ua2')&&value.includes('chat.whatsapp.com'))return response('<title>Українці Берлін</title><p>Чат громади '+invite+'</p>');
+    if(value.includes('search.brave.com'))return response('Too many requests',429);
+    return response('<title>Українці</title>');
+  }});
+  assert.ok(calls.some(url=>url.includes('t.me/s/berlin_ua2')&&url.includes('chat.whatsapp.com')));
+  assert.ok(result.sources.some(source=>source.text.includes(invite)));
+  assert.equal(result.nextCursor,16);
+});
+
+void test('directory discovery still runs when Telegram graph already returns known-style sources',async()=>{
+  const source=await readFile(new URL('../scripts/chat-discovery-source-crawl.mjs',import.meta.url),'utf8');
+  assert.match(source,/if\(sources\.length<8\)/);
+  assert.doesNotMatch(source,/if\(!sources\.length\)\{\n\s+const directoryQueries/);
+});
+
 void test('local-language Ukrainian identities keep WhatsApp invites in Telegram extraction',()=>{
   for(const title of [
     'Ucranianos en Valencia',
