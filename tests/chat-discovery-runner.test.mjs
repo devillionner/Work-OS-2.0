@@ -272,3 +272,7 @@ void test('local source refill releases its lock after one deterministic step',(
   assert.match(block,/finally\(\(\)=>\{localSourceInFlight=null;\}\)/);
   assert.doesNotMatch(block,/while\(/);
 });
+
+void test('source refill has only a short idle gap',()=>{
+  assert.match(source,/LOCAL_SOURCE_MIN_MS=500/);
+});
