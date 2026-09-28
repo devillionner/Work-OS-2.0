@@ -150,6 +150,13 @@ void test('source plan is read from the authorized Work OS browser session witho
   assert.equal(result.seedData.cities[0].name,'Berlin');
 });
 
+void test('hydration restores the browser-local source plan after F5 or deploy',async()=>{
+  const source=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  const writes=[...source.matchAll(/sessionStorage\.setItem\(LOCAL_SOURCE_SEEDS_KEY,JSON\.stringify\(chatDiscoverySeeds\)\)/gu)];
+  assert.ok(writes.length>=2,'plan should be written on hydration and explicit start');
+  assert.match(source,/if\(!localPreviewHydrated\)return;[\s\S]{0,500}LOCAL_SOURCE_SEEDS_KEY/u);
+});
+
 void test('autonomous search writes the source plan into browser session storage',async()=>{
   const source=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
   assert.match(source,/sessionStorage\.setItem\(LOCAL_SOURCE_SEEDS_KEY,JSON\.stringify\(chatDiscoverySeeds\)\)/u);

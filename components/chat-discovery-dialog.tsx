@@ -189,6 +189,14 @@ export function ChatDiscoveryDialog({
 
   useEffect(()=>{
     if(!localPreviewHydrated)return;
+    // Keep the private source plan browser-local and refresh it after F5/deploy so an
+    // already-running local Discovery session can continue without any D1/API read.
+    try{window.sessionStorage.setItem(LOCAL_SOURCE_SEEDS_KEY,JSON.stringify(chatDiscoverySeeds));}
+    catch{}
+  },[localPreviewHydrated]);
+
+  useEffect(()=>{
+    if(!localPreviewHydrated)return;
     const sync=()=>setLocalPreview(readLocalPreviewSession());
     window.addEventListener('work-os:chat-discovery-local-update',sync);
     return()=>window.removeEventListener('work-os:chat-discovery-local-update',sync);
