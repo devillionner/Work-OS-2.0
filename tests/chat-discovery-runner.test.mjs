@@ -239,3 +239,11 @@ void test('local Discovery direct-joins qualified invites without Page.navigate'
   assert.doesNotMatch(process,/inspectWhatsappTaskViaCdp/);
   assert.match(process,/pre\.chatType==='community'/);
 });
+
+void test('runner recovers a WhatsApp home stuck on message loading without stealing focus',()=>{
+  assert.match(source,/health\.loading===true/);
+  assert.match(source,/whatsappLoadingSignals\+=1/);
+  assert.match(source,/WHATSAPP_LOADING_RELOAD_AFTER=3/);
+  assert.match(source,/resetWhatsappPageViaCdp/);
+  assert.match(source,/reloaded home and will resume after cooldown/);
+});

@@ -27,6 +27,7 @@ const MAX_TELEGRAM_HISTORY_PAGES=4;
 const MAX_SEARCH_SOURCES=5;
 const MAX_GRAPH_SOURCES_PER_STEP=8;
 const SEARCH_BLOCK_COOLDOWN_MS=5*60*1000;
+const SEARCH_RETRY_COOLDOWN_MS=30*1000;
 const telegramGraph=new Map();
 const crawledTelegramSources=new Set();
 let graphSeedPromise=null;
@@ -232,6 +233,7 @@ async function telegramSource(sourceUrl,query,place,fetcher) {
 export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}={}) {
   const index=Math.max(0,Number(cursor)||0);
   let totalTasks=null,query='',attempted=0;
+  const warnings=[];
   try{
     const plan=workbookSearchPlan(requireSeedData(seedData));
     totalTasks=BOOTSTRAP_SOURCES.length+plan.length;
@@ -241,8 +243,12 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
       const [,url,place]=BOOTSTRAP_SOURCES[index];
       query='Telegram · '+place;
       attempted=1;
-      const source=await telegramSource(url,query,place,fetcher);
-      if(source.text)sources.push(source);
+      try{
+        const source=await telegramSource(url,query,place,fetcher);
+        if(source.text)sources.push(source);
+      }catch(error){
+        warnings.push({cursor:index,query,reason:error instanceof Error?error.message:String(error)});
+      }
     }else{
       const task=plan[index-BOOTSTRAP_SOURCES.length];
       query=task.query;
@@ -264,8 +270,9 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
           .map(item=>item.value));
       }
 
-      // Web search is only an optional seed source. A 429 or temporary backend
-      // failure must never stop the Discovery run.
+      // Web search is only a seed source, but an attempted workbook query is not
+      // considered consumed unless the search backend actually answered it.
+      let searchFailureReason='';
       if(!sources.length&&Date.now()>=searchBlockedUntil){
         const queries=[task.query+' "chat.whatsapp.com"',...(task.alias?[task.alias+' "chat.whatsapp.com"']:[]),task.query+' WhatsApp'];
         const seen=new Set();
@@ -279,29 +286,31 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
             const candidates=rankTelegramSources(html,task.place).map(telegramWhatsAppSearchPreview).filter(url=>url&&!seen.has(url)).slice(0,MAX_SEARCH_SOURCES);
             for(const url of candidates)seen.add(url);
             const pages=await Promise.allSettled(candidates.map(url=>telegramSource(url,searchQuery,task.place,fetcher)));
-            sources.push(...pages
-              .filter(item=>item.status==='fulfilled'&&item.value?.text)
-              .map(item=>item.value));
+            const fulfilled=pages.filter(item=>item.status==='fulfilled');
+            sources.push(...fulfilled.filter(item=>item.value?.text).map(item=>item.value));
+            if(candidates.length&&fulfilled.length===0)throw new Error('telegram_source_fetch_failed');
             if(sources.length)break;
           }catch(error){
             const reason=error instanceof Error?error.message:String(error);
-            if(/(?:search_rate_limited|source_http_429|curl.*(?:22|429)|too many requests)/iu.test(reason)){
-              searchBlockedUntil=Date.now()+SEARCH_BLOCK_COOLDOWN_MS;
-              break;
-            }
+            searchFailureReason=reason||'search_failed';
+            const blocked=/(?:search_rate_limited|search_blocked|source_http_429|too many requests|captcha|verify (?:that )?you are human)/iu.test(searchFailureReason);
+            searchBlockedUntil=Date.now()+(blocked?SEARCH_BLOCK_COOLDOWN_MS:SEARCH_RETRY_COOLDOWN_MS);
+            break;
           }
         }
       }
-      if(!sources.length&&Date.now()<searchBlockedUntil){
+      if(!sources.length&&(searchFailureReason||Date.now()<searchBlockedUntil)){
         return {
-          searched:attempted,nextCursor:index,done:false,totalTasks,query,sources:[],errors:[],
-          deferred:true,retryAfterMs:Math.max(1000,searchBlockedUntil-Date.now()),
+          searched:attempted,nextCursor:index,done:false,totalTasks,query,sources:[],errors:[],warnings,
+          deferred:true,
+          deferredReason:searchFailureReason||'search_cooldown',
+          retryAfterMs:Math.max(1000,searchBlockedUntil-Date.now()),
         };
       }
     }
-    return {searched:attempted,nextCursor:index+1,done:index+1>=totalTasks,totalTasks,query,sources,errors:[],deferred:false,retryAfterMs:0};
+    return {searched:attempted,nextCursor:index+1,done:index+1>=totalTasks,totalTasks,query,sources,errors:[],warnings,deferred:false,retryAfterMs:0};
   }catch(error){
-    return {searched:attempted,nextCursor:index,done:false,totalTasks,query,sources:[],errors:[{cursor:index,query,reason:error instanceof Error?error.message:String(error)}]};
+    return {searched:attempted,nextCursor:index,done:false,totalTasks,query,sources:[],errors:[{cursor:index,query,reason:error instanceof Error?error.message:String(error)}],warnings};
   }
 }
 
@@ -406,11 +415,11 @@ async function fetchText(url,fetcher,timeout,limit) {
         const marker='__WORK_OS_HTTP_STATUS__';
         const {stdout}=await execFile('/usr/bin/curl',[
           '-L','-sS','--compressed','--max-time',String(Math.ceil(timeout/1000)),
-          '-A',USER_AGENT,'-H','Accept-Language: uk,en;q=0.8','-w','\\n'+marker+'%{http_code}',url,
+          '-A',USER_AGENT,'-H','Accept-Language: uk,en;q=0.8','-w',marker+'%{http_code}',url,
         ],{encoding:'utf8',maxBuffer:Math.max(limit+200000,700000)});
         const raw=String(stdout||'');
-        const markerIndex=raw.lastIndexOf('\\n'+marker);
-        const status=markerIndex>=0?Number(raw.slice(markerIndex+marker.length+1)):0;
+        const markerIndex=raw.lastIndexOf(marker);
+        const status=markerIndex>=0?Number(raw.slice(markerIndex+marker.length)):0;
         text=markerIndex>=0?raw.slice(0,markerIndex):raw;
         if(status===429)throw new Error('search_rate_limited · '+host);
         if(status>=400)throw new Error('source_http_'+status+' · '+host);

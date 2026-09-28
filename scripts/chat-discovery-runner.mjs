@@ -371,6 +371,7 @@ async function crawlLocalDiscoveryBatch(cursor){
   const width=start>=15?2:1;
   const batches=await Promise.all(Array.from({length:width},(_,index)=>crawlLocalDiscoverySource(start+index,{seedData})));
   const errors=batches.flatMap(item=>item.errors||[]);
+  const warnings=batches.flatMap(item=>item.warnings||[]);
   const deferredIndex=batches.findIndex(item=>item?.deferred===true);
   const usable=deferredIndex>=0?batches.slice(0,deferredIndex):batches;
   const retryAfterMs=deferredIndex>=0?Math.max(1000,Number(batches[deferredIndex]?.retryAfterMs)||1000):0;
@@ -381,7 +382,7 @@ async function crawlLocalDiscoveryBatch(cursor){
     deferred:deferredIndex>=0,
     retryAfterMs,
     totalTasks:batches.find(item=>Number.isFinite(item.totalTasks))?.totalTasks||0,
-    errors,
+    errors,warnings,
     query:batches.map(item=>item?.query||'').filter(Boolean).join(' | '),
     sources:errors.length?[]:usable.flatMap(item=>Array.isArray(item?.sources)?item.sources:[]),
   };
@@ -397,9 +398,12 @@ function startLocalSourceRefill(initialLocal){
         if(wait>0)await sleep(wait);
         const cursor=Number(local.sourceCursor)||0;
         const batch=await crawlLocalDiscoveryBatch(cursor);
+        if(Array.isArray(batch.warnings)&&batch.warnings.length){
+          for(const warning of batch.warnings.slice(0,4))console.warn('Discovery source warning: '+String(warning?.query||'source')+' · '+String(warning?.reason||'unavailable'));
+        }
         if(batch.deferred===true){
           nextLocalSourceAt=Date.now()+Math.max(1000,Number(batch.retryAfterMs)||LOCAL_SOURCE_MIN_MS);
-          console.warn('Discovery source query deferred without advancing cursor because external search is cooling down.');
+          console.warn('Discovery source query deferred without advancing cursor because the external search attempt did not complete.');
           break;
         }
         const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp});
@@ -436,8 +440,34 @@ async function runOnce(){
           try{
             const health=await readWhatsappHomeHealthViaCdp({cdpBaseUrl:whatsappCdp});
             if(health.kind==='result'&&health.home===true){
-              if(health.ready!==true)return 'local_wait';
-              if(whatsappHomeRecoveryPending){
+              if(health.authenticated!==true){
+                markWhatsappRuntimeBlocked('whatsapp_not_authenticated');
+                return 'local_wait';
+              }
+              if(health.ready!==true){
+                if(health.loading===true){
+                  whatsappLoadingSignals+=1;
+                  if(whatsappLoadingSignals===1)console.warn('WhatsApp Web home is still loading; waiting before metadata qualification.');
+                  const canReload=whatsappLoadingSignals>=WHATSAPP_LOADING_RELOAD_AFTER
+                    &&Date.now()-lastWhatsappReloadAt>=WHATSAPP_LOADING_RELOAD_COOLDOWN_MS;
+                  if(canReload){
+                    try{
+                      const reset=await resetWhatsappPageViaCdp({cdpBaseUrl:whatsappCdp});
+                      if(reset.kind==='result'){
+                        lastWhatsappReloadAt=Date.now();
+                        whatsappLoadingSignals=0;
+                        whatsappHomeRecoveryPending=true;
+                        whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+WHATSAPP_LOADING_COOLDOWN_MS);
+                        console.warn('WhatsApp Web stayed on message loading; reloaded home and will resume after cooldown.');
+                      }
+                    }catch(error){
+                      console.warn('WhatsApp Web recovery reload failed: '+(error instanceof Error?error.message:String(error)));
+                    }
+                  }
+                }
+                return 'local_wait';
+              }
+              if(whatsappHomeRecoveryPending||whatsappLoadingSignals>0){
                 whatsappHomeRecoveryPending=false;
                 whatsappLoadingSignals=0;
                 console.log('WhatsApp Web home is ready again; resuming queued Discovery candidates.');

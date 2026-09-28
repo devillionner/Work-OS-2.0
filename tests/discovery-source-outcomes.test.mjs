@@ -214,18 +214,38 @@ void test('runtime crawl requires the source plan instead of private raw GitHub'
   assert.match(result.errors[0].reason,/source_plan_missing/);
 });
 
-void test('HTTP failure retains the cursor and is not exhaustion',async()=>{
+void test('dead bootstrap source is warned and skipped instead of freezing the cursor',async()=>{
   const result=await crawlLocalDiscoverySource(0,{seedData,fetcher:async()=>response('unavailable',503)});
-  assert.equal(result.nextCursor,0);
+  assert.equal(result.nextCursor,1);
   assert.equal(result.done,false);
-  assert.match(result.errors[0].reason,/source_http_503/);
+  assert.equal(result.errors.length,0);
+  assert.match(result.warnings[0].reason,/source_http_503/);
 });
 
-void test('search challenge is an error, never empty success',async()=>{
+void test('search challenge defers the exact query instead of consuming it',async()=>{
   const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async()=>response('<title>Verify you are human</title>')});
   assert.equal(result.nextCursor,15);
   assert.equal(result.done,false);
-  assert.match(result.errors[0].reason,/search_blocked/);
+  assert.equal(result.errors.length,0);
+  assert.equal(result.deferred,true);
+  assert.match(result.deferredReason,/search_blocked/);
+});
+
+void test('temporary external search failure defers without advancing workbook cursor',async()=>{
+  const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async(url)=>{
+    if(String(url).includes('search.brave.com'))return response('temporary',503);
+    return response('<title>Українці</title>');
+  }});
+  assert.equal(result.nextCursor,15);
+  assert.equal(result.deferred,true);
+  assert.match(result.deferredReason,/source_http_503/);
+});
+
+void test('curl HTTP status trailer has no escaped-newline parsing ambiguity',async()=>{
+  const source=await readFile(new URL('../scripts/chat-discovery-source-crawl.mjs',import.meta.url),'utf8');
+  assert.match(source,/'-w',marker\+'%\{http_code\}'/u);
+  assert.match(source,/raw\.lastIndexOf\(marker\)/u);
+  assert.doesNotMatch(source,/lastIndexOf\('\\\\n'\+marker\)/u);
 });
 
 void test('source crawl keeps scanning Telegram history even after a current-page invite',async()=>{
