@@ -38,6 +38,7 @@ const qualificationAttempts=new Map();
 let localSourceSeedData=null;
 let localSourceSeedVersion=0;
 const PAGE_RECOVERY_COOLDOWN_MS=15000;
+const WHATSAPP_LOADING_COOLDOWN_MS=10000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
 const TOKEN_REFRESH_MS=60000;
 const IDLE_POLL_MIN_MS=15000;
@@ -267,6 +268,11 @@ async function processLocalPreflight(task){
     return 'local_wait';
   }
   if(inspected.kind!=='result'){
+    if(inspected.reason==='whatsapp_messages_loading'){
+      whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+WHATSAPP_LOADING_COOLDOWN_MS);
+      console.warn('WhatsApp messages are still loading; pausing UI preflight briefly without penalizing the candidate.');
+      return 'local_wait';
+    }
     if(inspected.reason==='page_not_ready'){
       const attempts=(qualificationAttempts.get(task.candidateId)||0)+1;
       qualificationAttempts.set(task.candidateId,attempts);

@@ -33,6 +33,11 @@ void test('global WhatsApp message loading is deferred without burning the full 
   assert.equal(shouldDeferForGlobalWhatsAppLoading({
     bodyText:'Messages are loading',composer:true,headerNames:['Українці Berlin'],targetHeadings:[],
   }),false);
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  assert.match(adapter,/reason:'whatsapp_messages_loading'/u);
+  const runner=await readFile(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8');
+  assert.match(runner,/WHATSAPP_LOADING_COOLDOWN_MS=10000/u);
+  assert.match(runner,/without penalizing the candidate/u);
 });
 
 void test('real workbook plan is bounded and yield-first instead of exploding past 80k tasks',()=>{

@@ -1076,7 +1076,7 @@ async function waitForClassification(client, task, timeoutMs, afterAction = null
       if(Date.now()-loadingSince>=1_200){
         return {
           kind:'blocked',
-          reason:'page_not_ready',
+          reason:'whatsapp_messages_loading',
           diagnostic:{url:String(snapshot.url||''),globalLoading:true},
         };
       }
