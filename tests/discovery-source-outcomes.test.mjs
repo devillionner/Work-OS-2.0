@@ -471,3 +471,13 @@ void test('WhatsApp metadata maps bad-request and gone invite responses to inval
   assert.match(query,/bad\[- \]request\|gone/);
   assert.match(query,/reason:'invalid_whatsapp_link'/);
 });
+
+void test('Telegram source crawl avoids repeated expensive directory work',async()=>{
+  const source=await readFile(new URL('../scripts/chat-discovery-source-crawl.mjs',import.meta.url),'utf8');
+  assert.match(source,/const MAX_TELEGRAM_HISTORY_PAGES=2/);
+  assert.match(source,/const MAX_GRAPH_SOURCES_PER_STEP=2/);
+  assert.match(source,/const directorySearchCache=new Map\(\)/);
+  assert.match(source,/const directoryResultVisited=new Set\(\)/);
+  assert.match(source,/Promise\.allSettled\(directoryQueries\.map/);
+  assert.match(source,/!directoryAnswered&&Date\.now\(\)>=searchBlockedUntil/);
+});
