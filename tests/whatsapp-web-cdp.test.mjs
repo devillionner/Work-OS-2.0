@@ -740,3 +740,10 @@ void test('verified joined chat opens group info through the profile-details con
   assert.match(source,/profileButton && !profileButton\.hasAttribute\('disabled'\)/);
   assert.match(source,/profileButton\.click\(\)/);
 });
+
+
+void test('exact invite join can bind the resulting joined header without waiting for a join system message',()=>{
+  assert.match(source,/afterAction === 'join'/);
+  assert.match(source,/snapshot\.joinConfirmedAfterExactInvite = true/);
+  assert.match(source,/snapshot\.joinConfirmedAfterExactInvite === true/);
+});
