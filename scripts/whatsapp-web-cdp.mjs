@@ -1019,6 +1019,25 @@ export async function sendWhatsappAutopostViaCdp(
   }
 }
 
+export async function readWhatsappHomeHealthViaCdp({cdpBaseUrl}={}) {
+  if(!cdpBaseUrl)return {kind:'blocked',reason:'cdp_not_configured'};
+  const base=normalizeLocalCdpBaseUrl(cdpBaseUrl);
+  if(!base)return {kind:'blocked',reason:'cdp_not_local'};
+  const page=await findOrCreateWhatsappPage(base);
+  if(!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl))return {kind:'blocked',reason:'cdp_websocket_not_local'};
+  const client=await createCdpClient(page.webSocketDebuggerUrl);
+  try{
+    await client.send('Runtime.enable');
+    const snapshot=await readSnapshot(client);
+    const bodyText=String(snapshot?.bodyText||'');
+    const homeUrl=String(snapshot?.url||'');
+    const home=homeUrl==='https://web.whatsapp.com/'||homeUrl==='https://web.whatsapp.com';
+    const loading=messagesLoadingPattern.test(bodyText);
+    const authenticated=snapshot?.hasQr!==true&&!authPattern.test(bodyText);
+    return {kind:'result',home,loading,authenticated,ready:home&&authenticated&&!loading};
+  }finally{client.close();}
+}
+
 export async function resetWhatsappPageViaCdp({cdpBaseUrl}={}) {
   if(!cdpBaseUrl)return {kind:'blocked',reason:'cdp_not_configured'};
   const base=normalizeLocalCdpBaseUrl(cdpBaseUrl);

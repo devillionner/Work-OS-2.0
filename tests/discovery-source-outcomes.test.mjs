@@ -26,6 +26,21 @@ void test('workbook plan includes compatible keywords, countries and city aliase
   assert.ok(plan.every(item=>!item.query.includes('назва села')));
 });
 
+void test('Discovery waits for a healthy WhatsApp home before reopening invite deep links',async()=>{
+  const runner=await readFile(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8');
+  assert.match(runner,/readWhatsappHomeHealthViaCdp/u);
+  assert.match(runner,/health\.home===true/u);
+  assert.match(runner,/health\.ready!==true/u);
+  assert.match(runner,/WhatsApp Web home is ready again/u);
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  const start=adapter.indexOf('export async function readWhatsappHomeHealthViaCdp');
+  const end=adapter.indexOf('export async function resetWhatsappPageViaCdp',start);
+  const block=adapter.slice(start,end);
+  assert.match(block,/messagesLoadingPattern\.test/u);
+  assert.match(block,/authenticated/u);
+  assert.match(block,/ready:home&&authenticated&&!loading/u);
+});
+
 void test('WhatsApp page selection keeps one controlled tab and closes duplicates',async()=>{
   const source=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
   const start=source.indexOf('async function findOrCreateWhatsappPage');

@@ -4,6 +4,7 @@ import process from 'node:process';
 import readline from 'node:readline/promises';
 import {
   inspectWhatsappTaskViaCdp,
+  readWhatsappHomeHealthViaCdp,
   resetWhatsappPageViaCdp,
   queryWhatsappInviteViaCdp,
   leaveWhatsappTaskViaCdp,
@@ -160,6 +161,7 @@ async function inspectTask(task){
 
 let whatsappRuntimeBlockedUntil=0;
 let whatsappLoadingSignals=0;
+let whatsappHomeRecoveryPending=false;
 let lastWhatsappReloadAt=0;
 let nextSourceAdvanceAt=0;
 let nextLocalSourceAt=0;
@@ -283,7 +285,8 @@ async function processLocalPreflight(task){
           if(reset.kind==='result'){
             lastWhatsappReloadAt=Date.now();
             whatsappLoadingSignals=0;
-            whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+15000);
+            whatsappHomeRecoveryPending=true;
+            whatsappRuntimeBlockedUntil=0;
             console.warn('WhatsApp stayed in global loading state; returned to the WhatsApp Web home page once and kept the candidate queued.');
             return 'local_wait';
           }
@@ -461,7 +464,20 @@ async function runOnce(){
       if(local.kind==='result'&&local.active===true){
         startLocalSourceRefill(local);
         if(Date.now()<whatsappRuntimeBlockedUntil)return 'local_wait';
-        if(local.task)return processLocalPreflight(local.task);
+        if(local.task){
+          try{
+            const health=await readWhatsappHomeHealthViaCdp({cdpBaseUrl:whatsappCdp});
+            if(health.kind==='result'&&health.home===true){
+              if(health.ready!==true)return 'local_wait';
+              if(whatsappHomeRecoveryPending){
+                whatsappHomeRecoveryPending=false;
+                whatsappLoadingSignals=0;
+                console.log('WhatsApp Web home is ready again; resuming queued Discovery candidates.');
+              }
+            }
+          }catch{}
+          return processLocalPreflight(local.task);
+        }
         return 'local_wait';
       }
     }catch(error){
