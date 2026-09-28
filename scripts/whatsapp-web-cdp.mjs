@@ -545,6 +545,7 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
             .sort((a,b)=>priority(b)-priority(a))[0]||null;
           return {
             active:state?.running===true,
+            runId:String(state?.runId||''),
             goal:Number(state?.goal)||0,
             sourceCursor:Number(state?.telegramCursor)||0,
             sourceExhausted:state?.sourceExhausted===true,
@@ -612,7 +613,7 @@ export async function readWorkOsLocalDiscoverySeedDataViaCdp(
 export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
   workOsUrl,
   batch,
-  { cdpBaseUrl } = {},
+  { cdpBaseUrl, expectedRunId='' } = {},
 ) {
   const pagesResult=await listWorkOsPagesForCdp(workOsUrl,cdpBaseUrl);
   if(pagesResult.kind==='blocked')return pagesResult;
@@ -641,6 +642,8 @@ export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
           if(!raw)return {applied:false,reason:'state_missing'};
           let state;try{state=JSON.parse(raw);}catch{return {applied:false,reason:'state_invalid'};}
           if(state?.running!==true)return {applied:false,reason:'not_running'};
+          const expectedRunId=${JSON.stringify(String(expectedRunId||''))};
+          if(expectedRunId&&String(state?.runId||'')!==expectedRunId)return {applied:false,reason:'run_changed'};
           const batch=${JSON.stringify(safeBatch)};
           const byKey=new Map((Array.isArray(state.candidates)?state.candidates:[]).map(item=>[String(item.platform)+'|'+String(item.link),item]));
           let added=0,duplicates=0,rejected=0,errors=batch.errors.length;
