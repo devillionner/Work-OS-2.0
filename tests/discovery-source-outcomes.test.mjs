@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { crawlLocalDiscoverySource, workbookSearchPlan, discoverRelatedTelegramSources, telegramWhatsAppSearchPreview } from '../scripts/chat-discovery-source-crawl.mjs';
+import { crawlLocalDiscoverySource, workbookSearchPlan, discoverRelatedTelegramSources, telegramWhatsAppSearchPreview, extractRelevantInviteSnippets } from '../scripts/chat-discovery-source-crawl.mjs';
 import { shouldDeferForGlobalWhatsAppLoading } from '../scripts/whatsapp-web-cdp.mjs';
 
 const realSeedSource=await readFile(new URL('../lib/chat-discovery/seeds.ts',import.meta.url),'utf8');
@@ -131,14 +131,16 @@ void test('global WhatsApp message loading is deferred without burning the full 
   assert.match(runner,/without penalizing the candidate/u);
 });
 
-void test('real workbook plan is bounded and yield-first instead of exploding past 80k tasks',()=>{
+void test('real workbook plan is exhaustive while keeping high-yield queries first',()=>{
   const plan=workbookSearchPlan(realSeed);
-  assert.ok(plan.length>500,'plan should keep broad coverage');
-  assert.ok(plan.length<3000,'bounded plan should stay operator-usable');
+  assert.ok(plan.length>80000,'all valid workbook city/template combinations should remain reachable');
   assert.ok(plan.slice(0,40).some(item=>item.query.includes('Німеччина')));
   assert.ok(plan.slice(0,40).some(item=>item.query.includes('Польща')));
   assert.ok(plan.some(item=>/Батьки|Мамочки/iu.test(item.query)));
   assert.ok(plan.some(item=>/Оренда|Зніму житло/iu.test(item.query)));
+  const last=realSeed.cities.at(-1);
+  const lastPlace=String(last?.uk||last?.name||'');
+  assert.ok(plan.some(item=>item.place===lastPlace),'deep workbook tail must not be dropped');
 });
 
 void test('discovered Telegram sources use channel-level WhatsApp search',()=>{
@@ -184,6 +186,25 @@ void test('search cooldown never consumes an unsearched workbook query',async()=
   assert.ok(result.retryAfterMs>=1000);
 });
 
+
+void test('local-language Ukrainian identities keep WhatsApp invites in Telegram extraction',()=>{
+  for(const title of [
+    'Ucranianos en Valencia',
+    'Ucraini in Italia',
+    'Ukraińcy w Warszawie',
+    'Ukrajinci v Praze',
+    'Oekraïners in Nederland',
+  ]){
+    const found=extractRelevantInviteSnippets('<p>'+title+' спільнота '+invite+'</p>',title);
+    assert.ok(found.some(item=>item.includes(invite)),title);
+  }
+});
+
+void test('WhatsApp topic matcher includes local-language Ukrainian identity roots',async()=>{
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  const identity=adapter.match(/const ukrainianIdentityPattern = ([^;]+);/u)?.[1]||'';
+  for(const root of ['ukraiń','ukrajin','ucrain','ucran','oekra'])assert.ok(identity.includes(root),root);
+});
 void test('runtime crawl requires the source plan instead of private raw GitHub',async()=>{
   const source=await readFile(new URL('../scripts/chat-discovery-source-crawl.mjs',import.meta.url),'utf8');
   assert.doesNotMatch(source,/raw\.githubusercontent\.com/iu);

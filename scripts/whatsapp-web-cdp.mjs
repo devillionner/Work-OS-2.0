@@ -21,13 +21,13 @@ const confirmLeavePattern = /^(?:exit(?: group)?|leave(?: group)?|вийти(?: 
 const leftPattern = /(?:you (?:left|are no longer a participant)|ви (?:вийшли|більше не (?:є учасником|її учасник|учасник))|вы (?:вышли|больше не (?:являетесь участником|ее участник|участник)))/iu;
 const joinedViaInvitePattern = /(?:you (?:joined|were added) (?:via|using|through) (?:an? )?(?:invite|invitation|invite link)|joined (?:via|using) (?:the )?(?:group )?invite|ви приєдналися за (?:посиланням[- ]?)?запрошенням|вы присоединились по (?:ссылке[- ]?)?приглашени[юя])/iu;
 const spamPattern = /(?:crypto|крипт|bitcoin|forex|casino|казино|betting|ставк[аи]|dating|знакомств|знайомств|escort|ескорт|onlyfans|adult|18\+|nft|airdrop|signals?\b|binary options)/iu;
-const ukrainianIdentityPattern = /(?:україн|украин|ukrain|🇺🇦)/iu;
+const ukrainianIdentityPattern = /(?:україн|украин|ukrain|ukraiń|ukrajin|ucrain|ucran|oekra|🇺🇦)/iu;
 const adsForbiddenPattern = /(?:no\s+(?:ads?|advertis(?:ing|ements?))|advertis(?:ing|ements?)\s+(?:is\s+)?(?:forbidden|prohibited)|(?:реклам[ауи]|оголошення)\s+(?:суворо\s+)?заборонен|без\s+реклами|(?:реклам[ауы]|объявления)\s+(?:строго\s+)?запрещен|без\s+рекламы)/iu;
 const adsAllowedPattern = /(?:ads?\s+allowed|advertis(?:ing|ements?)\s+allowed|оголошення\s+дозволен|реклам[ауи]\s+дозволен|объявления\s+разрешен|реклам[ауы]\s+разрешен)/iu;
 const adLikeMessagePattern = /(?:продам|продаю|продаж|куплю|купую|віддам|отдам|обмін|обмен|шукаю|ищу|послуг|услуг|урок|репетитор|оренд|аренд|здам|сдам|робот[ауи]|работ[ауи]|ваканс|доставк|перевез|advert|for\s+sale|give\s+away|exchange|looking\s+for|services?|rent|job|vacanc)/iu;
 const recentActivityPattern = /(?:^|\s)(?:today|yesterday|сьогодні|вчора|сегодня|вчера)(?:\s|$)/iu;
 const messagesLoadingPattern = /(?:messages are loading|повідомлення завантажуються|сообщения загружаются|не закривайте це вікно|keep this window open)/iu;
-const ukrainianConversationPattern = /(?:україн|украин|🇺🇦|\bвпо\b|біжен|переселен|\bгрн\b|доброго дня|будь ласка|оголошення|послуг[аи]|репетитор)/iu;
+const ukrainianConversationPattern = /(?:україн|украин|ukraiń|ukrajin|ucrain|ucran|oekra|🇺🇦|\bвпо\b|біжен|переселен|\bгрн\b|доброго дня|будь ласка|оголошення|послуг[аи]|репетитор)/iu;
 
 export function normalizeTargetLabel(value) {
   return String(value || '')

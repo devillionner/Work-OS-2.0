@@ -21,7 +21,7 @@ const BOOTSTRAP_SOURCES = [
   ['Українці · Лондон','https://t.me/s/ukrainianlondon?q=WhatsApp','Лондон'],
 ];
 const pageCache = new Map();
-const UA = /(?:україн|украин|ukrain|🇺🇦)/iu;
+const UA = /(?:україн|украин|ukrain|ukraiń|ukrajin|ucrain|ucran|oekra|🇺🇦)/iu;
 const SPAM = /(?:crypto|bitcoin|forex|casino|казино|betting|dating|escort|onlyfans|nft|airdrop|signals?\b|قروبات|روابط\s+مجموعات|مجموعات\s+واتساب|technical\s+support)/iu;
 const MAX_TELEGRAM_HISTORY_PAGES=4;
 const MAX_SEARCH_SOURCES=5;
