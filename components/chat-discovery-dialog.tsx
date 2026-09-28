@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import type { DiscoveryCandidate, DiscoveryDecision, DiscoveryRun } from '@/lib/chat-discovery/domain';
 import type { DiscoveryPlatform, TelegramSearchPlan } from '@/lib/chat-discovery/public-web';
 import type { LocalDiscoveryPreview } from '@/lib/chat-discovery/local-preview';
+import chatDiscoverySeeds from '@/lib/chat-discovery/seeds';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 
 type Workspace = {
@@ -81,6 +82,7 @@ const EMPTY_COUNTS: Record<DiscoveryDecision, number> = {
 };
 const LOCAL_PREVIEW_KEY='work-os:chat-discovery-local-preview:v3';
 const LOCAL_PREFLIGHT_RESULTS_KEY='work-os:chat-discovery-local-preflight-results:v1';
+const LOCAL_SOURCE_SEEDS_KEY='work-os:chat-discovery-source-seeds:v1';
 const EMPTY_LOCAL_PREVIEW:LocalPreviewSession={
   sourceTotal:0,sourceErrors:0,sourceFailures:0,sourceIssues:[],
   telegramCursor:0,sourceCursor:0,searched:0,processed:0,duplicates:0,rejected:0,emptySourceBatches:0,
@@ -248,6 +250,8 @@ export function ChatDiscoveryDialog({
     if(telegramBusy)return;
     setError('');
     setNotice('');
+    try{window.sessionStorage.setItem(LOCAL_SOURCE_SEEDS_KEY,JSON.stringify(chatDiscoverySeeds));}
+    catch{setError('Не вдалося підготувати локальний план пошуку в цій вкладці.');return;}
     if(localPreview.completionReason==='source_error'){
       setLocalPreview(current=>({...current,running:true,done:false,sourceFailures:0,sourceIssues:[],completionReason:null,lastActivityAt:Date.now()}));
       setNotice('Продовжуємо з запиту, який не вдалося виконати.');

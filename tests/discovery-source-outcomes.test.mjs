@@ -102,12 +102,14 @@ void test('unknown qualification has bounded retries and never leaves a joined c
   assert.equal(outcomes[0].result.status,'incomplete');
 });
 
-void test('source plan is fetched through the authorized Work OS page',async()=>{
+void test('source plan is read from the authorized Work OS browser session without HTTP',async()=>{
   const source=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
   const fn=source.slice(source.indexOf('export async function readWorkOsLocalDiscoverySeedDataViaCdp'),source.indexOf('export async function applyWorkOsLocalDiscoverySourceBatchViaCdp')).replace('export ','');
+  assert.doesNotMatch(fn,/fetch\s*\(/u);
   const {runInNewContext}=await import('node:vm');
   const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
-  const sandbox={fetch:async()=>Response.json({version:7,seedData})};
+  const store=new Map([['work-os:chat-discovery-source-seeds:v1',JSON.stringify({...seedData,version:7})]]);
+  const sandbox={sessionStorage:{getItem:key=>store.get(key)||null}};
   const run=new AsyncFunction('listWorkOsPagesForCdp','createCdpClient','sandbox','runInNewContext',
     fn+'\nreturn readWorkOsLocalDiscoverySeedDataViaCdp(\'https://staging.example\',{});');
   const result=await run(async()=>({pages:[{webSocketDebuggerUrl:'local'}]}),async()=>({
@@ -116,6 +118,11 @@ void test('source plan is fetched through the authorized Work OS page',async()=>
   assert.equal(result.kind,'result');
   assert.equal(result.version,7);
   assert.equal(result.seedData.cities[0].name,'Berlin');
+});
+
+void test('autonomous search writes the source plan into browser session storage',async()=>{
+  const source=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  assert.match(source,/sessionStorage\.setItem\(LOCAL_SOURCE_SEEDS_KEY,JSON\.stringify\(chatDiscoverySeeds\)\)/u);
 });
 
 void test('source bridge keeps cursor on preview failure and reports a resumable stop',async()=>{
