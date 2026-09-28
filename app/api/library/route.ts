@@ -143,6 +143,5 @@ export async function POST(request: Request): Promise<Response> {
 type LibraryRow = { id: string; kind: string; collection:string; version:number; title: string; uk_text: string; ru_text: string; notes: string; tags_json: string; platforms_json: string; archived_at:number|null; created_at: number; updated_at: number };
 function publicItem(row: LibraryRow,usedTodayPlatforms:string[]) { return { id: row.id, kind: row.kind, collection:row.collection, version:Number(row.version), title: row.title, ukText: row.uk_text, ruText: row.ru_text, notes: row.notes, tags: parseList(row.tags_json), platforms: parseList(row.platforms_json), usedTodayPlatforms, archivedAt:row.archived_at, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function parseList(value: string): string[] { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []; } catch { return []; } }
-function escapeLike(value: string) { return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_'); }
 function positiveInteger(value:unknown){const number=Number(value);return Number.isSafeInteger(number)&&number>0?number:null;}
 
