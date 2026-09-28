@@ -73,12 +73,14 @@ export function workbookSearchPlan(seed) {
     for(let index=0;index<limit;index++)for(const cities of buckets.values())if(cities[index])result.push(cities[index]);
     return result;
   };
-  const top20=interleave(20);
-  const top20Keys=new Set(top20.map(city=>String(city.country)+'|'+String(city.uk||city.name)));
-  const top50Tail=interleave(50).filter(city=>!top20Keys.has(String(city.country)+'|'+String(city.uk||city.name)));
-  const coreTemplates=cityTemplates.slice(0,12);
-  const remainingTemplates=cityTemplates.slice(12);
-  const fallbackTemplates=cityTemplates.slice(0,2);
+  const fastCities=interleave(5);
+  const broadCities=interleave(20);
+  const fastTemplates=cityTemplates.filter(template=>
+    /назва міста чат|Українці в|Ukrainian in|Ukrainians|батьки|мамоч|барахол|перевіз|перевез/iu.test(template)
+  ).slice(0,7);
+  const broadTemplates=cityTemplates.filter(template=>
+    /назва міста чат|Українці в|Ukrainian in|Ukrainians/iu.test(template)
+  ).slice(0,2);
   const tasks=[];
   const seenQueries=new Set();
   const push=task=>{
@@ -90,24 +92,28 @@ export function workbookSearchPlan(seed) {
     seenQueries.add(key);
     tasks.push({...task,query,alias});
   };
+
+  // Fast lane: country-level communities first, then only the strongest city
+  // intents for the largest cities in every country. These are the most likely
+  // to yield 700+ writable community/parents/marketplace/transport groups.
   for(const country of buckets.keys()){
     push({place:country,query:'Українці '+country,alias:''});
-    push({place:country,query:'Ukrainians '+country,alias:''});
     push({place:country,query:country+' WhatsApp українці',alias:''});
+    push({place:country,query:'Оголошення '+country+' українці',alias:''});
   }
+  for(const city of fastCities)for(const template of fastTemplates){
+    const place=String(city.uk||city.name);
+    push({place,query:render(template,place),alias:city.name!==place?render(template,city.name):''});
+  }
+  for(const city of broadCities)for(const template of broadTemplates){
+    const place=String(city.uk||city.name);
+    push({place,query:render(template,place),alias:city.name!==place?render(template,city.name):''});
+  }
+
+  // Then broaden country-level intent coverage before entering the exhaustive
+  // workbook tail. Full coverage remains available, but it no longer delays the
+  // high-yield search path for a small target goal.
   for(const country of buckets.keys())for(const template of countryTemplates)push({place:country,query:render(template,country),alias:''});
-  for(const city of top20)for(const template of coreTemplates){
-    const place=String(city.uk||city.name);
-    push({place,query:render(template,place),alias:city.name!==place?render(template,city.name):''});
-  }
-  for(const city of interleave(8))for(const template of remainingTemplates){
-    const place=String(city.uk||city.name);
-    push({place,query:render(template,place),alias:city.name!==place?render(template,city.name):''});
-  }
-  for(const city of top50Tail)for(const template of fallbackTemplates){
-    const place=String(city.uk||city.name);
-    push({place,query:render(template,place),alias:city.name!==place?render(template,city.name):''});
-  }
 
   // Fast high-yield tiers stay first, but the tail is exhaustive: every valid
   // city/template pair from the workbook is eventually searched. push() keeps
