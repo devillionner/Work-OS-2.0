@@ -1188,6 +1188,11 @@ async function waitForJoinedChatReady(client, timeoutMs=12_000) {
 async function enrichJoinedQualification(client, task, result) {
   const before = await waitForJoinedChatReady(client);
   let combined = { ...deriveWhatsappQualification(before) };
+  const minMembers=Math.max(700,Number(task.minMembers)||700);
+  const maxMembers=18000;
+  if(Number.isFinite(combined.memberCount)&&(combined.memberCount<minMembers||combined.memberCount>maxMembers)){
+    return { ...result, ...combined };
+  }
   const expectedName = result.observedName || task.expectedTarget?.name || task.name;
   if (expectedName && await clickExactHeader(client, expectedName)) {
     const expected = normalizeTargetLabel(expectedName);
