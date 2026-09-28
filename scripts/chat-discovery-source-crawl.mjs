@@ -103,6 +103,14 @@ export function workbookSearchPlan(seed) {
     const place=String(city.uk||city.name);
     push({place,query:render(template,place),alias:city.name!==place?render(template,city.name):''});
   }
+
+  // Fast high-yield tiers stay first, but the tail is exhaustive: every valid
+  // city/template pair from the workbook is eventually searched. push() keeps
+  // this tail deduplicated against the priority tiers above.
+  for(const cities of buckets.values())for(const city of cities)for(const template of cityTemplates){
+    const place=String(city.uk||city.name);
+    push({place,query:render(template,place),alias:city.name!==place?render(template,city.name):''});
+  }
   return tasks;
 }
 

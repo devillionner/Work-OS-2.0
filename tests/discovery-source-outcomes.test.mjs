@@ -26,6 +26,20 @@ void test('workbook plan includes compatible keywords, countries and city aliase
   assert.ok(plan.every(item=>!item.query.includes('назва села')));
 });
 
+void test('workbook plan eventually covers every valid city/template pair beyond the priority tiers',()=>{
+  const cities=Array.from({length:60},(_,index)=>({
+    country:'Тестова країна',name:'City'+index,uk:'Місто'+index,population:6000-index,
+  }));
+  const exhaustiveSeed={
+    keywords:['Назва міста чат','Українці в місті (назва міста)','Батьки + назва міста'],
+    cities,
+  };
+  const plan=workbookSearchPlan(exhaustiveSeed);
+  assert.ok(plan.some(item=>item.query==='Батьки Місто59'),'deep-tail city/template pair must be searchable');
+  assert.ok(plan.some(item=>item.alias==='Батьки City59'),'deep-tail Latin alias must be searchable');
+});
+
+
 void test('retries on the same WhatsApp invite do not restart deep-link loading',async()=>{
   const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
   const start=adapter.indexOf('export async function inspectWhatsappTaskViaCdp');
