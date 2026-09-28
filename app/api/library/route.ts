@@ -36,7 +36,7 @@ export async function GET(request: Request): Promise<Response> {
   const normalizedSearch=normalizeUnicodeSearchText(search);
   const subjectTerms=subjectSearchVariants(search).map(normalizeUnicodeSearchText);
   const today=businessDate(Math.floor(Date.now()/1000));
-  const cacheRequest=await revisionCacheRequest(env.DB,user.id,'library',`${kind}:${collection}:${archived ? 1 : 0}:${search}:${today}`);
+  const cacheRequest=await revisionCacheRequest(env.DB,user.id,'library',`unicode-v1:${kind}:${collection}:${archived ? 1 : 0}:${search}:${today}`);
   const cached=await matchRevisionJson(cacheRequest);
   if(cached)return cached;
   const libraryLimit=normalizedSearch?'':' LIMIT 200';
