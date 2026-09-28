@@ -45,6 +45,8 @@ const WHATSAPP_LOADING_COOLDOWN_MS=10000;
 const WHATSAPP_LOADING_RELOAD_AFTER=3;
 const WHATSAPP_LOADING_RELOAD_COOLDOWN_MS=120000;
 const WHATSAPP_INVITE_LOADING_COOLDOWN_MS=120000;
+const METADATA_RETRY_COOLDOWN_MS=60000;
+const METADATA_INCOMPLETE_COOLDOWN_MS=60000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
 const TOKEN_REFRESH_MS=60000;
 const IDLE_POLL_MIN_MS=15000;
@@ -223,10 +225,17 @@ async function processLocalPreflight(task){
   try{
     queried=await queryWhatsappInviteViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:4_000});
   }catch(error){
-    console.warn(`Invite metadata unavailable; using the exact-invite UI: ${error instanceof Error?error.message:String(error)}`);
+    markTaskBlocked(task,'metadata_query_error',METADATA_RETRY_COOLDOWN_MS);
+    console.warn(`Invite metadata query failed; deferred without opening WhatsApp UI: ${error instanceof Error?error.message:String(error)}`);
+    return 'local_task';
   }
-  // Internal WhatsApp modules are optional. Their failure is not evidence that a chat is unavailable.
-  const pre=queried?.kind==='result'?{...queried.result}:{};
+  if(queried?.kind!=='result'){
+    const reason=queried?.reason||'metadata_query_unavailable';
+    markTaskBlocked(task,reason,METADATA_RETRY_COOLDOWN_MS);
+    console.warn(`Invite metadata unavailable (${reason}); deferred so another candidate can continue.`);
+    return 'local_task';
+  }
+  const pre={...queried.result};
   if(pre.reason==='invalid_whatsapp_link'){
     await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
       decision:'unavailable',reasonCodes:['invalid_whatsapp_link'],result:pre,completedAt:Date.now(),
@@ -242,6 +251,11 @@ async function processLocalPreflight(task){
     return 'local_task';
   }
   const minMembers=Math.max(700,Number(task.minMembers)||700);
+  if(!Number.isFinite(pre.memberCount)){
+    markTaskBlocked(task,'metadata_member_count_unknown',METADATA_INCOMPLETE_COOLDOWN_MS);
+    console.warn(`Invite metadata has no member count; deferred without opening WhatsApp UI (${pre.observedName||task.name}).`);
+    return 'local_task';
+  }
   const preReasons=[];
   if(Number.isFinite(pre.memberCount)&&pre.memberCount<minMembers)preReasons.push('too_few_members');
   else if(Number.isFinite(pre.memberCount)&&pre.memberCount>18000)preReasons.push('too_many_members');

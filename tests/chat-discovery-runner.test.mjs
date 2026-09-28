@@ -183,7 +183,7 @@ void test('local Discovery can refill sources while WhatsApp qualification is in
 
 
 void test('local Discovery keeps a local source pump filled while WhatsApp runs',()=>{
-  assert.match(source,/while\(local\?\.active===true&&local\.sourceExhausted!==true&&Number\(local\.queuedCount\|\|0\)<8\)/);
+  assert.match(source,/while\(local\?\.active===true&&local\.sourceExhausted!==true&&Number\(local\.queuedCount\|\|0\)<LOCAL_SOURCE_TARGET_QUEUE\)/);
   assert.match(source,/startLocalSourceRefill\(local\);/);
   assert.doesNotMatch(source,/await startLocalSourceRefill\(local\)/);
 });
@@ -202,4 +202,15 @@ void test('source cooldown is deferred without advancing cursor and local queue 
   assert.match(source,/batch\.deferred===true/);
   assert.match(source,/without advancing cursor/);
   assert.match(source,/queuedCount\|\|0\)<LOCAL_SOURCE_TARGET_QUEUE/);
+});
+
+void test('local Discovery metadata-screens before any heavy WhatsApp invite UI',()=>{
+  const start=source.indexOf('async function processLocalPreflight');
+  const end=source.indexOf('async function resolveLocalSourceSeedData',start);
+  const process=source.slice(start,end);
+  assert.match(source,/METADATA_RETRY_COOLDOWN_MS=60000/);
+  assert.match(source,/METADATA_INCOMPLETE_COOLDOWN_MS=60000/);
+  assert.match(process,/metadata_member_count_unknown/);
+  assert.match(process,/deferred so another candidate can continue/);
+  assert.ok(process.indexOf('queryWhatsappInviteViaCdp')<process.indexOf('inspectWhatsappTaskViaCdp'));
 });

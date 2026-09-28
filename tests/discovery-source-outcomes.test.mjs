@@ -235,7 +235,7 @@ async function preflightHarness() {
   const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
   return new AsyncFunction('queryWhatsappInviteViaCdp','inspectWhatsappTaskViaCdp','writeWorkOsLocalDiscoveryResultViaCdp','leaveWhatsappTaskViaCdp','repeats',[
     "const whatsappCdp='http://127.0.0.1:9222',baseUrl='https://staging.example';",
-    "const qualificationAttempts=new Map(),INCOMPLETE_QUALIFICATION_COOLDOWN_MS=15000,markTaskBlocked=()=>{};",
+    "const qualificationAttempts=new Map(),INCOMPLETE_QUALIFICATION_COOLDOWN_MS=15000,METADATA_RETRY_COOLDOWN_MS=60000,METADATA_INCOMPLETE_COOLDOWN_MS=60000,markTaskBlocked=()=>{};",
     evaluate,process,
     "for(let i=0;i<repeats;i++)await processLocalPreflight({candidateId:'candidate',minMembers:700});",
   ].join('\n'));
@@ -255,22 +255,27 @@ void test('runner passes invite metadata into joined qualification to avoid redu
   assert.match(adapter,/waitForJoinedChatReady\(client, timeoutMs=8_000\)/u);
 });
 
-void test('metadata failure falls back to exact-invite UI and can yield a target',async()=>{
-  const run=await preflightHarness();
-  const outcomes=[];let inspected=0,left=0;
-  await run(async()=>({kind:'blocked',reason:'page_not_ready'}),async()=>{inspected++;return {kind:'result',result:{
-    status:'inspected',membershipState:'joined',chatType:'group',memberCount:800,topicMatch:'match',canWrite:true,
-    adsPolicy:'allowed',activityState:'active',accessible:true,targetVerified:true,
-  }};},async(_url,_id,payload)=>outcomes.push(payload),async()=>{left++;},1);
-  assert.equal(inspected,1);
-  assert.equal(left,0);
-  assert.equal(outcomes[0].decision,'target');
+void test('metadata failure defers candidate without opening the heavy WhatsApp UI',async()=>{
+  const source=await readFile(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8');
+  const start=source.indexOf('async function processLocalPreflight');
+  const end=source.indexOf('async function resolveLocalSourceSeedData',start);
+  const process=source.slice(start,end);
+  assert.match(process,/queried\?\.kind!==\'result\'/u);
+  assert.match(process,/METADATA_RETRY_COOLDOWN_MS/u);
+  assert.match(process,/deferred so another candidate can continue/u);
+  const metadataFailure=process.indexOf("queried?.kind!=='result'");
+  const heavyUi=process.indexOf('inspectWhatsappTaskViaCdp');
+  assert.ok(metadataFailure>=0&&heavyUi>metadataFailure);
+  assert.match(process.slice(metadataFailure,heavyUi),/return 'local_task'/u);
 });
 
 void test('unknown qualification has bounded retries and never leaves a joined chat',async()=>{
   const run=await preflightHarness();
   const outcomes=[];let left=0;
-  await run(async()=>({kind:'blocked',reason:'page_not_ready'}),async()=>({kind:'result',result:{
+  await run(async()=>({kind:'result',result:{
+    status:'invite_queried',targetVerified:true,accessible:true,observedName:'candidate',chatType:'group',
+    memberCount:800,topicMatch:'match',canWrite:true,approvalRequired:false,description:'',groupId:'group',
+  }}),async()=>({kind:'result',result:{
     status:'inspected',membershipState:'joined',chatType:'group',memberCount:800,topicMatch:'match',canWrite:true,
     adsPolicy:'unknown',activityState:'unknown',accessible:true,targetVerified:true,
   }}),async(_url,_id,payload)=>outcomes.push(payload),async()=>{left++;},3);
