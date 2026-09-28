@@ -1113,6 +1113,14 @@ function readLocalPreviewSession():LocalPreviewSession{
       goal:clampNumber(value.goal,1,100,50),
       lastActivityAt:Number.isFinite(Number(value.lastActivityAt))?Number(value.lastActivityAt):null,
       completionReason:value.completionReason==='goal_reached'||value.completionReason==='sources_exhausted'||value.completionReason==='source_error'?value.completionReason:null,
+      activeCandidateId:typeof value.activeCandidateId==='string'?value.activeCandidateId:null,
+      activeCandidateName:typeof value.activeCandidateName==='string'?value.activeCandidateName:null,
+      activeCandidateLink:typeof value.activeCandidateLink==='string'?value.activeCandidateLink:null,
+      activeCandidateStartedAt:Number.isFinite(Number(value.activeCandidateStartedAt))?Number(value.activeCandidateStartedAt):null,
+      lastCheckedName:typeof value.lastCheckedName==='string'?value.lastCheckedName:null,
+      lastCheckedDecision:value.lastCheckedDecision==='target'||value.lastCheckedDecision==='rejected'||value.lastCheckedDecision==='skipped'||value.lastCheckedDecision==='unavailable'?value.lastCheckedDecision:null,
+      lastCheckedAt:Number.isFinite(Number(value.lastCheckedAt))?Number(value.lastCheckedAt):null,
+      lastCheckedReasonCodes:Array.isArray(value.lastCheckedReasonCodes)?value.lastCheckedReasonCodes.filter((item):item is string=>typeof item==='string').slice(0,8):[],
       candidates,
     };
   }catch{return EMPTY_LOCAL_PREVIEW;}
