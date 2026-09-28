@@ -235,6 +235,48 @@ export async function readWorkOsExecutorTokenViaCdp(
 const WORK_OS_LOCAL_PREVIEW_KEY='work-os:chat-discovery-local-preview:v3';
 const WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY='work-os:chat-discovery-local-preflight-results:v1';
 
+export async function startWorkOsLocalDiscoveryRunViaCdp(
+  workOsUrl,
+  { cdpBaseUrl, goal=50 } = {},
+) {
+  const pagesResult=await listWorkOsPagesForCdp(workOsUrl,cdpBaseUrl);
+  if(pagesResult.kind==='blocked')return pagesResult;
+  const safeGoal=Math.max(1,Math.min(100,Number(goal)||50));
+  for(const page of pagesResult.pages){
+    const client=await createCdpClient(page.webSocketDebuggerUrl);
+    try{
+      const response=await client.send('Runtime.evaluate',{
+        expression:`(()=>{
+          const seedRaw=sessionStorage.getItem('work-os:chat-discovery-source-seeds:v1');
+          if(!seedRaw)return {started:false,reason:'source_plan_missing'};
+          try{
+            const seed=JSON.parse(seedRaw);
+            if(!Array.isArray(seed?.keywords)||!seed.keywords.length||!Array.isArray(seed?.cities)||!seed.cities.length){
+              return {started:false,reason:'source_plan_invalid'};
+            }
+          }catch{return {started:false,reason:'source_plan_invalid'};}
+          const runId=crypto.randomUUID();
+          sessionStorage.removeItem('work-os:chat-discovery-local-preflight-results:v1');
+          const state={
+            runId,sourceTotal:0,sourceErrors:0,sourceFailures:0,sourceIssues:[],
+            telegramCursor:0,sourceCursor:0,searched:0,processed:0,duplicates:0,rejected:0,emptySourceBatches:0,
+            done:false,running:true,sourceExhausted:false,goal:${JSON.stringify(safeGoal)},
+            lastActivityAt:Date.now(),completionReason:null,candidates:[],
+          };
+          sessionStorage.setItem('work-os:chat-discovery-local-preview:v3',JSON.stringify(state));
+          window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
+          return {started:true,runId,goal:state.goal};
+        })()`,
+        returnByValue:true,
+      });
+      const value=response?.result?.value||{};
+      if(value.started===true)return {kind:'result',...value};
+      if(value.reason)return {kind:'blocked',reason:String(value.reason)};
+    }finally{client.close();}
+  }
+  return {kind:'blocked',reason:'work_os_page_not_found'};
+}
+
 export async function readWorkOsLocalDiscoveryTaskViaCdp(
   workOsUrl,
   { cdpBaseUrl, skipCandidateIds=[] } = {},

@@ -173,6 +173,17 @@ void test('web-search 429 does not fail the source step when Telegram graph fall
   assert.ok(result.sources.some(source=>source.text.includes(invite)));
 });
 
+void test('search cooldown never consumes an unsearched workbook query',async()=>{
+  const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async(url)=>{
+    if(String(url).includes('search.brave.com'))return response('Too many requests',429);
+    return response('<title>Українці</title>');
+  }});
+  assert.equal(result.errors.length,0);
+  assert.equal(result.deferred,true);
+  assert.equal(result.nextCursor,15);
+  assert.ok(result.retryAfterMs>=1000);
+});
+
 void test('runtime crawl requires the source plan instead of private raw GitHub',async()=>{
   const source=await readFile(new URL('../scripts/chat-discovery-source-crawl.mjs',import.meta.url),'utf8');
   assert.doesNotMatch(source,/raw\.githubusercontent\.com/iu);

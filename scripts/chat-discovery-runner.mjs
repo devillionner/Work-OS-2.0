@@ -32,6 +32,7 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const TASK_POLL_MS=3000;
 const LOCAL_PREFLIGHT_POLL_MS=1500;
 const LOCAL_SOURCE_MIN_MS=2000;
+const LOCAL_SOURCE_TARGET_QUEUE=30;
 const SOURCE_ADVANCE_MS=20000;
 const EXECUTOR_QUEUE_LIMIT=3;
 const TASK_BLOCK_COOLDOWN_MS=300000;
@@ -418,27 +419,37 @@ async function crawlLocalDiscoveryBatch(cursor){
   const width=start>=15?2:1;
   const batches=await Promise.all(Array.from({length:width},(_,index)=>crawlLocalDiscoverySource(start+index,{seedData})));
   const errors=batches.flatMap(item=>item.errors||[]);
+  const deferredIndex=batches.findIndex(item=>item?.deferred===true);
+  const usable=deferredIndex>=0?batches.slice(0,deferredIndex):batches;
+  const retryAfterMs=deferredIndex>=0?Math.max(1000,Number(batches[deferredIndex]?.retryAfterMs)||1000):0;
   return {
-    searched:batches.reduce((sum,item)=>sum+(Number(item?.searched)||0),0),
-    nextCursor:errors.length?start:batches.reduce((max,item)=>Math.max(max,Number(item?.nextCursor)||start),start),
-    done:errors.length===0&&batches.at(-1)?.done===true,
+    searched:usable.reduce((sum,item)=>sum+(Number(item?.searched)||0),0),
+    nextCursor:errors.length?start:usable.reduce((max,item)=>Math.max(max,Number(item?.nextCursor)||start),start),
+    done:errors.length===0&&deferredIndex<0&&batches.at(-1)?.done===true,
+    deferred:deferredIndex>=0,
+    retryAfterMs,
     totalTasks:batches.find(item=>Number.isFinite(item.totalTasks))?.totalTasks||0,
     errors,
     query:batches.map(item=>item?.query||'').filter(Boolean).join(' | '),
-    sources:errors.length?[]:batches.flatMap(item=>Array.isArray(item?.sources)?item.sources:[]),
+    sources:errors.length?[]:usable.flatMap(item=>Array.isArray(item?.sources)?item.sources:[]),
   };
 }
 
 function startLocalSourceRefill(initialLocal){
-  if(localSourceInFlight||initialLocal?.sourceExhausted===true||Number(initialLocal?.queuedCount||0)>=8)return;
+  if(localSourceInFlight||initialLocal?.sourceExhausted===true||Number(initialLocal?.queuedCount||0)>=LOCAL_SOURCE_TARGET_QUEUE)return;
   localSourceInFlight=(async()=>{
     let local=initialLocal;
     try{
-      while(local?.active===true&&local.sourceExhausted!==true&&Number(local.queuedCount||0)<8){
+      while(local?.active===true&&local.sourceExhausted!==true&&Number(local.queuedCount||0)<LOCAL_SOURCE_TARGET_QUEUE){
         const wait=Math.max(0,nextLocalSourceAt-Date.now());
         if(wait>0)await sleep(wait);
         const cursor=Number(local.sourceCursor)||0;
         const batch=await crawlLocalDiscoveryBatch(cursor);
+        if(batch.deferred===true){
+          nextLocalSourceAt=Date.now()+Math.max(1000,Number(batch.retryAfterMs)||LOCAL_SOURCE_MIN_MS);
+          console.warn('Discovery source query deferred without advancing cursor because external search is cooling down.');
+          break;
+        }
         const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp});
         nextLocalSourceAt=Date.now()+(applied.errors?60_000:LOCAL_SOURCE_MIN_MS);
         if(applied.kind!=='result'||applied.errors)break;

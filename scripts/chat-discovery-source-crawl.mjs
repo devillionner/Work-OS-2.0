@@ -292,8 +292,14 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
           }
         }
       }
+      if(!sources.length&&Date.now()<searchBlockedUntil){
+        return {
+          searched:attempted,nextCursor:index,done:false,totalTasks,query,sources:[],errors:[],
+          deferred:true,retryAfterMs:Math.max(1000,searchBlockedUntil-Date.now()),
+        };
+      }
     }
-    return {searched:attempted,nextCursor:index+1,done:index+1>=totalTasks,totalTasks,query,sources,errors:[]};
+    return {searched:attempted,nextCursor:index+1,done:index+1>=totalTasks,totalTasks,query,sources,errors:[],deferred:false,retryAfterMs:0};
   }catch(error){
     return {searched:attempted,nextCursor:index,done:false,totalTasks,query,sources:[],errors:[{cursor:index,query,reason:error instanceof Error?error.message:String(error)}]};
   }
