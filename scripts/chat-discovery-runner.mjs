@@ -43,6 +43,7 @@ const PAGE_RECOVERY_COOLDOWN_MS=15000;
 const WHATSAPP_LOADING_COOLDOWN_MS=10000;
 const WHATSAPP_LOADING_RELOAD_AFTER=3;
 const WHATSAPP_LOADING_RELOAD_COOLDOWN_MS=120000;
+const WHATSAPP_INVITE_LOADING_COOLDOWN_MS=120000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
 const TOKEN_REFRESH_MS=60000;
 const IDLE_POLL_MIN_MS=15000;
@@ -287,7 +288,8 @@ async function processLocalPreflight(task){
             whatsappLoadingSignals=0;
             whatsappHomeRecoveryPending=true;
             whatsappRuntimeBlockedUntil=0;
-            console.warn('WhatsApp stayed in global loading state; returned to the WhatsApp Web home page once and kept the candidate queued.');
+            markTaskBlocked(task,'whatsapp_invite_loading',WHATSAPP_INVITE_LOADING_COOLDOWN_MS);
+            console.warn('WhatsApp stayed in global loading state; returned home, paused this invite locally, and kept it queued for a later retry.');
             return 'local_wait';
           }
         }catch{}

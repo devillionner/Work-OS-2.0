@@ -65,8 +65,10 @@ void test('repeated global WhatsApp loading triggers a bounded self-heal reload'
   const runner=await readFile(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8');
   assert.match(runner,/WHATSAPP_LOADING_RELOAD_AFTER=3/u);
   assert.match(runner,/WHATSAPP_LOADING_RELOAD_COOLDOWN_MS=120000/u);
+  assert.match(runner,/WHATSAPP_INVITE_LOADING_COOLDOWN_MS=120000/u);
   assert.match(runner,/resetWhatsappPageViaCdp/u);
-  assert.match(runner,/returned to the WhatsApp Web home page once and kept the candidate queued/u);
+  assert.match(runner,/markTaskBlocked\(task,'whatsapp_invite_loading',WHATSAPP_INVITE_LOADING_COOLDOWN_MS\)/u);
+  assert.match(runner,/returned home, paused this invite locally, and kept it queued for a later retry/u);
   const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
   const start=adapter.indexOf('export async function resetWhatsappPageViaCdp');
   const end=adapter.indexOf('export async function inspectWhatsappTaskViaCdp',start);
