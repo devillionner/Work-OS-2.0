@@ -49,3 +49,9 @@ void test('dedicated executor bridge leases tasks to the authenticated device be
   assert.match(route, /advanceAutonomousDiscoveryRun/);
   assert.match(route, /advanceAutonomousDiscoveryRun\(env\.DB, executor\.userId, executor\.deviceId, now\)/);
 });
+
+void test('Preview route accepts durable local outcomes only after factual automation', async()=>{
+  const route=await readFile(new URL('../app/api/chat-discovery/preview/route.ts',import.meta.url),'utf8');
+  assert.match(route,/body\.action==='persist-outcome'/);
+  assert.match(route,/persistLocalDiscoveryOutcome\(env\.DB,user\.id/);
+});

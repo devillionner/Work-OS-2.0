@@ -146,8 +146,10 @@ export async function persistLocalDiscoveryOutcome(
   const canWrite=typeof rawResult.canWrite==='boolean'?rawResult.canWrite:null;
   const adsPolicy=['allowed','inferred_allowed','operator_confirmed','forbidden'].includes(String(rawResult.adsPolicy))
     ? rawResult.adsPolicy as DiscoveryCandidate['adsPolicy']:'unknown';
-  const membershipState=['joined','pending','left','not_checked'].includes(String(rawResult.membershipState))
-    ? rawResult.membershipState as DiscoveryCandidate['membershipState']:'not_checked';
+  const membershipState:DiscoveryCandidate['membershipState']=outcome.leftAfterCheck===true
+    ?'left'
+    :['joined','pending','left','not_checked'].includes(String(rawResult.membershipState))
+      ?rawResult.membershipState as DiscoveryCandidate['membershipState']:'not_checked';
   const accessible=typeof rawResult.accessible==='boolean'?rawResult.accessible:null;
   const targetVerified=rawResult.targetVerified===true;
   const status=String(rawResult.status||'');

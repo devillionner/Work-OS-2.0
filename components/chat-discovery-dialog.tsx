@@ -535,7 +535,7 @@ export function ChatDiscoveryDialog({
             <Badge variant="secondary">WhatsApp discovery</Badge>
           </div>
           <DialogDescription className="max-w-3xl text-xs leading-5 text-foreground/70 sm:text-sm">
-            Пошук і проміжний відсів працюють локально. У D1 нічого не записується, доки ти сам не підтвердиш фінальний список.
+            Пошук і сирі invite працюють локально. Після фактичної WhatsApp-перевірки результат зберігається, щоб те саме посилання більше не перевіряти.
           </DialogDescription>
         </DialogHeader>
         <Button className="absolute right-3 top-3 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground sm:right-4 sm:top-4" variant="ghost" size="icon" aria-label="Закрити" onClick={close}><X/></Button>
@@ -593,7 +593,7 @@ export function ChatDiscoveryDialog({
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <h3 className="text-base font-semibold">Керування</h3>
-                  <p className="mt-1 text-xs leading-5 text-foreground/70">{autonomousRunning?'Пошук джерел і WhatsApp-перевірка працюють локально. D1 не змінюється.':'Вкажи, скільки фактично цільових чатів потрібно знайти й перевірити.'}</p>
+                  <p className="mt-1 text-xs leading-5 text-foreground/70">{autonomousRunning?'Пошук джерел локальний; фінальні outcomes зберігаються як dedupe-історія.':'Вкажи, скільки фактично цільових чатів потрібно знайти й перевірити.'}</p>
                 </div>
                 <Badge>WhatsApp</Badge>
               </div>
@@ -635,10 +635,10 @@ export function ChatDiscoveryDialog({
               </div>
 
               {autonomousRunning&&<div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs font-medium leading-5 text-foreground/80">
-                Система сама відкриває потенційні invite у WhatsApp. Прямий вступ → фактична перевірка критеріїв. Чати із запитом на схвалення пропускаються без відправлення заявки. D1 writes = 0 до твого підтвердження.
+                Система сама перевіряє потенційні invite. Target зберігається для твого ручного огляду; нецільові й недоступні — у постійний архів. Сирі invite в D1 не пишуться.
               </div>}
-              {localPreview.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">План пошуку завершено: фактично підтверджено {localTargets.length} із {localPreview.goal}. У D1 нічого не записано.</div>}
-              {localPreview.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: фактично підтверджено {localTargets.length}/{localPreview.goal} цільових чатів. Перевір список і запиши їх у Work OS.</div>}
+              {localPreview.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">План пошуку завершено: фактично підтверджено {localTargets.length} із {localPreview.goal}. Фінальні outcomes уже збережені для dedupe.</div>}
+              {localPreview.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: фактично підтверджено {localTargets.length}/{localPreview.goal} цільових чатів. Вони збережені для ручного огляду — виріши, які лишити в роботі.</div>}
               {localPreview.sourceIssues.length>0&&<div role="status" className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs leading-5">
                 <strong>Не вдалося прочитати джерело. Цей запит не пропущено.</strong>
                 <p>{localPreview.running?'Повторимо зі затримкою. Перевірка вже знайдених чатів продовжується.':'Натисни «Продовжити пошук», щоб повторити з цього місця.'}</p>
@@ -652,7 +652,7 @@ export function ChatDiscoveryDialog({
                   <span>Помилок джерел <strong>{localPreview.sourceErrors}</strong></span>
                   <span>Дублів <strong className="ml-1 text-foreground">{localPreview.duplicates}</strong></span>
                   <span>У локальній черзі WhatsApp <strong className="ml-1 text-foreground">{localQueued}</strong></span>
-                  <span>D1 writes до підтвердження <strong className="ml-1 text-foreground">0</strong></span>
+                  <span>Persistent dedupe <strong className="ml-1 text-foreground">увімкнено</strong></span>
                 </div>
               </details>
             </section>
@@ -753,7 +753,7 @@ export function ChatDiscoveryDialog({
               {([
                 ['review', 'У роботі', reviewCount],
                 ['waiting-whatsapp', 'Очікує WhatsApp', workspace.waitingWhatsAppCount],
-                ['target', 'Цільові', workspace.counts.target+localTargets.length],
+                ['target', 'Цільові · ручна перевірка', workspace.counts.target+localTargets.length],
                 ['rejected', 'Відхилені / пропущені', workspace.counts.rejected+localFailed+localSkipped],
                 ['unavailable', 'Не вдалося перевірити', workspace.counts.unavailable+localUnavailable],
                 ['all', 'Усі', total],
@@ -803,7 +803,7 @@ export function ChatDiscoveryDialog({
                             {isLocalPreview(candidate)&&<Badge variant="outline">Результат автопошуку</Badge>}
                           </div>
                         </div>
-                        {candidate.decision==='target'&&<Badge>Цільовий</Badge>}
+                        {candidate.decision==='target'&&<Badge>Цільовий · ручна перевірка</Badge>}
                       </div>
 
                       {candidate.reasonCodes.length>0&&candidate.decision!=='target'&&<div className="mt-3 flex flex-wrap gap-1.5">
@@ -1100,7 +1100,7 @@ function candidateStatus(candidate:DiscoveryCandidate){
     if(candidate.preflightState==='rejected')return {label:'Не відповідає критеріям',detail:candidate.leftAfterCheck?'Вихід із чату підтверджено.':candidate.membershipState==='joined'?'Вихід не підтверджено: '+reasonLabel(candidate.leaveReason||'leave_not_confirmed'):'Відхилено до вступу.',tone,busy:false};
   }
   if(candidate.membershipState==='left')return {label:'Чат уже покинуто',detail:'Для нової кваліфікації спочатку віднови його та підтвердь повторний вступ.',tone:'border-border bg-muted/25 text-foreground/70',busy:false};
-  if(candidate.decision==='target')return {label:'Цільовий чат',detail:'Усі потрібні критерії підтверджені. Чат готовий до роботи.',tone:'border-emerald-500/30 bg-emerald-500/5 text-emerald-800 dark:text-emerald-300',busy:false};
+  if(candidate.decision==='target')return {label:'Цільовий · ручна перевірка',detail:'Критерії підтверджені й чат збережено. Переглянь вручну: залишити в роботі чи відхилити.',tone:'border-emerald-500/30 bg-emerald-500/5 text-emerald-800 dark:text-emerald-300',busy:false};
   if(candidate.decision==='rejected')return {label:'Відхилено автоматично',detail:candidate.membershipState==='joined'?'Чат не відповідає критеріям. Work OS виходить із нього та архівує.':'Чат не відповідає критеріям і не буде зарахований у ціль.',tone:'border-border bg-muted/25 text-foreground/70',busy:false};
   if(candidate.decision==='unavailable')return {label:'Недоступний',detail:'Invite або сам чат недоступний. Work OS переходить до наступного кандидата.',tone:'border-border bg-muted/25 text-foreground/70',busy:false};
   if(candidate.membershipState==='pending')return {label:'Очікуємо схвалення в WhatsApp',detail:'Запит на вступ уже відправлено. Система перевірить його повторно сама.',tone:'border-primary/30 bg-primary/5 text-foreground',busy:true};

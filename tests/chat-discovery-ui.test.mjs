@@ -18,7 +18,7 @@ void test('Platforms exposes an explicit autonomous outcome loop plus a local ma
   assert.match(dialog, /action:'search'/);
   assert.match(dialog, /localTargets\.length/);
   assert.match(dialog, /цільових у Work OS/);
-  assert.match(dialog, /D1 writes = 0/);
+  assert.match(dialog, /Persistent dedupe/);
   assert.match(dialog, /sessionStorage/);
   assert.match(dialog, /Відкинути preview/);
   assert.match(previewRoute, /body\.action==='confirm'/);
@@ -54,7 +54,7 @@ void test('browser-local source crawl uses targeted D1 dedupe and no owner-wide 
   assert.doesNotMatch(searchBody,/UPDATE chat_discovery_runs/);
 });
 
-void test('confirmed local preview is the persistence boundary', async () => {
+void test('final local automation outcomes are the persistence boundary', async () => {
   const [dialog, preview] = await Promise.all([
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../lib/chat-discovery/local-preview.ts', import.meta.url), 'utf8'),
@@ -65,7 +65,7 @@ void test('confirmed local preview is the persistence boundary', async () => {
   assert.match(preview, /handoffDiscoveryCandidate/);
 });
 
-void test('Discovery executor cannot source-crawl or persist search candidates before operator confirmation', async () => {
+void test('Discovery executor cannot source-crawl raw candidates before factual local qualification', async () => {
   const [runner, route, executor] = await Promise.all([
     readFile(new URL('../scripts/chat-discovery-runner.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../app/api/chat-discovery/executor/route.ts', import.meta.url), 'utf8'),
@@ -76,6 +76,26 @@ void test('Discovery executor cannot source-crawl or persist search candidates b
   assert.doesNotMatch(route,/advanceAutonomousDiscoveryRun/);
   assert.match(executor,/sourceAdvanceNeeded: false/);
   assert.doesNotMatch(executor,/SELECT min_members,status FROM chat_discovery_runs/);
+});
+
+void test('local WhatsApp outcomes persist as durable dedupe without auto-importing targets', async()=>{
+  const [previewRoute,previewDomain,adapter,dialog,domain]=await Promise.all([
+    readFile(new URL('../app/api/chat-discovery/preview/route.ts',import.meta.url),'utf8'),
+    readFile(new URL('../lib/chat-discovery/local-preview.ts',import.meta.url),'utf8'),
+    readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8'),
+    readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8'),
+    readFile(new URL('../lib/chat-discovery/domain.ts',import.meta.url),'utf8'),
+  ]);
+  assert.match(previewRoute,/body\.action==='persist-outcome'/);
+  assert.match(previewDomain,/persistLocalDiscoveryOutcome/);
+  assert.match(previewDomain,/decision='target'/);
+  assert.match(adapter,/action:'persist-outcome'/);
+  assert.match(adapter,/persisted\?\.persisted/);
+  assert.match(dialog,/Цільові · ручна перевірка/);
+  assert.match(dialog,/Persistent dedupe/);
+  const reset=domain.slice(domain.indexOf('export async function resetDiscoveryWorkspace'),domain.indexOf('export async function continueDiscoveryRun'));
+  assert.match(reset,/preservedCandidates/);
+  assert.doesNotMatch(reset,/DELETE FROM chat_discovery_candidates/);
 });
 
 void test('manual Telegram recovery stays local until confirmation', async () => {
@@ -121,7 +141,7 @@ void test('Chat Discovery modal uses a wide split layout with independent candid
   assert.match(dialog, /min-h-0 flex-1 overflow-y-auto/);
   assert.match(dialog, /Фільтр кандидатів/);
   assert.match(dialog, /Автопошук працює/);
-  assert.match(dialog, /У D1 нічого не записується/);
+  assert.match(dialog, /Persistent dedupe/);
   assert.match(dialog, /StatTile/);
 });
 
@@ -213,7 +233,7 @@ void test('operator-first Discovery UI shows useful local throughput and keeps t
   assert.match(dialog, /Дублі \/ відомі/);
   assert.match(dialog, /Технічні деталі/);
   assert.match(dialog, /Локальний WhatsApp executor/);
-  assert.match(dialog, /D1 writes до підтвердження/);
+  assert.match(dialog, /Persistent dedupe/);
   assert.doesNotMatch(dialog, /<StatTile label="Query"/);
 });
 

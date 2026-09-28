@@ -556,3 +556,11 @@ Definition of Done для реального використання на stagi
 - A failed request is not an empty result. HTTP errors, search challenges and preview ingestion errors retain the task cursor, use bounded retries/backoff, and expose an explicit resumable pause. Only successfully processed source tasks advance the cursor.
 - Every local candidate outcome (target, rejected, skipped, unavailable or queued) is inspectable before D1 persistence. Fully inspected chats, processed candidates, pending work and source errors have distinct counts.
 - Unavailable internal WhatsApp metadata must fall back to the exact-invite UI. Incomplete factual checks have bounded retries, preserve unknowns and never justify leaving a joined chat. Target criteria and final operator-confirmed D1 writes remain unchanged.
+
+
+## 2026-09-28 — persistent Discovery outcome memory
+- Raw source hits and unqualified invite previews remain browser-local.
+- Every final WhatsApp qualification outcome is durable: a factual target is stored in `chat_discovery_candidates` for operator review without automatic import into the main chat queue; rejected/skipped/unavailable outcomes are stored as archive/dedupe history with reason codes.
+- Any persisted candidate or existing chat is a dedupe anchor by normalized invite link, so clearing local preview state or starting a new run must not cause the same invite to be qualified again.
+- Routine Discovery reset clears run/progress state only and preserves candidate/source outcome history. A destructive history wipe, if ever needed, must be a separate explicit action.
+- Target is not equivalent to final operator acceptance: the operator can open the saved target, decide whether it is useful, then explicitly import/keep it or reclassify/archive it.

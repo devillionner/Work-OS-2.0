@@ -1,3 +1,12 @@
+## 2026-09-28 — persistent local Discovery outcomes / durable dedupe
+
+- Local WhatsApp qualification outcomes now persist through the authenticated Work OS page after factual preflight, while raw source hits remain browser-local.
+- Confirmed targets are stored as unimported `target` candidates for manual operator review; the runner does not auto-import them into the main chat queue.
+- Rejected, approval-required/skipped and unavailable outcomes are stored as persistent Discovery archive/dedupe anchors with reason codes.
+- `prepareLocalPreviews` already excludes links present in either `chats` or `chat_discovery_candidates`; therefore local clear/restart no longer causes persisted outcomes to be requalified.
+- Routine Discovery reset now preserves candidate/source history and only clears run/progress state.
+- UI copy now states that persistent dedupe is enabled and labels targets as requiring manual review.
+
 ## 2026-09-28 — Discovery source recovery and observable outcomes
 
 - Read-only diagnosis against base main `075f7e4aeb6db87dbddfd02dea1985943a7610d2`: the operator run ended at 25 invites, 8 duplicates, 17 non-target outcomes and 0 targets. The live modal exposed zero rows in its rejected/unavailable/all tabs despite those local outcomes.
