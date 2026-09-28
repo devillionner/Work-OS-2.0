@@ -276,8 +276,8 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
       // returns both channel and concrete post results; post pages can contain
       // the WhatsApp invite directly.
       let directoryAnswered=false;
-      if(!sources.length){
-        const directoryQueries=[task.query+' WhatsApp','WhatsApp '+task.place,...(task.alias?[task.alias+' WhatsApp']:[])];
+      if(sources.length<8){
+        const directoryQueries=[task.query,task.place,task.query+' WhatsApp',...(task.alias?[task.alias]:[])];
         const seenDirectory=new Set();
         for(const directoryQuery of [...new Set(directoryQueries.map(item=>String(item||'').trim()).filter(Boolean))].slice(0,3)){
           attempted++;
@@ -294,7 +294,7 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
             sources.push(...pages
               .filter(item=>item.status==='fulfilled'&&item.value?.text)
               .map(item=>item.value));
-            if(sources.length)break;
+            if(sources.length>=8)break;
           }catch(error){
             warnings.push({cursor:index,query:directoryQuery,reason:'telegram_directory_failed · '+(error instanceof Error?error.message:String(error))});
           }
@@ -367,7 +367,7 @@ export function rankTelegramDirectoryResults(html,place='') {
     if(UA.test(context)||UA.test(username))score+=35;
     if(place&&new RegExp(escapeRegExp(place),'iu').test(context+' '+username))score+=30;
     if(/(?:ukrain|ukr|[_-]ua|ua[_-]|diaspora|help|refuge|біжен|допомог|оголош|transport|перевез)/iu.test(context+' '+username))score+=18;
-    if(postId)score+=12;
+    if(postId)score+=8; else score+=20;
     seen.add(username+'|'+postId);
     ranked.push({url:'https://tg.me/'+username+(postId?'/'+postId:''),score});
   }
@@ -375,13 +375,24 @@ export function rankTelegramDirectoryResults(html,place='') {
 }
 
 async function telegramDirectorySource(resultUrl,query,place,fetcher){
-  const cached=pageCache.get(resultUrl);
-  if(cached&&cached.expires>Date.now())return {...cached.source,query,seedLabel:place};
-  const page=await fetchText(resultUrl,fetcher,10000,650000);
   const parts=new URL(resultUrl).pathname.split('/').filter(Boolean);
   const username=parts[0]||'';
   const postId=parts[1]||'';
-  const telegramUrl='https://t.me/'+username+(postId?'/'+postId:'');
+  if(!username)return {sourceUrl:resultUrl,sourceTitle:'',query,seedLabel:place,context:place,text:''};
+
+  // A directory channel result is only a lead. Search inside the actual public
+  // Telegram channel for group invite URLs before deciding it has no WhatsApp chats.
+  if(!postId){
+    const exactUrl='https://t.me/s/'+username+'?q=chat.whatsapp.com';
+    const exact=await telegramSource(exactUrl,query,place,fetcher);
+    if(exact.text)return exact;
+    return telegramSource('https://t.me/s/'+username+'?q=WhatsApp',query,place,fetcher);
+  }
+
+  const cached=pageCache.get(resultUrl);
+  if(cached&&cached.expires>Date.now())return {...cached.source,query,seedLabel:place};
+  const page=await fetchText(resultUrl,fetcher,10000,650000);
+  const telegramUrl='https://t.me/'+username+'/'+postId;
   const title=telegramTitle(page,'https://t.me/s/'+username);
   discoverRelatedTelegramSources(page,'https://t.me/s/'+username,place,title);
   const snippets=extractRelevantInviteSnippets(page,title);
