@@ -48,7 +48,7 @@ export async function GET(request: Request): Promise<Response> {
   const now = unixNow();
   const today = businessDate(now);
   const cacheRequest = await revisionCacheRequest(env.DB, user.id, 'chats',
-    `${platform}:${status}:${profile}:${search}:${offset}:${accountId || ''}:${today}:${Math.floor(now/30)}`);
+    `unicode-v1:${platform}:${status}:${profile}:${search}:${offset}:${accountId || ''}:${today}:${Math.floor(now/30)}`);
   const cached = await matchRevisionJson(cacheRequest);
   if (cached) return cached;
   const normalizedSearch = normalizeChatSearchText(search);
