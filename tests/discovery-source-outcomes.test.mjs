@@ -481,3 +481,15 @@ void test('Telegram source crawl avoids repeated expensive directory work',async
   assert.match(source,/Promise\.allSettled\(directoryQueries\.map/);
   assert.match(source,/!directoryAnswered&&Date\.now\(\)>=searchBlockedUntil/);
 });
+
+void test('real workbook fast lane prioritizes large diaspora markets before exhaustive tail',()=>{
+  const plan=workbookSearchPlan(realSeed);
+  const first80=plan.slice(0,80);
+  assert.ok(first80.some(item=>item.query==='Українці Німеччина'));
+  assert.ok(first80.some(item=>item.query==='Оголошення Польща українці'));
+  assert.ok(first80.some(item=>item.query==='Берлін чат'));
+  assert.ok(first80.some(item=>item.query==='Батьки Варшава'));
+  assert.ok(first80.some(item=>item.query==='Перевізники Гамбург'));
+  const deep=plan.findIndex(item=>/Оренда|Зніму житло/iu.test(item.query));
+  assert.ok(deep>80,'low-yield exhaustive intents should not delay the fast lane');
+});
