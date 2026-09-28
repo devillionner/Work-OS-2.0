@@ -721,3 +721,16 @@ void test('noisy source labels are treated as weak identity hints instead of exa
   assert.match(source,/ref=share/);
   assert.match(source,/\\bviews\?\\b/);
 });
+
+
+void test('joined WhatsApp qualification waits for the chat UI before reading facts',()=>{
+  assert.match(source,/async function waitForJoinedChatReady/);
+  assert.match(source,/messagesLoadingPattern/);
+  assert.match(source,/latest\.composer===true&&hasHeader/);
+  assert.match(source,/const before = await waitForJoinedChatReady\(client\)/);
+});
+
+void test('topic match can use repeated factual Ukrainian message evidence inside the joined chat',()=>{
+  assert.match(source,/ukrainianConversationPattern/);
+  assert.match(source,/ukrainianMessages >= 2/);
+});
