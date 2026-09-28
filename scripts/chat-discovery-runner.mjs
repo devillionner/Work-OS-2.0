@@ -368,7 +368,7 @@ async function crawlLocalDiscoveryBatch(cursor){
     const reason=error instanceof Error?error.message:String(error);
     return {searched:0,nextCursor:start,done:false,totalTasks:0,errors:[{cursor:start,query:'План пошуку Work OS',reason}],query:'План пошуку Work OS',sources:[]};
   }
-  const width=start>=15?2:1;
+  const width=1;
   const batches=await Promise.all(Array.from({length:width},(_,index)=>crawlLocalDiscoverySource(start+index,{seedData})));
   const errors=batches.flatMap(item=>item.errors||[]);
   const warnings=batches.flatMap(item=>item.warnings||[]);
