@@ -719,6 +719,57 @@ export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
   return {kind:'blocked',reason:'work_os_source_state_not_found'};
 }
 
+export async function markWorkOsLocalDiscoveryCandidateViaCdp(
+  workOsUrl,
+  task,
+  { cdpBaseUrl } = {},
+) {
+  const pagesResult=await listWorkOsPagesForCdp(workOsUrl,cdpBaseUrl);
+  if(pagesResult.kind==='blocked')return pagesResult;
+  for(const page of pagesResult.pages){
+    const client=await createCdpClient(page.webSocketDebuggerUrl);
+    try{
+      const active=task?{
+        id:String(task.candidateId||''),
+        name:String(task.name||task.expectedTarget?.name||'WhatsApp chat'),
+        link:String(task.link||task.expectedTarget?.link||''),
+        startedAt:Date.now(),
+      }:null;
+      const response=await client.send('Runtime.evaluate',{
+        expression:`(()=>{
+          const key=${JSON.stringify(WORK_OS_LOCAL_PREVIEW_KEY)};
+          const raw=sessionStorage.getItem(key);
+          if(!raw)return {ok:false,reason:'state_missing'};
+          let state;try{state=JSON.parse(raw);}catch{return {ok:false,reason:'state_invalid'};}
+          const active=${JSON.stringify(active)};
+          if(active){
+            if(!Array.isArray(state.candidates)||!state.candidates.some(item=>item?.id===active.id)){
+              return {ok:false,reason:'candidate_missing'};
+            }
+            state.activeCandidateId=active.id;
+            state.activeCandidateName=active.name;
+            state.activeCandidateLink=active.link;
+            state.activeCandidateStartedAt=active.startedAt;
+          }else{
+            state.activeCandidateId=null;
+            state.activeCandidateName=null;
+            state.activeCandidateLink=null;
+            state.activeCandidateStartedAt=null;
+          }
+          sessionStorage.setItem(key,JSON.stringify(state));
+          window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
+          return {ok:true};
+        })()`,
+        returnByValue:true,
+      });
+      const value=response?.result?.value||{};
+      if(value.ok===true)return {kind:'result'};
+      return {kind:'blocked',reason:String(value.reason||'active_candidate_update_failed')};
+    }finally{client.close();}
+  }
+  return {kind:'blocked',reason:'work_os_active_candidate_target_not_found'};
+}
+
 export async function writeWorkOsLocalDiscoveryResultViaCdp(
   workOsUrl,
   candidateId,
