@@ -734,3 +734,9 @@ void test('topic match can use repeated factual Ukrainian message evidence insid
   assert.match(source,/ukrainianConversationPattern/);
   assert.match(source,/ukrainianMessages >= 2/);
 });
+
+
+void test('verified joined chat opens group info through the profile-details control',()=>{
+  assert.match(source,/profileButton && !profileButton\.hasAttribute\('disabled'\)/);
+  assert.match(source,/profileButton\.click\(\)/);
+});
