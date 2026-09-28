@@ -45,6 +45,14 @@ type LocalPreviewSession = {
   lastActivityAt:number|null;
   completionReason:'goal_reached'|'sources_exhausted'|'source_error'|null;
   candidates:LocalDiscoveryPreview[];
+  activeCandidateId?:string|null;
+  activeCandidateName?:string|null;
+  activeCandidateLink?:string|null;
+  activeCandidateStartedAt?:number|null;
+  lastCheckedName?:string|null;
+  lastCheckedDecision?:'target'|'rejected'|'skipped'|'unavailable'|null;
+  lastCheckedAt?:number|null;
+  lastCheckedReasonCodes?:string[];
 };
 type LocalPreflightPayload={
   decision:'target'|'rejected'|'skipped'|'unavailable';
@@ -569,8 +577,17 @@ export function ChatDiscoveryDialog({
   const discardedCount=localRejected+localSkipped;
   const progressPercent=displayedGoal>0?Math.min(100,Math.round((displayedTargetCount/displayedGoal)*100)):0;
   const lastRunActivitySeconds=localPreview.lastActivityAt?Math.max(0,Math.floor((clockMs-localPreview.lastActivityAt)/1000)):null;
+  const activeCandidateName=String(localPreview.activeCandidateName||'').trim();
+  const lastCheckedDecisionLabel=localPreview.lastCheckedDecision==='target'?'цільовий'
+    :localPreview.lastCheckedDecision==='rejected'?'відхилений'
+      :localPreview.lastCheckedDecision==='skipped'?'пропущений'
+        :localPreview.lastCheckedDecision==='unavailable'?'недоступний':'';
   const runActivity=autonomousRunning
-    ? 'Шукаємо, відкриваємо, вступаємо й перевіряємо WhatsApp-чати'
+    ? activeCandidateName
+      ? `Перевіряємо WhatsApp: ${activeCandidateName}`
+      : localQueued>0
+        ? `У черзі ${localQueued}: готуємо наступну WhatsApp-перевірку`
+        : 'Шукаємо нові WhatsApp invite в Telegram'
     : localPreview.completionReason==='goal_reached'
       ? 'Потрібну кількість фактично перевірено — переглянь список перед записом у Work OS'
       : localPreview.completionReason==='sources_exhausted'
@@ -629,6 +646,10 @@ export function ChatDiscoveryDialog({
                 Пошукових запитів: <strong className="text-foreground/80">{displayedQueries}</strong>
                 {' · '}короткими пакетами
                 {lastRunActivitySeconds!==null&&<>{' · '}остання активність {lastRunActivitySeconds<5?'щойно':`${lastRunActivitySeconds} с тому`}</>}
+              </div>}
+              {localPreview.lastCheckedName&&<div className="mt-1 text-xs text-muted-foreground">
+                Остання WhatsApp-перевірка: <strong className="text-foreground/80">{localPreview.lastCheckedName}</strong>
+                {lastCheckedDecisionLabel&&<>{' · '}<span className="font-semibold text-foreground/70">{lastCheckedDecisionLabel}</span></>}
               </div>}
             </div>
           </div>
