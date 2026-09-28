@@ -493,3 +493,13 @@ void test('real workbook fast lane prioritizes large diaspora markets before exh
   const deep=plan.findIndex(item=>/Оренда|Зніму житло/iu.test(item.query));
   assert.ok(deep>80,'low-yield exhaustive intents should not delay the fast lane');
 });
+
+void test('fast lane favors writable community intents over duplicate English variants',()=>{
+  const plan=workbookSearchPlan(realSeed);
+  const berlin=plan.filter(item=>item.place==='Берлін').slice(0,7).map(item=>item.query);
+  assert.ok(berlin.some(query=>/Мамочки/iu.test(query)));
+  assert.ok(berlin.some(query=>/Батьки/iu.test(query)));
+  assert.ok(berlin.some(query=>/Барахолка/iu.test(query)));
+  assert.ok(berlin.some(query=>/Перевізники|Перевезення/iu.test(query)));
+  assert.equal(berlin.some(query=>/^Ukrainian in |^Ukrainians /iu.test(query)),false);
+});
