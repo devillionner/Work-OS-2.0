@@ -311,3 +311,11 @@ void test('each autonomous source request is a single bounded task and public se
   assert.match(preview,/const batchSize=1/);
   assert.match(preview,/completedBatches%3===2/);
 });
+
+void test('autonomous start is synchronously visible to the external CDP runner',async()=>{
+  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  const start=dialog.slice(dialog.indexOf('async function startAutonomousSearch'),dialog.indexOf('async function stopAutonomousSearch'));
+  assert.match(start,/sessionStorage\.setItem\(LOCAL_PREVIEW_KEY,JSON\.stringify\(nextRun\)\)/);
+  assert.match(start,/setLocalPreview\(nextRun\)/);
+  assert.ok(start.indexOf('sessionStorage.setItem(LOCAL_PREVIEW_KEY')<start.indexOf('setLocalPreview(nextRun)'));
+});

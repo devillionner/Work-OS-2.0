@@ -247,3 +247,8 @@ void test('runner recovers a WhatsApp home stuck on message loading without stea
   assert.match(source,/resetWhatsappPageViaCdp/);
   assert.match(source,/reloaded home and will resume after cooldown/);
 });
+
+void test('local Discovery idle polling reacts within a few seconds',()=>{
+  assert.match(source,/IDLE_POLL_MIN_MS=2000/);
+  assert.match(source,/IDLE_POLL_MAX_MS=5000/);
+});

@@ -51,8 +51,8 @@ const METADATA_RETRY_COOLDOWN_MS=60000;
 const METADATA_INCOMPLETE_COOLDOWN_MS=60000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
 const TOKEN_REFRESH_MS=60000;
-const IDLE_POLL_MIN_MS=15000;
-const IDLE_POLL_MAX_MS=60000;
+const IDLE_POLL_MIN_MS=2000;
+const IDLE_POLL_MAX_MS=5000;
 const WHATSAPP_RUNTIME_TRANSIENT_REASONS=new Set(['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready']);
 
 async function resolveExecutorToken(){

@@ -267,20 +267,30 @@ export function ChatDiscoveryDialog({
     }
     setFilter('all');
     try{window.sessionStorage.removeItem(LOCAL_PREFLIGHT_RESULTS_KEY);}catch{}
-    setLocalPreview({
+    const nextRun:LocalPreviewSession={
       ...EMPTY_LOCAL_PREVIEW,
       runId:crypto.randomUUID(),
       running:true,
       goal,
       lastActivityAt:Date.now(),
-    });
+    };
+    // The external runner reads sessionStorage directly through CDP. Persist the
+    // run synchronously before React scheduling so the UI cannot show "running"
+    // while the runner still sees the previous stopped state.
+    try{window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(nextRun));}
+    catch{setError('Не вдалося записати стан автопошуку в браузерну сесію.');return;}
+    setLocalPreview(nextRun);
+    window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
     setNotice('');
   }
 
   async function stopAutonomousSearch(){
     if(telegramBusy)return;
-    setLocalPreview(current=>({...current,running:false,lastActivityAt:Date.now()}));
-    setNotice('Локальний автопошук зупинено. Знайдені результати залишились тільки в цій браузерній сесії; D1 не змінено.');
+    const stopped={...localPreview,running:false,lastActivityAt:Date.now()};
+    try{window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(stopped));}catch{}
+    setLocalPreview(stopped);
+    window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
+    setNotice('Локальний автопошук зупинено. Фінальні outcomes уже залишаються в persistent dedupe-історії.');
   }
 
   async function addLocalTargetsToJoin(){
