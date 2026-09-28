@@ -513,3 +513,24 @@ void test('proven WhatsApp source clusters are seeded at high priority',async()=
   assert.match(source,/score:140/);
   assert.match(source,/searchParams\.set\('q','chat\.whatsapp\.com'\)/);
 });
+
+void test('direct qualification ignores WhatsApp service events for activity',async()=>{
+  const source=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  const start=source.indexOf('export async function joinWhatsappInviteViaRuntime');
+  const end=source.indexOf('export async function leaveWhatsappGroupViaRuntime',start);
+  const block=source.slice(start,end);
+  assert.match(block,/userMessages=messages\.filter/);
+  assert.match(block,/gp2\|e2e_notification\|notification\|protocol\|ciphertext/);
+  assert.match(block,/latestTimestamp=Math\.max\(0,\.\.\.userMessages/);
+});
+
+void test('joined community subgroup inherits factual parent topic evidence',async()=>{
+  const source=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  const start=source.indexOf('export async function joinWhatsappInviteViaRuntime');
+  const end=source.indexOf('export async function leaveWhatsappGroupViaRuntime',start);
+  const block=source.slice(start,end);
+  assert.match(block,/parentCommunityTitle/);
+  assert.match(block,/parentCommunityDescription/);
+  assert.match(block,/value\.parentTitle/);
+  assert.match(block,/sourceWasCommunity:value\.preIsParentGroup===true\|\|Boolean\(value\.parentId\)/);
+});
