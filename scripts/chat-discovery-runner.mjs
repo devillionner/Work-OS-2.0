@@ -34,7 +34,7 @@ const terminal=readline.createInterface({input:process.stdin,output:process.stdo
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const TASK_POLL_MS=3000;
 const LOCAL_PREFLIGHT_POLL_MS=1500;
-const LOCAL_SOURCE_MIN_MS=2000;
+const LOCAL_SOURCE_MIN_MS=500;
 const LOCAL_SOURCE_TARGET_QUEUE=30;
 const SOURCE_ADVANCE_MS=20000;
 const EXECUTOR_QUEUE_LIMIT=3;
