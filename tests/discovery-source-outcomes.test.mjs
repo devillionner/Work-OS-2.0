@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { crawlLocalDiscoverySource, workbookSearchPlan } from '../scripts/chat-discovery-source-crawl.mjs';
+import { crawlLocalDiscoverySource, workbookSearchPlan, discoverRelatedTelegramSources } from '../scripts/chat-discovery-source-crawl.mjs';
 import { shouldDeferForGlobalWhatsAppLoading } from '../scripts/whatsapp-web-cdp.mjs';
 
 const realSeedSource=await readFile(new URL('../lib/chat-discovery/seeds.ts',import.meta.url),'utf8');
@@ -48,6 +48,27 @@ void test('real workbook plan is bounded and yield-first instead of exploding pa
   assert.ok(plan.slice(0,40).some(item=>item.query.includes('Польща')));
   assert.ok(plan.some(item=>/Батьки|Мамочки/iu.test(item.query)));
   assert.ok(plan.some(item=>/Оренда|Зніму житло/iu.test(item.query)));
+});
+
+void test('Telegram source graph discovers relevant neighboring channels without web search',()=>{
+  const added=discoverRelatedTelegramSources(
+    '<title>Українці Бремен</title><p>Допомога українцям: https://t.me/refugeesbremen</p><p>bot https://t.me/uahelp_FAQ_bot</p>',
+    'https://t.me/s/ukrainebremen','Бремен','Українці Бремен'
+  );
+  assert.equal(added,1);
+});
+
+void test('web-search 429 does not fail the source step when Telegram graph fallback exists',async()=>{
+  const graphPage='<title>Українці Бремен</title><p>Українці: https://t.me/refugeesbremen</p>';
+  discoverRelatedTelegramSources(graphPage,'https://t.me/s/ukrainebremen','Бремен','Українці Бремен');
+  const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async(url)=>{
+    if(String(url).includes('refugeesbremen'))return response(page);
+    if(String(url).includes('search.brave.com'))return response('rate limited',429);
+    return response('<title>Українці</title>');
+  }});
+  assert.equal(result.errors.length,0);
+  assert.equal(result.nextCursor,16);
+  assert.ok(result.sources.some(source=>source.text.includes(invite)));
 });
 
 void test('runtime crawl requires the source plan instead of private raw GitHub',async()=>{

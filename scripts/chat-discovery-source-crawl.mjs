@@ -25,6 +25,12 @@ const UA = /(?:україн|украин|ukrain|🇺🇦)/iu;
 const SPAM = /(?:crypto|bitcoin|forex|casino|казино|betting|dating|escort|onlyfans|nft|airdrop|signals?\b|قروبات|روابط\s+مجموعات|مجموعات\s+واتساب|technical\s+support)/iu;
 const MAX_TELEGRAM_HISTORY_PAGES=4;
 const MAX_SEARCH_SOURCES=5;
+const MAX_GRAPH_SOURCES_PER_STEP=8;
+const SEARCH_BLOCK_COOLDOWN_MS=5*60*1000;
+const telegramGraph=new Map();
+const crawledTelegramSources=new Set();
+let graphSeedPromise=null;
+let searchBlockedUntil=0;
 
 export function workbookSearchPlan(seed) {
   const unsupported=/(назва села|назва селища|район міста|назва района|назва області|пункту пропуску|навчального закладу|назва жк|слово пошук)/iu;
@@ -112,6 +118,64 @@ export async function localDiscoveryPlanSize({seedData}={}) {
   return BOOTSTRAP_SOURCES.length+plan.length;
 }
 
+function graphSourceContext(html,index) {
+  return strip(html.slice(Math.max(0,index-700),Math.min(html.length,index+1800)));
+}
+
+export function discoverRelatedTelegramSources(html,currentSourceUrl,place='',parentTitle='') {
+  const decoded=decode(html).replaceAll('\\/','/');
+  const current=normalizeTelegramPreview(currentSourceUrl);
+  let added=0;
+  for(const match of decoded.matchAll(/https:\/\/t\.me\/(?:s\/)?[A-Za-z0-9_]{3,}/giu)){
+    const sourceUrl=normalizeTelegramPreview(match[0]);
+    if(!sourceUrl||sourceUrl===current||crawledTelegramSources.has(sourceUrl))continue;
+    const channel=telegramChannel(sourceUrl);
+    if(!channel||/_bot$/iu.test(channel)||/(?:whatsapp\d*|kiwifarms|intelslava|pilotblog|rfuenglish)/iu.test(channel))continue;
+    const context=graphSourceContext(decoded,match.index||0);
+    if(SPAM.test(context))continue;
+    let score=0;
+    if(UA.test(context)||UA.test(parentTitle))score+=30;
+    if(place&&new RegExp(escapeRegExp(place),'iu').test(context+' '+channel))score+=18;
+    if(/(?:ukrain|ukr|[_-]ua|ua[_-]|help|vpo|refuge|волонтер|допомог|біжен)/iu.test(channel+' '+context))score+=16;
+    if(/(?:community|громад|diaspora|батьк|родител|перевез|transport|чат\b|chat\b)/iu.test(context))score+=6;
+    if(score<12)continue;
+    const existing=telegramGraph.get(sourceUrl);
+    if(!existing||score>existing.score){
+      telegramGraph.set(sourceUrl,{sourceUrl,score,place,evidence:(parentTitle+' '+context).slice(0,1600)});
+      if(!existing)added++;
+    }
+  }
+  return added;
+}
+
+function takeTelegramGraphSources(place,limit=MAX_GRAPH_SOURCES_PER_STEP) {
+  const placeRe=place?new RegExp(escapeRegExp(place),'iu'):null;
+  const ranked=[...telegramGraph.values()]
+    .filter(item=>!crawledTelegramSources.has(item.sourceUrl))
+    .map(item=>({...item,effectiveScore:item.score+(placeRe?.test(item.evidence+' '+item.sourceUrl)?25:0)}))
+    .sort((a,b)=>b.effectiveScore-a.effectiveScore)
+    .slice(0,limit);
+  for(const item of ranked){
+    telegramGraph.delete(item.sourceUrl);
+    crawledTelegramSources.add(item.sourceUrl);
+  }
+  return ranked.map(item=>item.sourceUrl);
+}
+
+async function ensureTelegramGraphSeeded(fetcher) {
+  if(telegramGraph.size||graphSeedPromise)return graphSeedPromise;
+  graphSeedPromise=(async()=>{
+    for(const [,url,place] of BOOTSTRAP_SOURCES){
+      try{
+        const page=await fetchText(url,fetcher,8000,500000);
+        discoverRelatedTelegramSources(page,url,place,telegramTitle(page,url));
+        if(telegramGraph.size>=24)break;
+      }catch{}
+    }
+  })().finally(()=>{graphSeedPromise=null;});
+  return graphSeedPromise;
+}
+
 function olderPreview(html,current) {
   const url=new URL(current);
   const matches=[...decode(html).matchAll(/href=["']([^"']*[?&]before=\d+[^"']*)["']/giu)];
@@ -131,6 +195,7 @@ async function telegramSource(sourceUrl,query,place,fetcher) {
   for(let pageIndex=0;pageIndex<MAX_TELEGRAM_HISTORY_PAGES&&current;pageIndex++){
     const page=await fetchText(current,fetcher,12000,900000);
     if(!title)title=telegramTitle(page,current);
+    discoverRelatedTelegramSources(page,current,place,title);
     for(const snippet of extractRelevantInviteSnippets(page,title)){
       const match=snippet.match(/(?:https?:\/\/)?chat\.whatsapp\.com\/[A-Za-z0-9_-]{8,128}/iu);
       const invite=match?canonicalInvite(match[0]):null;
@@ -165,19 +230,51 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
     }else{
       const task=plan[index-BOOTSTRAP_SOURCES.length];
       query=task.query;
-      const queries=[task.query+' "chat.whatsapp.com"',...(task.alias?[task.alias+' "chat.whatsapp.com"']:[]),task.query+' WhatsApp'];
-      const seen=new Set();
-      for(const searchQuery of queries){
-        attempted++;
-        const search=new URL(SEARCH_URL);
-        search.searchParams.set('q','site:t.me '+searchQuery);
-        search.searchParams.set('source','web');
-        const html=await fetchText(search.toString(),fetcher,12000,350000);
-        const candidates=rankTelegramSources(html,task.place).filter(url=>!seen.has(url)).slice(0,MAX_SEARCH_SOURCES);
-        for(const url of candidates)seen.add(url);
-        const pages=await Promise.all(candidates.map(url=>telegramSource(url,searchQuery,task.place,fetcher)));
-        sources.push(...pages.filter(source=>source.text));
-        if(sources.length)break;
+      await ensureTelegramGraphSeeded(fetcher);
+
+      // Prefer the Telegram graph. It survives search-engine rate limits and each
+      // visited source can discover more sources for later steps.
+      let graphBudget=MAX_GRAPH_SOURCES_PER_STEP;
+      while(graphBudget>0&&!sources.length){
+        const graphCandidates=takeTelegramGraphSources(task.place,Math.min(4,graphBudget));
+        if(!graphCandidates.length)break;
+        graphBudget-=graphCandidates.length;
+        attempted+=graphCandidates.length;
+        const graphPages=await Promise.allSettled(
+          graphCandidates.map(url=>telegramSource(url,'Telegram graph · '+task.query,task.place,fetcher))
+        );
+        sources.push(...graphPages
+          .filter(item=>item.status==='fulfilled'&&item.value?.text)
+          .map(item=>item.value));
+      }
+
+      // Web search is only an optional seed source. A 429 or temporary backend
+      // failure must never stop the Discovery run.
+      if(!sources.length&&Date.now()>=searchBlockedUntil){
+        const queries=[task.query+' "chat.whatsapp.com"',...(task.alias?[task.alias+' "chat.whatsapp.com"']:[]),task.query+' WhatsApp'];
+        const seen=new Set();
+        for(const searchQuery of queries){
+          attempted++;
+          try{
+            const search=new URL(SEARCH_URL);
+            search.searchParams.set('q','site:t.me '+searchQuery);
+            search.searchParams.set('source','web');
+            const html=await fetchText(search.toString(),fetcher,12000,350000);
+            const candidates=rankTelegramSources(html,task.place).filter(url=>!seen.has(url)).slice(0,MAX_SEARCH_SOURCES);
+            for(const url of candidates)seen.add(url);
+            const pages=await Promise.allSettled(candidates.map(url=>telegramSource(url,searchQuery,task.place,fetcher)));
+            sources.push(...pages
+              .filter(item=>item.status==='fulfilled'&&item.value?.text)
+              .map(item=>item.value));
+            if(sources.length)break;
+          }catch(error){
+            const reason=error instanceof Error?error.message:String(error);
+            if(/(?:search_rate_limited|source_http_429|curl.*(?:22|429)|too many requests)/iu.test(reason)){
+              searchBlockedUntil=Date.now()+SEARCH_BLOCK_COOLDOWN_MS;
+              break;
+            }
+          }
+        }
       }
     }
     return {searched:attempted,nextCursor:index+1,done:index+1>=totalTasks,totalTasks,query,sources,errors:[]};
@@ -284,11 +381,17 @@ async function fetchText(url,fetcher,timeout,limit) {
     try{
       let text;
       if(host==='search.brave.com'&&fetcher===fetch){
+        const marker='__WORK_OS_HTTP_STATUS__';
         const {stdout}=await execFile('/usr/bin/curl',[
-          '-L','--fail','-sS','--compressed','--max-time',String(Math.ceil(timeout/1000)),
-          '-A',USER_AGENT,'-H','Accept-Language: uk,en;q=0.8',url,
+          '-L','-sS','--compressed','--max-time',String(Math.ceil(timeout/1000)),
+          '-A',USER_AGENT,'-H','Accept-Language: uk,en;q=0.8','-w','\\n'+marker+'%{http_code}',url,
         ],{encoding:'utf8',maxBuffer:Math.max(limit+200000,700000)});
-        text=String(stdout||'');
+        const raw=String(stdout||'');
+        const markerIndex=raw.lastIndexOf('\\n'+marker);
+        const status=markerIndex>=0?Number(raw.slice(markerIndex+marker.length+1)):0;
+        text=markerIndex>=0?raw.slice(0,markerIndex):raw;
+        if(status===429)throw new Error('search_rate_limited · '+host);
+        if(status>=400)throw new Error('source_http_'+status+' · '+host);
       }else{
         const response=await fetcher(url,{signal:controller.signal,redirect:'follow',headers:{'User-Agent':USER_AGENT,Accept:'text/html,application/json,text/plain;q=0.8','Accept-Language':'uk,en;q=0.8'}});
         if(!response.ok)throw new Error('source_http_'+response.status+' · '+host);
