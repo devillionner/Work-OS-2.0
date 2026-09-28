@@ -595,6 +595,7 @@ export async function leaveWhatsappTaskViaCdp(
 
     const operationDeadline = Date.now() + timeoutMs;
     const remainingBudget = () => Math.max(POLL_MS, operationDeadline - Date.now());
+    const navigatedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);
     let opened;
     if (reuseCurrentVerified) {
       const snapshot = await readSnapshot(client);
@@ -607,7 +608,6 @@ export async function leaveWhatsappTaskViaCdp(
       opened = { kind:'result', result:{ membershipState:'joined', targetVerified:true, observedName:exact } };
     } else {
       await client.send('Page.navigate', { url: targetUrl });
-      const navigatedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);
       opened = await waitForClassification(client, { ...task, action: 'inspect' }, remainingBudget(), null, navigatedInviteCode);
     }
     if (opened.kind === 'action' && opened.action === 'view') {
