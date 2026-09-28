@@ -319,3 +319,12 @@ void test('autonomous start is synchronously visible to the external CDP runner'
   assert.match(start,/setLocalPreview\(nextRun\)/);
   assert.ok(start.indexOf('sessionStorage.setItem(LOCAL_PREVIEW_KEY')<start.indexOf('setLocalPreview(nextRun)'));
 });
+
+void test('live WhatsApp check state survives UI session normalization',async()=>{
+  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  assert.match(dialog,/activeCandidateName:typeof value\.activeCandidateName==='string'/);
+  assert.match(dialog,/lastCheckedName:typeof value\.lastCheckedName==='string'/);
+  assert.match(dialog,/lastCheckedDecision:value\.lastCheckedDecision==='target'/);
+  assert.match(dialog,/Остання WhatsApp-перевірка/);
+  assert.match(dialog,/Перевіряємо WhatsApp:/);
+});
