@@ -53,6 +53,16 @@ type LocalPreviewSession = {
   lastCheckedDecision?:'target'|'rejected'|'skipped'|'unavailable'|null;
   lastCheckedAt?:number|null;
   lastCheckedReasonCodes?:string[];
+  pauseSummary?:{
+    at:number;
+    cursor:number;
+    targets:number;
+    rejected:number;
+    skipped:number;
+    unavailable:number;
+    unverified:number;
+    archiveFailed:number;
+  }|null;
 };
 type LocalPreflightPayload={
   decision:'target'|'rejected'|'skipped'|'unavailable';
@@ -269,8 +279,31 @@ export function ChatDiscoveryDialog({
     try{window.sessionStorage.setItem(LOCAL_SOURCE_SEEDS_KEY,JSON.stringify(chatDiscoverySeeds));}
     catch{setError('Не вдалося підготувати локальний план пошуку в цій вкладці.');return;}
     if(localPreview.completionReason==='source_error'){
-      setLocalPreview(current=>({...current,running:true,done:false,sourceFailures:0,sourceIssues:[],completionReason:null,lastActivityAt:Date.now()}));
+      setLocalPreview(current=>({...current,running:true,done:false,sourceFailures:0,sourceIssues:[],completionReason:null,pauseSummary:null,lastActivityAt:Date.now()}));
       setNotice('Продовжуємо з запиту, який не вдалося виконати.');
+      return;
+    }
+    if(localPreview.pauseSummary&&!localPreview.done){
+      try{window.sessionStorage.removeItem(LOCAL_PREFLIGHT_RESULTS_KEY);}catch{}
+      const resumed:LocalPreviewSession={
+        ...localPreview,
+        runId:crypto.randomUUID(),
+        running:true,
+        done:false,
+        completionReason:null,
+        pauseSummary:null,
+        activeCandidateId:null,
+        activeCandidateName:null,
+        activeCandidateLink:null,
+        activeCandidateStartedAt:null,
+        lastActivityAt:Date.now(),
+      };
+      try{window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(resumed));}
+      catch{setError('Не вдалося відновити локальний автопошук у браузерній сесії.');return;}
+      setLocalPreview(resumed);
+      window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
+      setFilter('all');
+      setNotice(`Продовжуємо з позиції ${resumed.telegramCursor}. Уже відомі invite повторно не перевіряються.`);
       return;
     }
     setFilter('all');
@@ -294,11 +327,99 @@ export function ChatDiscoveryDialog({
 
   async function stopAutonomousSearch(){
     if(telegramBusy)return;
-    const stopped={...localPreview,running:false,lastActivityAt:Date.now()};
-    try{window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(stopped));}catch{}
-    setLocalPreview(stopped);
+    setTelegramBusy(true);
+    setError('');
+    setNotice('');
+    const snapshot=readLocalPreviewSession();
+    const stoppedAt=Date.now();
+    const stoppedNow:LocalPreviewSession={
+      ...snapshot,
+      running:false,
+      lastActivityAt:stoppedAt,
+    };
+    try{window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(stoppedNow));}catch{}
+    setLocalPreview(stoppedNow);
     window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
-    setNotice('Локальний автопошук зупинено. Фінальні outcomes уже залишаються в persistent dedupe-історії.');
+
+    const queued=snapshot.candidates.filter(candidate=>candidate.preflightState==='queued');
+    const archivedIds=new Set<string>();
+    let archiveFailed=0;
+    try{
+      const results=await Promise.allSettled(queued.map(async candidate=>{
+        await postPreview({
+          action:'persist-outcome',
+          platform:candidate.platform,
+          link:candidate.link,
+          name:candidate.name,
+          sources:candidate.sources,
+          minMembers,
+          outcome:{
+            decision:'unavailable',
+            reasonCodes:['paused_unverified'],
+            result:{
+              status:'incomplete',
+              reason:'paused_unverified',
+              accessible:null,
+              targetVerified:false,
+              membershipState:candidate.membershipState,
+              observedName:candidate.name,
+              chatType:candidate.chatType,
+              memberCount:candidate.memberCount,
+              topicMatch:candidate.topicMatch,
+              canWrite:candidate.canWrite,
+              adsPolicy:candidate.adsPolicy,
+              activityState:candidate.activityState,
+            },
+            completedAt:Math.floor(Date.now()/1000),
+          },
+        });
+        return candidate.id;
+      }));
+      results.forEach(result=>{
+        if(result.status==='fulfilled')archivedIds.add(result.value);
+        else archiveFailed+=1;
+      });
+
+      const latest=readLocalPreviewSession();
+      const candidates=latest.candidates.map(candidate=>
+        archivedIds.has(candidate.id)&&candidate.preflightState==='queued'
+          ? {...candidate,preflightState:'unavailable' as const,preflightReasonCodes:['paused_unverified']}
+          : candidate
+      );
+      const rejected=candidates.filter(candidate=>candidate.preflightState==='rejected').length;
+      const skipped=candidates.filter(candidate=>candidate.preflightState==='skipped').length;
+      const unavailable=candidates.filter(candidate=>candidate.preflightState==='unavailable'&&!archivedIds.has(candidate.id)).length;
+      const targets=candidates.filter(candidate=>candidate.preflightState==='target').length;
+      const pauseSummary={
+        at:Date.now(),
+        cursor:latest.telegramCursor,
+        targets,
+        rejected,
+        skipped,
+        unavailable,
+        unverified:archivedIds.size,
+        archiveFailed,
+      };
+      const stopped:LocalPreviewSession={
+        ...latest,
+        candidates,
+        running:false,
+        pauseSummary,
+        activeCandidateId:null,
+        activeCandidateName:null,
+        activeCandidateLink:null,
+        activeCandidateStartedAt:null,
+        lastActivityAt:pauseSummary.at,
+      };
+      try{window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(stopped));}catch{}
+      setLocalPreview(stopped);
+      window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
+      setNotice(archiveFailed
+        ? `Автопошук зупинено. ${archiveFailed} кандидат(ів) не вдалося заархівувати — при продовженні вони можуть перевіритися ще раз.`
+        : '');
+    }finally{
+      setTelegramBusy(false);
+    }
   }
 
   async function addLocalTargetsToJoin(){
@@ -578,6 +699,10 @@ export function ChatDiscoveryDialog({
   const progressPercent=displayedGoal>0?Math.min(100,Math.round((displayedTargetCount/displayedGoal)*100)):0;
   const lastRunActivitySeconds=localPreview.lastActivityAt?Math.max(0,Math.floor((clockMs-localPreview.lastActivityAt)/1000)):null;
   const activeCandidateName=String(localPreview.activeCandidateName||'').trim();
+  const pauseSummary=localPreview.pauseSummary;
+  const pauseArchivedTotal=pauseSummary
+    ? pauseSummary.rejected+pauseSummary.skipped+pauseSummary.unavailable+pauseSummary.unverified
+    : 0;
   const lastCheckedDecisionLabel=localPreview.lastCheckedDecision==='target'?'цільовий'
     :localPreview.lastCheckedDecision==='rejected'?'відхилений'
       :localPreview.lastCheckedDecision==='skipped'?'пропущений'
@@ -651,6 +776,27 @@ export function ChatDiscoveryDialog({
                 Остання WhatsApp-перевірка: <strong className="text-foreground/80">{localPreview.lastCheckedName}</strong>
                 {lastCheckedDecisionLabel&&<>{' · '}<span className="font-semibold text-foreground/70">{lastCheckedDecisionLabel}</span></>}
               </div>}
+              {!autonomousRunning&&pauseSummary&&<div key={pauseSummary.at} className="mt-3 animate-in fade-in slide-in-from-top-1 duration-300 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2.5">
+                <div className="flex items-start gap-2">
+                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600"/>
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-foreground">Автопошук зупинено · прогрес збережено</div>
+                    <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                      В архіві <strong className="text-foreground/80">{pauseArchivedTotal}</strong>
+                      {' · '}нецільові {pauseSummary.rejected}
+                      {' · '}недоступні/пропущені {pauseSummary.unavailable+pauseSummary.skipped}
+                      {pauseSummary.unverified>0&&<>{' · '}не встигли перевірити {pauseSummary.unverified}</>}
+                      {pauseSummary.targets>0&&<>{' · '}цільові лишились {pauseSummary.targets}</>}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground/80">
+                      Наступний запуск продовжить з позиції {pauseSummary.cursor}; відомі invite повторно не перевіряються.
+                    </div>
+                    {pauseSummary.archiveFailed>0&&<div className="mt-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                      Не вдалося заархівувати: {pauseSummary.archiveFailed} — вони можуть повернутися в чергу.
+                    </div>}
+                  </div>
+                </div>
+              </div>}
             </div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
@@ -709,7 +855,7 @@ export function ChatDiscoveryDialog({
                       {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<Square data-icon="inline-start"/>}{telegramBusy?'Зупиняємо…':'Зупинити автопошук'}
                     </Button>
                   : <Button className="w-full justify-center" type="button" disabled={telegramBusy} onClick={() => void startAutonomousSearch()}>
-                      {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<Search data-icon="inline-start"/>}{telegramBusy?'Запускаємо…':localPreview.completionReason==='source_error'?'Продовжити пошук':'Запустити автопошук'}
+                      {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<Search data-icon="inline-start"/>}{telegramBusy?'Запускаємо…':localPreview.pauseSummary?'Продовжити автопошук':localPreview.completionReason==='source_error'?'Продовжити пошук':'Запустити автопошук'}
                     </Button>}
                 {!autonomousRunning&&localTargets.length>0&&<Button className="w-full justify-center" type="button" disabled={telegramBusy} onClick={()=>void addLocalTargetsToJoin()}>
                   {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<CheckCircle2 data-icon="inline-start"/>}{telegramBusy?'Записуємо…':`Додати ${localTargets.length} цільових у Work OS`}
@@ -1121,6 +1267,16 @@ function readLocalPreviewSession():LocalPreviewSession{
       lastCheckedDecision:value.lastCheckedDecision==='target'||value.lastCheckedDecision==='rejected'||value.lastCheckedDecision==='skipped'||value.lastCheckedDecision==='unavailable'?value.lastCheckedDecision:null,
       lastCheckedAt:Number.isFinite(Number(value.lastCheckedAt))?Number(value.lastCheckedAt):null,
       lastCheckedReasonCodes:Array.isArray(value.lastCheckedReasonCodes)?value.lastCheckedReasonCodes.filter((item):item is string=>typeof item==='string').slice(0,8):[],
+      pauseSummary:value.pauseSummary&&typeof value.pauseSummary==='object'?{
+        at:Number.isFinite(Number(value.pauseSummary.at))?Number(value.pauseSummary.at):Date.now(),
+        cursor:safeNonNegativeInt(value.pauseSummary.cursor),
+        targets:safeNonNegativeInt(value.pauseSummary.targets),
+        rejected:safeNonNegativeInt(value.pauseSummary.rejected),
+        skipped:safeNonNegativeInt(value.pauseSummary.skipped),
+        unavailable:safeNonNegativeInt(value.pauseSummary.unavailable),
+        unverified:safeNonNegativeInt(value.pauseSummary.unverified),
+        archiveFailed:safeNonNegativeInt(value.pauseSummary.archiveFailed),
+      }:null,
       candidates,
     };
   }catch{return EMPTY_LOCAL_PREVIEW;}
