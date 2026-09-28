@@ -17,6 +17,7 @@ import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { subjectSearchVariants } from '@/lib/subjects';
 import { businessDate } from '@/lib/business-time';
 import { revisionCacheRequest, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
+import { normalizeUnicodeSearchText, unicodeSearchMatchesAny } from '@/lib/unicode-search';
 
 const KINDS = new Set(['advertisement', 'script']);
 const REQUEST_MAX_BYTES = 64 * 1024;
@@ -32,11 +33,8 @@ export async function GET(request: Request): Promise<Response> {
   if (kind !== 'all' && !KINDS.has(kind)) return Response.json({ error: 'Невідомий тип матеріалу.' }, { status: 400 });
   if (collectionText && !isLibraryCollection(collectionText)) return Response.json({ error: 'Невідома колекція.' }, { status: 400 });
   const collection = collectionText as LibraryCollection | '';
-  const pattern = `%${escapeLike(search.toLowerCase())}%`;
-  const subjectTerms = subjectSearchVariants(search);
-  const subjectTagSearch = subjectTerms.length
-    ? ` OR ${subjectTerms.map((_, index) => `instr(tags_json, ?${index + 7})>0`).join(' OR ')}`
-    : '';
+  const normalizedSearch=normalizeUnicodeSearchText(search);
+  const subjectTerms=subjectSearchVariants(search).map(normalizeUnicodeSearchText);
   const today=businessDate(Math.floor(Date.now()/1000));
   const cacheRequest=await revisionCacheRequest(env.DB,user.id,'library',`${kind}:${collection}:${archived ? 1 : 0}:${search}:${today}`);
   const cached=await matchRevisionJson(cacheRequest);
@@ -44,12 +42,11 @@ export async function GET(request: Request): Promise<Response> {
   const [itemsResult,usageResult] = await env.DB.batch([
     env.DB.prepare(`SELECT id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,archived_at,created_at,updated_at
       FROM library_items WHERE user_id=?1
-        AND ((?6=0 AND archived_at IS NULL) OR (?6=1 AND archived_at IS NOT NULL))
-        AND (?2='' OR collection=?2)
-        AND (?3='all' OR kind=?3)
-        AND NOT (?3='script' AND ?2='' AND collection='knowledge')
-        AND (?4='' OR lower(title) LIKE ?5 ESCAPE '\\' OR lower(uk_text) LIKE ?5 ESCAPE '\\' OR lower(ru_text) LIKE ?5 ESCAPE '\\' OR lower(notes) LIKE ?5 ESCAPE '\\' OR lower(tags_json) LIKE ?5 ESCAPE '\\'${subjectTagSearch})
-      ORDER BY updated_at DESC,title LIMIT 200`).bind(user.id, collection, kind, search, pattern, Number(archived), ...subjectTerms),
+        AND ((?2=0 AND archived_at IS NULL) OR (?2=1 AND archived_at IS NOT NULL))
+        AND (?3='' OR collection=?3)
+        AND (?4='all' OR kind=?4)
+        AND NOT (?4='script' AND ?3='' AND collection='knowledge')
+      ORDER BY updated_at DESC,title`).bind(user.id,Number(archived),collection,kind),
     env.DB.prepare(`SELECT p.advertisement_id,c.platform
       FROM chat_publications p JOIN chats c ON c.id=p.chat_id AND c.user_id=p.user_id
       WHERE p.user_id=?1 AND p.published_on=?2 AND p.advertisement_id IS NOT NULL
@@ -60,7 +57,12 @@ export async function GET(request: Request): Promise<Response> {
     const platforms=usageByAdvertisement.get(row.advertisement_id)||[];
     platforms.push(row.platform);usageByAdvertisement.set(row.advertisement_id,platforms);
   }
-  const payload={ items: (itemsResult.results as LibraryRow[]).map(row=>publicItem(row,usageByAdvertisement.get(row.id)||[])), businessDate:today };
+  const libraryRows=(itemsResult.results as LibraryRow[])
+    .filter(row=>!normalizedSearch
+      ||unicodeSearchMatchesAny([row.title,row.uk_text,row.ru_text,row.notes,row.tags_json],normalizedSearch)
+      ||subjectTerms.some(term=>unicodeSearchMatchesAny([row.tags_json],term)))
+    .slice(0,200);
+  const payload={ items: libraryRows.map(row=>publicItem(row,usageByAdvertisement.get(row.id)||[])), businessDate:today };
   await putRevisionJson(cacheRequest,payload,120);
   return Response.json(payload,{headers:{'Cache-Control':'no-store','X-Work-OS-Cache':'MISS'}});
 }
