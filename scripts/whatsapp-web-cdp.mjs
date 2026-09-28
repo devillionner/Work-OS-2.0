@@ -573,7 +573,7 @@ export function classifyWhatsAppSnapshot(task, snapshot) {
 
 export async function leaveWhatsappTaskViaCdp(
   task,
-  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS } = {},
+  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS, reuseCurrentVerified = false } = {},
 ) {
   if (task.runtime !== 'whatsapp_web' || task.platform !== 'whatsapp' || task.action !== 'leave') {
     return { kind: 'blocked', reason: 'unsupported_runtime' };
@@ -592,12 +592,24 @@ export async function leaveWhatsappTaskViaCdp(
   try {
     await client.send('Page.enable');
     await client.send('Runtime.enable');
-    await client.send('Page.navigate', { url: targetUrl });
 
     const operationDeadline = Date.now() + timeoutMs;
     const remainingBudget = () => Math.max(POLL_MS, operationDeadline - Date.now());
-    const navigatedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);
-    let opened = await waitForClassification(client, { ...task, action: 'inspect' }, remainingBudget(), null, navigatedInviteCode);
+    let opened;
+    if (reuseCurrentVerified) {
+      const snapshot = await readSnapshot(client);
+      const expectedName = task.expectedTarget?.name || task.name;
+      const expected = normalizeTargetLabel(expectedName);
+      const exact = [...(snapshot.headerNames || []), ...(snapshot.headerTitles || [])]
+        .map((value) => String(value || '').trim())
+        .find((value) => normalizeTargetLabel(value) === expected);
+      if (!exact || snapshot.composer !== true) return { kind:'blocked', reason:'current_joined_target_not_verified' };
+      opened = { kind:'result', result:{ membershipState:'joined', targetVerified:true, observedName:exact } };
+    } else {
+      await client.send('Page.navigate', { url: targetUrl });
+      const navigatedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);
+      opened = await waitForClassification(client, { ...task, action: 'inspect' }, remainingBudget(), null, navigatedInviteCode);
+    }
     if (opened.kind === 'action' && opened.action === 'view') {
       const observedTarget = opened.observedName || task.expectedTarget?.name || task.name;
       const clicked = await clickExactButton(client, opened.buttonText, observedTarget);
@@ -1049,7 +1061,9 @@ export function deriveWhatsappQualification(snapshot) {
   const chatText = String(snapshot.mainText || '');
   const messages = Array.isArray(snapshot.messageTexts) ? snapshot.messageTexts.map(String) : [];
   const meta = Array.isArray(snapshot.messageMeta) ? snapshot.messageMeta.map(String) : [];
-  const memberCount = parseMemberCount(infoText);
+  const memberCount = parseMemberCount(String(snapshot.groupInfoText || ''))
+    ?? parseMemberCount(String(snapshot.mainText || ''))
+    ?? parseMemberCount(String(snapshot.headerText || ''));
   const activityState = inferMessageActivity(meta, Number(snapshot.nowMs) || Date.now(), snapshot.locale)
     || (recentActivityPattern.test(chatText) || recentActivityPattern.test(meta.join('\n')) ? 'active' : undefined);
   const identityText = [infoText, snapshot.headerText || '', ...(snapshot.headerNames || []), ...(snapshot.headerTitles || [])].join('\n');
