@@ -26,6 +26,16 @@ void test('workbook plan includes compatible keywords, countries and city aliase
   assert.ok(plan.every(item=>!item.query.includes('назва села')));
 });
 
+void test('WhatsApp page selection keeps one controlled tab and closes duplicates',async()=>{
+  const source=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  const start=source.indexOf('async function findOrCreateWhatsappPage');
+  const end=source.indexOf('export function shouldDeferForGlobalWhatsAppLoading',start);
+  const block=source.slice(start,end);
+  assert.match(block,/whatsappPages\.find\(\(page\)=>page\.url==='https:\/\/web\.whatsapp\.com\/'/u);
+  assert.match(block,/json\/close\//u);
+  assert.match(block,/Promise\.allSettled/u);
+});
+
 void test('repeated global WhatsApp loading triggers a bounded self-heal reload',async()=>{
   const runner=await readFile(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8');
   assert.match(runner,/WHATSAPP_LOADING_RELOAD_AFTER=3/u);

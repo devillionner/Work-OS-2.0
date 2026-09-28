@@ -1087,10 +1087,20 @@ async function findOrCreateWhatsappPage(base) {
   });
   if (!response.ok) throw new Error(`CDP list HTTP ${response.status}`);
   const pages = await response.json();
-  const existing = Array.isArray(pages)
-    ? pages.find((page) => page?.type === 'page' && /^https:\/\/web\.whatsapp\.com\//u.test(page.url || ''))
-    : null;
-  if (existing?.webSocketDebuggerUrl) return existing;
+  const whatsappPages = Array.isArray(pages)
+    ? pages.filter((page) => page?.type === 'page' && /^https:\/\/web\.whatsapp\.com\//u.test(page.url || '') && page.webSocketDebuggerUrl)
+    : [];
+  if(whatsappPages.length){
+    const existing=whatsappPages.find((page)=>page.url==='https://web.whatsapp.com/')||whatsappPages[0];
+    const extras=whatsappPages.filter((page)=>page.id&&page.id!==existing.id);
+    if(extras.length){
+      await Promise.allSettled(extras.map((page)=>fetch(
+        `${base}/json/close/${encodeURIComponent(page.id)}`,
+        {signal:AbortSignal.timeout(4_000)},
+      )));
+    }
+    return existing;
+  }
 
   const created = await fetch(
     `${base}/json/new?${encodeURIComponent('https://web.whatsapp.com/')}`,
