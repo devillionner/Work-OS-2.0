@@ -22,6 +22,15 @@ void test('workbook plan includes compatible keywords, countries and city aliase
   assert.ok(plan.every(item=>!item.query.includes('назва села')));
 });
 
+void test('runtime crawl requires the source plan instead of private raw GitHub',async()=>{
+  const source=await readFile(new URL('../scripts/chat-discovery-source-crawl.mjs',import.meta.url),'utf8');
+  assert.doesNotMatch(source,/raw\.githubusercontent\.com/iu);
+  const result=await crawlLocalDiscoverySource(15);
+  assert.equal(result.nextCursor,15);
+  assert.equal(result.done,false);
+  assert.match(result.errors[0].reason,/source_plan_missing/);
+});
+
 void test('HTTP failure retains the cursor and is not exhaustion',async()=>{
   const result=await crawlLocalDiscoverySource(0,{seedData,fetcher:async()=>response('unavailable',503)});
   assert.equal(result.nextCursor,0);
@@ -91,6 +100,22 @@ void test('unknown qualification has bounded retries and never leaves a joined c
   assert.equal(outcomes[0].decision,'unavailable');
   assert.ok(outcomes[0].reasonCodes.includes('unknown_activity'));
   assert.equal(outcomes[0].result.status,'incomplete');
+});
+
+void test('source plan is fetched through the authorized Work OS page',async()=>{
+  const source=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  const fn=source.slice(source.indexOf('export async function readWorkOsLocalDiscoverySeedDataViaCdp'),source.indexOf('export async function applyWorkOsLocalDiscoverySourceBatchViaCdp')).replace('export ','');
+  const {runInNewContext}=await import('node:vm');
+  const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+  const sandbox={fetch:async()=>Response.json({version:7,seedData})};
+  const run=new AsyncFunction('listWorkOsPagesForCdp','createCdpClient','sandbox','runInNewContext',
+    fn+'\nreturn readWorkOsLocalDiscoverySeedDataViaCdp(\'https://staging.example\',{});');
+  const result=await run(async()=>({pages:[{webSocketDebuggerUrl:'local'}]}),async()=>({
+    send:async(_method,args)=>({result:{value:await runInNewContext(args.expression,sandbox)}}),close:()=>{},
+  }),sandbox,runInNewContext);
+  assert.equal(result.kind,'result');
+  assert.equal(result.version,7);
+  assert.equal(result.seedData.cities[0].name,'Berlin');
 });
 
 void test('source bridge keeps cursor on preview failure and reports a resumable stop',async()=>{

@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { DiscoveryError } from '@/lib/chat-discovery/domain';
+import chatDiscoverySeeds from '@/lib/chat-discovery/seeds';
 import {
   confirmLocalDiscoveryPreview,
   previewTelegramDiscoveryText,
@@ -20,6 +21,9 @@ export async function POST(request:Request):Promise<Response>{
   if(body instanceof Response)return body;
   const now=Math.floor(Date.now()/1000);
   try{
+    if(body.action==='source-plan'){
+      return json({version:chatDiscoverySeeds.version,seedData:chatDiscoverySeeds});
+    }
     if(body.action==='search'){
       return json(await searchLocalDiscoveryPreview(env.DB,user.id,{
         platforms:body.platforms,

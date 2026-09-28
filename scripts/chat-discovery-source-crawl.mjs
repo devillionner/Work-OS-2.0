@@ -20,8 +20,6 @@ const BOOTSTRAP_SOURCES = [
   ['Українці · Waterloo','https://t.me/s/razom_waterloo?q=WhatsApp','Waterloo'],
   ['Українці · Лондон','https://t.me/s/ukrainianlondon?q=WhatsApp','Лондон'],
 ];
-const WORKBOOK_URL = 'https://raw.githubusercontent.com/devillionner/Work-OS-2.0/main/lib/chat-discovery/seeds.ts';
-let workbookPromise;
 const pageCache = new Map();
 const UA = /(?:україн|украин|ukrain|🇺🇦)/iu;
 const SPAM = /(?:crypto|bitcoin|forex|casino|казино|betting|dating|escort|onlyfans|nft|airdrop|signals?\b|قروبات|روابط\s+مجموعات|مجموعات\s+واتساب|technical\s+support)/iu;
@@ -69,18 +67,15 @@ export function workbookSearchPlan(seed) {
   return tasks.filter(item=>item.query&&!/назва |\(|\)/iu.test(item.query));
 }
 
-async function loadWorkbook(fetcher) {
-  if(!workbookPromise)workbookPromise=(async()=>{
-    const text=await fetchText(WORKBOOK_URL,fetcher,12000,1000000);
-    const seed=JSON.parse(text.replace(/^export default\s*/u,'').replace(/\s+as const;\s*$/u,''));
-    if(!Array.isArray(seed.cities)||!seed.cities.length||!Array.isArray(seed.keywords)||!seed.keywords.length)throw new Error('workbook_invalid');
-    return workbookSearchPlan(seed);
-  })().catch(error=>{workbookPromise=undefined;throw error;});
-  return workbookPromise;
+function requireSeedData(seedData) {
+  if(!seedData||!Array.isArray(seedData.cities)||!seedData.cities.length||!Array.isArray(seedData.keywords)||!seedData.keywords.length){
+    throw new Error('source_plan_missing');
+  }
+  return seedData;
 }
 
-export async function localDiscoveryPlanSize({fetcher=fetch,seedData}={}) {
-  const plan=seedData?workbookSearchPlan(seedData):await loadWorkbook(fetcher);
+export async function localDiscoveryPlanSize({seedData}={}) {
+  const plan=workbookSearchPlan(requireSeedData(seedData));
   return BOOTSTRAP_SOURCES.length+plan.length;
 }
 
@@ -113,7 +108,7 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
   const index=Math.max(0,Number(cursor)||0);
   let totalTasks=null,query='',attempted=0;
   try{
-    const plan=seedData?workbookSearchPlan(seedData):await loadWorkbook(fetcher);
+    const plan=workbookSearchPlan(requireSeedData(seedData));
     totalTasks=BOOTSTRAP_SOURCES.length+plan.length;
     if(index>=totalTasks)return {searched:0,nextCursor:index,done:true,totalTasks,query,sources:[],errors:[]};
     const sources=[];

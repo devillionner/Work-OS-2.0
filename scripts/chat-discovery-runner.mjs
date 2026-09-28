@@ -8,6 +8,7 @@ import {
   leaveWhatsappTaskViaCdp,
   readWorkOsExecutorTokenViaCdp,
   readWorkOsLocalDiscoveryTaskViaCdp,
+  readWorkOsLocalDiscoverySeedDataViaCdp,
   writeWorkOsLocalDiscoveryResultViaCdp,
   applyWorkOsLocalDiscoverySourceBatchViaCdp,
   sendWhatsappAutopostViaCdp,
@@ -34,6 +35,8 @@ const EXECUTOR_QUEUE_LIMIT=3;
 const TASK_BLOCK_COOLDOWN_MS=300000;
 const INCOMPLETE_QUALIFICATION_COOLDOWN_MS=15000;
 const qualificationAttempts=new Map();
+let localSourceSeedData=null;
+let localSourceSeedVersion=0;
 const PAGE_RECOVERY_COOLDOWN_MS=15000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
 const TOKEN_REFRESH_MS=60000;
@@ -355,10 +358,27 @@ async function processLocalPreflight(task){
   return 'local_task';
 }
 
+async function resolveLocalSourceSeedData(){
+  if(localSourceSeedData)return localSourceSeedData;
+  const result=await readWorkOsLocalDiscoverySeedDataViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp});
+  if(result.kind!=='result')throw new Error(result.reason||'source_plan_unavailable');
+  localSourceSeedData=result.seedData;
+  localSourceSeedVersion=Number(result.version)||0;
+  console.log(`Discovery source plan loaded from authorized Work OS page${localSourceSeedVersion?` (v${localSourceSeedVersion})`:''}.`);
+  return localSourceSeedData;
+}
+
 async function crawlLocalDiscoveryBatch(cursor){
   const start=Math.max(0,Number(cursor)||0);
+  let seedData;
+  try{
+    seedData=await resolveLocalSourceSeedData();
+  }catch(error){
+    const reason=error instanceof Error?error.message:String(error);
+    return {searched:0,nextCursor:start,done:false,totalTasks:0,errors:[{cursor:start,query:'План пошуку Work OS',reason}],query:'План пошуку Work OS',sources:[]};
+  }
   const width=start>=15?2:1;
-  const batches=await Promise.all(Array.from({length:width},(_,index)=>crawlLocalDiscoverySource(start+index)));
+  const batches=await Promise.all(Array.from({length:width},(_,index)=>crawlLocalDiscoverySource(start+index,{seedData})));
   const errors=batches.flatMap(item=>item.errors||[]);
   return {
     searched:batches.reduce((sum,item)=>sum+(Number(item?.searched)||0),0),

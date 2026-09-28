@@ -334,6 +334,47 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
   return fallback;
 }
 
+export async function readWorkOsLocalDiscoverySeedDataViaCdp(
+  workOsUrl,
+  { cdpBaseUrl } = {},
+) {
+  const pagesResult=await listWorkOsPagesForCdp(workOsUrl,cdpBaseUrl);
+  if(pagesResult.kind==='blocked')return pagesResult;
+  let fallback={kind:'blocked',reason:'source_plan_not_found'};
+  for(const page of pagesResult.pages){
+    const client=await createCdpClient(page.webSocketDebuggerUrl);
+    try{
+      const response=await client.send('Runtime.evaluate',{
+        expression:`(async()=>{
+          try{
+            const response=await fetch('/api/chat-discovery/preview',{
+              method:'POST',
+              credentials:'same-origin',
+              headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({action:'source-plan'}),
+            });
+            const payload=await response.json().catch(()=>null);
+            if(!response.ok)return {ok:false,reason:'source_plan_http_'+response.status};
+            const seedData=payload?.seedData;
+            if(!seedData||!Array.isArray(seedData.keywords)||!seedData.keywords.length||!Array.isArray(seedData.cities)||!seedData.cities.length){
+              return {ok:false,reason:'source_plan_invalid'};
+            }
+            return {ok:true,version:Number(payload?.version)||Number(seedData.version)||0,seedData};
+          }catch{
+            return {ok:false,reason:'source_plan_fetch_failed'};
+          }
+        })()`,
+        returnByValue:true,
+        awaitPromise:true,
+      });
+      const value=response?.result?.value||{};
+      if(value.ok===true)return {kind:'result',version:Number(value.version)||0,seedData:value.seedData};
+      fallback={kind:'blocked',reason:String(value.reason||'source_plan_invalid')};
+    }finally{client.close();}
+  }
+  return fallback;
+}
+
 export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
   workOsUrl,
   batch,
