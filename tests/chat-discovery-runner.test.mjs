@@ -214,3 +214,10 @@ void test('local Discovery metadata-screens before any heavy WhatsApp invite UI'
   assert.match(process,/deferred so another candidate can continue/);
   assert.ok(process.indexOf('queryWhatsappInviteViaCdp')<process.indexOf('inspectWhatsappTaskViaCdp'));
 });
+
+void test('blocked metadata candidates do not fill the active local source queue',async()=>{
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  assert.match(adapter,/queuedCount:candidates\.filter\(item=>item\?\.preflightState==='queued'&&!results\[item\?\.id\]&&!skipped\.has\(item\?\.id\)\)\.length/);
+  assert.match(source,/refillSkipCandidateIds=\[\.\.\.taskBlockedUntil\.entries\(\)\]/);
+  assert.match(source,/skipCandidateIds:refillSkipCandidateIds/);
+});

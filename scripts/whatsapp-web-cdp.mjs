@@ -382,7 +382,7 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
             goal:Number(state?.goal)||0,
             sourceCursor:Number(state?.telegramCursor)||0,
             sourceExhausted:state?.sourceExhausted===true,
-            queuedCount:candidates.filter(item=>item?.preflightState==='queued'&&!results[item?.id]).length,
+            queuedCount:candidates.filter(item=>item?.preflightState==='queued'&&!results[item?.id]&&!skipped.has(item?.id)).length,
             task:candidate?{
               candidateId:candidate.id,
               runtime:'whatsapp_web',

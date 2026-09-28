@@ -469,7 +469,10 @@ function startLocalSourceRefill(initialLocal){
         if(applied.kind!=='result'||applied.errors)break;
         console.log('Local source crawl: cursor '+batch.nextCursor+', sources '+batch.sources.length+', added '+(applied.added||0)+', duplicates '+(applied.duplicates||0));
         if(batch.done===true)break;
-        const refreshed=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp,skipCandidateIds:[]});
+        const refillSkipCandidateIds=[...taskBlockedUntil.entries()]
+          .filter(([,until])=>until>Date.now())
+          .map(([candidateId])=>candidateId);
+        const refreshed=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp,skipCandidateIds:refillSkipCandidateIds});
         if(refreshed.kind!=='result')break;
         local=refreshed;
       }
