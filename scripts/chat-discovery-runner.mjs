@@ -454,6 +454,7 @@ async function runOnce(){
       const local=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp,skipCandidateIds});
       if(local.kind==='result'&&local.active===true){
         if(Number(local.sourceCursor||0)===0)nextLocalSourceAt=0;
+        startLocalSourceRefill(local);
         if(Date.now()<whatsappRuntimeBlockedUntil)return 'local_wait';
         if(local.task){
           try{
