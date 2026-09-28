@@ -26,6 +26,20 @@ void test('workbook plan includes compatible keywords, countries and city aliase
   assert.ok(plan.every(item=>!item.query.includes('назва села')));
 });
 
+void test('legacy target_not_verified outcomes are requeued only once',async()=>{
+  const source=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  const start=source.indexOf('const legacyReasons=');
+  const end=source.indexOf('if(resultsChanged)',start);
+  const block=source.slice(start,end);
+  assert.match(block,/preflightState==='unavailable'/u);
+  assert.match(block,/legacyReasons\.length===1/u);
+  assert.match(block,/legacyReasons\[0\]==='target_not_verified'/u);
+  assert.match(block,/!Number\.isFinite\(item\?\.memberCount\)/u);
+  assert.match(block,/revalidationVersion!=='target-verification-v2'/u);
+  assert.match(block,/preflightState='queued'/u);
+  assert.match(block,/delete results\[item\.id\]/u);
+});
+
 void test('legacy Brave rate-limit source stop is narrowly recoverable',async()=>{
   const source=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
   const start=source.indexOf('const recoverableLegacySearchStop=');

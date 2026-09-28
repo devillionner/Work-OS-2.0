@@ -275,6 +275,7 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
               ||label.includes('майстер клас')
               ||(label.includes('реєстрац')&&hasDigit);
           };
+          let resultsChanged=false;
           for(const item of candidates){
             if(item?.preflightState==='queued'&&hardNoise(item)){
               item.preflightState='rejected';
@@ -284,6 +285,25 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
               item.leftAfterCheck=false;
               stateChanged=true;
             }
+            const legacyReasons=Array.isArray(item?.preflightReasonCodes)?item.preflightReasonCodes:[];
+            const legacyTargetNotVerified=item?.preflightState==='unavailable'
+              &&legacyReasons.length===1
+              &&legacyReasons[0]==='target_not_verified'
+              &&!Number.isFinite(item?.memberCount)
+              &&item?.revalidationVersion!=='target-verification-v2';
+            if(legacyTargetNotVerified){
+              item.preflightState='queued';
+              item.preflightReasonCodes=[];
+              item.reasonCodes=[];
+              item.decision='review';
+              item.revalidationVersion='target-verification-v2';
+              item.leftAfterCheck=false;
+              if(item.id&&results[item.id]){delete results[item.id];resultsChanged=true;}
+              stateChanged=true;
+            }
+          }
+          if(resultsChanged){
+            sessionStorage.setItem("work-os:chat-discovery-local-preflight-results:v1",JSON.stringify(results));
           }
           if(stateChanged){
             state.candidates=candidates;
