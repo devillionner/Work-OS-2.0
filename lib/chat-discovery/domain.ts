@@ -135,21 +135,27 @@ export async function cancelDiscoveryRun(db: D1Database, userId: string, runId: 
   return { cancelled: true };
 }
 
-export async function resetDiscoveryWorkspace(db: D1Database, userId: string) {
-  const linked = await db.prepare(`SELECT COUNT(DISTINCT imported_chat_id) AS count
-    FROM chat_discovery_candidates WHERE user_id=?1 AND imported_chat_id IS NOT NULL`)
-    .bind(userId).first<{ count:number }>();
-  const [sources,candidates,runs] = await db.batch([
-    db.prepare(`DELETE FROM chat_discovery_sources WHERE user_id=?1 RETURNING id`).bind(userId),
-    db.prepare(`DELETE FROM chat_discovery_candidates WHERE user_id=?1 RETURNING id`).bind(userId),
+export async function resetDiscoveryWorkspace(db:D1Database,userId:string){
+  const [candidateCount,sourceCount,chatCount]=await Promise.all([
+    db.prepare(`SELECT COUNT(*) AS count FROM chat_discovery_candidates WHERE user_id=?1`).bind(userId).first<{count:number}>(),
+    db.prepare(`SELECT COUNT(*) AS count FROM chat_discovery_sources WHERE user_id=?1`).bind(userId).first<{count:number}>(),
+    db.prepare(`SELECT COUNT(DISTINCT imported_chat_id) AS count FROM chat_discovery_candidates
+      WHERE user_id=?1 AND imported_chat_id IS NOT NULL`).bind(userId).first<{count:number}>(),
+  ]);
+  const [detached,runs]=await db.batch([
+    db.prepare(`UPDATE chat_discovery_candidates SET discovery_run_id=NULL
+      WHERE user_id=?1 AND discovery_run_id IS NOT NULL RETURNING id`).bind(userId),
     db.prepare(`DELETE FROM chat_discovery_runs WHERE user_id=?1 RETURNING id`).bind(userId),
   ]);
   return {
     reset:true,
-    removedSources:sources.results.length,
-    removedCandidates:candidates.results.length,
+    removedSources:0,
+    removedCandidates:0,
     removedRuns:runs.results.length,
-    preservedChats:Number(linked?.count || 0),
+    detachedCandidates:detached.results.length,
+    preservedCandidates:Number(candidateCount?.count||0),
+    preservedSources:Number(sourceCount?.count||0),
+    preservedChats:Number(chatCount?.count||0),
   };
 }
 

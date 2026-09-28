@@ -111,6 +111,122 @@ export async function previewTelegramDiscoveryText(
   return {previews:preview.previews,batch:{extracted:records.length,added:preview.previews.length,duplicates:preview.duplicates}};
 }
 
+export async function persistLocalDiscoveryOutcome(
+  db:D1Database,
+  userId:string,
+  input:{platform?:unknown;link?:unknown;name?:unknown;sources?:unknown;minMembers?:unknown;outcome?:unknown},
+  now:number,
+){
+  const platform=input.platform==='whatsapp'||input.platform==='viber'?input.platform:null;
+  const rawLink=typeof input.link==='string'?input.link.trim():'';
+  const parsed=normalizeGroupLink(rawLink);
+  if(!platform||!parsed||parsed.platform!==platform||!['whatsapp','viber'].includes(parsed.platform)){
+    throw new DiscoveryError('Некоректний локальний outcome.');
+  }
+  if(!input.outcome||typeof input.outcome!=='object'||Array.isArray(input.outcome)){
+    throw new DiscoveryError('Результат локальної перевірки не вказаний.');
+  }
+  const outcome=input.outcome as Record<string,unknown>;
+  const localDecision=String(outcome.decision||'');
+  if(!['target','rejected','skipped','unavailable'].includes(localDecision)){
+    throw new DiscoveryError('Некоректний локальний статус перевірки.');
+  }
+  const rawResult=outcome.result&&typeof outcome.result==='object'&&!Array.isArray(outcome.result)
+    ? outcome.result as Record<string,unknown>:{};
+  const reasonCodes=Array.isArray(outcome.reasonCodes)
+    ? [...new Set(outcome.reasonCodes.filter((item):item is string=>typeof item==='string'&&item.trim()).map(item=>item.trim().slice(0,100)))].slice(0,20)
+    : [];
+  const minMembers=boundedInteger(input.minMembers,700,18_000,700);
+  const count=Number(rawResult.memberCount);
+  const memberCount=Number.isSafeInteger(count)&&count>=0?count:null;
+  const chatType=['group','community','channel','contact','bot'].includes(String(rawResult.chatType))
+    ? rawResult.chatType as DiscoveryCandidate['chatType']:'unknown';
+  const activityState=rawResult.activityState==='active'?'active':rawResult.activityState==='dead'?'dead':'unknown';
+  const topicMatch=rawResult.topicMatch==='match'?'match':rawResult.topicMatch==='mismatch'?'mismatch':'unknown';
+  const canWrite=typeof rawResult.canWrite==='boolean'?rawResult.canWrite:null;
+  const adsPolicy=['allowed','inferred_allowed','operator_confirmed','forbidden'].includes(String(rawResult.adsPolicy))
+    ? rawResult.adsPolicy as DiscoveryCandidate['adsPolicy']:'unknown';
+  const membershipState=['joined','pending','left','not_checked'].includes(String(rawResult.membershipState))
+    ? rawResult.membershipState as DiscoveryCandidate['membershipState']:'not_checked';
+  const accessible=typeof rawResult.accessible==='boolean'?rawResult.accessible:null;
+  const targetVerified=rawResult.targetVerified===true;
+  const status=String(rawResult.status||'');
+  const rawReason=String(rawResult.reason||'');
+  const invalid=reasonCodes.some(code=>/(?:invalid|expired|missing|gone)/iu.test(code))
+    ||/(?:invalid|expired|not-found|gone|missing)/iu.test(rawReason);
+  const accessState:DiscoveryCandidate['accessState']=accessible===true?'available':accessible===false?'unavailable':'unknown';
+  const linkState:DiscoveryCandidate['linkState']=invalid?'invalid':'valid';
+  const inspectionState:DiscoveryCandidate['inspectionState']=status==='inspected'?'inspected'
+    :status==='failed'||localDecision==='unavailable'?'failed'
+    :localDecision==='target'?'inspected':'not_checked';
+
+  let decision:DiscoveryDecision=localDecision==='unavailable'?'unavailable':'rejected';
+  let finalReasons=reasonCodes.length?reasonCodes:[localDecision==='skipped'?'skipped_by_automation':'automation_rejected'];
+  if(localDecision==='target'){
+    const evaluated=evaluateDiscoveryCandidate({
+      chatType,memberCount,topicMatch,canWrite,adsPolicy,activityState,membershipState,
+      inspectionState,accessState,linkState,
+    },minMembers);
+    if(!targetVerified||evaluated.decision!=='target'){
+      throw new DiscoveryError('Автопошук може зберегти target лише після повної фактичної перевірки.',409);
+    }
+    decision='target';
+    finalReasons=evaluated.reasonCodes;
+  }else if(localDecision==='unavailable'||accessState==='unavailable'||linkState==='invalid'){
+    decision='unavailable';
+  }
+
+  const sources=cleanSources(input.sources);
+  const observedName=cleanChatName(typeof rawResult.observedName==='string'?rawResult.observedName:'');
+  const name=observedName||cleanChatName(typeof input.name==='string'?input.name:'')||suggestedChatName(parsed);
+  const candidateId=await stableId('candidate',`${userId}:${platform}:${parsed.link}`);
+  await db.prepare(`INSERT INTO chat_discovery_candidates
+    (id,user_id,platform,name,link,normalized_link,discovered_at,checked_at,member_count,chat_type,activity_state,topic_match,
+     can_write,ads_policy,membership_state,access_state,link_state,inspection_state,decision,reason_codes_json,
+     imported_chat_id,discovery_run_id,created_at,updated_at,version)
+    VALUES (?1,?2,?3,?4,?5,?5,?6,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,NULL,NULL,?6,?6,1)
+    ON CONFLICT(user_id,platform,normalized_link) DO UPDATE SET
+      name=CASE WHEN excluded.name<>'' THEN excluded.name ELSE chat_discovery_candidates.name END,
+      checked_at=excluded.checked_at,
+      member_count=excluded.member_count,
+      chat_type=excluded.chat_type,
+      activity_state=excluded.activity_state,
+      topic_match=excluded.topic_match,
+      can_write=excluded.can_write,
+      ads_policy=excluded.ads_policy,
+      membership_state=excluded.membership_state,
+      access_state=excluded.access_state,
+      link_state=excluded.link_state,
+      inspection_state=excluded.inspection_state,
+      decision=excluded.decision,
+      reason_codes_json=excluded.reason_codes_json,
+      updated_at=excluded.updated_at,
+      version=chat_discovery_candidates.version+1`)
+    .bind(candidateId,userId,platform,name,parsed.link,now,memberCount,chatType,activityState,topicMatch,
+      canWrite===null?null:Number(canWrite),adsPolicy,membershipState,accessState,linkState,inspectionState,decision,JSON.stringify(finalReasons))
+    .run();
+
+  if(sources.length){
+    const statements:D1PreparedStatement[]=[];
+    for(const source of sources.slice(0,8)){
+      const identity=sourceIdentity(source);
+      const sourceId=await stableId('source',`${candidateId}:${identity}`);
+      statements.push(db.prepare(`INSERT INTO chat_discovery_sources
+        (id,candidate_id,user_id,source_key,source_kind,source_url,source_title,query_text,seed_label,seed_kind,context,discovered_at)
+        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
+        ON CONFLICT(candidate_id,source_key) DO NOTHING`)
+        .bind(sourceId,candidateId,userId,identity,source.kind,source.sourceUrl,source.sourceTitle,source.query,source.seedLabel,source.seedKind,source.context,now));
+    }
+    await db.batch(statements);
+  }
+  const stored=await db.prepare(`SELECT id,decision,version,imported_chat_id FROM chat_discovery_candidates
+    WHERE user_id=?1 AND platform=?2 AND normalized_link=?3 LIMIT 1`)
+    .bind(userId,platform,parsed.link)
+    .first<{id:string;decision:DiscoveryDecision;version:number;imported_chat_id:string|null}>();
+  if(!stored)throw new DiscoveryError('Не вдалося зберегти результат автопошуку.',500);
+  return {persisted:true,candidateId:stored.id,decision:stored.decision,version:Number(stored.version),importedChatId:stored.imported_chat_id};
+}
+
 export async function confirmLocalDiscoveryPreview(
   db:D1Database,
   userId:string,

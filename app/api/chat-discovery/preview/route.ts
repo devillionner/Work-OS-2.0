@@ -4,6 +4,7 @@ import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { DiscoveryError } from '@/lib/chat-discovery/domain';
 import {
   confirmLocalDiscoveryPreview,
+  persistLocalDiscoveryOutcome,
   previewTelegramDiscoveryText,
   searchLocalDiscoveryPreview,
 } from '@/lib/chat-discovery/local-preview';
@@ -33,6 +34,11 @@ export async function POST(request:Request):Promise<Response>{
       return json(await previewTelegramDiscoveryText(env.DB,user.id,{
         text:body.text,sourceUrl:body.sourceUrl,sourceTitle:body.sourceTitle,query:body.query,
         seedLabel:body.seedLabel,context:body.context,knownLinks:body.knownLinks,minMembers:body.minMembers,
+      },now));
+    }
+    if(body.action==='persist-outcome'){
+      return json(await persistLocalDiscoveryOutcome(env.DB,user.id,{
+        platform:body.platform,link:body.link,name:body.name,sources:body.sources,minMembers:body.minMembers,outcome:body.outcome,
       },now));
     }
     if(body.action==='confirm'){

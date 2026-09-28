@@ -728,22 +728,49 @@ export async function writeWorkOsLocalDiscoveryResultViaCdp(
     const client=await createCdpClient(page.webSocketDebuggerUrl);
     try{
       const response=await client.send('Runtime.evaluate',{
-        expression:`(()=>{
+        expression:`(async()=>{
           const raw=sessionStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_PREVIEW_KEY)});
-          if(!raw)return false;
-          let state;try{state=JSON.parse(raw);}catch{return false;}
+          if(!raw)return {ok:false,reason:'state_missing'};
+          let state;try{state=JSON.parse(raw);}catch{return {ok:false,reason:'state_invalid'};}
           const candidates=Array.isArray(state?.candidates)?state.candidates:[];
-          if(!candidates.some((item)=>item&&item.id===${JSON.stringify(String(candidateId||''))}))return false;
+          const candidate=candidates.find((item)=>item&&item.id===${JSON.stringify(String(candidateId||''))});
+          if(!candidate)return {ok:false,reason:'candidate_missing'};
+          let persisted;
+          try{
+            const res=await fetch('/api/chat-discovery/preview',{
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({
+                action:'persist-outcome',
+                platform:candidate.platform,
+                link:candidate.link,
+                name:candidate.name,
+                sources:Array.isArray(candidate.sources)?candidate.sources:[],
+                minMembers:700,
+                outcome:${JSON.stringify(payload)},
+              }),
+            });
+            persisted=await res.json().catch(()=>null);
+            if(!res.ok||!persisted?.persisted){
+              return {ok:false,reason:String(persisted?.error||('persist_http_'+res.status))};
+            }
+          }catch{
+            return {ok:false,reason:'persist_network_error'};
+          }
           const key=${JSON.stringify(WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY)};
           let results={};try{results=JSON.parse(sessionStorage.getItem(key)||'{}');}catch{}
           results[${JSON.stringify(String(candidateId||''))}]=${JSON.stringify(payload)};
           const entries=Object.entries(results).slice(-300);
           sessionStorage.setItem(key,JSON.stringify(Object.fromEntries(entries)));
-          return true;
+          window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
+          return {ok:true,persisted};
         })()`,
         returnByValue:true,
+        awaitPromise:true,
       });
-      if(response?.result?.value===true)return {kind:'result'};
+      const value=response?.result?.value||{};
+      if(value.ok===true)return {kind:'result',persisted:value.persisted};
+      return {kind:'blocked',reason:String(value.reason||'persist_outcome_failed')};
     }finally{client.close();}
   }
   return {kind:'blocked',reason:'work_os_result_target_not_found'};
