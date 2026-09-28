@@ -26,6 +26,18 @@ void test('workbook plan includes compatible keywords, countries and city aliase
   assert.ok(plan.every(item=>!item.query.includes('назва села')));
 });
 
+void test('legacy Brave rate-limit source stop is narrowly recoverable',async()=>{
+  const source=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  const start=source.indexOf('const recoverableLegacySearchStop=');
+  const end=source.indexOf('const resultRaw=',start);
+  const block=source.slice(start,end);
+  assert.match(block,/completionReason==='source_error'/u);
+  assert.match(block,/search\\\.brave\\\.com/u);
+  assert.match(block,/source_http_429/u);
+  assert.match(block,/running:true/u);
+  assert.match(block,/sourceFailures:0/u);
+});
+
 void test('global WhatsApp message loading is deferred without burning the full invite timeout',()=>{
   assert.equal(shouldDeferForGlobalWhatsAppLoading({
     bodyText:'WhatsApp — Messages are loading. Keep this window open.',composer:false,headerNames:[],targetHeadings:[],

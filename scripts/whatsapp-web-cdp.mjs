@@ -250,6 +250,18 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
           const raw=sessionStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_PREVIEW_KEY)});
           if(!raw)return {active:false,goal:0,task:null};
           let state;try{state=JSON.parse(raw);}catch{return {active:false,goal:0,task:null};}
+          const recoverableLegacySearchStop=state?.running!==true
+            &&state?.done!==true
+            &&state?.sourceExhausted!==true
+            &&state?.completionReason==='source_error'
+            &&Array.isArray(state?.sourceIssues)
+            &&state.sourceIssues.length>0
+            &&state.sourceIssues.every((item)=>/(?:search\.brave\.com|search_rate_limited|source_http_429|curl.*(?:22|429))/iu.test(String(item?.reason||'')));
+          if(recoverableLegacySearchStop){
+            state={...state,running:true,completionReason:null,sourceFailures:0,lastActivityAt:Date.now()};
+            sessionStorage.setItem(${JSON.stringify(WORK_OS_LOCAL_PREVIEW_KEY)},JSON.stringify(state));
+            window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
+          }
           const resultRaw=sessionStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY)});
           let results={};try{results=resultRaw?JSON.parse(resultRaw):{};}catch{}
           const candidates=Array.isArray(state?.candidates)?state.candidates:[];
