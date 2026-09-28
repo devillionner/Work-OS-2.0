@@ -75,12 +75,20 @@ export function workbookSearchPlan(seed) {
   };
   const fastCities=interleave(5);
   const broadCities=interleave(20);
-  const fastTemplates=cityTemplates.filter(template=>
-    /назва міста чат|Українці в|Ukrainian in|Ukrainians|батьки|мамоч|барахол|перевіз|перевез/iu.test(template)
-  ).slice(0,7);
-  const broadTemplates=cityTemplates.filter(template=>
-    /назва міста чат|Українці в|Ukrainian in|Ukrainians/iu.test(template)
-  ).slice(0,2);
+  const pickTemplate=pattern=>cityTemplates.find(template=>pattern.test(template));
+  const fastTemplates=[
+    pickTemplate(/назва міста чат/iu),
+    pickTemplate(/Українці в місті/iu),
+    pickTemplate(/Мамочки/iu),
+    pickTemplate(/Батьки/iu),
+    pickTemplate(/^Барахолка/iu),
+    pickTemplate(/Дитяча барахолка/iu),
+    pickTemplate(/Перевізники|Перевезення/iu),
+  ].filter(Boolean);
+  const broadTemplates=[
+    pickTemplate(/назва міста чат/iu),
+    pickTemplate(/Українці в місті/iu),
+  ].filter(Boolean);
   const tasks=[];
   const seenQueries=new Set();
   const push=task=>{
