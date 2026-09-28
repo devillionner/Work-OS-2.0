@@ -1234,7 +1234,11 @@ async function clickExactHeader(client, expectedName) {
     const target = ${JSON.stringify(String(expectedName || '').trim().toLocaleLowerCase('uk-UA'))};
     const profileButton = [...document.querySelectorAll('[role="button"][aria-label]')]
       .find((node) => /(?:деталі профілю|profile details|данные профиля|сведения о профиле)/iu.test(node.getAttribute('aria-label') || ''));
-    const modernRegion = profileButton?.parentElement || document.querySelector('#main header');
+    if (profileButton && !profileButton.hasAttribute('disabled')) {
+      profileButton.click();
+      return true;
+    }
+    const modernRegion = document.querySelector('#main header');
     const nodes = [
       ...document.querySelectorAll('#main header [data-testid="conversation-info-header-chat-title"], #main header [dir="auto"], [data-testid="conversation-info-header"] [dir="auto"], [data-testid="conversation-info-header"] [title], header [title], header h1, header h2'),
       ...(modernRegion ? modernRegion.querySelectorAll('[role="button"], [title], [dir="auto"], h1, h2') : []),
