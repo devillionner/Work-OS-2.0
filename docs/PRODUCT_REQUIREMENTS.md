@@ -1,3 +1,9 @@
+
+## 2026-09-28 — Discovery pause / resume semantics
+- Manual pause is non-destructive: factual targets remain in the manual-review queue; rejected/skipped/unavailable outcomes remain durable dedupe anchors.
+- Any still-queued candidate at pause time is persisted as an archived unavailable outcome with reason `paused_unverified`, so a future run does not spend time qualifying the same invite again by default.
+- Resuming after a manual pause preserves the local source cursor, counters and candidates, but uses a fresh local run id so runtime backoff is reset. Discovery continues from the saved cursor instead of restarting the source plan from zero.
+- The pause UI must show a short animated summary of archived categories, preserved targets, archive failures and the cursor from which the next run will continue.
 # Work OS 2.0 — канонічні продуктові вимоги
 
 Оновлено: 2026-09-25. Реєстр стосується **Work OS 2.0**, а не готовності функцій у Prototype Checker. Мета: приватний, надійний і швидкий Work OS для щоденної роботи на Windows, Linux та iPhone через Workers + D1, де ручний workflow лишається recovery/fallback, а пріоритет — функції, що реально скорочують операторську роботу. WhatsApp Web/Chat Discovery automation є активним scope; AI-генерація лишається пізнішою фазою, а Viber real-chat autopost потребує окремого прямого дозволу.
