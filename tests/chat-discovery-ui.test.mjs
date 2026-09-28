@@ -328,3 +328,31 @@ void test('live WhatsApp check state survives UI session normalization',async()=
   assert.match(dialog,/Остання WhatsApp-перевірка/);
   assert.match(dialog,/Перевіряємо WhatsApp:/);
 });
+
+void test('pausing autonomous discovery archives unfinished candidates and preserves momentum',async()=>{
+  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  const stop=dialog.slice(dialog.indexOf('async function stopAutonomousSearch'),dialog.indexOf('async function addLocalTargetsToJoin'));
+  assert.match(stop,/running:false/);
+  assert.match(stop,/candidate\.preflightState==='queued'/);
+  assert.match(stop,/action:'persist-outcome'/);
+  assert.match(stop,/decision:'unavailable'/);
+  assert.match(stop,/paused_unverified/);
+  assert.match(stop,/pauseSummary/);
+  assert.match(stop,/telegramCursor/);
+  assert.match(dialog,/Автопошук зупинено · прогрес збережено/);
+  assert.match(dialog,/Наступний запуск продовжить з позиції/);
+  assert.match(dialog,/animate-in fade-in slide-in-from-top-1 duration-300/);
+});
+
+void test('resuming a paused discovery run keeps cursor candidates and durable dedupe history',async()=>{
+  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  const start=dialog.slice(dialog.indexOf('async function startAutonomousSearch'),dialog.indexOf('async function stopAutonomousSearch'));
+  assert.match(start,/if\(localPreview\.pauseSummary&&!localPreview\.done\)/);
+  assert.match(start,/\.\.\.localPreview/);
+  assert.match(start,/runId:crypto\.randomUUID\(\)/);
+  assert.match(start,/pauseSummary:null/);
+  assert.match(start,/Уже відомі invite повторно не перевіряються/);
+  const resumeBlock=start.slice(start.indexOf('if(localPreview.pauseSummary'));
+  assert.doesNotMatch(resumeBlock,/\.\.\.EMPTY_LOCAL_PREVIEW/);
+  assert.match(dialog,/Продовжити автопошук/);
+});
