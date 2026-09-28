@@ -356,3 +356,12 @@ void test('resuming a paused discovery run keeps cursor candidates and durable d
   assert.doesNotMatch(resumeBlock,/\.\.\.EMPTY_LOCAL_PREVIEW/);
   assert.match(dialog,/Продовжити автопошук/);
 });
+
+void test('pause transition stays visually coherent while archive persistence runs',async()=>{
+  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  assert.match(dialog,/const \[pausing,setPausing\]=useState\(false\)/);
+  assert.match(dialog,/setPausing\(true\)/);
+  assert.match(dialog,/Зберігаємо паузу…/);
+  assert.match(dialog,/Зупиняємо пошук · зберігаємо прогрес і архівуємо незавершені чати/);
+  assert.match(dialog,/setPausing\(false\)/);
+});
