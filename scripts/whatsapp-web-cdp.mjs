@@ -219,11 +219,29 @@ export async function joinWhatsappInviteViaRuntime(
             Number(metadata?.size),
             Number(pre?.size),
           ].filter(value=>Number.isFinite(value)&&value>0);
+          const parentId=String(
+            metadata?.parentGroup?._serialized||metadata?.parentGroup||
+            metadata?.parentGroupId?._serialized||metadata?.parentGroupId||''
+          );
+          let parentTitle='';
+          let parentDesc='';
+          if(parentId){
+            try{
+              const parentWid=widFactory.createWid(parentId);
+              const parent=collections.Chat.get(parentWid)||(collections.Chat.find?await race(collections.Chat.find(parentWid),'parent_find'):null);
+              const parentMetadata=parent?.groupMetadata||{};
+              parentTitle=String(parent?.formattedTitle||parent?.name||parentMetadata?.subject||'');
+              parentDesc=String(parentMetadata?.desc||parentMetadata?.__x_desc||'');
+            }catch{}
+          }
           return {
             ok:true,
             gid,
             subject:String(chat.formattedTitle||chat.name||metadata?.subject||pre?.subject||''),
             desc:String(metadata?.desc||metadata?.__x_desc||pre?.desc||''),
+            parentId,
+            parentTitle,
+            parentDesc,
             size:sizeCandidates.length?Math.max(...sizeCandidates):null,
             announce:typeof metadata?.announce==='boolean'?metadata.announce:
               typeof metadata?.__x_announce==='boolean'?metadata.__x_announce:
@@ -248,18 +266,27 @@ export async function joinWhatsappInviteViaRuntime(
       return {kind:'blocked',reason:String(value.reason||'direct_join_failed'),diagnostic:{name:value.name||'',message}};
     }
     const messages=Array.isArray(value.messages)?value.messages:[];
-    const latestTimestamp=Math.max(0,...messages.map(item=>Number(item?.timestamp)||0));
+    const userMessages=messages.filter(item=>{
+      const body=String(item?.body||'').trim();
+      const type=String(item?.type||'').toLowerCase();
+      return body&&!/^(?:gp2|e2e_notification|notification|protocol|ciphertext)$/u.test(type);
+    });
+    const latestTimestamp=Math.max(0,...userMessages.map(item=>Number(item?.timestamp)||0));
     const nowSeconds=Math.floor(Date.now()/1000);
     let activityState;
     if(latestTimestamp>0&&nowSeconds-latestTimestamp<=72*60*60)activityState='active';
     else if(latestTimestamp>0&&nowSeconds-latestTimestamp>=14*24*60*60)activityState='dead';
-    const recentTexts=messages.map(item=>String(item?.body||'')).filter(Boolean).slice(-30);
-    const evidence=[value.subject,value.desc,...recentTexts].join('\n');
+    const recentTexts=userMessages.map(item=>String(item?.body||'')).filter(Boolean).slice(-30);
+    const evidence=[value.subject,value.desc,value.parentTitle,value.parentDesc,...recentTexts].join('\n');
     const spamMessages=recentTexts.filter(text=>spamPattern.test(text)).length;
     const ukrainianMessages=recentTexts.filter(text=>ukrainianConversationPattern.test(text)).length;
-    const topicMatch=spamPattern.test(String(value.subject||'')+'\n'+String(value.desc||''))||spamMessages>=3
+    const identityEvidence=[
+      String(value.subject||''),String(value.desc||''),
+      String(value.parentTitle||''),String(value.parentDesc||''),
+    ].join('\n');
+    const topicMatch=spamPattern.test(identityEvidence)||spamMessages>=3
       ?'mismatch'
-      :ukrainianIdentityPattern.test(String(value.subject||'')+'\n'+String(value.desc||''))||ukrainianMessages>=2?'match':'unknown';
+      :ukrainianIdentityPattern.test(identityEvidence)||ukrainianMessages>=2?'match':'unknown';
     let adsPolicy;
     if(adsForbiddenPattern.test(String(value.desc||'')))adsPolicy='forbidden';
     else if(adsAllowedPattern.test(String(value.desc||'')))adsPolicy='allowed';
@@ -281,10 +308,12 @@ export async function joinWhatsappInviteViaRuntime(
         ...(adsPolicy?{adsPolicy}:{}),
         ...(activityState?{activityState}:{}),
         description:String(value.desc||''),
+        parentCommunityTitle:String(value.parentTitle||''),
+        parentCommunityDescription:String(value.parentDesc||''),
         groupId:String(value.gid||''),
         joinedDirect:true,
         recentMessageCount:recentTexts.length,
-        sourceWasCommunity:value.preIsParentGroup===true,
+        sourceWasCommunity:value.preIsParentGroup===true||Boolean(value.parentId),
       },
     };
   }finally{client.close();}
