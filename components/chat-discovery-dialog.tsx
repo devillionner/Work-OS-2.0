@@ -445,13 +445,65 @@ export function ChatDiscoveryDialog({
     }
   }
 
+  async function archiveCandidate(candidate:DiscoveryCandidate){
+    if(inspectingId||importingId)return;
+    setInspectingId(candidate.id);
+    setError('');
+    try{
+      let needsExternalLeave=candidate.membershipState==='joined';
+      if(isLocalPreview(candidate)){
+        await postPreview({
+          action:'persist-outcome',
+          platform:candidate.platform,
+          link:candidate.link,
+          name:candidate.name,
+          sources:candidate.sources,
+          minMembers,
+          outcome:{
+            decision:'rejected',
+            reasonCodes:['operator_rejected'],
+            result:{
+              status:'inspected',
+              accessible:candidate.accessState!=='unavailable',
+              targetVerified:true,
+              membershipState:candidate.membershipState,
+              observedName:candidate.name,
+              chatType:candidate.chatType,
+              memberCount:candidate.memberCount,
+              topicMatch:candidate.topicMatch,
+              canWrite:candidate.canWrite,
+              adsPolicy:candidate.adsPolicy,
+              activityState:candidate.activityState,
+            },
+          },
+        });
+        removeLocalPreview(candidate.id);
+      }else{
+        const payload=await post({action:'archive-candidate',candidateId:candidate.id,version:candidate.version}) as {needsExternalLeave?:boolean};
+        needsExternalLeave=payload.needsExternalLeave===true;
+      }
+      setNotice(needsExternalLeave
+        ? 'Кандидат архівовано в Work OS і більше не потрапить в автопошук. Він був приєднаний — після ручного огляду вийди з цього чату у WhatsApp.'
+        : 'Кандидат архівовано і більше не потрапить в автопошук.');
+      await load(filter,{silent:true});
+    }catch(reason){
+      setError(reason instanceof Error?reason.message:'Не вдалося архівувати кандидата.');
+      await load(filter,{silent:true});
+    }finally{
+      setInspectingId(null);
+    }
+  }
+
   async function importCandidate(candidate: DiscoveryCandidate) {
     if (importingId) return;
     setImportingId(candidate.id);
     setError('');
     try {
       if(isLocalPreview(candidate)&&candidate.preflightState!=='target')throw new Error('Спочатку дочекайся фактичної WhatsApp-перевірки цього чату.');
-      const payload = isLocalPreview(candidate)
+      const savedJoinedTarget=!isLocalPreview(candidate)
+        &&candidate.decision==='target'&&!candidate.importedChatId&&candidate.membershipState==='joined';
+      const useFactualConfirm=isLocalPreview(candidate)||savedJoinedTarget;
+      const payload = useFactualConfirm
         ? await postPreview({
             action:'confirm',platform:candidate.platform,link:candidate.link,name:candidate.name,sources:candidate.sources,minMembers,
             preflight:{
@@ -463,9 +515,9 @@ export function ChatDiscoveryDialog({
         : await post({action:'import',candidateId:candidate.id,version:candidate.version}) as unknown as ImportResponse;
       if(isLocalPreview(candidate))removeLocalPreview(candidate.id);
       setNotice(payload.existing
-        ? 'Чат уже був у Work OS — локальний preview прибрано без дубля.'
-        : isLocalPreview(candidate)
-          ? 'Підтверджено: фактично цільовий чат записано в D1 як уже приєднаний і готовий.'
+        ? 'Чат уже був у Work OS — дубль не створено.'
+        : useFactualConfirm
+          ? 'Лишено в роботі: фактично перевірений чат записано як уже приєднаний і готовий.'
           : 'Підтверджено: чат записано в D1 і додано в чергу «Для приєднання».');
       onImported(candidate.platform as DiscoveryPlatform);
       await load(filter);
@@ -848,10 +900,15 @@ export function ChatDiscoveryDialog({
                                 {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
                                 {isLocalPreview(candidate)?'Відкинути preview':'Invite недійсний'}
                               </Button>}
+                            {!candidate.importedChatId && candidate.decision === 'target' &&
+                              <Button type="button" size="sm" variant="outline" disabled={importingId !== null || inspectingId !== null} onClick={() => void archiveCandidate(candidate)}>
+                                {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
+                                В архів
+                              </Button>}
                             {!candidate.importedChatId && (candidate.decision === 'review' || candidate.decision === 'target') &&
                               <Button type="button" size="sm" disabled={importingId !== null || inspectingId !== null} onClick={() => void importCandidate(candidate)}>
                                 {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                                {isLocalPreview(candidate)?'Підходить → додати':'Додати на перевірку'}
+                                {candidate.decision==='target'?'Лишити в роботі':isLocalPreview(candidate)?'Підходить → додати':'Додати на перевірку'}
                               </Button>}
                             {candidate.importedChatId && candidate.membershipState !== 'left' &&
                               <Button type="button" size="sm" variant="outline" onClick={() => toggleManualInspection(candidate)}>

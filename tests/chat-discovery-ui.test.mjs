@@ -98,6 +98,17 @@ void test('local WhatsApp outcomes persist as durable dedupe without auto-import
   assert.doesNotMatch(reset,/DELETE FROM chat_discovery_candidates/);
 });
 
+void test('saved target is an explicit operator decision point', async()=>{
+  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  assert.match(dialog,/archiveCandidate\(candidate/);
+  assert.match(dialog,/action:'archive-candidate'/);
+  assert.match(dialog,/operator_rejected/);
+  assert.match(dialog,/Лишити в роботі/);
+  assert.match(dialog,/В архів/);
+  assert.match(dialog,/savedJoinedTarget/);
+  assert.match(dialog,/useFactualConfirm/);
+});
+
 void test('manual Telegram recovery stays local until confirmation', async () => {
   const [dialog, previewRoute] = await Promise.all([
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),

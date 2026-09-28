@@ -1,3 +1,10 @@
+## 2026-09-28 — saved target operator decision
+
+- Persisted factual targets remain unimported until the operator decides whether to keep them.
+- Saved targets now expose explicit `Лишити в роботі` and `В архів` actions. Operator archive writes `operator_rejected` without fabricating a failed factual criterion.
+- Keeping an already joined target reuses its stored factual preflight through the confirm path, so it becomes an already joined/ready Work OS chat instead of being sent back to `to_join`.
+- Manual archive of a joined target reports that WhatsApp still requires a real leave; Work OS does not fabricate external leave confirmation.
+
 ## 2026-09-28 — persistent local Discovery outcomes / durable dedupe
 
 - Local WhatsApp qualification outcomes now persist through the authenticated Work OS page after factual preflight, while raw source hits remain browser-local.

@@ -505,6 +505,35 @@ export async function handoffDiscoveryCandidate(
   return { chatId, existing: false, workflowStatus: 'to_join' };
 }
 
+export async function archiveDiscoveryCandidateForOperator(
+  db:D1Database,userId:string,candidateId:string,expectedVersion:number,now:number,
+){
+  const candidate=await db.prepare(`SELECT id,version,imported_chat_id,decision,membership_state
+    FROM chat_discovery_candidates WHERE id=?1 AND user_id=?2 LIMIT 1`)
+    .bind(candidateId,userId)
+    .first<{id:string;version:number;imported_chat_id:string|null;decision:DiscoveryDecision;membership_state:DiscoveryCandidate['membershipState']}>();
+  if(!candidate)throw new DiscoveryError('Кандидат не знайдений.',404);
+  if(candidate.imported_chat_id)throw new DiscoveryError('Цей чат уже доданий у Work OS. Архівуйте його зі звичайної черги чатів.',409);
+  if(candidate.version!==expectedVersion)throw new DiscoveryError('Кандидат змінився в іншій вкладці. Оновіть список.',409);
+  if(candidate.decision==='rejected'||candidate.decision==='unavailable'){
+    return {archived:true,candidateId:candidate.id,needsExternalLeave:candidate.membership_state==='joined',version:candidate.version};
+  }
+  const updated=await db.prepare(`UPDATE chat_discovery_candidates
+    SET decision='rejected',reason_codes_json='["operator_rejected"]',
+        checked_at=COALESCE(checked_at,?1),updated_at=?1,version=version+1
+    WHERE id=?2 AND user_id=?3 AND version=?4 AND imported_chat_id IS NULL
+    RETURNING version`)
+    .bind(now,candidate.id,userId,expectedVersion)
+    .first<{version:number}>();
+  if(!updated)throw new DiscoveryError('Кандидат уже змінився. Оновіть список.',409);
+  return {
+    archived:true,
+    candidateId:candidate.id,
+    needsExternalLeave:candidate.membership_state==='joined',
+    version:Number(updated.version),
+  };
+}
+
 export function evaluateDiscoveryCandidate(input: {
   chatType?: DiscoveryCandidate['chatType'];
   memberCount?: number | null;

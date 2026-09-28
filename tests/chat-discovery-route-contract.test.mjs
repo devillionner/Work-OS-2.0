@@ -55,3 +55,14 @@ void test('Preview route accepts durable local outcomes only after factual autom
   assert.match(route,/body\.action==='persist-outcome'/);
   assert.match(route,/persistLocalDiscoveryOutcome\(env\.DB,user\.id/);
 });
+
+void test('operator can archive an unimported saved target without fabricating qualification facts', async()=>{
+  const [route,domain]=await Promise.all([
+    readFile(new URL('../app/api/chat-discovery/route.ts',import.meta.url),'utf8'),
+    readFile(new URL('../lib/chat-discovery/domain.ts',import.meta.url),'utf8'),
+  ]);
+  assert.match(route,/body\.action === 'archive-candidate'/);
+  assert.match(route,/archiveDiscoveryCandidateForOperator/);
+  assert.match(domain,/reason_codes_json='\["operator_rejected"\]'/);
+  assert.match(domain,/needsExternalLeave:candidate\.membership_state==='joined'/);
+});

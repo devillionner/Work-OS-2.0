@@ -137,7 +137,7 @@ export async function persistLocalDiscoveryOutcome(
     ? [...new Set(outcome.reasonCodes.filter((item):item is string=>typeof item==='string'&&item.trim()).map(item=>item.trim().slice(0,100)))].slice(0,20)
     : [];
   const minMembers=boundedInteger(input.minMembers,700,18_000,700);
-  const count=Number(rawResult.memberCount);
+  const count=rawResult.memberCount===null||rawResult.memberCount===undefined?NaN:Number(rawResult.memberCount);
   const memberCount=Number.isSafeInteger(count)&&count>=0?count:null;
   const chatType=['group','community','channel','contact','bot'].includes(String(rawResult.chatType))
     ? rawResult.chatType as DiscoveryCandidate['chatType']:'unknown';

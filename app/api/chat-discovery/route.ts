@@ -8,6 +8,7 @@ import { completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '@/li
 import { createDiscoveryExecutorDevice, listDiscoveryExecutorDevices, revokeDiscoveryExecutorDevice } from '@/lib/chat-discovery/executor-auth';
 import {
   DiscoveryError,
+  archiveDiscoveryCandidateForOperator,
   cancelDiscoveryRun,
   handoffDiscoveryCandidate,
   readDiscoveryWorkspace,
@@ -136,6 +137,12 @@ export async function POST(request: Request): Promise<Response> {
     }
     if (body.action === 'ingest-telegram') {
       throw new DiscoveryError('Telegram source preview тепер локальний. Використовуйте preview API; запис у D1 відбувається лише після підтвердження.', 409);
+    }
+    if (body.action === 'archive-candidate') {
+      if (typeof body.candidateId !== 'string' || !body.candidateId || !Number.isSafeInteger(body.version)) {
+        throw new DiscoveryError('Некоректний кандидат.');
+      }
+      return json(await archiveDiscoveryCandidateForOperator(env.DB,user.id,body.candidateId,Number(body.version),now));
     }
     if (body.action === 'import') {
       if (typeof body.candidateId !== 'string' || !body.candidateId || !Number.isSafeInteger(body.version)) {
