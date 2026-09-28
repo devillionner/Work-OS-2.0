@@ -24,14 +24,16 @@ const BOOTSTRAP_SOURCES = [
 const pageCache = new Map();
 const UA = /(?:україн|украин|ukrain|ukraiń|ukrajin|ucrain|ucran|oekra|🇺🇦)/iu;
 const SPAM = /(?:crypto|bitcoin|forex|casino|казино|betting|dating|escort|onlyfans|nft|airdrop|signals?\b|قروبات|روابط\s+مجموعات|مجموعات\s+واتساب|technical\s+support)/iu;
-const MAX_TELEGRAM_HISTORY_PAGES=4;
+const MAX_TELEGRAM_HISTORY_PAGES=2;
 const MAX_SEARCH_SOURCES=5;
-const MAX_DIRECTORY_RESULTS=6;
-const MAX_GRAPH_SOURCES_PER_STEP=8;
+const MAX_DIRECTORY_RESULTS=4;
+const MAX_GRAPH_SOURCES_PER_STEP=2;
 const SEARCH_BLOCK_COOLDOWN_MS=5*60*1000;
 const SEARCH_RETRY_COOLDOWN_MS=30*1000;
 const telegramGraph=new Map();
 const crawledTelegramSources=new Set();
+const directorySearchCache=new Map();
+const directoryResultVisited=new Set();
 let graphSeedPromise=null;
 let searchBlockedUntil=0;
 
@@ -277,34 +279,48 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
       // the WhatsApp invite directly.
       let directoryAnswered=false;
       if(sources.length<8){
-        const directoryQueries=[task.query,task.place,task.query+' WhatsApp',...(task.alias?[task.alias]:[])];
-        const seenDirectory=new Set();
-        for(const directoryQuery of [...new Set(directoryQueries.map(item=>String(item||'').trim()).filter(Boolean))].slice(0,3)){
-          attempted++;
-          try{
-            const directory=new URL(TELEGRAM_DIRECTORY_URL);
-            directory.searchParams.set('q',directoryQuery);
-            const html=await fetchText(directory.toString(),fetcher,10000,450000);
-            directoryAnswered=true;
-            const candidates=rankTelegramDirectoryResults(html,task.place)
-              .filter(url=>!seenDirectory.has(url))
-              .slice(0,MAX_DIRECTORY_RESULTS);
-            for(const url of candidates)seenDirectory.add(url);
-            const pages=await Promise.allSettled(candidates.map(url=>telegramDirectorySource(url,directoryQuery,task.place,fetcher)));
-            sources.push(...pages
-              .filter(item=>item.status==='fulfilled'&&item.value?.text)
-              .map(item=>item.value));
-            if(sources.length>=8)break;
-          }catch(error){
-            warnings.push({cursor:index,query:directoryQuery,reason:'telegram_directory_failed · '+(error instanceof Error?error.message:String(error))});
+        const directoryQueries=[...new Set([task.query,task.place]
+          .map(item=>String(item||'').trim()).filter(Boolean))].slice(0,2);
+        attempted+=directoryQueries.length;
+        const directoryBatches=await Promise.allSettled(directoryQueries.map(async directoryQuery=>{
+          const cacheKey=directoryQuery.toLocaleLowerCase('uk-UA');
+          const cached=directorySearchCache.get(cacheKey);
+          if(cached&&cached.expires>Date.now())return {directoryQuery,candidates:cached.candidates};
+          const directory=new URL(TELEGRAM_DIRECTORY_URL);
+          directory.searchParams.set('q',directoryQuery);
+          const html=await fetchText(directory.toString(),fetcher,7000,450000);
+          const candidates=rankTelegramDirectoryResults(html,task.place).slice(0,MAX_DIRECTORY_RESULTS*2);
+          if(directorySearchCache.size>=400)directorySearchCache.delete(directorySearchCache.keys().next().value);
+          directorySearchCache.set(cacheKey,{candidates,expires:Date.now()+20*60*1000});
+          return {directoryQuery,candidates};
+        }));
+        const selected=[];
+        const selectedUrls=new Set();
+        for(const batch of directoryBatches){
+          if(batch.status==='rejected'){
+            warnings.push({cursor:index,query,reason:'telegram_directory_failed · '+(batch.reason instanceof Error?batch.reason.message:String(batch.reason))});
+            continue;
           }
+          directoryAnswered=true;
+          for(const url of batch.value.candidates){
+            if(directoryResultVisited.has(url)||selectedUrls.has(url))continue;
+            selectedUrls.add(url);
+            selected.push({url,directoryQuery:batch.value.directoryQuery});
+            if(selected.length>=MAX_DIRECTORY_RESULTS)break;
+          }
+          if(selected.length>=MAX_DIRECTORY_RESULTS)break;
         }
+        for(const item of selected)directoryResultVisited.add(item.url);
+        const pages=await Promise.allSettled(selected.map(item=>telegramDirectorySource(item.url,item.directoryQuery,task.place,fetcher)));
+        sources.push(...pages
+          .filter(item=>item.status==='fulfilled'&&item.value?.text)
+          .map(item=>item.value));
       }
 
       // Brave is only an opportunistic extra seed source. A Brave failure must
       // not block a query that the public Telegram directory already answered.
       let searchFailureReason='';
-      if(!sources.length&&Date.now()>=searchBlockedUntil){
+      if(!sources.length&&!directoryAnswered&&Date.now()>=searchBlockedUntil){
         const queries=[task.query+' "chat.whatsapp.com"',...(task.alias?[task.alias+' "chat.whatsapp.com"']:[]),task.query+' WhatsApp'];
         const seen=new Set();
         for(const searchQuery of queries){
