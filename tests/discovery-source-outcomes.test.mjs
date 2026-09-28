@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { crawlLocalDiscoverySource, workbookSearchPlan, discoverRelatedTelegramSources, telegramWhatsAppSearchPreview, extractRelevantInviteSnippets } from '../scripts/chat-discovery-source-crawl.mjs';
+import { crawlLocalDiscoverySource, workbookSearchPlan, discoverRelatedTelegramSources, telegramWhatsAppSearchPreview, extractRelevantInviteSnippets, rankTelegramDirectoryResults } from '../scripts/chat-discovery-source-crawl.mjs';
 import { shouldDeferForGlobalWhatsAppLoading } from '../scripts/whatsapp-web-cdp.mjs';
 
 const realSeedSource=await readFile(new URL('../lib/chat-discovery/seeds.ts',import.meta.url),'utf8');
@@ -175,8 +175,9 @@ void test('web-search 429 does not fail the source step when Telegram graph fall
   assert.ok(result.sources.some(source=>source.text.includes(invite)));
 });
 
-void test('search cooldown never consumes an unsearched workbook query',async()=>{
+void test('search defers only when both Telegram directory and web search are unavailable',async()=>{
   const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async(url)=>{
+    if(String(url).includes('tg.me/search'))return response('directory down',503);
     if(String(url).includes('search.brave.com'))return response('Too many requests',429);
     return response('<title>Українці</title>');
   }});
@@ -186,6 +187,39 @@ void test('search cooldown never consumes an unsearched workbook query',async()=
   assert.ok(result.retryAfterMs>=1000);
 });
 
+
+void test('TG.ME directory ranks concrete Ukrainian Telegram posts',()=>{
+  const html='<a href="/news/1">noise</a><div>Українці Берлін допомога <a href="/berlinlife_ua/4912">post</a></div>';
+  const ranked=rankTelegramDirectoryResults(html,'Берлін');
+  assert.equal(ranked[0],'https://tg.me/berlinlife_ua/4912');
+});
+
+void test('TG.ME answer lets cursor advance even when optional Brave search is rate-limited',async()=>{
+  const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async(url)=>{
+    const value=String(url);
+    if(value.includes('tg.me/search'))return response('<a href="/berlinlife_ua/4912">Українці Берлін WhatsApp</a>');
+    if(value.includes('tg.me/berlinlife_ua/4912'))return response('<title>Українці Берлін</title><p>Без актуального invite у цьому пості</p>');
+    if(value.includes('search.brave.com'))return response('Too many requests',429);
+    return response('<title>Українці</title>');
+  }});
+  assert.equal(result.errors.length,0);
+  assert.equal(result.deferred,false);
+  assert.equal(result.nextCursor,16);
+  assert.ok(result.warnings.some(item=>String(item.reason).includes('optional_web_search_deferred')));
+});
+
+void test('TG.ME post result can feed a WhatsApp invite directly into local preview source',async()=>{
+  const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async(url)=>{
+    const value=String(url);
+    if(value.includes('tg.me/search'))return response('<div>Українці Берлін WhatsApp <a href="/berlinlife_ua/4912">post</a></div>');
+    if(value.includes('tg.me/berlinlife_ua/4912'))return response('<title>Українці Берлін</title><p>Українці батьки оголошення '+invite+'</p>');
+    if(value.includes('search.brave.com'))return response('Too many requests',429);
+    return response('<title>Українці</title>');
+  }});
+  assert.equal(result.errors.length,0);
+  assert.equal(result.nextCursor,16);
+  assert.ok(result.sources.some(source=>source.text.includes(invite)));
+});
 
 void test('local-language Ukrainian identities keep WhatsApp invites in Telegram extraction',()=>{
   for(const title of [
@@ -222,8 +256,11 @@ void test('dead bootstrap source is warned and skipped instead of freezing the c
   assert.match(result.warnings[0].reason,/source_http_503/);
 });
 
-void test('search challenge defers the exact query instead of consuming it',async()=>{
-  const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async()=>response('<title>Verify you are human</title>')});
+void test('search challenge defers the exact query only when Telegram directory also fails',async()=>{
+  const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async(url)=>{
+    if(String(url).includes('tg.me/search'))return response('directory down',503);
+    return response('<title>Verify you are human</title>');
+  }});
   assert.equal(result.nextCursor,15);
   assert.equal(result.done,false);
   assert.equal(result.errors.length,0);
@@ -231,8 +268,9 @@ void test('search challenge defers the exact query instead of consuming it',asyn
   assert.match(result.deferredReason,/search_blocked/);
 });
 
-void test('temporary external search failure defers without advancing workbook cursor',async()=>{
+void test('temporary external search failure defers only when Telegram directory also fails',async()=>{
   const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async(url)=>{
+    if(String(url).includes('tg.me/search'))return response('directory down',503);
     if(String(url).includes('search.brave.com'))return response('temporary',503);
     return response('<title>Українці</title>');
   }});
