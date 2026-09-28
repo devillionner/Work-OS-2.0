@@ -92,6 +92,20 @@ async function preflightHarness() {
   ].join('\n'));
 }
 
+void test('runner passes invite metadata into joined qualification to avoid redundant info opening',async()=>{
+  const source=await readFile(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8');
+  assert.match(source,/preflightFacts:/u);
+  assert.match(source,/memberCount:pre\.memberCount/u);
+  assert.match(source,/adsPolicy:pre\.adsPolicy/u);
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  const start=adapter.indexOf('async function enrichJoinedQualification');
+  const end=adapter.indexOf('async function focusAndClearComposer',start);
+  const enrich=adapter.slice(start,end);
+  assert.match(enrich,/const needsInfo=!Number\.isFinite\(combined\.memberCount\)\|\|!combined\.adsPolicy\|\|!combined\.topicMatch/u);
+  assert.match(enrich,/if\(!needsInfo\)return/u);
+  assert.match(adapter,/waitForJoinedChatReady\(client, timeoutMs=8_000\)/u);
+});
+
 void test('metadata failure falls back to exact-invite UI and can yield a target',async()=>{
   const run=await preflightHarness();
   const outcomes=[];let inspected=0,left=0;

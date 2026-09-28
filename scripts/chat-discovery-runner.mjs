@@ -211,7 +211,7 @@ function evaluateLocalPreflight(task,result){
 async function processLocalPreflight(task){
   let queried;
   try{
-    queried=await queryWhatsappInviteViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:6_000});
+    queried=await queryWhatsappInviteViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:4_000});
   }catch(error){
     console.warn(`Invite metadata unavailable; using the exact-invite UI: ${error instanceof Error?error.message:String(error)}`);
   }
@@ -251,6 +251,12 @@ async function processLocalPreflight(task){
     name:pre.observedName||task.name,
     topicMatch:pre.topicMatch==='match'?'match':task.topicMatch,
     expectedTarget:{...task.expectedTarget,name:pre.observedName||task.expectedTarget?.name||task.name},
+    preflightFacts:{
+      ...(Number.isFinite(pre.memberCount)?{memberCount:pre.memberCount}:{}),
+      ...(pre.chatType?{chatType:pre.chatType}:{}),
+      ...(pre.topicMatch&&pre.topicMatch!=='unknown'?{topicMatch:pre.topicMatch}:{}),
+      ...(pre.adsPolicy&&pre.adsPolicy!=='unknown'?{adsPolicy:pre.adsPolicy}:{}),
+    },
   };
 
   let inspected;

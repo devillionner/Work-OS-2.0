@@ -1309,7 +1309,7 @@ function parseMemberCount(value) {
   return Number.isSafeInteger(count) && count >= 0 && count <= 10_000_000 ? count : undefined;
 }
 
-async function waitForJoinedChatReady(client, timeoutMs=12_000) {
+async function waitForJoinedChatReady(client, timeoutMs=8_000) {
   const deadline=Date.now()+timeoutMs;
   let latest=await readSnapshot(client);
   while(Date.now()<deadline){
@@ -1323,35 +1323,41 @@ async function waitForJoinedChatReady(client, timeoutMs=12_000) {
 }
 
 async function enrichJoinedQualification(client, task, result) {
-  const before = await waitForJoinedChatReady(client);
-  let combined = { ...deriveWhatsappQualification(before) };
+  const before=await waitForJoinedChatReady(client);
+  const preflightFacts=task.preflightFacts&&typeof task.preflightFacts==='object'?task.preflightFacts:{};
+  let combined={...preflightFacts,...deriveWhatsappQualification(before)};
   const minMembers=Math.max(700,Number(task.minMembers)||700);
   const maxMembers=18000;
   if(Number.isFinite(combined.memberCount)&&(combined.memberCount<minMembers||combined.memberCount>maxMembers)){
-    return { ...result, ...combined };
+    return {...result,...combined};
   }
-  const expectedName = result.observedName || task.expectedTarget?.name || task.name;
-  if (expectedName && await clickExactHeader(client, expectedName)) {
-    const expected = normalizeTargetLabel(expectedName);
-    const deadline = Date.now() + 5_000;
-    let infoSnapshot = await readSnapshot(client);
-    while (Date.now() < deadline) {
-      const infoText = normalizeTargetLabel(infoSnapshot.groupInfoText || '');
-      if (infoText && (!expected || infoText.includes(expected))) break;
+  // The invite metadata and the open chat already cover the normal path. Opening
+  // group info is a fallback only when facts that the drawer can actually add
+  // are still missing; activity is intentionally derived from real messages.
+  const needsInfo=!Number.isFinite(combined.memberCount)||!combined.adsPolicy||!combined.topicMatch;
+  if(!needsInfo)return {...result,...combined};
+  const expectedName=result.observedName||task.expectedTarget?.name||task.name;
+  if(expectedName&&await clickExactHeader(client,expectedName)){
+    const expected=normalizeTargetLabel(expectedName);
+    const deadline=Date.now()+3_000;
+    let infoSnapshot=await readSnapshot(client);
+    while(Date.now()<deadline){
+      const infoText=normalizeTargetLabel(infoSnapshot.groupInfoText||'');
+      if(infoText&&(!expected||infoText.includes(expected)))break;
       await sleep(POLL_MS);
-      infoSnapshot = await readSnapshot(client);
+      infoSnapshot=await readSnapshot(client);
     }
-    combined = {
+    combined={
       ...combined,
       ...deriveWhatsappQualification({
         ...infoSnapshot,
-        mainText: before.mainText,
-        messageTexts: before.messageTexts,
-        messageMeta: before.messageMeta,
+        mainText:before.mainText,
+        messageTexts:before.messageTexts,
+        messageMeta:before.messageMeta,
       }),
     };
   }
-  return { ...result, ...combined };
+  return {...result,...combined};
 }
 
 async function focusAndClearComposer(client) {
