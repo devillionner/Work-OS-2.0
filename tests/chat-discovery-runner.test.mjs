@@ -259,8 +259,8 @@ void test('fresh local run clears inherited source wait',()=>{
   assert.doesNotMatch(source,/if\(wait>0\)await sleep\(wait\)/);
 });
 
-void test('local source crawl is serialized one cursor at a time',()=>{
-  assert.match(source,/const width=1/);
+void test('local source crawl batches three workbook cursors after bootstrap',()=>{
+  assert.match(source,/const width=start>=15\?3:1/);
   assert.doesNotMatch(source,/const width=start>=15\?2:1/);
 });
 
