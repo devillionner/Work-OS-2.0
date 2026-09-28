@@ -146,7 +146,7 @@ void test('real workbook plan is exhaustive while keeping high-yield queries fir
 void test('discovered Telegram sources use channel-level WhatsApp search',()=>{
   assert.equal(
     telegramWhatsAppSearchPreview('https://t.me/refugeesbremen'),
-    'https://t.me/s/refugeesbremen?q=WhatsApp'
+    'https://t.me/s/refugeesbremen?q=chat.whatsapp.com'
   );
   assert.equal(
     telegramWhatsAppSearchPreview('https://t.me/s/refugeesbremen?before=123'),
@@ -502,4 +502,14 @@ void test('fast lane favors writable community intents over duplicate English va
   assert.ok(berlin.some(query=>/Барахолка/iu.test(query)));
   assert.ok(berlin.some(query=>/Перевізники|Перевезення/iu.test(query)));
   assert.equal(berlin.some(query=>/^Ukrainian in |^Ukrainians /iu.test(query)),false);
+});
+
+void test('proven WhatsApp source clusters are seeded at high priority',async()=>{
+  const source=await readFile(new URL('../scripts/chat-discovery-source-crawl.mjs',import.meta.url),'utf8');
+  assert.match(source,/PRODUCTIVE_TELEGRAM_SOURCES/);
+  assert.match(source,/donetskaoda/);
+  assert.match(source,/novocava/);
+  assert.match(source,/Help_Ukraine_NRW/);
+  assert.match(source,/score:140/);
+  assert.match(source,/searchParams\.set\('q','chat\.whatsapp\.com'\)/);
 });
