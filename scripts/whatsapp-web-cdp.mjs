@@ -420,7 +420,7 @@ function exactTarget(snapshot, task) {
   if (!inviteContextMatches(snapshot, task)) return null;
 
   const postInviteText = [snapshot.targetRegionText, snapshot.mainText, snapshot.bodyText].filter(Boolean).join('\n');
-  if (joinedViaInvitePattern.test(postInviteText) || leftPattern.test(postInviteText)) {
+  if (snapshot.joinConfirmedAfterExactInvite === true || joinedViaInvitePattern.test(postInviteText) || leftPattern.test(postInviteText)) {
     const joinedHeader = (snapshot.headerNames || [])
       .map((value) => String(value || '').trim())
       .find(Boolean);
@@ -920,6 +920,9 @@ async function waitForClassification(client, task, timeoutMs, afterAction = null
       composer:snapshot.composer===true,
     };
     if (navigatedInviteCode) snapshot.navigatedInviteCode = navigatedInviteCode;
+    if (afterAction === 'join' && navigatedInviteCode && snapshot.composer === true && (snapshot.headerNames || []).length > 0) {
+      snapshot.joinConfirmedAfterExactInvite = true;
+    }
     last = classifyWhatsAppSnapshot(task, snapshot);
     if (last.kind === 'result') return last;
     if (last.kind === 'action') {
