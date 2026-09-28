@@ -39,6 +39,7 @@ export async function GET(request: Request): Promise<Response> {
   const cacheRequest=await revisionCacheRequest(env.DB,user.id,'library',`${kind}:${collection}:${archived ? 1 : 0}:${search}:${today}`);
   const cached=await matchRevisionJson(cacheRequest);
   if(cached)return cached;
+  const libraryLimit=normalizedSearch?'':' LIMIT 200';
   const [itemsResult,usageResult] = await env.DB.batch([
     env.DB.prepare(`SELECT id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,archived_at,created_at,updated_at
       FROM library_items WHERE user_id=?1
@@ -46,7 +47,7 @@ export async function GET(request: Request): Promise<Response> {
         AND (?3='' OR collection=?3)
         AND (?4='all' OR kind=?4)
         AND NOT (?4='script' AND ?3='' AND collection='knowledge')
-      ORDER BY updated_at DESC,title`).bind(user.id,Number(archived),collection,kind),
+      ORDER BY updated_at DESC,title${libraryLimit}`).bind(user.id,Number(archived),collection,kind),
     env.DB.prepare(`SELECT p.advertisement_id,c.platform
       FROM chat_publications p JOIN chats c ON c.id=p.chat_id AND c.user_id=p.user_id
       WHERE p.user_id=?1 AND p.published_on=?2 AND p.advertisement_id IS NOT NULL
