@@ -7,6 +7,35 @@ import { cleanWhatsAppAutopostCaption, readWhatsAppAutopostCaption } from './wha
 
 const VIBER_SAFE_LEASE_SECONDS=90;
 const WHATSAPP_AUTOPOST_LEASE_SECONDS=90;
+const WHATSAPP_CUSTOM_AUTOPOST_TITLE='[Системний] WhatsApp автопост · власний текст';
+
+function customWhatsAppAutopostMaterialId(userId:string){
+  return 'wa_autopost_custom_'+userId;
+}
+
+async function ensureCustomWhatsAppAutopostMaterial(db:D1Database,userId:string,text:string,now:number){
+  const id=customWhatsAppAutopostMaterialId(userId);
+  const existing=await db.prepare(`SELECT version,uk_text FROM library_items WHERE id=?1 AND user_id=?2 LIMIT 1`)
+    .bind(id,userId).first<{version:number;uk_text:string}>();
+  if(!existing){
+    await db.prepare(`INSERT INTO library_items
+      (id,user_id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,archived_at,created_at,updated_at)
+      VALUES (?1,?2,'advertisement','advertisement',1,?3,?4,'','Системний material для власного WhatsApp autopost caption.','["system","whatsapp-autopost"]','["whatsapp"]',?5,?5,?5)`)
+      .bind(id,userId,WHATSAPP_CUSTOM_AUTOPOST_TITLE,text,now).run();
+    return {id,version:1};
+  }
+  if(existing.uk_text!==text){
+    await db.prepare(`UPDATE library_items
+      SET uk_text=?1,ru_text='',title=?2,notes='Системний material для власного WhatsApp autopost caption.',
+        tags_json='["system","whatsapp-autopost"]',platforms_json='["whatsapp"]',archived_at=?3,
+        version=version+1,updated_at=?3
+      WHERE id=?4 AND user_id=?5`).bind(text,WHATSAPP_CUSTOM_AUTOPOST_TITLE,now,id,userId).run();
+    return {id,version:Number(existing.version)+1};
+  }
+  await db.prepare(`UPDATE library_items SET archived_at=?1,updated_at=?1 WHERE id=?2 AND user_id=?3`)
+    .bind(now,id,userId).run();
+  return {id,version:Number(existing.version)};
+}
 
 export class MessengerAutomationError extends Error {
   status:number;
@@ -225,30 +254,46 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
   if(published)throw new MessengerAutomationError('У цьому чаті сьогодні вже є підтверджена публікація.',409);
 
   const selection=await readPublicationAdvertisementSelection(db,{userId,chatId,date});
-  if(!selection)throw new MessengerAutomationError('Не вдалося підібрати Library material для цього чату.',409);
+  if(!selection)throw new MessengerAutomationError('Не вдалося перевірити правила публікації для цього чату.',409);
   if(!selection.publicationAllowed)throw new MessengerAutomationError(selection.publicationReason||'Публікація зараз заборонена правилами профілю.',409);
-  const requestedId=typeof input.advertisementId==='string'?input.advertisementId.trim():'';
-  const item=requestedId
-    ? selection.items.find(candidate=>candidate.id===requestedId&&candidate.selectable)
-    : selection.items.find(candidate=>candidate.recommended&&candidate.selectable)
-      ||selection.items.find(candidate=>candidate.selectable&&candidate.directionMatch!=='other')
-      ||selection.items.find(candidate=>candidate.selectable);
-  if(!item)throw new MessengerAutomationError('Немає придатного невикористаного оголошення для автопублікації.',409);
-  const requestedLanguage=input.language==='uk'||input.language==='ru'?input.language:null;
-  const language=requestedLanguage||item.suggestedLanguage||selection.profileLanguage||(item.ukText.trim()?'uk':item.ruText.trim()?'ru':null);
-  if(!language)throw new MessengerAutomationError('Для вибраного оголошення немає тексту.',409);
-  const libraryPayload=(language==='uk'?item.ukText:item.ruText).trim();
-  if(!libraryPayload)throw new MessengerAutomationError(`Для ${language.toUpperCase()} немає тексту оголошення.`,409);
+
   let captionOverride='';
   if(input.caption!==undefined){
     try{captionOverride=cleanWhatsAppAutopostCaption(input.caption);}
     catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
   }else captionOverride=(await readWhatsAppAutopostCaption(db,userId))?.text||'';
-  const payload=captionOverride||libraryPayload;
 
-  const library=await db.prepare(`SELECT version FROM library_items WHERE id=?1 AND user_id=?2 LIMIT 1`)
-    .bind(item.id,userId).first<{version:number}>();
-  if(!library)throw new MessengerAutomationError('Library material уже змінився.',409);
+  const requestedLanguage=input.language==='uk'||input.language==='ru'?input.language:null;
+  let materialId='';
+  let materialVersion=0;
+  let language:'uk'|'ru';
+  let payload='';
+
+  if(captionOverride){
+    const custom=await ensureCustomWhatsAppAutopostMaterial(db,userId,captionOverride,now);
+    materialId=custom.id;
+    materialVersion=custom.version;
+    language=requestedLanguage||selection.profileLanguage||'uk';
+    payload=captionOverride;
+  }else{
+    const requestedId=typeof input.advertisementId==='string'?input.advertisementId.trim():'';
+    const item=requestedId
+      ? selection.items.find(candidate=>candidate.id===requestedId&&candidate.selectable)
+      : selection.items.find(candidate=>candidate.recommended&&candidate.selectable)
+        ||selection.items.find(candidate=>candidate.selectable&&candidate.directionMatch!=='other')
+        ||selection.items.find(candidate=>candidate.selectable);
+    if(!item)throw new MessengerAutomationError('Немає придатного невикористаного оголошення для автопублікації.',409);
+    language=requestedLanguage||item.suggestedLanguage||selection.profileLanguage||(item.ukText.trim()?'uk':item.ruText.trim()?'ru':null as never);
+    if(!language)throw new MessengerAutomationError('Для вибраного оголошення немає тексту.',409);
+    const libraryPayload=(language==='uk'?item.ukText:item.ruText).trim();
+    if(!libraryPayload)throw new MessengerAutomationError(`Для ${language.toUpperCase()} немає тексту оголошення.`,409);
+    const library=await db.prepare(`SELECT version FROM library_items WHERE id=?1 AND user_id=?2 LIMIT 1`)
+      .bind(item.id,userId).first<{version:number}>();
+    if(!library)throw new MessengerAutomationError('Library material уже змінився.',409);
+    materialId=item.id;
+    materialVersion=Number(library.version);
+    payload=libraryPayload;
+  }
 
   const id=crypto.randomUUID();
   const activeKey=`${userId}:whatsapp:autopost:${chatId}:${date}`;
@@ -257,7 +302,7 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
       (id,user_id,request_key,chat_id,expected_name,expected_link,chat_state_token,
        advertisement_id,advertisement_version,language,payload_text,published_on,status,active_key,created_at,updated_at)
       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,'pending',?13,?14,?14)`)
-      .bind(id,userId,requestKey,chatId,chat.name,chat.link,chat.state_token,item.id,Number(library.version),language,payload,date,activeKey,now).run();
+      .bind(id,userId,requestKey,chatId,chat.name,chat.link,chat.state_token,materialId,materialVersion,language,payload,date,activeKey,now).run();
   }catch(error){
     const active=await readActiveWhatsAppAutopostJob(db,userId,chatId,date);
     if(active)throw new MessengerAutomationError('Для цього чату вже є активна WhatsApp автопублікація.',409);
@@ -357,11 +402,13 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,devic
       .bind(userId,row.chat_id).first<{decision:string}>();
     const selection=chat ? await readPublicationAdvertisementSelection(db,{userId,chatId:row.chat_id,date:row.published_on,excludeAutomationJobId:row.id}) : null;
     const selected=selection?.items.find(item=>item.id===row.advertisement_id);
+    const customMaterial=row.advertisement_id===customWhatsAppAutopostMaterialId(userId);
     const valid=Boolean(
       chat&&chat.platform==='whatsapp'&&chat.workflow_status==='ready'&&chat.state_token===row.chat_state_token
-      &&!publication&&(!discovery||discovery.decision==='target')&&material&&!material.archived_at
-      &&Number(material.version)===Number(row.advertisement_version)
-      &&selection?.publicationAllowed&&selected?.selectable
+      &&!publication&&(!discovery||discovery.decision==='target')&&material
+      &&(customMaterial||!material.archived_at)
+      &&(customMaterial||Number(material.version)===Number(row.advertisement_version))
+      &&selection?.publicationAllowed&&(customMaterial||selected?.selectable)
       &&row.payload_text.trim().length>0
     );
     if(!valid){

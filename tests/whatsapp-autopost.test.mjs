@@ -203,3 +203,30 @@ void test('batch autopost skips chats without a safe material instead of failing
   assert.equal(batch.created,1);
   assert.equal(batch.jobs[0].chatId,'batch-ok');
 });
+
+
+void test('custom WhatsApp caption can autopost without a normal active Library advertisement',async t=>{
+  const db=await localDatabase(t);
+  await seedDevice(db);
+  await seedChat(db,{id:'custom-caption-chat',owner:'u',platform:'whatsapp',status:'ready',joined:10});
+  await db.prepare("UPDATE chats SET name='Українці Custom',link='https://chat.whatsapp.com/CustomCaption123',normalized_link='https://chat.whatsapp.com/CustomCaption123' WHERE id='custom-caption-chat'").run();
+  const chat=await readChatState(db,'u','custom-caption-chat');
+  const job=await createWhatsAppAutopostJob(db,'u',{
+    requestKey:'request_custom_caption',chatId:chat.id,caption:'Власний текст автопоста',
+  },NOW,DATE);
+  assert.equal(job.status,'pending');
+  const hidden=await db.prepare('SELECT kind,uk_text,archived_at FROM library_items WHERE id=?1 AND user_id=?2')
+    .bind(job.advertisementId,'u').first();
+  assert.equal(hidden.kind,'advertisement');
+  assert.equal(hidden.uk_text,'Власний текст автопоста');
+  assert.ok(hidden.archived_at);
+
+  const task=await claimWhatsAppAutopostJob(db,'u','device',NOW+1);
+  assert.ok(task);
+  assert.equal(task.material.text,'Власний текст автопоста');
+  const completed=await completeWhatsAppAutopostJob(db,'u','device',{
+    jobId:job.id,status:'sent',observedTarget:'Українці Custom',targetVerified:true,sendConfirmed:true,
+  },NOW+2);
+  assert.equal(completed.status,'sent');
+  assert.equal(await db.prepare("SELECT COUNT(*) FROM chat_publications WHERE chat_id='custom-caption-chat' AND source='whatsapp_autopost'").first('COUNT(*)'),1);
+});
