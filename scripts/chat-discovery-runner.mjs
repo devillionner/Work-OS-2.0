@@ -264,7 +264,7 @@ async function processLocalPreflight(task){
       expectedTarget:{name:result.observedName||task.name,link:task.link},
     };
     try{
-      const left=await leaveWhatsappTaskViaCdp(leaveTask,{cdpBaseUrl:whatsappCdp});
+      const left=await leaveWhatsappTaskViaCdp(leaveTask,{cdpBaseUrl:whatsappCdp,reuseCurrentVerified:true});
       leftAfterCheck=left.kind==='result'&&left.result.left===true;
       if(!leftAfterCheck)leaveReason=left.reason||'leave_not_confirmed';
     }catch(error){
