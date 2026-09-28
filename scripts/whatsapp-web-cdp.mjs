@@ -68,6 +68,92 @@ export function toWhatsAppWebInviteUrl(link) {
   return code ? `https://web.whatsapp.com/accept?code=${encodeURIComponent(code)}` : null;
 }
 
+export async function queryWhatsappInviteViaCdp(
+  task,
+  { cdpBaseUrl, timeoutMs = 6_000 } = {},
+) {
+  if (task.runtime !== 'whatsapp_web' || task.platform !== 'whatsapp') {
+    return { kind:'blocked', reason:'unsupported_runtime' };
+  }
+  const inviteCode=whatsappInviteCode(task.expectedTarget?.link || task.link);
+  if(!inviteCode)return { kind:'blocked', reason:'invalid_whatsapp_link' };
+  if(!cdpBaseUrl)return { kind:'blocked', reason:'cdp_not_configured' };
+  const base=normalizeLocalCdpBaseUrl(cdpBaseUrl);
+  if(!base)return { kind:'blocked', reason:'cdp_not_local' };
+  const page=await findOrCreateWhatsappPage(base);
+  if(!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl)){
+    return { kind:'blocked', reason:'cdp_websocket_not_local' };
+  }
+  const client=await createCdpClient(page.webSocketDebuggerUrl);
+  try{
+    await client.send('Runtime.enable');
+    const response=await client.send('Runtime.evaluate',{
+      expression:`(async()=>{
+        try{
+          const module=window.require?.('WAWebGroupQueryJob');
+          if(!module?.queryGroupInvite)return {ok:false,reason:'invite_query_unavailable'};
+          const timeout=new Promise((_,reject)=>setTimeout(()=>reject(new Error('invite_query_timeout')),${Math.max(1_000,Math.min(10_000,Number(timeoutMs)||6_000))}));
+          const info=await Promise.race([module.queryGroupInvite(${JSON.stringify(inviteCode)}),timeout]);
+          return {
+            ok:true,
+            subject:String(info?.subject||''),
+            size:Number.isFinite(Number(info?.size))?Number(info.size):null,
+            desc:String(info?.desc||''),
+            announce:typeof info?.announce==='boolean'?info.announce:null,
+            membershipApprovalMode:typeof info?.membershipApprovalMode==='boolean'?info.membershipApprovalMode:null,
+            isParentGroup:info?.isParentGroup===true,
+            id:String(info?.id?._serialized||info?.id||''),
+          };
+        }catch(error){
+          return {ok:false,name:String(error?.name||''),message:String(error?.message||error||'')};
+        }
+      })()`,
+      returnByValue:true,
+      awaitPromise:true,
+    });
+    const value=response?.result?.value||{};
+    if(value.ok!==true){
+      const message=String(value.message||value.reason||'');
+      if(/sendIq called before startComms|invite_query_timeout|invite_query_unavailable/iu.test(message)){
+        return {kind:'blocked',reason:'page_not_ready'};
+      }
+      if(/bad-request|not-found|invalid|expired/iu.test(message)){
+        return {kind:'result',result:{status:'failed',reason:'invalid_whatsapp_link',targetVerified:true,accessible:false}};
+      }
+      return {kind:'blocked',reason:'invite_query_failed',diagnostic:{name:value.name||'',message}};
+    }
+    const observedName=String(value.subject||'').trim()||task.name;
+    const description=String(value.desc||'').trim();
+    const evidence=`${observedName}\n${description}`;
+    const memberCount=Number.isFinite(Number(value.size))&&Number(value.size)>0?Number(value.size):undefined;
+    const topicMatch=spamPattern.test(evidence)?'mismatch':ukrainianIdentityPattern.test(evidence)?'match':'unknown';
+    let adsPolicy;
+    if(adsForbiddenPattern.test(description))adsPolicy='forbidden';
+    else if(adsAllowedPattern.test(description))adsPolicy='allowed';
+    const canWrite=value.announce===true?false:value.announce===false?true:undefined;
+    return {
+      kind:'result',
+      result:{
+        status:'invite_queried',
+        targetVerified:true,
+        accessible:true,
+        observedName,
+        chatType:value.isParentGroup===true?'community':'group',
+        ...(memberCount===undefined?{}:{memberCount}),
+        topicMatch,
+        ...(canWrite===undefined?{}:{canWrite}),
+        ...(adsPolicy?{adsPolicy}:{}),
+        approvalRequired:value.membershipApprovalMode===true,
+        description,
+        groupId:String(value.id||''),
+        inviteCode,
+      },
+    };
+  }finally{
+    client.close();
+  }
+}
+
 export function normalizeLocalCdpBaseUrl(value) {
   if (!value) return null;
   let url;
