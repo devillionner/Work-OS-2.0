@@ -32,7 +32,8 @@ const LOCAL_SOURCE_MIN_MS=2000;
 const SOURCE_ADVANCE_MS=20000;
 const EXECUTOR_QUEUE_LIMIT=3;
 const TASK_BLOCK_COOLDOWN_MS=300000;
-const INCOMPLETE_QUALIFICATION_COOLDOWN_MS=60000;
+const INCOMPLETE_QUALIFICATION_COOLDOWN_MS=15000;
+const qualificationAttempts=new Map();
 const PAGE_RECOVERY_COOLDOWN_MS=15000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
 const TOKEN_REFRESH_MS=60000;
@@ -209,23 +210,10 @@ async function processLocalPreflight(task){
   try{
     queried=await queryWhatsappInviteViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:6_000});
   }catch(error){
-    console.warn(`Local WhatsApp invite query unavailable: ${error instanceof Error?error.message:String(error)}`);
-    markTaskBlocked(task,'invite_query_unavailable',5_000);
-    return 'local_task';
+    console.warn(`Invite metadata unavailable; using the exact-invite UI: ${error instanceof Error?error.message:String(error)}`);
   }
-  if(queried.kind!=='result'){
-    if(queried.reason==='page_not_ready'){
-      markTaskBlocked(task,'invite_query_not_ready',5_000);
-      return 'local_task';
-    }
-    await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
-      decision:'unavailable',reasonCodes:[queried.reason||'invite_query_failed'],
-      result:{status:'failed',reason:queried.reason||'invite_query_failed'},completedAt:Date.now(),
-    },{cdpBaseUrl:whatsappCdp});
-    return 'local_task';
-  }
-
-  const pre={...queried.result};
+  // Internal WhatsApp modules are optional. Their failure is not evidence that a chat is unavailable.
+  const pre=queried?.kind==='result'?{...queried.result}:{};
   if(pre.reason==='invalid_whatsapp_link'){
     await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
       decision:'unavailable',reasonCodes:['invalid_whatsapp_link'],result:pre,completedAt:Date.now(),
@@ -271,8 +259,15 @@ async function processLocalPreflight(task){
   }
   if(inspected.kind!=='result'){
     if(inspected.reason==='page_not_ready'){
-      markTaskBlocked(task,'page_not_ready',PAGE_RECOVERY_COOLDOWN_MS);
-      console.warn('WhatsApp page did not become ready in time; deferring this invite for 15s and continuing with another candidate.');
+      const attempts=(qualificationAttempts.get(task.candidateId)||0)+1;
+      qualificationAttempts.set(task.candidateId,attempts);
+      if(attempts<3)markTaskBlocked(task,'page_not_ready',PAGE_RECOVERY_COOLDOWN_MS);
+      else{
+        await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
+          decision:'unavailable',reasonCodes:['page_not_ready'],result:{status:'failed',reason:'page_not_ready'},completedAt:Date.now(),
+        },{cdpBaseUrl:whatsappCdp});
+        qualificationAttempts.delete(task.candidateId);
+      }
       return 'local_task';
     }
     if(WHATSAPP_RUNTIME_TRANSIENT_REASONS.has(inspected.reason)){
@@ -287,6 +282,14 @@ async function processLocalPreflight(task){
   }
 
   const result={...inspected.result};
+  if(result.targetVerified===true&&pre.targetVerified===true){
+    if(!Number.isFinite(result.memberCount)&&Number.isFinite(pre.memberCount))result.memberCount=pre.memberCount;
+    if(!result.chatType&&pre.chatType)result.chatType=pre.chatType;
+    if((!result.topicMatch||result.topicMatch==='unknown')&&pre.topicMatch==='match')result.topicMatch='match';
+    if((!result.adsPolicy||result.adsPolicy==='unknown')&&pre.adsPolicy)result.adsPolicy=pre.adsPolicy;
+    if(typeof result.canWrite!=='boolean'&&typeof pre.canWrite==='boolean')result.canWrite=pre.canWrite;
+    if(pre.groupId)result.groupId=pre.groupId;
+  }
   if(result.reason==='whatsapp_join_retry_later'){
     await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
       decision:'skipped',reasonCodes:['whatsapp_join_retry_later'],result,completedAt:Date.now(),
@@ -310,10 +313,21 @@ async function processLocalPreflight(task){
 
   const evaluated=evaluateLocalPreflight(task,result);
   if(evaluated.decision==='incomplete'){
-    markTaskBlocked(task,'qualification_incomplete',INCOMPLETE_QUALIFICATION_COOLDOWN_MS);
-    console.warn(`WhatsApp qualification incomplete for ${result.observedName||task.name}: ${evaluated.reasonCodes.join(', ')}; keeping it queued and continuing with another candidate.`);
+    const attempt=(qualificationAttempts.get(task.candidateId)||0)+1;
+    qualificationAttempts.set(task.candidateId,attempt);
+    if(attempt<3){
+      markTaskBlocked(task,'qualification_incomplete',INCOMPLETE_QUALIFICATION_COOLDOWN_MS);
+      return 'local_task';
+    }
+    // Unknown facts never justify leaving a joined group.
+    await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
+      decision:'unavailable',reasonCodes:['qualification_incomplete',...evaluated.reasonCodes],
+      result:{...result,status:'incomplete'},completedAt:Date.now(),
+    },{cdpBaseUrl:whatsappCdp});
+    qualificationAttempts.delete(task.candidateId);
     return 'local_task';
   }
+  qualificationAttempts.delete(task.candidateId);
   let leftAfterCheck=false;
   let leaveReason=null;
   if(evaluated.decision!=='target'){
@@ -345,12 +359,15 @@ async function crawlLocalDiscoveryBatch(cursor){
   const start=Math.max(0,Number(cursor)||0);
   const width=start>=15?2:1;
   const batches=await Promise.all(Array.from({length:width},(_,index)=>crawlLocalDiscoverySource(start+index)));
+  const errors=batches.flatMap(item=>item.errors||[]);
   return {
     searched:batches.reduce((sum,item)=>sum+(Number(item?.searched)||0),0),
-    nextCursor:batches.reduce((max,item)=>Math.max(max,Number(item?.nextCursor)||start),start),
-    done:batches.at(-1)?.done===true,
+    nextCursor:errors.length?start:batches.reduce((max,item)=>Math.max(max,Number(item?.nextCursor)||start),start),
+    done:errors.length===0&&batches.at(-1)?.done===true,
+    totalTasks:batches.find(item=>Number.isFinite(item.totalTasks))?.totalTasks||0,
+    errors,
     query:batches.map(item=>item?.query||'').filter(Boolean).join(' | '),
-    sources:batches.flatMap(item=>Array.isArray(item?.sources)?item.sources:[]).slice(0,4),
+    sources:errors.length?[]:batches.flatMap(item=>Array.isArray(item?.sources)?item.sources:[]),
   };
 }
 
@@ -365,8 +382,8 @@ function startLocalSourceRefill(initialLocal){
         const cursor=Number(local.sourceCursor)||0;
         const batch=await crawlLocalDiscoveryBatch(cursor);
         const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp});
-        nextLocalSourceAt=Date.now()+LOCAL_SOURCE_MIN_MS;
-        if(applied.kind!=='result')break;
+        nextLocalSourceAt=Date.now()+(applied.errors?60_000:LOCAL_SOURCE_MIN_MS);
+        if(applied.kind!=='result'||applied.errors)break;
         console.log('Local source crawl: cursor '+batch.nextCursor+', sources '+batch.sources.length+', added '+(applied.added||0)+', duplicates '+(applied.duplicates||0));
         if(batch.done===true)break;
         const refreshed=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp,skipCandidateIds:[]});

@@ -4,7 +4,7 @@ const POLL_MS = 400;
 
 const pendingPattern = /(?:request(?: to join)? sent|request pending|запит (?:на вступ )?надіслано|запит очікує|заявк[ау] (?:на вступление )?отправлен[а]?|заявк[ау] ожидает)/iu;
 const approvalRequiredPattern = /(?:admin(?:istrator)? approval (?:is )?(?:required|turned on)|an admin (?:must|needs to) approve|request to join|потрібне схвалення адміністратор|адміністратор має схвалити|потрібно подати запит на вступ|требуется одобрение администратора|администратор должен одобрить|нужно отправить запрос на вступление)/iu;
-const adminOnlyPattern = /(?:only admins can send messages|лише адміністратори можуть надсилати повідомлення|только администраторы могут отправлять сообщения)/iu;
+const adminOnlyPattern = /(?:only (?:community )?admins can send messages|лише адміністратори(?: спільноти)? можуть надсилати повідомлення|только администраторы(?: сообщества)? могут отправлять сообщения)/iu;
 const authPattern = /(?:link with phone number|log in to whatsapp|увійти у whatsapp|войти в whatsapp)/iu;
 const joinRetryLaterPattern = /(?:could(?:n['’]?t| not) join (?:this )?(?:group|community)|try again later|не вдалося приєднатися до (?:цієї )?(?:групи|спільноти)|повторіть спробу пізніше|не удалось присоединиться к (?:этой )?(?:группе|сообществу)|повторите попытку позже)/iu;
 const unavailablePatterns = [
@@ -117,7 +117,7 @@ export async function queryWhatsappInviteViaCdp(
       if(/sendIq called before startComms|invite_query_timeout|invite_query_unavailable/iu.test(message)){
         return {kind:'blocked',reason:'page_not_ready'};
       }
-      if(/bad-request|not-found|invalid|expired/iu.test(message)){
+      if(/not-found|invalid|expired/iu.test(message)){
         return {kind:'result',result:{status:'failed',reason:'invalid_whatsapp_link',targetVerified:true,accessible:false}};
       }
       return {kind:'blocked',reason:'invite_query_failed',diagnostic:{name:value.name||'',message}};
@@ -267,6 +267,8 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
             if(item?.preflightState==='queued'&&hardNoise(item)){
               item.preflightState='rejected';
               item.preflightReasonCodes=['source_event_specific'];
+              item.reasonCodes=['source_event_specific'];
+              item.decision='rejected';
               item.leftAfterCheck=false;
               stateChanged=true;
             }
@@ -343,7 +345,9 @@ export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
     nextCursor:Math.max(0,Number(batch?.nextCursor)||0),
     searched:Math.max(0,Number(batch?.searched)||0),
     done:batch?.done===true,
-    sources:Array.isArray(batch?.sources)?batch.sources.slice(0,4).map(item=>({
+    totalTasks:Math.max(0,Number(batch?.totalTasks)||0),
+    errors:Array.isArray(batch?.errors)?batch.errors.slice(0,8).map(item=>({reason:String(item.reason||'source_failed').slice(0,300),query:String(item.query||'').slice(0,500)})):[],
+    sources:Array.isArray(batch?.sources)?batch.sources.map(item=>({
       sourceUrl:String(item?.sourceUrl||'').slice(0,1000),
       sourceTitle:String(item?.sourceTitle||'').slice(0,180),
       query:String(item?.query||'').slice(0,500),
@@ -364,7 +368,8 @@ export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
           if(state?.running!==true)return {applied:false,reason:'not_running'};
           const batch=${JSON.stringify(safeBatch)};
           const byKey=new Map((Array.isArray(state.candidates)?state.candidates:[]).map(item=>[String(item.platform)+'|'+String(item.link),item]));
-          let added=0,duplicates=0,rejected=0,errors=0;
+          let added=0,duplicates=0,rejected=0,errors=batch.errors.length;
+          const issues=[...batch.errors];
           for(const source of batch.sources){
             if(!source.text||!source.sourceUrl)continue;
             try{
@@ -378,7 +383,7 @@ export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
                 }),
               });
               const payload=await res.json().catch(()=>null);
-              if(!res.ok||!payload){errors+=1;continue;}
+              if(!res.ok||!payload){errors+=1;issues.push({reason:'preview_http_'+res.status,query:source.query});continue;}
               added+=Number(payload.batch?.added)||0;
               duplicates+=Number(payload.batch?.duplicates)||0;
               for(const candidate of Array.isArray(payload.previews)?payload.previews:[]){
@@ -390,24 +395,36 @@ export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
                   ||label.includes('майстер-клас')
                   ||label.includes('майстер клас')
                   ||(label.includes('реєстрац')&&hasDigit);
-                if(candidate.topicMatch==='match'&&!hardNoise){
+                if(!hardNoise){
                   byKey.set(key,{...candidate,preflightState:'queued',preflightReasonCodes:[],leftAfterCheck:false});
                 }else{
                   rejected+=1;
-                  if(hardNoise)byKey.set(key,{...candidate,preflightState:'rejected',preflightReasonCodes:['source_event_specific'],leftAfterCheck:false});
+                  byKey.set(key,{...candidate,decision:'rejected',reasonCodes:['source_event_specific'],preflightState:'rejected',preflightReasonCodes:['source_event_specific'],leftAfterCheck:false});
                 }
               }
-            }catch{errors+=1;}
+            }catch{errors+=1;issues.push({reason:'preview_network_error',query:source.query});}
+          }
+          const latest=JSON.parse(sessionStorage.getItem(stateKey)||'null');
+          if(!latest||!latest.running||latest.runId!==state.runId)return {applied:false,reason:'run_changed'};
+          for(const item of Array.isArray(latest.candidates)?latest.candidates:[]){
+            const key=String(item.platform)+'|'+String(item.link);
+            if(!byKey.has(key)||item.preflightState!=='queued')byKey.set(key,item);
           }
           state={
-            ...state,
-            telegramCursor:batch.nextCursor,
+            ...latest,
+            telegramCursor:errors?latest.telegramCursor:batch.nextCursor,
+            sourceTotal:batch.totalTasks||state.sourceTotal||0,
+            sourceErrors:(Number(state.sourceErrors)||0)+errors,
+            sourceFailures:errors?(Number(state.sourceFailures)||0)+1:0,
+            sourceIssues:errors?issues.slice(0,8):[],
+            running:errors&&Number(state.sourceFailures||0)>=2?false:state.running,
+            completionReason:errors&&Number(state.sourceFailures||0)>=2?'source_error':state.completionReason,
             searched:(Number(state.searched)||0)+batch.searched,
             processed:(Number(state.processed)||0)+added+duplicates,
             duplicates:(Number(state.duplicates)||0)+duplicates,
             rejected:(Number(state.rejected)||0)+rejected,
-            candidates:[...byKey.values()].slice(0,250),
-            sourceExhausted:state.sourceExhausted===true||batch.done,
+            candidates:[...byKey.values()],
+            sourceExhausted:state.sourceExhausted===true||(errors===0&&batch.done),
             lastActivityAt:Date.now(),
           };
           sessionStorage.setItem(stateKey,JSON.stringify(state));

@@ -432,3 +432,11 @@ P4 documentation is source-reconciled against current `main` code and regression
 
 - [x] **FAST-SOURCE-01:** source discovery moved to browser-local burst mode: up to 6 external queries per batch, zero intermediate D1 writes, only targeted duplicate reads for exact found links.
 - [ ] **FAST-SOURCE-02:** live staging acceptance: confirm the local run visibly advances found/WhatsApp-checked/rejected/duplicate/target counters, reaches 10 then 30 factual targets in practical time, skips approval-required chats, and only the explicit final «Додати N цільових у Work OS» action creates Discovery rows in D1.
+
+
+## 2026-09-28 — GO-LIVE-04/06/08 source and outcome correction
+
+- Implemented full compatible workbook-derived source coverage, bounded Telegram history, explicit retry/pause on source failure, and local outcome lists with factual reasons.
+- Fixed source-batch truncation, misleading inspected counts and mandatory dependency on WhatsApp's internal invite query.
+- Eight focused behavioral checks passed in memory; source/TSX syntax checks passed. Full verify:local and physical acceptance are not asserted.
+- Gates remain open: exact deployed build + refreshed local runner + one real target reaching the final ready workflow must still be observed. A code commit does not close these gates.

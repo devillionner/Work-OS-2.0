@@ -549,3 +549,10 @@ Definition of Done для реального використання на stagi
 
 
 - **Local-first Discovery / D1 boundary — рішення 2026-09-25:** source search, progress, intermediate candidates, exact-link dedupe, WhatsApp direct join, factual post-join qualification and rejected-chat cleanup happen before persistence and live in the current browser/runtime session. Search runs in bursts of up to 6 external queries; D1 is used only for targeted indexed duplicate checks against exact found links. No Discovery run/candidate/source/chat writes are allowed before final operator confirmation. Approval-required/request-to-join chats are skipped for now. Only factual targets shown in the final list may be written after «Додати N цільових у Work OS».
+
+### Discovery failure visibility — 2026-09-28
+
+- The active local source runner must consume the canonical compatible workbook city/country/keyword corpus. Fixed handpicked seeds may bootstrap search but cannot replace that corpus.
+- A failed request is not an empty result. HTTP errors, search challenges and preview ingestion errors retain the task cursor, use bounded retries/backoff, and expose an explicit resumable pause. Only successfully processed source tasks advance the cursor.
+- Every local candidate outcome (target, rejected, skipped, unavailable or queued) is inspectable before D1 persistence. Fully inspected chats, processed candidates, pending work and source errors have distinct counts.
+- Unavailable internal WhatsApp metadata must fall back to the exact-invite UI. Incomplete factual checks have bounded retries, preserve unknowns and never justify leaving a joined chat. Target criteria and final operator-confirmed D1 writes remain unchanged.

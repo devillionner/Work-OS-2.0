@@ -25,6 +25,11 @@ type Workspace = {
 type ImportResponse = { chatId?: string; existing?: boolean; workflowStatus?: string; error?: string };
 type PreviewTelegramResponse = { previews:LocalDiscoveryPreview[]; batch:{extracted:number;added:number;duplicates:number}; error?:string };
 type LocalPreviewSession = {
+  runId?:string;
+  sourceTotal:number;
+  sourceErrors:number;
+  sourceFailures:number;
+  sourceIssues:Array<{reason:string;query:string}>;
   telegramCursor:number;
   sourceCursor:number;
   searched:number;
@@ -37,7 +42,7 @@ type LocalPreviewSession = {
   sourceExhausted:boolean;
   goal:number;
   lastActivityAt:number|null;
-  completionReason:'goal_reached'|'sources_exhausted'|null;
+  completionReason:'goal_reached'|'sources_exhausted'|'source_error'|null;
   candidates:LocalDiscoveryPreview[];
 };
 type LocalPreflightPayload={
@@ -77,6 +82,7 @@ const EMPTY_COUNTS: Record<DiscoveryDecision, number> = {
 const LOCAL_PREVIEW_KEY='work-os:chat-discovery-local-preview:v3';
 const LOCAL_PREFLIGHT_RESULTS_KEY='work-os:chat-discovery-local-preflight-results:v1';
 const EMPTY_LOCAL_PREVIEW:LocalPreviewSession={
+  sourceTotal:0,sourceErrors:0,sourceFailures:0,sourceIssues:[],
   telegramCursor:0,sourceCursor:0,searched:0,processed:0,duplicates:0,rejected:0,emptySourceBatches:0,
   done:false,running:false,sourceExhausted:false,goal:50,lastActivityAt:null,completionReason:null,candidates:[],
 };
@@ -242,15 +248,21 @@ export function ChatDiscoveryDialog({
     if(telegramBusy)return;
     setError('');
     setNotice('');
-    setFilter('target');
+    if(localPreview.completionReason==='source_error'){
+      setLocalPreview(current=>({...current,running:true,done:false,sourceFailures:0,sourceIssues:[],completionReason:null,lastActivityAt:Date.now()}));
+      setNotice('Продовжуємо з запиту, який не вдалося виконати.');
+      return;
+    }
+    setFilter('all');
     try{window.sessionStorage.removeItem(LOCAL_PREFLIGHT_RESULTS_KEY);}catch{}
     setLocalPreview({
       ...EMPTY_LOCAL_PREVIEW,
+      runId:crypto.randomUUID(),
       running:true,
       goal,
       lastActivityAt:Date.now(),
     });
-    setNotice('Локальний автопошук запущено. Пошук і проміжні результати не записуються в D1; запис буде тільки після твого підтвердження.');
+    setNotice('');
   }
 
   async function stopAutonomousSearch(){
@@ -469,15 +481,18 @@ export function ChatDiscoveryDialog({
   const localQueued=localPreview.candidates.filter(candidate=>candidate.preflightState==='queued').length;
   const localSkipped=localPreview.candidates.filter(candidate=>candidate.preflightState==='skipped').length;
   const localRejected=localPreview.candidates.filter(candidate=>candidate.preflightState==='rejected'||candidate.preflightState==='unavailable').length;
-  const localChecked=localPreview.candidates.length-localQueued;
+  const localChecked=localPreview.candidates.filter(candidate=>candidate.inspectionState==='inspected').length;
+  const localProcessed=localPreview.candidates.length-localQueued;
+  const localUnavailable=localPreview.candidates.filter(candidate=>candidate.preflightState==='unavailable').length;
+  const localFailed=localPreview.candidates.filter(candidate=>candidate.preflightState==='rejected').length;
   const persistedTotal = Object.values(workspace.counts).reduce((sum, value) => sum + value, 0);
-  const total = persistedTotal + localTargets.length;
+  const total = persistedTotal + localPreview.candidates.length;
   const reviewCount=workspace.counts.review+localQueued;
   const autonomousRunning=localPreview.running;
   const displayedTargetCount=localTargets.length;
   const displayedGoal=localPreview.running||localPreview.done?localPreview.goal:goal;
   const displayedQueries=localPreview.searched;
-  const discardedCount=localPreview.rejected+localRejected+localSkipped;
+  const discardedCount=localRejected+localSkipped;
   const progressPercent=displayedGoal>0?Math.min(100,Math.round((displayedTargetCount/displayedGoal)*100)):0;
   const lastRunActivitySeconds=localPreview.lastActivityAt?Math.max(0,Math.floor((clockMs-localPreview.lastActivityAt)/1000)):null;
   const runActivity=autonomousRunning
@@ -485,11 +500,10 @@ export function ChatDiscoveryDialog({
     : localPreview.completionReason==='goal_reached'
       ? 'Потрібну кількість фактично перевірено — переглянь список перед записом у Work OS'
       : localPreview.completionReason==='sources_exhausted'
-        ? 'Доступні джерела вичерпано'
-        : 'Автопошук зупинений';
-  const displayCandidates:DiscoveryCandidate[]=(filter==='all'||filter==='target')
-    ? [...localTargets,...workspace.candidates]
-    : workspace.candidates;
+        ? 'План пошуку завершено'
+        : localPreview.completionReason==='source_error'?'Пошук призупинено: джерело не відповідає':'Автопошук зупинений';
+  const visibleLocal=localCandidatesForFilter(localPreview.candidates,filter);
+  const displayCandidates:DiscoveryCandidate[]=[...visibleLocal,...workspace.candidates];
 
   const currentTask = workspace.telegramPlan?.tasks[0] ?? null;
   const telegramProgress = workspace.telegramPlan
@@ -546,7 +560,8 @@ export function ChatDiscoveryDialog({
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
             <StatTile label="Знайдено invite" value={String(localPreview.processed)} />
-            <StatTile label="Перевірено WhatsApp" value={String(localChecked)} />
+            <StatTile label="Повністю перевірено" value={String(localChecked)} />
+            <StatTile label="Оброблено кандидатів" value={String(localProcessed)} />
             <StatTile label="Цільові" value={String(localTargets.length)} />
             <StatTile label="Відсіяно / пропущено" value={String(discardedCount)} />
             <StatTile label="Дублі / відомі" value={String(localPreview.duplicates)} />
@@ -599,7 +614,7 @@ export function ChatDiscoveryDialog({
                       {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<Square data-icon="inline-start"/>}{telegramBusy?'Зупиняємо…':'Зупинити автопошук'}
                     </Button>
                   : <Button className="w-full justify-center" type="button" disabled={telegramBusy} onClick={() => void startAutonomousSearch()}>
-                      {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<Search data-icon="inline-start"/>}{telegramBusy?'Запускаємо…':'Запустити автопошук'}
+                      {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<Search data-icon="inline-start"/>}{telegramBusy?'Запускаємо…':localPreview.completionReason==='source_error'?'Продовжити пошук':'Запустити автопошук'}
                     </Button>}
                 {!autonomousRunning&&localTargets.length>0&&<Button className="w-full justify-center" type="button" disabled={telegramBusy} onClick={()=>void addLocalTargetsToJoin()}>
                   {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<CheckCircle2 data-icon="inline-start"/>}{telegramBusy?'Записуємо…':`Додати ${localTargets.length} цільових у Work OS`}
@@ -610,12 +625,19 @@ export function ChatDiscoveryDialog({
               {autonomousRunning&&<div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs font-medium leading-5 text-foreground/80">
                 Система сама відкриває потенційні invite у WhatsApp. Прямий вступ → фактична перевірка критеріїв. Чати із запитом на схвалення пропускаються без відправлення заявки. D1 writes = 0 до твого підтвердження.
               </div>}
-              {localPreview.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">Джерела вичерпано: фактично підтверджено {localTargets.length} із {localPreview.goal}. У D1 нічого не записано.</div>}
+              {localPreview.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">План пошуку завершено: фактично підтверджено {localTargets.length} із {localPreview.goal}. У D1 нічого не записано.</div>}
               {localPreview.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: фактично підтверджено {localTargets.length}/{localPreview.goal} цільових чатів. Перевір список і запиши їх у Work OS.</div>}
+              {localPreview.sourceIssues.length>0&&<div role="status" className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs leading-5">
+                <strong>Не вдалося прочитати джерело. Цей запит не пропущено.</strong>
+                <p>{localPreview.running?'Повторимо зі затримкою. Перевірка вже знайдених чатів продовжується.':'Натисни «Продовжити пошук», щоб повторити з цього місця.'}</p>
+                {localPreview.sourceIssues.map((issue,index)=><div key={index} className="mt-1 break-words">{issue.query} · {reasonLabel(issue.reason)}</div>)}
+              </div>}
               <details className="mt-3 border-t border-border/60 pt-3">
                 <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Технічні деталі</summary>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                   <span>Пошукових запитів <strong className="ml-1 text-foreground">{displayedQueries}</strong></span>
+                  <span>Пройдено плану <strong>{localPreview.telegramCursor} / {localPreview.sourceTotal||'—'}</strong></span>
+                  <span>Помилок джерел <strong>{localPreview.sourceErrors}</strong></span>
                   <span>Дублів <strong className="ml-1 text-foreground">{localPreview.duplicates}</strong></span>
                   <span>У локальній черзі WhatsApp <strong className="ml-1 text-foreground">{localQueued}</strong></span>
                   <span>D1 writes до підтвердження <strong className="ml-1 text-foreground">0</strong></span>
@@ -720,8 +742,8 @@ export function ChatDiscoveryDialog({
                 ['review', 'У роботі', reviewCount],
                 ['waiting-whatsapp', 'Очікує WhatsApp', workspace.waitingWhatsAppCount],
                 ['target', 'Цільові', workspace.counts.target+localTargets.length],
-                ['rejected', 'Відхилені', workspace.counts.rejected],
-                ['unavailable', 'Недоступні', workspace.counts.unavailable],
+                ['rejected', 'Відхилені / пропущені', workspace.counts.rejected+localFailed+localSkipped],
+                ['unavailable', 'Не вдалося перевірити', workspace.counts.unavailable+localUnavailable],
                 ['all', 'Усі', total],
               ] as Array<[DecisionFilter, string, number]>).map(([key, label, count]) =>
                 <button
@@ -766,7 +788,7 @@ export function ChatDiscoveryDialog({
                             <Badge variant="outline">{platformLabel(candidate.platform)}</Badge>
                             {candidate.membershipState==='pending'&&<Badge variant="secondary">Очікує вступу</Badge>}
                             {candidate.membershipState==='joined'&&<Badge variant="secondary">Приєднано</Badge>}
-                            {isLocalPreview(candidate)&&<Badge variant="outline">Ручний preview</Badge>}
+                            {isLocalPreview(candidate)&&<Badge variant="outline">Результат автопошуку</Badge>}
                           </div>
                         </div>
                         {candidate.decision==='target'&&<Badge>Цільовий</Badge>}
@@ -893,19 +915,21 @@ function applyLocalPreflightResults(current:LocalPreviewSession,results:Record<s
       if(identity)seenTargets.set(identity,candidate.id);
     }
     return candidate;
-  }).map(candidate=>{
+  }).map((candidate):LocalDiscoveryPreview=>{
     if(candidate.preflightState!=='queued')return candidate;
     const payload=results[candidate.id];
     if(!payload)return candidate;
     changed=true;
     const result=payload.result||{};
     const observedName=typeof result.observedName==='string'&&result.observedName.trim()?result.observedName.trim():candidate.name;
-    const memberCount=Number.isFinite(Number(result.memberCount))?Number(result.memberCount):null;
+    const memberCount=typeof result.memberCount==='number'&&Number.isFinite(result.memberCount)?result.memberCount:null;
     const next:LocalDiscoveryPreview={
       ...candidate,
       name:observedName,
       checkedAt:Number.isFinite(payload.completedAt)?Math.floor(payload.completedAt/1000):candidate.checkedAt,
       memberCount,
+      groupId:typeof result.groupId==='string'?result.groupId:candidate.groupId,
+      leaveReason:payload.leaveReason||null,
       chatType:result.chatType==='community'?'community':result.chatType==='group'?'group':candidate.chatType,
       activityState:result.activityState==='active'||result.activityState==='dead'?result.activityState:candidate.activityState,
       topicMatch:result.topicMatch==='match'||result.topicMatch==='mismatch'?result.topicMatch:candidate.topicMatch,
@@ -913,7 +937,7 @@ function applyLocalPreflightResults(current:LocalPreviewSession,results:Record<s
       adsPolicy:['allowed','forbidden','operator_confirmed','inferred_allowed'].includes(String(result.adsPolicy))?result.adsPolicy as LocalDiscoveryPreview['adsPolicy']:candidate.adsPolicy,
       membershipState:payload.leftAfterCheck?'left':result.membershipState==='joined'?'joined':result.membershipState==='pending'?'pending':candidate.membershipState,
       accessState:result.accessible===true?'available':result.accessible===false?'unavailable':candidate.accessState,
-      linkState:result.accessible===false?'invalid':'valid',
+      linkState:result.reason==='invalid_whatsapp_link'?'invalid':result.targetVerified===true?'valid':candidate.linkState,
       inspectionState:result.status==='inspected'?'inspected':'failed',
       decision:payload.decision==='target'?'target':payload.decision==='unavailable'?'unavailable':'rejected',
       reasonCodes:Array.isArray(payload.reasonCodes)?payload.reasonCodes:[],
@@ -949,10 +973,16 @@ function applyLocalPreflightResults(current:LocalPreviewSession,results:Record<s
   };
 }
 
+function localCandidatesForFilter(candidates:LocalDiscoveryPreview[],filter:DecisionFilter){
+  return candidates.filter(candidate=>filter==='all'
+    ||(filter==='target'&&candidate.preflightState==='target')
+    ||(filter==='review'&&candidate.preflightState==='queued')
+    ||(filter==='rejected'&&(candidate.preflightState==='rejected'||candidate.preflightState==='skipped'))
+    ||(filter==='unavailable'&&candidate.preflightState==='unavailable'));
+}
+
 function localTargetIdentity(candidate:LocalDiscoveryPreview){
-  const name=String(candidate.name||'').replace(/\s+/g,' ').trim().toLocaleLowerCase('uk-UA');
-  if(!name||name.startsWith('whatsapp-кандидат'))return '';
-  return `${name}|${candidate.memberCount??'unknown'}`;
+  return candidate.groupId? `group:${candidate.groupId}` : `invite:${candidate.link}`;
 }
 
 function readLocalPreviewSession():LocalPreviewSession{
@@ -962,9 +992,14 @@ function readLocalPreviewSession():LocalPreviewSession{
     const value=JSON.parse(raw) as Partial<LocalPreviewSession>;
     const candidates=Array.isArray(value.candidates)?value.candidates
       .filter((item):item is LocalDiscoveryPreview=>Boolean(item&&typeof item==='object'&&(item as LocalDiscoveryPreview).localOnly===true&&typeof (item as LocalDiscoveryPreview).link==='string'))
-      .map(item=>({...item,preflightState:item.preflightState||'queued',preflightReasonCodes:Array.isArray(item.preflightReasonCodes)?item.preflightReasonCodes:[],leftAfterCheck:item.leftAfterCheck===true}))
-      .slice(0,250):[];
+      .map<LocalDiscoveryPreview>(item=>({...item,preflightState:item.preflightState||'queued',preflightReasonCodes:Array.isArray(item.preflightReasonCodes)?item.preflightReasonCodes:[],leftAfterCheck:item.leftAfterCheck===true}))
+      :[];
     return {
+      runId:typeof value.runId==='string'?value.runId:undefined,
+      sourceTotal:safeNonNegativeInt(value.sourceTotal),
+      sourceErrors:safeNonNegativeInt(value.sourceErrors),
+      sourceFailures:safeNonNegativeInt(value.sourceFailures),
+      sourceIssues:Array.isArray(value.sourceIssues)?value.sourceIssues.filter(item=>item&&typeof item.reason==='string'&&typeof item.query==='string').slice(0,8):[],
       telegramCursor:safeNonNegativeInt(value.telegramCursor),
       sourceCursor:safeNonNegativeInt(value.sourceCursor),
       searched:safeNonNegativeInt(value.searched),
@@ -977,7 +1012,7 @@ function readLocalPreviewSession():LocalPreviewSession{
       sourceExhausted:value.sourceExhausted===true,
       goal:clampNumber(value.goal,1,100,50),
       lastActivityAt:Number.isFinite(Number(value.lastActivityAt))?Number(value.lastActivityAt):null,
-      completionReason:value.completionReason==='goal_reached'||value.completionReason==='sources_exhausted'?value.completionReason:null,
+      completionReason:value.completionReason==='goal_reached'||value.completionReason==='sources_exhausted'||value.completionReason==='source_error'?value.completionReason:null,
       candidates,
     };
   }catch{return EMPTY_LOCAL_PREVIEW;}
@@ -989,7 +1024,7 @@ function mergeLocalTelegramPreview(current:LocalPreviewSession,payload:PreviewTe
     ...current,
     processed:current.processed+safeNonNegativeInt(payload.batch.added)+safeNonNegativeInt(payload.batch.duplicates),
     duplicates:current.duplicates+safeNonNegativeInt(payload.batch.duplicates),
-    candidates:[...byKey.values()].slice(0,250),
+    candidates:[...byKey.values()],
     lastActivityAt:Date.now(),
   };
 }
@@ -1046,6 +1081,12 @@ function candidateDisplayName(candidate:DiscoveryCandidate){
 }
 
 function candidateStatus(candidate:DiscoveryCandidate){
+  if(isLocalPreview(candidate)){
+    const tone='border-border bg-muted/25 text-foreground/70';
+    if(candidate.preflightState==='skipped')return {label:'Пропущено в цьому запуску',detail:(candidate.preflightReasonCodes||candidate.reasonCodes).map(reasonLabel).join('; '),tone,busy:false};
+    if(candidate.preflightState==='unavailable')return {label:'Не вдалося перевірити',detail:'Це не висновок про нецільову аудиторію. Причини перевірки наведено нижче.',tone,busy:false};
+    if(candidate.preflightState==='rejected')return {label:'Не відповідає критеріям',detail:candidate.leftAfterCheck?'Вихід із чату підтверджено.':candidate.membershipState==='joined'?'Вихід не підтверджено: '+reasonLabel(candidate.leaveReason||'leave_not_confirmed'):'Відхилено до вступу.',tone,busy:false};
+  }
   if(candidate.membershipState==='left')return {label:'Чат уже покинуто',detail:'Для нової кваліфікації спочатку віднови його та підтвердь повторний вступ.',tone:'border-border bg-muted/25 text-foreground/70',busy:false};
   if(candidate.decision==='target')return {label:'Цільовий чат',detail:'Усі потрібні критерії підтверджені. Чат готовий до роботи.',tone:'border-emerald-500/30 bg-emerald-500/5 text-emerald-800 dark:text-emerald-300',busy:false};
   if(candidate.decision==='rejected')return {label:'Відхилено автоматично',detail:candidate.membershipState==='joined'?'Чат не відповідає критеріям. Work OS виходить із нього та архівує.':'Чат не відповідає критеріям і не буде зарахований у ціль.',tone:'border-border bg-muted/25 text-foreground/70',busy:false};
@@ -1119,6 +1160,18 @@ function inspectionLabel(value: DiscoveryCandidate['inspectionState']) {
 function reasonLabel(value: string) {
   const labels: Record<string, string> = {
     all_required_confirmed: 'усі критерії підтверджені',
+    approval_required:'потрібне схвалення адміністратора',
+    whatsapp_join_retry_later:'WhatsApp просить спробувати вступ пізніше',
+    qualification_incomplete:'після повторних спроб частина критеріїв лишилась невідомою',
+    invite_query_failed:'не вдалося прочитати дані запрошення',
+    page_not_ready:'WhatsApp не завершив завантаження',
+    target_not_verified:'не підтверджено, що відкрито потрібний чат',
+    join_not_confirmed:'вступ не підтверджено',
+    invalid_whatsapp_link:'посилання недійсне або прострочене',
+    source_event_specific:'посилання на окрему подію або сторонню соцмережу',
+    leave_not_confirmed:'вихід із чату не підтверджено',
+    leave_cdp_unavailable:'зв’язок із WhatsApp втрачено під час виходу',
+    duplicate_joined_chat:'цей чат уже знайдено за іншим посиланням',
     unknown_chat_type: 'тип чату невідомий',
     unknown_member_count: 'кількість учасників невідома',
     unknown_topic_match: 'тематика не підтверджена',
@@ -1143,7 +1196,7 @@ function reasonLabel(value: string) {
   return labels[value] || value;
 }
 
-function clampNumber(value: string, min: number, max: number, fallback: number) {
+function clampNumber(value: unknown, min: number, max: number, fallback: number) {
   const number = Number(value);
   if (!Number.isSafeInteger(number)) return fallback;
   return Math.max(min, Math.min(max, number));

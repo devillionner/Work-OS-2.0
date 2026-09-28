@@ -1,3 +1,14 @@
+## 2026-09-28 — Discovery source recovery and observable outcomes
+
+- Read-only diagnosis against base main `075f7e4aeb6db87dbddfd02dea1985943a7610d2`: the operator run ended at 25 invites, 8 duplicates, 17 non-target outcomes and 0 targets. The live modal exposed zero rows in its rejected/unavailable/all tabs despite those local outcomes.
+- Source runner now loads the canonical `lib/chat-discovery/seeds.ts` workbook into memory and builds the full compatible city/country keyword plan, with country interleaving, Latin city aliases and bounded same-channel Telegram history fallback. Missing village/district/institution values are not invented. Successful Telegram reads have a bounded 15-minute in-memory cache.
+- HTTP/network/search-challenge and preview-ingestion failures retain the source cursor. Retries back off for 60 seconds; three failed batches pause with an explicit resumable source error. Only successful completion of the plan may be described as source exhaustion. Batch handoff no longer truncates source pages while advancing past them.
+- Local rejected/skipped/unavailable candidates are visible with reasons. Full messenger inspections and processed outcomes have separate counters. Unknown facts are not silently called a bad audience; bounded retries end with an explicit incomplete result and do not trigger leave.
+- Internal WhatsApp invite metadata is an optional acceleration: failure falls back to exact-invite UI inspection. Verified metadata can fill missing post-join member-count/topic/policy facts; activity must still be read from the conversation. Community admin-only labels are recognized.
+- Source handoff merges the latest browser state and discards a response if its run was replaced. Actual group IDs, when available, replace name/member-count heuristics for duplicate identity; final target persistence still requires explicit operator confirmation.
+- Verification before this change: eight focused behavioral regressions passed using exact source in memory; five changed runtime/TSX files parsed/transformed successfully. No local repository was created. Full `npm run verify:local` was not run in this remote-only session; it remains unverified.
+- Deployment and physical acceptance are not claimed by this entry. GO-LIVE-04/06/08 remain open until exact staging identity, refreshed workstation runner and a real qualifying target are observed. Existing completed local results are preserved for review; no production/D1 mutation or migration is part of this change.
+
 # Development status — 2026-09-25
 
 ## 2026-09-27 — Discovery runtime startup + latency hardening

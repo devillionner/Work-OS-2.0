@@ -24,7 +24,14 @@ type KnownRow={platform:string;normalized_link:string};
 type CandidateState={id:string;version:number;imported_chat_id:string|null;decision:string};
 const SOURCE_KINDS=new Set<DiscoverySourceKind>(['public_web','curated','manual','telegram_global']);
 
-export type LocalDiscoveryPreview=DiscoveryCandidate&{localOnly:true};
+export type LocalDiscoveryPreview=DiscoveryCandidate&{
+  localOnly:true;
+  preflightState?:'queued'|'target'|'rejected'|'skipped'|'unavailable';
+  preflightReasonCodes?:string[];
+  leftAfterCheck?:boolean;
+  leaveReason?:string|null;
+  groupId?:string;
+};
 
 export async function searchLocalDiscoveryPreview(
   db:D1Database,

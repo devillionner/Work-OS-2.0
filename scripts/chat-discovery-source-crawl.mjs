@@ -3,8 +3,6 @@ import { promisify } from 'node:util';
 const execFile = promisify(execFileCallback);
 const SEARCH_URL = 'https://search.brave.com/search';
 const USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36';
-const PLACES = ['Берлін','Гамбург','Мюнхен','Кельн','Франкфурт','Дюссельдорф','Бремен','Ганновер','Лейпциг','Прага','Варшава','Краків','Вроцлав','Гданськ','Відень','Братислава','Будапешт','Амстердам','Роттердам','Гаага','Брюссель','Антверпен','Лондон','Манчестер','Дублін','Барселона','Мадрид','Валенсія','Рим','Мілан','Неаполь','Лісабон','Порту','Париж','Ліон','Цюрих','Женева','Осло','Стокгольм','Копенгаген','Гельсінкі','Торонто','Ванкувер','Монреаль','Нью-Йорк','Чикаго','Філадельфія'];
-const INTENTS = ['українці','допомога українцям','українці оголошення','українці батьки','українці житло','українці перевезення'];
 const BOOTSTRAP_SOURCES = [
   ['Українці · Швейцарія','https://t.me/s/UkrainianSwitzerland?q=WhatsApp','Швейцарія'],
   ['UA-DE HELP · Німеччина','https://t.me/s/ua_de_help?q=WhatsApp','Німеччина'],
@@ -22,66 +20,131 @@ const BOOTSTRAP_SOURCES = [
   ['Українці · Waterloo','https://t.me/s/razom_waterloo?q=WhatsApp','Waterloo'],
   ['Українці · Лондон','https://t.me/s/ukrainianlondon?q=WhatsApp','Лондон'],
 ];
-const SEARCH_PLAN_SIZE = PLACES.length * INTENTS.length;
-const PLAN_SIZE = BOOTSTRAP_SOURCES.length + SEARCH_PLAN_SIZE;
+const WORKBOOK_URL = 'https://raw.githubusercontent.com/devillionner/Work-OS-2.0/main/lib/chat-discovery/seeds.ts';
+let workbookPromise;
+const pageCache = new Map();
 const UA = /(?:україн|украин|ukrain|🇺🇦)/iu;
 const SPAM = /(?:crypto|bitcoin|forex|casino|казино|betting|dating|escort|onlyfans|nft|airdrop|signals?\b|قروبات|روابط\s+مجموعات|مجموعات\s+واتساب|technical\s+support)/iu;
 
-export function localDiscoveryPlanSize() { return PLAN_SIZE; }
-
-export async function crawlLocalDiscoverySource(cursor, { fetcher = fetch } = {}) {
-  const index = Math.max(0, Number(cursor) || 0);
-  if (index >= PLAN_SIZE) return { searched:0, nextCursor:index, done:true, query:'', sources:[] };
-
-  if (index < BOOTSTRAP_SOURCES.length) {
-    const [seedTitle, sourceUrl, place] = BOOTSTRAP_SOURCES[index];
-    const page = await fetchText(sourceUrl, fetcher, 12000, 900000);
-    const title = page ? telegramTitle(page, sourceUrl) : seedTitle;
-    const snippets = page ? extractRelevantInviteSnippets(page, title) : [];
-    const sources = snippets.length ? [{
-      sourceUrl,
-      sourceTitle:title || seedTitle,
-      query:'verified Telegram bootstrap ' + place,
-      seedLabel:place,
-      context:title || seedTitle,
-      text:snippets.join('\n\n').slice(0,45000),
-    }] : [];
-    return {
-      searched:1,
-      nextCursor:index+1,
-      done:index+1>=PLAN_SIZE,
-      query:'verified Telegram bootstrap ' + place,
-      sources,
-    };
+export function workbookSearchPlan(seed) {
+  const unsupported = /(назва села|назва селища|район міста|назва района|назва області|пункту пропуску|навчального закладу|назва жк|слово пошук)/iu;
+  const english = new Set(['Ukrainian in','Ukrainians','Ukraine chat']);
+  const keywords = [...new Set(seed.keywords)].filter(item => !unsupported.test(item));
+  const priority = text => /Українці в/iu.test(text) ? 0 : /допомог|помощь|батьки|мамоч/iu.test(text) ? 1 : /чат|барахол|перевіз|перевез/iu.test(text) ? 2 : 3;
+  keywords.sort((a,b) => priority(a)-priority(b));
+  const buckets = new Map();
+  const seen = new Set();
+  for (const city of seed.cities) {
+    const label = String(city.uk || city.name || '').trim();
+    const key = String(city.country) + '|' + label.toLocaleLowerCase('uk-UA');
+    if (!label || seen.has(key)) continue;
+    seen.add(key);
+    if (!buckets.has(city.country)) buckets.set(city.country,[]);
+    buckets.get(city.country).push(city);
   }
+  for (const cities of buckets.values()) cities.sort((a,b) => Number(b.population||0)-Number(a.population||0));
+  const places = [];
+  for (let index=0; ; index++) {
+    let added=false;
+    for (const cities of buckets.values()) if(cities[index]) { places.push(cities[index]); added=true; }
+    if(!added)break;
+  }
+  const render=(template,place) => english.has(template) ? template+' '+place : template === 'Просто назва міста' ? place
+    : template.replace(/Українці в (?:місті|країні) \(назва (?:міста|країни)\)/giu,'Українці в '+place)
+      .replace(/назва (?:міста або країни|країни або міста|міста|країни)/giu,place)
+      .replace(/\s*\+\s*/gu,' ').replace(/\s+/gu,' ').trim();
+  const cityTemplates=keywords.filter(item=>/назва міста/iu.test(item)||english.has(item));
+  const countryTemplates=keywords.filter(item=>/назва країни/iu.test(item)||english.has(item));
+  const tasks=[];
+  // Interleave countries and intents so no one country consumes the entire first pass.
+  for(let wave=0;wave<cityTemplates.length;wave+=3){
+    for(const city of places)for(const template of cityTemplates.slice(wave,wave+3)){
+      const place=String(city.uk||city.name);
+      tasks.push({place,query:render(template,place),alias:city.name!==place?render(template,city.name):''});
+    }
+    if(wave===0)for(const place of buckets.keys())for(const template of countryTemplates){
+      tasks.push({place,query:render(template,place),alias:''});
+    }
+  }
+  return tasks.filter(item=>item.query&&!/назва |\(|\)/iu.test(item.query));
+}
 
-  const searchIndex = index - BOOTSTRAP_SOURCES.length;
-  const place = PLACES[searchIndex % PLACES.length];
-  const intent = INTENTS[Math.floor(searchIndex / PLACES.length) % INTENTS.length];
-  const query = 'site:t.me/s ' + place + ' ' + intent + ' chat.whatsapp.com';
-  const search = new URL(SEARCH_URL);
-  search.searchParams.set('q', query);
-  search.searchParams.set('source', 'web');
-  const html = await fetchText(search.toString(), fetcher, 12000, 350000);
-  if (!html) return { searched:1, nextCursor:index+1, done:index+1>=PLAN_SIZE, query, sources:[] };
-  const candidates = rankTelegramSources(html, place).slice(0, 3);
-  const sourceResults = await Promise.all(candidates.map(async (sourceUrl) => {
-    const page = await fetchText(sourceUrl, fetcher, 12000, 900000);
-    if (!page) return null;
-    const title = telegramTitle(page, sourceUrl);
-    const snippets = extractRelevantInviteSnippets(page, title);
-    if (!snippets.length) return null;
-    return {
-      sourceUrl,
-      sourceTitle:title || telegramChannel(sourceUrl) || ('Telegram · ' + place),
-      query,
-      seedLabel:place,
-      context:title || place,
-      text:snippets.join('\n\n').slice(0,45000),
-    };
-  }));
-  const sources = sourceResults.filter(Boolean);
-  return { searched:1, nextCursor:index+1, done:index+1>=PLAN_SIZE, query, sources };
+async function loadWorkbook(fetcher) {
+  if(!workbookPromise)workbookPromise=(async()=>{
+    const text=await fetchText(WORKBOOK_URL,fetcher,12000,1000000);
+    const seed=JSON.parse(text.replace(/^export default\s*/u,'').replace(/\s+as const;\s*$/u,''));
+    if(!Array.isArray(seed.cities)||!seed.cities.length||!Array.isArray(seed.keywords)||!seed.keywords.length)throw new Error('workbook_invalid');
+    return workbookSearchPlan(seed);
+  })().catch(error=>{workbookPromise=undefined;throw error;});
+  return workbookPromise;
+}
+
+export async function localDiscoveryPlanSize({fetcher=fetch,seedData}={}) {
+  const plan=seedData?workbookSearchPlan(seedData):await loadWorkbook(fetcher);
+  return BOOTSTRAP_SOURCES.length+plan.length;
+}
+
+function olderPreview(html,current) {
+  const url=new URL(current);
+  const matches=[...decode(html).matchAll(/href=["']([^"']*[?&]before=\d+[^"']*)["']/giu)];
+  for(const match of matches){
+    const next=new URL(match[1],url);
+    if(next.origin===url.origin&&next.pathname===url.pathname&&next.searchParams.get('before')!==url.searchParams.get('before'))return next.toString();
+  }
+  return null;
+}
+async function telegramSource(sourceUrl,query,place,fetcher) {
+  const cached=pageCache.get(sourceUrl);
+  if(cached&&cached.expires>Date.now())return {...cached.source,query,seedLabel:place};
+  const page=await fetchText(sourceUrl,fetcher,12000,900000);
+  const title=telegramTitle(page,sourceUrl);
+  let snippets=extractRelevantInviteSnippets(page,title);
+  if(!snippets.length){
+    const older=olderPreview(page,sourceUrl);
+    if(older)snippets=extractRelevantInviteSnippets(await fetchText(older,fetcher,12000,900000),title);
+  }
+  const source={sourceUrl,sourceTitle:title||telegramChannel(sourceUrl),query,seedLabel:place,context:title||place,text:snippets.join('\n\n').slice(0,45000)};
+  if(pageCache.size>=500)pageCache.delete(pageCache.keys().next().value);
+  pageCache.set(sourceUrl,{source,expires:Date.now()+15*60*1000});
+  return source;
+}
+
+export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}={}) {
+  const index=Math.max(0,Number(cursor)||0);
+  let totalTasks=null,query='',attempted=0;
+  try{
+    const plan=seedData?workbookSearchPlan(seedData):await loadWorkbook(fetcher);
+    totalTasks=BOOTSTRAP_SOURCES.length+plan.length;
+    if(index>=totalTasks)return {searched:0,nextCursor:index,done:true,totalTasks,query,sources:[],errors:[]};
+    const sources=[];
+    if(index<BOOTSTRAP_SOURCES.length){
+      const [,url,place]=BOOTSTRAP_SOURCES[index];
+      query='Telegram · '+place;
+      attempted=1;
+      const source=await telegramSource(url,query,place,fetcher);
+      if(source.text)sources.push(source);
+    }else{
+      const task=plan[index-BOOTSTRAP_SOURCES.length];
+      query=task.query;
+      const queries=[task.query+' "chat.whatsapp.com"',...(task.alias?[task.alias+' "chat.whatsapp.com"']:[]),task.query+' WhatsApp'];
+      const seen=new Set();
+      for(const searchQuery of queries){
+        attempted++;
+        const search=new URL(SEARCH_URL);
+        search.searchParams.set('q','site:t.me '+searchQuery);
+        search.searchParams.set('source','web');
+        const html=await fetchText(search.toString(),fetcher,12000,350000);
+        const candidates=rankTelegramSources(html,task.place).filter(url=>!seen.has(url)).slice(0,3);
+        for(const url of candidates)seen.add(url);
+        const pages=await Promise.all(candidates.map(url=>telegramSource(url,searchQuery,task.place,fetcher)));
+        sources.push(...pages.filter(source=>source.text));
+        if(sources.length)break;
+      }
+    }
+    return {searched:attempted,nextCursor:index+1,done:index+1>=totalTasks,totalTasks,query,sources,errors:[]};
+  }catch(error){
+    return {searched:attempted,nextCursor:index,done:false,totalTasks,query,sources:[],errors:[{cursor:index,query,reason:error instanceof Error?error.message:String(error)}]};
+  }
 }
 
 export function rankTelegramSources(html, place) {
@@ -174,32 +237,33 @@ function telegramTitle(html,sourceUrl) {
   return strip(decode(title || telegramChannel(sourceUrl)));
 }
 async function fetchText(url,fetcher,timeout,limit) {
-  try {
-    const host=new URL(url).hostname.toLowerCase();
-    if(host==='search.brave.com'){
-      const {stdout}=await execFile('/usr/bin/curl',[
-        '-L','-sS','--compressed','--max-time',String(Math.ceil(timeout/1000)),
-        '-A',USER_AGENT,'-H','Accept-Language: uk,en;q=0.8',url,
-      ],{encoding:'utf8',maxBuffer:Math.max(limit+200000,700000)});
-      return String(stdout||'').slice(0,limit);
-    }
-  }catch{}
-  const controller = new AbortController();
-  const timer = setTimeout(()=>controller.abort(),timeout);
-  try {
-    const response = await fetcher(url,{signal:controller.signal,redirect:'follow',headers:{'User-Agent':USER_AGENT,Accept:'text/html,application/xhtml+xml,text/plain;q=0.8','Accept-Language':'uk,en;q=0.8'}});
-    if (!response.ok) return '';
-    const reader = response.body?.getReader();
-    if (!reader) return (await response.text()).slice(0,limit);
-    const decoder = new TextDecoder(); let bytes=0, text='';
-    for (;;) {
-      const chunk = await reader.read(); if (chunk.done) break;
-      bytes += chunk.value.byteLength;
-      if (bytes > limit) { await reader.cancel(); break; }
-      text += decoder.decode(chunk.value,{stream:true});
-    }
-    return text + decoder.decode();
-  } catch { return ''; } finally { clearTimeout(timer); }
+  const host=new URL(url).hostname.toLowerCase();
+  let lastError;
+  for(let attempt=0;attempt<2;attempt++){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),timeout);
+    try{
+      let text;
+      if(host==='search.brave.com'&&fetcher===fetch){
+        const {stdout}=await execFile('/usr/bin/curl',[
+          '-L','--fail','-sS','--compressed','--max-time',String(Math.ceil(timeout/1000)),
+          '-A',USER_AGENT,'-H','Accept-Language: uk,en;q=0.8',url,
+        ],{encoding:'utf8',maxBuffer:Math.max(limit+200000,700000)});
+        text=String(stdout||'');
+      }else{
+        const response=await fetcher(url,{signal:controller.signal,redirect:'follow',headers:{'User-Agent':USER_AGENT,Accept:'text/html,application/json,text/plain;q=0.8','Accept-Language':'uk,en;q=0.8'}});
+        if(!response.ok)throw new Error('source_http_'+response.status+' · '+host);
+        text=await response.text();
+      }
+      if(!text.trim())throw new Error('source_empty_response · '+host);
+      if(host==='search.brave.com'&&/captcha|verify (?:that )?you are human|too many requests|rate limit|access denied/iu.test(strip(text).slice(0,3000)))throw new Error('search_blocked · '+host);
+      return text.slice(0,limit);
+    }catch(error){
+      lastError=error;
+      if(attempt===0)await new Promise(resolve=>setTimeout(resolve,500));
+    }finally{clearTimeout(timer);}
+  }
+  throw lastError;
 }
 function decode(value) {
   const named={amp:'&',quot:'"',apos:"'",lt:'<',gt:'>',nbsp:' '};
