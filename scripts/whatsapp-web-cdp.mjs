@@ -1056,12 +1056,33 @@ async function findOrCreateWhatsappPage(base) {
   return page;
 }
 
+export function shouldDeferForGlobalWhatsAppLoading(snapshot) {
+  const bodyText=String(snapshot?.bodyText||'');
+  return messagesLoadingPattern.test(bodyText)
+    && snapshot?.composer!==true
+    && (!Array.isArray(snapshot?.headerNames)||snapshot.headerNames.length===0)
+    && (!Array.isArray(snapshot?.targetHeadings)||snapshot.targetHeadings.length===0);
+}
+
 async function waitForClassification(client, task, timeoutMs, afterAction = null, navigatedInviteCode = null) {
   const deadline = Date.now() + timeoutMs;
   let last = { kind: 'blocked', reason: 'page_not_ready' };
   let diagnostic = null;
+  let loadingSince = 0;
   while (Date.now() < deadline) {
     const snapshot = await readSnapshot(client);
+    if(shouldDeferForGlobalWhatsAppLoading(snapshot)){
+      if(!loadingSince)loadingSince=Date.now();
+      if(Date.now()-loadingSince>=1_200){
+        return {
+          kind:'blocked',
+          reason:'page_not_ready',
+          diagnostic:{url:String(snapshot.url||''),globalLoading:true},
+        };
+      }
+    }else{
+      loadingSince=0;
+    }
     diagnostic = {
       url:String(snapshot.url||''),
       headerNames:(snapshot.headerNames||[]).slice(0,6),

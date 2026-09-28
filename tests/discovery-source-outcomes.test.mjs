@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { crawlLocalDiscoverySource, workbookSearchPlan } from '../scripts/chat-discovery-source-crawl.mjs';
+import { shouldDeferForGlobalWhatsAppLoading } from '../scripts/whatsapp-web-cdp.mjs';
 
 const realSeedSource=await readFile(new URL('../lib/chat-discovery/seeds.ts',import.meta.url),'utf8');
 const realSeed=JSON.parse(realSeedSource.replace(/^export default\s*/u,'').replace(/\s+as const;\s*$/u,''));
@@ -23,6 +24,15 @@ void test('workbook plan includes compatible keywords, countries and city aliase
   assert.ok(plan.some(item=>item.alias==='Українці в Berlin'));
   assert.ok(plan.findIndex(item=>item.place==='Варшава')<plan.findIndex(item=>item.place==='Гамбург'));
   assert.ok(plan.every(item=>!item.query.includes('назва села')));
+});
+
+void test('global WhatsApp message loading is deferred without burning the full invite timeout',()=>{
+  assert.equal(shouldDeferForGlobalWhatsAppLoading({
+    bodyText:'WhatsApp — Messages are loading. Keep this window open.',composer:false,headerNames:[],targetHeadings:[],
+  }),true);
+  assert.equal(shouldDeferForGlobalWhatsAppLoading({
+    bodyText:'Messages are loading',composer:true,headerNames:['Українці Berlin'],targetHeadings:[],
+  }),false);
 });
 
 void test('real workbook plan is bounded and yield-first instead of exploding past 80k tasks',()=>{
