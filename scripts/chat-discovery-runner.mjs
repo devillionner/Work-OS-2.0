@@ -395,7 +395,7 @@ function startLocalSourceRefill(initialLocal){
     try{
       while(local?.active===true&&local.sourceExhausted!==true&&Number(local.queuedCount||0)<LOCAL_SOURCE_TARGET_QUEUE){
         const wait=Math.max(0,nextLocalSourceAt-Date.now());
-        if(wait>0)await sleep(wait);
+        if(wait>0)break;
         const cursor=Number(local.sourceCursor)||0;
         const batch=await crawlLocalDiscoveryBatch(cursor);
         if(Array.isArray(batch.warnings)&&batch.warnings.length){
@@ -434,6 +434,7 @@ async function runOnce(){
         .map(([candidateId])=>candidateId);
       const local=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp,skipCandidateIds});
       if(local.kind==='result'&&local.active===true){
+        if(Number(local.sourceCursor||0)===0)nextLocalSourceAt=0;
         startLocalSourceRefill(local);
         if(Date.now()<whatsappRuntimeBlockedUntil)return 'local_wait';
         if(local.task){
