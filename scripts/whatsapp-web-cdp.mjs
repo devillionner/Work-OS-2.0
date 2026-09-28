@@ -1019,7 +1019,7 @@ export async function sendWhatsappAutopostViaCdp(
   }
 }
 
-export async function reloadWhatsappPageViaCdp({cdpBaseUrl}={}) {
+export async function resetWhatsappPageViaCdp({cdpBaseUrl}={}) {
   if(!cdpBaseUrl)return {kind:'blocked',reason:'cdp_not_configured'};
   const base=normalizeLocalCdpBaseUrl(cdpBaseUrl);
   if(!base)return {kind:'blocked',reason:'cdp_not_local'};
@@ -1028,7 +1028,7 @@ export async function reloadWhatsappPageViaCdp({cdpBaseUrl}={}) {
   const client=await createCdpClient(page.webSocketDebuggerUrl);
   try{
     await client.send('Page.enable');
-    await client.send('Page.reload',{ignoreCache:true});
+    await client.send('Page.navigate',{url:'https://web.whatsapp.com/'});
     return {kind:'result'};
   }finally{client.close();}
 }

@@ -4,7 +4,7 @@ import process from 'node:process';
 import readline from 'node:readline/promises';
 import {
   inspectWhatsappTaskViaCdp,
-  reloadWhatsappPageViaCdp,
+  resetWhatsappPageViaCdp,
   queryWhatsappInviteViaCdp,
   leaveWhatsappTaskViaCdp,
   readWorkOsExecutorTokenViaCdp,
@@ -279,12 +279,12 @@ async function processLocalPreflight(task){
         &&Date.now()-lastWhatsappReloadAt>=WHATSAPP_LOADING_RELOAD_COOLDOWN_MS;
       if(canReload){
         try{
-          const reloaded=await reloadWhatsappPageViaCdp({cdpBaseUrl:whatsappCdp});
-          if(reloaded.kind==='result'){
+          const reset=await resetWhatsappPageViaCdp({cdpBaseUrl:whatsappCdp});
+          if(reset.kind==='result'){
             lastWhatsappReloadAt=Date.now();
             whatsappLoadingSignals=0;
             whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+15000);
-            console.warn('WhatsApp stayed in global loading state; reloaded the WhatsApp Web page once and kept the candidate queued.');
+            console.warn('WhatsApp stayed in global loading state; returned to the WhatsApp Web home page once and kept the candidate queued.');
             return 'local_wait';
           }
         }catch{}

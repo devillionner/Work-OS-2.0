@@ -30,14 +30,14 @@ void test('repeated global WhatsApp loading triggers a bounded self-heal reload'
   const runner=await readFile(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8');
   assert.match(runner,/WHATSAPP_LOADING_RELOAD_AFTER=3/u);
   assert.match(runner,/WHATSAPP_LOADING_RELOAD_COOLDOWN_MS=120000/u);
-  assert.match(runner,/reloadWhatsappPageViaCdp/u);
-  assert.match(runner,/reloaded the WhatsApp Web page once and kept the candidate queued/u);
+  assert.match(runner,/resetWhatsappPageViaCdp/u);
+  assert.match(runner,/returned to the WhatsApp Web home page once and kept the candidate queued/u);
   const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
-  const start=adapter.indexOf('export async function reloadWhatsappPageViaCdp');
+  const start=adapter.indexOf('export async function resetWhatsappPageViaCdp');
   const end=adapter.indexOf('export async function inspectWhatsappTaskViaCdp',start);
   const block=adapter.slice(start,end);
-  assert.match(block,/Page\.reload/u);
-  assert.match(block,/ignoreCache:true/u);
+  assert.match(block,/Page\.navigate/u);
+  assert.match(block,/https:\/\/web\.whatsapp\.com\//u);
 });
 
 void test('legacy target_not_verified outcomes are requeued only once',async()=>{
