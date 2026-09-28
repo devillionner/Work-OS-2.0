@@ -747,3 +747,13 @@ void test('exact invite join can bind the resulting joined header without waitin
   assert.match(source,/snapshot\.joinConfirmedAfterExactInvite = true/);
   assert.match(source,/snapshot\.joinConfirmedAfterExactInvite === true/);
 });
+
+
+void test('WhatsApp Discovery queries invite facts before expensive navigation',()=>{
+  assert.match(source,/export async function queryWhatsappInviteViaCdp/);
+  assert.match(source,/WAWebGroupQueryJob/);
+  assert.match(source,/queryGroupInvite/);
+  assert.match(source,/membershipApprovalMode/);
+  assert.match(source,/announce/);
+  assert.match(source,/memberCount/);
+});
