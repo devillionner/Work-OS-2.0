@@ -155,6 +155,172 @@ export async function queryWhatsappInviteViaCdp(
   }
 }
 
+
+export async function joinWhatsappInviteViaRuntime(
+  task,
+  { cdpBaseUrl, timeoutMs = 10_000 } = {},
+) {
+  if (task.runtime !== 'whatsapp_web' || task.platform !== 'whatsapp') {
+    return { kind:'blocked', reason:'unsupported_runtime' };
+  }
+  const inviteCode=whatsappInviteCode(task.expectedTarget?.link || task.link);
+  if(!inviteCode)return {kind:'blocked',reason:'invalid_whatsapp_link'};
+  const base=normalizeLocalCdpBaseUrl(cdpBaseUrl);
+  if(!base)return {kind:'blocked',reason:cdpBaseUrl?'cdp_not_local':'cdp_not_configured'};
+  const page=await findOrCreateWhatsappPage(base);
+  if(!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl))return {kind:'blocked',reason:'cdp_websocket_not_local'};
+  const client=await createCdpClient(page.webSocketDebuggerUrl);
+  try{
+    await client.send('Runtime.enable');
+    const response=await client.send('Runtime.evaluate',{
+      expression:`(async()=>{
+        const timeoutMs=${Math.max(2_000,Math.min(15_000,Number(timeoutMs)||10_000))};
+        const race=(promise,label)=>Promise.race([
+          promise,
+          new Promise((_,reject)=>setTimeout(()=>reject(new Error(label+'_timeout')),timeoutMs)),
+        ]);
+        try{
+          const query=window.require?.('WAWebGroupQueryJob');
+          const invite=window.require?.('WAWebGroupInviteJob');
+          const collections=window.require?.('WAWebCollections');
+          const widFactory=window.require?.('WAWebWidFactory');
+          const loader=window.require?.('WAWebChatLoadMessages');
+          if(!query?.queryGroupInvite||!invite?.joinGroupViaInvite||!collections?.Chat||!widFactory?.createWid){
+            return {ok:false,reason:'direct_join_unavailable'};
+          }
+          const pre=await race(query.queryGroupInvite(${JSON.stringify(inviteCode)}),'invite_query');
+          if(pre?.membershipApprovalMode===true){
+            return {ok:false,reason:'approval_required',approvalRequired:true};
+          }
+          const joined=await race(invite.joinGroupViaInvite(${JSON.stringify(inviteCode)}),'direct_join');
+          const gid=String(joined?.gid?._serialized||joined?.gid||pre?.id?._serialized||pre?.id||'');
+          if(!gid)return {ok:false,reason:'join_not_confirmed'};
+          const wid=widFactory.createWid(gid);
+          let chat=collections.Chat.get(wid);
+          if(!chat&&collections.Chat.find)chat=await race(collections.Chat.find(wid),'chat_find');
+          if(!chat)return {ok:false,reason:'joined_chat_not_found',gid};
+          if(loader?.loadRecentMsgs){
+            try{await race(loader.loadRecentMsgs(chat),'recent_messages');}catch{}
+          }
+          await new Promise(resolve=>setTimeout(resolve,250));
+          const metadata=chat.groupMetadata||{};
+          const models=Array.isArray(chat.msgs?._models)
+            ? chat.msgs._models
+            : Array.isArray(chat.msgs?.models)?chat.msgs.models:[];
+          const messages=models.slice(-40).map(msg=>({
+            body:String(msg?.body||msg?.caption||msg?.__x_body||'').slice(0,1600),
+            timestamp:Number(msg?.t||msg?.timestamp||msg?.__x_t||0)||0,
+            type:String(msg?.type||msg?.__x_type||''),
+          }));
+          const sizeCandidates=[
+            Number(metadata?.participants?.size),
+            Number(metadata?.participants?.length),
+            Number(metadata?.__x_size),
+            Number(metadata?.size),
+            Number(pre?.size),
+          ].filter(value=>Number.isFinite(value)&&value>0);
+          return {
+            ok:true,
+            gid,
+            subject:String(chat.formattedTitle||chat.name||metadata?.subject||pre?.subject||''),
+            desc:String(metadata?.desc||metadata?.__x_desc||pre?.desc||''),
+            size:sizeCandidates.length?Math.max(...sizeCandidates):null,
+            announce:typeof metadata?.announce==='boolean'?metadata.announce:
+              typeof metadata?.__x_announce==='boolean'?metadata.__x_announce:
+              typeof pre?.announce==='boolean'?pre.announce:null,
+            isParentGroup:metadata?.isParentGroup===true||metadata?.__x_isParentGroup===true,
+            preIsParentGroup:pre?.isParentGroup===true,
+            messages,
+          };
+        }catch(error){
+          return {ok:false,name:String(error?.name||''),message:String(error?.message||error||'')};
+        }
+      })()`,
+      returnByValue:true,
+      awaitPromise:true,
+    });
+    const value=response?.result?.value||{};
+    if(value.ok!==true){
+      const message=String(value.message||value.reason||'');
+      if(value.reason==='approval_required')return {kind:'blocked',reason:'approval_required'};
+      if(/invalid|expired|not-found|gone/iu.test(message))return {kind:'blocked',reason:'invalid_whatsapp_link'};
+      if(/retry|rate|too many|temporar|timeout/iu.test(message))return {kind:'blocked',reason:'whatsapp_join_retry_later'};
+      return {kind:'blocked',reason:String(value.reason||'direct_join_failed'),diagnostic:{name:value.name||'',message}};
+    }
+    const messages=Array.isArray(value.messages)?value.messages:[];
+    const latestTimestamp=Math.max(0,...messages.map(item=>Number(item?.timestamp)||0));
+    const nowSeconds=Math.floor(Date.now()/1000);
+    let activityState;
+    if(latestTimestamp>0&&nowSeconds-latestTimestamp<=72*60*60)activityState='active';
+    else if(latestTimestamp>0&&nowSeconds-latestTimestamp>=14*24*60*60)activityState='dead';
+    const recentTexts=messages.map(item=>String(item?.body||'')).filter(Boolean).slice(-30);
+    const evidence=[value.subject,value.desc,...recentTexts].join('\n');
+    const spamMessages=recentTexts.filter(text=>spamPattern.test(text)).length;
+    const ukrainianMessages=recentTexts.filter(text=>ukrainianConversationPattern.test(text)).length;
+    const topicMatch=spamPattern.test(String(value.subject||'')+'\n'+String(value.desc||''))||spamMessages>=3
+      ?'mismatch'
+      :ukrainianIdentityPattern.test(String(value.subject||'')+'\n'+String(value.desc||''))||ukrainianMessages>=2?'match':'unknown';
+    let adsPolicy;
+    if(adsForbiddenPattern.test(String(value.desc||'')))adsPolicy='forbidden';
+    else if(adsAllowedPattern.test(String(value.desc||'')))adsPolicy='allowed';
+    else if(activityState==='active'&&recentTexts.filter(text=>adLikeMessagePattern.test(text)).length>=2)adsPolicy='inferred_allowed';
+    const memberCount=Number.isFinite(Number(value.size))&&Number(value.size)>0?Number(value.size):undefined;
+    const canWrite=value.announce===true?false:value.announce===false?true:undefined;
+    return {
+      kind:'result',
+      result:{
+        status:'inspected',
+        targetVerified:true,
+        accessible:true,
+        membershipState:'joined',
+        observedName:String(value.subject||task.name),
+        chatType:value.isParentGroup===true?'community':'group',
+        ...(memberCount===undefined?{}:{memberCount}),
+        topicMatch,
+        ...(canWrite===undefined?{}:{canWrite}),
+        ...(adsPolicy?{adsPolicy}:{}),
+        ...(activityState?{activityState}:{}),
+        description:String(value.desc||''),
+        groupId:String(value.gid||''),
+        joinedDirect:true,
+        recentMessageCount:recentTexts.length,
+        sourceWasCommunity:value.preIsParentGroup===true,
+      },
+    };
+  }finally{client.close();}
+}
+
+export async function leaveWhatsappGroupViaRuntime(
+  groupId,
+  { cdpBaseUrl } = {},
+) {
+  const id=String(groupId||'').trim();
+  if(!id)return {kind:'blocked',reason:'group_id_missing'};
+  const base=normalizeLocalCdpBaseUrl(cdpBaseUrl);
+  if(!base)return {kind:'blocked',reason:cdpBaseUrl?'cdp_not_local':'cdp_not_configured'};
+  const page=await findOrCreateWhatsappPage(base);
+  if(!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl))return {kind:'blocked',reason:'cdp_websocket_not_local'};
+  const client=await createCdpClient(page.webSocketDebuggerUrl);
+  try{
+    await client.send('Runtime.enable');
+    const response=await client.send('Runtime.evaluate',{
+      expression:`(async()=>{try{
+        const wid=window.require('WAWebWidFactory').createWid(${JSON.stringify(id)});
+        const chats=window.require('WAWebCollections').Chat;
+        const chat=chats.get(wid)||(chats.find?await chats.find(wid):null);
+        if(!chat)return {ok:false,reason:'chat_not_found'};
+        const result=await window.require('WAWebExitGroupAction').sendExitGroup(chat);
+        return {ok:result!==false};
+      }catch(error){return {ok:false,name:String(error?.name||''),message:String(error?.message||error||'')}}})()`,
+      returnByValue:true,
+      awaitPromise:true,
+    });
+    const value=response?.result?.value||{};
+    if(value.ok===true)return {kind:'result',result:{left:true,groupId:id}};
+    return {kind:'blocked',reason:String(value.reason||'direct_leave_failed'),diagnostic:{name:value.name||'',message:value.message||''}};
+  }finally{client.close();}
+}
+
 export function normalizeLocalCdpBaseUrl(value) {
   if (!value) return null;
   let url;

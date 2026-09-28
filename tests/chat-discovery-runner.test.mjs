@@ -221,3 +221,21 @@ void test('blocked metadata candidates do not fill the active local source queue
   assert.match(source,/refillSkipCandidateIds=\[\.\.\.taskBlockedUntil\.entries\(\)\]/);
   assert.match(source,/skipCandidateIds:refillSkipCandidateIds/);
 });
+
+void test('local Discovery direct-joins qualified invites without Page.navigate',async()=>{
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  assert.match(adapter,/export async function joinWhatsappInviteViaRuntime/);
+  assert.match(adapter,/WAWebGroupInviteJob/);
+  assert.match(adapter,/joinGroupViaInvite/);
+  assert.match(adapter,/WAWebChatLoadMessages/);
+  assert.match(adapter,/loadRecentMsgs/);
+  assert.match(adapter,/export async function leaveWhatsappGroupViaRuntime/);
+  assert.match(adapter,/WAWebExitGroupAction/);
+  const start=source.indexOf('async function processLocalPreflight');
+  const end=source.indexOf('async function resolveLocalSourceSeedData',start);
+  const process=source.slice(start,end);
+  assert.match(process,/joinWhatsappInviteViaRuntime/);
+  assert.match(process,/leaveWhatsappGroupViaRuntime/);
+  assert.doesNotMatch(process,/inspectWhatsappTaskViaCdp/);
+  assert.match(process,/pre\.chatType==='community'/);
+});
