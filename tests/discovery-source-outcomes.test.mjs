@@ -348,3 +348,13 @@ void test('local filters expose every failed outcome while target view stays str
   assert.deepEqual(filter(candidates,'rejected'),[candidates[2],candidates[3]]);
   assert.deepEqual(filter(candidates,'unavailable'),[candidates[4]]);
 });
+
+void test('WhatsApp invite metadata and UI inspection foreground the WhatsApp tab first',async()=>{
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  const queryStart=adapter.indexOf('export async function queryWhatsappInviteViaCdp');
+  const queryEnd=adapter.indexOf('export function normalizeLocalCdpBaseUrl',queryStart);
+  assert.match(adapter.slice(queryStart,queryEnd),/Page\.bringToFront/u);
+  const inspectStart=adapter.indexOf('export async function inspectWhatsappTaskViaCdp');
+  const inspectEnd=adapter.indexOf('async function findOrCreateWhatsappPage',inspectStart);
+  assert.match(adapter.slice(inspectStart,inspectEnd),/Page\.bringToFront/u);
+});
