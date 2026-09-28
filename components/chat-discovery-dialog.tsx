@@ -127,6 +127,7 @@ export function ChatDiscoveryDialog({
   const [inspectingId, setInspectingId] = useState<string | null>(null);
   const [manualDraft, setManualDraft] = useState<ManualInspectionDraft | null>(null);
   const [telegramBusy, setTelegramBusy] = useState(false);
+  const [pausing,setPausing]=useState(false);
   const [telegramText, setTelegramText] = useState('');
   const [telegramSourceTitle, setTelegramSourceTitle] = useState('');
   const [telegramSourceUrl, setTelegramSourceUrl] = useState('');
@@ -328,6 +329,7 @@ export function ChatDiscoveryDialog({
   async function stopAutonomousSearch(){
     if(telegramBusy)return;
     setTelegramBusy(true);
+    setPausing(true);
     setError('');
     setNotice('');
     const snapshot=readLocalPreviewSession();
@@ -418,6 +420,7 @@ export function ChatDiscoveryDialog({
         ? `Автопошук зупинено. ${archiveFailed} кандидат(ів) не вдалося заархівувати — при продовженні вони можуть перевіритися ще раз.`
         : '');
     }finally{
+      setPausing(false);
       setTelegramBusy(false);
     }
   }
@@ -707,7 +710,9 @@ export function ChatDiscoveryDialog({
     :localPreview.lastCheckedDecision==='rejected'?'відхилений'
       :localPreview.lastCheckedDecision==='skipped'?'пропущений'
         :localPreview.lastCheckedDecision==='unavailable'?'недоступний':'';
-  const runActivity=autonomousRunning
+  const runActivity=pausing
+    ? 'Зупиняємо пошук · зберігаємо прогрес і архівуємо незавершені чати'
+    : autonomousRunning
     ? activeCandidateName
       ? `Перевіряємо WhatsApp: ${activeCandidateName}`
       : localQueued>0
@@ -748,11 +753,11 @@ export function ChatDiscoveryDialog({
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
             <div className="min-w-[180px]">
               <div className="flex items-center gap-2 text-xs font-semibold text-foreground/70">
-                {autonomousRunning&&<span className="relative flex size-2">
+                {(autonomousRunning||pausing)&&<span className="relative flex size-2">
                   <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-50"/>
                   <span className="relative inline-flex size-2 rounded-full bg-emerald-500"/>
                 </span>}
-                {autonomousRunning?'Автопошук працює':'Автопошук'}
+                {pausing?'Зберігаємо паузу':autonomousRunning?'Автопошук працює':'Автопошук'}
               </div>
               <div className="mt-1 flex items-end gap-2">
                 <strong className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">{displayedTargetCount}</strong>
@@ -764,7 +769,7 @@ export function ChatDiscoveryDialog({
                 <div className="h-full rounded-full bg-primary transition-[width] duration-500" style={{width:`${progressPercent}%`}}/>
               </div>
               <div className="mt-2 flex items-start gap-2 text-sm font-medium text-foreground/80">
-                {autonomousRunning?<LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-primary"/>:<CheckCircle2 className="mt-0.5 size-4 shrink-0 text-muted-foreground"/>}
+                {(autonomousRunning||pausing)?<LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-primary"/>:<CheckCircle2 className="mt-0.5 size-4 shrink-0 text-muted-foreground"/>}
                 <span className="min-w-0 break-words">{runActivity}</span>
               </div>
               {autonomousRunning&&<div className="mt-1 text-xs tabular-nums text-muted-foreground">
@@ -850,9 +855,9 @@ export function ChatDiscoveryDialog({
               </div>
 
               <div className="mt-4 grid gap-2">
-                {autonomousRunning
+                {autonomousRunning||pausing
                   ? <Button className="w-full justify-center" type="button" variant="outline" disabled={telegramBusy} onClick={() => void stopAutonomousSearch()}>
-                      {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<Square data-icon="inline-start"/>}{telegramBusy?'Зупиняємо…':'Зупинити автопошук'}
+                      {pausing?<LoaderCircle data-icon="inline-start"/>:<Square data-icon="inline-start"/>}{pausing?'Зберігаємо паузу…':'Зупинити автопошук'}
                     </Button>
                   : <Button className="w-full justify-center" type="button" disabled={telegramBusy} onClick={() => void startAutonomousSearch()}>
                       {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<Search data-icon="inline-start"/>}{telegramBusy?'Запускаємо…':localPreview.pauseSummary?'Продовжити автопошук':localPreview.completionReason==='source_error'?'Продовжити пошук':'Запустити автопошук'}
