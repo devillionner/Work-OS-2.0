@@ -23,48 +23,81 @@ const BOOTSTRAP_SOURCES = [
 const pageCache = new Map();
 const UA = /(?:україн|украин|ukrain|🇺🇦)/iu;
 const SPAM = /(?:crypto|bitcoin|forex|casino|казино|betting|dating|escort|onlyfans|nft|airdrop|signals?\b|قروبات|روابط\s+مجموعات|مجموعات\s+واتساب|technical\s+support)/iu;
+const MAX_TELEGRAM_HISTORY_PAGES=4;
+const MAX_SEARCH_SOURCES=5;
 
 export function workbookSearchPlan(seed) {
-  const unsupported = /(назва села|назва селища|район міста|назва района|назва області|пункту пропуску|навчального закладу|назва жк|слово пошук)/iu;
-  const english = new Set(['Ukrainian in','Ukrainians','Ukraine chat']);
-  const keywords = [...new Set(seed.keywords)].filter(item => !unsupported.test(item));
-  const priority = text => /Українці в/iu.test(text) ? 0 : /допомог|помощь|батьки|мамоч/iu.test(text) ? 1 : /чат|барахол|перевіз|перевез/iu.test(text) ? 2 : 3;
-  keywords.sort((a,b) => priority(a)-priority(b));
-  const buckets = new Map();
-  const seen = new Set();
-  for (const city of seed.cities) {
-    const label = String(city.uk || city.name || '').trim();
-    const key = String(city.country) + '|' + label.toLocaleLowerCase('uk-UA');
-    if (!label || seen.has(key)) continue;
-    seen.add(key);
-    if (!buckets.has(city.country)) buckets.set(city.country,[]);
-    buckets.get(city.country).push(city);
-  }
-  for (const cities of buckets.values()) cities.sort((a,b) => Number(b.population||0)-Number(a.population||0));
-  const places = [];
-  for (let index=0; ; index++) {
-    let added=false;
-    for (const cities of buckets.values()) if(cities[index]) { places.push(cities[index]); added=true; }
-    if(!added)break;
-  }
-  const render=(template,place) => english.has(template) ? template+' '+place : template === 'Просто назва міста' ? place
-    : template.replace(/Українці в (?:місті|країні) \(назва (?:міста|країни)\)/giu,'Українці в '+place)
+  const unsupported=/(назва села|назва селища|район міста|назва района|назва області|пункту пропуску|навчального закладу|назва жк|слово пошук)/iu;
+  const english=new Set(['Ukrainian in','Ukrainians','Ukraine chat']);
+  const keywords=[...new Set(seed.keywords)].filter(item=>!unsupported.test(item));
+  const priority=text=>{
+    if(/назва міста чат|Ukraine chat/iu.test(text))return 0;
+    if(/Українці в|Ukrainian in|Ukrainians/iu.test(text))return 1;
+    if(/допомог|помощь|біжен|переселен|\bвпо\b/iu.test(text))return 2;
+    if(/батьки|мамоч/iu.test(text))return 3;
+    if(/перевіз|перевез|передач/iu.test(text))return 4;
+    if(/барахол|віддам|обмін|продаж/iu.test(text))return 5;
+    if(/оренд|зніму|ріелтор/iu.test(text))return 6;
+    return 7;
+  };
+  const render=(template,place)=>english.has(template)?template+' '+place:template==='Просто назва міста'?place
+    :template.replace(/Українці в (?:місті|країні) \(назва (?:міста|країни)\)/giu,'Українці '+place)
       .replace(/назва (?:міста або країни|країни або міста|міста|країни)/giu,place)
       .replace(/\s*\+\s*/gu,' ').replace(/\s+/gu,' ').trim();
-  const cityTemplates=keywords.filter(item=>/назва міста/iu.test(item)||english.has(item));
-  const countryTemplates=keywords.filter(item=>/назва країни/iu.test(item)||english.has(item));
-  const tasks=[];
-  // Interleave countries and intents so no one country consumes the entire first pass.
-  for(let wave=0;wave<cityTemplates.length;wave+=3){
-    for(const city of places)for(const template of cityTemplates.slice(wave,wave+3)){
-      const place=String(city.uk||city.name);
-      tasks.push({place,query:render(template,place),alias:city.name!==place?render(template,city.name):''});
-    }
-    if(wave===0)for(const place of buckets.keys())for(const template of countryTemplates){
-      tasks.push({place,query:render(template,place),alias:''});
-    }
+  const cityTemplates=keywords.filter(item=>/назва міста/iu.test(item)||english.has(item)).sort((a,b)=>priority(a)-priority(b));
+  const countryTemplates=keywords.filter(item=>/країн/iu.test(item)||english.has(item)).sort((a,b)=>priority(a)-priority(b));
+  const buckets=new Map();
+  const seenPlaces=new Set();
+  for(const city of seed.cities){
+    const label=String(city.uk||city.name||'').trim();
+    const key=String(city.country)+'|'+label.toLocaleLowerCase('uk-UA');
+    if(!label||seenPlaces.has(key))continue;
+    seenPlaces.add(key);
+    if(!buckets.has(city.country))buckets.set(city.country,[]);
+    buckets.get(city.country).push(city);
   }
-  return tasks.filter(item=>item.query&&!/назва |\(|\)/iu.test(item.query));
+  for(const cities of buckets.values())cities.sort((a,b)=>Number(b.population||0)-Number(a.population||0));
+  const interleave=limit=>{
+    const result=[];
+    for(let index=0;index<limit;index++)for(const cities of buckets.values())if(cities[index])result.push(cities[index]);
+    return result;
+  };
+  const top20=interleave(20);
+  const top20Keys=new Set(top20.map(city=>String(city.country)+'|'+String(city.uk||city.name)));
+  const top50Tail=interleave(50).filter(city=>!top20Keys.has(String(city.country)+'|'+String(city.uk||city.name)));
+  const coreTemplates=cityTemplates.slice(0,12);
+  const remainingTemplates=cityTemplates.slice(12);
+  const fallbackTemplates=cityTemplates.slice(0,2);
+  const tasks=[];
+  const seenQueries=new Set();
+  const push=task=>{
+    const query=String(task.query||'').replace(/\s+/gu,' ').trim();
+    if(!query||/назва |\(|\)/iu.test(query))return;
+    const alias=String(task.alias||'').replace(/\s+/gu,' ').trim();
+    const key=query.toLocaleLowerCase('uk-UA')+'|'+alias.toLocaleLowerCase('uk-UA');
+    if(seenQueries.has(key))return;
+    seenQueries.add(key);
+    tasks.push({...task,query,alias});
+  };
+  for(const country of buckets.keys()){
+    push({place:country,query:'Українці '+country,alias:''});
+    push({place:country,query:'Ukrainians '+country,alias:''});
+    push({place:country,query:country+' WhatsApp українці',alias:''});
+  }
+  for(const country of buckets.keys())for(const template of countryTemplates)push({place:country,query:render(template,country),alias:''});
+  for(const city of top20)for(const template of coreTemplates){
+    const place=String(city.uk||city.name);
+    push({place,query:render(template,place),alias:city.name!==place?render(template,city.name):''});
+  }
+  for(const city of interleave(8))for(const template of remainingTemplates){
+    const place=String(city.uk||city.name);
+    push({place,query:render(template,place),alias:city.name!==place?render(template,city.name):''});
+  }
+  for(const city of top50Tail)for(const template of fallbackTemplates){
+    const place=String(city.uk||city.name);
+    push({place,query:render(template,place),alias:city.name!==place?render(template,city.name):''});
+  }
+  return tasks;
 }
 
 function requireSeedData(seedData) {
@@ -91,12 +124,23 @@ function olderPreview(html,current) {
 async function telegramSource(sourceUrl,query,place,fetcher) {
   const cached=pageCache.get(sourceUrl);
   if(cached&&cached.expires>Date.now())return {...cached.source,query,seedLabel:place};
-  const page=await fetchText(sourceUrl,fetcher,12000,900000);
-  const title=telegramTitle(page,sourceUrl);
-  let snippets=extractRelevantInviteSnippets(page,title);
-  if(!snippets.length){
-    const older=olderPreview(page,sourceUrl);
-    if(older)snippets=extractRelevantInviteSnippets(await fetchText(older,fetcher,12000,900000),title);
+  let current=sourceUrl;
+  let title='';
+  const snippets=[];
+  const seenInvites=new Set();
+  for(let pageIndex=0;pageIndex<MAX_TELEGRAM_HISTORY_PAGES&&current;pageIndex++){
+    const page=await fetchText(current,fetcher,12000,900000);
+    if(!title)title=telegramTitle(page,current);
+    for(const snippet of extractRelevantInviteSnippets(page,title)){
+      const match=snippet.match(/(?:https?:\/\/)?chat\.whatsapp\.com\/[A-Za-z0-9_-]{8,128}/iu);
+      const invite=match?canonicalInvite(match[0]):null;
+      if(!invite||seenInvites.has(invite))continue;
+      seenInvites.add(invite);
+      snippets.push(snippet);
+      if(snippets.length>=24)break;
+    }
+    if(snippets.length>=24)break;
+    current=olderPreview(page,current);
   }
   const source={sourceUrl,sourceTitle:title||telegramChannel(sourceUrl),query,seedLabel:place,context:title||place,text:snippets.join('\n\n').slice(0,45000)};
   if(pageCache.size>=500)pageCache.delete(pageCache.keys().next().value);
@@ -129,7 +173,7 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
         search.searchParams.set('q','site:t.me '+searchQuery);
         search.searchParams.set('source','web');
         const html=await fetchText(search.toString(),fetcher,12000,350000);
-        const candidates=rankTelegramSources(html,task.place).filter(url=>!seen.has(url)).slice(0,3);
+        const candidates=rankTelegramSources(html,task.place).filter(url=>!seen.has(url)).slice(0,MAX_SEARCH_SOURCES);
         for(const url of candidates)seen.add(url);
         const pages=await Promise.all(candidates.map(url=>telegramSource(url,searchQuery,task.place,fetcher)));
         sources.push(...pages.filter(source=>source.text));

@@ -3,6 +3,9 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { crawlLocalDiscoverySource, workbookSearchPlan } from '../scripts/chat-discovery-source-crawl.mjs';
 
+const realSeedSource=await readFile(new URL('../lib/chat-discovery/seeds.ts',import.meta.url),'utf8');
+const realSeed=JSON.parse(realSeedSource.replace(/^export default\s*/u,'').replace(/\s+as const;\s*$/u,''));
+
 const seedData={keywords:['Українці в місті (назва міста)','Батьки + назва міста','Перевезення + назва міста або країни','Українці в країні (назва країни)','Назва села чат'],cities:[
   {country:'Німеччина',name:'Berlin',uk:'Берлін',population:10},
   {country:'Польща',name:'Warsaw',uk:'Варшава',population:9},
@@ -20,6 +23,16 @@ void test('workbook plan includes compatible keywords, countries and city aliase
   assert.ok(plan.some(item=>item.alias==='Українці в Berlin'));
   assert.ok(plan.findIndex(item=>item.place==='Варшава')<plan.findIndex(item=>item.place==='Гамбург'));
   assert.ok(plan.every(item=>!item.query.includes('назва села')));
+});
+
+void test('real workbook plan is bounded and yield-first instead of exploding past 80k tasks',()=>{
+  const plan=workbookSearchPlan(realSeed);
+  assert.ok(plan.length>500,'plan should keep broad coverage');
+  assert.ok(plan.length<3000,'bounded plan should stay operator-usable');
+  assert.ok(plan.slice(0,40).some(item=>item.query.includes('Німеччина')));
+  assert.ok(plan.slice(0,40).some(item=>item.query.includes('Польща')));
+  assert.ok(plan.some(item=>/Батьки|Мамочки/iu.test(item.query)));
+  assert.ok(plan.some(item=>/Оренда|Зніму житло/iu.test(item.query)));
 });
 
 void test('runtime crawl requires the source plan instead of private raw GitHub',async()=>{
@@ -45,21 +58,24 @@ void test('search challenge is an error, never empty success',async()=>{
   assert.match(result.errors[0].reason,/search_blocked/);
 });
 
-void test('canonical query falls back to Latin spelling and Telegram history',async()=>{
+void test('source crawl keeps scanning Telegram history even after a current-page invite',async()=>{
   const urls=[];
+  const invite2='https://chat.whatsapp.com/ZyXwVuTs987654';
   const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async(url)=>{
     urls.push(String(url));
     if(String(url).includes('search.brave.com')){
-      const q=new URL(url).searchParams.get('q');
-      return response(q.includes('Berlin')?'<a href="https://t.me/test_history_ua">Українці Berlin chat.whatsapp.com</a>':'<title>No results</title>');
+      return response('<a href="https://t.me/test_history_ua">Українці Berlin chat.whatsapp.com</a>');
     }
-    if(String(url).includes('before=123'))return response(page);
-    return response('<title>Українці</title><a href="/s/test_history_ua?before=123">Older</a>');
+    if(String(url).includes('before=123')){
+      return response('<title>Українці</title><p>Українці батьки оголошення '+invite2+'</p>');
+    }
+    return response('<title>Українці</title><p>Українці чат оголошення '+invite+'</p><a href="/s/test_history_ua?before=123">Older</a>');
   }});
   assert.equal(result.errors.length,0);
   assert.equal(result.nextCursor,16);
   assert.equal(result.sources.length,1);
-  assert.match(result.sources[0].text,/chat.whatsapp.com/);
+  assert.ok(result.sources[0].text.includes(invite));
+  assert.ok(result.sources[0].text.includes(invite2));
   assert.ok(urls.some(url=>url.includes('before=123')));
 });
 
