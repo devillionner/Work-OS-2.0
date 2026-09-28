@@ -1,3 +1,8 @@
+
+## 2026-09-28 — pause no longer loses Discovery momentum
+- Manual stop now freezes the local run immediately, persists unfinished queued candidates as `paused_unverified` archive/dedupe outcomes, and keeps existing target/rejected/skipped/unavailable outcomes intact.
+- The stopped status block shows an animated archive summary with target/non-target/unavailable/unverified counts and the saved source cursor.
+- `Продовжити автопошук` resumes from the same cursor/candidates/counters with a fresh run id; it no longer reconstructs an empty run from cursor 0 after a deliberate pause.
 ## 2026-09-28 — saved target operator decision
 
 - Persisted factual targets remain unimported until the operator decides whether to keep them.
