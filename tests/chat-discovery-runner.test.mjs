@@ -263,3 +263,12 @@ void test('local source crawl is serialized one cursor at a time',()=>{
   assert.match(source,/const width=1/);
   assert.doesNotMatch(source,/const width=start>=15\?2:1/);
 });
+
+void test('local source refill releases its lock after one deterministic step',()=>{
+  const start=source.indexOf('function startLocalSourceRefill');
+  const end=source.indexOf('async function refillLocalSourceOnce',start);
+  const block=source.slice(start,end);
+  assert.match(block,/refillLocalSourceOnce\(initialLocal\)/);
+  assert.match(block,/finally\(\(\)=>\{localSourceInFlight=null;\}\)/);
+  assert.doesNotMatch(block,/while\(/);
+});
