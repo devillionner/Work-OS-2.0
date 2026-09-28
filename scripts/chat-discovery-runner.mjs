@@ -14,6 +14,7 @@ import {
   readWorkOsLocalDiscoveryTaskViaCdp,
   readWorkOsLocalDiscoverySeedDataViaCdp,
   writeWorkOsLocalDiscoveryResultViaCdp,
+  markWorkOsLocalDiscoveryCandidateViaCdp,
   applyWorkOsLocalDiscoverySourceBatchViaCdp,
   sendWhatsappAutopostViaCdp,
   toWhatsAppWebInviteUrl,
@@ -220,6 +221,12 @@ function evaluateLocalPreflight(task,result){
   const incompleteReasons=new Set(['unknown_chat_type','unknown_member_count','unknown_topic_match','unknown_can_write','unknown_ads_allowed','unknown_activity']);
   const incomplete=reasons.length>0&&reasons.every(reason=>incompleteReasons.has(reason));
   return {decision:incomplete?'incomplete':reasons.length?'rejected':'target',reasonCodes:reasons,topicMatch:topic};
+}
+
+async function processLocalPreflightVisible(task){
+  await markWorkOsLocalDiscoveryCandidateViaCdp(baseUrl,task,{cdpBaseUrl:whatsappCdp}).catch(()=>{});
+  try{return await processLocalPreflight(task);}
+  finally{await markWorkOsLocalDiscoveryCandidateViaCdp(baseUrl,null,{cdpBaseUrl:whatsappCdp}).catch(()=>{});}
 }
 
 async function processLocalPreflight(task){
@@ -463,7 +470,7 @@ async function runOnce(){
               }
             }
           }catch{}
-          return processLocalPreflight(local.task);
+          return processLocalPreflightVisible(local.task);
         }
         return 'local_wait';
       }
