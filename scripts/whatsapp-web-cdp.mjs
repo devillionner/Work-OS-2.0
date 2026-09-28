@@ -26,6 +26,8 @@ const adsForbiddenPattern = /(?:no\s+(?:ads?|advertis(?:ing|ements?))|advertis(?
 const adsAllowedPattern = /(?:ads?\s+allowed|advertis(?:ing|ements?)\s+allowed|оголошення\s+дозволен|реклам[ауи]\s+дозволен|объявления\s+разрешен|реклам[ауы]\s+разрешен)/iu;
 const adLikeMessagePattern = /(?:продам|продаю|продаж|куплю|купую|віддам|отдам|обмін|обмен|шукаю|ищу|послуг|услуг|урок|репетитор|оренд|аренд|здам|сдам|робот[ауи]|работ[ауи]|ваканс|доставк|перевез|advert|for\s+sale|give\s+away|exchange|looking\s+for|services?|rent|job|vacanc)/iu;
 const recentActivityPattern = /(?:^|\s)(?:today|yesterday|сьогодні|вчора|сегодня|вчера)(?:\s|$)/iu;
+const messagesLoadingPattern = /(?:messages are loading|повідомлення завантажуються|сообщения загружаются|не закривайте це вікно|keep this window open)/iu;
+const ukrainianConversationPattern = /(?:україн|украин|🇺🇦|\bвпо\b|біжен|переселен|\bгрн\b|доброго дня|будь ласка|оголошення|послуг[аи]|репетитор)/iu;
 
 export function normalizeTargetLabel(value) {
   return String(value || '')
@@ -1046,10 +1048,12 @@ export function deriveWhatsappQualification(snapshot) {
   const activityState = inferMessageActivity(meta, Number(snapshot.nowMs) || Date.now(), snapshot.locale)
     || (recentActivityPattern.test(chatText) || recentActivityPattern.test(meta.join('\n')) ? 'active' : undefined);
   const identityText = [infoText, snapshot.headerText || '', ...(snapshot.headerNames || []), ...(snapshot.headerTitles || [])].join('\n');
-  const spamMessages = messages.slice(-20).filter((value) => spamPattern.test(value)).length;
+  const recentMessages = messages.slice(-20);
+  const spamMessages = recentMessages.filter((value) => spamPattern.test(value)).length;
+  const ukrainianMessages = recentMessages.filter((value) => ukrainianConversationPattern.test(value)).length;
   const topicMatch = spamPattern.test(identityText) || spamMessages >= 3
     ? 'mismatch'
-    : ukrainianIdentityPattern.test(identityText) ? 'match' : undefined;
+    : ukrainianIdentityPattern.test(identityText) || ukrainianMessages >= 2 ? 'match' : undefined;
   let adsPolicy;
   if (adsForbiddenPattern.test(infoText)) adsPolicy = 'forbidden';
   else if (adsAllowedPattern.test(infoText)) adsPolicy = 'allowed';
@@ -1149,8 +1153,21 @@ function parseMemberCount(value) {
   return Number.isSafeInteger(count) && count >= 0 && count <= 10_000_000 ? count : undefined;
 }
 
+async function waitForJoinedChatReady(client, timeoutMs=12_000) {
+  const deadline=Date.now()+timeoutMs;
+  let latest=await readSnapshot(client);
+  while(Date.now()<deadline){
+    const body=String(latest.bodyText||'');
+    const hasHeader=(latest.headerNames||[]).length>0||Boolean(String(latest.headerText||'').trim());
+    if(!messagesLoadingPattern.test(body)&&latest.composer===true&&hasHeader)return latest;
+    await sleep(POLL_MS);
+    latest=await readSnapshot(client);
+  }
+  return latest;
+}
+
 async function enrichJoinedQualification(client, task, result) {
-  const before = await readSnapshot(client);
+  const before = await waitForJoinedChatReady(client);
   let combined = { ...deriveWhatsappQualification(before) };
   const expectedName = result.observedName || task.expectedTarget?.name || task.name;
   if (expectedName && await clickExactHeader(client, expectedName)) {
