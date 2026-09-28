@@ -390,40 +390,9 @@ async function crawlLocalDiscoveryBatch(cursor){
 
 function startLocalSourceRefill(initialLocal){
   if(localSourceInFlight||initialLocal?.sourceExhausted===true||Number(initialLocal?.queuedCount||0)>=LOCAL_SOURCE_TARGET_QUEUE)return;
-  localSourceInFlight=(async()=>{
-    let local=initialLocal;
-    try{
-      while(local?.active===true&&local.sourceExhausted!==true&&Number(local.queuedCount||0)<LOCAL_SOURCE_TARGET_QUEUE){
-        const wait=Math.max(0,nextLocalSourceAt-Date.now());
-        if(wait>0)break;
-        const cursor=Number(local.sourceCursor)||0;
-        const batch=await crawlLocalDiscoveryBatch(cursor);
-        if(Array.isArray(batch.warnings)&&batch.warnings.length){
-          for(const warning of batch.warnings.slice(0,4))console.warn('Discovery source warning: '+String(warning?.query||'source')+' · '+String(warning?.reason||'unavailable'));
-        }
-        if(batch.deferred===true){
-          nextLocalSourceAt=Date.now()+Math.max(1000,Number(batch.retryAfterMs)||LOCAL_SOURCE_MIN_MS);
-          console.warn('Discovery source query deferred without advancing cursor because the external search attempt did not complete.');
-          break;
-        }
-        const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp});
-        nextLocalSourceAt=Date.now()+(applied.errors?60_000:LOCAL_SOURCE_MIN_MS);
-        if(applied.kind!=='result'||applied.errors)break;
-        console.log('Local source crawl: cursor '+batch.nextCursor+', sources '+batch.sources.length+', added '+(applied.added||0)+', duplicates '+(applied.duplicates||0));
-        if(batch.done===true)break;
-        const refillSkipCandidateIds=[...taskBlockedUntil.entries()]
-          .filter(([,until])=>until>Date.now())
-          .map(([candidateId])=>candidateId);
-        const refreshed=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp,skipCandidateIds:refillSkipCandidateIds});
-        if(refreshed.kind!=='result')break;
-        local=refreshed;
-      }
-    }catch(error){
-      console.warn('Local source refill failed: '+(error instanceof Error?error.message:String(error)));
-    }finally{
-      localSourceInFlight=null;
-    }
-  })();
+  localSourceInFlight=refillLocalSourceOnce(initialLocal)
+    .catch(error=>console.warn('Local source refill failed: '+(error instanceof Error?error.message:String(error))))
+    .finally(()=>{localSourceInFlight=null;});
 }
 
 async function refillLocalSourceOnce(local){
