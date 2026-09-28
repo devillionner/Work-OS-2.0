@@ -404,3 +404,12 @@ void test('WhatsApp invite metadata and UI inspection foreground the WhatsApp ta
   const inspectEnd=adapter.indexOf('async function findOrCreateWhatsappPage',inspectStart);
   assert.match(adapter.slice(inspectStart,inspectEnd),/Page\.bringToFront/u);
 });
+
+void test('WhatsApp metadata maps bad-request and gone invite responses to invalid links',async()=>{
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  const start=adapter.indexOf('export async function queryWhatsappInviteViaCdp');
+  const end=adapter.indexOf('export async function joinWhatsappInviteViaRuntime',start);
+  const query=adapter.slice(start,end);
+  assert.match(query,/bad\[- \]request\|gone/);
+  assert.match(query,/reason:'invalid_whatsapp_link'/);
+});

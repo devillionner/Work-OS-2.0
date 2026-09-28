@@ -118,7 +118,7 @@ export async function queryWhatsappInviteViaCdp(
       if(/sendIq called before startComms|invite_query_timeout|invite_query_unavailable/iu.test(message)){
         return {kind:'blocked',reason:'page_not_ready'};
       }
-      if(/not-found|invalid|expired/iu.test(message)){
+      if(/not-found|invalid|expired|bad[- ]request|gone/iu.test(message)){
         return {kind:'result',result:{status:'failed',reason:'invalid_whatsapp_link',targetVerified:true,accessible:false}};
       }
       return {kind:'blocked',reason:'invite_query_failed',diagnostic:{name:value.name||'',message}};
