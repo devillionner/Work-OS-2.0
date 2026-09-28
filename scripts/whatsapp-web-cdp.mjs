@@ -87,7 +87,6 @@ export async function queryWhatsappInviteViaCdp(
   const client=await createCdpClient(page.webSocketDebuggerUrl);
   try{
     await client.send('Page.enable');
-    await client.send('Page.bringToFront');
     await client.send('Runtime.enable');
     const response=await client.send('Runtime.evaluate',{
       expression:`(async()=>{
@@ -1116,7 +1115,6 @@ export async function inspectWhatsappTaskViaCdp(
   const client = await createCdpClient(page.webSocketDebuggerUrl);
   try {
     await client.send('Page.enable');
-    await client.send('Page.bringToFront');
     await client.send('Runtime.enable');
     let alreadyOnExactInvite=false;
     try{
