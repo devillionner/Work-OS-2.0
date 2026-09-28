@@ -252,3 +252,9 @@ void test('local Discovery idle polling reacts within a few seconds',()=>{
   assert.match(source,/IDLE_POLL_MIN_MS=2000/);
   assert.match(source,/IDLE_POLL_MAX_MS=5000/);
 });
+
+void test('fresh local run clears inherited source wait',()=>{
+  assert.match(source,/if\(Number\(local\.sourceCursor\|\|0\)===0\)nextLocalSourceAt=0/);
+  assert.match(source,/if\(wait>0\)break/);
+  assert.doesNotMatch(source,/if\(wait>0\)await sleep\(wait\)/);
+});
