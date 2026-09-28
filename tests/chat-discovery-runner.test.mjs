@@ -187,3 +187,12 @@ void test('local Discovery keeps a local source pump filled while WhatsApp runs'
   assert.match(source,/startLocalSourceRefill\(local\);/);
   assert.doesNotMatch(source,/await startLocalSourceRefill\(local\)/);
 });
+
+
+void test('local Discovery rejects impossible candidates before join',()=>{
+  assert.match(source,/queryWhatsappInviteViaCdp/);
+  assert.match(source,/Invite rejected before join:/);
+  assert.match(source,/pre\.memberCount<minMembers/);
+  assert.match(source,/pre\.approvalRequired===true/);
+  assert.match(source,/pre\.canWrite===false/);
+});
