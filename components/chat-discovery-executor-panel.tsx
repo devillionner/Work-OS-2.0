@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 type Device = { id:string; name:string; createdAt:number; lastSeenAt:number|null };
+const EXECUTOR_TOKEN_STORAGE_KEY='work-os:executor-token:v1';
+const EXECUTOR_DEVICE_STORAGE_KEY='work-os:executor-device:v1';
 
 export function ChatDiscoveryExecutorPanel() {
   const [devices,setDevices]=useState<Device[]>([]);
@@ -29,7 +31,7 @@ export function ChatDiscoveryExecutorPanel() {
 
   async function mutate(body:Record<string,unknown>){
     const response=await fetch('/api/chat-discovery',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    const payload=await response.json() as {token?:string;error?:string};
+    const payload=await response.json() as {token?:string;device?:{id:string};error?:string};
     if(!response.ok) throw new Error(payload.error||'Операцію executor не завершено.');
     return payload;
   }
@@ -39,7 +41,12 @@ export function ChatDiscoveryExecutorPanel() {
     setBusy(true);setError('');setToken('');
     try {
       const payload=await mutate({action:'pair-executor',name});
-      setToken(payload.token||'');
+      const nextToken=payload.token||'';
+      setToken(nextToken);
+      if(nextToken&&payload.device?.id){
+        window.localStorage.setItem(EXECUTOR_TOKEN_STORAGE_KEY,nextToken);
+        window.localStorage.setItem(EXECUTOR_DEVICE_STORAGE_KEY,payload.device.id);
+      }
       await load();
     } catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося підключити executor.');}
     finally{setBusy(false);}
@@ -48,7 +55,15 @@ export function ChatDiscoveryExecutorPanel() {
   async function revoke(deviceId:string){
     if(busy) return;
     setBusy(true);setError('');
-    try {await mutate({action:'revoke-executor',deviceId});await load();}
+    try {
+      await mutate({action:'revoke-executor',deviceId});
+      if(window.localStorage.getItem(EXECUTOR_DEVICE_STORAGE_KEY)===deviceId){
+        window.localStorage.removeItem(EXECUTOR_TOKEN_STORAGE_KEY);
+        window.localStorage.removeItem(EXECUTOR_DEVICE_STORAGE_KEY);
+        setToken('');
+      }
+      await load();
+    }
     catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося відключити executor.');}
     finally{setBusy(false);}
   }
@@ -60,7 +75,7 @@ export function ChatDiscoveryExecutorPanel() {
       </div>
       <div className="min-w-0 flex-1">
         <h3 className="text-base font-semibold">Executor</h3>
-        <p className="mt-1 text-xs font-medium leading-5 text-foreground/70">Підключення runner до авторизованого WhatsApp Web. Token показується лише один раз.</p>
+        <p className="mt-1 text-xs font-medium leading-5 text-foreground/70">Підключення runner до авторизованого WhatsApp Web. Credential зберігається локально в цьому браузері для фонового executor.</p>
       </div>
     </div>
     <div className="mt-3 rounded-xl border border-border/70 bg-background px-3 py-2.5 text-[11px] font-medium leading-4 text-foreground/70">

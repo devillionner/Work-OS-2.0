@@ -412,6 +412,8 @@ export async function readWorkOsExecutorTokenViaCdp(
   try {
     const result = await client.send('Runtime.evaluate', {
       expression: `(()=>{
+        const stored=localStorage.getItem('work-os:executor-token:v1')?.trim()||'';
+        if(stored.startsWith('wos_exec_')&&stored.length>=32&&stored.length<=200)return stored;
         const panel=document.querySelector('[aria-label="Executor пошуку чатів"]');
         const token=panel?.querySelector('code')?.textContent?.trim()||'';
         return token;

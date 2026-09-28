@@ -757,3 +757,13 @@ void test('WhatsApp Discovery queries invite facts before expensive navigation',
   assert.match(source,/announce/);
   assert.match(source,/memberCount/);
 });
+
+
+void test('executor token bridge survives a closed Discovery dialog via browser-local credential storage', async()=>{
+  const source=await import('node:fs/promises').then(({readFile})=>readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8'));
+  const panel=await import('node:fs/promises').then(({readFile})=>readFile(new URL('../components/chat-discovery-executor-panel.tsx',import.meta.url),'utf8'));
+  assert.match(source,/localStorage\.getItem\('work-os:executor-token:v1'\)/);
+  assert.match(source,/stored\.startsWith\('wos_exec_'\)/);
+  assert.match(panel,/localStorage\.setItem\(EXECUTOR_TOKEN_STORAGE_KEY,nextToken\)/);
+  assert.match(panel,/EXECUTOR_DEVICE_STORAGE_KEY/);
+});
