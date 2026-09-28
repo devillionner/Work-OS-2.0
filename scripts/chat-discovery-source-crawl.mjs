@@ -2,6 +2,7 @@ import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 const execFile = promisify(execFileCallback);
 const SEARCH_URL = 'https://search.brave.com/search';
+const TELEGRAM_DIRECTORY_URL = 'https://tg.me/search';
 const USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36';
 const BOOTSTRAP_SOURCES = [
   ['Українці · Швейцарія','https://t.me/s/UkrainianSwitzerland?q=WhatsApp','Швейцарія'],
@@ -25,6 +26,7 @@ const UA = /(?:україн|украин|ukrain|ukraiń|ukrajin|ucrain|ucran|oek
 const SPAM = /(?:crypto|bitcoin|forex|casino|казино|betting|dating|escort|onlyfans|nft|airdrop|signals?\b|قروبات|روابط\s+مجموعات|مجموعات\s+واتساب|technical\s+support)/iu;
 const MAX_TELEGRAM_HISTORY_PAGES=4;
 const MAX_SEARCH_SOURCES=5;
+const MAX_DIRECTORY_RESULTS=6;
 const MAX_GRAPH_SOURCES_PER_STEP=8;
 const SEARCH_BLOCK_COOLDOWN_MS=5*60*1000;
 const SEARCH_RETRY_COOLDOWN_MS=30*1000;
@@ -270,8 +272,37 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
           .map(item=>item.value));
       }
 
-      // Web search is only a seed source, but an attempted workbook query is not
-      // considered consumed unless the search backend actually answered it.
+      // Search the public Telegram directory first. This is account-free and
+      // returns both channel and concrete post results; post pages can contain
+      // the WhatsApp invite directly.
+      let directoryAnswered=false;
+      if(!sources.length){
+        const directoryQueries=[task.query+' WhatsApp','WhatsApp '+task.place,...(task.alias?[task.alias+' WhatsApp']:[])];
+        const seenDirectory=new Set();
+        for(const directoryQuery of [...new Set(directoryQueries.map(item=>String(item||'').trim()).filter(Boolean))].slice(0,3)){
+          attempted++;
+          try{
+            const directory=new URL(TELEGRAM_DIRECTORY_URL);
+            directory.searchParams.set('q',directoryQuery);
+            const html=await fetchText(directory.toString(),fetcher,10000,450000);
+            directoryAnswered=true;
+            const candidates=rankTelegramDirectoryResults(html,task.place)
+              .filter(url=>!seenDirectory.has(url))
+              .slice(0,MAX_DIRECTORY_RESULTS);
+            for(const url of candidates)seenDirectory.add(url);
+            const pages=await Promise.allSettled(candidates.map(url=>telegramDirectorySource(url,directoryQuery,task.place,fetcher)));
+            sources.push(...pages
+              .filter(item=>item.status==='fulfilled'&&item.value?.text)
+              .map(item=>item.value));
+            if(sources.length)break;
+          }catch(error){
+            warnings.push({cursor:index,query:directoryQuery,reason:'telegram_directory_failed · '+(error instanceof Error?error.message:String(error))});
+          }
+        }
+      }
+
+      // Brave is only an opportunistic extra seed source. A Brave failure must
+      // not block a query that the public Telegram directory already answered.
       let searchFailureReason='';
       if(!sources.length&&Date.now()>=searchBlockedUntil){
         const queries=[task.query+' "chat.whatsapp.com"',...(task.alias?[task.alias+' "chat.whatsapp.com"']:[]),task.query+' WhatsApp'];
@@ -300,18 +331,64 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
         }
       }
       if(!sources.length&&(searchFailureReason||Date.now()<searchBlockedUntil)){
-        return {
-          searched:attempted,nextCursor:index,done:false,totalTasks,query,sources:[],errors:[],warnings,
-          deferred:true,
-          deferredReason:searchFailureReason||'search_cooldown',
-          retryAfterMs:Math.max(1000,searchBlockedUntil-Date.now()),
-        };
+        if(directoryAnswered){
+          warnings.push({cursor:index,query,reason:'optional_web_search_deferred · '+(searchFailureReason||'search_cooldown')});
+        }else{
+          return {
+            searched:attempted,nextCursor:index,done:false,totalTasks,query,sources:[],errors:[],warnings,
+            deferred:true,
+            deferredReason:searchFailureReason||'search_cooldown',
+            retryAfterMs:Math.max(1000,searchBlockedUntil-Date.now()),
+          };
+        }
       }
     }
     return {searched:attempted,nextCursor:index+1,done:index+1>=totalTasks,totalTasks,query,sources,errors:[],warnings,deferred:false,retryAfterMs:0};
   }catch(error){
     return {searched:attempted,nextCursor:index,done:false,totalTasks,query,sources:[],errors:[{cursor:index,query,reason:error instanceof Error?error.message:String(error)}],warnings};
   }
+}
+
+export function rankTelegramDirectoryResults(html,place='') {
+  const decoded=decode(html).replaceAll('\\/','/');
+  const blocked=new Set(['ads','c','g','geo','login','need','new','notifications','premium','search','send','settings','top','wiki','ton']);
+  const seen=new Set();
+  const ranked=[];
+  let order=0;
+  const re=/href=["']\/([A-Za-z0-9_]{3,})(?:\/(\d+))?["']/giu;
+  for(const match of decoded.matchAll(re)){
+    const username=String(match[1]||'');
+    const postId=String(match[2]||'');
+    const lower=username.toLowerCase();
+    if(blocked.has(lower)||/_bot$/iu.test(username)||seen.has(username+'|'+postId))continue;
+    const context=searchResultContext(decoded,match.index||0);
+    if(SPAM.test(context))continue;
+    let score=100-order++;
+    if(UA.test(context)||UA.test(username))score+=35;
+    if(place&&new RegExp(escapeRegExp(place),'iu').test(context+' '+username))score+=30;
+    if(/(?:ukrain|ukr|[_-]ua|ua[_-]|diaspora|help|refuge|біжен|допомог|оголош|transport|перевез)/iu.test(context+' '+username))score+=18;
+    if(postId)score+=12;
+    seen.add(username+'|'+postId);
+    ranked.push({url:'https://tg.me/'+username+(postId?'/'+postId:''),score});
+  }
+  return ranked.sort((a,b)=>b.score-a.score).map(item=>item.url);
+}
+
+async function telegramDirectorySource(resultUrl,query,place,fetcher){
+  const cached=pageCache.get(resultUrl);
+  if(cached&&cached.expires>Date.now())return {...cached.source,query,seedLabel:place};
+  const page=await fetchText(resultUrl,fetcher,10000,650000);
+  const parts=new URL(resultUrl).pathname.split('/').filter(Boolean);
+  const username=parts[0]||'';
+  const postId=parts[1]||'';
+  const telegramUrl='https://t.me/'+username+(postId?'/'+postId:'');
+  const title=telegramTitle(page,'https://t.me/s/'+username);
+  discoverRelatedTelegramSources(page,'https://t.me/s/'+username,place,title);
+  const snippets=extractRelevantInviteSnippets(page,title);
+  const source={sourceUrl:telegramUrl,sourceTitle:title||username,query,seedLabel:place,context:title||place,text:snippets.join('\n\n').slice(0,45000)};
+  if(pageCache.size>=500)pageCache.delete(pageCache.keys().next().value);
+  pageCache.set(resultUrl,{source,expires:Date.now()+15*60*1000});
+  return source;
 }
 
 export function rankTelegramSources(html, place) {
