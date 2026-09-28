@@ -816,6 +816,15 @@ export async function writeWorkOsLocalDiscoveryResultViaCdp(
           results[${JSON.stringify(String(candidateId||''))}]=${JSON.stringify(payload)};
           const entries=Object.entries(results).slice(-300);
           sessionStorage.setItem(key,JSON.stringify(Object.fromEntries(entries)));
+          state.activeCandidateId=null;
+          state.activeCandidateName=null;
+          state.activeCandidateLink=null;
+          state.activeCandidateStartedAt=null;
+          state.lastCheckedName=String(candidate.name||'WhatsApp chat');
+          state.lastCheckedDecision=${JSON.stringify(String(payload?.decision||''))};
+          state.lastCheckedAt=${JSON.stringify(Number(payload?.completedAt)||0)}||Date.now();
+          state.lastCheckedReasonCodes=${JSON.stringify(Array.isArray(payload?.reasonCodes)?payload.reasonCodes:[])};
+          sessionStorage.setItem(${JSON.stringify(WORK_OS_LOCAL_PREVIEW_KEY)},JSON.stringify(state));
           window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
           return {ok:true,persisted};
         })()`,
