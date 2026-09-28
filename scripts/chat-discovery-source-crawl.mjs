@@ -32,6 +32,14 @@ const SEARCH_BLOCK_COOLDOWN_MS=5*60*1000;
 const SEARCH_RETRY_COOLDOWN_MS=30*1000;
 const telegramGraph=new Map();
 const crawledTelegramSources=new Set();
+const PRODUCTIVE_TELEGRAM_SOURCES=[
+  ['https://t.me/s/donetskaoda','Донецьк'],
+  ['https://t.me/s/novocava','Валенсія'],
+  ['https://t.me/s/Help_Ukraine_NRW','Німеччина'],
+];
+for(const [sourceUrl,place] of PRODUCTIVE_TELEGRAM_SOURCES){
+  telegramGraph.set(sourceUrl,{sourceUrl,score:140,place,evidence:'proven WhatsApp-group source '+place});
+}
 const directorySearchCache=new Map();
 const directoryResultVisited=new Set();
 let graphSeedPromise=null;
@@ -179,7 +187,7 @@ export function telegramWhatsAppSearchPreview(value) {
   const normalized=normalizeTelegramPreview(value);
   if(!normalized)return null;
   const url=new URL(normalized);
-  if(!url.searchParams.has('before'))url.searchParams.set('q','WhatsApp');
+  if(!url.searchParams.has('before'))url.searchParams.set('q','chat.whatsapp.com');
   return url.toString();
 }
 
