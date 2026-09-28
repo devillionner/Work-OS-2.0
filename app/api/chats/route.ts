@@ -11,6 +11,7 @@ import { availableTodayStatement, joinedTodayStatement } from '@/lib/chats/daily
 import { PROFILE_CADENCES, saveChatProfile } from '@/lib/chats/profile';
 import type { ChatProfileInput } from '@/lib/chats/profile';
 import { permanentlyDeleteChat } from '@/lib/chats/permanent-delete';
+import { chatMatchesSearch, normalizeChatSearchText } from '@/lib/chats/search';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { resolveDailyPublicationGoal } from '@/lib/publication-goal';
 import { revisionCacheRequest, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
@@ -50,16 +51,14 @@ export async function GET(request: Request): Promise<Response> {
     `${platform}:${status}:${profile}:${search}:${offset}:${accountId || ''}:${today}:${Math.floor(now/30)}`);
   const cached = await matchRevisionJson(cacheRequest);
   if (cached) return cached;
-  const normalizedSearch = normalizeUnicodeSearch(search);
+  const normalizedSearch = normalizeChatSearchText(search);
   const pattern = normalizedSearch;
   const profileFilter = status === 'profile_review' || profile === 'needs_review' ? ` AND (p.review_status IS NULL OR p.review_status!='confirmed')` : '';
   const workflowFilter = `((?3='profile_review' AND c.workflow_status IN ('waiting','ready')) OR c.workflow_status=?3)`;
   // Keep ?4/?5 bound for the non-search list query, but do Unicode matching in
   // JavaScript because SQLite/D1 lower()/NOCASE only case-fold ASCII reliably.
   const filter = `c.user_id=?1 AND c.platform=?2 AND ${workflowFilter} AND (?4='' OR ?5<>'')${profileFilter}`;
-  const totalSource = profileFilter ? 'FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id' : 'FROM chats c';
   const rowAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?9 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
-  const totalAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?6 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
   const accountKey = platform === 'telegram' ? accountId || '' : '';
   const counterAccountFilter = platform === 'telegram'
     ? ` AND (account_key=?3 OR (account_key='' AND workflow_status='to_join'))`
@@ -77,7 +76,7 @@ export async function GET(request: Request): Promise<Response> {
       ORDER BY c.updated_at DESC,c.id`)
       .bind(user.id,platform,status,...(accountId?[accountId]:[]))
       .all<{id:string;name:string;link:string}>();
-    const matched=searchIndex.results.filter(row=>unicodeSearchMatches(row.name,row.link,normalizedSearch));
+    const matched=searchIndex.results.filter(row=>chatMatchesSearch(row.name,row.link,normalizedSearch));
     searchTotal=matched.length;
     searchPageIds=matched.slice(offset,offset+50).map(row=>row.id);
   }
@@ -236,14 +235,6 @@ export async function POST(request: Request): Promise<Response> {
 function unixNow() { return Math.floor(Date.now() / 1000); }
 function parseNumberList(value:string|null) { try { const parsed=JSON.parse(value||'[]'); return Array.isArray(parsed)?parsed.filter((item):item is number=>Number.isInteger(item)&&item>=1&&item<=7):[]; } catch { return []; } }
 function parseStringList(value:string|null) { try { const parsed=JSON.parse(value||'[]'); return Array.isArray(parsed)?parsed.filter((item):item is string=>typeof item==='string'):[]; } catch { return []; } }
-function normalizeUnicodeSearch(value:string) {
-  return value.normalize('NFKC').toLocaleLowerCase('uk-UA');
-}
-function unicodeSearchMatches(name:string,link:string,query:string) {
-  if(!query)return true;
-  return normalizeUnicodeSearch(name).includes(query)||normalizeUnicodeSearch(link).includes(query);
-}
-
 async function readPublicationState(userId:string, chat:{id:string;platform:string}, accountId:string|null, date:string, now:number) {
   const publishedStatement = chat.platform === 'telegram'
     ? env.DB.prepare(`SELECT c.id,c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id
