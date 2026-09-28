@@ -4,6 +4,7 @@ import process from 'node:process';
 import readline from 'node:readline/promises';
 import {
   inspectWhatsappTaskViaCdp,
+  queryWhatsappInviteViaCdp,
   leaveWhatsappTaskViaCdp,
   readWorkOsExecutorTokenViaCdp,
   readWorkOsLocalDiscoveryTaskViaCdp,
@@ -204,6 +205,63 @@ function evaluateLocalPreflight(task,result){
 }
 
 async function processLocalPreflight(task){
+  let queried;
+  try{
+    queried=await queryWhatsappInviteViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:6_000});
+  }catch(error){
+    console.warn(`Local WhatsApp invite query unavailable: ${error instanceof Error?error.message:String(error)}`);
+    markTaskBlocked(task,'invite_query_unavailable',5_000);
+    return 'local_task';
+  }
+  if(queried.kind!=='result'){
+    if(queried.reason==='page_not_ready'){
+      markTaskBlocked(task,'invite_query_not_ready',5_000);
+      return 'local_task';
+    }
+    await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
+      decision:'unavailable',reasonCodes:[queried.reason||'invite_query_failed'],
+      result:{status:'failed',reason:queried.reason||'invite_query_failed'},completedAt:Date.now(),
+    },{cdpBaseUrl:whatsappCdp});
+    return 'local_task';
+  }
+
+  const pre={...queried.result};
+  if(pre.reason==='invalid_whatsapp_link'){
+    await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
+      decision:'unavailable',reasonCodes:['invalid_whatsapp_link'],result:pre,completedAt:Date.now(),
+    },{cdpBaseUrl:whatsappCdp});
+    console.log(`Invite rejected before join: invalid link (${task.name})`);
+    return 'local_task';
+  }
+  if(pre.approvalRequired===true){
+    await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
+      decision:'skipped',reasonCodes:['approval_required'],result:{...pre,reason:'approval_required'},completedAt:Date.now(),
+    },{cdpBaseUrl:whatsappCdp});
+    console.log(`Invite skipped before join: approval required (${pre.observedName||task.name})`);
+    return 'local_task';
+  }
+  const minMembers=Math.max(700,Number(task.minMembers)||700);
+  const preReasons=[];
+  if(Number.isFinite(pre.memberCount)&&pre.memberCount<minMembers)preReasons.push('too_few_members');
+  else if(Number.isFinite(pre.memberCount)&&pre.memberCount>18000)preReasons.push('too_many_members');
+  if(pre.topicMatch==='mismatch')preReasons.push('topic_mismatch');
+  if(pre.canWrite===false)preReasons.push('cannot_write');
+  if(pre.adsPolicy==='forbidden')preReasons.push('ads_forbidden');
+  if(preReasons.length){
+    await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
+      decision:'rejected',reasonCodes:preReasons,result:pre,leftAfterCheck:false,completedAt:Date.now(),
+    },{cdpBaseUrl:whatsappCdp});
+    console.log(`Invite rejected before join: ${pre.observedName||task.name} (${preReasons.join(', ')})`);
+    return 'local_task';
+  }
+
+  task={
+    ...task,
+    name:pre.observedName||task.name,
+    topicMatch:pre.topicMatch==='match'?'match':task.topicMatch,
+    expectedTarget:{...task.expectedTarget,name:pre.observedName||task.expectedTarget?.name||task.name},
+  };
+
   let inspected;
   try{
     inspected=await inspectWhatsappTaskViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:28_000});
