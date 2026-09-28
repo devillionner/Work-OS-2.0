@@ -426,6 +426,25 @@ function startLocalSourceRefill(initialLocal){
   })();
 }
 
+async function refillLocalSourceOnce(local){
+  if(local?.active!==true||local.sourceExhausted===true||Number(local.queuedCount||0)>=LOCAL_SOURCE_TARGET_QUEUE)return 'local_wait';
+  if(Date.now()<nextLocalSourceAt)return 'local_wait';
+  const cursor=Number(local.sourceCursor)||0;
+  const batch=await crawlLocalDiscoveryBatch(cursor);
+  if(Array.isArray(batch.warnings)&&batch.warnings.length){
+    for(const warning of batch.warnings.slice(0,4))console.warn('Discovery source warning: '+String(warning?.query||'source')+' · '+String(warning?.reason||'unavailable'));
+  }
+  if(batch.deferred===true){
+    nextLocalSourceAt=Date.now()+Math.min(10_000,Math.max(1000,Number(batch.retryAfterMs)||LOCAL_SOURCE_MIN_MS));
+    return 'local_wait';
+  }
+  const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
+  nextLocalSourceAt=Date.now()+(applied.errors?10_000:LOCAL_SOURCE_MIN_MS);
+  if(applied.kind!=='result')return 'local_wait';
+  console.log('Local source crawl: cursor '+batch.nextCursor+', sources '+batch.sources.length+', added '+(applied.added||0)+', duplicates '+(applied.duplicates||0));
+  return (applied.added||0)>0?'source_added':'source_advanced';
+}
+
 async function runOnce(){
   if(whatsappCdp){
     try{
