@@ -26,6 +26,20 @@ void test('workbook plan includes compatible keywords, countries and city aliase
   assert.ok(plan.every(item=>!item.query.includes('назва села')));
 });
 
+void test('repeated global WhatsApp loading triggers a bounded self-heal reload',async()=>{
+  const runner=await readFile(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8');
+  assert.match(runner,/WHATSAPP_LOADING_RELOAD_AFTER=3/u);
+  assert.match(runner,/WHATSAPP_LOADING_RELOAD_COOLDOWN_MS=120000/u);
+  assert.match(runner,/reloadWhatsappPageViaCdp/u);
+  assert.match(runner,/reloaded the WhatsApp Web page once and kept the candidate queued/u);
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  const start=adapter.indexOf('export async function reloadWhatsappPageViaCdp');
+  const end=adapter.indexOf('export async function inspectWhatsappTaskViaCdp',start);
+  const block=adapter.slice(start,end);
+  assert.match(block,/Page\.reload/u);
+  assert.match(block,/ignoreCache:true/u);
+});
+
 void test('legacy target_not_verified outcomes are requeued only once',async()=>{
   const source=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
   const start=source.indexOf('const legacyReasons=');

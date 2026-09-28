@@ -1019,6 +1019,20 @@ export async function sendWhatsappAutopostViaCdp(
   }
 }
 
+export async function reloadWhatsappPageViaCdp({cdpBaseUrl}={}) {
+  if(!cdpBaseUrl)return {kind:'blocked',reason:'cdp_not_configured'};
+  const base=normalizeLocalCdpBaseUrl(cdpBaseUrl);
+  if(!base)return {kind:'blocked',reason:'cdp_not_local'};
+  const page=await findOrCreateWhatsappPage(base);
+  if(!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl))return {kind:'blocked',reason:'cdp_websocket_not_local'};
+  const client=await createCdpClient(page.webSocketDebuggerUrl);
+  try{
+    await client.send('Page.enable');
+    await client.send('Page.reload',{ignoreCache:true});
+    return {kind:'result'};
+  }finally{client.close();}
+}
+
 export async function inspectWhatsappTaskViaCdp(
   task,
   { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS } = {},

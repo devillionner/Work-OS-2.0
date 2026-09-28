@@ -4,6 +4,7 @@ import process from 'node:process';
 import readline from 'node:readline/promises';
 import {
   inspectWhatsappTaskViaCdp,
+  reloadWhatsappPageViaCdp,
   queryWhatsappInviteViaCdp,
   leaveWhatsappTaskViaCdp,
   readWorkOsExecutorTokenViaCdp,
@@ -39,6 +40,8 @@ let localSourceSeedData=null;
 let localSourceSeedVersion=0;
 const PAGE_RECOVERY_COOLDOWN_MS=15000;
 const WHATSAPP_LOADING_COOLDOWN_MS=10000;
+const WHATSAPP_LOADING_RELOAD_AFTER=3;
+const WHATSAPP_LOADING_RELOAD_COOLDOWN_MS=120000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
 const TOKEN_REFRESH_MS=60000;
 const IDLE_POLL_MIN_MS=15000;
@@ -156,6 +159,8 @@ async function inspectTask(task){
 }
 
 let whatsappRuntimeBlockedUntil=0;
+let whatsappLoadingSignals=0;
+let lastWhatsappReloadAt=0;
 let nextSourceAdvanceAt=0;
 let nextLocalSourceAt=0;
 let localSourceInFlight=null;
@@ -269,10 +274,26 @@ async function processLocalPreflight(task){
   }
   if(inspected.kind!=='result'){
     if(inspected.reason==='whatsapp_messages_loading'){
+      whatsappLoadingSignals+=1;
+      const canReload=whatsappLoadingSignals>=WHATSAPP_LOADING_RELOAD_AFTER
+        &&Date.now()-lastWhatsappReloadAt>=WHATSAPP_LOADING_RELOAD_COOLDOWN_MS;
+      if(canReload){
+        try{
+          const reloaded=await reloadWhatsappPageViaCdp({cdpBaseUrl:whatsappCdp});
+          if(reloaded.kind==='result'){
+            lastWhatsappReloadAt=Date.now();
+            whatsappLoadingSignals=0;
+            whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+15000);
+            console.warn('WhatsApp stayed in global loading state; reloaded the WhatsApp Web page once and kept the candidate queued.');
+            return 'local_wait';
+          }
+        }catch{}
+      }
       whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+WHATSAPP_LOADING_COOLDOWN_MS);
       console.warn('WhatsApp messages are still loading; pausing UI preflight briefly without penalizing the candidate.');
       return 'local_wait';
     }
+    whatsappLoadingSignals=0;
     if(inspected.reason==='page_not_ready'){
       const attempts=(qualificationAttempts.get(task.candidateId)||0)+1;
       qualificationAttempts.set(task.candidateId,attempts);
