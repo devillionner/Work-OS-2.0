@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { crawlLocalDiscoverySource, workbookSearchPlan, discoverRelatedTelegramSources } from '../scripts/chat-discovery-source-crawl.mjs';
+import { crawlLocalDiscoverySource, workbookSearchPlan, discoverRelatedTelegramSources, telegramWhatsAppSearchPreview } from '../scripts/chat-discovery-source-crawl.mjs';
 import { shouldDeferForGlobalWhatsAppLoading } from '../scripts/whatsapp-web-cdp.mjs';
 
 const realSeedSource=await readFile(new URL('../lib/chat-discovery/seeds.ts',import.meta.url),'utf8');
@@ -60,6 +60,17 @@ void test('real workbook plan is bounded and yield-first instead of exploding pa
   assert.ok(plan.slice(0,40).some(item=>item.query.includes('Польща')));
   assert.ok(plan.some(item=>/Батьки|Мамочки/iu.test(item.query)));
   assert.ok(plan.some(item=>/Оренда|Зніму житло/iu.test(item.query)));
+});
+
+void test('discovered Telegram sources use channel-level WhatsApp search',()=>{
+  assert.equal(
+    telegramWhatsAppSearchPreview('https://t.me/refugeesbremen'),
+    'https://t.me/s/refugeesbremen?q=WhatsApp'
+  );
+  assert.equal(
+    telegramWhatsAppSearchPreview('https://t.me/s/refugeesbremen?before=123'),
+    'https://t.me/s/refugeesbremen?before=123'
+  );
 });
 
 void test('Telegram source graph discovers relevant neighboring channels without web search',()=>{

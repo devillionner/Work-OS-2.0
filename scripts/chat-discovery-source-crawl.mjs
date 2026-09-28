@@ -148,6 +148,14 @@ export function discoverRelatedTelegramSources(html,currentSourceUrl,place='',pa
   return added;
 }
 
+export function telegramWhatsAppSearchPreview(value) {
+  const normalized=normalizeTelegramPreview(value);
+  if(!normalized)return null;
+  const url=new URL(normalized);
+  if(!url.searchParams.has('before'))url.searchParams.set('q','WhatsApp');
+  return url.toString();
+}
+
 function takeTelegramGraphSources(place,limit=MAX_GRAPH_SOURCES_PER_STEP) {
   const placeRe=place?new RegExp(escapeRegExp(place),'iu'):null;
   const ranked=[...telegramGraph.values()]
@@ -159,7 +167,7 @@ function takeTelegramGraphSources(place,limit=MAX_GRAPH_SOURCES_PER_STEP) {
     telegramGraph.delete(item.sourceUrl);
     crawledTelegramSources.add(item.sourceUrl);
   }
-  return ranked.map(item=>item.sourceUrl);
+  return ranked.map(item=>telegramWhatsAppSearchPreview(item.sourceUrl)).filter(Boolean);
 }
 
 async function ensureTelegramGraphSeeded(fetcher) {
@@ -260,7 +268,7 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
             search.searchParams.set('q','site:t.me '+searchQuery);
             search.searchParams.set('source','web');
             const html=await fetchText(search.toString(),fetcher,12000,350000);
-            const candidates=rankTelegramSources(html,task.place).filter(url=>!seen.has(url)).slice(0,MAX_SEARCH_SOURCES);
+            const candidates=rankTelegramSources(html,task.place).map(telegramWhatsAppSearchPreview).filter(url=>url&&!seen.has(url)).slice(0,MAX_SEARCH_SOURCES);
             for(const url of candidates)seen.add(url);
             const pages=await Promise.allSettled(candidates.map(url=>telegramSource(url,searchQuery,task.place,fetcher)));
             sources.push(...pages
