@@ -356,11 +356,11 @@ export async function joinWhatsappInviteViaRuntime(
         parentCommunityTitle:String(value.parentTitle||''),
         parentCommunityDescription:String(value.parentDesc||''),
         groupId:String(value.gid||''),
-        joinedAt:joinedAt||Date.now(),
+        ...(joinedAt>0?{joinedAt}:{}),
         joinedThisAttempt:value.joinedThisAttempt===true,
         joinedDirect:true,
         recentMessageCount:recentTexts.length,
-        evidenceScope:joinedAt>0?'post_join_only':'visible_history',
+        evidenceScope:joinedAt>0?'post_join_timestamped':'visible_since_join',
         sourceWasCommunity:value.preIsParentGroup===true||Boolean(value.parentId),
       },
     };

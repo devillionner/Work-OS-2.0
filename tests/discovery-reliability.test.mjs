@@ -274,3 +274,11 @@ test('joined recovery without groupId refreshes invite metadata before inspectio
   assert.equal(checkpoint.lastReason,'waiting_post_join_evidence');
   assert.equal(checkpoint.attempts,0);
 });
+
+
+test('legacy joined recovery never invents a new joinedAt timestamp',()=>{
+  assert.doesNotMatch(adapter,/joinedAt:joinedAt\|\|Date\.now\(\)/);
+  assert.match(adapter,/evidenceScope:joinedAt>0\?'post_join_timestamped':'visible_since_join'/);
+  assert.doesNotMatch(runner,/result\?\.joinedAt\|\|previous\?\.result\?\.joinedAt\|\|now/);
+  assert.match(runner,/result:\{\.\.\.result,\.\.\.\(joinedAt>0\?\{joinedAt\}:\{\}\),status:'waiting_post_join_evidence'\}/);
+});

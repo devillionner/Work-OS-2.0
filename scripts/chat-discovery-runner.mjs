@@ -293,11 +293,11 @@ function waitsForPostJoinEvidence(result,evaluated){
 async function deferPostJoinEvidence(task,result,evaluated){
   const now=Date.now();
   const previous=task.checkpoint||{};
-  const joinedAt=Number(result?.joinedAt||previous?.result?.joinedAt||now)||now;
+  const joinedAt=Number(result?.joinedAt||previous?.result?.joinedAt||0)||0;
   const checkpoint={
     ...previous,
     attempts:0,
-    result:{...result,joinedAt,status:'waiting_post_join_evidence'},
+    result:{...result,...(joinedAt>0?{joinedAt}:{}),status:'waiting_post_join_evidence'},
     lastReason:'waiting_post_join_evidence',
     evidenceWaitStartedAt:Number(previous.evidenceWaitStartedAt||now)||now,
     nextEvidenceCheckAt:now+POST_JOIN_EVIDENCE_RECHECK_MS,
@@ -307,7 +307,7 @@ async function deferPostJoinEvidence(task,result,evaluated){
   markTaskBlocked(task,'waiting_post_join_evidence',POST_JOIN_EVIDENCE_RECHECK_MS);
   console.log('Discovery joined evidence pending '+JSON.stringify({
     candidateId:task.candidateId,name:result?.observedName||task.name,
-    joinedAt,reasonCodes:evaluated.reasonCodes,nextEvidenceCheckAt:checkpoint.nextEvidenceCheckAt,
+    joinedAt:joinedAt||null,reasonCodes:evaluated.reasonCodes,nextEvidenceCheckAt:checkpoint.nextEvidenceCheckAt,
   }));
   return 'local_task';
 }
