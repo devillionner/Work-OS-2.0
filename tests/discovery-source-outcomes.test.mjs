@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { crawlLocalDiscoverySource, workbookSearchPlan, discoverRelatedTelegramSources, telegramWhatsAppSearchPreview, extractRelevantInviteSnippets, rankTelegramDirectoryResults } from '../scripts/chat-discovery-source-crawl.mjs';
+import { crawlLocalDiscoverySource, workbookSearchPlan, discoverRelatedTelegramSources, telegramWhatsAppSearchPreview, extractRelevantInviteSnippets, rankTelegramDirectoryResults, rankLyzemTelegramSources } from '../scripts/chat-discovery-source-crawl.mjs';
 import { shouldDeferForGlobalWhatsAppLoading } from '../scripts/whatsapp-web-cdp.mjs';
 
 const realSeedSource=await readFile(new URL('../lib/chat-discovery/seeds.ts',import.meta.url),'utf8');
@@ -626,4 +626,71 @@ void test('TG.ME group-invite preview can feed a WhatsApp invite directly',async
   }});
   assert.equal(result.errors.length,0);
   assert.ok(result.sources.some(item=>item.text.includes(groupInvite)));
+});
+
+
+void test('Lyzem source discovery keeps Ukrainian Telegram sources and drops bots or spam',()=>{
+  const html=[
+    '<li class="search-result"><div title="group"></div><a href="https://t.me/berlin_ua_family">Українці Берлін community</a></li>',
+    '<li class="search-result"><div title="bot"></div><a href="https://t.me/ukraine_helper_bot">Українці Берлін bot</a></li>',
+    '<li class="search-result"><div title="channel"></div><a href="https://t.me/crypto_ukr">Українці crypto casino signals</a></li>',
+    '<li class="search-result"><div title="channel"></div><a href="https://t.me/randomberlin">Berlin local news</a></li>',
+  ].join('');
+  const ranked=rankLyzemTelegramSources(html,'Берлін');
+  assert.deepEqual(ranked,['https://t.me/berlin_ua_family']);
+});
+
+void test('empty TG.ME supply can use Lyzem to discover a Telegram source before Brave',async()=>{
+  const module=await import('../scripts/chat-discovery-source-crawl.mjs?lyzem='+Date.now());
+  const foundInvite='https://chat.whatsapp.com/LyzemUaBerlin12345';
+  let braveCalls=0,lyzemCalls=0;
+  const result=await module.crawlLocalDiscoverySource(15,{seedData,fetcher:async url=>{
+    const value=String(url);
+    if(value.includes('tg.me/search'))return response('<html>No directory matches</html>');
+    if(value.includes('lyzem.com/search')){
+      lyzemCalls++;
+      return response('<li class="search-result"><div title="group"></div><a href="https://t.me/lyzem_berlin_ua">Українці Берлін громада</a></li>');
+    }
+    if(value.includes('t.me/s/lyzem_berlin_ua'))return response('<title>Українці Берлін 🇺🇦</title><p>Українська громада оголошення '+foundInvite+'</p>');
+    if(value.includes('search.brave.com')){braveCalls++;return response('<html>No results</html>');}
+    if(value.includes('t.me/s/'))return response('<title>Українці</title>');
+    return response('<html></html>');
+  }});
+  assert.equal(result.errors.length,0);
+  assert.ok(lyzemCalls>=1);
+  assert.equal(braveCalls,0,'Brave should stay unused when Lyzem already yielded verified Telegram supply');
+  assert.ok(result.sources.some(item=>item.text.includes(foundInvite)));
+});
+
+void test('empty Lyzem remains non-fatal and preserves Brave as final fallback',async()=>{
+  const module=await import('../scripts/chat-discovery-source-crawl.mjs?lyzem-empty='+Date.now());
+  let braveCalls=0,lyzemCalls=0;
+  const result=await module.crawlLocalDiscoverySource(15,{seedData,fetcher:async url=>{
+    const value=String(url);
+    if(value.includes('tg.me/search'))return response('<html>No directory matches</html>');
+    if(value.includes('lyzem.com/search')){lyzemCalls++;return response('<html>No Lyzem matches</html>');}
+    if(value.includes('search.brave.com')){braveCalls++;return response('<html>No Brave matches</html>');}
+    if(value.includes('t.me/s/'))return response('<title>Українці</title>');
+    return response('<html></html>');
+  }});
+  assert.equal(result.errors.length,0);
+  assert.ok(lyzemCalls>=1);
+  assert.ok(braveCalls>=1,'Brave must remain reachable after an empty Lyzem response');
+});
+
+void test('Lyzem WhatsApp URLs are never ingested directly without a verified Telegram source read',async()=>{
+  const module=await import('../scripts/chat-discovery-source-crawl.mjs?lyzem-direct='+Date.now());
+  const noisyInvite='https://chat.whatsapp.com/NoisyDirectLyzem99';
+  const result=await module.crawlLocalDiscoverySource(15,{seedData,fetcher:async url=>{
+    const value=String(url);
+    if(value.includes('tg.me/search'))return response('<html>No directory matches</html>');
+    if(value.includes('lyzem.com/search'))return response(
+      '<li class="search-result"><div title="group"></div><a href="https://t.me/ua_no_invites">Українці Берлін '+noisyInvite+'</a></li>'
+    );
+    if(value.includes('t.me/s/ua_no_invites'))return response('<title>Українці Берлін 🇺🇦</title><p>Без WhatsApp посилань</p>');
+    if(value.includes('search.brave.com'))return response('<html>No results</html>');
+    if(value.includes('t.me/s/'))return response('<title>Українці</title>');
+    return response('<html></html>');
+  }});
+  assert.equal(result.sources.some(item=>item.text.includes(noisyInvite)),false);
 });

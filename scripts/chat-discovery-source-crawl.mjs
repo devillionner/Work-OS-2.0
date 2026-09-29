@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 const execFile = promisify(execFileCallback);
 const SEARCH_URL = 'https://search.brave.com/search';
 const TELEGRAM_DIRECTORY_URL = 'https://tg.me/search';
+const LYZEM_SEARCH_URL = 'https://lyzem.com/search';
 const USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36';
 const BOOTSTRAP_SOURCES = [
   ['Українці · Швейцарія','https://t.me/s/UkrainianSwitzerland?q=WhatsApp','Швейцарія'],
@@ -27,6 +28,7 @@ const SPAM = /(?:crypto|bitcoin|forex|casino|казино|betting|dating|escort|
 const MAX_TELEGRAM_HISTORY_PAGES=2;
 const MAX_SEARCH_SOURCES=5;
 const MAX_DIRECTORY_RESULTS=6;
+const MAX_LYZEM_RESULTS=5;
 const MAX_GRAPH_SOURCES_PER_STEP=2;
 const SEARCH_BLOCK_COOLDOWN_MS=5*60*1000;
 const SEARCH_RETRY_COOLDOWN_MS=30*1000;
@@ -104,6 +106,7 @@ for(const [sourceUrl,place] of PRODUCTIVE_TELEGRAM_SOURCES){
   telegramGraph.set(sourceUrl,{sourceUrl,score:140,place,evidence:'proven WhatsApp-group source '+place});
 }
 const directorySearchCache=new Map();
+const lyzemSearchCache=new Map();
 const directoryResultVisited=new Set();
 let graphSeedPromise=null;
 let searchBlockedUntil=0;
@@ -457,8 +460,57 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
           .map(item=>item.value));
       }
 
-      // A successful empty directory response is not useful supply. Try web
-      // search as well; directory availability only affects error backoff.
+      // Lyzem indexes public Telegram sources server-side. Use it only to
+      // discover source channels; never trust or ingest its WhatsApp links
+      // directly. Every source is re-read through t.me and must pass our own
+      // Ukrainian-context/spam/invite checks before it can yield a candidate.
+      let lyzemAnswered=false;
+      if(!sources.length){
+        const lyzemQuery=task.place?'Українці '+task.place:task.query;
+        attempted++;
+        try{
+          const cacheKey=lyzemQuery.toLocaleLowerCase('uk-UA');
+          const cached=lyzemSearchCache.get(cacheKey);
+          let candidates;
+          if(cached&&cached.expires>Date.now()){
+            candidates=cached.candidates;
+          }else{
+            const search=new URL(LYZEM_SEARCH_URL);
+            search.searchParams.set('f','channels');
+            search.searchParams.set('per-page','20');
+            search.searchParams.set('q',lyzemQuery);
+            const html=await fetchText(search.toString(),fetcher,8000,350000);
+            candidates=rankLyzemTelegramSources(html,task.place).slice(0,MAX_LYZEM_RESULTS*2);
+            if(lyzemSearchCache.size>=300)lyzemSearchCache.delete(lyzemSearchCache.keys().next().value);
+            lyzemSearchCache.set(cacheKey,{candidates,expires:Date.now()+20*60*1000});
+          }
+          lyzemAnswered=true;
+          const selected=[];
+          for(const url of candidates){
+            if(directoryResultVisited.has(url)||sourceIsTemporarilySaturated(url))continue;
+            selected.push(url);
+            if(selected.length>=MAX_LYZEM_RESULTS)break;
+          }
+          const pages=await Promise.allSettled(selected.map(async url=>{
+            try{
+              const source=await telegramDirectorySource(url,'Lyzem · '+lyzemQuery,task.place,fetcher);
+              directoryResultVisited.add(url);
+              return source;
+            }catch(error){
+              warnings.push({cursor:index,query,reason:'lyzem_source_failed · '+String(error?.message||error)});
+              throw error;
+            }
+          }));
+          sources.push(...pages
+            .filter(item=>item.status==='fulfilled'&&item.value?.text)
+            .map(item=>item.value));
+        }catch(error){
+          warnings.push({cursor:index,query,reason:'lyzem_search_failed · '+String(error?.message||error)});
+        }
+      }
+
+      // A successful empty directory/Lyzem response is not useful supply. Try
+      // Brave only as the last optional web fallback.
       let searchFailureReason='';
       if(!sources.length&&Date.now()>=searchBlockedUntil){
         const queries=[task.query+' "chat.whatsapp.com"',...(task.alias?[task.alias+' "chat.whatsapp.com"']:[]),task.query+' WhatsApp'];
@@ -487,7 +539,7 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
         }
       }
       if(!sources.length&&(searchFailureReason||Date.now()<searchBlockedUntil)){
-        if(directoryAnswered){
+        if(directoryAnswered||lyzemAnswered){
           warnings.push({cursor:index,query,reason:'optional_web_search_deferred · '+(searchFailureReason||'search_cooldown')});
         }else{
           return {
@@ -503,6 +555,36 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
   }catch(error){
     return {searched:attempted,nextCursor:index,done:false,totalTasks,query,sources:[],errors:[{cursor:index,query,reason:error instanceof Error?error.message:String(error)}],warnings};
   }
+}
+
+export function rankLyzemTelegramSources(html,place='') {
+  const decoded=decode(html).replaceAll('\\/','/');
+  const blocks=[...decoded.matchAll(/<li[^>]*class=["'][^"']*search-result[^"']*["'][^>]*>([\s\S]*?)<\/li>/giu)]
+    .map(match=>match[0]);
+  const placeRe=place?new RegExp(escapeRegExp(place),'iu'):null;
+  const seen=new Set();
+  const ranked=[];
+  let order=0;
+  for(const block of blocks){
+    const type=block.match(/title=["']([^"']+)["']/iu)?.[1]||'';
+    if(/bot/iu.test(type))continue;
+    const href=block.match(/href=["']https:\/\/t\.me\/([A-Za-z0-9_]{3,})["']/iu);
+    const username=String(href?.[1]||'');
+    if(!username||seen.has(username.toLowerCase())||/_bot$/iu.test(username))continue;
+    if(/^(?:lyzemcom|lyzembot|mlyzembot|editorpost_bot)$/iu.test(username))continue;
+    const context=strip(block);
+    if(SPAM.test(context))continue;
+    const identity=context+' '+username;
+    const uaSignal=UA.test(identity)||/(?:ukrain|ukr|[_-]ua|ua[_-]|diaspora|refuge|біжен|переселен)/iu.test(identity);
+    if(!uaSignal)continue;
+    let score=100-order++;
+    if(placeRe?.test(identity))score+=40;
+    if(/(?:community|громад|допомог|help|refuge|біжен|переселен|батьк|мамоч|барахол|перевез|transport)/iu.test(identity))score+=15;
+    if(/chat\.whatsapp\.com|\bwhatsapp\b/iu.test(context))score+=20;
+    seen.add(username.toLowerCase());
+    ranked.push({url:'https://t.me/'+username,score});
+  }
+  return ranked.sort((a,b)=>b.score-a.score).map(item=>item.url);
 }
 
 export function rankTelegramDirectoryResults(html,place='') {
