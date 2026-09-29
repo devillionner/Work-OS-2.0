@@ -607,3 +607,23 @@ void test('source feedback storage is bounded, local-only, and only receives suc
   const statsWrite=adapter.indexOf('sourceStats.push');
   assert.ok(statsWrite>failureGuard);
 });
+
+
+void test('TG.ME directory keeps Ukrainian group-invite preview pages that can contain WhatsApp links',()=>{
+  const html='<div>Українці у Віттені WhatsApp <a href="/+wtHNHSdaFIxmYjA6">group</a></div>';
+  const ranked=rankTelegramDirectoryResults(html,'Віттен');
+  assert.equal(ranked[0],'https://tg.me/+wtHNHSdaFIxmYjA6');
+});
+
+void test('TG.ME group-invite preview can feed a WhatsApp invite directly',async()=>{
+  const groupInvite='https://chat.whatsapp.com/D0wMdlrW1du8hYI83iTl7Z';
+  const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async(url)=>{
+    const value=String(url);
+    if(value.includes('tg.me/search'))return response('<div>Українці Віттен WhatsApp <a href="/+wtHNHSdaFIxmYjA6">group</a></div>');
+    if(value.includes('tg.me/+wtHNHSdaFIxmYjA6'))return response('<title>Українці у Віттені 🇺🇦</title><p>WhatsApp чат української громади '+groupInvite+'</p>');
+    if(value.includes('search.brave.com'))return response('Too many requests',429);
+    return response('<title>Українці</title>');
+  }});
+  assert.equal(result.errors.length,0);
+  assert.ok(result.sources.some(item=>item.text.includes(groupInvite)));
+});

@@ -184,3 +184,14 @@ test('UI retry uses the reset checkpoint instead of replaying a saved final outc
   assert.match(block,/resetDiscoveryRetryCheckpoint\(storedCandidate\)/);
   assert.match(block,/delete results\[candidate\.id\]/);
 });
+
+
+test('joined WhatsApp qualification opens the existing chat and uses object-form message loaders',()=>{
+  const block=adapter.slice(adapter.indexOf('export async function joinWhatsappInviteViaRuntime'),adapter.indexOf('export async function leaveWhatsappGroupViaRuntime'));
+  assert.match(block,/openChatBottom\(\{chat\}\)/);
+  assert.match(block,/loadRecentMsgs\(\{chat\}\)/);
+  assert.match(block,/loadEarlierMsgs\(\{chat\}\)/);
+  assert.match(block,/stepRace/);
+  assert.doesNotMatch(block,/loadRecentMsgs\(chat\)/);
+  assert.doesNotMatch(block,/loadEarlierMsgs\(chat\)/);
+});

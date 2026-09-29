@@ -187,6 +187,7 @@ export async function joinWhatsappInviteViaRuntime(
           const collections=window.require?.('WAWebCollections');
           const widFactory=window.require?.('WAWebWidFactory');
           const loader=window.require?.('WAWebChatLoadMessages');
+          const cmd=window.require?.('WAWebCmd')?.Cmd;
           if(!query?.queryGroupInvite||(!${JSON.stringify(task.membershipState==='joined')}&&!invite?.joinGroupViaInvite)||!collections?.Chat||!widFactory?.createWid){
             return {ok:false,reason:'direct_join_unavailable'};
           }
@@ -218,12 +219,20 @@ export async function joinWhatsappInviteViaRuntime(
           let chat=collections.Chat.get(wid);
           if(!chat&&collections.Chat.find)chat=await race(collections.Chat.find(wid),'chat_find');
           if(!chat)return {ok:false,reason:'joined_chat_not_found',gid};
+          const stepRace=(promise,label,maxMs=2500)=>Promise.race([
+            Promise.resolve(promise),
+            new Promise((_,reject)=>setTimeout(()=>reject(new Error(label+'_timeout')),
+              Math.max(1,Math.min(maxMs,deadline-Date.now())))),
+          ]);
+          if(alreadyJoined&&cmd?.openChatBottom){
+            try{await stepRace(cmd.openChatBottom({chat}),'open_joined_chat',1800);}catch{}
+          }
           if(loader?.loadRecentMsgs){
-            try{await race(loader.loadRecentMsgs(chat),'recent_messages');}catch{}
+            try{await stepRace(loader.loadRecentMsgs({chat}),'recent_messages',2500);}catch{}
           }
           if(loader?.loadEarlierMsgs){
             for(let historyPage=0;historyPage<2&&Date.now()<deadline-500;historyPage++){
-              try{await race(loader.loadEarlierMsgs(chat),'earlier_messages_'+historyPage);}
+              try{await stepRace(loader.loadEarlierMsgs({chat}),'earlier_messages_'+historyPage,2200);}
               catch{break;}
             }
           }

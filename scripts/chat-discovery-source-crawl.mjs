@@ -533,6 +533,24 @@ export function rankTelegramDirectoryResults(html,place='') {
     seen.add(username+'|'+postId);
     ranked.push({url:'https://tg.me/'+username+(postId?'/'+postId:''),score});
   }
+  const inviteRe=/href=["']\/(\+[A-Za-z0-9_-]{8,})["']/giu;
+  for(const match of decoded.matchAll(inviteRe)){
+    const invitePath=String(match[1]||'');
+    if(!invitePath||seen.has(invitePath))continue;
+    const context=searchResultContext(decoded,match.index||0);
+    if(SPAM.test(context))continue;
+    const identity=context+' '+invitePath;
+    const uaSignal=UA.test(identity)||/(?:ukrain|ukr|diaspora|refuge|біжен|переселен)/iu.test(identity);
+    if(!uaSignal)continue;
+    const placeSignal=Boolean(place&&new RegExp(escapeRegExp(place),'iu').test(identity));
+    const whatsappSignal=/(?:chat\.whatsapp\.com|\bwhatsapp\b)/iu.test(context);
+    let score=120-order++;
+    score+=45;
+    if(placeSignal)score+=35;
+    if(whatsappSignal)score+=65;
+    seen.add(invitePath);
+    ranked.push({url:'https://tg.me/'+invitePath,score});
+  }
   return ranked.sort((a,b)=>b.score-a.score).map(item=>item.url);
 }
 
@@ -541,6 +559,18 @@ async function telegramDirectorySource(resultUrl,query,place,fetcher){
   const username=parts[0]||'';
   const postId=parts[1]||'';
   if(!username)return {sourceUrl:resultUrl,sourceTitle:'',query,seedLabel:place,context:place,text:''};
+
+  if(username.startsWith('+')){
+    const cached=pageCache.get(resultUrl);
+    if(cached&&cached.expires>Date.now())return {...cached.source,query,seedLabel:place};
+    const page=await fetchText(resultUrl,fetcher,10000,650000);
+    const title=telegramTitle(page,resultUrl);
+    const snippets=extractRelevantInviteSnippets(page,title);
+    const direct={sourceUrl:resultUrl,sourceTitle:title||'Telegram group',query,seedLabel:place,context:title||place,text:snippets.join('\n\n').slice(0,45000)};
+    if(pageCache.size>=500)pageCache.delete(pageCache.keys().next().value);
+    pageCache.set(resultUrl,{source:direct,expires:Date.now()+15*60*1000});
+    return direct;
+  }
 
   // A directory channel result is only a lead. Search inside the actual public
   // Telegram channel for group invite URLs before deciding it has no WhatsApp chats.
