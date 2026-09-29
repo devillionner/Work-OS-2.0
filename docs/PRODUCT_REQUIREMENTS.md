@@ -577,3 +577,10 @@ Definition of Done для реального використання на stagi
 - Any persisted candidate or existing chat is a dedupe anchor by normalized invite link, so clearing local preview state or starting a new run must not cause the same invite to be qualified again.
 - Routine Discovery reset clears run/progress state only and preserves candidate/source outcome history. A destructive history wipe, if ever needed, must be a separate explicit action.
 - Target is not equivalent to final operator acceptance: the operator can open the saved target, decide whether it is useful, then explicitly import/keep it or reclassify/archive it.
+
+
+## 2026-09-29 — WhatsApp post-join evidence visibility
+- WhatsApp does not expose messages from before a user joins a newly joined group. Discovery must never reject or permanently archive a fresh join merely because pre-join activity or advertisement evidence is invisible.
+- A newly joined chat with factual membership/size/write/topic facts but insufficient message evidence remains queued as `waiting_post_join_evidence`. It is rechecked later without joining again; source discovery continues meanwhile.
+- Message-derived activity, Ukrainian-conversation evidence and inferred advertisement permission use only messages visible after the recorded `joinedAt` for newly joined groups. Explicit group description/rules may establish topic or advertisement policy immediately.
+- The activity criterion remains factual and unchanged: at least one visible message from today or yesterday. A visible older latest message is inactivity; zero visible post-join messages are insufficient evidence, not inactivity.

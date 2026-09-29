@@ -41,6 +41,7 @@ const LOCAL_SOURCE_TARGET_QUEUE=30;
 const SOURCE_ADVANCE_MS=20000;
 const EXECUTOR_QUEUE_LIMIT=3;
 const TASK_BLOCK_COOLDOWN_MS=300000;
+const POST_JOIN_EVIDENCE_RECHECK_MS=5*60*1000;
 const INCOMPLETE_QUALIFICATION_COOLDOWN_MS=15000;
 const qualificationAttempts=new Map();
 let localSourceSeedData=null;
@@ -283,8 +284,39 @@ async function deferLocalPreflight(task,reason,result){
   return 'local_task';
 }
 
+const POST_JOIN_EVIDENCE_REASONS=new Set(['unknown_topic_match','unknown_ads_allowed','unknown_activity']);
+function waitsForPostJoinEvidence(result,evaluated){
+  return result?.membershipState==='joined'
+    &&evaluated.reasonCodes.length>0
+    &&evaluated.reasonCodes.every(reason=>POST_JOIN_EVIDENCE_REASONS.has(reason));
+}
+async function deferPostJoinEvidence(task,result,evaluated){
+  const now=Date.now();
+  const previous=task.checkpoint||{};
+  const joinedAt=Number(result?.joinedAt||previous?.result?.joinedAt||now)||now;
+  const checkpoint={
+    ...previous,
+    attempts:0,
+    result:{...result,joinedAt,status:'waiting_post_join_evidence'},
+    lastReason:'waiting_post_join_evidence',
+    evidenceWaitStartedAt:Number(previous.evidenceWaitStartedAt||now)||now,
+    nextEvidenceCheckAt:now+POST_JOIN_EVIDENCE_RECHECK_MS,
+  };
+  delete checkpoint.final;
+  await markWorkOsLocalDiscoveryCandidateViaCdp(baseUrl,{...task,checkpoint},{cdpBaseUrl:whatsappCdp});
+  markTaskBlocked(task,'waiting_post_join_evidence',POST_JOIN_EVIDENCE_RECHECK_MS);
+  console.log('Discovery joined evidence pending '+JSON.stringify({
+    candidateId:task.candidateId,name:result?.observedName||task.name,
+    joinedAt,reasonCodes:evaluated.reasonCodes,nextEvidenceCheckAt:checkpoint.nextEvidenceCheckAt,
+  }));
+  return 'local_task';
+}
+
 async function qualifyLocalResult(task,result){
   const evaluated=evaluateLocalPreflight(task,result);
+  if(waitsForPostJoinEvidence(result,evaluated)){
+    return deferPostJoinEvidence(task,result,evaluated);
+  }
   if(evaluated.decision==='incomplete'){
     if(Number(task.checkpoint?.attempts)<3){
       return deferLocalPreflight(task,'qualification_incomplete',result);

@@ -202,6 +202,7 @@ export async function joinWhatsappInviteViaRuntime(
           }
           const alreadyJoined=${JSON.stringify(task.membershipState==='joined')};
            const knownGroupId=${JSON.stringify(String(task.groupId||''))}||String(pre?.id?._serialized||pre?.id||'');
+           const knownJoinedAt=${JSON.stringify(Number(task.preflightFacts?.joinedAt||task.checkpoint?.result?.joinedAt||0)||0)};
            if(alreadyJoined&&!knownGroupId)return {ok:false,reason:'joined_identity_missing'};
            const joins=window.__workOsDiscoveryJoins||(window.__workOsDiscoveryJoins=new Map());
            const code=${JSON.stringify(inviteCode)};
@@ -215,6 +216,7 @@ export async function joinWhatsappInviteViaRuntime(
           const gid=String(joined?.gid?._serialized||joined?.gid||pre?.id?._serialized||pre?.id||'');
           if(!gid)return {ok:false,reason:'join_not_confirmed'};
            joinedGroupId=gid;
+          const joinedAt=alreadyJoined?knownJoinedAt:Date.now();
           const wid=widFactory.createWid(gid);
           let chat=collections.Chat.get(wid);
           if(!chat&&collections.Chat.find)chat=await race(collections.Chat.find(wid),'chat_find');
@@ -230,7 +232,7 @@ export async function joinWhatsappInviteViaRuntime(
           if(loader?.loadRecentMsgs){
             try{await stepRace(loader.loadRecentMsgs({chat}),'recent_messages',2500);}catch{}
           }
-          if(loader?.loadEarlierMsgs){
+          if(alreadyJoined&&loader?.loadEarlierMsgs){
             for(let historyPage=0;historyPage<2&&Date.now()<deadline-500;historyPage++){
               try{await stepRace(loader.loadEarlierMsgs({chat}),'earlier_messages_'+historyPage,2200);}
               catch{break;}
@@ -282,6 +284,8 @@ export async function joinWhatsappInviteViaRuntime(
               typeof pre?.announce==='boolean'?pre.announce:null,
             isParentGroup:metadata?.isParentGroup===true||metadata?.__x_isParentGroup===true,
             preIsParentGroup:pre?.isParentGroup===true,
+            joinedAt,
+            joinedThisAttempt:!alreadyJoined,
             messages,
           };
         }catch(error){
@@ -305,12 +309,19 @@ export async function joinWhatsappInviteViaRuntime(
       const type=String(item?.type||'').toLowerCase();
       return body&&!/^(?:gp2|e2e_notification|notification|protocol|ciphertext)$/u.test(type);
     });
-    const latestTimestamp=Math.max(0,...userMessages.map(item=>Number(item?.timestamp)||0));
+    const joinedAt=Number(value.joinedAt)||0;
+    const evidenceMessages=joinedAt>0
+      ?userMessages.filter(item=>{
+        const timestamp=Number(item?.timestamp)||0;
+        return timestamp>0&&timestamp*1000>=joinedAt-60_000;
+      })
+      :userMessages;
+    const latestTimestamp=Math.max(0,...evidenceMessages.map(item=>Number(item?.timestamp)||0));
     const nowSeconds=Math.floor(Date.now()/1000);
     let activityState;
     if(isDiscoveryRecentTimestamp(latestTimestamp*1000,nowSeconds*1000))activityState='active';
-    else if(latestTimestamp>0&&nowSeconds-latestTimestamp>=14*24*60*60)activityState='dead';
-    const recentTexts=userMessages.map(item=>String(item?.body||'')).filter(Boolean).slice(-80);
+    else if(latestTimestamp>0)activityState='dead';
+    const recentTexts=evidenceMessages.map(item=>String(item?.body||'')).filter(Boolean).slice(-80);
     const evidence=[value.subject,value.desc,value.parentTitle,value.parentDesc,...recentTexts].join('\n');
     const spamMessages=recentTexts.filter(text=>spamPattern.test(text)).length;
     const ukrainianMessages=recentTexts.filter(text=>ukrainianConversationPattern.test(text)).length;
@@ -345,8 +356,11 @@ export async function joinWhatsappInviteViaRuntime(
         parentCommunityTitle:String(value.parentTitle||''),
         parentCommunityDescription:String(value.parentDesc||''),
         groupId:String(value.gid||''),
+        joinedAt:joinedAt||Date.now(),
+        joinedThisAttempt:value.joinedThisAttempt===true,
         joinedDirect:true,
         recentMessageCount:recentTexts.length,
+        evidenceScope:joinedAt>0?'post_join_only':'visible_history',
         sourceWasCommunity:value.preIsParentGroup===true||Boolean(value.parentId),
       },
     };
@@ -605,9 +619,13 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
             else if(source?.kind==='curated')score+=1;
             return score;
           };
+          const evidenceReady=(item)=>{
+            const next=Number(item?.discoveryCheckpoint?.nextEvidenceCheckAt)||0;
+            return !next||next<=Date.now();
+          };
           const candidate=candidates
             .filter((item)=>item&&item.localOnly===true&&item.preflightState==='queued'&&typeof item.id==='string'
-              &&typeof item.link==='string'&&!results[item.id]&&!skipped.has(item.id))
+              &&typeof item.link==='string'&&!results[item.id]&&!skipped.has(item.id)&&evidenceReady(item))
             .sort((a,b)=>priority(b)-priority(a))[0]||null;
           return {
             active:state?.running===true,
@@ -615,7 +633,7 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
             goal:Number(state?.goal)||0,
             sourceCursor:Number(state?.telegramCursor)||0,
             sourceExhausted:state?.sourceExhausted===true,
-            queuedCount:candidates.filter(item=>item?.preflightState==='queued'&&!results[item?.id]&&!skipped.has(item?.id)).length,
+            queuedCount:candidates.filter(item=>item?.preflightState==='queued'&&!results[item?.id]&&!skipped.has(item?.id)&&evidenceReady(item)).length,
             task:candidate?{
               candidateId:candidate.id,
               runId:String(state?.runId||''),

@@ -30,7 +30,7 @@ test('failed graph sources are not permanently consumed',async()=>{
   await m.crawlLocalDiscoverySource(16,{seedData,fetcher});
   assert.ok(calls.some(url=>first.includes(url)));
 });
-function harness({metadataFailure=false,persistFailure=false,joinUnavailable=false}={}){
+function harness({metadataFailure=false,persistFailure=false,joinUnavailable=false,postJoinEvidenceGap=false}={}){
   let checkpoint=null;
   const writes=[],joins=[];
   const deps={
@@ -49,13 +49,13 @@ function harness({metadataFailure=false,persistFailure=false,joinUnavailable=fal
       if(joinUnavailable)return {kind:'blocked',reason:'direct_join_unavailable'};
       return {kind:'result',result:{memberCount:900,groupId:'group@g.us',topicMatch:'match',chatType:'group',
         canWrite:true,membershipState:'joined',accessible:true,targetVerified:true,status:'inspected',
-        ...(joins.length>1?{activityState:'active',adsPolicy:'allowed'}:{})}};
+        ...(postJoinEvidenceGap?{}:joins.length>1?{activityState:'active',adsPolicy:'allowed'}:{})}};
     },
   };
   const code=runner.slice(runner.indexOf('function evaluateLocalPreflight'),runner.indexOf('async function resolveLocalSourceSeedData'));
   const ctx=vm.createContext({...deps,Date});
   vm.runInContext(code+';globalThis.run=processLocalPreflightVisible;',ctx);
-  return {writes,joins,run:()=>ctx.run({candidateId:'a',runId:'r',name:'test',checkpoint})};
+  return {writes,joins,get checkpoint(){return checkpoint;},run:()=>ctx.run({candidateId:'a',runId:'r',name:'test',checkpoint})};
 }
 test('metadata retries terminate after three attempts',async()=>{
   const h=harness({metadataFailure:true});
@@ -194,4 +194,43 @@ test('joined WhatsApp qualification opens the existing chat and uses object-form
   assert.match(block,/stepRace/);
   assert.doesNotMatch(block,/loadRecentMsgs\(chat\)/);
   assert.doesNotMatch(block,/loadEarlierMsgs\(chat\)/);
+});
+
+
+test('freshly joined WhatsApp chat never loads invisible pre-join history',()=>{
+  const block=adapter.slice(adapter.indexOf('export async function joinWhatsappInviteViaRuntime'),adapter.indexOf('export async function leaveWhatsappGroupViaRuntime'));
+  assert.match(block,/if\(alreadyJoined&&loader\?\.loadEarlierMsgs\)/);
+  assert.match(block,/const joinedAt=alreadyJoined\?knownJoinedAt:Date\.now\(\)/);
+  assert.match(block,/joinedThisAttempt:!alreadyJoined/);
+  assert.match(block,/timestamp\*1000>=joinedAt-60_000/);
+});
+
+test('post-join evidence gap stays queued without consuming bounded technical retries',async()=>{
+  const h=harness({postJoinEvidenceGap:true});
+  await h.run();
+  assert.equal(h.writes.length,0);
+  assert.equal(h.checkpoint.lastReason,'waiting_post_join_evidence');
+  assert.equal(h.checkpoint.attempts,0);
+  assert.equal(h.checkpoint.result.membershipState,'joined');
+  assert.equal(h.checkpoint.result.status,'waiting_post_join_evidence');
+  assert.ok(h.checkpoint.nextEvidenceCheckAt>Date.now());
+  await h.run();
+  assert.equal(h.writes.length,0);
+  assert.equal(h.checkpoint.attempts,0);
+});
+
+test('waiting post-join evidence is skipped by task selection until its next check',()=>{
+  const start=adapter.indexOf('export async function readWorkOsLocalDiscoveryTaskViaCdp');
+  const end=adapter.indexOf('export async function readWorkOsLocalDiscoverySeedDataViaCdp',start);
+  const block=adapter.slice(start,end);
+  assert.match(block,/nextEvidenceCheckAt/);
+  assert.match(block,/evidenceReady\(item\)/);
+});
+
+test('visible message older than today-or-yesterday is factual inactivity',()=>{
+  const start=adapter.indexOf('const latestTimestamp=Math.max');
+  const end=adapter.indexOf('const recentTexts=',start);
+  const block=adapter.slice(start,end);
+  assert.match(block,/else if\(latestTimestamp>0\)activityState='dead'/);
+  assert.doesNotMatch(block,/14\*24\*60\*60/);
 });
