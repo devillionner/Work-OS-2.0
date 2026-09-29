@@ -19,7 +19,7 @@ import {
   sendWhatsappAutopostViaCdp,
   toWhatsAppWebInviteUrl,
 } from './whatsapp-web-cdp.mjs';
-import { crawlLocalDiscoverySource } from './chat-discovery-source-crawl.mjs';
+import { crawlLocalDiscoverySource, recordDiscoverySourceOutcome } from './chat-discovery-source-crawl.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
@@ -224,136 +224,130 @@ function evaluateLocalPreflight(task,result){
 }
 
 async function processLocalPreflightVisible(task){
-  await markWorkOsLocalDiscoveryCandidateViaCdp(baseUrl,task,{cdpBaseUrl:whatsappCdp}).catch(()=>{});
+  const checkpoint=task.checkpoint||{attempts:0,startedAt:Date.now()};
+  task={...task,checkpoint:{...checkpoint,attempts:Number(checkpoint.attempts||0)+1}};
+  const marked=await markWorkOsLocalDiscoveryCandidateViaCdp(baseUrl,task,{cdpBaseUrl:whatsappCdp});
+  if(marked.kind!=='result')return 'local_wait';
   try{return await processLocalPreflight(task);}
   finally{await markWorkOsLocalDiscoveryCandidateViaCdp(baseUrl,null,{cdpBaseUrl:whatsappCdp}).catch(()=>{});}
 }
 
-async function processLocalPreflight(task){
-  let queried;
-  try{
-    queried=await queryWhatsappInviteViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:4_000});
-  }catch(error){
-    markTaskBlocked(task,'metadata_query_error',METADATA_RETRY_COOLDOWN_MS);
-    console.warn(`Invite metadata query failed; deferred without opening WhatsApp UI: ${error instanceof Error?error.message:String(error)}`);
+async function completeLocalPreflight(task,payload){
+  const checkpoint=task.checkpoint||{};
+  const final={...payload,runId:task.runId,completedAt:Date.now(),
+    durationMs:Math.max(0,Date.now()-Number(checkpoint.startedAt||Date.now()))};
+  // Keep the factual outcome in session storage before awaiting server persistence.
+  // A failed write retries only persistence, never the external join/leave.
+  await markWorkOsLocalDiscoveryCandidateViaCdp(baseUrl,{...task,checkpoint:{...checkpoint,final}},{cdpBaseUrl:whatsappCdp});
+  const saved=await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,final,{cdpBaseUrl:whatsappCdp});
+  if(saved.kind!=='result'){
+    markTaskBlocked(task,saved.reason||'persist_failed',30000);
     return 'local_task';
   }
-  if(queried?.kind!=='result'){
-    const reason=queried?.reason||'metadata_query_unavailable';
-    markTaskBlocked(task,reason,METADATA_RETRY_COOLDOWN_MS);
-    console.warn(`Invite metadata unavailable (${reason}); deferred so another candidate can continue.`);
-    return 'local_task';
-  }
-  const pre={...queried.result};
-  if(pre.reason==='invalid_whatsapp_link'){
-    await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
-      decision:'unavailable',reasonCodes:['invalid_whatsapp_link'],result:pre,completedAt:Date.now(),
-    },{cdpBaseUrl:whatsappCdp});
-    return 'local_task';
-  }
-  if(pre.approvalRequired===true){
-    await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
-      decision:'skipped',reasonCodes:['approval_required'],result:{...pre,reason:'approval_required'},completedAt:Date.now(),
-    },{cdpBaseUrl:whatsappCdp});
-    console.log(`Invite skipped before join: approval required (${pre.observedName||task.name})`);
-    return 'local_task';
-  }
+  clearTaskBlock(task);
+  recordDiscoverySourceOutcome(task.sources,final.decision,final.reasonCodes);
+  console.log('Discovery outcome '+JSON.stringify({candidateId:task.candidateId,name:final.result?.observedName||task.name,
+    decision:final.decision,reasons:final.reasonCodes,attempts:checkpoint.attempts,durationMs:final.durationMs}));
+  return 'local_task';
+}
 
-  const minMembers=Math.max(700,Number(task.minMembers)||700);
-  const isCommunity=pre.chatType==='community';
-  if(!Number.isFinite(pre.memberCount)&&!isCommunity){
-    markTaskBlocked(task,'metadata_member_count_unknown',METADATA_INCOMPLETE_COOLDOWN_MS);
-    console.warn(`Invite metadata has no member count; deferred without opening WhatsApp UI (${pre.observedName||task.name}).`);
-    return 'local_task';
+async function deferLocalPreflight(task,reason,result){
+  const checkpoint={...task.checkpoint,...(result?{result}:{}),lastReason:reason};
+  if(Number(checkpoint.attempts)>=3){
+    return completeLocalPreflight({...task,checkpoint},{
+      decision:'unavailable',reasonCodes:['retry_exhausted',reason],
+      result:result||checkpoint.result||{status:'incomplete',reason},
+    });
   }
-  const preReasons=[];
-  if(Number.isFinite(pre.memberCount)&&pre.memberCount<minMembers)preReasons.push('too_few_members');
-  else if(Number.isFinite(pre.memberCount)&&pre.memberCount>18000)preReasons.push('too_many_members');
-  if(pre.topicMatch==='mismatch')preReasons.push('topic_mismatch');
-  if(pre.canWrite===false)preReasons.push('cannot_write');
-  if(pre.adsPolicy==='forbidden')preReasons.push('ads_forbidden');
-  if(preReasons.length){
-    await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
-      decision:'rejected',reasonCodes:preReasons,result:pre,leftAfterCheck:false,completedAt:Date.now(),
-    },{cdpBaseUrl:whatsappCdp});
-    console.log(`Invite rejected before join: ${pre.observedName||task.name} (${preReasons.join(', ')})`);
-    return 'local_task';
-  }
+  await markWorkOsLocalDiscoveryCandidateViaCdp(baseUrl,{...task,checkpoint},{cdpBaseUrl:whatsappCdp});
+  markTaskBlocked(task,reason,15000);
+  return 'local_task';
+}
 
-  task={
-    ...task,
-    name:pre.observedName||task.name,
-    expectedTarget:{...task.expectedTarget,name:pre.observedName||task.expectedTarget?.name||task.name},
-    preflightFacts:{
-      ...(Number.isFinite(pre.memberCount)?{memberCount:pre.memberCount}:{}),
-      ...(pre.chatType?{chatType:pre.chatType}:{}),
-      ...(pre.topicMatch&&pre.topicMatch!=='unknown'?{topicMatch:pre.topicMatch}:{}),
-      ...(pre.adsPolicy&&pre.adsPolicy!=='unknown'?{adsPolicy:pre.adsPolicy}:{}),
-    },
-  };
-
-  let joined;
-  try{
-    joined=await joinWhatsappInviteViaRuntime(task,{cdpBaseUrl:whatsappCdp,timeoutMs:10_000});
-  }catch(error){
-    markTaskBlocked(task,'direct_join_error',METADATA_RETRY_COOLDOWN_MS);
-    console.warn(`Direct WhatsApp join failed without UI navigation: ${error instanceof Error?error.message:String(error)}`);
-    return 'local_task';
-  }
-  if(joined.kind!=='result'){
-    if(joined.reason==='approval_required'){
-      await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
-        decision:'skipped',reasonCodes:['approval_required'],result:{status:'failed',reason:'approval_required'},completedAt:Date.now(),
-      },{cdpBaseUrl:whatsappCdp});
-      return 'local_task';
-    }
-    if(joined.reason==='invalid_whatsapp_link'){
-      await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
-        decision:'unavailable',reasonCodes:['invalid_whatsapp_link'],result:{status:'failed',reason:'invalid_whatsapp_link'},completedAt:Date.now(),
-      },{cdpBaseUrl:whatsappCdp});
-      return 'local_task';
-    }
-    markTaskBlocked(task,joined.reason||'direct_join_failed',METADATA_RETRY_COOLDOWN_MS);
-    console.warn(`Direct WhatsApp join deferred: ${joined.reason||'direct_join_failed'}`);
-    return 'local_task';
-  }
-
-  const result={...pre,...joined.result};
-  if(!result.topicMatch||result.topicMatch==='unknown'){
-    if(pre.topicMatch&&pre.topicMatch!=='unknown')result.topicMatch=pre.topicMatch;
-  }
-  if(!result.adsPolicy&&pre.adsPolicy)result.adsPolicy=pre.adsPolicy;
-  if(typeof result.canWrite!=='boolean'&&typeof pre.canWrite==='boolean')result.canWrite=pre.canWrite;
-
+async function qualifyLocalResult(task,result){
   const evaluated=evaluateLocalPreflight(task,result);
   if(evaluated.decision==='incomplete'){
-    await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
-      decision:'unavailable',
+    if(Number(task.checkpoint?.attempts)<3){
+      return deferLocalPreflight(task,'qualification_incomplete',result);
+    }
+    return completeLocalPreflight(task,{decision:'unavailable',
       reasonCodes:['qualification_incomplete',...evaluated.reasonCodes],
-      result:{...result,status:'incomplete'},
-      completedAt:Date.now(),
-    },{cdpBaseUrl:whatsappCdp});
-    console.warn(`Joined chat has incomplete factual qualification; kept joined and marked unavailable (${result.observedName||task.name}).`);
-    return 'local_task';
+      result:{...result,status:'incomplete'}});
   }
-
-  let leftAfterCheck=false;
-  let leaveReason=null;
-  if(evaluated.decision!=='target'){
-    const left=await leaveWhatsappGroupViaRuntime(result.groupId,{cdpBaseUrl:whatsappCdp}).catch(()=>({kind:'blocked',reason:'direct_leave_failed'}));
+  let leftAfterCheck=false,leaveReason=null;
+  if(evaluated.decision!=='target'&&result.membershipState==='joined'){
+    const left=await leaveWhatsappGroupViaRuntime(result.groupId,{cdpBaseUrl:whatsappCdp})
+      .catch(()=>({kind:'blocked',reason:'direct_leave_failed'}));
     leftAfterCheck=left.kind==='result'&&left.result?.left===true;
     if(!leftAfterCheck)leaveReason=left.reason||'direct_leave_failed';
   }
-  await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,{
-    decision:evaluated.decision,
-    reasonCodes:evaluated.reasonCodes,
-    result:{...result,topicMatch:evaluated.topicMatch},
-    leftAfterCheck,leaveReason,completedAt:Date.now(),
-  },{cdpBaseUrl:whatsappCdp});
-  console.log(evaluated.decision==='target'
-    ? `Local target verified via direct WhatsApp runtime: ${result.observedName||task.name}`
-    : `Local candidate rejected after direct join: ${result.observedName||task.name}`);
-  return 'local_task';
+  return completeLocalPreflight(task,{decision:evaluated.decision,reasonCodes:evaluated.reasonCodes,
+    result:{...result,topicMatch:evaluated.topicMatch},leftAfterCheck,leaveReason});
+}
+
+async function localRunStillActive(task){
+  const current=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp});
+  return current.kind==='result'&&current.active===true&&String(current.runId||'')===String(task.runId||'');
+}
+
+async function processLocalPreflight(task){
+  if(task.checkpoint?.final)return completeLocalPreflight(task,task.checkpoint.final);
+  const prior=task.checkpoint?.result;
+  let pre=prior?.membershipState==='joined'?prior:null;
+  if(!pre){
+    let queried;
+    try{queried=await queryWhatsappInviteViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:4000});}
+    catch(error){queried={kind:'blocked',reason:'metadata_query_error'};}
+    if(queried.kind!=='result'){
+      // Only the last bounded attempt uses the existing exact-invite UI adapter.
+      if(Number(task.checkpoint?.attempts)>=3){
+        if(!await localRunStillActive(task))return 'local_wait';
+        const fallback=await inspectWhatsappTaskViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:20000})
+          .catch(()=>({kind:'blocked',reason:'ui_inspection_failed'}));
+        if(fallback.kind==='result')return qualifyLocalResult(task,fallback.result);
+      }
+      return deferLocalPreflight(task,queried.reason||'metadata_query_unavailable');
+    }
+    pre=queried.result;
+  }
+  if(pre.reason==='invalid_whatsapp_link'){
+    return completeLocalPreflight(task,{decision:'unavailable',reasonCodes:['invalid_whatsapp_link'],result:pre});
+  }
+  if(pre.approvalRequired===true){
+    return completeLocalPreflight(task,{decision:'skipped',reasonCodes:['approval_required'],result:pre});
+  }
+  const minMembers=Math.max(700,Number(task.minMembers)||700);
+  const reasons=[];
+  if(Number.isFinite(pre.memberCount)&&pre.memberCount<minMembers)reasons.push('too_few_members');
+  if(Number.isFinite(pre.memberCount)&&pre.memberCount>18000)reasons.push('too_many_members');
+  if(pre.topicMatch==='mismatch')reasons.push('topic_mismatch');
+  if(pre.canWrite===false)reasons.push('cannot_write');
+  if(pre.adsPolicy==='forbidden')reasons.push('ads_forbidden');
+  if(reasons.length){
+    if(pre.membershipState==='joined')return qualifyLocalResult(task,pre);
+    return completeLocalPreflight(task,{decision:'rejected',reasonCodes:reasons,result:pre,leftAfterCheck:false});
+  }
+  task={...task,name:pre.observedName||task.name,
+    membershipState:pre.membershipState==='joined'?'joined':task.membershipState,
+    groupId:pre.groupId||task.groupId,preflightFacts:pre,
+    expectedTarget:{...task.expectedTarget,name:pre.observedName||task.name}};
+  // Do not perform a second join after a timeout if WhatsApp may have accepted it.
+  if(!await localRunStillActive(task))return 'local_wait';
+  let joined;
+  try{joined=await joinWhatsappInviteViaRuntime(task,{cdpBaseUrl:whatsappCdp,timeoutMs:15000});}
+  catch(error){return deferLocalPreflight(task,'direct_join_error',pre);}
+  if(joined.kind!=='result'){
+    if(['approval_required','invalid_whatsapp_link'].includes(joined.reason)){
+      return completeLocalPreflight(task,{decision:joined.reason==='approval_required'?'skipped':'unavailable',
+        reasonCodes:[joined.reason],result:{...pre,status:'failed',reason:joined.reason}});
+    }
+    if(joined.groupId){
+      return deferLocalPreflight(task,joined.reason,{...pre,groupId:joined.groupId,membershipState:'joined'});
+    }
+    return deferLocalPreflight(task,joined.reason||'direct_join_failed',pre);
+  }
+  const result={...pre,...joined.result};
+  return qualifyLocalResult(task,result);
 }
 
 async function resolveLocalSourceSeedData(){
@@ -411,7 +405,10 @@ async function refillLocalSourceOnce(local){
     for(const warning of batch.warnings.slice(0,4))console.warn('Discovery source warning: '+String(warning?.query||'source')+' · '+String(warning?.reason||'unavailable'));
   }
   if(batch.deferred===true){
-    nextLocalSourceAt=Date.now()+Math.min(10_000,Math.max(1000,Number(batch.retryAfterMs)||LOCAL_SOURCE_MIN_MS));
+    nextLocalSourceAt=Date.now()+Math.max(1000,Number(batch.retryAfterMs)||LOCAL_SOURCE_MIN_MS);
+    if(batch.nextCursor>cursor||batch.sources.length){
+      await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
+    }
     return 'local_wait';
   }
   const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});

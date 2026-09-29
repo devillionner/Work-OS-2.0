@@ -1,4 +1,15 @@
 
+## 2026-09-29 — Discovery reliability and measurable yield
+- Live baseline on fd769da: 54 persisted candidates, zero targets; primary outcomes 26 below minimum size, 8 approval-required, 2 cannot-write, 16 invalid links, 1 incomplete joined qualification and 1 paused-unverified. These are stored outcomes, not a timed throughput benchmark.
+- Empty successful Telegram-directory results now allow the web fallback. Graph/directory sources are marked visited only after successful reading. Source outcome feedback adjusts graph priorities; it does not promise a qualified audience.
+- Three bounded qualification attempts preserve joined identity between attempts. The adapter reuses fetched invite metadata, applies one shared runtime deadline and reuses an in-flight join promise after a timeout. Final persistence failures retry the saved outcome without repeating messenger actions.
+- Pause keeps unattempted candidates queued; completed archive/dedupe outcomes remain preserved. Explicit recovery is available for incomplete, paused-unverified and retry-exhausted outcomes. No automatic mass reprocessing or archive deletion.
+- Result handoff merges current session state after persistence, preserving concurrent pause/source updates. Session metrics record completions, outcomes, reasons and elapsed candidate time including retries.
+- Activity now means today or yesterday in Europe/Kyiv; no relaxation of audience, size, write-permission or advertisement requirements.
+- Seven new behavioral regressions passed against the proposed sources in memory (executed in three groups); JS/TSX syntax checks passed. No local checkout or production access. Full npm run verify:local was not run under the remote-only constraint.
+- Deployment identity, refreshed runtime and physical yield are pending at this commit. GO-LIVE gates and the 12-target/hour objective remain open until measured; do not describe these code fixes as a completed throughput acceptance.
+
+
 ## 2026-09-28 — pause no longer loses Discovery momentum
 - Manual stop now freezes the local run immediately, persists unfinished queued candidates as `paused_unverified` archive/dedupe outcomes, and keeps existing target/rejected/skipped/unavailable outcomes intact.
 - The stopped status block shows an animated archive summary with target/non-target/unavailable/unverified counts and the saved source cursor.

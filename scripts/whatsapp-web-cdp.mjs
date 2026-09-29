@@ -175,9 +175,11 @@ export async function joinWhatsappInviteViaRuntime(
     const response=await client.send('Runtime.evaluate',{
       expression:`(async()=>{
         const timeoutMs=${Math.max(2_000,Math.min(15_000,Number(timeoutMs)||10_000))};
+        let joinedGroupId='';
+        const deadline=Date.now()+timeoutMs;
         const race=(promise,label)=>Promise.race([
           promise,
-          new Promise((_,reject)=>setTimeout(()=>reject(new Error(label+'_timeout')),timeoutMs)),
+          new Promise((_,reject)=>setTimeout(()=>reject(new Error(label+'_timeout')),Math.max(1,deadline-Date.now()))),
         ]);
         try{
           const query=window.require?.('WAWebGroupQueryJob');
@@ -188,13 +190,30 @@ export async function joinWhatsappInviteViaRuntime(
           if(!query?.queryGroupInvite||!invite?.joinGroupViaInvite||!collections?.Chat||!widFactory?.createWid){
             return {ok:false,reason:'direct_join_unavailable'};
           }
-          const pre=await race(query.queryGroupInvite(${JSON.stringify(inviteCode)}),'invite_query');
+          const facts=${JSON.stringify(task.preflightFacts||null)};
+           const pre=facts?{
+             id:facts.groupId,subject:facts.observedName,desc:facts.description,
+             size:facts.memberCount,announce:typeof facts.canWrite==='boolean'?!facts.canWrite:undefined,
+             membershipApprovalMode:facts.approvalRequired,isParentGroup:facts.chatType==='community',
+           }:await race(query.queryGroupInvite(${JSON.stringify(inviteCode)}),'invite_query');
           if(pre?.membershipApprovalMode===true){
             return {ok:false,reason:'approval_required',approvalRequired:true};
           }
-          const joined=await race(invite.joinGroupViaInvite(${JSON.stringify(inviteCode)}),'direct_join');
+          const alreadyJoined=${JSON.stringify(task.membershipState==='joined')};
+           const knownGroupId=${JSON.stringify(String(task.groupId||''))}||String(pre?.id?._serialized||pre?.id||'');
+           if(alreadyJoined&&!knownGroupId)return {ok:false,reason:'joined_identity_missing'};
+           const joins=window.__workOsDiscoveryJoins||(window.__workOsDiscoveryJoins=new Map());
+           const code=${JSON.stringify(inviteCode)};
+           let joining=joins.get(code);
+           if(!alreadyJoined&&!joining){
+             joining=invite.joinGroupViaInvite(code);
+             joins.set(code,joining);
+             joining.catch(()=>{if(joins.get(code)===joining)joins.delete(code);});
+           }
+           const joined=alreadyJoined?{gid:knownGroupId}:await race(joining,'direct_join');
           const gid=String(joined?.gid?._serialized||joined?.gid||pre?.id?._serialized||pre?.id||'');
           if(!gid)return {ok:false,reason:'join_not_confirmed'};
+           joinedGroupId=gid;
           const wid=widFactory.createWid(gid);
           let chat=collections.Chat.get(wid);
           if(!chat&&collections.Chat.find)chat=await race(collections.Chat.find(wid),'chat_find');
@@ -251,7 +270,7 @@ export async function joinWhatsappInviteViaRuntime(
             messages,
           };
         }catch(error){
-          return {ok:false,name:String(error?.name||''),message:String(error?.message||error||'')};
+          return {ok:false,gid:joinedGroupId,name:String(error?.name||''),message:String(error?.message||error||'')};
         }
       })()`,
       returnByValue:true,
@@ -262,8 +281,8 @@ export async function joinWhatsappInviteViaRuntime(
       const message=String(value.message||value.reason||'');
       if(value.reason==='approval_required')return {kind:'blocked',reason:'approval_required'};
       if(/invalid|expired|not-found|gone/iu.test(message))return {kind:'blocked',reason:'invalid_whatsapp_link'};
-      if(/retry|rate|too many|temporar|timeout/iu.test(message))return {kind:'blocked',reason:'whatsapp_join_retry_later'};
-      return {kind:'blocked',reason:String(value.reason||'direct_join_failed'),diagnostic:{name:value.name||'',message}};
+      if(/retry|rate|too many|temporar|timeout/iu.test(message))return {kind:'blocked',reason:'whatsapp_join_retry_later',groupId:String(value.gid||'')};
+      return {kind:'blocked',reason:String(value.reason||'direct_join_failed'),groupId:String(value.gid||''),diagnostic:{name:value.name||'',message}};
     }
     const messages=Array.isArray(value.messages)?value.messages:[];
     const userMessages=messages.filter(item=>{
@@ -274,7 +293,7 @@ export async function joinWhatsappInviteViaRuntime(
     const latestTimestamp=Math.max(0,...userMessages.map(item=>Number(item?.timestamp)||0));
     const nowSeconds=Math.floor(Date.now()/1000);
     let activityState;
-    if(latestTimestamp>0&&nowSeconds-latestTimestamp<=72*60*60)activityState='active';
+    if(isDiscoveryRecentTimestamp(latestTimestamp*1000,nowSeconds*1000))activityState='active';
     else if(latestTimestamp>0&&nowSeconds-latestTimestamp>=14*24*60*60)activityState='dead';
     const recentTexts=userMessages.map(item=>String(item?.body||'')).filter(Boolean).slice(-30);
     const evidence=[value.subject,value.desc,value.parentTitle,value.parentDesc,...recentTexts].join('\n');
@@ -583,6 +602,11 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
             queuedCount:candidates.filter(item=>item?.preflightState==='queued'&&!results[item?.id]&&!skipped.has(item?.id)).length,
             task:candidate?{
               candidateId:candidate.id,
+              runId:String(state?.runId||''),
+              membershipState:candidate.membershipState,
+              groupId:candidate.groupId,
+              checkpoint:candidate.discoveryCheckpoint||null,
+              sources:Array.isArray(candidate.sources)?candidate.sources:[],
               runtime:'whatsapp_web',
               platform:'whatsapp',
               action:'join_and_inspect',
@@ -765,6 +789,8 @@ export async function markWorkOsLocalDiscoveryCandidateViaCdp(
         name:String(task.name||task.expectedTarget?.name||'WhatsApp chat'),
         link:String(task.link||task.expectedTarget?.link||''),
         startedAt:Date.now(),
+        runId:task.runId,
+        checkpoint:task.checkpoint||null,
       }:null;
       const response=await client.send('Runtime.evaluate',{
         expression:`(()=>{
@@ -774,8 +800,17 @@ export async function markWorkOsLocalDiscoveryCandidateViaCdp(
           let state;try{state=JSON.parse(raw);}catch{return {ok:false,reason:'state_invalid'};}
           const active=${JSON.stringify(active)};
           if(active){
+            if(active.runId&&String(state.runId||'')!==active.runId)return {ok:false,reason:'run_replaced'};
             if(!Array.isArray(state.candidates)||!state.candidates.some(item=>item?.id===active.id)){
               return {ok:false,reason:'candidate_missing'};
+            }
+            if(active.checkpoint){
+              const candidate=state.candidates.find(item=>item?.id===active.id);
+              candidate.discoveryCheckpoint=active.checkpoint;
+              if(active.checkpoint.result?.membershipState==='joined'){
+                candidate.membershipState='joined';
+                candidate.groupId=active.checkpoint.result.groupId||candidate.groupId;
+              }
             }
             state.activeCandidateId=active.id;
             state.activeCandidateName=active.name;
@@ -820,6 +855,8 @@ export async function writeWorkOsLocalDiscoveryResultViaCdp(
           const candidates=Array.isArray(state?.candidates)?state.candidates:[];
           const candidate=candidates.find((item)=>item&&item.id===${JSON.stringify(String(candidateId||''))});
           if(!candidate)return {ok:false,reason:'candidate_missing'};
+          const expectedRunId=${JSON.stringify(String(payload?.runId||''))};
+          if(expectedRunId&&String(state.runId||'')!==expectedRunId)return {ok:false,reason:'run_replaced'};
           let persisted;
           try{
             const res=await fetch('/api/chat-discovery/preview',{
@@ -842,6 +879,9 @@ export async function writeWorkOsLocalDiscoveryResultViaCdp(
           }catch{
             return {ok:false,reason:'persist_network_error'};
           }
+          let latest;try{latest=JSON.parse(sessionStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_PREVIEW_KEY)})||'null');}catch{}
+          if(!latest||String(latest.runId||'')!==String(state.runId||''))return {ok:true,persisted,detached:true};
+          state=latest;
           const key=${JSON.stringify(WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY)};
           let results={};try{results=JSON.parse(sessionStorage.getItem(key)||'{}');}catch{}
           results[${JSON.stringify(String(candidateId||''))}]=${JSON.stringify(payload)};
@@ -851,6 +891,12 @@ export async function writeWorkOsLocalDiscoveryResultViaCdp(
           state.activeCandidateName=null;
           state.activeCandidateLink=null;
           state.activeCandidateStartedAt=null;
+          const payload=${JSON.stringify(payload)};
+          state.discoveryMetrics=state.discoveryMetrics||{completed:0,targets:0,totalCheckMs:0,reasons:{}};
+          state.discoveryMetrics.completed+=1;
+          state.discoveryMetrics.targets+=payload.decision==='target'?1:0;
+          state.discoveryMetrics.totalCheckMs+=Number(payload.durationMs)||0;
+          for(const reason of payload.reasonCodes||[])state.discoveryMetrics.reasons[reason]=(state.discoveryMetrics.reasons[reason]||0)+1;
           state.lastCheckedName=String(candidate.name||'WhatsApp chat');
           state.lastCheckedDecision=${JSON.stringify(String(payload?.decision||''))};
           state.lastCheckedAt=${JSON.stringify(Number(payload?.completedAt)||0)}||Date.now();
@@ -1658,12 +1704,22 @@ export function deriveWhatsappQualification(snapshot) {
   };
 }
 
+export function isDiscoveryRecentTimestamp(timestampMs,nowMs=Date.now()){
+  if(!Number.isFinite(timestampMs)||timestampMs<=0||timestampMs>nowMs+300000)return false;
+  const formatter=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Kyiv',year:'numeric',month:'2-digit',day:'2-digit'});
+  const day=value=>formatter.format(new Date(value));
+  const parts=formatter.formatToParts(new Date(nowMs));
+  const n=type=>Number(parts.find(p=>p.type===type)?.value);
+  const yesterday=day(Date.UTC(n('year'),n('month')-1,n('day')-1,12));
+  return day(timestampMs)===day(nowMs)||day(timestampMs)===yesterday;
+}
+
 function inferMessageActivity(meta, nowMs, locale) {
   const stamps = meta.map((value) => parseMessageTimestamp(value, nowMs, locale)).filter((value) => Number.isFinite(value));
   if (!stamps.length) return undefined;
   const latest = Math.max(...stamps);
   const ageMs = Math.max(0, nowMs - latest);
-  if (ageMs <= 72 * 60 * 60 * 1000) return 'active';
+  if (isDiscoveryRecentTimestamp(latest,nowMs)) return 'active';
   if (ageMs >= 14 * 24 * 60 * 60 * 1000) return 'dead';
   return undefined;
 }
@@ -1964,7 +2020,8 @@ async function createCdpClient(url) {
     send(method, params = {}) {
       const id = ++nextId;
       return new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject });
+        const timer=setTimeout(()=>{pending.delete(id);reject(new Error('CDP command timeout: '+method));},60000);
+        pending.set(id, { resolve:value=>{clearTimeout(timer);resolve(value);}, reject:error=>{clearTimeout(timer);reject(error);} });
         socket.send(JSON.stringify({ id, method, params }));
       });
     },

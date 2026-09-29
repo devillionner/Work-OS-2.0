@@ -1,3 +1,10 @@
+## 2026-09-29 — Discovery recovery supersedes earlier pause semantics
+- Pause preserves not-yet-checked candidates in the local queue; it must not create unavailable outcomes merely because the operator stopped the run. Factual rejected/skipped results remain archive/dedupe anchors.
+- Temporarily incomplete qualification receives bounded retries without repeated joins. Exhausted/incomplete outcomes expose explicit operator recovery and must not masquerade as a factual audience mismatch.
+- A target requires Ukrainian audience, 700–18,000 members, write permission, sufficient ad-policy evidence, and observed activity today or yesterday in Europe/Kyiv.
+- Performance objective: at least 12 newly confirmed targets per hour on a measured acceptance run, reporting intervals and factual rejection reasons. Query counts and raw invite counts do not prove this outcome.
+- Keep established outcome persistence/dedupe; do not introduce periodic archive scans or production changes.
+
 
 ## 2026-09-28 — Discovery pause / resume semantics
 - Manual pause is non-destructive: factual targets remain in the manual-review queue; rejected/skipped/unavailable outcomes remain durable dedupe anchors.

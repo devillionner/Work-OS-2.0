@@ -1,3 +1,10 @@
+## 2026-09-29 — GO-LIVE-04/06/08 reliability package
+- Implemented bounded retries, joined-chat reinspection, persistence-only retry, shared runtime deadline, current-state result merge, non-destructive pause and explicit incomplete-result recovery.
+- Implemented empty-directory web fallback, successful-read source dedupe, graph outcome feedback and candidate timing/reason metrics.
+- Seven focused behavioral regressions passed in memory; syntax checks passed. Full verify:local not executed.
+- [ ] Exact staging identity, refreshed runtime and real target acceptance.
+- [ ] Measured one-hour yield of 12 new factual targets; no guarantee or gate closure inferred from code/test results.
+
 # Work OS 2.0 — поетапний roadmap
 
 Оновлено: 2026-09-25. Обсяг і статус кожної вимоги — у [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md). Етап завершується за доказами приймання, а не за наявністю екрана. Працюємо напряму в `main` невеликими комітами. Для staging діє Cloudflare Workers Builds: кожен новий push у `main` проходить production build через `npm run verify`, staging-only guard і автоматичний deploy у `work-os-2-staging`. Повний `verify:local` (lint → typecheck → full tests → build) є окремим pre-release gate і не дублюється всередині Workers Builds. Production лишається окремою явною операцією й не оновлюється цим pipeline. Ручний workflow лишається recovery/fallback, але активний пріоритет визначається functional value: WhatsApp/Discovery automation має скорочувати реальну операторську роботу; AI-генерація не випереджає цей functional automation baseline.

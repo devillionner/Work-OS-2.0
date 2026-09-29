@@ -32,6 +32,7 @@ type LocalPreviewSession = {
   sourceFailures:number;
   sourceIssues:Array<{reason:string;query:string}>;
   telegramCursor:number;
+  discoveryMetrics?:{completed:number;targets:number;totalCheckMs:number;reasons:Record<string,number>};
   sourceCursor:number;
   searched:number;
   processed:number;
@@ -328,101 +329,52 @@ export function ChatDiscoveryDialog({
 
   async function stopAutonomousSearch(){
     if(telegramBusy)return;
-    setTelegramBusy(true);
     setPausing(true);
-    setError('');
-    setNotice('');
-    const snapshot=readLocalPreviewSession();
-    const stoppedAt=Date.now();
-    const stoppedNow:LocalPreviewSession={
-      ...snapshot,
-      running:false,
-      lastActivityAt:stoppedAt,
+    const current=readLocalPreviewSession();
+    const candidates=current.candidates;
+    const stopped:LocalPreviewSession={
+      ...current,running:false,activeCandidateId:null,activeCandidateName:null,
+      activeCandidateLink:null,activeCandidateStartedAt:null,lastActivityAt:Date.now(),
+      pauseSummary:{
+        at:Date.now(),cursor:current.telegramCursor,
+        targets:candidates.filter(c=>c.preflightState==='target').length,
+        rejected:candidates.filter(c=>c.preflightState==='rejected').length,
+        skipped:candidates.filter(c=>c.preflightState==='skipped').length,
+        unavailable:candidates.filter(c=>c.preflightState==='unavailable').length,
+        unverified:candidates.filter(c=>c.preflightState==='queued').length,
+        archiveFailed:0,
+      },
     };
-    try{window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(stoppedNow));}catch{}
-    setLocalPreview(stoppedNow);
-    window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
-
-    const queued=snapshot.candidates.filter(candidate=>candidate.preflightState==='queued');
-    const archivedIds=new Set<string>();
-    let archiveFailed=0;
     try{
-      const results=await Promise.allSettled(queued.map(async candidate=>{
-        await postPreview({
-          action:'persist-outcome',
-          platform:candidate.platform,
-          link:candidate.link,
-          name:candidate.name,
-          sources:candidate.sources,
-          minMembers,
-          outcome:{
-            decision:'unavailable',
-            reasonCodes:['paused_unverified'],
-            result:{
-              status:'incomplete',
-              reason:'paused_unverified',
-              accessible:null,
-              targetVerified:false,
-              membershipState:candidate.membershipState,
-              observedName:candidate.name,
-              chatType:candidate.chatType,
-              memberCount:candidate.memberCount,
-              topicMatch:candidate.topicMatch,
-              canWrite:candidate.canWrite,
-              adsPolicy:candidate.adsPolicy,
-              activityState:candidate.activityState,
-            },
-            completedAt:Math.floor(Date.now()/1000),
-          },
-        });
-        return candidate.id;
-      }));
-      results.forEach(result=>{
-        if(result.status==='fulfilled')archivedIds.add(result.value);
-        else archiveFailed+=1;
-      });
-
-      const latest=readLocalPreviewSession();
-      const candidates=latest.candidates.map(candidate=>
-        archivedIds.has(candidate.id)&&candidate.preflightState==='queued'
-          ? {...candidate,preflightState:'unavailable' as const,preflightReasonCodes:['paused_unverified']}
-          : candidate
-      );
-      const rejected=candidates.filter(candidate=>candidate.preflightState==='rejected').length;
-      const skipped=candidates.filter(candidate=>candidate.preflightState==='skipped').length;
-      const unavailable=candidates.filter(candidate=>candidate.preflightState==='unavailable'&&!archivedIds.has(candidate.id)).length;
-      const targets=candidates.filter(candidate=>candidate.preflightState==='target').length;
-      const pauseSummary={
-        at:Date.now(),
-        cursor:latest.telegramCursor,
-        targets,
-        rejected,
-        skipped,
-        unavailable,
-        unverified:archivedIds.size,
-        archiveFailed,
-      };
-      const stopped:LocalPreviewSession={
-        ...latest,
-        candidates,
-        running:false,
-        pauseSummary,
-        activeCandidateId:null,
-        activeCandidateName:null,
-        activeCandidateLink:null,
-        activeCandidateStartedAt:null,
-        lastActivityAt:pauseSummary.at,
-      };
-      try{window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(stopped));}catch{}
+      window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(stopped));
       setLocalPreview(stopped);
       window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
-      setNotice(archiveFailed
-        ? `Автопошук зупинено. ${archiveFailed} кандидат(ів) не вдалося заархівувати — при продовженні вони можуть перевіритися ще раз.`
-        : '');
-    }finally{
-      setPausing(false);
-      setTelegramBusy(false);
-    }
+      setNotice('Пошук зупинено. Неперевірені чати збережено в черзі; завершені результати не повторюються.');
+    }catch{setError('Не вдалося зберегти паузу.');}
+    finally{setPausing(false);}
+  }
+
+  function retryIncompleteCandidate(candidate:DiscoveryCandidate){
+    if(localPreview.running||telegramBusy)return;
+    const recovered:LocalDiscoveryPreview={
+      ...candidate,localOnly:true,preflightState:'queued',preflightReasonCodes:[],
+      decision:'review',reasonCodes:[],
+    };
+    const current=readLocalPreviewSession();
+    const next:LocalPreviewSession={
+      ...current,done:false,completionReason:null,
+      candidates:[...current.candidates.filter(c=>c.id!==candidate.id),recovered],
+      pauseSummary:{at:Date.now(),cursor:current.telegramCursor,targets:0,rejected:0,
+        skipped:0,unavailable:0,unverified:1,archiveFailed:0},
+    };
+    try{
+      const results=JSON.parse(window.sessionStorage.getItem(LOCAL_PREFLIGHT_RESULTS_KEY)||'{}');
+      delete results[candidate.id];
+      window.sessionStorage.setItem(LOCAL_PREFLIGHT_RESULTS_KEY,JSON.stringify(results));
+      window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(next));
+      setLocalPreview(next);
+      setNotice('Кандидат повернуто в чергу. Натисни «Продовжити автопошук». Уже приєднаний чат перевірятиметься без повторного вступу.');
+    }catch{setError('Не вдалося відновити кандидата.');}
   }
 
   async function addLocalTargetsToJoin(){
@@ -704,7 +656,7 @@ export function ChatDiscoveryDialog({
   const activeCandidateName=String(localPreview.activeCandidateName||'').trim();
   const pauseSummary=localPreview.pauseSummary;
   const pauseArchivedTotal=pauseSummary
-    ? pauseSummary.rejected+pauseSummary.skipped+pauseSummary.unavailable+pauseSummary.unverified
+    ? pauseSummary.rejected+pauseSummary.skipped+pauseSummary.unavailable
     : 0;
   const lastCheckedDecisionLabel=localPreview.lastCheckedDecision==='target'?'цільовий'
     :localPreview.lastCheckedDecision==='rejected'?'відхилений'
@@ -777,6 +729,9 @@ export function ChatDiscoveryDialog({
                 {' · '}короткими пакетами
                 {lastRunActivitySeconds!==null&&<>{' · '}остання активність {lastRunActivitySeconds<5?'щойно':`${lastRunActivitySeconds} с тому`}</>}
               </div>}
+              {localPreview.discoveryMetrics&&localPreview.discoveryMetrics.completed>0&&<div className="mt-1 text-xs text-muted-foreground">
+                Завершено {localPreview.discoveryMetrics.completed} перевірок · середній час з повторними спробами {Math.round(localPreview.discoveryMetrics.totalCheckMs/localPreview.discoveryMetrics.completed/1000)} с · цільових {localPreview.discoveryMetrics.targets}
+              </div>}
               {localPreview.lastCheckedName&&<div className="mt-1 text-xs text-muted-foreground">
                 Остання WhatsApp-перевірка: <strong className="text-foreground/80">{localPreview.lastCheckedName}</strong>
                 {lastCheckedDecisionLabel&&<>{' · '}<span className="font-semibold text-foreground/70">{lastCheckedDecisionLabel}</span></>}
@@ -790,7 +745,7 @@ export function ChatDiscoveryDialog({
                       В архіві <strong className="text-foreground/80">{pauseArchivedTotal}</strong>
                       {' · '}нецільові {pauseSummary.rejected}
                       {' · '}недоступні/пропущені {pauseSummary.unavailable+pauseSummary.skipped}
-                      {pauseSummary.unverified>0&&<>{' · '}не встигли перевірити {pauseSummary.unverified}</>}
+                      {pauseSummary.unverified>0&&<>{' · '}збережено в черзі {pauseSummary.unverified}</>}
                       {pauseSummary.targets>0&&<>{' · '}цільові лишились {pauseSummary.targets}</>}
                     </div>
                     <div className="mt-0.5 text-[11px] text-muted-foreground/80">
@@ -1077,6 +1032,9 @@ export function ChatDiscoveryDialog({
                         <details className="group">
                           <summary className="cursor-pointer select-none rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">Ручні дії</summary>
                           <div className="mt-2 flex flex-wrap gap-2">
+                            {!candidate.importedChatId && candidate.decision==='unavailable'
+                              &&candidate.reasonCodes.some(reason=>['qualification_incomplete','paused_unverified','retry_exhausted'].includes(reason))
+                              &&<Button type="button" variant="outline" disabled={localPreview.running||telegramBusy} onClick={()=>retryIncompleteCandidate(candidate)}>Повторити перевірку</Button>}
                             {!candidate.importedChatId && candidate.decision === 'review' &&
                               <Button type="button" size="sm" variant="outline" disabled={inspectingId !== null} onClick={() => void markInviteInvalid(candidate)}>
                                 {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
@@ -1247,6 +1205,7 @@ function readLocalPreviewSession():LocalPreviewSession{
       :[];
     return {
       runId:typeof value.runId==='string'?value.runId:undefined,
+      discoveryMetrics:value.discoveryMetrics,
       sourceTotal:safeNonNegativeInt(value.sourceTotal),
       sourceErrors:safeNonNegativeInt(value.sourceErrors),
       sourceFailures:safeNonNegativeInt(value.sourceFailures),
@@ -1431,6 +1390,8 @@ function reasonLabel(value: string) {
     all_required_confirmed: 'усі критерії підтверджені',
     approval_required:'потрібне схвалення адміністратора',
     whatsapp_join_retry_later:'WhatsApp просить спробувати вступ пізніше',
+    retry_exhausted:'ліміт технічних спроб вичерпано; доступна повторна перевірка',
+    paused_unverified:'перевірку раніше перервала пауза',
     qualification_incomplete:'після повторних спроб частина критеріїв лишилась невідомою',
     invite_query_failed:'не вдалося прочитати дані запрошення',
     page_not_ready:'WhatsApp не завершив завантаження',
