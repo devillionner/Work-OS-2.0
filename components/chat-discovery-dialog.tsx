@@ -13,6 +13,7 @@ import type { DiscoveryPlatform, TelegramSearchPlan } from '@/lib/chat-discovery
 import type { LocalDiscoveryPreview } from '@/lib/chat-discovery/local-preview';
 import chatDiscoverySeeds from '@/lib/chat-discovery/seeds';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
+import { resetDiscoveryRetryCheckpoint } from '@/lib/chat-discovery/retry-state';
 
 type Workspace = {
   run: DiscoveryRun | null;
@@ -361,11 +362,13 @@ export function ChatDiscoveryDialog({
 
   function retryIncompleteCandidate(candidate:DiscoveryCandidate){
     if(localPreview.running||telegramBusy)return;
-    const recovered:LocalDiscoveryPreview={
-      ...candidate,localOnly:true,preflightState:'queued',preflightReasonCodes:[],
-      decision:'review',reasonCodes:[],
-    };
     const current=readLocalPreviewSession();
+    const storedCandidate=current.candidates.find(item=>item.id===candidate.id)||candidate;
+    const recovered={
+      ...storedCandidate,localOnly:true,preflightState:'queued',preflightReasonCodes:[],
+      decision:'review',reasonCodes:[],
+      discoveryCheckpoint:resetDiscoveryRetryCheckpoint(storedCandidate),
+    } as LocalDiscoveryPreview;
     const next:LocalPreviewSession={
       ...current,done:false,completionReason:null,
       candidates:[...current.candidates.filter(c=>c.id!==candidate.id),recovered],

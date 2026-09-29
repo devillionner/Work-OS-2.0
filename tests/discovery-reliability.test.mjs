@@ -148,3 +148,39 @@ test('missing direct-join module falls back to factual UI inspection',async()=>{
   assert.equal(h.writes[0].decision,'target');
   assert.equal(h.joins.length,1);
 });
+
+
+test('retry checkpoint drops stale final while preserving joined identity',async()=>{
+  const {resetDiscoveryRetryCheckpoint}=await import('../lib/chat-discovery/retry-state.ts?retry='+Date.now());
+  const checkpoint=resetDiscoveryRetryCheckpoint({
+    membershipState:'joined',
+    groupId:'120363401562375830@g.us',
+    discoveryCheckpoint:{
+      attempts:3,
+      lastReason:'whatsapp_messages_loading',
+      result:{memberCount:702,topicMatch:'match',canWrite:true},
+      final:{decision:'unavailable',result:{
+        membershipState:'joined',groupId:'old@g.us',memberCount:702,topicMatch:'match',
+        canWrite:true,adsPolicy:'unknown',activityState:'unknown',
+      }},
+    },
+  },123456);
+  assert.equal(checkpoint.attempts,0);
+  assert.equal(checkpoint.startedAt,123456);
+  assert.deepEqual(checkpoint.stageMs,{});
+  assert.equal(checkpoint.result.membershipState,'joined');
+  assert.equal(checkpoint.result.groupId,'120363401562375830@g.us');
+  assert.equal(checkpoint.result.memberCount,702);
+  assert.equal('final' in checkpoint,false);
+  assert.equal('lastReason' in checkpoint,false);
+});
+
+test('UI retry uses the reset checkpoint instead of replaying a saved final outcome',()=>{
+  const ui=readFileSync(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  const start=ui.indexOf('function retryIncompleteCandidate');
+  const end=ui.indexOf('async function addLocalTargetsToJoin',start);
+  const block=ui.slice(start,end);
+  assert.match(block,/storedCandidate=current\.candidates\.find/);
+  assert.match(block,/resetDiscoveryRetryCheckpoint\(storedCandidate\)/);
+  assert.match(block,/delete results\[candidate\.id\]/);
+});
