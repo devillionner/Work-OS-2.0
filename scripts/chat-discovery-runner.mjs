@@ -344,7 +344,9 @@ async function localRunStillActive(task){
 async function processLocalPreflight(task){
   if(task.checkpoint?.final)return completeLocalPreflight(task,task.checkpoint.final);
   const prior=task.checkpoint?.result;
-  let pre=prior?.membershipState==='joined'?prior:null;
+  const joinedPrior=prior?.membershipState==='joined'?prior:null;
+  const knownJoinedGroupId=String(joinedPrior?.groupId||task.groupId||'').trim();
+  let pre=joinedPrior&&knownJoinedGroupId?{...joinedPrior,groupId:knownJoinedGroupId}:null;
   if(!pre){
     let queried;
     const metadataStartedAt=Date.now();
@@ -362,6 +364,14 @@ async function processLocalPreflight(task){
       return deferLocalPreflight(task,queried.reason||'metadata_query_unavailable');
     }
     pre=queried.result;
+    if(joinedPrior){
+      pre={
+        ...pre,
+        membershipState:'joined',
+        groupId:pre.groupId||knownJoinedGroupId||task.groupId,
+        ...(joinedPrior.joinedAt?{joinedAt:joinedPrior.joinedAt}:{}),
+      };
+    }
   }
   if(pre.reason==='invalid_whatsapp_link'){
     return completeLocalPreflight(task,{decision:'unavailable',reasonCodes:['invalid_whatsapp_link'],result:pre});

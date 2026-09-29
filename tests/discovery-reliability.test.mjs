@@ -234,3 +234,43 @@ test('visible message older than today-or-yesterday is factual inactivity',()=>{
   assert.match(block,/else if\(latestTimestamp>0\)activityState='dead'/);
   assert.doesNotMatch(block,/14\*24\*60\*60/);
 });
+
+
+test('joined recovery without groupId refreshes invite metadata before inspection and never rejoins',async()=>{
+  let checkpoint={attempts:0,startedAt:Date.now(),result:{
+    membershipState:'joined',memberCount:702,topicMatch:'match',canWrite:true,
+    adsPolicy:'unknown',activityState:'unknown',joinedAt:Date.now()-60000,
+  }};
+  const joins=[],queries=[];
+  const deps={
+    POST_JOIN_EVIDENCE_RECHECK_MS:300000,
+    baseUrl:'test',whatsappCdp:'test',console:{log(){},warn(){}},
+    markWorkOsLocalDiscoveryCandidateViaCdp:async(_url,task)=>{if(task?.checkpoint)checkpoint=task.checkpoint;return {kind:'result'};},
+    writeWorkOsLocalDiscoveryResultViaCdp:async()=>({kind:'result'}),
+    readWorkOsLocalDiscoveryTaskViaCdp:async()=>({kind:'result',active:true,runId:'r'}),
+    updateWorkOsLocalDiscoverySourceFeedbackViaCdp:async()=>({kind:'result'}),
+    sourceFeedbackRefreshAt:0,
+    recordDiscoverySourceOutcome(){},clearTaskBlock(){},markTaskBlocked(){},
+    queryWhatsappInviteViaCdp:async task=>{queries.push(task);return {kind:'result',result:{
+      groupId:'recovered@g.us',memberCount:702,topicMatch:'match',chatType:'group',canWrite:true,
+      observedName:'Загальний',accessible:true,targetVerified:true,
+    }};},
+    inspectWhatsappTaskViaCdp:async()=>({kind:'blocked',reason:'should_not_fallback'}),
+    leaveWhatsappGroupViaRuntime:async()=>{throw Error('must not leave waiting joined chat');},
+    joinWhatsappInviteViaRuntime:async task=>{joins.push(task);return {kind:'result',result:{
+      membershipState:'joined',groupId:task.groupId,memberCount:702,topicMatch:'match',
+      chatType:'group',canWrite:true,accessible:true,targetVerified:true,status:'inspected',
+      joinedAt:task.preflightFacts?.joinedAt||Date.now(),recentMessageCount:0,
+    }};},
+  };
+  const code=runner.slice(runner.indexOf('function evaluateLocalPreflight'),runner.indexOf('async function resolveLocalSourceSeedData'));
+  const ctx=vm.createContext({...deps,Date});
+  vm.runInContext(code+';globalThis.run=processLocalPreflightVisible;',ctx);
+  await ctx.run({candidateId:'joined-no-gid',runId:'r',name:'Загальний',membershipState:'joined',checkpoint});
+  assert.equal(queries.length,1);
+  assert.equal(joins.length,1);
+  assert.equal(joins[0].membershipState,'joined');
+  assert.equal(joins[0].groupId,'recovered@g.us');
+  assert.equal(checkpoint.lastReason,'waiting_post_join_evidence');
+  assert.equal(checkpoint.attempts,0);
+});
