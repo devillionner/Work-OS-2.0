@@ -94,7 +94,7 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,fina
   const selected=items.find(item=>item.id===selectedId)||null;
   const text=selected?(language==='ru'?selected.ruText||selected.ukText:selected.ukText||selected.ruText):'';
   const publicationLanguage=selected?(language==='ru'&&selected.ruText?'ru':selected.ukText?'uk':selected.ruText?'ru':null):null;
-  const profileRequired=Boolean(chat&&!chat.profileConfirmed&&!quickMode);
+  const profileRequired=Boolean(chat&&!chat.profileConfirmed&&!quickMode&&chat.platform!=='viber');
 
   function selectItem(item:AdvertisementItem){
     if(!item.selectable)return;
@@ -143,7 +143,7 @@ export function ChatPublishDialog({open,chat,onClose,onPublished,onOpenChat,fina
       {notice&&<output className="reports-notice">{notice}</output>}
       {chat&&<>
         <div className="chat-publish-chat"><strong>{chat.name}</strong><span>{chat.link}</span><Button type="button" variant="outline" size="sm" disabled={busy} onClick={onOpenChat}><ExternalLink data-icon="inline-start"/>Відкрити чат</Button></div>
-        {!chat.profileConfirmed&&<output className="chat-publish-warning">{quickMode?'Профіль чату ще не підтверджено. Швидкий режим дозволяє термінову ручну публікацію без автоматичного підтвердження правил; чат залишиться в черзі уточнення профілю.':'Звичайна публікація потребує підтвердженого профілю. Закрийте це вікно й уточніть правила чату або для WhatsApp/Viber свідомо увімкніть швидкий режим.'}</output>}
+        {!chat.profileConfirmed&&chat.platform!=='viber'&&<output className="chat-publish-warning">{quickMode?'Профіль чату ще не підтверджено. Швидкий режим дозволяє термінову ручну публікацію без автоматичного підтвердження правил; чат залишиться в черзі уточнення профілю.':'Звичайна публікація потребує підтвердженого профілю. Закрийте це вікно й уточніть правила чату або для WhatsApp/Viber свідомо увімкніть швидкий режим.'}</output>}
         {focusPlan&&<section className="chat-publish-focus" aria-label="Фокус підбору">
           <div><strong>Активний фокус</strong><span>{focusPlan.currentDirections.length?focusPlan.currentDirections.join(' · '):'Без обмеження напрямків'}</span></div>
           <div><strong>Поточний план</strong><span>{focusPlan.planDirections.length?focusPlan.planDirections.join(' · '):'Без обмеження напрямків'}</span><small>{focusPlan.planCreatedAt?`${focusPlan.source==='workday'?'Створено / оновлено':'Оновлено'} ${new Date(focusPlan.planCreatedAt*1000).toLocaleString('uk-UA')}`:'Ще не зафіксовано'}</small></div>
