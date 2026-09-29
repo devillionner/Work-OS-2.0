@@ -476,10 +476,12 @@ void test('Telegram source crawl avoids repeated expensive directory work',async
   const source=await readFile(new URL('../scripts/chat-discovery-source-crawl.mjs',import.meta.url),'utf8');
   assert.match(source,/const MAX_TELEGRAM_HISTORY_PAGES=2/);
   assert.match(source,/const MAX_GRAPH_SOURCES_PER_STEP=2/);
+  assert.match(source,/const MAX_DIRECTORY_RESULTS=6/);
   assert.match(source,/const directorySearchCache=new Map\(\)/);
   assert.match(source,/const directoryResultVisited=new Set\(\)/);
   assert.match(source,/Promise\.allSettled\(directoryQueries\.map/);
-  assert.match(source,/!directoryAnswered&&Date\.now\(\)>=searchBlockedUntil/);
+  assert.match(source,/task\.query\+' WhatsApp'/);
+  assert.match(source,/!sources\.length&&Date\.now\(\)>=searchBlockedUntil/);
 });
 
 void test('real workbook fast lane prioritizes large diaspora markets before exhaustive tail',()=>{
@@ -533,4 +535,27 @@ void test('joined community subgroup inherits factual parent topic evidence',asy
   assert.match(block,/parentCommunityDescription/);
   assert.match(block,/value\.parentTitle/);
   assert.match(block,/sourceWasCommunity:value\.preIsParentGroup===true\|\|Boolean\(value\.parentId\)/);
+});
+
+
+void test('Telegram directory prioritizes Ukrainian WhatsApp-aware sources and drops unrelated city noise',()=>{
+  const html=[
+    '<div class="snippet"><a href="/real_madrid_en/1">Real Madrid WhatsApp Madrid</a></div>',
+    '<div class="snippet"><a href="/munchen_ukraine_doch">Українці Мюнхен WhatsApp</a></div>',
+    '<div class="snippet"><a href="/infohelpbcn/7">Українці Барселона chat.whatsapp.com</a></div>',
+  ].join('');
+  const ranked=rankTelegramDirectoryResults(html,'Мюнхен');
+  assert.equal(ranked.some(url=>url.includes('real_madrid_en')),false);
+  assert.ok(ranked.some(url=>url.includes('munchen_ukraine_doch')));
+  assert.ok(ranked.some(url=>url.includes('infohelpbcn')));
+});
+
+void test('source feedback rewards viable-size writable supply even while factual qualification is incomplete',async()=>{
+  const module=await import('../scripts/chat-discovery-source-crawl.mjs?feedback='+Date.now());
+  const sourceUrl='https://t.me/s/viable_feedback_test';
+  module.discoverRelatedTelegramSources('<a href="https://t.me/viable_feedback_test">Українці community</a>','https://t.me/s/root','Test','Українці');
+  assert.doesNotThrow(()=>module.recordDiscoverySourceOutcome(
+    [{sourceUrl}], 'unavailable', ['qualification_incomplete','unknown_ads_allowed'],
+    {memberCount:900,canWrite:true,topicMatch:'match',activityState:'active'}
+  ));
 });

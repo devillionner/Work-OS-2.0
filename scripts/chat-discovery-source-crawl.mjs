@@ -26,7 +26,7 @@ const UA = /(?:україн|украин|ukrain|ukraiń|ukrajin|ucrain|ucran|oek
 const SPAM = /(?:crypto|bitcoin|forex|casino|казино|betting|dating|escort|onlyfans|nft|airdrop|signals?\b|قروبات|روابط\s+مجموعات|مجموعات\s+واتساب|technical\s+support)/iu;
 const MAX_TELEGRAM_HISTORY_PAGES=2;
 const MAX_SEARCH_SOURCES=5;
-const MAX_DIRECTORY_RESULTS=4;
+const MAX_DIRECTORY_RESULTS=6;
 const MAX_GRAPH_SOURCES_PER_STEP=2;
 const SEARCH_BLOCK_COOLDOWN_MS=5*60*1000;
 const SEARCH_RETRY_COOLDOWN_MS=30*1000;
@@ -34,11 +34,19 @@ const telegramGraph=new Map();
 const crawledTelegramSources=new Set();
 const graphInFlight=new Set();
 const sourceOutcomeScores=new Map();
-export function recordDiscoverySourceOutcome(sources,decision,reasons=[]) {
+export function recordDiscoverySourceOutcome(sources,decision,reasons=[],result={}) {
+  const memberCount=Number(result?.memberCount);
+  const viableSize=Number.isFinite(memberCount)&&memberCount>=700&&memberCount<=18000;
+  const hardReject=reasons.some(reason=>['too_few_members','too_many_members','cannot_write','ads_forbidden','topic_mismatch','invalid_whatsapp_link'].includes(reason));
+  const usableSignal=viableSize&&result?.canWrite!==false&&!hardReject;
   for(const source of sources||[]){
     const key=normalizeTelegramPreview(source.sourceUrl||'');
     if(!key)continue;
-    const delta=decision==='target'?60:reasons.includes('too_few_members')||reasons.includes('cannot_write')?-12:decision==='rejected'?-6:0;
+    const delta=decision==='target'?80
+      :reasons.includes('too_few_members')||reasons.includes('cannot_write')?-20
+      :reasons.includes('invalid_whatsapp_link')?-12
+      :usableSignal?24
+      :decision==='rejected'?-8:0;
     sourceOutcomeScores.set(key,Math.max(-120,Math.min(240,(sourceOutcomeScores.get(key)||0)+delta)));
     const queued=telegramGraph.get(key);
     if(queued)queued.score+=delta;
@@ -324,8 +332,12 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
       // the WhatsApp invite directly.
       let directoryAnswered=false;
       if(sources.length<8){
-        const directoryQueries=[...new Set([task.query,task.place]
-          .map(item=>String(item||'').trim()).filter(Boolean))].slice(0,2);
+        const directoryQueries=[...new Set([
+          /whatsapp/iu.test(task.query)?task.query:task.query+' WhatsApp',
+          task.query,
+          task.place?task.place+' WhatsApp':'',
+          task.place,
+        ].map(item=>String(item||'').trim()).filter(Boolean))].slice(0,3);
         attempted+=directoryQueries.length;
         const directoryBatches=await Promise.allSettled(directoryQueries.map(async directoryQuery=>{
           const cacheKey=directoryQuery.toLocaleLowerCase('uk-UA');
@@ -432,11 +444,17 @@ export function rankTelegramDirectoryResults(html,place='') {
     if(blocked.has(lower)||/_bot$/iu.test(username)||seen.has(username+'|'+postId))continue;
     const context=searchResultContext(decoded,match.index||0);
     if(SPAM.test(context))continue;
+    const identity=context+' '+username;
+    const uaSignal=UA.test(identity)||/(?:ukrain|ukr|[_-]ua|ua[_-]|diaspora|refuge|біжен|переселен)/iu.test(identity);
+    if(!uaSignal)continue;
+    const placeSignal=Boolean(place&&new RegExp(escapeRegExp(place),'iu').test(identity));
+    const whatsappSignal=/(?:chat\.whatsapp\.com|\bwhatsapp\b)/iu.test(context);
     let score=100-order++;
-    if(UA.test(context)||UA.test(username))score+=35;
-    if(place&&new RegExp(escapeRegExp(place),'iu').test(context+' '+username))score+=30;
-    if(/(?:ukrain|ukr|[_-]ua|ua[_-]|diaspora|help|refuge|біжен|допомог|оголош|transport|перевез)/iu.test(context+' '+username))score+=18;
-    if(postId)score+=8; else score+=20;
+    score+=45;
+    if(placeSignal)score+=35;
+    if(whatsappSignal)score+=55;
+    if(/(?:help|допомог|оголош|community|громад|transport|перевез|батьк|мамоч|барахол)/iu.test(identity))score+=18;
+    if(postId)score+=10; else score+=20;
     seen.add(username+'|'+postId);
     ranked.push({url:'https://tg.me/'+username+(postId?'/'+postId:''),score});
   }

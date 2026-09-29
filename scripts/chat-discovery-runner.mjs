@@ -245,7 +245,7 @@ async function completeLocalPreflight(task,payload){
     return 'local_task';
   }
   clearTaskBlock(task);
-  recordDiscoverySourceOutcome(task.sources,final.decision,final.reasonCodes);
+  recordDiscoverySourceOutcome(task.sources,final.decision,final.reasonCodes,final.result);
   console.log('Discovery outcome '+JSON.stringify({candidateId:task.candidateId,name:final.result?.observedName||task.name,
     decision:final.decision,reasons:final.reasonCodes,attempts:checkpoint.attempts,durationMs:final.durationMs}));
   return 'local_task';
@@ -369,7 +369,7 @@ async function crawlLocalDiscoveryBatch(cursor){
     const reason=error instanceof Error?error.message:String(error);
     return {searched:0,nextCursor:start,done:false,totalTasks:0,errors:[{cursor:start,query:'План пошуку Work OS',reason}],query:'План пошуку Work OS',sources:[]};
   }
-  const width=start>=15?3:1;
+  const width=3;
   const batches=await Promise.all(Array.from({length:width},(_,index)=>crawlLocalDiscoverySource(start+index,{seedData})));
   const errors=batches.flatMap(item=>item.errors||[]);
   const warnings=batches.flatMap(item=>item.warnings||[]);
