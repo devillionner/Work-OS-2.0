@@ -107,6 +107,24 @@ const directorySearchCache=new Map();
 const directoryResultVisited=new Set();
 let graphSeedPromise=null;
 let searchBlockedUntil=0;
+let searchQueue=Promise.resolve();
+async function fetchSearchText(url,fetcher){
+  const previous=searchQueue;
+  let release;
+  searchQueue=new Promise(resolve=>{release=resolve;});
+  await previous;
+  try{
+    if(Date.now()<searchBlockedUntil)throw new Error('search_cooldown');
+    return await fetchText(url,fetcher,12000,350000);
+  }catch(error){
+    const reason=String(error?.message||error);
+    if(reason!=='search_cooldown'){
+      const blocked=/search_rate_limited|search_blocked|source_http_429/iu.test(reason);
+      searchBlockedUntil=Math.max(searchBlockedUntil,Date.now()+(blocked?SEARCH_BLOCK_COOLDOWN_MS:SEARCH_RETRY_COOLDOWN_MS));
+    }
+    throw error;
+  }finally{release();}
+}
 
 export function workbookSearchPlan(seed) {
   const unsupported=/(назва села|назва селища|район міста|назва района|назва області|пункту пропуску|навчального закладу|назва жк|слово пошук)/iu;
@@ -451,7 +469,7 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
             const search=new URL(SEARCH_URL);
             search.searchParams.set('q','site:t.me '+searchQuery);
             search.searchParams.set('source','web');
-            const html=await fetchText(search.toString(),fetcher,12000,350000);
+            const html=await fetchSearchText(search.toString(),fetcher);
             const candidates=rankTelegramSources(html,task.place).map(telegramWhatsAppSearchPreview).filter(url=>url&&!seen.has(url)&&!sourceIsTemporarilySaturated(url)).slice(0,MAX_SEARCH_SOURCES);
             for(const url of candidates)seen.add(url);
             const pages=await Promise.allSettled(candidates.map(url=>telegramSource(url,searchQuery,task.place,fetcher)));
@@ -463,7 +481,7 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
             const reason=error instanceof Error?error.message:String(error);
             searchFailureReason=reason||'search_failed';
             const blocked=/(?:search_rate_limited|search_blocked|source_http_429|too many requests|captcha|verify (?:that )?you are human)/iu.test(searchFailureReason);
-            searchBlockedUntil=Date.now()+(blocked?SEARCH_BLOCK_COOLDOWN_MS:SEARCH_RETRY_COOLDOWN_MS);
+            searchBlockedUntil=Math.max(searchBlockedUntil,Date.now()+(blocked?SEARCH_BLOCK_COOLDOWN_MS:SEARCH_RETRY_COOLDOWN_MS));
             break;
           }
         }
@@ -665,6 +683,7 @@ async function fetchText(url,fetcher,timeout,limit) {
       return text.slice(0,limit);
     }catch(error){
       lastError=error;
+      if(host==='search.brave.com'&&/search_rate_limited|search_blocked|source_http_429/iu.test(String(error?.message||error)))throw error;
       if(attempt===0)await new Promise(resolve=>setTimeout(resolve,500));
     }finally{clearTimeout(timer);}
   }

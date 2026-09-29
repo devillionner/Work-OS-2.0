@@ -787,6 +787,7 @@ export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
     done:batch?.done===true,
     totalTasks:Math.max(0,Number(batch?.totalTasks)||0),
     errors:Array.isArray(batch?.errors)?batch.errors.slice(0,8).map(item=>({reason:String(item.reason||'source_failed').slice(0,300),query:String(item.query||'').slice(0,500)})):[],
+    warnings:Array.isArray(batch?.warnings)?batch.warnings.slice(0,4).map(item=>({reason:String(item.reason||'source_warning').slice(0,300),query:String(item.query||'').slice(0,500)})):[],
     sources:Array.isArray(batch?.sources)?batch.sources.map(item=>({
       sourceUrl:String(item?.sourceUrl||'').slice(0,1000),
       sourceTitle:String(item?.sourceTitle||'').slice(0,180),
@@ -854,7 +855,7 @@ export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
           if(!latest||!latest.running||latest.runId!==state.runId)return {applied:false,reason:'run_changed'};
           for(const item of Array.isArray(latest.candidates)?latest.candidates:[]){
             const key=String(item.platform)+'|'+String(item.link);
-            if(!byKey.has(key)||item.preflightState!=='queued')byKey.set(key,item);
+            byKey.set(key,item);
           }
           state={
             ...latest,
@@ -862,7 +863,7 @@ export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
             sourceTotal:batch.totalTasks||state.sourceTotal||0,
             sourceErrors:(Number(state.sourceErrors)||0)+errors,
             sourceFailures:errors?(Number(state.sourceFailures)||0)+1:0,
-            sourceIssues:errors?issues.slice(0,8):[],
+            sourceIssues:[...issues,...batch.warnings].slice(0,8),
             running:errors&&Number(state.sourceFailures||0)>=2?false:state.running,
             completionReason:errors&&Number(state.sourceFailures||0)>=2?'source_error':state.completionReason,
             searched:(Number(state.searched)||0)+batch.searched,

@@ -1,3 +1,9 @@
+## 2026-09-29 — measured source supply remains the blocker
+- Verified exact staging and workstation code at 507378c before the run.
+- UI-started/resumed run measured 57 found invites, all duplicates, zero new candidates and zero targets in 291.945 seconds. Progress retained on UI stop.
+- Implemented source/checkpoint concurrency protection and shared search cooldown with visible degraded-source warnings; two focused behavioral tests pass.
+- [ ] Fresh qualifying supply and the 12-target/hour acceptance remain unproven. Do not count search attempts or duplicates as progress toward this gate.
+
 ## 2026-09-29 — GO-LIVE-04/06/08 reliability package
 - Implemented bounded retries, joined-chat reinspection, persistence-only retry, shared runtime deadline, current-state result merge, non-destructive pause and explicit incomplete-result recovery.
 - Implemented empty-directory web fallback, successful-read source dedupe, graph outcome feedback and candidate timing/reason metrics.

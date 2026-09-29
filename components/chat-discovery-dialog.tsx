@@ -175,7 +175,9 @@ export function ChatDiscoveryDialog({
   },[open]);
 
   useEffect(()=>{
-    setLocalPreview(readLocalPreviewSession());
+    const restored=readLocalPreviewSession();
+    setLocalPreview(restored);
+    setGoal(restored.goal);
     setLocalPreviewHydrated(true);
   },[]);
 
@@ -832,8 +834,10 @@ export function ChatDiscoveryDialog({
               {localPreview.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">План пошуку завершено: фактично підтверджено {localTargets.length} із {localPreview.goal}. Фінальні outcomes уже збережені для dedupe.</div>}
               {localPreview.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: фактично підтверджено {localTargets.length}/{localPreview.goal} цільових чатів. Вони збережені для ручного огляду — виріши, які лишити в роботі.</div>}
               {localPreview.sourceIssues.length>0&&<div role="status" className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs leading-5">
-                <strong>Не вдалося прочитати джерело. Цей запит не пропущено.</strong>
-                <p>{localPreview.running?'Повторимо зі затримкою. Перевірка вже знайдених чатів продовжується.':'Натисни «Продовжити пошук», щоб повторити з цього місця.'}</p>
+                <strong>{localPreview.sourceFailures>0?'Не вдалося прочитати джерело. Цей запит не пропущено.':'Пошук працює з обмеженнями джерел'}</strong>
+                <p>{localPreview.sourceFailures>0
+                  ?localPreview.running?'Повторимо зі затримкою. Перевірка вже знайдених чатів продовжується.':'Натисни «Продовжити пошук», щоб повторити з цього місця.'
+                  :'Частина джерел тимчасово недоступна. Каталог і перевірка знайдених чатів продовжуються; повнота пошуку зараз знижена.'}</p>
                 {localPreview.sourceIssues.map((issue,index)=><div key={index} className="mt-1 break-words">{issue.query} · {reasonLabel(issue.reason)}</div>)}
               </div>}
               <details className="mt-3 border-t border-border/60 pt-3">

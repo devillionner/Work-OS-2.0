@@ -1,3 +1,13 @@
+## 2026-09-29 — live supply bottleneck and concurrent handoff correction
+- Reviewed ae028ce, 26861a7 and 507378c; preserved their bounded search plan, deeper WhatsApp history and browser-local source feedback. Staging /api/build was 507378c and all three workstation runner hashes matched that exact source.
+- UI-resumed acceptance at 15:34:29–15:39:21 Europe/Kyiv (291.945 seconds): cursor 327→516, reported search attempts +931, found invites +57, duplicates +57, new candidates 0, targets 0. Stopped using the UI and retained cursor/results. This measures source starvation, not WhatsApp qualification speed.
+- Brave returned rate limiting. Two bounded Bing RSS probes returned no items; DuckDuckGo returned an access challenge. No challenge bypass or alternate provider was added without a useful verified result.
+- Fixed source-batch merge overwriting newer queued-candidate checkpoints. Latest candidate state now wins even while still queued, preserving attempts and joined identity.
+- Serialized Brave requests through a shared provider queue; a 429/challenge is not immediately retried and other waiting jobs honor the same cooldown.
+- Source warnings now reach the UI separately from fatal failures; reduced coverage is visible instead of silently presenting a healthy empty search. Hydration restores the actual saved goal.
+- Two new behavioral tests passed (concurrent checkpoint merge/warning delivery and one rate-limit request across parallel jobs); three changed source files parsed. Full verify:local not run under remote-only constraints.
+- 12 factual targets/hour remains UNMET. Remaining external/product blocker: a repeatable supply of fresh qualifying invite links; no throughput acceptance or real-target gate is closed by this change.
+
 
 ## 2026-09-29 — Discovery reliability and measurable yield
 - Live baseline on fd769da: 54 persisted candidates, zero targets; primary outcomes 26 below minimum size, 8 approval-required, 2 cannot-write, 16 invalid links, 1 incomplete joined qualification and 1 paused-unverified. These are stored outcomes, not a timed throughput benchmark.
