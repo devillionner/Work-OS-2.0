@@ -1,3 +1,20 @@
+## 2026-09-29 — WhatsApp Discovery functional closure accepted
+
+**Operator-usable: yes for the Discovery workflow. Throughput SLA: no, not met.**
+
+Accepted physical evidence on code/runtime `a25653d9d9a878afc2e3455461637443927b2ce6`:
+- staging build identity exactly matched `a25653d`;
+- workstation `work-os-discovery.service` was active; `chat-discovery-runner.mjs`, `whatsapp-web-cdp.mjs`, and `chat-discovery-source-crawl.mjs` matched current GitHub blobs byte-for-byte;
+- live run `56448714-2f0b-4b75-938c-ae4a255eb6d0`: sourceTotal 2,391, cursor 1,215, searched 6,026, processed 65, duplicates 54; final local states were 8 rejected, 1 review, 2 skipped, 1 unavailable, 0 target;
+- fresh-join acceptance: `Загальний` (702 members, joined, topic match, writable) became durable `review` with reasons `fresh_join_history_unavailable`, `unknown_ads_allowed`, `unknown_activity`. WhatsApp does not expose pre-join messages, so this is the correct fail-closed result; it does not count as a confirmed target;
+- factual reject acceptance: `Bali Ukraine | Балі Україна` had 24 members and no write permission and was rejected without weakening criteria;
+- source degradation remained visible: Brave rate limiting/cooldown reduced optional web fallback while Telegram-directory crawling continued.
+
+Closure interpretation:
+- Discovery start/stop/resume, source crawl, dedupe, bounded metadata/join retries, missing-module fallback, joined identity recovery, requalification without repeat join, factual outcomes, manual-review lane, and durable result memory are accepted as the completed P4-A functional slice.
+- The requested target rate (≥12 confirmed targets/hour) is **not** claimed. The limiting factor is fresh qualifying source supply, not current WhatsApp qualification speed/correctness. This is tracked as P4-A-PERF rather than keeping the functional workflow open indefinitely.
+- No production D1 write/migration was performed for this closure.
+
 ## 2026-09-29 — live WhatsApp module fallback
 - Physical inspection of the authenticated WhatsApp page found WAWebGroupQueryJob, WAWebCollections, WAWebWidFactory and WAWebChatLoadMessages present, but WAWebGroupInviteJob unavailable. Stored candidate “Загальний” had consequently exhausted retries with direct_join_unavailable.
 - Runner now falls back to its existing exact-invite WhatsApp UI adapter when the direct join module is unavailable; approval-required and invalid-invite handling remains fail-closed. Known joined-chat inspection no longer requires an unused join module.

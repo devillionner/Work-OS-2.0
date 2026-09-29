@@ -1,3 +1,30 @@
+## 2026-09-29 — P4-A WhatsApp Discovery functional closure
+
+**Decision:** P4-A is closed as an operator-usable functional workflow. The measured source-yield objective is split into a separate **P4-A-PERF** backlog and no longer blocks the next functional roadmap slice.
+
+Physical acceptance on exact code/runtime `a25653d9d9a878afc2e3455461637443927b2ce6`:
+- staging `/api/build` returned the exact same SHA; the workstation service was active and its three runtime script blobs matched GitHub `main` byte-for-byte;
+- live run `56448714-2f0b-4b75-938c-ae4a255eb6d0`, goal 1: source plan 2,391 tasks, cursor 1,215, 6,026 source attempts, 65 invite hits processed, 54 duplicates, 8 factual rejects, 2 approval-required skips, 1 unavailable invalid invite, 1 manual-review fresh join, 0 confirmed targets;
+- `Загальний`: joined, 702 members, topic match, writable → correctly finalized as `review` with `fresh_join_history_unavailable + unknown_ads_allowed + unknown_activity`; it was not falsely called target/rejected/unavailable and is not automatically rejoined;
+- `Bali Ukraine | Балі Україна`: 24 members, cannot write → factual reject; hard criteria remain unchanged.
+
+Functional closure criteria now accepted:
+- [x] local-first source search + durable dedupe;
+- [x] explicit UI start/stop/resume without destructive pause archiving;
+- [x] exact WhatsApp target/join/pending/fail-closed lifecycle with bounded retries and recovery;
+- [x] joined-chat requalification reuses joined identity/group ID and does not repeat join;
+- [x] fresh joins without pre-join history go to manual review instead of false rejection or indefinite waiting;
+- [x] factual rejects/skips/unavailable remain durable dedupe anchors; unknown facts do not trigger destructive leave;
+- [x] multi-candidate live run and exact staging/runtime identity verified.
+
+### P4-A-PERF — non-blocking performance backlog
+- [ ] measured source yield ≥12 newly confirmed targets/hour (≈1/5 min);
+- [ ] improve fresh unique qualifying invite supply; latest accepted run produced 0 confirmed targets;
+- [ ] default goal 50 soak run to target or honest `sources_exhausted`;
+- [ ] D1 cold/warm rows_read acceptance remains an ops/performance check, not a Discovery correctness blocker.
+
+Do not reopen P4-A functional correctness merely because external source yield is below the performance objective. Reopen only for a regression in join/qualification/dedupe/pause/recovery semantics.
+
 ## 2026-09-29 — measured source supply remains the blocker
 - Verified exact staging and workstation code at 507378c before the run.
 - UI-started/resumed run measured 57 found invites, all duplicates, zero new candidates and zero targets in 291.945 seconds. Progress retained on UI stop.
@@ -25,9 +52,9 @@
 | P5. Контрольований release та фінальний синхронний перенос | OPS-03/04, MIG, DATA-09/15–17, BACKUP-01/02 | P1–P4 прийняті; production target перевірений окремо; користувач прямо підтвердив остаточний перенос. Одна узгоджена свіжа копія замість щоденного resync; production не очищується; усі відмінності пояснені; є rollback коду та перевірені копії | Заблоковано критеріями parity, не починати |
 | P6. AI та додаткова генерація | Відкладені AI/генеративні PROFILE/AD, DATA-07, desktop/native push за потреби | AI/генерація мають окремо визначені джерела, приватність, витрати та людський контроль. WhatsApp Web operator automation більше не відкладається сюди: вона активна в P4. Viber real-chat autopost лишається поза активним scope до окремого прямого дозволу. Локальний AI — тільки за новим прямим дозволом. | Відкладено |
 
-## P4-A — WhatsApp Discovery GO-LIVE — єдиний активний пріоритет
+## P4-A — WhatsApp Discovery GO-LIVE — functional slice closed; performance tracked separately
 
-**Stop condition:** не переходити до наступного roadmap slice, доки цей блок не має live staging acceptance або конкретного зовнішнього blocker, який неможливо усунути кодом/конфігурацією в поточному запуску.
+**Closure note:** direct user decision on 2026-09-29 closes the functional P4-A slice on the physical evidence recorded above. Remaining source-yield/D1-soak items are P4-A-PERF and do not block the next functional roadmap slice.
 
 - [x] Manual/recovery source preview лишається local-first: raw findings не пишуться в D1 до ручного confirm.
 - [x] Targeted dedupe замість owner-wide candidate/chat scan.
