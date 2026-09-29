@@ -187,7 +187,7 @@ export async function joinWhatsappInviteViaRuntime(
           const collections=window.require?.('WAWebCollections');
           const widFactory=window.require?.('WAWebWidFactory');
           const loader=window.require?.('WAWebChatLoadMessages');
-          if(!query?.queryGroupInvite||!invite?.joinGroupViaInvite||!collections?.Chat||!widFactory?.createWid){
+          if(!query?.queryGroupInvite||(!${JSON.stringify(task.membershipState==='joined')}&&!invite?.joinGroupViaInvite)||!collections?.Chat||!widFactory?.createWid){
             return {ok:false,reason:'direct_join_unavailable'};
           }
           const facts=${JSON.stringify(task.preflightFacts||null)};

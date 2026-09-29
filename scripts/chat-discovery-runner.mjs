@@ -363,6 +363,18 @@ async function processLocalPreflight(task){
   }
   task=addDiscoveryStageTime(task,'joinAndInspectMs',Date.now()-joinStartedAt);
   if(joined.kind!=='result'){
+    if(['direct_join_unavailable','joined_identity_missing'].includes(joined.reason)){
+      if(!await localRunStillActive(task))return 'local_wait';
+      console.warn('Direct invite module unavailable; checking exact invite through WhatsApp UI.');
+      const fallback=await inspectWhatsappTaskViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:30000})
+        .catch(()=>({kind:'blocked',reason:'ui_inspection_failed'}));
+      if(fallback.kind==='result'){
+        const result={...pre,...fallback.result};
+        if(!Number.isFinite(result.memberCount)&&Number.isFinite(pre.memberCount))result.memberCount=pre.memberCount;
+        return qualifyLocalResult(task,result);
+      }
+      return deferLocalPreflight(task,fallback.reason||'ui_inspection_failed',pre);
+    }
     if(['approval_required','invalid_whatsapp_link'].includes(joined.reason)){
       return completeLocalPreflight(task,{decision:joined.reason==='approval_required'?'skipped':'unavailable',
         reasonCodes:[joined.reason],result:{...pre,status:'failed',reason:joined.reason}});

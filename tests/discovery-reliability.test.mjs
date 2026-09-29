@@ -30,7 +30,7 @@ test('failed graph sources are not permanently consumed',async()=>{
   await m.crawlLocalDiscoverySource(16,{seedData,fetcher});
   assert.ok(calls.some(url=>first.includes(url)));
 });
-function harness({metadataFailure=false,persistFailure=false}={}){
+function harness({metadataFailure=false,persistFailure=false,joinUnavailable=false}={}){
   let checkpoint=null;
   const writes=[],joins=[];
   const deps={
@@ -38,12 +38,15 @@ function harness({metadataFailure=false,persistFailure=false}={}){
     markWorkOsLocalDiscoveryCandidateViaCdp:async(_url,task)=>{if(task?.checkpoint)checkpoint=task.checkpoint;return {kind:'result'};},
     writeWorkOsLocalDiscoveryResultViaCdp:async(_url,id,payload)=>{writes.push(payload);return {kind:persistFailure?'blocked':'result'};},
     readWorkOsLocalDiscoveryTaskViaCdp:async()=>({kind:'result',active:true,runId:'r'}),
+    updateWorkOsLocalDiscoverySourceFeedbackViaCdp:async()=>({kind:'result'}),
+    sourceFeedbackRefreshAt:0,
     recordDiscoverySourceOutcome(){},clearTaskBlock(){},markTaskBlocked(){},
     queryWhatsappInviteViaCdp:async()=>metadataFailure?{kind:'blocked',reason:'page_not_ready'}:{kind:'result',result:{memberCount:900,groupId:'group@g.us',topicMatch:'match',chatType:'group',canWrite:true}},
-    inspectWhatsappTaskViaCdp:async()=>({kind:'blocked',reason:'page_not_ready'}),
+    inspectWhatsappTaskViaCdp:async()=>joinUnavailable?{kind:'result',result:{membershipState:'joined',chatType:'group',memberCount:900,topicMatch:'match',canWrite:true,adsPolicy:'allowed',activityState:'active',targetVerified:true,accessible:true}}:{kind:'blocked',reason:'page_not_ready'},
     leaveWhatsappGroupViaRuntime:async()=>{throw Error('must not leave unknown chat');},
     joinWhatsappInviteViaRuntime:async task=>{
       joins.push(task);
+      if(joinUnavailable)return {kind:'blocked',reason:'direct_join_unavailable'};
       return {kind:'result',result:{memberCount:900,groupId:'group@g.us',topicMatch:'match',chatType:'group',
         canWrite:true,membershipState:'joined',accessible:true,targetVerified:true,status:'inspected',
         ...(joins.length>1?{activityState:'active',adsPolicy:'allowed'}:{})}};
@@ -136,4 +139,12 @@ test('runner hydrates source feedback from browser localStorage without a D1/API
   const block=adapter.slice(start,end);
   assert.match(block,/localStorage\.getItem/);
   assert.doesNotMatch(block,/fetch\s*\(/u);
+});
+
+test('missing direct-join module falls back to factual UI inspection',async()=>{
+  const h=harness({joinUnavailable:true});
+  await h.run();
+  assert.equal(h.writes.length,1);
+  assert.equal(h.writes[0].decision,'target');
+  assert.equal(h.joins.length,1);
 });

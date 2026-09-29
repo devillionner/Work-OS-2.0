@@ -1,3 +1,9 @@
+## 2026-09-29 — live WhatsApp module fallback
+- Physical inspection of the authenticated WhatsApp page found WAWebGroupQueryJob, WAWebCollections, WAWebWidFactory and WAWebChatLoadMessages present, but WAWebGroupInviteJob unavailable. Stored candidate “Загальний” had consequently exhausted retries with direct_join_unavailable.
+- Runner now falls back to its existing exact-invite WhatsApp UI adapter when the direct join module is unavailable; approval-required and invalid-invite handling remains fail-closed. Known joined-chat inspection no longer requires an unused join module.
+- Four runner behavioral checks pass, including the new missing-module fallback case; updated the regression harness for browser-local feedback introduced by 507378c.
+- Real UI fallback acceptance and the target-rate objective remain pending at this commit. No claim that the recovered candidate meets all target criteria.
+
 ## 2026-09-29 — live supply bottleneck and concurrent handoff correction
 - Reviewed ae028ce, 26861a7 and 507378c; preserved their bounded search plan, deeper WhatsApp history and browser-local source feedback. Staging /api/build was 507378c and all three workstation runner hashes matched that exact source.
 - UI-resumed acceptance at 15:34:29–15:39:21 Europe/Kyiv (291.945 seconds): cursor 327→516, reported search attempts +931, found invites +57, duplicates +57, new candidates 0, targets 0. Stopped using the UI and retained cursor/results. This measures source starvation, not WhatsApp qualification speed.
