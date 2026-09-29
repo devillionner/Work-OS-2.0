@@ -584,3 +584,10 @@ Definition of Done для реального використання на stagi
 - A newly joined chat with factual membership/size/write/topic facts but insufficient message evidence remains queued as `waiting_post_join_evidence`. It is rechecked later without joining again; source discovery continues meanwhile.
 - Message-derived activity, Ukrainian-conversation evidence and inferred advertisement permission use only messages visible after the recorded `joinedAt` for newly joined groups. Explicit group description/rules may establish topic or advertisement policy immediately.
 - The activity criterion remains factual and unchanged: at least one visible message from today or yesterday. A visible older latest message is inactivity; zero visible post-join messages are insufficient evidence, not inactivity.
+
+
+## 2026-09-29 — Fresh-join manual review lane
+- WhatsApp can hide all messages sent before the account joined a group. Discovery must not wait for future messages before continuing the run.
+- If a chat was just joined and all immediately observable hard gates are viable (group/community, 700–18,000 members, writable, no factual topic/ads/activity rejection), missing message-derived evidence is finalized as `review`, not `target`, `rejected`, or `unavailable`.
+- This review result is persisted as durable dedupe and shown in a dedicated operator queue. It does not count toward the confirmed-target goal and is never rejoined automatically.
+- Existing `waiting_post_join_evidence` checkpoints are migrated into the same review lane without waiting for their old timer.

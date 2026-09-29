@@ -18,7 +18,7 @@ void test('Platforms exposes an explicit autonomous outcome loop plus a local ma
   assert.match(dialog, /action:'search'/);
   assert.match(dialog, /localTargets\.length/);
   assert.match(dialog, /цільових у Work OS/);
-  assert.match(dialog, /Persistent dedupe/);
+  assert.match(dialog, /Завершені рішення/);
   assert.match(dialog, /sessionStorage/);
   assert.match(dialog, /Відкинути preview/);
   assert.match(previewRoute, /body\.action==='confirm'/);
@@ -33,7 +33,7 @@ void test('local autonomous preflight exposes only factual targets before D1 con
   ]);
   assert.match(dialog,/LOCAL_PREFLIGHT_RESULTS_KEY/);
   assert.match(dialog,/preflightState==='target'/);
-  assert.match(dialog,/Тут з'являються тільки підтверджені цільові чати/);
+  assert.match(dialog,/Тут з’являються чати відповідно до вибраного фільтра/);
   assert.match(runner,/readWorkOsLocalDiscoveryTaskViaCdp/);
   assert.match(runner,/writeWorkOsLocalDiscoveryResultViaCdp/);
   assert.match(runner,/approval_required/);
@@ -91,8 +91,8 @@ void test('local WhatsApp outcomes persist as durable dedupe without auto-import
   assert.match(previewDomain,/decision='target'/);
   assert.match(adapter,/action:'persist-outcome'/);
   assert.match(adapter,/persisted\?\.persisted/);
-  assert.match(dialog,/Цільові · ручна перевірка/);
-  assert.match(dialog,/Persistent dedupe/);
+  assert.match(dialog,/Перевірити вручну/);
+  assert.match(dialog,/Завершені рішення/);
   const reset=domain.slice(domain.indexOf('export async function resetDiscoveryWorkspace'),domain.indexOf('export async function continueDiscoveryRun'));
   assert.match(reset,/preservedCandidates/);
   assert.doesNotMatch(reset,/DELETE FROM chat_discovery_candidates/);
@@ -114,7 +114,7 @@ void test('manual Telegram recovery stays local until confirmation', async () =>
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../app/api/chat-discovery/preview/route.ts', import.meta.url), 'utf8'),
   ]);
-  assert.match(dialog, /Ручне джерело з Telegram/);
+  assert.match(dialog, /Додаткове джерело Telegram/);
   assert.match(dialog, /Додати локально/);
   assert.match(dialog, /Додати локально й очистити/);
   assert.match(dialog, /action:'telegram'/);
@@ -152,7 +152,7 @@ void test('Chat Discovery modal uses a wide split layout with independent candid
   assert.match(dialog, /min-h-0 flex-1 overflow-y-auto/);
   assert.match(dialog, /Фільтр кандидатів/);
   assert.match(dialog, /Автопошук працює/);
-  assert.match(dialog, /Persistent dedupe/);
+  assert.match(dialog, /Завершені рішення/);
   assert.match(dialog, /StatTile/);
 });
 
@@ -240,11 +240,11 @@ void test('operator-first Discovery UI shows useful local throughput and keeps t
   assert.match(dialog, /із \{displayedGoal\} підтверджених цільових/);
   assert.match(dialog, /Знайдено invite/);
   assert.match(dialog, /Перевірено WhatsApp/);
-  assert.match(dialog, /Відсіяно/);
+  assert.match(dialog, /Архів/);
   assert.match(dialog, /Дублі \/ відомі/);
-  assert.match(dialog, /Технічні деталі/);
-  assert.match(dialog, /Локальний WhatsApp executor/);
-  assert.match(dialog, /Persistent dedupe/);
+  assert.match(dialog, /Деталі прогресу/);
+  assert.match(dialog, /Підключення WhatsApp/);
+  assert.match(dialog, /Завершені рішення/);
   assert.doesNotMatch(dialog, /<StatTile label="Query"/);
 });
 
@@ -329,19 +329,17 @@ void test('live WhatsApp check state survives UI session normalization',async()=
   assert.match(dialog,/Перевіряємо WhatsApp:/);
 });
 
-void test('pausing autonomous discovery archives unfinished candidates and preserves momentum',async()=>{
+void test('pausing autonomous discovery preserves unfinished candidates and momentum',async()=>{
   const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
-  const stop=dialog.slice(dialog.indexOf('async function stopAutonomousSearch'),dialog.indexOf('async function addLocalTargetsToJoin'));
+  const stop=dialog.slice(dialog.indexOf('async function stopAutonomousSearch'),dialog.indexOf('function retryIncompleteCandidate'));
   assert.match(stop,/running:false/);
   assert.match(stop,/candidate\.preflightState==='queued'/);
-  assert.match(stop,/action:'persist-outcome'/);
-  assert.match(stop,/decision:'unavailable'/);
-  assert.match(stop,/paused_unverified/);
+  assert.doesNotMatch(stop,/action:'persist-outcome'/);
+  assert.doesNotMatch(stop,/paused_unverified/);
   assert.match(stop,/pauseSummary/);
   assert.match(stop,/telegramCursor/);
   assert.match(dialog,/Автопошук зупинено · прогрес збережено/);
   assert.match(dialog,/Наступний запуск продовжить з позиції/);
-  assert.match(dialog,/animate-in fade-in slide-in-from-top-1 duration-300/);
 });
 
 void test('resuming a paused discovery run keeps cursor candidates and durable dedupe history',async()=>{
@@ -362,6 +360,30 @@ void test('pause transition stays visually coherent while archive persistence ru
   assert.match(dialog,/const \[pausing,setPausing\]=useState\(false\)/);
   assert.match(dialog,/setPausing\(true\)/);
   assert.match(dialog,/Зберігаємо паузу…/);
-  assert.match(dialog,/Зупиняємо пошук · зберігаємо прогрес і архівуємо незавершені чати/);
+  assert.match(dialog,/Зупиняємо пошук · зберігаємо прогрес/);
   assert.match(dialog,/setPausing\(false\)/);
+});
+
+
+void test('fresh joins without pre-join history have a dedicated non-blocking manual-review lane',async()=>{
+  const [dialog,preview,runner]=await Promise.all([
+    readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8'),
+    readFile(new URL('../lib/chat-discovery/local-preview.ts',import.meta.url),'utf8'),
+    readFile(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8'),
+  ]);
+  assert.match(dialog,/Перевірити вручну/);
+  assert.match(dialog,/preflightState==='review'/);
+  assert.match(dialog,/WhatsApp не показує стару історію/);
+  assert.match(preview,/\['review','target','rejected','skipped','unavailable'\]/);
+  assert.match(runner,/fresh_join_history_unavailable/);
+  assert.doesNotMatch(runner,/POST_JOIN_EVIDENCE_RECHECK_MS/);
+});
+
+void test('Discovery UI explains browser progress versus durable Work OS decisions without backend jargon',async()=>{
+  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  assert.match(dialog,/Поточний запуск/);
+  assert.match(dialog,/Завершені рішення/);
+  assert.match(dialog,/Підключення WhatsApp/);
+  assert.doesNotMatch(dialog,/Persistent dedupe/);
+  assert.doesNotMatch(dialog,/Сирі invite в D1/);
 });

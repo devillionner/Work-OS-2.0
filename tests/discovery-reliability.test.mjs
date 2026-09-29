@@ -49,7 +49,7 @@ function harness({metadataFailure=false,persistFailure=false,joinUnavailable=fal
       if(joinUnavailable)return {kind:'blocked',reason:'direct_join_unavailable'};
       return {kind:'result',result:{memberCount:900,groupId:'group@g.us',topicMatch:'match',chatType:'group',
         canWrite:true,membershipState:'joined',accessible:true,targetVerified:true,status:'inspected',
-        ...(postJoinEvidenceGap?{}:joins.length>1?{activityState:'active',adsPolicy:'allowed'}:{})}};
+        ...(postJoinEvidenceGap?{joinedThisAttempt:true}:joins.length>1?{activityState:'active',adsPolicy:'allowed'}:{})}};
     },
   };
   const code=runner.slice(runner.indexOf('function evaluateLocalPreflight'),runner.indexOf('async function resolveLocalSourceSeedData'));
@@ -205,26 +205,22 @@ test('freshly joined WhatsApp chat never loads invisible pre-join history',()=>{
   assert.match(block,/timestamp\*1000>=joinedAt-60_000/);
 });
 
-test('post-join evidence gap stays queued without consuming bounded technical retries',async()=>{
+test('fresh join without visible history finishes as manual review and never waits for future messages',async()=>{
   const h=harness({postJoinEvidenceGap:true});
   await h.run();
-  assert.equal(h.writes.length,0);
-  assert.equal(h.checkpoint.lastReason,'waiting_post_join_evidence');
-  assert.equal(h.checkpoint.attempts,0);
-  assert.equal(h.checkpoint.result.membershipState,'joined');
-  assert.equal(h.checkpoint.result.status,'waiting_post_join_evidence');
-  assert.ok(h.checkpoint.nextEvidenceCheckAt>Date.now());
-  await h.run();
-  assert.equal(h.writes.length,0);
-  assert.equal(h.checkpoint.attempts,0);
+  assert.equal(h.writes.length,1);
+  assert.equal(h.writes[0].decision,'review');
+  assert.ok(h.writes[0].reasonCodes.includes('fresh_join_history_unavailable'));
+  assert.equal(h.writes[0].result.status,'manual_review');
 });
 
-test('waiting post-join evidence is skipped by task selection until its next check',()=>{
+test('legacy waiting-post-join candidate is immediately selectable for migration',()=>{
   const start=adapter.indexOf('export async function readWorkOsLocalDiscoveryTaskViaCdp');
   const end=adapter.indexOf('export async function readWorkOsLocalDiscoverySeedDataViaCdp',start);
   const block=adapter.slice(start,end);
-  assert.match(block,/nextEvidenceCheckAt/);
-  assert.match(block,/evidenceReady\(item\)/);
+  assert.doesNotMatch(block,/evidenceReady\(item\)/);
+  assert.doesNotMatch(block,/nextEvidenceCheckAt/);
+  assert.match(runner,/task\.checkpoint\?\.lastReason==='waiting_post_join_evidence'/);
 });
 
 test('visible message older than today-or-yesterday is factual inactivity',()=>{
@@ -276,9 +272,10 @@ test('joined recovery without groupId refreshes invite metadata before inspectio
 });
 
 
-test('legacy joined recovery never invents a new joinedAt timestamp',()=>{
+test('manual-review migration preserves real joinedAt and removes timed evidence waiting',()=>{
   assert.doesNotMatch(adapter,/joinedAt:joinedAt\|\|Date\.now\(\)/);
   assert.match(adapter,/evidenceScope:joinedAt>0\?'post_join_timestamped':'visible_since_join'/);
-  assert.doesNotMatch(runner,/result\?\.joinedAt\|\|previous\?\.result\?\.joinedAt\|\|now/);
-  assert.match(runner,/result:\{\.\.\.result,\.\.\.\(joinedAt>0\?\{joinedAt\}:\{\}\),status:'waiting_post_join_evidence'\}/);
+  assert.match(runner,/decision:'review'/);
+  assert.match(runner,/fresh_join_history_unavailable/);
+  assert.doesNotMatch(runner,/POST_JOIN_EVIDENCE_RECHECK_MS/);
 });

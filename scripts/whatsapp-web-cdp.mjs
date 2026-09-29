@@ -619,13 +619,9 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
             else if(source?.kind==='curated')score+=1;
             return score;
           };
-          const evidenceReady=(item)=>{
-            const next=Number(item?.discoveryCheckpoint?.nextEvidenceCheckAt)||0;
-            return !next||next<=Date.now();
-          };
           const candidate=candidates
             .filter((item)=>item&&item.localOnly===true&&item.preflightState==='queued'&&typeof item.id==='string'
-              &&typeof item.link==='string'&&!results[item.id]&&!skipped.has(item.id)&&evidenceReady(item))
+              &&typeof item.link==='string'&&!results[item.id]&&!skipped.has(item.id))
             .sort((a,b)=>priority(b)-priority(a))[0]||null;
           return {
             active:state?.running===true,
@@ -633,7 +629,7 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
             goal:Number(state?.goal)||0,
             sourceCursor:Number(state?.telegramCursor)||0,
             sourceExhausted:state?.sourceExhausted===true,
-            queuedCount:candidates.filter(item=>item?.preflightState==='queued'&&!results[item?.id]&&!skipped.has(item?.id)&&evidenceReady(item)).length,
+            queuedCount:candidates.filter(item=>item?.preflightState==='queued'&&!results[item?.id]&&!skipped.has(item?.id)).length,
             task:candidate?{
               candidateId:candidate.id,
               runId:String(state?.runId||''),
@@ -948,10 +944,19 @@ export async function markWorkOsLocalDiscoveryCandidateViaCdp(
             if(active.checkpoint){
               const candidate=state.candidates.find(item=>item?.id===active.id);
               candidate.discoveryCheckpoint=active.checkpoint;
-              if(active.checkpoint.result?.membershipState==='joined'){
+              const facts=active.checkpoint.result||{};
+              if(facts.membershipState==='joined'){
                 candidate.membershipState='joined';
-                candidate.groupId=active.checkpoint.result.groupId||candidate.groupId;
+                candidate.groupId=facts.groupId||candidate.groupId;
               }
+              if(Number.isFinite(facts.memberCount))candidate.memberCount=Number(facts.memberCount);
+              if(facts.chatType==='group'||facts.chatType==='community')candidate.chatType=facts.chatType;
+              if(facts.topicMatch==='match'||facts.topicMatch==='mismatch')candidate.topicMatch=facts.topicMatch;
+              if(typeof facts.canWrite==='boolean')candidate.canWrite=facts.canWrite;
+              if(['allowed','forbidden','operator_confirmed','inferred_allowed'].includes(String(facts.adsPolicy)))candidate.adsPolicy=facts.adsPolicy;
+              if(facts.activityState==='active'||facts.activityState==='dead')candidate.activityState=facts.activityState;
+              if(facts.accessible===true)candidate.accessState='available';
+              if(facts.targetVerified===true)candidate.linkState='valid';
             }
             state.activeCandidateId=active.id;
             state.activeCandidateName=active.name;

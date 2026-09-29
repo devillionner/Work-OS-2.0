@@ -1217,3 +1217,10 @@ separate gates after local validation and the required direct confirmation.
 - Reboot/live acceptance exposed a browser bridge bug when more than one Work OS tab shared the same origin: the runner could bind to an inactive tab and leave local candidates queued forever. The CDP bridge now scans all matching Work OS tabs, selects the one with an active local run/task, and writes the result back only to the tab containing that exact candidate.
 
 - Live run after reboot processed 55 invite candidates, eliminated 35 duplicates and completed 20 WhatsApp preflights before one transient HTML/5xx preview response stopped the browser loop. This is now non-fatal: source search retries preview calls up to 3 times with bounded backoff and keeps the local run active instead of resetting/stopping it.
+
+
+### 2026-09-29 — WhatsApp fresh-join flow
+- Timed waiting for post-join messages was replaced by a non-blocking manual-review outcome.
+- Freshly joined chats that pass all immediately observable hard gates but lack hidden pre-join activity/ad evidence are persisted as `review` and removed from the automation queue.
+- Legacy post-join waiting checkpoints are selected immediately and migrated; confirmed targets still require the full factual criteria.
+- Discovery UI separates active checks, manual review, confirmed targets and archive states, and explains browser-run progress versus durable Work OS decisions without D1/runtime jargon.

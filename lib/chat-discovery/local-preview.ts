@@ -26,7 +26,7 @@ const SOURCE_KINDS=new Set<DiscoverySourceKind>(['public_web','curated','manual'
 
 export type LocalDiscoveryPreview=DiscoveryCandidate&{
   localOnly:true;
-  preflightState?:'queued'|'target'|'rejected'|'skipped'|'unavailable';
+  preflightState?:'queued'|'review'|'target'|'rejected'|'skipped'|'unavailable';
   preflightReasonCodes?:string[];
   leftAfterCheck?:boolean;
   leaveReason?:string|null;
@@ -128,7 +128,7 @@ export async function persistLocalDiscoveryOutcome(
   }
   const outcome=input.outcome as Record<string,unknown>;
   const localDecision=String(outcome.decision||'');
-  if(!['target','rejected','skipped','unavailable'].includes(localDecision)){
+  if(!['review','target','rejected','skipped','unavailable'].includes(localDecision)){
     throw new DiscoveryError('Некоректний локальний статус перевірки.');
   }
   const rawResult=outcome.result&&typeof outcome.result==='object'&&!Array.isArray(outcome.result)
@@ -158,13 +158,31 @@ export async function persistLocalDiscoveryOutcome(
     ||/(?:invalid|expired|not-found|gone|missing)/iu.test(rawReason);
   const accessState:DiscoveryCandidate['accessState']=accessible===true?'available':accessible===false?'unavailable':'unknown';
   const linkState:DiscoveryCandidate['linkState']=invalid?'invalid':'valid';
-  const inspectionState:DiscoveryCandidate['inspectionState']=status==='inspected'?'inspected'
+  const inspectionState:DiscoveryCandidate['inspectionState']=status==='inspected'||status==='manual_review'?'inspected'
     :status==='failed'||localDecision==='unavailable'?'failed'
     :localDecision==='target'?'inspected':'not_checked';
 
-  let decision:DiscoveryDecision=localDecision==='unavailable'?'unavailable':'rejected';
-  let finalReasons=reasonCodes.length?reasonCodes:[localDecision==='skipped'?'skipped_by_automation':'automation_rejected'];
-  if(localDecision==='target'){
+  let decision:DiscoveryDecision=localDecision==='review'?'review':localDecision==='unavailable'?'unavailable':'rejected';
+  let finalReasons=reasonCodes.length?reasonCodes:[
+    localDecision==='review'?'fresh_join_history_unavailable'
+      :localDecision==='skipped'?'skipped_by_automation':'automation_rejected'
+  ];
+  if(localDecision==='review'){
+    const safeManualReview=targetVerified
+      &&membershipState==='joined'
+      &&accessible===true
+      &&linkState==='valid'
+      &&(chatType==='group'||chatType==='community')
+      &&memberCount!==null&&memberCount>=minMembers&&memberCount<=18_000
+      &&canWrite===true
+      &&topicMatch!=='mismatch'
+      &&adsPolicy!=='forbidden'
+      &&activityState!=='dead';
+    if(!safeManualReview||!reasonCodes.includes('fresh_join_history_unavailable')){
+      throw new DiscoveryError('Ручна перевірка дозволена лише для щойно приєднаного чату без видимої історії.',409);
+    }
+    decision='review';
+  }else if(localDecision==='target'){
     const evaluated=evaluateDiscoveryCandidate({
       chatType,memberCount,topicMatch,canWrite,adsPolicy,activityState,membershipState,
       inspectionState,accessState,linkState,
