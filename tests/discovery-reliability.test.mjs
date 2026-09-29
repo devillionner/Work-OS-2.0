@@ -125,3 +125,15 @@ test('runner records source, metadata, join and persistence timing stages',()=>{
   assert.match(runner,/persistMs/);
   assert.match(runner,/stageMs/);
 });
+
+
+test('runner hydrates source feedback from browser localStorage without a D1/API scan',()=>{
+  assert.match(runner,/readWorkOsLocalDiscoverySourceFeedbackViaCdp/);
+  assert.match(runner,/hydrateDiscoverySourceFeedback/);
+  assert.match(runner,/updateWorkOsLocalDiscoverySourceFeedbackViaCdp/);
+  const start=adapter.indexOf('export async function readWorkOsLocalDiscoverySourceFeedbackViaCdp');
+  const end=adapter.indexOf('export async function updateWorkOsLocalDiscoverySourceFeedbackViaCdp',start);
+  const block=adapter.slice(start,end);
+  assert.match(block,/localStorage\.getItem/);
+  assert.doesNotMatch(block,/fetch\s*\(/u);
+});

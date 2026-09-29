@@ -35,6 +35,35 @@ const crawledTelegramSources=new Set();
 const graphInFlight=new Set();
 const sourceOutcomeScores=new Map();
 const sourceChildren=new Map();
+const sourceSaturatedUntil=new Map();
+function feedbackSourceKey(value){
+  try{
+    const url=new URL(String(value||''));
+    if(['t.me','telegram.me','tg.me'].includes(url.hostname)){
+      const parts=url.pathname.split('/').filter(Boolean);
+      const channel=(parts[0]==='s'?parts[1]:parts[0])||'';
+      return channel?'https://t.me/s/'+channel:null;
+    }
+  }catch{}
+  return null;
+}
+export function hydrateDiscoverySourceFeedback(feedback={}){
+  const entries=Object.entries(feedback&&typeof feedback==='object'?feedback:{})
+    .sort((a,b)=>Number(a[1]?.lastCrawledAt||a[1]?.lastOutcomeAt||0)-Number(b[1]?.lastCrawledAt||b[1]?.lastOutcomeAt||0))
+    .slice(-500);
+  for(const [raw,entry] of entries){
+    const key=feedbackSourceKey(raw);
+    if(!key||!entry||typeof entry!=='object')continue;
+    sourceOutcomeScores.set(key,Math.max(-120,Math.min(240,Number(entry.score)||0)));
+    const until=Number(entry.saturatedUntil)||0;
+    if(until>Date.now())sourceSaturatedUntil.set(key,until);
+    else sourceSaturatedUntil.delete(key);
+  }
+}
+function sourceIsTemporarilySaturated(value,now=Date.now()){
+  const key=feedbackSourceKey(value);
+  return Boolean(key&&Number(sourceSaturatedUntil.get(key)||0)>now&&(sourceOutcomeScores.get(key)||0)<=0);
+}
 function adjustSourceScore(key,delta){
   if(!key||!Number.isFinite(delta)||delta===0)return;
   sourceOutcomeScores.set(key,Math.max(-120,Math.min(240,(sourceOutcomeScores.get(key)||0)+delta)));
@@ -66,6 +95,8 @@ for(const [,url,place] of BOOTSTRAP_SOURCES){
 }
 const PRODUCTIVE_TELEGRAM_SOURCES=[
   ['https://t.me/s/donetskaoda','Донецьк'],
+  ['https://t.me/s/luhanskavtsa','Луганщина'],
+  ['https://t.me/s/munchen_ukraine_doch','Мюнхен'],
   ['https://t.me/s/novocava','Валенсія'],
   ['https://t.me/s/Help_Ukraine_NRW','Німеччина'],
 ];
@@ -240,7 +271,7 @@ export function telegramWhatsAppSearchPreview(value) {
 function takeTelegramGraphSources(place,limit=MAX_GRAPH_SOURCES_PER_STEP) {
   const placeRe=place?new RegExp(escapeRegExp(place),'iu'):null;
   const ranked=[...telegramGraph.values()]
-    .filter(item=>!crawledTelegramSources.has(item.sourceUrl)&&!graphInFlight.has(item.sourceUrl))
+    .filter(item=>!crawledTelegramSources.has(item.sourceUrl)&&!graphInFlight.has(item.sourceUrl)&&!sourceIsTemporarilySaturated(item.sourceUrl))
     .map(item=>({...item,effectiveScore:item.score+(sourceOutcomeScores.get(item.sourceUrl)||0)+(placeRe?.test(item.evidence+' '+item.sourceUrl)?25:0)}))
     .sort((a,b)=>b.effectiveScore-a.effectiveScore)
     .slice(0,limit);
@@ -386,7 +417,7 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
           }
           directoryAnswered=true;
           for(const url of batch.value.candidates){
-            if(directoryResultVisited.has(url)||selectedUrls.has(url))continue;
+            if(directoryResultVisited.has(url)||selectedUrls.has(url)||sourceIsTemporarilySaturated(url))continue;
             selectedUrls.add(url);
             selected.push({url,directoryQuery:batch.value.directoryQuery});
             if(selected.length>=MAX_DIRECTORY_RESULTS)break;
@@ -421,7 +452,7 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
             search.searchParams.set('q','site:t.me '+searchQuery);
             search.searchParams.set('source','web');
             const html=await fetchText(search.toString(),fetcher,12000,350000);
-            const candidates=rankTelegramSources(html,task.place).map(telegramWhatsAppSearchPreview).filter(url=>url&&!seen.has(url)).slice(0,MAX_SEARCH_SOURCES);
+            const candidates=rankTelegramSources(html,task.place).map(telegramWhatsAppSearchPreview).filter(url=>url&&!seen.has(url)&&!sourceIsTemporarilySaturated(url)).slice(0,MAX_SEARCH_SOURCES);
             for(const url of candidates)seen.add(url);
             const pages=await Promise.allSettled(candidates.map(url=>telegramSource(url,searchQuery,task.place,fetcher)));
             const fulfilled=pages.filter(item=>item.status==='fulfilled');

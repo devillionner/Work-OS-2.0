@@ -13,13 +13,15 @@ import {
   readWorkOsExecutorTokenViaCdp,
   readWorkOsLocalDiscoveryTaskViaCdp,
   readWorkOsLocalDiscoverySeedDataViaCdp,
+  readWorkOsLocalDiscoverySourceFeedbackViaCdp,
+  updateWorkOsLocalDiscoverySourceFeedbackViaCdp,
   writeWorkOsLocalDiscoveryResultViaCdp,
   markWorkOsLocalDiscoveryCandidateViaCdp,
   applyWorkOsLocalDiscoverySourceBatchViaCdp,
   sendWhatsappAutopostViaCdp,
   toWhatsAppWebInviteUrl,
 } from './whatsapp-web-cdp.mjs';
-import { crawlLocalDiscoverySource, recordDiscoverySourceOutcome } from './chat-discovery-source-crawl.mjs';
+import { crawlLocalDiscoverySource, recordDiscoverySourceOutcome, hydrateDiscoverySourceFeedback } from './chat-discovery-source-crawl.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
@@ -43,6 +45,7 @@ const INCOMPLETE_QUALIFICATION_COOLDOWN_MS=15000;
 const qualificationAttempts=new Map();
 let localSourceSeedData=null;
 let localSourceSeedVersion=0;
+let sourceFeedbackRefreshAt=0;
 const PAGE_RECOVERY_COOLDOWN_MS=15000;
 const WHATSAPP_LOADING_COOLDOWN_MS=10000;
 const WHATSAPP_LOADING_RELOAD_AFTER=3;
@@ -256,6 +259,11 @@ async function completeLocalPreflight(task,payload){
   }
   clearTaskBlock(task);
   recordDiscoverySourceOutcome(task.sources,final.decision,final.reasonCodes,final.result);
+  await updateWorkOsLocalDiscoverySourceFeedbackViaCdp(baseUrl,(task.sources||[]).map(source=>({
+    sourceUrl:source.sourceUrl,decision:final.decision,reasonCodes:final.reasonCodes,
+    memberCount:final.result?.memberCount,canWrite:final.result?.canWrite,
+  })),{cdpBaseUrl:whatsappCdp}).catch(()=>{});
+  sourceFeedbackRefreshAt=0;
   console.log('Discovery outcome '+JSON.stringify({candidateId:task.candidateId,name:final.result?.observedName||task.name,
     decision:final.decision,reasons:final.reasonCodes,attempts:checkpoint.attempts,durationMs:final.durationMs,
     stageMs:{...final.stageMs,persistMs}}));
@@ -378,12 +386,20 @@ async function resolveLocalSourceSeedData(){
   return localSourceSeedData;
 }
 
+async function refreshLocalSourceFeedback(){
+  if(Date.now()<sourceFeedbackRefreshAt)return;
+  sourceFeedbackRefreshAt=Date.now()+5000;
+  const result=await readWorkOsLocalDiscoverySourceFeedbackViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp});
+  if(result.kind==='result')hydrateDiscoverySourceFeedback(result.feedback||{});
+}
+
 async function crawlLocalDiscoveryBatch(cursor){
   const batchStartedAt=Date.now();
   const start=Math.max(0,Number(cursor)||0);
   let seedData;
   try{
     seedData=await resolveLocalSourceSeedData();
+    await refreshLocalSourceFeedback();
   }catch(error){
     const reason=error instanceof Error?error.message:String(error);
     return {searched:0,nextCursor:start,done:false,totalTasks:0,errors:[{cursor:start,query:'План пошуку Work OS',reason}],query:'План пошуку Work OS',sources:[],durationMs:Date.now()-batchStartedAt};
@@ -434,6 +450,10 @@ async function refillLocalSourceOnce(local){
   const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
   nextLocalSourceAt=Date.now()+(applied.errors?10_000:LOCAL_SOURCE_MIN_MS);
   if(applied.kind!=='result')return 'local_wait';
+  if(Array.isArray(applied.sourceStats)&&applied.sourceStats.length){
+    await updateWorkOsLocalDiscoverySourceFeedbackViaCdp(baseUrl,applied.sourceStats,{cdpBaseUrl:whatsappCdp}).catch(()=>{});
+    sourceFeedbackRefreshAt=0;
+  }
   console.log('Local source crawl: cursor '+batch.nextCursor+', sources '+batch.sources.length+', added '+(applied.added||0)+', duplicates '+(applied.duplicates||0)+', sourceMs '+(batch.durationMs||0));
   return (applied.added||0)>0?'source_added':'source_advanced';
 }

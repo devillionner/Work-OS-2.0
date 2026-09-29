@@ -457,6 +457,7 @@ export async function readWorkOsExecutorTokenViaCdp(
 
 const WORK_OS_LOCAL_PREVIEW_KEY='work-os:chat-discovery-local-preview:v3';
 const WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY='work-os:chat-discovery-local-preflight-results:v1';
+const WORK_OS_LOCAL_SOURCE_FEEDBACK_KEY='work-os:chat-discovery-source-feedback:v1';
 
 export async function startWorkOsLocalDiscoveryRunViaCdp(
   workOsUrl,
@@ -671,6 +672,108 @@ export async function readWorkOsLocalDiscoverySeedDataViaCdp(
   return fallback;
 }
 
+export async function readWorkOsLocalDiscoverySourceFeedbackViaCdp(
+  workOsUrl,
+  { cdpBaseUrl } = {},
+) {
+  const pagesResult=await listWorkOsPagesForCdp(workOsUrl,cdpBaseUrl);
+  if(pagesResult.kind==='blocked')return pagesResult;
+  for(const page of pagesResult.pages){
+    const client=await createCdpClient(page.webSocketDebuggerUrl);
+    try{
+      const response=await client.send('Runtime.evaluate',{
+        expression:`(()=>{try{
+          const raw=localStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_SOURCE_FEEDBACK_KEY)})||'{}';
+          const value=JSON.parse(raw);
+          const entries=Object.entries(value&&typeof value==='object'?value:{})
+            .sort((a,b)=>Number(a[1]?.lastCrawledAt||a[1]?.lastOutcomeAt||0)-Number(b[1]?.lastCrawledAt||b[1]?.lastOutcomeAt||0))
+            .slice(-500);
+          return {ok:true,feedback:Object.fromEntries(entries)};
+        }catch{return {ok:false};}})()`,
+        returnByValue:true,
+      });
+      const value=response?.result?.value||{};
+      if(value.ok===true)return {kind:'result',feedback:value.feedback||{}};
+    }finally{client.close();}
+  }
+  return {kind:'result',feedback:{}};
+}
+
+export async function updateWorkOsLocalDiscoverySourceFeedbackViaCdp(
+  workOsUrl,
+  events,
+  { cdpBaseUrl } = {},
+) {
+  const pagesResult=await listWorkOsPagesForCdp(workOsUrl,cdpBaseUrl);
+  if(pagesResult.kind==='blocked')return pagesResult;
+  const safeEvents=(Array.isArray(events)?events:[]).slice(0,80).map(event=>({
+    sourceUrl:String(event?.sourceUrl||'').slice(0,1000),
+    added:Math.max(0,Number(event?.added)||0),
+    duplicates:Math.max(0,Number(event?.duplicates)||0),
+    decision:String(event?.decision||''),
+    reasonCodes:Array.isArray(event?.reasonCodes)?event.reasonCodes.slice(0,12).map(String):[],
+    memberCount:Number.isFinite(Number(event?.memberCount))?Number(event.memberCount):null,
+    canWrite:typeof event?.canWrite==='boolean'?event.canWrite:null,
+  })).filter(event=>event.sourceUrl);
+  if(!safeEvents.length)return {kind:'result',updated:0};
+  for(const page of pagesResult.pages){
+    const client=await createCdpClient(page.webSocketDebuggerUrl);
+    try{
+      const response=await client.send('Runtime.evaluate',{
+        expression:`(()=>{
+          const key=${JSON.stringify(WORK_OS_LOCAL_SOURCE_FEEDBACK_KEY)};
+          const events=${JSON.stringify(safeEvents)};
+          let feedback={};try{feedback=JSON.parse(localStorage.getItem(key)||'{}')||{};}catch{}
+          const normalize=(value)=>{try{
+            const url=new URL(value);const parts=url.pathname.split('/').filter(Boolean);
+            const channel=(parts[0]==='s'?parts[1]:parts[0])||'';
+            return channel?'https://t.me/s/'+channel:'';
+          }catch{return '';}};
+          const now=Date.now();
+          for(const event of events){
+            const source=normalize(event.sourceUrl);if(!source)continue;
+            const current=feedback[source]||{};
+            let delta=0,saturatedUntil=Number(current.saturatedUntil)||0;
+            if(event.decision){
+              const reasons=event.reasonCodes||[];
+              const viable=Number.isFinite(event.memberCount)&&event.memberCount>=700&&event.memberCount<=18000&&event.canWrite!==false;
+              delta=event.decision==='target'?80
+                :reasons.includes('too_few_members')||reasons.includes('cannot_write')?-20
+                :reasons.includes('invalid_whatsapp_link')?-12
+                :viable?24
+                :event.decision==='rejected'?-8:0;
+              if(delta>0)saturatedUntil=0;
+            }else{
+              delta=event.added>0?Math.min(24,8+event.added*4):event.duplicates>0?-10:-2;
+              if(event.added>0)saturatedUntil=0;
+              else if(event.duplicates>0)saturatedUntil=Math.max(saturatedUntil,now+6*60*60*1000);
+            }
+            feedback[source]={
+              ...current,
+              score:Math.max(-120,Math.min(240,(Number(current.score)||0)+delta)),
+              lastCrawledAt:event.decision?(Number(current.lastCrawledAt)||0):now,
+              lastOutcomeAt:event.decision?now:(Number(current.lastOutcomeAt)||0),
+              added:(Number(current.added)||0)+(event.added||0),
+              duplicates:(Number(current.duplicates)||0)+(event.duplicates||0),
+              targets:(Number(current.targets)||0)+(event.decision==='target'?1:0),
+              saturatedUntil,
+            };
+          }
+          const compact=Object.fromEntries(Object.entries(feedback)
+            .sort((a,b)=>Number(a[1]?.lastCrawledAt||a[1]?.lastOutcomeAt||0)-Number(b[1]?.lastCrawledAt||b[1]?.lastOutcomeAt||0))
+            .slice(-500));
+          localStorage.setItem(key,JSON.stringify(compact));
+          return {ok:true,updated:events.length};
+        })()`,
+        returnByValue:true,
+      });
+      const value=response?.result?.value||{};
+      if(value.ok===true)return {kind:'result',updated:Number(value.updated)||0};
+    }finally{client.close();}
+  }
+  return {kind:'blocked',reason:'work_os_source_feedback_target_not_found'};
+}
+
 export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
   workOsUrl,
   batch,
@@ -708,6 +811,7 @@ export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
           const batch=${JSON.stringify(safeBatch)};
           const byKey=new Map((Array.isArray(state.candidates)?state.candidates:[]).map(item=>[String(item.platform)+'|'+String(item.link),item]));
           let added=0,duplicates=0,rejected=0,errors=batch.errors.length;
+          const sourceStats=[];
           const issues=[...batch.errors];
           for(const source of batch.sources){
             if(!source.text||!source.sourceUrl)continue;
@@ -723,8 +827,11 @@ export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
               });
               const payload=await res.json().catch(()=>null);
               if(!res.ok||!payload){errors+=1;issues.push({reason:'preview_http_'+res.status,query:source.query});continue;}
-              added+=Number(payload.batch?.added)||0;
-              duplicates+=Number(payload.batch?.duplicates)||0;
+              const sourceAdded=Number(payload.batch?.added)||0;
+              const sourceDuplicates=Number(payload.batch?.duplicates)||0;
+              added+=sourceAdded;
+              duplicates+=sourceDuplicates;
+              sourceStats.push({sourceUrl:source.sourceUrl,added:sourceAdded,duplicates:sourceDuplicates});
               for(const candidate of Array.isArray(payload.previews)?payload.previews:[]){
                 const key=String(candidate.platform)+'|'+String(candidate.link);
                 const label=String(candidate.name||'').trim().toLocaleLowerCase('uk-UA');
@@ -768,7 +875,7 @@ export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
           };
           sessionStorage.setItem(stateKey,JSON.stringify(state));
           window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
-          return {applied:true,added,duplicates,rejected,errors,candidateCount:state.candidates.length};
+          return {applied:true,added,duplicates,rejected,errors,candidateCount:state.candidates.length,sourceStats};
         })()`,
         returnByValue:true,
         awaitPromise:true,

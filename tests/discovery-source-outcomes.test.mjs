@@ -586,3 +586,24 @@ void test('source outcome feedback propagates to discovered graph children',asyn
   assert.match(source,/for\(const child of sourceChildren\.get\(key\)\|\|\[\]\)adjustSourceScore/);
   assert.match(source,/sourceOutcomeScores\.get\(item\.sourceUrl\)/);
 });
+
+
+void test('browser-local feedback suppresses recently saturated Telegram sources across runner restarts',async()=>{
+  const source=await readFile(new URL('../scripts/chat-discovery-source-crawl.mjs',import.meta.url),'utf8');
+  assert.match(source,/hydrateDiscoverySourceFeedback/);
+  assert.match(source,/sourceSaturatedUntil/);
+  assert.match(source,/sourceIsTemporarilySaturated/);
+  assert.match(source,/luhanskavtsa/);
+  assert.match(source,/munchen_ukraine_doch/);
+});
+
+void test('source feedback storage is bounded, local-only, and only receives successful preview stats',async()=>{
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  assert.match(adapter,/work-os:chat-discovery-source-feedback:v1/);
+  assert.match(adapter,/now\+6\*60\*60\*1000/);
+  assert.match(adapter,/\.slice\(-500\)/);
+  assert.match(adapter,/sourceStats\.push\(\{sourceUrl:source\.sourceUrl,added:sourceAdded,duplicates:sourceDuplicates\}\)/);
+  const failureGuard=adapter.indexOf('if(!res.ok||!payload)');
+  const statsWrite=adapter.indexOf('sourceStats.push');
+  assert.ok(statsWrite>failureGuard);
+});
