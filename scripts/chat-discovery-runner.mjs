@@ -232,14 +232,24 @@ async function processLocalPreflightVisible(task){
   finally{await markWorkOsLocalDiscoveryCandidateViaCdp(baseUrl,null,{cdpBaseUrl:whatsappCdp}).catch(()=>{});}
 }
 
+function addDiscoveryStageTime(task,key,elapsedMs){
+  const checkpoint=task.checkpoint||{};
+  const stageMs={...(checkpoint.stageMs||{})};
+  stageMs[key]=(Number(stageMs[key])||0)+Math.max(0,Number(elapsedMs)||0);
+  return {...task,checkpoint:{...checkpoint,stageMs}};
+}
+
 async function completeLocalPreflight(task,payload){
   const checkpoint=task.checkpoint||{};
   const final={...payload,runId:task.runId,completedAt:Date.now(),
-    durationMs:Math.max(0,Date.now()-Number(checkpoint.startedAt||Date.now()))};
+    durationMs:Math.max(0,Date.now()-Number(checkpoint.startedAt||Date.now())),
+    stageMs:{...(checkpoint.stageMs||{})}};
   // Keep the factual outcome in session storage before awaiting server persistence.
   // A failed write retries only persistence, never the external join/leave.
   await markWorkOsLocalDiscoveryCandidateViaCdp(baseUrl,{...task,checkpoint:{...checkpoint,final}},{cdpBaseUrl:whatsappCdp});
+  const persistStartedAt=Date.now();
   const saved=await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,final,{cdpBaseUrl:whatsappCdp});
+  const persistMs=Math.max(0,Date.now()-persistStartedAt);
   if(saved.kind!=='result'){
     markTaskBlocked(task,saved.reason||'persist_failed',30000);
     return 'local_task';
@@ -247,7 +257,8 @@ async function completeLocalPreflight(task,payload){
   clearTaskBlock(task);
   recordDiscoverySourceOutcome(task.sources,final.decision,final.reasonCodes,final.result);
   console.log('Discovery outcome '+JSON.stringify({candidateId:task.candidateId,name:final.result?.observedName||task.name,
-    decision:final.decision,reasons:final.reasonCodes,attempts:checkpoint.attempts,durationMs:final.durationMs}));
+    decision:final.decision,reasons:final.reasonCodes,attempts:checkpoint.attempts,durationMs:final.durationMs,
+    stageMs:{...final.stageMs,persistMs}}));
   return 'local_task';
 }
 
@@ -296,8 +307,10 @@ async function processLocalPreflight(task){
   let pre=prior?.membershipState==='joined'?prior:null;
   if(!pre){
     let queried;
+    const metadataStartedAt=Date.now();
     try{queried=await queryWhatsappInviteViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:4000});}
     catch(error){queried={kind:'blocked',reason:'metadata_query_error'};}
+    task=addDiscoveryStageTime(task,'metadataMs',Date.now()-metadataStartedAt);
     if(queried.kind!=='result'){
       // Only the last bounded attempt uses the existing exact-invite UI adapter.
       if(Number(task.checkpoint?.attempts)>=3){
@@ -334,8 +347,13 @@ async function processLocalPreflight(task){
   // Do not perform a second join after a timeout if WhatsApp may have accepted it.
   if(!await localRunStillActive(task))return 'local_wait';
   let joined;
+  const joinStartedAt=Date.now();
   try{joined=await joinWhatsappInviteViaRuntime(task,{cdpBaseUrl:whatsappCdp,timeoutMs:15000});}
-  catch(error){return deferLocalPreflight(task,'direct_join_error',pre);}
+  catch(error){
+    task=addDiscoveryStageTime(task,'joinAndInspectMs',Date.now()-joinStartedAt);
+    return deferLocalPreflight(task,'direct_join_error',pre);
+  }
+  task=addDiscoveryStageTime(task,'joinAndInspectMs',Date.now()-joinStartedAt);
   if(joined.kind!=='result'){
     if(['approval_required','invalid_whatsapp_link'].includes(joined.reason)){
       return completeLocalPreflight(task,{decision:joined.reason==='approval_required'?'skipped':'unavailable',
@@ -361,13 +379,14 @@ async function resolveLocalSourceSeedData(){
 }
 
 async function crawlLocalDiscoveryBatch(cursor){
+  const batchStartedAt=Date.now();
   const start=Math.max(0,Number(cursor)||0);
   let seedData;
   try{
     seedData=await resolveLocalSourceSeedData();
   }catch(error){
     const reason=error instanceof Error?error.message:String(error);
-    return {searched:0,nextCursor:start,done:false,totalTasks:0,errors:[{cursor:start,query:'План пошуку Work OS',reason}],query:'План пошуку Work OS',sources:[]};
+    return {searched:0,nextCursor:start,done:false,totalTasks:0,errors:[{cursor:start,query:'План пошуку Work OS',reason}],query:'План пошуку Work OS',sources:[],durationMs:Date.now()-batchStartedAt};
   }
   const width=3;
   const batches=await Promise.all(Array.from({length:width},(_,index)=>crawlLocalDiscoverySource(start+index,{seedData})));
@@ -386,6 +405,7 @@ async function crawlLocalDiscoveryBatch(cursor){
     errors,warnings,
     query:batches.map(item=>item?.query||'').filter(Boolean).join(' | '),
     sources:errors.length?[]:usable.flatMap(item=>Array.isArray(item?.sources)?item.sources:[]),
+    durationMs:Date.now()-batchStartedAt,
   };
 }
 
@@ -414,7 +434,7 @@ async function refillLocalSourceOnce(local){
   const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
   nextLocalSourceAt=Date.now()+(applied.errors?10_000:LOCAL_SOURCE_MIN_MS);
   if(applied.kind!=='result')return 'local_wait';
-  console.log('Local source crawl: cursor '+batch.nextCursor+', sources '+batch.sources.length+', added '+(applied.added||0)+', duplicates '+(applied.duplicates||0));
+  console.log('Local source crawl: cursor '+batch.nextCursor+', sources '+batch.sources.length+', added '+(applied.added||0)+', duplicates '+(applied.duplicates||0)+', sourceMs '+(batch.durationMs||0));
   return (applied.added||0)>0?'source_added':'source_advanced';
 }
 

@@ -102,6 +102,7 @@ const EMPTY_COUNTS: Record<DiscoveryDecision, number> = {
 const LOCAL_PREVIEW_KEY='work-os:chat-discovery-local-preview:v3';
 const LOCAL_PREFLIGHT_RESULTS_KEY='work-os:chat-discovery-local-preflight-results:v1';
 const LOCAL_SOURCE_SEEDS_KEY='work-os:chat-discovery-source-seeds:v1';
+const LOCAL_SOURCE_START_CURSOR=15;
 const EMPTY_LOCAL_PREVIEW:LocalPreviewSession={
   sourceTotal:0,sourceErrors:0,sourceFailures:0,sourceIssues:[],
   telegramCursor:0,sourceCursor:0,searched:0,processed:0,duplicates:0,rejected:0,emptySourceBatches:0,
@@ -315,6 +316,8 @@ export function ChatDiscoveryDialog({
       runId:crypto.randomUUID(),
       running:true,
       goal,
+      telegramCursor:LOCAL_SOURCE_START_CURSOR,
+      sourceCursor:LOCAL_SOURCE_START_CURSOR,
       lastActivityAt:Date.now(),
     };
     // The external runner reads sessionStorage directly through CDP. Persist the

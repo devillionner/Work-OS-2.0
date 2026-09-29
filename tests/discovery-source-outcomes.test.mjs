@@ -131,16 +131,14 @@ void test('global WhatsApp message loading is deferred without burning the full 
   assert.match(runner,/without penalizing the candidate/u);
 });
 
-void test('real workbook plan is exhaustive while keeping high-yield queries first',()=>{
+void test('real workbook plan is bounded around high-yield intents instead of the 84k brute-force tail',()=>{
   const plan=workbookSearchPlan(realSeed);
-  assert.ok(plan.length>80000,'all valid workbook city/template combinations should remain reachable');
+  assert.ok(plan.length>=500,'plan must keep broad diaspora coverage');
+  assert.ok(plan.length<5000,'plan must stay bounded enough for outcome-driven runs');
   assert.ok(plan.slice(0,40).some(item=>item.query.includes('Німеччина')));
   assert.ok(plan.slice(0,40).some(item=>item.query.includes('Польща')));
   assert.ok(plan.some(item=>/Батьки|Мамочки/iu.test(item.query)));
-  assert.ok(plan.some(item=>/Оренда|Зніму житло/iu.test(item.query)));
-  const last=realSeed.cities.at(-1);
-  const lastPlace=String(last?.uk||last?.name||'');
-  assert.ok(plan.some(item=>item.place===lastPlace),'deep workbook tail must not be dropped');
+  assert.ok(plan.some(item=>/Перевізники|Перевезення/iu.test(item.query)));
 });
 
 void test('discovered Telegram sources use channel-level WhatsApp search',()=>{
@@ -484,7 +482,7 @@ void test('Telegram source crawl avoids repeated expensive directory work',async
   assert.match(source,/!sources\.length&&Date\.now\(\)>=searchBlockedUntil/);
 });
 
-void test('real workbook fast lane prioritizes large diaspora markets before exhaustive tail',()=>{
+void test('real workbook fast lane prioritizes large diaspora markets before bounded fallback',()=>{
   const plan=workbookSearchPlan(realSeed);
   const first80=plan.slice(0,80);
   assert.ok(first80.some(item=>item.query==='Українці Німеччина'));
@@ -492,8 +490,7 @@ void test('real workbook fast lane prioritizes large diaspora markets before exh
   assert.ok(first80.some(item=>item.query==='Берлін чат'));
   assert.ok(first80.some(item=>item.query==='Батьки Варшава'));
   assert.ok(first80.some(item=>item.query==='Перевізники Гамбург'));
-  const deep=plan.findIndex(item=>/Оренда|Зніму житло/iu.test(item.query));
-  assert.ok(deep>80,'low-yield exhaustive intents should not delay the fast lane');
+  assert.ok(plan.filter(item=>item.place==='Берлін').length>=4);
 });
 
 void test('fast lane favors writable community intents over duplicate English variants',()=>{
@@ -558,4 +555,34 @@ void test('source feedback rewards viable-size writable supply even while factua
     [{sourceUrl}], 'unavailable', ['qualification_incomplete','unknown_ads_allowed'],
     {memberCount:900,canWrite:true,topicMatch:'match',activityState:'active'}
   ));
+});
+
+
+void test('fresh UI and CDP discovery runs skip the repeatedly exhausted bootstrap cursor band',async()=>{
+  const ui=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  assert.match(ui,/const LOCAL_SOURCE_START_CURSOR=15/);
+  assert.match(ui,/telegramCursor:LOCAL_SOURCE_START_CURSOR/);
+  assert.match(ui,/sourceCursor:LOCAL_SOURCE_START_CURSOR/);
+  assert.match(adapter,/telegramCursor:15,sourceCursor:15/);
+});
+
+void test('joined qualification reads a deeper factual history without relaxing criteria',async()=>{
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  const start=adapter.indexOf('export async function joinWhatsappInviteViaRuntime');
+  const end=adapter.indexOf('export async function leaveWhatsappGroupViaRuntime',start);
+  const block=adapter.slice(start,end);
+  assert.match(block,/loadEarlierMsgs/);
+  assert.match(block,/historyPage<2/);
+  assert.match(block,/models\.slice\(-100\)/);
+  assert.match(block,/slice\(-80\)/);
+  assert.match(block,/ukrainianMessages>=2\?'match':'unknown'/);
+  assert.match(block,/adLikeMessagePattern\.test\(text\)\)\.length>=2/);
+});
+
+void test('source outcome feedback propagates to discovered graph children',async()=>{
+  const source=await readFile(new URL('../scripts/chat-discovery-source-crawl.mjs',import.meta.url),'utf8');
+  assert.match(source,/const sourceChildren=new Map\(\)/);
+  assert.match(source,/for\(const child of sourceChildren\.get\(key\)\|\|\[\]\)adjustSourceScore/);
+  assert.match(source,/sourceOutcomeScores\.get\(item\.sourceUrl\)/);
 });

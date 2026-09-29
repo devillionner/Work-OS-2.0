@@ -221,12 +221,18 @@ export async function joinWhatsappInviteViaRuntime(
           if(loader?.loadRecentMsgs){
             try{await race(loader.loadRecentMsgs(chat),'recent_messages');}catch{}
           }
+          if(loader?.loadEarlierMsgs){
+            for(let historyPage=0;historyPage<2&&Date.now()<deadline-500;historyPage++){
+              try{await race(loader.loadEarlierMsgs(chat),'earlier_messages_'+historyPage);}
+              catch{break;}
+            }
+          }
           await new Promise(resolve=>setTimeout(resolve,250));
           const metadata=chat.groupMetadata||{};
           const models=Array.isArray(chat.msgs?._models)
             ? chat.msgs._models
             : Array.isArray(chat.msgs?.models)?chat.msgs.models:[];
-          const messages=models.slice(-40).map(msg=>({
+          const messages=models.slice(-100).map(msg=>({
             body:String(msg?.body||msg?.caption||msg?.__x_body||'').slice(0,1600),
             timestamp:Number(msg?.t||msg?.timestamp||msg?.__x_t||0)||0,
             type:String(msg?.type||msg?.__x_type||''),
@@ -295,7 +301,7 @@ export async function joinWhatsappInviteViaRuntime(
     let activityState;
     if(isDiscoveryRecentTimestamp(latestTimestamp*1000,nowSeconds*1000))activityState='active';
     else if(latestTimestamp>0&&nowSeconds-latestTimestamp>=14*24*60*60)activityState='dead';
-    const recentTexts=userMessages.map(item=>String(item?.body||'')).filter(Boolean).slice(-30);
+    const recentTexts=userMessages.map(item=>String(item?.body||'')).filter(Boolean).slice(-80);
     const evidence=[value.subject,value.desc,value.parentTitle,value.parentDesc,...recentTexts].join('\n');
     const spamMessages=recentTexts.filter(text=>spamPattern.test(text)).length;
     const ukrainianMessages=recentTexts.filter(text=>ukrainianConversationPattern.test(text)).length;
@@ -476,7 +482,7 @@ export async function startWorkOsLocalDiscoveryRunViaCdp(
           sessionStorage.removeItem('work-os:chat-discovery-local-preflight-results:v1');
           const state={
             runId,sourceTotal:0,sourceErrors:0,sourceFailures:0,sourceIssues:[],
-            telegramCursor:0,sourceCursor:0,searched:0,processed:0,duplicates:0,rejected:0,emptySourceBatches:0,
+            telegramCursor:15,sourceCursor:15,searched:0,processed:0,duplicates:0,rejected:0,emptySourceBatches:0,
             done:false,running:true,sourceExhausted:false,goal:${JSON.stringify(safeGoal)},
             lastActivityAt:Date.now(),completionReason:null,candidates:[],
           };

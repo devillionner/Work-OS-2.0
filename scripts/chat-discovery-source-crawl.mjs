@@ -34,6 +34,13 @@ const telegramGraph=new Map();
 const crawledTelegramSources=new Set();
 const graphInFlight=new Set();
 const sourceOutcomeScores=new Map();
+const sourceChildren=new Map();
+function adjustSourceScore(key,delta){
+  if(!key||!Number.isFinite(delta)||delta===0)return;
+  sourceOutcomeScores.set(key,Math.max(-120,Math.min(240,(sourceOutcomeScores.get(key)||0)+delta)));
+  const queued=telegramGraph.get(key);
+  if(queued)queued.score=Math.max(-120,Math.min(320,queued.score+delta));
+}
 export function recordDiscoverySourceOutcome(sources,decision,reasons=[],result={}) {
   const memberCount=Number(result?.memberCount);
   const viableSize=Number.isFinite(memberCount)&&memberCount>=700&&memberCount<=18000;
@@ -47,9 +54,14 @@ export function recordDiscoverySourceOutcome(sources,decision,reasons=[],result=
       :reasons.includes('invalid_whatsapp_link')?-12
       :usableSignal?24
       :decision==='rejected'?-8:0;
-    sourceOutcomeScores.set(key,Math.max(-120,Math.min(240,(sourceOutcomeScores.get(key)||0)+delta)));
-    const queued=telegramGraph.get(key);
-    if(queued)queued.score+=delta;
+    adjustSourceScore(key,delta);
+    for(const child of sourceChildren.get(key)||[])adjustSourceScore(child,Math.round(delta*0.75));
+  }
+}
+for(const [,url,place] of BOOTSTRAP_SOURCES){
+  const sourceUrl=normalizeTelegramPreview(url);
+  if(sourceUrl&&!telegramGraph.has(sourceUrl)){
+    telegramGraph.set(sourceUrl,{sourceUrl,score:45,place,evidence:'curated Ukrainian Telegram seed '+place});
   }
 }
 const PRODUCTIVE_TELEGRAM_SOURCES=[
@@ -103,6 +115,7 @@ export function workbookSearchPlan(seed) {
   };
   const fastCities=interleave(5);
   const broadCities=interleave(20);
+  const fallbackCities=interleave(120);
   const pickTemplate=pattern=>cityTemplates.find(template=>pattern.test(template));
   const fastTemplates=[
     pickTemplate(/назва міста чат/iu),
@@ -116,6 +129,11 @@ export function workbookSearchPlan(seed) {
   const broadTemplates=[
     pickTemplate(/назва міста чат/iu),
     pickTemplate(/Українці в місті/iu),
+  ].filter(Boolean);
+  const fallbackTemplates=[
+    pickTemplate(/назва міста чат/iu),
+    pickTemplate(/Українці в місті/iu),
+    pickTemplate(/Батьки|Мамочки/iu),
   ].filter(Boolean);
   const tasks=[];
   const seenQueries=new Set();
@@ -151,10 +169,12 @@ export function workbookSearchPlan(seed) {
   // high-yield search path for a small target goal.
   for(const country of buckets.keys())for(const template of countryTemplates)push({place:country,query:render(template,country),alias:''});
 
-  // Fast high-yield tiers stay first, but the tail is exhaustive: every valid
-  // city/template pair from the workbook is eventually searched. push() keeps
-  // this tail deduplicated against the priority tiers above.
-  for(const cities of buckets.values())for(const city of cities)for(const template of cityTemplates){
+  // The old exhaustive city × keyword cross-product produced >84k tasks and
+  // spent most of a five-minute run on low-yield queries. Keep a broad fallback
+  // across the largest 120 places per country, but only with the three strongest
+  // factual-yield intents. New source clusters can still expand through the
+  // Telegram graph, so coverage grows from productive evidence instead of brute force.
+  for(const city of fallbackCities)for(const template of fallbackTemplates){
     const place=String(city.uk||city.name);
     push({place,query:render(template,place),alias:city.name!==place?render(template,city.name):''});
   }
@@ -194,6 +214,11 @@ export function discoverRelatedTelegramSources(html,currentSourceUrl,place='',pa
     if(/(?:ukrain|ukr|[_-]ua|ua[_-]|help|vpo|refuge|волонтер|допомог|біжен)/iu.test(channel+' '+context))score+=16;
     if(/(?:community|громад|diaspora|батьк|родител|перевез|transport|чат\b|chat\b)/iu.test(context))score+=6;
     if(score<12)continue;
+    if(current){
+      const children=sourceChildren.get(current)||new Set();
+      children.add(sourceUrl);
+      sourceChildren.set(current,children);
+    }
     const existing=telegramGraph.get(sourceUrl);
     if(!existing||score>existing.score){
       const parentScore=sourceOutcomeScores.get(current)||0;
@@ -216,7 +241,7 @@ function takeTelegramGraphSources(place,limit=MAX_GRAPH_SOURCES_PER_STEP) {
   const placeRe=place?new RegExp(escapeRegExp(place),'iu'):null;
   const ranked=[...telegramGraph.values()]
     .filter(item=>!crawledTelegramSources.has(item.sourceUrl)&&!graphInFlight.has(item.sourceUrl))
-    .map(item=>({...item,effectiveScore:item.score+(placeRe?.test(item.evidence+' '+item.sourceUrl)?25:0)}))
+    .map(item=>({...item,effectiveScore:item.score+(sourceOutcomeScores.get(item.sourceUrl)||0)+(placeRe?.test(item.evidence+' '+item.sourceUrl)?25:0)}))
     .sort((a,b)=>b.effectiveScore-a.effectiveScore)
     .slice(0,limit);
   for(const item of ranked){
@@ -334,9 +359,10 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
       if(sources.length<8){
         const directoryQueries=[...new Set([
           /whatsapp/iu.test(task.query)?task.query:task.query+' WhatsApp',
-          task.query,
+          task.place?'Українці '+task.place+' WhatsApp':'',
+          task.alias?(/whatsapp/iu.test(task.alias)?task.alias:task.alias+' WhatsApp'):'',
           task.place?task.place+' WhatsApp':'',
-          task.place,
+          task.query,
         ].map(item=>String(item||'').trim()).filter(Boolean))].slice(0,3);
         attempted+=directoryQueries.length;
         const directoryBatches=await Promise.allSettled(directoryQueries.map(async directoryQuery=>{

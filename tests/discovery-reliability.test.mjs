@@ -116,3 +116,12 @@ test('result persistence merges a concurrent pause and source batch',async()=>{
     assert.equal(result.candidates.length,2);
   }finally{globalThis.fetch=oldFetch;globalThis.WebSocket=oldSocket;}
 });
+
+
+test('runner records source, metadata, join and persistence timing stages',()=>{
+  assert.match(runner,/sourceMs/);
+  assert.match(runner,/metadataMs/);
+  assert.match(runner,/joinAndInspectMs/);
+  assert.match(runner,/persistMs/);
+  assert.match(runner,/stageMs/);
+});
