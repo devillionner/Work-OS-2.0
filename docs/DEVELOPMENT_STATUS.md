@@ -1,3 +1,11 @@
+## 2026-09-30 — Full WhatsApp waiting-queue recheck v0.2.84
+
+- Corrected the v0.2.83 scope gap: automatic rechecks now enroll every legacy/manual WhatsApp chat in the Waiting workflow, not only chats already linked to a Discovery candidate.
+- Claim-time enrollment creates or safely links a canonical pending candidate in bounded batches of 20 and immediately exposes a `check_membership_and_inspect` task.
+- Existing three-minute pending cadence, exact-target verification, joined-chat qualification and fail-closed transitions are reused without a second automation path.
+- The WhatsApp Waiting tab now explains that the local runner performs automatic checks and that “Прийняли” is only a manual fallback.
+- Regression coverage includes legacy waiting-chat enrollment and the visible Waiting-tab contract.
+
 ## 2026-09-30 — Concurrent WhatsApp pending checks and autopost v0.2.83
 
 - Fixed runner starvation: an active local Discovery run no longer prevents D1-backed WhatsApp work from executing.

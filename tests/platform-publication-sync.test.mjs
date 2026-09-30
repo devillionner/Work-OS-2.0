@@ -68,3 +68,11 @@ void test('WhatsApp ready queue can create a reservation-aware autopost batch fr
   assert.match(selection,/whatsapp_autopost_jobs/);
   assert.match(selection,/excludeAutomationJobId/);
 });
+
+void test('WhatsApp waiting queue explains automatic pending membership rechecks',()=>{
+  const workspace=read('components/platform-workspace.tsx');
+  assert.match(workspace,/queue==='waiting'&&platform==='whatsapp'/);
+  assert.match(workspace,/Автоперевірка очікування/);
+  assert.match(workspace,/приблизно кожні 3 хвилини/);
+  assert.match(workspace,/«Прийняли» залишається ручним резервом/);
+});

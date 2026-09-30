@@ -1110,6 +1110,31 @@ void test('WhatsApp pending executor callbacks schedule a bounded server-side re
   assert.equal(due.tasks[0].action, 'check_membership_and_inspect');
 });
 
+void test('legacy WhatsApp waiting chats are enrolled into automatic membership rechecks', async (t) => {
+  const db=await localDatabase(t);
+  await db.prepare(`INSERT INTO chats(
+    id,user_id,platform,name,link,normalized_link,workflow_status,is_private,created_at,updated_at
+  ) VALUES ('legacy-waiting','u','whatsapp','Українці Австрія',
+    'https://chat.whatsapp.com/LegacyWaiting123','https://chat.whatsapp.com/LegacyWaiting123',
+    'waiting',0,100,100)`).run();
+
+  const claimed=await claimDiscoveryExecutorQueue(db,'u','device-a',1,200);
+  assert.equal(claimed.tasks.length,1);
+  assert.equal(claimed.tasks[0].chatId,'legacy-waiting');
+  assert.equal(claimed.tasks[0].action,'check_membership_and_inspect');
+  assert.equal(claimed.tasks[0].resultAction,'inspect');
+
+  const candidate=await db.prepare(`SELECT imported_chat_id,membership_state,executor_next_check_at
+    FROM chat_discovery_candidates WHERE user_id='u' AND normalized_link='https://chat.whatsapp.com/LegacyWaiting123'`).first();
+  assert.deepEqual(
+    [candidate.imported_chat_id,candidate.membership_state,candidate.executor_next_check_at],
+    ['legacy-waiting','pending',200],
+  );
+  const count=await db.prepare(`SELECT COUNT(*) AS count FROM chat_discovery_candidates
+    WHERE user_id='u' AND normalized_link='https://chat.whatsapp.com/LegacyWaiting123'`).first();
+  assert.equal(Number(count.count),1);
+});
+
 void test('executor claims are exclusive per device and recover after a bounded lease', async (t) => {
   const { db, candidate } = await importedCandidate(t, 'ExecutorLease123');
   const first = await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 10, 200);

@@ -585,6 +585,10 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       <div className="queue-tabs" role="tablist" aria-label="Черга чатів">
         {queues.filter(item=>platform!=='viber'||item.key!=='profile_review').map(item=><button type="button" key={item.key} role="tab" aria-selected={queue===item.key} tabIndex={queue===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{if(item.key!=='ready'){setQuickPublishMode(false);setQuickAdvertisementId(null);}setQueue(item.key);setProfileFilter('all');setOffset(0)}}>{item.label}<span>{data?.counts[item.key] || 0}</span></button>)}
       </div>
+      {queue==='waiting'&&platform==='whatsapp'&&<div className="platform-queue-context is-active" role="status">
+        <div><strong>Автоперевірка очікування</strong><span>Коли локальний runner увімкнений, Work OS сам перевіряє ці чати приблизно кожні 3 хвилини. Після підтвердженого вступу чат автоматично проходить кваліфікацію; «Прийняли» залишається ручним резервом.</span></div>
+        <Badge variant="secondary">Автоматично</Badge>
+      </div>}
       {queue==='ready'&&(platform==='whatsapp'||platform==='viber')&&<div className={'platform-queue-context '+(quickPublishMode?'is-active':'')}>
         <div><strong>{platform==='whatsapp'?'Автопублікація черги':quickPublishMode?'Швидкий режим увімкнено':'Швидкий режим'}</strong><span>{platform==='whatsapp'
           ? (whatsappAutopostImage

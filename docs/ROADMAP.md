@@ -1,3 +1,11 @@
+## 2026-09-30 — Complete WhatsApp Waiting autocheck (v0.2.84)
+
+- [x] Enroll legacy/manual WhatsApp Waiting chats that have no Discovery candidate link.
+- [x] Reuse the guarded Discovery executor for automatic membership rechecks and factual qualification.
+- [x] Backfill in bounded batches without duplicating candidates or creating a parallel state machine.
+- [x] Explain the automatic behavior directly in the WhatsApp Waiting tab.
+- [x] Keep the manual “Прийняли” action as a fallback only.
+
 ## 2026-09-30 — WhatsApp pending checks + autopost runtime (v0.2.83)
 
 - [x] Continue automatic pending-membership checks while local WhatsApp Discovery is active.

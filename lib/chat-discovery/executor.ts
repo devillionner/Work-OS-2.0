@@ -1,3 +1,4 @@
+import { normalizeGroupLink } from '../chats/bulk-input.ts';
 import { readChatState } from '../chats/state.ts';
 import { transitionChat } from '../chats/transitions.ts';
 import { changeChatLeave } from '../chats/leave.ts';
@@ -95,6 +96,7 @@ export async function claimDiscoveryExecutorQueue(
 ): Promise<{ tasks: DiscoveryExecutorTask[]; leaseSeconds: number; sourceAdvanceNeeded: boolean }> {
   const leaseSeconds = 90;
   const limit = boundedLimit(limitInput);
+  await ensureWaitingWhatsAppCandidates(db,userId,now);
   const queue = await readDiscoveryExecutorQueue(db, userId, limit, now);
   const tasks: DiscoveryExecutorTask[] = [];
   for (const task of queue.tasks) {
@@ -170,6 +172,36 @@ export async function completeDiscoveryExternalLeave(
   const left = await changeChatLeave(db, { userId, chat, now, confirm: true });
   if (!left.ok) throw new DiscoveryError(left.error || 'Не вдалося підтвердити зовнішній вихід.', 409);
   return { ok: true, candidateId: candidate.id, chatId: chat.id };
+}
+
+async function ensureWaitingWhatsAppCandidates(db:D1Database,userId:string,now:number){
+  const waiting=await db.prepare(`SELECT c.id,c.name,c.link,c.normalized_link
+    FROM chats c
+    WHERE c.user_id=?1 AND c.platform='whatsapp' AND c.workflow_status='waiting'
+      AND c.joined_at IS NULL AND c.left_at IS NULL
+      AND NOT EXISTS(
+        SELECT 1 FROM chat_discovery_candidates dc
+        WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id
+      )
+    ORDER BY c.updated_at,c.id LIMIT 20`).bind(userId).all<{id:string;name:string;link:string;normalized_link:string}>();
+  for(const chat of waiting.results){
+    const parsed=normalizeGroupLink(chat.normalized_link||chat.link);
+    if(!parsed||parsed.platform!=='whatsapp')continue;
+    const candidateId=crypto.randomUUID();
+    await db.prepare(`INSERT INTO chat_discovery_candidates(
+      id,user_id,platform,name,link,normalized_link,discovered_at,
+      membership_state,inspection_state,decision,reason_codes_json,
+      imported_chat_id,executor_next_check_at,created_at,updated_at
+    ) VALUES (?1,?2,'whatsapp',?3,?4,?4,?5,'pending','not_checked','review','[]',?6,?5,?5,?5)
+    ON CONFLICT(user_id,platform,normalized_link) DO NOTHING`)
+      .bind(candidateId,userId,chat.name,parsed.link,now,chat.id).run();
+    await db.prepare(`UPDATE chat_discovery_candidates SET
+      imported_chat_id=?1,membership_state='pending',inspection_state='not_checked',
+      executor_next_check_at=COALESCE(executor_next_check_at,?2),updated_at=?2,version=version+1
+      WHERE user_id=?3 AND platform='whatsapp' AND normalized_link=?4
+        AND imported_chat_id IS NULL`)
+      .bind(chat.id,now,userId,parsed.link).run();
+  }
 }
 
 function deriveAction(candidate: CandidateTaskRow, workflowStatus: string): DiscoveryExecutorAction | null {

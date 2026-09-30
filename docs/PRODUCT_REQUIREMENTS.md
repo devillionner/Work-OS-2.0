@@ -1,3 +1,11 @@
+## 2026-09-30 — Complete WhatsApp Waiting autocheck addendum
+
+- Automatic membership rechecks apply to every WhatsApp chat whose canonical workflow status is `waiting`, including records created before Discovery candidate linkage existed.
+- The executor may create or attach the minimal canonical Discovery candidate needed to reuse guarded membership inspection; it must not create duplicate chats or candidates.
+- Enrollment is bounded per poll and is allowed only for post-handoff Waiting records.
+- A verified joined result advances the chat through the existing qualification path; a still-pending result schedules the next check after three minutes.
+- The Waiting workspace must visibly explain the automatic runner behavior and identify the manual accepted action as a fallback.
+
 ## 2026-09-30 — WhatsApp background automation continuity addendum
 
 - An active local Discovery run must not suspend confirmed post-handoff automation.
