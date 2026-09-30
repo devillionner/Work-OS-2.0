@@ -418,10 +418,19 @@ void test('stale source cooldown warnings disappear after pause and resume',asyn
 void test('Discovery candidate cards use one clear details disclosure and an explicit review action',async()=>{
   const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
   assert.match(dialog,/Деталі перевірки · \{confirmedCriteria\} із \{criteria\.length\}/);
-  assert.match(dialog,/Що треба уточнити/);
+  assert.doesNotMatch(dialog,/Що треба уточнити/);
   assert.match(dialog,/Переглянути й вирішити/);
   assert.match(dialog,/Відкриє вкладку «Потрібен мій погляд»/);
   assert.doesNotMatch(dialog,/Чому тут/);
   assert.doesNotMatch(dialog,/Посилання та джерела/);
   assert.doesNotMatch(dialog,/Продовжити вручну/);
+});
+
+
+void test('Discovery qualification has one visible source of truth',async()=>{
+  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  const details=dialog.slice(dialog.indexOf('Деталі перевірки ·'),dialog.indexOf('<div className="mt-3 flex flex-wrap items-center gap-2'));
+  assert.match(details,/criteria\.map\(item => <Criterion/);
+  assert.doesNotMatch(details,/candidate\.reasonCodes\.map/);
+  assert.doesNotMatch(details,/Що треба уточнити/);
 });

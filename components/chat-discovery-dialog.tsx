@@ -844,12 +844,6 @@ export function ChatDiscoveryDialog({
                           Деталі перевірки · {confirmedCriteria} із {criteria.length}
                         </summary>
                         <div className="border-t border-border/60 p-3">
-                          {candidate.reasonCodes.length>0&&candidate.decision!=='target'&&<div className="mb-3">
-                            <p className="mb-2 text-xs font-medium text-muted-foreground">Що треба уточнити</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {candidate.reasonCodes.map(code=><span key={code} className="rounded-lg bg-muted/50 px-2 py-1 text-[11px] font-medium text-foreground/70">{reasonLabel(code)}</span>)}
-                            </div>
-                          </div>}
                           <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
                             {criteria.map(item => <Criterion key={item.label} {...item} />)}
                           </div>

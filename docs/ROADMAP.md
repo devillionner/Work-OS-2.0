@@ -1,3 +1,9 @@
+## 2026-09-30 — Discovery criteria as single source of truth (v0.2.80)
+
+- [x] Removed the duplicated reason-code chip list from candidate details.
+- [x] The six live criteria are now the only visible source of qualification state, preventing stale “unknown” reasons from contradicting resolved values.
+- [x] Search, qualification and persistence behavior are unchanged.
+
 ## 2026-09-30 — Discovery candidate clarity (v0.2.79)
 
 - [x] Candidate card uses one disclosure, “Деталі перевірки”, instead of nested “Чому тут”, criteria and source sections.

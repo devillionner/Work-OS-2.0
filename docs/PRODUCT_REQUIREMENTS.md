@@ -1,3 +1,9 @@
+## 2026-09-30 — Discovery qualification presentation addendum
+
+- Candidate details must have one visible source of truth for qualification state.
+- Historical reason codes must not be rendered beside live criteria when they can contradict newer resolved values.
+- Unknown states are communicated by the affected criterion itself, without a duplicated clarification list.
+
 ## 2026-09-30 — Discovery candidate-card clarity addendum
 
 - A candidate card may expose at most one collapsible details region.

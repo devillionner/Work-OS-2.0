@@ -1,3 +1,9 @@
+## 2026-09-30 — Discovery criteria consistency v0.2.80
+
+- Screenshot QA confirmed stale reason-code chips contradicted live resolved criteria (for example unknown type/member count versus Group/953).
+- Removed the duplicated chip list; the six live criteria now communicate both resolved and unknown states.
+- Updated the static UI contract; discovery behavior and stored outcomes are unchanged.
+
 ## 2026-09-30 — Discovery candidate-card clarity v0.2.79
 
 - Screenshot QA found three competing disclosure levels and an ambiguous “Продовжити вручну” navigation action.
