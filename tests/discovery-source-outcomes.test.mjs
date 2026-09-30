@@ -173,16 +173,16 @@ void test('web-search 429 does not fail the source step when Telegram graph fall
   assert.ok(result.sources.some(source=>source.text.includes(invite)));
 });
 
-void test('search defers only when both Telegram directory and web search are unavailable',async()=>{
+void test('search advances with a warning when all optional search sources are unavailable',async()=>{
   const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async(url)=>{
     if(String(url).includes('tg.me/search'))return response('directory down',503);
     if(String(url).includes('search.brave.com'))return response('Too many requests',429);
     return response('<title>Українці</title>');
   }});
   assert.equal(result.errors.length,0);
-  assert.equal(result.deferred,true);
-  assert.equal(result.nextCursor,15);
-  assert.ok(result.retryAfterMs>=1000);
+  assert.equal(result.deferred,false);
+  assert.equal(result.nextCursor,16);
+  assert.ok(result.warnings.some(item=>String(item.reason).includes('optional_search_sources_unavailable')));
 });
 
 
@@ -274,27 +274,27 @@ void test('dead bootstrap source is warned and skipped instead of freezing the c
   assert.match(result.warnings[0].reason,/source_http_503/);
 });
 
-void test('search challenge defers the exact query only when Telegram directory also fails',async()=>{
+void test('search challenge skips the exact query when Telegram directory also fails',async()=>{
   const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async(url)=>{
     if(String(url).includes('tg.me/search'))return response('directory down',503);
     return response('<title>Verify you are human</title>');
   }});
-  assert.equal(result.nextCursor,15);
+  assert.equal(result.nextCursor,16);
   assert.equal(result.done,false);
   assert.equal(result.errors.length,0);
-  assert.equal(result.deferred,true);
-  assert.match(result.deferredReason,/search_blocked/);
+  assert.equal(result.deferred,false);
+  assert.ok(result.warnings.some(item=>String(item.reason).includes('optional_search_sources_unavailable')));
 });
 
-void test('temporary external search failure defers only when Telegram directory also fails',async()=>{
+void test('temporary external search failure warns and advances when Telegram directory also fails',async()=>{
   const result=await crawlLocalDiscoverySource(15,{seedData,fetcher:async(url)=>{
     if(String(url).includes('tg.me/search'))return response('directory down',503);
     if(String(url).includes('search.brave.com'))return response('temporary',503);
     return response('<title>Українці</title>');
   }});
-  assert.equal(result.nextCursor,15);
-  assert.equal(result.deferred,true);
-  assert.match(result.deferredReason,/source_http_503/);
+  assert.equal(result.nextCursor,16);
+  assert.equal(result.deferred,false);
+  assert.ok(result.warnings.some(item=>String(item.reason).includes('optional_search_sources_unavailable')));
 });
 
 void test('curl HTTP status trailer has no escaped-newline parsing ambiguity',async()=>{

@@ -197,10 +197,11 @@ void test('local Discovery rejects impossible candidates before join',()=>{
   assert.match(source,/pre\.canWrite===false/);
 });
 
-void test('source cooldown is deferred without advancing cursor and local queue can fill ahead',()=>{
+void test('temporary source deferral advances one query instead of freezing the run',()=>{
   assert.match(source,/LOCAL_SOURCE_TARGET_QUEUE=30/);
   assert.match(source,/batch\.deferred===true/);
-  assert.match(source,/without advancing cursor/);
+  assert.match(source,/nextCursor:Math\.max\(cursor\+1/);
+  assert.match(source,/source_step_skipped_after_defer/);
   assert.match(source,/queuedCount\|\|0\)<LOCAL_SOURCE_TARGET_QUEUE/);
 });
 

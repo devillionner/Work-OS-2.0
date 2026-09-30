@@ -1,3 +1,10 @@
+## 2026-09-30 — Discovery source stall recovery v0.2.82
+
+- Temporary failure of both optional Telegram-directory and web-search sources no longer holds the same plan cursor for up to five minutes.
+- The affected query is recorded as a warning and skipped so the remaining discovery plan continues.
+- The runner also converts any future deferred source batch into one-step forward progress as a defensive fail-safe.
+- Regression coverage verifies both source-level advancement and runner-level recovery.
+
 ## 2026-09-30 — Discovery factual qualification correction v0.2.81
 
 - Screenshot QA exposed a functional false-positive: Israeli Friends Of Ukraine was shown as target audience and writable although WhatsApp displayed Israeli identity and an admin-only notice.

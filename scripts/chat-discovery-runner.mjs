@@ -480,16 +480,21 @@ async function refillLocalSourceOnce(local){
   if(local?.active!==true||local.sourceExhausted===true||Number(local.queuedCount||0)>=LOCAL_SOURCE_TARGET_QUEUE)return 'local_wait';
   if(Date.now()<nextLocalSourceAt)return 'local_wait';
   const cursor=Number(local.sourceCursor)||0;
-  const batch=await crawlLocalDiscoveryBatch(cursor);
+  let batch=await crawlLocalDiscoveryBatch(cursor);
+  if(batch.deferred===true){
+    batch={
+      ...batch,
+      nextCursor:Math.max(cursor+1,Number(batch.nextCursor)||cursor),
+      deferred:false,
+      retryAfterMs:0,
+      warnings:[
+        ...(Array.isArray(batch.warnings)?batch.warnings:[]),
+        {cursor,query:batch.query||'Пошук джерел',reason:'source_step_skipped_after_defer · '+String(batch.deferredReason||'temporary_source_failure')},
+      ],
+    };
+  }
   if(Array.isArray(batch.warnings)&&batch.warnings.length){
     for(const warning of batch.warnings.slice(0,4))console.warn('Discovery source warning: '+String(warning?.query||'source')+' · '+String(warning?.reason||'unavailable'));
-  }
-  if(batch.deferred===true){
-    nextLocalSourceAt=Date.now()+Math.max(1000,Number(batch.retryAfterMs)||LOCAL_SOURCE_MIN_MS);
-    if(batch.nextCursor>cursor||batch.sources.length){
-      await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
-    }
-    return 'local_wait';
   }
   const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
   nextLocalSourceAt=Date.now()+(applied.errors?10_000:LOCAL_SOURCE_MIN_MS);

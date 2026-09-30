@@ -1,3 +1,10 @@
+## 2026-09-30 — Discovery source stall recovery (v0.2.82)
+
+- [x] Optional-source outages no longer freeze the discovery plan on one cursor.
+- [x] A blocked query advances with a transient warning while later queries continue.
+- [x] The runner has a defensive one-step advancement for any deferred source batch.
+- [x] Regression contracts cover rate limits, challenges, temporary failures and runner recovery.
+
 ## 2026-09-30 — Discovery factual qualification correction (v0.2.81)
 
 - [x] Ukrainian/Russian admin-only wording variants such as “Лише адміністраторам можна надсилати повідомлення” are recognized.

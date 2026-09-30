@@ -542,12 +542,7 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
         if(directoryAnswered||lyzemAnswered){
           warnings.push({cursor:index,query,reason:'optional_web_search_deferred · '+(searchFailureReason||'search_cooldown')});
         }else{
-          return {
-            searched:attempted,nextCursor:index,done:false,totalTasks,query,sources:[],errors:[],warnings,
-            deferred:true,
-            deferredReason:searchFailureReason||'search_cooldown',
-            retryAfterMs:Math.max(1000,searchBlockedUntil-Date.now()),
-          };
+          warnings.push({cursor:index,query,reason:'optional_search_sources_unavailable · '+(searchFailureReason||'search_cooldown')});
         }
       }
     }

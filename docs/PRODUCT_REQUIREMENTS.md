@@ -1,3 +1,9 @@
+## 2026-09-30 — Discovery progress resilience addendum
+
+- Temporary unavailability of optional discovery sources must not leave an active run on the same plan step.
+- The failed query may be skipped with a transient warning; qualification remains fail-closed and only verified WhatsApp facts may produce a target result.
+- Any deferred source batch must make bounded forward progress instead of displaying an indefinitely active state.
+
 ## 2026-09-30 — Discovery factual precedence addendum
 
 - Live facts from the joined WhatsApp chat override invite metadata and source heuristics.
