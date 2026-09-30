@@ -1,3 +1,10 @@
+## 2026-09-30 — WhatsApp Waiting start-path reliability (v0.2.86)
+
+- [x] Replace per-chat legacy Waiting enrollment with set-based D1 statements, so one operator batch does not fan out into hundreds of sequential writes.
+- [x] Keep operator-controlled batch semantics, snooze rules, exact-target verification and runner flow unchanged.
+- [x] Guarantee JSON responses from the Waiting-check API even when D1/runtime work fails.
+- [x] Parse the Waiting-check response defensively in the UI so an empty/HTML 5xx cannot surface as `Unexpected end of JSON input`.
+
 ## 2026-09-30 — Complete WhatsApp Waiting autocheck (v0.2.84)
 
 - [x] Enroll legacy/manual WhatsApp Waiting chats that have no Discovery candidate link.

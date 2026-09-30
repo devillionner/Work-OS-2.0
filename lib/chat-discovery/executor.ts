@@ -1,4 +1,3 @@
-import { normalizeGroupLink } from '../chats/bulk-input.ts';
 import { readChatState } from '../chats/state.ts';
 import { transitionChat } from '../chats/transitions.ts';
 import { changeChatLeave } from '../chats/leave.ts';
@@ -222,35 +221,40 @@ export async function readWaitingWhatsAppCheckStatus(db:D1Database,userId:string
 }
 
 async function ensureWaitingWhatsAppCandidates(db:D1Database,userId:string,now:number){
-  const waiting=await db.prepare(`SELECT c.id,c.name,c.link,c.normalized_link
-    FROM chats c
-    WHERE c.user_id=?1 AND c.platform='whatsapp' AND c.workflow_status='waiting'
-      AND c.joined_at IS NULL AND c.left_at IS NULL
-      AND NOT EXISTS(
-        SELECT 1 FROM chat_discovery_candidates dc
-        WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id
-      )
-    ORDER BY c.updated_at,c.id LIMIT 500`).bind(userId).all<{id:string;name:string;link:string;normalized_link:string}>();
-  for(const chat of waiting.results){
-    const parsed=normalizeGroupLink(chat.normalized_link||chat.link);
-    if(!parsed||parsed.platform!=='whatsapp')continue;
-    const candidateId=crypto.randomUUID();
-    await db.prepare(`INSERT INTO chat_discovery_candidates(
-      id,user_id,platform,name,link,normalized_link,discovered_at,
-      membership_state,inspection_state,decision,reason_codes_json,
-      imported_chat_id,executor_next_check_at,created_at,updated_at
-    ) VALUES (?1,?2,'whatsapp',?3,?4,?4,?5,'pending','not_checked','review','[]',?6,NULL,?5,?5)
-    ON CONFLICT(user_id,platform,normalized_link) DO NOTHING`)
-      .bind(candidateId,userId,chat.name,parsed.link,now,chat.id).run();
-    await db.prepare(`UPDATE chat_discovery_candidates SET
-      imported_chat_id=?1,membership_state='pending',inspection_state='not_checked',
-      executor_next_check_at=NULL,updated_at=?2,version=version+1
-      WHERE user_id=?3 AND platform='whatsapp' AND normalized_link=?4
-        AND imported_chat_id IS NULL`)
-      .bind(chat.id,now,userId,parsed.link).run();
-  }
-}
+  await db.prepare(`INSERT OR IGNORE INTO chat_discovery_candidates(
+    id,user_id,platform,name,link,normalized_link,discovered_at,
+    membership_state,inspection_state,decision,reason_codes_json,
+    imported_chat_id,executor_next_check_at,created_at,updated_at
+  )
+  SELECT 'waiting-' || c.id,c.user_id,'whatsapp',c.name,c.normalized_link,c.normalized_link,?2,
+    'pending','not_checked','review','[]',c.id,NULL,?2,?2
+  FROM chats c
+  WHERE c.user_id=?1 AND c.platform='whatsapp' AND c.workflow_status='waiting'
+    AND c.joined_at IS NULL AND c.left_at IS NULL
+    AND c.normalized_link LIKE 'https://chat.whatsapp.com/%'
+    AND NOT EXISTS(
+      SELECT 1 FROM chat_discovery_candidates dc
+      WHERE dc.user_id=c.user_id AND dc.platform='whatsapp' AND dc.normalized_link=c.normalized_link
+    )`).bind(userId,now).run();
 
+  await db.prepare(`UPDATE chat_discovery_candidates
+    SET imported_chat_id=(
+      SELECT c.id FROM chats c
+      WHERE c.user_id=?1 AND c.platform='whatsapp' AND c.workflow_status='waiting'
+        AND c.joined_at IS NULL AND c.left_at IS NULL
+        AND c.normalized_link=chat_discovery_candidates.normalized_link
+      ORDER BY c.updated_at,c.id LIMIT 1
+    ),
+      membership_state='pending',inspection_state='not_checked',
+      executor_next_check_at=NULL,updated_at=?2,version=version+1
+    WHERE user_id=?1 AND platform='whatsapp' AND imported_chat_id IS NULL
+      AND EXISTS(
+        SELECT 1 FROM chats c
+        WHERE c.user_id=?1 AND c.platform='whatsapp' AND c.workflow_status='waiting'
+          AND c.joined_at IS NULL AND c.left_at IS NULL
+          AND c.normalized_link=chat_discovery_candidates.normalized_link
+      )`).bind(userId,now).run();
+}
 function deriveAction(candidate: CandidateTaskRow, workflowStatus: string): DiscoveryExecutorAction | null {
   if ((candidate.decision === 'rejected' || candidate.decision === 'unavailable') && candidate.membership_state === 'joined') {
     return supportsChatLeaveChecklist(candidate.platform) ? 'leave' : null;

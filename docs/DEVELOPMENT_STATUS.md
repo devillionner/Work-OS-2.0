@@ -1,3 +1,10 @@
+## 2026-09-30 — WhatsApp Waiting start-path fix v0.2.86
+
+- Root cause of the screenshot failure was the v0.2.85 start path: legacy Waiting enrollment could execute up to 500 per-row insert/update pairs in one request, and the route had no JSON error boundary. A backend failure therefore reached the browser as an empty/non-JSON response and surfaced as `Unexpected end of JSON input`.
+- Enrollment is now set-based: one bulk insert for missing canonical candidates, one bulk link for existing unlinked candidates, then the existing batch activation update.
+- The Waiting-check route now always returns JSON on failures; the Platforms UI also parses defensively and shows a readable HTTP error instead of a browser JSON exception.
+- Batch semantics, WhatsApp runner behavior, exact-target verification and +3-day pending snooze are unchanged.
+
 ## 2026-09-30 — Full WhatsApp waiting-queue recheck v0.2.84
 
 - Corrected the v0.2.83 scope gap: automatic rechecks now enroll every legacy/manual WhatsApp chat in the Waiting workflow, not only chats already linked to a Discovery candidate.

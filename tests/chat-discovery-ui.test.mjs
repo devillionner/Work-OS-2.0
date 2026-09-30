@@ -443,3 +443,15 @@ void test('final WhatsApp facts never inherit optimistic source guesses',async()
   assert.match(dialog,/activityState:result\.activityState==='active'\|\|result\.activityState==='dead'\?result\.activityState:'unknown'/);
   assert.doesNotMatch(dialog,/result\.topicMatch==='match'\|\|result\.topicMatch==='mismatch'\?result\.topicMatch:candidate\.topicMatch/);
 });
+
+
+void test('WhatsApp waiting-check UI handles empty or non-JSON server failures without exposing Response.json parser errors', async()=>{
+  const workspace=await readFile(new URL('../components/platform-workspace.tsx',import.meta.url),'utf8');
+  assert.match(workspace,/async function readWaitingCheckResponse\(response:Response\)/);
+  assert.match(workspace,/const raw=await response\.text\(\)/);
+  assert.match(workspace,/Сервер не повернув відповідь/);
+  assert.match(workspace,/Сервер повернув некоректну відповідь/);
+  const start=workspace.indexOf("async function changeWaitingCheck");
+  const end=workspace.indexOf("function addedChats",start);
+  assert.doesNotMatch(workspace.slice(start,end),/response\.json\(\)/);
+});

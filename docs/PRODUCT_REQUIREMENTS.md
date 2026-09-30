@@ -1,3 +1,10 @@
+## 2026-09-30 — WhatsApp Waiting start-path reliability addendum
+
+- Starting a Waiting batch must have O(1) D1 statement count with respect to queue length; enrolling 80+ legacy/manual rows must not execute one insert/update pair per chat.
+- The Waiting-check API must return a structured JSON error for backend failures.
+- The operator UI must never expose raw `Response.json()` parser errors; malformed/empty responses are converted to a human-readable failure without changing unprocessed chats.
+- Existing Prototype Checker parity remains authoritative: explicit operator start, sequential factual checks, +3-day snooze for still-pending requests, and fail-closed stop behavior.
+
 ## 2026-09-30 — Complete WhatsApp Waiting autocheck addendum
 
 - Automatic membership rechecks apply to every WhatsApp chat whose canonical workflow status is `waiting`, including records created before Discovery candidate linkage existed.

@@ -46,8 +46,9 @@ void test('dedicated executor bridge leases tasks to the authenticated device be
   assert.match(route, /executorDeviceId: executor\.deviceId/);
   assert.match(route, /targetVerified: body\.targetVerified/);
   assert.match(route, /body\.action === 'advance-discovery'/);
-  assert.match(route, /advanceAutonomousDiscoveryRun/);
-  assert.match(route, /advanceAutonomousDiscoveryRun\(env\.DB, executor\.userId, executor\.deviceId, now\)/);
+  assert.match(route, /body\.action === 'pause-waiting-check'/);
+  assert.match(route, /pauseWaitingWhatsAppCheckBatch\(env\.DB,executor\.userId/);
+  assert.doesNotMatch(route, /advanceAutonomousDiscoveryRun/);
 });
 
 void test('Preview route accepts durable local outcomes only after factual automation', async()=>{
@@ -65,4 +66,20 @@ void test('operator can archive an unimported saved target without fabricating q
   assert.match(route,/archiveDiscoveryCandidateForOperator/);
   assert.match(domain,/reason_codes_json='\["operator_rejected"\]'/);
   assert.match(domain,/needsExternalLeave:candidate\.membership_state==='joined'/);
+});
+
+
+void test('WhatsApp waiting-check API always answers with JSON and batch enrollment is set-based', async()=>{
+  const [route,executor]=await Promise.all([
+    readFile(new URL('../app/api/chat-discovery/waiting-check/route.ts',import.meta.url),'utf8'),
+    readFile(new URL('../lib/chat-discovery/executor.ts',import.meta.url),'utf8'),
+  ]);
+  assert.match(route,/function json\(value:unknown,status=200\)/);
+  assert.match(route,/WhatsApp waiting-check action failed/);
+  assert.match(route,/Не вдалося запустити перевірку WhatsApp/);
+  const ensure=executor.slice(executor.indexOf('async function ensureWaitingWhatsAppCandidates'),executor.indexOf('function deriveAction'));
+  assert.match(ensure,/INSERT OR IGNORE INTO chat_discovery_candidates/);
+  assert.match(ensure,/SELECT 'waiting-' \|\| c\.id/);
+  assert.doesNotMatch(ensure,/for\s*\(const chat/);
+  assert.doesNotMatch(ensure,/LIMIT 500/);
 });

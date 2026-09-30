@@ -41,6 +41,15 @@ type UndoState = UndoSpec & { chat:Chat; expiresAt:number };
 type ChatActionResult = { ok:true } | { ok:false; error:string; refresh:boolean };
 type TelegramAccount = { id:string; number:number; name:string; enabled:boolean; selected:boolean; joinStreak:number; joinBatchSize:number; breakMinutes:number; breakUntil:number|null };
 type PlatformConfirmation = { kind:'assign'; chat:Chat; nextId:string; currentName:string; nextName:string } | { kind:'return'; chat:Chat };
+type WaitingCheckResponse = { active?:boolean; remaining?:number; batchId?:number|null; queued?:number; stopped?:number; error?:string };
+
+async function readWaitingCheckResponse(response:Response):Promise<WaitingCheckResponse>{
+  const raw=await response.text();
+  if(!raw.trim())throw new Error(`Сервер не повернув відповідь (HTTP ${response.status}).`);
+  try{return JSON.parse(raw) as WaitingCheckResponse;}
+  catch{throw new Error(`Сервер повернув некоректну відповідь (HTTP ${response.status}).`);}
+}
+
 
 const platforms: Array<{key:Platform;label:string;color:string}> = [
   {key:'telegram',label:'Telegram',color:'#2563eb'}, {key:'whatsapp',label:'WhatsApp',color:'#16a34a'},
@@ -246,7 +255,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const refreshWaitingCheck=useCallback(async()=>{
     try{
       const response=await fetch('/api/chat-discovery/waiting-check',{cache:'no-store'});
-      const body=await response.json() as {active?:boolean;remaining?:number;batchId?:number|null};
+      const body=await readWaitingCheckResponse(response);
       if(!response.ok)return;
       const next={running:body.active===true,remaining:Math.max(0,Number(body.remaining)||0),batchId:Number.isSafeInteger(body.batchId)?Number(body.batchId):null};
       setWaitingCheck(current=>{
@@ -279,8 +288,8 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
         method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({action,batchId:waitingCheck.batchId}),
       });
-      const body=await response.json() as {error?:string;queued?:number;stopped?:number;batchId?:number};
-      if(!response.ok)throw new Error(body.error||'Не вдалося змінити перевірку.');
+      const body=await readWaitingCheckResponse(response);
+      if(!response.ok)throw new Error(body.error||`Не вдалося змінити перевірку (HTTP ${response.status}).`);
       if(action==='start'){
         const queued=Math.max(0,Number(body.queued)||0);
         const batchId=Number(body.batchId)||null;
