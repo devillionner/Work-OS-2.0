@@ -1,3 +1,10 @@
+## 2026-09-30 — Discovery factual qualification correction v0.2.81
+
+- Screenshot QA exposed a functional false-positive: Israeli Friends Of Ukraine was shown as target audience and writable although WhatsApp displayed Israeli identity and an admin-only notice.
+- Root causes were broad “Ukraine” identity matching, a missing localized admin-only phrase, stale invite facts overriding the joined-chat snapshot, and optimistic UI fallback.
+- Tightened audience evidence, expanded localized admin-only detection, made live facts authoritative, and changed missing final facts to unknown.
+- The existing runner path now rejects and leaves confirmed admin-only/foreign-audience chats; regression coverage includes the reported state.
+
 ## 2026-09-30 — Discovery criteria consistency v0.2.80
 
 - Screenshot QA confirmed stale reason-code chips contradicted live resolved criteria (for example unknown type/member count versus Group/953).

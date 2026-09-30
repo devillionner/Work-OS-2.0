@@ -4,7 +4,7 @@ const POLL_MS = 400;
 
 const pendingPattern = /(?:request(?: to join)? sent|request pending|запит (?:на вступ )?надіслано|запит очікує|заявк[ау] (?:на вступление )?отправлен[а]?|заявк[ау] ожидает)/iu;
 const approvalRequiredPattern = /(?:admin(?:istrator)? approval (?:is )?(?:required|turned on)|an admin (?:must|needs to) approve|request to join|потрібне схвалення адміністратор|адміністратор має схвалити|потрібно подати запит на вступ|требуется одобрение администратора|администратор должен одобрить|нужно отправить запрос на вступление)/iu;
-const adminOnlyPattern = /(?:only (?:community )?admins can send messages|лише адміністратори(?: спільноти)? можуть надсилати повідомлення|только администраторы(?: сообщества)? могут отправлять сообщения)/iu;
+const adminOnlyPattern = /(?:only (?:community )?admins can send messages|лише адміністратор(?:и|ам)(?: спільноти)? (?:можуть|можна|дозволено) надсилати повідомлення|тільки адміністратор(?:и|ам)(?: спільноти)? (?:можуть|можна|дозволено) надсилати повідомлення|только администратор(?:ы|ам)(?: сообщества)? (?:могут|можно|разрешено) отправлять сообщения)/iu;
 const authPattern = /(?:link with phone number|log in to whatsapp|увійти у whatsapp|войти в whatsapp)/iu;
 const joinRetryLaterPattern = /(?:could(?:n['’]?t| not) join (?:this )?(?:group|community)|try again later|не вдалося приєднатися до (?:цієї )?(?:групи|спільноти)|повторіть спробу пізніше|не удалось присоединиться к (?:этой )?(?:группе|сообществу)|повторите попытку позже)/iu;
 const unavailablePatterns = [
@@ -21,7 +21,8 @@ const confirmLeavePattern = /^(?:exit(?: group)?|leave(?: group)?|вийти(?: 
 const leftPattern = /(?:you (?:left|are no longer a participant)|ви (?:вийшли|більше не (?:є учасником|її учасник|учасник))|вы (?:вышли|больше не (?:являетесь участником|ее участник|участник)))/iu;
 const joinedViaInvitePattern = /(?:you (?:joined|were added) (?:via|using|through) (?:an? )?(?:invite|invitation|invite link)|joined (?:via|using) (?:the )?(?:group )?invite|ви приєдналися за (?:посиланням[- ]?)?запрошенням|вы присоединились по (?:ссылке[- ]?)?приглашени[юя])/iu;
 const spamPattern = /(?:crypto|крипт|bitcoin|forex|casino|казино|betting|ставк[аи]|dating|знакомств|знайомств|escort|ескорт|onlyfans|adult|18\+|nft|airdrop|signals?\b|binary options)/iu;
-const ukrainianIdentityPattern = /(?:україн|украин|ukrain|ukraiń|ukrajin|ucrain|ucran|oekra|🇺🇦)/iu;
+const ukrainianAudiencePattern = /(?:україн(?:ц|ськ)|украин(?:ц|ск)|ukrainians?|ukraińcy|ukrajinci|ucraineni|oekraïners|🇺🇦|\bвпо\b|біженц|переселенц)/iu;
+const foreignAudiencePattern = /(?:\bisrael(?:i|is)?\b|ізраїл|израил|ישרא|\bhebrew\b|іврит|иврит)/iu;
 const adsForbiddenPattern = /(?:no\s+(?:ads?|advertis(?:ing|ements?))|advertis(?:ing|ements?)\s+(?:is\s+)?(?:forbidden|prohibited)|(?:реклам[ауи]|оголошення)\s+(?:суворо\s+)?заборонен|без\s+реклами|(?:реклам[ауы]|объявления)\s+(?:строго\s+)?запрещен|без\s+рекламы)/iu;
 const adsAllowedPattern = /(?:ads?\s+allowed|advertis(?:ing|ements?)\s+allowed|оголошення\s+дозволен|реклам[ауи]\s+дозволен|объявления\s+разрешен|реклам[ауы]\s+разрешен)/iu;
 const adLikeMessagePattern = /(?:продам|продаю|продаж|куплю|купую|віддам|отдам|обмін|обмен|шукаю|ищу|послуг|услуг|урок|репетитор|оренд|аренд|здам|сдам|робот[ауи]|работ[ауи]|ваканс|доставк|перевез|advert|for\s+sale|give\s+away|exchange|looking\s+for|services?|rent|job|vacanc)/iu;
@@ -127,7 +128,9 @@ export async function queryWhatsappInviteViaCdp(
     const description=String(value.desc||'').trim();
     const evidence=`${observedName}\n${description}`;
     const memberCount=Number.isFinite(Number(value.size))&&Number(value.size)>0?Number(value.size):undefined;
-    const topicMatch=spamPattern.test(evidence)?'mismatch':ukrainianIdentityPattern.test(evidence)?'match':'unknown';
+    const topicMatch=spamPattern.test(evidence)||foreignAudiencePattern.test(evidence)
+      ?'mismatch'
+      :ukrainianAudiencePattern.test(evidence)?'match':'unknown';
     let adsPolicy;
     if(adsForbiddenPattern.test(description))adsPolicy='forbidden';
     else if(adsAllowedPattern.test(description))adsPolicy='allowed';
@@ -331,7 +334,9 @@ export async function joinWhatsappInviteViaRuntime(
     ].join('\n');
     const topicMatch=spamPattern.test(identityEvidence)||spamMessages>=3
       ?'mismatch'
-      :ukrainianIdentityPattern.test(identityEvidence)||ukrainianMessages>=2?'match':'unknown';
+      :foreignAudiencePattern.test(identityEvidence)&&ukrainianMessages<2
+        ?'mismatch'
+        :ukrainianAudiencePattern.test(identityEvidence)||ukrainianMessages>=2?'match':'unknown';
     let adsPolicy;
     if(adsForbiddenPattern.test(String(value.desc||'')))adsPolicy='forbidden';
     else if(adsAllowedPattern.test(String(value.desc||'')))adsPolicy='allowed';
@@ -1835,7 +1840,9 @@ export function deriveWhatsappQualification(snapshot) {
   const ukrainianMessages = recentMessages.filter((value) => ukrainianConversationPattern.test(value)).length;
   const topicMatch = spamPattern.test(identityText) || spamMessages >= 3
     ? 'mismatch'
-    : ukrainianIdentityPattern.test(identityText) || ukrainianMessages >= 2 ? 'match' : undefined;
+    : foreignAudiencePattern.test(identityText) && ukrainianMessages < 2
+      ? 'mismatch'
+      : ukrainianAudiencePattern.test(identityText) || ukrainianMessages >= 2 ? 'match' : undefined;
   let adsPolicy;
   if (adsForbiddenPattern.test(infoText)) adsPolicy = 'forbidden';
   else if (adsAllowedPattern.test(infoText)) adsPolicy = 'allowed';
@@ -1951,7 +1958,7 @@ async function waitForJoinedChatReady(client, timeoutMs=8_000) {
   while(Date.now()<deadline){
     const body=String(latest.bodyText||'');
     const hasHeader=(latest.headerNames||[]).length>0||Boolean(String(latest.headerText||'').trim());
-    if(!messagesLoadingPattern.test(body)&&latest.composer===true&&hasHeader)return latest;
+    if(!messagesLoadingPattern.test(body)&&(latest.composer===true||latest.adminOnly===true)&&hasHeader)return latest;
     await sleep(POLL_MS);
     latest=await readSnapshot(client);
   }
@@ -1961,7 +1968,12 @@ async function waitForJoinedChatReady(client, timeoutMs=8_000) {
 async function enrichJoinedQualification(client, task, result) {
   const before=await waitForJoinedChatReady(client);
   const preflightFacts=task.preflightFacts&&typeof task.preflightFacts==='object'?task.preflightFacts:{};
-  let combined={...preflightFacts,...deriveWhatsappQualification(before)};
+  const liveCanWrite=before.adminOnly===true?false:before.composer===true?true:undefined;
+  let combined={
+    ...preflightFacts,
+    ...deriveWhatsappQualification(before),
+    ...(liveCanWrite===undefined?{}:{canWrite:liveCanWrite}),
+  };
   const minMembers=Math.max(700,Number(task.minMembers)||700);
   const maxMembers=18000;
   if(Number.isFinite(combined.memberCount)&&(combined.memberCount<minMembers||combined.memberCount>maxMembers)){
@@ -1983,6 +1995,7 @@ async function enrichJoinedQualification(client, task, result) {
       await sleep(POLL_MS);
       infoSnapshot=await readSnapshot(client);
     }
+    const infoCanWrite=infoSnapshot.adminOnly===true?false:before.composer===true?true:undefined;
     combined={
       ...combined,
       ...deriveWhatsappQualification({
@@ -1991,6 +2004,7 @@ async function enrichJoinedQualification(client, task, result) {
         messageTexts:before.messageTexts,
         messageMeta:before.messageMeta,
       }),
+      ...(infoCanWrite===undefined?{}:{canWrite:infoCanWrite}),
     };
   }
   return {...result,...combined};

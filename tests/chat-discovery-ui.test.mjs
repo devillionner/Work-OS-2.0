@@ -434,3 +434,12 @@ void test('Discovery qualification has one visible source of truth',async()=>{
   assert.doesNotMatch(details,/candidate\.reasonCodes\.map/);
   assert.doesNotMatch(details,/Що треба уточнити/);
 });
+
+
+void test('final WhatsApp facts never inherit optimistic source guesses',async()=>{
+  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  assert.match(dialog,/topicMatch:result\.topicMatch==='match'\|\|result\.topicMatch==='mismatch'\?result\.topicMatch:'unknown'/);
+  assert.match(dialog,/canWrite:typeof result\.canWrite==='boolean'\?result\.canWrite:null/);
+  assert.match(dialog,/activityState:result\.activityState==='active'\|\|result\.activityState==='dead'\?result\.activityState:'unknown'/);
+  assert.doesNotMatch(dialog,/result\.topicMatch==='match'\|\|result\.topicMatch==='mismatch'\?result\.topicMatch:candidate\.topicMatch/);
+});

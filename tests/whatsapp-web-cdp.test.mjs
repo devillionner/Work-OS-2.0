@@ -767,3 +767,24 @@ void test('executor token bridge survives a closed Discovery dialog via browser-
   assert.match(panel,/localStorage\.setItem\(EXECUTOR_TOKEN_STORAGE_KEY,nextToken\)/);
   assert.match(panel,/EXECUTOR_DEVICE_STORAGE_KEY/);
 });
+
+
+void test('foreign solidarity group is not treated as a Ukrainian audience from the word Ukraine alone',()=>{
+  const facts=deriveWhatsappQualification({
+    groupInfoText:'Israeli Friends Of Ukraine · 954 учасники',
+    headerText:'ישראלי | נתונים באהבה',
+    headerTitles:['Israeli Friends Of Ukraine'],
+    mainText:'',
+    messageTexts:[],
+    messageMeta:[],
+  });
+  assert.equal(facts.memberCount,954);
+  assert.equal(facts.topicMatch,'mismatch');
+});
+
+void test('localized admin-only evidence overrides stale writable invite metadata',()=>{
+  assert.match(source,/лише адміністратор\(\?:и\|ам\)/);
+  assert.match(source,/latest\.composer===true\|\|latest\.adminOnly===true/);
+  assert.match(source,/before\.adminOnly===true\?false/);
+  assert.ok(source.indexOf('...preflightFacts')<source.indexOf('canWrite:liveCanWrite'));
+});

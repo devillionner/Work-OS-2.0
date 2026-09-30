@@ -1,3 +1,11 @@
+## 2026-09-30 — Discovery factual qualification correction (v0.2.81)
+
+- [x] Ukrainian/Russian admin-only wording variants such as “Лише адміністраторам можна надсилати повідомлення” are recognized.
+- [x] Live joined-chat write access overrides stale invite metadata; admin-only results are rejected and enter the existing verified leave/archive path.
+- [x] “Ukraine” in a foreign solidarity-group name is no longer enough to classify the audience as Ukrainian; explicit Ukrainian-audience evidence or message evidence is required.
+- [x] Final UI state falls back to unknown rather than inheriting optimistic Telegram/source guesses when WhatsApp did not confirm a fact.
+- [x] Regression contracts cover the reported Israeli Friends Of Ukraine case.
+
 ## 2026-09-30 — Discovery criteria as single source of truth (v0.2.80)
 
 - [x] Removed the duplicated reason-code chip list from candidate details.

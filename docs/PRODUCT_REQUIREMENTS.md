@@ -1,3 +1,10 @@
+## 2026-09-30 — Discovery factual precedence addendum
+
+- Live facts from the joined WhatsApp chat override invite metadata and source heuristics.
+- A localized admin-only notice means canWrite=false and must trigger non-target handling.
+- A generic mention of Ukraine is insufficient evidence of a Ukrainian target audience; the system requires an audience demonym/explicit Ukrainian identity or corroborating Ukrainian conversation evidence.
+- When WhatsApp cannot confirm a criterion, the final card shows unknown instead of preserving a source-stage positive guess.
+
 ## 2026-09-30 — Discovery qualification presentation addendum
 
 - Candidate details must have one visible source of truth for qualification state.
