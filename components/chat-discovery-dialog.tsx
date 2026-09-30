@@ -1,13 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, CircleAlert, ExternalLink, LoaderCircle, Search, Square, X } from 'lucide-react';
+import { CheckCircle2, ExternalLink, LoaderCircle, Search, Square, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { ChatDiscoveryExecutorPanel } from '@/components/chat-discovery-executor-panel';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import type { DiscoveryCandidate, DiscoveryDecision, DiscoveryRun } from '@/lib/chat-discovery/domain';
 import type { DiscoveryPlatform, TelegramSearchPlan } from '@/lib/chat-discovery/public-web';
 import type { LocalDiscoveryPreview } from '@/lib/chat-discovery/local-preview';
@@ -26,7 +25,6 @@ type Workspace = {
   error?: string;
 };
 type ImportResponse = { chatId?: string; existing?: boolean; workflowStatus?: string; error?: string };
-type PreviewTelegramResponse = { previews:LocalDiscoveryPreview[]; batch:{extracted:number;added:number;duplicates:number}; error?:string };
 type LocalPreviewSession = {
   runId?:string;
   sourceTotal:number;
@@ -126,22 +124,16 @@ export function ChatDiscoveryDialog({
   const [goal, setGoal] = useState(50);
   const minMembers = 700;
   const [filter, setFilter] = useState<DecisionFilter>('active');
-  const [clockMs,setClockMs]=useState(()=>Date.now());
   const [loading, setLoading] = useState(false);
   const [importingId, setImportingId] = useState<string | null>(null);
   const [inspectingId, setInspectingId] = useState<string | null>(null);
   const [manualDraft, setManualDraft] = useState<ManualInspectionDraft | null>(null);
   const [telegramBusy, setTelegramBusy] = useState(false);
   const [pausing,setPausing]=useState(false);
-  const [telegramText, setTelegramText] = useState('');
-  const [telegramSourceTitle, setTelegramSourceTitle] = useState('');
-  const [telegramSourceUrl, setTelegramSourceUrl] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [localPreview,setLocalPreview]=useState<LocalPreviewSession>(EMPTY_LOCAL_PREVIEW);
   const [localPreviewHydrated,setLocalPreviewHydrated]=useState(false);
-  const telegramHasInvite = /(?:https?:\/\/)?chat\.whatsapp\.com\//iu.test(telegramText.replaceAll('\\/', '/'));
-
   const load = useCallback(async (decision: DecisionFilter = filter, options: { silent?: boolean } = {}) => {
     const silent=options.silent===true;
     if(!silent){
@@ -171,12 +163,6 @@ export function ChatDiscoveryDialog({
     const timer = setTimeout(() => { void load(); }, 0);
     return () => clearTimeout(timer);
   }, [open, load]);
-
-  useEffect(()=>{
-    if(!open)return;
-    const timer=window.setInterval(()=>setClockMs(Date.now()),1000);
-    return()=>window.clearInterval(timer);
-  },[open]);
 
   useEffect(()=>{
     const restored=readLocalPreviewSession();
@@ -434,33 +420,6 @@ export function ChatDiscoveryDialog({
     }
   }
 
-  async function ingestTelegramScan(clearAfter: boolean) {
-    if (telegramBusy || !telegramText.trim()) return;
-    setTelegramBusy(true);
-    setError('');
-    setNotice('');
-    try {
-      const query=workspace.telegramPlan?.tasks[0]?.query||telegramSourceTitle.trim()||'Ручне Telegram-джерело';
-      const payload=await postPreview({
-        action:'telegram',text:telegramText,sourceUrl:telegramSourceUrl,sourceTitle:telegramSourceTitle,
-        query,seedLabel:telegramSourceTitle||query,context:query,
-        knownLinks:localPreview.candidates.map(candidate=>candidate.link),minMembers,
-      }) as unknown as PreviewTelegramResponse;
-      const merged=mergeLocalTelegramPreview(localPreview,payload);
-      setLocalPreview(merged);
-      setNotice(`Telegram preview: витягнуто ${payload.batch.extracted}, локально нових ${payload.batch.added}, дублів/відомих ${payload.batch.duplicates}. D1 не змінено.`);
-      if(clearAfter){
-        setTelegramSourceTitle('');
-        setTelegramSourceUrl('');
-        setTelegramText('');
-      }
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Не вдалося додати Telegram-результати в локальний preview.');
-    } finally {
-      setTelegramBusy(false);
-    }
-  }
-
   async function markInviteInvalid(candidate: DiscoveryCandidate) {
     if(isLocalPreview(candidate)){
       await archiveCandidate(candidate);
@@ -665,10 +624,8 @@ export function ChatDiscoveryDialog({
   const autonomousRunning=localPreview.running;
   const displayedTargetCount=localTargets.length;
   const displayedGoal=localPreview.running||localPreview.done?localPreview.goal:goal;
-  const displayedQueries=localPreview.searched;
   const discardedCount=localRejected+localSkipped;
   const progressPercent=displayedGoal>0?Math.min(100,Math.round((displayedTargetCount/displayedGoal)*100)):0;
-  const lastRunActivitySeconds=localPreview.lastActivityAt?Math.max(0,Math.floor((clockMs-localPreview.lastActivityAt)/1000)):null;
   const activeCandidateName=String(localPreview.activeCandidateName||'').trim();
   const pauseSummary=localPreview.pauseSummary;
   const pauseArchivedTotal=pauseSummary
@@ -691,10 +648,7 @@ export function ChatDiscoveryDialog({
   const displayCandidates:DiscoveryCandidate[]=filter==='active'?visibleLocal:mergeDiscoveryCandidates(workspace.candidates,visibleLocal);
   const emptyCopy=emptyCandidateCopy(filter,autonomousRunning,localQueued,localChecked);
 
-  const currentTask = workspace.telegramPlan?.tasks[0] ?? null;
-  const telegramProgress = workspace.telegramPlan
-    ? Math.min(100, Math.round((workspace.telegramPlan.cursor / Math.max(1, workspace.telegramPlan.totalTasks)) * 100))
-    : 0;
+
 
   return <Dialog open={open} onOpenChange={next => { if (!next) close(); }}>
     <DialogContent
@@ -807,15 +761,11 @@ export function ChatDiscoveryDialog({
                 </div>
               </details>}
               <details className="mt-3 border-t border-border/60 pt-3">
-                <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Технічні дані запуску</summary>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                  <span>Пошукових кроків <strong className="ml-1 text-foreground">{displayedQueries}</strong></span>
-                  <span>Пройдено плану <strong>{localPreview.telegramCursor} / {localPreview.sourceTotal||'—'}</strong></span>
-                  <span>Дублів <strong className="ml-1 text-foreground">{localPreview.duplicates}</strong></span>
-                  <span>Перевірено WhatsApp <strong className="ml-1 text-foreground">{localChecked}</strong></span>
-                  {lastRunActivitySeconds!==null&&<span>Остання активність <strong>{lastRunActivitySeconds<5?'щойно':`${lastRunActivitySeconds} с тому`}</strong></span>}
+                <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Дані пошуку</summary>
+                <div className="mt-2 space-y-1 text-xs leading-5 text-foreground/70">
+                  <p>План: <strong className="text-foreground">{localPreview.telegramCursor} із {localPreview.sourceTotal||'—'}</strong> · дублі: <strong className="text-foreground">{localPreview.duplicates}</strong></p>
+                  <p>Перевірено WhatsApp: <strong className="text-foreground">{localChecked}</strong> · остання активність: <strong className="text-foreground">{formatActivityTime(localPreview.lastActivityAt)}</strong></p>
                 </div>
-                <p className="mt-2 text-[11px] leading-4 text-muted-foreground">Завершені рішення не перевіряються повторно.</p>
               </details>
             </section>
 
@@ -824,81 +774,6 @@ export function ChatDiscoveryDialog({
               <div className="border-t border-border/70 p-3"><ChatDiscoveryExecutorPanel /></div>
             </details>
 
-            <details className="rounded-2xl border border-border/70 bg-background">
-              <summary className="cursor-pointer select-none px-4 py-3 text-xs font-medium text-muted-foreground hover:text-foreground">Додаткове джерело Telegram</summary>
-              <div className="border-t border-border/70 p-4">
-                <section className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm" aria-label="Telegram джерело WhatsApp">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="font-semibold">Telegram → WhatsApp</h3>
-                      <p className="mt-1 text-xs text-muted-foreground">Працюй по одному query. Для нього можна зберегти кілька Telegram-джерел.</p>
-                    </div>
-                    {workspace.telegramPlan && <Badge variant="outline">{workspace.telegramPlan.cursor} / {workspace.telegramPlan.totalTasks}</Badge>}
-                  </div>
-
-                  {workspace.telegramPlan && <div className="mt-4 rounded-xl border border-border/70 bg-muted/25 p-3">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold">Черга Telegram-запитів</span>
-                      <span className="text-[11px] tabular-nums text-muted-foreground">{workspace.telegramPlan.cursor} / {workspace.telegramPlan.totalTasks}</span>
-                    </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                      <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${telegramProgress}%` }} />
-                    </div>
-                    {currentTask ? <div className="mt-3">
-                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Поточний query · {currentTask.cursor + 1}</div>
-                      <div className="mt-1 break-words text-base font-semibold">{currentTask.query}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {currentTask.seedKind === 'city' ? currentTask.city : currentTask.country} · {currentTask.template}
-                      </div>
-                      {workspace.telegramPlan.tasks.length > 1 && <details className="mt-3">
-                        <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Наступні query · {workspace.telegramPlan.tasks.length - 1}</summary>
-                        <div className="mt-2 grid gap-1.5 border-l border-border pl-3 text-xs text-muted-foreground">
-                          {workspace.telegramPlan.tasks.slice(1).map(task => <div key={task.cursor}>{task.cursor + 1}. {task.query}</div>)}
-                        </div>
-                      </details>}
-                    </div> : <p className="mt-3 text-sm text-muted-foreground">Keyword plan завершено.</p>}
-                  </div>}
-
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    <label className="grid gap-1.5 text-xs font-medium" htmlFor="telegram-source-title">
-                      Telegram-чат
-                      <Input id="telegram-source-title" required={telegramHasInvite} value={telegramSourceTitle} disabled={telegramBusy} onChange={event => setTelegramSourceTitle(event.target.value)} placeholder="Українці в Берліні" />
-                    </label>
-                    <label className="grid gap-1.5 text-xs font-medium" htmlFor="telegram-source-url">
-                      Посилання на джерело
-                      <Input id="telegram-source-url" type="url" required={telegramHasInvite} value={telegramSourceUrl} disabled={telegramBusy} onChange={event => setTelegramSourceUrl(event.target.value)} placeholder="https://t.me/…" />
-                    </label>
-                  </div>
-
-                  <label className="mt-3 grid gap-1.5 text-xs font-medium" htmlFor="telegram-query">
-                    Поточний query
-                    <Input id="telegram-query" value={currentTask?.query || ''} readOnly aria-readonly="true" disabled={telegramBusy} placeholder="Спочатку запусти Telegram-пошук" />
-                  </label>
-
-                  <label className="mt-3 grid gap-1.5 text-xs font-medium" htmlFor="telegram-scan">
-                    Результати пошуку Telegram
-                    <Textarea id="telegram-scan" rows={5} value={telegramText} disabled={telegramBusy} onChange={event => setTelegramText(event.target.value)} placeholder="Встав текст повідомлень або результатів пошуку з chat.whatsapp.com…" />
-                  </label>
-
-                  {telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim()) && <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-foreground">
-                    <CircleAlert className="size-3.5"/> Для invite вкажи назву Telegram-чату та посилання на джерело.
-                  </div>}
-
-                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                    <Button type="button" variant="outline" disabled={telegramBusy || !telegramText.trim() || (telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim()))} onClick={() => void ingestTelegramScan(false)}>
-                      {telegramBusy ? <LoaderCircle data-icon="inline-start"/> : <ExternalLink data-icon="inline-start"/>}
-                      {telegramBusy ? 'Обробляємо…' : 'Додати локально'}
-                    </Button>
-                    <Button type="button" disabled={telegramBusy || !telegramText.trim() || (telegramHasInvite && (!telegramSourceTitle.trim() || !telegramSourceUrl.trim()))} onClick={() => void ingestTelegramScan(true)}>
-                      Додати локально й очистити
-                    </Button>
-                  </div>
-                  <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                    Обидві дії додають знайдені invite лише в sessionStorage. Друга також очищає поля ручного джерела.
-                  </p>
-                </section>
-              </div>
-            </details>
           </div>
         </div>
 
@@ -1218,16 +1093,9 @@ function readLocalPreviewSession():LocalPreviewSession{
     };
   }catch{return EMPTY_LOCAL_PREVIEW;}
 }
-function mergeLocalTelegramPreview(current:LocalPreviewSession,payload:PreviewTelegramResponse):LocalPreviewSession{
-  const byKey=new Map(current.candidates.map(candidate=>[`${candidate.platform}|${candidate.link}`,candidate]));
-  for(const candidate of payload.previews)byKey.set(`${candidate.platform}|${candidate.link}`,candidate);
-  return {
-    ...current,
-    processed:current.processed+safeNonNegativeInt(payload.batch.added)+safeNonNegativeInt(payload.batch.duplicates),
-    duplicates:current.duplicates+safeNonNegativeInt(payload.batch.duplicates),
-    candidates:[...byKey.values()],
-    lastActivityAt:Date.now(),
-  };
+function formatActivityTime(value:number|null){
+  if(!value)return '—';
+  return new Intl.DateTimeFormat('uk-UA',{hour:'2-digit',minute:'2-digit'}).format(new Date(value));
 }
 function safeNonNegativeInt(value:unknown){const number=Number(value);return Number.isSafeInteger(number)&&number>=0?number:0;}
 function isLocalPreview(candidate:DiscoveryCandidate):candidate is LocalDiscoveryPreview{

@@ -1,3 +1,9 @@
+## 2026-09-30 — Discovery minimal diagnostics addendum
+
+- Daily Discovery modal не містить manual Telegram ingestion form. Source discovery відбувається автономно.
+- Collapsed run details показують лише plan position, duplicate count, checked WhatsApp count та fixed HH:mm last-activity time.
+- UI не запускає per-second timer заради відносного activity countdown і не показує internal search-step counter.
+
 ## 2026-09-30 — Discovery focus-first UX contract
 
 - Перший екран модалки відповідає лише на три питання: скільки цільових чатів знайдено, що система робить зараз, чи потрібна дія оператора.

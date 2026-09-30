@@ -1,3 +1,10 @@
+## 2026-09-30 — Discovery UI trim release v0.2.76
+
+- За screenshot feedback видалено весь manual Telegram ingestion panel: поля Telegram chat/source/query/results і локальні add actions більше не займають modal.
+- Backend recovery route не видалявся, але daily operator UI тепер має тільки автономний search workflow.
+- Run diagnostics скорочено: план, duplicates, checked WhatsApp та formatted HH:mm activity time; per-second timer/effect видалено.
+- Updated regression contract підтверджує відсутність manual panel і ticking countdown.
+
 ## 2026-09-30 — Discovery focus-first UI/UX release v0.2.75
 
 - Проведено runtime-аудит staging modal: progress, six stat tiles і seven result tabs дублювали одні й ті самі факти; source/query diagnostics займали primary visual weight; candidate status був важливішим за name/action.

@@ -18,7 +18,7 @@ void test('Platforms exposes an explicit autonomous outcome loop plus a local ma
   assert.match(dialog, /LOCAL_SOURCE_SEEDS_KEY/);
   assert.match(dialog, /localTargets\.length/);
   assert.match(dialog, /цільових у Work OS/);
-  assert.match(dialog, /Завершені рішення/);
+  assert.match(dialog, /Дані пошуку/);
   assert.match(dialog, /sessionStorage/);
   assert.match(dialog, /Відхилити/);
   assert.match(previewRoute, /body\.action==='confirm'/);
@@ -92,7 +92,7 @@ void test('local WhatsApp outcomes persist as durable dedupe without auto-import
   assert.match(adapter,/action:'persist-outcome'/);
   assert.match(adapter,/persisted\?\.persisted/);
   assert.match(dialog,/Ручна перевірка/);
-  assert.match(dialog,/Завершені рішення/);
+  assert.match(dialog,/Дані пошуку/);
   const reset=domain.slice(domain.indexOf('export async function resetDiscoveryWorkspace'),domain.indexOf('export async function continueDiscoveryRun'));
   assert.match(reset,/preservedCandidates/);
   assert.doesNotMatch(reset,/DELETE FROM chat_discovery_candidates/);
@@ -109,15 +109,14 @@ void test('saved target is an explicit operator decision point', async()=>{
   assert.match(dialog,/useFactualConfirm/);
 });
 
-void test('manual Telegram recovery stays local until confirmation', async () => {
+void test('manual Telegram recovery stays out of the operator modal', async () => {
   const [dialog, previewRoute] = await Promise.all([
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../app/api/chat-discovery/preview/route.ts', import.meta.url), 'utf8'),
   ]);
-  assert.match(dialog, /Додаткове джерело Telegram/);
-  assert.match(dialog, /Додати локально/);
-  assert.match(dialog, /Додати локально й очистити/);
-  assert.match(dialog, /action:'telegram'/);
+  assert.doesNotMatch(dialog, /Додаткове джерело Telegram/);
+  assert.doesNotMatch(dialog, /Додати локально й очистити/);
+  assert.doesNotMatch(dialog, /action:'telegram'/);
   assert.match(previewRoute,/previewTelegramDiscoveryText/);
 });
 
@@ -239,19 +238,19 @@ void test('operator-first Discovery UI shows useful local throughput and keeps t
   assert.match(dialog, /У роботі/);
   assert.match(dialog, /Потрібен погляд/);
   assert.match(dialog, /Відсіяно/);
-  assert.match(dialog, /Технічні дані запуску/);
+  assert.match(dialog, /Дані пошуку/);
   assert.match(dialog, /Підключення WhatsApp/);
   assert.doesNotMatch(dialog, /<StatTile/);
 });
 
-void test('Discovery shows live source progress without recurring D1 workspace polling', async () => {
+void test('Discovery shows a simple activity time without a ticking countdown', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
-  assert.match(dialog, /Пошукових кроків/);
-  assert.match(dialog, /Остання активність/);
-  assert.match(dialog, /lastRunActivitySeconds/);
-  assert.match(dialog, /setInterval\(\(\)=>setClockMs\(Date\.now\(\)\),1000\)/);
+  assert.match(dialog, /Дані пошуку/);
+  assert.match(dialog, /formatActivityTime\(localPreview\.lastActivityAt\)/);
+  assert.match(dialog, /hour:'2-digit',minute:'2-digit'/);
+  assert.doesNotMatch(dialog, /Пошукових кроків/);
+  assert.doesNotMatch(dialog, /lastRunActivitySeconds|setInterval\(\(\)=>setClockMs/);
   assert.doesNotMatch(dialog, /workspace\.run\?\.status!=='running'/);
-  assert.doesNotMatch(dialog, /delayMs=nextUpdated/);
 });
 
 
@@ -395,7 +394,7 @@ void test('Discovery exposes primary review actions directly and uses contextual
 void test('Discovery UI explains browser progress versus durable Work OS decisions without backend jargon',async()=>{
   const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
   assert.match(dialog,/Знаходить і перевіряє чати сам/);
-  assert.match(dialog,/Технічні дані запуску/);
+  assert.match(dialog,/Дані пошуку/);
   assert.match(dialog,/Підключення WhatsApp/);
   assert.doesNotMatch(dialog,/Persistent dedupe/);
   assert.doesNotMatch(dialog,/Сирі invite в D1/);
