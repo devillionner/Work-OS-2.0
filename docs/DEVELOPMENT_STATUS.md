@@ -1,3 +1,8 @@
+## 2026-09-30 — Discovery run-data alignment v0.2.78
+
+- Screenshot QA found the long prose diagnostics wrapped HH:mm onto a visually orphaned third line.
+- Replaced prose with two justify-between rows and short labels; added a static UI regression contract.
+
 ## 2026-09-30 — Discovery source-warning lifecycle v0.2.77
 
 - Screenshot feedback confirmed stale optional_web_search_deferred/search_cooldown warnings persisted from sessionStorage after the relevant run state.

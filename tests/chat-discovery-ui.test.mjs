@@ -248,6 +248,9 @@ void test('Discovery shows a simple activity time without a ticking countdown', 
   assert.match(dialog, /Дані пошуку/);
   assert.match(dialog, /formatActivityTime\(localPreview\.lastActivityAt\)/);
   assert.match(dialog, /hour:'2-digit',minute:'2-digit'/);
+  assert.match(dialog, /flex items-center justify-between gap-3/);
+  assert.match(dialog, />WhatsApp <strong/);
+  assert.match(dialog, />Активність <strong/);
   assert.doesNotMatch(dialog, /Пошукових кроків/);
   assert.doesNotMatch(dialog, /lastRunActivitySeconds|setInterval\(\(\)=>setClockMs/);
   assert.doesNotMatch(dialog, /workspace\.run\?\.status!=='running'/);

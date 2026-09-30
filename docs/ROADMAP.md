@@ -1,3 +1,9 @@
+## 2026-09-30 — Discovery compact run data layout (v0.2.78)
+
+- [x] Run data uses two balanced rows: Plan/Duplicates and WhatsApp/Activity.
+- [x] Short labels and slash notation prevent the activity time from wrapping alone on the narrow sidebar.
+- [x] Search behavior and stored state are unchanged.
+
 ## 2026-09-30 — Discovery transient source warning (v0.2.77)
 
 - [x] Source cooldown warning renders only while autonomous search is actively running.

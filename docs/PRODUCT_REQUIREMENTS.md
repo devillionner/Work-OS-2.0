@@ -1,3 +1,8 @@
+## 2026-09-30 — Discovery compact data layout addendum
+
+- Collapsed run data must remain readable within the narrow desktop sidebar without orphaning the activity time.
+- Use two balanced label/value rows rather than prose with dot separators.
+
 ## 2026-09-30 — Discovery warning lifecycle addendum
 
 - Temporary source warnings are transient run state, not permanent history.

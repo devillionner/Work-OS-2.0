@@ -764,9 +764,15 @@ export function ChatDiscoveryDialog({
               </details>}
               <details className="mt-3 border-t border-border/60 pt-3">
                 <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Дані пошуку</summary>
-                <div className="mt-2 space-y-1 text-xs leading-5 text-foreground/70">
-                  <p>План: <strong className="text-foreground">{localPreview.telegramCursor} із {localPreview.sourceTotal||'—'}</strong> · дублі: <strong className="text-foreground">{localPreview.duplicates}</strong></p>
-                  <p>Перевірено WhatsApp: <strong className="text-foreground">{localChecked}</strong> · остання активність: <strong className="text-foreground">{formatActivityTime(localPreview.lastActivityAt)}</strong></p>
+                <div className="mt-2 grid gap-1.5 text-xs text-foreground/70">
+                  <div className="flex items-center justify-between gap-3">
+                    <span>План <strong className="ml-1 text-foreground">{localPreview.telegramCursor}/{localPreview.sourceTotal||'—'}</strong></span>
+                    <span>Дублі <strong className="ml-1 text-foreground">{localPreview.duplicates}</strong></span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span>WhatsApp <strong className="ml-1 text-foreground">{localChecked}</strong></span>
+                    <span>Активність <strong className="ml-1 text-foreground">{formatActivityTime(localPreview.lastActivityAt)}</strong></span>
+                  </div>
                 </div>
               </details>
             </section>
