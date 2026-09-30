@@ -1,6 +1,6 @@
 # Work OS 2.0 — canonical autonomous development prompt
 
-Оновлено: 2026-09-25. Цей файл замінює довгі копії погодинного prompt. У новому чаті достатньо: **«Продовжуй Work OS 2.0 за docs/AUTONOMOUS_DEVELOPMENT_PROMPT.md»**.
+Оновлено: 2026-09-30. Цей файл замінює довгі копії погодинного prompt. У новому чаті достатньо: **«Продовжуй Work OS 2.0 за docs/AUTONOMOUS_DEVELOPMENT_PROMPT.md»**.
 
 ## Роль і режим
 
@@ -36,7 +36,7 @@ Production Worker і production D1 не читати, не мігрувати й
 - Новий recurring/background D1 path не готовий без worst-case requests/day reasoning і regression-test на backoff/fan-out.
 - При daily D1 quota exhaustion припини автоматичні D1-backed probes до reset. Для deploy identity використовуй `/api/build` і Cloudflare build/deployment state.
 - Один operator request не повинен приховано множитися у десятки candidate/queue reads.
-- Discovery source search, raw invite shortlist, WhatsApp preflight і rejected/skipped state є browser-local і не записують candidates/sources/chats у D1 до фінального operator confirm.
+- Discovery source search і raw invite shortlist лишаються browser-local. Фінальні factual outcomes (review/target/rejected/skipped/unavailable) зберігаються як durable dedupe; target не імпортується в основну chat queue без explicit operator action.
 - Натискання «Запустити автопошук» запускає browser-local goal-driven pipeline: source crawl → exact-link dedupe → WhatsApp direct join → factual qualification → verified cleanup. До D1 переходять лише factual targets після явного «Додати N цільових у Work OS».
 - D1-backed executor не source-crawl-ить. Browser-local Discovery може подавати кандидати локальному WhatsApp/CDP bridge з bounded queue; bridge не пише intermediate Discovery state в D1.
 - Goal рахується тільки за фактичними `decision='target'` після messenger qualification; сирі invite/review/pending не наближають goal.
@@ -53,24 +53,25 @@ Production Worker і production D1 не читати, не мігрувати й
 - staging smoke не повинен читати D1 без необхідності;
 - якщо D1 quota exhausted, data-backed live QA чекає reset замість повторних retries.
 
-## Пріоритет — WHATSAPP DISCOVERY GO-LIVE MODE
+## Пріоритет — WHATSAPP CONFIRMED-SEND AUTOPOST MODE
 
-До окремої зміни цієї директиви **не веди відкриту нескінченну розробку Work OS**. Єдиний активний product outcome — закрити P4-A / GO-LIVE-01…09 з ROADMAP і довести WhatsApp Discovery до реального щоденного використання на staging.
+P4-A WhatsApp Discovery функціонально закритий 2026-09-29. P4-A-PERF лишається окремим non-blocking backlog і не є fallback-задачею, якщо користувач прямо не просить повернутися до source-yield/D1 soak.
+
+Єдиний активний product outcome — **P4-B confirmed-send WhatsApp autopost**: оператор із Work OS (desktop або mobile) запускає bounded публікацію, executor відкриває exact target chat, відправляє canonical text/photo payload, підтверджує factual send і лише після цього створюється один publication fact.
 
 На кожному запуску:
-1. прочитай P4-A і поточний DEVELOPMENT_STATUS;
-2. визнач **перший незакритий GO-LIVE gate**, а не “найцікавіший наступний slice”;
-3. виконай найкоротший vertical slice, який реально наближає цей gate;
-4. якщо gate потребує physical WhatsApp Web/browser acceptance і доступний відповідний desktop/browser control — використовуй його;
-5. якщо physical runtime недоступний, працюй тільки над конкретним blocker, який заважає наступному live acceptance; не переходь до unrelated features;
-6. після commit перевір exact staging build/identity; D1-backed smoke роби лише коли він потрібний для цього gate;
-7. онови ROADMAP/DEVELOPMENT_STATUS тільки фактами: implemented / deployed / physically accepted не змішувати.
+1. прочитай актуальні ROADMAP / PRODUCT_REQUIREMENTS / DEVELOPMENT_STATUS і код WhatsApp autopost;
+2. визнач перший незакритий end-to-end blocker шляху operator action → exact target → send → confirmed callback → accounting;
+3. виконай найкоротший vertical slice, який прибирає цей blocker, без cosmetic detour;
+4. physical WhatsApp Web/browser acceptance використовуй там, де потрібне підтвердження target/send semantics;
+5. wrong chat, read-only/admin-only, ambiguous UI, expired lease, network ambiguity або missing media ніколи не рахуються як publication і не запускають blind retry;
+6. після commit перевір exact staging build/identity; D1-backed smoke роби лише коли потрібний для factual accounting;
+7. онови docs тільки фактами: implemented / deployed / physically accepted не змішувати.
 
-**Definition of Done:** UI local discovery → exact-link dedupe → real WhatsApp direct join → factual qualification → target / rejected verified leave; factual approval-required/request-to-join chats пропускаються без заявки. Goal рахує лише factual targets. Після набору goal оператор підтверджує фінальний список, і лише тоді target chats записуються в D1/Work OS. Без manual SQL/API втручання, плюс D1 warm-read sanity.
+**Definition of Done:** з Platforms оператор вибирає canonical advertisement text і, за потреби, image; batch до 30 eligible WhatsApp chats створює idempotent jobs; executor exact-target verifies кожен chat, відправляє payload, підтверджує send; тільки confirmed send створює один chat/day publication fact і синхронно оновлює counters/history. Cancel/retry/lease recovery не можуть створити duplicate publication.
 
-Заборонено як fallback до закриття P4-A: cosmetic refactor, broad parity cleanup, Viber real-chat autopost, AI, offline/PWA, production cutover, нові unrelated domains. Manual flow лишається recovery/fallback. Production Worker/D1 — тільки після окремого прямого дозволу.
+Не повертайся до загального Discovery refactor або P4-A-PERF як fallback. Viber real-chat autopost, AI, broad parity cleanup, production cutover та unrelated domains лишаються поза активним scope без прямого запиту. Production Worker/D1 — тільки після окремого прямого дозволу.
 
-Кожен запуск має завершуватися короткою відповіддю: який GO-LIVE gate закрито/просунуто, exact main SHA, staging status, що конкретно блокує наступний gate.
+Кожен запуск завершується коротко: exact main SHA, що саме просунуто в confirmed-send path, staging status і конкретний blocker наступного кроку.
 
-
-- **Local-first Discovery / D1 budget rule:** source search, progress, filtering, WhatsApp direct join/qualification and shortlist state stay in browser/runtime session. Search may run up to 6 external queries per batch. Before final confirmation, do not INSERT/UPDATE Discovery runs, candidates, sources or chats. D1 may be consulted only with targeted indexed duplicate lookups for exact invite links found in the current batch. Persist only factual targets after explicit «Додати N цільових у Work OS».
+- **Local-first Discovery / D1 budget rule:** source search, raw invite і run progress лишаються browser/runtime-local. D1 до qualification використовується лише для targeted indexed duplicate lookups exact invite. Після factual WhatsApp qualification фінальні review/target/rejected/skipped/unavailable outcomes зберігаються як durable dedupe; target лишається unimported до explicit operator action. Owner-wide scans і intermediate source/candidate writes заборонені.

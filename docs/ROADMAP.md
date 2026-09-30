@@ -1,3 +1,14 @@
+## 2026-09-30 — Discovery UI/UX cleanup + unique results (v0.2.74)
+
+- [x] Browser-local outcome і вже збережений candidate з тим самим canonical platform + invite більше не рендеряться як два різні чати; persisted row має пріоритет для operator actions.
+- [x] Лічильники результатів не додають повторно той самий durable outcome; новий browser-local результат додається поверх останнього workspace snapshot лише доки snapshot ще не містить його.
+- [x] «Поточний запуск» і загальна історія тепер візуально розділені: зрозумілі Знайдено invite / У перевірці / Ручна перевірка / Цільові / Відсіяно / Дублі / відомі, контекстні empty states і шість рівних stat tiles на wide desktop.
+- [x] Primary actions для review/target винесені прямо на картку; dead local-review CTA прибраний.
+- [x] Dialog width тепер прив'язаний до dynamic viewport width, тому narrow/mobile не розтягує модалку за межі екрана; ключові touch actions мають mobile-safe hit targets.
+- [x] Regression contract захищає canonical merge/dedupe, direct review actions, responsive summary/dialog width і contextual empty states.
+
+**Roadmap decision:** P4-A лишається функціонально закритим. P4-A-PERF (fresh-source yield ≥12 confirmed targets/hour, goal-50 soak, D1 cold/warm acceptance) лишається окремим non-blocking backlog. Наступний активний functional slice — **P4-B confirmed-send WhatsApp autopost**.
+
 ## 2026-09-29 — P4-A WhatsApp Discovery functional closure
 
 **Decision:** P4-A is closed as an operator-usable functional workflow. The measured source-yield objective is split into a separate **P4-A-PERF** backlog and no longer blocks the next functional roadmap slice.
@@ -40,7 +51,7 @@ Do not reopen P4-A functional correctness merely because external source yield i
 
 # Work OS 2.0 — поетапний roadmap
 
-Оновлено: 2026-09-25. Обсяг і статус кожної вимоги — у [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md). Етап завершується за доказами приймання, а не за наявністю екрана. Працюємо напряму в `main` невеликими комітами. Для staging діє Cloudflare Workers Builds: кожен новий push у `main` проходить production build через `npm run verify`, staging-only guard і автоматичний deploy у `work-os-2-staging`. Повний `verify:local` (lint → typecheck → full tests → build) є окремим pre-release gate і не дублюється всередині Workers Builds. Production лишається окремою явною операцією й не оновлюється цим pipeline. Ручний workflow лишається recovery/fallback, але активний пріоритет визначається functional value: WhatsApp/Discovery automation має скорочувати реальну операторську роботу; AI-генерація не випереджає цей functional automation baseline.
+Оновлено: 2026-09-30. Обсяг і статус кожної вимоги — у [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md). Етап завершується за доказами приймання, а не за наявністю екрана. Працюємо напряму в `main` невеликими комітами. Для staging діє Cloudflare Workers Builds: кожен новий push у `main` проходить production build через `npm run verify`, staging-only guard і автоматичний deploy у `work-os-2-staging`. Повний `verify:local` (lint → typecheck → full tests → build) є окремим pre-release gate і не дублюється всередині Workers Builds. Production лишається окремою явною операцією й не оновлюється цим pipeline. Ручний workflow лишається recovery/fallback, але активний пріоритет визначається functional value: WhatsApp/Discovery automation має скорочувати реальну операторську роботу; AI-генерація не випереджає цей functional automation baseline.
 
 | Етап | Обсяг | Критерії готовності | Стан |
 | --- | --- | --- | --- |
@@ -48,7 +59,7 @@ Do not reopen P4-A functional correctness merely because external source yield i
 | P1. Щоденний ручний постинг | CORE/CHAT/IMPORT/TIMER/PUB/PROFILE, ручна частина AD, SCHED-01, UX-02 | Повний шлях додати → приєднати/очікувати → профіль → відкрити чат/скопіювати оголошення → вручну опублікувати → одна подія → архів/відновлення. Telegram-акаунти, черги й розклад ізольовані. Усі обмеження перевіряються сервером. Повернення з месенджера зберігає контекст. Є loading/empty/error/retry/undo там, де безпечно | Functional pre-UX завершено; лишається частина UX/parity acceptance |
 | P2. CRM та єдина черга «Сьогодні» | LEAD, CRM-01–04, CAL-02/04, CORE-01/09, SCRIPT/KNOW | Швидке створення неповного ліда; контакт може не навчатися; кілька учнів/уроків; ручний запит куратору; скасування відгуку; джерело/бізнес-дати; Today показує прострочені follow-up та нагадування з переходом до конкретного ліда. Повторна доставка/подвійний клік не створює зайвої події | Core CRM functional pre-UX завершено; contextual scripts, knowledge/version history і CRM message attachments звірені; лишається UX/parity acceptance |
 | P3. Звіти, цілі та детальна аналітика | REPORT, ANALYTICS, CAL-01/03, UX-01/03/04, DATA-10/14 | Today, платформи, звіт і аналітика показують однаковий подієвий факт. Ручна корекція видима окремо. Календар/версії/здача/застарілість/історичний контекст працюють. Денні/місячні цілі мають історію. Є довільні періоди, предмети, джерельні події, унікальні ліди та всі записи окремо, когортний і подієвий погляди, атрибуція оголошення/чату, експорт | Functional pre-UX завершено для core reports/analytics; REPORT-22 і subject analytics звірені; лишається решта parity |
-| P4. Functional automation + reliability/parity | WhatsApp Web executor, pending approval, Chat Discovery lifecycle, WhatsApp confirmed-send autopost; решта CORE/QA/DATA, OPS-05–07, BACKUP, PAY, PWA/offline | Спочатку відсутні operator workflows доведені end-to-end: invite → join/check → pending recheck → qualification → workflow/archive/leave; далі WhatsApp send із exact-target verification і publication fact тільки після confirmed send. Reliability/UX/QA є gates усередині цих slices, а не заміною функціональної реалізації. Після functional backlog — physical Safari/cross-device/offline/a11y acceptance. | **Активний етап. FUNCTIONAL VALUE FIRST.** База reliability вже значна; головний незавершений результат — реальний WhatsApp Web/Discovery workflow, потім confirmed-send WhatsApp autopost. |
+| P4. Functional automation + reliability/parity | WhatsApp Web executor, pending approval, Chat Discovery lifecycle, WhatsApp confirmed-send autopost; решта CORE/QA/DATA, OPS-05–07, BACKUP, PAY, PWA/offline | Спочатку відсутні operator workflows доведені end-to-end: invite → join/check → pending recheck → qualification → workflow/archive/leave; далі WhatsApp send із exact-target verification і publication fact тільки після confirmed send. Reliability/UX/QA є gates усередині цих slices, а не заміною функціональної реалізації. Після functional backlog — physical Safari/cross-device/offline/a11y acceptance. | **Активний етап. FUNCTIONAL VALUE FIRST.** P4-A Discovery функціонально закритий; активний наступний результат — confirmed-send WhatsApp autopost. P4-A-PERF лишається окремим non-blocking backlog для source yield та D1 soak. |
 | P5. Контрольований release та фінальний синхронний перенос | OPS-03/04, MIG, DATA-09/15–17, BACKUP-01/02 | P1–P4 прийняті; production target перевірений окремо; користувач прямо підтвердив остаточний перенос. Одна узгоджена свіжа копія замість щоденного resync; production не очищується; усі відмінності пояснені; є rollback коду та перевірені копії | Заблоковано критеріями parity, не починати |
 | P6. AI та додаткова генерація | Відкладені AI/генеративні PROFILE/AD, DATA-07, desktop/native push за потреби | AI/генерація мають окремо визначені джерела, приватність, витрати та людський контроль. WhatsApp Web operator automation більше не відкладається сюди: вона активна в P4. Viber real-chat autopost лишається поза активним scope до окремого прямого дозволу. Локальний AI — тільки за новим прямим дозволом. | Відкладено |
 
@@ -72,13 +83,7 @@ Do not reopen P4-A functional correctness merely because external source yield i
 - [ ] **GO-LIVE-08:** default goal 50 працює як outcome loop: продовжує source plan до 50 confirmed targets або чесно `sources_exhausted`; не знижувати qualification criteria заради цифри.
 - [ ] **GO-LIVE-09:** у DEVELOPMENT_STATUS зафіксовані exact SHA, staging build, live messenger evidence, залишкові known limitations і чітке рішення «operator-usable: yes/no».
 
-Поки GO-LIVE-01…09 не закриті, дозволені тільки:
-1. blocker fixes цього workflow;
-2. D1/performance fixes, без яких acceptance дорого/нестабільно запускати;
-3. minimal UX changes, потрібні для нормального operator use;
-4. tests/docs, що захищають фактичний go-live behavior.
-
-Не брати unrelated ROADMAP work як fallback. Якщо browser/runtime acceptance потребує desktop/browser control, використовувати його; не замінювати physical acceptance ще одним code-only refactor.
+GO-LIVE-01…09 нижче лишаються історичним журналом pre-closure acceptance. Після рішення 2026-09-29 незакриті yield/soak пункти не блокують наступний functional slice: вони перенесені в P4-A-PERF. P4-A слід відкривати знову тільки при регресії join/qualification/dedupe/pause/recovery semantics або за прямим запитом на P4-A-PERF.
 
 ## Поточний стан P4 — 2026-09-23
 

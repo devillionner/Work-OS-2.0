@@ -1,3 +1,13 @@
+## 2026-09-30 — Discovery operator UX / unique-result contract
+
+- Browser-local current-run outcome і persisted Discovery candidate з тим самим canonical platform + invite є **одним логічним результатом**. UI не може показувати їх двома cards або подвійно рахувати у filter totals.
+- Persisted candidate має пріоритет як actionable representation, бо містить canonical version/state для operator mutations. Local representation використовується лише доки corresponding persisted row ще не присутній у завантаженому workspace snapshot.
+- Current-run summary показує тільки факти цього запуску; results tabs показують durable history плюс нові результати після останнього snapshot без double count.
+- review має прямі operator actions: відкрити WhatsApp, додати на ручну перевірку або відхилити. Local fresh-join review не може маскуватися під factual target або мати CTA, який обходить qualification contract.
+- target має прямі «Лишити в роботі» / «В архів». Recoverable unavailable має пряме «Повторити перевірку». Rare/technical details не повинні ховати primary action.
+- Empty states залежать від активного filter і пояснюють, чого саме зараз немає. На desktop summary не повинен ламатися на один самотній stat tile у другому рядку, коли всі шість метрик поміщаються в один ряд.
+- Discovery dialog не може мати fixed/default width ширший за dynamic mobile viewport; на narrow/mobile весь dialog має лишатися в межах екрана без horizontal clipping, а primary close/start/filter/review actions мають touch-safe hit targets.
+
 ## 2026-09-29 — canonical Discovery closure semantics
 
 This section supersedes conflicting earlier Discovery notes where necessary.

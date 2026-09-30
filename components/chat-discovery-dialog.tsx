@@ -14,6 +14,7 @@ import type { LocalDiscoveryPreview } from '@/lib/chat-discovery/local-preview';
 import chatDiscoverySeeds from '@/lib/chat-discovery/seeds';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 import { resetDiscoveryRetryCheckpoint } from '@/lib/chat-discovery/retry-state';
+import { normalizeGroupLink } from '@/lib/chats/bulk-input';
 
 type Workspace = {
   run: DiscoveryRun | null;
@@ -120,6 +121,7 @@ export function ChatDiscoveryDialog({
   onImported: (platform: DiscoveryPlatform) => void;
 }) {
   const [workspace, setWorkspace] = useState<Workspace>({ run: null, telegramPlan: null, counts: EMPTY_COUNTS, importedCount: 0, waitingWhatsAppCount: 0, candidates: [] });
+  const [workspaceLoadedAt, setWorkspaceLoadedAt] = useState(0);
   const platforms: DiscoveryPlatform[] = ['whatsapp'];
   const [goal, setGoal] = useState(50);
   const minMembers = 700;
@@ -154,6 +156,7 @@ export function ChatDiscoveryDialog({
       const body = await response.json() as Workspace;
       if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити пошук чатів.');
       setWorkspace(body);
+      setWorkspaceLoadedAt(Date.now());
       return body;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити пошук чатів.');
@@ -460,8 +463,7 @@ export function ChatDiscoveryDialog({
 
   async function markInviteInvalid(candidate: DiscoveryCandidate) {
     if(isLocalPreview(candidate)){
-      removeLocalPreview(candidate.id);
-      setNotice('Локальний кандидат відкинуто. У D1 нічого не записувалось.');
+      await archiveCandidate(candidate);
       return;
     }
     if (inspectingId) return;
@@ -649,12 +651,19 @@ export function ChatDiscoveryDialog({
   const localSkipped=localPreview.candidates.filter(candidate=>candidate.preflightState==='skipped').length;
   const localRejected=localPreview.candidates.filter(candidate=>candidate.preflightState==='rejected'||candidate.preflightState==='unavailable').length;
   const localChecked=localPreview.candidates.filter(candidate=>candidate.inspectionState==='inspected').length;
-  const localProcessed=localPreview.candidates.length-localQueued;
-  const localUnavailable=localPreview.candidates.filter(candidate=>candidate.preflightState==='unavailable').length;
-  const localFailed=localPreview.candidates.filter(candidate=>candidate.preflightState==='rejected').length;
+  const workspaceCandidateKeys=new Set(workspace.candidates.map(candidateIdentity));
+  const freshLocalOutcomes=workspaceLoadedAt>0
+    ? localPreview.candidates.filter(candidate=>candidate.preflightState!=='queued'
+      && candidate.updatedAt*1000>workspaceLoadedAt
+      && !workspaceCandidateKeys.has(candidateIdentity(candidate)))
+    : [];
+  const uniqueLocalQueued=localPreview.candidates.filter(candidate=>candidate.preflightState==='queued'&&!workspaceCandidateKeys.has(candidateIdentity(candidate)));
   const persistedTotal = Object.values(workspace.counts).reduce((sum, value) => sum + value, 0);
-  const total = persistedTotal + localPreview.candidates.length;
-  const reviewCount=workspace.counts.review+localManualReview;
+  const total = persistedTotal + uniqueLocalQueued.length + freshLocalOutcomes.length;
+  const reviewCount=workspace.counts.review+freshLocalOutcomes.filter(candidate=>candidate.preflightState==='review').length;
+  const targetCount=workspace.counts.target+freshLocalOutcomes.filter(candidate=>candidate.preflightState==='target').length;
+  const rejectedCount=workspace.counts.rejected+freshLocalOutcomes.filter(candidate=>candidate.preflightState==='rejected'||candidate.preflightState==='skipped').length;
+  const unavailableCount=workspace.counts.unavailable+freshLocalOutcomes.filter(candidate=>candidate.preflightState==='unavailable').length;
   const autonomousRunning=localPreview.running;
   const displayedTargetCount=localTargets.length;
   const displayedGoal=localPreview.running||localPreview.done?localPreview.goal:goal;
@@ -686,7 +695,8 @@ export function ChatDiscoveryDialog({
         ? 'План пошуку завершено'
         : localPreview.completionReason==='source_error'?'Пошук призупинено: джерело не відповідає':'Автопошук зупинений';
   const visibleLocal=localCandidatesForFilter(localPreview.candidates,filter);
-  const displayCandidates:DiscoveryCandidate[]=filter==='active'?visibleLocal:[...visibleLocal,...workspace.candidates];
+  const displayCandidates:DiscoveryCandidate[]=filter==='active'?visibleLocal:mergeDiscoveryCandidates(workspace.candidates,visibleLocal);
+  const emptyCopy=emptyCandidateCopy(filter,autonomousRunning,localQueued,localChecked);
 
   const currentTask = workspace.telegramPlan?.tasks[0] ?? null;
   const telegramProgress = workspace.telegramPlan
@@ -695,7 +705,7 @@ export function ChatDiscoveryDialog({
 
   return <Dialog open={open} onOpenChange={next => { if (!next) close(); }}>
     <DialogContent
-      className="h-[min(92dvh,920px)] w-[calc(100vw-20px)] !max-w-[1240px] !flex !flex-col gap-0 overflow-hidden !rounded-[20px] border-border/80 bg-background !p-0 shadow-xl sm:w-[calc(100vw-32px)] sm:!max-w-[1240px]"
+      className="h-[min(92dvh,920px)] !w-[calc(100dvw-20px)] !max-w-[1240px] !flex !flex-col gap-0 overflow-hidden !rounded-[20px] border-border/80 bg-background !p-0 shadow-xl sm:!w-[calc(100dvw-32px)]"
       overlayClassName="bg-black/45 supports-backdrop-filter:backdrop-blur-[2px]"
       showCloseButton={false}
     >
@@ -709,7 +719,7 @@ export function ChatDiscoveryDialog({
             Work OS знаходить WhatsApp-чати, перевіряє доступні факти й запам’ятовує завершені рішення, щоб не проходити одне й те саме посилання повторно.
           </DialogDescription>
         </DialogHeader>
-        <Button className="absolute right-3 top-3 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground sm:right-4 sm:top-4" variant="ghost" size="icon" aria-label="Закрити" onClick={close}><X/></Button>
+        <Button className="absolute right-3 top-3 !size-11 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground sm:right-4 sm:top-4 sm:!size-9" variant="ghost" size="icon" aria-label="Закрити" onClick={close}><X/></Button>
 
         <div className="mt-4 rounded-2xl border border-border/70 bg-muted/20 p-4 sm:p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -740,7 +750,7 @@ export function ChatDiscoveryDialog({
                 {lastRunActivitySeconds!==null&&<>{' · '}остання активність {lastRunActivitySeconds<5?'щойно':`${lastRunActivitySeconds} с тому`}</>}
               </div>}
               {localPreview.discoveryMetrics&&localPreview.discoveryMetrics.completed>0&&<div className="mt-1 text-xs text-muted-foreground">
-                Завершено {localPreview.discoveryMetrics.completed} перевірок · середній час з повторними спробами {Math.round(localPreview.discoveryMetrics.totalCheckMs/localPreview.discoveryMetrics.completed/1000)} с · цільових {localPreview.discoveryMetrics.targets}
+                Перевірено WhatsApp: {localPreview.discoveryMetrics.completed} · середній час з повторними спробами {Math.round(localPreview.discoveryMetrics.totalCheckMs/localPreview.discoveryMetrics.completed/1000)} с · цільових {localPreview.discoveryMetrics.targets}
               </div>}
               {localPreview.lastCheckedName&&<div className="mt-1 text-xs text-muted-foreground">
                 Остання WhatsApp-перевірка: <strong className="text-foreground/80">{localPreview.lastCheckedName}</strong>
@@ -769,13 +779,13 @@ export function ChatDiscoveryDialog({
               </div>}
             </div>
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
-            <StatTile label="Знайдено" value={String(localPreview.processed)} />
-            <StatTile label="У черзі" value={String(localQueued)} />
-            <StatTile label="Перевірити вручну" value={String(localManualReview)} />
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6" aria-label="Поточний запуск">
+            <StatTile label="Знайдено invite" value={String(localPreview.processed)} />
+            <StatTile label="У перевірці" value={String(localQueued)} />
+            <StatTile label="Ручна перевірка" value={String(localManualReview)} />
             <StatTile label="Цільові" value={String(localTargets.length)} />
-            <StatTile label="Архів" value={String(discardedCount)} />
-            <StatTile label="Дублі" value={String(localPreview.duplicates)} />
+            <StatTile label="Відсіяно" value={String(discardedCount)} />
+            <StatTile label="Дублі / відомі" value={String(localPreview.duplicates)} />
           </div>
         </div>
       </header>
@@ -821,23 +831,23 @@ export function ChatDiscoveryDialog({
 
               <div className="mt-4 grid gap-2">
                 {autonomousRunning||pausing
-                  ? <Button className="w-full justify-center" type="button" variant="outline" disabled={telegramBusy} onClick={() => void stopAutonomousSearch()}>
+                  ? <Button className="min-h-11 w-full justify-center sm:min-h-9" type="button" variant="outline" disabled={telegramBusy} onClick={() => void stopAutonomousSearch()}>
                       {pausing?<LoaderCircle data-icon="inline-start"/>:<Square data-icon="inline-start"/>}{pausing?'Зберігаємо паузу…':'Зупинити автопошук'}
                     </Button>
-                  : <Button className="w-full justify-center" type="button" disabled={telegramBusy} onClick={() => void startAutonomousSearch()}>
+                  : <Button className="min-h-11 w-full justify-center sm:min-h-9" type="button" disabled={telegramBusy} onClick={() => void startAutonomousSearch()}>
                       {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<Search data-icon="inline-start"/>}{telegramBusy?'Запускаємо…':localPreview.pauseSummary&&!localPreview.done?'Продовжити автопошук':localPreview.completionReason==='source_error'?'Продовжити пошук':'Запустити автопошук'}
                     </Button>}
-                {!autonomousRunning&&localTargets.length>0&&<Button className="w-full justify-center" type="button" disabled={telegramBusy} onClick={()=>void addLocalTargetsToJoin()}>
+                {!autonomousRunning&&localTargets.length>0&&<Button className="min-h-11 w-full justify-center sm:min-h-9" type="button" disabled={telegramBusy} onClick={()=>void addLocalTargetsToJoin()}>
                   {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<CheckCircle2 data-icon="inline-start"/>}{telegramBusy?'Записуємо…':`Додати ${localTargets.length} цільових у Work OS`}
                 </Button>}
-                {localPreview.candidates.length>0&&!autonomousRunning&&<Button className="w-full" type="button" size="sm" variant="ghost" disabled={telegramBusy} onClick={()=>setLocalPreview({...EMPTY_LOCAL_PREVIEW,goal})}>Скинути поточний запуск</Button>}
+                {localPreview.candidates.length>0&&!autonomousRunning&&<Button className="min-h-11 w-full sm:min-h-8" type="button" size="sm" variant="ghost" disabled={telegramBusy} onClick={()=>setLocalPreview({...EMPTY_LOCAL_PREVIEW,goal})}>Скинути поточний запуск</Button>}
               </div>
 
               <div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">
                 <strong className="text-foreground">Поточний запуск</strong> зберігається в цьому браузері, тому його можна поставити на паузу.
                 <br/><strong className="text-foreground">Завершені рішення</strong> зберігаються у Work OS і більше не перевіряються повторно.
               </div>
-              {localPreview.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">Пошук завершено: підтверджено {localTargets.length} із {localPreview.goal}; чати для ручної перевірки збережені окремо.</div>}
+              {localPreview.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">Джерела вичерпано: фактично підтверджено {localTargets.length} із {localPreview.goal}. Чати для ручної перевірки збережені окремо.</div>}
               {localPreview.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: фактично підтверджено {localTargets.length}/{localPreview.goal} цільових чатів. Вони збережені для ручного огляду — виріши, які лишити в роботі.</div>}
               {localPreview.sourceIssues.length>0&&<div role="status" className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs leading-5">
                 <strong>{localPreview.sourceFailures>0?'Не вдалося прочитати джерело. Цей запит не пропущено.':'Пошук працює з обмеженнями джерел'}</strong>
@@ -945,18 +955,18 @@ export function ChatDiscoveryDialog({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="text-base font-semibold">Результати пошуку</h3>
-                <p className="mt-0.5 text-xs text-foreground/65">{autonomousRunning?'Work OS перевіряє чати сам і одразу відкладає окремо ті, де потрібен твій погляд.':'Обери, що хочеш переглянути.'}</p>
+                <p className="mt-0.5 text-xs text-foreground/65">{autonomousRunning?'Нові результати з’являються тут без дублювання зі збереженою історією.':'Поточний запуск і збережена історія зведені без дублів. Один чат показується один раз.'}</p>
               </div>
 
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Фільтр кандидатів">
               {([
-                ['active', 'Перевіряються', localQueued],
-                ['review', 'Перевірити вручну', reviewCount],
+                ['active', 'У перевірці', localQueued],
+                ['review', 'Ручна перевірка', reviewCount],
                 ['waiting-whatsapp', 'Очікує вступу', workspace.waitingWhatsAppCount],
-                ['target', 'Цільові', workspace.counts.target+localTargets.length],
-                ['rejected', 'Відхилені / пропущені', workspace.counts.rejected+localFailed+localSkipped],
-                ['unavailable', 'Не вдалося перевірити', workspace.counts.unavailable+localUnavailable],
+                ['target', 'Цільові', targetCount],
+                ['rejected', 'Відсіяні', rejectedCount],
+                ['unavailable', 'Помилка перевірки', unavailableCount],
                 ['all', 'Усі', total],
               ] as Array<[DecisionFilter, string, number]>).map(([key, label, count]) =>
                 <button
@@ -966,7 +976,7 @@ export function ChatDiscoveryDialog({
                   aria-selected={filter === key}
                   disabled={loading}
                   onClick={() => void changeFilter(key)}
-                  className={`shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${filter === key ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border/70 bg-background text-foreground/70 hover:bg-muted/40 hover:text-foreground'}`}
+                  className={`min-h-11 shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors sm:min-h-8 ${filter === key ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border/70 bg-background text-foreground/70 hover:bg-muted/40 hover:text-foreground'}`}
                 >
                   {label} <span className="ml-1 tabular-nums">{count}</span>
                 </button>)}
@@ -1004,7 +1014,7 @@ export function ChatDiscoveryDialog({
                             {isLocalPreview(candidate)&&<Badge variant="outline">Знайдено автопошуком</Badge>}
                           </div>
                         </div>
-                        {candidate.decision==='target'&&<Badge>Цільовий · ручна перевірка</Badge>}
+                        {candidate.decision==='target'&&<Badge>Цільовий · підтверджено</Badge>}
                       </div>
 
                       {candidate.reasonCodes.length>0&&candidate.decision!=='target'&&<div className="mt-3 flex flex-wrap gap-1.5">
@@ -1037,37 +1047,53 @@ export function ChatDiscoveryDialog({
                         </div>
                       </details>
 
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <a className="inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-border bg-background px-2.5 text-[0.8rem] font-semibold hover:bg-muted" href={candidate.link} target="_blank" rel="noreferrer">
+                      <div className="mt-3 flex flex-wrap items-center gap-2 [&>button]:min-h-11 sm:[&>button]:min-h-8">
+                        <a className="inline-flex h-11 items-center gap-1.5 rounded-[9px] border border-border bg-background px-2.5 text-[0.8rem] font-semibold hover:bg-muted sm:h-8" href={candidate.link} target="_blank" rel="noreferrer">
                           Відкрити {platformLabel(candidate.platform)} <ExternalLink className="size-3.5"/>
                         </a>
-                        <details className="group">
-                          <summary className="cursor-pointer select-none rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">Ручні дії</summary>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {!candidate.importedChatId && candidate.decision==='unavailable'
-                              &&candidate.reasonCodes.some(reason=>['qualification_incomplete','paused_unverified','retry_exhausted'].includes(reason))
-                              &&<Button type="button" variant="outline" disabled={localPreview.running||telegramBusy} onClick={()=>retryIncompleteCandidate(candidate)}>Повторити перевірку</Button>}
-                            {!candidate.importedChatId && candidate.decision === 'review' &&
+                        {!candidate.importedChatId && candidate.decision==='unavailable'
+                          &&candidate.reasonCodes.some(reason=>['qualification_incomplete','paused_unverified','retry_exhausted'].includes(reason))
+                          &&<Button type="button" size="sm" variant="outline" disabled={localPreview.running||telegramBusy} onClick={()=>retryIncompleteCandidate(candidate)}>Повторити перевірку</Button>}
+                        {!candidate.importedChatId && candidate.decision==='review' && !isLocalPreview(candidate) && <>
+                          <Button type="button" size="sm" disabled={importingId !== null || inspectingId !== null} onClick={() => void importCandidate(candidate)}>
+                            {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
+                            Додати на ручну перевірку
+                          </Button>
+                          <Button type="button" size="sm" variant="ghost" disabled={importingId !== null || inspectingId !== null} onClick={() => void archiveCandidate(candidate)}>
+                            {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
+                            Відхилити
+                          </Button>
+                          <details>
+                            <summary className="flex min-h-11 cursor-pointer select-none items-center rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground sm:min-h-8">Ще</summary>
+                            <div className="mt-2">
                               <Button type="button" size="sm" variant="outline" disabled={inspectingId !== null} onClick={() => void markInviteInvalid(candidate)}>
                                 {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                                {isLocalPreview(candidate)?'Відкинути preview':'Invite недійсний'}
-                              </Button>}
-                            {!candidate.importedChatId && candidate.decision === 'target' &&
-                              <Button type="button" size="sm" variant="outline" disabled={importingId !== null || inspectingId !== null} onClick={() => void archiveCandidate(candidate)}>
-                                {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                                В архів
-                              </Button>}
-                            {!candidate.importedChatId && (candidate.decision === 'review' || candidate.decision === 'target') &&
-                              <Button type="button" size="sm" disabled={importingId !== null || inspectingId !== null} onClick={() => void importCandidate(candidate)}>
-                                {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                                {candidate.decision==='target'?'Лишити в роботі':isLocalPreview(candidate)?'Підходить → додати':'Додати на перевірку'}
-                              </Button>}
-                            {candidate.importedChatId && candidate.membershipState !== 'left' &&
-                              <Button type="button" size="sm" variant="outline" onClick={() => toggleManualInspection(candidate)}>
-                                {manualDraft?.candidateId === candidate.id ? 'Закрити кваліфікацію' : 'Кваліфікувати вручну'}
-                              </Button>}
-                          </div>
-                        </details>
+                                Invite недійсний
+                              </Button>
+                            </div>
+                          </details>
+                        </>}
+                        {!candidate.importedChatId && candidate.decision==='review' && isLocalPreview(candidate) && <>
+                          <Button type="button" size="sm" variant="outline" disabled={loading} onClick={() => void changeFilter('review')}>Оновити збережений результат</Button>
+                          <Button type="button" size="sm" variant="ghost" disabled={inspectingId !== null} onClick={() => void archiveCandidate(candidate)}>
+                            {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
+                            Відхилити
+                          </Button>
+                        </>}
+                        {!candidate.importedChatId && candidate.decision==='target' && <>
+                          <Button type="button" size="sm" disabled={importingId !== null || inspectingId !== null} onClick={() => void importCandidate(candidate)}>
+                            {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
+                            Лишити в роботі
+                          </Button>
+                          <Button type="button" size="sm" variant="outline" disabled={importingId !== null || inspectingId !== null} onClick={() => void archiveCandidate(candidate)}>
+                            {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
+                            В архів
+                          </Button>
+                        </>}
+                        {candidate.importedChatId && candidate.membershipState !== 'left' &&
+                          <Button type="button" size="sm" variant="outline" onClick={() => toggleManualInspection(candidate)}>
+                            {manualDraft?.candidateId === candidate.id ? 'Закрити кваліфікацію' : 'Кваліфікувати вручну'}
+                          </Button>}
                       </div>
 
                       {manualDraft?.candidateId === candidate.id && candidate.importedChatId && candidate.membershipState !== 'left' && <div className="mt-3 grid gap-3 rounded-xl border border-border/70 bg-muted/20 p-3">
@@ -1118,7 +1144,7 @@ export function ChatDiscoveryDialog({
                     </article>;
                   })}
                 </div>
-                : <div className="workspace-empty"><Search aria-hidden="true"/><strong>Тут поки порожньо</strong><p>{autonomousRunning?`Перевіряємо WhatsApp: у черзі ${localQueued}, вже перевірено ${localChecked}. Тут з’являються чати відповідно до вибраного фільтра.`:'Запусти автопошук або зміни фільтр.'}</p></div>}
+                : <div className="workspace-empty"><Search aria-hidden="true"/><strong>{emptyCopy.title}</strong><p>{emptyCopy.detail}</p></div>}
           </div>
         </section>
       </div>
@@ -1274,6 +1300,35 @@ function isLocalPreview(candidate:DiscoveryCandidate):candidate is LocalDiscover
   return (candidate as Partial<LocalDiscoveryPreview>).localOnly===true;
 }
 
+function candidateIdentity(candidate:DiscoveryCandidate){
+  const normalized=normalizeGroupLink(candidate.link);
+  return normalized? `${normalized.platform}|${normalized.link}` : `${candidate.platform}|${String(candidate.link||'').trim()}`;
+}
+
+function mergeDiscoveryCandidates(persisted:DiscoveryCandidate[],local:DiscoveryCandidate[]){
+  const seen=new Set<string>();
+  const merged:DiscoveryCandidate[]=[];
+  for(const candidate of [...persisted,...local]){
+    const key=candidateIdentity(candidate);
+    if(seen.has(key))continue;
+    seen.add(key);
+    merged.push(candidate);
+  }
+  return merged;
+}
+
+function emptyCandidateCopy(filter:DecisionFilter,running:boolean,queued:number,checked:number){
+  if(filter==='active')return running
+    ?{title:'Перевіряємо наступні чати',detail:`У черзі ${queued}, уже перевірено ${checked}. Новий кандидат з’явиться тут, коли буде готовий до перевірки.`}
+    :{title:'Немає чатів у перевірці',detail:'Продовж автопошук, щоб перевіряти нові WhatsApp-чати.'};
+  if(filter==='review')return {title:'Ручна перевірка порожня',detail:'Немає чатів, де зараз потрібне твоє рішення.'};
+  if(filter==='waiting-whatsapp')return {title:'Ніхто не очікує вступу',detail:'Чатів із незавершеним вступом зараз немає.'};
+  if(filter==='target')return {title:'Цільових чатів поки немає',detail:'Тут з’являться чати, де всі критерії підтверджені.'};
+  if(filter==='rejected')return {title:'Відсіяних чатів немає',detail:'У цьому фільтрі немає завершених нецільових або пропущених чатів.'};
+  if(filter==='unavailable')return {title:'Немає помилок перевірки',detail:'Усі доступні кандидати або перевірені, або ще в роботі.'};
+  return {title:'Результатів поки немає',detail:'Запусти автопошук, щоб знайти нові WhatsApp-чати.'};
+}
+
 function StatTile({ label, value }: { label: string; value: string }) {
   return <div className="flex min-w-[132px] shrink-0 items-baseline justify-between gap-3 rounded-xl border border-border/70 bg-background px-3 py-2">
     <div className="truncate text-[11px] font-semibold text-foreground/65">{label}</div>
@@ -1331,7 +1386,7 @@ function candidateStatus(candidate:DiscoveryCandidate){
   }
   if(candidate.membershipState==='left')return {label:'Чат уже покинуто',detail:'Для нової кваліфікації спочатку віднови його та підтвердь повторний вступ.',tone:'border-border bg-muted/25 text-foreground/70',busy:false};
   if(candidate.decision==='review')return {label:'На ручну перевірку',detail:candidate.reasonCodes.includes('fresh_join_history_unavailable')?'Чат пройшов доступні автоматичні перевірки, але старі повідомлення після вступу недоступні. Перевір активність і оголошення вручну.':'Потрібен твій погляд перед остаточним рішенням.',tone:'border-amber-500/30 bg-amber-500/5 text-foreground',busy:false};
-  if(candidate.decision==='target')return {label:'Цільовий',detail:'Усі критерії підтверджені. Переглянь вручну: залишити в роботі чи відхилити.',tone:'border-emerald-500/30 bg-emerald-500/5 text-emerald-800 dark:text-emerald-300',busy:false};
+  if(candidate.decision==='target')return {label:'Цільовий',detail:'Усі критерії підтверджені. Лиш у роботі або перенеси в архів.',tone:'border-emerald-500/30 bg-emerald-500/5 text-emerald-800 dark:text-emerald-300',busy:false};
   if(candidate.decision==='rejected')return {label:'Відхилено автоматично',detail:candidate.membershipState==='joined'?'Чат не відповідає критеріям. Work OS виходить із нього та архівує.':'Чат не відповідає критеріям і не буде зарахований у ціль.',tone:'border-border bg-muted/25 text-foreground/70',busy:false};
   if(candidate.decision==='unavailable')return {label:'Недоступний',detail:'Invite або сам чат недоступний. Work OS переходить до наступного кандидата.',tone:'border-border bg-muted/25 text-foreground/70',busy:false};
   if(candidate.membershipState==='pending')return {label:'Очікуємо схвалення в WhatsApp',detail:'Запит на вступ уже відправлено. Система перевірить його повторно сама.',tone:'border-primary/30 bg-primary/5 text-foreground',busy:true};

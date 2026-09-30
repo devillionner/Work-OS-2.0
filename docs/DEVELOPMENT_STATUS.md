@@ -1,3 +1,13 @@
+## 2026-09-30 — Discovery UI/UX dedupe release v0.2.74
+
+- Root cause дубля review: браузерний фінальний outcome уже був durable у chat_discovery_candidates, але modal рендерив local candidate і persisted candidate поруч та додавав обидва в tab counts.
+- UI тепер зводить результати за canonical platform + invite, віддає пріоритет persisted candidate і додає до snapshot-counts лише справді нові local outcomes, що з’явилися після останнього workspace load.
+- Прибрано dead local-review action, який пропонував «додати» review до factual target qualification. Для persisted review/target primary operator actions тепер видно прямо на card; technical/manual detail лишається secondary.
+- Summary і tabs перейменовані в operator language, wide desktop має 6 рівних stat tiles, empty state пояснює конкретний вибраний фільтр.
+- Physical staging check додатково виявив mobile overflow: default DialogContent width перемагав non-important viewport width. Fix використовує important dynamic-viewport width та збільшує ключові mobile touch targets; desktop hierarchy не змінена.
+- tests/chat-discovery-ui.test.mjs оновлено регресіями для unique merge/counts, direct actions, dynamic viewport width і contextual empty states.
+- P4-A functional closure не змінюється; throughput objective не заявляється як виконаний. P4-A-PERF лишається окремо, наступний functional roadmap slice — confirmed-send WhatsApp autopost.
+
 ## 2026-09-29 — WhatsApp Discovery functional closure accepted
 
 **Operator-usable: yes for the Discovery workflow. Throughput SLA: no, not met.**
