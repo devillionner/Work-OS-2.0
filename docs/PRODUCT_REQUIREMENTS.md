@@ -1,3 +1,10 @@
+## 2026-09-30 — WhatsApp Waiting query correctness addendum
+
+- Waiting queries must never reference a physical `chats.left_at` column; leave state is derived from activity events through `chatLeftAtSql`.
+- A pending batch marker is actionable only while its linked chat is live (not archived and not left).
+- Failed/incomplete WhatsApp candidate attempts must not be reclaimed on the next poll: `not_checked` retries are paced by 300 seconds from `checked_at`, and joined review reinspection by 600 seconds.
+- Stale markers on archived/left rows must not affect batch-active status or occupy the executor queue ahead of live rows.
+
 ## 2026-09-30 — WhatsApp Waiting compatibility addendum
 
 - The operator Waiting flow must work even when the historical `executor_next_check_at` migration is unavailable or stale on staging; Waiting runtime behavior must not depend on that column.

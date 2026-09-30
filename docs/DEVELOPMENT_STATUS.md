@@ -1,3 +1,11 @@
+## 2026-09-30 — WhatsApp Waiting root-cause fix v0.2.88
+
+- Confirmed root cause of the persistent staging 500 after v0.2.87: Waiting SQL still used `c.left_at` / `left_at` against `chats`, but that column does not exist; leave state is computed from activity events.
+- Start/enrollment/status/queue SQL now uses the canonical `chatLeftAtSql('c')` expression.
+- Executor selection ignores pending batch markers whose linked chat is archived or already left, preventing a dead row from keeping the batch active or crowding live work out of the queue limit.
+- Retry pacing now uses factual attempt time in `checked_at`: 5 minutes for `not_checked` and 10 minutes for joined reinspection.
+- Added a focused local-D1 regression file covering both stale-marker filtering and retry pacing.
+
 ## 2026-09-30 — WhatsApp Waiting compatibility fix v0.2.87
 
 - v0.2.86 made the backend failure readable, but the Waiting path still referenced `executor_next_check_at` in enrollment, queue selection, status reads and inspection writes.

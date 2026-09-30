@@ -1,3 +1,10 @@
+## 2026-09-30 — WhatsApp Waiting SQL + stale-marker fix (v0.2.88)
+
+- [x] Replace invalid direct `chats.left_at` references with the canonical derived `chatLeftAtSql('c')` expression.
+- [x] Exclude archived/left linked chats from pending batch status and executor selection so stale markers cannot keep the batch alive or starve live rows.
+- [x] Pace `not_checked` retries from `checked_at` by 5 minutes and joined reinspection by 10 minutes.
+- [x] Add dedicated regression coverage for stale markers and retry pacing.
+
 ## 2026-09-30 — WhatsApp Waiting schema-independent batch marker (v0.2.87)
 
 - [x] Remove runtime dependency on `executor_next_check_at` from Waiting start/status/queue/inspection.

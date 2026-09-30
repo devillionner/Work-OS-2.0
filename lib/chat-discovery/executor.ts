@@ -1,4 +1,4 @@
-import { readChatState } from '../chats/state.ts';
+import { chatLeftAtSql, readChatState } from '../chats/state.ts';
 import { transitionChat } from '../chats/transitions.ts';
 import { changeChatLeave } from '../chats/leave.ts';
 import { supportsChatLeaveChecklist } from '../chats/leave-policy.ts';
@@ -42,6 +42,19 @@ type CandidateTaskRow = {
   checked_at: number | null;
 };
 
+// A failed or unfinished attempt must not be retried on the very next poll. The last attempt time is
+// already stored in checked_at, so pacing needs no extra column (staging may lack newer migrations).
+const RETRY_AFTER_ATTEMPT_SECONDS = 300;
+const REINSPECT_JOINED_SECONDS = 600;
+// A batch marker on a chat that was archived or left can never produce a task; hide it so it cannot
+// keep the batch "active" forever or crowd live rows out of the LIMIT window.
+const LIVE_LINKED_CHAT_SQL = `EXISTS(
+  SELECT 1 FROM chats c
+  WHERE c.id=chat_discovery_candidates.imported_chat_id AND c.user_id=chat_discovery_candidates.user_id
+    AND c.workflow_status<>'archived' AND ${chatLeftAtSql('c')} IS NULL
+)`;
+
+
 export async function readDiscoveryExecutorQueue(
   db: D1Database,
   userId: string,
@@ -55,10 +68,14 @@ export async function readDiscoveryExecutorQueue(
       AND platform IN ('whatsapp','viber')
       AND (
         platform<>'whatsapp'
-        OR (membership_state='pending' AND checked_at<0)
-        OR (membership_state='not_checked' AND updated_at<=?2)
-        OR (membership_state='joined' AND updated_at<=?2
-          AND (inspection_state<>'inspected' OR decision IN ('rejected','unavailable')))
+        OR (membership_state='pending' AND checked_at<0 AND ${LIVE_LINKED_CHAT_SQL})
+        OR (membership_state='not_checked'
+          AND (checked_at IS NULL OR checked_at<=?2-${RETRY_AFTER_ATTEMPT_SECONDS}))
+        OR (membership_state='joined' AND (
+          decision IN ('rejected','unavailable')
+          OR ((decision='review' OR inspection_state<>'inspected')
+            AND (checked_at IS NULL OR checked_at<=?2-${REINSPECT_JOINED_SECONDS}))
+        ))
       )
     ORDER BY CASE WHEN platform='whatsapp' AND membership_state='pending' THEN 0 ELSE 1 END,
       CASE decision WHEN 'rejected' THEN 0 WHEN 'unavailable' THEN 0 WHEN 'review' THEN 1 ELSE 2 END,
@@ -190,9 +207,10 @@ export async function startWaitingWhatsAppCheck(db:D1Database,userId:string,now:
     SET membership_state='pending',inspection_state='not_checked',checked_at=?1,
       executor_lease_device_id=NULL,executor_lease_expires_at=NULL,updated_at=?2,version=version+1
     WHERE user_id=?3 AND platform='whatsapp' AND imported_chat_id IN (
-      SELECT id FROM chats
-      WHERE user_id=?3 AND platform='whatsapp' AND workflow_status='waiting' AND left_at IS NULL
-        AND (snoozed_until IS NULL OR snoozed_until<=?2)
+      SELECT c.id FROM chats c
+      WHERE c.user_id=?3 AND c.platform='whatsapp' AND c.workflow_status='waiting'
+        AND ${chatLeftAtSql('c')} IS NULL
+        AND (c.snoozed_until IS NULL OR c.snoozed_until<=?2)
     )
       AND (executor_lease_expires_at IS NULL OR executor_lease_expires_at<=?2)`)
     .bind(-batchId,now,userId).run();
@@ -216,7 +234,8 @@ export async function pauseWaitingWhatsAppCheckBatch(db:D1Database,userId:string
 export async function readWaitingWhatsAppCheckStatus(db:D1Database,userId:string){
   const row=await db.prepare(`SELECT COUNT(*) AS remaining,MIN(checked_at) AS marker
     FROM chat_discovery_candidates
-    WHERE user_id=?1 AND platform='whatsapp' AND membership_state='pending' AND checked_at<0`)
+    WHERE user_id=?1 AND platform='whatsapp' AND membership_state='pending' AND checked_at<0
+      AND ${LIVE_LINKED_CHAT_SQL}`)
     .bind(userId).first<{remaining:number;marker:number|null}>();
   const remaining=Number(row?.remaining||0);
   return {active:remaining>0,remaining,batchId:row?.marker===null?null:Math.abs(Number(row?.marker))};
@@ -232,7 +251,7 @@ async function ensureWaitingWhatsAppCandidates(db:D1Database,userId:string,now:n
     'pending','not_checked','review','[]',c.id,?2,?2
   FROM chats c
   WHERE c.user_id=?1 AND c.platform='whatsapp' AND c.workflow_status='waiting'
-    AND c.joined_at IS NULL AND c.left_at IS NULL
+    AND c.joined_at IS NULL AND ${chatLeftAtSql('c')} IS NULL
     AND c.normalized_link LIKE 'https://chat.whatsapp.com/%'
     AND NOT EXISTS(
       SELECT 1 FROM chat_discovery_candidates dc
@@ -243,7 +262,7 @@ async function ensureWaitingWhatsAppCandidates(db:D1Database,userId:string,now:n
     SET imported_chat_id=(
       SELECT c.id FROM chats c
       WHERE c.user_id=?1 AND c.platform='whatsapp' AND c.workflow_status='waiting'
-        AND c.joined_at IS NULL AND c.left_at IS NULL
+        AND c.joined_at IS NULL AND ${chatLeftAtSql('c')} IS NULL
         AND c.normalized_link=chat_discovery_candidates.normalized_link
       ORDER BY c.updated_at,c.id LIMIT 1
     ),
@@ -253,7 +272,7 @@ async function ensureWaitingWhatsAppCandidates(db:D1Database,userId:string,now:n
       AND EXISTS(
         SELECT 1 FROM chats c
         WHERE c.user_id=?1 AND c.platform='whatsapp' AND c.workflow_status='waiting'
-          AND c.joined_at IS NULL AND c.left_at IS NULL
+          AND c.joined_at IS NULL AND ${chatLeftAtSql('c')} IS NULL
           AND c.normalized_link=chat_discovery_candidates.normalized_link
       )`).bind(userId,now).run();
 }
