@@ -1,9 +1,9 @@
-export const APP_VERSION = '0.2.86';
+export const APP_VERSION = '0.2.87';
 export const APP_RELEASE_DATE = '2026-09-30';
 
 // User-facing copy only. Keep each note short and plain; technical details belong in docs and commits.
 export const APP_CHANGES = [
-  'Виправлено запуск «Перевірити зараз» у WhatsApp «Очікування»: помилка JSON більше не зриває перевірку.',
-  'Пакет заявок формується кількома set-based D1 запитами замість сотень окремих записів.',
-  'Навіть при серверній помилці Work OS показує зрозуміле повідомлення й не губить стан черги.',
+  'Перевірка WhatsApp «Очікування» більше не залежить від проблемного поля повторної перевірки в D1.',
+  'Кнопка «Перевірити зараз» формує batch через стабільні поля, які вже є в основній схемі.',
+  'Зупинка batch тепер одразу скасовує навіть уже взяту в lease перевірку, не змінюючи чат помилково.',
 ] as const;

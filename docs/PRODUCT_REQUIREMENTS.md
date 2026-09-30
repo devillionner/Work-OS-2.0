@@ -1,3 +1,10 @@
+## 2026-09-30 — WhatsApp Waiting compatibility addendum
+
+- The operator Waiting flow must work even when the historical `executor_next_check_at` migration is unavailable or stale on staging; Waiting runtime behavior must not depend on that column.
+- Batch membership is represented transiently by a negative `checked_at` marker. A completed factual inspection writes the actual positive check timestamp.
+- The canonical `chats.snoozed_until` value remains the durable +3-day deadline for a request that is still pending.
+- Stop/pause must fence leased work by clearing the batch marker and lease while incrementing candidate version, so a stale callback cannot mutate the chat after cancellation.
+
 ## 2026-09-30 — WhatsApp Waiting start-path reliability addendum
 
 - Starting a Waiting batch must have O(1) D1 statement count with respect to queue length; enrolling 80+ legacy/manual rows must not execute one insert/update pair per chat.

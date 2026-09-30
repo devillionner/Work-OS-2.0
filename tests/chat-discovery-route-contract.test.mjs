@@ -83,3 +83,16 @@ void test('WhatsApp waiting-check API always answers with JSON and batch enrollm
   assert.doesNotMatch(ensure,/for\s*\(const chat/);
   assert.doesNotMatch(ensure,/LIMIT 500/);
 });
+
+
+void test('Waiting executor does not require the historical pending-recheck column', async()=>{
+  const [executor,inspection]=await Promise.all([
+    readFile(new URL('../lib/chat-discovery/executor.ts',import.meta.url),'utf8'),
+    readFile(new URL('../lib/chat-discovery/inspection.ts',import.meta.url),'utf8'),
+  ]);
+  assert.doesNotMatch(executor,/executor_next_check_at/);
+  assert.doesNotMatch(inspection,/executor_next_check_at/);
+  assert.match(executor,/membership_state='pending' AND checked_at<0/);
+  assert.match(executor,/MIN\(checked_at\) AS marker/);
+  assert.match(executor,/SET checked_at=NULL,executor_lease_device_id=NULL,executor_lease_expires_at=NULL/);
+});

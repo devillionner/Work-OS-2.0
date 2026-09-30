@@ -1091,16 +1091,16 @@ void test('WhatsApp pending checks wait three days and require another explicit 
   assert.equal(pending.membershipState, 'pending');
   assert.equal(pending.workflowStatus, 'waiting');
 
-  const stored = await db.prepare(`SELECT dc.executor_next_check_at,c.snoozed_until
+  const stored = await db.prepare(`SELECT dc.checked_at,c.snoozed_until
     FROM chat_discovery_candidates dc JOIN chats c ON c.id=dc.imported_chat_id
     WHERE dc.id=?1`).bind(candidate.id).first();
-  assert.ok(stored.executor_next_check_at>201);
-  assert.equal(stored.executor_next_check_at,stored.snoozed_until);
-  assert.equal((await claimDiscoveryExecutorQueue(db,'u','device-a',1,stored.executor_next_check_at+1)).tasks.length,0);
+  assert.equal(stored.checked_at,201);
+  assert.ok(stored.snoozed_until>201);
+  assert.equal((await claimDiscoveryExecutorQueue(db,'u','device-a',1,stored.snoozed_until+1)).tasks.length,0);
 
-  const started=await startWaitingWhatsAppCheck(db,'u',stored.executor_next_check_at+1);
+  const started=await startWaitingWhatsAppCheck(db,'u',stored.snoozed_until+1);
   assert.equal(started.queued,1);
-  const due=await claimDiscoveryExecutorQueue(db,'u','device-a',1,stored.executor_next_check_at+1);
+  const due=await claimDiscoveryExecutorQueue(db,'u','device-a',1,stored.snoozed_until+1);
   assert.equal(due.tasks.length,1);
   assert.equal(due.tasks[0].action,'check_membership_and_inspect');
   assert.equal(due.tasks[0].waitingCheckBatchId,started.batchId);

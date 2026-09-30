@@ -1,3 +1,10 @@
+## 2026-09-30 — WhatsApp Waiting compatibility fix v0.2.87
+
+- v0.2.86 made the backend failure readable, but the Waiting path still referenced `executor_next_check_at` in enrollment, queue selection, status reads and inspection writes.
+- The runtime no longer requires that historical pending-recheck column. Explicit Waiting batches now use `checked_at < 0` as a transient batch marker and the existing chat snooze as the three-day deadline.
+- Completed inspections overwrite the marker with the factual check time; stopped/paused batches clear the marker and active lease in one update, fencing stale callbacks.
+- Legacy Waiting enrollment remains set-based, and the operator-visible JSON error boundary remains in place.
+
 ## 2026-09-30 — WhatsApp Waiting start-path fix v0.2.86
 
 - Root cause of the screenshot failure was the v0.2.85 start path: legacy Waiting enrollment could execute up to 500 per-row insert/update pairs in one request, and the route had no JSON error boundary. A backend failure therefore reached the browser as an empty/non-JSON response and surfaced as `Unexpected end of JSON input`.

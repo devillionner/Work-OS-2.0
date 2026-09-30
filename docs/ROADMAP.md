@@ -1,3 +1,11 @@
+## 2026-09-30 — WhatsApp Waiting schema-independent batch marker (v0.2.87)
+
+- [x] Remove runtime dependency on `executor_next_check_at` from Waiting start/status/queue/inspection.
+- [x] Use the existing `checked_at` field as the short-lived negative batch marker; successful inspection naturally replaces it with the real positive check time.
+- [x] Keep +3-day snooze on the canonical chat as the only durable recheck deadline.
+- [x] Stopping/pausing a batch clears its marker and executor lease together, fencing an in-flight callback fail-closed.
+- [x] Preserve set-based legacy enrollment and JSON-safe operator errors from v0.2.86.
+
 ## 2026-09-30 — WhatsApp Waiting start-path reliability (v0.2.86)
 
 - [x] Replace per-chat legacy Waiting enrollment with set-based D1 statements, so one operator batch does not fan out into hundreds of sequential writes.
