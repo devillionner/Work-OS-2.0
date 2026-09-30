@@ -1,3 +1,12 @@
+## 2026-09-30 — Concurrent WhatsApp pending checks and autopost v0.2.83
+
+- Fixed runner starvation: an active local Discovery run no longer prevents D1-backed WhatsApp work from executing.
+- The runner now polls confirmed post-handoff work every 15 seconds while local source discovery continues.
+- Pending-membership rechecks and WhatsApp autopost use alternating priority, so neither queue can permanently starve the other.
+- Executor claims are limited to one task per poll, avoiding unused 90-second leases for tasks the runner did not process.
+- Existing fail-closed target verification, three-minute pending recheck schedule, confirmed-send callback and canonical publication accounting remain authoritative.
+- Runner regression contracts cover concurrent scheduling, fairness and bounded D1 polling.
+
 ## 2026-09-30 — Discovery source stall recovery v0.2.82
 
 - Temporary failure of both optional Telegram-directory and web-search sources no longer holds the same plan cursor for up to five minutes.

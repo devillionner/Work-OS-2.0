@@ -12,15 +12,17 @@ void test('runner consumes paired executor tasks and posts guarded callbacks',()
   assert.match(source,/action:'executor-leave'/);
   assert.match(source,/function canAdvanceDiscoverySource\(\)\{\s*return false;/);
 });
-void test('runner performs local WhatsApp preflight before any D1-backed executor polling',()=>{
+void test('runner services D1-backed pending checks while local Discovery remains active',()=>{
   assert.match(source,/readWorkOsLocalDiscoveryTaskViaCdp/);
   assert.match(source,/writeWorkOsLocalDiscoveryResultViaCdp/);
   assert.match(source,/processLocalPreflight/);
-  assert.match(source,/if\(!token\)return 'idle'/);
+  assert.match(source,/CLOUD_AUTOMATION_POLL_MS=15000/);
+  assert.match(source,/runD1BackedTaskOnce/);
+  assert.match(source,/cloudPolled=true/);
   assert.match(source,/approval_required/);
-  const local=source.indexOf('readWorkOsLocalDiscoveryTaskViaCdp');
-  const d1=source.indexOf('api(\`/api/chat-discovery/executor?limit=');
-  assert.ok(local>0&&d1>local);
+  const scheduler=source.indexOf('runD1BackedTaskOnce');
+  const local=source.indexOf('readWorkOsLocalDiscoveryTaskViaCdp',source.indexOf('async function runOnce'));
+  assert.ok(scheduler>0&&local>scheduler);
 });
 
 void test('runner automates verified WhatsApp leave via CDP and retains operator-confirmed fallback',()=>{
@@ -67,19 +69,22 @@ void test('runner uses optional WhatsApp Web CDP automation but sends no callbac
 });
 
 
-void test('runner claims WhatsApp autopost only after Discovery messenger tasks and posts a confirmed-send callback',()=>{
+void test('runner fairly alternates pending checks and WhatsApp autopost with confirmed-send callbacks',()=>{
   assert.match(source,/\/api\/messenger-automation\/executor\?platform=whatsapp/);
   assert.match(source,/sendWhatsappAutopostViaCdp/);
   assert.match(source,/complete-whatsapp-autopost/);
   assert.match(source,/sendConfirmed:true/);
+  assert.match(source,/const autopostFirst=preferAutopost/);
+  assert.match(source,/preferAutopost=!preferAutopost/);
   assert.match(source,/WhatsApp autopost stopped fail-closed/);
   assert.match(source,/Confirmed WhatsApp autopost accepted by Work OS/);
 });
 
 void test('runner never source-crawls through D1 and keeps bounded idle queue polling',()=>{
   assert.match(source,/const TASK_POLL_MS=3000/);
-  assert.match(source,/const IDLE_POLL_MIN_MS=15000/);
-  assert.match(source,/const IDLE_POLL_MAX_MS=60000/);
+  assert.match(source,/const IDLE_POLL_MIN_MS=2000/);
+  assert.match(source,/const IDLE_POLL_MAX_MS=5000/);
+  assert.match(source,/const CLOUD_AUTOMATION_POLL_MS=15000/);
   assert.match(source,/function canAdvanceDiscoverySource\(\)\{\s*return false;/);
   assert.match(source,/Math\.min\(IDLE_POLL_MAX_MS,idleDelayMs\*2\)/);
   assert.match(source,/Non-interactive Discovery runner requires WORK_OS_WHATSAPP_CDP/);
@@ -116,7 +121,7 @@ void test('runner can bootstrap its token from the exact Work OS page over local
 
 
 void test('runner skips a locally blocked candidate instead of starving the executor queue',()=>{
-  assert.match(source,/const EXECUTOR_QUEUE_LIMIT=3/);
+  assert.match(source,/const EXECUTOR_QUEUE_LIMIT=1/);
   assert.match(source,/const TASK_BLOCK_COOLDOWN_MS=300000/);
   assert.match(source,/const taskBlockedUntil=new Map/);
   assert.match(source,/queuedTasks\.find\(item=>!taskIsLocallyBlocked\(item\)\)/);

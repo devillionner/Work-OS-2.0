@@ -1,3 +1,11 @@
+## 2026-09-30 — WhatsApp pending checks + autopost runtime (v0.2.83)
+
+- [x] Continue automatic pending-membership checks while local WhatsApp Discovery is active.
+- [x] Continue confirmed-send WhatsApp autopost jobs while local WhatsApp Discovery is active.
+- [x] Alternate pending-check and autopost priority to prevent queue starvation.
+- [x] Keep D1 polling bounded to one claimed task every 15 seconds during local discovery.
+- [x] Preserve fail-closed exact-target verification and publication accounting.
+
 ## 2026-09-30 — Discovery source stall recovery (v0.2.82)
 
 - [x] Optional-source outages no longer freeze the discovery plan on one cursor.

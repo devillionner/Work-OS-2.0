@@ -1,3 +1,12 @@
+## 2026-09-30 — WhatsApp background automation continuity addendum
+
+- An active local Discovery run must not suspend confirmed post-handoff automation.
+- Imported WhatsApp chats in pending membership state must be rechecked automatically on their scheduled `executor_next_check_at`.
+- WhatsApp autopost jobs and pending membership checks must receive alternating execution priority so neither queue can starve.
+- During local Discovery, D1-backed automation polling is bounded and claims at most one task per poll.
+- Autopost remains fail-closed: Work OS records publication only after exact-target verification and confirmed send.
+- Pending checks remain fail-closed: a chat becomes joined/ready only after WhatsApp confirms membership and factual qualification.
+
 ## 2026-09-30 — Discovery progress resilience addendum
 
 - Temporary unavailability of optional discovery sources must not leave an active run on the same plan step.
