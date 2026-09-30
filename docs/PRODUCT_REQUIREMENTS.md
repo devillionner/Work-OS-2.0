@@ -1,3 +1,9 @@
+## 2026-09-30 — Discovery candidate-card clarity addendum
+
+- A candidate card may expose at most one collapsible details region.
+- Clarification reasons and checked criteria belong in that region; source provenance must not compete with operator actions in the daily workflow.
+- A local-review navigation action must name the outcome (“Переглянути й вирішити”) and explain that it opens the “Потрібен мій погляд” view on hover.
+
 ## 2026-09-30 — Discovery compact data layout addendum
 
 - Collapsed run data must remain readable within the narrow desktop sidebar without orphaning the activity time.

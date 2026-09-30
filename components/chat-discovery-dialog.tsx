@@ -839,28 +839,20 @@ export function ChatDiscoveryDialog({
                         {status.busy&&<LoaderCircle className="size-4 shrink-0 animate-spin text-primary"/>}
                       </div>
 
-                      {candidate.reasonCodes.length>0&&candidate.decision!=='target'&&<details className="mt-3">
-                        <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Чому тут</summary>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {candidate.reasonCodes.map(code=><span key={code} className="rounded-lg bg-muted/50 px-2 py-1 text-[11px] font-medium text-foreground/70">{reasonLabel(code)}</span>)}
-                        </div>
-                      </details>}
-
                       <details className="mt-3 rounded-xl border border-border/70 bg-muted/10">
                         <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-foreground/75">
-                          Перевірені критерії · {confirmedCriteria} з {criteria.length}
+                          Деталі перевірки · {confirmedCriteria} із {criteria.length}
                         </summary>
                         <div className="border-t border-border/60 p-3">
+                          {candidate.reasonCodes.length>0&&candidate.decision!=='target'&&<div className="mb-3">
+                            <p className="mb-2 text-xs font-medium text-muted-foreground">Що треба уточнити</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {candidate.reasonCodes.map(code=><span key={code} className="rounded-lg bg-muted/50 px-2 py-1 text-[11px] font-medium text-foreground/70">{reasonLabel(code)}</span>)}
+                            </div>
+                          </div>}
                           <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
                             {criteria.map(item => <Criterion key={item.label} {...item} />)}
                           </div>
-                          <details className="mt-3 border-t border-border/60 pt-3">
-                            <summary className="cursor-pointer select-none text-[11px] font-medium text-muted-foreground">Посилання та джерела</summary>
-                            <div className="mt-2 break-all font-mono text-[11px] text-foreground/50">{candidate.link}</div>
-                            {candidate.sources.slice(0,4).map((source,index)=><div key={`${source.sourceUrl}:${source.query}:${index}`} className="mt-2 text-xs text-muted-foreground">
-                              {source.sourceTitle||source.seedLabel||source.kind}{source.sourceUrl&&<> · <a className="underline" href={source.sourceUrl} target="_blank" rel="noreferrer">відкрити джерело</a></>}
-                            </div>)}
-                          </details>
                         </div>
                       </details>
 
@@ -891,7 +883,7 @@ export function ChatDiscoveryDialog({
                           </details>
                         </>}
                         {!candidate.importedChatId && candidate.decision==='review' && isLocalPreview(candidate) && <>
-                          <Button type="button" size="sm" variant="outline" disabled={loading} onClick={() => void changeFilter('review')}>Продовжити вручну</Button>
+                          <Button type="button" size="sm" variant="outline" disabled={loading} title="Відкриє вкладку «Потрібен мій погляд», де можна перевірити чат і прийняти рішення." onClick={() => void changeFilter('review')}>Переглянути й вирішити</Button>
                           <Button type="button" size="sm" variant="ghost" disabled={inspectingId !== null} onClick={() => void archiveCandidate(candidate)}>
                             {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
                             Відхилити

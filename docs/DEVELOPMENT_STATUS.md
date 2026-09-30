@@ -1,3 +1,10 @@
+## 2026-09-30 — Discovery candidate-card clarity v0.2.79
+
+- Screenshot QA found three competing disclosure levels and an ambiguous “Продовжити вручну” navigation action.
+- Consolidated candidate details into one disclosure, removed raw provenance from the daily card, and kept clarification reasons beside factual criteria.
+- Renamed the review navigation action and added a hover explanation of its destination.
+- Added a static UI regression contract; discovery logic and stored state are unchanged.
+
 ## 2026-09-30 — Discovery run-data alignment v0.2.78
 
 - Screenshot QA found the long prose diagnostics wrapped HH:mm onto a visually orphaned third line.

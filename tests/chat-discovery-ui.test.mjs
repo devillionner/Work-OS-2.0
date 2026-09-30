@@ -413,3 +413,15 @@ void test('stale source cooldown warnings disappear after pause and resume',asyn
   assert.match(start,/sourceFailures:0,/);
   assert.match(start,/sourceIssues:\[\]/);
 });
+
+
+void test('Discovery candidate cards use one clear details disclosure and an explicit review action',async()=>{
+  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  assert.match(dialog,/Деталі перевірки · \{confirmedCriteria\} із \{criteria\.length\}/);
+  assert.match(dialog,/Що треба уточнити/);
+  assert.match(dialog,/Переглянути й вирішити/);
+  assert.match(dialog,/Відкриє вкладку «Потрібен мій погляд»/);
+  assert.doesNotMatch(dialog,/Чому тут/);
+  assert.doesNotMatch(dialog,/Посилання та джерела/);
+  assert.doesNotMatch(dialog,/Продовжити вручну/);
+});

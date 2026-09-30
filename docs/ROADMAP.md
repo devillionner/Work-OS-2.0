@@ -1,3 +1,10 @@
+## 2026-09-30 — Discovery candidate clarity (v0.2.79)
+
+- [x] Candidate card uses one disclosure, “Деталі перевірки”, instead of nested “Чому тут”, criteria and source sections.
+- [x] Human clarification reasons and factual criteria share the same compact detail surface; raw source provenance is removed from the daily operator card.
+- [x] The ambiguous “Продовжити вручну” action is renamed “Переглянути й вирішити” and explains its destination on hover.
+- [x] Search, qualification and persistence behavior are unchanged.
+
 ## 2026-09-30 — Discovery compact run data layout (v0.2.78)
 
 - [x] Run data uses two balanced rows: Plan/Duplicates and WhatsApp/Activity.
