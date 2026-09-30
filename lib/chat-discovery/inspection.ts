@@ -1,4 +1,6 @@
 import { cleanChatName } from '../chats/bulk-input.ts';
+import { snoozeDeadline } from '../business-time.ts';
+import { changeChatSnooze } from '../chats/snooze.ts';
 import { readChatState, type ChatState } from '../chats/state.ts';
 import { transitionChat } from '../chats/transitions.ts';
 import {
@@ -102,6 +104,14 @@ export async function applyDiscoveryInspection(
     chat = await requiredChat(db, userId, candidate.imported_chat_id);
   }
 
+  if (reportedMembership === 'pending' && chat.workflow_status === 'waiting') {
+    const snoozed = await changeChatSnooze(db, {
+      userId, id:chat.id, status:chat.workflow_status, previousDeadline:chat.snoozed_until,
+      now, resume:false, stateToken:chat.state_token,
+    });
+    if (snoozed) chat = await requiredChat(db,userId,candidate.imported_chat_id);
+  }
+
   const current = await readCandidate(db, userId, candidate.id);
   if (!current || current.version !== expectedVersion || current.imported_chat_id !== candidate.imported_chat_id) {
     throw new DiscoveryError('Кандидат змінився під час автоперевірки. Оновіть список.', 409);
@@ -174,7 +184,7 @@ export async function applyDiscoveryInspection(
       canWrite === null ? null : Number(canWrite), adsPolicy, membershipState, accessState, linkState,
       inspectionState, evaluated.decision, JSON.stringify(evaluated.reasonCodes),
       retryableJoinFailure ? now + 300
-        : candidate.platform === 'whatsapp' && membershipState === 'pending' ? now + 180
+        : candidate.platform === 'whatsapp' && membershipState === 'pending' ? snoozeDeadline(now)
         : candidate.platform === 'whatsapp' && membershipState === 'joined' && evaluated.decision === 'review' ? now + 600
         : null,
       candidate.id, userId, expectedVersion, candidate.imported_chat_id,input.executorDeviceId??null)

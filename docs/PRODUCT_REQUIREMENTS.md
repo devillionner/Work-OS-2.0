@@ -678,3 +678,11 @@ Definition of Done для реального використання на stagi
 - If a chat was just joined and all immediately observable hard gates are viable (group/community, 700–18,000 members, writable, no factual topic/ads/activity rejection), missing message-derived evidence is finalized as `review`, not `target`, `rejected`, or `unavailable`.
 - This review result is persisted as durable dedupe and shown in a dedicated operator queue. It does not count toward the confirmed-target goal and is never rejoined automatically.
 - Existing `waiting_post_join_evidence` checkpoints are migrated into the same review lane without waiting for their old timer.
+
+
+## 2026-09-30 — WhatsApp waiting-check parity
+
+- «Очікування» перевіряється лише після явної операторської дії «Перевірити зараз»; fixed background recheck кожні кілька хвилин заборонений.
+- Один запуск формує bounded batch з усіх несхованих WhatsApp-заявок, послідовно перевіряє factual membership через авторизовану WhatsApp Web session і дозволяє оператору зупинити решту без зміни їхнього стану.
+- `joined` переводить чат з waiting у подальшу factual qualification; `pending/requested` лишає чат у waiting і ставить календарний snooze `+3 дні` Europe/Kyiv.
+- Fatal runtime/navigation error або три послідовні невдачі зупиняють batch fail-closed. Решта чатів не позначається перевіреною.

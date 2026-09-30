@@ -14,7 +14,7 @@ import {
   startDiscoveryRun,
 } from '../lib/chat-discovery/domain.ts';
 import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
-import { assertDiscoveryExecutorLease, claimDiscoveryExecutorQueue, completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
+import { assertDiscoveryExecutorLease, claimDiscoveryExecutorQueue, completeDiscoveryExternalLeave, readDiscoveryExecutorQueue, readWaitingWhatsAppCheckStatus, startWaitingWhatsAppCheck, stopWaitingWhatsAppCheck } from '../lib/chat-discovery/executor.ts';
 import { buildTelegramSearchPlan, discoverPublicWeb, discoverTelegramPublic, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl, telegramOlderPreviewUrl, telegramPublicChannelKey, telegramPublicPreviewUrl, telegramPublicSearchQueries } from '../lib/chat-discovery/public-web.ts';
 import { inferLocalPreviewTopicMatch } from '../lib/chat-discovery/local-preview.ts';
 import { changeChatLeave } from '../lib/chats/leave.ts';
@@ -1078,39 +1078,35 @@ void test('executor queue exposes only the next safe external action and clears 
 });
 
 
-void test('WhatsApp pending executor callbacks schedule a bounded server-side recheck', async (t) => {
+void test('WhatsApp pending checks wait three days and require another explicit batch start', async (t) => {
   const { db, candidate } = await importedCandidate(t, 'PendingRecheck123');
   const first = await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 200);
   assert.equal(first.tasks.length, 1);
 
   const pending = await applyDiscoveryInspection(db, 'u', {
-    candidateId:candidate.id,
-    expectedVersion:first.tasks[0].candidateVersion,
-    executorDeviceId:'device-a',
-    requireTargetVerification:true,
-    result:{
-      status:'inspected',
-      targetVerified:true,
-      accessible:true,
-      membershipState:'pending',
-      observedName:'Українці Praha',
-    },
+    candidateId:candidate.id, expectedVersion:first.tasks[0].candidateVersion,
+    executorDeviceId:'device-a', requireTargetVerification:true,
+    result:{status:'inspected',targetVerified:true,accessible:true,membershipState:'pending',observedName:'Українці Praha'},
   }, 201);
   assert.equal(pending.membershipState, 'pending');
   assert.equal(pending.workflowStatus, 'waiting');
 
-  const stored = await db.prepare('SELECT executor_next_check_at FROM chat_discovery_candidates WHERE id=?1')
-    .bind(candidate.id).first();
-  assert.equal(stored.executor_next_check_at, 381);
+  const stored = await db.prepare(`SELECT dc.executor_next_check_at,c.snoozed_until
+    FROM chat_discovery_candidates dc JOIN chats c ON c.id=dc.imported_chat_id
+    WHERE dc.id=?1`).bind(candidate.id).first();
+  assert.ok(stored.executor_next_check_at>201);
+  assert.equal(stored.executor_next_check_at,stored.snoozed_until);
+  assert.equal((await claimDiscoveryExecutorQueue(db,'u','device-a',1,stored.executor_next_check_at+1)).tasks.length,0);
 
-  assert.equal((await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 202)).tasks.length, 0);
-  assert.equal((await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 380)).tasks.length, 0);
-  const due = await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 381);
-  assert.equal(due.tasks.length, 1);
-  assert.equal(due.tasks[0].action, 'check_membership_and_inspect');
+  const started=await startWaitingWhatsAppCheck(db,'u',stored.executor_next_check_at+1);
+  assert.equal(started.queued,1);
+  const due=await claimDiscoveryExecutorQueue(db,'u','device-a',1,stored.executor_next_check_at+1);
+  assert.equal(due.tasks.length,1);
+  assert.equal(due.tasks[0].action,'check_membership_and_inspect');
+  assert.equal(due.tasks[0].waitingCheckBatchId,started.batchId);
 });
 
-void test('legacy WhatsApp waiting chats are enrolled into automatic membership rechecks', async (t) => {
+void test('legacy waiting chats are enrolled only by the operator batch and can be stopped safely', async (t) => {
   const db=await localDatabase(t);
   await db.prepare(`INSERT INTO chats(
     id,user_id,platform,name,link,normalized_link,workflow_status,is_private,created_at,updated_at
@@ -1118,21 +1114,15 @@ void test('legacy WhatsApp waiting chats are enrolled into automatic membership 
     'https://chat.whatsapp.com/LegacyWaiting123','https://chat.whatsapp.com/LegacyWaiting123',
     'waiting',0,100,100)`).run();
 
-  const claimed=await claimDiscoveryExecutorQueue(db,'u','device-a',1,200);
-  assert.equal(claimed.tasks.length,1);
-  assert.equal(claimed.tasks[0].chatId,'legacy-waiting');
-  assert.equal(claimed.tasks[0].action,'check_membership_and_inspect');
-  assert.equal(claimed.tasks[0].resultAction,'inspect');
+  assert.equal((await claimDiscoveryExecutorQueue(db,'u','device-a',1,200)).tasks.length,0);
+  const started=await startWaitingWhatsAppCheck(db,'u',200);
+  assert.equal(started.queued,1);
+  assert.deepEqual(await readWaitingWhatsAppCheckStatus(db,'u'),{active:true,remaining:1,batchId:200});
 
-  const candidate=await db.prepare(`SELECT imported_chat_id,membership_state,executor_next_check_at
-    FROM chat_discovery_candidates WHERE user_id='u' AND normalized_link='https://chat.whatsapp.com/LegacyWaiting123'`).first();
-  assert.deepEqual(
-    [candidate.imported_chat_id,candidate.membership_state,candidate.executor_next_check_at],
-    ['legacy-waiting','pending',200],
-  );
-  const count=await db.prepare(`SELECT COUNT(*) AS count FROM chat_discovery_candidates
-    WHERE user_id='u' AND normalized_link='https://chat.whatsapp.com/LegacyWaiting123'`).first();
-  assert.equal(Number(count.count),1);
+  const stopped=await stopWaitingWhatsAppCheck(db,'u',started.batchId,201);
+  assert.equal(stopped.stopped,1);
+  assert.deepEqual(await readWaitingWhatsAppCheckStatus(db,'u'),{active:false,remaining:0,batchId:null});
+  assert.equal((await claimDiscoveryExecutorQueue(db,'u','device-a',1,202)).tasks.length,0);
 });
 
 void test('executor claims are exclusive per device and recover after a bounded lease', async (t) => {

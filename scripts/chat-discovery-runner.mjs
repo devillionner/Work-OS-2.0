@@ -59,6 +59,12 @@ const TOKEN_REFRESH_MS=60000;
 const IDLE_POLL_MIN_MS=2000;
 const IDLE_POLL_MAX_MS=5000;
 const WHATSAPP_RUNTIME_TRANSIENT_REASONS=new Set(['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready']);
+const WAITING_CHECK_FATAL_REASONS=new Set([
+  'stale_overlay_not_dismissed','whatsapp_unavailable','helper_timeout','helper_error',
+  'navigation_unconfirmed','action_unconfirmed','join_action_unconfirmed',
+  'request_state_unconfirmed','joined_after_request_unconfirmed','joined_not_reconfirmed',
+  'cdp_unavailable','whatsapp_not_authenticated','page_not_ready',
+]);
 
 async function resolveExecutorToken(){
   const configured=process.env.WORK_OS_EXECUTOR_TOKEN||'';
@@ -179,6 +185,8 @@ let nextLocalSourceAt=0;
 let localSourceInFlight=null;
 let nextCloudAutomationAt=0;
 let preferAutopost=false;
+let waitingCheckBatchId=0;
+let waitingCheckConsecutiveFailures=0;
 const taskBlockedUntil=new Map();
 function markTaskBlocked(task,reason,cooldownMs=TASK_BLOCK_COOLDOWN_MS){
   taskBlockedUntil.set(task.candidateId,Date.now()+cooldownMs);
@@ -546,6 +554,28 @@ async function runWhatsAppAutopostOnce(){
   return 'task';
 }
 
+async function pauseWaitingCheckAfterFailure(task,reason){
+  const batchId=Number(task?.waitingCheckBatchId)||0;
+  if(!batchId)return false;
+  if(waitingCheckBatchId!==batchId){
+    waitingCheckBatchId=batchId;
+    waitingCheckConsecutiveFailures=0;
+  }
+  waitingCheckConsecutiveFailures+=1;
+  if(!WAITING_CHECK_FATAL_REASONS.has(String(reason||''))&&waitingCheckConsecutiveFailures<3)return false;
+  await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'pause-waiting-check',batchId})});
+  console.warn(`WhatsApp waiting check paused after ${reason||'3 consecutive failures'}; remaining chats were not changed.`);
+  waitingCheckConsecutiveFailures=0;
+  return true;
+}
+
+function resetWaitingCheckFailures(task){
+  const batchId=Number(task?.waitingCheckBatchId)||0;
+  if(!batchId)return;
+  waitingCheckBatchId=batchId;
+  waitingCheckConsecutiveFailures=0;
+}
+
 async function runDiscoveryExecutorOnce(){
   const queue=await api(`/api/chat-discovery/executor?limit=${EXECUTOR_QUEUE_LIMIT}`);
   const queuedTasks=Array.isArray(queue.tasks)?queue.tasks:[];
@@ -588,9 +618,15 @@ async function runDiscoveryExecutorOnce(){
     const inspection=await inspectTask(task);
     if(inspection.kind==='blocked'){
       markTaskBlocked(task,inspection.reason);
+      await pauseWaitingCheckAfterFailure(task,inspection.reason);
       return 'idle';
     }
     await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'inspect',candidateId:task.candidateId,version:task.candidateVersion,minMembers:task.minMembers,result:inspection.result})});
+    if(inspection.result?.status==='failed'){
+      await pauseWaitingCheckAfterFailure(task,inspection.result.reason||'inspection_failed');
+    }else{
+      resetWaitingCheckFailures(task);
+    }
   }
   clearTaskBlock(task);
   console.log('Result accepted by Work OS.');

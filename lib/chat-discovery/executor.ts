@@ -27,6 +27,7 @@ export type DiscoveryExecutorTask = {
   expectedTarget: { name: string; link: string };
   safety: { requiresTargetVerification: true; unknownState: 'fail_closed' };
   leaseExpiresAt?: number;
+  waitingCheckBatchId?: number;
 };
 
 type CandidateTaskRow = {
@@ -53,7 +54,11 @@ export async function readDiscoveryExecutorQueue(
     FROM chat_discovery_candidates
     WHERE user_id=?1 AND imported_chat_id IS NOT NULL AND membership_state<>'left'
       AND platform IN ('whatsapp','viber')
-      AND (platform<>'whatsapp' OR executor_next_check_at IS NULL OR executor_next_check_at<=?2)
+      AND (
+        platform<>'whatsapp'
+        OR (membership_state='pending' AND executor_next_check_at<0)
+        OR (membership_state<>'pending' AND (executor_next_check_at IS NULL OR executor_next_check_at<=?2))
+      )
     ORDER BY CASE WHEN platform='whatsapp' AND membership_state='pending' THEN 0 ELSE 1 END,
       CASE decision WHEN 'rejected' THEN 0 WHEN 'unavailable' THEN 0 WHEN 'review' THEN 1 ELSE 2 END,
       updated_at ASC,id
@@ -81,6 +86,10 @@ export async function readDiscoveryExecutorQueue(
       runtime: candidate.platform === 'whatsapp' ? 'whatsapp_web' : 'viber_native',
       expectedTarget: { name: candidate.name, link: candidate.normalized_link },
       safety: { requiresTargetVerification: true, unknownState: 'fail_closed' },
+      ...(candidate.platform === 'whatsapp' && candidate.membership_state === 'pending'
+        && candidate.executor_next_check_at !== null && candidate.executor_next_check_at < 0
+        ? { waitingCheckBatchId: Math.abs(candidate.executor_next_check_at) }
+        : {}),
     });
   }
   return { tasks, sourceAdvanceNeeded: false };
@@ -96,7 +105,6 @@ export async function claimDiscoveryExecutorQueue(
 ): Promise<{ tasks: DiscoveryExecutorTask[]; leaseSeconds: number; sourceAdvanceNeeded: boolean }> {
   const leaseSeconds = 90;
   const limit = boundedLimit(limitInput);
-  await ensureWaitingWhatsAppCandidates(db,userId,now);
   const queue = await readDiscoveryExecutorQueue(db, userId, limit, now);
   const tasks: DiscoveryExecutorTask[] = [];
   for (const task of queue.tasks) {
@@ -174,6 +182,45 @@ export async function completeDiscoveryExternalLeave(
   return { ok: true, candidateId: candidate.id, chatId: chat.id };
 }
 
+export async function startWaitingWhatsAppCheck(db:D1Database,userId:string,now:number){
+  await ensureWaitingWhatsAppCandidates(db,userId,now);
+  const batchId=Math.max(1,Math.floor(now));
+  const activated=await db.prepare(`UPDATE chat_discovery_candidates
+    SET membership_state='pending',inspection_state='not_checked',executor_next_check_at=?1,
+      executor_lease_device_id=NULL,executor_lease_expires_at=NULL,updated_at=?2,version=version+1
+    WHERE user_id=?3 AND platform='whatsapp' AND imported_chat_id IN (
+      SELECT id FROM chats
+      WHERE user_id=?3 AND platform='whatsapp' AND workflow_status='waiting' AND left_at IS NULL
+        AND (snoozed_until IS NULL OR snoozed_until<=?2)
+    )
+      AND (executor_lease_expires_at IS NULL OR executor_lease_expires_at<=?2)`)
+    .bind(-batchId,now,userId).run();
+  return {batchId,queued:Number(activated.meta.changes||0)};
+}
+
+export async function stopWaitingWhatsAppCheck(db:D1Database,userId:string,batchId:number,now:number){
+  const stopped=await db.prepare(`UPDATE chat_discovery_candidates
+    SET executor_next_check_at=NULL,updated_at=?1,version=version+1
+    WHERE user_id=?2 AND platform='whatsapp' AND membership_state='pending'
+      AND executor_next_check_at=?3
+      AND (executor_lease_expires_at IS NULL OR executor_lease_expires_at<=?1)`)
+    .bind(now,userId,-Math.abs(batchId)).run();
+  return {stopped:Number(stopped.meta.changes||0)};
+}
+
+export async function pauseWaitingWhatsAppCheckBatch(db:D1Database,userId:string,batchId:number,now:number){
+  return stopWaitingWhatsAppCheck(db,userId,batchId,now);
+}
+
+export async function readWaitingWhatsAppCheckStatus(db:D1Database,userId:string){
+  const row=await db.prepare(`SELECT COUNT(*) AS remaining,MIN(executor_next_check_at) AS marker
+    FROM chat_discovery_candidates
+    WHERE user_id=?1 AND platform='whatsapp' AND membership_state='pending' AND executor_next_check_at<0`)
+    .bind(userId).first<{remaining:number;marker:number|null}>();
+  const remaining=Number(row?.remaining||0);
+  return {active:remaining>0,remaining,batchId:row?.marker===null?null:Math.abs(Number(row?.marker))};
+}
+
 async function ensureWaitingWhatsAppCandidates(db:D1Database,userId:string,now:number){
   const waiting=await db.prepare(`SELECT c.id,c.name,c.link,c.normalized_link
     FROM chats c
@@ -183,7 +230,7 @@ async function ensureWaitingWhatsAppCandidates(db:D1Database,userId:string,now:n
         SELECT 1 FROM chat_discovery_candidates dc
         WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id
       )
-    ORDER BY c.updated_at,c.id LIMIT 20`).bind(userId).all<{id:string;name:string;link:string;normalized_link:string}>();
+    ORDER BY c.updated_at,c.id LIMIT 500`).bind(userId).all<{id:string;name:string;link:string;normalized_link:string}>();
   for(const chat of waiting.results){
     const parsed=normalizeGroupLink(chat.normalized_link||chat.link);
     if(!parsed||parsed.platform!=='whatsapp')continue;
@@ -192,12 +239,12 @@ async function ensureWaitingWhatsAppCandidates(db:D1Database,userId:string,now:n
       id,user_id,platform,name,link,normalized_link,discovered_at,
       membership_state,inspection_state,decision,reason_codes_json,
       imported_chat_id,executor_next_check_at,created_at,updated_at
-    ) VALUES (?1,?2,'whatsapp',?3,?4,?4,?5,'pending','not_checked','review','[]',?6,?5,?5,?5)
+    ) VALUES (?1,?2,'whatsapp',?3,?4,?4,?5,'pending','not_checked','review','[]',?6,NULL,?5,?5)
     ON CONFLICT(user_id,platform,normalized_link) DO NOTHING`)
       .bind(candidateId,userId,chat.name,parsed.link,now,chat.id).run();
     await db.prepare(`UPDATE chat_discovery_candidates SET
       imported_chat_id=?1,membership_state='pending',inspection_state='not_checked',
-      executor_next_check_at=COALESCE(executor_next_check_at,?2),updated_at=?2,version=version+1
+      executor_next_check_at=NULL,updated_at=?2,version=version+1
       WHERE user_id=?3 AND platform='whatsapp' AND normalized_link=?4
         AND imported_chat_id IS NULL`)
       .bind(chat.id,now,userId,parsed.link).run();

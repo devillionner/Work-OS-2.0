@@ -282,3 +282,11 @@ void test('local source refill releases its lock after one deterministic step',(
 void test('source refill has only a short idle gap',()=>{
   assert.match(source,/LOCAL_SOURCE_MIN_MS=500/);
 });
+
+void test('waiting checks are operator batches and stop fail-closed on fatal or repeated errors',()=>{
+  assert.match(source,/waitingCheckBatchId/);
+  assert.match(source,/pause-waiting-check/);
+  assert.match(source,/WAITING_CHECK_FATAL_REASONS/);
+  assert.match(source,/waitingCheckConsecutiveFailures>=3/);
+  assert.match(source,/remaining chats were not changed/);
+});

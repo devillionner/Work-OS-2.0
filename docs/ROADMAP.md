@@ -556,3 +556,11 @@ P4 documentation is source-reconciled against current `main` code and regression
 - Fixed source-batch truncation, misleading inspected counts and mandatory dependency on WhatsApp's internal invite query.
 - Eight focused behavioral checks passed in memory; source/TSX syntax checks passed. Full verify:local and physical acceptance are not asserted.
 - Gates remain open: exact deployed build + refreshed local runner + one real target reaching the final ready workflow must still be observed. A code commit does not close these gates.
+
+
+### v0.2.85 — WhatsApp waiting-check parity (2026-09-30)
+
+- [x] Замість фонового 3-хвилинного переопитування додано явний пакетний запуск «Перевірити зараз».
+- [x] Legacy/manual waiting chats підключаються до batch тільки за дією оператора; snoozed заявки не чіпаються до строку.
+- [x] `pending/requested` отримує реальні +3 календарні дні, `joined` переходить у qualification.
+- [x] Додано Stop і fail-closed паузу на fatal/3 consecutive failures.

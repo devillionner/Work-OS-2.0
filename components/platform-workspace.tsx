@@ -66,6 +66,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const [joinedTodayOpen,setJoinedTodayOpen]=useState(false);
   const [duplicatesOpen,setDuplicatesOpen]=useState(false);
   const [notice,setNotice]=useState('');
+  const [waitingCheck,setWaitingCheck]=useState<{running:boolean;remaining:number;batchId:number|null}>({running:false,remaining:0,batchId:null});
   const [profileChat,setProfileChat]=useState<Chat|null>(null);
   const profileTrigger=useRef<HTMLButtonElement|null>(null);
   const [historyChat,setHistoryChat]=useState<Chat|null>(null);
@@ -241,6 +242,59 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   },[syncRevision,businessDate,platform,loadAccounts,invalidateQueueCache,active]);
 
   useEffect(()=>{if(!notice)return;const delay=undo?Math.max(0,undo.expiresAt-Date.now()):8000;const timer=setTimeout(()=>{setNotice('');setUndo(null);},delay);return()=>clearTimeout(timer);},[notice,undo]);
+
+  const refreshWaitingCheck=useCallback(async()=>{
+    try{
+      const response=await fetch('/api/chat-discovery/waiting-check',{cache:'no-store'});
+      const body=await response.json() as {active?:boolean;remaining?:number;batchId?:number|null};
+      if(!response.ok)return;
+      const next={running:body.active===true,remaining:Math.max(0,Number(body.remaining)||0),batchId:Number.isSafeInteger(body.batchId)?Number(body.batchId):null};
+      setWaitingCheck(current=>{
+        if(current.running&&!next.running){
+          invalidateQueueCache('whatsapp');
+          queueMicrotask(()=>void reloadChats.current(true));
+          setNotice('Перевірку завершено. Список WhatsApp оновлено.');
+        }
+        return next;
+      });
+    }catch{}
+  },[invalidateQueueCache]);
+
+  useEffect(()=>{
+    if(!active||platform!=='whatsapp'||queue!=='waiting')return;
+    void refreshWaitingCheck();
+  },[active,platform,queue,refreshWaitingCheck]);
+
+  useEffect(()=>{
+    if(!active||platform!=='whatsapp'||queue!=='waiting'||!waitingCheck.running)return;
+    const timer=window.setInterval(()=>void refreshWaitingCheck(),15_000);
+    return()=>window.clearInterval(timer);
+  },[active,platform,queue,waitingCheck.running,refreshWaitingCheck]);
+
+  async function changeWaitingCheck(action:'start'|'stop'){
+    if(busy!==null)return;
+    setBusy('waiting-check');setError('');setNotice('');
+    try{
+      const response=await fetch('/api/chat-discovery/waiting-check',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action,batchId:waitingCheck.batchId}),
+      });
+      const body=await response.json() as {error?:string;queued?:number;stopped?:number;batchId?:number};
+      if(!response.ok)throw new Error(body.error||'Не вдалося змінити перевірку.');
+      if(action==='start'){
+        const queued=Math.max(0,Number(body.queued)||0);
+        const batchId=Number(body.batchId)||null;
+        setWaitingCheck({running:queued>0,remaining:queued,batchId});
+        setNotice(queued?`Запущено перевірку ${queued} WhatsApp-чатів.`:'Немає заявок, які вже можна перевіряти.');
+      }else{
+        setWaitingCheck({running:false,remaining:0,batchId:null});
+        setNotice('Перевірку зупинено. Решту чатів не змінено.');
+      }
+      invalidateQueueCache('whatsapp');
+      await reloadChats.current(true);
+    }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося змінити перевірку.');}
+    finally{setBusy(null);}
+  }
 
   function addedChats(result:BulkResult) {
     invalidateQueueCache();
@@ -586,8 +640,15 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
         {queues.filter(item=>platform!=='viber'||item.key!=='profile_review').map(item=><button type="button" key={item.key} role="tab" aria-selected={queue===item.key} tabIndex={queue===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{if(item.key!=='ready'){setQuickPublishMode(false);setQuickAdvertisementId(null);}setQueue(item.key);setProfileFilter('all');setOffset(0)}}>{item.label}<span>{data?.counts[item.key] || 0}</span></button>)}
       </div>
       {queue==='waiting'&&platform==='whatsapp'&&<div className="platform-queue-context is-active" role="status">
-        <div><strong>Автоперевірка очікування</strong><span>Коли локальний runner увімкнений, Work OS сам перевіряє ці чати приблизно кожні 3 хвилини. Після підтвердженого вступу чат автоматично проходить кваліфікацію; «Прийняли» залишається ручним резервом.</span></div>
-        <Badge variant="secondary">Автоматично</Badge>
+        <div><strong>Перевірка заявок WhatsApp</strong><span>{waitingCheck.running
+          ? `Work OS послідовно перевіряє чати. Залишилось: ${waitingCheck.remaining}.`
+          : 'Натисніть «Перевірити зараз». Підтверджені чати підуть у кваліфікацію, а заявки без відповіді будуть відкладені на 3 дні.'}</span></div>
+        <div className="lead-actions">
+          {waitingCheck.running&&<Badge variant="secondary">{waitingCheck.remaining} у черзі</Badge>}
+          <Button type="button" size="sm" variant={waitingCheck.running?'outline':'default'} disabled={busy!==null} onClick={()=>void changeWaitingCheck(waitingCheck.running?'stop':'start')}>
+            {waitingCheck.running?'Зупинити':'Перевірити зараз'}
+          </Button>
+        </div>
       </div>}
       {queue==='ready'&&(platform==='whatsapp'||platform==='viber')&&<div className={'platform-queue-context '+(quickPublishMode?'is-active':'')}>
         <div><strong>{platform==='whatsapp'?'Автопублікація черги':quickPublishMode?'Швидкий режим увімкнено':'Швидкий режим'}</strong><span>{platform==='whatsapp'

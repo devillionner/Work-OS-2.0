@@ -1322,3 +1322,11 @@ separate gates after local validation and the required direct confirmation.
 - Freshly joined chats that pass all immediately observable hard gates but lack hidden pre-join activity/ad evidence are persisted as `review` and removed from the automation queue.
 - Legacy post-join waiting checkpoints are selected immediately and migrated; confirmed targets still require the full factual criteria.
 - Discovery UI separates active checks, manual review, confirmed targets and archive states, and explains browser-run progress versus durable Work OS decisions without D1/runtime jargon.
+
+
+## v0.2.85 — 2026-09-30
+
+- WhatsApp «Очікування» повернуто до Prototype Checker contract: оператор запускає один batch кнопкою, runner проходить доступні заявки по черзі.
+- Прибрано автоматичне enrollment/polling pending кожні 180 секунд.
+- Непідтверджена заявка синхронно отримує chat snooze та executor deadline +3 календарні дні.
+- Batch можна зупинити; fatal runtime/navigation state або три помилки поспіль залишають невиконаний хвіст незміненим.
