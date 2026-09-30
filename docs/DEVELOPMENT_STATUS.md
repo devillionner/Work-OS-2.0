@@ -6,6 +6,7 @@
 - Summary і tabs перейменовані в operator language, wide desktop має 6 рівних stat tiles, empty state пояснює конкретний вибраний фільтр.
 - Physical staging check додатково виявив mobile overflow: default DialogContent width перемагав non-important viewport width. Fix використовує important dynamic-viewport width та збільшує ключові mobile touch targets; desktop hierarchy не змінена.
 - tests/chat-discovery-ui.test.mjs оновлено регресіями для unique merge/counts, direct actions, dynamic viewport width і contextual empty states.
+- Canonical autonomous prompt синхронізовано з реальною persistence-моделлю: raw source/run/queued state лишається local, завершені factual outcomes зберігаються як durable dedupe, а explicit operator action потрібна лише для import target у main chat queue.
 - P4-A functional closure не змінюється; throughput objective не заявляється як виконаний. P4-A-PERF лишається окремо, наступний functional roadmap slice — confirmed-send WhatsApp autopost.
 
 ## 2026-09-29 — WhatsApp Discovery functional closure accepted

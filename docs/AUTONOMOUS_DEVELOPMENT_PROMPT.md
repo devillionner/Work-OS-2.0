@@ -37,8 +37,8 @@ Production Worker і production D1 не читати, не мігрувати й
 - При daily D1 quota exhaustion припини автоматичні D1-backed probes до reset. Для deploy identity використовуй `/api/build` і Cloudflare build/deployment state.
 - Один operator request не повинен приховано множитися у десятки candidate/queue reads.
 - Discovery source search і raw invite shortlist лишаються browser-local. Фінальні factual outcomes (review/target/rejected/skipped/unavailable) зберігаються як durable dedupe; target не імпортується в основну chat queue без explicit operator action.
-- Натискання «Запустити автопошук» запускає browser-local goal-driven pipeline: source crawl → exact-link dedupe → WhatsApp direct join → factual qualification → verified cleanup. До D1 переходять лише factual targets після явного «Додати N цільових у Work OS».
-- D1-backed executor не source-crawl-ить. Browser-local Discovery може подавати кандидати локальному WhatsApp/CDP bridge з bounded queue; bridge не пише intermediate Discovery state в D1.
+- Натискання «Запустити автопошук» запускає browser-local goal-driven pipeline: source crawl → exact-link dedupe → WhatsApp direct join → factual qualification → verified cleanup. Після factual qualification фінальний outcome (`review/target/rejected/skipped/unavailable`) зберігається як durable dedupe; лише імпорт `target` в основну chat queue чекає явного operator action.
+- D1-backed executor не source-crawl-ить. Browser-local Discovery може подавати кандидатів локальному WhatsApp/CDP bridge з bounded queue; bridge не пише raw source/run/queued progress у D1, але після завершеної factual qualification зберігає фінальний outcome як durable dedupe.
 - Goal рахується тільки за фактичними `decision='target'` після messenger qualification; сирі invite/review/pending не наближають goal.
 - Non-interactive executor без працездатного WhatsApp runtime/CDP повинен fail-closed до messenger action; transient logout/page-not-ready/CDP failure не може вигадувати join/pending/joined або накопичувати повторні actions.
 - Не послаблюй `tests/d1-budget-contract.test.mjs`; архітектурна заміна повинна бути рівноцінною або сильнішою.
