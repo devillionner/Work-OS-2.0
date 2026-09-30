@@ -1,3 +1,9 @@
+## 2026-09-30 — Discovery source-warning lifecycle v0.2.77
+
+- Screenshot feedback confirmed stale optional_web_search_deferred/search_cooldown warnings persisted from sessionStorage after the relevant run state.
+- UI now gates the warning by autonomousRunning, and pause/resume explicitly clear stale source issue state.
+- Regression test covers active-only rendering plus pause/resume cleanup.
+
 ## 2026-09-30 — Discovery UI trim release v0.2.76
 
 - За screenshot feedback видалено весь manual Telegram ingestion panel: поля Telegram chat/source/query/results і локальні add actions більше не займають modal.

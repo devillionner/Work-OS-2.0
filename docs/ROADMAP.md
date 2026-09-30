@@ -1,3 +1,9 @@
+## 2026-09-30 — Discovery transient source warning (v0.2.77)
+
+- [x] Source cooldown warning renders only while autonomous search is actively running.
+- [x] Pause and resume clear stale sourceIssues/sourceFailures so an old cooldown cannot remain in the modal.
+- [x] Active source failures remain visible while actionable; factual search state and outcomes are unchanged.
+
 ## 2026-09-30 — Discovery UI trim (v0.2.76)
 
 - [x] Ручний блок «Додаткове джерело Telegram» повністю прибрано з operator modal; автономний Telegram source crawl не змінено.

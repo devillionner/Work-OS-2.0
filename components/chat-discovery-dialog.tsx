@@ -285,6 +285,8 @@ export function ChatDiscoveryDialog({
         runId:crypto.randomUUID(),
         running:true,
         done:false,
+        sourceFailures:0,
+        sourceIssues:[],
         completionReason:null,
         pauseSummary:null,
         activeCandidateId:null,
@@ -328,7 +330,7 @@ export function ChatDiscoveryDialog({
     const current=readLocalPreviewSession();
     const candidates=current.candidates;
     const stopped:LocalPreviewSession={
-      ...current,running:false,activeCandidateId:null,activeCandidateName:null,
+      ...current,running:false,sourceFailures:0,sourceIssues:[],activeCandidateId:null,activeCandidateName:null,
       activeCandidateLink:null,activeCandidateStartedAt:null,lastActivityAt:Date.now(),
       pauseSummary:{
         at:Date.now(),cursor:current.telegramCursor,
@@ -746,7 +748,7 @@ export function ChatDiscoveryDialog({
               {localPreview.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">Джерела вичерпано: фактично підтверджено {localTargets.length} із {localPreview.goal}. Чати для ручної перевірки збережені окремо.</div>}
               {localPreview.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: знайдено {localTargets.length} із {localPreview.goal}. Переглянь цільові чати й лиши потрібні в роботі.</div>}
               {!autonomousRunning&&pauseSummary&&<div className="mt-3 rounded-xl bg-muted/25 px-3 py-2.5 text-xs leading-5 text-foreground/70">Останній запуск зупинено. Відсіяно {pauseArchivedTotal}; прогрес збережено.</div>}
-              {localPreview.sourceIssues.length>0&&<details role="status" className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5">
+              {autonomousRunning&&localPreview.sourceIssues.length>0&&<details role="status" className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5">
                 <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-foreground">
                   Деякі джерела тимчасово недоступні
                 </summary>

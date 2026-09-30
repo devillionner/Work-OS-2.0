@@ -399,3 +399,14 @@ void test('Discovery UI explains browser progress versus durable Work OS decisio
   assert.doesNotMatch(dialog,/Persistent dedupe/);
   assert.doesNotMatch(dialog,/Сирі invite в D1/);
 });
+
+
+void test('stale source cooldown warnings disappear after pause and resume',async()=>{
+  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  assert.match(dialog,/autonomousRunning&&localPreview\.sourceIssues\.length>0/);
+  const stop=dialog.slice(dialog.indexOf('async function stopAutonomousSearch'),dialog.indexOf('function retryIncompleteCandidate'));
+  assert.match(stop,/sourceFailures:0,sourceIssues:\[\]/);
+  const start=dialog.slice(dialog.indexOf('async function startAutonomousSearch'),dialog.indexOf('async function stopAutonomousSearch'));
+  assert.match(start,/sourceFailures:0,/);
+  assert.match(start,/sourceIssues:\[\]/);
+});

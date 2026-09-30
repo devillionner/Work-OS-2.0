@@ -1,3 +1,9 @@
+## 2026-09-30 — Discovery warning lifecycle addendum
+
+- Temporary source warnings are transient run state, not permanent history.
+- A source warning is visible only while the current autonomous run is active and the issue is current.
+- Pause, stop, or resume must clear stale source cooldown warnings.
+
 ## 2026-09-30 — Discovery minimal diagnostics addendum
 
 - Daily Discovery modal не містить manual Telegram ingestion form. Source discovery відбувається автономно.
