@@ -1,3 +1,11 @@
+## 2026-09-30 — Discovery focus-first UI/UX (v0.2.75)
+
+- [x] Модалка перебудована навколо однієї мети: прогрес до потрібної кількості цільових чатів, людський поточний статус і одна головна дія.
+- [x] Шість повторних stat tiles замінено трьома короткими сигналами; сім вкладок скорочено до «Зараз», «Потрібен мій погляд», «Цільові», «Історія».
+- [x] Query/cursor/source errors та інші службові дані більше не конкурують з основним workflow: вони доступні лише в розкривній діагностиці.
+- [x] Картки тепер починаються з назви, пояснення стану й primary actions; робочі критерії та джерела розкриваються за потреби.
+- [x] Збережено dedupe, direct actions, factual qualification і mobile-safe dialog/touch targets.
+
 ## 2026-09-30 — Discovery UI/UX cleanup + unique results (v0.2.74)
 
 - [x] Browser-local outcome і вже збережений candidate з тим самим canonical platform + invite більше не рендеряться як два різні чати; persisted row має пріоритет для operator actions.

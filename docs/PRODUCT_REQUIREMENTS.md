@@ -1,3 +1,11 @@
+## 2026-09-30 — Discovery focus-first UX contract
+
+- Перший екран модалки відповідає лише на три питання: скільки цільових чатів знайдено, що система робить зараз, чи потрібна дія оператора.
+- Службові метрики, query, cursor, source cooldown, executor і ручне Telegram-джерело є secondary diagnostics та не можуть бути візуально рівними progress/CTA/results.
+- Основна навігація результатів має максимум чотири зрозумілі operator views: зараз, потрібен мій погляд, цільові, історія.
+- Картка кандидата показує спочатку назву, людський стан і наступну дію. Причини, критерії, invite та source provenance розкриваються progressive disclosure.
+- Manual review лишається fallback після factual automation, а не паралельним основним сценарієм.
+
 ## 2026-09-30 — Discovery operator UX / unique-result contract
 
 - Browser-local current-run outcome і persisted Discovery candidate з тим самим canonical platform + invite є **одним логічним результатом**. UI не може показувати їх двома cards або подвійно рахувати у filter totals.

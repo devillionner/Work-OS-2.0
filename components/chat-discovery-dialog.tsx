@@ -662,8 +662,6 @@ export function ChatDiscoveryDialog({
   const total = persistedTotal + uniqueLocalQueued.length + freshLocalOutcomes.length;
   const reviewCount=workspace.counts.review+freshLocalOutcomes.filter(candidate=>candidate.preflightState==='review').length;
   const targetCount=workspace.counts.target+freshLocalOutcomes.filter(candidate=>candidate.preflightState==='target').length;
-  const rejectedCount=workspace.counts.rejected+freshLocalOutcomes.filter(candidate=>candidate.preflightState==='rejected'||candidate.preflightState==='skipped').length;
-  const unavailableCount=workspace.counts.unavailable+freshLocalOutcomes.filter(candidate=>candidate.preflightState==='unavailable').length;
   const autonomousRunning=localPreview.running;
   const displayedTargetCount=localTargets.length;
   const displayedGoal=localPreview.running||localPreview.done?localPreview.goal:goal;
@@ -676,11 +674,6 @@ export function ChatDiscoveryDialog({
   const pauseArchivedTotal=pauseSummary
     ? pauseSummary.rejected+pauseSummary.skipped+pauseSummary.unavailable
     : 0;
-  const lastCheckedDecisionLabel=localPreview.lastCheckedDecision==='review'?'на ручну перевірку'
-    :localPreview.lastCheckedDecision==='target'?'цільовий'
-      :localPreview.lastCheckedDecision==='rejected'?'відхилений'
-      :localPreview.lastCheckedDecision==='skipped'?'пропущений'
-        :localPreview.lastCheckedDecision==='unavailable'?'недоступний':'';
   const runActivity=pausing
     ? 'Зупиняємо пошук · зберігаємо прогрес'
     : autonomousRunning
@@ -711,81 +704,34 @@ export function ChatDiscoveryDialog({
     >
       <header className="relative border-b border-border/70 bg-background px-4 py-4 sm:px-6">
         <DialogHeader className="gap-1 pr-14">
-          <div className="flex flex-wrap items-center gap-2">
-            <DialogTitle className="text-lg font-semibold tracking-tight sm:text-xl">Пошук нових чатів</DialogTitle>
-            <Badge variant="secondary">WhatsApp discovery</Badge>
+          <div className="flex items-center gap-2">
+            <DialogTitle className="text-lg font-semibold tracking-tight sm:text-xl">Автопошук WhatsApp-чатів</DialogTitle>
+            {(autonomousRunning||pausing)&&<Badge variant="secondary">Працює</Badge>}
           </div>
-          <DialogDescription className="max-w-3xl text-xs leading-5 text-foreground/70 sm:text-sm">
-            Work OS знаходить WhatsApp-чати, перевіряє доступні факти й запам’ятовує завершені рішення, щоб не проходити одне й те саме посилання повторно.
+          <DialogDescription className="text-xs leading-5 text-foreground/65 sm:text-sm">
+            Знаходить і перевіряє чати сам. Тобі залишаються лише готові результати та рідкісні випадки, де потрібне рішення.
           </DialogDescription>
         </DialogHeader>
         <Button className="absolute right-3 top-3 !size-11 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground sm:right-4 sm:top-4 sm:!size-9" variant="ghost" size="icon" aria-label="Закрити" onClick={close}><X/></Button>
 
-        <div className="mt-4 rounded-2xl border border-border/70 bg-muted/20 p-4 sm:p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <div className="min-w-[180px]">
-              <div className="flex items-center gap-2 text-xs font-semibold text-foreground/70">
-                {(autonomousRunning||pausing)&&<span className="relative flex size-2">
-                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-50"/>
-                  <span className="relative inline-flex size-2 rounded-full bg-emerald-500"/>
-                </span>}
-                {pausing?'Зберігаємо паузу':autonomousRunning?'Автопошук працює':'Автопошук'}
-              </div>
-              <div className="mt-1 flex items-end gap-2">
-                <strong className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">{displayedTargetCount}</strong>
-                <span className="pb-1 text-sm font-semibold text-foreground/55">із {displayedGoal} підтверджених цільових</span>
-              </div>
+        <div className="mt-4 grid gap-3 rounded-2xl border border-border/70 bg-muted/15 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:p-5">
+          <div className="min-w-0">
+            <div className="flex items-baseline gap-2">
+              <strong className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">{displayedTargetCount}</strong>
+              <span className="text-sm font-semibold text-foreground/55">із {displayedGoal} цільових чатів</span>
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="h-2.5 overflow-hidden rounded-full bg-background ring-1 ring-border/70">
-                <div className="h-full rounded-full bg-primary transition-[width] duration-500" style={{width:`${progressPercent}%`}}/>
-              </div>
-              <div className="mt-2 flex items-start gap-2 text-sm font-medium text-foreground/80">
-                {(autonomousRunning||pausing)?<LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-primary"/>:<CheckCircle2 className="mt-0.5 size-4 shrink-0 text-muted-foreground"/>}
-                <span className="min-w-0 break-words">{runActivity}</span>
-              </div>
-              {autonomousRunning&&<div className="mt-1 text-xs tabular-nums text-muted-foreground">
-                Пошукових запитів: <strong className="text-foreground/80">{displayedQueries}</strong>
-                {' · '}короткими пакетами
-                {lastRunActivitySeconds!==null&&<>{' · '}остання активність {lastRunActivitySeconds<5?'щойно':`${lastRunActivitySeconds} с тому`}</>}
-              </div>}
-              {localPreview.discoveryMetrics&&localPreview.discoveryMetrics.completed>0&&<div className="mt-1 text-xs text-muted-foreground">
-                Перевірено WhatsApp: {localPreview.discoveryMetrics.completed} · середній час з повторними спробами {Math.round(localPreview.discoveryMetrics.totalCheckMs/localPreview.discoveryMetrics.completed/1000)} с · цільових {localPreview.discoveryMetrics.targets}
-              </div>}
-              {localPreview.lastCheckedName&&<div className="mt-1 text-xs text-muted-foreground">
-                Остання WhatsApp-перевірка: <strong className="text-foreground/80">{localPreview.lastCheckedName}</strong>
-                {lastCheckedDecisionLabel&&<>{' · '}<span className="font-semibold text-foreground/70">{lastCheckedDecisionLabel}</span></>}
-              </div>}
-              {!autonomousRunning&&pauseSummary&&<div key={pauseSummary.at} className="mt-3 animate-in fade-in slide-in-from-top-1 duration-300 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2.5">
-                <div className="flex items-start gap-2">
-                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600"/>
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold text-foreground">Автопошук зупинено · прогрес збережено</div>
-                    <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                      В архіві <strong className="text-foreground/80">{pauseArchivedTotal}</strong>
-                      {' · '}нецільові {pauseSummary.rejected}
-                      {' · '}недоступні/пропущені {pauseSummary.unavailable+pauseSummary.skipped}
-                      {pauseSummary.unverified>0&&<>{' · '}збережено в черзі {pauseSummary.unverified}</>}
-                      {pauseSummary.targets>0&&<>{' · '}цільові лишились {pauseSummary.targets}</>}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-muted-foreground/80">
-                      Наступний запуск продовжить з позиції {pauseSummary.cursor}; відомі invite повторно не перевіряються.
-                    </div>
-                    {pauseSummary.archiveFailed>0&&<div className="mt-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">
-                      Не вдалося заархівувати: {pauseSummary.archiveFailed} — вони можуть повернутися в чергу.
-                    </div>}
-                  </div>
-                </div>
-              </div>}
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-background ring-1 ring-border/70">
+              <div className="h-full rounded-full bg-primary transition-[width] duration-500" style={{width:`${progressPercent}%`}}/>
+            </div>
+            <div className="mt-2 flex items-start gap-2 text-sm font-medium text-foreground/80">
+              {(autonomousRunning||pausing)?<LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-primary"/>:<span className="mt-1.5 size-2 shrink-0 rounded-full bg-muted-foreground/60"/>}
+              <span className="min-w-0 break-words">{runActivity}</span>
             </div>
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6" aria-label="Поточний запуск">
-            <StatTile label="Знайдено invite" value={String(localPreview.processed)} />
-            <StatTile label="У перевірці" value={String(localQueued)} />
-            <StatTile label="Ручна перевірка" value={String(localManualReview)} />
-            <StatTile label="Цільові" value={String(localTargets.length)} />
-            <StatTile label="Відсіяно" value={String(discardedCount)} />
-            <StatTile label="Дублі / відомі" value={String(localPreview.duplicates)} />
+          <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground sm:justify-end">
+            <span>У роботі <strong className="text-foreground">{localQueued}</strong></span>
+            <span>Потрібен погляд <strong className="text-foreground">{localManualReview}</strong></span>
+            <span>Відсіяно <strong className="text-foreground">{discardedCount}</strong></span>
           </div>
         </div>
       </header>
@@ -801,8 +747,8 @@ export function ChatDiscoveryDialog({
             <section className="rounded-2xl border border-border/70 bg-background p-4" aria-label="Параметри пошуку">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <h3 className="text-base font-semibold">Керування</h3>
-                  <p className="mt-1 text-xs leading-5 text-foreground/70">{autonomousRunning?'Work OS шукає наступні чати й не затримується на тих, де потрібен твій погляд.':'Вкажи, скільки повністю підтверджених чатів потрібно знайти.'}</p>
+                  <h3 className="text-base font-semibold">{autonomousRunning?'Пошук працює':'Новий запуск'}</h3>
+                  <p className="mt-1 text-xs leading-5 text-foreground/70">{autonomousRunning?'Можна закрити модалку: прогрес не загубиться.':'Обери мету й запусти. Решту Work OS зробить автоматично.'}</p>
                 </div>
                 <Badge>WhatsApp</Badge>
               </div>
@@ -843,27 +789,33 @@ export function ChatDiscoveryDialog({
                 {localPreview.candidates.length>0&&!autonomousRunning&&<Button className="min-h-11 w-full sm:min-h-8" type="button" size="sm" variant="ghost" disabled={telegramBusy} onClick={()=>setLocalPreview({...EMPTY_LOCAL_PREVIEW,goal})}>Скинути поточний запуск</Button>}
               </div>
 
-              <div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">
-                <strong className="text-foreground">Поточний запуск</strong> зберігається в цьому браузері, тому його можна поставити на паузу.
-                <br/><strong className="text-foreground">Завершені рішення</strong> зберігаються у Work OS і більше не перевіряються повторно.
-              </div>
               {localPreview.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">Джерела вичерпано: фактично підтверджено {localTargets.length} із {localPreview.goal}. Чати для ручної перевірки збережені окремо.</div>}
-              {localPreview.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: фактично підтверджено {localTargets.length}/{localPreview.goal} цільових чатів. Вони збережені для ручного огляду — виріши, які лишити в роботі.</div>}
-              {localPreview.sourceIssues.length>0&&<div role="status" className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs leading-5">
-                <strong>{localPreview.sourceFailures>0?'Не вдалося прочитати джерело. Цей запит не пропущено.':'Пошук працює з обмеженнями джерел'}</strong>
-                <p>{localPreview.sourceFailures>0
-                  ?localPreview.running?'Повторимо зі затримкою. Перевірка вже знайдених чатів продовжується.':'Натисни «Продовжити пошук», щоб повторити з цього місця.'
-                  :'Частина джерел тимчасово недоступна. Каталог і перевірка знайдених чатів продовжуються; повнота пошуку зараз знижена.'}</p>
-                {localPreview.sourceIssues.map((issue,index)=><div key={index} className="mt-1 break-words">{issue.query} · {reasonLabel(issue.reason)}</div>)}
-              </div>}
+              {localPreview.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: знайдено {localTargets.length} із {localPreview.goal}. Переглянь цільові чати й лиши потрібні в роботі.</div>}
+              {!autonomousRunning&&pauseSummary&&<div className="mt-3 rounded-xl bg-muted/25 px-3 py-2.5 text-xs leading-5 text-foreground/70">Останній запуск зупинено. Відсіяно {pauseArchivedTotal}; прогрес збережено.</div>}
+              {localPreview.sourceIssues.length>0&&<details role="status" className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5">
+                <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-foreground">
+                  Деякі джерела тимчасово недоступні
+                </summary>
+                <div className="border-t border-amber-500/20 px-3 py-2.5 text-xs leading-5 text-foreground/70">
+                  Пошук продовжується за доступними джерелами. Нічого робити не потрібно.
+                  <details className="mt-2">
+                    <summary className="cursor-pointer select-none text-[11px] text-muted-foreground">Технічні причини</summary>
+                    <div className="mt-1 grid gap-1">
+                      {localPreview.sourceIssues.map((issue,index)=><div key={index} className="break-words">{issue.query} · {reasonLabel(issue.reason)}</div>)}
+                    </div>
+                  </details>
+                </div>
+              </details>}
               <details className="mt-3 border-t border-border/60 pt-3">
-                <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Деталі прогресу</summary>
+                <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Технічні дані запуску</summary>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                   <span>Пошукових кроків <strong className="ml-1 text-foreground">{displayedQueries}</strong></span>
                   <span>Пройдено плану <strong>{localPreview.telegramCursor} / {localPreview.sourceTotal||'—'}</strong></span>
                   <span>Дублів <strong className="ml-1 text-foreground">{localPreview.duplicates}</strong></span>
                   <span>Перевірено WhatsApp <strong className="ml-1 text-foreground">{localChecked}</strong></span>
+                  {lastRunActivitySeconds!==null&&<span>Остання активність <strong>{lastRunActivitySeconds<5?'щойно':`${lastRunActivitySeconds} с тому`}</strong></span>}
                 </div>
+                <p className="mt-2 text-[11px] leading-4 text-muted-foreground">Завершені рішення не перевіряються повторно.</p>
               </details>
             </section>
 
@@ -955,19 +907,16 @@ export function ChatDiscoveryDialog({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="text-base font-semibold">Результати пошуку</h3>
-                <p className="mt-0.5 text-xs text-foreground/65">{autonomousRunning?'Нові результати з’являються тут без дублювання зі збереженою історією.':'Поточний запуск і збережена історія зведені без дублів. Один чат показується один раз.'}</p>
+                <p className="mt-0.5 text-xs text-foreground/65">{autonomousRunning?'Готові результати з’являються тут автоматично.':'Обери потрібну вкладку: активні, ручні рішення, цільові або історія.'}</p>
               </div>
 
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Фільтр кандидатів">
               {([
-                ['active', 'У перевірці', localQueued],
-                ['review', 'Ручна перевірка', reviewCount],
-                ['waiting-whatsapp', 'Очікує вступу', workspace.waitingWhatsAppCount],
+                ['active', 'Зараз', localQueued],
+                ['review', 'Потрібен мій погляд', reviewCount],
                 ['target', 'Цільові', targetCount],
-                ['rejected', 'Відсіяні', rejectedCount],
-                ['unavailable', 'Помилка перевірки', unavailableCount],
-                ['all', 'Усі', total],
+                ['all', 'Історія', total],
               ] as Array<[DecisionFilter, string, number]>).map(([key, label, count]) =>
                 <button
                   key={key}
@@ -993,57 +942,42 @@ export function ChatDiscoveryDialog({
                     const criteria = candidateCriteria(candidate);
                     const status = candidateStatus(candidate);
                     const confirmedCriteria=criteria.filter(item=>item.state==='ok').length;
-                    return <article key={candidate.id} className="min-w-0 rounded-2xl border border-border bg-background p-4 shadow-sm sm:p-5">
-                      <div className={`rounded-xl border px-3 py-2.5 ${status.tone}`}>
-                        <div className="flex items-start gap-2">
-                          {status.busy?<LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin"/>:<span className="mt-1 size-2 shrink-0 rounded-full bg-current opacity-70"/>}
-                          <div className="min-w-0">
-                            <div className="text-xs font-bold uppercase tracking-wide">{status.label}</div>
-                            <div className="mt-0.5 text-xs leading-5 opacity-80">{status.detail}</div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 flex min-w-0 items-start justify-between gap-3">
+                    return <article key={candidate.id} className="min-w-0 rounded-2xl border border-border bg-background p-4 sm:p-5">
+                      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <h4 className="break-words text-base font-semibold leading-snug">{candidateDisplayName(candidate)}</h4>
-                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                            <Badge variant="outline">{platformLabel(candidate.platform)}</Badge>
-                            {candidate.membershipState==='pending'&&<Badge variant="secondary">Очікує вступу</Badge>}
-                            {candidate.membershipState==='joined'&&<Badge variant="secondary">Приєднано</Badge>}
-                            {isLocalPreview(candidate)&&<Badge variant="outline">Знайдено автопошуком</Badge>}
+                          <p className="mt-1 text-sm leading-5 text-foreground/70">{status.detail}</p>
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <Badge variant={candidate.decision==='target'?'default':'secondary'}>{status.label}</Badge>
+                            {candidate.membershipState==='pending'&&<Badge variant="outline">Очікує вступу</Badge>}
+                            {candidate.membershipState==='joined'&&<Badge variant="outline">Приєднано</Badge>}
                           </div>
                         </div>
-                        {candidate.decision==='target'&&<Badge>Цільовий · підтверджено</Badge>}
+                        {status.busy&&<LoaderCircle className="size-4 shrink-0 animate-spin text-primary"/>}
                       </div>
 
-                      {candidate.reasonCodes.length>0&&candidate.decision!=='target'&&<div className="mt-3 flex flex-wrap gap-1.5">
-                        {candidate.reasonCodes.slice(0,3).map(code=><span key={code} className="rounded-lg bg-muted/50 px-2 py-1 text-[11px] font-medium text-foreground/70">{reasonLabel(code)}</span>)}
-                        {candidate.reasonCodes.length>3&&<span className="rounded-lg bg-muted/50 px-2 py-1 text-[11px] font-medium text-muted-foreground">+{candidate.reasonCodes.length-3}</span>}
-                      </div>}
+                      {candidate.reasonCodes.length>0&&candidate.decision!=='target'&&<details className="mt-3">
+                        <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Чому тут</summary>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {candidate.reasonCodes.map(code=><span key={code} className="rounded-lg bg-muted/50 px-2 py-1 text-[11px] font-medium text-foreground/70">{reasonLabel(code)}</span>)}
+                        </div>
+                      </details>}
 
                       <details className="mt-3 rounded-xl border border-border/70 bg-muted/10">
                         <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-foreground/75">
-                          Деталі перевірки · підтверджено {confirmedCriteria} з {criteria.length}
+                          Перевірені критерії · {confirmedCriteria} з {criteria.length}
                         </summary>
                         <div className="border-t border-border/60 p-3">
-                          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+                          <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
                             {criteria.map(item => <Criterion key={item.label} {...item} />)}
                           </div>
-                          <div className="mt-3 truncate font-mono text-[11px] font-medium text-foreground/50">{candidate.link}</div>
-                          {candidate.sources.length > 0 && <details className="mt-3">
-                            <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Звідки знайдено · {candidate.sources.length}</summary>
-                            <div className="mt-2 grid gap-2">
-                              {candidate.sources.slice(0, 4).map((source, index) =>
-                                <div key={`${source.sourceUrl}:${source.query}:${index}`} className="rounded-lg bg-background p-2 text-xs">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <strong>{source.sourceTitle || source.seedLabel || source.kind}</strong>
-                                    {source.sourceUrl && <a className="inline-flex items-center gap-1 underline" href={source.sourceUrl} target="_blank" rel="noreferrer">джерело <ExternalLink className="size-3"/></a>}
-                                  </div>
-                                  {source.query && <div className="mt-1 text-muted-foreground">Запит: {source.query}</div>}
-                                </div>)}
-                            </div>
-                          </details>}
+                          <details className="mt-3 border-t border-border/60 pt-3">
+                            <summary className="cursor-pointer select-none text-[11px] font-medium text-muted-foreground">Посилання та джерела</summary>
+                            <div className="mt-2 break-all font-mono text-[11px] text-foreground/50">{candidate.link}</div>
+                            {candidate.sources.slice(0,4).map((source,index)=><div key={`${source.sourceUrl}:${source.query}:${index}`} className="mt-2 text-xs text-muted-foreground">
+                              {source.sourceTitle||source.seedLabel||source.kind}{source.sourceUrl&&<> · <a className="underline" href={source.sourceUrl} target="_blank" rel="noreferrer">відкрити джерело</a></>}
+                            </div>)}
+                          </details>
                         </div>
                       </details>
 
@@ -1074,7 +1008,7 @@ export function ChatDiscoveryDialog({
                           </details>
                         </>}
                         {!candidate.importedChatId && candidate.decision==='review' && isLocalPreview(candidate) && <>
-                          <Button type="button" size="sm" variant="outline" disabled={loading} onClick={() => void changeFilter('review')}>Оновити збережений результат</Button>
+                          <Button type="button" size="sm" variant="outline" disabled={loading} onClick={() => void changeFilter('review')}>Продовжити вручну</Button>
                           <Button type="button" size="sm" variant="ghost" disabled={inspectingId !== null} onClick={() => void archiveCandidate(candidate)}>
                             {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
                             Відхилити
@@ -1329,13 +1263,6 @@ function emptyCandidateCopy(filter:DecisionFilter,running:boolean,queued:number,
   return {title:'Результатів поки немає',detail:'Запусти автопошук, щоб знайти нові WhatsApp-чати.'};
 }
 
-function StatTile({ label, value }: { label: string; value: string }) {
-  return <div className="flex min-w-[132px] shrink-0 items-baseline justify-between gap-3 rounded-xl border border-border/70 bg-background px-3 py-2">
-    <div className="truncate text-[11px] font-semibold text-foreground/65">{label}</div>
-    <div className="shrink-0 text-sm font-semibold tabular-nums text-foreground">{value}</div>
-  </div>;
-}
-
 type CriterionItem = { label: string; value: string; state: 'ok' | 'warn' | 'bad' };
 
 function Criterion({ label, value, state }: CriterionItem) {
@@ -1361,10 +1288,6 @@ function candidateCriteria(candidate: DiscoveryCandidate): CriterionItem[] {
     { label: 'Можна писати', value: candidate.canWrite === null ? 'Невідомо' : candidate.canWrite ? 'Так' : 'Ні', state: candidate.canWrite === true ? 'ok' : candidate.canWrite === false ? 'bad' : 'warn' },
     { label: 'Оголошення', value: adsPolicyLabel(candidate.adsPolicy), state: candidate.adsPolicy === 'allowed' || candidate.adsPolicy === 'operator_confirmed' || candidate.adsPolicy === 'inferred_allowed' ? 'ok' : candidate.adsPolicy === 'forbidden' ? 'bad' : 'warn' },
     { label: 'Аудиторія', value: topicMatchLabel(candidate.topicMatch), state: candidate.topicMatch === 'match' ? 'ok' : candidate.topicMatch === 'mismatch' ? 'bad' : 'warn' },
-    { label: 'Вступ', value: membershipLabel(candidate.membershipState), state: candidate.membershipState === 'joined' ? 'ok' : candidate.membershipState === 'left' ? 'bad' : 'warn' },
-    { label: 'Перевірка', value: inspectionLabel(candidate.inspectionState), state: candidate.inspectionState === 'inspected' ? 'ok' : candidate.inspectionState === 'failed' ? 'bad' : 'warn' },
-    { label: 'Invite', value: linkStateLabel(candidate.linkState), state: candidate.linkState === 'valid' ? 'ok' : candidate.linkState === 'invalid' ? 'bad' : 'warn' },
-    { label: 'Доступ', value: accessStateLabel(candidate.accessState), state: candidate.accessState === 'available' ? 'ok' : candidate.accessState === 'unavailable' ? 'bad' : 'warn' },
   ];
 }
 
@@ -1417,14 +1340,6 @@ function chatTypeLabel(value: DiscoveryCandidate['chatType']) {
             : 'Невідомо';
 }
 
-function linkStateLabel(value: DiscoveryCandidate['linkState']) {
-  return value === 'valid' ? 'Дійсний' : value === 'invalid' ? 'Недійсний' : 'Невідомо';
-}
-
-function accessStateLabel(value: DiscoveryCandidate['accessState']) {
-  return value === 'available' ? 'Є' : value === 'unavailable' ? 'Немає' : 'Невідомо';
-}
-
 function activityLabel(value: DiscoveryCandidate['activityState']) {
   return value === 'active' ? 'активний' : value === 'dead' ? 'неактивний' : 'невідомо';
 }
@@ -1440,13 +1355,6 @@ function topicMatchLabel(value: DiscoveryCandidate['topicMatch']) {
   return value === 'match' ? 'цільова'
     : value === 'mismatch' ? 'нецільова'
       : 'невідомо';
-}
-
-function membershipLabel(value: DiscoveryCandidate['membershipState']) {
-  return value === 'joined' ? 'Приєднано'
-    : value === 'pending' ? 'Очікує схвалення'
-      : value === 'left' ? 'Вийшли з чату'
-        : 'Вступ не перевірено';
 }
 
 function inspectionLabel(value: DiscoveryCandidate['inspectionState']) {

@@ -1,3 +1,11 @@
+## 2026-09-30 — Discovery focus-first UI/UX release v0.2.75
+
+- Проведено runtime-аудит staging modal: progress, six stat tiles і seven result tabs дублювали одні й ті самі факти; source/query diagnostics займали primary visual weight; candidate status був важливішим за name/action.
+- Header скорочено до goal progress, human activity і трьох коротких signals. Results navigation скорочено до чотирьох operator views.
+- Source limitations тепер показуються одним спокійним summary; raw reasons, run counters, executor setup, Telegram source, criteria і provenance лишаються розкривними.
+- Candidate cards тепер lead with name → human state → primary actions; з десяти змішаних критеріїв на першому рівні лишено шість business criteria.
+- Functional discovery state machine, canonical dedupe, factual outcomes, direct actions, dynamic viewport width та touch targets не змінювалися.
+
 ## 2026-09-30 — Discovery UI/UX dedupe release v0.2.74
 
 - Root cause дубля review: браузерний фінальний outcome уже був durable у chat_discovery_candidates, але modal рендерив local candidate і persisted candidate поруч та додавав обидва в tab counts.
