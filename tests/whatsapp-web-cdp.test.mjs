@@ -802,3 +802,16 @@ void test('waiting check waits out the WhatsApp sync caused by opening the invit
   assert.match(source,/if\(waitThroughLoading&&Date\.now\(\)\+POLL_MS<deadline\)\{/);
   assert.match(source,/waitForClassification\(client, currentTask, remainingBudget\(\), null, navigatedInviteCode, waitThroughLoading\)/);
 });
+
+void test('waiting check presses the Ukrainian "Запит на приєднання" button behind the approval notice',()=>{
+  const result=classifyWhatsAppSnapshot(
+    {...task,action:'waiting_check'},
+    {
+      targetTexts:['Українці Варшава'],
+      headerTitles:[],
+      buttons:['Скасувати','Запит на приєднання'],
+      bodyText:'Українці Варшава\nАдміністратор має схвалити ваш запит.\nСкасувати\nЗапит на приєднання',
+    },
+  );
+  assert.deepEqual(result,{kind:'action',action:'request',buttonText:'Запит на приєднання',observedName:'Українці Варшава'});
+});
