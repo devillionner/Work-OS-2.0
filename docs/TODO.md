@@ -4,7 +4,7 @@
 
 ## 1. Тести, що падають
 
-Стан на 2026-10-01: `npm run test:full` — 857 тестів, із них 92 падають. Ні тести, ні код не змінювалися, щоб їх полагодити. Переважно це застарілі source-contract перевірки (regex шукає рядки, яких у коді вже немає) і поведінкові тести chat-discovery.
+Стан на 2026-10-01 (після виправлень): `npm run test:full` — 876 тестів, із них 71 падають (було 92). 15 поведінкових тестів публікації відновлено виправленням тестових даних (підтверджений профіль до читання state token), ще кілька застарілих source-contract перевірок оновлено під поточний код. Переважно це застарілі source-contract перевірки (regex шукає рядки, яких у коді вже немає) і поведінкові тести chat-discovery.
 
 ### `tests/analytics-ui-copy.test.mjs` (1)
 - [ ] `tests/analytics-ui-copy.test.mjs:5` — Analytics archive reasons render localized operator-facing labels
@@ -51,19 +51,6 @@
 - [ ] `tests/chat-discovery-ui.test.mjs:334` — pausing autonomous discovery preserves unfinished candidates and momentum
 - [ ] `tests/chat-discovery-ui.test.mjs:347` — resuming a paused discovery run keeps cursor candidates and durable dedupe history
 
-### `tests/chat-transitions.test.mjs` (1)
-- [ ] `tests/chat-transitions.test.mjs:264` — expired publication undo leaves the publication and event unchanged
-
-### `tests/chats-workflow.test.mjs` (8)
-- [ ] `tests/chats-workflow.test.mjs:67` — publication is blocked during snooze and concurrent retries record exactly one event
-- [ ] `tests/chats-workflow.test.mjs:92` — unqualified discovery chats are excluded from posting until target is confirmed
-- [ ] `tests/chats-workflow.test.mjs:112` — publication and event roll back together if the event write fails
-- [ ] `tests/chats-workflow.test.mjs:121` — manual publication attributes one active owner-scoped advertisement atomically
-- [ ] `tests/chats-workflow.test.mjs:138` — quick publish may reuse one active material across WhatsApp chats without weakening normal reuse rules
-- [ ] `tests/chats-workflow.test.mjs:203` — publication and undo keep canonical publication facts, report totals and available links in sync
-- [ ] `tests/chats-workflow.test.mjs:228` — archiving a chat after publication preserves historical publication metrics
-- [ ] `tests/chats-workflow.test.mjs:246` — Today and Analytics follow the same active publication fact through Undo
-
 ### `tests/d1-budget-contract.test.mjs` (1)
 - [ ] `tests/d1-budget-contract.test.mjs:39` — Discovery search is local-first and D1 work stays targeted until explicit confirmation
 
@@ -76,10 +63,9 @@
 ### `tests/discovery-reliability.test.mjs` (1)
 - [ ] `tests/discovery-reliability.test.mjs:235` — joined recovery without groupId refreshes invite metadata before inspection and never rejoins
 
-### `tests/discovery-source-outcomes.test.mjs` (21)
+### `tests/discovery-source-outcomes.test.mjs` (20)
 - [ ] `tests/discovery-source-outcomes.test.mjs:19` — workbook plan includes compatible keywords, countries and city aliases
 - [ ] `tests/discovery-source-outcomes.test.mjs:78` — repeated global WhatsApp loading triggers a bounded self-heal reload
-- [ ] `tests/discovery-source-outcomes.test.mjs:108` — legacy Brave rate-limit source stop is narrowly recoverable
 - [ ] `tests/discovery-source-outcomes.test.mjs:120` — global WhatsApp message loading is deferred without burning the full invite timeout
 - [ ] `tests/discovery-source-outcomes.test.mjs:163` — web-search 429 does not fail the source step when Telegram graph fallback exists
 - [ ] `tests/discovery-source-outcomes.test.mjs:176` — search advances with a warning when all optional search sources are unavailable
@@ -112,14 +98,8 @@
 - [ ] `tests/p4-parity-contracts.test.mjs:150` — chat operator flow keeps grouped copy, fast archive and archived-chat exclusion explicit
 - [ ] `tests/p4-parity-contracts.test.mjs:160` — chat archive reasons, available-now links and Telegram duplicate scope are explicit
 
-### `tests/platform-publication-sync.test.mjs` (1)
-- [ ] `tests/platform-publication-sync.test.mjs:72` — WhatsApp waiting queue explains automatic pending membership rechecks
-
 ### `tests/release-copy.test.mjs` (1)
 - [ ] `tests/release-copy.test.mjs:10` — release notes stay short and understandable for people
-
-### `tests/report-activity-revision.test.mjs` (1)
-- [ ] `tests/report-activity-revision.test.mjs:103` — publication and Undo both invalidate a submitted report while the live summary returns to zero
 
 ### `tests/report-submission-ui.test.mjs` (1)
 - [ ] `tests/report-submission-ui.test.mjs:7` — reports editor exposes the last final submission time without replacing last-change metadata
@@ -127,28 +107,12 @@
 ### `tests/report-write.test.mjs` (1)
 - [ ] `tests/report-write.test.mjs:55` — report UI and restore path send the loaded revision and preserve local text on conflict
 
-### `tests/telegram-schedule-manual-selection.test.mjs` (1)
-- [ ] `tests/telegram-schedule-manual-selection.test.mjs:20` — manual scheduler blocks generation when selected eligible chats cannot fill every requested slot
-
-### `tests/telegram-schedule.test.mjs` (4)
-- [ ] `tests/telegram-schedule.test.mjs:43` — generation is account-isolated, eligible-only and retry-idempotent
-- [ ] `tests/telegram-schedule.test.mjs:65` — manual selection persists per account and slot edits do not shift other times
-- [ ] `tests/telegram-schedule.test.mjs:108` — publication completes only the matching account slot and preserves other accounts
-- [ ] `tests/telegram-schedule.test.mjs:167` — publication undo restores exactly the matching Telegram slot and keeps other accounts isolated
-
 ### `tests/ux-contracts.test.mjs` (2)
 - [ ] `tests/ux-contracts.test.mjs:180` — Platforms uses a compact operator hierarchy and an unambiguous publication CTA
 - [ ] `tests/ux-contracts.test.mjs:391` — Empty Library uses one focused empty state instead of a redundant editor panel
 
 ### `tests/viber-joined-today-panel.test.mjs` (1)
 - [ ] `tests/viber-joined-today-panel.test.mjs:27` — Viber workspace exposes a compact expandable joined-today panel in the queue header area
-
-### `tests/whatsapp-autopost-caption-contract.test.mjs` (1)
-- [ ] `tests/whatsapp-autopost-caption-contract.test.mjs:15` — caption override is snapshotted into jobs and does not require equality with Library text
-
-### `tests/whatsapp-web-cdp.test.mjs` (2)
-- [ ] `tests/whatsapp-web-cdp.test.mjs:689` — WhatsApp inspect and leave share one bounded operation timeout instead of resetting 45s at every UI phase
-- [ ] `tests/whatsapp-web-cdp.test.mjs:726` — joined WhatsApp qualification waits for the chat UI before reading facts
 
 ### `tests/workspace-loading-contract.test.mjs` (1)
 - [ ] `tests/workspace-loading-contract.test.mjs:56` — known transition hot spots retain data while revalidating

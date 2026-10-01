@@ -263,8 +263,9 @@ void test('same-day publication undo restores publication facts, profile cadence
 
 void test('expired publication undo leaves the publication and event unchanged', async t => {
   const db=await localDatabase(t);
-  const before=await seed(db,'whatsapp','ready');
+  await seed(db,'whatsapp','ready');
   await confirmProfile(db);
+  const before=await state(db);
   const published=await recordManualPublication(db,{userId:'u',chat:before,accountId:null,now:NOW,date:'2026-09-10',stateToken:before.state_token});
   assert.equal(published.ok,true);
   const after=await state(db);

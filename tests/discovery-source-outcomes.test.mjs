@@ -47,7 +47,7 @@ void test('retries on the same WhatsApp invite do not restart deep-link loading'
   const block=adapter.slice(start,end);
   assert.match(block,/alreadyOnExactInvite/u);
   assert.match(block,/searchParams\.get\('code'\)===targetParsed\.searchParams\.get\('code'\)/u);
-  assert.match(block,/if\(!alreadyOnExactInvite\)await client\.send\('Page\.navigate'/u);
+  assert.match(block,/if\(!alreadyOnExactInvite\)\{[^}]*?\{[\s\S]*?\}\s*await client\.send\('Page\.navigate'/u);
 });
 
 void test('Discovery waits for a healthy WhatsApp home before reopening invite deep links',async()=>{
@@ -111,7 +111,7 @@ void test('legacy Brave rate-limit source stop is narrowly recoverable',async()=
   const end=source.indexOf('const resultRaw=',start);
   const block=source.slice(start,end);
   assert.match(block,/completionReason==='source_error'/u);
-  assert.match(block,/search\\\.brave\\\.com/u);
+  assert.match(block,/search\\\\\.brave\\\\\.com/u);
   assert.match(block,/source_http_429/u);
   assert.match(block,/running:true/u);
   assert.match(block,/sourceFailures:0/u);

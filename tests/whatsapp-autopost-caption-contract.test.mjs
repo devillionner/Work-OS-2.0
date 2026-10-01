@@ -14,7 +14,7 @@ void test('mobile WhatsApp autopost has a caption composer with Library fallback
 
 void test('caption override is snapshotted into jobs and does not require equality with Library text',()=>{
   const automation=read('lib/messenger-automation.ts');
-  assert.match(automation,/const payload=captionOverride\|\|libraryPayload/);
+  assert.match(automation,/if\(captionOverride\)\{[\s\S]*?payload=captionOverride;[\s\S]*?\}else\{[\s\S]*?payload=libraryPayload;/);
   assert.doesNotMatch(automation,/payload===row\.payload_text/);
   assert.match(automation,/row\.payload_text\.trim\(\)\.length>0/);
 });

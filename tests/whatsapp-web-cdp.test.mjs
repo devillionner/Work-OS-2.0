@@ -694,6 +694,19 @@ void test('WhatsApp inspect and leave share one bounded operation timeout instea
   assert.doesNotMatch(source,/waitForClassification\(client, observedTask, timeoutMs, action/);
 });
 
+void test('WhatsApp autopost never sends or confirms after its 90s lease',()=>{
+  const start=source.indexOf('export async function sendWhatsappAutopostViaCdp');
+  const block=source.slice(start,source.indexOf('export async function readWhatsappHomeHealthViaCdp',start));
+  assert.match(source,/const AUTOPOST_SEND_CONFIRM_MS = 30_000;/);
+  assert.match(block,/const operationDeadline = Date\.now\(\) \+ timeoutMs;/);
+  assert.doesNotMatch(block,/waitForClassification\([^)]*\btimeoutMs\b/);
+  assert.doesNotMatch(block,/Date\.now\(\) ?\+ ?timeoutMs;[\s\S]*Date\.now\(\) ?\+ ?timeoutMs/);
+  assert.equal([...block.matchAll(/autopost_budget_exhausted/g)].length,2);
+  assert.equal([...block.matchAll(/Date\.now\(\) ?\+ ?confirmWindowMs/g)].length,2);
+  const sendClick=block.indexOf("type:'keyDown', key:'Enter'");
+  assert.ok(block.lastIndexOf('autopost_budget_exhausted',sendClick)>block.indexOf('waitForComposerText'));
+});
+
 
 void test('local Discovery checks high-signal Ukrainian candidates before malformed low-signal rows without changing qualification criteria',()=>{
   assert.match(source,/const priority=\(item\)=>/);
@@ -726,8 +739,8 @@ void test('noisy source labels are treated as weak identity hints instead of exa
 void test('joined WhatsApp qualification waits for the chat UI before reading facts',()=>{
   assert.match(source,/async function waitForJoinedChatReady/);
   assert.match(source,/messagesLoadingPattern/);
-  assert.match(source,/latest\.composer===true&&hasHeader/);
-  assert.match(source,/const before = await waitForJoinedChatReady\(client\)/);
+  assert.match(source,/\(latest\.composer===true\|\|latest\.adminOnly===true\)&&hasHeader/);
+  assert.match(source,/const before ?= ?await waitForJoinedChatReady\(client\)/);
 });
 
 void test('topic match can use repeated factual Ukrainian message evidence inside the joined chat',()=>{

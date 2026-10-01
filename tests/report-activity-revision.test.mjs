@@ -103,7 +103,7 @@ void test('restored reports clear derived activity snapshots and safely use lega
 void test('publication and Undo both invalidate a submitted report while the live summary returns to zero',async t=>{
   const db=await localDatabase(t);
   await saveSubmittedReport(db,{submittedAt:SECOND});
-  const chat=await seedChat(db,{id:'report-publication',platform:'whatsapp',status:'ready'});
+  const chat=await seedChat(db,{id:'report-publication',platform:'whatsapp',status:'ready',profile:true});
   const state=await readChatState(db,'u','report-publication');
   const published=await recordManualPublication(db,{
     userId:'u',chat:state,accountId:null,now:SECOND+1,date:DATE,stateToken:state.state_token,

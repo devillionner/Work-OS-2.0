@@ -43,9 +43,13 @@ export async function localDatabase(t) {
   return db;
 }
 
-export async function seedChat(db, { id = 'chat', owner = 'u', platform = 'whatsapp', status = 'ready', joined = null, snoozed = null } = {}) {
+export async function seedChat(db, { id = 'chat', owner = 'u', platform = 'whatsapp', status = 'ready', joined = null, snoozed = null, profile = false } = {}) {
   await db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,joined_at,snoozed_until,created_at,updated_at)
     VALUES (?1,?2,?3,?1,?4,?4,?5,?6,?7,1,1)`).bind(id,owner,platform,`https://example.test/${id}`,status,joined,snoozed).run();
+  // Ordinary publication requires a confirmed profile, and the profile revision is part of the state token.
+  if (profile) await db.prepare(`INSERT INTO chat_profiles
+    (chat_id,cadence,weekdays_json,custom_interval_days,next_allowed_on,directions_json,note,review_status,source,updated_at)
+    VALUES (?1,'any','[]',NULL,NULL,'[]','','confirmed','manual',1)`).bind(id).run();
   return db.prepare(`SELECT c.*,${chatStateTokenSql()} AS state_token FROM chats c WHERE c.id=?1`).bind(id).first();
 }
 

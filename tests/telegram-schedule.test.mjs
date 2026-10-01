@@ -27,6 +27,7 @@ async function telegramChat(db, id, accountId, options = {}) {
     id, platform: 'telegram', status: options.status || 'ready',
     joined: options.joined ?? NOW - 21600,
     snoozed: options.snoozed ?? null,
+    profile: options.profile ?? true,
   });
   await db.prepare('UPDATE chats SET telegram_account_id=?1 WHERE id=?2')
     .bind(accountId, id).run();
@@ -155,8 +156,8 @@ void test('manual selection rejects chats from another account and duplicate pen
 void test('scheduler respects confirmed profile publication rules', async (t) => {
   const db = await localDatabase(t);
   await seedAccount(db, 'a', 'u', 1);
-  await telegramChat(db, 'allowed-profile', 'a');
-  await telegramChat(db, 'blocked-profile', 'a');
+  await telegramChat(db, 'allowed-profile', 'a', { profile: false });
+  await telegramChat(db, 'blocked-profile', 'a', { profile: false });
   await db.prepare(`INSERT INTO chat_profiles(chat_id,language,cadence,weekdays_json,custom_interval_days,next_allowed_on,directions_json,note,review_status,source,updated_at)
     VALUES ('allowed-profile','uk','daily','[4]',NULL,NULL,'[]','','confirmed','manual',1),
            ('blocked-profile','uk','daily','[4]',NULL,'2026-09-11','[]','','confirmed','manual',1)`).run();

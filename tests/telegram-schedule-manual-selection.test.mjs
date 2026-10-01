@@ -13,7 +13,7 @@ async function seedAccount(db){
     VALUES ('a','u',1,'Account',1,0,1,1)`).run();
 }
 async function telegramChat(db,id){
-  await seedChat(db,{id,platform:'telegram',status:'ready',joined:NOW-21600});
+  await seedChat(db,{id,platform:'telegram',status:'ready',joined:NOW-21600,profile:true});
   await db.prepare(`UPDATE chats SET telegram_account_id='a' WHERE id=?1`).bind(id).run();
 }
 

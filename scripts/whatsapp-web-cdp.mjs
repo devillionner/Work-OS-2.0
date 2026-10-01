@@ -1,5 +1,9 @@
 // Real WhatsApp invite resolution can exceed 20s before the factual join/retry modal appears.
 const DEFAULT_TIMEOUT_MS = 45_000;
+// WhatsApp autopost lease is 90 s (lib/messenger-automation.ts). Target verification and
+// payload preparation share one 45 s budget and confirmation gets at most 30 s, so a send can
+// never happen or be confirmed after the lease has passed to another claim.
+const AUTOPOST_SEND_CONFIRM_MS = 30_000;
 const POLL_MS = 400;
 // Stays below the server's 120s Waiting-check lease.
 const WAITING_CHECK_TIMEOUT_MS = 100_000;
@@ -1504,14 +1508,17 @@ export async function sendWhatsappAutopostViaCdp(
       expectedTarget:{name:task.target.expectedName,link:task.target.expectedLink},
     };
     const navigatedInviteCode = whatsappInviteCode(task.target?.expectedLink);
-    let classified = await waitForClassification(client, inspectTask, timeoutMs, null, navigatedInviteCode);
+    const operationDeadline = Date.now() + timeoutMs;
+    const remainingBudget = () => Math.max(POLL_MS, operationDeadline - Date.now());
+    const confirmWindowMs = Math.min(timeoutMs, AUTOPOST_SEND_CONFIRM_MS);
+    let classified = await waitForClassification(client, inspectTask, remainingBudget(), null, navigatedInviteCode);
     if (classified.kind === 'action' && classified.action === 'view') {
       const clicked = await clickExactButton(client, classified.buttonText, classified.observedName || task.target.expectedName);
       if (!clicked) return { kind:'blocked', reason:'expected_control_disappeared' };
       const observedTask = classified.observedName
         ? { ...inspectTask, name:classified.observedName, expectedTarget:{...inspectTask.expectedTarget,name:classified.observedName} }
         : inspectTask;
-      classified = await waitForClassification(client, observedTask, timeoutMs, 'view', navigatedInviteCode);
+      classified = await waitForClassification(client, observedTask, remainingBudget(), 'view', navigatedInviteCode);
     }
     if (classified.kind !== 'result' || classified.result.targetVerified !== true || classified.result.membershipState !== 'joined') {
       return { kind:'blocked', reason:classified.reason || 'joined_target_not_verified' };
@@ -1524,13 +1531,14 @@ export async function sendWhatsappAutopostViaCdp(
     if(media?.base64){
       if(!/^image\/(jpeg|png|webp)$/u.test(String(media.contentType||'')))return {kind:'blocked',reason:'unsupported_media_type'};
       if(!await injectWhatsappImage(client,media))return {kind:'blocked',reason:'media_attach_failed'};
-      if(!await waitForWhatsappMediaPreview(client,Math.min(timeoutMs,8_000)))return {kind:'blocked',reason:'media_preview_not_ready'};
+      if(!await waitForWhatsappMediaPreview(client,Math.min(remainingBudget(),8_000)))return {kind:'blocked',reason:'media_preview_not_ready'};
       if(!await focusAndClearWhatsappMediaCaption(client))return {kind:'blocked',reason:'media_caption_not_found'};
       await client.send('Input.insertText',{text});
-      if(!await waitForWhatsappMediaCaption(client,text,Math.min(timeoutMs,5_000)))return {kind:'blocked',reason:'media_caption_mismatch'};
+      if(!await waitForWhatsappMediaCaption(client,text,Math.min(remainingBudget(),5_000)))return {kind:'blocked',reason:'media_caption_mismatch'};
+      if(Date.now()>=operationDeadline)return {kind:'blocked',reason:'autopost_budget_exhausted'};
       if(!await clickWhatsappMediaSend(client))return {kind:'blocked',reason:'media_send_control_not_found'};
       const expected=normalizeMessageText(text);
-      const deadline=Date.now()+timeoutMs;
+      const deadline=Date.now()+confirmWindowMs;
       while(Date.now()<deadline){
         const snapshot=await readSnapshot(client);
         const confirmed=(snapshot.messageRows||[]).some((row)=>
@@ -1543,14 +1551,15 @@ export async function sendWhatsappAutopostViaCdp(
     }
     if (!await focusAndClearComposer(client)) return { kind:'blocked', reason:'composer_not_found' };
     await client.send('Input.insertText', { text });
-    const prepared = await waitForComposerText(client, text, Math.min(timeoutMs, 5_000));
+    const prepared = await waitForComposerText(client, text, Math.min(remainingBudget(), 5_000));
     if (!prepared) return { kind:'blocked', reason:'composer_content_mismatch' };
+    if (Date.now() >= operationDeadline) return { kind:'blocked', reason:'autopost_budget_exhausted' };
 
     await client.send('Input.dispatchKeyEvent', { type:'keyDown', key:'Enter', code:'Enter', windowsVirtualKeyCode:13, nativeVirtualKeyCode:13 });
     await client.send('Input.dispatchKeyEvent', { type:'keyUp', key:'Enter', code:'Enter', windowsVirtualKeyCode:13, nativeVirtualKeyCode:13 });
 
     const expected = normalizeMessageText(text);
-    const deadline = Date.now() + timeoutMs;
+    const deadline = Date.now() + confirmWindowMs;
     while (Date.now() < deadline) {
       const snapshot = await readSnapshot(client);
       const confirmed = (snapshot.messageRows || []).some((row) =>

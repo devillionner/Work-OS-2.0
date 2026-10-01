@@ -6,7 +6,7 @@ import { activitySummaryStatement } from '../lib/activity-summary.ts';
 import { readDashboardSnapshot } from '../lib/dashboard-data.ts';
 import { readAnalyticsMetricEvents } from '../lib/analytics-events.ts';
 import { readActivityDayRevision } from '../lib/reports/activity-revision.ts';
-import { readChatState } from '../lib/chats/state.ts';
+import { chatStateTokenSql, readChatState } from '../lib/chats/state.ts';
 import { transitionChat } from '../lib/chats/transitions.ts';
 import { changeChatSnooze } from '../lib/chats/snooze.ts';
 import { localDatabase, seedChat } from './helpers/local-d1.mjs';
@@ -15,13 +15,22 @@ import { availableTodayStatement } from '../lib/chats/daily-links.ts';
 const epoch = value => Date.parse(value) / 1000;
 const NOW = epoch('2026-09-10T12:00:00Z');
 async function confirmProfile(db,chatId) {
-  await db.prepare(`INSERT INTO chat_profiles
+  const result = await db.prepare(`INSERT INTO chat_profiles
     (chat_id,cadence,weekdays_json,custom_interval_days,next_allowed_on,directions_json,note,review_status,source,updated_at)
     VALUES (?1,'any','[]',NULL,NULL,'[]','','confirmed','manual',1)
     ON CONFLICT(chat_id) DO NOTHING`).bind(chatId).run();
+  return result.meta.changes > 0;
+}
+// The state token includes the profile revision. A profile created by the test itself
+// stands for an operator read that already saw the confirmed profile.
+async function withConfirmedProfile(db,chat) {
+  if (!await confirmProfile(db,chat.id)) return chat;
+  const fresh = await db.prepare(`SELECT ${chatStateTokenSql()} AS state_token FROM chats c WHERE c.id=?1`).bind(chat.id).first();
+  chat.state_token = fresh.state_token;
+  return chat;
 }
 const publish = async (db, chat, now = NOW, userId = 'u') => {
-  await confirmProfile(db,chat.id);
+  await withConfirmedProfile(db,chat);
   return recordManualPublication(db, { userId, chat, accountId: null, now, date: businessDate(now), stateToken:chat.state_token });
 };
 
@@ -125,7 +134,7 @@ void test('manual publication attributes one active owner-scoped advertisement a
   assert.equal((await publishWithAd(db,chat,'ad','ru')).ok,true);
   assert.equal((await db.prepare("SELECT advertisement_id FROM chat_publications WHERE chat_id='chat'").first()).advertisement_id,'ad');
   assert.deepEqual(JSON.parse((await db.prepare("SELECT metadata_json FROM activity_events WHERE event_type='publication'").first()).metadata_json),{
-    manualUndo:{profileCadenceAdvanced:false,previousNextAllowedOn:null},advertisementId:'ad',language:'ru'
+    manualUndo:{profileCadenceAdvanced:true,previousNextAllowedOn:null},advertisementId:'ad',language:'ru'
   });
   const second = await seedChat(db,{id:'second-chat'});
   assert.equal((await publishWithAd(db,second,'foreign-ad')).ok,false);
@@ -195,7 +204,7 @@ void test('available publication links exclude published, snoozed and foreign Te
 });
 
 const publishWithAd = async (db, chat, advertisementId, language = null, quickMode = false) => {
-  if(!quickMode) await confirmProfile(db,chat.id);
+  if(!quickMode) await withConfirmedProfile(db,chat);
   return recordManualPublication(db, { userId:'u', chat, accountId:null, advertisementId, language, quickMode, now:NOW, date:'2026-09-10', stateToken:chat.state_token });
 };
 
