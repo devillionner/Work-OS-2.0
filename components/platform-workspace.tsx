@@ -18,6 +18,7 @@ import { shouldSuggestChatArchive } from '@/lib/chats/snooze-history';
 import { EMPTY_WAITING_CHECK, parseWaitingCheckView, type WaitingCheckView } from '@/lib/chats/whatsapp-waiting-check-copy';
 import { WhatsappWaitingCheckPanel, type WaitingCheckAction } from '@/components/whatsapp-waiting-check-panel';
 import { TelegramSelectedChats } from '@/components/telegram-selected-chats';
+import { pairThisBrowserExecutor } from '@/lib/chat-discovery/executor-storage';
 import type { SelectedChatsView } from '@/lib/chats/telegram-selected';
 import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, ExternalLink, History, ImagePlus, Plus, RotateCcw, Search, Send, Settings2, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -308,6 +309,16 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     const timer=window.setInterval(()=>void refreshWaitingCheck(),waitingCheck.active?15_000:60_000);
     return()=>window.clearInterval(timer);
   },[active,platform,queue,waitingCheck.active,refreshWaitingCheck]);
+
+  async function connectWaitingCheckRunner(){
+    if(busy!==null)return;
+    setBusy('waiting-check');setError('');setNotice('');
+    try{
+      await pairThisBrowserExecutor();
+      setNotice('Цей браузер підключено. Runner підхопить його протягом хвилини — статус оновиться сам.');
+    }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося підключити цей браузер.');}
+    finally{setBusy(null);}
+  }
 
   async function changeWaitingCheck(action:WaitingCheckAction){
     if(busy!==null)return;
@@ -674,7 +685,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
         {queues.filter(item=>platform!=='viber'||item.key!=='profile_review').map(item=><button type="button" key={item.key} role="tab" aria-selected={queue===item.key} tabIndex={queue===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{if(item.key!=='ready'){setQuickPublishMode(false);setQuickAdvertisementId(null);}setQueue(item.key);setProfileFilter('all');setOffset(0)}}>{item.label}<span>{data?.counts[item.key] || 0}</span></button>)}
         {platform==='telegram'&&<button type="button" role="tab" aria-selected={queue==='selected'} tabIndex={queue==='selected'?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{setQuickPublishMode(false);setQuickAdvertisementId(null);setQueue('selected');setProfileFilter('all');setOffset(0)}}>Відібрані<span>{selectedChats?.items.length||0}</span></button>}
       </div>
-      {queue==='waiting'&&platform==='whatsapp'&&<WhatsappWaitingCheckPanel view={waitingCheck} nowSeconds={Math.floor(clock/1000)} busy={busy!==null} onAction={action=>void changeWaitingCheck(action)}/>}
+      {queue==='waiting'&&platform==='whatsapp'&&<WhatsappWaitingCheckPanel view={waitingCheck} nowSeconds={Math.floor(clock/1000)} busy={busy!==null} onAction={action=>void changeWaitingCheck(action)} onConnect={()=>void connectWaitingCheckRunner()}/>}
       {queue==='ready'&&(platform==='whatsapp'||platform==='viber')&&<div className={'platform-queue-context '+(quickPublishMode?'is-active':'')}>
         <div><strong>{platform==='whatsapp'?'Автопублікація черги':quickPublishMode?'Швидкий режим увімкнено':'Швидкий режим'}</strong><span>{platform==='whatsapp'
           ? (whatsappAutopostImage

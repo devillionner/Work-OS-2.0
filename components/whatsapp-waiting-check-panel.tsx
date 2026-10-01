@@ -1,6 +1,6 @@
 'use client';
 
-import { RotateCcw, Square, Play } from 'lucide-react';
+import { Cable, RotateCcw, Square, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   waitingCheckDone,
@@ -15,11 +15,12 @@ export type WaitingCheckAction = 'start' | 'stop' | 'retry_problems';
 
 const RECENT_SECONDS = 12 * 3600;
 
-export function WhatsappWaitingCheckPanel({ view, nowSeconds, busy, onAction }: {
+export function WhatsappWaitingCheckPanel({ view, nowSeconds, busy, onAction, onConnect }: {
   view: WaitingCheckView;
   nowSeconds: number;
   busy: boolean;
   onAction: (action: WaitingCheckAction) => void;
+  onConnect: () => void;
 }) {
   const runner = waitingCheckRunnerState(view, nowSeconds);
   const runnerStuck = waitingCheckRunnerOffline(view, nowSeconds);
@@ -72,9 +73,10 @@ export function WhatsappWaitingCheckPanel({ view, nowSeconds, busy, onAction }: 
         Прийняті чати перейдуть у «Для публікації», заявки без відповіді відкладаються на 3 дні, а якщо заявки ще немає — її буде надіслано.
       </p>}
       {recent && view.stopReason && <p className="waiting-check-note">Зупинено — {view.stopReason}. Решту чатів не змінено.</p>}
-      {(runnerStuck || (!runner.online && !view.active)) && <p className="waiting-check-note is-warning">
-        {runnerStuck ? 'Runner не забирає чати. ' : ''}Runner запускається сам при вході в систему. Тримайте відкритою Opera з WhatsApp Web і цією сторінкою; якщо створювали executor заново — він підхопиться протягом хвилини.
-      </p>}
+      {(runnerStuck || (!runner.online && !view.active)) && <div className="waiting-check-note is-warning waiting-check-connect">
+        <p>{runnerStuck ? 'Runner не забирає чати. ' : ''}Runner запускається сам при вході в систему й працює з цим браузером: тримайте відкритими WhatsApp Web і цю сторінку. Якщо статус не зміниться за хвилину — підключіть цей браузер ще раз.</p>
+        <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onConnect}><Cable aria-hidden="true" />Підключити цей браузер</Button>
+      </div>}
 
       {recent && view.problems.length > 0 && <ul className="waiting-check-problems" aria-label="Чати, що потребують уваги">
         {view.problems.map(item => <li key={item.chatId}><span>{item.name}</span><small>{waitingCheckReasonLabel(item.reason)}</small></li>)}

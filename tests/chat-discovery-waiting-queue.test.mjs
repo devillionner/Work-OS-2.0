@@ -104,6 +104,18 @@ void test('retrying problems re-checks only the chats the previous batch reporte
   assert.equal((await readWaitingWhatsAppCheckStatus(db, 'u')).active, false);
 });
 
+void test('chat-specific WhatsApp answers are reported but never stop the batch', async (t) => {
+  const db = await localDatabase(t);
+  for (const id of ['r1', 'r2', 'r3', 'r4', 'rest']) await chat(db, id);
+  await startWaitingWhatsAppCheck(db, 'u', 200);
+  for (let index = 0; index < 4; index += 1) await checkNext(db, 'failed', 210 + index * 10, { reason: 'whatsapp_join_retry_later' });
+  const status = await readWaitingWhatsAppCheckStatus(db, 'u');
+  assert.equal(status.active, true);
+  assert.equal(status.stopReason, null);
+  assert.equal(status.counts.failed, 4);
+  assert.equal((await checkNext(db, 'pending', 300)).chatId, 'rest');
+});
+
 void test('three failures in a row or a fatal reason stop the batch and leave the rest untouched', async (t) => {
   const db = await localDatabase(t);
   for (const id of ['f1', 'f2', 'f3', 'rest']) await chat(db, id);

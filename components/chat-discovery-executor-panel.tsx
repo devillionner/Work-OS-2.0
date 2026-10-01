@@ -4,10 +4,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Cable, Copy, LoaderCircle, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { EXECUTOR_DEVICE_STORAGE_KEY, EXECUTOR_TOKEN_STORAGE_KEY, storeExecutorToken } from '@/lib/chat-discovery/executor-storage';
 
 type Device = { id:string; name:string; createdAt:number; lastSeenAt:number|null };
-const EXECUTOR_TOKEN_STORAGE_KEY='work-os:executor-token:v1';
-const EXECUTOR_DEVICE_STORAGE_KEY='work-os:executor-device:v1';
 
 export function ChatDiscoveryExecutorPanel() {
   const [devices,setDevices]=useState<Device[]>([]);
@@ -44,8 +43,7 @@ export function ChatDiscoveryExecutorPanel() {
       const nextToken=payload.token||'';
       setToken(nextToken);
       if(nextToken&&payload.device?.id){
-        window.localStorage.setItem(EXECUTOR_TOKEN_STORAGE_KEY,nextToken);
-        window.localStorage.setItem(EXECUTOR_DEVICE_STORAGE_KEY,payload.device.id);
+        storeExecutorToken(nextToken,payload.device.id);
       }
       await load();
     } catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося підключити executor.');}

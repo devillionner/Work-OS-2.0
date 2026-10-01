@@ -18,6 +18,12 @@ export const WAITING_CHECK_FATAL_REASONS = new Set([
   'request_state_unconfirmed', 'expected_control_disappeared',
 ]);
 
+// Factual answers WhatsApp gives about one particular chat. They are reported as problems but do not
+// count towards the "failures in a row" stop: the same few chats can answer this on every run.
+export const WAITING_CHECK_CHAT_REASONS = new Set([
+  'whatsapp_join_retry_later', 'whatsapp_removed_from_group', 'invalid_whatsapp_link', 'whatsapp_chat_missing', 'membership_left',
+]);
+
 export type WaitingCheckOutcome = 'joined' | 'pending' | 'requested' | 'failed';
 
 type Counts = { joined: number; pending: number; requested: number; failed: number; skipped: number };
@@ -105,8 +111,8 @@ function finishIfDrained(state: BatchState, now: number) {
 // the stored batch, never from the client.
 export async function startWaitingWhatsAppCheck(db: D1Database, userId: string, now: number, { onlyProblems = false } = {}) {
   const { state, raw } = await readState(db, userId);
-  if (isActive(state)) return readWaitingWhatsAppCheckStatus(db, userId);
   const problemIds = new Set((state?.problems ?? []).map(problem => problem.chatId));
+  if (isActive(state)) return readWaitingWhatsAppCheckStatus(db, userId);
   const rows = await db.prepare(`SELECT c.id FROM chats c
     WHERE c.user_id=?1 AND c.platform='whatsapp' AND c.workflow_status='waiting'
       AND ${chatLeftAtSql('c')} IS NULL
@@ -230,7 +236,7 @@ export async function completeWaitingWhatsAppCheck(db: D1Database, userId: strin
   state.lastActivityAt = now;
   state.counts[applied] += 1;
   if (applied === 'failed') {
-    state.consecutiveFailed += 1;
+    if (!WAITING_CHECK_CHAT_REASONS.has(reason)) state.consecutiveFailed += 1;
     state.problems = [...state.problems, { chatId: input.chatId, name: chat?.name || input.observedName || input.chatId, reason }]
       .slice(-MAX_PROBLEMS);
     if (WAITING_CHECK_FATAL_REASONS.has(reason) || state.consecutiveFailed >= MAX_CONSECUTIVE_FAILURES) {

@@ -777,8 +777,11 @@ void test('executor token bridge survives a closed Discovery dialog via browser-
   const panel=await import('node:fs/promises').then(({readFile})=>readFile(new URL('../components/chat-discovery-executor-panel.tsx',import.meta.url),'utf8'));
   assert.match(source,/localStorage\.getItem\('work-os:executor-token:v1'\)/);
   assert.match(source,/stored\.startsWith\('wos_exec_'\)/);
-  assert.match(panel,/localStorage\.setItem\(EXECUTOR_TOKEN_STORAGE_KEY,nextToken\)/);
+  const storage=await import('node:fs/promises').then(({readFile})=>readFile(new URL('../lib/chat-discovery/executor-storage.ts',import.meta.url),'utf8'));
+  assert.match(panel,/storeExecutorToken\(nextToken,payload\.device\.id\)/);
   assert.match(panel,/EXECUTOR_DEVICE_STORAGE_KEY/);
+  assert.match(storage,/EXECUTOR_TOKEN_STORAGE_KEY = 'work-os:executor-token:v1'/);
+  assert.match(storage,/localStorage\.setItem\(EXECUTOR_TOKEN_STORAGE_KEY, token\)/);
 });
 
 
