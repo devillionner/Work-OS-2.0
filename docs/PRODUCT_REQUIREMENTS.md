@@ -1,3 +1,9 @@
+## 2026-10-01 — WhatsApp Waiting check parity addendum
+
+- «Перевірити зараз» on Platforms → WhatsApp → Очікування checks every due Waiting chat one by one, like Prototype Checker: joined → moves to «Для публікації», request still pending → +3 days, no request yet → the request is sent and the chat waits +3 days.
+- The check must never make a manual chat a Discovery candidate, never block its publication and never trigger automated leave.
+- A chat that cannot be classified is reported to the operator and must not block the remaining chats; three failures in a row or a fatal browser state stop the batch.
+
 ## 2026-09-30 — WhatsApp Waiting query correctness addendum
 
 - Waiting queries must never reference a physical `chats.left_at` column; leave state is derived from activity events through `chatLeftAtSql`.

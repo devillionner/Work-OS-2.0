@@ -32,7 +32,7 @@ export async function recordManualPublication(
   if (quickMode && !advertisementId)
     return { ok:false,error:'Для швидкої публікації оберіть матеріал.' };
   const discovery = await db.prepare(`SELECT decision FROM chat_discovery_candidates
-    WHERE user_id=?1 AND imported_chat_id=?2 ORDER BY updated_at DESC,id LIMIT 1`)
+    WHERE user_id=?1 AND imported_chat_id=?2 AND id NOT LIKE 'waiting-%' ORDER BY updated_at DESC,id LIMIT 1`)
     .bind(userId,chat.id).first<{ decision:string }>();
   if (discovery && discovery.decision !== 'target')
     return { ok:false,error:'Чат із автопошуку ще не пройшов кваліфікацію для публікації.' };
@@ -80,7 +80,7 @@ export async function recordManualPublication(
         AND (c.snoozed_until IS NULL OR c.snoozed_until<=?3)
         AND (c.platform!='telegram' OR c.joined_at IS NULL OR c.joined_at+21600<=?3)
         AND NOT EXISTS(SELECT 1 FROM chat_discovery_candidates dc
-          WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.decision!='target')
+          WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.decision!='target' AND dc.id NOT LIKE 'waiting-%')
         AND ${chatStateTokenSql()}=?9
         AND (?10=1 OR c.platform='viber' OR EXISTS(SELECT 1 FROM chat_profiles pr WHERE pr.chat_id=c.id AND pr.review_status='confirmed'))
         AND (?6 IS NULL OR EXISTS(SELECT 1 FROM library_items li

@@ -1,3 +1,14 @@
+## 2026-10-01 — WhatsApp Waiting check rebuilt to Prototype Checker parity
+
+- Root causes found in the candidate-based Waiting check (v0.2.84–v0.2.88):
+  - the browser adapter treated a visible «Request to join»/«Join» on a Waiting invite as `membership_not_confirmed`, so most chats could not be classified;
+  - a blocked task sent no callback, kept its `updated_at`, and with a one-task claim window stayed at the head of the queue (head-of-line block) until three repeats paused the whole batch;
+  - manual Waiting chats were enrolled as `waiting-*` Discovery candidates with decision `review`, so after approval they were blocked from publication and could be routed to Discovery qualification → automated leave.
+- The Waiting check no longer uses Discovery candidates. The operator batch is a snapshot of due WhatsApp Waiting chats stored in `user_settings` (`whatsapp_waiting_check_v1`); no migration is needed.
+- The local runner claims one chat at a time (`/api/chat-discovery/waiting-check/executor`, 120 s lease) and reports a factual outcome: joined → «Прийняли», pending → +3 days, «Request to join»/«Join» is pressed once (requested → +3 days), anything else is listed as a problem and the batch moves on. Three failures in a row or a fatal reason stop the batch; runtime problems (WhatsApp Web not logged in, CDP down, global loading) release the chat without counting a failure.
+- Existing `waiting-*` rows are left in D1 untouched but are ignored by the Discovery executor queue and by publication/autopost gates.
+- Evidence: local D1 regression tests only (`tests/chat-discovery-waiting-queue.test.mjs`). Live WhatsApp Web acceptance with the local runner is still pending.
+
 ## 2026-09-30 — WhatsApp Waiting root-cause fix v0.2.88
 
 - Confirmed root cause of the persistent staging 500 after v0.2.87: Waiting SQL still used `c.left_at` / `left_at` against `chats`, but that column does not exist; leave state is computed from activity events.

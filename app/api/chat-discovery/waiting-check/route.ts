@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
-import { readWaitingWhatsAppCheckStatus, startWaitingWhatsAppCheck, stopWaitingWhatsAppCheck } from '@/lib/chat-discovery/executor';
+import { readWaitingWhatsAppCheckStatus, startWaitingWhatsAppCheck, stopWaitingWhatsAppCheck, WaitingCheckError } from '@/lib/chats/whatsapp-waiting-check';
 
 function json(value:unknown,status=200){
   return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});
@@ -27,12 +27,10 @@ export async function POST(request:Request):Promise<Response>{
     if(body instanceof Response)return body;
     const now=Math.floor(Date.now()/1000);
     if(body.action==='start')return json(await startWaitingWhatsAppCheck(env.DB,user.id,now));
-    if(body.action==='stop'){
-      if(!Number.isSafeInteger(body.batchId)||Number(body.batchId)<=0)return json({error:'Некоректний пакет перевірки.'},400);
-      return json(await stopWaitingWhatsAppCheck(env.DB,user.id,Number(body.batchId),now));
-    }
+    if(body.action==='stop')return json(await stopWaitingWhatsAppCheck(env.DB,user.id,now));
     return json({error:'Невідома дія.'},400);
   }catch(error){
+    if(error instanceof WaitingCheckError)return json({error:error.message},error.status);
     console.error('WhatsApp waiting-check action failed',error instanceof Error?error.name:'unknown');
     return json({error:'Не вдалося запустити перевірку WhatsApp. Спробуйте ще раз.'},500);
   }

@@ -140,7 +140,10 @@ void test('persisted Discovery keeps membership, qualification and cleanup lifec
   assert.match(dialog, /Кваліфікувати вручну/);
   assert.match(dialog, /Work OS виходить із нього та архівує/);
   assert.match(route, /body\.action === 'inspect'/);
-  assert.match(executor, /platform='whatsapp' AND membership_state='pending'/);
+  // Pending WhatsApp memberships are rechecked by the operator Waiting batch, not by Discovery leases.
+  assert.doesNotMatch(executor, /membership_state='pending' AND checked_at<0/);
+  const waiting = await readFile(new URL('../lib/chats/whatsapp-waiting-check.ts', import.meta.url), 'utf8');
+  assert.match(waiting, /c\.platform='whatsapp' AND c\.workflow_status='waiting'/);
 });
 
 void test('Chat Discovery modal uses a wide split layout with independent candidate scrolling', async () => {

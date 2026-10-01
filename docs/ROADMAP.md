@@ -1,3 +1,11 @@
+## 2026-10-01 — WhatsApp Waiting check: Prototype Checker parity
+
+- [x] Replace the Discovery-candidate Waiting batch with a chat-level batch in `user_settings`.
+- [x] Runner checks one chat at a time; joined → approved, pending/requested → +3 days, problems are listed without blocking the rest.
+- [x] Press «Request to join»/«Join» on Waiting invites like Prototype Checker; Discovery join stays fail-closed.
+- [x] Neutralize retired `waiting-*` candidate rows in executor queue and publication gates.
+- [ ] Live acceptance with the local runner and WhatsApp Web.
+
 ## 2026-09-30 — WhatsApp Waiting SQL + stale-marker fix (v0.2.88)
 
 - [x] Replace invalid direct `chats.left_at` references with the canonical derived `chatLeftAtSql('c')` expression.

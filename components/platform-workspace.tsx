@@ -15,6 +15,7 @@ import type { BulkResult } from '@/lib/chats/bulk';
 import type { ChatProfile } from '@/lib/chats/profile';
 import { supportsChatLeaveChecklist } from '@/lib/chats/leave-policy';
 import { shouldSuggestChatArchive } from '@/lib/chats/snooze-history';
+import { EMPTY_WAITING_CHECK, parseWaitingCheckView, waitingCheckReasonLabel, waitingCheckRunnerOffline, waitingCheckSummary, type WaitingCheckView } from '@/lib/chats/whatsapp-waiting-check-copy';
 import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, ExternalLink, History, ImagePlus, Plus, RotateCcw, Search, Send, Settings2, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -41,7 +42,7 @@ type UndoState = UndoSpec & { chat:Chat; expiresAt:number };
 type ChatActionResult = { ok:true } | { ok:false; error:string; refresh:boolean };
 type TelegramAccount = { id:string; number:number; name:string; enabled:boolean; selected:boolean; joinStreak:number; joinBatchSize:number; breakMinutes:number; breakUntil:number|null };
 type PlatformConfirmation = { kind:'assign'; chat:Chat; nextId:string; currentName:string; nextName:string } | { kind:'return'; chat:Chat };
-type WaitingCheckResponse = { active?:boolean; remaining?:number; batchId?:number|null; queued?:number; stopped?:number; error?:string };
+type WaitingCheckResponse = Record<string,unknown> & { error?:string };
 
 async function readWaitingCheckResponse(response:Response):Promise<WaitingCheckResponse>{
   const raw=await response.text();
@@ -75,7 +76,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const [joinedTodayOpen,setJoinedTodayOpen]=useState(false);
   const [duplicatesOpen,setDuplicatesOpen]=useState(false);
   const [notice,setNotice]=useState('');
-  const [waitingCheck,setWaitingCheck]=useState<{running:boolean;remaining:number;batchId:number|null}>({running:false,remaining:0,batchId:null});
+  const [waitingCheck,setWaitingCheck]=useState<WaitingCheckView>(EMPTY_WAITING_CHECK);
   const [profileChat,setProfileChat]=useState<Chat|null>(null);
   const profileTrigger=useRef<HTMLButtonElement|null>(null);
   const [historyChat,setHistoryChat]=useState<Chat|null>(null);
@@ -262,12 +263,13 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       const response=await fetch('/api/chat-discovery/waiting-check',{cache:'no-store'});
       const body=await readWaitingCheckResponse(response);
       if(!response.ok)return;
-      const next={running:body.active===true,remaining:Math.max(0,Number(body.remaining)||0),batchId:Number.isSafeInteger(body.batchId)?Number(body.batchId):null};
+      const next=parseWaitingCheckView(body);
       setWaitingCheck(current=>{
-        if(current.running&&!next.running){
+        const progressed=next.counts.joined+next.counts.pending+next.counts.requested
+          !==current.counts.joined+current.counts.pending+current.counts.requested;
+        if((current.active&&!next.active)||(next.active&&progressed)){
           invalidateQueueCache('whatsapp');
           queueMicrotask(()=>void reloadChats.current(true));
-          setNotice('Перевірку завершено. Список WhatsApp оновлено.');
         }
         return next;
       });
@@ -280,10 +282,10 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   },[active,platform,queue,refreshWaitingCheck]);
 
   useEffect(()=>{
-    if(!active||platform!=='whatsapp'||queue!=='waiting'||!waitingCheck.running)return;
+    if(!active||platform!=='whatsapp'||queue!=='waiting'||!waitingCheck.active)return;
     const timer=window.setInterval(()=>void refreshWaitingCheck(),15_000);
     return()=>window.clearInterval(timer);
-  },[active,platform,queue,waitingCheck.running,refreshWaitingCheck]);
+  },[active,platform,queue,waitingCheck.active,refreshWaitingCheck]);
 
   async function changeWaitingCheck(action:'start'|'stop'){
     if(busy!==null)return;
@@ -291,19 +293,14 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     try{
       const response=await fetch('/api/chat-discovery/waiting-check',{
         method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({action,batchId:waitingCheck.batchId}),
+        body:JSON.stringify({action}),
       });
       const body=await readWaitingCheckResponse(response);
       if(!response.ok)throw new Error(body.error||`Не вдалося змінити перевірку (HTTP ${response.status}).`);
-      if(action==='start'){
-        const queued=Math.max(0,Number(body.queued)||0);
-        const batchId=Number(body.batchId)||null;
-        setWaitingCheck({running:queued>0,remaining:queued,batchId});
-        setNotice(queued?`Запущено перевірку ${queued} WhatsApp-чатів.`:'Немає заявок, які вже можна перевіряти.');
-      }else{
-        setWaitingCheck({running:false,remaining:0,batchId:null});
-        setNotice('Перевірку зупинено. Решту чатів не змінено.');
-      }
+      const next=parseWaitingCheckView(body);
+      setWaitingCheck(next);
+      if(action==='start')setNotice(next.active?`Запущено перевірку ${next.total} WhatsApp-чатів.`:'Немає заявок, які вже можна перевіряти (відкладені на +3 дні чекають свого часу).');
+      else setNotice('Перевірку зупинено. Решту чатів не змінено.');
       invalidateQueueCache('whatsapp');
       await reloadChats.current(true);
     }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося змінити перевірку.');}
@@ -655,13 +652,17 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       </div>
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- TODO: потребує зміни розмітки (docs/TODO.md) */}
       {queue==='waiting'&&platform==='whatsapp'&&<div className="platform-queue-context is-active" role="status">
-        <div><strong>Перевірка заявок WhatsApp</strong><span>{waitingCheck.running
-          ? `Work OS послідовно перевіряє чати. Залишилось: ${waitingCheck.remaining}.`
-          : 'Натисніть «Перевірити зараз». Підтверджені чати підуть у кваліфікацію, а заявки без відповіді будуть відкладені на 3 дні.'}</span></div>
+        <div><strong>Перевірка заявок WhatsApp</strong><span>{waitingCheck.active
+          ? `Перевірка ${Math.min(waitingCheck.total,waitingCheck.total-waitingCheck.remaining+1)}/${waitingCheck.total}${waitingCheck.currentName?`: ${waitingCheck.currentName}`:''} · ${waitingCheckSummary(waitingCheck)}`
+          : waitingCheck.finishedAt&&clock/1000-waitingCheck.finishedAt<12*3600
+            ? `Готово: ${waitingCheckSummary(waitingCheck)}${waitingCheck.stopReason?` · Зупинено — ${waitingCheck.stopReason}. Решту чатів не чіпаємо.`:''}`
+            : 'Натисніть «Перевірити зараз». Прийняті чати перейдуть у «Для публікації», заявки без відповіді відкладаються на 3 дні, а якщо заявки ще немає — її буде надіслано.'}</span>
+          {waitingCheckRunnerOffline(waitingCheck,Math.floor(clock/1000))&&<span>Локальний runner не забирає чати. Запустіть «npm run discovery:runner» з WORK_OS_WHATSAPP_CDP і відкритим WhatsApp Web.</span>}
+          {!waitingCheck.active&&waitingCheck.finishedAt!==null&&clock/1000-waitingCheck.finishedAt<12*3600&&waitingCheck.problems.length>0&&<span>Потребують уваги: {waitingCheck.problems.map(item=>`${item.name} — ${waitingCheckReasonLabel(item.reason)}`).join(' • ')}</span>}</div>
         <div className="lead-actions">
-          {waitingCheck.running&&<Badge variant="secondary">{waitingCheck.remaining} у черзі</Badge>}
-          <Button type="button" size="sm" variant={waitingCheck.running?'outline':'default'} disabled={busy!==null} onClick={()=>void changeWaitingCheck(waitingCheck.running?'stop':'start')}>
-            {waitingCheck.running?'Зупинити':'Перевірити зараз'}
+          {waitingCheck.active&&<Badge variant="secondary">{waitingCheck.remaining} у черзі</Badge>}
+          <Button type="button" size="sm" variant={waitingCheck.active?'outline':'default'} disabled={busy!==null} onClick={()=>void changeWaitingCheck(waitingCheck.active?'stop':'start')}>
+            {waitingCheck.active?'Зупинити':'Перевірити зараз'}
           </Button>
         </div>
       </div>}

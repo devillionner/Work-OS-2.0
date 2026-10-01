@@ -1244,6 +1244,11 @@ export function classifyWhatsAppSnapshot(task, snapshot) {
   }
 
   const requestButtonText = firstMatchingButton(snapshot, requestJoinPattern);
+  // Waiting check mirrors Prototype Checker: an invite that still offers "Request to join" means no
+  // request is pending, so the request is (re)sent and the chat stays in Waiting for three days.
+  if (requestButtonText && task.action === 'waiting_check') {
+    return { kind: 'action', action: 'request', buttonText: requestButtonText, observedName };
+  }
   if (requestButtonText && task.action === 'join_and_inspect') {
     return {
       kind:'result',
@@ -1260,7 +1265,7 @@ export function classifyWhatsAppSnapshot(task, snapshot) {
   }
 
   const joinButtonText = firstMatchingButton(snapshot, directJoinPattern);
-  if (joinButtonText && task.action === 'join_and_inspect') {
+  if (joinButtonText && (task.action === 'join_and_inspect' || task.action === 'waiting_check')) {
     return { kind: 'action', action: 'join', buttonText: joinButtonText, observedName };
   }
 
@@ -1581,7 +1586,7 @@ export async function resetWhatsappPageViaCdp({cdpBaseUrl}={}) {
 
 export async function inspectWhatsappTaskViaCdp(
   task,
-  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS } = {},
+  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS, enrich = true } = {},
 ) {
   if (task.runtime !== 'whatsapp_web' || task.platform !== 'whatsapp') {
     return { kind: 'blocked', reason: 'unsupported_runtime' };
@@ -1614,6 +1619,7 @@ export async function inspectWhatsappTaskViaCdp(
     const remainingBudget = () => Math.max(POLL_MS, operationDeadline - Date.now());
     const navigatedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);
     let currentTask = task;
+    const actions = [];
     let classified = await waitForClassification(client, currentTask, remainingBudget(), null, navigatedInviteCode);
     for (let step = 0; step < 3 && classified.kind === 'action'; step += 1) {
       const observedName = classified.observedName || currentTask.expectedTarget?.name || currentTask.name;
@@ -1623,16 +1629,58 @@ export async function inspectWhatsappTaskViaCdp(
         ? { ...currentTask, name:classified.observedName, expectedTarget:{ ...currentTask.expectedTarget, name:classified.observedName } }
         : currentTask;
       const action = classified.action;
+      actions.push(action);
       classified = await waitForClassification(client, observedTask, remainingBudget(), action, navigatedInviteCode);
       currentTask = observedTask;
     }
-    if (classified.kind === 'result' && classified.result.membershipState === 'joined' && classified.result.targetVerified === true) {
+    if (enrich && classified.kind === 'result' && classified.result.membershipState === 'joined' && classified.result.targetVerified === true) {
       classified = { kind:'result', result:await enrichJoinedQualification(client, currentTask, classified.result) };
     }
-    return classified;
+    return { ...classified, actions };
   } finally {
     client.close();
   }
+}
+
+// Problems of the local WhatsApp Web runtime, not of the checked chat: the chat goes back to the
+// queue and the runner backs off instead of reporting a chat failure.
+export const WAITING_CHECK_RUNTIME_REASONS = new Set([
+  'cdp_not_configured', 'cdp_not_local', 'cdp_websocket_not_local', 'unsupported_runtime',
+  'whatsapp_not_authenticated', 'page_not_ready', 'whatsapp_messages_loading',
+]);
+
+export function toWaitingCheckOutcome(outcome) {
+  if (outcome?.kind === 'blocked') {
+    const reason = String(outcome.reason || 'unknown');
+    return WAITING_CHECK_RUNTIME_REASONS.has(reason)
+      ? { kind: 'blocked', reason }
+      : { kind: 'result', status: 'failed', reason };
+  }
+  if (outcome?.kind !== 'result') return { kind: 'result', status: 'failed', reason: 'action_unconfirmed' };
+  const result = outcome.result || {};
+  const observedName = typeof result.observedName === 'string' ? result.observedName : undefined;
+  const actions = Array.isArray(outcome.actions) ? outcome.actions : [];
+  if (result.targetVerified === true && result.membershipState === 'joined') {
+    return { kind: 'result', status: 'joined', observedName };
+  }
+  if (result.targetVerified === true && result.membershipState === 'pending') {
+    return { kind: 'result', status: actions.length ? 'requested' : 'pending', observedName };
+  }
+  return { kind: 'result', status: 'failed', reason: String(result.reason || 'membership_not_confirmed'), observedName };
+}
+
+// One Waiting-tab chat, checked like Prototype Checker did: joined → approved, pending → +3 days,
+// "Join"/"Request to join" is pressed once and the factual state after the click is reported.
+export async function checkWhatsappWaitingInviteViaCdp(task, { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+  const outcome = await inspectWhatsappTaskViaCdp({
+    platform: 'whatsapp',
+    runtime: 'whatsapp_web',
+    action: 'waiting_check',
+    name: task.name,
+    link: task.link,
+    expectedTarget: { name: task.name, link: task.link },
+  }, { cdpBaseUrl, timeoutMs, enrich: false });
+  return toWaitingCheckOutcome(outcome);
 }
 
 async function findOrCreateWhatsappPage(base) {

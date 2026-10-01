@@ -28,7 +28,7 @@
 - [ ] `tests/chat-discovery-cloud.test.mjs:820` — archived unavailable WhatsApp history suppresses rediscovery and automatic rejoin in later runs
 - [ ] `tests/chat-discovery-cloud.test.mjs:1478` — joined inspection with unknown rules stays ready but explicitly needs qualification
 
-### `tests/chat-discovery-runner.test.mjs` (13)
+### `tests/chat-discovery-runner.test.mjs` (12)
 - [ ] `tests/chat-discovery-runner.test.mjs:140` — retry-later skips only the affected local candidate with short cooldown
 - [ ] `tests/chat-discovery-runner.test.mjs:149` — local retry-later skips only that invite and does not globally freeze WhatsApp preflight
 - [ ] `tests/chat-discovery-runner.test.mjs:162` — a single slow WhatsApp page cannot trap the browser-local queue forever
@@ -41,7 +41,6 @@
 - [ ] `tests/chat-discovery-runner.test.mjs:224` — blocked metadata candidates do not fill the active local source queue
 - [ ] `tests/chat-discovery-runner.test.mjs:231` — local Discovery direct-joins qualified invites without Page.navigate
 - [ ] `tests/chat-discovery-runner.test.mjs:262` — fresh local run clears inherited source wait
-- [ ] `tests/chat-discovery-runner.test.mjs:286` — waiting checks are operator batches and stop fail-closed on fatal or repeated errors
 
 ### `tests/chat-discovery-scan-gate.test.mjs` (1)
 - [ ] `tests/chat-discovery-scan-gate.test.mjs:5` — manual Telegram recovery stays tied to the planned query while autonomous source advancement is executor-owned

@@ -283,10 +283,14 @@ void test('source refill has only a short idle gap',()=>{
   assert.match(source,/LOCAL_SOURCE_MIN_MS=500/);
 });
 
-void test('waiting checks are operator batches and stop fail-closed on fatal or repeated errors',()=>{
-  assert.match(source,/waitingCheckBatchId/);
-  assert.match(source,/pause-waiting-check/);
-  assert.match(source,/WAITING_CHECK_FATAL_REASONS/);
-  assert.match(source,/waitingCheckConsecutiveFailures>=3/);
-  assert.match(source,/remaining chats were not changed/);
+void test('waiting checks are operator batches claimed one chat at a time and runtime problems release the chat',()=>{
+  const start=source.indexOf('async function runWaitingCheckOnce');
+  const block=source.slice(start,source.indexOf('async function runDiscoveryExecutorOnce',start));
+  assert.match(block,/api\('\/api\/chat-discovery\/waiting-check\/executor'\)/);
+  assert.match(block,/checkWhatsappWaitingInviteViaCdp\(task/);
+  assert.match(block,/action:'release'/);
+  assert.match(block,/action:'complete'/);
+  assert.doesNotMatch(source,/pause-waiting-check/);
+  const d1=source.slice(source.indexOf('async function runD1BackedTaskOnce'));
+  assert.ok(d1.indexOf('runWaitingCheckOnce')<d1.indexOf('runWhatsAppAutopostOnce'));
 });

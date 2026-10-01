@@ -1,4 +1,4 @@
-import { chatLeftAtSql, readChatState } from '../chats/state.ts';
+import { readChatState } from '../chats/state.ts';
 import { transitionChat } from '../chats/transitions.ts';
 import { changeChatLeave } from '../chats/leave.ts';
 import { supportsChatLeaveChecklist } from '../chats/leave-policy.ts';
@@ -26,7 +26,6 @@ export type DiscoveryExecutorTask = {
   expectedTarget: { name: string; link: string };
   safety: { requiresTargetVerification: true; unknownState: 'fail_closed' };
   leaseExpiresAt?: number;
-  waitingCheckBatchId?: number;
 };
 
 type CandidateTaskRow = {
@@ -46,13 +45,10 @@ type CandidateTaskRow = {
 // already stored in checked_at, so pacing needs no extra column (staging may lack newer migrations).
 const RETRY_AFTER_ATTEMPT_SECONDS = 300;
 const REINSPECT_JOINED_SECONDS = 600;
-// A batch marker on a chat that was archived or left can never produce a task; hide it so it cannot
-// keep the batch "active" forever or crowd live rows out of the LIMIT window.
-const LIVE_LINKED_CHAT_SQL = `EXISTS(
-  SELECT 1 FROM chats c
-  WHERE c.id=chat_discovery_candidates.imported_chat_id AND c.user_id=chat_discovery_candidates.user_id
-    AND c.workflow_status<>'archived' AND ${chatLeftAtSql('c')} IS NULL
-)`;
+// Rows with this id prefix were created only as carriers for the retired candidate-based Waiting
+// check (v0.2.84–v0.2.88). They are not Discovery results, so they must never drive automated
+// re-inspection or leave of the operator's own chats.
+export const RETIRED_WAITING_CHECK_CANDIDATE_SQL = `id LIKE 'waiting-%'`;
 
 
 export async function readDiscoveryExecutorQueue(
@@ -66,9 +62,9 @@ export async function readDiscoveryExecutorQueue(
     FROM chat_discovery_candidates
     WHERE user_id=?1 AND imported_chat_id IS NOT NULL AND membership_state<>'left'
       AND platform IN ('whatsapp','viber')
+      AND NOT (${RETIRED_WAITING_CHECK_CANDIDATE_SQL})
       AND (
         platform<>'whatsapp'
-        OR (membership_state='pending' AND checked_at<0 AND ${LIVE_LINKED_CHAT_SQL})
         OR (membership_state='not_checked'
           AND (checked_at IS NULL OR checked_at<=?2-${RETRY_AFTER_ATTEMPT_SECONDS}))
         OR (membership_state='joined' AND (
@@ -77,8 +73,7 @@ export async function readDiscoveryExecutorQueue(
             AND (checked_at IS NULL OR checked_at<=?2-${REINSPECT_JOINED_SECONDS}))
         ))
       )
-    ORDER BY CASE WHEN platform='whatsapp' AND membership_state='pending' THEN 0 ELSE 1 END,
-      CASE decision WHEN 'rejected' THEN 0 WHEN 'unavailable' THEN 0 WHEN 'review' THEN 1 ELSE 2 END,
+    ORDER BY CASE decision WHEN 'rejected' THEN 0 WHEN 'unavailable' THEN 0 WHEN 'review' THEN 1 ELSE 2 END,
       updated_at ASC,id
     LIMIT ?3`).bind(userId, now, limit).all<CandidateTaskRow>();
 
@@ -104,10 +99,6 @@ export async function readDiscoveryExecutorQueue(
       runtime: candidate.platform === 'whatsapp' ? 'whatsapp_web' : 'viber_native',
       expectedTarget: { name: candidate.name, link: candidate.normalized_link },
       safety: { requiresTargetVerification: true, unknownState: 'fail_closed' },
-      ...(candidate.platform === 'whatsapp' && candidate.membership_state === 'pending'
-        && candidate.checked_at !== null && candidate.checked_at < 0
-        ? { waitingCheckBatchId: Math.abs(candidate.checked_at) }
-        : {}),
     });
   }
   return { tasks, sourceAdvanceNeeded: false };
@@ -200,82 +191,6 @@ export async function completeDiscoveryExternalLeave(
   return { ok: true, candidateId: candidate.id, chatId: chat.id };
 }
 
-export async function startWaitingWhatsAppCheck(db:D1Database,userId:string,now:number){
-  await ensureWaitingWhatsAppCandidates(db,userId,now);
-  const batchId=Math.max(1,Math.floor(now));
-  const activated=await db.prepare(`UPDATE chat_discovery_candidates
-    SET membership_state='pending',inspection_state='not_checked',checked_at=?1,
-      executor_lease_device_id=NULL,executor_lease_expires_at=NULL,updated_at=?2,version=version+1
-    WHERE user_id=?3 AND platform='whatsapp' AND imported_chat_id IN (
-      SELECT c.id FROM chats c
-      WHERE c.user_id=?3 AND c.platform='whatsapp' AND c.workflow_status='waiting'
-        AND ${chatLeftAtSql('c')} IS NULL
-        AND (c.snoozed_until IS NULL OR c.snoozed_until<=?2)
-    )
-      AND (executor_lease_expires_at IS NULL OR executor_lease_expires_at<=?2)`)
-    .bind(-batchId,now,userId).run();
-  return {batchId,queued:Number(activated.meta.changes||0)};
-}
-
-export async function stopWaitingWhatsAppCheck(db:D1Database,userId:string,batchId:number,now:number){
-  const stopped=await db.prepare(`UPDATE chat_discovery_candidates
-    SET checked_at=NULL,executor_lease_device_id=NULL,executor_lease_expires_at=NULL,
-      updated_at=?1,version=version+1
-    WHERE user_id=?2 AND platform='whatsapp' AND membership_state='pending'
-      AND checked_at=?3`)
-    .bind(now,userId,-Math.abs(batchId)).run();
-  return {stopped:Number(stopped.meta.changes||0)};
-}
-
-export async function pauseWaitingWhatsAppCheckBatch(db:D1Database,userId:string,batchId:number,now:number){
-  return stopWaitingWhatsAppCheck(db,userId,batchId,now);
-}
-
-export async function readWaitingWhatsAppCheckStatus(db:D1Database,userId:string){
-  const row=await db.prepare(`SELECT COUNT(*) AS remaining,MIN(checked_at) AS marker
-    FROM chat_discovery_candidates
-    WHERE user_id=?1 AND platform='whatsapp' AND membership_state='pending' AND checked_at<0
-      AND ${LIVE_LINKED_CHAT_SQL}`)
-    .bind(userId).first<{remaining:number;marker:number|null}>();
-  const remaining=Number(row?.remaining||0);
-  return {active:remaining>0,remaining,batchId:row?.marker===null?null:Math.abs(Number(row?.marker))};
-}
-
-async function ensureWaitingWhatsAppCandidates(db:D1Database,userId:string,now:number){
-  await db.prepare(`INSERT OR IGNORE INTO chat_discovery_candidates(
-    id,user_id,platform,name,link,normalized_link,discovered_at,
-    membership_state,inspection_state,decision,reason_codes_json,
-    imported_chat_id,created_at,updated_at
-  )
-  SELECT 'waiting-' || c.id,c.user_id,'whatsapp',c.name,c.normalized_link,c.normalized_link,?2,
-    'pending','not_checked','review','[]',c.id,?2,?2
-  FROM chats c
-  WHERE c.user_id=?1 AND c.platform='whatsapp' AND c.workflow_status='waiting'
-    AND c.joined_at IS NULL AND ${chatLeftAtSql('c')} IS NULL
-    AND c.normalized_link LIKE 'https://chat.whatsapp.com/%'
-    AND NOT EXISTS(
-      SELECT 1 FROM chat_discovery_candidates dc
-      WHERE dc.user_id=c.user_id AND dc.platform='whatsapp' AND dc.normalized_link=c.normalized_link
-    )`).bind(userId,now).run();
-
-  await db.prepare(`UPDATE chat_discovery_candidates
-    SET imported_chat_id=(
-      SELECT c.id FROM chats c
-      WHERE c.user_id=?1 AND c.platform='whatsapp' AND c.workflow_status='waiting'
-        AND c.joined_at IS NULL AND ${chatLeftAtSql('c')} IS NULL
-        AND c.normalized_link=chat_discovery_candidates.normalized_link
-      ORDER BY c.updated_at,c.id LIMIT 1
-    ),
-      membership_state='pending',inspection_state='not_checked',
-      updated_at=?2,version=version+1
-    WHERE user_id=?1 AND platform='whatsapp' AND imported_chat_id IS NULL
-      AND EXISTS(
-        SELECT 1 FROM chats c
-        WHERE c.user_id=?1 AND c.platform='whatsapp' AND c.workflow_status='waiting'
-          AND c.joined_at IS NULL AND ${chatLeftAtSql('c')} IS NULL
-          AND c.normalized_link=chat_discovery_candidates.normalized_link
-      )`).bind(userId,now).run();
-}
 function deriveAction(candidate: CandidateTaskRow, workflowStatus: string): DiscoveryExecutorAction | null {
   if ((candidate.decision === 'rejected' || candidate.decision === 'unavailable') && candidate.membership_state === 'joined') {
     return supportsChatLeaveChecklist(candidate.platform) ? 'leave' : null;

@@ -246,7 +246,7 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
     chat.workflow_status!=='ready'?'Чат зараз не в черзі публікації.':'Чат відкладено; автопублікація зараз недоступна.',409
   );
   const discovery=await db.prepare(`SELECT decision FROM chat_discovery_candidates
-    WHERE user_id=?1 AND imported_chat_id=?2 ORDER BY updated_at DESC,id LIMIT 1`)
+    WHERE user_id=?1 AND imported_chat_id=?2 AND id NOT LIKE 'waiting-%' ORDER BY updated_at DESC,id LIMIT 1`)
     .bind(userId,chatId).first<{decision:string}>();
   if(discovery&&discovery.decision!=='target')throw new MessengerAutomationError('Чат із Discovery ще не підтверджений як target.',409);
   const published=await db.prepare(`SELECT id FROM chat_publications
@@ -336,7 +336,7 @@ export async function createWhatsAppAutopostBatch(
       AND NOT EXISTS(SELECT 1 FROM whatsapp_autopost_jobs j
         WHERE j.user_id=c.user_id AND j.chat_id=c.id AND j.published_on=?3 AND j.status IN ('pending','claimed'))
       AND NOT EXISTS(SELECT 1 FROM chat_discovery_candidates dc
-        WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.decision!='target')
+        WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.decision!='target' AND dc.id NOT LIKE 'waiting-%')
     ORDER BY c.updated_at DESC,c.id
     LIMIT ?4`).bind(userId,now,date,Math.min(200,limit*4)).all<{id:string}>();
 
@@ -398,7 +398,7 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,devic
     const publication=await db.prepare(`SELECT id FROM chat_publications
       WHERE user_id=?1 AND chat_id=?2 AND published_on=?3 LIMIT 1`).bind(userId,row.chat_id,row.published_on).first<{id:string}>();
     const discovery=await db.prepare(`SELECT decision FROM chat_discovery_candidates
-      WHERE user_id=?1 AND imported_chat_id=?2 ORDER BY updated_at DESC,id LIMIT 1`)
+      WHERE user_id=?1 AND imported_chat_id=?2 AND id NOT LIKE 'waiting-%' ORDER BY updated_at DESC,id LIMIT 1`)
       .bind(userId,row.chat_id).first<{decision:string}>();
     const selection=chat ? await readPublicationAdvertisementSelection(db,{userId,chatId:row.chat_id,date:row.published_on,excludeAutomationJobId:row.id}) : null;
     const selected=selection?.items.find(item=>item.id===row.advertisement_id);
