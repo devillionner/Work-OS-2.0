@@ -815,3 +815,34 @@ void test('waiting check presses the Ukrainian "Запит на приєднан
   );
   assert.deepEqual(result,{kind:'action',action:'request',buttonText:'Запит на приєднання',observedName:'Українці Варшава'});
 });
+
+const waitingTask={platform:'whatsapp',runtime:'whatsapp_web',action:'waiting_check',name:'РЕКЛАМА КОСТА ДЕЛЬ СОЛЬ',
+  link:'https://chat.whatsapp.com/JPcm0pzgpJ16vzaYRGKsAs',expectedTarget:{name:'РЕКЛАМА КОСТА ДЕЛЬ СОЛЬ',link:'https://chat.whatsapp.com/JPcm0pzgpJ16vzaYRGKsAs'}};
+
+void test('waiting check accepts a joined group whose WhatsApp name differs only by "#" or emoji on the exact invite',()=>{
+  const result=classifyWhatsAppSnapshot(waitingTask,{
+    url:'https://web.whatsapp.com/',navigatedInviteCode:'JPcm0pzgpJ16vzaYRGKsAs',
+    headerNames:['#РЕКЛАМА КОСТА ДЕЛЬ СОЛЬ'],headerTitles:[],buttons:[],composer:true,
+    bodyText:'#РЕКЛАМА КОСТА ДЕЛЬ СОЛЬ\nНапишіть повідомлення',
+  });
+  assert.equal(result.kind,'result');
+  assert.equal(result.result.membershipState,'joined');
+  assert.equal(result.result.observedName,'#РЕКЛАМА КОСТА ДЕЛЬ СОЛЬ');
+});
+
+void test('loose name matching never applies outside the exact invite',()=>{
+  const result=classifyWhatsAppSnapshot(waitingTask,{
+    url:'https://web.whatsapp.com/',headerNames:['#РЕКЛАМА КОСТА ДЕЛЬ СОЛЬ'],headerTitles:[],buttons:[],composer:true,
+    bodyText:'#РЕКЛАМА КОСТА ДЕЛЬ СОЛЬ',
+  });
+  assert.deepEqual(result,{kind:'blocked',reason:'target_not_verified'});
+});
+
+void test('waiting check reports a group the account was removed from',()=>{
+  const result=classifyWhatsAppSnapshot(waitingTask,{
+    url:'https://web.whatsapp.com/',navigatedInviteCode:'JPcm0pzgpJ16vzaYRGKsAs',headerNames:[],headerTitles:[],buttons:['Скасувати'],
+    bodyText:'Ви не можете приєднатися до цієї групи, оскільки вас було вилучено.\nСкасувати',
+  });
+  assert.equal(result.kind,'result');
+  assert.equal(result.result.reason,'whatsapp_removed_from_group');
+});

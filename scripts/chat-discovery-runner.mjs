@@ -579,6 +579,7 @@ async function runWaitingCheckOnce(){
     action:'complete',...target,status:outcome.status,reason:outcome.reason,observedName:outcome.observedName,
   })});
   console.log(`WhatsApp waiting check result: ${outcome.status}${outcome.reason?` (${outcome.reason})`:''}`);
+  if(outcome.diagnostic)console.log('WhatsApp waiting check diagnostic: '+JSON.stringify(outcome.diagnostic));
   nextCloudAutomationAt=0;
   return 'task';
 }

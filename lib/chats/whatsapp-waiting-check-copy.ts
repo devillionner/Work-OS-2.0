@@ -22,6 +22,7 @@ export const EMPTY_WAITING_CHECK: WaitingCheckView = {
 const REASONS: Record<string, string> = {
   invalid_whatsapp_link: 'посилання недійсне або скинуте',
   whatsapp_chat_missing: 'групи більше не існує',
+  whatsapp_removed_from_group: 'вас вилучили з цієї групи',
   whatsapp_join_retry_later: 'WhatsApp просить повторити пізніше',
   membership_left: 'ви вийшли з цієї групи',
   target_not_verified: 'не вдалося підтвердити, що відкрито саме цю групу',

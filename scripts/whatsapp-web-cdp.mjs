@@ -11,6 +11,7 @@ const authPattern = /(?:link with phone number|log in to whatsapp|увійти �
 const joinRetryLaterPattern = /(?:could(?:n['’]?t| not) join (?:this )?(?:group|community)|try again later|не вдалося приєднатися до (?:цієї )?(?:групи|спільноти)|повторіть спробу пізніше|не удалось присоединиться к (?:этой )?(?:группе|сообществу)|повторите попытку позже)/iu;
 const unavailablePatterns = [
   { pattern: /(?:invite link).*(?:invalid|reset|expired)|(?:недійсне|скинуте|прострочене).*(?:посилання|запрошення)|(?:недействительн|сброшен|истек).*(?:ссылк|приглашен)/iu, reason: 'invalid_whatsapp_link' },
+  { pattern: /(?:can['’]?t join this group because you were removed|(?:оскільки|бо) вас (?:було )?вилучено|(?:так как|потому что) вас (?:удалили|исключили))/iu, reason: 'whatsapp_removed_from_group' },
   { pattern: /(?:group).*(?:no longer available|does not exist)|(?:група).*(?:більше недоступна|не існує)|(?:группа).*(?:больше недоступна|не существует)/iu, reason: 'whatsapp_chat_missing' },
 ];
 
@@ -38,6 +39,10 @@ export function normalizeTargetLabel(value) {
     .replace(/\s+/gu, ' ')
     .trim()
     .toLocaleLowerCase('uk-UA');
+}
+
+function looseTargetLabel(value) {
+  return normalizeTargetLabel(value).replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
 function isGeneratedExpectedName(value) {
@@ -1119,6 +1124,15 @@ function exactTarget(snapshot, task) {
 
   if (!inviteContextMatches(snapshot, task)) return null;
 
+  // On the exact invite the code already identifies the group, so the name may differ only by
+  // emoji, "#" or punctuation that WhatsApp renders as images or the operator left out.
+  if (!isWeakExpectedName(expected)) {
+    const looseExpected = looseTargetLabel(expected);
+    const loose = looseExpected && [...(snapshot.headerNames || []), ...(snapshot.headerTitles || []), ...(snapshot.targetHeadings || []), ...(snapshot.targetTexts || [])]
+      .find((value) => looseTargetLabel(value) === looseExpected);
+    if (loose) return loose;
+  }
+
   const postInviteText = [snapshot.targetRegionText, snapshot.mainText, snapshot.bodyText].filter(Boolean).join('\n');
   if (snapshot.joinConfirmedAfterExactInvite === true || joinedViaInvitePattern.test(postInviteText) || leftPattern.test(postInviteText)) {
     const joinedHeader = (snapshot.headerNames || [])
@@ -1665,7 +1679,7 @@ export function toWaitingCheckOutcome(outcome) {
     const reason = String(outcome.reason || 'unknown');
     return WAITING_CHECK_RUNTIME_REASONS.has(reason)
       ? { kind: 'blocked', reason }
-      : { kind: 'result', status: 'failed', reason };
+      : { kind: 'result', status: 'failed', reason, diagnostic: outcome.diagnostic };
   }
   if (outcome?.kind !== 'result') return { kind: 'result', status: 'failed', reason: 'action_unconfirmed' };
   const result = outcome.result || {};
@@ -1766,6 +1780,8 @@ async function waitForClassification(client, task, timeoutMs, afterAction = null
       left:leftPattern.test(String(snapshot.bodyText||'')),
       joined:joinedViaInvitePattern.test(String(snapshot.bodyText||'')),
       composer:snapshot.composer===true,
+      buttons:(snapshot.buttons||[]).slice(0,12),
+      targetHeadings:(snapshot.targetHeadings||[]).slice(0,6),
     };
     if (navigatedInviteCode) snapshot.navigatedInviteCode = navigatedInviteCode;
     if (afterAction === 'join' && navigatedInviteCode && snapshot.composer === true && (snapshot.headerNames || []).length > 0) {
@@ -1785,7 +1801,7 @@ async function waitForClassification(client, task, timeoutMs, afterAction = null
     }
     await sleep(POLL_MS);
   }
-  if(last?.kind==='blocked'&&last.reason==='target_not_verified'&&diagnostic){
+  if(last?.kind==='blocked'&&['target_not_verified','membership_not_confirmed'].includes(last.reason)&&diagnostic){
     return {...last,diagnostic};
   }
   return last;
