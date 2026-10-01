@@ -1,6 +1,8 @@
 // Real WhatsApp invite resolution can exceed 20s before the factual join/retry modal appears.
 const DEFAULT_TIMEOUT_MS = 45_000;
 const POLL_MS = 400;
+// Stays below the server's 120s Waiting-check lease.
+const WAITING_CHECK_TIMEOUT_MS = 100_000;
 
 const pendingPattern = /(?:request(?: to join)? sent|request pending|запит (?:на вступ )?надіслано|запит очікує|заявк[ау] (?:на вступление )?отправлен[а]?|заявк[ау] ожидает)/iu;
 const approvalRequiredPattern = /(?:admin(?:istrator)? approval (?:is )?(?:required|turned on)|an admin (?:must|needs to) approve|request to join|потрібне схвалення адміністратор|адміністратор має схвалити|потрібно подати запит на вступ|требуется одобрение администратора|администратор должен одобрить|нужно отправить запрос на вступление)/iu;
@@ -1586,7 +1588,7 @@ export async function resetWhatsappPageViaCdp({cdpBaseUrl}={}) {
 
 export async function inspectWhatsappTaskViaCdp(
   task,
-  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS, enrich = true } = {},
+  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS, enrich = true, waitThroughLoading = false } = {},
 ) {
   if (task.runtime !== 'whatsapp_web' || task.platform !== 'whatsapp') {
     return { kind: 'blocked', reason: 'unsupported_runtime' };
@@ -1613,14 +1615,23 @@ export async function inspectWhatsappTaskViaCdp(
         &&currentUrl.pathname===targetParsed.pathname
         &&currentUrl.searchParams.get('code')===targetParsed.searchParams.get('code');
     }catch{}
-    if(!alreadyOnExactInvite)await client.send('Page.navigate',{url:targetUrl});
-
     const operationDeadline = Date.now() + timeoutMs;
+    // Navigating while WhatsApp Web syncs messages restarts the sync, so retries would never let it finish.
+    if(!alreadyOnExactInvite){
+      while(shouldDeferForGlobalWhatsAppLoading(await readSnapshot(client).catch(()=>null))){
+        if(!waitThroughLoading||Date.now()+POLL_MS>=operationDeadline){
+          return {kind:'blocked',reason:'whatsapp_messages_loading',diagnostic:{url:String(page.url||''),globalLoading:true,beforeNavigate:true}};
+        }
+        await sleep(POLL_MS);
+      }
+      await client.send('Page.navigate',{url:targetUrl});
+    }
+
     const remainingBudget = () => Math.max(POLL_MS, operationDeadline - Date.now());
     const navigatedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);
     let currentTask = task;
     const actions = [];
-    let classified = await waitForClassification(client, currentTask, remainingBudget(), null, navigatedInviteCode);
+    let classified = await waitForClassification(client, currentTask, remainingBudget(), null, navigatedInviteCode, waitThroughLoading);
     for (let step = 0; step < 3 && classified.kind === 'action'; step += 1) {
       const observedName = classified.observedName || currentTask.expectedTarget?.name || currentTask.name;
       const clicked = await clickExactButton(client, classified.buttonText, observedName);
@@ -1671,7 +1682,9 @@ export function toWaitingCheckOutcome(outcome) {
 
 // One Waiting-tab chat, checked like Prototype Checker did: joined → approved, pending → +3 days,
 // "Join"/"Request to join" is pressed once and the factual state after the click is reported.
-export async function checkWhatsappWaitingInviteViaCdp(task, { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+// Opening an invite reloads WhatsApp Web, which then re-syncs messages for tens of seconds on a large
+// account; the check waits that sync out instead of giving up and reloading again on every retry.
+export async function checkWhatsappWaitingInviteViaCdp(task, { cdpBaseUrl, timeoutMs = WAITING_CHECK_TIMEOUT_MS } = {}) {
   const outcome = await inspectWhatsappTaskViaCdp({
     platform: 'whatsapp',
     runtime: 'whatsapp_web',
@@ -1679,7 +1692,7 @@ export async function checkWhatsappWaitingInviteViaCdp(task, { cdpBaseUrl, timeo
     name: task.name,
     link: task.link,
     expectedTarget: { name: task.name, link: task.link },
-  }, { cdpBaseUrl, timeoutMs, enrich: false });
+  }, { cdpBaseUrl, timeoutMs, enrich: false, waitThroughLoading: true });
   return toWaitingCheckOutcome(outcome);
 }
 
@@ -1722,7 +1735,7 @@ export function shouldDeferForGlobalWhatsAppLoading(snapshot) {
     && (!Array.isArray(snapshot?.targetHeadings)||snapshot.targetHeadings.length===0);
 }
 
-async function waitForClassification(client, task, timeoutMs, afterAction = null, navigatedInviteCode = null) {
+async function waitForClassification(client, task, timeoutMs, afterAction = null, navigatedInviteCode = null, waitThroughLoading = false) {
   const deadline = Date.now() + timeoutMs;
   let last = { kind: 'blocked', reason: 'page_not_ready' };
   let diagnostic = null;
@@ -1731,7 +1744,12 @@ async function waitForClassification(client, task, timeoutMs, afterAction = null
     const snapshot = await readSnapshot(client);
     if(shouldDeferForGlobalWhatsAppLoading(snapshot)){
       if(!loadingSince)loadingSince=Date.now();
-      if(Date.now()-loadingSince>=1_200){
+      if(waitThroughLoading&&Date.now()+POLL_MS<deadline){
+        last={kind:'blocked',reason:'whatsapp_messages_loading'};
+        await sleep(POLL_MS);
+        continue;
+      }
+      if(waitThroughLoading||Date.now()-loadingSince>=1_200){
         return {
           kind:'blocked',
           reason:'whatsapp_messages_loading',

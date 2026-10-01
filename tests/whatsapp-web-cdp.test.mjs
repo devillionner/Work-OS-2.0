@@ -788,3 +788,17 @@ void test('localized admin-only evidence overrides stale writable invite metadat
   assert.match(source,/before\.adminOnly===true\?false/);
   assert.ok(source.indexOf('...preflightFacts')<source.indexOf('canWrite:liveCanWrite'));
 });
+
+void test('waiting check does not reload WhatsApp Web while it is still syncing messages',()=>{
+  const guardAt=source.indexOf('while(shouldDeferForGlobalWhatsAppLoading(await readSnapshot(client).catch(()=>null))){');
+  const navigateAt=source.indexOf("await client.send('Page.navigate',{url:targetUrl});",guardAt);
+  assert.ok(guardAt>0&&navigateAt>guardAt);
+  assert.match(source,/beforeNavigate:true/);
+});
+
+void test('waiting check waits out the WhatsApp sync caused by opening the invite within the server lease',()=>{
+  assert.match(source,/const WAITING_CHECK_TIMEOUT_MS = 100_000;/);
+  assert.match(source,/enrich: false, waitThroughLoading: true \}\);/);
+  assert.match(source,/if\(waitThroughLoading&&Date\.now\(\)\+POLL_MS<deadline\)\{/);
+  assert.match(source,/waitForClassification\(client, currentTask, remainingBudget\(\), null, navigatedInviteCode, waitThroughLoading\)/);
+});
