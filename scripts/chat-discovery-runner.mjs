@@ -117,6 +117,8 @@ async function refreshExecutorTokenIfNeeded(){
 async function api(path,init={}){
   const response=await fetch(baseUrl+path,{...init,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json',...init.headers}});
   const body=await response.json().catch(()=>({}));
+  // A revoked or recreated executor token is re-read from the Work OS page instead of retrying it forever.
+  if(response.status===401&&process.argv.includes('--token-from-work-os-page')){token='';nextTokenResolveAt=0;}
   if(!response.ok) throw new Error(body.error||`Work OS HTTP ${response.status}`);
   return body;
 }

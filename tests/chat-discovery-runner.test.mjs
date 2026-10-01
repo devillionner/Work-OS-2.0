@@ -158,6 +158,10 @@ void test('background runner can acquire the Work OS executor token after Opera 
   assert.match(source,/TOKEN_REFRESH_MS=60000/);
 });
 
+void test('runner re-reads a revoked executor token from the Work OS page instead of retrying it forever',()=>{
+  assert.match(source,/response\.status===401&&process\.argv\.includes\('--token-from-work-os-page'\)\)\{token='';nextTokenResolveAt=0;\}/);
+});
+
 
 void test('a single slow WhatsApp page cannot trap the browser-local queue forever',()=>{
   assert.match(source,/inspected\.reason==='page_not_ready'/);
