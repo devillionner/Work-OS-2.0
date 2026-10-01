@@ -105,6 +105,23 @@ export async function readDiscoveryExecutorQueue(
 }
 
 
+// The queue read scans the owner's candidates, so an empty answer is remembered for a few minutes:
+// repeated polls then cost one settings row no matter how often a runner asks. Any operator
+// Discovery action wakes the queue immediately.
+const QUEUE_IDLE_SETTING_KEY = 'discovery_executor_queue_idle_until_v1';
+export const DISCOVERY_QUEUE_IDLE_SECONDS = 180;
+
+async function discoveryQueueIdleUntil(db: D1Database, userId: string) {
+  const row = await db.prepare(`SELECT value_json FROM user_settings WHERE user_id=?1 AND setting_key=?2 LIMIT 1`)
+    .bind(userId, QUEUE_IDLE_SETTING_KEY).first<{ value_json: string }>();
+  const until = Number(row?.value_json);
+  return Number.isSafeInteger(until) ? until : 0;
+}
+
+export async function wakeDiscoveryExecutorQueue(db: D1Database, userId: string) {
+  await db.prepare(`DELETE FROM user_settings WHERE user_id=?1 AND setting_key=?2`).bind(userId, QUEUE_IDLE_SETTING_KEY).run();
+}
+
 export async function claimDiscoveryExecutorQueue(
   db: D1Database,
   userId: string,
@@ -114,7 +131,14 @@ export async function claimDiscoveryExecutorQueue(
 ): Promise<{ tasks: DiscoveryExecutorTask[]; leaseSeconds: number; sourceAdvanceNeeded: boolean }> {
   const leaseSeconds = 90;
   const limit = boundedLimit(limitInput);
+  if (await discoveryQueueIdleUntil(db, userId) > now) return { tasks: [], leaseSeconds, sourceAdvanceNeeded: false };
   const queue = await readDiscoveryExecutorQueue(db, userId, limit, now);
+  if (!queue.tasks.length) {
+    await db.prepare(`INSERT INTO user_settings(user_id,setting_key,value_json,source_import_id,updated_at)
+      VALUES (?1,?2,?3,NULL,?4)
+      ON CONFLICT(user_id,setting_key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at`)
+      .bind(userId, QUEUE_IDLE_SETTING_KEY, String(now + DISCOVERY_QUEUE_IDLE_SECONDS), now).run();
+  }
   const tasks: DiscoveryExecutorTask[] = [];
   for (const task of queue.tasks) {
     if (tasks.length >= limit) break;

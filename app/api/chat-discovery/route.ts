@@ -4,7 +4,7 @@ import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { readChatState } from '@/lib/chats/state';
 import { transitionChat } from '@/lib/chats/transitions';
 import { applyDiscoveryInspection } from '@/lib/chat-discovery/inspection';
-import { completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '@/lib/chat-discovery/executor';
+import { completeDiscoveryExternalLeave, readDiscoveryExecutorQueue, wakeDiscoveryExecutorQueue } from '@/lib/chat-discovery/executor';
 import { createDiscoveryExecutorDevice, listDiscoveryExecutorDevices, revokeDiscoveryExecutorDevice } from '@/lib/chat-discovery/executor-auth';
 import {
   DiscoveryError,
@@ -101,6 +101,8 @@ export async function POST(request: Request): Promise<Response> {
   const now = Math.floor(Date.now() / 1000);
 
   try {
+    // Operator Discovery actions can create executor work; let the runner see it on its next poll.
+    if (body.action !== 'pair-executor' && body.action !== 'revoke-executor') await wakeDiscoveryExecutorQueue(env.DB, user.id);
     if (body.action === 'pair-executor') {
       return json(await createDiscoveryExecutorDevice(env.DB, user.id, body.name, now));
     }

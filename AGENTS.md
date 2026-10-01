@@ -8,3 +8,4 @@
 - Production deployment is a separate controlled release after local verification; production migrations require their own explicit authorization. A CLI flag is not user authorization.
 - Finish the reliable manual workflow before AI, advertisement generation or autoposting. Keep these later phases out of the daily UI.
 - Record implementation gaps honestly: code, a successful local test and a deployed/accepted feature are different evidence.
+- D1 reads are a hard daily quota. Anything polled on a timer (runner loops, page refresh intervals) must stay bounded in rows read regardless of data size: add or extend a case in `tests/d1-poll-budget.test.mjs`, and never poll an owner-wide scan more often than its server-side throttle allows.
