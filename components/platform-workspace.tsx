@@ -17,6 +17,8 @@ import { supportsChatLeaveChecklist } from '@/lib/chats/leave-policy';
 import { shouldSuggestChatArchive } from '@/lib/chats/snooze-history';
 import { EMPTY_WAITING_CHECK, parseWaitingCheckView, type WaitingCheckView } from '@/lib/chats/whatsapp-waiting-check-copy';
 import { WhatsappWaitingCheckPanel, type WaitingCheckAction } from '@/components/whatsapp-waiting-check-panel';
+import { TelegramSelectedChats } from '@/components/telegram-selected-chats';
+import type { SelectedChatsView } from '@/lib/chats/telegram-selected';
 import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, ExternalLink, History, ImagePlus, Plus, RotateCcw, Search, Send, Settings2, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,7 +33,7 @@ import { WorkspaceInitialLoading } from '@/components/workspace-load-state';
 
 type Platform = 'telegram' | 'whatsapp' | 'viber' | 'facebook';
 type WorkflowQueue = 'to_join' | 'waiting' | 'ready' | 'archived';
-type Queue = WorkflowQueue | 'profile_review';
+type Queue = WorkflowQueue | 'profile_review' | 'selected';
 type ProfileFilter = 'all' | 'needs_review';
 type Chat = { id:string; name:string; link:string; platform:Platform; status:WorkflowQueue; archiveReason:string|null; archivedAt:number|null; profileConfirmed:boolean; profile:ChatProfile; publishedToday:boolean; joinedAt:number|null; snoozedUntil:number|null; snoozeCount:number; leftAt:number|null; availableAt:number|null; availableNow:boolean; telegramAccountId:string|null; stateToken:string; discoveryDecision:'review'|'target'|'rejected'|'unavailable'|null; autopostJobId:string|null };
 type ProfileCounts = { confirmed:number; draft:number; empty:number; needsReview:number };
@@ -226,6 +228,8 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
 
   const load = useCallback(async (silent=false) => {
     activeLoad.current?.abort();
+    // «Відібрані» is a separate reference list with its own endpoint, not a chat queue.
+    if(queue==='selected'){setLoading(false);return;}
     const controller=new AbortController(); activeLoad.current=controller;
     const requestNumber=++loadNumber.current;
     const cached=viewCache.current.get(requestKey)||null;
@@ -258,6 +262,22 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   },[syncRevision,businessDate,platform,loadAccounts,invalidateQueueCache,active]);
 
   useEffect(()=>{if(!notice)return;const delay=undo?Math.max(0,undo.expiresAt-Date.now()):8000;const timer=setTimeout(()=>{setNotice('');setUndo(null);},delay);return()=>clearTimeout(timer);},[notice,undo]);
+
+  const [selectedChats,setSelectedChats]=useState<SelectedChatsView|null>(null);
+  const [selectedChatsFailed,setSelectedChatsFailed]=useState(false);
+  useEffect(()=>{
+    if(!active||platform!=='telegram')return;
+    let cancelled=false;
+    fetch('/api/chats/telegram-selected',{cache:'no-store'})
+      .then(async response=>({ok:response.ok,body:await response.json().catch(()=>null) as SelectedChatsView|null}))
+      .then(({ok,body})=>{
+        if(cancelled)return;
+        if(ok&&body&&Array.isArray(body.items)){setSelectedChats(body);setSelectedChatsFailed(false);}
+        else setSelectedChatsFailed(true);
+      })
+      .catch(()=>{if(!cancelled)setSelectedChatsFailed(true);});
+    return()=>{cancelled=true;};
+  },[active,platform]);
 
   const refreshWaitingCheck=useCallback(async()=>{
     try{
@@ -652,6 +672,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     <section className="platform-browser">
       <div className="queue-tabs" role="tablist" aria-label="Черга чатів">
         {queues.filter(item=>platform!=='viber'||item.key!=='profile_review').map(item=><button type="button" key={item.key} role="tab" aria-selected={queue===item.key} tabIndex={queue===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{if(item.key!=='ready'){setQuickPublishMode(false);setQuickAdvertisementId(null);}setQueue(item.key);setProfileFilter('all');setOffset(0)}}>{item.label}<span>{data?.counts[item.key] || 0}</span></button>)}
+        {platform==='telegram'&&<button type="button" role="tab" aria-selected={queue==='selected'} tabIndex={queue==='selected'?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{setQuickPublishMode(false);setQuickAdvertisementId(null);setQueue('selected');setProfileFilter('all');setOffset(0)}}>Відібрані<span>{selectedChats?.items.length||0}</span></button>}
       </div>
       {queue==='waiting'&&platform==='whatsapp'&&<WhatsappWaitingCheckPanel view={waitingCheck} nowSeconds={Math.floor(clock/1000)} busy={busy!==null} onAction={action=>void changeWaitingCheck(action)}/>}
       {queue==='ready'&&(platform==='whatsapp'||platform==='viber')&&<div className={'platform-queue-context '+(quickPublishMode?'is-active':'')}>
@@ -691,6 +712,12 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
             : <p className="joined-today-empty">{`Сьогодні ще немає актуальних ${selected.label}-чатів, у які приєдналися.`}</p>}
         </div>}
       </section>}
+      {queue==='selected'&&platform==='telegram'
+        ? <TelegramSelectedChats view={selectedChats} loading={!selectedChats&&!selectedChatsFailed} onImported={setSelectedChats} onAdded={link=>{
+            setSelectedChats(current=>current&&{...current,items:current.items.map(item=>item.link===link&&!item.status?{...item,status:'to_join'}:item)});
+            invalidateQueueCache('telegram');
+          }}/>
+        : <>
       <div className="chat-toolbar">
         <label htmlFor="chat-search"><Search/><Input id="chat-search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Пошук за назвою або посиланням"/><span className="sr-only">Пошук чатів</span></label>
         {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- TODO: потребує зміни розмітки (docs/TODO.md) */}
@@ -724,6 +751,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
         {data.chats.length>mobileVisibleChats&&<div className="mobile-list-more"><Button type="button" variant="outline" onClick={()=>setMobileListState({key:mobileListKey,count:Math.min(mobileVisibleChats+MOBILE_LIST_CHUNK,data.chats.length)})}>Показати ще чати</Button></div>}
       </>:<div className="workspace-empty"><MessageSquareEmpty/><strong>{queue==='profile_review'?'Усі профілі уточнено':'У цій черзі нічого немає'}</strong><p>{queue==='profile_review'?'Чернеток і чатів без підтверджених правил тут більше немає.':'Зміни платформу, чергу або очисть пошук.'}</p></div>}
       {!loading&&data&&data.total>50&&<div className="chat-pagination"><Button variant="outline" size="sm" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-50))}><ChevronLeft data-icon="inline-start"/>Назад</Button><span>{offset+1}–{Math.min(offset+50,data.total)} із {data.total}</span><Button variant="outline" size="sm" disabled={offset+50>=data.total} onClick={()=>setOffset(offset+50)}>Далі<ChevronRight data-icon="inline-end"/></Button></div>}
+        </>}
     </section>
   </div>;
 }
