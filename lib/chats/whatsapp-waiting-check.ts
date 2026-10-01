@@ -125,7 +125,7 @@ export async function stopWaitingWhatsAppCheck(db: D1Database, userId: string, n
   if (!isActive(state)) return readWaitingWhatsAppCheckStatus(db, userId);
   state.queue = [];
   state.current = null;
-  state.stopReason = 'Зупинено вручну.';
+  state.stopReason = 'зупинено вручну';
   state.finishedAt = now;
   await writeState(db, userId, raw, state, now);
   return readWaitingWhatsAppCheckStatus(db, userId);

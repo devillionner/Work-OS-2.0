@@ -657,7 +657,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
           : waitingCheck.finishedAt&&clock/1000-waitingCheck.finishedAt<12*3600
             ? `Готово: ${waitingCheckSummary(waitingCheck)}${waitingCheck.stopReason?` · Зупинено — ${waitingCheck.stopReason}. Решту чатів не чіпаємо.`:''}`
             : 'Натисніть «Перевірити зараз». Прийняті чати перейдуть у «Для публікації», заявки без відповіді відкладаються на 3 дні, а якщо заявки ще немає — її буде надіслано.'}</span>
-          {waitingCheckRunnerOffline(waitingCheck,Math.floor(clock/1000))&&<span>Локальний runner не забирає чати. Запустіть «npm run discovery:runner» з WORK_OS_WHATSAPP_CDP і відкритим WhatsApp Web.</span>}
+          {waitingCheckRunnerOffline(waitingCheck,Math.floor(clock/1000))&&<span>Локальний runner не забирає чати. Запустіть у терміналі ./scripts/whatsapp-runner.sh і залиште відкритим WhatsApp Web у його вікні браузера.</span>}
           {!waitingCheck.active&&waitingCheck.finishedAt!==null&&clock/1000-waitingCheck.finishedAt<12*3600&&waitingCheck.problems.length>0&&<span>Потребують уваги: {waitingCheck.problems.map(item=>`${item.name} — ${waitingCheckReasonLabel(item.reason)}`).join(' • ')}</span>}</div>
         <div className="lead-actions">
           {waitingCheck.active&&<Badge variant="secondary">{waitingCheck.remaining} у черзі</Badge>}
