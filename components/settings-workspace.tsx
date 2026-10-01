@@ -37,6 +37,7 @@ export function SettingsWorkspace({ user, snapshot, active=true, onRefresh }: Pr
   const lastSnapshotPlatformsKey=useRef(snapshotPlatformsKey);
   useEffect(()=>{
     if(active)return;
+    // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
     setFocusOpen(false);
     setGoalHistoryOpen(false);
     setUpdatePreviewOpen(false);

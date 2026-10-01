@@ -117,7 +117,7 @@ void test('legacy Brave rate-limit source stop is narrowly recoverable',async()=
   assert.match(block,/sourceFailures:0/u);
 });
 
-void test('global WhatsApp message loading is deferred without burning the full invite timeout',()=>{
+void test('global WhatsApp message loading is deferred without burning the full invite timeout',async()=>{
   assert.equal(shouldDeferForGlobalWhatsAppLoading({
     bodyText:'WhatsApp — Messages are loading. Keep this window open.',composer:false,headerNames:[],targetHeadings:[],
   }),true);
@@ -357,7 +357,7 @@ void test('metadata failure defers candidate without opening the heavy WhatsApp 
   const start=source.indexOf('async function processLocalPreflight');
   const end=source.indexOf('async function resolveLocalSourceSeedData',start);
   const process=source.slice(start,end);
-  assert.match(process,/queried\?\.kind!==\'result\'/u);
+  assert.match(process,/queried\?\.kind!=='result'/u);
   assert.match(process,/METADATA_RETRY_COOLDOWN_MS/u);
   assert.match(process,/deferred so another candidate can continue/u);
   const metadataFailure=process.indexOf("queried?.kind!=='result'");
@@ -548,10 +548,10 @@ void test('Telegram directory prioritizes Ukrainian WhatsApp-aware sources and d
 });
 
 void test('source feedback rewards viable-size writable supply even while factual qualification is incomplete',async()=>{
-  const module=await import('../scripts/chat-discovery-source-crawl.mjs?feedback='+Date.now());
+  const crawlModule=await import('../scripts/chat-discovery-source-crawl.mjs?feedback='+Date.now());
   const sourceUrl='https://t.me/s/viable_feedback_test';
-  module.discoverRelatedTelegramSources('<a href="https://t.me/viable_feedback_test">Українці community</a>','https://t.me/s/root','Test','Українці');
-  assert.doesNotThrow(()=>module.recordDiscoverySourceOutcome(
+  crawlModule.discoverRelatedTelegramSources('<a href="https://t.me/viable_feedback_test">Українці community</a>','https://t.me/s/root','Test','Українці');
+  assert.doesNotThrow(()=>crawlModule.recordDiscoverySourceOutcome(
     [{sourceUrl}], 'unavailable', ['qualification_incomplete','unknown_ads_allowed'],
     {memberCount:900,canWrite:true,topicMatch:'match',activityState:'active'}
   ));
@@ -641,10 +641,10 @@ void test('Lyzem source discovery keeps Ukrainian Telegram sources and drops bot
 });
 
 void test('empty TG.ME supply can use Lyzem to discover a Telegram source before Brave',async()=>{
-  const module=await import('../scripts/chat-discovery-source-crawl.mjs?lyzem='+Date.now());
+  const crawlModule=await import('../scripts/chat-discovery-source-crawl.mjs?lyzem='+Date.now());
   const foundInvite='https://chat.whatsapp.com/LyzemUaBerlin12345';
   let braveCalls=0,lyzemCalls=0;
-  const result=await module.crawlLocalDiscoverySource(15,{seedData,fetcher:async url=>{
+  const result=await crawlModule.crawlLocalDiscoverySource(15,{seedData,fetcher:async url=>{
     const value=String(url);
     if(value.includes('tg.me/search'))return response('<html>No directory matches</html>');
     if(value.includes('lyzem.com/search')){
@@ -663,9 +663,9 @@ void test('empty TG.ME supply can use Lyzem to discover a Telegram source before
 });
 
 void test('empty Lyzem remains non-fatal and preserves Brave as final fallback',async()=>{
-  const module=await import('../scripts/chat-discovery-source-crawl.mjs?lyzem-empty='+Date.now());
+  const crawlModule=await import('../scripts/chat-discovery-source-crawl.mjs?lyzem-empty='+Date.now());
   let braveCalls=0,lyzemCalls=0;
-  const result=await module.crawlLocalDiscoverySource(15,{seedData,fetcher:async url=>{
+  const result=await crawlModule.crawlLocalDiscoverySource(15,{seedData,fetcher:async url=>{
     const value=String(url);
     if(value.includes('tg.me/search'))return response('<html>No directory matches</html>');
     if(value.includes('lyzem.com/search')){lyzemCalls++;return response('<html>No Lyzem matches</html>');}
@@ -679,9 +679,9 @@ void test('empty Lyzem remains non-fatal and preserves Brave as final fallback',
 });
 
 void test('Lyzem WhatsApp URLs are never ingested directly without a verified Telegram source read',async()=>{
-  const module=await import('../scripts/chat-discovery-source-crawl.mjs?lyzem-direct='+Date.now());
+  const crawlModule=await import('../scripts/chat-discovery-source-crawl.mjs?lyzem-direct='+Date.now());
   const noisyInvite='https://chat.whatsapp.com/NoisyDirectLyzem99';
-  const result=await module.crawlLocalDiscoverySource(15,{seedData,fetcher:async url=>{
+  const result=await crawlModule.crawlLocalDiscoverySource(15,{seedData,fetcher:async url=>{
     const value=String(url);
     if(value.includes('tg.me/search'))return response('<html>No directory matches</html>');
     if(value.includes('lyzem.com/search'))return response(

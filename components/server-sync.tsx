@@ -26,6 +26,7 @@ export function ServerSync() {
   const lastRefreshAt = useRef(0);
   const businessDateRef = useRef(readKyivBusinessDate());
 
+  // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
   const checkRevision = useCallback(async (reason: DataSyncDetail['reason']): Promise<SyncCheckResult> => {
     if (checkingRef.current) {
       if (reason !== 'poll') pendingCheckRef.current = reason;

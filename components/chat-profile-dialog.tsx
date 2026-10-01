@@ -20,6 +20,7 @@ export function ChatProfileDialog({open,chat,onClose,onSaved,onOpenChat,finalFoc
   const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const gate=useRef(createActionGate());
   useEffect(()=>{
     if(!open||!chat)return;
+    // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
     setName(chat.name);
     setLanguage(chat.profile.language||'');
     setCadence(chat.profile.cadence||'any');

@@ -41,6 +41,6 @@ void test('Viber ready UI exposes publish without profile workflow gates',async(
   assert.match(workspace,/chat\.platform!=='viber'/);
   assert.match(workspace,/chat\.platform==='viber'&&canPublish\(chat,clock\)\)return 'Опублікувати'/);
   assert.match(workspace,/queues\.filter\(item=>platform!=='viber'\|\|item\.key!=='profile_review'\)/);
-  assert.match(workspace,/\(queue==='waiting'\|\|queue==='ready'\)\&\&platform!=='viber'/);
+  assert.match(workspace,/\(queue==='waiting'\|\|queue==='ready'\)&&platform!=='viber'/);
   assert.match(dialog,/chat\.platform!=='viber'/);
 });

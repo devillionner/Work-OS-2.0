@@ -5,6 +5,7 @@ import {
   handoffDiscoveryCandidate,
   inferDiscoveryTopicMatch,
   type DiscoveryCandidate,
+  type DiscoveryDecision,
 } from './domain.ts';
 import { applyDiscoveryInspection } from './inspection.ts';
 import {
@@ -134,7 +135,7 @@ export async function persistLocalDiscoveryOutcome(
   const rawResult=outcome.result&&typeof outcome.result==='object'&&!Array.isArray(outcome.result)
     ? outcome.result as Record<string,unknown>:{};
   const reasonCodes=Array.isArray(outcome.reasonCodes)
-    ? [...new Set(outcome.reasonCodes.filter((item):item is string=>typeof item==='string'&&item.trim()).map(item=>item.trim().slice(0,100)))].slice(0,20)
+    ? [...new Set(outcome.reasonCodes.filter((item):item is string=>typeof item==='string'&&item.trim()!=='').map(item=>item.trim().slice(0,100)))].slice(0,20)
     : [];
   const minMembers=boundedInteger(input.minMembers,700,18_000,700);
   const count=rawResult.memberCount===null||rawResult.memberCount===undefined?NaN:Number(rawResult.memberCount);
@@ -295,7 +296,7 @@ export async function confirmLocalDiscoveryPreview(
 
   const sources=cleanSources(input.sources);
   const name=cleanChatName(typeof input.name==='string'?input.name:'')||suggestedChatName(parsed);
-  const topicMatch:'match'='match';
+  const topicMatch='match' as const;
   const minMembers=boundedInteger(input.minMembers,700,18_000,700);
   const evaluated=evaluateDiscoveryCandidate({
     chatType:'unknown',memberCount:null,topicMatch,canWrite:null,adsPolicy:'unknown',
@@ -365,15 +366,15 @@ function validateTargetPreflight(value:unknown,minMembers:number){
     status:'inspected',
     accessible:raw.accessible===true,
     targetVerified:raw.targetVerified===true,
-    membershipState:raw.membershipState==='joined'?'joined':'not_checked',
+    membershipState:raw.membershipState==='joined'?'joined' as const:'not_checked' as const,
     observedName:typeof raw.observedName==='string'?cleanChatName(raw.observedName):'',
-    chatType:raw.chatType==='community'?'community':raw.chatType==='group'?'group':'unknown',
+    chatType:raw.chatType==='community'?'community' as const:raw.chatType==='group'?'group' as const:'unknown' as const,
     memberCount:Number.isSafeInteger(memberCount)?memberCount:null,
-    topicMatch:raw.topicMatch==='match'?'match':raw.topicMatch==='mismatch'?'mismatch':'unknown',
+    topicMatch:raw.topicMatch==='match'?'match' as const:raw.topicMatch==='mismatch'?'mismatch' as const:'unknown' as const,
     canWrite:typeof raw.canWrite==='boolean'?raw.canWrite:null,
     adsPolicy:['allowed','operator_confirmed','inferred_allowed','forbidden'].includes(String(raw.adsPolicy))
       ? String(raw.adsPolicy) as DiscoveryCandidate['adsPolicy']:'unknown',
-    activityState:raw.activityState==='active'?'active':raw.activityState==='dead'?'dead':'unknown',
+    activityState:raw.activityState==='active'?'active' as const:raw.activityState==='dead'?'dead' as const:'unknown' as const,
   };
   const evaluated=evaluateDiscoveryCandidate({
     chatType:result.chatType,

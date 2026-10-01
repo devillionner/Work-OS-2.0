@@ -117,6 +117,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const availablePlatforms = useMemo(() => platforms.filter((item) => !enabledPlatforms || enabledPlatforms.includes(item.key)), [enabledPlatforms]);
   const requestAccountId=platform==='telegram'?accountId:null;
   const requestKey=`${platform}:${queue}:${search}:${profileFilter}:${offset}:${requestAccountId||''}`;
+  // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
   const cachedData=viewCache.current.get(requestKey)||null;
   const data=loadedData?.requestKey===requestKey?loadedData:cachedData;
   const switchingList=data===null&&loadedData!==null&&loadedData.requestKey!==requestKey;
@@ -127,6 +128,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
 
   useEffect(()=>{
     if(active)return;
+    // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
     setBulkOpen(false);
     setDiscoveryOpen(false);
     setJoinedTodayOpen(false);
@@ -156,12 +158,14 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
 
   useEffect(()=>{
     if(platform==='viber'&&queue==='profile_review'){
+      // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
       setQueue('ready');setProfileFilter('all');setOffset(0);
       return;
     }
     if(previousFilter.current===filterKey)return;
     previousFilter.current=filterKey;
     setOffset(0);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- TODO: потребує зміни логіки (docs/TODO.md)
   },[filterKey]);
 
   useEffect(()=>{
@@ -195,6 +199,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   useEffect(()=>{
     if(!active||platform!=='whatsapp')return;
     let cancelled=false;
+    // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
     setWhatsappAutopostImageLoaded(false);setWhatsappAutopostCaptionLoaded(false);
     void fetch('/api/messenger-automation',{cache:'no-store'})
       .then(async response=>{
@@ -648,6 +653,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       <div className="queue-tabs" role="tablist" aria-label="Черга чатів">
         {queues.filter(item=>platform!=='viber'||item.key!=='profile_review').map(item=><button type="button" key={item.key} role="tab" aria-selected={queue===item.key} tabIndex={queue===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{if(item.key!=='ready'){setQuickPublishMode(false);setQuickAdvertisementId(null);}setQueue(item.key);setProfileFilter('all');setOffset(0)}}>{item.label}<span>{data?.counts[item.key] || 0}</span></button>)}
       </div>
+      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- TODO: потребує зміни розмітки (docs/TODO.md) */}
       {queue==='waiting'&&platform==='whatsapp'&&<div className="platform-queue-context is-active" role="status">
         <div><strong>Перевірка заявок WhatsApp</strong><span>{waitingCheck.running
           ? `Work OS послідовно перевіряє чати. Залишилось: ${waitingCheck.remaining}.`
@@ -698,6 +704,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       </section>}
       <div className="chat-toolbar">
         <label htmlFor="chat-search"><Search/><Input id="chat-search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Пошук за назвою або посиланням"/><span className="sr-only">Пошук чатів</span></label>
+        {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- TODO: потребує зміни розмітки (docs/TODO.md) */}
         {(queue==='waiting'||queue==='ready')&&platform!=='viber'&&<><Button type="button" variant="outline" size="sm" title={profileSummary?`Підтверджені: ${profileSummary.confirmed}; чернетки: ${profileSummary.draft}; без профілю: ${profileSummary.empty}`:'Фільтр профілів'} aria-pressed={profileFilter==='needs_review'} onClick={()=>{setProfileFilter(value=>value==='all'?'needs_review':'all');setOffset(0);}}><UserRoundCheck data-icon="inline-start"/>{profileFilter==='needs_review'?`Усі профілі (${data?.counts[queue]||0})`:`Потребують правил (${profileSummary?.needsReview||0})`}</Button>{profileSummary&&<span className="profile-counts" aria-label={`Профілі: підтверджені ${profileSummary.confirmed}, чернетки ${profileSummary.draft}, без профілю ${profileSummary.empty}`}>✓ {profileSummary.confirmed} · чернетки {profileSummary.draft} · без профілю {profileSummary.empty}</span>}</>}{queue==='profile_review'&&profileSummary&&<span className="profile-counts" role="status" aria-label={`Потрібно уточнити профілі: чернетки ${profileSummary.draft}, без профілю ${profileSummary.empty}`}>Чернетки {profileSummary.draft} · без профілю {profileSummary.empty}</span>}
         <Button type="button" variant="outline" size="sm" disabled={busy!==null||platform==='telegram'&&!accountId} onClick={()=>setDuplicatesOpen(true)}>Дублікати</Button>
       </div>

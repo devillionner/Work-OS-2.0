@@ -84,6 +84,7 @@ export function ReportsWorkspace({ onOpenLead, syncRevision=0, active=true }: { 
   }, [load, selectedDate]);
   useEffect(() => {
     if (!active) {
+      // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
       setHistoryOpen(false);
       setBackdatedLeadOpen(false);
     }

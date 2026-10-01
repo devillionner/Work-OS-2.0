@@ -550,7 +550,7 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
             &&state?.completionReason==='source_error'
             &&Array.isArray(state?.sourceIssues)
             &&state.sourceIssues.length>0
-            &&state.sourceIssues.every((item)=>/(?:search\.brave\.com|search_rate_limited|source_http_429|curl.*(?:22|429))/iu.test(String(item?.reason||'')));
+            &&state.sourceIssues.every((item)=>/(?:search.brave.com|search_rate_limited|source_http_429|curl.*(?:22|429))/iu.test(String(item?.reason||'')));
           if(recoverableLegacySearchStop){
             state={...state,running:true,completionReason:null,sourceFailures:0,lastActivityAt:Date.now()};
             sessionStorage.setItem(${JSON.stringify(WORK_OS_LOCAL_PREVIEW_KEY)},JSON.stringify(state));
@@ -616,7 +616,7 @@ export async function readWorkOsLocalDiscoveryTaskViaCdp(
             if(/(?:впо|біжен|refuge|допомог|help|diaspora|community|громад)/iu.test(evidence))score+=4;
             if(/(?:оголош|объявлен|куп(?:и|лю|ів)|прод(?:ай|ам|аж)|перевез|transport|батьк|родител|family|famil|чат\b|chat\b)/iu.test(evidence))score+=8;
             if(/(?:bremen|berlin|rotterdam|london|toronto|slovak|нідерланд|німеч|австр|куопіо|карінт|швельм)/iu.test(evidence))score+=2;
-            if(/(?:дитяч(?:ий|ого) табір|медичн(?:і|ые) питання|книжков(?:ий|ый) клуб|паспорт|document|документ|it\s*&\s*business|майстер-клас|майстер клас|кафе\b|café\b)/iu.test(evidence))score-=8;
+            if(/(?:дитяч(?:ий|ого) табір|медичн(?:і|ые) питання|книжков(?:ий|ый) клуб|паспорт|document|документ|its*&s*business|майстер-клас|майстер клас|кафе\b|café\b)/iu.test(evidence))score-=8;
             if(/^(?:tiktok|facebook|instagram|whatsapp|telegram)$/iu.test(name.trim()))score-=14;
             if(/(?:eventbrite|реєстрац|майстер-клас|майстер клас|\\bviews?\\b|ref=share|\\/groups\\/|<span|https?:\\/\\/|href=|style=)/iu.test(name))score-=10;
             if(name.length>140)score-=6;
@@ -1642,7 +1642,7 @@ async function findOrCreateWhatsappPage(base) {
   if (!response.ok) throw new Error(`CDP list HTTP ${response.status}`);
   const pages = await response.json();
   const whatsappPages = Array.isArray(pages)
-    ? pages.filter((page) => page?.type === 'page' && /^https:\/\/web\.whatsapp\.com\//u.test(page.url || '') && page.webSocketDebuggerUrl)
+    ? pages.filter((page) => page?.type === 'page' && String(page.url || '').startsWith('https://web.whatsapp.com/') && page.webSocketDebuggerUrl)
     : [];
   if(whatsappPages.length){
     const existing=whatsappPages.find((page)=>page.url==='https://web.whatsapp.com/')||whatsappPages[0];

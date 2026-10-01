@@ -182,7 +182,7 @@ void test('Platforms uses a compact operator hierarchy and an unambiguous public
   const css = text(join(root, 'app', 'globals.css'));
   assert.match(workspace, /<section className="platform-header">/);
   assert.match(workspace, /<PlatformOverview pace=\{data\.publicationPace\}/);
-  assert.match(workspace, /className=\{\`platform-queue-context/);
+  assert.match(workspace, /className=\{`platform-queue-context/);
   assert.match(workspace, /if\(canPublish\(chat,clock\)\)return 'Підготувати';/);
   assert.match(workspace, /\{compactChatLink\(chat\.link\)\}/);
   assert.match(workspace, /className="chat-action-utilities"/);

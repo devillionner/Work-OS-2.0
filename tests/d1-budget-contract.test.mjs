@@ -19,7 +19,7 @@ void test('Platforms never speculatively prefetches sibling D1 queues',()=>{
   const platform=read('components/platform-workspace.tsx');
   assert.doesNotMatch(platform,/prefetching/);
   assert.doesNotMatch(platform,/cacheEpoch/);
-  assert.doesNotMatch(platform,/for\(const item of queues\)[\s\S]{0,1600}fetch\(\`\/api\/chats/);
+  assert.doesNotMatch(platform,/for\(const item of queues\)[\s\S]{0,1600}fetch\(`\/api\/chats/);
 });
 
 void test('Platforms GET uses queue counters and an index-friendly page order',()=>{

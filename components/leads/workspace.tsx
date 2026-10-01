@@ -92,6 +92,7 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
   const mobileVisibleLeads = mobileListState.key === mobileListKey ? mobileListState.count : MOBILE_LIST_CHUNK;
   useEffect(() => {
     const controller = new AbortController();
+    // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
     setListLoading(true);
     const url = `/api/leads?view=${encodeURIComponent(filter)}&search=${encodeURIComponent(query)}&offset=${offset}`;
     void getJson<LeadList>(url, controller.signal)
@@ -107,6 +108,7 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
     return () => controller.abort();
   }, [filter, query, offset, refresh]);
   useEffect(() => {
+    // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
     if (!selected) { setDetailLoading(false); return; }
     const cached=detailCache.current.get(selected);
     if(cached)setDetail(cached);
@@ -157,9 +159,11 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
       busy.current = false;
     }
   };
+  // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
   const current = detail?.lead.id === selected ? detail : selected ? detailCache.current.get(selected)||null : null;
   useEffect(() => {
     if (active) return;
+    // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
     setHistoryOpen(false);
     setEditor(null);
     setArchive(false);

@@ -195,9 +195,9 @@ void test('batch autopost skips chats without a safe material instead of failing
   await seedChat(db,{id:'batch-published',owner:'u',platform:'whatsapp',status:'ready',joined:10});
   await db.prepare("UPDATE chats SET name='Українці OK',link='https://chat.whatsapp.com/BatchOk123',normalized_link='https://chat.whatsapp.com/BatchOk123' WHERE id='batch-ok'").run();
   await db.prepare("UPDATE chats SET name='Українці Published',link='https://chat.whatsapp.com/BatchPublished123',normalized_link='https://chat.whatsapp.com/BatchPublished123' WHERE id='batch-published'").run();
-  await db.prepare(\`INSERT INTO chat_publications
+  await db.prepare(`INSERT INTO chat_publications
     (id,user_id,chat_id,published_on,published_at,advertisement_id,source,source_key,created_at)
-    VALUES ('pub','u','batch-published',?1,?2,'only-wa','manual','manual:pub',?2)\`).bind(DATE,NOW).run();
+    VALUES ('pub','u','batch-published',?1,?2,'only-wa','manual','manual:pub',?2)`).bind(DATE,NOW).run();
 
   const batch=await createWhatsAppAutopostBatch(db,'u',{limit:30},NOW+1,DATE);
   assert.equal(batch.created,1);

@@ -57,6 +57,6 @@ void test('overview route and Analytics UI use the exact selected query without 
   assert.match(workspace,/loadedData\?\.key===queryKey\?loadedData\.data:viewCache\.current\.get\(queryKey\)\|\|null/);
   assert.match(workspace,/<AnalyticsInsights insights=\{data\.insights\} query=\{queryKey\} \/>/);
   assert.match(insights,/loaded\?\.query===query\?loaded\.data:cache\.current\.get\(query\)\|\|null/);
-  assert.match(insights,/fetch\(\`\/api\/analytics\/overview\?\$\{query\}\`/);
+  assert.match(insights,/fetch\(`\/api\/analytics\/overview\?\$\{query\}`/);
   assert.match(insights,/return\(\)=>controller\.abort\(\)/);
 });

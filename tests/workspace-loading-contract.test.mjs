@@ -13,7 +13,7 @@ void test('main navigation keeps visited workspaces mounted instead of remountin
   for(const view of ['platforms','leads','analytics','reports','library','settings']){
     assert.match(shell,new RegExp(`visitedViews\\.has\\('${view}'\\).*WorkspacePane`));
   }
-  assert.doesNotMatch(shell,/key=\{\`(?:leads|analytics|reports|library|settings):/);
+  assert.doesNotMatch(shell,/key=\{`(?:leads|analytics|reports|library|settings):/);
   assert.doesNotMatch(shell,/<GlobalTimers key=/);
 });
 

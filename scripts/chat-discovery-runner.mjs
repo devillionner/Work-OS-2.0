@@ -248,7 +248,7 @@ async function processLocalPreflightVisible(task){
 
 function addDiscoveryStageTime(task,key,elapsedMs){
   const checkpoint=task.checkpoint||{};
-  const stageMs={...(checkpoint.stageMs||{})};
+  const stageMs={...checkpoint.stageMs};
   stageMs[key]=(Number(stageMs[key])||0)+Math.max(0,Number(elapsedMs)||0);
   return {...task,checkpoint:{...checkpoint,stageMs}};
 }
@@ -257,7 +257,7 @@ async function completeLocalPreflight(task,payload){
   const checkpoint=task.checkpoint||{};
   const final={...payload,runId:task.runId,completedAt:Date.now(),
     durationMs:Math.max(0,Date.now()-Number(checkpoint.startedAt||Date.now())),
-    stageMs:{...(checkpoint.stageMs||{})}};
+    stageMs:{...checkpoint.stageMs}};
   // Keep the factual outcome in session storage before awaiting server persistence.
   // A failed write retries only persistence, never the external join/leave.
   await markWorkOsLocalDiscoveryCandidateViaCdp(baseUrl,{...task,checkpoint:{...checkpoint,final}},{cdpBaseUrl:whatsappCdp});
