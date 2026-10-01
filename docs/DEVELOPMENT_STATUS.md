@@ -1,3 +1,11 @@
+## 2026-10-01 — Escape-послідовності в коді, який CDP виконує у вкладці
+
+- `scripts/whatsapp-web-cdp.mjs` будує код для вкладки Work OS через template literal, тому одинарний backslash у regex зникав. Наслідки: пріоритет кандидатів Discovery ніколи не давав +8 за «чат/chat» і −8 за «кафе/café», фільтр `it & business` не працював, а відновлення після зупинки через Brave приймало будь-який символ замість крапки.
+- Виправлено подвійними escape; межа слова для кирилиці тепер `(?![\p{L}\p{N}_])`, бо `\b` не працює після кириличних літер.
+- Новий тест `tests/whatsapp-web-cdp-injected-regex.test.mjs` розбирає файл через TypeScript AST і падає, якщо в будь-якому template literal є escape, який губиться; плюс поведінкові перевірки цих regex.
+- Уточнення до попередніх записів: фото (`whatsapp_autopost_image_v1`) і власний текст автопоста (`whatsapp_autopost_caption_v1`) уже реалізовані в коді (`lib/whatsapp-autopost-media.ts`, `lib/whatsapp-autopost-caption.ts`, CDP `injectWhatsappImage`). Live-приймання відправки з фото через WhatsApp Web ще не проведене.
+- Докази: лише локальні тести, lint, typecheck і build. Live-перевірка не виконувалась.
+
 ## 2026-10-01 — WhatsApp Waiting check rebuilt to Prototype Checker parity
 
 - Root causes found in the candidate-based Waiting check (v0.2.84–v0.2.88):

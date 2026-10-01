@@ -167,5 +167,5 @@
 
 ## 3. Знайдені баги
 
-- [ ] `scripts/whatsapp-web-cdp.mjs`: regex-и всередині template literal (код, який виконується у вкладці WhatsApp через CDP) втрачають escape-послідовності. `\s` перетворюється на `s`, `\b` — на символ backspace, `\.` — на «будь-який символ». Фільтри на кшталт `it\s*&\s*business`, `кафе\b`, `search.brave.com` працюють інакше, ніж задумано. Виправлення (`\\s`, `\\b`, `\\.`) змінить поведінку відбору чатів.
+- [x] `scripts/whatsapp-web-cdp.mjs`: regex-и всередині template literal (код, який виконується у вкладці через CDP) втрачали escape-послідовності (`\s` → `s`, `\b` → backspace, `\.` → будь-який символ). Виправлено 2026-10-01: подвійні escape, межа слова для кирилиці через `(?![\p{L}\p{N}_])`; регресійний тест `tests/whatsapp-web-cdp-injected-regex.test.mjs` перевіряє всі template literal файлу.
 
