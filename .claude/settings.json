@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(wrangler deploy:*)",
+      "Bash(npx wrangler deploy:*)",
+      "Bash(wrangler d1 migrations apply:*)",
+      "Bash(npx wrangler d1 migrations apply:*)",
+      "Bash(wrangler d1 * --remote:*)",
+      "Bash(npx wrangler d1 * --remote:*)",
+      "Bash(wrangler * --remote:*)",
+      "Bash(npx wrangler * --remote:*)"
+    ]
+  }
+}
