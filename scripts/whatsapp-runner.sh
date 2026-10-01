@@ -10,6 +10,12 @@ PROFILE="${WORK_OS_BROWSER_PROFILE:-$HOME/.local/share/work-os-runner-browser}"
 CDP="http://127.0.0.1:${PORT}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Лише один runner одночасно (автозапуск + ручний запуск не дублюються).
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"${XDG_RUNTIME_DIR:-/tmp}/work-os-whatsapp-runner.lock"
+  if ! flock -n 9; then echo "Runner уже запущений — другий не потрібен."; exit 0; fi
+fi
+
 cdp_ready() { curl -fsS --max-time 2 "${CDP}/json/version" >/dev/null 2>&1; }
 
 if ! cdp_ready; then
