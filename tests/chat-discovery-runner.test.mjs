@@ -298,3 +298,11 @@ void test('waiting checks are operator batches claimed one chat at a time and ru
   const d1=source.slice(source.indexOf('async function runD1BackedTaskOnce'));
   assert.ok(d1.indexOf('runWaitingCheckOnce')<d1.indexOf('runWhatsAppAutopostOnce'));
 });
+
+void test('runner reads D1 only on the cloud cadence and backs off to one poll a minute when idle',()=>{
+  const runOnce=source.slice(source.indexOf('async function runOnce'),source.indexOf("console.log('Work OS Discovery runner started."));
+  assert.equal(runOnce.split('runD1BackedTaskOnce()').length-1,1);
+  assert.match(source,/const CLOUD_AUTOMATION_IDLE_MAX_MS=60000/);
+  assert.match(runOnce,/cloudAutomationDelayMs=Math\.min\(CLOUD_AUTOMATION_IDLE_MAX_MS,cloudAutomationDelayMs\*2\)/);
+  assert.match(runOnce,/if\(cloudOutcome\)\{\s*cloudAutomationDelayMs=CLOUD_AUTOMATION_POLL_MS;/);
+});

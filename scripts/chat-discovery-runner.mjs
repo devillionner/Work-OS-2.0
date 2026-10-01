@@ -42,6 +42,9 @@ const LOCAL_SOURCE_TARGET_QUEUE=30;
 const SOURCE_ADVANCE_MS=20000;
 const EXECUTOR_QUEUE_LIMIT=1;
 const CLOUD_AUTOMATION_POLL_MS=15000;
+// Every cloud poll reads D1 (the Discovery queue scans the owner's candidates), so an idle runner
+// backs off to one poll a minute and returns to the base cadence as soon as work appears.
+const CLOUD_AUTOMATION_IDLE_MAX_MS=60000;
 const TASK_BLOCK_COOLDOWN_MS=300000;
 const INCOMPLETE_QUALIFICATION_COOLDOWN_MS=15000;
 const qualificationAttempts=new Map();
@@ -181,6 +184,7 @@ let nextSourceAdvanceAt=0;
 let nextLocalSourceAt=0;
 let localSourceInFlight=null;
 let nextCloudAutomationAt=0;
+let cloudAutomationDelayMs=CLOUD_AUTOMATION_POLL_MS;
 let preferAutopost=false;
 const taskBlockedUntil=new Map();
 function markTaskBlocked(task,reason,cooldownMs=TASK_BLOCK_COOLDOWN_MS){
@@ -656,7 +660,12 @@ async function runOnce(){
     cloudPolled=true;
     nextCloudAutomationAt=Date.now()+CLOUD_AUTOMATION_POLL_MS;
     const cloudOutcome=await runD1BackedTaskOnce();
-    if(cloudOutcome)return cloudOutcome;
+    if(cloudOutcome){
+      cloudAutomationDelayMs=CLOUD_AUTOMATION_POLL_MS;
+      return cloudOutcome;
+    }
+    cloudAutomationDelayMs=Math.min(CLOUD_AUTOMATION_IDLE_MAX_MS,cloudAutomationDelayMs*2);
+    nextCloudAutomationAt=Date.now()+cloudAutomationDelayMs;
   }
   if(whatsappCdp){
     try{
@@ -714,9 +723,8 @@ async function runOnce(){
       console.warn(`Local Discovery bridge unavailable: ${error instanceof Error?error.message:String(error)}`);
     }
   }
-  if(!token)return 'idle';
-  if(cloudPolled||Date.now()<whatsappRuntimeBlockedUntil)return 'idle';
-  return (await runD1BackedTaskOnce())||'idle';
+  // D1-backed work runs only on the cloud cadence above; polling it on every local loop burned D1 reads.
+  return 'idle';
 }
 
 console.log('Work OS Discovery runner started. Ctrl+C to stop.');
