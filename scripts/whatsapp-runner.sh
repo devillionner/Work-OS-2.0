@@ -11,6 +11,7 @@ CDP="http://127.0.0.1:${PORT}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Лише один runner одночасно (автозапуск + ручний запуск не дублюються).
+# Браузер запускається з закритим дескриптором 9, щоб не тримати lock після зупинки runner.
 if command -v flock >/dev/null 2>&1; then
   exec 9>"${XDG_RUNTIME_DIR:-/tmp}/work-os-whatsapp-runner.lock"
   if ! flock -n 9; then echo "Runner уже запущений — другий не потрібен."; exit 0; fi
@@ -29,11 +30,13 @@ if ! cdp_ready; then
     echo "Не знайдено Opera/Chrome/Chromium. Вкажіть: WORK_OS_BROWSER=/шлях/до/браузера $0" >&2
     exit 1
   fi
+  # Після входу в систему мережа з'являється не одразу; інакше вкладка Work OS лишиться зі сторінкою помилки.
+  for _ in $(seq 1 60); do curl -fsS --max-time 3 -o /dev/null "$WORK_OS_URL" && break; sleep 1; done
   mkdir -p "$PROFILE"
   echo "Відкриваю $BROWSER (окремий профіль: $PROFILE)…"
   setsid "$BROWSER" --remote-debugging-port="$PORT" --user-data-dir="$PROFILE" \
     --no-first-run --no-default-browser-check \
-    "$WORK_OS_URL" "https://web.whatsapp.com/" >/dev/null 2>&1 < /dev/null &
+    "$WORK_OS_URL" "https://web.whatsapp.com/" >/dev/null 2>&1 < /dev/null 9>&- &
   for _ in $(seq 1 30); do cdp_ready && break; sleep 1; done
   if ! cdp_ready; then
     echo "Браузер не відкрив порт ${PORT}. Якщо він уже був запущений без нього — закрийте його й повторіть." >&2
