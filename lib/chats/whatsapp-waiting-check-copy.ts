@@ -52,6 +52,30 @@ export function waitingCheckRunnerOffline(view: WaitingCheckView, nowSeconds: nu
   return nowSeconds - Math.max(lastSign, view.startedAt ?? 0) > 180;
 }
 
+const RUNNER_ONLINE_SECONDS = 180;
+
+// Runner state shown at all times, not only during a batch, so the operator sees it before starting.
+export function waitingCheckRunnerState(view: WaitingCheckView, nowSeconds: number) {
+  if (view.runnerSeenAt === null) return { online: false, label: 'Runner ще не підключався' };
+  if (nowSeconds - view.runnerSeenAt <= RUNNER_ONLINE_SECONDS) return { online: true, label: 'Runner підключено' };
+  const seen = new Date(view.runnerSeenAt * 1000);
+  const time = seen.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+  const sameDay = new Date(nowSeconds * 1000).toDateString() === seen.toDateString();
+  return { online: false, label: `Runner не працює · востаннє ${sameDay ? time : `${seen.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit' })}, ${time}`}` };
+}
+
+export function waitingCheckDone(view: WaitingCheckView) {
+  return Math.max(0, view.total - view.remaining);
+}
+
+// Remaining time from the pace of this batch; null until at least one chat has been checked.
+export function waitingCheckEtaMinutes(view: WaitingCheckView) {
+  const done = waitingCheckDone(view);
+  if (!view.active || done < 1 || view.startedAt === null || view.lastActivityAt === null) return null;
+  const perChat = Math.max(1, view.lastActivityAt - view.startedAt) / done;
+  return Math.max(1, Math.round(perChat * view.remaining / 60));
+}
+
 export function parseWaitingCheckView(body: unknown): WaitingCheckView {
   const raw = body && typeof body === 'object' ? body as Record<string, unknown> : {};
   const counts = raw.counts && typeof raw.counts === 'object' ? raw.counts as Record<string, unknown> : {};

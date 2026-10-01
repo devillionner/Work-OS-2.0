@@ -101,16 +101,19 @@ function finishIfDrained(state: BatchState, now: number) {
   if (state.finishedAt === null && state.queue.length === 0 && state.current === null) state.finishedAt = now;
 }
 
-export async function startWaitingWhatsAppCheck(db: D1Database, userId: string, now: number) {
+// onlyProblems re-checks just the chats the previous batch reported as problems; the ids come from
+// the stored batch, never from the client.
+export async function startWaitingWhatsAppCheck(db: D1Database, userId: string, now: number, { onlyProblems = false } = {}) {
   const { state, raw } = await readState(db, userId);
   if (isActive(state)) return readWaitingWhatsAppCheckStatus(db, userId);
+  const problemIds = new Set((state?.problems ?? []).map(problem => problem.chatId));
   const rows = await db.prepare(`SELECT c.id FROM chats c
     WHERE c.user_id=?1 AND c.platform='whatsapp' AND c.workflow_status='waiting'
       AND ${chatLeftAtSql('c')} IS NULL
       AND (c.snoozed_until IS NULL OR c.snoozed_until<=?2)
     ORDER BY COALESCE(c.processed_at,c.updated_at) ASC,c.id LIMIT ${MAX_BATCH}`)
     .bind(userId, now).all<{ id: string }>();
-  const queue = rows.results.map(row => row.id);
+  const queue = rows.results.map(row => row.id).filter(id => !onlyProblems || problemIds.has(id));
   const next: BatchState = {
     batchId: Math.max(1, Math.floor(now)), startedAt: now, total: queue.length, queue, current: null,
     counts: emptyCounts(), consecutiveFailed: 0, problems: [], stopReason: null,

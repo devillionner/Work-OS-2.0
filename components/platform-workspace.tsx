@@ -15,7 +15,8 @@ import type { BulkResult } from '@/lib/chats/bulk';
 import type { ChatProfile } from '@/lib/chats/profile';
 import { supportsChatLeaveChecklist } from '@/lib/chats/leave-policy';
 import { shouldSuggestChatArchive } from '@/lib/chats/snooze-history';
-import { EMPTY_WAITING_CHECK, parseWaitingCheckView, waitingCheckReasonLabel, waitingCheckRunnerOffline, waitingCheckSummary, type WaitingCheckView } from '@/lib/chats/whatsapp-waiting-check-copy';
+import { EMPTY_WAITING_CHECK, parseWaitingCheckView, type WaitingCheckView } from '@/lib/chats/whatsapp-waiting-check-copy';
+import { WhatsappWaitingCheckPanel, type WaitingCheckAction } from '@/components/whatsapp-waiting-check-panel';
 import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, ExternalLink, History, ImagePlus, Plus, RotateCcw, Search, Send, Settings2, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -282,12 +283,13 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   },[active,platform,queue,refreshWaitingCheck]);
 
   useEffect(()=>{
-    if(!active||platform!=='whatsapp'||queue!=='waiting'||!waitingCheck.active)return;
-    const timer=window.setInterval(()=>void refreshWaitingCheck(),15_000);
+    if(!active||platform!=='whatsapp'||queue!=='waiting')return;
+    // Idle polling keeps the runner status current before the operator starts a check.
+    const timer=window.setInterval(()=>void refreshWaitingCheck(),waitingCheck.active?15_000:60_000);
     return()=>window.clearInterval(timer);
   },[active,platform,queue,waitingCheck.active,refreshWaitingCheck]);
 
-  async function changeWaitingCheck(action:'start'|'stop'){
+  async function changeWaitingCheck(action:WaitingCheckAction){
     if(busy!==null)return;
     setBusy('waiting-check');setError('');setNotice('');
     try{
@@ -300,6 +302,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       const next=parseWaitingCheckView(body);
       setWaitingCheck(next);
       if(action==='start')setNotice(next.active?`Запущено перевірку ${next.total} WhatsApp-чатів.`:'Немає заявок, які вже можна перевіряти (відкладені на +3 дні чекають свого часу).');
+      else if(action==='retry_problems')setNotice(next.active?`Повторно перевіряємо ${next.total} проблемних чатів.`:'Проблемних чатів, які ще в «Очікуванні», не лишилося.');
       else setNotice('Перевірку зупинено. Решту чатів не змінено.');
       invalidateQueueCache('whatsapp');
       await reloadChats.current(true);
@@ -650,22 +653,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       <div className="queue-tabs" role="tablist" aria-label="Черга чатів">
         {queues.filter(item=>platform!=='viber'||item.key!=='profile_review').map(item=><button type="button" key={item.key} role="tab" aria-selected={queue===item.key} tabIndex={queue===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{if(item.key!=='ready'){setQuickPublishMode(false);setQuickAdvertisementId(null);}setQueue(item.key);setProfileFilter('all');setOffset(0)}}>{item.label}<span>{data?.counts[item.key] || 0}</span></button>)}
       </div>
-      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- TODO: потребує зміни розмітки (docs/TODO.md) */}
-      {queue==='waiting'&&platform==='whatsapp'&&<div className="platform-queue-context is-active" role="status">
-        <div><strong>Перевірка заявок WhatsApp</strong><span>{waitingCheck.active
-          ? `Перевірка ${Math.min(waitingCheck.total,waitingCheck.total-waitingCheck.remaining+1)}/${waitingCheck.total}${waitingCheck.currentName?`: ${waitingCheck.currentName}`:''} · ${waitingCheckSummary(waitingCheck)}`
-          : waitingCheck.finishedAt&&clock/1000-waitingCheck.finishedAt<12*3600
-            ? `Готово: ${waitingCheckSummary(waitingCheck)}${waitingCheck.stopReason?` · Зупинено — ${waitingCheck.stopReason}. Решту чатів не чіпаємо.`:''}`
-            : 'Натисніть «Перевірити зараз». Прийняті чати перейдуть у «Для публікації», заявки без відповіді відкладаються на 3 дні, а якщо заявки ще немає — її буде надіслано.'}</span>
-          {waitingCheckRunnerOffline(waitingCheck,Math.floor(clock/1000))&&<span>Локальний runner не забирає чати. Один раз виконайте scripts/install-whatsapp-runner-autostart.sh — далі він стартує сам при вході в систему. Вікно браузера з WhatsApp Web не закривайте.</span>}
-          {!waitingCheck.active&&waitingCheck.finishedAt!==null&&clock/1000-waitingCheck.finishedAt<12*3600&&waitingCheck.problems.length>0&&<span>Потребують уваги: {waitingCheck.problems.map(item=>`${item.name} — ${waitingCheckReasonLabel(item.reason)}`).join(' • ')}</span>}</div>
-        <div className="lead-actions">
-          {waitingCheck.active&&<Badge variant="secondary">{waitingCheck.remaining} у черзі</Badge>}
-          <Button type="button" size="sm" variant={waitingCheck.active?'outline':'default'} disabled={busy!==null} onClick={()=>void changeWaitingCheck(waitingCheck.active?'stop':'start')}>
-            {waitingCheck.active?'Зупинити':'Перевірити зараз'}
-          </Button>
-        </div>
-      </div>}
+      {queue==='waiting'&&platform==='whatsapp'&&<WhatsappWaitingCheckPanel view={waitingCheck} nowSeconds={Math.floor(clock/1000)} busy={busy!==null} onAction={action=>void changeWaitingCheck(action)}/>}
       {queue==='ready'&&(platform==='whatsapp'||platform==='viber')&&<div className={'platform-queue-context '+(quickPublishMode?'is-active':'')}>
         <div><strong>{platform==='whatsapp'?'Автопублікація черги':quickPublishMode?'Швидкий режим увімкнено':'Швидкий режим'}</strong><span>{platform==='whatsapp'
           ? (whatsappAutopostImage

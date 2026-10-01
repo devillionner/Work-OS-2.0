@@ -88,6 +88,22 @@ void test('a failed chat is reported and the batch moves on instead of blocking 
   assert.deepEqual(status.problems.map(item => item.reason), ['invalid_whatsapp_link']);
 });
 
+void test('retrying problems re-checks only the chats the previous batch reported', async (t) => {
+  const db = await localDatabase(t);
+  await chat(db, 'broken', { updatedAt: 100 });
+  await chat(db, 'fine', { updatedAt: 101 });
+  await chat(db, 'other', { updatedAt: 102 });
+  await startWaitingWhatsAppCheck(db, 'u', 200);
+  await checkNext(db, 'failed', 210, { reason: 'membership_not_confirmed' });
+  await checkNext(db, 'requested', 220);
+  await checkNext(db, 'pending', 230);
+
+  const retried = await startWaitingWhatsAppCheck(db, 'u', 400, { onlyProblems: true });
+  assert.equal(retried.total, 1);
+  assert.equal((await checkNext(db, 'joined', 410)).chatId, 'broken');
+  assert.equal((await readWaitingWhatsAppCheckStatus(db, 'u')).active, false);
+});
+
 void test('three failures in a row or a fatal reason stop the batch and leave the rest untouched', async (t) => {
   const db = await localDatabase(t);
   for (const id of ['f1', 'f2', 'f3', 'rest']) await chat(db, id);

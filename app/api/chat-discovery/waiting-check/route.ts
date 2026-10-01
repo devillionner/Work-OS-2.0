@@ -27,6 +27,7 @@ export async function POST(request:Request):Promise<Response>{
     if(body instanceof Response)return body;
     const now=Math.floor(Date.now()/1000);
     if(body.action==='start')return json(await startWaitingWhatsAppCheck(env.DB,user.id,now));
+    if(body.action==='retry_problems')return json(await startWaitingWhatsAppCheck(env.DB,user.id,now,{onlyProblems:true}));
     if(body.action==='stop')return json(await stopWaitingWhatsAppCheck(env.DB,user.id,now));
     return json({error:'Невідома дія.'},400);
   }catch(error){

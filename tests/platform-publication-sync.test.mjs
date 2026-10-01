@@ -71,9 +71,13 @@ void test('WhatsApp ready queue can create a reservation-aware autopost batch fr
 
 void test('WhatsApp waiting queue explains the operator-started request check',()=>{
   const workspace=read('components/platform-workspace.tsx');
-  assert.match(workspace,/queue==='waiting'&&platform==='whatsapp'/);
-  assert.match(workspace,/Перевірка заявок WhatsApp/);
-  assert.match(workspace,/Натисніть «Перевірити зараз»/);
-  assert.match(workspace,/заявки без відповіді відкладаються на 3 дні/);
-  assert.match(workspace,/changeWaitingCheck\(waitingCheck\.active\?'stop':'start'\)/);
+  const panel=read('components/whatsapp-waiting-check-panel.tsx');
+  assert.match(workspace,/queue==='waiting'&&platform==='whatsapp'&&<WhatsappWaitingCheckPanel/);
+  assert.match(workspace,/onAction=\{action=>void changeWaitingCheck\(action\)\}/);
+  assert.match(panel,/Перевірка заявок WhatsApp/);
+  assert.match(panel,/Перевірити зараз/);
+  assert.match(panel,/onAction\('stop'\)/);
+  assert.match(panel,/onAction\('retry_problems'\)/);
+  assert.match(panel,/заявки без відповіді відкладаються на 3 дні/);
+  assert.match(panel,/waitingCheckRunnerState\(view, nowSeconds\)/);
 });
