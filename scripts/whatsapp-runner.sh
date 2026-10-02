@@ -19,6 +19,24 @@ fi
 
 cdp_ready() { curl -fsS --max-time 2 "${CDP}/json/version" >/dev/null 2>&1; }
 
+STATUS_FILE="${WORK_OS_RUNNER_STATUS_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/work-os/runner-status.json}"
+write_status() {
+  mkdir -p "$(dirname "$STATUS_FILE")"
+  printf '{"state":"%s","detail":"%s","pid":%s,"updatedAt":%s000}\n' "$1" "$2" "$$" "$(date +%s)" > "$STATUS_FILE"
+}
+
+# The everyday browser already opens with the CDP port (its desktop entry carries the flag): then wait for
+# it instead of starting a second profile that grabs the port first and has no Work OS executor.
+main_browser_has_cdp() {
+  grep -qs -- "--remote-debugging-port=${PORT}" "${XDG_DATA_HOME:-$HOME/.local/share}"/applications/*.desktop
+}
+
+if ! cdp_ready && [ -z "${WORK_OS_BROWSER:-}" ] && main_browser_has_cdp; then
+  echo "Чекаю, поки відкриється ваш браузер з портом ${PORT}…"
+  write_status no_browser "Відкрийте Opera — runner чекає на неї"
+  until cdp_ready; do sleep 10; done
+fi
+
 if ! cdp_ready; then
   BROWSER="${WORK_OS_BROWSER:-}"
   if [ -z "$BROWSER" ]; then
