@@ -39,8 +39,9 @@ export async function recordManualPublication(
   const profileRow = await db.prepare(`SELECT p.cadence,p.weekdays_json,p.custom_interval_days,p.next_allowed_on,p.review_status
     FROM chat_profiles p JOIN chats c ON c.id=p.chat_id WHERE p.chat_id=?1 AND c.user_id=?2 LIMIT 1`).bind(chat.id,userId).first<Record<string,unknown>>();
   const profile = publicationProfile(profileRow);
-  if (!quickMode && chat.platform !== 'viber' && profile?.reviewStatus !== 'confirmed')
-    return { ok:false,error:'Звичайна публікація потребує підтвердженого профілю чату. Уточніть профіль або використайте швидкий режим для WhatsApp.' };
+  // WhatsApp and Viber publish without a confirmed profile (operator decision 2026-10-02); Telegram still needs one.
+  if (!quickMode && chat.platform === 'telegram' && profile?.reviewStatus !== 'confirmed')
+    return { ok:false,error:'Звичайна публікація потребує підтвердженого профілю чату. Уточніть профіль чату.' };
   if (profile) {
     const rule = profilePublicationRule(profile,date);
     if (!rule.allowed) return { ok:false,error:rule.reason || 'Публікація зараз недоступна.' };
@@ -82,7 +83,7 @@ export async function recordManualPublication(
         AND NOT EXISTS(SELECT 1 FROM chat_discovery_candidates dc
           WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.decision!='target' AND dc.id NOT LIKE 'waiting-%')
         AND ${chatStateTokenSql()}=?9
-        AND (?10=1 OR c.platform='viber' OR EXISTS(SELECT 1 FROM chat_profiles pr WHERE pr.chat_id=c.id AND pr.review_status='confirmed'))
+        AND (?10=1 OR c.platform IN ('viber','whatsapp') OR EXISTS(SELECT 1 FROM chat_profiles pr WHERE pr.chat_id=c.id AND pr.review_status='confirmed'))
         AND (?6 IS NULL OR EXISTS(SELECT 1 FROM library_items li
           WHERE li.id=?6 AND li.user_id=c.user_id AND li.kind='advertisement' AND li.archived_at IS NULL))
         AND (c.platform!='telegram' OR EXISTS(SELECT 1 FROM telegram_accounts a

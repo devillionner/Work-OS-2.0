@@ -1,3 +1,8 @@
+## 2026-10-02 — WhatsApp: кнопка «Опублікувати» без підтвердженого профілю
+
+- Прибрано вимогу підтвердженого профілю для звичайної публікації WhatsApp: `lib/chats/publication.ts` (перевірка й SQL-умова вставки), `lib/chats/daily-links.ts` (список доступних сьогодні: WhatsApp/Viber без підтвердженого профілю тепер теж потрапляють), `components/platform-workspace.tsx` (кнопка «Опублікувати» замість «Уточнити профіль»/«Підготувати»), `components/chat-publish-dialog.tsx`. Telegram без змін.
+- Докази: локальні тести (`chats-workflow`, `viber-manual-publish-without-profile`, `p4-parity-contracts`, `ux-contracts`, `d1-query-plan-audit`, `d1-poll-budget`), lint, typecheck, build. На staging вручну ще не перевірено.
+
 ## 2026-10-02 — Живий прогін автопошуку WhatsApp (мета 3): джерела
 
 - Перевірка до вступу працює: «УкрДім: клуб вʼязання» — `approval_required` (пропущено), «УкрДім: Шаховий клуб» — `too_few_members`; вступів не було.

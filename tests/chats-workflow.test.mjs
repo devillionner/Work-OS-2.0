@@ -159,22 +159,30 @@ void test('quick publish may reuse one active material across WhatsApp chats wit
   assert.equal((await publishWithAd(db,telegram,'quick-ad','uk',true)).ok,false);
 });
 
-void test('ordinary publication requires a confirmed profile while WhatsApp/Viber quick mode remains explicit', async t => {
+// Operator decision 2026-10-02: WhatsApp (like Viber) publishes without a confirmed profile; Telegram still needs one.
+void test('WhatsApp publishes without a confirmed profile; quick mode stays available', async t => {
   const db = await localDatabase(t);
-  const chat = await seedChat(db,{id:'profile-required',platform:'whatsapp',status:'ready'});
+  const chat = await seedChat(db,{id:'profile-free',platform:'whatsapp',status:'ready'});
+  const quickChat = await seedChat(db,{id:'profile-quick',platform:'whatsapp',status:'ready'});
   await db.prepare(`INSERT INTO library_items(id,user_id,kind,title,uk_text,tags_json,platforms_json,created_at,updated_at)
     VALUES ('profile-quick-ad','u','advertisement','Quick','Текст','[]','["whatsapp"]',1,1)`).run();
 
+  const links=(await availableTodayStatement(db,{userId:'u',platform:'whatsapp',date:'2026-09-10',accountId:null,now:NOW}).all()).results;
+  assert.equal(links.some(row=>row.id==='profile-free'),true);
   const normal = await recordManualPublication(db,{userId:'u',chat,accountId:null,advertisementId:'profile-quick-ad',language:'uk',now:NOW,date:'2026-09-10',stateToken:chat.state_token});
-  assert.equal(normal.ok,false);
-  assert.match(normal.error,/підтвердженого профілю/u);
-  assert.equal((await db.prepare("SELECT COUNT(*) n FROM chat_publications WHERE chat_id='profile-required'").first()).n,0);
-  const normalLinks=(await availableTodayStatement(db,{userId:'u',platform:'whatsapp',date:'2026-09-10',accountId:null,now:NOW}).all()).results;
-  assert.equal(normalLinks.some(row=>row.id==='profile-required'),false);
+  assert.equal(normal.ok,true);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM chat_publications WHERE chat_id='profile-free'").first()).n,1);
 
-  const quick = await recordManualPublication(db,{userId:'u',chat,accountId:null,advertisementId:'profile-quick-ad',language:'uk',quickMode:true,now:NOW,date:'2026-09-10',stateToken:chat.state_token});
+  const quick = await recordManualPublication(db,{userId:'u',chat:quickChat,accountId:null,advertisementId:'profile-quick-ad',language:'uk',quickMode:true,now:NOW,date:'2026-09-10',stateToken:quickChat.state_token});
   assert.equal(quick.ok,true);
-  assert.equal((await db.prepare("SELECT COUNT(*) n FROM chat_publications WHERE chat_id='profile-required'").first()).n,1);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM chat_publications WHERE chat_id='profile-quick'").first()).n,1);
+});
+
+void test('Telegram ordinary publication still requires a confirmed profile', async t => {
+  const db = await localDatabase(t);
+  await seedChat(db,{id:'tg-profile-required',platform:'telegram',status:'ready'});
+  const links=(await availableTodayStatement(db,{userId:'u',platform:'telegram',date:'2026-09-10',accountId:null,now:NOW}).all()).results;
+  assert.equal(links.some(row=>row.id==='tg-profile-required'),false);
 });
 
 void test('available publication links accept legacy confirmed profiles with nullable cadence fields', async t => {

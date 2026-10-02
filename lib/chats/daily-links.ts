@@ -25,7 +25,8 @@ export function availableTodayStatement(db: D1Database, input: {
         WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.decision!='target' AND dc.id NOT LIKE 'waiting-%')
       AND NOT EXISTS(SELECT 1 FROM chat_publications p
         WHERE p.user_id=c.user_id AND p.chat_id=c.id AND p.published_on=?3)
-      AND ${profilePublicationEligibilitySql('?3','?6')}
+      AND (${profilePublicationEligibilitySql('?3','?6')}
+        OR (c.platform!='telegram' AND NOT EXISTS(SELECT 1 FROM chat_profiles pu WHERE pu.chat_id=c.id AND pu.review_status='confirmed')))
     ORDER BY c.updated_at DESC,c.name LIMIT 200`)
     .bind(input.userId,input.platform,input.date,input.accountId,input.now,isoWeekday(input.date));
 }

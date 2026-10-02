@@ -855,13 +855,13 @@ function compactChatLink(link:string) {
 }
 
 function profileBlocksManualPublication(chat:Chat,quickMode:boolean) {
-  return !chat.profileConfirmed&&!quickMode&&chat.platform!=='viber';
+  return !chat.profileConfirmed&&!quickMode&&chat.platform==='telegram';
 }
 
 function readyActionLabel(chat:Chat,clock:number,quickMode:boolean) {
   if(chat.discoveryDecision&&chat.discoveryDecision!=='target')return 'Кваліфікація';
   if(profileBlocksManualPublication(chat,quickMode))return 'Уточнити профіль';
-  if(chat.platform==='viber'&&canPublish(chat,clock))return 'Опублікувати';
+  if(chat.platform!=='telegram'&&canPublish(chat,clock))return 'Опублікувати';
   if(canPublish(chat,clock))return 'Підготувати';
   if(isSnoozed(chat,clock))return 'Відкладено';
   return 'Очікування 6 год';
