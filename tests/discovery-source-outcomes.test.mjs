@@ -360,7 +360,7 @@ void test('runner passes invite metadata into joined qualification to avoid redu
 void test('metadata failure defers candidate without opening the heavy WhatsApp UI',async()=>{
   const source=await readFile(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8');
   const start=source.indexOf('async function processLocalPreflight');
-  const end=source.indexOf('async function resolveLocalSourceSeedData',start);
+  const end=source.indexOf('async function resolveLocalSourcePlan',start);
   const process=source.slice(start,end);
   assert.match(process,/queried\?\.kind!=='result'/u);
   assert.match(process,/METADATA_RETRY_COOLDOWN_MS/u);
@@ -444,16 +444,17 @@ void test('source bridge keeps cursor on preview failure and reports a resumable
   assert.equal(state.sourceIssues[0].reason,'preview_http_503');
 });
 
-void test('local filters expose every failed outcome while target view stays strict',async()=>{
+// Three working lists (operator decision 2026-10-02): «В роботі» (decision needed first, then the queue),
+// «Цільові» strictly target, «Нецільові» = rejected + skipped + unavailable, each with its reasons.
+void test('local lists split work, targets and non-targets while the target list stays strict',async()=>{
   const source=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
   const {stripTypeScriptTypes}=await import('node:module');
-  const fn=source.slice(source.indexOf('function localCandidatesForFilter'),source.indexOf('function localTargetIdentity'));
-  const filter=new Function(stripTypeScriptTypes(fn)+'\nreturn localCandidatesForFilter;')();
-  const candidates=[{preflightState:'target'},{preflightState:'queued'},{preflightState:'rejected'},{preflightState:'skipped'},{preflightState:'unavailable'}];
-  assert.equal(filter(candidates,'all').length,5);
+  const fn=source.slice(source.indexOf('function localCandidatesForFilter'),source.indexOf('// Progress toward the goal'));
+  const filter=new Function('NON_TARGET_STATES',stripTypeScriptTypes(fn)+'\nreturn localCandidatesForFilter;')(new Set(['rejected','skipped','unavailable']));
+  const candidates=[{preflightState:'target'},{preflightState:'queued'},{preflightState:'rejected'},{preflightState:'skipped'},{preflightState:'unavailable'},{preflightState:'review'}];
+  assert.deepEqual(filter(candidates,'active'),[candidates[5],candidates[1]]);
   assert.deepEqual(filter(candidates,'target'),[candidates[0]]);
-  assert.deepEqual(filter(candidates,'rejected'),[candidates[2],candidates[3]]);
-  assert.deepEqual(filter(candidates,'unavailable'),[candidates[4]]);
+  assert.deepEqual(filter(candidates,'rejected'),[candidates[2],candidates[3],candidates[4]]);
 });
 
 void test('WhatsApp invite metadata and UI inspection foreground the WhatsApp tab first',async()=>{
@@ -563,13 +564,14 @@ void test('source feedback rewards viable-size writable supply even while factua
 });
 
 
-void test('fresh UI and CDP discovery runs skip the repeatedly exhausted bootstrap cursor band',async()=>{
+// The Telegram-group plan has no exhausted channel bootstrap band anymore: fresh runs start at step 0.
+void test('fresh UI and CDP discovery runs start the Telegram group plan at its first step',async()=>{
   const ui=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
   const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
-  assert.match(ui,/const LOCAL_SOURCE_START_CURSOR=15/);
+  assert.match(ui,/const LOCAL_SOURCE_START_CURSOR=0/);
   assert.match(ui,/telegramCursor:LOCAL_SOURCE_START_CURSOR/);
   assert.match(ui,/sourceCursor:LOCAL_SOURCE_START_CURSOR/);
-  assert.match(adapter,/telegramCursor:15,sourceCursor:15/);
+  assert.match(adapter,/telegramCursor:0,sourceCursor:0/);
 });
 
 void test('joined qualification reads a deeper factual history without relaxing criteria',async()=>{

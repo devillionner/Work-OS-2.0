@@ -167,18 +167,28 @@ void test('local Discovery idle polling reacts within a few seconds',()=>{
   assert.match(source,/IDLE_POLL_MAX_MS=5000/);
 });
 
-void test('local source crawl batches three cursors including bootstrap',()=>{
-  assert.match(source,/const width=3/);
-  assert.doesNotMatch(source,/const width=start>=15\?3:1/);
+// Since 2026-10-02 sources are public Telegram groups searched in the operator's Telegram Web tab (no
+// channels). Telegram Web and WhatsApp Web both need the foreground, so the two take turns instead of
+// running a background source pump next to WhatsApp work.
+void test('local source step searches Telegram groups and alternates with WhatsApp checks',()=>{
+  assert.match(source,/telegramGroupDiscoveryPlan\(localSourceSeedData,result\.telegramGroups\|\|\[\]\)/);
+  assert.match(source,/searchTelegramPublicGroups\(session,step\.query/);
+  assert.match(source,/scanTelegramGroupForInvites\(session,group\)/);
+  assert.doesNotMatch(source,/crawlLocalDiscoverySource|startLocalSourceRefill|localSourceInFlight/);
+  const runOnce=source.slice(source.indexOf('async function runOnce'),source.indexOf("console.log('Work OS Discovery runner started."));
+  assert.ok(runOnce.indexOf('return processLocalPreflightVisible(local.task)')<runOnce.indexOf('return refillLocalSourceOnce(local)'));
 });
 
-void test('local source refill releases its lock after one deterministic step',()=>{
-  const start=source.indexOf('function startLocalSourceRefill');
-  const end=source.indexOf('async function refillLocalSourceOnce',start);
-  const block=source.slice(start,end);
-  assert.match(block,/refillLocalSourceOnce\(initialLocal\)/);
-  assert.match(block,/finally\(\(\)=>\{localSourceInFlight=null;\}\)/);
-  assert.doesNotMatch(block,/while\(/);
+void test('Telegram refusal stops the run on the same step and already searched groups are skipped for a week',()=>{
+  const refill=source.slice(source.indexOf('async function refillLocalSourceOnce'),source.indexOf('async function runWhatsAppAutopostOnce'));
+  assert.match(refill,/if\(crawled\.blockedReason\)\{/);
+  assert.match(refill,/pauseWorkOsLocalDiscoveryRunViaCdp\(baseUrl/);
+  assert.match(refill,/setStatus\('attention'/);
+  assert.match(refill,/nextCursor:crawled\.interrupted\?cursor:cursor\+1/);
+  // Groups count as searched only after their invites reached the Work OS session.
+  assert.ok(refill.lastIndexOf('markGroupsScanned(crawled.scannedGroups)')>refill.lastIndexOf('applyWorkOsLocalDiscoverySourceBatchViaCdp'));
+  assert.match(source,/const TELEGRAM_GROUP_RESCAN_MS=7\*24\*60\*60\*1000/);
+  assert.match(source,/if\(!await localRunStillActive\(local\)\)\{outcome\.interrupted=true;break;\}/);
 });
 
 void test('source refill has only a short idle gap',()=>{
@@ -226,7 +236,7 @@ void test('runner never interrupts a WhatsApp message sync and gives Discovery o
 
 // Local Discovery after the 2026-09-29 rewrite: every per-candidate problem (retry later, slow page,
 // metadata gaps, incomplete facts) goes through one bounded deferral instead of reason-specific branches.
-const localPreflight=source.slice(source.indexOf('async function processLocalPreflight('),source.indexOf('async function resolveLocalSourceSeedData'));
+const localPreflight=source.slice(source.indexOf('async function processLocalPreflight('),source.indexOf('async function resolveLocalSourcePlan'));
 
 void test('a failing or slow local candidate is deferred alone with bounded retries and never freezes WhatsApp',()=>{
   const defer=source.slice(source.indexOf('async function deferLocalPreflight'),source.indexOf('const FRESH_JOIN_MANUAL_REVIEW_REASONS'));
@@ -266,16 +276,8 @@ void test('local Discovery joins through the WhatsApp runtime and uses the invit
   assert.match(localPreflight,/Do not perform a second join after a timeout if WhatsApp may have accepted it/);
 });
 
-void test('the local source pump refills without blocking WhatsApp work and skips a deferred source step',async()=>{
+void test('deferred candidates do not count as queued, so they cannot starve the Telegram source step',async()=>{
   const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
-  // Deferred (skipped) candidates do not count as queued, so they cannot starve the source refill.
   assert.match(adapter,/queuedCount:candidates\.filter\(item=>item\?\.preflightState==='queued'&&!results\[item\?\.id\]&&!skipped\.has\(item\?\.id\)\)\.length/);
-  assert.match(source,/let localSourceInFlight=null/);
-  assert.match(source,/if\(localSourceInFlight\|\|initialLocal\?\.sourceExhausted===true\|\|Number\(initialLocal\?\.queuedCount\|\|0\)>=LOCAL_SOURCE_TARGET_QUEUE\)return;/);
-  assert.match(source,/startLocalSourceRefill\(local\);/);
-  assert.doesNotMatch(source,/await startLocalSourceRefill\(local\)/);
-  assert.match(source,/if\(batch\.deferred===true\)\{/);
-  assert.match(source,/nextCursor:Math\.max\(cursor\+1,/);
-  assert.match(source,/source_step_skipped_after_defer/);
-  assert.match(source,/if\(Number\(local\.sourceCursor\|\|0\)===0\)nextLocalSourceAt=0/);
+  assert.match(source,/Number\(local\.queuedCount\|\|0\)>=LOCAL_SOURCE_TARGET_QUEUE\)return 'local_wait'/);
 });

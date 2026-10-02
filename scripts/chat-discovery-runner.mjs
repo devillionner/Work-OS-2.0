@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFile, execFileSync } from 'node:child_process';
-import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
@@ -22,11 +22,13 @@ import {
   writeWorkOsLocalDiscoveryResultViaCdp,
   markWorkOsLocalDiscoveryCandidateViaCdp,
   applyWorkOsLocalDiscoverySourceBatchViaCdp,
+  pauseWorkOsLocalDiscoveryRunViaCdp,
   sendWhatsappAutopostViaCdp,
   checkWhatsappWaitingInviteViaCdp,
   toWhatsAppWebInviteUrl,
 } from './whatsapp-web-cdp.mjs';
-import { crawlLocalDiscoverySource, recordDiscoverySourceOutcome, hydrateDiscoverySourceFeedback } from './chat-discovery-source-crawl.mjs';
+import { recordDiscoverySourceOutcome, hydrateDiscoverySourceFeedback, telegramGroupDiscoveryPlan, telegramGroupSource } from './chat-discovery-source-crawl.mjs';
+import { openTelegramWebSession, scanTelegramGroupForInvites, searchTelegramPublicGroups } from './telegram-web-cdp.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
@@ -42,7 +44,7 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const TASK_POLL_MS=3000;
 const LOCAL_PREFLIGHT_POLL_MS=1500;
 const LOCAL_SOURCE_MIN_MS=500;
-const LOCAL_SOURCE_TARGET_QUEUE=30;
+const LOCAL_SOURCE_TARGET_QUEUE=12;
 const SOURCE_ADVANCE_MS=20000;
 const EXECUTOR_QUEUE_LIMIT=1;
 const CLOUD_AUTOMATION_POLL_MS=15000;
@@ -59,6 +61,11 @@ const INCOMPLETE_QUALIFICATION_COOLDOWN_MS=15000;
 const qualificationAttempts=new Map();
 let localSourceSeedData=null;
 let localSourceSeedVersion=0;
+let localSourcePlan=null;
+let localSourcePlanRunId='';
+// Telegram groups already searched for WhatsApp invites; a repeated run skips them for a week.
+const TELEGRAM_GROUP_RESCAN_MS=7*24*60*60*1000;
+const SEARCH_GROUPS_PER_STEP=3;
 let sourceFeedbackRefreshAt=0;
 const PAGE_RECOVERY_COOLDOWN_MS=15000;
 const WHATSAPP_LOADING_COOLDOWN_MS=10000;
@@ -235,7 +242,6 @@ let whatsappHomeRecoveryPending=false;
 let lastWhatsappReloadAt=0;
 let nextSourceAdvanceAt=0;
 let nextLocalSourceAt=0;
-let localSourceInFlight=null;
 let nextCloudAutomationAt=0;
 let cloudAutomationDelayMs=CLOUD_AUTOMATION_POLL_MS;
 let preferAutopost=false;
@@ -487,14 +493,16 @@ async function processLocalPreflight(task){
   return qualifyLocalResult(task,result);
 }
 
-async function resolveLocalSourceSeedData(){
-  if(localSourceSeedData)return localSourceSeedData;
+async function resolveLocalSourcePlan(runId){
+  if(localSourcePlan&&localSourcePlanRunId===runId)return localSourcePlan;
   const result=await readWorkOsLocalDiscoverySeedDataViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp});
   if(result.kind!=='result')throw new Error(result.reason||'source_plan_unavailable');
   localSourceSeedData=result.seedData;
   localSourceSeedVersion=Number(result.version)||0;
-  console.log(`Discovery source plan loaded from authorized Work OS page${localSourceSeedVersion?` (v${localSourceSeedVersion})`:''}.`);
-  return localSourceSeedData;
+  localSourcePlan=telegramGroupDiscoveryPlan(localSourceSeedData,result.telegramGroups||[]);
+  localSourcePlanRunId=runId;
+  console.log(`Discovery source plan loaded from authorized Work OS page${localSourceSeedVersion?` (v${localSourceSeedVersion})`:''}: ${localSourcePlan.length} Telegram steps, ${(result.telegramGroups||[]).length} joined Telegram chats.`);
+  return localSourcePlan;
 }
 
 async function refreshLocalSourceFeedback(){
@@ -504,74 +512,130 @@ async function refreshLocalSourceFeedback(){
   if(result.kind==='result')hydrateDiscoverySourceFeedback(result.feedback||{});
 }
 
-async function crawlLocalDiscoveryBatch(cursor){
-  const batchStartedAt=Date.now();
-  const start=Math.max(0,Number(cursor)||0);
-  let seedData;
+const scannedGroupsFile=join(dirname(statusFile),'telegram-scanned-groups.json');
+function readScannedGroups(){
+  try{return JSON.parse(readFileSync(scannedGroupsFile,'utf8'))||{};}catch{return {};}
+}
+function markGroupsScanned(usernames){
+  if(!usernames.length)return;
+  const now=Date.now();
+  const entries=Object.entries(readScannedGroups()).filter(([,at])=>now-Number(at)<TELEGRAM_GROUP_RESCAN_MS);
+  for(const username of usernames)entries.push([username.toLowerCase(),now]);
   try{
-    seedData=await resolveLocalSourceSeedData();
-    await refreshLocalSourceFeedback();
-  }catch(error){
-    const reason=error instanceof Error?error.message:String(error);
-    return {searched:0,nextCursor:start,done:false,totalTasks:0,errors:[{cursor:start,query:'План пошуку Work OS',reason}],query:'План пошуку Work OS',sources:[],durationMs:Date.now()-batchStartedAt};
-  }
-  const width=3;
-  const batches=await Promise.all(Array.from({length:width},(_,index)=>crawlLocalDiscoverySource(start+index,{seedData})));
-  const errors=batches.flatMap(item=>item.errors||[]);
-  const warnings=batches.flatMap(item=>item.warnings||[]);
-  const deferredIndex=batches.findIndex(item=>item?.deferred===true);
-  const usable=deferredIndex>=0?batches.slice(0,deferredIndex):batches;
-  const retryAfterMs=deferredIndex>=0?Math.max(1000,Number(batches[deferredIndex]?.retryAfterMs)||1000):0;
-  return {
-    searched:usable.reduce((sum,item)=>sum+(Number(item?.searched)||0),0),
-    nextCursor:errors.length?start:usable.reduce((max,item)=>Math.max(max,Number(item?.nextCursor)||start),start),
-    done:errors.length===0&&deferredIndex<0&&batches.at(-1)?.done===true,
-    deferred:deferredIndex>=0,
-    retryAfterMs,
-    totalTasks:batches.find(item=>Number.isFinite(item.totalTasks))?.totalTasks||0,
-    errors,warnings,
-    query:batches.map(item=>item?.query||'').filter(Boolean).join(' | '),
-    sources:errors.length?[]:usable.flatMap(item=>Array.isArray(item?.sources)?item.sources:[]),
-    durationMs:Date.now()-batchStartedAt,
-  };
+    mkdirSync(dirname(scannedGroupsFile),{recursive:true});
+    writeFileSync(`${scannedGroupsFile}.tmp`,JSON.stringify(Object.fromEntries(entries.slice(-20000))));
+    renameSync(`${scannedGroupsFile}.tmp`,scannedGroupsFile);
+  }catch{}
+}
+function groupRecentlyScanned(scanned,username){
+  return Date.now()-Number(scanned[String(username).toLowerCase()]||0)<TELEGRAM_GROUP_RESCAN_MS;
 }
 
-function startLocalSourceRefill(initialLocal){
-  if(localSourceInFlight||initialLocal?.sourceExhausted===true||Number(initialLocal?.queuedCount||0)>=LOCAL_SOURCE_TARGET_QUEUE)return;
-  localSourceInFlight=refillLocalSourceOnce(initialLocal)
-    .catch(error=>console.warn('Local source refill failed: '+(error instanceof Error?error.message:String(error))))
-    .finally(()=>{localSourceInFlight=null;});
+// One plan step in the operator's Telegram Web tab: public groups only, never joins, never writes D1.
+// Returns the WhatsApp-invite sources plus the groups that were fully searched.
+async function crawlTelegramGroupStep(step,local){
+  const startedAt=Date.now();
+  const query=step.kind==='search'?step.query:'Приєднані Telegram-групи';
+  const outcome={query,sources:[],scannedGroups:[],warnings:[],blockedReason:null,interrupted:false};
+  const opened=await openTelegramWebSession({cdpBaseUrl:whatsappCdp});
+  if(opened.kind!=='result'){outcome.blockedReason=opened.reason;return outcome;}
+  const session=opened.session;
+  try{
+    const scanned=readScannedGroups();
+    let groups;
+    if(step.kind==='search'){
+      const found=await searchTelegramPublicGroups(session,step.query,{limit:8});
+      if(found.kind!=='result'){outcome.blockedReason=found.reason;return outcome;}
+      groups=found.groups.filter(group=>!groupRecentlyScanned(scanned,group.username)).slice(0,SEARCH_GROUPS_PER_STEP);
+    }else{
+      groups=(step.groups||[]).filter(group=>!groupRecentlyScanned(scanned,group.username));
+    }
+    for(const group of groups){
+      if(!await localRunStillActive(local)){outcome.interrupted=true;break;}
+      await session.pause();
+      const scan=await scanTelegramGroupForInvites(session,group);
+      if(scan.kind!=='result'){outcome.blockedReason=scan.reason;break;}
+      outcome.scannedGroups.push(group.username);
+      if(scan.status!=='scanned'){
+        console.log(`Telegram group @${group.username}: ${scan.status}`);
+        continue;
+      }
+      console.log(`Telegram group @${group.username} (${scan.memberCount??'?'} members): ${scan.invites.length} WhatsApp invites`);
+      const source=telegramGroupSource(scan,{query,place:step.place||''});
+      if(source)outcome.sources.push(source);
+    }
+  }catch(error){
+    outcome.warnings.push({query,reason:'telegram_step_failed · '+(error instanceof Error?error.message:String(error))});
+  }finally{
+    session.close();
+    outcome.durationMs=Date.now()-startedAt;
+  }
+  return outcome;
 }
+
+const TELEGRAM_BLOCK_LABELS={
+  telegram_flood_wait:'Telegram тимчасово обмежив пошук — автопошук зупинено, продовж пізніше',
+  telegram_tab_missing:'Відкрий web.telegram.org/a в Opera з портом 9222 і продовж автопошук',
+  telegram_not_authenticated:'Увійди в Telegram Web (web.telegram.org/a) і продовж автопошук',
+};
 
 async function refillLocalSourceOnce(local){
   if(local?.active!==true||local.sourceExhausted===true||Number(local.queuedCount||0)>=LOCAL_SOURCE_TARGET_QUEUE)return 'local_wait';
   if(Date.now()<nextLocalSourceAt)return 'local_wait';
   const cursor=Number(local.sourceCursor)||0;
-  let batch=await crawlLocalDiscoveryBatch(cursor);
-  if(batch.deferred===true){
-    batch={
-      ...batch,
-      nextCursor:Math.max(cursor+1,Number(batch.nextCursor)||cursor),
-      deferred:false,
-      retryAfterMs:0,
-      warnings:[
-        ...(Array.isArray(batch.warnings)?batch.warnings:[]),
-        {cursor,query:batch.query||'Пошук джерел',reason:'source_step_skipped_after_defer · '+String(batch.deferredReason||'temporary_source_failure')},
-      ],
-    };
+  let plan;
+  try{
+    plan=await resolveLocalSourcePlan(String(local.runId||''));
+    await refreshLocalSourceFeedback();
+  }catch(error){
+    const reason=error instanceof Error?error.message:String(error);
+    await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,{nextCursor:cursor,searched:0,done:false,totalTasks:0,
+      errors:[{cursor,query:'План пошуку Work OS',reason}],sources:[]},{cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
+    nextLocalSourceAt=Date.now()+10_000;
+    return 'local_wait';
   }
-  if(Array.isArray(batch.warnings)&&batch.warnings.length){
-    for(const warning of batch.warnings.slice(0,4))console.warn('Discovery source warning: '+String(warning?.query||'source')+' · '+String(warning?.reason||'unavailable'));
+  if(cursor>=plan.length){
+    await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,{nextCursor:cursor,searched:0,done:true,totalTasks:plan.length,sources:[]},
+      {cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
+    return 'local_wait';
   }
+  const step=plan[cursor];
+  setStatus('working',step.kind==='search'?`Telegram: шукаємо групи «${step.query}»`:'Telegram: перевіряємо приєднані групи');
+  const crawled=await crawlTelegramGroupStep(step,local);
+  if(crawled.blockedReason){
+    // Stop instead of hammering Telegram; the cursor stays on this step, so «Продовжити» resumes it.
+    console.warn(`Telegram source stopped: ${crawled.blockedReason}`);
+    setStatus('attention',TELEGRAM_BLOCK_LABELS[crawled.blockedReason]||`Telegram: ${crawled.blockedReason}`);
+    if(crawled.scannedGroups.length||crawled.sources.length){
+      const partial=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,{nextCursor:cursor,searched:crawled.scannedGroups.length,
+        done:false,totalTasks:plan.length,sources:crawled.sources},{cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
+      if(partial.kind==='result')markGroupsScanned(crawled.scannedGroups);
+    }
+    await pauseWorkOsLocalDiscoveryRunViaCdp(baseUrl,{reason:crawled.blockedReason,query:crawled.query},{cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
+    return 'local_wait';
+  }
+  if(crawled.interrupted&&!crawled.sources.length)return 'local_wait';
+  const batch={
+    nextCursor:crawled.interrupted?cursor:cursor+1,
+    searched:crawled.scannedGroups.length,
+    done:!crawled.interrupted&&cursor+1>=plan.length,
+    totalTasks:plan.length,
+    errors:[],
+    warnings:crawled.warnings,
+    query:crawled.query,
+    sources:crawled.sources,
+  };
+  for(const warning of batch.warnings.slice(0,4))console.warn('Discovery source warning: '+String(warning?.query||'source')+' · '+String(warning?.reason||'unavailable'));
   const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
   nextLocalSourceAt=Date.now()+(applied.errors?10_000:LOCAL_SOURCE_MIN_MS);
   if(applied.kind!=='result')return 'local_wait';
+  markGroupsScanned(crawled.scannedGroups);
   if(Array.isArray(applied.sourceStats)&&applied.sourceStats.length){
     await updateWorkOsLocalDiscoverySourceFeedbackViaCdp(baseUrl,applied.sourceStats,{cdpBaseUrl:whatsappCdp}).catch(()=>{});
     sourceFeedbackRefreshAt=0;
   }
-  console.log('Local source crawl: cursor '+batch.nextCursor+', sources '+batch.sources.length+', added '+(applied.added||0)+', duplicates '+(applied.duplicates||0)+', sourceMs '+(batch.durationMs||0));
-  return (applied.added||0)>0?'source_added':'source_advanced';
+  console.log('Telegram source step: cursor '+batch.nextCursor+'/'+plan.length+', groups '+crawled.scannedGroups.length+', sources '+batch.sources.length+', added '+(applied.added||0)+', duplicates '+(applied.duplicates||0)+', sourceMs '+(crawled.durationMs||0));
+  return (applied.added||0)>0?'source_added':'local_task';
 }
 
 async function runWhatsAppAutopostOnce(){
@@ -735,18 +799,18 @@ async function runOnce(){
         .map(([candidateId])=>candidateId);
       const local=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp,skipCandidateIds});
       if(local.kind==='result'&&local.active===true){
-        if(Number(local.sourceCursor||0)===0)nextLocalSourceAt=0;
-        startLocalSourceRefill(local);
-        if(Date.now()<whatsappRuntimeBlockedUntil)return 'local_wait';
-        if(local.task){
+        // Telegram Web and WhatsApp Web both need their tab in the foreground, so source search and
+        // WhatsApp qualification take turns: a queued invite is checked first, otherwise one Telegram step runs.
+        if(local.task&&Date.now()>=whatsappRuntimeBlockedUntil){
+          let whatsappReady=true;
           try{
             const health=await readWhatsappHomeHealthViaCdp({cdpBaseUrl:whatsappCdp});
             if(health.kind==='result'&&health.home===true){
               if(health.authenticated!==true){
                 markWhatsappRuntimeBlocked('whatsapp_not_authenticated');
-                return 'local_wait';
-              }
-              if(health.ready!==true){
+                whatsappReady=false;
+              }else if(health.ready!==true){
+                whatsappReady=false;
                 if(health.loading===true){
                   whatsappLoadingSignals+=1;
                   if(!whatsappLoadingSince)whatsappLoadingSince=Date.now();
@@ -770,9 +834,7 @@ async function runOnce(){
                     }
                   }
                 }
-                return 'local_wait';
-              }
-              if(whatsappHomeRecoveryPending||whatsappLoadingSignals>0){
+              }else if(whatsappHomeRecoveryPending||whatsappLoadingSignals>0){
                 whatsappHomeRecoveryPending=false;
                 whatsappLoadingSignals=0;
                 whatsappLoadingSince=0;
@@ -780,9 +842,12 @@ async function runOnce(){
               }
             }
           }catch{}
-          return processLocalPreflightVisible(local.task);
+          if(whatsappReady){
+            setStatus('working',`WhatsApp: перевіряємо ${local.task.name}`);
+            return processLocalPreflightVisible(local.task);
+          }
         }
-        return 'local_wait';
+        return refillLocalSourceOnce(local);
       }
     }catch(error){
       console.warn(`Local Discovery bridge unavailable: ${error instanceof Error?error.message:String(error)}`);

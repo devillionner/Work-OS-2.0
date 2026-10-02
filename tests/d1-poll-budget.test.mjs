@@ -6,6 +6,7 @@ import { claimWaitingWhatsAppCheck, readWaitingWhatsAppCheckStatus } from '../li
 import { claimWhatsAppAutopostJob } from '../lib/messenger-automation.ts';
 import { addSelectedChatToJoin, readSelectedChats, readSelectedChatsCount, saveSelectedChats } from '../lib/chats/telegram-selected.ts';
 import { readSyncRevision } from '../lib/sync-revision.ts';
+import { archiveLocalDiscoveryOutcomes, previewTelegramDiscoveryText, readDiscoveryTelegramGroupSources } from '../lib/chat-discovery/local-preview.ts';
 import { localDatabase } from './helpers/local-d1.mjs';
 
 // Everything a runner or an open page polls on a timer must stay cheap in D1 rows read, whatever the
@@ -29,6 +30,7 @@ function meter(db) {
   };
   const metered = new Proxy(db, { get(target, property) {
     if (property === 'prepare') return sql => wrap(target.prepare(sql));
+    if (property === 'batch') return async statements => { const results = await target.batch(statements); results.forEach(count); return results; };
     const value = target[property];
     return typeof value === 'function' ? value.bind(target) : value;
   } });
@@ -86,4 +88,43 @@ void test('page polls (sync revision, Waiting-check status, Telegram selected li
   assert.ok(await rows(metered => readSelectedChats(metered, 'u')) <= items.length * 3, 'selected list must use index lookups, not scan all chats');
   await saveSelectedChats(db, 'u', { items: [...items, { link: 'https://t.me/budget_new_chat', title: 'Новий', count: 1, last: null }], skipped: 0 }, NOW);
   assert.ok(await rows(metered => addSelectedChatToJoin(metered, 'u', 'https://t.me/budget_new_chat', NOW)) <= 20, 'adding one selected chat must not scan all chats');
+});
+
+// Discovery since 2026-10-02: the Telegram-group list is read once per run start, every found invite is
+// deduplicated against D1 (read only), and «Архівувати всі» writes up to 100 chats in one batch. None of them
+// may grow with the owner's total candidates or chats.
+void test('Discovery run start, invite dedupe and archive-all stay bounded in D1 rows', async (t) => {
+  const db = await localDatabase(t);
+  await seed(db);
+  const { rows } = meter(db);
+  const telegram = [];
+  for (let index = 0; index < 3000; index += 1) {
+    const link = `https://t.me/budget_group_${index}`;
+    const joined = index < 300;
+    telegram.push(db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,joined_at,is_private,created_at,updated_at)
+      VALUES (?1,'u','telegram',?1,?2,?2,?3,?4,0,1,?5)`).bind(`tgg-${index}`, link, joined ? 'ready' : 'archived', joined ? 1 : null, index));
+    if (telegram.length >= 200) await db.batch(telegram.splice(0));
+  }
+  if (telegram.length) await db.batch(telegram);
+
+  let groups;
+  const startRows = await rows(async metered => { groups = await readDiscoveryTelegramGroupSources(metered, 'u'); });
+  assert.equal(groups.groups.length, 300);
+  assert.ok(startRows <= 300 + 5, `run start read ${startRows} rows; only the joined live Telegram chats may be read`);
+
+  const dedupeRows = await rows(metered => previewTelegramDiscoveryText(metered, 'u', {
+    text: 'Українці: https://chat.whatsapp.com/Budget1Invite https://chat.whatsapp.com/BudgetFreshInvite01',
+    sourceUrl: 'https://t.me/budget_group_1', sourceTitle: 'Українці', query: 'Українці',
+  }, NOW));
+  assert.ok(dedupeRows <= 10, `invite dedupe read ${dedupeRows} rows; it must use index lookups`);
+
+  const items = Array.from({ length: 100 }, (_, index) => ({
+    platform: 'whatsapp', link: `https://chat.whatsapp.com/BudgetArchive${String(index).padStart(3, '0')}x`, name: `n${index}`,
+    sources: [{ kind: 'telegram_global', sourceUrl: 'https://t.me/budget_group_1', sourceTitle: 'Українці', query: 'q', seedLabel: 'q', seedKind: 'telegram_chat', context: '' }],
+    outcome: { decision: 'rejected', reasonCodes: ['too_few_members'], result: { memberCount: 10 } },
+  }));
+  const archiveRows = await rows(metered => archiveLocalDiscoveryOutcomes(metered, 'u', { items }, NOW));
+  assert.ok(archiveRows > 0, "the metered batch must count archive rows");
+  // Measured: a constant 12 rows per archived chat (unique-index and FK checks) whether the owner has 0 or 6 000 candidates.
+  assert.ok(archiveRows <= items.length * 12, `archive-all read ${archiveRows} rows for ${items.length} chats`);
 });

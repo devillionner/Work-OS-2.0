@@ -868,3 +868,68 @@ function escapeRegExp(value) {
   const specials='^$.*+?()[]{}|'+slash;
   return String(value).split('').map((char)=>specials.includes(char)?slash+char:char).join('');
 }
+
+// Discovery source plan since 2026-10-02 (operator decision): public Telegram GROUPS only, no channels.
+// Steps alternate between (a) a Telegram global search for one workbook query (place + «українці»,
+// «барахолка», «мамочки», «перевезення»…) and (b) a few groups that the owner's Telegram accounts already
+// joined (read from Work OS when the run starts). Deterministic, so the run cursor can resume after a pause.
+// Public username of a Telegram chat link; invite hashes (+xxxx, joinchat) are private and skipped.
+export function telegramPublicUsername(link) {
+  let url;
+  try { url = new URL(String(link || '').trim()); } catch { return null; }
+  const host = url.hostname.toLowerCase().replace(/^www\./u, '');
+  if (!['t.me', 'telegram.me', 'telegram.dog'].includes(host)) return null;
+  const parts = url.pathname.split('/').filter(Boolean);
+  const name = parts[0] === 's' ? parts[1] : parts[0];
+  // Invite hashes (+xxxx, joinchat/...) are private groups: they cannot be opened without joining.
+  if (!name || name.startsWith('+') || ['joinchat', 'addstickers', 'share', 'proxy', 'c'].includes(name.toLowerCase())) return null;
+  if (!/^[A-Za-z][A-Za-z0-9_]{3,31}$/u.test(name) || /bot$/iu.test(name)) return null;
+  return name;
+}
+
+export const JOINED_GROUPS_PER_STEP=3;
+export function telegramGroupDiscoveryPlan(seed,joinedGroups=[]){
+  // Telegram matches group titles, so the web-search word «WhatsApp» is dropped from the query.
+  const searchSeen=new Set();
+  const searches=[];
+  for(const task of workbookSearchPlan(requireSeedData(seed))){
+    const query=String(task.query||'').replace(/\bwhatsapp\b/giu,' ').replace(/\s+/gu,' ').trim();
+    // Word order does not matter to Telegram search: «Українці Німеччина» = «Німеччина українці».
+    const key=query.toLocaleLowerCase('uk-UA').split(' ').sort().join(' ');
+    if(!query||searchSeen.has(key))continue;
+    searchSeen.add(key);
+    searches.push({kind:'search',query,place:task.place});
+  }
+  const seen=new Set();
+  const joined=[];
+  for(const group of Array.isArray(joinedGroups)?joinedGroups:[]){
+    const username=telegramPublicUsername(group?.link);
+    if(!username||seen.has(username.toLowerCase()))continue;
+    seen.add(username.toLowerCase());
+    joined.push({username,title:String(group?.name||'').slice(0,180)});
+  }
+  const joinedSteps=[];
+  for(let index=0;index<joined.length;index+=JOINED_GROUPS_PER_STEP){
+    joinedSteps.push({kind:'joined',groups:joined.slice(index,index+JOINED_GROUPS_PER_STEP)});
+  }
+  const steps=[];
+  for(let index=0;index<Math.max(searches.length,joinedSteps.length);index++){
+    if(searches[index])steps.push(searches[index]);
+    if(joinedSteps[index])steps.push(joinedSteps[index]);
+  }
+  return steps;
+}
+
+// Source text for the Work OS preview: one entry per scanned Telegram group that posted WhatsApp invites.
+export function telegramGroupSource(scan,{query='',place=''}={}){
+  if(!scan||!Array.isArray(scan.invites)||!scan.invites.length||!scan.username)return null;
+  const title=String(scan.title||scan.username).slice(0,180);
+  return {
+    sourceUrl:'https://t.me/'+scan.username,
+    sourceTitle:title,
+    query:String(query||('Telegram · '+title)).slice(0,500),
+    seedLabel:String(place||title).slice(0,180),
+    context:title,
+    text:scan.invites.map(invite=>String(invite.text||'')+'\n'+String(invite.link||'')).join('\n\n').slice(0,45000),
+  };
+}

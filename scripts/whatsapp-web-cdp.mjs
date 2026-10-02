@@ -555,7 +555,7 @@ export async function startWorkOsLocalDiscoveryRunViaCdp(
           sessionStorage.removeItem('work-os:chat-discovery-local-preflight-results:v1');
           const state={
             runId,sourceTotal:0,sourceErrors:0,sourceFailures:0,sourceIssues:[],
-            telegramCursor:15,sourceCursor:15,searched:0,processed:0,duplicates:0,rejected:0,emptySourceBatches:0,
+            telegramCursor:0,sourceCursor:0,searched:0,processed:0,duplicates:0,rejected:0,emptySourceBatches:0,
             done:false,running:true,sourceExhausted:false,goal:${JSON.stringify(safeGoal)},
             lastActivityAt:Date.now(),completionReason:null,candidates:[],
           };
@@ -729,7 +729,10 @@ export async function readWorkOsLocalDiscoverySeedDataViaCdp(
             if(!seedData||!Array.isArray(seedData.keywords)||!seedData.keywords.length||!Array.isArray(seedData.cities)||!seedData.cities.length){
               return {ok:false,reason:'source_plan_invalid'};
             }
-            return {ok:true,version:Number(seedData.version)||0,seedData};
+            let telegramGroups=[];
+            try{const groups=JSON.parse(sessionStorage.getItem('work-os:chat-discovery-telegram-groups:v1')||'[]');
+              if(Array.isArray(groups))telegramGroups=groups.slice(0,3000).filter(item=>item&&typeof item.link==='string');}catch{}
+            return {ok:true,version:Number(seedData.version)||0,seedData,telegramGroups};
           }catch{
             return {ok:false,reason:'source_plan_invalid'};
           }
@@ -737,7 +740,7 @@ export async function readWorkOsLocalDiscoverySeedDataViaCdp(
         returnByValue:true,
       });
       const value=response?.result?.value||{};
-      if(value.ok===true)return {kind:'result',version:Number(value.version)||0,seedData:value.seedData};
+      if(value.ok===true)return {kind:'result',version:Number(value.version)||0,seedData:value.seedData,telegramGroups:Array.isArray(value.telegramGroups)?value.telegramGroups:[]};
       fallback={kind:'blocked',reason:String(value.reason||'source_plan_invalid')};
     }finally{client.close();}
   }
@@ -960,6 +963,41 @@ export async function applyWorkOsLocalDiscoverySourceBatchViaCdp(
   return {kind:'blocked',reason:'work_os_source_state_not_found'};
 }
 
+// Stops the local run when Telegram refuses to continue (rate limit, tab closed, logged out). The cursor
+// stays on the failed step, so the operator's «Продовжити автопошук» resumes exactly there.
+export async function pauseWorkOsLocalDiscoveryRunViaCdp(
+  workOsUrl,
+  { reason, query='' },
+  { cdpBaseUrl, expectedRunId='' } = {},
+) {
+  const pagesResult=await listWorkOsPagesForCdp(workOsUrl,cdpBaseUrl);
+  if(pagesResult.kind==='blocked')return pagesResult;
+  const issue={reason:String(reason||'telegram_unavailable').slice(0,120),query:String(query||'').slice(0,300)};
+  for(const page of pagesResult.pages){
+    const client=await createCdpClient(page.webSocketDebuggerUrl);
+    try{
+      const response=await client.send('Runtime.evaluate',{
+        expression:`(()=>{
+          const key=${JSON.stringify(WORK_OS_LOCAL_PREVIEW_KEY)};
+          let state;try{state=JSON.parse(sessionStorage.getItem(key)||'null');}catch{}
+          if(!state||state.running!==true)return {ok:false,reason:'not_running'};
+          const expectedRunId=${JSON.stringify(String(expectedRunId||''))};
+          if(expectedRunId&&String(state.runId||'')!==expectedRunId)return {ok:false,reason:'run_changed'};
+          state={...state,running:false,completionReason:'source_error',sourceIssues:[${JSON.stringify(issue)}],
+            activeCandidateId:null,activeCandidateName:null,activeCandidateLink:null,activeCandidateStartedAt:null,
+            lastActivityAt:Date.now()};
+          sessionStorage.setItem(key,JSON.stringify(state));
+          window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
+          return {ok:true};
+        })()`,
+        returnByValue:true,
+      });
+      if(response?.result?.value?.ok===true)return {kind:'result'};
+    }finally{client.close();}
+  }
+  return {kind:'blocked',reason:'work_os_run_not_found'};
+}
+
 export async function markWorkOsLocalDiscoveryCandidateViaCdp(
   workOsUrl,
   task,
@@ -1052,30 +1090,10 @@ export async function writeWorkOsLocalDiscoveryResultViaCdp(
           if(!candidate)return {ok:false,reason:'candidate_missing'};
           const expectedRunId=${JSON.stringify(String(payload?.runId||''))};
           if(expectedRunId&&String(state.runId||'')!==expectedRunId)return {ok:false,reason:'run_replaced'};
-          let persisted;
-          try{
-            const res=await fetch('/api/chat-discovery/preview',{
-              method:'POST',
-              headers:{'Content-Type':'application/json'},
-              body:JSON.stringify({
-                action:'persist-outcome',
-                platform:candidate.platform,
-                link:candidate.link,
-                name:candidate.name,
-                sources:Array.isArray(candidate.sources)?candidate.sources:[],
-                minMembers:700,
-                outcome:${JSON.stringify(payload)},
-              }),
-            });
-            persisted=await res.json().catch(()=>null);
-            if(!res.ok||!persisted?.persisted){
-              return {ok:false,reason:String(persisted?.error||('persist_http_'+res.status))};
-            }
-          }catch{
-            return {ok:false,reason:'persist_network_error'};
-          }
+          // Local only (operator decision 2026-10-02): the outcome stays in this tab's session until the
+          // operator presses «Підтвердити» or «Архівувати всі». Nothing is written to D1 here.
           let latest;try{latest=JSON.parse(sessionStorage.getItem(${JSON.stringify(WORK_OS_LOCAL_PREVIEW_KEY)})||'null');}catch{}
-          if(!latest||String(latest.runId||'')!==String(state.runId||''))return {ok:true,persisted,detached:true};
+          if(!latest||String(latest.runId||'')!==String(state.runId||''))return {ok:true,detached:true};
           state=latest;
           const key=${JSON.stringify(WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY)};
           let results={};try{results=JSON.parse(sessionStorage.getItem(key)||'{}');}catch{}
@@ -1098,14 +1116,14 @@ export async function writeWorkOsLocalDiscoveryResultViaCdp(
           state.lastCheckedReasonCodes=${JSON.stringify(Array.isArray(payload?.reasonCodes)?payload.reasonCodes:[])};
           sessionStorage.setItem(${JSON.stringify(WORK_OS_LOCAL_PREVIEW_KEY)},JSON.stringify(state));
           window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
-          return {ok:true,persisted};
+          return {ok:true};
         })()`,
         returnByValue:true,
         awaitPromise:true,
       });
       const value=response?.result?.value||{};
-      if(value.ok===true)return {kind:'result',persisted:value.persisted};
-      return {kind:'blocked',reason:String(value.reason||'persist_outcome_failed')};
+      if(value.ok===true)return {kind:'result'};
+      return {kind:'blocked',reason:String(value.reason||'local_outcome_failed')};
     }finally{client.close();}
   }
   return {kind:'blocked',reason:'work_os_result_target_not_found'};
@@ -2282,7 +2300,7 @@ async function clickExactButton(client, label, expectedName) {
   return response?.result?.value === true;
 }
 
-async function createCdpClient(url) {
+export async function createCdpClient(url) {
   const WebSocketClient = globalThis.WebSocket;
   if (!WebSocketClient) throw new Error('This Node runtime does not provide WebSocket.');
   const socket = new WebSocketClient(url);

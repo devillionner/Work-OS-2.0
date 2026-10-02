@@ -34,7 +34,7 @@ void test('religious groups are a topic mismatch even with a Ukrainian audience'
 void test('the runner screens communities and religious groups from invite metadata, before any join', async () => {
   const runner = await readFile(new URL('../scripts/chat-discovery-runner.mjs', import.meta.url), 'utf8');
   const adapter = await readFile(new URL('../scripts/whatsapp-web-cdp.mjs', import.meta.url), 'utf8');
-  const preflight = runner.slice(runner.indexOf('async function processLocalPreflight('), runner.indexOf('async function resolveLocalSourceSeedData'));
+  const preflight = runner.slice(runner.indexOf('async function processLocalPreflight('), runner.indexOf('async function resolveLocalSourcePlan'));
   const community = preflight.indexOf("if(pre.chatType==='community')reasons.push('community_not_supported')");
   assert.ok(community > 0 && community < preflight.indexOf('joinWhatsappInviteViaRuntime(task'));
   assert.doesNotMatch(runner, /unknown_ads_allowed|unknown_activity|ads_forbidden|inactive_chat/);

@@ -3,9 +3,10 @@ import { getCurrentUser } from '@/lib/auth';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { DiscoveryError } from '@/lib/chat-discovery/domain';
 import {
+  archiveLocalDiscoveryOutcomes,
   confirmLocalDiscoveryPreview,
-  persistLocalDiscoveryOutcome,
   previewTelegramDiscoveryText,
+  readDiscoveryTelegramGroupSources,
   searchLocalDiscoveryPreview,
 } from '@/lib/chat-discovery/local-preview';
 
@@ -36,10 +37,12 @@ export async function POST(request:Request):Promise<Response>{
         seedLabel:body.seedLabel,context:body.context,knownLinks:body.knownLinks,minMembers:body.minMembers,
       },now));
     }
-    if(body.action==='persist-outcome'){
-      return json(await persistLocalDiscoveryOutcome(env.DB,user.id,{
-        platform:body.platform,link:body.link,name:body.name,sources:body.sources,minMembers:body.minMembers,outcome:body.outcome,
-      },now));
+    // Search and qualification never write D1; only "Підтвердити" (confirm) and "Архівувати всі" do.
+    if(body.action==='archive-outcomes'){
+      return json(await archiveLocalDiscoveryOutcomes(env.DB,user.id,{items:body.items},now));
+    }
+    if(body.action==='telegram-groups'){
+      return json(await readDiscoveryTelegramGroupSources(env.DB,user.id));
     }
     if(body.action==='confirm'){
       return json(await confirmLocalDiscoveryPreview(env.DB,user.id,{

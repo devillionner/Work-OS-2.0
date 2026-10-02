@@ -32,6 +32,7 @@ export type LocalDiscoveryPreview=DiscoveryCandidate&{
   leftAfterCheck?:boolean;
   leaveReason?:string|null;
   groupId?:string;
+  checkedRunId?:string;
 };
 
 export async function searchLocalDiscoveryPreview(
@@ -112,10 +113,40 @@ export async function previewTelegramDiscoveryText(
   return {previews:preview.previews,batch:{extracted:records.length,added:preview.previews.length,duplicates:preview.duplicates}};
 }
 
-export async function persistLocalDiscoveryOutcome(
+const ARCHIVE_BATCH_LIMIT=100;
+const ARCHIVE_SOURCES_PER_ITEM=2;
+const ARCHIVABLE_DECISIONS=new Set(['rejected','skipped','unavailable']);
+
+// "Архівувати всі": the only way non-target local results reach D1 (operator decision 2026-10-02). Every item
+// becomes dedupe history so later runs never re-check it. One request = one D1 batch, no reads.
+export async function archiveLocalDiscoveryOutcomes(
   db:D1Database,
   userId:string,
-  input:{platform?:unknown;link?:unknown;name?:unknown;sources?:unknown;minMembers?:unknown;outcome?:unknown},
+  input:{items?:unknown},
+  now:number,
+){
+  if(!Array.isArray(input.items)||!input.items.length)throw new DiscoveryError('Немає нецільових чатів для архіву.');
+  if(input.items.length>ARCHIVE_BATCH_LIMIT)throw new DiscoveryError(`За один раз можна архівувати до ${ARCHIVE_BATCH_LIMIT} чатів.`);
+  const statements:D1PreparedStatement[]=[];
+  const seen=new Set<string>();
+  for(const raw of input.items){
+    if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new DiscoveryError('Некоректний локальний outcome.');
+    const item=raw as Record<string,unknown>;
+    const built=await localOutcomeStatements(db,userId,{
+      platform:item.platform,link:item.link,name:item.name,sources:item.sources,outcome:item.outcome,
+    },now);
+    if(seen.has(built.key))continue;
+    seen.add(built.key);
+    statements.push(...built.statements);
+  }
+  await db.batch(statements);
+  return {archived:seen.size};
+}
+
+async function localOutcomeStatements(
+  db:D1Database,
+  userId:string,
+  input:{platform?:unknown;link?:unknown;name?:unknown;sources?:unknown;outcome?:unknown},
   now:number,
 ){
   const platform=input.platform==='whatsapp'||input.platform==='viber'?input.platform:null;
@@ -129,15 +160,15 @@ export async function persistLocalDiscoveryOutcome(
   }
   const outcome=input.outcome as Record<string,unknown>;
   const localDecision=String(outcome.decision||'');
-  if(!['review','target','rejected','skipped','unavailable'].includes(localDecision)){
-    throw new DiscoveryError('Некоректний локальний статус перевірки.');
+  // Targets are written only by "Підтвердити" (confirm); a result waiting for the operator is not archived.
+  if(!ARCHIVABLE_DECISIONS.has(localDecision)){
+    throw new DiscoveryError('Архівувати можна лише нецільові чати.',409);
   }
   const rawResult=outcome.result&&typeof outcome.result==='object'&&!Array.isArray(outcome.result)
     ? outcome.result as Record<string,unknown>:{};
   const reasonCodes=Array.isArray(outcome.reasonCodes)
     ? [...new Set(outcome.reasonCodes.filter((item):item is string=>typeof item==='string'&&item.trim()!=='').map(item=>item.trim().slice(0,100)))].slice(0,20)
     : [];
-  const minMembers=boundedInteger(input.minMembers,700,18_000,700);
   const count=rawResult.memberCount===null||rawResult.memberCount===undefined?NaN:Number(rawResult.memberCount);
   const memberCount=Number.isSafeInteger(count)&&count>=0?count:null;
   const chatType=['group','community','channel','contact','bot'].includes(String(rawResult.chatType))
@@ -152,7 +183,6 @@ export async function persistLocalDiscoveryOutcome(
     :['joined','pending','left','not_checked'].includes(String(rawResult.membershipState))
       ?rawResult.membershipState as DiscoveryCandidate['membershipState']:'not_checked';
   const accessible=typeof rawResult.accessible==='boolean'?rawResult.accessible:null;
-  const targetVerified=rawResult.targetVerified===true;
   const status=String(rawResult.status||'');
   const rawReason=String(rawResult.reason||'');
   const invalid=reasonCodes.some(code=>/(?:invalid|expired|missing|gone)/iu.test(code))
@@ -160,46 +190,15 @@ export async function persistLocalDiscoveryOutcome(
   const accessState:DiscoveryCandidate['accessState']=accessible===true?'available':accessible===false?'unavailable':'unknown';
   const linkState:DiscoveryCandidate['linkState']=invalid?'invalid':'valid';
   const inspectionState:DiscoveryCandidate['inspectionState']=status==='inspected'||status==='manual_review'?'inspected'
-    :status==='failed'||localDecision==='unavailable'?'failed'
-    :localDecision==='target'?'inspected':'not_checked';
-
-  let decision:DiscoveryDecision=localDecision==='review'?'review':localDecision==='unavailable'?'unavailable':'rejected';
-  let finalReasons=reasonCodes.length?reasonCodes:[
-    localDecision==='review'?'fresh_join_history_unavailable'
-      :localDecision==='skipped'?'skipped_by_automation':'automation_rejected'
-  ];
-  if(localDecision==='review'){
-    const safeManualReview=targetVerified
-      &&membershipState==='joined'
-      &&accessible===true
-      &&linkState==='valid'
-      &&chatType==='group'
-      &&memberCount!==null&&memberCount>=minMembers&&memberCount<=18_000
-      &&canWrite===true
-      &&topicMatch!=='mismatch';
-    if(!safeManualReview||!reasonCodes.includes('fresh_join_history_unavailable')){
-      throw new DiscoveryError('Ручна перевірка дозволена лише для щойно приєднаного чату без видимої історії.',409);
-    }
-    decision='review';
-  }else if(localDecision==='target'){
-    const evaluated=evaluateDiscoveryCandidate({
-      chatType,memberCount,topicMatch,canWrite,adsPolicy,activityState,membershipState,
-      inspectionState,accessState,linkState,
-    },minMembers);
-    if(!targetVerified||evaluated.decision!=='target'){
-      throw new DiscoveryError('Автопошук може зберегти target лише після повної фактичної перевірки.',409);
-    }
-    decision='target';
-    finalReasons=evaluated.reasonCodes;
-  }else if(localDecision==='unavailable'||accessState==='unavailable'||linkState==='invalid'){
-    decision='unavailable';
-  }
+    :status==='failed'||localDecision==='unavailable'?'failed':'not_checked';
+  const decision:DiscoveryDecision=localDecision==='unavailable'||accessState==='unavailable'||linkState==='invalid'?'unavailable':'rejected';
+  const finalReasons=reasonCodes.length?reasonCodes:[localDecision==='skipped'?'skipped_by_automation':'automation_rejected'];
 
   const sources=cleanSources(input.sources);
   const observedName=cleanChatName(typeof rawResult.observedName==='string'?rawResult.observedName:'');
   const name=observedName||cleanChatName(typeof input.name==='string'?input.name:'')||suggestedChatName(parsed);
   const candidateId=await stableId('candidate',`${userId}:${platform}:${parsed.link}`);
-  await db.prepare(`INSERT INTO chat_discovery_candidates
+  const statements:D1PreparedStatement[]=[db.prepare(`INSERT INTO chat_discovery_candidates
     (id,user_id,platform,name,link,normalized_link,discovered_at,checked_at,member_count,chat_type,activity_state,topic_match,
      can_write,ads_policy,membership_state,access_state,link_state,inspection_state,decision,reason_codes_json,
      imported_chat_id,discovery_run_id,created_at,updated_at,version)
@@ -220,30 +219,41 @@ export async function persistLocalDiscoveryOutcome(
       decision=excluded.decision,
       reason_codes_json=excluded.reason_codes_json,
       updated_at=excluded.updated_at,
-      version=chat_discovery_candidates.version+1`)
+      version=chat_discovery_candidates.version+1
+    WHERE chat_discovery_candidates.imported_chat_id IS NULL`)
     .bind(candidateId,userId,platform,name,parsed.link,now,memberCount,chatType,activityState,topicMatch,
-      canWrite===null?null:Number(canWrite),adsPolicy,membershipState,accessState,linkState,inspectionState,decision,JSON.stringify(finalReasons))
-    .run();
-
-  if(sources.length){
-    const statements:D1PreparedStatement[]=[];
-    for(const source of sources.slice(0,8)){
-      const identity=sourceIdentity(source);
-      const sourceId=await stableId('source',`${candidateId}:${identity}`);
-      statements.push(db.prepare(`INSERT INTO chat_discovery_sources
-        (id,candidate_id,user_id,source_key,source_kind,source_url,source_title,query_text,seed_label,seed_kind,context,discovered_at)
-        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
-        ON CONFLICT(candidate_id,source_key) DO NOTHING`)
-        .bind(sourceId,candidateId,userId,identity,source.kind,source.sourceUrl,source.sourceTitle,source.query,source.seedLabel,source.seedKind,source.context,now));
-    }
-    await db.batch(statements);
+      canWrite===null?null:Number(canWrite),adsPolicy,membershipState,accessState,linkState,inspectionState,decision,JSON.stringify(finalReasons))];
+  // Sources attach to the stored row, which may predate this archive under another id (or be imported and
+  // left untouched); a missing parent must skip the source, never fail the whole batch.
+  for(const source of sources.slice(0,ARCHIVE_SOURCES_PER_ITEM)){
+    const identity=sourceIdentity(source);
+    const sourceId=await stableId('source',`${candidateId}:${identity}`);
+    statements.push(db.prepare(`INSERT INTO chat_discovery_sources
+      (id,candidate_id,user_id,source_key,source_kind,source_url,source_title,query_text,seed_label,seed_kind,context,discovered_at)
+      SELECT ?1,c.id,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11 FROM chat_discovery_candidates c
+      WHERE c.user_id=?2 AND c.platform=?12 AND c.normalized_link=?13 AND c.imported_chat_id IS NULL
+      ON CONFLICT(candidate_id,source_key) DO NOTHING`)
+      .bind(sourceId,userId,identity,source.kind,source.sourceUrl,source.sourceTitle,source.query,source.seedLabel,source.seedKind,source.context,now,platform,parsed.link));
   }
-  const stored=await db.prepare(`SELECT id,decision,version,imported_chat_id FROM chat_discovery_candidates
-    WHERE user_id=?1 AND platform=?2 AND normalized_link=?3 LIMIT 1`)
-    .bind(userId,platform,parsed.link)
-    .first<{id:string;decision:DiscoveryDecision;version:number;imported_chat_id:string|null}>();
-  if(!stored)throw new DiscoveryError('Не вдалося зберегти результат автопошуку.',500);
-  return {persisted:true,candidateId:stored.id,decision:stored.decision,version:Number(stored.version),importedChatId:stored.imported_chat_id};
+  return {key:`${platform}|${parsed.link}`,statements};
+}
+
+// Telegram groups that any of the owner's Telegram accounts already joined: Discovery searches their
+// messages for WhatsApp invites. Read once when a run starts (never polled), bounded by the LIMIT.
+export async function readDiscoveryTelegramGroupSources(db:D1Database,userId:string){
+  const rows=await db.prepare(`SELECT name,link FROM chats
+    WHERE user_id=?1 AND platform='telegram' AND workflow_status IN ('waiting','ready') AND joined_at IS NOT NULL
+    LIMIT 3000`).bind(userId).all<{name:string;link:string}>();
+  const groups:Array<{name:string;link:string}>=[];
+  const seen=new Set<string>();
+  for(const row of rows.results||[]){
+    const link=String(row.link||'').trim();
+    const key=link.toLowerCase();
+    if(!link||seen.has(key))continue;
+    seen.add(key);
+    groups.push({name:cleanChatName(String(row.name||'')).slice(0,180),link:link.slice(0,300)});
+  }
+  return {groups};
 }
 
 export async function confirmLocalDiscoveryPreview(
@@ -413,15 +423,23 @@ async function prepareLocalPreviews(
     canonical.set(key,current);
   }
   if(!canonical.size)return {previews:[],duplicates};
-  const links=[...canonical.values()].map(item=>item.link);
-  const [chatResult,candidateResult]=await db.batch([
-    db.prepare(`SELECT platform,normalized_link FROM chats WHERE user_id=?1
-      AND normalized_link IN (SELECT value FROM json_each(?2))`).bind(userId,JSON.stringify(links)),
-    db.prepare(`SELECT platform,normalized_link FROM chat_discovery_candidates WHERE user_id=?1
-      AND normalized_link IN (SELECT value FROM json_each(?2))`).bind(userId,JSON.stringify(links)),
-  ]);
+  // Every found invite is one lookup in the unique (user_id,platform,normalized_link) index. Without the
+  // platform and CROSS JOIN, SQLite walked all of the owner's chats and candidates for every source.
+  const statements:D1PreparedStatement[]=[];
+  for(const platform of ['whatsapp','viber'] as const){
+    const links=[...canonical.values()].filter(item=>item.platform===platform).map(item=>item.link);
+    if(!links.length)continue;
+    statements.push(
+      db.prepare(`SELECT c.platform,c.normalized_link FROM json_each(?2) j CROSS JOIN chats c
+        WHERE c.user_id=?1 AND c.platform=?3 AND c.normalized_link=j.value`).bind(userId,JSON.stringify(links),platform),
+      db.prepare(`SELECT d.platform,d.normalized_link FROM json_each(?2) j CROSS JOIN chat_discovery_candidates d
+        WHERE d.user_id=?1 AND d.platform=?3 AND d.normalized_link=j.value`).bind(userId,JSON.stringify(links),platform),
+    );
+  }
   const known=new Set<string>();
-  for(const row of [...chatResult.results,...candidateResult.results] as KnownRow[])known.add(`${row.platform}|${row.normalized_link}`);
+  for(const result of await db.batch(statements)){
+    for(const row of result.results as KnownRow[])known.add(`${row.platform}|${row.normalized_link}`);
+  }
 
   const previews:LocalDiscoveryPreview[]=[];
   for(const item of canonical.values()){

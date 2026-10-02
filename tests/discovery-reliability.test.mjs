@@ -55,7 +55,7 @@ function harness({metadataFailure=false,persistFailure=false,joinUnavailable=fal
         ...(postJoinEvidenceGap?{joinedThisAttempt:true}:{})}};
     },
   };
-  const code=runner.slice(runner.indexOf('function evaluateLocalPreflight'),runner.indexOf('async function resolveLocalSourceSeedData'));
+  const code=runner.slice(runner.indexOf('function evaluateLocalPreflight'),runner.indexOf('async function resolveLocalSourcePlan'));
   const ctx=vm.createContext({...deps,Date});
   vm.runInContext(code+';globalThis.run=processLocalPreflightVisible;',ctx);
   return {writes,joins,get checkpoint(){return checkpoint;},run:()=>ctx.run({candidateId:'a',runId:'r',name:'test',checkpoint})};
@@ -88,19 +88,18 @@ test('activity uses today/yesterday in Kyiv and rejects future dates',async()=>{
   assert.equal(m.isDiscoveryRecentTimestamp(Date.parse('2026-09-27T20:59:00Z'),now),false);
   assert.equal(m.isDiscoveryRecentTimestamp(now+3600000,now),false);
 });
-test('result persistence merges a concurrent pause and source batch',async()=>{
+// Operator decision 2026-10-02: a WhatsApp qualification result stays in the Work OS tab session; only
+// «Підтвердити» and «Архівувати всі» write D1. The page-side write must not touch the network at all.
+test('a qualification result is stored only in the tab session and never sent to Work OS/D1',async()=>{
   const m=await loadModule(adapter);
   const key='work-os:chat-discovery-local-preview:v3';
-  const storage=new Map([[key,JSON.stringify({runId:'r',running:true,candidates:[{id:'a',platform:'whatsapp',link:'https://chat.whatsapp.com/abcdefgh',name:'a'}]})]]);
+  const resultsKey='work-os:chat-discovery-local-preflight-results:v1';
+  const storage=new Map([[key,JSON.stringify({runId:'r',running:false,telegramCursor:99,candidates:[{id:'a',platform:'whatsapp',link:'https://chat.whatsapp.com/abcdefgh',name:'a'},{id:'b'}]})]]);
+  const networkCalls=[];
   const sandbox={
     sessionStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},
     window:{dispatchEvent(){}},CustomEvent:class {},Date,
-    fetch:async()=>{
-      const latest=JSON.parse(storage.get(key));
-      latest.running=false;latest.telegramCursor=99;latest.candidates.push({id:'b'});
-      storage.set(key,JSON.stringify(latest));
-      return {ok:true,json:async()=>({persisted:true})};
-    },
+    fetch:async(...args)=>{networkCalls.push(args);throw new Error('no network expected');},
   };
   const oldFetch=globalThis.fetch,oldSocket=globalThis.WebSocket;
   globalThis.fetch=async()=>({ok:true,json:async()=>[{type:'page',url:'https://work.example/',webSocketDebuggerUrl:'ws://127.0.0.1:9222/test'}]});
@@ -115,14 +114,19 @@ test('result persistence merges a concurrent pause and source batch',async()=>{
     close(){}
   };
   try{
-    await m.writeWorkOsLocalDiscoveryResultViaCdp('https://work.example','a',{runId:'r',decision:'rejected',reasonCodes:['too_few_members'],result:{}},{cdpBaseUrl:'http://127.0.0.1:9222'});
+    const written=await m.writeWorkOsLocalDiscoveryResultViaCdp('https://work.example','a',{runId:'r',decision:'rejected',reasonCodes:['too_few_members'],result:{}},{cdpBaseUrl:'http://127.0.0.1:9222'});
+    assert.equal(written.kind,'result');
+    assert.equal(networkCalls.length,0);
     const result=JSON.parse(storage.get(key));
     assert.equal(result.running,false);
     assert.equal(result.telegramCursor,99);
     assert.equal(result.candidates.length,2);
+    assert.deepEqual(JSON.parse(storage.get(resultsKey)).a.reasonCodes,['too_few_members']);
   }finally{globalThis.fetch=oldFetch;globalThis.WebSocket=oldSocket;}
+  const writer=adapter.slice(adapter.indexOf('export async function writeWorkOsLocalDiscoveryResultViaCdp'),adapter.indexOf('async function listWorkOsPagesForCdp'));
+  assert.doesNotMatch(writer,/fetch\(|persist-outcome/);
+  assert.doesNotMatch(runner,/persist-outcome/);
 });
-
 
 test('runner records source, metadata, join and persistence timing stages',()=>{
   assert.match(runner,/sourceMs/);
@@ -262,7 +266,7 @@ test('joined recovery without groupId refreshes invite metadata before inspectio
       joinedAt:task.preflightFacts?.joinedAt||Date.now(),recentMessageCount:0,
     }};},
   };
-  const code=runner.slice(runner.indexOf('function evaluateLocalPreflight'),runner.indexOf('async function resolveLocalSourceSeedData'));
+  const code=runner.slice(runner.indexOf('function evaluateLocalPreflight'),runner.indexOf('async function resolveLocalSourcePlan'));
   const ctx=vm.createContext({...deps,Date});
   vm.runInContext(code+';globalThis.run=processLocalPreflightVisible;',ctx);
   await ctx.run({candidateId:'joined-no-gid',runId:'r',name:'Загальний',membershipState:'joined',checkpoint});

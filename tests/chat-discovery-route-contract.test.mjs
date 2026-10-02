@@ -50,10 +50,15 @@ void test('dedicated executor bridge leases tasks to the authenticated device be
   assert.doesNotMatch(route, /advanceAutonomousDiscoveryRun/);
 });
 
-void test('Preview route accepts durable local outcomes only after factual automation', async()=>{
+// Operator decision 2026-10-02: search and qualification never write D1; only «Підтвердити» (confirm) and
+// «Архівувати всі» (one batch) do. There is no per-result persist action anymore.
+void test('Preview route writes D1 only through confirm and the archive-all batch', async()=>{
   const route=await readFile(new URL('../app/api/chat-discovery/preview/route.ts',import.meta.url),'utf8');
-  assert.match(route,/body\.action==='persist-outcome'/);
-  assert.match(route,/persistLocalDiscoveryOutcome\(env\.DB,user\.id/);
+  assert.doesNotMatch(route,/persist-outcome|persistLocalDiscoveryOutcome/);
+  assert.match(route,/body\.action==='archive-outcomes'/);
+  assert.match(route,/archiveLocalDiscoveryOutcomes\(env\.DB,user\.id,\{items:body\.items\},now\)/);
+  assert.match(route,/body\.action==='confirm'/);
+  assert.match(route,/body\.action==='telegram-groups'/);
 });
 
 void test('operator can archive an unimported saved target without fabricating qualification facts', async()=>{
