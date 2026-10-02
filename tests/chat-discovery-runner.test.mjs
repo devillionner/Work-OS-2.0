@@ -137,21 +137,6 @@ void test('source topic cannot substitute factual WhatsApp audience during local
   assert.doesNotMatch(source,/!result\.topicMatch&&task\.topicMatch==='match'/);
 });
 
-void test('retry-later skips only the affected local candidate with short cooldown',()=>{
-  assert.match(source,/result\.reason==='whatsapp_join_retry_later'/);
-  assert.match(source,/decision:'skipped'/);
-  assert.match(source,/reasonCodes:\['whatsapp_join_retry_later'\]/);
-  assert.match(source,/LOCAL_RETRY_LATER_COOLDOWN_MS=15000/);
-  assert.doesNotMatch(source,/markWhatsappRuntimeBlocked\('whatsapp_join_retry_later'\)/);
-});
-
-
-void test('local retry-later skips only that invite and does not globally freeze WhatsApp preflight',()=>{
-  assert.match(source,/decision:'skipped',reasonCodes:\['whatsapp_join_retry_later'\]/);
-  assert.doesNotMatch(source,/LOCAL_RETRY_LATER_COOLDOWN_MS/);
-  assert.match(source,/continuing with the next candidate/);
-});
-
 void test('background runner can acquire the Work OS executor token after Opera opens later',()=>{
   assert.match(source,/let token=await resolveExecutorToken\(\)/);
   assert.match(source,/async function refreshExecutorTokenIfNeeded\(\)/);
@@ -163,92 +148,11 @@ void test('runner re-reads a revoked executor token from the Work OS page instea
 });
 
 
-void test('a single slow WhatsApp page cannot trap the browser-local queue forever',()=>{
-  assert.match(source,/inspected\.reason==='page_not_ready'/);
-  assert.match(source,/decision:'skipped',reasonCodes:\['page_not_ready'\]/);
-  assert.match(source,/LOCAL_PAGE_RECOVERY_MS=5000/);
-  assert.match(source,/allowing 5s recovery before the next candidate/);
-});
-
-
-void test('unknown factual qualification is deferred instead of rejected or used as a destructive leave reason',()=>{
-  assert.match(source,/decision:incomplete\?'incomplete'/);
-  assert.match(source,/qualification_incomplete/);
-  assert.match(source,/INCOMPLETE_QUALIFICATION_COOLDOWN_MS=60000/);
-  assert.match(source,/keeping it queued and continuing with another candidate/);
-});
-
 void test('local Discovery can skip temporarily blocked candidates and continue the queue',()=>{
   assert.match(source,/skipCandidateIds=\[\.\.\.taskBlockedUntil\.entries\(\)\]/);
   assert.match(source,/PAGE_RECOVERY_COOLDOWN_MS=15000/);
 });
 
-
-void test('local Discovery can refill sources while WhatsApp qualification is in flight',()=>{
-  assert.match(source,/let localSourceInFlight=null/);
-  assert.match(source,/startLocalSourceRefill\(local\)/);
-  assert.match(source,/if\(local\.task\)return processLocalPreflight\(local\.task\)/);
-});
-
-
-void test('local Discovery keeps a local source pump filled while WhatsApp runs',()=>{
-  assert.match(source,/while\(local\?\.active===true&&local\.sourceExhausted!==true&&Number\(local\.queuedCount\|\|0\)<LOCAL_SOURCE_TARGET_QUEUE\)/);
-  assert.match(source,/startLocalSourceRefill\(local\);/);
-  assert.doesNotMatch(source,/await startLocalSourceRefill\(local\)/);
-});
-
-
-void test('local Discovery rejects impossible candidates before join',()=>{
-  assert.match(source,/queryWhatsappInviteViaCdp/);
-  assert.match(source,/Invite rejected before join:/);
-  assert.match(source,/pre\.memberCount<minMembers/);
-  assert.match(source,/pre\.approvalRequired===true/);
-  assert.match(source,/pre\.canWrite===false/);
-});
-
-void test('temporary source deferral advances one query instead of freezing the run',()=>{
-  assert.match(source,/LOCAL_SOURCE_TARGET_QUEUE=30/);
-  assert.match(source,/batch\.deferred===true/);
-  assert.match(source,/nextCursor:Math\.max\(cursor\+1/);
-  assert.match(source,/source_step_skipped_after_defer/);
-  assert.match(source,/queuedCount\|\|0\)<LOCAL_SOURCE_TARGET_QUEUE/);
-});
-
-void test('local Discovery metadata-screens before any heavy WhatsApp invite UI',()=>{
-  const start=source.indexOf('async function processLocalPreflight');
-  const end=source.indexOf('async function resolveLocalSourceSeedData',start);
-  const process=source.slice(start,end);
-  assert.match(source,/METADATA_RETRY_COOLDOWN_MS=60000/);
-  assert.match(source,/METADATA_INCOMPLETE_COOLDOWN_MS=60000/);
-  assert.match(process,/metadata_member_count_unknown/);
-  assert.match(process,/deferred so another candidate can continue/);
-  assert.ok(process.indexOf('queryWhatsappInviteViaCdp')<process.indexOf('inspectWhatsappTaskViaCdp'));
-});
-
-void test('blocked metadata candidates do not fill the active local source queue',async()=>{
-  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
-  assert.match(adapter,/queuedCount:candidates\.filter\(item=>item\?\.preflightState==='queued'&&!results\[item\?\.id\]&&!skipped\.has\(item\?\.id\)\)\.length/);
-  assert.match(source,/refillSkipCandidateIds=\[\.\.\.taskBlockedUntil\.entries\(\)\]/);
-  assert.match(source,/skipCandidateIds:refillSkipCandidateIds/);
-});
-
-void test('local Discovery direct-joins qualified invites without Page.navigate',async()=>{
-  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
-  assert.match(adapter,/export async function joinWhatsappInviteViaRuntime/);
-  assert.match(adapter,/WAWebGroupInviteJob/);
-  assert.match(adapter,/joinGroupViaInvite/);
-  assert.match(adapter,/WAWebChatLoadMessages/);
-  assert.match(adapter,/loadRecentMsgs/);
-  assert.match(adapter,/export async function leaveWhatsappGroupViaRuntime/);
-  assert.match(adapter,/WAWebExitGroupAction/);
-  const start=source.indexOf('async function processLocalPreflight');
-  const end=source.indexOf('async function resolveLocalSourceSeedData',start);
-  const process=source.slice(start,end);
-  assert.match(process,/joinWhatsappInviteViaRuntime/);
-  assert.match(process,/leaveWhatsappGroupViaRuntime/);
-  assert.doesNotMatch(process,/inspectWhatsappTaskViaCdp/);
-  assert.match(process,/pre\.chatType==='community'/);
-});
 
 void test('runner recovers a WhatsApp home stuck on message loading without stealing focus',()=>{
   assert.match(source,/health\.loading===true/);
@@ -261,12 +165,6 @@ void test('runner recovers a WhatsApp home stuck on message loading without stea
 void test('local Discovery idle polling reacts within a few seconds',()=>{
   assert.match(source,/IDLE_POLL_MIN_MS=2000/);
   assert.match(source,/IDLE_POLL_MAX_MS=5000/);
-});
-
-void test('fresh local run clears inherited source wait',()=>{
-  assert.match(source,/if\(Number\(local\.sourceCursor\|\|0\)===0\)nextLocalSourceAt=0/);
-  assert.match(source,/if\(wait>0\)break/);
-  assert.doesNotMatch(source,/if\(wait>0\)await sleep\(wait\)/);
 });
 
 void test('local source crawl batches three cursors including bootstrap',()=>{
@@ -324,4 +222,60 @@ void test('runner never interrupts a WhatsApp message sync and gives Discovery o
   assert.match(source,/const WHATSAPP_STUCK_LOADING_MS=180000/);
   assert.match(source,/inspectWhatsappTaskViaCdp\(task,\{cdpBaseUrl:whatsappCdp,timeoutMs:DISCOVERY_WHATSAPP_TIMEOUT_MS\}\)/);
   assert.match(source,/leaveWhatsappTaskViaCdp\(task,\{cdpBaseUrl:whatsappCdp,timeoutMs:DISCOVERY_WHATSAPP_TIMEOUT_MS\}\)/);
+});
+
+// Local Discovery after the 2026-09-29 rewrite: every per-candidate problem (retry later, slow page,
+// metadata gaps, incomplete facts) goes through one bounded deferral instead of reason-specific branches.
+const localPreflight=source.slice(source.indexOf('async function processLocalPreflight('),source.indexOf('async function resolveLocalSourceSeedData'));
+
+void test('a failing or slow local candidate is deferred alone with bounded retries and never freezes WhatsApp',()=>{
+  const defer=source.slice(source.indexOf('async function deferLocalPreflight'),source.indexOf('const FRESH_JOIN_MANUAL_REVIEW_REASONS'));
+  assert.match(defer,/if\(Number\(checkpoint\.attempts\)>=3\)\{/);
+  assert.match(defer,/decision:'unavailable',reasonCodes:\['retry_exhausted',reason\]/);
+  assert.match(defer,/markTaskBlocked\(task,reason,15000\)/);
+  assert.match(source,/const skipCandidateIds=\[\.\.\.taskBlockedUntil\.entries\(\)\]/);
+  assert.match(source,/readWorkOsLocalDiscoveryTaskViaCdp\(baseUrl,\{cdpBaseUrl:whatsappCdp,skipCandidateIds\}\)/);
+  assert.doesNotMatch(source,/markWhatsappRuntimeBlocked\('whatsapp_join_retry_later'\)/);
+  assert.match(localPreflight,/return deferLocalPreflight\(task,joined\.reason\|\|'direct_join_failed',pre\)/);
+});
+
+void test('unknown factual qualification is deferred, then closed as unavailable — never as a rejection or leave reason',()=>{
+  assert.match(source,/return \{decision:incomplete\?'incomplete':reasons\.length\?'rejected':'target'/);
+  assert.match(source,/return deferLocalPreflight\(task,'qualification_incomplete',result\)/);
+  assert.match(source,/decision:'unavailable',\s*reasonCodes:\['qualification_incomplete',\.\.\.evaluated\.reasonCodes\]/);
+});
+
+void test('local Discovery screens invite metadata and rejects impossible candidates before any join',()=>{
+  const query=localPreflight.indexOf('queryWhatsappInviteViaCdp(task');
+  const reject=localPreflight.indexOf("return completeLocalPreflight(task,{decision:'rejected',reasonCodes:reasons");
+  const join=localPreflight.indexOf('joinWhatsappInviteViaRuntime(task');
+  assert.ok(query>0&&reject>query&&join>reject);
+  assert.match(localPreflight,/pre\.memberCount<minMembers\)reasons\.push\('too_few_members'\)/);
+  assert.match(localPreflight,/pre\.canWrite===false\)reasons\.push\('cannot_write'\)/);
+  assert.match(localPreflight,/if\(pre\.approvalRequired===true\)\{\s*return completeLocalPreflight\(task,\{decision:'skipped',reasonCodes:\['approval_required'\]/);
+});
+
+void test('local Discovery joins through the WhatsApp runtime and uses the invite UI only as a bounded fallback',async()=>{
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  assert.match(adapter,/export async function joinWhatsappInviteViaRuntime/);
+  assert.match(adapter,/WAWebGroupInviteJob/);
+  assert.match(adapter,/export async function leaveWhatsappGroupViaRuntime/);
+  // The UI adapter runs only on the last metadata attempt or when the runtime join module is unavailable.
+  assert.match(localPreflight,/if\(Number\(task\.checkpoint\?\.attempts\)>=3\)\{[\s\S]*?inspectWhatsappTaskViaCdp\(task/);
+  assert.match(localPreflight,/\['direct_join_unavailable','joined_identity_missing'\]\.includes\(joined\.reason\)/);
+  assert.match(localPreflight,/Do not perform a second join after a timeout if WhatsApp may have accepted it/);
+});
+
+void test('the local source pump refills without blocking WhatsApp work and skips a deferred source step',async()=>{
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  // Deferred (skipped) candidates do not count as queued, so they cannot starve the source refill.
+  assert.match(adapter,/queuedCount:candidates\.filter\(item=>item\?\.preflightState==='queued'&&!results\[item\?\.id\]&&!skipped\.has\(item\?\.id\)\)\.length/);
+  assert.match(source,/let localSourceInFlight=null/);
+  assert.match(source,/if\(localSourceInFlight\|\|initialLocal\?\.sourceExhausted===true\|\|Number\(initialLocal\?\.queuedCount\|\|0\)>=LOCAL_SOURCE_TARGET_QUEUE\)return;/);
+  assert.match(source,/startLocalSourceRefill\(local\);/);
+  assert.doesNotMatch(source,/await startLocalSourceRefill\(local\)/);
+  assert.match(source,/if\(batch\.deferred===true\)\{/);
+  assert.match(source,/nextCursor:Math\.max\(cursor\+1,/);
+  assert.match(source,/source_step_skipped_after_defer/);
+  assert.match(source,/if\(Number\(local\.sourceCursor\|\|0\)===0\)nextLocalSourceAt=0/);
 });

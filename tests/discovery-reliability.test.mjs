@@ -267,8 +267,10 @@ test('joined recovery without groupId refreshes invite metadata before inspectio
   assert.equal(joins.length,1);
   assert.equal(joins[0].membershipState,'joined');
   assert.equal(joins[0].groupId,'recovered@g.us');
-  assert.equal(checkpoint.lastReason,'waiting_post_join_evidence');
-  assert.equal(checkpoint.attempts,0);
+  // Timed post-join evidence waiting was removed (see the manual-review migration test below): unknown
+  // ads/activity on an already joined chat is a bounded qualification deferral, counted as an attempt.
+  assert.equal(checkpoint.lastReason,'qualification_incomplete');
+  assert.equal(checkpoint.attempts,1);
 });
 
 

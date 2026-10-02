@@ -42,14 +42,14 @@ void test('local autonomous preflight exposes only factual targets before D1 con
 
 void test('browser-local source crawl uses targeted D1 dedupe and no owner-wide 10k scan', async () => {
   const preview = await readFile(new URL('../lib/chat-discovery/local-preview.ts', import.meta.url), 'utf8');
-  assert.match(preview, /buildTelegramSearchPlan\(telegramCursor,3\)/);
-  assert.match(preview, /maxQueries:3,pageLimit:1/);
-  assert.match(preview, /maxQueries:3,pageLimit:1/);
+  // One bounded source query per Worker call.
+  assert.match(preview, /const batchSize=1;/);
+  assert.match(preview, /buildTelegramSearchPlan\(telegramCursor,batchSize\)/);
+  assert.match(preview, /maxQueries:batchSize,pageLimit:1/);
   assert.match(preview, /normalized_link IN \(SELECT value FROM json_each\(\?2\)\)/);
   assert.doesNotMatch(preview, /LIMIT 10001/);
   const searchStart=preview.indexOf('export async function searchLocalDiscoveryPreview');
-  const confirmStart=preview.indexOf('export async function confirmLocalDiscoveryPreview');
-  const searchBody=preview.slice(searchStart,confirmStart);
+  const searchBody=preview.slice(searchStart,preview.indexOf('export async function',searchStart+1));
   assert.doesNotMatch(searchBody,/INSERT INTO chat_discovery_candidates/);
   assert.doesNotMatch(searchBody,/UPDATE chat_discovery_runs/);
 });
@@ -161,7 +161,7 @@ void test('Chat Discovery modal uses a wide split layout with independent candid
 void test('candidate cards lead with human-readable automation status and keep criteria collapsed', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
   assert.match(dialog, /candidateStatus\(candidate\)/);
-  assert.match(dialog, /Перевірені критерії ·/);
+  assert.match(dialog, /<details className="mt-3[^"]*">\s*<summary[^>]*>\s*Деталі перевірки · \{confirmedCriteria\} із \{criteria\.length\}/);
   assert.match(dialog, /grid-cols-2 gap-2 md:grid-cols-3/);
   assert.match(dialog, /Додати на ручну перевірку/);
   assert.match(dialog, /Лишити в роботі/);
@@ -338,7 +338,7 @@ void test('pausing autonomous discovery preserves unfinished candidates and mome
   const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
   const stop=dialog.slice(dialog.indexOf('async function stopAutonomousSearch'),dialog.indexOf('function retryIncompleteCandidate'));
   assert.match(stop,/running:false/);
-  assert.match(stop,/candidate\.preflightState==='queued'/);
+  assert.match(stop,/(candidate|c)\.preflightState==='queued'/);
   assert.doesNotMatch(stop,/action:'persist-outcome'/);
   assert.doesNotMatch(stop,/paused_unverified/);
   assert.match(stop,/pauseSummary/);
@@ -355,7 +355,9 @@ void test('resuming a paused discovery run keeps cursor candidates and durable d
   assert.match(start,/runId:crypto\.randomUUID\(\)/);
   assert.match(start,/pauseSummary:null/);
   assert.match(start,/Уже відомі invite повторно не перевіряються/);
-  const resumeBlock=start.slice(start.indexOf('if(localPreview.pauseSummary'));
+  // Only the resume branch (up to its return); the fresh-run branch below legitimately starts from EMPTY_LOCAL_PREVIEW.
+  const resumeFrom=start.indexOf('if(localPreview.pauseSummary');
+  const resumeBlock=start.slice(resumeFrom,start.indexOf('return;',resumeFrom));
   assert.doesNotMatch(resumeBlock,/\.\.\.EMPTY_LOCAL_PREVIEW/);
   assert.match(dialog,/Продовжити автопошук/);
 });

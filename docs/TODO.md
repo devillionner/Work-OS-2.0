@@ -4,7 +4,9 @@
 
 ## 1. Тести, що падають
 
-Стан на 2026-10-02: `npm run test:full` — 51 падіння (було 71). Виправлено всі недискаверні: це були застарілі перевірки коду після переробок (перейменування, перенесення в `PlatformOverview`, нові межі D1), а одна — справжня регресія: зник окремий екран «вичерпано денний ліміт бази», його відновлено в `components/work-os-bootstrap.tsx`. Решта — тести Discovery: runner і адаптер переписали 2026-09-29 без локального прогону тестів, тож частина падінь може означати втрачену поведінку, а не лише застарілий текст. Їх розбирають окремо, кожен перевіряючи по коду.
+Стан на 2026-10-02: `npm run test:full` — 34 падіння (було 71). Виправлено всі недискаверні: це були застарілі перевірки коду після переробок (перейменування, перенесення в `PlatformOverview`, нові межі D1), а одна — справжня регресія: зник окремий екран «вичерпано денний ліміт бази», його відновлено в `components/work-os-bootstrap.tsx`. Решта — тести Discovery: runner і адаптер переписали 2026-09-29 без локального прогону тестів, тож частина падінь може означати втрачену поведінку, а не лише застарілий текст. Їх розбирають окремо, кожен перевіряючи по коду. Runner/UI/reliability уже переписано під єдиний механізм відкладення (`deferLocalPreflight`, до 3 спроб); лишилися `chat-discovery-cloud` і `discovery-source-outcomes`.
+
+Можлива регресія (не виправлялась навмання): локальна кваліфікація тепер приймає `chatType==='community'` (батьківські спільноти WhatsApp), тоді як раніше їх, схоже, відсіювали до вступу. Безпечно — після вступу перевірка «можна писати» відкидає оголошувальну групу, — але вступ зайвий. Потребує рішення.
 
 ### `tests/chat-discovery-cloud.test.mjs` (14)
 - [ ] `tests/chat-discovery-cloud.test.mjs:30` — local preview falls back to a clean source label when extracted HTML name is noisy
@@ -21,29 +23,6 @@
 - [ ] `tests/chat-discovery-cloud.test.mjs:780` — Discovery goal counts only new confirmed targets, never raw invite yield
 - [ ] `tests/chat-discovery-cloud.test.mjs:821` — archived unavailable WhatsApp history suppresses rediscovery and automatic rejoin in later runs
 - [ ] `tests/chat-discovery-cloud.test.mjs:1479` — joined inspection with unknown rules stays ready but explicitly needs qualification
-
-### `tests/chat-discovery-runner.test.mjs` (12)
-- [ ] `tests/chat-discovery-runner.test.mjs:140` — retry-later skips only the affected local candidate with short cooldown
-- [ ] `tests/chat-discovery-runner.test.mjs:149` — local retry-later skips only that invite and does not globally freeze WhatsApp preflight
-- [ ] `tests/chat-discovery-runner.test.mjs:166` — a single slow WhatsApp page cannot trap the browser-local queue forever
-- [ ] `tests/chat-discovery-runner.test.mjs:174` — unknown factual qualification is deferred instead of rejected or used as a destructive leave reason
-- [ ] `tests/chat-discovery-runner.test.mjs:187` — local Discovery can refill sources while WhatsApp qualification is in flight
-- [ ] `tests/chat-discovery-runner.test.mjs:194` — local Discovery keeps a local source pump filled while WhatsApp runs
-- [ ] `tests/chat-discovery-runner.test.mjs:201` — local Discovery rejects impossible candidates before join
-- [ ] `tests/chat-discovery-runner.test.mjs:209` — temporary source deferral advances one query instead of freezing the run
-- [ ] `tests/chat-discovery-runner.test.mjs:217` — local Discovery metadata-screens before any heavy WhatsApp invite UI
-- [ ] `tests/chat-discovery-runner.test.mjs:228` — blocked metadata candidates do not fill the active local source queue
-- [ ] `tests/chat-discovery-runner.test.mjs:235` — local Discovery direct-joins qualified invites without Page.navigate
-- [ ] `tests/chat-discovery-runner.test.mjs:266` — fresh local run clears inherited source wait
-
-### `tests/chat-discovery-ui.test.mjs` (4)
-- [ ] `tests/chat-discovery-ui.test.mjs:43` — browser-local source crawl uses targeted D1 dedupe and no owner-wide 10k scan
-- [ ] `tests/chat-discovery-ui.test.mjs:161` — candidate cards lead with human-readable automation status and keep criteria collapsed
-- [ ] `tests/chat-discovery-ui.test.mjs:337` — pausing autonomous discovery preserves unfinished candidates and momentum
-- [ ] `tests/chat-discovery-ui.test.mjs:350` — resuming a paused discovery run keeps cursor candidates and durable dedupe history
-
-### `tests/discovery-reliability.test.mjs` (1)
-- [ ] `tests/discovery-reliability.test.mjs:235` — joined recovery without groupId refreshes invite metadata before inspection and never rejoins
 
 ### `tests/discovery-source-outcomes.test.mjs` (20)
 - [ ] `tests/discovery-source-outcomes.test.mjs:19` — workbook plan includes compatible keywords, countries and city aliases
