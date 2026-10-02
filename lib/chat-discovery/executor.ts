@@ -54,6 +54,33 @@ const REINSPECT_JOINED_SECONDS = 600;
 export const RETIRED_WAITING_CHECK_CANDIDATE_SQL = `id LIKE 'waiting-%'`;
 
 
+export function discoveryExecutorQueueStatement(db: D1Database, userId: string, now: number, limit: number) {
+  // Three branches, each a range of the (user_id,platform,membership_state,…) index, instead of one
+  // filter over every candidate the owner ever had: left and pending WhatsApp candidates — usually most
+  // of them — are never read. The result set and order are the same as the single-filter query.
+  const columns = 'id,version,platform,name,normalized_link,membership_state,inspection_state,decision,imported_chat_id,checked_at,updated_at';
+  // Unary + keeps SQLite off the imported_chat_id index, which would range over every platform.
+  const owned = `user_id=?1 AND +imported_chat_id IS NOT NULL AND NOT (${RETIRED_WAITING_CHECK_CANDIDATE_SQL})`;
+  return db.prepare(`SELECT ${columns} FROM (
+      SELECT ${columns} FROM chat_discovery_candidates
+        WHERE ${owned} AND platform='viber' AND membership_state<>'left'
+      UNION ALL
+      SELECT ${columns} FROM chat_discovery_candidates
+        WHERE ${owned} AND platform='whatsapp' AND membership_state='not_checked'
+          AND (checked_at IS NULL OR checked_at<=?2-${RETRY_AFTER_ATTEMPT_SECONDS})
+      UNION ALL
+      SELECT ${columns} FROM chat_discovery_candidates
+        WHERE ${owned} AND platform='whatsapp' AND membership_state='joined' AND (
+          decision IN ('rejected','unavailable')
+          OR ((decision='review' OR inspection_state<>'inspected')
+            AND (checked_at IS NULL OR checked_at<=?2-${REINSPECT_JOINED_SECONDS}))
+        )
+    )
+    ORDER BY CASE decision WHEN 'rejected' THEN 0 WHEN 'unavailable' THEN 0 WHEN 'review' THEN 1 ELSE 2 END,
+      updated_at ASC,id
+    LIMIT ?3`).bind(userId, now, limit);
+}
+
 export async function readDiscoveryExecutorQueue(
   db: D1Database,
   userId: string,
@@ -61,24 +88,7 @@ export async function readDiscoveryExecutorQueue(
   now = Number.MAX_SAFE_INTEGER,
 ): Promise<{ tasks: DiscoveryExecutorTask[]; sourceAdvanceNeeded: boolean }> {
   const limit = boundedLimit(limitInput);
-  const candidateRows = await db.prepare(`SELECT id,version,platform,name,normalized_link,membership_state,inspection_state,decision,imported_chat_id,checked_at
-    FROM chat_discovery_candidates
-    WHERE user_id=?1 AND imported_chat_id IS NOT NULL AND membership_state<>'left'
-      AND platform IN ('whatsapp','viber')
-      AND NOT (${RETIRED_WAITING_CHECK_CANDIDATE_SQL})
-      AND (
-        platform<>'whatsapp'
-        OR (membership_state='not_checked'
-          AND (checked_at IS NULL OR checked_at<=?2-${RETRY_AFTER_ATTEMPT_SECONDS}))
-        OR (membership_state='joined' AND (
-          decision IN ('rejected','unavailable')
-          OR ((decision='review' OR inspection_state<>'inspected')
-            AND (checked_at IS NULL OR checked_at<=?2-${REINSPECT_JOINED_SECONDS}))
-        ))
-      )
-    ORDER BY CASE decision WHEN 'rejected' THEN 0 WHEN 'unavailable' THEN 0 WHEN 'review' THEN 1 ELSE 2 END,
-      updated_at ASC,id
-    LIMIT ?3`).bind(userId, now, limit).all<CandidateTaskRow>();
+  const candidateRows = await discoveryExecutorQueueStatement(db, userId, now, limit).all<CandidateTaskRow>();
 
   const tasks: DiscoveryExecutorTask[] = [];
   for (const candidate of candidateRows.results) {
