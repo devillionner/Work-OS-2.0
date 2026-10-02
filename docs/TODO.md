@@ -57,7 +57,7 @@
 
 ## 3. Знайдені баги
 
-- [ ] `normalized_link IN (SELECT value FROM json_each(?2))` без платформи перебирає всі рядки власника: `lib/chat-discovery/domain.ts` (`readExistingCanonicalLinks`, `readExistingCandidates`), `lib/chats/name-enrichment.ts`. У `prepareLocalPreviews` виправлено 2026-10-02 (7004 → ≤10 рядків).
+- [x] `normalized_link IN (SELECT value FROM json_each(?2))` без платформи перебирав усі рядки власника. Виправлено 2026-10-02 парами `[платформа, посилання]` + `CROSS JOIN json_each` по унікальному індексу `(user_id, platform, normalized_link)`: `prepareLocalPreviews` (7004 → ≤10 рядків), `lib/chat-discovery/domain.ts` (`readExistingCanonicalLinks`, `readExistingCandidates`), `lib/chats/name-enrichment.ts` (20 посилань серед ~5000 чатів — 21 рядок; `EXPLAIN QUERY PLAN`: `SEARCH ... USING INDEX`). Лише локальні тести.
 - [ ] Обхід каналів (`crawlLocalDiscoverySource`, t.me/s, tg.me, lyzem, Brave у `scripts/chat-discovery-source-crawl.mjs`) з 2026-10-02 не викликається runner-ом (джерела — лише Telegram-групи). Код і його тести (частина з 18 падінь `discovery-source-outcomes`) треба видалити окремим кроком.
 
 - [ ] Політика автопошуку для вступлених груп з невідомими критеріями суперечлива: `lib/chat-discovery/inspection.ts` (executor, `requireTargetVerification`) перетворює `review` на `rejected` + `qualification_unverified` і запускає вихід, а вимога 2026-09-29 каже, що incomplete не має видаватися за невідповідність. 2026-10-02 так було залишено групу «Загальний». Потрібне рішення: залишати (fail-closed) чи відкладати й показувати оператору.

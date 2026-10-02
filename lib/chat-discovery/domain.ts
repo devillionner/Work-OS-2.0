@@ -615,9 +615,9 @@ async function persistDiscoveryBatch(
   const candidateLimit = Math.max(1, Math.min(250, Number(progress.candidateLimit) || 250));
   const sourceLimit = Math.max(1, Math.min(12, Number(progress.sourceLimit) || 12));
   const canonicalItems = [...canonical.values()].slice(0, candidateLimit);
-  const canonicalLinks = canonicalItems.map((item) => item.link);
-  const existingChats = await readExistingCanonicalLinks(db, userId, canonicalLinks);
-  const existingCandidates = await readExistingCandidates(db, userId, canonicalLinks);
+  const canonicalPairs = canonicalItems.map((item) => [item.platform, item.link] as [string, string]);
+  const existingChats = await readExistingCanonicalLinks(db, userId, canonicalPairs);
+  const existingCandidates = await readExistingCandidates(db, userId, canonicalPairs);
   let duplicates = 0;
   let added = 0;
   const autoHandoffIds: string[] = [];
@@ -708,12 +708,19 @@ async function persistDiscoveryBatch(
   return { run: updated, added, duplicates };
 }
 
-async function readExistingCanonicalLinks(db: D1Database, userId: string, links: string[]) {
-  const canonicalLinks = [...new Set(links)].slice(0, 250);
-  if (!canonicalLinks.length) return new Set<string>();
-  const result = await db.prepare(`SELECT id,platform,link,normalized_link,workflow_status FROM chats
-    WHERE user_id=?1 AND normalized_link IN (SELECT value FROM json_each(?2))`)
-    .bind(userId, JSON.stringify(canonicalLinks)).all<ExistingChat>();
+// [platform, canonical link] pairs drive one lookup each in the unique (user_id,platform,normalized_link)
+// index. `normalized_link IN (json_each)` without the platform walked every chat/candidate of the owner.
+function uniquePlatformLinks(pairs: Array<[string, string]>) {
+  return [...new Map(pairs.map((pair) => [`${pair[0]}|${pair[1]}`, pair])).values()].slice(0, 250);
+}
+
+async function readExistingCanonicalLinks(db: D1Database, userId: string, pairs: Array<[string, string]>) {
+  const canonicalPairs = uniquePlatformLinks(pairs);
+  if (!canonicalPairs.length) return new Set<string>();
+  const result = await db.prepare(`SELECT c.id,c.platform,c.link,c.normalized_link,c.workflow_status
+    FROM json_each(?2) j CROSS JOIN chats c
+    WHERE c.user_id=?1 AND c.platform=json_extract(j.value,'$[0]') AND c.normalized_link=json_extract(j.value,'$[1]')`)
+    .bind(userId, JSON.stringify(canonicalPairs)).all<ExistingChat>();
   const keys = new Set<string>();
   for (const chat of result.results) {
     for (const value of [chat.link, chat.normalized_link]) {
@@ -724,11 +731,12 @@ async function readExistingCanonicalLinks(db: D1Database, userId: string, links:
   return keys;
 }
 
-async function readExistingCandidates(db: D1Database, userId: string, links: string[]) {
-  if (!links.length) return new Map<string, CandidateRow>();
-  const result = await db.prepare(`SELECT * FROM chat_discovery_candidates
-    WHERE user_id=?1 AND normalized_link IN (SELECT value FROM json_each(?2))`)
-    .bind(userId, JSON.stringify([...new Set(links)])).all<CandidateRow>();
+async function readExistingCandidates(db: D1Database, userId: string, pairs: Array<[string, string]>) {
+  const canonicalPairs = uniquePlatformLinks(pairs);
+  if (!canonicalPairs.length) return new Map<string, CandidateRow>();
+  const result = await db.prepare(`SELECT d.* FROM json_each(?2) j CROSS JOIN chat_discovery_candidates d
+    WHERE d.user_id=?1 AND d.platform=json_extract(j.value,'$[0]') AND d.normalized_link=json_extract(j.value,'$[1]')`)
+    .bind(userId, JSON.stringify(canonicalPairs)).all<CandidateRow>();
   return new Map(result.results.map((row) => [`${row.platform}|${row.normalized_link}`, row]));
 }
 

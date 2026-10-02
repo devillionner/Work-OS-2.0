@@ -7,6 +7,7 @@ import { claimWhatsAppAutopostJob } from '../lib/messenger-automation.ts';
 import { addSelectedChatToJoin, readSelectedChats, readSelectedChatsCount, saveSelectedChats } from '../lib/chats/telegram-selected.ts';
 import { readSyncRevision } from '../lib/sync-revision.ts';
 import { archiveLocalDiscoveryOutcomes, previewTelegramDiscoveryText, readDiscoveryTelegramGroupSources } from '../lib/chat-discovery/local-preview.ts';
+import { enrichImportedChatNames } from '../lib/chats/name-enrichment.ts';
 import { localDatabase } from './helpers/local-d1.mjs';
 
 // Everything a runner or an open page polls on a timer must stay cheap in D1 rows read, whatever the
@@ -127,4 +128,11 @@ void test('Discovery run start, invite dedupe and archive-all stay bounded in D1
   assert.ok(archiveRows > 0, "the metered batch must count archive rows");
   // Measured: a constant 12 rows per archived chat (unique-index and FK checks) whether the owner has 0 or 6 000 candidates.
   assert.ok(archiveRows <= items.length * 12, `archive-all read ${archiveRows} rows for ${items.length} chats`);
+
+  // Name enrichment after an import looks each link up by (platform, link); it must not walk the owner's
+  // 5 000 chats. (persistDiscoveryBatch's two lookups use the same CROSS JOIN form and are planned by
+  // tests/d1-query-plan-audit.test.mjs.)
+  const links = Array.from({ length: 20 }, (_, index) => `https://t.me/budget_missing_${index}`);
+  const enrichRows = await rows(metered => enrichImportedChatNames(metered, 'u', links, NOW, async () => { throw new Error('no fetch expected'); }));
+  assert.ok(enrichRows <= links.length + 5, `name enrichment lookup read ${enrichRows} rows for ${links.length} links`);
 });

@@ -142,17 +142,19 @@ export async function enrichImportedChatNames(
   now: number,
   fetcher: FetchLike = fetch,
 ): Promise<{ checked: number; updated: number; confirm: number; error: number; truncated: boolean }> {
-  const supported = [...new Set(links.flatMap((link) => {
+  const supported = [...new Map(links.flatMap((link) => {
     const parsed = normalizeGroupLink(link);
-    return parsed && ['telegram', 'whatsapp', 'viber', 'facebook'].includes(parsed.platform) ? [parsed.link] : [];
-  }))];
+    return parsed && ['telegram', 'whatsapp', 'viber', 'facebook'].includes(parsed.platform)
+      ? [[`${parsed.platform}|${parsed.link}`, [parsed.platform, parsed.link]] as [string, [string, string]]] : [];
+  })).values()];
   const selected = supported.slice(0, AUTO_ENRICH_MAX);
   if (!selected.length) return { checked: 0, updated: 0, confirm: 0, error: 0, truncated: false };
 
-  const result = await db.prepare(`SELECT id,platform,name,link,updated_at FROM chats
-    WHERE user_id=?1 AND normalized_link IN (SELECT value FROM json_each(?2))
-      AND platform IN ('telegram','whatsapp','viber','facebook')
-    ORDER BY id LIMIT ?3`)
+  // [platform, link] pairs drive one unique-index lookup each instead of walking all of the owner's chats.
+  const result = await db.prepare(`SELECT c.id,c.platform,c.name,c.link,c.updated_at
+    FROM json_each(?2) j CROSS JOIN chats c
+    WHERE c.user_id=?1 AND c.platform=json_extract(j.value,'$[0]') AND c.normalized_link=json_extract(j.value,'$[1]')
+    ORDER BY c.id LIMIT ?3`)
     .bind(userId, JSON.stringify(selected), AUTO_ENRICH_MAX).all<Row>();
 
   let checked = 0;
