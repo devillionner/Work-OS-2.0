@@ -4,7 +4,7 @@ import test from 'node:test';
 import { claimDiscoveryExecutorQueue, wakeDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
 import { claimWaitingWhatsAppCheck, readWaitingWhatsAppCheckStatus } from '../lib/chats/whatsapp-waiting-check.ts';
 import { claimWhatsAppAutopostJob } from '../lib/messenger-automation.ts';
-import { readSelectedChats, readSelectedChatsCount, saveSelectedChats } from '../lib/chats/telegram-selected.ts';
+import { addSelectedChatToJoin, readSelectedChats, readSelectedChatsCount, saveSelectedChats } from '../lib/chats/telegram-selected.ts';
 import { readSyncRevision } from '../lib/sync-revision.ts';
 import { localDatabase } from './helpers/local-d1.mjs';
 
@@ -71,8 +71,19 @@ void test('page polls (sync revision, Waiting-check status, Telegram selected li
   assert.ok(await rows(metered => readSyncRevision(metered, 'u')) <= 2);
   assert.ok(await rows(metered => readWaitingWhatsAppCheckStatus(metered, 'u')) <= 10);
 
-  const items = Array.from({ length: 1000 }, (_, index) => ({ link: `https://t.me/budget_chat_${index}`, title: `Чат ${index}`, count: index, last: null }));
+  // Real owners have thousands of Telegram chats; the selected list must not scan them per link.
+  const telegram = [];
+  for (let index = 0; index < 3000; index += 1) {
+    const link = `https://t.me/budget_chat_${index}`;
+    telegram.push(db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,is_private,created_at,updated_at)
+      VALUES (?1,'u','telegram',?1,?2,?2,'archived',0,1,?3)`).bind(`tg-${index}`, link, index));
+    if (telegram.length >= 200) await db.batch(telegram.splice(0));
+  }
+  if (telegram.length) await db.batch(telegram);
+  const items = Array.from({ length: 1000 }, (_, index) => ({ link: `https://t.me/budget_chat_${index * 2}`, title: `Чат ${index}`, count: index, last: null }));
   await saveSelectedChats(db, 'u', { items, skipped: 0 }, NOW);
   assert.ok(await rows(metered => readSelectedChatsCount(metered, 'u')) <= 2, 'the tab badge must not look up every chat');
   assert.ok(await rows(metered => readSelectedChats(metered, 'u')) <= items.length * 3, 'selected list must use index lookups, not scan all chats');
+  await saveSelectedChats(db, 'u', { items: [...items, { link: 'https://t.me/budget_new_chat', title: 'Новий', count: 1, last: null }], skipped: 0 }, NOW);
+  assert.ok(await rows(metered => addSelectedChatToJoin(metered, 'u', 'https://t.me/budget_new_chat', NOW)) <= 20, 'adding one selected chat must not scan all chats');
 });

@@ -741,10 +741,10 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
         </div>}
       </section>}
       {queue==='selected'&&platform==='telegram'
-        ? <TelegramSelectedChats view={selectedChats} loading={!selectedChats&&!selectedChatsFailed} accounts={accounts} onImported={next=>{selectedLoadedAt.current=Date.now();setSelectedChats(next);setSelectedCount(next.items.length);}} onAdded={link=>{
-            setSelectedChats(current=>current&&{...current,items:current.items.map(item=>item.link===link&&!item.status?{...item,status:'to_join'}:item)});
+        ? <TelegramSelectedChats view={selectedChats} loading={!selectedChats&&!selectedChatsFailed} accounts={accounts} onImported={next=>{selectedLoadedAt.current=Date.now();setSelectedChats(next);setSelectedCount(next.items.length);}} onAdded={(link,status,chatAccountId,added)=>{
+            setSelectedChats(current=>current&&{...current,items:current.items.map(item=>item.link===link?{...item,status,accountId:chatAccountId}:item)});
             const scope=`telegram:${requestAccountId||''}`;
-            setCountsByScope(current=>current[scope]?{...current,[scope]:{...current[scope],to_join:(current[scope].to_join||0)+1}}:current);
+            if(added)setCountsByScope(current=>current[scope]?{...current,[scope]:{...current[scope],to_join:(current[scope].to_join||0)+1}}:current);
             invalidateQueueCache('telegram');
           }}/>
         : <>

@@ -12,22 +12,16 @@ const STATUS_LABELS: Record<string, string> = {
   to_join: 'Для приєднання', waiting: 'Очікування', ready: 'Для публікації', failed: 'Не вдалося', archived: 'Архів',
 };
 
-type BulkReply = { error?: string; revision?: number; items?: Array<{ status?: string }>; added?: number };
+type AddReply = { error?: string; added?: boolean; status?: string | null; accountId?: string | null };
 
-async function postBulk(body: unknown): Promise<BulkReply> {
-  const response = await fetch('/api/chats/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const value = await response.json().catch(() => ({})) as BulkReply;
+// Cheap single-chat add: one indexed insert on the server instead of the bulk flow's full chat scans.
+async function addToJoin(chat: SelectedChatView) {
+  const response = await fetch('/api/chats/telegram-selected', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add', link: chat.link }),
+  });
+  const value = await response.json().catch(() => ({})) as AddReply;
   if (!response.ok) throw new Error(value.error || `Не вдалося додати чат (HTTP ${response.status}).`);
   return value;
-}
-
-// Same two-step protocol as the bulk dialog: preview pins the revision, add is idempotent by requestId.
-async function addToWork(chat: SelectedChatView) {
-  const item = { link: chat.link, name: chat.title };
-  const preview = await postBulk({ action: 'preview', items: [item] });
-  if (preview.items?.[0]?.status !== 'new' || typeof preview.revision !== 'number') return false;
-  const added = await postBulk({ action: 'add', requestId: crypto.randomUUID(), revision: preview.revision, items: [item] });
-  return (added.added ?? 0) > 0;
 }
 
 function formatLast(value: string | null) {
@@ -40,7 +34,7 @@ export function TelegramSelectedChats({ view, loading, accounts, onImported, onA
   loading: boolean;
   accounts: Array<{ id: string; name: string; number: number }>;
   onImported: (next: SelectedChatsView) => void;
-  onAdded: (link: string) => void;
+  onAdded: (link: string, status: string, accountId: string | null, added: boolean) => void;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState('');
@@ -90,8 +84,9 @@ export function TelegramSelectedChats({ view, loading, accounts, onImported, onA
   async function take(chat: SelectedChatView) {
     setBusy(chat.link); setError(''); setNotice('');
     try {
-      const added = await addToWork(chat);
-      onAdded(chat.link);
+      const reply = await addToJoin(chat);
+      const added = reply.added === true;
+      onAdded(chat.link, reply.status ?? 'to_join', reply.accountId ?? null, added);
       setNotice(added ? `«${chat.title}» додано в чергу «Для приєднання» — він з'явиться там у кожного Telegram-акаунта, доки хтось не приєднається.` : `«${chat.title}» уже є в Work OS.`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не вдалося додати чат.');

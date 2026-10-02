@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseSelectedExport, readSelectedChats, readSelectedChatsCount, saveSelectedChats } from '../lib/chats/telegram-selected.ts';
+import { addSelectedChatToJoin, parseSelectedExport, readSelectedChats, readSelectedChatsCount, saveSelectedChats } from '../lib/chats/telegram-selected.ts';
 import { localDatabase } from './helpers/local-d1.mjs';
 
 const exportRows = [
@@ -37,4 +37,19 @@ void test('selected chats are ordered by message count and show whether the chat
   assert.deepEqual(reimported.items.map(item => item.title), ['Тихий чат']);
   assert.deepEqual((await readSelectedChats(db, 'other')).items, []);
   assert.deepEqual(await readSelectedChatsCount(db, 'other'), { count: 0 });
+});
+
+void test('adding a selected chat puts it into «Для приєднання» once and never duplicates it', async (t) => {
+  const db = await localDatabase(t);
+  await saveSelectedChats(db, 'u', parseSelectedExport(exportRows), 100);
+  const first = await addSelectedChatToJoin(db, 'u', 'https://t.me/quietchat', 200);
+  assert.deepEqual(first, { added: true, status: 'to_join', accountId: null });
+  const again = await addSelectedChatToJoin(db, 'u', 'https://t.me/quietchat', 210);
+  assert.equal(again.added, false);
+  const rows = await db.prepare(`SELECT name,workflow_status FROM chats WHERE user_id='u' AND normalized_link='https://t.me/quietchat'`).all();
+  assert.deepEqual(rows.results, [{ name: 'Тихий чат', workflow_status: 'to_join' }]);
+  const events = await db.prepare(`SELECT COUNT(*) AS count FROM activity_events WHERE user_id='u' AND event_type='chat_bulk_added'`).first();
+  assert.equal(events.count, 1);
+  assert.equal((await readSelectedChats(db, 'u')).items.find(item => item.link === 'https://t.me/quietchat').status, 'to_join');
+  await assert.rejects(addSelectedChatToJoin(db, 'u', 'https://t.me/not_selected', 220), /немає серед відібраних/);
 });

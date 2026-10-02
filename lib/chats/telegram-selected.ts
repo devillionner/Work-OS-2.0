@@ -1,3 +1,4 @@
+import { businessDate } from '../business-time.ts';
 import { cleanChatName, normalizeGroupLink } from './bulk-input.ts';
 
 // "Відібрані" Telegram chats: a one-off reference list imported from a groups export
@@ -69,12 +70,41 @@ export async function readSelectedChatsCount(db: D1Database, userId: string) {
 export async function readSelectedChats(db: D1Database, userId: string): Promise<SelectedChatsView> {
   const stored = await readStored(db, userId);
   if (!stored) return { importedAt: null, skipped: 0, items: [] };
+  // CROSS JOIN pins json_each as the outer loop, so every link is one lookup in the
+  // (user_id,platform,normalized_link) unique index. A plain JOIN let SQLite scan all of the owner's
+  // Telegram chats once per link: millions of D1 rows read per call on real data.
   const statuses = await db.prepare(`SELECT c.normalized_link AS link,c.workflow_status AS status,c.telegram_account_id AS account_id
-    FROM json_each(?2) j JOIN chats c ON c.user_id=?1 AND c.platform='telegram' AND c.normalized_link=j.value`)
+    FROM json_each(?2) j CROSS JOIN chats c ON c.user_id=?1 AND c.platform='telegram' AND c.normalized_link=j.value`)
     .bind(userId, JSON.stringify(stored.items.map(item => item.link))).all<{ link: string; status: string; account_id: string | null }>();
   const statusByLink = new Map(statuses.results.map(item => [item.link, item]));
   const items = stored.items
     .map(item => ({ ...item, status: statusByLink.get(item.link)?.status ?? null, accountId: statusByLink.get(item.link)?.account_id ?? null }))
     .sort((a, b) => b.count - a.count || (b.last ?? '').localeCompare(a.last ?? '') || a.title.localeCompare(b.title, 'uk'));
   return { importedAt: stored.importedAt ?? null, skipped: stored.skipped ?? 0, items };
+}
+
+// One selected chat into «Для приєднання». The bulk flow scans every chat of the platform twice
+// (preview + add) to catch legacy non-canonical links; here the link is canonical from the import,
+// so the unique (user_id,platform,normalized_link) index alone guards against duplicates.
+export async function addSelectedChatToJoin(db: D1Database, userId: string, link: unknown, now: number) {
+  const stored = await readStored(db, userId);
+  const item = typeof link === 'string' ? stored?.items.find(entry => entry.link === link) : undefined;
+  if (!item) throw new SelectedChatsError('Цього чату немає серед відібраних. Оновіть сторінку.', 404);
+  const normalized = normalizeGroupLink(item.link);
+  if (!normalized || normalized.platform !== 'telegram') throw new SelectedChatsError('Некоректне посилання чату.');
+  const id = crypto.randomUUID();
+  const inserted = await db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,is_private,created_at,updated_at)
+    VALUES (?1,?2,'telegram',?3,?4,?4,'to_join',?5,?6,?6)
+    ON CONFLICT(user_id,platform,normalized_link) DO NOTHING RETURNING id`)
+    .bind(id, userId, item.title, normalized.link, Number(normalized.private), now).all<{ id: string }>();
+  const added = inserted.results.length === 1;
+  if (added) {
+    await db.prepare(`INSERT INTO activity_events(id,user_id,event_type,occurred_at,event_date,metadata_json,source_key)
+      VALUES (?1,?2,'chat_bulk_added',?3,?4,?5,?6)`)
+      .bind(crypto.randomUUID(), userId, now, businessDate(now),
+        JSON.stringify({ source: 'telegram_selected', result: { added: 1, counts: { telegram: 1 } }, chatIds: [id] }), `chat-selected:${id}`).run();
+  }
+  const row = await db.prepare(`SELECT workflow_status,telegram_account_id FROM chats WHERE user_id=?1 AND platform='telegram' AND normalized_link=?2 LIMIT 1`)
+    .bind(userId, normalized.link).first<{ workflow_status: string; telegram_account_id: string | null }>();
+  return { added, status: row?.workflow_status ?? null, accountId: row?.telegram_account_id ?? null };
 }
