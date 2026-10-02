@@ -1,3 +1,11 @@
+## 2026-10-02 — Живе приймання перевірки «Очікування» WhatsApp
+
+- Staging + локальний runner (іконка в треї) + WhatsApp Web оператора. Пакет із 4 чатів пройшов повністю: три поспіль «WhatsApp просить повторити пізніше» більше не зупиняють пакет, «Shved Delivery» розпізнано як `whatsapp_removed_from_group`.
+- «Зупинити» посеред пакета: чат, узятий до зупинки, runner довів у WhatsApp, але сервер відхилив результат («Ця перевірка вже не належить цьому пристрою»), нових чатів runner не брав.
+- Панель (`components/whatsapp-waiting-check-panel.tsx`) на staging: статус «Runner підключено», лічильники, список проблем з людськими причинами, «Перевірити проблемні (4)».
+- Під час підключення runner виконав завдання, що лишалося в черзі Discovery: огляд групи «Загальний» (схоже, загальна підгрупа спільноти WhatsApp) → `rejected` з `unknown_ads_allowed`, `unknown_activity`, `qualification_unverified` → підтверджений вихід. Це навмисна політика `lib/chat-discovery/inspection.ts` (коміт 8528720, тест «verified executor inspection rejects joined chats when target criteria remain unverified»), але вона суперечить вимозі 2026-09-29 «incomplete не видавати за невідповідність» — потрібне рішення оператора (див. docs/TODO.md).
+- Три чати стабільно отримують «повторити пізніше», «Shved Delivery» — вилучено: кандидати на ручну архівацію; автоматично не змінювались.
+
 ## 2026-10-02 — Runner не чіпає D1 без потреби; іконка в треї
 
 - Runner опитує Work OS (і D1) лише коли сайт використовується: оператор був активний на вкладці Work OS за останні 15 хв (`work-os:last-active-at:v1` у localStorage, пише `components/runner-activity-beacon.tsx`), або runner мав роботу за останні 5 хв (запущена перевірка/автопост доходять до кінця). Сигнал читається локально через CDP (`readWorkOsLastActivityViaCdp`), без мережі. Закрита вкладка або неактивний сайт → нуль запитів до D1.

@@ -4,11 +4,11 @@
 
 ## 1. Тести, що падають
 
-Стан на 2026-10-02: `npm run test:full` — 34 падіння (було 71). Виправлено всі недискаверні: це були застарілі перевірки коду після переробок (перейменування, перенесення в `PlatformOverview`, нові межі D1), а одна — справжня регресія: зник окремий екран «вичерпано денний ліміт бази», його відновлено в `components/work-os-bootstrap.tsx`. Решта — тести Discovery: runner і адаптер переписали 2026-09-29 без локального прогону тестів, тож частина падінь може означати втрачену поведінку, а не лише застарілий текст. Їх розбирають окремо, кожен перевіряючи по коду. Runner/UI/reliability уже переписано під єдиний механізм відкладення (`deferLocalPreflight`, до 3 спроб); лишилися `chat-discovery-cloud` і `discovery-source-outcomes` (34). Спільна причина, перевірена на першому з них: серверний пошук (`searchLocalDiscoveryPreview`) обмежено одним запитом за виклик (`batchSize=1`), а куровані джерела вимкнено (`includeCurated:false`) — їх тепер обходить браузерний runner (`scripts/chat-discovery-source-crawl.mjs`). Тести ж чекають, що сервер за один виклик пройде Telegram і веб-джерела. Їх треба переносити на браузерний обхід або на покрокові виклики разом із живою перевіркою автопошуку — правити наосліп ризиковано.
+Стан на 2026-10-02: `npm run test:full` — 33 падіння (було 71). Виправлено всі недискаверні: це були застарілі перевірки коду після переробок (перейменування, перенесення в `PlatformOverview`, нові межі D1), а одна — справжня регресія: зник окремий екран «вичерпано денний ліміт бази», його відновлено в `components/work-os-bootstrap.tsx`. Решта — тести Discovery: runner і адаптер переписали 2026-09-29 без локального прогону тестів, тож частина падінь може означати втрачену поведінку, а не лише застарілий текст. Їх розбирають окремо, кожен перевіряючи по коду. Runner/UI/reliability уже переписано під єдиний механізм відкладення (`deferLocalPreflight`, до 3 спроб); лишилися `chat-discovery-cloud` і `discovery-source-outcomes` (33). Спільна причина, перевірена на першому з них: серверний пошук (`searchLocalDiscoveryPreview`) обмежено одним запитом за виклик (`batchSize=1`), а куровані джерела вимкнено (`includeCurated:false`) — їх тепер обходить браузерний runner (`scripts/chat-discovery-source-crawl.mjs`). Тести ж чекають, що сервер за один виклик пройде Telegram і веб-джерела. Їх треба переносити на браузерний обхід або на покрокові виклики разом із живою перевіркою автопошуку — правити наосліп ризиковано.
 
 Можлива регресія (не виправлялась навмання): локальна кваліфікація тепер приймає `chatType==='community'` (батьківські спільноти WhatsApp), тоді як раніше їх, схоже, відсіювали до вступу. Безпечно — після вступу перевірка «можна писати» відкидає оголошувальну групу, — але вступ зайвий. Потребує рішення.
 
-### `tests/chat-discovery-cloud.test.mjs` (14)
+### `tests/chat-discovery-cloud.test.mjs` (13)
 - [ ] `tests/chat-discovery-cloud.test.mjs:30` — local preview falls back to a clean source label when extracted HTML name is noisy
 - [ ] `tests/chat-discovery-cloud.test.mjs:106` — Telegram discovery accepts only factual Ukrainian invite snippets from Brave and rejects unrelated catalogues
 - [ ] `tests/chat-discovery-cloud.test.mjs:174` — local-first discovery starts with bounded Telegram batches and avoids the heavy curated bootstrap
@@ -22,7 +22,6 @@
 - [ ] `tests/chat-discovery-cloud.test.mjs:749` — autonomous Discovery advances the seed matrix through public Telegram pages without operator query input
 - [ ] `tests/chat-discovery-cloud.test.mjs:780` — Discovery goal counts only new confirmed targets, never raw invite yield
 - [ ] `tests/chat-discovery-cloud.test.mjs:821` — archived unavailable WhatsApp history suppresses rediscovery and automatic rejoin in later runs
-- [ ] `tests/chat-discovery-cloud.test.mjs:1479` — joined inspection with unknown rules stays ready but explicitly needs qualification
 
 ### `tests/discovery-source-outcomes.test.mjs` (20)
 - [ ] `tests/discovery-source-outcomes.test.mjs:19` — workbook plan includes compatible keywords, countries and city aliases
@@ -59,6 +58,8 @@
 - [ ] `jsx-a11y/prefer-tag-over-role` (`role="status"` → `<output>`): `components/chat-discovery-dialog.tsx`, `library-workspace.tsx` (4), `platform-workspace.tsx` (2).
 
 ## 3. Знайдені баги
+
+- [ ] Політика автопошуку для вступлених груп з невідомими критеріями суперечлива: `lib/chat-discovery/inspection.ts` (executor, `requireTargetVerification`) перетворює `review` на `rejected` + `qualification_unverified` і запускає вихід, а вимога 2026-09-29 каже, що incomplete не має видаватися за невідповідність. 2026-10-02 так було залишено групу «Загальний». Потрібне рішення: залишати (fail-closed) чи відкладати й показувати оператору.
 
 - [x] `scripts/whatsapp-web-cdp.mjs`: regex-и всередині template literal (код, який виконується у вкладці через CDP) втрачали escape-послідовності (`\s` → `s`, `\b` → backspace, `\.` → будь-який символ). Виправлено 2026-10-01: подвійні escape, межа слова для кирилиці через `(?![\p{L}\p{N}_])`; регресійний тест `tests/whatsapp-web-cdp-injected-regex.test.mjs` перевіряє всі template literal файлу.
 

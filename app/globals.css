@@ -455,8 +455,9 @@ button:not([data-slot="button"]) { color: inherit; }
 .platform-queue-context span { min-width:0; overflow:hidden; color:var(--muted-foreground); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
 .platform-queue-context [data-slot="button"] { flex:0 0 auto; }
 .waiting-check { display:flex; flex-direction:column; gap:10px; padding:12px 14px; border-bottom:1px solid var(--border); background:#f5f7ff; box-shadow:inset 3px 0 var(--primary); }
-.waiting-check-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-.waiting-check-title { min-width:0; display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px; }
+.waiting-check-head { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px 12px; }
+.waiting-check-title { flex:1 1 240px; min-width:0; display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px; }
+.waiting-check-title strong { white-space:nowrap; }
 .waiting-check-title strong { font-size:13px; }
 .waiting-check-runner { display:inline-flex; align-items:center; gap:6px; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:600; }
 .waiting-check-runner i { width:7px; height:7px; border-radius:50%; background:currentColor; }

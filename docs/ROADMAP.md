@@ -4,7 +4,7 @@
 - [x] Runner checks one chat at a time; joined → approved, pending/requested → +3 days, problems are listed without blocking the rest.
 - [x] Press «Request to join»/«Join» on Waiting invites like Prototype Checker; Discovery join stays fail-closed.
 - [x] Neutralize retired `waiting-*` candidate rows in executor queue and publication gates.
-- [ ] Live acceptance with the local runner and WhatsApp Web.
+- [x] Live acceptance with the local runner and WhatsApp Web (2026-10-02: full 4-chat pass without a false stop, manual stop rejects the in-flight result and no further chats are claimed).
 
 ## 2026-09-30 — WhatsApp Waiting SQL + stale-marker fix (v0.2.88)
 
