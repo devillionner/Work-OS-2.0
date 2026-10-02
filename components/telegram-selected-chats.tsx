@@ -29,16 +29,18 @@ function formatLast(value: string | null) {
   return new Date(value).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-export function TelegramSelectedChats({ view, loading, accounts, onImported, onAdded }: {
+export function TelegramSelectedChats({ view, loading, accounts, onImported, onAdded, onBulkAdded }: {
   view: SelectedChatsView | null;
   loading: boolean;
   accounts: Array<{ id: string; name: string; number: number }>;
   onImported: (next: SelectedChatsView) => void;
   onAdded: (link: string, status: string, accountId: string | null, added: boolean) => void;
+  onBulkAdded: (links: string[]) => void;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState('');
   const [onlyNew, setOnlyNew] = useState(false);
+  const [topCount, setTopCount] = useState(10);
   const [visible, setVisible] = useState(PAGE);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -81,6 +83,24 @@ export function TelegramSelectedChats({ view, loading, accounts, onImported, onA
     }
   }
 
+  async function takeTop() {
+    setBusy('top'); setError(''); setNotice('');
+    try {
+      const response = await fetch('/api/chats/telegram-selected', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-top', count: topCount }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string; added?: number; links?: string[] };
+      if (!response.ok) throw new Error(body.error || `Не вдалося додати чати (HTTP ${response.status}).`);
+      const links = Array.isArray(body.links) ? body.links : [];
+      onBulkAdded(links);
+      setNotice(links.length ? `${links.length} найактивніших чатів додано в чергу «Для приєднання».` : 'Нових чатів для додавання не лишилося.');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Не вдалося додати чати.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function take(chat: SelectedChatView) {
     setBusy(chat.link); setError(''); setNotice('');
     try {
@@ -118,6 +138,14 @@ export function TelegramSelectedChats({ view, loading, accounts, onImported, onA
         <Button type="button" size="sm" variant="outline" aria-pressed={onlyNew} onClick={() => { setOnlyNew(value => !value); setVisible(PAGE); }}>
           {onlyNew ? `Усі (${items.length})` : `Лише нові (${items.length - inWork})`}
         </Button>
+        {items.length - inWork > 0 && <span className="selected-chats-top">
+          <select aria-label="Скільки чатів додати" value={topCount} disabled={busy !== null} onChange={event => setTopCount(Number(event.target.value))}>
+            {[10, 25, 50].map(value => <option key={value} value={value}>{value}</option>)}
+          </select>
+          <Button type="button" size="sm" disabled={busy !== null} title="Додати найактивніші нові чати в чергу «Для приєднання»" onClick={() => void takeTop()}>
+            <Plus data-icon="inline-start" />{busy === 'top' ? 'Додаємо…' : `Топ-${topCount} до приєднання`}
+          </Button>
+        </span>}
       </div>}
       {error && <div className="workspace-error" role="alert">{error}</div>}
       {notice && <p className="selected-chats-notice">{notice}</p>}

@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
-import { addSelectedChatToJoin, parseSelectedExport, readSelectedChats, readSelectedChatsCount, saveSelectedChats, SELECTED_IMPORT_MAX_BYTES, SelectedChatsError } from '@/lib/chats/telegram-selected';
+import { addSelectedChatToJoin, addTopSelectedChatsToJoin, parseSelectedExport, readSelectedChats, readSelectedChatsCount, saveSelectedChats, SELECTED_IMPORT_MAX_BYTES, SelectedChatsError } from '@/lib/chats/telegram-selected';
 
 function json(value:unknown,status=200){
   return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});
@@ -28,6 +28,7 @@ export async function POST(request:Request):Promise<Response>{
     if(body instanceof Response)return body;
     const now=Math.floor(Date.now()/1000);
     if(body.action==='add')return json(await addSelectedChatToJoin(env.DB,user.id,body.link,now));
+    if(body.action==='add-top')return json(await addTopSelectedChatsToJoin(env.DB,user.id,body.count,now));
     if(body.action!=='import')return json({error:'Невідома дія.'},400);
     return json(await saveSelectedChats(env.DB,user.id,parseSelectedExport(body.groups),now));
   }catch(error){

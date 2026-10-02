@@ -745,6 +745,12 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
             setSelectedChats(current=>current&&{...current,items:current.items.map(item=>item.link===link?{...item,status,accountId:chatAccountId}:item)});
             const scope=`telegram:${requestAccountId||''}`;
             if(added)setCountsByScope(current=>current[scope]?{...current,[scope]:{...current[scope],to_join:(current[scope].to_join||0)+1}}:current);
+          }} onBulkAdded={links=>{
+            const addedLinks=new Set(links);
+            setSelectedChats(current=>current&&{...current,items:current.items.map(item=>addedLinks.has(item.link)?{...item,status:'to_join',accountId:null}:item)});
+            invalidateQueueCache('telegram');
+            const scope=`telegram:${requestAccountId||''}`;
+            if(links.length)setCountsByScope(current=>current[scope]?{...current,[scope]:{...current[scope],to_join:(current[scope].to_join||0)+links.length}}:current);
             invalidateQueueCache('telegram');
           }}/>
         : <>

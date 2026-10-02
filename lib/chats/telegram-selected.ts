@@ -108,3 +108,33 @@ export async function addSelectedChatToJoin(db: D1Database, userId: string, link
     .bind(userId, normalized.link).first<{ workflow_status: string; telegram_account_id: string | null }>();
   return { added, status: row?.workflow_status ?? null, accountId: row?.telegram_account_id ?? null };
 }
+
+export const SELECTED_BULK_ADD_MAX = 50;
+
+// The N most active selected chats that are not in Work OS yet go into «Для приєднання» in one batch.
+export async function addTopSelectedChatsToJoin(db: D1Database, userId: string, countInput: unknown, now: number) {
+  const count = Math.floor(Number(countInput));
+  if (!Number.isSafeInteger(count) || count < 1 || count > SELECTED_BULK_ADD_MAX) {
+    throw new SelectedChatsError(`Можна додати від 1 до ${SELECTED_BULK_ADD_MAX} чатів за раз.`);
+  }
+  const view = await readSelectedChats(db, userId);
+  const picked = view.items.filter(item => item.status === null).slice(0, count)
+    .flatMap(item => {
+      const normalized = normalizeGroupLink(item.link);
+      return normalized && normalized.platform === 'telegram' ? [{ id: crypto.randomUUID(), item, normalized }] : [];
+    });
+  if (!picked.length) return { added: 0, links: [] as string[] };
+  const results = await db.batch(picked.map(({ id, item, normalized }) => db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,is_private,created_at,updated_at)
+    VALUES (?1,?2,'telegram',?3,?4,?4,'to_join',?5,?6,?6)
+    ON CONFLICT(user_id,platform,normalized_link) DO NOTHING RETURNING id`)
+    .bind(id, userId, item.title, normalized.link, Number(normalized.private), now)));
+  const added = picked.filter((_, index) => results[index].results.length === 1);
+  if (added.length) {
+    await db.prepare(`INSERT INTO activity_events(id,user_id,event_type,occurred_at,event_date,metadata_json,source_key)
+      VALUES (?1,?2,'chat_bulk_added',?3,?4,?5,?6)`)
+      .bind(crypto.randomUUID(), userId, now, businessDate(now),
+        JSON.stringify({ source: 'telegram_selected', result: { added: added.length, counts: { telegram: added.length } }, chatIds: added.map(entry => entry.id) }),
+        `chat-selected-top:${added[0].id}`).run();
+  }
+  return { added: added.length, links: added.map(entry => entry.normalized.link) };
+}

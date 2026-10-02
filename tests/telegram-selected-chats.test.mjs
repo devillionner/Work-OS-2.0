@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { addSelectedChatToJoin, parseSelectedExport, readSelectedChats, readSelectedChatsCount, saveSelectedChats } from '../lib/chats/telegram-selected.ts';
+import { addSelectedChatToJoin, addTopSelectedChatsToJoin, parseSelectedExport, readSelectedChats, readSelectedChatsCount, saveSelectedChats } from '../lib/chats/telegram-selected.ts';
 import { localDatabase } from './helpers/local-d1.mjs';
 
 const exportRows = [
@@ -52,4 +52,19 @@ void test('adding a selected chat puts it into «Для приєднання» o
   assert.equal(events.count, 1);
   assert.equal((await readSelectedChats(db, 'u')).items.find(item => item.link === 'https://t.me/quietchat').status, 'to_join');
   await assert.rejects(addSelectedChatToJoin(db, 'u', 'https://t.me/not_selected', 220), /немає серед відібраних/);
+});
+
+void test('top-N adds the most active selected chats that are not in Work OS yet, once', async (t) => {
+  const db = await localDatabase(t);
+  await db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,is_private,created_at,updated_at)
+    VALUES ('c1','u','telegram','Активний чат','https://t.me/busy_chat','https://t.me/busy_chat','waiting',0,1,1)`).run();
+  await saveSelectedChats(db, 'u', parseSelectedExport(exportRows), 100);
+  // busy_chat (40) is already in work, so the top-2 new ones are the private invite (9) and quietchat (2).
+  const first = await addTopSelectedChatsToJoin(db, 'u', 2, 200);
+  assert.deepEqual(first, { added: 2, links: ['https://t.me/+AbCdEf12345', 'https://t.me/quietchat'] });
+  assert.deepEqual(await addTopSelectedChatsToJoin(db, 'u', 5, 210), { added: 0, links: [] });
+  const rows = await db.prepare(`SELECT COUNT(*) AS count FROM chats WHERE user_id='u' AND platform='telegram'`).first();
+  assert.equal(rows.count, 3);
+  await assert.rejects(addTopSelectedChatsToJoin(db, 'u', 51, 220), /від 1 до 50/);
+  await assert.rejects(addTopSelectedChatsToJoin(db, 'u', 0, 220), /від 1 до 50/);
 });
