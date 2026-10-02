@@ -699,3 +699,17 @@ void test('Lyzem WhatsApp URLs are never ingested directly without a verified Te
   }});
   assert.equal(result.sources.some(item=>item.text.includes(noisyInvite)),false);
 });
+
+void test('directory and graph sources must name the search place in some spelling',async()=>{
+  const { placeTerms, rankTelegramDirectoryEntries } = await import('../scripts/chat-discovery-source-crawl.mjs');
+  const spain=placeTerms({place:'Іспанія',query:'Українці Іспанія',alias:''});
+  assert.ok(spain.includes('spain')&&spain.includes('іспані'));
+  assert.ok(placeTerms({place:'Берлін',query:'Мамочки Берлін',alias:'Мамочки Berlin'}).includes('berlin'));
+  const html='<ul><li><a href="/novynu_ukraina" class="rl-row"><span class="rl-name-txt">Новини України WhatsApp</span></a></li>'
+    +'<li><a href="/ucranianos_spain_chat" class="rl-row"><span class="rl-name-txt">Українці в Іспанії</span></a></li></ul>';
+  const ranked=rankTelegramDirectoryEntries(html,spain).map(item=>item.url);
+  assert.deepEqual(ranked,['https://tg.me/ucranianos_spain_chat']);
+  const crawl=await readFile(new URL('../scripts/chat-discovery-source-crawl.mjs',import.meta.url),'utf8');
+  assert.match(crawl,/\.filter\(item=>!terms\.length\|\|placeMatches\(item\.evidence\+' '\+item\.sourceUrl,terms\)\)/);
+  assert.match(crawl,/for\(const entry of pooled\.sort\(\(a,b\)=>b\.score-a\.score\)\)/);
+});

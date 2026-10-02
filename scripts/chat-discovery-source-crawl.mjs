@@ -289,11 +289,14 @@ export function telegramWhatsAppSearchPreview(value) {
   return url.toString();
 }
 
+// Graph neighbours for a place-bound step must name that place too; a regional news channel discovered
+// through another city's source says nothing about Ukrainians in this one.
 function takeTelegramGraphSources(place,limit=MAX_GRAPH_SOURCES_PER_STEP) {
-  const placeRe=place?new RegExp(escapeRegExp(place),'iu'):null;
+  const terms=Array.isArray(place)?place:placeTerms(place);
   const ranked=[...telegramGraph.values()]
     .filter(item=>!crawledTelegramSources.has(item.sourceUrl)&&!graphInFlight.has(item.sourceUrl)&&!sourceIsTemporarilySaturated(item.sourceUrl))
-    .map(item=>({...item,effectiveScore:item.score+(sourceOutcomeScores.get(item.sourceUrl)||0)+(placeRe?.test(item.evidence+' '+item.sourceUrl)?25:0)}))
+    .filter(item=>!terms.length||placeMatches(item.evidence+' '+item.sourceUrl,terms))
+    .map(item=>({...item,effectiveScore:item.score+(sourceOutcomeScores.get(item.sourceUrl)||0)+(terms.length?25:0)}))
     .sort((a,b)=>b.effectiveScore-a.effectiveScore)
     .slice(0,limit);
   for(const item of ranked){
@@ -381,7 +384,7 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
       // visited source can discover more sources for later steps.
       let graphBudget=MAX_GRAPH_SOURCES_PER_STEP;
       while(graphBudget>0&&!sources.length){
-        const graphCandidates=takeTelegramGraphSources(task.place,Math.min(4,graphBudget));
+        const graphCandidates=takeTelegramGraphSources(placeTerms(task),Math.min(4,graphBudget));
         if(!graphCandidates.length)break;
         graphBudget-=graphCandidates.length;
         attempted+=graphCandidates.length;
@@ -413,8 +416,8 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
           /whatsapp/iu.test(task.query)?task.query:task.query+' WhatsApp',
           task.place?'Українці '+task.place+' WhatsApp':'',
           task.alias?(/whatsapp/iu.test(task.alias)?task.alias:task.alias+' WhatsApp'):'',
-          task.place?task.place+' WhatsApp':'',
           task.query,
+          task.place?task.place+' WhatsApp':'',
         ].map(item=>String(item||'').trim()).filter(Boolean))].slice(0,3);
         attempted+=directoryQueries.length;
         const directoryBatches=await Promise.allSettled(directoryQueries.map(async directoryQuery=>{
@@ -424,25 +427,27 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
           const directory=new URL(TELEGRAM_DIRECTORY_URL);
           directory.searchParams.set('q',directoryQuery);
           const html=await fetchText(directory.toString(),fetcher,7000,450000);
-          const candidates=rankTelegramDirectoryResults(html,task.place).slice(0,MAX_DIRECTORY_RESULTS*2);
+          const candidates=rankTelegramDirectoryEntries(html,placeTerms(task)).slice(0,MAX_DIRECTORY_RESULTS*2);
           if(directorySearchCache.size>=400)directorySearchCache.delete(directorySearchCache.keys().next().value);
           directorySearchCache.set(cacheKey,{candidates,expires:Date.now()+20*60*1000});
           return {directoryQuery,candidates};
         }));
-        const selected=[];
-        const selectedUrls=new Set();
+        // Pick the best results across all directory queries, not the first query's results only.
+        const pooled=[];
         for(const batch of directoryBatches){
           if(batch.status==='rejected'){
             warnings.push({cursor:index,query,reason:'telegram_directory_failed · '+(batch.reason instanceof Error?batch.reason.message:String(batch.reason))});
             continue;
           }
           directoryAnswered=true;
-          for(const url of batch.value.candidates){
-            if(directoryResultVisited.has(url)||selectedUrls.has(url)||sourceIsTemporarilySaturated(url))continue;
-            selectedUrls.add(url);
-            selected.push({url,directoryQuery:batch.value.directoryQuery});
-            if(selected.length>=MAX_DIRECTORY_RESULTS)break;
-          }
+          for(const entry of batch.value.candidates)pooled.push({...entry,directoryQuery:batch.value.directoryQuery});
+        }
+        const selected=[];
+        const selectedUrls=new Set();
+        for(const entry of pooled.sort((a,b)=>b.score-a.score)){
+          if(directoryResultVisited.has(entry.url)||selectedUrls.has(entry.url)||sourceIsTemporarilySaturated(entry.url))continue;
+          selectedUrls.add(entry.url);
+          selected.push({url:entry.url,directoryQuery:entry.directoryQuery});
           if(selected.length>=MAX_DIRECTORY_RESULTS)break;
         }
         const pages=await Promise.allSettled(selected.map(async item=>{
@@ -552,6 +557,33 @@ export async function crawlLocalDiscoverySource(cursor,{fetcher=fetch,seedData}=
   }
 }
 
+// Every spelling of a search place that a Telegram source might use: the Ukrainian stem (so «Іспанії»
+// matches «Іспанія»), the Latin city name from the plan alias, and common names of the plan countries.
+const COUNTRY_PLACE_ALIASES={
+  'Німеччина':['germany','deutschland','german','німеч','немец','германи'],
+  'Франція':['france','french','франц'],
+  'Чехія':['czech','cesk','česk','чех','чесь'],
+  'Іспанія':['spain','españa','espana','spanish','іспан','испан','ispan'],
+  'Польща':['poland','polska','polish','польщ','польш','polsk'],
+  'Україна':['ukrain','україн','украин'],
+};
+export function placeTerms(task) {
+  const place=String(task?.place||task||'').trim();
+  if(!place)return [];
+  const terms=new Set([place.toLocaleLowerCase('uk-UA')]);
+  if(place.length>5)terms.add(place.slice(0,-1).toLocaleLowerCase('uk-UA'));
+  for(const alias of COUNTRY_PLACE_ALIASES[place]||[])terms.add(alias);
+  const query=new Set(String(task?.query||'').toLocaleLowerCase('uk-UA').split(/\s+/u));
+  for(const word of String(task?.alias||'').toLocaleLowerCase('uk-UA').split(/\s+/u)){
+    if(word.length>=3&&/^[\p{Script=Latin}-]+$/u.test(word)&&!query.has(word)&&word!=='whatsapp')terms.add(word);
+  }
+  return [...terms];
+}
+function placeMatches(identity,terms) {
+  const text=String(identity||'').toLocaleLowerCase('uk-UA');
+  return terms.some(term=>text.includes(term));
+}
+
 export function rankLyzemTelegramSources(html,place='') {
   const decoded=decode(html).replaceAll('\\/','/');
   const blocks=[...decoded.matchAll(/<li[^>]*class=["'][^"']*search-result[^"']*["'][^>]*>([\s\S]*?)<\/li>/giu)]
@@ -583,7 +615,27 @@ export function rankLyzemTelegramSources(html,place='') {
 }
 
 export function rankTelegramDirectoryResults(html,place='') {
+  return rankTelegramDirectoryEntries(html,place).map(item=>item.url);
+}
+
+// tg.me renders each result as <li><a href="/username" class="rl-row">…name… @username</a></li>; its own
+// element is its context, so a neighbour's title can no longer lend it a place or Ukrainian signal.
+function directoryResultContext(html,index) {
+  const start=html.lastIndexOf('<li',index);
+  const end=html.indexOf('</li>',index);
+  if(start>=0&&end>index&&index-start<2000&&end-index<4000)return strip(html.slice(start,end));
+  if(html.lastIndexOf('<div class="snippet',index)>=0)return searchResultContext(html,index);
+  // Other markup: the link's own text plus the text right before it, up to the previous link.
+  const previous=html.lastIndexOf('</a>',index);
+  const close=html.indexOf('</a>',index);
+  return strip(html.slice(Math.max(previous>=0?previous+4:0,index-600),close>index?close:Math.min(html.length,index+600)));
+}
+
+// For a place-bound query a result must name the place (in any known spelling) or carry a direct invite;
+// otherwise national news channels that merely mention WhatsApp outrank the local groups.
+export function rankTelegramDirectoryEntries(html,place='') {
   const decoded=decode(html).replaceAll('\\/','/');
+  const terms=Array.isArray(place)?place:placeTerms(place);
   const blocked=new Set(['ads','c','g','geo','login','need','new','notifications','premium','search','send','settings','top','wiki','ton']);
   const seen=new Set();
   const ranked=[];
@@ -594,12 +646,15 @@ export function rankTelegramDirectoryResults(html,place='') {
     const postId=String(match[2]||'');
     const lower=username.toLowerCase();
     if(blocked.has(lower)||/_bot$/iu.test(username)||seen.has(username+'|'+postId))continue;
-    const context=searchResultContext(decoded,match.index||0);
+    const context=directoryResultContext(decoded,match.index||0);
     if(SPAM.test(context))continue;
     const identity=context+' '+username;
     const uaSignal=UA.test(identity)||/(?:ukrain|ukr|[_-]ua|ua[_-]|diaspora|refuge|біжен|переселен)/iu.test(identity);
     if(!uaSignal)continue;
-    const placeSignal=Boolean(place&&new RegExp(escapeRegExp(place),'iu').test(identity));
+    const placeSignal=placeMatches(identity,terms);
+    // Any Ukrainian group is a target, so a direct invite elsewhere is still supply; a placeless channel
+    // that only mentions WhatsApp is national noise.
+    if(terms.length&&!placeSignal&&!/chat\.whatsapp\.com/iu.test(context))continue;
     const whatsappSignal=/(?:chat\.whatsapp\.com|\bwhatsapp\b)/iu.test(context);
     let score=100-order++;
     score+=45;
@@ -614,12 +669,15 @@ export function rankTelegramDirectoryResults(html,place='') {
   for(const match of decoded.matchAll(inviteRe)){
     const invitePath=String(match[1]||'');
     if(!invitePath||seen.has(invitePath))continue;
-    const context=searchResultContext(decoded,match.index||0);
+    const context=directoryResultContext(decoded,match.index||0);
     if(SPAM.test(context))continue;
     const identity=context+' '+invitePath;
     const uaSignal=UA.test(identity)||/(?:ukrain|ukr|diaspora|refuge|біжен|переселен)/iu.test(identity);
     if(!uaSignal)continue;
-    const placeSignal=Boolean(place&&new RegExp(escapeRegExp(place),'iu').test(identity));
+    const placeSignal=placeMatches(identity,terms);
+    // Any Ukrainian group is a target, so a direct invite elsewhere is still supply; a placeless channel
+    // that only mentions WhatsApp is national noise.
+    if(terms.length&&!placeSignal&&!/chat\.whatsapp\.com/iu.test(context))continue;
     const whatsappSignal=/(?:chat\.whatsapp\.com|\bwhatsapp\b)/iu.test(context);
     let score=120-order++;
     score+=45;
@@ -628,7 +686,7 @@ export function rankTelegramDirectoryResults(html,place='') {
     seen.add(invitePath);
     ranked.push({url:'https://tg.me/'+invitePath,score});
   }
-  return ranked.sort((a,b)=>b.score-a.score).map(item=>item.url);
+  return ranked.sort((a,b)=>b.score-a.score);
 }
 
 async function telegramDirectorySource(resultUrl,query,place,fetcher){
