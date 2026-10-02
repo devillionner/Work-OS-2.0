@@ -7,6 +7,6 @@ const source = readFileSync(new URL('../components/reports-workspace.tsx', impor
 void test('reports editor exposes the last final submission time without replacing last-change metadata', () => {
   assert.match(source,/Остання зміна:/);
   assert.match(source,/Остання фінальна здача:/);
-  assert.match(source,/data\.selected\.submittedAt/);
+  assert.match(source,/(data|editorData)\??\.selected\??\.submittedAt/);
   assert.match(source,/ще не здано/);
 });

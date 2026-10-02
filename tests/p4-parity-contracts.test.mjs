@@ -9,8 +9,11 @@ void test('PUB-04 and PROFILE-12 are present in the real operator flow', () => {
   const platform = source('components/platform-workspace.tsx');
   const chatsRoute = source('app/api/chats/route.ts');
   const profileDialog = source('components/chat-profile-dialog.tsx');
-  assert.match(platform, /<span>Робочий темп<\/span><strong>\{data\.publicationPace\.ratePerHour\}\/год<\/strong>/);
-  assert.match(platform, /<span>Денна ціль<\/span><strong>\{data\.publicationPace\.completed\} \/ \{data\.publicationPace\.target\}<\/strong>/);
+  // Pace and daily goal are rendered by the shared PlatformOverview strip.
+  const overview = source('components/platform-overview.tsx');
+  assert.match(platform, /<PlatformOverview pace=\{data\.publicationPace\}/);
+  assert.match(overview, /<DailyStat label="Темп" value=\{`\$\{pace\.ratePerHour\}\/год`\} \/>/);
+  assert.match(overview, /<DailyStat label="Ціль" value=\{`\$\{pace\.completed\} \/ \$\{pace\.target\}`\} \/>/);
   assert.match(chatsRoute, /publicationPace: \{ ratePerHour: 7, completed: completedPublications, target: resolveDailyPublicationGoal\(goalValue,today\) \}/);
   for (const value of ['any','daily','several_week','weekly','monthly','custom']) assert.match(profileDialog, new RegExp(value));
   assert.match(profileDialog, /Дозволені дні/);
@@ -92,9 +95,10 @@ void test('manual publishing and profile management cover the remaining operator
   assert.match(profile, /<option value="uk">Українська<\/option><option value="ru">Російська<\/option>/);
   assert.match(profile, /Напрямки/);
   assert.match(profile, /Нотатка про правила/);
-  assert.match(platform, /Профілі: ✓ \{profileSummary\.confirmed\}/);
+  assert.match(platform, /✓ \{profileSummary\.confirmed\} · чернетки \{profileSummary\.draft\}/);
   assert.match(platform, /Потребують правил \(\$\{profileSummary\?\.needsReview\|\|0\}\)/);
-  assert.match(route, /ORDER BY published_today ASC,CASE WHEN c\.snoozed_until IS NOT NULL/);
+  // The page order is index-friendly now (see tests/d1-budget-contract.test.mjs); availability is computed per row.
+  assert.match(route, /ORDER BY c\.updated_at DESC,c\.id LIMIT 50 OFFSET/);
   assert.match(route, /action === 'undo_published'/);
   assert.match(publication, /export async function undoManualPublication/);
   assert.match(publication, /manualUndo/);
@@ -119,15 +123,16 @@ void test('WhatsApp and Viber quick publishing locks one material without bypass
   assert.match(platform, /setQuickAdvertisementId\(advertisementId\)/);
   assert.match(platform, /act\(publishChat,'published',\{advertisementId,language,quick\},\{action:'undo_published'/);
   assert.match(platform, /!chat\.profileConfirmed&&\(queue==='ready'\|\|queue==='profile_review'\)&&<Badge variant="outline">Профіль пізніше<\/Badge>/);
-  assert.match(platform, /!chat\.profileConfirmed&&!quickPublishMode/);
+  assert.match(platform, /return !chat\.profileConfirmed&&!quickMode&&chat\.platform!=='viber';/);
+  assert.match(platform, /profileBlocksManualPublication\(chat,quickPublishMode\)/);
   assert.match(platform, /setProfileChat\(chat\)/);
   assert.match(publish, /quickMode&&preferredAdvertisementId/);
   assert.match(publish, /Матеріал швидкого режиму/);
   assert.match(publish, /quickMode&&!selected/);
   assert.match(publish, /profileRequired/);
   assert.match(publish, /Профіль чату ще не підтверджено/);
-  assert.match(publication, /!quickMode && profile\?\.reviewStatus !== 'confirmed'/);
-  assert.match(publication, /\?10=1 OR EXISTS\(SELECT 1 FROM chat_profiles pr WHERE pr\.chat_id=c\.id AND pr\.review_status='confirmed'\)/);
+  assert.match(publication, /!quickMode && chat\.platform !== 'viber' && profile\?\.reviewStatus !== 'confirmed'/);
+  assert.match(publication, /\?10=1 OR c\.platform='viber' OR EXISTS\(SELECT 1 FROM chat_profiles pr WHERE pr\.chat_id=c\.id AND pr\.review_status='confirmed'\)/);
   assert.match(publication, /profilePublicationRule\(profile,date\)/);
   assert.match(publication, /chat\.workflow_status !== 'ready'/);
   assert.match(publication, /advertisementId/);
@@ -150,9 +155,10 @@ void test('script library exposes search, tags, immutable versions and archive c
 void test('chat operator flow keeps grouped copy, fast archive and archived-chat exclusion explicit', () => {
   const platform = source('components/platform-workspace.tsx');
   const selection = source('lib/chats/advertisement-selection.ts');
-  assert.match(platform, /\(index\+1\)%5===0&&index<items\.length-1\?\[''\]:\[\]/);
+  // Copied links are grouped by five in the shared PlatformOverview strip.
+  assert.match(source('components/platform-overview.tsx'), /\(index\+1\)%5===0&&index<items\.length-1\?\[''\]:\[\]/);
   assert.match(platform, /\['Забанено','Чат не існує','Чат не цільовий'\]/);
-  assert.match(platform, /queue==='archived'\?<><Button variant="outline" onClick=\{\(\)=>act\(chat,'restore'\)\}/);
+  assert.match(platform, /queue==='archived'&&<><Button variant="outline" onClick=\{\(\)=>act\(chat,'restore'\)\}/);
   assert.match(selection, /c\.workflow_status='ready'/);
 });
 
@@ -165,7 +171,8 @@ void test('chat archive reasons, available-now links and Telegram duplicate scop
   assert.match(platform, /\['Забанено','Чат не існує','Чат не цільовий'\]/);
   assert.match(platform, /aria-label="Власна причина архівації"/);
   assert.match(route, /availableTodayStatement/);
-  assert.match(platform, /<TodayLinks title="Доступні зараз"/);
+  assert.match(platform, /available=\{queue==='ready'\?data\.availableToday:undefined\}/);
+  assert.match(source('components/platform-overview.tsx'), /<DailyLinkStat label="Доступні" items=\{available\} \/>/);
   assert.match(duplicates, /c\.telegram_account_id=\?3 OR \(c\.telegram_account_id IS NULL AND c\.workflow_status='to_join'\)/);
   assert.match(migration, /workflow_status != 'to_join' AND telegram_account_id IS NULL/);
 });

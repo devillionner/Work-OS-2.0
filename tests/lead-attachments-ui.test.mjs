@@ -20,7 +20,9 @@ void test('LEAD-23 exposes bounded media upload, preview/download and delete con
   assert.match(conversation, /Прикріпити файл/);
   assert.match(conversation, /lead-attachment-preview/);
   assert.match(conversation, /Видалити файл/);
-  assert.match(workspace, /<Conversation key=\{current\.lead\.version\} detail=\{current\} mutate=\{mutate\} onChanged=\{reload\}/);
+  // The conversation keeps its draft/scroll state across lead mutations, so it is not re-keyed by version.
+  assert.match(workspace, /<Conversation detail=\{current\} mutate=\{mutate\} onChanged=\{reload\}/);
+  assert.doesNotMatch(workspace, /<Conversation key=\{current\.lead\.version\}/);
   assert.match(css, /\.lead-attachments/);
 
   assert.match(route, /createLeadAttachment/);

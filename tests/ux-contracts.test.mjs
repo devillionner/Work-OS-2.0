@@ -182,7 +182,7 @@ void test('Platforms uses a compact operator hierarchy and an unambiguous public
   const css = text(join(root, 'app', 'globals.css'));
   assert.match(workspace, /<section className="platform-header">/);
   assert.match(workspace, /<PlatformOverview pace=\{data\.publicationPace\}/);
-  assert.match(workspace, /className=\{`platform-queue-context/);
+  assert.match(workspace, /className=\{(`|')platform-queue-context/);
   assert.match(workspace, /if\(canPublish\(chat,clock\)\)return 'Підготувати';/);
   assert.match(workspace, /\{compactChatLink\(chat\.link\)\}/);
   assert.match(workspace, /className="chat-action-utilities"/);
@@ -391,7 +391,8 @@ void test('Wide desktop compacts Telegram warmup without changing mobile flow', 
 void test('Empty Library uses one focused empty state instead of a redundant editor panel', () => {
   const workspace = text(join(componentsDir, 'library-workspace.tsx'));
   const css = text(join(root, 'app', 'globals.css'));
-  assert.match(workspace, /const emptyWorkspace=!loading&&!editorOpen&&items\.length===0;/);
+  // Empty state appears only once data is ready and nothing is visible under the current filter.
+  assert.match(workspace, /const emptyWorkspace=viewReady&&!editorOpen&&visibleItems\.length===0;/);
   assert.match(workspace, /emptyWorkspace \? 'is-empty' : ''/);
   assert.match(css, /\.library-workspace\.is-empty \.library-layout \{ grid-template-columns:1fr; \}/);
   assert.match(css, /\.library-workspace\.is-empty \.library-editor \{ display:none; \}/);

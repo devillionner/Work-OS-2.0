@@ -9,7 +9,7 @@ const css=readFileSync(new URL('../app/globals.css',import.meta.url),'utf8');
 void test('advertisement library exposes platform filtering without affecting other collections',()=>{
   assert.match(workspace,/collection==='advertisement'&&<label className="library-platform-filter"/);
   assert.match(workspace,/<option value="all">Усі платформи<\/option>/);
-  assert.match(workspace,/visibleItems=platformFilter==='all'\?items:items\.filter/);
+  assert.match(workspace,/visibleItems=platformFilter==='all'\?(view)?[iI]tems:(view)?[iI]tems\.filter/);
   assert.match(workspace,/setPlatformFilter\('all'\)/);
 });
 

@@ -4,118 +4,68 @@
 
 ## 1. Тести, що падають
 
-Стан на 2026-10-01 (після виправлень): `npm run test:full` — 876 тестів, із них 71 падають (було 92). 15 поведінкових тестів публікації відновлено виправленням тестових даних (підтверджений профіль до читання state token), ще кілька застарілих source-contract перевірок оновлено під поточний код. Переважно це застарілі source-contract перевірки (regex шукає рядки, яких у коді вже немає) і поведінкові тести chat-discovery.
-
-### `tests/analytics-ui-copy.test.mjs` (1)
-- [ ] `tests/analytics-ui-copy.test.mjs:5` — Analytics archive reasons render localized operator-facing labels
-
-### `tests/app-update-sync.test.mjs` (1)
-- [ ] `tests/app-update-sync.test.mjs:31` — cross-device sync uses the existing monotonic backup revision as source of truth
+Стан на 2026-10-02: `npm run test:full` — 51 падіння (було 71). Виправлено всі недискаверні: це були застарілі перевірки коду після переробок (перейменування, перенесення в `PlatformOverview`, нові межі D1), а одна — справжня регресія: зник окремий екран «вичерпано денний ліміт бази», його відновлено в `components/work-os-bootstrap.tsx`. Решта — тести Discovery: runner і адаптер переписали 2026-09-29 без локального прогону тестів, тож частина падінь може означати втрачену поведінку, а не лише застарілий текст. Їх розбирають окремо, кожен перевіряючи по коду.
 
 ### `tests/chat-discovery-cloud.test.mjs` (14)
-- [ ] `tests/chat-discovery-cloud.test.mjs:29` — local preview falls back to a clean source label when extracted HTML name is noisy
-- [ ] `tests/chat-discovery-cloud.test.mjs:105` — Telegram discovery accepts only factual Ukrainian invite snippets from Brave and rejects unrelated catalogues
-- [ ] `tests/chat-discovery-cloud.test.mjs:173` — local-first discovery starts with bounded Telegram batches and avoids the heavy curated bootstrap
-- [ ] `tests/chat-discovery-cloud.test.mjs:228` — Telegram public discovery broadens search only when the strict result lacks enough public sources
-- [ ] `tests/chat-discovery-cloud.test.mjs:269` — Telegram source ranking compares all query variants before fetching the single best source
-- [ ] `tests/chat-discovery-cloud.test.mjs:297` — Telegram public source budget is channel-deduplicated before page fetch
-- [ ] `tests/chat-discovery-cloud.test.mjs:323` — Telegram public history follow-up is same-channel, before-only and bounded to one extra page per task
-- [ ] `tests/chat-discovery-cloud.test.mjs:349` — Telegram public history does not paginate when the first preview already contains an invite
-- [ ] `tests/chat-discovery-cloud.test.mjs:379` — Discovery reset removes only discovery workspace state and preserves linked chats for dedupe
-- [ ] `tests/chat-discovery-cloud.test.mjs:646` — qualification is fail-closed until every target criterion is confirmed
-- [ ] `tests/chat-discovery-cloud.test.mjs:748` — autonomous Discovery advances the seed matrix through public Telegram pages without operator query input
-- [ ] `tests/chat-discovery-cloud.test.mjs:779` — Discovery goal counts only new confirmed targets, never raw invite yield
-- [ ] `tests/chat-discovery-cloud.test.mjs:820` — archived unavailable WhatsApp history suppresses rediscovery and automatic rejoin in later runs
-- [ ] `tests/chat-discovery-cloud.test.mjs:1478` — joined inspection with unknown rules stays ready but explicitly needs qualification
+- [ ] `tests/chat-discovery-cloud.test.mjs:30` — local preview falls back to a clean source label when extracted HTML name is noisy
+- [ ] `tests/chat-discovery-cloud.test.mjs:106` — Telegram discovery accepts only factual Ukrainian invite snippets from Brave and rejects unrelated catalogues
+- [ ] `tests/chat-discovery-cloud.test.mjs:174` — local-first discovery starts with bounded Telegram batches and avoids the heavy curated bootstrap
+- [ ] `tests/chat-discovery-cloud.test.mjs:229` — Telegram public discovery broadens search only when the strict result lacks enough public sources
+- [ ] `tests/chat-discovery-cloud.test.mjs:270` — Telegram source ranking compares all query variants before fetching the single best source
+- [ ] `tests/chat-discovery-cloud.test.mjs:298` — Telegram public source budget is channel-deduplicated before page fetch
+- [ ] `tests/chat-discovery-cloud.test.mjs:324` — Telegram public history follow-up is same-channel, before-only and bounded to one extra page per task
+- [ ] `tests/chat-discovery-cloud.test.mjs:350` — Telegram public history does not paginate when the first preview already contains an invite
+- [ ] `tests/chat-discovery-cloud.test.mjs:380` — Discovery reset removes only discovery workspace state and preserves linked chats for dedupe
+- [ ] `tests/chat-discovery-cloud.test.mjs:647` — qualification is fail-closed until every target criterion is confirmed
+- [ ] `tests/chat-discovery-cloud.test.mjs:749` — autonomous Discovery advances the seed matrix through public Telegram pages without operator query input
+- [ ] `tests/chat-discovery-cloud.test.mjs:780` — Discovery goal counts only new confirmed targets, never raw invite yield
+- [ ] `tests/chat-discovery-cloud.test.mjs:821` — archived unavailable WhatsApp history suppresses rediscovery and automatic rejoin in later runs
+- [ ] `tests/chat-discovery-cloud.test.mjs:1479` — joined inspection with unknown rules stays ready but explicitly needs qualification
 
 ### `tests/chat-discovery-runner.test.mjs` (12)
 - [ ] `tests/chat-discovery-runner.test.mjs:140` — retry-later skips only the affected local candidate with short cooldown
 - [ ] `tests/chat-discovery-runner.test.mjs:149` — local retry-later skips only that invite and does not globally freeze WhatsApp preflight
-- [ ] `tests/chat-discovery-runner.test.mjs:162` — a single slow WhatsApp page cannot trap the browser-local queue forever
-- [ ] `tests/chat-discovery-runner.test.mjs:170` — unknown factual qualification is deferred instead of rejected or used as a destructive leave reason
-- [ ] `tests/chat-discovery-runner.test.mjs:183` — local Discovery can refill sources while WhatsApp qualification is in flight
-- [ ] `tests/chat-discovery-runner.test.mjs:190` — local Discovery keeps a local source pump filled while WhatsApp runs
-- [ ] `tests/chat-discovery-runner.test.mjs:197` — local Discovery rejects impossible candidates before join
-- [ ] `tests/chat-discovery-runner.test.mjs:205` — temporary source deferral advances one query instead of freezing the run
-- [ ] `tests/chat-discovery-runner.test.mjs:213` — local Discovery metadata-screens before any heavy WhatsApp invite UI
-- [ ] `tests/chat-discovery-runner.test.mjs:224` — blocked metadata candidates do not fill the active local source queue
-- [ ] `tests/chat-discovery-runner.test.mjs:231` — local Discovery direct-joins qualified invites without Page.navigate
-- [ ] `tests/chat-discovery-runner.test.mjs:262` — fresh local run clears inherited source wait
-
-### `tests/chat-discovery-scan-gate.test.mjs` (1)
-- [ ] `tests/chat-discovery-scan-gate.test.mjs:5` — manual Telegram recovery stays tied to the planned query while autonomous source advancement is executor-owned
+- [ ] `tests/chat-discovery-runner.test.mjs:166` — a single slow WhatsApp page cannot trap the browser-local queue forever
+- [ ] `tests/chat-discovery-runner.test.mjs:174` — unknown factual qualification is deferred instead of rejected or used as a destructive leave reason
+- [ ] `tests/chat-discovery-runner.test.mjs:187` — local Discovery can refill sources while WhatsApp qualification is in flight
+- [ ] `tests/chat-discovery-runner.test.mjs:194` — local Discovery keeps a local source pump filled while WhatsApp runs
+- [ ] `tests/chat-discovery-runner.test.mjs:201` — local Discovery rejects impossible candidates before join
+- [ ] `tests/chat-discovery-runner.test.mjs:209` — temporary source deferral advances one query instead of freezing the run
+- [ ] `tests/chat-discovery-runner.test.mjs:217` — local Discovery metadata-screens before any heavy WhatsApp invite UI
+- [ ] `tests/chat-discovery-runner.test.mjs:228` — blocked metadata candidates do not fill the active local source queue
+- [ ] `tests/chat-discovery-runner.test.mjs:235` — local Discovery direct-joins qualified invites without Page.navigate
+- [ ] `tests/chat-discovery-runner.test.mjs:266` — fresh local run clears inherited source wait
 
 ### `tests/chat-discovery-ui.test.mjs` (4)
 - [ ] `tests/chat-discovery-ui.test.mjs:43` — browser-local source crawl uses targeted D1 dedupe and no owner-wide 10k scan
-- [ ] `tests/chat-discovery-ui.test.mjs:158` — candidate cards lead with human-readable automation status and keep criteria collapsed
-- [ ] `tests/chat-discovery-ui.test.mjs:334` — pausing autonomous discovery preserves unfinished candidates and momentum
-- [ ] `tests/chat-discovery-ui.test.mjs:347` — resuming a paused discovery run keeps cursor candidates and durable dedupe history
-
-### `tests/d1-budget-contract.test.mjs` (1)
-- [ ] `tests/d1-budget-contract.test.mjs:39` — Discovery search is local-first and D1 work stays targeted until explicit confirmation
-
-### `tests/d1-quota-recovery.test.mjs` (1)
-- [ ] `tests/d1-quota-recovery.test.mjs:13` — root page renders a dedicated quota recovery surface without retry controls
-
-### `tests/dashboard-bootstrap.test.mjs` (1)
-- [ ] `tests/dashboard-bootstrap.test.mjs:5` — home SSR only authenticates and defers dashboard work to JSON bootstrap
+- [ ] `tests/chat-discovery-ui.test.mjs:161` — candidate cards lead with human-readable automation status and keep criteria collapsed
+- [ ] `tests/chat-discovery-ui.test.mjs:337` — pausing autonomous discovery preserves unfinished candidates and momentum
+- [ ] `tests/chat-discovery-ui.test.mjs:350` — resuming a paused discovery run keeps cursor candidates and durable dedupe history
 
 ### `tests/discovery-reliability.test.mjs` (1)
 - [ ] `tests/discovery-reliability.test.mjs:235` — joined recovery without groupId refreshes invite metadata before inspection and never rejoins
 
 ### `tests/discovery-source-outcomes.test.mjs` (20)
 - [ ] `tests/discovery-source-outcomes.test.mjs:19` — workbook plan includes compatible keywords, countries and city aliases
-- [ ] `tests/discovery-source-outcomes.test.mjs:78` — repeated global WhatsApp loading triggers a bounded self-heal reload
-- [ ] `tests/discovery-source-outcomes.test.mjs:120` — global WhatsApp message loading is deferred without burning the full invite timeout
-- [ ] `tests/discovery-source-outcomes.test.mjs:163` — web-search 429 does not fail the source step when Telegram graph fallback exists
-- [ ] `tests/discovery-source-outcomes.test.mjs:176` — search advances with a warning when all optional search sources are unavailable
-- [ ] `tests/discovery-source-outcomes.test.mjs:189` — TG.ME directory ranks concrete Ukrainian Telegram posts
-- [ ] `tests/discovery-source-outcomes.test.mjs:209` — TG.ME post result can feed a WhatsApp invite directly into local preview source
-- [ ] `tests/discovery-source-outcomes.test.mjs:222` — directory channel result is searched inside Telegram for group invites
-- [ ] `tests/discovery-source-outcomes.test.mjs:255` — WhatsApp topic matcher includes local-language Ukrainian identity roots
-- [ ] `tests/discovery-source-outcomes.test.mjs:277` — search challenge skips the exact query when Telegram directory also fails
-- [ ] `tests/discovery-source-outcomes.test.mjs:289` — temporary external search failure warns and advances when Telegram directory also fails
-- [ ] `tests/discovery-source-outcomes.test.mjs:307` — source crawl keeps scanning Telegram history even after a current-page invite
-- [ ] `tests/discovery-source-outcomes.test.mjs:341` — runner passes invite metadata into joined qualification to avoid redundant info opening
-- [ ] `tests/discovery-source-outcomes.test.mjs:355` — metadata failure defers candidate without opening the heavy WhatsApp UI
-- [ ] `tests/discovery-source-outcomes.test.mjs:369` — unknown qualification has bounded retries and never leaves a joined chat
-- [ ] `tests/discovery-source-outcomes.test.mjs:386` — source plan is read from the authorized Work OS browser session without HTTP
-- [ ] `tests/discovery-source-outcomes.test.mjs:416` — source bridge keeps cursor on preview failure and reports a resumable stop
-- [ ] `tests/discovery-source-outcomes.test.mjs:454` — WhatsApp invite metadata and UI inspection foreground the WhatsApp tab first
-- [ ] `tests/discovery-source-outcomes.test.mjs:516` — direct qualification ignores WhatsApp service events for activity
-- [ ] `tests/discovery-source-outcomes.test.mjs:618` — TG.ME group-invite preview can feed a WhatsApp invite directly
-
-### `tests/lead-attachments-ui.test.mjs` (1)
-- [ ] `tests/lead-attachments-ui.test.mjs:7` — LEAD-23 exposes bounded media upload, preview/download and delete controls
-
-### `tests/library-advertisement-ux.test.mjs` (1)
-- [ ] `tests/library-advertisement-ux.test.mjs:9` — advertisement library exposes platform filtering without affecting other collections
-
-### `tests/p4-parity-contracts.test.mjs` (5)
-- [ ] `tests/p4-parity-contracts.test.mjs:8` — PUB-04 and PROFILE-12 are present in the real operator flow
-- [ ] `tests/p4-parity-contracts.test.mjs:80` — manual publishing and profile management cover the remaining operator parity surfaces
-- [ ] `tests/p4-parity-contracts.test.mjs:113` — WhatsApp and Viber quick publishing locks one material without bypassing normal publication rules
-- [ ] `tests/p4-parity-contracts.test.mjs:150` — chat operator flow keeps grouped copy, fast archive and archived-chat exclusion explicit
-- [ ] `tests/p4-parity-contracts.test.mjs:160` — chat archive reasons, available-now links and Telegram duplicate scope are explicit
-
-### `tests/release-copy.test.mjs` (1)
-- [ ] `tests/release-copy.test.mjs:10` — release notes stay short and understandable for people
-
-### `tests/report-submission-ui.test.mjs` (1)
-- [ ] `tests/report-submission-ui.test.mjs:7` — reports editor exposes the last final submission time without replacing last-change metadata
-
-### `tests/report-write.test.mjs` (1)
-- [ ] `tests/report-write.test.mjs:55` — report UI and restore path send the loaded revision and preserve local text on conflict
-
-### `tests/ux-contracts.test.mjs` (2)
-- [ ] `tests/ux-contracts.test.mjs:180` — Platforms uses a compact operator hierarchy and an unambiguous publication CTA
-- [ ] `tests/ux-contracts.test.mjs:391` — Empty Library uses one focused empty state instead of a redundant editor panel
-
-### `tests/viber-joined-today-panel.test.mjs` (1)
-- [ ] `tests/viber-joined-today-panel.test.mjs:27` — Viber workspace exposes a compact expandable joined-today panel in the queue header area
-
-### `tests/workspace-loading-contract.test.mjs` (1)
-- [ ] `tests/workspace-loading-contract.test.mjs:56` — known transition hot spots retain data while revalidating
+- [ ] `tests/discovery-source-outcomes.test.mjs:82` — repeated global WhatsApp loading triggers a bounded self-heal reload
+- [ ] `tests/discovery-source-outcomes.test.mjs:124` — global WhatsApp message loading is deferred without burning the full invite timeout
+- [ ] `tests/discovery-source-outcomes.test.mjs:167` — web-search 429 does not fail the source step when Telegram graph fallback exists
+- [ ] `tests/discovery-source-outcomes.test.mjs:180` — search advances with a warning when all optional search sources are unavailable
+- [ ] `tests/discovery-source-outcomes.test.mjs:193` — TG.ME directory ranks concrete Ukrainian Telegram posts
+- [ ] `tests/discovery-source-outcomes.test.mjs:213` — TG.ME post result can feed a WhatsApp invite directly into local preview source
+- [ ] `tests/discovery-source-outcomes.test.mjs:226` — directory channel result is searched inside Telegram for group invites
+- [ ] `tests/discovery-source-outcomes.test.mjs:259` — WhatsApp topic matcher includes local-language Ukrainian identity roots
+- [ ] `tests/discovery-source-outcomes.test.mjs:281` — search challenge skips the exact query when Telegram directory also fails
+- [ ] `tests/discovery-source-outcomes.test.mjs:293` — temporary external search failure warns and advances when Telegram directory also fails
+- [ ] `tests/discovery-source-outcomes.test.mjs:311` — source crawl keeps scanning Telegram history even after a current-page invite
+- [ ] `tests/discovery-source-outcomes.test.mjs:345` — runner passes invite metadata into joined qualification to avoid redundant info opening
+- [ ] `tests/discovery-source-outcomes.test.mjs:359` — metadata failure defers candidate without opening the heavy WhatsApp UI
+- [ ] `tests/discovery-source-outcomes.test.mjs:373` — unknown qualification has bounded retries and never leaves a joined chat
+- [ ] `tests/discovery-source-outcomes.test.mjs:390` — source plan is read from the authorized Work OS browser session without HTTP
+- [ ] `tests/discovery-source-outcomes.test.mjs:420` — source bridge keeps cursor on preview failure and reports a resumable stop
+- [ ] `tests/discovery-source-outcomes.test.mjs:458` — WhatsApp invite metadata and UI inspection foreground the WhatsApp tab first
+- [ ] `tests/discovery-source-outcomes.test.mjs:520` — direct qualification ignores WhatsApp service events for activity
+- [ ] `tests/discovery-source-outcomes.test.mjs:622` — TG.ME group-invite preview can feed a WhatsApp invite directly
 
 Примітка: `tests/discovery-source-outcomes.test.mjs` до 2026-10-01 взагалі не парсився (синтаксичні помилки), тому раніше рахувався як одне падіння. Після виправлення синтаксису його тести запускаються, і 21 з них падає.
 

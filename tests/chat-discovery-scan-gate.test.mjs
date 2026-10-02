@@ -9,7 +9,8 @@ void test('manual Telegram recovery stays tied to the planned query while autono
     readFile(new URL('../lib/chat-discovery/domain.ts', import.meta.url), 'utf8'),
   ]);
 
-  assert.match(dialog, /action: 'ingest-telegram'/);
+  // The manual Telegram paste form was removed from the Discovery dialog (c4fa30d); the server keeps the
+  // query-bound ingest and the dialog must not regain a way to advance the plan by itself.
   assert.doesNotMatch(dialog, /action: 'advance-telegram-plan'/);
   assert.doesNotMatch(route, /body\.action === 'advance-telegram-plan'/);
   assert.match(domain, /advanceAutonomousDiscoveryRun/);
@@ -18,10 +19,6 @@ void test('manual Telegram recovery stays tied to the planned query while autono
   assert.match(domain, /SET telegram_cursor=\?1,searched_queries=searched_queries\+1/);
   assert.match(domain, /input\.completeQuery === true/);
   assert.match(domain, /merged\.run\.version/);
-  assert.match(route, /completeQuery: body\.completeQuery/);
-  assert.match(dialog, /async function ingestTelegramScan\(completeQuery: boolean\)/);
-  assert.match(dialog, /ingestTelegramScan\(false\)/);
-  assert.match(dialog, /ingestTelegramScan\(true\)/);
-  assert.match(dialog, /completeQuery,/);
-  assert.match(dialog, /«Зберегти джерело» не рухає план/);
+  // Server-side Telegram ingest is retired: search stays local and D1 is written only after confirmation.
+  assert.match(route, /body\.action === 'ingest-telegram'\) \{\s*throw new DiscoveryError\('Telegram source preview тепер локальний\./);
 });

@@ -14,5 +14,5 @@ void test('home SSR only authenticates and defers dashboard work to JSON bootstr
   assert.doesNotMatch(page, /readSyncRevision/);
   assert.match(bootstrap, /fetch\('\/api\/dashboard-bootstrap'/);
   assert.match(route, /getDashboardSnapshot\(user\.id\)/);
-  assert.match(route, /readSyncRevision\(env\.DB,user\.id\)/);
+  assert.match(route, /readSyncRevision\(env\.DB,\s*user\.id\)/);
 });

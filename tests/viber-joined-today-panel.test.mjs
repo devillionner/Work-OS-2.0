@@ -31,9 +31,10 @@ void test('Viber workspace exposes a compact expandable joined-today panel in th
   ]);
   assert.match(workspace,/joinedTodayOpen/);
   assert.match(workspace,/Приєднані сьогодні/);
-  assert.match(workspace,/Актуальні Viber-чати/);
+  // One panel serves Viber and WhatsApp; the platform name is interpolated.
+  assert.match(workspace,/Актуальні \$\{selected\.label\}-чати/);
   assert.match(workspace,/aria-expanded=\{joinedTodayOpen\}/);
-  assert.match(workspace,/openNativeChat\('viber',item\.link\)/);
+  assert.match(workspace,/openNativeChat\(platform,item\.link\)/);
   assert.match(workspace,/data\.joinedToday\.length/);
   assert.match(css,/\.joined-today-panel/);
   assert.match(css,/\.joined-today-list \{[^}]*grid-template-columns:repeat\(auto-fit,minmax\(230px,1fr\)\)/s);

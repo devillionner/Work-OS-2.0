@@ -59,7 +59,7 @@ void test('report UI and restore path send the loaded revision and preserve loca
   const history=await readFile(new URL('../components/report-history-dialog.tsx',import.meta.url),'utf8');
   assert.match(route,/expectedRevision/);
   assert.match(route,/currentRevision:result\.currentRevision/);
-  assert.match(workspace,/expectedRevision: data\?\.selected\?\.revisionCount \?\? 0/);
+  assert.match(workspace,/expectedRevision: (data|editorData)\?\.selected\?\.revisionCount \?\? 0/);
   assert.match(workspace,/setReportConflict\(true\)/);
   assert.match(workspace,/Локальний текст залишено без змін/);
   assert.match(history,/expectedRevision: currentRevision/);

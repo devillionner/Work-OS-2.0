@@ -44,25 +44,33 @@ void test('Discovery search is local-first and D1 work stays targeted until expl
   const deploy=read('scripts/deploy-staging.mjs');
   const preview=read('lib/chat-discovery/local-preview.ts');
   assert.match(runner,/function canAdvanceDiscoverySource\(\)\{\s*return false;/);
-  assert.match(runner,/EXECUTOR_QUEUE_LIMIT=3/);
-  assert.match(runner,/IDLE_POLL_MIN_MS=15000/);
-  assert.match(runner,/IDLE_POLL_MAX_MS=60000/);
+  // The local loop is fast (2–5 s) but touches D1 only on the cloud cadence, only while Work OS is in
+  // use, and the empty Discovery queue is remembered server-side.
+  assert.match(runner,/EXECUTOR_QUEUE_LIMIT=1/);
+  assert.match(runner,/CLOUD_AUTOMATION_POLL_MS=15000/);
+  assert.match(runner,/CLOUD_AUTOMATION_IDLE_MAX_MS=60000/);
+  assert.match(runner,/&&await cloudDemand\(\)\)\{/);
+  assert.match(executor,/if \(markers\.idleUntil > now\) return \{ tasks: \[\], leaseSeconds, sourceAdvanceNeeded: false \}/);
   assert.match(auth,/EXECUTOR_HEARTBEAT_SECONDS = 60/);
   assert.match(executor,/sourceAdvanceNeeded: false/);
   assert.doesNotMatch(executor,/SELECT min_members,status FROM chat_discovery_runs/);
-  assert.match(executor,/LIMIT \?3`\)\.bind\(userId, now, limit\)\.all<CandidateTaskRow>\(\)/);
+  assert.match(executor,/LIMIT \?3`\)\.bind\(userId, now, limit\);/);
+  assert.match(executor,/discoveryExecutorQueueStatement\(db, userId, now, limit\)\.all<CandidateTaskRow>\(\)/);
   assert.doesNotMatch(executor,/Math\.max\(limit \* 3, 20\)/);
   assert.match(route,/Source discovery тепер локальний і не пише проміжні результати в D1/);
   assert.doesNotMatch(route,/advanceAutonomousDiscoveryRun/);
   assert.match(deploy,/if \(fingerprintCheck\.allowed\)/);
   assert.match(deploy,/Skipping remote D1 migration list for this code-only deploy/);
-  assert.match(preview,/buildTelegramSearchPlan\(telegramCursor,6\)/);
-  assert.match(preview,/maxQueries:6,pageLimit:2/);
-  assert.match(preview,/maxQueries:6,pageLimit:1/);
+  // One bounded source query per Worker call (was six before the source crawl moved to the browser).
+  assert.match(preview,/const batchSize=1;/);
+  assert.match(preview,/buildTelegramSearchPlan\(telegramCursor,batchSize\)/);
+  assert.match(preview,/maxQueries:batchSize,pageLimit:1/);
   assert.match(preview,/normalized_link IN \(SELECT value FROM json_each\(\?2\)\)/);
   const searchStart=preview.indexOf('export async function searchLocalDiscoveryPreview');
-  const confirmStart=preview.indexOf('export async function confirmLocalDiscoveryPreview');
-  const searchBody=preview.slice(searchStart,confirmStart);
+  // Only the search step itself must stay write-free; persisting an operator decision is an explicit action.
+  const searchEnd=preview.indexOf('export async function',searchStart+1);
+  const searchBody=preview.slice(searchStart,searchEnd);
+  assert.ok(searchStart>=0&&searchEnd>searchStart);
   assert.doesNotMatch(searchBody,/INSERT INTO/);
   assert.doesNotMatch(searchBody,/UPDATE chat_discovery_runs/);
   assert.doesNotMatch(preview,/LIMIT 10001/);

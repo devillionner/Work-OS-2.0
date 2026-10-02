@@ -8,7 +8,8 @@ void test('Analytics archive reasons render localized operator-facing labels', (
   assert.match(source, /banned: 'Блокування'/);
   assert.match(source, /missing: 'Чат недоступний'/);
   assert.match(source, /other: 'Інше'/);
-  assert.match(source, /archiveReasonLabels\[item\.reason\] \?\? 'Інше'/);
+  // Known codes are localized; a custom archive reason typed by the operator is shown as written.
+  assert.match(source, /archiveReasonLabels\[item\.reason\] \?\? item\.reason/);
   assert.doesNotMatch(source, /<span>\{item\.reason\}<\/span>/);
 });
 

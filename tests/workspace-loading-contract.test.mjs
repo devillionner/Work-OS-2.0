@@ -71,7 +71,7 @@ void test('known transition hot spots retain data while revalidating',()=>{
   assert.doesNotMatch(leads,/setDetail\(null\)/);
 
   const analytics=read('components/analytics-workspace.tsx');
-  assert.match(analytics,/loading && !data \? <WorkspaceInitialLoading/);
+  assert.match(analytics,/!data && \(loading\|\|switchingView\) \? <WorkspaceInitialLoading/);
 });
 
 void test('persistent settings re-syncs server props instead of depending on a remount',()=>{
