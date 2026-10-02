@@ -71,7 +71,12 @@ const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
 const TOKEN_REFRESH_MS=60000;
 const IDLE_POLL_MIN_MS=2000;
 const IDLE_POLL_MAX_MS=5000;
-const WHATSAPP_RUNTIME_TRANSIENT_REASONS=new Set(['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready']);
+const WHATSAPP_RUNTIME_TRANSIENT_REASONS=new Set(['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready','whatsapp_messages_loading']);
+// Discovery executor leases last 90 s; an inspect/leave that has to wait out a WhatsApp message sync
+// (30–60 s after opening an invite on a large account) still has to finish inside that lease.
+const DISCOVERY_WHATSAPP_TIMEOUT_MS=80000;
+// WhatsApp Web home may legitimately sync for minutes; reloading it earlier restarts that sync.
+const WHATSAPP_STUCK_LOADING_MS=180000;
 
 async function resolveExecutorToken(){
   const configured=process.env.WORK_OS_EXECUTOR_TOKEN||'';
@@ -204,7 +209,7 @@ async function inspect(task){
 async function inspectTask(task){
   if(task.runtime==='whatsapp_web'&&whatsappCdp){
     try{
-      const automated=await inspectWhatsappTaskViaCdp(task,{cdpBaseUrl:whatsappCdp});
+      const automated=await inspectWhatsappTaskViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:DISCOVERY_WHATSAPP_TIMEOUT_MS});
       if(automated.kind==='result'){
         clearWhatsappRuntimeBlock();
         console.log(`WhatsApp Web observed safely: ${automated.result.membershipState||automated.result.reason||automated.result.status}`);
@@ -225,6 +230,7 @@ async function inspectTask(task){
 
 let whatsappRuntimeBlockedUntil=0;
 let whatsappLoadingSignals=0;
+let whatsappLoadingSince=0;
 let whatsappHomeRecoveryPending=false;
 let lastWhatsappReloadAt=0;
 let nextSourceAdvanceAt=0;
@@ -246,7 +252,9 @@ function taskIsLocallyBlocked(task){
 }
 function clearTaskBlock(task){taskBlockedUntil.delete(task.candidateId);}
 function markWhatsappRuntimeBlocked(reason){
-  whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+WHATSAPP_RUNTIME_COOLDOWN_MS);
+  // A message sync ends on its own within a minute or two; other runtime problems need a longer pause.
+  const cooldown=reason==='whatsapp_messages_loading'?WHATSAPP_LOADING_COOLDOWN_MS:WHATSAPP_RUNTIME_COOLDOWN_MS;
+  whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+cooldown);
   console.warn(`WhatsApp runtime temporarily blocks automated WhatsApp actions (${reason}); retry after cooldown.`);
 }
 function clearWhatsappRuntimeBlock(){whatsappRuntimeBlockedUntil=0;}
@@ -651,7 +659,7 @@ async function runDiscoveryExecutorOnce(){
   if(task.action==='leave'){
     if(task.runtime==='whatsapp_web'&&whatsappCdp){
       try{
-        const automated=await leaveWhatsappTaskViaCdp(task,{cdpBaseUrl:whatsappCdp});
+        const automated=await leaveWhatsappTaskViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:DISCOVERY_WHATSAPP_TIMEOUT_MS});
         if(automated.kind==='result'&&automated.result.left===true){
           clearWhatsappRuntimeBlock();
           await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'executor-leave',candidateId:task.candidateId,version:task.candidateVersion,chatStateToken:task.chatStateToken,targetVerified:true})});
@@ -739,8 +747,10 @@ async function runOnce(){
               if(health.ready!==true){
                 if(health.loading===true){
                   whatsappLoadingSignals+=1;
+                  if(!whatsappLoadingSince)whatsappLoadingSince=Date.now();
                   if(whatsappLoadingSignals===1)console.warn('WhatsApp Web home is still loading; waiting before metadata qualification.');
                   const canReload=whatsappLoadingSignals>=WHATSAPP_LOADING_RELOAD_AFTER
+                    &&Date.now()-whatsappLoadingSince>=WHATSAPP_STUCK_LOADING_MS
                     &&Date.now()-lastWhatsappReloadAt>=WHATSAPP_LOADING_RELOAD_COOLDOWN_MS;
                   if(canReload){
                     try{
@@ -748,6 +758,7 @@ async function runOnce(){
                       if(reset.kind==='result'){
                         lastWhatsappReloadAt=Date.now();
                         whatsappLoadingSignals=0;
+                        whatsappLoadingSince=0;
                         whatsappHomeRecoveryPending=true;
                         whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+WHATSAPP_LOADING_COOLDOWN_MS);
                         console.warn('WhatsApp Web stayed on message loading; reloaded home and will resume after cooldown.');
@@ -762,6 +773,7 @@ async function runOnce(){
               if(whatsappHomeRecoveryPending||whatsappLoadingSignals>0){
                 whatsappHomeRecoveryPending=false;
                 whatsappLoadingSignals=0;
+                whatsappLoadingSince=0;
                 console.log('WhatsApp Web home is ready again; resuming queued Discovery candidates.');
               }
             }

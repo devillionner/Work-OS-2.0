@@ -42,12 +42,16 @@ void test('workbook plan eventually covers every valid city/template pair beyond
 
 void test('retries on the same WhatsApp invite do not restart deep-link loading',async()=>{
   const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
-  const start=adapter.indexOf('export async function inspectWhatsappTaskViaCdp');
-  const end=adapter.indexOf('async function findOrCreateWhatsappPage',start);
+  // Invite navigation lives in one sync-aware helper used by inspect, leave and autopost.
+  const start=adapter.indexOf('async function openWhatsappInviteWhenSynced');
+  const end=adapter.indexOf('export async function inspectWhatsappTaskViaCdp',start);
   const block=adapter.slice(start,end);
-  assert.match(block,/alreadyOnExactInvite/u);
-  assert.match(block,/searchParams\.get\('code'\)===targetParsed\.searchParams\.get\('code'\)/u);
-  assert.match(block,/if\(!alreadyOnExactInvite\)\{[^}]*?\{[\s\S]*?\}\s*await client\.send\('Page\.navigate'/u);
+  assert.ok(start>0);
+  assert.match(block,/current\.searchParams\.get\('code'\) === target\.searchParams\.get\('code'\)\) return \{ kind:'ok', navigated:false \}/u);
+  assert.match(block,/lastInviteNavigation\.url === targetUrl/u);
+  const inspect=adapter.slice(end,adapter.indexOf('async function findOrCreateWhatsappPage',end));
+  assert.match(inspect,/await openWhatsappInviteWhenSynced\(client, page, targetUrl, operationDeadline\)/u);
+  assert.doesNotMatch(inspect,/Page\.navigate/u);
 });
 
 void test('Discovery waits for a healthy WhatsApp home before reopening invite deep links',async()=>{

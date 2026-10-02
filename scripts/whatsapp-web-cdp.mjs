@@ -1358,8 +1358,9 @@ export async function leaveWhatsappTaskViaCdp(
       if (!exact || snapshot.composer !== true) return { kind:'blocked', reason:'current_joined_target_not_verified' };
       opened = { kind:'result', result:{ membershipState:'joined', targetVerified:true, observedName:exact } };
     } else {
-      await client.send('Page.navigate', { url: targetUrl });
-      opened = await waitForClassification(client, { ...task, action: 'inspect' }, remainingBudget(), null, navigatedInviteCode);
+      const navigation = await openWhatsappInviteWhenSynced(client, page, targetUrl, operationDeadline);
+      if (navigation.kind === 'blocked') return { kind:'blocked', reason:navigation.reason };
+      opened = await waitForClassification(client, { ...task, action: 'inspect' }, remainingBudget(), null, navigatedInviteCode, true);
     }
     if (opened.kind === 'action' && opened.action === 'view') {
       const observedTarget = opened.observedName || task.expectedTarget?.name || task.name;
@@ -1530,7 +1531,6 @@ export async function sendWhatsappAutopostViaCdp(
   try {
     await client.send('Page.enable');
     await client.send('Runtime.enable');
-    await client.send('Page.navigate', { url: targetUrl });
     const inspectTask = {
       runtime:'whatsapp_web', platform:'whatsapp', action:'inspect',
       name:task.target.expectedName,
@@ -1541,7 +1541,9 @@ export async function sendWhatsappAutopostViaCdp(
     const operationDeadline = Date.now() + timeoutMs;
     const remainingBudget = () => Math.max(POLL_MS, operationDeadline - Date.now());
     const confirmWindowMs = Math.min(timeoutMs, AUTOPOST_SEND_CONFIRM_MS);
-    let classified = await waitForClassification(client, inspectTask, remainingBudget(), null, navigatedInviteCode);
+    const navigation = await openWhatsappInviteWhenSynced(client, page, targetUrl, operationDeadline);
+    if (navigation.kind === 'blocked') return { kind:'blocked', reason:navigation.reason };
+    let classified = await waitForClassification(client, inspectTask, remainingBudget(), null, navigatedInviteCode, true);
     if (classified.kind === 'action' && classified.action === 'view') {
       const clicked = await clickExactButton(client, classified.buttonText, classified.observedName || task.target.expectedName);
       if (!clicked) return { kind:'blocked', reason:'expected_control_disappeared' };
@@ -1639,9 +1641,37 @@ export async function resetWhatsappPageViaCdp({cdpBaseUrl}={}) {
   }finally{client.close();}
 }
 
+// Opening an invite reloads WhatsApp Web, and on a large account the reload re-syncs messages for
+// 30–60 s. Navigating again during that sync restarts it, so every operation that opens an invite goes
+// through here: it skips navigation when the tab already shows this invite and waits a running sync out.
+// WhatsApp rewrites the address back to "/" after opening an invite, so the URL alone cannot tell that
+// this tab already shows it; a retry within a few minutes therefore reuses the earlier navigation.
+const INVITE_NAVIGATION_REUSE_MS = 180_000;
+const lastInviteNavigation = { url:'', at:0 };
+
+async function openWhatsappInviteWhenSynced(client, page, targetUrl, deadline) {
+  if (lastInviteNavigation.url === targetUrl && Date.now() - lastInviteNavigation.at < INVITE_NAVIGATION_REUSE_MS) {
+    return { kind:'ok', navigated:false };
+  }
+  try {
+    const current = new URL(String(page.url || ''));
+    const target = new URL(targetUrl);
+    if (current.origin === target.origin && current.pathname === target.pathname
+      && current.searchParams.get('code') === target.searchParams.get('code')) return { kind:'ok', navigated:false };
+  } catch {}
+  while (shouldDeferForGlobalWhatsAppLoading(await readSnapshot(client).catch(() => null))) {
+    if (Date.now() + POLL_MS >= deadline) return { kind:'blocked', reason:'whatsapp_messages_loading' };
+    await sleep(POLL_MS);
+  }
+  await client.send('Page.navigate', { url: targetUrl });
+  lastInviteNavigation.url = targetUrl;
+  lastInviteNavigation.at = Date.now();
+  return { kind:'ok', navigated:true };
+}
+
 export async function inspectWhatsappTaskViaCdp(
   task,
-  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS, enrich = true, waitThroughLoading = false } = {},
+  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS, enrich = true, waitThroughLoading = true } = {},
 ) {
   if (task.runtime !== 'whatsapp_web' || task.platform !== 'whatsapp') {
     return { kind: 'blocked', reason: 'unsupported_runtime' };
@@ -1660,25 +1690,9 @@ export async function inspectWhatsappTaskViaCdp(
   try {
     await client.send('Page.enable');
     await client.send('Runtime.enable');
-    let alreadyOnExactInvite=false;
-    try{
-      const currentUrl=new URL(String(page.url||''));
-      const targetParsed=new URL(targetUrl);
-      alreadyOnExactInvite=currentUrl.origin===targetParsed.origin
-        &&currentUrl.pathname===targetParsed.pathname
-        &&currentUrl.searchParams.get('code')===targetParsed.searchParams.get('code');
-    }catch{}
     const operationDeadline = Date.now() + timeoutMs;
-    // Navigating while WhatsApp Web syncs messages restarts the sync, so retries would never let it finish.
-    if(!alreadyOnExactInvite){
-      while(shouldDeferForGlobalWhatsAppLoading(await readSnapshot(client).catch(()=>null))){
-        if(!waitThroughLoading||Date.now()+POLL_MS>=operationDeadline){
-          return {kind:'blocked',reason:'whatsapp_messages_loading',diagnostic:{url:String(page.url||''),globalLoading:true,beforeNavigate:true}};
-        }
-        await sleep(POLL_MS);
-      }
-      await client.send('Page.navigate',{url:targetUrl});
-    }
+    const opened = await openWhatsappInviteWhenSynced(client, page, targetUrl, operationDeadline);
+    if (opened.kind === 'blocked') return { kind:'blocked', reason:opened.reason, diagnostic:{ url:String(page.url||''), globalLoading:true, beforeNavigate:true } };
 
     const remainingBudget = () => Math.max(POLL_MS, operationDeadline - Date.now());
     const navigatedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);

@@ -316,3 +316,12 @@ void test('runner polls Work OS only while the site is in use or it still has wo
   assert.match(source,/wanted=userActive\|\|Date\.now\(\)-lastCloudWorkAt<WORK_GRACE_MS/);
   assert.match(source,/setStatus\('paused'/);
 });
+
+void test('runner never interrupts a WhatsApp message sync and gives Discovery operations time to wait it out',()=>{
+  assert.match(source,/'page_not_ready','whatsapp_messages_loading'\]\)/);
+  assert.match(source,/const cooldown=reason==='whatsapp_messages_loading'\?WHATSAPP_LOADING_COOLDOWN_MS:WHATSAPP_RUNTIME_COOLDOWN_MS/);
+  assert.match(source,/&&Date\.now\(\)-whatsappLoadingSince>=WHATSAPP_STUCK_LOADING_MS/);
+  assert.match(source,/const WHATSAPP_STUCK_LOADING_MS=180000/);
+  assert.match(source,/inspectWhatsappTaskViaCdp\(task,\{cdpBaseUrl:whatsappCdp,timeoutMs:DISCOVERY_WHATSAPP_TIMEOUT_MS\}\)/);
+  assert.match(source,/leaveWhatsappTaskViaCdp\(task,\{cdpBaseUrl:whatsappCdp,timeoutMs:DISCOVERY_WHATSAPP_TIMEOUT_MS\}\)/);
+});

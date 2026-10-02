@@ -805,11 +805,17 @@ void test('localized admin-only evidence overrides stale writable invite metadat
   assert.ok(source.indexOf('...preflightFacts')<source.indexOf('canWrite:liveCanWrite'));
 });
 
-void test('waiting check does not reload WhatsApp Web while it is still syncing messages',()=>{
-  const guardAt=source.indexOf('while(shouldDeferForGlobalWhatsAppLoading(await readSnapshot(client).catch(()=>null))){');
-  const navigateAt=source.indexOf("await client.send('Page.navigate',{url:targetUrl});",guardAt);
-  assert.ok(guardAt>0&&navigateAt>guardAt);
-  assert.match(source,/beforeNavigate:true/);
+void test('every invite navigation waits out a running WhatsApp message sync instead of restarting it',()=>{
+  const helper=source.slice(source.indexOf('async function openWhatsappInviteWhenSynced'),source.indexOf('export async function inspectWhatsappTaskViaCdp'));
+  const guard=helper.indexOf('while (shouldDeferForGlobalWhatsAppLoading(await readSnapshot(client)');
+  const navigate=helper.indexOf("await client.send('Page.navigate', { url: targetUrl });");
+  assert.ok(guard>0&&navigate>guard);
+  assert.match(helper,/lastInviteNavigation\.url === targetUrl && Date\.now\(\) - lastInviteNavigation\.at < INVITE_NAVIGATION_REUSE_MS/);
+  assert.match(helper,/reason:'whatsapp_messages_loading'/);
+  // inspect, leave and autopost all open invites through the helper; no other direct invite navigation remains.
+  assert.equal(source.split('= await openWhatsappInviteWhenSynced(client, page, targetUrl').length-1,3);
+  assert.equal(source.split("Page.navigate', { url: targetUrl }").length-1,1);
+  assert.doesNotMatch(source,/Page\.navigate',\{url:targetUrl\}/);
 });
 
 void test('waiting check waits out the WhatsApp sync caused by opening the invite within the server lease',()=>{
