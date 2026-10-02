@@ -4,7 +4,7 @@ import test from 'node:test';
 import { claimDiscoveryExecutorQueue, wakeDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
 import { claimWaitingWhatsAppCheck, readWaitingWhatsAppCheckStatus } from '../lib/chats/whatsapp-waiting-check.ts';
 import { claimWhatsAppAutopostJob } from '../lib/messenger-automation.ts';
-import { readSelectedChats, saveSelectedChats } from '../lib/chats/telegram-selected.ts';
+import { readSelectedChats, readSelectedChatsCount, saveSelectedChats } from '../lib/chats/telegram-selected.ts';
 import { readSyncRevision } from '../lib/sync-revision.ts';
 import { localDatabase } from './helpers/local-d1.mjs';
 
@@ -73,5 +73,6 @@ void test('page polls (sync revision, Waiting-check status, Telegram selected li
 
   const items = Array.from({ length: 1000 }, (_, index) => ({ link: `https://t.me/budget_chat_${index}`, title: `Чат ${index}`, count: index, last: null }));
   await saveSelectedChats(db, 'u', { items, skipped: 0 }, NOW);
+  assert.ok(await rows(metered => readSelectedChatsCount(metered, 'u')) <= 2, 'the tab badge must not look up every chat');
   assert.ok(await rows(metered => readSelectedChats(metered, 'u')) <= items.length * 3, 'selected list must use index lookups, not scan all chats');
 });

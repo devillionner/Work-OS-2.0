@@ -73,6 +73,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const [profileFilter,setProfileFilter] = useState<ProfileFilter>('all');
   const [mobileListState,setMobileListState] = useState({key:'',count:MOBILE_LIST_CHUNK});
   const [loadedData,setData] = useState<ResponseData|null>(null);
+  const [countsByScope,setCountsByScope] = useState<Record<string,ResponseData['counts']>>({});
   const viewCache=useRef(new Map<string,ResponseData>());
   const [undo,setUndo] = useState<UndoState|null>(null);
   const [bulkOpen,setBulkOpen]=useState(false);
@@ -126,6 +127,8 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const cachedData=viewCache.current.get(requestKey)||null;
   const data=loadedData?.requestKey===requestKey?loadedData:cachedData;
   const switchingList=data===null&&loadedData!==null&&loadedData.requestKey!==requestKey;
+  // «Відібрані» loads no chat queue, so the other tabs keep the counters of the last queue of this platform/account.
+  const tabCounts=data?.counts??countsByScope[`${platform}:${requestAccountId||''}`];
   const filterKey=`${platform}:${queue}:${search}:${profileFilter}`;
   const mobileListKey=`${filterKey}:${offset}:${requestAccountId||''}`;
   const mobileVisibleChats=mobileListState.key===mobileListKey?mobileListState.count:MOBILE_LIST_CHUNK;
@@ -246,6 +249,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       if(!response.ok) throw new Error(body.error || 'Не вдалося завантажити чати.');
       const next={...body,requestKey};
       viewCache.current.set(requestKey,next);setData(next);hasLoadedData.current=true;
+      setCountsByScope(current=>({...current,[`${platform}:${requestAccountId||''}`]:body.counts}));
     } catch (reason) { if(!controller.signal.aborted && requestNumber===loadNumber.current) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити чати.'); }
     finally { if(!silent&&!controller.signal.aborted && requestNumber===loadNumber.current) setLoading(false); }
   },[platform,queue,search,profileFilter,offset,requestAccountId,requestKey]);
@@ -266,19 +270,32 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
 
   const [selectedChats,setSelectedChats]=useState<SelectedChatsView|null>(null);
   const [selectedChatsFailed,setSelectedChatsFailed]=useState(false);
+  const [selectedCount,setSelectedCount]=useState<number|null>(null);
+  const selectedLoadedAt=useRef(0);
+  // Tab badge: one settings row. The per-chat status lookup runs only when the tab is opened.
   useEffect(()=>{
     if(!active||platform!=='telegram')return;
+    let cancelled=false;
+    fetch('/api/chats/telegram-selected?summary=1',{cache:'no-store'})
+      .then(response=>response.ok?response.json() as Promise<{count?:number}>:null)
+      .then(body=>{if(!cancelled&&typeof body?.count==='number')setSelectedCount(body.count);})
+      .catch(()=>{});
+    return()=>{cancelled=true;};
+  },[active,platform]);
+  useEffect(()=>{
+    if(!active||platform!=='telegram'||queue!=='selected')return;
+    if(Date.now()-selectedLoadedAt.current<5*60_000)return;
     let cancelled=false;
     fetch('/api/chats/telegram-selected',{cache:'no-store'})
       .then(async response=>({ok:response.ok,body:await response.json().catch(()=>null) as SelectedChatsView|null}))
       .then(({ok,body})=>{
         if(cancelled)return;
-        if(ok&&body&&Array.isArray(body.items)){setSelectedChats(body);setSelectedChatsFailed(false);}
+        if(ok&&body&&Array.isArray(body.items)){selectedLoadedAt.current=Date.now();setSelectedChats(body);setSelectedCount(body.items.length);setSelectedChatsFailed(false);}
         else setSelectedChatsFailed(true);
       })
       .catch(()=>{if(!cancelled)setSelectedChatsFailed(true);});
     return()=>{cancelled=true;};
-  },[active,platform]);
+  },[active,platform,queue]);
 
   const refreshWaitingCheck=useCallback(async()=>{
     try{
@@ -682,8 +699,8 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
 
     <section className="platform-browser">
       <div className="queue-tabs" role="tablist" aria-label="Черга чатів">
-        {queues.filter(item=>platform!=='viber'||item.key!=='profile_review').map(item=><button type="button" key={item.key} role="tab" aria-selected={queue===item.key} tabIndex={queue===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{if(item.key!=='ready'){setQuickPublishMode(false);setQuickAdvertisementId(null);}setQueue(item.key);setProfileFilter('all');setOffset(0)}}>{item.label}<span>{data?.counts[item.key] || 0}</span></button>)}
-        {platform==='telegram'&&<button type="button" role="tab" aria-selected={queue==='selected'} tabIndex={queue==='selected'?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{setQuickPublishMode(false);setQuickAdvertisementId(null);setQueue('selected');setProfileFilter('all');setOffset(0)}}>Відібрані<span>{selectedChats?.items.length||0}</span></button>}
+        {queues.filter(item=>platform!=='viber'||item.key!=='profile_review').map(item=><button type="button" key={item.key} role="tab" aria-selected={queue===item.key} tabIndex={queue===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{if(item.key!=='ready'){setQuickPublishMode(false);setQuickAdvertisementId(null);}setQueue(item.key);setProfileFilter('all');setOffset(0)}}>{item.label}<span>{tabCounts?(tabCounts[item.key]||0):'–'}</span></button>)}
+        {platform==='telegram'&&<button type="button" role="tab" aria-selected={queue==='selected'} tabIndex={queue==='selected'?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{setQuickPublishMode(false);setQuickAdvertisementId(null);setQueue('selected');setProfileFilter('all');setOffset(0)}}>Відібрані<span>{selectedChats?.items.length??selectedCount??'–'}</span></button>}
       </div>
       {queue==='waiting'&&platform==='whatsapp'&&<WhatsappWaitingCheckPanel view={waitingCheck} nowSeconds={Math.floor(clock/1000)} busy={busy!==null} onAction={action=>void changeWaitingCheck(action)} onConnect={()=>void connectWaitingCheckRunner()}/>}
       {queue==='ready'&&(platform==='whatsapp'||platform==='viber')&&<div className={'platform-queue-context '+(quickPublishMode?'is-active':'')}>
@@ -724,8 +741,10 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
         </div>}
       </section>}
       {queue==='selected'&&platform==='telegram'
-        ? <TelegramSelectedChats view={selectedChats} loading={!selectedChats&&!selectedChatsFailed} onImported={setSelectedChats} onAdded={link=>{
+        ? <TelegramSelectedChats view={selectedChats} loading={!selectedChats&&!selectedChatsFailed} accounts={accounts} onImported={next=>{selectedLoadedAt.current=Date.now();setSelectedChats(next);setSelectedCount(next.items.length);}} onAdded={link=>{
             setSelectedChats(current=>current&&{...current,items:current.items.map(item=>item.link===link&&!item.status?{...item,status:'to_join'}:item)});
+            const scope=`telegram:${requestAccountId||''}`;
+            setCountsByScope(current=>current[scope]?{...current,[scope]:{...current[scope],to_join:(current[scope].to_join||0)+1}}:current);
             invalidateQueueCache('telegram');
           }}/>
         : <>

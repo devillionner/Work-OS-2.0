@@ -35,14 +35,16 @@ function formatLast(value: string | null) {
   return new Date(value).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-export function TelegramSelectedChats({ view, loading, onImported, onAdded }: {
+export function TelegramSelectedChats({ view, loading, accounts, onImported, onAdded }: {
   view: SelectedChatsView | null;
   loading: boolean;
+  accounts: Array<{ id: string; name: string; number: number }>;
   onImported: (next: SelectedChatsView) => void;
   onAdded: (link: string) => void;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState('');
+  const [onlyNew, setOnlyNew] = useState(false);
   const [visible, setVisible] = useState(PAGE);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -51,9 +53,14 @@ export function TelegramSelectedChats({ view, loading, onImported, onAdded }: {
   const items = useMemo(() => view?.items ?? [], [view]);
   const filtered = useMemo(() => {
     const query = search.trim().toLocaleLowerCase('uk-UA');
-    return query ? items.filter(item => `${item.title} ${item.link}`.toLocaleLowerCase('uk-UA').includes(query)) : items;
-  }, [items, search]);
+    return items.filter(item => (!onlyNew || item.status === null)
+      && (!query || `${item.title} ${item.link}`.toLocaleLowerCase('uk-UA').includes(query)));
+  }, [items, search, onlyNew]);
   const inWork = items.filter(item => item.status !== null).length;
+  const accountName = (id: string | null) => {
+    const account = id ? accounts.find(item => item.id === id) : null;
+    return account ? `${account.name} #${account.number}` : null;
+  };
 
   async function importFile(file: File) {
     setBusy('import'); setError(''); setNotice('');
@@ -85,7 +92,7 @@ export function TelegramSelectedChats({ view, loading, onImported, onAdded }: {
     try {
       const added = await addToWork(chat);
       onAdded(chat.link);
-      setNotice(added ? `«${chat.title}» додано в «Для приєднання».` : `«${chat.title}» уже є в Work OS.`);
+      setNotice(added ? `«${chat.title}» додано в чергу «Для приєднання» — він з'явиться там у кожного Telegram-акаунта, доки хтось не приєднається.` : `«${chat.title}» уже є в Work OS.`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не вдалося додати чат.');
     } finally {
@@ -106,13 +113,16 @@ export function TelegramSelectedChats({ view, loading, onImported, onAdded }: {
         <div>
           <strong>Відібрані чати</strong>
           <span>{items.length
-            ? `${items.length} чатів · вже в роботі ${inWork}${view?.importedAt ? ` · файл від ${new Date(view.importedAt * 1000).toLocaleDateString('uk-UA')}` : ''}. Зверху — де надіслано найбільше повідомлень.`
+            ? `${items.length} чатів · уже є в Work OS ${inWork}${view?.importedAt ? ` · файл від ${new Date(view.importedAt * 1000).toLocaleDateString('uk-UA')}` : ''}. Зверху — де надіслано найбільше повідомлень. «До приєднання» ставить чат у чергу «Для приєднання».`
             : 'Імпортуйте JSON-вивантаження груп: чати впорядкуються за кількістю надісланих повідомлень.'}</span>
         </div>
         {importButton}
       </div>
       {items.length > 0 && <div className="chat-toolbar">
         <label htmlFor="selected-chat-search"><Search /><Input id="selected-chat-search" value={search} onChange={event => { setSearch(event.target.value); setVisible(PAGE); }} placeholder="Пошук за назвою або посиланням" /><span className="sr-only">Пошук відібраних чатів</span></label>
+        <Button type="button" size="sm" variant="outline" aria-pressed={onlyNew} onClick={() => { setOnlyNew(value => !value); setVisible(PAGE); }}>
+          {onlyNew ? `Усі (${items.length})` : `Лише нові (${items.length - inWork})`}
+        </Button>
       </div>}
       {error && <div className="workspace-error" role="alert">{error}</div>}
       {notice && <p className="selected-chats-notice">{notice}</p>}
@@ -132,9 +142,9 @@ export function TelegramSelectedChats({ view, loading, onImported, onAdded }: {
                   <b>{chat.count}</b><small>{last ? `повідомл. · ${last}` : 'повідомл.'}</small>
                 </div>
                 {chat.status
-                  ? <Badge variant="secondary">{STATUS_LABELS[chat.status] || chat.status}</Badge>
-                  : <Button type="button" size="sm" variant="outline" disabled={busy !== null} onClick={() => void take(chat)}>
-                      <Plus data-icon="inline-start" />{busy === chat.link ? 'Додаємо…' : 'В роботу'}
+                  ? <Badge variant="secondary" title="Цей чат уже є в Work OS">{STATUS_LABELS[chat.status] || chat.status}{accountName(chat.accountId) ? ` · ${accountName(chat.accountId)}` : ''}</Badge>
+                  : <Button type="button" size="sm" variant="outline" disabled={busy !== null} title="Додати чат у чергу «Для приєднання»" onClick={() => void take(chat)}>
+                      <Plus data-icon="inline-start" />{busy === chat.link ? 'Додаємо…' : 'До приєднання'}
                     </Button>}
               </li>;
             })}

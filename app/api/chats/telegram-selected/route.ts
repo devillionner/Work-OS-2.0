@@ -1,16 +1,17 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
-import { parseSelectedExport, readSelectedChats, saveSelectedChats, SELECTED_IMPORT_MAX_BYTES, SelectedChatsError } from '@/lib/chats/telegram-selected';
+import { parseSelectedExport, readSelectedChats, readSelectedChatsCount, saveSelectedChats, SELECTED_IMPORT_MAX_BYTES, SelectedChatsError } from '@/lib/chats/telegram-selected';
 
 function json(value:unknown,status=200){
   return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});
 }
 
-export async function GET():Promise<Response>{
+export async function GET(request:Request):Promise<Response>{
   try{
     const user=await getCurrentUser();
     if(!user)return json({error:'Потрібно увійти.'},401);
+    if(new URL(request.url).searchParams.get('summary')==='1')return json(await readSelectedChatsCount(env.DB,user.id));
     return json(await readSelectedChats(env.DB,user.id));
   }catch(error){
     console.error('Telegram selected chats read failed',error instanceof Error?error.name:'unknown');

@@ -9,7 +9,7 @@ export const SELECTED_MAX_ITEMS = 5000;
 export const SELECTED_IMPORT_MAX_BYTES = 1_500_000;
 
 export type SelectedChat = { link: string; title: string; count: number; last: string | null };
-export type SelectedChatView = SelectedChat & { status: string | null };
+export type SelectedChatView = SelectedChat & { status: string | null; accountId: string | null };
 export type SelectedChatsView = { importedAt: number | null; skipped: number; items: SelectedChatView[] };
 
 type Stored = { importedAt: number; skipped: number; items: SelectedChat[] };
@@ -51,19 +51,30 @@ export async function saveSelectedChats(db: D1Database, userId: string, parsed: 
   return readSelectedChats(db, userId);
 }
 
-// Most active chats first; each row says whether the chat is already in Work OS and where.
-export async function readSelectedChats(db: D1Database, userId: string): Promise<SelectedChatsView> {
+async function readStored(db: D1Database, userId: string): Promise<Stored | null> {
   const row = await db.prepare(`SELECT value_json FROM user_settings WHERE user_id=?1 AND setting_key=?2 LIMIT 1`)
     .bind(userId, SETTING_KEY).first<{ value_json: string }>();
-  let stored: Stored | null = null;
-  try { stored = row ? JSON.parse(row.value_json) as Stored : null; } catch { stored = null; }
-  if (!stored || !Array.isArray(stored.items) || !stored.items.length) return { importedAt: null, skipped: 0, items: [] };
-  const statuses = await db.prepare(`SELECT c.normalized_link AS link,c.workflow_status AS status
+  try {
+    const stored = row ? JSON.parse(row.value_json) as Stored : null;
+    return stored && Array.isArray(stored.items) && stored.items.length ? stored : null;
+  } catch { return null; }
+}
+
+// Tab badge only: one settings row, no per-chat status lookup.
+export async function readSelectedChatsCount(db: D1Database, userId: string) {
+  return { count: (await readStored(db, userId))?.items.length ?? 0 };
+}
+
+// Most active chats first; each row says whether the chat is already in Work OS, where and for which account.
+export async function readSelectedChats(db: D1Database, userId: string): Promise<SelectedChatsView> {
+  const stored = await readStored(db, userId);
+  if (!stored) return { importedAt: null, skipped: 0, items: [] };
+  const statuses = await db.prepare(`SELECT c.normalized_link AS link,c.workflow_status AS status,c.telegram_account_id AS account_id
     FROM json_each(?2) j JOIN chats c ON c.user_id=?1 AND c.platform='telegram' AND c.normalized_link=j.value`)
-    .bind(userId, JSON.stringify(stored.items.map(item => item.link))).all<{ link: string; status: string }>();
-  const statusByLink = new Map(statuses.results.map(item => [item.link, item.status]));
+    .bind(userId, JSON.stringify(stored.items.map(item => item.link))).all<{ link: string; status: string; account_id: string | null }>();
+  const statusByLink = new Map(statuses.results.map(item => [item.link, item]));
   const items = stored.items
-    .map(item => ({ ...item, status: statusByLink.get(item.link) ?? null }))
+    .map(item => ({ ...item, status: statusByLink.get(item.link)?.status ?? null, accountId: statusByLink.get(item.link)?.account_id ?? null }))
     .sort((a, b) => b.count - a.count || (b.last ?? '').localeCompare(a.last ?? '') || a.title.localeCompare(b.title, 'uk'));
   return { importedAt: stored.importedAt ?? null, skipped: stored.skipped ?? 0, items };
 }

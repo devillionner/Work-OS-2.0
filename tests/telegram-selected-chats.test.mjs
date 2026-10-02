@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseSelectedExport, readSelectedChats, saveSelectedChats } from '../lib/chats/telegram-selected.ts';
+import { parseSelectedExport, readSelectedChats, readSelectedChatsCount, saveSelectedChats } from '../lib/chats/telegram-selected.ts';
 import { localDatabase } from './helpers/local-d1.mjs';
 
 const exportRows = [
@@ -30,8 +30,11 @@ void test('selected chats are ordered by message count and show whether the chat
     ['Активний чат', 40, 'waiting'], ['Приватний', 9, null], ['Тихий чат', 2, null],
   ]);
   assert.equal(saved.importedAt, 100);
+  assert.equal(saved.items[0].accountId, null);
+  assert.deepEqual(await readSelectedChatsCount(db, 'u'), { count: 3 });
 
   const reimported = await saveSelectedChats(db, 'u', parseSelectedExport(exportRows.slice(0, 1)), 200);
   assert.deepEqual(reimported.items.map(item => item.title), ['Тихий чат']);
   assert.deepEqual((await readSelectedChats(db, 'other')).items, []);
+  assert.deepEqual(await readSelectedChatsCount(db, 'other'), { count: 0 });
 });
