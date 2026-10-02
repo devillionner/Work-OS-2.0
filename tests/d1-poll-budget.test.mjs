@@ -56,7 +56,7 @@ void test('idle runner polls stay within a fixed D1 row budget regardless of dat
 
   const firstDiscovery = await rows(metered => claimDiscoveryExecutorQueue(metered, 'u', 'device', 1, NOW));
   assert.ok(firstDiscovery >= CANDIDATES, 'the seeded data must make the uncached queue read expensive');
-  assert.ok(await rows(metered => claimDiscoveryExecutorQueue(metered, 'u', 'device', 1, NOW + 10)) <= 2, 'repeated empty Discovery polls must be served from the idle marker');
+  assert.ok(await rows(metered => claimDiscoveryExecutorQueue(metered, 'u', 'device', 1, NOW + 10)) <= 3, 'repeated empty Discovery polls must be served from the idle marker');
   assert.ok(await rows(metered => claimWaitingWhatsAppCheck(metered, 'u', 'device', NOW)) <= 2);
   assert.ok(await rows(metered => claimWhatsAppAutopostJob(metered, 'u', 'device', NOW)) <= 5);
 

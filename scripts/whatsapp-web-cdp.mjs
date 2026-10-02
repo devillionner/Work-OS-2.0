@@ -494,6 +494,36 @@ export async function readWorkOsExecutorTokenViaCdp(
   }
 }
 
+// When did the operator last use any Work OS tab? Local CDP read only: no network, no D1.
+// Returns 0 when no Work OS tab is open, so a closed site means a fully quiet runner.
+export async function readWorkOsLastActivityViaCdp(workOsUrl, { cdpBaseUrl } = {}) {
+  const base = cdpBaseUrl ? normalizeLocalCdpBaseUrl(cdpBaseUrl) : null;
+  if (!base) return { kind:'blocked', reason:'cdp_not_configured' };
+  let expectedOrigin;
+  try { expectedOrigin = new URL(String(workOsUrl || '')).origin; }
+  catch { return { kind:'blocked', reason:'work_os_origin_invalid' }; }
+  const response = await fetch(`${base}/json/list`, { signal:AbortSignal.timeout(4_000) });
+  if (!response.ok) throw new Error(`CDP list HTTP ${response.status}`);
+  const pages = await response.json();
+  const workOsPages = Array.isArray(pages) ? pages.filter((item) => {
+    if (item?.type !== 'page' || !item?.webSocketDebuggerUrl || !isLocalCdpWebSocketUrl(item.webSocketDebuggerUrl)) return false;
+    try { return new URL(item.url || '').origin === expectedOrigin; } catch { return false; }
+  }) : [];
+  if (!workOsPages.length) return { kind:'result', lastActiveAt:0, pageOpen:false };
+  // All Work OS tabs share one localStorage, so the first readable tab is enough.
+  const client = await createCdpClient(workOsPages[0].webSocketDebuggerUrl);
+  try {
+    const result = await client.send('Runtime.evaluate', {
+      expression:`Number(localStorage.getItem('work-os:last-active-at:v1'))||0`,
+      returnByValue:true,
+    });
+    const lastActiveAt = Number(result?.result?.value) || 0;
+    return { kind:'result', lastActiveAt, pageOpen:true };
+  } finally {
+    client.close();
+  }
+}
+
 const WORK_OS_LOCAL_PREVIEW_KEY='work-os:chat-discovery-local-preview:v3';
 const WORK_OS_LOCAL_PREFLIGHT_RESULTS_KEY='work-os:chat-discovery-local-preflight-results:v1';
 const WORK_OS_LOCAL_SOURCE_FEEDBACK_KEY='work-os:chat-discovery-source-feedback:v1';

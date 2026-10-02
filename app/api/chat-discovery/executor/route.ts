@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers';
 import { readJsonObject } from '@/lib/http-json';
 import { DiscoveryError } from '@/lib/chat-discovery/domain';
 import { applyDiscoveryInspection } from '@/lib/chat-discovery/inspection';
-import { assertDiscoveryExecutorLease, claimDiscoveryExecutorQueue, completeDiscoveryExternalLeave } from '@/lib/chat-discovery/executor';
+import { assertDiscoveryExecutorLease, claimDiscoveryExecutorQueue, completeDiscoveryExternalLeave, wakeDiscoveryExecutorQueue } from '@/lib/chat-discovery/executor';
 import { authenticateDiscoveryExecutor } from '@/lib/chat-discovery/executor-auth';
 
 function json(value: unknown, status = 200) {
@@ -28,6 +28,8 @@ export async function POST(request: Request): Promise<Response> {
     const executor = await authenticateDiscoveryExecutor(env.DB, request, now);
     const body = await readJsonObject(request, 64 * 1024);
     if (body instanceof Response) return body;
+    // An executor result can create follow-up work (leave after rejection, re-inspection).
+    await wakeDiscoveryExecutorQueue(env.DB, executor.userId);
     if (body.action === 'advance-discovery') {
       throw new DiscoveryError('Source discovery тепер локальний і не пише проміжні результати в D1.', 409);
     }

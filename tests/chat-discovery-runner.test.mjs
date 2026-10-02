@@ -304,5 +304,15 @@ void test('runner reads D1 only on the cloud cadence and backs off to one poll a
   assert.equal(runOnce.split('runD1BackedTaskOnce()').length-1,1);
   assert.match(source,/const CLOUD_AUTOMATION_IDLE_MAX_MS=60000/);
   assert.match(runOnce,/cloudAutomationDelayMs=Math\.min\(CLOUD_AUTOMATION_IDLE_MAX_MS,cloudAutomationDelayMs\*2\)/);
-  assert.match(runOnce,/if\(cloudOutcome\)\{\s*cloudAutomationDelayMs=CLOUD_AUTOMATION_POLL_MS;/);
+  assert.match(runOnce,/if\(cloudOutcome\)\{\s*lastCloudWorkAt=Date\.now\(\);\s*cloudAutomationDelayMs=CLOUD_AUTOMATION_POLL_MS;/);
+});
+
+void test('runner polls Work OS only while the site is in use or it still has work, and never when the site is idle',()=>{
+  const runOnce=source.slice(source.indexOf('async function runOnce'),source.indexOf("console.log('Work OS Discovery runner started."));
+  assert.match(runOnce,/&&await cloudDemand\(\)\)\{/);
+  assert.match(source,/const USER_ACTIVE_WINDOW_MS=15\*60_000/);
+  assert.match(source,/const WORK_GRACE_MS=5\*60_000/);
+  assert.match(source,/readWorkOsLastActivityViaCdp\(baseUrl/);
+  assert.match(source,/wanted=userActive\|\|Date\.now\(\)-lastCloudWorkAt<WORK_GRACE_MS/);
+  assert.match(source,/setStatus\('paused'/);
 });

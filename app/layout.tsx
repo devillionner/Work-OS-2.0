@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import { PwaRegistration } from '@/components/pwa-registration';
 import { ServerSync } from '@/components/server-sync';
+import { RunnerActivityBeacon } from '@/components/runner-activity-beacon';
 import { ViewPersistence } from '@/components/view-persistence';
 import './globals.css';
 import './design-polish.css';
@@ -42,6 +43,7 @@ export default function RootLayout({
       <body className={`${sans.variable} ${mono.variable}`}>
         <PwaRegistration />
         <ServerSync />
+        <RunnerActivityBeacon />
         <ViewPersistence />
         {children}
       </body>

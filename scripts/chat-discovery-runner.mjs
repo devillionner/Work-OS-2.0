@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import { execFile, execFileSync } from 'node:child_process';
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 import process from 'node:process';
 import readline from 'node:readline/promises';
 import {
@@ -11,6 +14,7 @@ import {
   leaveWhatsappGroupViaRuntime,
   leaveWhatsappTaskViaCdp,
   readWorkOsExecutorTokenViaCdp,
+  readWorkOsLastActivityViaCdp,
   readWorkOsLocalDiscoveryTaskViaCdp,
   readWorkOsLocalDiscoverySeedDataViaCdp,
   readWorkOsLocalDiscoverySourceFeedbackViaCdp,
@@ -45,6 +49,11 @@ const CLOUD_AUTOMATION_POLL_MS=15000;
 // Every cloud poll reads D1 (the Discovery queue scans the owner's candidates), so an idle runner
 // backs off to one poll a minute and returns to the base cadence as soon as work appears.
 const CLOUD_AUTOMATION_IDLE_MAX_MS=60000;
+// Work OS (and D1) is polled only while it is wanted: the operator used a Work OS tab recently, or the
+// runner itself still had work a moment ago (a started Waiting check/autopost finishes on its own).
+const USER_ACTIVE_WINDOW_MS=15*60_000;
+const WORK_GRACE_MS=5*60_000;
+const DEMAND_CHECK_MS=10_000;
 const TASK_BLOCK_COOLDOWN_MS=300000;
 const INCOMPLETE_QUALIFICATION_COOLDOWN_MS=15000;
 const qualificationAttempts=new Map();
@@ -125,6 +134,44 @@ async function api(path,init={}){
   if(!response.ok) throw new Error(body.error||`Work OS HTTP ${response.status}`);
   return body;
 }
+const statusFile=process.env.WORK_OS_RUNNER_STATUS_FILE
+  ||join(process.env.XDG_STATE_HOME||join(homedir(),'.local','state'),'work-os','runner-status.json');
+let lastStatusKey='';
+// Read by the tray icon (scripts/work-os-runner-tray.py); written only when the state changes.
+function setStatus(state,detail){
+  const key=`${state}|${detail}`;
+  if(key===lastStatusKey)return;
+  lastStatusKey=key;
+  try{
+    mkdirSync(dirname(statusFile),{recursive:true});
+    writeFileSync(`${statusFile}.tmp`,JSON.stringify({state,detail,pid:process.pid,updatedAt:Date.now()}));
+    renameSync(`${statusFile}.tmp`,statusFile);
+  }catch{}
+}
+
+let lastCloudWorkAt=0;
+let demandCheckedAt=0;
+let cloudWanted=false;
+async function cloudDemand(){
+  if(Date.now()-demandCheckedAt<DEMAND_CHECK_MS)return cloudWanted;
+  demandCheckedAt=Date.now();
+  let wanted=false;
+  try{
+    const activity=await readWorkOsLastActivityViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp});
+    const userActive=activity.kind==='result'&&Date.now()-activity.lastActiveAt<USER_ACTIVE_WINDOW_MS;
+    wanted=userActive||Date.now()-lastCloudWorkAt<WORK_GRACE_MS;
+    if(!wanted)setStatus('paused',activity.kind==='result'&&activity.pageOpen
+      ?'Сайтом зараз не користуються — база не опитується'
+      :'Вкладка Work OS закрита — база не опитується');
+  }catch{
+    wanted=Date.now()-lastCloudWorkAt<WORK_GRACE_MS;
+    if(!wanted)setStatus('no_browser','Браузер з портом 9222 не відкритий — база не опитується');
+  }
+  if(wanted!==cloudWanted)console.log(wanted?'Work OS is in use: cloud polling resumed.':'Work OS is not in use: cloud polling paused (no D1 reads).');
+  cloudWanted=wanted;
+  return wanted;
+}
+
 function openUrl(url){
   const command=process.platform==='darwin'?'open':process.platform==='win32'?'cmd':'xdg-open';
   const args=process.platform==='win32'?['/c','start','',url]:[url];
@@ -562,6 +609,7 @@ async function runWaitingCheckOnce(){
   if(task?.kind!=='whatsapp_waiting_check')return null;
   const target={batchId:task.batchId,chatId:task.chatId};
   console.log(`WhatsApp waiting check: ${task.name}`);
+  setStatus('working',`Перевірка «Очікування»: ${task.name}`);
   let outcome;
   try{outcome=await checkWhatsappWaitingInviteViaCdp(task,{cdpBaseUrl:whatsappCdp});}
   catch(error){
@@ -656,14 +704,17 @@ async function runD1BackedTaskOnce(){
 async function runOnce(){
   if(!token)await refreshExecutorTokenIfNeeded();
   let cloudPolled=false;
-  if(token&&Date.now()>=nextCloudAutomationAt&&Date.now()>=whatsappRuntimeBlockedUntil){
+  if(!token)setStatus('no_token','Немає підключення: на сайті натисніть «Підключити цей браузер»');
+  if(token&&Date.now()>=nextCloudAutomationAt&&Date.now()>=whatsappRuntimeBlockedUntil&&await cloudDemand()){
     cloudPolled=true;
     nextCloudAutomationAt=Date.now()+CLOUD_AUTOMATION_POLL_MS;
     const cloudOutcome=await runD1BackedTaskOnce();
     if(cloudOutcome){
+      lastCloudWorkAt=Date.now();
       cloudAutomationDelayMs=CLOUD_AUTOMATION_POLL_MS;
       return cloudOutcome;
     }
+    setStatus('ready','Готовий: чекає на завдання з Work OS');
     cloudAutomationDelayMs=Math.min(CLOUD_AUTOMATION_IDLE_MAX_MS,cloudAutomationDelayMs*2);
     nextCloudAutomationAt=Date.now()+cloudAutomationDelayMs;
   }
@@ -728,6 +779,8 @@ async function runOnce(){
 }
 
 console.log('Work OS Discovery runner started. Ctrl+C to stop.');
+setStatus('starting','Запускається…');
+for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{setStatus('stopped','Runner зупинено');process.exit(0);});
 let idleDelayMs=IDLE_POLL_MIN_MS;
 while(true){
   let outcome='idle';

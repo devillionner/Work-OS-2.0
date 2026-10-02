@@ -862,3 +862,12 @@ void test('waiting check reports a group the account was removed from',()=>{
   assert.equal(result.kind,'result');
   assert.equal(result.result.reason,'whatsapp_removed_from_group');
 });
+
+void test('runner activity signal is read from the Work OS tab localStorage, never from the network',()=>{
+  const start=source.indexOf('export async function readWorkOsLastActivityViaCdp');
+  const body=source.slice(start,source.indexOf('\n}\n',start));
+  assert.ok(start>0);
+  assert.match(body,/localStorage\.getItem\('work-os:last-active-at:v1'\)/);
+  assert.match(body,/lastActiveAt:0, pageOpen:false/);
+  assert.doesNotMatch(body,/fetch\(`\$\{baseUrl\}|\/api\//);
+});

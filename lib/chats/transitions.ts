@@ -1,6 +1,7 @@
 import { businessDate } from '../business-time.ts';
 import { discoveryMembershipForTransition, discoveryMembershipStatement } from '../chat-discovery/workflow-link.ts';
 import { chatStateEvent, chatStateTokenSql, type ChatState } from './state.ts';
+import { wakeDiscoveryExecutorQueueStatement } from '../chat-discovery/queue-idle.ts';
 
 const ALLOWED_FROM: Record<string, readonly string[]> = {
   joined: ['to_join'], waiting: ['to_join'], failed: ['to_join'], approved: ['waiting'],
@@ -87,6 +88,8 @@ export async function transitionChat(db: D1Database, input: {
       WHERE id=?2 AND user_id=?3 AND EXISTS(SELECT 1 FROM activity_events e WHERE e.id=?4 AND e.user_id=?3)`)
       .bind(now,accountId,userId,metricId));
   }
+  // Discovery executor tasks depend on the WhatsApp/Viber chat queue, so a move may create work.
+  if (chat.platform === 'whatsapp' || chat.platform === 'viber') statements.push(wakeDiscoveryExecutorQueueStatement(db, userId));
   const results = await db.batch(statements);
   return results[0].meta.changes ? {ok:true} : {ok:false,error:'Чат або Telegram-акаунт уже змінено. Оновіть список.'};
 }
