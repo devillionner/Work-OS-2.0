@@ -158,6 +158,8 @@ export async function applyDiscoveryInspection(
     accessState,
     linkState,
   }, minMembers);
+  // A verified joined chat whose criteria are still unknown stays in review for the operator's buttons;
+  // unknown facts are never a reason to leave automatically (operator decision 2026-10-02).
   if (
     input.requireTargetVerification === true
     && result.status === 'inspected'
@@ -166,7 +168,7 @@ export async function applyDiscoveryInspection(
     && evaluated.decision === 'review'
   ) {
     evaluated = {
-      decision: 'rejected',
+      decision: 'review',
       reasonCodes: [...new Set([...evaluated.reasonCodes, 'qualification_unverified'])],
     };
   }

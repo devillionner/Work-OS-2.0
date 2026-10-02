@@ -173,12 +173,10 @@ export async function persistLocalDiscoveryOutcome(
       &&membershipState==='joined'
       &&accessible===true
       &&linkState==='valid'
-      &&(chatType==='group'||chatType==='community')
+      &&chatType==='group'
       &&memberCount!==null&&memberCount>=minMembers&&memberCount<=18_000
       &&canWrite===true
-      &&topicMatch!=='mismatch'
-      &&adsPolicy!=='forbidden'
-      &&activityState!=='dead';
+      &&topicMatch!=='mismatch';
     if(!safeManualReview||!reasonCodes.includes('fresh_join_history_unavailable')){
       throw new DiscoveryError('Ручна перевірка дозволена лише для щойно приєднаного чату без видимої історії.',409);
     }

@@ -47,9 +47,12 @@ function harness({metadataFailure=false,persistFailure=false,joinUnavailable=fal
     joinWhatsappInviteViaRuntime:async task=>{
       joins.push(task);
       if(joinUnavailable)return {kind:'blocked',reason:'direct_join_unavailable'};
-      return {kind:'result',result:{memberCount:900,groupId:'group@g.us',topicMatch:'match',chatType:'group',
+      // The first join cannot confirm the audience yet (the only remaining criterion since ads/activity
+      // stopped being criteria); the next inspection confirms it.
+      return {kind:'result',result:{memberCount:900,groupId:'group@g.us',chatType:'group',
         canWrite:true,membershipState:'joined',accessible:true,targetVerified:true,status:'inspected',
-        ...(postJoinEvidenceGap?{joinedThisAttempt:true}:joins.length>1?{activityState:'active',adsPolicy:'allowed'}:{})}};
+        topicMatch:postJoinEvidenceGap||joins.length===1?'unknown':'match',
+        ...(postJoinEvidenceGap?{joinedThisAttempt:true}:{})}};
     },
   };
   const code=runner.slice(runner.indexOf('function evaluateLocalPreflight'),runner.indexOf('async function resolveLocalSourceSeedData'));
@@ -267,10 +270,9 @@ test('joined recovery without groupId refreshes invite metadata before inspectio
   assert.equal(joins.length,1);
   assert.equal(joins[0].membershipState,'joined');
   assert.equal(joins[0].groupId,'recovered@g.us');
-  // Timed post-join evidence waiting was removed (see the manual-review migration test below): unknown
-  // ads/activity on an already joined chat is a bounded qualification deferral, counted as an attempt.
-  assert.equal(checkpoint.lastReason,'qualification_incomplete');
-  assert.equal(checkpoint.attempts,1);
+  // Ads and activity are not criteria (2026-10-02): 702 members, Ukrainian audience and write access make
+  // the recovered joined chat a target right away, without waiting for evidence.
+  assert.equal(checkpoint.final?.decision,'target');
 });
 
 

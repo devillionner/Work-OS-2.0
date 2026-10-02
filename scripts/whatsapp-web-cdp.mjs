@@ -27,6 +27,9 @@ const leavePattern = /^(?:exit group|leave group|вийти з групи|пок
 const confirmLeavePattern = /^(?:exit(?: group)?|leave(?: group)?|вийти(?: з групи)?|покинути(?: групу)?|выйти(?: из группы)?|покинуть(?: группу)?)$/iu;
 const leftPattern = /(?:you (?:left|are no longer a participant)|ви (?:вийшли|більше не (?:є учасником|її учасник|учасник))|вы (?:вышли|больше не (?:являетесь участником|ее участник|участник)))/iu;
 const joinedViaInvitePattern = /(?:you (?:joined|were added) (?:via|using|through) (?:an? )?(?:invite|invitation|invite link)|joined (?:via|using) (?:the )?(?:group )?invite|ви приєдналися за (?:посиланням[- ]?)?запрошенням|вы присоединились по (?:ссылке[- ]?)?приглашени[юя])/iu;
+// Never a target even with a Ukrainian audience (operator decision 2026-10-02): religious communities and
+// prayer groups. Checked against the group's own name/description only. Mirrors NON_TARGET_GROUP_PATTERN.
+const nonTargetGroupPattern = /(?:церк|церков|храм|парафі|приход|монастир|монастыр|православн|католиц|греко-?католи|біблі|библи|молит(?:в|ов)|богослуж|єпарх|епарх|проповід|пропове|church|parish|bible|prayer|monaster|orthodox|catholic)/iu;
 const spamPattern = /(?:crypto|крипт|bitcoin|forex|casino|казино|betting|ставк[аи]|dating|знакомств|знайомств|escort|ескорт|onlyfans|adult|18\+|nft|airdrop|signals?\b|binary options)/iu;
 const ukrainianAudiencePattern = /(?:україн(?:ц|ськ)|украин(?:ц|ск)|ukrainians?|ukraińcy|ukrajinci|ucraineni|oekraïners|🇺🇦|\bвпо\b|біженц|переселенц)/iu;
 const foreignAudiencePattern = /(?:\bisrael(?:i|is)?\b|ізраїл|израил|ישרא|\bhebrew\b|іврит|иврит)/iu;
@@ -139,7 +142,7 @@ export async function queryWhatsappInviteViaCdp(
     const description=String(value.desc||'').trim();
     const evidence=`${observedName}\n${description}`;
     const memberCount=Number.isFinite(Number(value.size))&&Number(value.size)>0?Number(value.size):undefined;
-    const topicMatch=spamPattern.test(evidence)||foreignAudiencePattern.test(evidence)
+    const topicMatch=spamPattern.test(evidence)||nonTargetGroupPattern.test(evidence)||foreignAudiencePattern.test(evidence)
       ?'mismatch'
       :ukrainianAudiencePattern.test(evidence)?'match':'unknown';
     let adsPolicy;
@@ -343,7 +346,7 @@ export async function joinWhatsappInviteViaRuntime(
       String(value.subject||''),String(value.desc||''),
       String(value.parentTitle||''),String(value.parentDesc||''),
     ].join('\n');
-    const topicMatch=spamPattern.test(identityEvidence)||spamMessages>=3
+    const topicMatch=spamPattern.test(identityEvidence)||nonTargetGroupPattern.test(identityEvidence)||spamMessages>=3
       ?'mismatch'
       :foreignAudiencePattern.test(identityEvidence)&&ukrainianMessages<2
         ?'mismatch'
@@ -1973,7 +1976,7 @@ export function deriveWhatsappQualification(snapshot) {
   const recentMessages = messages.slice(-20);
   const spamMessages = recentMessages.filter((value) => spamPattern.test(value)).length;
   const ukrainianMessages = recentMessages.filter((value) => ukrainianConversationPattern.test(value)).length;
-  const topicMatch = spamPattern.test(identityText) || spamMessages >= 3
+  const topicMatch = spamPattern.test(identityText) || nonTargetGroupPattern.test(identityText) || spamMessages >= 3
     ? 'mismatch'
     : foreignAudiencePattern.test(identityText) && ukrainianMessages < 2
       ? 'mismatch'

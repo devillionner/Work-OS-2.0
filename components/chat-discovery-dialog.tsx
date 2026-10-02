@@ -1145,13 +1145,12 @@ function Criterion({ label, value, state }: CriterionItem) {
 function candidateCriteria(candidate: DiscoveryCandidate): CriterionItem[] {
   const count = candidate.memberCount;
   const memberOk = count !== null && count >= 700 && count <= 18_000;
-  const chatTypeOk = candidate.chatType === 'group' || candidate.chatType === 'community';
+  // Communities are not targets; ad rules and activity are not criteria (operator decision 2026-10-02).
+  const chatTypeOk = candidate.chatType === 'group';
   return [
     { label: 'Тип', value: chatTypeLabel(candidate.chatType), state: candidate.chatType === 'unknown' ? 'warn' : chatTypeOk ? 'ok' : 'bad' },
     { label: 'Учасники', value: count === null ? 'Невідомо' : String(count), state: count === null ? 'warn' : memberOk ? 'ok' : 'bad' },
-    { label: 'Активність', value: activityLabel(candidate.activityState), state: candidate.activityState === 'active' ? 'ok' : candidate.activityState === 'dead' ? 'bad' : 'warn' },
     { label: 'Можна писати', value: candidate.canWrite === null ? 'Невідомо' : candidate.canWrite ? 'Так' : 'Ні', state: candidate.canWrite === true ? 'ok' : candidate.canWrite === false ? 'bad' : 'warn' },
-    { label: 'Оголошення', value: adsPolicyLabel(candidate.adsPolicy), state: candidate.adsPolicy === 'allowed' || candidate.adsPolicy === 'operator_confirmed' || candidate.adsPolicy === 'inferred_allowed' ? 'ok' : candidate.adsPolicy === 'forbidden' ? 'bad' : 'warn' },
     { label: 'Аудиторія', value: topicMatchLabel(candidate.topicMatch), state: candidate.topicMatch === 'match' ? 'ok' : candidate.topicMatch === 'mismatch' ? 'bad' : 'warn' },
   ];
 }
@@ -1263,6 +1262,7 @@ function reasonLabel(value: string) {
     invalid_invite: 'посилання недійсне або прострочене',
     inactive_chat: 'чат неактивний',
     not_discussion_group: 'не груповий чат',
+    community_not_supported: 'це спільнота, а не група',
     access_unavailable: 'чат недоступний',
     qualification_unverified: 'не вдалося підтвердити всі критерії',
     fresh_join_history_unavailable: 'старі повідомлення недоступні після вступу — потрібна ручна перевірка',

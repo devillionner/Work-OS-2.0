@@ -1252,11 +1252,11 @@ void test('confirmed leave adds the membership blocker to an already-review cand
     result: {
       status:'inspected', targetVerified:true, accessible:true, membershipState:'joined',
       observedName:'Українці Brno батьки', chatType:'group', memberCount:900,
-      topicMatch:'match', canWrite:true, adsPolicy:'unknown', activityState:'active',
+      topicMatch:'match', canWrite:null, adsPolicy:'unknown', activityState:'active',
     },
   }, 110);
   assert.equal(reviewed.decision, 'review');
-  assert.deepEqual(reviewed.reasonCodes, ['unknown_ads_allowed']);
+  assert.deepEqual(reviewed.reasonCodes, ['unknown_can_write']);
 
   const ready = await readChatState(db, 'u', chatId);
   assert.ok(ready);
@@ -1268,7 +1268,7 @@ void test('confirmed leave adds the membership blocker to an already-review cand
   let stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
   assert.equal(stored.membershipState, 'left');
   assert.equal(stored.decision, 'review');
-  assert.deepEqual(stored.reasonCodes, ['unknown_ads_allowed','unknown_membership']);
+  assert.deepEqual(stored.reasonCodes, ['unknown_can_write','unknown_membership']);
 
   const left = await readChatState(db, 'u', chatId);
   assert.ok(left);
@@ -1276,7 +1276,7 @@ void test('confirmed leave adds the membership blocker to an already-review cand
   stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
   assert.equal(stored.membershipState, 'joined');
   assert.equal(stored.decision, 'review');
-  assert.deepEqual(stored.reasonCodes, ['unknown_ads_allowed']);
+  assert.deepEqual(stored.reasonCodes, ['unknown_can_write']);
 });
 
 void test('executor inspection fails closed when the exact target chat was not verified', async (t) => {
@@ -1400,11 +1400,11 @@ void test('joining removes only the membership blocker and preserves other quali
     result: {
       status:'inspected', accessible:true,
       observedName:'Українці Berlin батьки', chatType:'group', memberCount:900,
-      topicMatch:'match', canWrite:true, adsPolicy:'unknown', activityState:'active',
+      topicMatch:'match', canWrite:null, adsPolicy:'unknown', activityState:'active',
     },
   }, 102);
   assert.equal(inspected.decision, 'review');
-  assert.deepEqual(inspected.reasonCodes, ['unknown_ads_allowed','unknown_membership']);
+  assert.deepEqual(inspected.reasonCodes, ['unknown_can_write','unknown_membership']);
 
   candidate = (await readDiscoveryWorkspace(db, 'u')).candidates[0];
   const imported = await handoffDiscoveryCandidate(db, 'u', candidate.id, candidate.version, 103);
@@ -1415,7 +1415,7 @@ void test('joining removes only the membership blocker and preserves other quali
   candidate = (await readDiscoveryWorkspace(db, 'u')).candidates[0];
   assert.equal(candidate.membershipState, 'joined');
   assert.equal(candidate.decision, 'review');
-  assert.deepEqual(candidate.reasonCodes, ['unknown_ads_allowed']);
+  assert.deepEqual(candidate.reasonCodes, ['unknown_can_write']);
 });
 
 void test('restoring an archived discovery chat resets membership instead of reviving target status', async (t) => {
@@ -1495,11 +1495,12 @@ void test('joined inspection with unknown rules stays ready but explicitly needs
   // topic stays known; the remaining unknown criteria still keep the chat in review.
   assert.ok(!outcome.reasonCodes.includes('unknown_topic_match'));
   assert.ok(outcome.reasonCodes.includes('unknown_can_write'));
-  assert.ok(outcome.reasonCodes.includes('unknown_ads_allowed'));
-  assert.ok(outcome.reasonCodes.includes('unknown_activity'));
+  // Ad rules and activity are not criteria any more (operator decision 2026-10-02).
+  assert.ok(!outcome.reasonCodes.includes('unknown_ads_allowed'));
+  assert.ok(!outcome.reasonCodes.includes('unknown_activity'));
 });
 
-void test('verified executor inspection rejects joined chats when target criteria remain unverified', async (t) => {
+void test('verified executor inspection keeps unverified joined chats in review for the operator instead of leaving', async (t) => {
   const { db, candidate } = await importedCandidate(t, 'StrictAutonomousReview123');
   assert.equal(candidate.topicMatch, 'match');
 
@@ -1514,18 +1515,18 @@ void test('verified executor inspection rejects joined chats when target criteri
     },
   }, 110);
 
-  assert.equal(outcome.decision, 'rejected');
-  assert.equal(outcome.needsQualification, false);
-  assert.equal(outcome.needsExternalLeave, true);
+  // Unknown facts never trigger an automatic leave (operator decision 2026-10-02); the operator decides.
+  assert.equal(outcome.decision, 'review');
+  assert.equal(outcome.needsExternalLeave, false);
   assert.ok(outcome.reasonCodes.includes('unknown_member_count'));
   assert.ok(outcome.reasonCodes.includes('unknown_topic_match'));
-  assert.ok(outcome.reasonCodes.includes('unknown_ads_allowed'));
+  assert.ok(!outcome.reasonCodes.includes('unknown_ads_allowed'));
   assert.ok(outcome.reasonCodes.includes('qualification_unverified'));
 
   const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.id === candidate.id);
   assert.equal(stored.topicMatch, 'unknown');
   const queue = await readDiscoveryExecutorQueue(db, 'u', 10);
-  assert.equal(queue.tasks.find(item => item.candidateId === candidate.id)?.action, 'leave');
+  assert.notEqual(queue.tasks.find(item => item.candidateId === candidate.id)?.action, 'leave');
 });
 
 void test('inspection can record observed audience mismatch instead of trusting source inference', async (t) => {

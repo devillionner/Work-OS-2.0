@@ -549,22 +549,22 @@ export function evaluateDiscoveryCandidate(input: {
   if (input.linkState === 'invalid') return { decision: 'unavailable', reasonCodes: ['invalid_invite'] };
   if (input.accessState === 'unavailable') return { decision: 'unavailable', reasonCodes: ['access_unavailable'] };
   if (input.chatType === 'channel' || input.chatType === 'contact' || input.chatType === 'bot') return { decision: 'rejected', reasonCodes: ['not_discussion_group'] };
+  // Communities are not used: only their admins post to the announcement group.
+  if (input.chatType === 'community') return { decision: 'rejected', reasonCodes: ['community_not_supported'] };
   const reasons: string[] = [];
   if (input.topicMatch === 'mismatch') reasons.push('topic_mismatch');
   if (input.canWrite === false) reasons.push('cannot_write');
-  if (input.adsPolicy === 'forbidden') reasons.push('ads_forbidden');
   if (input.memberCount !== null && input.memberCount !== undefined && Number.isFinite(input.memberCount) && input.memberCount < minMembers) reasons.push('too_few_members');
   if (input.memberCount !== null && input.memberCount !== undefined && Number.isFinite(input.memberCount) && input.memberCount > maxMembers) reasons.push('too_many_members');
-  if (input.activityState === 'dead') reasons.push('inactive_chat');
   if (reasons.length) return { decision: 'rejected', reasonCodes: reasons };
 
+  // Target: a discussion group of 700–18,000 members with a Ukrainian audience where the account can write.
+  // Ad rules and recent activity are not criteria (operator decision 2026-10-02).
   const required = [
-    [['group', 'community'].includes(input.chatType || 'unknown'), 'unknown_chat_type'],
+    [input.chatType === 'group', 'unknown_chat_type'],
     [Number.isFinite(input.memberCount) && Number(input.memberCount) >= minMembers && Number(input.memberCount) <= maxMembers, 'unknown_member_count'],
     [input.topicMatch === 'match', 'unknown_topic_match'],
     [input.canWrite === true, 'unknown_can_write'],
-    [['allowed', 'operator_confirmed', 'inferred_allowed'].includes(input.adsPolicy || 'unknown'), 'unknown_ads_allowed'],
-    [input.activityState === 'active', 'unknown_activity'],
     [input.membershipState === 'joined', 'unknown_membership'],
     [input.inspectionState === 'inspected', 'unknown_inspection'],
     // A candidate cannot become target until both the invite itself and post-join access are confirmed.
@@ -575,10 +575,14 @@ export function evaluateDiscoveryCandidate(input: {
   return reasons.length ? { decision: 'review', reasonCodes: reasons } : { decision: 'target', reasonCodes: ['all_required_confirmed'] };
 }
 
+// Group names that are never targets even with a Ukrainian audience: religious communities and prayer groups.
+export const NON_TARGET_GROUP_PATTERN = /(?:церк|церков|храм|парафі|приход|монастир|монастыр|православн|католиц|греко-?католи|біблі|библи|молит(?:в|ов)|богослуж|єпарх|епарх|проповід|пропове|church|parish|bible|prayer|monaster|orthodox|catholic)/iu;
+
 export function inferDiscoveryTopicMatch(name: string, sources: DiscoverySource[]): DiscoveryCandidate['topicMatch'] {
   const raw = [name, ...sources.map((source) => source.context)].join(' ');
   const text = normalizeText(raw);
   if (/(shooting|casting|кастинг|масовк|vfs\s*slots?|visa\s*slots?|passport\s*appointment|driving\s*licen[cs]e\s*appointment)/u.test(text)) return 'mismatch';
+  if (NON_TARGET_GROUP_PATTERN.test(raw)) return 'mismatch';
   const ukrainian = /(україн|украин|ukrain|🇺🇦)/u.test(raw.toLocaleLowerCase('uk-UA'));
   if (!ukrainian) return 'unknown';
   const relevant = /(барахол|куплю|продам|продаж|market|оголош|объявлен|дошка|доска|мам|батьк|parent|family|community|спільнот|авто|оренд|rent|житл|перевез|допомог|help|україн|украин)/u;

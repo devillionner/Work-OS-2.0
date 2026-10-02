@@ -276,17 +276,18 @@ function evaluateLocalPreflight(task,result){
   const maxMembers=18000;
   const topic=result.topicMatch||'unknown';
   if(result.membershipState!=='joined')reasons.push(result.reason==='approval_required'?'approval_required':'join_not_confirmed');
-  if(result.chatType!=='group'&&result.chatType!=='community')reasons.push(result.chatType?'not_discussion_group':'unknown_chat_type');
+  // Target: a WhatsApp group (not a community) of 700–18,000 members with a Ukrainian audience where the
+  // account can write. Ad rules and recent activity are not criteria (operator decision 2026-10-02).
+  if(result.chatType==='community')reasons.push('community_not_supported');
+  else if(result.chatType!=='group')reasons.push(result.chatType?'not_discussion_group':'unknown_chat_type');
   if(!Number.isFinite(result.memberCount))reasons.push('unknown_member_count');
   else if(result.memberCount<minMembers)reasons.push('too_few_members');
   else if(result.memberCount>maxMembers)reasons.push('too_many_members');
   if(topic!=='match')reasons.push(topic==='mismatch'?'topic_mismatch':'unknown_topic_match');
   if(result.canWrite!==true)reasons.push(result.canWrite===false?'cannot_write':'unknown_can_write');
-  if(!['allowed','inferred_allowed','operator_confirmed'].includes(result.adsPolicy||''))reasons.push(result.adsPolicy==='forbidden'?'ads_forbidden':'unknown_ads_allowed');
-  if(result.activityState!=='active')reasons.push(result.activityState==='dead'?'inactive_chat':'unknown_activity');
   if(result.accessible!==true)reasons.push('access_unavailable');
   if(result.targetVerified!==true)reasons.push('target_not_verified');
-  const incompleteReasons=new Set(['unknown_chat_type','unknown_member_count','unknown_topic_match','unknown_can_write','unknown_ads_allowed','unknown_activity']);
+  const incompleteReasons=new Set(['unknown_chat_type','unknown_member_count','unknown_topic_match','unknown_can_write']);
   const incomplete=reasons.length>0&&reasons.every(reason=>incompleteReasons.has(reason));
   return {decision:incomplete?'incomplete':reasons.length?'rejected':'target',reasonCodes:reasons,topicMatch:topic};
 }
@@ -348,7 +349,7 @@ async function deferLocalPreflight(task,reason,result){
   return 'local_task';
 }
 
-const FRESH_JOIN_MANUAL_REVIEW_REASONS=new Set(['unknown_topic_match','unknown_ads_allowed','unknown_activity']);
+const FRESH_JOIN_MANUAL_REVIEW_REASONS=new Set(['unknown_topic_match']);
 function needsFreshJoinManualReview(task,result,evaluated){
   const freshJoin=result?.joinedThisAttempt===true||task.checkpoint?.lastReason==='waiting_post_join_evidence';
   return freshJoin
@@ -440,7 +441,8 @@ async function processLocalPreflight(task){
   if(Number.isFinite(pre.memberCount)&&pre.memberCount>18000)reasons.push('too_many_members');
   if(pre.topicMatch==='mismatch')reasons.push('topic_mismatch');
   if(pre.canWrite===false)reasons.push('cannot_write');
-  if(pre.adsPolicy==='forbidden')reasons.push('ads_forbidden');
+  // Communities are screened out from invite metadata, before any join.
+  if(pre.chatType==='community')reasons.push('community_not_supported');
   if(reasons.length){
     if(pre.membershipState==='joined')return qualifyLocalResult(task,pre);
     return completeLocalPreflight(task,{decision:'rejected',reasonCodes:reasons,result:pre,leftAfterCheck:false});

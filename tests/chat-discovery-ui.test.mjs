@@ -173,10 +173,12 @@ void test('candidate cards expose the WhatsApp link and every target qualificati
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
   assert.match(dialog, /Відкрити \{platformLabel\(candidate\.platform\)\}/);
   assert.match(dialog, /label: 'Учасники'/);
-  assert.match(dialog, /label: 'Активність'/);
   assert.match(dialog, /label: 'Можна писати'/);
-  assert.match(dialog, /label: 'Оголошення'/);
   assert.match(dialog, /label: 'Аудиторія'/);
+  // Ad rules and activity are not target criteria (operator decision 2026-10-02); communities are not targets.
+  assert.doesNotMatch(dialog, /label: 'Активність'/);
+  assert.doesNotMatch(dialog, /label: 'Оголошення'/);
+  assert.match(dialog, /const chatTypeOk = candidate\.chatType === 'group';/);
   assert.match(dialog, /chatTypeLabel/);
   assert.match(dialog, /adsPolicyLabel/);
   assert.match(dialog, /topicMatchLabel/);
