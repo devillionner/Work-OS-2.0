@@ -1,3 +1,11 @@
+## 2026-10-02 — D1: список чатів платформи читає лише свою чергу
+
+- Знайдено пожирача D1: головний запит списку чатів (`GET /api/chats`, кожне відкриття/оновлення вкладки платформи після зміни ревізії) мав умову `((?3='profile_review' AND …) OR c.workflow_status=?3)`. Планувальник не бачив статус і йшов індексом `(user_id, updated_at)` по всіх чатах власника всіх платформ: у тесті з 6 000 чатів (потрібна черга — найстаріші) 5 600–5 900 прочитаних рядків на сторінку з 50.
+- Запит винесено в `lib/chats/list-query.ts` (`chatListPageStatement`): статус — пряма рівність (або `IN ('waiting','ready')` для «Уточнити профіль» з `+c.updated_at`), план — `chats_user_platform_status_updated_idx`. Виміряно: «Очікування»/«Готові» — 150 рядків, «Уточнити профіль» — 1 803 (лише своя черга з 600 чатів, а не всі чати).
+- Попутно виправлено: у звичайному (не пошуковому) списку `p.custom_interval_days` не мав аліасу, тож `customIntervalDays` профілю завжди приходив `null`.
+- Тест `d1-budget-contract` вимагав старий шаблон `normalized_link IN (json_each)` у `local-preview.ts` (падав з `6b373da`) — оновлено на `CROSS JOIN`.
+- Докази (лише локально, Miniflare/local D1): новий кейс у `tests/d1-poll-budget.test.mjs`; `d1-budget-contract`, `d1-query-plan-audit`, `p4-parity-contracts`, `chat-search-unicode`, `chat-profile-review-queue`, `platform-publication-sync`, `chats-workflow`, `ux-contracts` — зелені; lint, typecheck, build. На staging не міряно.
+
 ## 2026-10-02 — D1: пошук дублів автопошуку й збагачення назв по унікальному індексу
 
 - `lib/chat-discovery/domain.ts` (`readExistingCanonicalLinks`, `readExistingCandidates` у `persistDiscoveryBatch`) і `lib/chats/name-enrichment.ts` (`enrichImportedChatNames`) більше не роблять `normalized_link IN (json_each)` без платформи, що перебирало всі чати/кандидатів власника. Тепер пари `[платформа, посилання]` + `FROM json_each(?2) j CROSS JOIN chats c` — один пошук в унікальному індексі `(user_id, platform, normalized_link)` на посилання.

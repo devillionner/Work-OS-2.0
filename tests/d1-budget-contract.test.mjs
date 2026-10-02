@@ -27,7 +27,11 @@ void test('Platforms GET uses queue counters and an index-friendly page order',(
   const migration=read('migrations/0039_chat_queue_read_model.sql');
   assert.match(route,/FROM chat_queue_counts/);
   assert.match(route,/const totalStatement = search/);
-  assert.match(route,/ORDER BY c\.updated_at DESC,c\.id LIMIT 50 OFFSET/);
+  assert.match(route,/chatListPageStatement\(env\.DB,/);
+  const listQuery=read('lib/chats/list-query.ts');
+  assert.match(listQuery,/ORDER BY \$\{orderColumn\} DESC,c\.id LIMIT 50 OFFSET/);
+  // The status must stay visible to the planner; the old `?3='profile_review' OR …` walked all owner chats.
+  assert.doesNotMatch(listQuery+route,/AND c\.workflow_status IN \('waiting','ready'\)\) OR c\.workflow_status=\?3/);
   assert.doesNotMatch(route,/ORDER BY published_today ASC,CASE WHEN c\.snoozed_until/);
   assert.match(migration,/CREATE TABLE chat_queue_counts/);
   assert.match(migration,/CREATE TRIGGER chat_queue_counts_chat_insert/);
@@ -65,7 +69,9 @@ void test('Discovery search is local-first and D1 work stays targeted until expl
   assert.match(preview,/const batchSize=1;/);
   assert.match(preview,/buildTelegramSearchPlan\(telegramCursor,batchSize\)/);
   assert.match(preview,/maxQueries:batchSize,pageLimit:1/);
-  assert.match(preview,/normalized_link IN \(SELECT value FROM json_each\(\?2\)\)/);
+  // Invite dedupe is one unique-index lookup per link (platform bound), never a walk over the owner's chats.
+  assert.match(preview,/FROM json_each\(\?2\) j CROSS JOIN chats c/);
+  assert.doesNotMatch(preview,/normalized_link IN \(SELECT value FROM json_each/);
   const searchStart=preview.indexOf('export async function searchLocalDiscoveryPreview');
   // Only the search step itself must stay write-free; persisting an operator decision is an explicit action.
   const searchEnd=preview.indexOf('export async function',searchStart+1);

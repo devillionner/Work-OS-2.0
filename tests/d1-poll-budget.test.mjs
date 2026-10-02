@@ -8,6 +8,7 @@ import { addSelectedChatToJoin, readSelectedChats, readSelectedChatsCount, saveS
 import { readSyncRevision } from '../lib/sync-revision.ts';
 import { archiveLocalDiscoveryOutcomes, previewTelegramDiscoveryText, readDiscoveryTelegramGroupSources } from '../lib/chat-discovery/local-preview.ts';
 import { enrichImportedChatNames } from '../lib/chats/name-enrichment.ts';
+import { chatListPageStatement } from '../lib/chats/list-query.ts';
 import { localDatabase } from './helpers/local-d1.mjs';
 
 // Everything a runner or an open page polls on a timer must stay cheap in D1 rows read, whatever the
@@ -135,4 +136,31 @@ void test('Discovery run start, invite dedupe and archive-all stay bounded in D1
   const links = Array.from({ length: 20 }, (_, index) => `https://t.me/budget_missing_${index}`);
   const enrichRows = await rows(metered => enrichImportedChatNames(metered, 'u', links, NOW, async () => { throw new Error('no fetch expected'); }));
   assert.ok(enrichRows <= links.length + 5, `name enrichment lookup read ${enrichRows} rows for ${links.length} links`);
+});
+
+void test('Chat list page reads its own queue, not every chat of the owner', async (t) => {
+  const db = await localDatabase(t);
+  // Worst case for an updated_at walk: the requested WhatsApp queues are the oldest rows and 5 400 newer
+  // chats belong to other statuses/platforms.
+  const statements = [];
+  for (let index = 0; index < 6000; index += 1) {
+    const telegram = index >= 3000;
+    const link = telegram ? `https://t.me/list_${index}` : `https://chat.whatsapp.com/List${index}`;
+    const status = telegram ? 'archived' : index < 300 ? 'waiting' : index < 600 ? 'ready' : 'archived';
+    statements.push(db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,is_private,created_at,updated_at)
+      VALUES (?1,'u',?2,?1,?3,?3,?4,0,1,?5)`).bind(`list-${index}`, telegram ? 'telegram' : 'whatsapp', link, status, index));
+    if (statements.length >= 200) await db.batch(statements.splice(0));
+  }
+  if (statements.length) await db.batch(statements);
+  const { rows } = meter(db);
+  const page = status => rows(metered => chatListPageStatement(metered, { userId: 'u', platform: 'whatsapp', status, needsReview: false, today: '2027-01-15', now: NOW, offset: 0, accountId: null }).all());
+
+  // Measured: 150 rows for a 50-row page (was ≈5 900 with the `?3='profile_review' OR …` filter).
+  for (const status of ['waiting', 'ready']) {
+    const read = await page(status);
+    assert.ok(read <= 200, `${status} page read ${read} rows`);
+  }
+  // Two statuses must be sorted, so the review queue reads that queue (600 chats): measured 1 803 rows.
+  const review = await page('profile_review');
+  assert.ok(review <= 600 * 4, `profile_review page read ${review} rows`);
 });

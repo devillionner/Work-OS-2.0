@@ -7,6 +7,7 @@ import { changeChatSnooze } from '@/lib/chats/snooze';
 import { chatSnoozeCountSql } from '@/lib/chats/snooze-history';
 import { chatLeftAtSql, chatStateTokenSql, readChatState } from '@/lib/chats/state';
 import { transitionChat } from '@/lib/chats/transitions';
+import { chatListPageStatement } from '@/lib/chats/list-query';
 import { availableTodayStatement, joinedTodayStatement } from '@/lib/chats/daily-links';
 import { PROFILE_CADENCES, saveChatProfile } from '@/lib/chats/profile';
 import type { ChatProfileInput } from '@/lib/chats/profile';
@@ -52,13 +53,12 @@ export async function GET(request: Request): Promise<Response> {
   const cached = await matchRevisionJson(cacheRequest);
   if (cached) return cached;
   const normalizedSearch = normalizeChatSearchText(search);
-  const pattern = normalizedSearch;
   const profileFilter = status === 'profile_review' || profile === 'needs_review' ? ` AND (p.review_status IS NULL OR p.review_status!='confirmed')` : '';
-  const workflowFilter = `((?3='profile_review' AND c.workflow_status IN ('waiting','ready')) OR c.workflow_status=?3)`;
-  // Keep ?4/?5 bound for the non-search list query, but do Unicode matching in
-  // JavaScript because SQLite/D1 lower()/NOCASE only case-fold ASCII reliably.
-  const filter = `c.user_id=?1 AND c.platform=?2 AND ${workflowFilter} AND (?4='' OR ?5<>'')${profileFilter}`;
-  const rowAccountFilter = platform === 'telegram' ? ` AND (c.telegram_account_id=?9 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
+  // Same status filter as chatListPageStatement: a plain equality/IN keeps the (platform, status) index.
+  // Unicode search matching runs in JavaScript because SQLite/D1 lower()/NOCASE only case-fold ASCII.
+  const workflowFilter = status === 'profile_review'
+    ? `c.workflow_status IN ('waiting','ready') AND ?3='profile_review'`
+    : `c.workflow_status=?3`;
   const accountKey = platform === 'telegram' ? accountId || '' : '';
   const counterAccountFilter = platform === 'telegram'
     ? ` AND (account_key=?3 OR (account_key='' AND workflow_status='to_join'))`
@@ -96,7 +96,7 @@ export async function GET(request: Request): Promise<Response> {
       : env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.archived_at,${chatSnoozeCountSql()} AS snooze_count,${chatLeftAtSql()} AS left_at,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.custom_interval_days AS profile_custom_interval_days,p.next_allowed_on AS profile_next_allowed_on,p.directions_json AS profile_directions,p.note AS profile_note,(SELECT dc.decision FROM chat_discovery_candidates dc WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.id NOT LIKE 'waiting-%' ORDER BY dc.updated_at DESC,dc.id LIMIT 1) AS discovery_decision,(SELECT wa.id FROM whatsapp_autopost_jobs wa WHERE wa.user_id=c.user_id AND wa.chat_id=c.id AND wa.published_on=?3 AND wa.status IN ('pending','claimed') ORDER BY wa.created_at DESC LIMIT 1) AS autopost_job_id,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?3) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 AND 0`).bind(user.id,platform,today)
     : null;
   const statements = [
-    searchRowStatement||env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.archived_at,${chatSnoozeCountSql()} AS snooze_count,${chatLeftAtSql()} AS left_at,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.custom_interval_days,p.next_allowed_on AS profile_next_allowed_on,p.directions_json AS profile_directions,p.note AS profile_note,(SELECT dc.decision FROM chat_discovery_candidates dc WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.id NOT LIKE 'waiting-%' ORDER BY dc.updated_at DESC,dc.id LIMIT 1) AS discovery_decision,(SELECT wa.id FROM whatsapp_autopost_jobs wa WHERE wa.user_id=c.user_id AND wa.chat_id=c.id AND wa.published_on=?6 AND wa.status IN ('pending','claimed') ORDER BY wa.created_at DESC LIMIT 1) AS autopost_job_id,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?6) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE ${filter}${rowAccountFilter} ORDER BY c.updated_at DESC,c.id LIMIT 50 OFFSET ?8`).bind(user.id, platform, status, search, pattern, today, now, offset, ...(accountId?[accountId]:[])),
+    searchRowStatement||chatListPageStatement(env.DB,{userId:user.id,platform,status,needsReview:profile==='needs_review',today,now,offset,accountId}),
     totalStatement,
     env.DB.prepare(`SELECT workflow_status,SUM(chat_count) AS count,SUM(profile_confirmed_count) AS confirmed_count,SUM(profile_draft_count) AS draft_count,SUM(profile_empty_count) AS empty_count FROM chat_queue_counts WHERE user_id=?1 AND platform=?2${counterAccountFilter} GROUP BY workflow_status`).bind(...counterBindings),
     joinedTodayStatement(env.DB,{userId:user.id,platform,date:today,accountId}),
