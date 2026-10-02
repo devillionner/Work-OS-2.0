@@ -20,8 +20,9 @@ void test('workbook plan includes compatible keywords, countries and city aliase
   const plan=workbookSearchPlan(seedData);
   assert.ok(plan.some(item=>item.query==='Батьки Берлін'));
   assert.ok(plan.some(item=>item.query==='Перевезення Гамбург'));
-  assert.ok(plan.some(item=>item.query==='Українці в Польща'));
-  assert.ok(plan.some(item=>item.alias==='Українці в Berlin'));
+  // Queries read as natural search phrases: «Українці Польща», not the ungrammatical «Українці в Польща».
+  assert.ok(plan.some(item=>item.query==='Українці Польща'));
+  assert.ok(plan.some(item=>item.alias==='Українці Berlin'));
   assert.ok(plan.findIndex(item=>item.place==='Варшава')<plan.findIndex(item=>item.place==='Гамбург'));
   assert.ok(plan.every(item=>!item.query.includes('назва села')));
 });
