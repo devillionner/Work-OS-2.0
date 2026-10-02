@@ -1,6 +1,6 @@
 'use client';
 
-import { Cable, RotateCcw, Square, Play } from 'lucide-react';
+import { Archive, Cable, Check, Clock3, ExternalLink, RotateCcw, Square, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   waitingCheckDone,
@@ -12,15 +12,18 @@ import {
 } from '@/lib/chats/whatsapp-waiting-check-copy';
 
 export type WaitingCheckAction = 'start' | 'stop' | 'retry_problems';
+export type WaitingCheckProblemAction = 'open' | 'approved' | 'snooze' | 'archive';
+type Problem = WaitingCheckView['problems'][number];
 
 const RECENT_SECONDS = 12 * 3600;
 
-export function WhatsappWaitingCheckPanel({ view, nowSeconds, busy, onAction, onConnect }: {
+export function WhatsappWaitingCheckPanel({ view, nowSeconds, busy, onAction, onConnect, onProblemAction }: {
   view: WaitingCheckView;
   nowSeconds: number;
   busy: boolean;
   onAction: (action: WaitingCheckAction) => void;
   onConnect: () => void;
+  onProblemAction: (problem: Problem, action: WaitingCheckProblemAction) => void;
 }) {
   const runner = waitingCheckRunnerState(view, nowSeconds);
   const runnerStuck = waitingCheckRunnerOffline(view, nowSeconds);
@@ -78,8 +81,16 @@ export function WhatsappWaitingCheckPanel({ view, nowSeconds, busy, onAction, on
         <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onConnect}><Cable aria-hidden="true" />Підключити цей браузер</Button>
       </div>}
 
-      {recent && view.problems.length > 0 && <ul className="waiting-check-problems" aria-label="Чати, що потребують уваги">
-        {view.problems.map(item => <li key={item.chatId}><span>{item.name}</span><small>{waitingCheckReasonLabel(item.reason)}</small></li>)}
+      {recent && view.problems.length > 0 && <ul className="waiting-check-problems" aria-label="Чати, що потребують рішення">
+        {view.problems.map(item => <li key={item.chatId}>
+          <div className="waiting-check-problem-text"><span>{item.name}</span><small>{waitingCheckReasonLabel(item.reason)}</small></div>
+          {item.chat && <div className="waiting-check-problem-actions">
+            <Button type="button" size="sm" variant="ghost" title="Відкрити в WhatsApp" aria-label={`Відкрити ${item.name} у WhatsApp`} onClick={() => onProblemAction(item, 'open')}><ExternalLink aria-hidden="true" /></Button>
+            <Button type="button" size="sm" variant="outline" disabled={busy} title="Вас прийняли — перенести в «Для публікації»" onClick={() => onProblemAction(item, 'approved')}><Check aria-hidden="true" />Прийняли</Button>
+            <Button type="button" size="sm" variant="outline" disabled={busy} title="Відкласти на 3 дні" onClick={() => onProblemAction(item, 'snooze')}><Clock3 aria-hidden="true" />+3 дні</Button>
+            <Button type="button" size="sm" variant="outline" disabled={busy} title="Перенести в архів" onClick={() => onProblemAction(item, 'archive')}><Archive aria-hidden="true" />В архів</Button>
+          </div>}
+        </li>)}
       </ul>}
     </section>
   );

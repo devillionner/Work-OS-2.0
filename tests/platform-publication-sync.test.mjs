@@ -80,4 +80,8 @@ void test('WhatsApp waiting queue explains the operator-started request check',(
   assert.match(panel,/onAction\('retry_problems'\)/);
   assert.match(panel,/заявки без відповіді відкладаються на 3 дні/);
   assert.match(panel,/waitingCheckRunnerState\(view, nowSeconds\)/);
+  // Every undecided problem can be resolved with buttons right in the panel.
+  for (const action of ['open','approved','snooze','archive']) assert.match(panel,new RegExp(`onProblemAction\\(item, '${action}'\\)`));
+  assert.match(workspace,/onProblemAction=\{\(problem,action\)=>void resolveWaitingProblem\(problem,action\)\}/);
+  assert.match(workspace,/reason:waitingCheckArchiveReason\(problem\.reason\)/);
 });

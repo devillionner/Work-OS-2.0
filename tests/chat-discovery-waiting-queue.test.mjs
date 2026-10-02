@@ -116,6 +116,27 @@ void test('chat-specific WhatsApp answers are reported but never stop the batch'
   assert.equal((await checkNext(db, 'pending', 300)).chatId, 'rest');
 });
 
+void test('a finished batch lists only undecided problems, each with what the panel needs to act on it', async (t) => {
+  const db = await localDatabase(t);
+  await chat(db, 'p1', { updatedAt: 100 });
+  await chat(db, 'p2', { updatedAt: 101 });
+  await chat(db, 'ok', { updatedAt: 102 });
+  await startWaitingWhatsAppCheck(db, 'u', 200);
+  await checkNext(db, 'failed', 210, { reason: 'whatsapp_join_retry_later' });
+  await checkNext(db, 'failed', 220, { reason: 'whatsapp_removed_from_group' });
+  await checkNext(db, 'pending', 230);
+
+  const status = await readWaitingWhatsAppCheckStatus(db, 'u', 300);
+  assert.deepEqual(status.problems.map(item => [item.chatId, item.reason, Boolean(item.chat?.stateToken), item.chat?.link?.startsWith('https://chat.whatsapp.com/')]),
+    [['p1', 'whatsapp_join_retry_later', true, true], ['p2', 'whatsapp_removed_from_group', true, true]]);
+
+  // The operator archives one problem chat: it is decided and leaves the list; batch counters stay.
+  await db.prepare(`UPDATE chats SET workflow_status='archived',archive_reason='Вас вилучено з групи',archived_at=310 WHERE id='p2'`).run();
+  const after = await readWaitingWhatsAppCheckStatus(db, 'u', 320);
+  assert.deepEqual(after.problems.map(item => item.chatId), ['p1']);
+  assert.equal(after.counts.failed, 2);
+});
+
 void test('three failures in a row or a fatal reason stop the batch and leave the rest untouched', async (t) => {
   const db = await localDatabase(t);
   for (const id of ['f1', 'f2', 'f3', 'rest']) await chat(db, id);

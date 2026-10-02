@@ -4,7 +4,7 @@ export type WaitingCheckView = {
   total: number;
   remaining: number;
   counts: { joined: number; pending: number; requested: number; failed: number; skipped: number };
-  problems: Array<{ chatId: string; name: string; reason: string }>;
+  problems: Array<{ chatId: string; name: string; reason: string; chat?: { link: string; stateToken: string } }>;
   stopReason: string | null;
   startedAt: number | null;
   finishedAt: number | null;
@@ -87,7 +87,11 @@ export function parseWaitingCheckView(body: unknown): WaitingCheckView {
     remaining: count(raw.remaining),
     counts: { joined: count(counts.joined), pending: count(counts.pending), requested: count(counts.requested), failed: count(counts.failed), skipped: count(counts.skipped) },
     problems: Array.isArray(raw.problems) ? raw.problems.filter((item): item is WaitingCheckView['problems'][number] =>
-      Boolean(item && typeof item === 'object' && typeof (item as {name?:unknown}).name === 'string' && typeof (item as {reason?:unknown}).reason === 'string')).slice(-30) : [],
+      Boolean(item && typeof item === 'object' && typeof (item as {name?:unknown}).name === 'string' && typeof (item as {reason?:unknown}).reason === 'string')).slice(-30)
+      .map(item => {
+        const chat = item.chat && typeof item.chat.link === 'string' && typeof item.chat.stateToken === 'string' ? { link: item.chat.link, stateToken: item.chat.stateToken } : undefined;
+        return { chatId: item.chatId, name: item.name, reason: item.reason, ...(chat ? { chat } : {}) };
+      }) : [],
     stopReason: typeof raw.stopReason === 'string' ? raw.stopReason : null,
     startedAt: time(raw.startedAt),
     finishedAt: time(raw.finishedAt),
@@ -95,4 +99,12 @@ export function parseWaitingCheckView(body: unknown): WaitingCheckView {
     currentName: typeof raw.currentName === 'string' ? raw.currentName : null,
     runnerSeenAt: time(raw.runnerSeenAt),
   };
+}
+
+// Default archive reason offered for a problem chat, in the operator's words.
+export function waitingCheckArchiveReason(reason: string) {
+  if (reason === 'whatsapp_removed_from_group') return 'Вас вилучено з групи';
+  if (reason === 'whatsapp_join_retry_later') return 'WhatsApp не дає вступити';
+  if (reason === 'invalid_whatsapp_link' || reason === 'whatsapp_chat_missing') return 'Чат не існує';
+  return 'Проблема з заявкою';
 }

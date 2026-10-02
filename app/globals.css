@@ -484,11 +484,13 @@ button:not([data-slot="button"]) { color: inherit; }
 .waiting-check-connect { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .waiting-check-connect p { margin:0; }
 .waiting-check-connect [data-slot="button"] { flex:0 0 auto; }
-.waiting-check-problems { display:flex; flex-direction:column; max-height:180px; margin:0; padding:0; overflow:auto; border:1px solid var(--border); border-radius:8px; background:#fff; list-style:none; }
-.waiting-check-problems li { display:flex; justify-content:space-between; gap:12px; padding:7px 10px; font-size:12px; }
+.waiting-check-problems { display:flex; flex-direction:column; max-height:320px; margin:0; padding:0; overflow:auto; border:1px solid var(--border); border-radius:8px; background:#fff; list-style:none; }
+.waiting-check-problems li { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:7px 10px; font-size:12px; }
+.waiting-check-problem-text { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.waiting-check-problem-actions { display:flex; flex:0 0 auto; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
 .waiting-check-problems li + li { border-top:1px solid var(--border); }
-.waiting-check-problems li span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.waiting-check-problems li small { flex:0 0 auto; color:#b42318; }
+.waiting-check-problem-text span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.waiting-check-problem-text small { color:#b42318; }
 .selected-chats { display:flex; flex-direction:column; min-height:0; }
 .selected-chats-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; border-bottom:1px solid var(--border); background:#f5f7ff; box-shadow:inset 3px 0 var(--primary); }
 .selected-chats-head > div { min-width:0; display:flex; flex-direction:column; gap:2px; }
@@ -872,7 +874,8 @@ button:not([data-slot="button"]) { color: inherit; }
   .waiting-check-actions [data-slot="button"] { width:100%; min-height:44px; }
   .waiting-check-counts { grid-template-columns:1fr; }
   .waiting-check-connect { align-items:stretch; flex-direction:column; }
-  .waiting-check-problems li { flex-direction:column; gap:2px; }
+  .waiting-check-problems li { align-items:stretch; flex-direction:column; gap:8px; }
+  .waiting-check-problem-actions { justify-content:flex-start; }
   .joined-today-toggle { min-height:52px; padding:9px 12px; }
   .joined-today-toggle > span:first-child { align-items:flex-start; flex-direction:column; gap:2px; }
   .joined-today-toggle small { white-space:normal; }

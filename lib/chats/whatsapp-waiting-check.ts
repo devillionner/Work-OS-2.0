@@ -1,5 +1,5 @@
 import { changeChatSnooze } from './snooze.ts';
-import { chatLeftAtSql, readChatState } from './state.ts';
+import { chatLeftAtSql, chatStateTokenSql, readChatState } from './state.ts';
 import { transitionChat } from './transitions.ts';
 import { waitingCheckReasonLabel } from './whatsapp-waiting-check-copy.ts';
 
@@ -28,6 +28,8 @@ export type WaitingCheckOutcome = 'joined' | 'pending' | 'requested' | 'failed';
 
 type Counts = { joined: number; pending: number; requested: number; failed: number; skipped: number };
 type Problem = { chatId: string; name: string; reason: string };
+// What the operator needs to decide a problem from the panel (open, accept, +3 days, archive).
+export type WaitingCheckProblemChat = { link: string; stateToken: string };
 type BatchState = {
   batchId: number;
   startedAt: number;
@@ -48,7 +50,7 @@ export type WaitingCheckStatus = {
   total: number;
   remaining: number;
   counts: Counts;
-  problems: Problem[];
+  problems: Array<Problem & { chat?: WaitingCheckProblemChat }>;
   stopReason: string | null;
   startedAt: number | null;
   finishedAt: number | null;
@@ -56,6 +58,22 @@ export type WaitingCheckStatus = {
   currentName: string | null;
   runnerSeenAt: number | null;
 };
+
+// Problems of a finished batch that still wait for an operator decision. A chat the operator already
+// moved, snoozed or archived drops out of the list. Primary-key lookups only, at most MAX_PROBLEMS rows.
+async function openProblems(db: D1Database, userId: string, problems: Problem[], now: number) {
+  if (!problems.length) return [];
+  const rows = await db.prepare(`SELECT c.id,c.link,${chatStateTokenSql('c')} AS state_token
+    FROM json_each(?2) j CROSS JOIN chats c ON c.id=j.value AND c.user_id=?1
+    WHERE c.platform='whatsapp' AND c.workflow_status='waiting' AND (c.snoozed_until IS NULL OR c.snoozed_until<=?3)`)
+    .bind(userId, JSON.stringify(problems.map(problem => problem.chatId)), now)
+    .all<{ id: string; link: string; state_token: string }>();
+  const byId = new Map(rows.results.map(row => [row.id, row]));
+  return problems.flatMap(problem => {
+    const row = byId.get(problem.chatId);
+    return row ? [{ ...problem, chat: { link: row.link, stateToken: row.state_token } }] : [];
+  });
+}
 
 export type WaitingCheckTask = {
   kind: 'whatsapp_waiting_check';
@@ -140,7 +158,7 @@ export async function stopWaitingWhatsAppCheck(db: D1Database, userId: string, n
   return readWaitingWhatsAppCheckStatus(db, userId);
 }
 
-export async function readWaitingWhatsAppCheckStatus(db: D1Database, userId: string): Promise<WaitingCheckStatus> {
+export async function readWaitingWhatsAppCheckStatus(db: D1Database, userId: string, now = Math.floor(Date.now() / 1000)): Promise<WaitingCheckStatus> {
   const [{ state }, runner] = await Promise.all([
     readState(db, userId),
     db.prepare(`SELECT MAX(last_seen_at) AS seen FROM chat_discovery_executor_devices WHERE user_id=?1 AND revoked_at IS NULL`)
@@ -148,13 +166,16 @@ export async function readWaitingWhatsAppCheckStatus(db: D1Database, userId: str
   ]);
   let currentName: string | null = null;
   if (state?.current) currentName = (await readChatState(db, userId, state.current.chatId))?.name ?? null;
+  const active: boolean = isActive(state);
+  const storedProblems: Problem[] = state?.problems ?? [];
+  const problems = active ? storedProblems : await openProblems(db, userId, storedProblems, now);
   return {
-    active: isActive(state),
+    active,
     batchId: state?.batchId ?? null,
     total: state?.total ?? 0,
     remaining: state ? state.queue.length + (state.current ? 1 : 0) : 0,
     counts: state?.counts ?? emptyCounts(),
-    problems: state?.problems ?? [],
+    problems: problems,
     stopReason: state?.stopReason ?? null,
     startedAt: state?.startedAt ?? null,
     finishedAt: state?.finishedAt ?? null,
