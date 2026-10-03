@@ -75,8 +75,8 @@ export async function recordManualPublication(
   if (language) eventMetadata.language = language;
   const statements = [
     db.prepare(`INSERT INTO chat_publications
-      (id,user_id,chat_id,published_on,published_at,advertisement_id,source,source_key,created_at,telegram_account_id)
-      SELECT ?1,c.user_id,c.id,?2,?3,?6,'manual',?4,?3,CASE WHEN c.platform='telegram' THEN COALESCE(c.telegram_account_id,?5) ELSE NULL END
+      (id,user_id,chat_id,published_on,published_at,advertisement_id,source,source_key,created_at,telegram_account_id,platform)
+      SELECT ?1,c.user_id,c.id,?2,?3,?6,'manual',?4,?3,CASE WHEN c.platform='telegram' THEN COALESCE(c.telegram_account_id,?5) ELSE NULL END,c.platform
       FROM chats c WHERE c.id=?7 AND c.user_id=?8 AND c.workflow_status='ready'
         AND (c.snoozed_until IS NULL OR c.snoozed_until<=?3)
         AND (c.platform!='telegram' OR c.joined_at IS NULL OR c.joined_at+21600<=?3)
@@ -150,8 +150,8 @@ export async function recordConfirmedWhatsappAutopostPublication(
   });
   const statements=[
     db.prepare(`INSERT INTO chat_publications
-      (id,user_id,chat_id,published_on,published_at,advertisement_id,source,source_key,created_at,telegram_account_id)
-      SELECT ?1,c.user_id,c.id,?2,?3,?4,'whatsapp_autopost',?5,?3,NULL
+      (id,user_id,chat_id,published_on,published_at,advertisement_id,source,source_key,created_at,telegram_account_id,platform)
+      SELECT ?1,c.user_id,c.id,?2,?3,?4,'whatsapp_autopost',?5,?3,NULL,'whatsapp'
       FROM chats c
       WHERE c.id=?6 AND c.user_id=?7 AND c.platform='whatsapp'
         AND NOT EXISTS(SELECT 1 FROM chat_publications p

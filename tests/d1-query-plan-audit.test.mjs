@@ -42,3 +42,40 @@ void test('static SELECT/UPDATE queries never scan a whole table', async (t) => 
   assert.ok(planned > 150, `only ${planned} queries were planned; the extractor must keep finding them`);
   assert.deepEqual(offenders, []);
 });
+
+// Both patterns below caused real staging incidents (2026-10-02, docs/TODO.md): a `json_each` list
+// joined to a table without CROSS JOIN let SQLite choose to scan the table once per list item instead
+// of driving the search from the small list, and a bare COUNT(*)/SUM over `chats` re-read the whole
+// owner's chat table on every dashboard open instead of using the chat_queue_counts read model.
+void test('json_each is never joined to a table without CROSS JOIN', () => {
+  const offenders = [];
+  for (const file of ROOTS.flatMap(root => sourceFiles(root))) {
+    const source = readFileSync(file, 'utf8');
+    for (const match of source.matchAll(/prepare\(\s*`([^`]*)`/g)) {
+      const sql = match[1];
+      // A JOIN directly after a json_each(...) alias (no CROSS in between) risks SQLite scanning the
+      // joined table once per list item instead of driving the search from the small json_each list.
+      if (/json_each\([^()]*\)\s+(?:\w+\s+)?JOIN\b/i.test(sql)) {
+        offenders.push(`${file}:${source.slice(0, match.index).split('\n').length}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], 'use `json_each(...) alias CROSS JOIN table` so the list drives the index lookup');
+});
+
+void test('chats is never aggregated with a bare COUNT(*)/SUM instead of the chat_queue_counts read model', () => {
+  const offenders = [];
+  for (const file of ROOTS.flatMap(root => sourceFiles(root))) {
+    const source = readFileSync(file, 'utf8');
+    for (const match of source.matchAll(/prepare\(\s*`([^`]*)`/g)) {
+      const sql = match[1];
+      // A GROUP BY breakdown (e.g. archive reasons in a date range) is a different, index-planned
+      // question that chat_queue_counts cannot answer; only the ungrouped owner-wide grand total —
+      // the dashboard regression this guards against — must go through the read model instead.
+      if (/\bFROM\s+chats\b/i.test(sql) && /\b(COUNT\(\*\)|SUM\()/i.test(sql) && !/\bGROUP BY\b/i.test(sql)) {
+        offenders.push(`${file}:${source.slice(0, match.index).split('\n').length}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], 'read chat totals from chat_queue_counts (migration 0039), not a bare COUNT(*)/SUM over chats');
+});

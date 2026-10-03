@@ -8,7 +8,7 @@ import { chatSnoozeCountSql } from '@/lib/chats/snooze-history';
 import { chatLeftAtSql, chatStateTokenSql, readChatState } from '@/lib/chats/state';
 import { transitionChat } from '@/lib/chats/transitions';
 import { chatListPageStatement } from '@/lib/chats/list-query';
-import { availableTodayStatement, joinedTodayStatement } from '@/lib/chats/daily-links';
+import { availableTodayStatement, joinedTodayStatement, publishedTodayStatement } from '@/lib/chats/daily-links';
 import { PROFILE_CADENCES, saveChatProfile } from '@/lib/chats/profile';
 import type { ChatProfileInput } from '@/lib/chats/profile';
 import { permanentlyDeleteChat } from '@/lib/chats/permanent-delete';
@@ -100,9 +100,7 @@ export async function GET(request: Request): Promise<Response> {
     totalStatement,
     env.DB.prepare(`SELECT workflow_status,SUM(chat_count) AS count,SUM(profile_confirmed_count) AS confirmed_count,SUM(profile_draft_count) AS draft_count,SUM(profile_empty_count) AS empty_count FROM chat_queue_counts WHERE user_id=?1 AND platform=?2${counterAccountFilter} GROUP BY workflow_status`).bind(...counterBindings),
     joinedTodayStatement(env.DB,{userId:user.id,platform,date:today,accountId}),
-    platform === 'telegram'
-      ? env.DB.prepare(`SELECT c.id,c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 AND p.telegram_account_id=?4 ORDER BY p.published_at,p.created_at`).bind(user.id,platform,today,accountId)
-      : env.DB.prepare(`SELECT c.id,c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 ORDER BY p.published_at,p.created_at`).bind(user.id,platform,today),
+    publishedTodayStatement(env.DB,{userId:user.id,platform,date:today,accountId}),
     env.DB.prepare(`SELECT value_json FROM user_settings WHERE user_id=?1 AND setting_key='analytics-daily-goal-schedule-v1' LIMIT 1`).bind(user.id),
     env.DB.prepare(`SELECT COUNT(*) AS count FROM activity_events WHERE user_id=?1 AND event_type='publication' AND event_date=?2 AND cancelled_at IS NULL`).bind(user.id,today),
   ];
@@ -236,13 +234,7 @@ function unixNow() { return Math.floor(Date.now() / 1000); }
 function parseNumberList(value:string|null) { try { const parsed=JSON.parse(value||'[]'); return Array.isArray(parsed)?parsed.filter((item):item is number=>Number.isInteger(item)&&item>=1&&item<=7):[]; } catch { return []; } }
 function parseStringList(value:string|null) { try { const parsed=JSON.parse(value||'[]'); return Array.isArray(parsed)?parsed.filter((item):item is string=>typeof item==='string'):[]; } catch { return []; } }
 async function readPublicationState(userId:string, chat:{id:string;platform:string}, accountId:string|null, date:string, now:number) {
-  const publishedStatement = chat.platform === 'telegram'
-    ? env.DB.prepare(`SELECT c.id,c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id
-        WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 AND p.telegram_account_id=?4
-        ORDER BY p.published_at,p.created_at`).bind(userId,chat.platform,date,accountId)
-    : env.DB.prepare(`SELECT c.id,c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id
-        WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3
-        ORDER BY p.published_at,p.created_at`).bind(userId,chat.platform,date);
+  const publishedStatement = publishedTodayStatement(env.DB,{userId,platform:chat.platform,date,accountId});
   const [chatPublishedResult,publishedResult,availableResult,goalResult,publicationCountResult] = await env.DB.batch([
     env.DB.prepare(`SELECT EXISTS(SELECT 1 FROM chat_publications
       WHERE user_id=?1 AND chat_id=?2 AND published_on=?3) AS published`).bind(userId,chat.id,date),

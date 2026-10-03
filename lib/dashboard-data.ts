@@ -43,7 +43,8 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
   const reminderHorizon = businessDate(now + 43200 * 60);
   const tomorrow = shiftBusinessDate(today, 1);
   const [chatResult, leadResult, migrationResult, eventResult, settingsResult, followUpResult, reminderResult, dayRevisionResult] = await db.batch([
-    db.prepare(`SELECT COUNT(*) AS count FROM chats WHERE user_id=?1 AND workflow_status!='archived'`).bind(userId),
+    // Trigger-maintained queue counters: COUNT(*) over chats read every chat of the owner (≈3 300 rows per dashboard open).
+    db.prepare(`SELECT COALESCE(SUM(chat_count),0) AS count FROM chat_queue_counts WHERE user_id=?1 AND workflow_status!='archived'`).bind(userId),
     db.prepare(`SELECT COUNT(*) AS count FROM leads WHERE user_id=?1 AND archived_at IS NULL`).bind(userId),
     db.prepare(`SELECT j.completed_at,i.original_filename FROM migration_jobs j JOIN legacy_imports i ON i.id=j.import_id AND i.user_id=j.user_id WHERE j.user_id=?1 AND j.status='completed' ORDER BY j.completed_at DESC LIMIT 1`).bind(userId),
     activitySummaryStatement(db, userId, today, today, submittedActivityRevision === null ? afterReport : null),

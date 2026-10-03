@@ -205,7 +205,7 @@ function statementFor(phase: MigrationPhase, value: LegacyMigrationDataset[Migra
   }
   if (phase === 'publications') {
     const row = value as LegacyMigrationDataset['publications'][number];
-    return env.DB.prepare(`INSERT INTO chat_publications (id,user_id,chat_id,published_on,published_at,source,source_key,created_at,telegram_account_id) VALUES (?1,?2,?3,?4,?5,'legacy',?6,?7,(SELECT telegram_account_id FROM chats WHERE id=?3))
+    return env.DB.prepare(`INSERT INTO chat_publications (id,user_id,chat_id,published_on,published_at,source,source_key,created_at,telegram_account_id,platform) VALUES (?1,?2,?3,?4,?5,'legacy',?6,?7,(SELECT telegram_account_id FROM chats WHERE id=?3),(SELECT platform FROM chats WHERE id=?3))
       ON CONFLICT(id) DO UPDATE SET published_on=excluded.published_on,published_at=COALESCE(excluded.published_at,chat_publications.published_at),telegram_account_id=excluded.telegram_account_id WHERE chat_publications.user_id=excluded.user_id`).bind(row.id,userId,row.chatId,row.publishedOn,row.publishedAt,row.sourceKey,row.createdAt);
   }
   if (phase === 'scheduleSettings') {

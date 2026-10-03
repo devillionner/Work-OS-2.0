@@ -72,7 +72,7 @@ void test('selection queries and publication enforcement remain owner scoped', (
   const publication = readFileSync(join(root, 'lib', 'chats', 'publication.ts'), 'utf8');
   assert.match(selection, /c\.id=\?1 AND c\.user_id=\?2/);
   assert.match(selection, /WHERE user_id=\?1 AND kind='advertisement' AND archived_at IS NULL/);
-  assert.match(selection, /p\.user_id=\?1 AND c\.platform=\?2 AND p\.published_on=\?3/);
+  assert.match(selection, /p\.user_id=\?1 AND p\.platform=\?2 AND p\.published_on=\?3/);
   assert.match(publication, /validatePublicationAdvertisementChoice\(db, \{ userId, chatId: chat\.id, advertisementId, date, allowSameDayReuse: quickMode \}\)/);
 });
 

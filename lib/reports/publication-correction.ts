@@ -89,8 +89,8 @@ export async function recordHistoricalPublication(db:D1Database,input:{
   if(language)metadata.language=language;
   const results=await db.batch([
     db.prepare(`INSERT INTO chat_publications
-      (id,user_id,chat_id,published_on,published_at,advertisement_id,source,source_key,created_at,telegram_account_id)
-      SELECT ?1,c.user_id,c.id,?2,?3,?4,'report_correction',?5,?3,?6
+      (id,user_id,chat_id,published_on,published_at,advertisement_id,source,source_key,created_at,telegram_account_id,platform)
+      SELECT ?1,c.user_id,c.id,?2,?3,?4,'report_correction',?5,?3,?6,c.platform
       FROM chats c WHERE c.id=?7 AND c.user_id=?8
       ON CONFLICT(user_id,chat_id,published_on) DO NOTHING`)
       .bind(publicationId,input.date,input.now,advertisementId,sourceKey,accountId,input.chatId,input.userId),

@@ -48,10 +48,10 @@ export async function GET(request: Request): Promise<Response> {
         AND (?4='all' OR kind=?4)
         AND NOT (?4='script' AND ?3='' AND collection='knowledge')
       ORDER BY updated_at DESC,title${libraryLimit}`).bind(user.id,Number(archived),collection,kind),
-    env.DB.prepare(`SELECT p.advertisement_id,c.platform
-      FROM chat_publications p JOIN chats c ON c.id=p.chat_id AND c.user_id=p.user_id
+    env.DB.prepare(`SELECT p.advertisement_id,p.platform
+      FROM chat_publications p
       WHERE p.user_id=?1 AND p.published_on=?2 AND p.advertisement_id IS NOT NULL
-      GROUP BY p.advertisement_id,c.platform`).bind(user.id,today),
+      GROUP BY p.advertisement_id,p.platform`).bind(user.id,today),
   ]);
   const usageByAdvertisement=new Map<string,string[]>();
   for(const row of usageResult.results as Array<{advertisement_id:string;platform:string}>){

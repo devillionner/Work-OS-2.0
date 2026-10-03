@@ -84,8 +84,8 @@ export async function readPublicationAdvertisementSelection(
   const usedStatement = chat.platform === 'whatsapp'
     ? db.prepare(`SELECT DISTINCT advertisement_id FROM (
         SELECT p.advertisement_id AS advertisement_id
-        FROM chat_publications p JOIN chats c ON c.id=p.chat_id AND c.user_id=p.user_id
-        WHERE p.user_id=?1 AND c.platform='whatsapp' AND p.published_on=?2 AND p.advertisement_id IS NOT NULL
+        FROM chat_publications p
+        WHERE p.user_id=?1 AND p.platform='whatsapp' AND p.published_on=?2 AND p.advertisement_id IS NOT NULL
         UNION
         SELECT j.advertisement_id AS advertisement_id
         FROM whatsapp_autopost_jobs j
@@ -93,8 +93,8 @@ export async function readPublicationAdvertisementSelection(
           AND (?3='' OR j.id<>?3)
       ) WHERE advertisement_id IS NOT NULL`).bind(input.userId,input.date,input.excludeAutomationJobId||'')
     : db.prepare(`SELECT DISTINCT p.advertisement_id
-        FROM chat_publications p JOIN chats c ON c.id=p.chat_id AND c.user_id=p.user_id
-        WHERE p.user_id=?1 AND c.platform=?2 AND p.published_on=?3 AND p.advertisement_id IS NOT NULL`)
+        FROM chat_publications p
+        WHERE p.user_id=?1 AND p.platform=?2 AND p.published_on=?3 AND p.advertisement_id IS NOT NULL`)
       .bind(input.userId,chat.platform,input.date);
   const [advertisementsResult, usedResult, focusResult, workdayResult] = await db.batch([
     db.prepare(`SELECT id,title,uk_text,ru_text,notes,tags_json,platforms_json,updated_at

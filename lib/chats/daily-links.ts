@@ -13,6 +13,20 @@ export function joinedTodayStatement(db: D1Database, input: {
     .bind(input.userId,input.platform,input.date,input.accountId);
 }
 
+export function publishedTodayStatement(db: D1Database, input: {
+  userId: string; platform: string; date: string; accountId: string | null;
+}) {
+  // platform is written on every chat_publications row at insert time (see migration 0040), so this
+  // reads only today's publications of the requested platform/account instead of all of the owner's.
+  return input.platform === 'telegram'
+    ? db.prepare(`SELECT c.id,c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id
+        WHERE p.user_id=?1 AND p.platform=?2 AND p.published_on=?3 AND p.telegram_account_id=?4
+        ORDER BY p.published_at,p.created_at`).bind(input.userId,input.platform,input.date,input.accountId)
+    : db.prepare(`SELECT c.id,c.name,c.link FROM chat_publications p JOIN chats c ON c.id=p.chat_id
+        WHERE p.user_id=?1 AND p.platform=?2 AND p.published_on=?3
+        ORDER BY p.published_at,p.created_at`).bind(input.userId,input.platform,input.date);
+}
+
 export function availableTodayStatement(db: D1Database, input: {
   userId: string; platform: string; date: string; accountId: string | null; now: number;
 }) {

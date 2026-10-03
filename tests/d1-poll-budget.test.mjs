@@ -9,6 +9,9 @@ import { readSyncRevision } from '../lib/sync-revision.ts';
 import { archiveLocalDiscoveryOutcomes, previewTelegramDiscoveryText, readDiscoveryTelegramGroupSources } from '../lib/chat-discovery/local-preview.ts';
 import { enrichImportedChatNames } from '../lib/chats/name-enrichment.ts';
 import { chatListPageStatement } from '../lib/chats/list-query.ts';
+import { readDashboardSnapshot } from '../lib/dashboard-data.ts';
+import { availableTodayStatement, publishedTodayStatement } from '../lib/chats/daily-links.ts';
+import { readTelegramWarmup } from '../lib/chats/telegram-warmup.ts';
 import { localDatabase } from './helpers/local-d1.mjs';
 
 // Everything a runner or an open page polls on a timer must stay cheap in D1 rows read, whatever the
@@ -163,4 +166,94 @@ void test('Chat list page reads its own queue, not every chat of the owner', asy
   // Two statuses must be sorted, so the review queue reads that queue (600 chats): measured 1 803 rows.
   const review = await page('profile_review');
   assert.ok(review <= 600 * 4, `profile_review page read ${review} rows`);
+});
+
+void test('Dashboard chat total comes from the queue counters, not a count over every chat', async (t) => {
+  const db = await localDatabase(t);
+  await seed(db);
+  // One archived chat and one status move keep the trigger-maintained counters honest.
+  await db.prepare(`UPDATE chats SET workflow_status='archived' WHERE id='chat-0'`).run();
+  await db.prepare(`UPDATE chats SET workflow_status='ready' WHERE id='chat-1'`).run();
+  const { rows } = meter(db);
+  let snapshot;
+  const read = await rows(async metered => { snapshot = await readDashboardSnapshot(metered, 'u', NOW); });
+  const expected = await db.prepare(`SELECT COUNT(*) AS count FROM chats WHERE user_id='u' AND workflow_status!='archived'`).first('count');
+  assert.equal(snapshot.chats, expected);
+  // Measured before: ≈2 000 rows for the chat count alone with 2 000 chats; now the whole snapshot stays small.
+  console.log("DASH_ROWS", read);
+  assert.ok(read <= 200, `dashboard snapshot read ${read} rows`);
+});
+
+void test('Telegram warmup reads only its own account, not every account of the owner', async (t) => {
+  const db = await localDatabase(t);
+  const ACCOUNTS = 5; const EVENTS_PER_ACCOUNT = 1000;
+  const statements = [];
+  for (let acct = 0; acct < ACCOUNTS; acct += 1) {
+    statements.push(db.prepare(`INSERT INTO telegram_accounts(id,user_id,account_number,name,created_at,updated_at)
+      VALUES (?1,'u',?2,?1,1,1)`).bind(`tg-${acct}`, acct + 10));
+    for (let index = 0; index < EVENTS_PER_ACCOUNT; index += 1) {
+      const id = `warmup-${acct}-${index}`;
+      statements.push(db.prepare(`INSERT INTO activity_events(id,user_id,event_type,platform,occurred_at,event_date,metadata_json,source_key,telegram_account_id)
+        VALUES (?1,'u',?2,'telegram',?3,'2027-01-15','{}',?1,?4)`)
+        .bind(id, index % 3 === 0 ? 'chat_joined' : 'publication', index, `tg-${acct}`));
+      if (statements.length >= 200) await db.batch(statements.splice(0));
+    }
+  }
+  if (statements.length) await db.batch(statements);
+  const { rows } = meter(db);
+  const read = await rows(metered => readTelegramWarmup(metered, 'u', 'tg-0'));
+  // Measured before activity_events_user_account_type_idx: the (user_id) index prefix forced a walk of
+  // every account's events (≈31 000 + 31 000 rows for the owner). Now it stays near one account's size.
+  console.log("WARMUP_ROWS", read);
+  assert.ok(read <= EVENTS_PER_ACCOUNT * 2, `warmup read ${read} rows for one account among ${ACCOUNTS}`);
+});
+
+void test('Published-today reads only its own platform, not every platform of the owner', async (t) => {
+  const db = await localDatabase(t);
+  // Lopsided on purpose: a busy decoy platform (telegram) and a quiet target platform (viber), like a
+  // real owner who publishes to Telegram constantly but to Viber only a handful of times a day.
+  const DECOY = 2000; const TARGET = 5;
+  const statements = [];
+  const seedPublication = (platform, index) => {
+    const id = `pub-${platform}-${index}`;
+    const link = `https://example.test/${platform}-${index}`;
+    statements.push(db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,is_private,created_at,updated_at)
+      VALUES (?1,'u',?2,?1,?3,?3,'ready',0,1,?4)`).bind(id, platform, link, index));
+    statements.push(db.prepare(`INSERT INTO chat_publications(id,user_id,chat_id,published_on,published_at,source,source_key,created_at,platform)
+      VALUES (?1,'u',?1,'2027-01-15',?2,'manual',?1,?2,?3)`).bind(id, index, platform));
+  };
+  for (let index = 0; index < DECOY; index += 1) { seedPublication('telegram', index); if (statements.length >= 200) await db.batch(statements.splice(0)); }
+  for (let index = 0; index < TARGET; index += 1) seedPublication('viber', index);
+  if (statements.length) await db.batch(statements);
+  const { rows } = meter(db);
+  const read = await rows(metered => publishedTodayStatement(metered, { userId: 'u', platform: 'viber', date: '2027-01-15', accountId: null }).all());
+  // Measured before: joining to chats and filtering c.platform after the join read every platform's
+  // publications for the day (≈165 rows to return ~3 — the owner's busy-platform volume, not the
+  // requested one). Now platform is indexed on chat_publications itself, so the quiet target platform's
+  // cost tracks its own 5 rows, never the decoy platform's 2 000.
+  console.log("PUBLISHED_TODAY_ROWS", read);
+  assert.ok(read <= TARGET * 5 + 10, `published-today read ${read} rows for ${TARGET} target-platform publications among ${DECOY} decoy ones`);
+});
+
+void test('Available-today reads measured against a realistic ready queue', async (t) => {
+  const db = await localDatabase(t);
+  const READY = 1000;
+  const statements = [];
+  for (let index = 0; index < READY; index += 1) {
+    const id = `avail-${index}`;
+    const link = `https://chat.whatsapp.com/Avail${index}`;
+    statements.push(db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,is_private,created_at,updated_at)
+      VALUES (?1,'u','whatsapp',?1,?2,?2,'ready',0,1,?3)`).bind(id, link, index));
+    // Most chats already published today; only a handful remain actually available.
+    if (index >= 5) statements.push(db.prepare(`INSERT INTO chat_publications(id,user_id,chat_id,published_on,published_at,source,source_key,created_at,platform)
+      VALUES (?1,'u',?1,'2027-01-15',?2,'manual',?1,?2,'whatsapp')`).bind(id, index));
+    if (statements.length >= 200) await db.batch(statements.splice(0));
+  }
+  if (statements.length) await db.batch(statements);
+  const { rows } = meter(db);
+  const read = await rows(metered => availableTodayStatement(metered, { userId: 'u', platform: 'whatsapp', date: '2027-01-15', accountId: null, now: NOW }).all());
+  console.log("AVAILABLE_TODAY_ROWS", read);
+  // This scan is bounded by the ready-queue index (user_id,platform,workflow_status,updated_at), so it
+  // must stay near the ready-queue size, never the owner's unrelated chats on other platforms/statuses.
+  assert.ok(read <= READY * 2, `available-today read ${read} rows for a ${READY}-chat ready queue`);
 });
