@@ -6,5 +6,6 @@ declare namespace Cloudflare {
     OWNER_EMAIL: string;
     ALLOWED_GOOGLE_EMAILS?: string;
     AUDIT_ACCESS_TOKEN?: string;
+    OWNER_CHANNEL: DurableObjectNamespace;
   }
 }

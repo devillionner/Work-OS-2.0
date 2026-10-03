@@ -12,6 +12,10 @@ void test('staging deploy auto-applies only exact staging D1 migrations before d
   assert.match(source, /Refusing staging deploy with CLOUDFLARE_ENV=production/);
   assert.match(source, /config\.name !== expected\.worker/);
   assert.match(source, /db\.database_name !== expected\.database \|\| db\.database_id !== expected\.databaseId/);
+  assert.match(source, /durableObjectBinding: 'OWNER_CHANNEL'/);
+  assert.match(source, /durableObjectClass: 'OwnerChannel'/);
+  assert.match(source, /OWNER_CHANNEL Durable Object binding is missing or wrong/);
+  assert.match(source, /config\.main !== 'worker-entry\.js'/);
 
   const listIndex = source.indexOf("'list'");
   const applyIndex = source.indexOf("'apply'");

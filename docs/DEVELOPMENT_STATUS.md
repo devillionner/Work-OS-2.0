@@ -1,3 +1,44 @@
+## 2026-10-04 — Durable Object плумбінг без бізнес-логіки (коміт 3a)
+
+- Перший крок великого коміту 3 (канал змін замість опитування). Узгоджена з оператором архітектура:
+  DO — джерело правди для стану процесу (не тонкий релей над D1-lease); runner переживає розрив
+  з'єднання автоматично (DO пам'ятає `running`/`stopped` і сам штовхає продовження); порядок
+  міграції трьох процесів — Waiting check → Autopost → Discovery; WS-автентифікація runner-а —
+  токен у query-рядку. Повний план: `~/.claude/plans/velvet-plotting-waffle.md`.
+- `workers/owner-channel.ts`: новий DO-клас `OwnerChannel`, один на власника. Приймає WebSocket
+  (Hibernation API: `ctx.acceptWebSocket`/`getWebSockets`/`getTags`, `setWebSocketAutoResponse` для
+  ping/pong без пробудження DO), тегує сокети `browser`/`runner`. Команди (`start`/`stop`) від
+  браузера пишуться в `ctx.storage` і релеяться runner-сокетам; `progress`/`result` від runner —
+  браузерним. При новому підключенні runner-а DO одразу штовхає всі процеси з `running:true` —
+  це і є «автовідновлення після розриву» без дії оператора.
+- `app/api/live/route.ts`: звичайний vinext-роут, форвардить WS upgrade у DO через
+  `env.OWNER_CHANNEL.idFromName(userId).get(id).fetch(...)`. Автентифікація — тут, а не в DO
+  (DO недосяжний інакше, ніж через цей роут): браузер — сесійна (`getCurrentUser`), runner —
+  бearer-токен із query через новий `authenticateDiscoveryExecutorToken` (виділений з існуючого
+  `authenticateDiscoveryExecutor` — та сама перевірка, той самий хешований/revocable токен,
+  3 існуючі HTTP executor-роути використовують його без змін).
+- `wrangler.jsonc`: `durable_objects.bindings` (повторено буквально в `env.production` — цей ключ
+  НЕ успадковується) + top-level `migrations` із `new_sqlite_classes` (цей ключ успадковується).
+  Перевірено наживо: `npm run build` коректно пропагує обидва ключі у згенерований
+  `dist/server/wrangler.json` (vinext вже має ці поля у своїй схемі, просто порожні без джерела).
+- `scripts/normalize-wrangler-config.mjs`: додатково пише `dist/server/worker-entry.js`
+  (`import app from './index.js'; export { OwnerChannel } from '../../workers/owner-channel.ts';
+  export default app;`) і перезаписує `main` з `index.js` на `worker-entry.js` — vinext будує
+  лише дефолтний fetch-експорт і не знає про DO-клас.
+- `scripts/deploy-staging.mjs`: новий guard поряд з D1-перевіркою — відмовляє в деплої, якщо
+  `OWNER_CHANNEL`-binding відсутній/невірний або `main` не `worker-entry.js`, тим самим fail-closed
+  способом, що й для D1.
+- Тести: `tests/owner-channel.test.mjs` (6 нових, мок-сокети — `fetch()` конструює справжній
+  `WebSocketPair`/`Response.webSocket`, доступні лише в реальному Workers runtime, тож маршрутизація
+  повідомлень/зберігання стану/прощання runner-а перевірені напряму, без хендшейку); нові кейси в
+  `tests/wrangler-config.test.mjs` (5 нових) і `tests/staging-deploy-contract.test.mjs`.
+- Доказ: lint, typecheck (додав `workers/**/*.ts` і `app/api/live/route.ts` в
+  `tsconfig.chat-discovery.json` — єдиний tsconfig, який реально типчекається в CI), build — зелені;
+  `node --experimental-strip-types --test` на нових і суміжних файлах (`chat-discovery-executor-auth`,
+  `d1-budget-contract`) — зелені. **Не перевірено:** чи ця конкретна Cloudflare-підписка справді
+  піднімає SQLite-backed Durable Object — `wrangler deploy --dry-run` локально заблоковано
+  (стороння команда деплою), тож перша реальна перевірка — сам push і Cloudflare Workers Builds.
+
 ## 2026-10-04 — Синхронізація: знайдено й виправлено мертвий шлях живого оновлення; scope у сигналах став функціональним (коміт 2, легка версія)
 
 - **Знайдено регресію, не з переліку оператора.** `components/work-os-bootstrap.tsx` отримував `syncRevision` рівно один раз при монтуванні (`useEffect(...,[attempt])`, де `attempt` змінюється лише кнопкою «Спробувати ще раз» на екрані помилки) і більше ніколи не перечитував `/api/dashboard-bootstrap`. Цей `syncRevision` прокидається пропом у всі п'ять workspace-компонентів (`Platform/Leads/Analytics/Reports/LibraryWorkspace`), кожен з яких порівнює його з попереднім значенням, щоб вирішити, чи перечитувати дані. Оскільки пропс ніколи не змінювався, `router.refresh()` у `components/server-sync.tsx` (який лише перерендерює `app/page.tsx` — Server Component, що просто передає `user` і більше нічого) **нічого не оновлював**: React зберігає внутрішній стан клієнтського компонента між рендерами батька з тими самими пропсами. Фактично живе міжпристрійне/міжвкладкове оновлення даних воркспейсів **не працювало взагалі** — рятувала лише пряма перезагрузка кожним воркспейсом себе самого після ЛОКАЛЬНОЇ (у цій самій вкладці) дії. Статичні regex-тести (`tests/app-update-sync.test.mjs` і суміжні) це не виявляли, бо перевіряли лише «чи існує правильний текст коду», а не реальну поведінку.

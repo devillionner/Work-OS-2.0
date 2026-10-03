@@ -67,7 +67,18 @@ export async function authenticateDiscoveryExecutor(
 ): Promise<{ userId: string; deviceId: string }> {
   const authorization = request.headers.get('Authorization') || '';
   if (!authorization.startsWith('Bearer ')) throw new DiscoveryError('Потрібен executor token.', 401);
-  const token = authorization.slice(7).trim();
+  return authenticateDiscoveryExecutorToken(db, authorization.slice(7).trim(), now);
+}
+
+// Shared by the header-based HTTP executor routes above and /api/live, which authenticates the
+// runner's WebSocket upgrade from a query parameter instead of a header (browsers' WebSocket
+// constructor cannot set custom headers; the token is still TLS-protected, hashed at rest and
+// revocable the same way).
+export async function authenticateDiscoveryExecutorToken(
+  db: D1Database,
+  token: string,
+  now: number,
+): Promise<{ userId: string; deviceId: string }> {
   if (!token.startsWith('wos_exec_') || token.length > 200) throw new DiscoveryError('Недійсний executor token.', 401);
   const tokenHash = await hashExecutorToken(token);
   const row = await db.prepare(`SELECT id,user_id,last_seen_at FROM chat_discovery_executor_devices

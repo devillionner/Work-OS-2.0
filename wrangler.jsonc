@@ -21,6 +21,14 @@
       "migrations_dir": "migrations"
     }
   ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "OWNER_CHANNEL", "class_name": "OwnerChannel" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["OwnerChannel"] }
+  ],
   "env": {
     "production": {
       "name": "work-os-2",
@@ -34,7 +42,12 @@
           "database_id": "dbe3fce7-5c0c-4ae4-9497-dc236a4e8141",
           "migrations_dir": "migrations"
         }
-      ]
+      ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "OWNER_CHANNEL", "class_name": "OwnerChannel" }
+        ]
+      }
     }
   }
 }

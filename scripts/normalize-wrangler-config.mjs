@@ -2,6 +2,12 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// vinext always builds to "index.js" with only a default (fetch-handler) export — it has no idea
+// about the Durable Object class this app also needs the Worker to export. worker-entry.js (written
+// by writeWorkerEntryWrapper below, colocated with index.js at build time) re-exports both from one
+// file, and becomes the new "main" so wrangler deploys that instead of the bare vinext output.
+const WORKER_ENTRY_FILENAME = 'worker-entry.js';
+
 export function normalizeGeneratedWranglerConfig(config) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
     throw new TypeError('Wrangler config must be a JSON object.');
@@ -9,7 +15,16 @@ export function normalizeGeneratedWranglerConfig(config) {
 
   const normalized = { ...config };
   delete normalized.legacy_env;
+  if (normalized.main === 'index.js') normalized.main = WORKER_ENTRY_FILENAME;
   return normalized;
+}
+
+export function workerEntryWrapperSource() {
+  return `import app from './index.js';\nexport { OwnerChannel } from '../../workers/owner-channel.ts';\nexport default app;\n`;
+}
+
+export async function writeWorkerEntryWrapper(serverDir) {
+  await writeFile(path.join(serverDir, WORKER_ENTRY_FILENAME), workerEntryWrapperSource(), 'utf8');
 }
 
 export async function normalizeGeneratedWranglerFile(
@@ -18,6 +33,7 @@ export async function normalizeGeneratedWranglerFile(
   const raw = await readFile(filePath, 'utf8');
   const original = JSON.parse(raw);
   const normalized = normalizeGeneratedWranglerConfig(original);
+  if (original.main === 'index.js') await writeWorkerEntryWrapper(path.dirname(filePath));
   const next = `${JSON.stringify(normalized)}\n`;
   if (next === raw || next.trim() === raw.trim()) return false;
   await writeFile(filePath, next, 'utf8');

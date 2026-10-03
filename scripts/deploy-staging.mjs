@@ -11,6 +11,8 @@ const expected = {
   worker: 'work-os-2-staging',
   database: 'work-os-2-staging-db',
   databaseId: '740312bc-bd1f-4d69-826f-d31208789598',
+  durableObjectBinding: 'OWNER_CHANNEL',
+  durableObjectClass: 'OwnerChannel',
 };
 
 const knownMigrationBaselines = {
@@ -47,6 +49,15 @@ if (config.name !== expected.worker) {
 
 if (!db || db.database_name !== expected.database || db.database_id !== expected.databaseId) {
   throw new Error('Refusing deploy: DB binding is not the staging D1 database.');
+}
+
+const durableObjectBindings = Array.isArray(config.durable_objects?.bindings) ? config.durable_objects.bindings : [];
+const ownerChannel = durableObjectBindings.find((item) => item?.name === expected.durableObjectBinding);
+if (!ownerChannel || ownerChannel.class_name !== expected.durableObjectClass) {
+  throw new Error('Refusing deploy: OWNER_CHANNEL Durable Object binding is missing or wrong.');
+}
+if (config.main !== 'worker-entry.js') {
+  throw new Error('Refusing deploy: worker entry is not the OwnerChannel wrapper (worker-entry.js).');
 }
 
 if (!process.env.npm_execpath) {
