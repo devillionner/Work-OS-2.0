@@ -17,6 +17,8 @@ export type DataSyncDetail = {
   scope: DataSyncScope;
   reason: 'poll' | 'focus' | 'online' | 'local-write' | 'cross-tab';
   at: number;
+  /** The authoritative global revision this signal carries, when known server-side (poll/focus/online/cross-tab). */
+  revision?: number;
 };
 
 /**

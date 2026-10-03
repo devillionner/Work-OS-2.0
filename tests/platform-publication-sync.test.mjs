@@ -21,7 +21,7 @@ void test('platform workspace reconciles confirmed publication state immediately
   assert.match(workspace,/publishedToday:publicationState\.publishedToday/);
   assert.match(workspace,/availableToday:publicationState\.availableToday/);
   assert.match(workspace,/publicationPace:publicationState\.publicationPace/);
-  assert.match(workspace,/announceDataChange\('all'\)/);
+  assert.match(workspace,/announceDataChange\('platforms'\)/);
   assert.match(workspace,/void reloadChats\.current\(true\)/);
 });
 

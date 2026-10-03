@@ -342,7 +342,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       if(!response.ok)throw new Error(body.error||'Не вдалося виконати дію.');
       setNotice(action==='approved'?`«${problem.name}» перенесено в «Для публікації».`:action==='snooze'?`«${problem.name}» відкладено на 3 дні.`:`«${problem.name}» перенесено в архів.`);
       invalidateQueueCache('whatsapp');
-      announceDataChange('all');
+      announceDataChange('platforms');
       await Promise.all([refreshWaitingCheck(),reloadChats.current(true)]);
     }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося виконати дію.');await refreshWaitingCheck();}
     finally{setBusy(null);}
@@ -451,7 +451,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
         });
       }
       invalidateQueueCache(chat.platform);
-      announceDataChange('all');
+      announceDataChange('platforms');
       setArchiveId(null); setCustomArchiveReason('');
       if(action==='published'||action==='undo_published') void reloadChats.current(true);
       else await reloadChats.current(true);
@@ -472,7 +472,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
         // canonical state before the operator can retry, so a timeout cannot
         // leave stale counters or encourage a duplicate manual action.
         await reloadChats.current(true);
-        announceDataChange('all');
+        announceDataChange('platforms');
       }
       result={ok:false,error,refresh:publicationAction};
       if(action!=='published') setError(error);
@@ -509,7 +509,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
             : item)};
         });
         invalidateQueueCache('whatsapp');
-        announceDataChange('all');
+        announceDataChange('platforms');
         setNotice(cancelling
           ? 'WhatsApp автопублікацію скасовано до підтвердженої відправки.'
           : 'WhatsApp автопублікацію поставлено в executor queue. Publication fact з’явиться тільки після підтвердженого send.');
@@ -618,7 +618,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
         const body=await response.json() as {created?:number;skipped?:number;error?:string};
         if(!response.ok)throw new Error(body.error||'Не вдалося запустити автопост черги.');
         invalidateQueueCache('whatsapp');
-        announceDataChange('all');
+        announceDataChange('platforms');
         await reloadChats.current(true);
         const created=Number(body.created||0);
         const skipped=Number(body.skipped||0);

@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { WorkOsShell } from '@/components/work-os-shell';
+import { DATA_SYNC_EVENT, type DataSyncDetail } from '@/lib/client-sync';
 import type { DashboardSnapshot } from '@/lib/dashboard';
 
 type BootstrapPayload = {
@@ -14,6 +15,8 @@ export function WorkOsBootstrap({ user }: { user: { displayName: string; email: 
   const [error, setError] = useState('');
   const [quotaExceeded, setQuotaExceeded] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const payloadRef = useRef<BootstrapPayload | null>(null);
+  payloadRef.current = payload;
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +51,37 @@ export function WorkOsBootstrap({ user }: { user: { displayName: string; email: 
       controller.abort();
     };
   }, [attempt]);
+
+  // A newer authoritative revision (ServerSync's /api/sync poll, same- or cross-tab) must reach this
+  // snapshot too: without this, syncRevision was fixed at the initial mount forever and no workspace
+  // ever saw a cross-device change (only a same-tab mutation's own direct reload worked).
+  const reloadSnapshot = useCallback(async () => {
+    try {
+      const response = await fetch('/api/dashboard-bootstrap', { cache: 'no-store', headers: { Accept: 'application/json' } });
+      const body = await response.json().catch(() => null) as (BootstrapPayload & { error?: string }) | null;
+      if (!response.ok || !body?.snapshot || !Number.isSafeInteger(body.syncRevision)) return;
+      setPayload((current) => (current && body.syncRevision <= current.syncRevision ? current : { snapshot: body.snapshot, syncRevision: body.syncRevision }));
+    } catch { /* next poll/local write will retry */ }
+  }, []);
+
+  useEffect(() => {
+    const onDataSync = (event: Event) => {
+      const detail = (event as CustomEvent<DataSyncDetail>).detail;
+      const current = payloadRef.current;
+      if (!detail || !current) return;
+      if (detail.scope === 'dashboard' || detail.scope === 'all') {
+        void reloadSnapshot();
+        return;
+      }
+      // Other scopes don't need a fresh dashboard snapshot, but the revision number itself must stay
+      // live so SettingsWorkspace-style consumers and the next same-scope comparison see it move.
+      if (Number.isSafeInteger(detail.revision) && (detail.revision as number) > current.syncRevision) {
+        setPayload({ ...current, syncRevision: detail.revision as number });
+      }
+    };
+    window.addEventListener(DATA_SYNC_EVENT, onDataSync);
+    return () => window.removeEventListener(DATA_SYNC_EVENT, onDataSync);
+  }, [reloadSnapshot]);
 
   if (payload) {
     return <>

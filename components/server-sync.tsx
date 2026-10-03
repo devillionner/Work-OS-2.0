@@ -7,6 +7,7 @@ import {
   DATA_SYNC_EVENT,
   DATA_SYNC_REQUEST_EVENT,
   type DataSyncDetail,
+  type DataSyncScope,
 } from '@/lib/client-sync';
 
 type SyncResponse = { revision?: number };
@@ -17,6 +18,16 @@ const SERVER_SYNC_IDLE_MIN_MS = 30_000;
 const SERVER_SYNC_IDLE_MAX_MS = 60_000;
 const SERVER_SYNC_ERROR_MAX_MS = 300_000;
 const MIN_REFRESH_GAP_MS = 1_200;
+// A runner or a burst of local edits can announce several local-write/cross-tab signals within a few
+// seconds; coalesce them into one authoritative check instead of one round trip per signal.
+const WAKE_COALESCE_MS = 3_000;
+
+// Different scopes merge up to 'all' instead of picking one arbitrarily, so a coalesced burst never
+// under-reports what changed.
+function mergeScope(current: DataSyncScope | null, next: DataSyncScope): DataSyncScope {
+  if (current === null || current === next) return next;
+  return 'all';
+}
 
 export function ServerSync() {
   const router = useRouter();
@@ -27,7 +38,7 @@ export function ServerSync() {
   const businessDateRef = useRef(readKyivBusinessDate());
 
   // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
-  const checkRevision = useCallback(async (reason: DataSyncDetail['reason']): Promise<SyncCheckResult> => {
+  const checkRevision = useCallback(async (reason: DataSyncDetail['reason'], scope: DataSyncScope = 'all'): Promise<SyncCheckResult> => {
     if (checkingRef.current) {
       if (reason !== 'poll') pendingCheckRef.current = reason;
       return 'skipped';
@@ -66,7 +77,7 @@ export function ServerSync() {
 
       revisionRef.current = revision;
       lastRefreshAt.current = now;
-      const detail: DataSyncDetail = { scope: 'all', reason, at: now };
+      const detail: DataSyncDetail = { scope, reason, at: now, revision };
       window.dispatchEvent(new CustomEvent<DataSyncDetail>(DATA_SYNC_EVENT, { detail }));
       router.refresh();
       return 'changed';
@@ -144,14 +155,14 @@ export function ServerSync() {
       schedulePoll(pollDelay);
     }
 
-    const wake = (reason: DataSyncDetail['reason']) => {
+    const wake = (reason: DataSyncDetail['reason'], scope: DataSyncScope = 'all') => {
       if (refreshBusinessDay()) {
         pollDelay = SERVER_SYNC_ACTIVE_MS;
         failureDelay = 0;
         schedulePoll(pollDelay);
         return;
       }
-      void checkRevision(reason).then((outcome) => {
+      void checkRevision(reason, scope).then((outcome) => {
         if (stopped) return;
         recordOutcome(outcome);
         if (outcome !== 'failed' && outcome !== 'skipped') {
@@ -162,6 +173,19 @@ export function ServerSync() {
       });
     };
 
+    let wakeTimer: number | null = null;
+    let wakeScope: DataSyncScope | null = null;
+    const scheduleWake = (reason: DataSyncDetail['reason'], scope: DataSyncScope) => {
+      wakeScope = mergeScope(wakeScope, scope);
+      if (wakeTimer !== null) window.clearTimeout(wakeTimer);
+      wakeTimer = window.setTimeout(() => {
+        wakeTimer = null;
+        const merged = wakeScope ?? 'all';
+        wakeScope = null;
+        wake(reason, merged);
+      }, WAKE_COALESCE_MS);
+    };
+
     const onFocus = () => wake('focus');
     const onOnline = () => wake('online');
     const onVisibility = () => {
@@ -169,7 +193,7 @@ export function ServerSync() {
     };
     const onLocalData = (event: Event) => {
       const detail = (event as CustomEvent<DataSyncDetail>).detail;
-      if (detail?.reason === 'local-write') wake('cross-tab');
+      if (detail?.reason === 'local-write') scheduleWake('cross-tab', detail.scope ?? 'all');
     };
     const onSyncRequest = (event: Event) => {
       const detail = (event as CustomEvent<DataSyncDetail>).detail;
@@ -179,7 +203,7 @@ export function ServerSync() {
     let channel: BroadcastChannel | null = null;
     if ('BroadcastChannel' in window) {
       channel = new BroadcastChannel(DATA_SYNC_CHANNEL);
-      channel.onmessage = () => wake('cross-tab');
+      channel.onmessage = (event: MessageEvent<DataSyncDetail | undefined>) => scheduleWake('cross-tab', event.data?.scope ?? 'all');
     }
 
     schedulePoll(0);
@@ -192,6 +216,7 @@ export function ServerSync() {
     return () => {
       stopped = true;
       if (pollTimer !== null) window.clearTimeout(pollTimer);
+      if (wakeTimer !== null) window.clearTimeout(wakeTimer);
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('online', onOnline);
       window.removeEventListener(DATA_SYNC_EVENT, onLocalData);
