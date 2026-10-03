@@ -58,15 +58,23 @@ void test('generated Wrangler config repoints main at the OwnerChannel wrapper',
   assert.equal(normalizeGeneratedWranglerConfig({ name: 'x', main: 'worker-entry.js' }).main, 'worker-entry.js');
 });
 
-void test('worker entry wrapper re-exports both vinext\'s handler and OwnerChannel', async (t) => {
+void test('worker entry wrapper re-exports both vinext\'s handler and a colocated copy of OwnerChannel', async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'work-os-wrapper-'));
   t.after(async () => { const { rm } = await import('node:fs/promises'); await rm(directory, { recursive: true, force: true }); });
   await writeWorkerEntryWrapper(directory);
   const source = await readFile(path.join(directory, 'worker-entry.js'), 'utf8');
   assert.equal(source, workerEntryWrapperSource());
   assert.match(source, /import app from '\.\/index\.js';/);
-  assert.match(source, /export \{ OwnerChannel \} from '\.\.\/\.\.\/workers\/owner-channel\.ts';/);
+  // Same-directory import, not a path reaching outside dist/server: vinext's "no_bundle" Wrangler
+  // config uploads that directory as separate ES modules, and the Workers API rejects a module
+  // specifier that escapes it ("Invalid module specifier") — confirmed live against staging.
+  assert.match(source, /export \{ OwnerChannel \} from '\.\/owner-channel\.js';/);
   assert.match(source, /export default app;/);
+  // The real class source must be copied alongside, not just referenced.
+  const copied = await readFile(path.join(directory, 'owner-channel.js'), 'utf8');
+  const original = await readFile(new URL('../workers/owner-channel.js', import.meta.url), 'utf8');
+  assert.equal(copied, original);
+  assert.match(copied, /export class OwnerChannel/);
 });
 
 void test('generated Wrangler file is normalized once and then stays stable', async (t) => {
@@ -100,4 +108,5 @@ void test('normalizing a real vinext build output also writes the colocated work
   assert.equal(await normalizeGeneratedWranglerFile(file), true);
   assert.equal(JSON.parse(await readFile(file, 'utf8')).main, 'worker-entry.js');
   assert.equal(await readFile(path.join(directory, 'worker-entry.js'), 'utf8'), workerEntryWrapperSource());
+  assert.match(await readFile(path.join(directory, 'owner-channel.js'), 'utf8'), /export class OwnerChannel/);
 });

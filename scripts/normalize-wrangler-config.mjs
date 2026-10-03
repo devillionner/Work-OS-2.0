@@ -7,6 +7,13 @@ import { fileURLToPath } from 'node:url';
 // by writeWorkerEntryWrapper below, colocated with index.js at build time) re-exports both from one
 // file, and becomes the new "main" so wrangler deploys that instead of the bare vinext output.
 const WORKER_ENTRY_FILENAME = 'worker-entry.js';
+const OWNER_CHANNEL_FILENAME = 'owner-channel.js';
+// vinext configures Wrangler with "no_bundle": true, so dist/server is uploaded as separate ES
+// modules with no bundling step — an import reaching outside that directory (e.g. back into the
+// repo's workers/ source folder) is rejected by the Workers upload API ("Invalid module
+// specifier"). The Durable Object source must therefore be copied into dist/server, not referenced
+// in place.
+const ownerChannelSourcePath = fileURLToPath(new URL('../workers/owner-channel.js', import.meta.url));
 
 export function normalizeGeneratedWranglerConfig(config) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
@@ -20,11 +27,13 @@ export function normalizeGeneratedWranglerConfig(config) {
 }
 
 export function workerEntryWrapperSource() {
-  return `import app from './index.js';\nexport { OwnerChannel } from '../../workers/owner-channel.ts';\nexport default app;\n`;
+  return `import app from './index.js';\nexport { OwnerChannel } from './${OWNER_CHANNEL_FILENAME}';\nexport default app;\n`;
 }
 
 export async function writeWorkerEntryWrapper(serverDir) {
   await writeFile(path.join(serverDir, WORKER_ENTRY_FILENAME), workerEntryWrapperSource(), 'utf8');
+  const ownerChannelSource = await readFile(ownerChannelSourcePath, 'utf8');
+  await writeFile(path.join(serverDir, OWNER_CHANNEL_FILENAME), ownerChannelSource, 'utf8');
 }
 
 export async function normalizeGeneratedWranglerFile(

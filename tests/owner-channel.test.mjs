@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { OwnerChannel } from '../workers/owner-channel.ts';
+import { OwnerChannel } from '../workers/owner-channel.js';
 
 // OwnerChannel.fetch() constructs a real WebSocketPair/Response{webSocket}, which only exist inside
 // the Workers runtime (Miniflare/production) — not in plain Node. These tests exercise the message

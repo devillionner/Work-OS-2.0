@@ -7,33 +7,27 @@
 // D1 keeps only durable facts (chats, publications, qualification outcomes); "who is running,
 // who owns the current task" lives here instead of the old time-limited lease/fencing columns —
 // an open WebSocket connection *is* the ownership proof, so there is nothing to expire.
+//
+// Plain JS, not TypeScript: vinext builds with Wrangler's "no_bundle" mode, which uploads
+// dist/server/*.js as separate ES modules without a bundling step, so this file (copied
+// alongside worker-entry.js at build time — see scripts/normalize-wrangler-config.mjs) must
+// already be plain, runnable JavaScript. Tests cover the message-routing/storage behavior
+// directly (tests/owner-channel.test.mjs); IDE type hints come from the JSDoc below.
 
-export type ChannelKind = 'browser' | 'runner';
-export type ProcessName = 'waiting_check' | 'autopost' | 'discovery';
-
-type ProcessState = {
-  running: boolean;
-  params: unknown;
-  updatedAt: number;
-};
-
-type StoredState = {
-  processes: Partial<Record<ProcessName, ProcessState>>;
-};
-
-type ChannelMessage =
-  | { type: 'command'; process: ProcessName; action: 'start' | 'stop'; params?: unknown }
-  | { type: 'progress' | 'result'; process: ProcessName; data: unknown }
-  | { type: 'ping' };
+/** @typedef {'browser'|'runner'} ChannelKind */
+/** @typedef {'waiting_check'|'autopost'|'discovery'} ProcessName */
+/** @typedef {{running: boolean, params: unknown, updatedAt: number}} ProcessState */
 
 const STORAGE_KEY = 'state';
 const PING = JSON.stringify({ type: 'ping' });
 const PONG = JSON.stringify({ type: 'pong' });
 
-export class OwnerChannel implements DurableObject {
-  private ctx: DurableObjectState;
-
-  constructor(ctx: DurableObjectState, _env: Cloudflare.Env) {
+export class OwnerChannel {
+  /**
+   * @param {DurableObjectState} ctx
+   * @param {Cloudflare.Env} _env
+   */
+  constructor(ctx, _env) {
     this.ctx = ctx;
     // Hibernation-safe auto-response: a bare ping/pong never wakes the DO or runs JS.
     // WebSocketRequestResponsePair only exists in the real Workers runtime; tests exercise the
@@ -43,12 +37,14 @@ export class OwnerChannel implements DurableObject {
     }
   }
 
-  async fetch(request: Request): Promise<Response> {
+  /** @param {Request} request */
+  async fetch(request) {
     if (request.headers.get('Upgrade') !== 'websocket') {
       return new Response('Expected a WebSocket upgrade.', { status: 426 });
     }
     const url = new URL(request.url);
-    const kind: ChannelKind = url.searchParams.get('kind') === 'runner' ? 'runner' : 'browser';
+    /** @type {ChannelKind} */
+    const kind = url.searchParams.get('kind') === 'runner' ? 'runner' : 'browser';
     const deviceId = url.searchParams.get('deviceId') || '';
 
     const pair = new WebSocketPair();
@@ -71,9 +67,13 @@ export class OwnerChannel implements DurableObject {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
+  /**
+   * @param {WebSocket} ws
+   * @param {string|ArrayBuffer} raw
+   */
+  async webSocketMessage(ws, raw) {
     if (typeof raw !== 'string') return;
-    let message: ChannelMessage;
+    let message;
     try { message = JSON.parse(raw); } catch { return; }
     if (message.type === 'ping') { ws.send(PONG); return; }
 
@@ -91,33 +91,49 @@ export class OwnerChannel implements DurableObject {
     }
   }
 
-  async webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
+  /**
+   * @param {WebSocket} ws
+   * @param {number} _code
+   * @param {string} _reason
+   * @param {boolean} _wasClean
+   */
+  async webSocketClose(ws, _code, _reason, _wasClean) {
     if (this.tagsOf(ws).includes('runner') && this.ctx.getWebSockets('runner').length === 0) {
       this.broadcast('browser', { type: 'runner_status', connected: false });
     }
   }
 
-  async webSocketError(ws: WebSocket, _error: unknown): Promise<void> {
+  /**
+   * @param {WebSocket} ws
+   * @param {unknown} _error
+   */
+  async webSocketError(ws, _error) {
     await this.webSocketClose(ws, 1011, 'error', false);
   }
 
-  private tagsOf(ws: WebSocket): string[] {
+  /** @param {WebSocket} ws */
+  tagsOf(ws) {
     return this.ctx.getTags(ws);
   }
 
-  private broadcast(kind: ChannelKind, message: unknown) {
+  /**
+   * @param {ChannelKind} kind
+   * @param {unknown} message
+   */
+  broadcast(kind, message) {
     const payload = JSON.stringify(message);
     for (const socket of this.ctx.getWebSockets(kind)) {
       try { socket.send(payload); } catch { /* socket closing concurrently; next close event cleans up */ }
     }
   }
 
-  private async readState(): Promise<StoredState> {
-    const stored = await this.ctx.storage.get<StoredState>(STORAGE_KEY);
+  async readState() {
+    const stored = await this.ctx.storage.get(STORAGE_KEY);
     return stored ?? { processes: {} };
   }
 
-  private async writeState(state: StoredState): Promise<void> {
+  /** @param {{processes: Record<string, ProcessState>}} state */
+  async writeState(state) {
     await this.ctx.storage.put(STORAGE_KEY, state);
   }
 }

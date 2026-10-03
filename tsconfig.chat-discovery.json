@@ -8,8 +8,7 @@
     "worker-env.d.ts",
     "app/api/chat-discovery/route.ts",
     "app/api/live/route.ts",
-    "lib/chat-discovery/**/*.ts",
-    "workers/**/*.ts"
+    "lib/chat-discovery/**/*.ts"
   ],
   "exclude": [
     "node_modules",
