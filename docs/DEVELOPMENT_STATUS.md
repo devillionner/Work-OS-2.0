@@ -5,7 +5,7 @@
   з'єднання автоматично (DO пам'ятає `running`/`stopped` і сам штовхає продовження); порядок
   міграції трьох процесів — Waiting check → Autopost → Discovery; WS-автентифікація runner-а —
   токен у query-рядку. Повний план: `~/.claude/plans/velvet-plotting-waffle.md`.
-- `workers/owner-channel.ts`: новий DO-клас `OwnerChannel`, один на власника. Приймає WebSocket
+- `workers/owner-channel.js`: новий DO-клас `OwnerChannel`, один на власника. Приймає WebSocket
   (Hibernation API: `ctx.acceptWebSocket`/`getWebSockets`/`getTags`, `setWebSocketAutoResponse` для
   ping/pong без пробудження DO), тегує сокети `browser`/`runner`. Команди (`start`/`stop`) від
   браузера пишуться в `ctx.storage` і релеяться runner-сокетам; `progress`/`result` від runner —
@@ -22,22 +22,37 @@
   Перевірено наживо: `npm run build` коректно пропагує обидва ключі у згенерований
   `dist/server/wrangler.json` (vinext вже має ці поля у своїй схемі, просто порожні без джерела).
 - `scripts/normalize-wrangler-config.mjs`: додатково пише `dist/server/worker-entry.js`
-  (`import app from './index.js'; export { OwnerChannel } from '../../workers/owner-channel.ts';
-  export default app;`) і перезаписує `main` з `index.js` на `worker-entry.js` — vinext будує
-  лише дефолтний fetch-експорт і не знає про DO-клас.
+  (`import app from './index.js'; export { OwnerChannel } from './owner-channel.js';
+  export default app;`), копіює `workers/owner-channel.js` у `dist/server/owner-channel.js`
+  (поряд, не поза каталогом — див. нижче чому) і перезаписує `main` з `index.js` на
+  `worker-entry.js` — vinext будує лише дефолтний fetch-експорт і не знає про DO-клас.
 - `scripts/deploy-staging.mjs`: новий guard поряд з D1-перевіркою — відмовляє в деплої, якщо
   `OWNER_CHANNEL`-binding відсутній/невірний або `main` не `worker-entry.js`, тим самим fail-closed
   способом, що й для D1.
 - Тести: `tests/owner-channel.test.mjs` (6 нових, мок-сокети — `fetch()` конструює справжній
   `WebSocketPair`/`Response.webSocket`, доступні лише в реальному Workers runtime, тож маршрутизація
   повідомлень/зберігання стану/прощання runner-а перевірені напряму, без хендшейку); нові кейси в
-  `tests/wrangler-config.test.mjs` (5 нових) і `tests/staging-deploy-contract.test.mjs`.
-- Доказ: lint, typecheck (додав `workers/**/*.ts` і `app/api/live/route.ts` в
-  `tsconfig.chat-discovery.json` — єдиний tsconfig, який реально типчекається в CI), build — зелені;
-  `node --experimental-strip-types --test` на нових і суміжних файлах (`chat-discovery-executor-auth`,
-  `d1-budget-contract`) — зелені. **Не перевірено:** чи ця конкретна Cloudflare-підписка справді
-  піднімає SQLite-backed Durable Object — `wrangler deploy --dry-run` локально заблоковано
-  (стороння команда деплою), тож перша реальна перевірка — сам push і Cloudflare Workers Builds.
+  `tests/wrangler-config.test.mjs` (3 нових) і `tests/staging-deploy-contract.test.mjs`.
+- Доказ: lint, typecheck, build — зелені; `node --experimental-strip-types --test` на нових і
+  суміжних файлах — зелені.
+- **Перша спроба деплою (коміт `33c5480`) впала на кроці Deploying**: Cloudflare API прийняв сам
+  `OWNER_CHANNEL`/Durable Object binding без питань, але відмовив імпортом
+  `"../../workers/owner-channel.ts"` з `worker-entry.js` — `Invalid module specifier` [code: 10021].
+  Причина: vinext конфігурує Wrangler з `"no_bundle": true` (`dist/server` вантажиться як окремі
+  ES-модулі без збірки), тож Workers API не резолвить шлях, що виходить за межі завантаженого
+  каталогу. Побачено живцем через Cloudflare dashboard (оператор перевірив, бо я не маю туди логіну
+  і не вводитиму чужі credentials) — build log показав точний рядок і код помилки.
+- **Виправлено** (коміт `5a307d1`): `workers/owner-channel.ts` → `owner-channel.js` (звичайний ESM
+  без TypeScript-синтаксису — та сама причина, `no_bundle` очікує `.js`/`.mjs`); `writeWorkerEntryWrapper`
+  тепер копіює `owner-channel.js` у `dist/server/` поряд з `worker-entry.js` замість посилання на
+  файл поза цим каталогом.
+- **Підтверджено наживо після фіксу**: `/api/build` на staging показує `5a307d1`, деплой пройшов
+  до кінця. `curl`/HTTP-2 upgrade-заголовки не тригерять справжній WebSocket handshake (edge
+  їх ігнорує), тож перевірив реальним WS-клієнтом (`node -e "new WebSocket(...)"`) — з'єднання з
+  `/api/live?kind=runner&token=невалідний` отримує non-101 відповідь (не 500, не зависання),
+  тобто DO реально піднімається і auth-перевірка в `app/api/live/route.ts` виконується. Повний
+  успішний handshake (валідна сесія браузера чи справжній executor-токен) ще не перевірявся — для
+  цього потрібна реальна авторизація, яку я не можу зімітувати сам; природно перевіриться в 3b–3f.
 
 ## 2026-10-04 — Синхронізація: знайдено й виправлено мертвий шлях живого оновлення; scope у сигналах став функціональним (коміт 2, легка версія)
 
