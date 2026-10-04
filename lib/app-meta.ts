@@ -1,8 +1,9 @@
-export const APP_VERSION = '0.2.94';
+export const APP_VERSION = '0.2.95';
 export const APP_RELEASE_DATE = '2026-10-04';
 
 // User-facing copy only. Keep each note short and plain; technical details belong in docs and commits.
 export const APP_CHANGES = [
+  'Виправлено: помічник на комп’ютері знову підключається до Work OS, а статус «Очікування» завантажується.',
   'Аналітика, «Сьогодні» й цілі рахуються з готових денних підсумків — відкриваються швидше й набагато менше навантажують базу.',
   'Черга «Уточнити профіль» відкривається швидше й майже вп’ятеро менше навантажує базу.',
   'Перевірка заявок WhatsApp і статус помічника на комп’ютері оновлюються одразу, а не раз на хвилину.',

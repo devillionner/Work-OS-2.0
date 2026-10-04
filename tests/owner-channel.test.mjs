@@ -17,7 +17,8 @@ async function seedAutopostable(db, { chatId = 'wa-1' } = {}) {
 // the Workers runtime (Miniflare/production) — not in plain Node. These tests exercise the message
 // routing/storage/business-logic methods directly with minimal mocks instead, matching how this repo
 // already tests pure logic without spinning up a full runtime where a real one isn't needed. The
-// upgrade handshake itself is verified live against staging (see docs/DEVELOPMENT_STATUS.md).
+// upgrade handshake itself runs in workers/live-gateway.js before vinext (tests/live-gateway.test.mjs;
+// the real 101 only exists in the Workers runtime — see docs/DEVELOPMENT_STATUS.md, 2026-10-04).
 
 function mockSocket() {
   const sent = [];

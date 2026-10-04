@@ -69,7 +69,15 @@ void test('worker entry wrapper re-exports both vinext\'s handler and a colocate
   // config uploads that directory as separate ES modules, and the Workers API rejects a module
   // specifier that escapes it ("Invalid module specifier") — confirmed live against staging.
   assert.match(source, /export \{ OwnerChannel \} from '\.\/owner-channel\.js';/);
-  assert.match(source, /export default app;/);
+  // /api/live is answered before vinext (it cannot pass a 101 upgrade through, see
+  // workers/live-gateway.js); everything else still goes to vinext's own fetch handler.
+  assert.match(source, /import \{ handleLiveRequest \} from '\.\/live-gateway\.js';/);
+  assert.match(source, /if \(new URL\(request\.url\)\.pathname === '\/api\/live'\) return handleLiveRequest\(request, env\);/);
+  assert.match(source, /return app\.fetch\(request, env, ctx\);/);
+  assert.match(source, /\.\.\.app,/);
+  const gateway = await readFile(path.join(directory, 'live-gateway.js'), 'utf8');
+  assert.doesNotMatch(gateway, /^import /m);
+  assert.match(gateway, /export\s*\{[^}]*handleLiveRequest/);
   // The real class, bundled with its lib/chats/* TypeScript business logic: a flat copy of the
   // source file would no longer work once owner-channel.js imports outside its own directory, and
   // esbuild's bundling rewrites `export class X` into `var X = class {...}; export { X };`, so the

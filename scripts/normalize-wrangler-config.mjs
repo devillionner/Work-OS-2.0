@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 // file, and becomes the new "main" so wrangler deploys that instead of the bare vinext output.
 const WORKER_ENTRY_FILENAME = 'worker-entry.js';
 const OWNER_CHANNEL_FILENAME = 'owner-channel.js';
+const LIVE_GATEWAY_FILENAME = 'live-gateway.js';
 // vinext configures Wrangler with "no_bundle": true, so dist/server is uploaded as separate ES
 // modules with no bundling step — an import reaching outside that directory (e.g. back into the
 // repo's workers/ source folder, or into lib/chats/* TypeScript the Durable Object's business logic
@@ -16,10 +17,20 @@ const OWNER_CHANNEL_FILENAME = 'owner-channel.js';
 // therefore bundled with esbuild into one self-contained ES module (zero imports left pointing
 // outside the file) before being written into dist/server, not referenced or copied in place.
 const ownerChannelSourcePath = fileURLToPath(new URL('../workers/owner-channel.js', import.meta.url));
+const liveGatewaySourcePath = fileURLToPath(new URL('../workers/live-gateway.js', import.meta.url));
 
 export async function bundleOwnerChannel() {
+  return bundleWorkerModule(ownerChannelSourcePath);
+}
+
+// Same self-contained bundling for the /api/live gateway that worker-entry.js calls before vinext.
+export async function bundleLiveGateway() {
+  return bundleWorkerModule(liveGatewaySourcePath);
+}
+
+async function bundleWorkerModule(entryPoint) {
   const result = await esbuild.build({
-    entryPoints: [ownerChannelSourcePath],
+    entryPoints: [entryPoint],
     bundle: true,
     format: 'esm',
     platform: 'neutral',
@@ -40,13 +51,29 @@ export function normalizeGeneratedWranglerConfig(config) {
   return normalized;
 }
 
+// /api/live is answered before vinext: vinext rebuilds every route Response and a 101 WebSocket
+// upgrade cannot be reconstructed, so through a vinext route the client always got a 500 (see
+// workers/live-gateway.js). Everything else goes to vinext unchanged.
 export function workerEntryWrapperSource() {
-  return `import app from './index.js';\nexport { OwnerChannel } from './${OWNER_CHANNEL_FILENAME}';\nexport default app;\n`;
+  return [
+    `import app from './index.js';`,
+    `import { handleLiveRequest } from './${LIVE_GATEWAY_FILENAME}';`,
+    `export { OwnerChannel } from './${OWNER_CHANNEL_FILENAME}';`,
+    `export default {`,
+    `  ...app,`,
+    `  fetch(request, env, ctx) {`,
+    `    if (new URL(request.url).pathname === '/api/live') return handleLiveRequest(request, env);`,
+    `    return app.fetch(request, env, ctx);`,
+    `  },`,
+    `};`,
+    ``,
+  ].join('\n');
 }
 
 export async function writeWorkerEntryWrapper(serverDir) {
   await writeFile(path.join(serverDir, WORKER_ENTRY_FILENAME), workerEntryWrapperSource(), 'utf8');
   await writeFile(path.join(serverDir, OWNER_CHANNEL_FILENAME), await bundleOwnerChannel(), 'utf8');
+  await writeFile(path.join(serverDir, LIVE_GATEWAY_FILENAME), await bundleLiveGateway(), 'utf8');
 }
 
 export async function normalizeGeneratedWranglerFile(

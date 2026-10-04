@@ -14,11 +14,17 @@ async function callOwnerChannel(userId: string, method: string, body?: unknown):
   const stub = env.OWNER_CHANNEL.get(env.OWNER_CHANNEL.idFromName(userId));
   const url = new URL('https://owner-channel/waiting-check');
   url.searchParams.set('userId', userId);
-  return stub.fetch(new Request(url, {
+  const response = await stub.fetch(new Request(url, {
     method,
     headers: { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   }));
+  // A Durable Object response has immutable headers and vinext adds its own to every route response
+  // ("Can't modify immutable headers" on staging, 2026-10-04), so hand vinext a fresh copy.
+  return new Response(response.body, {
+    status: response.status,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
 }
 
 export async function GET(): Promise<Response> {
