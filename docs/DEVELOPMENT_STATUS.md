@@ -1,3 +1,86 @@
+## 2026-10-04 — WhatsApp Waiting check на DO-координацію (коміт 3b)
+
+- Другий підкоміт коміту 3 (Waiting check → Autopost → Discovery, Waiting check — найпростіший,
+  починали з нього). Стан пакету перевірки (черга-снепшот id+name+link, поточний чат, лічильники,
+  список проблем, `stopReason`) переїхав з CAS-блоба `user_settings.whatsapp_waiting_check_v1` у
+  сховище DO (`ctx.storage` у `workers/owner-channel.js`). D1 лишає тільки: читання списку придатних
+  чатів ОДИН РАЗ на старті батчу (`lib/chats/whatsapp-waiting-check.ts#readEligibleWaitingChats`) і
+  фактичні переходи (`transitionChat`/`changeChatSnooze` — не змінені) при застосуванні результату
+  runner-а. Жодного device/lease fencing більше немає — WebSocket-з'єднання runner-а є єдиним
+  доказом володіння задачею, нема чого й коли "протерміновувати".
+- `OwnerChannel` отримав реальну бізнес-логіку для `waiting_check`: `start`/`retry_problems`/`stop`
+  приходять звичайним (не WS) HTTP-запитом на внутрішній шлях `/waiting-check` — браузер і далі
+  опитує той самий `GET`/`POST /api/chat-discovery/waiting-check` зі старою частотою й тим самим
+  JSON-контрактом, тож на фронтенді (панель, workspace) не змінилося жодного рядка. DO сам читає D1
+  і штовхає `{type:'task',...}` runner-сокету; runner відповідає `result`/`release`/`ready`:
+  `result` застосовує перехід і одразу штовхає наступну задачу; `release` (технічна проблема —
+  WhatsApp Web не завантажився, CDP недоступний — не стосується конкретного чату) повертає чат у
+  чергу БЕЗ негайного повторного штовхання, інакше постійна глобальна проблема перетворилась би на
+  тугий цикл без паузи; runner сам шле `ready`, коли готовий, після власного бекофу. Реконект
+  runner-а одразу пересилає задачу, яка була "в польоті" на момент розриву — DO не знає, чи runner
+  встиг завершити її, тож безпечно/ідемпотентно переслати ту саму задачу ще раз.
+- Старий HTTP-executor-роут `/api/chat-discovery/waiting-check/executor` видалено повністю, а не
+  залишено сумісним проміжним шляхом — щойно стан перестав жити в D1, цей роут утратив сенс, а
+  runner не говоритиме WebSocket до коміту 3e. Це узгоджений, очікуваний розрив: перевірка
+  «Очікування» через runner не працюватиме на staging до 3e.
+- **Архітектурна розвилка, звірена з оператором перед кодом (3 варіанти, обраний — бандлінг)**:
+  `workers/owner-channel.js` — плоский `.js`, копіюється в `dist/server/` без збірки через
+  `no_bundle`, але мав викликати існуючі TS-функції `transitionChat`/`changeChatSnooze`/
+  `readChatState` напряму. Прямий `import` TS-дерева з плоского файлу технічно неможливий без кроку
+  збірки (та сама причина, що зламала деплой коміту 3a — «Invalid module specifier»). Рішення:
+  `scripts/normalize-wrangler-config.mjs` тепер бандлить `owner-channel.js` через `esbuild` в один
+  самодостатній ES-модуль (нуль `import` за межі файлу) перед копіюванням у `dist/server/` —
+  перевірено на реальному `npm run build`: `dist/server/owner-channel.js` (34.5 КБ) містить
+  `export { OwnerChannel }` і жодного `import`. Перед написанням коду перевірено все дерево, яке
+  тепер фактично компілюється у Worker (`lib/chats/transitions.ts`, `snooze.ts`, `state.ts`,
+  `lib/business-time.ts`, `lib/leads/domain/time.ts`, `lib/chat-discovery/workflow-link.ts`,
+  `queue-idle.ts`) — усюди лише D1 + звичайний JS (crypto, дати), жодної залежності від
+  Next.js/сесійного контексту, яка не існувала б усередині DO. `esbuild` уже був на диску
+  транзитивною залежністю `vite`; додано одним явним рядком у `package.json`/`package-lock.json` —
+  пряма згода користувача, diff точковий (3 рядки, підтверджено `npm ci --dry-run` без помилок).
+- `tsconfig.chat-discovery.json`: додано `lib/chats/whatsapp-waiting-check.ts` і все дерево, яке
+  тепер фактично компілюється у Worker (`transitions.ts`, `snooze.ts`, `state.ts`,
+  `business-time.ts`, `leads/domain/time.ts`), `whatsapp-waiting-check-copy.ts` і браузерний роут
+  `waiting-check/route.ts` — раніше typecheck їх узагалі не бачив.
+- Тести: `tests/owner-channel.test.mjs` зросли з 6 до 14 — 8 нових на реальну бізнес-логіку через
+  Miniflare D1 (старт дає першу задачу runner-у; реконект резюмить задачу, яка була в польоті;
+  joined рухає чат у «Для публікації»; три невдачі поспіль зупиняють батч і фенсять пізній
+  результат; stop одразу фенсить; release не штовхає задачу негайно, чекає явного `ready`;
+  retry_problems бере лише попередні проблемні чати; фінішований батч збагачує проблеми
+  link/stateToken для кнопок панелі, а вирішений оператором чат зникає зі списку). Старі
+  generic-relay тести 3a перенесено з `process:'waiting_check'` на ще немігровані
+  `'discovery'`/`'autopost'`. `tests/chat-discovery-waiting-queue.test.mjs` скорочено — lease-
+  специфічні тести (два пристрої, re-issue після lease) прибрано як такі, що без lease більше не
+  мають сенсу; CDP-рівень і Discovery-executor тести (retired waiting-*, not_checked pacing)
+  лишились недоторканими. `tests/d1-poll-budget.test.mjs`: заміна «idle poll ≤2 рядки» на точніше
+  твердження — для waiting_check тепер 0 D1-запитів у простої (runner нічого не опитує, тримає
+  лише WS), а статус-опитування браузера обмежене розміром списку проблем одного батчу (≤30), а не
+  розміром бази власника. `tests/wrangler-config.test.mjs` оновлено під бандлений вивід (більше не
+  байт-в-байт копія джерела — `export class X` стає `var X=class{...};export{X}` після бандлінгу).
+  Дві тести в `tests/chat-discovery-cloud.test.mjs`, що викликали видалені lease-функції, переписані
+  на нові функції без зміни того, що саме перевіряють.
+- Докази: `npm run lint` і `npm run typecheck` (з новим include) — зелені; `npm run build` —
+  зелений, `dist/server/wrangler.json` і `owner-channel.js` перевірені вручну після реальної
+  збірки. Повні релевантні тестові файли — зелені: `owner-channel.test.mjs` 14/14,
+  `chat-discovery-waiting-queue.test.mjs` 4/4, `d1-poll-budget.test.mjs` 4/4 (ті самі файли, що й
+  раніше, просто повільні — Miniflare), `wrangler-config.test.mjs` 7/7, `chat-discovery-route-
+  contract.test.mjs` 8/8, `staging-deploy-contract.test.mjs` 1/1, `chat-discovery-runner.test.mjs` +
+  `chat-discovery-ui.test.mjs` + `platform-publication-sync.test.mjs` 78/78 разом,
+  `chat-discovery-cloud.test.mjs` 49/62 — лишилось рівно 13 відомих падінь з `docs/TODO.md`
+  (звірено пофайлово й потестово, збіг точний, нуль нових). Повний `npm run test:full` — 891/922,
+  31 падіння, звірено з повним списком обох відомих файлів у `docs/TODO.md` (13 у
+  `chat-discovery-cloud.test.mjs` + 18 у `discovery-source-outcomes.test.mjs`) пофайлово й
+  потестово — збіг точний, нуль нових падінь. Це рівень «код + локальний тест»; живої перевірки на
+  staging ще не було (і бути поки не може — runner говоритиме WS лише з коміту 3e, а до того
+  перевірка «Очікування» через нього не працює, як і узгоджено заздалегідь).
+- Побіжно (за прямим проханням, поза самим комітом 3b): релізна версія `lib/app-meta.ts` піднята до
+  `0.2.89` з новим `APP_CHANGES` (D1-бюджет коміту 1, виправлений крос-девайс sync коміту 2, і чесна
+  позначка про новий внутрішній канал WhatsApp «Очікування» без перебільшення вже наявної користі);
+  `package.json`/`package-lock.json` `"version"` синхронізовано. Запушено окремим точковим комітом
+  ще до завершення цього підкоміту — `npm run build` і швидкі `release-version`/`release-copy`/
+  `ux-contracts` тести перевірені саме на цей зріз окремо. Правило оновлювати версію на кожному
+  вартому релізу етапі тепер закріплено в `CLAUDE.md`.
+
 ## 2026-10-04 — Durable Object плумбінг без бізнес-логіки (коміт 3a)
 
 - Перший крок великого коміту 3 (канал змін замість опитування). Узгоджена з оператором архітектура:

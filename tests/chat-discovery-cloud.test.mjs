@@ -15,7 +15,7 @@ import {
 } from '../lib/chat-discovery/domain.ts';
 import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
 import { assertDiscoveryExecutorLease, claimDiscoveryExecutorQueue, completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
-import { claimWaitingWhatsAppCheck, readWaitingWhatsAppCheckStatus, startWaitingWhatsAppCheck, stopWaitingWhatsAppCheck } from '../lib/chats/whatsapp-waiting-check.ts';
+import { createWaitingCheckBatch, isWaitingCheckBatchActive, readEligibleWaitingChats, stopWaitingCheckBatch, waitingCheckStatusFromBatch } from '../lib/chats/whatsapp-waiting-check.ts';
 import { buildTelegramSearchPlan, discoverPublicWeb, discoverTelegramPublic, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl, telegramOlderPreviewUrl, telegramPublicChannelKey, telegramPublicPreviewUrl, telegramPublicSearchQueries } from '../lib/chat-discovery/public-web.ts';
 import { inferLocalPreviewTopicMatch } from '../lib/chat-discovery/local-preview.ts';
 import { changeChatLeave } from '../lib/chats/leave.ts';
@@ -1099,13 +1099,15 @@ void test('WhatsApp pending checks wait three days and require another explicit 
   assert.ok(stored.snoozed_until>201);
   assert.equal((await claimDiscoveryExecutorQueue(db,'u','device-a',1,stored.snoozed_until+1)).tasks.length,0);
 
-  const started=await startWaitingWhatsAppCheck(db,'u',stored.snoozed_until+1);
-  assert.equal(started.total,1);
-  const due=await claimWaitingWhatsAppCheck(db,'u','device-a',stored.snoozed_until+1);
-  assert.equal(due.chatId,candidate.importedChatId);
+  // Waiting-check batch state itself (start/claim/stop over the owner Durable Object) moved to
+  // commit 3b — see tests/owner-channel.test.mjs. What stays a Discovery-side contract is that the
+  // snoozed chat is simply absent from the eligible-chat snapshot until its deadline passes.
+  const items = await readEligibleWaitingChats(db, 'u', stored.snoozed_until + 1);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].id, candidate.importedChatId);
 });
 
-void test('legacy waiting chats are enrolled only by the operator batch and can be stopped safely', async (t) => {
+void test('legacy waiting chats are enrolled only by the operator batch and create no Discovery candidates', async (t) => {
   const db=await localDatabase(t);
   await db.prepare(`INSERT INTO chats(
     id,user_id,platform,name,link,normalized_link,workflow_status,is_private,created_at,updated_at
@@ -1114,14 +1116,15 @@ void test('legacy waiting chats are enrolled only by the operator batch and can 
     'waiting',0,100,100)`).run();
 
   assert.equal((await claimDiscoveryExecutorQueue(db,'u','device-a',1,200)).tasks.length,0);
-  const started=await startWaitingWhatsAppCheck(db,'u',200);
-  assert.equal(started.total,1);
-  assert.equal((await readWaitingWhatsAppCheckStatus(db,'u')).remaining,1);
+  const items = await readEligibleWaitingChats(db, 'u', 200);
+  const batch = createWaitingCheckBatch(items, 200);
+  assert.equal(batch.total,1);
+  assert.equal(isWaitingCheckBatchActive(batch),true);
 
-  const stopped=await stopWaitingWhatsAppCheck(db,'u',201);
-  assert.equal(stopped.active,false);
-  assert.equal(stopped.remaining,0);
-  assert.equal(await claimWaitingWhatsAppCheck(db,'u','device-a',202),null);
+  const stopped=stopWaitingCheckBatch(batch,201);
+  const status=waitingCheckStatusFromBatch(stopped);
+  assert.equal(status.active,false);
+  assert.equal(status.remaining,0);
   assert.equal((await claimDiscoveryExecutorQueue(db,'u','device-a',1,202)).tasks.length,0);
   assert.equal((await db.prepare(`SELECT COUNT(*) AS n FROM chat_discovery_candidates`).first()).n,0);
 });

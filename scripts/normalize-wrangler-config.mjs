@@ -1,4 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import esbuild from 'esbuild';
+import { writeFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,10 +11,23 @@ const WORKER_ENTRY_FILENAME = 'worker-entry.js';
 const OWNER_CHANNEL_FILENAME = 'owner-channel.js';
 // vinext configures Wrangler with "no_bundle": true, so dist/server is uploaded as separate ES
 // modules with no bundling step — an import reaching outside that directory (e.g. back into the
-// repo's workers/ source folder) is rejected by the Workers upload API ("Invalid module
-// specifier"). The Durable Object source must therefore be copied into dist/server, not referenced
-// in place.
+// repo's workers/ source folder, or into lib/chats/* TypeScript the Durable Object's business logic
+// calls) is rejected by the Workers upload API ("Invalid module specifier"). owner-channel.js is
+// therefore bundled with esbuild into one self-contained ES module (zero imports left pointing
+// outside the file) before being written into dist/server, not referenced or copied in place.
 const ownerChannelSourcePath = fileURLToPath(new URL('../workers/owner-channel.js', import.meta.url));
+
+export async function bundleOwnerChannel() {
+  const result = await esbuild.build({
+    entryPoints: [ownerChannelSourcePath],
+    bundle: true,
+    format: 'esm',
+    platform: 'neutral',
+    target: 'es2022',
+    write: false,
+  });
+  return result.outputFiles[0].text;
+}
 
 export function normalizeGeneratedWranglerConfig(config) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
@@ -32,8 +46,7 @@ export function workerEntryWrapperSource() {
 
 export async function writeWorkerEntryWrapper(serverDir) {
   await writeFile(path.join(serverDir, WORKER_ENTRY_FILENAME), workerEntryWrapperSource(), 'utf8');
-  const ownerChannelSource = await readFile(ownerChannelSourcePath, 'utf8');
-  await writeFile(path.join(serverDir, OWNER_CHANNEL_FILENAME), ownerChannelSource, 'utf8');
+  await writeFile(path.join(serverDir, OWNER_CHANNEL_FILENAME), await bundleOwnerChannel(), 'utf8');
 }
 
 export async function normalizeGeneratedWranglerFile(

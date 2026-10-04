@@ -70,11 +70,14 @@ void test('worker entry wrapper re-exports both vinext\'s handler and a colocate
   // specifier that escapes it ("Invalid module specifier") — confirmed live against staging.
   assert.match(source, /export \{ OwnerChannel \} from '\.\/owner-channel\.js';/);
   assert.match(source, /export default app;/);
-  // The real class source must be copied alongside, not just referenced.
+  // The real class, bundled with its lib/chats/* TypeScript business logic: a flat copy of the
+  // source file would no longer work once owner-channel.js imports outside its own directory, and
+  // esbuild's bundling rewrites `export class X` into `var X = class {...}; export { X };`, so the
+  // meaningful check is "no import reaches outside this file any more", not a byte-for-byte copy.
   const copied = await readFile(path.join(directory, 'owner-channel.js'), 'utf8');
-  const original = await readFile(new URL('../workers/owner-channel.js', import.meta.url), 'utf8');
-  assert.equal(copied, original);
-  assert.match(copied, /export class OwnerChannel/);
+  assert.doesNotMatch(copied, /^import /m);
+  assert.match(copied, /export\s*\{\s*OwnerChannel/);
+  assert.match(copied, /transitionChat/);
 });
 
 void test('generated Wrangler file is normalized once and then stays stable', async (t) => {
@@ -108,5 +111,5 @@ void test('normalizing a real vinext build output also writes the colocated work
   assert.equal(await normalizeGeneratedWranglerFile(file), true);
   assert.equal(JSON.parse(await readFile(file, 'utf8')).main, 'worker-entry.js');
   assert.equal(await readFile(path.join(directory, 'worker-entry.js'), 'utf8'), workerEntryWrapperSource());
-  assert.match(await readFile(path.join(directory, 'owner-channel.js'), 'utf8'), /export class OwnerChannel/);
+  assert.match(await readFile(path.join(directory, 'owner-channel.js'), 'utf8'), /export\s*\{\s*OwnerChannel/);
 });

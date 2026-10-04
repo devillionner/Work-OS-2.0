@@ -7,8 +7,16 @@
   "include": [
     "worker-env.d.ts",
     "app/api/chat-discovery/route.ts",
+    "app/api/chat-discovery/waiting-check/route.ts",
     "app/api/live/route.ts",
-    "lib/chat-discovery/**/*.ts"
+    "lib/chat-discovery/**/*.ts",
+    "lib/chats/whatsapp-waiting-check.ts",
+    "lib/chats/whatsapp-waiting-check-copy.ts",
+    "lib/chats/transitions.ts",
+    "lib/chats/snooze.ts",
+    "lib/chats/state.ts",
+    "lib/business-time.ts",
+    "lib/leads/domain/time.ts"
   ],
   "exclude": [
     "node_modules",

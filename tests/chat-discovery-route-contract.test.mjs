@@ -73,19 +73,25 @@ void test('operator can archive an unimported saved target without fabricating q
 });
 
 
-void test('WhatsApp waiting-check API always answers with JSON and never creates Discovery candidates', async()=>{
-  const [route,executorRoute,executor]=await Promise.all([
+void test('WhatsApp waiting-check API always answers with JSON and bridges to the owner Durable Object, not D1 leases', async()=>{
+  const [route,executor]=await Promise.all([
     readFile(new URL('../app/api/chat-discovery/waiting-check/route.ts',import.meta.url),'utf8'),
-    readFile(new URL('../app/api/chat-discovery/waiting-check/executor/route.ts',import.meta.url),'utf8'),
     readFile(new URL('../lib/chat-discovery/executor.ts',import.meta.url),'utf8'),
   ]);
-  assert.match(route,/function json\(value:unknown,status=200\)/);
+  assert.match(route,/function json\(value: unknown, status = 200\)/);
   assert.match(route,/WhatsApp waiting-check action failed/);
   assert.match(route,/Не вдалося запустити перевірку WhatsApp/);
-  assert.match(executorRoute,/authenticateDiscoveryExecutor\(env\.DB,request,now\)/);
-  assert.match(executorRoute,/claimWaitingWhatsAppCheck\(env\.DB,executor\.userId,executor\.deviceId,now\)/);
+  assert.match(route,/env\.OWNER_CHANNEL\.get\(env\.OWNER_CHANNEL\.idFromName\(userId\)\)/);
+  assert.doesNotMatch(route,/claimWaitingWhatsAppCheck|startWaitingWhatsAppCheck/);
+  // The old per-device HTTP executor bridge for this process is gone now that state lives in the DO
+  // and the runner protocol moves to WebSocket (commit 3e); the Discovery executor's own retired-row
+  // guard below is unrelated and still applies.
   assert.doesNotMatch(executor,/ensureWaitingWhatsAppCandidates/);
   assert.match(executor,/NOT \(\$\{RETIRED_WAITING_CHECK_CANDIDATE_SQL\}\)/);
+});
+
+void test('the retired HTTP waiting-check executor route is gone, not left to silently 404-bridge the old protocol', async()=>{
+  await assert.rejects(readFile(new URL('../app/api/chat-discovery/waiting-check/executor/route.ts',import.meta.url),'utf8'));
 });
 
 

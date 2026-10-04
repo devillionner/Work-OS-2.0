@@ -1,34 +1,55 @@
 // Durable Object: one instance per owner (idFromName(userId)), reached only through
-// app/api/live/route.ts (which has already authenticated the connection — this class trusts
-// its caller and does no auth of its own). Holds live process state in ctx.storage and relays
-// commands/progress between the browser and the local runner over Hibernatable WebSockets, so
-// neither side has to poll D1 to find out what the other is doing.
+// app/api/live/route.ts (WebSocket upgrades) and the waiting-check control route below (plain
+// HTTP) — both have already authenticated the caller, so this class trusts them and does no auth
+// of its own. Holds live process state in ctx.storage and relays commands/progress between the
+// browser and the local runner over Hibernatable WebSockets, so neither side has to poll D1 to
+// find out what the other is doing.
 //
 // D1 keeps only durable facts (chats, publications, qualification outcomes); "who is running,
 // who owns the current task" lives here instead of the old time-limited lease/fencing columns —
 // an open WebSocket connection *is* the ownership proof, so there is nothing to expire.
 //
 // Plain JS, not TypeScript: vinext builds with Wrangler's "no_bundle" mode, which uploads
-// dist/server/*.js as separate ES modules without a bundling step, so this file (copied
-// alongside worker-entry.js at build time — see scripts/normalize-wrangler-config.mjs) must
-// already be plain, runnable JavaScript. Tests cover the message-routing/storage behavior
-// directly (tests/owner-channel.test.mjs); IDE type hints come from the JSDoc below.
+// dist/server/*.js as separate ES modules without a bundling step, so this file cannot be
+// deployed with its TypeScript imports below left unresolved. scripts/normalize-wrangler-config.mjs
+// bundles this file (and the lib/chats/* modules the waiting_check business logic below calls)
+// into one self-contained ES module with esbuild at build time, so the imports are real at build
+// time and simply inlined by the time the file reaches dist/server. Tests cover the message-
+// routing/storage/business-logic behavior directly (tests/owner-channel.test.mjs); IDE type hints
+// come from the JSDoc below.
+import {
+  advanceWaitingCheckTask,
+  applyWaitingCheckResult,
+  createWaitingCheckBatch,
+  enrichWaitingCheckProblems,
+  isWaitingCheckBatchActive,
+  readEligibleWaitingChats,
+  releaseWaitingCheckTask,
+  stopWaitingCheckBatch,
+  waitingCheckStatusFromBatch,
+} from '../lib/chats/whatsapp-waiting-check.ts';
 
 /** @typedef {'browser'|'runner'} ChannelKind */
-/** @typedef {'waiting_check'|'autopost'|'discovery'} ProcessName */
-/** @typedef {{running: boolean, params: unknown, updatedAt: number}} ProcessState */
+/** @typedef {'autopost'|'discovery'} GenericProcessName */
+/** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, runnerLastSeenAt: number|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 const PING = JSON.stringify({ type: 'ping' });
 const PONG = JSON.stringify({ type: 'pong' });
 
+function nowSeconds() {
+  return Math.floor(Date.now() / 1000);
+}
+
 export class OwnerChannel {
   /**
    * @param {DurableObjectState} ctx
-   * @param {Cloudflare.Env} _env
+   * @param {Cloudflare.Env} env
    */
-  constructor(ctx, _env) {
+  constructor(ctx, env) {
     this.ctx = ctx;
+    this.env = env;
     // Hibernation-safe auto-response: a bare ping/pong never wakes the DO or runs JS.
     // WebSocketRequestResponsePair only exists in the real Workers runtime; tests exercise the
     // message-routing methods directly with a mock ctx that doesn't need it.
@@ -39,10 +60,24 @@ export class OwnerChannel {
 
   /** @param {Request} request */
   async fetch(request) {
-    if (request.headers.get('Upgrade') !== 'websocket') {
-      return new Response('Expected a WebSocket upgrade.', { status: 426 });
-    }
     const url = new URL(request.url);
+    const userId = url.searchParams.get('userId') || '';
+
+    if (request.headers.get('Upgrade') === 'websocket') {
+      return this.acceptChannel(request, url, userId);
+    }
+    if (url.pathname === '/waiting-check') {
+      return this.handleWaitingCheckHttp(request, userId);
+    }
+    return new Response('Expected a WebSocket upgrade.', { status: 426 });
+  }
+
+  /**
+   * @param {Request} request
+   * @param {URL} url
+   * @param {string} userId
+   */
+  async acceptChannel(request, url, userId) {
     /** @type {ChannelKind} */
     const kind = url.searchParams.get('kind') === 'runner' ? 'runner' : 'browser';
     const deviceId = url.searchParams.get('deviceId') || '';
@@ -51,20 +86,113 @@ export class OwnerChannel {
     const [client, server] = [pair[0], pair[1]];
     this.ctx.acceptWebSocket(server, deviceId ? [kind, `device:${deviceId}`] : [kind]);
 
-    const state = await this.readState();
-    if (kind === 'browser') {
-      server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.ctx.getWebSockets('runner').length > 0 }));
-    } else {
-      server.send(JSON.stringify({ type: 'hello', processes: state.processes }));
-      this.broadcast('browser', { type: 'runner_status', connected: true });
-      // A runner that reconnects (sleep/network blip, not an explicit stop) must resume whatever
-      // was running without the operator doing anything — the command itself never left D1/DO.
-      for (const [name, process] of Object.entries(state.processes)) {
-        if (process?.running) server.send(JSON.stringify({ type: 'command', process: name, action: 'start', params: process.params }));
-      }
-    }
+    if (kind === 'browser') await this.onBrowserConnected(server, userId);
+    else await this.onRunnerConnected(server, userId);
 
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /**
+   * Connection bookkeeping kept separate from acceptChannel's WebSocketPair construction (which
+   * only exists in the real Workers runtime) so it can be exercised directly against a mock socket
+   * in tests, the same way webSocketMessage/webSocketClose already are.
+   * @param {WebSocket} server
+   * @param {string} userId
+   */
+  async onBrowserConnected(server, userId) {
+    const state = await this.readState();
+    if (userId && state.userId !== userId) { state.userId = userId; await this.writeState(state); }
+    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.ctx.getWebSockets('runner').length > 0 }));
+  }
+
+  /**
+   * @param {WebSocket} server
+   * @param {string} userId
+   */
+  async onRunnerConnected(server, userId) {
+    const state = await this.readState();
+    if (userId && state.userId !== userId) state.userId = userId;
+    state.runnerLastSeenAt = nowSeconds();
+    server.send(JSON.stringify({ type: 'hello', processes: state.processes }));
+    this.broadcast('browser', { type: 'runner_status', connected: true });
+    // A runner that reconnects (sleep/network blip, not an explicit stop) must resume whatever
+    // was running without the operator doing anything — the command itself never left D1/DO.
+    for (const [name, process] of Object.entries(state.processes)) {
+      if (process?.running) server.send(JSON.stringify({ type: 'command', process: name, action: 'start', params: process.params }));
+    }
+    if (isWaitingCheckBatchActive(state.waitingCheckBatch)) {
+      // advanceWaitingCheckTask returns the already-set `current` as-is when one exists, which is
+      // exactly "resume the task that was in flight" — the DO never learned whether the runner
+      // finished it before the disconnect, so it is safe/idempotent to just resend it.
+      const { batch, task } = advanceWaitingCheckTask(state.waitingCheckBatch, nowSeconds());
+      state.waitingCheckBatch = batch;
+      if (task) server.send(JSON.stringify({ type: 'task', process: 'waiting_check', task }));
+    }
+    await this.writeState(state);
+  }
+
+  /**
+   * @param {Request} request
+   * @param {string} userId
+   */
+  async handleWaitingCheckHttp(request, userId) {
+    if (!userId) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
+    const now = nowSeconds();
+    const state = await this.readState();
+    if (state.userId !== userId) state.userId = userId;
+
+    if (request.method === 'GET') {
+      await this.writeState(state);
+      return Response.json(await this.waitingCheckStatusJson(state, now), { headers: { 'Cache-Control': 'no-store' } });
+    }
+    if (request.method === 'POST') {
+      let body;
+      try { body = await request.json(); } catch { return Response.json({ error: 'Некоректний запит.' }, { status: 400 }); }
+      const error = await this.applyWaitingCheckCommand(state, body, now);
+      if (error) return error;
+      await this.writeState(state);
+      return Response.json(await this.waitingCheckStatusJson(state, now), { headers: { 'Cache-Control': 'no-store' } });
+    }
+    return new Response('Method not allowed', { status: 405 });
+  }
+
+  /**
+   * @param {OwnerChannelState} state
+   * @param {unknown} body
+   * @param {number} now
+   * @returns {Promise<Response|null>} a Response only for a rejected request; null means state was updated in place.
+   */
+  async applyWaitingCheckCommand(state, body, now) {
+    const action = body && typeof body === 'object' ? /** @type {{action?:unknown}} */ (body).action : null;
+    if (action === 'start' || action === 'retry_problems') {
+      if (isWaitingCheckBatchActive(state.waitingCheckBatch)) return null;
+      const onlyIds = action === 'retry_problems'
+        ? new Set((state.waitingCheckBatch?.problems ?? []).map(problem => problem.chatId))
+        : undefined;
+      const items = await readEligibleWaitingChats(this.env.DB, /** @type {string} */ (state.userId), now);
+      const batch = createWaitingCheckBatch(items, now, onlyIds);
+      const { batch: advanced, task } = advanceWaitingCheckTask(batch, now);
+      state.waitingCheckBatch = advanced;
+      if (task) this.broadcast('runner', { type: 'task', process: 'waiting_check', task });
+      return null;
+    }
+    if (action === 'stop') {
+      state.waitingCheckBatch = stopWaitingCheckBatch(state.waitingCheckBatch, now);
+      return null;
+    }
+    return Response.json({ error: 'Невідома дія.' }, { status: 400 });
+  }
+
+  /**
+   * @param {OwnerChannelState} state
+   * @param {number} now
+   */
+  async waitingCheckStatusJson(state, now) {
+    const base = waitingCheckStatusFromBatch(state.waitingCheckBatch);
+    const rawProblems = state.waitingCheckBatch?.problems ?? [];
+    const problems = base.active ? rawProblems : await enrichWaitingCheckProblems(this.env.DB, /** @type {string} */ (state.userId), rawProblems, now);
+    const runnerConnected = this.ctx.getWebSockets('runner').length > 0;
+    return { ...base, problems, runnerSeenAt: runnerConnected ? now : (state.runnerLastSeenAt ?? null) };
   }
 
   /**
@@ -86,9 +214,53 @@ export class OwnerChannel {
       return;
     }
 
+    if (message.process === 'waiting_check') {
+      if (message.type === 'result') return this.handleWaitingCheckResult(message);
+      if (message.type === 'release') return this.handleWaitingCheckRelease(message);
+      // Explicit "give me work" after the runner's own backoff following a release — see
+      // releaseWaitingCheckTask for why the DO does not redispatch on its own there.
+      if (message.type === 'ready') return this.handleWaitingCheckReady(ws);
+      return;
+    }
+
     if (message.type === 'progress' || message.type === 'result') {
       this.broadcast('browser', message);
     }
+  }
+
+  /** @param {{batchId:number; chatId:string; status:import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckOutcome; reason?:string; observedName?:string}} message */
+  async handleWaitingCheckResult(message) {
+    const now = nowSeconds();
+    const state = await this.readState();
+    if (!state.userId || !isWaitingCheckBatchActive(state.waitingCheckBatch)) return;
+    const applied = await applyWaitingCheckResult(this.env.DB, state.userId, state.waitingCheckBatch, message, now);
+    if (!applied) return; // stale/mismatched result (e.g. a stop already fenced this chat) — ignore
+    const { batch, task } = advanceWaitingCheckTask(applied.batch, now);
+    state.waitingCheckBatch = batch;
+    await this.writeState(state);
+    if (task) this.broadcast('runner', { type: 'task', process: 'waiting_check', task });
+    this.broadcast('browser', { type: 'process_state', process: 'waiting_check', ...(await this.waitingCheckStatusJson(state, now)) });
+  }
+
+  /** @param {{batchId:number; chatId:string}} message */
+  async handleWaitingCheckRelease(message) {
+    const now = nowSeconds();
+    const state = await this.readState();
+    const released = releaseWaitingCheckTask(state.waitingCheckBatch, message, now);
+    if (!released) return;
+    state.waitingCheckBatch = released;
+    await this.writeState(state);
+  }
+
+  /** @param {WebSocket} ws */
+  async handleWaitingCheckReady(ws) {
+    const now = nowSeconds();
+    const state = await this.readState();
+    if (!isWaitingCheckBatchActive(state.waitingCheckBatch)) return;
+    const { batch, task } = advanceWaitingCheckTask(state.waitingCheckBatch, now);
+    state.waitingCheckBatch = batch;
+    await this.writeState(state);
+    if (task) ws.send(JSON.stringify({ type: 'task', process: 'waiting_check', task }));
   }
 
   /**
@@ -99,6 +271,9 @@ export class OwnerChannel {
    */
   async webSocketClose(ws, _code, _reason, _wasClean) {
     if (this.tagsOf(ws).includes('runner') && this.ctx.getWebSockets('runner').length === 0) {
+      const state = await this.readState();
+      state.runnerLastSeenAt = nowSeconds();
+      await this.writeState(state);
       this.broadcast('browser', { type: 'runner_status', connected: false });
     }
   }
@@ -127,12 +302,13 @@ export class OwnerChannel {
     }
   }
 
+  /** @returns {Promise<OwnerChannelState>} */
   async readState() {
     const stored = await this.ctx.storage.get(STORAGE_KEY);
-    return stored ?? { processes: {} };
+    return stored ?? { userId: null, processes: {}, waitingCheckBatch: null, runnerLastSeenAt: null };
   }
 
-  /** @param {{processes: Record<string, ProcessState>}} state */
+  /** @param {OwnerChannelState} state */
   async writeState(state) {
     await this.ctx.storage.put(STORAGE_KEY, state);
   }

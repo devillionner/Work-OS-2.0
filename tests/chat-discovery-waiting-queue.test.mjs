@@ -1,14 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+// The WhatsApp Waiting-check batch lifecycle (queue snapshot, lease-free dispatch, stop fencing,
+// retry_problems, 3-strikes stop) moved into the owner Durable Object in commit 3b and is covered
+// end-to-end there now — see tests/owner-channel.test.mjs. What remains here is unrelated to that
+// batch state: the Discovery executor queue's own retired-row/pacing guards, and the pure WhatsApp
+// Web CDP classification helpers.
 import { claimDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
-import {
-  claimWaitingWhatsAppCheck,
-  completeWaitingWhatsAppCheck,
-  readWaitingWhatsAppCheckStatus,
-  releaseWaitingWhatsAppCheck,
-  startWaitingWhatsAppCheck,
-} from '../lib/chats/whatsapp-waiting-check.ts';
 import { classifyWhatsAppSnapshot, toWaitingCheckOutcome } from '../scripts/whatsapp-web-cdp.mjs';
 import { localDatabase } from './helpers/local-d1.mjs';
 
@@ -18,174 +16,6 @@ async function chat(db, id, { status = 'waiting', platform = 'whatsapp', snoozed
     id,user_id,platform,name,link,normalized_link,workflow_status,is_private,snoozed_until,created_at,updated_at
   ) VALUES (?1,'u',?2,'Українці ' || ?1,?3,?3,?4,0,?5,?6,?6)`).bind(id, platform, link, status, snoozedUntil, updatedAt).run();
 }
-
-async function chatRow(db, id) {
-  return db.prepare(`SELECT workflow_status,snoozed_until,joined_at FROM chats WHERE id=?1`).bind(id).first();
-}
-
-async function checkNext(db, status, now, extra = {}) {
-  const task = await claimWaitingWhatsAppCheck(db, 'u', 'device-a', now);
-  assert.ok(task, 'expected a waiting-check task');
-  await completeWaitingWhatsAppCheck(db, 'u', 'device-a', { batchId: task.batchId, chatId: task.chatId, status, ...extra }, now + 1);
-  return task;
-}
-
-void test('waiting check snapshots only due WhatsApp Waiting chats and creates no Discovery candidates', async (t) => {
-  const db = await localDatabase(t);
-  await chat(db, 'due-a', { updatedAt: 100 });
-  await chat(db, 'due-b', { updatedAt: 101 });
-  await chat(db, 'snoozed', { snoozedUntil: 10_000 });
-  await chat(db, 'ready', { status: 'ready' });
-  await chat(db, 'telegram', { platform: 'telegram' });
-
-  const started = await startWaitingWhatsAppCheck(db, 'u', 200);
-  assert.equal(started.active, true);
-  assert.equal(started.total, 2);
-  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM chat_discovery_candidates').first()).n, 0);
-  assert.equal((await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 200)).tasks.length, 0);
-
-  const first = await claimWaitingWhatsAppCheck(db, 'u', 'device-a', 201);
-  assert.equal(first.chatId, 'due-a');
-  assert.equal(first.kind, 'whatsapp_waiting_check');
-});
-
-void test('factual outcomes follow Prototype Checker: joined is approved, pending and requested wait three days', async (t) => {
-  const db = await localDatabase(t);
-  await chat(db, 'a', { updatedAt: 100 });
-  await chat(db, 'b', { updatedAt: 101 });
-  await chat(db, 'c', { updatedAt: 102 });
-  await startWaitingWhatsAppCheck(db, 'u', 200);
-
-  await checkNext(db, 'joined', 210);
-  await checkNext(db, 'pending', 220);
-  await checkNext(db, 'requested', 230);
-
-  assert.equal((await chatRow(db, 'a')).workflow_status, 'ready');
-  assert.ok((await chatRow(db, 'a')).joined_at);
-  assert.equal((await chatRow(db, 'b')).workflow_status, 'waiting');
-  assert.ok((await chatRow(db, 'b')).snoozed_until > 221);
-  assert.ok((await chatRow(db, 'c')).snoozed_until > 231);
-
-  const status = await readWaitingWhatsAppCheckStatus(db, 'u');
-  assert.equal(status.active, false);
-  assert.deepEqual(status.counts, { joined: 1, pending: 1, requested: 1, failed: 0, skipped: 0 });
-  assert.equal(status.stopReason, null);
-});
-
-void test('a failed chat is reported and the batch moves on instead of blocking the queue', async (t) => {
-  const db = await localDatabase(t);
-  await chat(db, 'broken', { updatedAt: 100 });
-  await chat(db, 'fine', { updatedAt: 101 });
-  await startWaitingWhatsAppCheck(db, 'u', 200);
-
-  await checkNext(db, 'failed', 210, { reason: 'invalid_whatsapp_link' });
-  const next = await checkNext(db, 'joined', 220);
-  assert.equal(next.chatId, 'fine');
-  assert.equal((await chatRow(db, 'broken')).workflow_status, 'waiting');
-
-  const status = await readWaitingWhatsAppCheckStatus(db, 'u');
-  assert.equal(status.counts.failed, 1);
-  assert.deepEqual(status.problems.map(item => item.reason), ['invalid_whatsapp_link']);
-});
-
-void test('retrying problems re-checks only the chats the previous batch reported', async (t) => {
-  const db = await localDatabase(t);
-  await chat(db, 'broken', { updatedAt: 100 });
-  await chat(db, 'fine', { updatedAt: 101 });
-  await chat(db, 'other', { updatedAt: 102 });
-  await startWaitingWhatsAppCheck(db, 'u', 200);
-  await checkNext(db, 'failed', 210, { reason: 'membership_not_confirmed' });
-  await checkNext(db, 'requested', 220);
-  await checkNext(db, 'pending', 230);
-
-  const retried = await startWaitingWhatsAppCheck(db, 'u', 400, { onlyProblems: true });
-  assert.equal(retried.total, 1);
-  assert.equal((await checkNext(db, 'joined', 410)).chatId, 'broken');
-  assert.equal((await readWaitingWhatsAppCheckStatus(db, 'u')).active, false);
-});
-
-void test('chat-specific WhatsApp answers are reported but never stop the batch', async (t) => {
-  const db = await localDatabase(t);
-  for (const id of ['r1', 'r2', 'r3', 'r4', 'rest']) await chat(db, id);
-  await startWaitingWhatsAppCheck(db, 'u', 200);
-  for (let index = 0; index < 4; index += 1) await checkNext(db, 'failed', 210 + index * 10, { reason: 'whatsapp_join_retry_later' });
-  const status = await readWaitingWhatsAppCheckStatus(db, 'u');
-  assert.equal(status.active, true);
-  assert.equal(status.stopReason, null);
-  assert.equal(status.counts.failed, 4);
-  assert.equal((await checkNext(db, 'pending', 300)).chatId, 'rest');
-});
-
-void test('a finished batch lists only undecided problems, each with what the panel needs to act on it', async (t) => {
-  const db = await localDatabase(t);
-  await chat(db, 'p1', { updatedAt: 100 });
-  await chat(db, 'p2', { updatedAt: 101 });
-  await chat(db, 'ok', { updatedAt: 102 });
-  await startWaitingWhatsAppCheck(db, 'u', 200);
-  await checkNext(db, 'failed', 210, { reason: 'whatsapp_join_retry_later' });
-  await checkNext(db, 'failed', 220, { reason: 'whatsapp_removed_from_group' });
-  await checkNext(db, 'pending', 230);
-
-  const status = await readWaitingWhatsAppCheckStatus(db, 'u', 300);
-  assert.deepEqual(status.problems.map(item => [item.chatId, item.reason, Boolean(item.chat?.stateToken), item.chat?.link?.startsWith('https://chat.whatsapp.com/')]),
-    [['p1', 'whatsapp_join_retry_later', true, true], ['p2', 'whatsapp_removed_from_group', true, true]]);
-
-  // The operator archives one problem chat: it is decided and leaves the list; batch counters stay.
-  await db.prepare(`UPDATE chats SET workflow_status='archived',archive_reason='Вас вилучено з групи',archived_at=310 WHERE id='p2'`).run();
-  const after = await readWaitingWhatsAppCheckStatus(db, 'u', 320);
-  assert.deepEqual(after.problems.map(item => item.chatId), ['p1']);
-  assert.equal(after.counts.failed, 2);
-});
-
-void test('three failures in a row or a fatal reason stop the batch and leave the rest untouched', async (t) => {
-  const db = await localDatabase(t);
-  for (const id of ['f1', 'f2', 'f3', 'rest']) await chat(db, id);
-  await startWaitingWhatsAppCheck(db, 'u', 200);
-  for (let index = 0; index < 3; index += 1) await checkNext(db, 'failed', 210 + index * 10, { reason: 'membership_not_confirmed' });
-  const stopped = await readWaitingWhatsAppCheckStatus(db, 'u');
-  assert.equal(stopped.active, false);
-  assert.match(stopped.stopReason, /3 помилки поспіль/);
-  assert.equal(await claimWaitingWhatsAppCheck(db, 'u', 'device-a', 300), null);
-  assert.equal((await chatRow(db, 'rest')).snoozed_until, null);
-
-  const fresh = await localDatabase(t);
-  await chat(fresh, 'x');
-  await chat(fresh, 'y');
-  await startWaitingWhatsAppCheck(fresh, 'u', 200);
-  await checkNext(fresh, 'failed', 210, { reason: 'stale_overlay_not_dismissed' });
-  assert.equal((await readWaitingWhatsAppCheckStatus(fresh, 'u')).active, false);
-});
-
-void test('a chat is leased to one device, re-issued after the lease, and released without counting a failure', async (t) => {
-  const db = await localDatabase(t);
-  await chat(db, 'only');
-  await startWaitingWhatsAppCheck(db, 'u', 200);
-
-  const claimed = await claimWaitingWhatsAppCheck(db, 'u', 'device-a', 201);
-  assert.equal(await claimWaitingWhatsAppCheck(db, 'u', 'device-b', 202), null);
-  const reissued = await claimWaitingWhatsAppCheck(db, 'u', 'device-b', claimed.leaseExpiresAt + 1);
-  assert.equal(reissued.chatId, 'only');
-  await assert.rejects(completeWaitingWhatsAppCheck(db, 'u', 'device-a', {
-    batchId: claimed.batchId, chatId: 'only', status: 'joined',
-  }, claimed.leaseExpiresAt + 2));
-
-  assert.deepEqual(await releaseWaitingWhatsAppCheck(db, 'u', 'device-b', { batchId: reissued.batchId, chatId: 'only' }, claimed.leaseExpiresAt + 3), { ok: true });
-  const status = await readWaitingWhatsAppCheckStatus(db, 'u');
-  assert.equal(status.active, true);
-  assert.equal(status.remaining, 1);
-  assert.equal(status.counts.failed, 0);
-});
-
-void test('an operator action during the check wins over the runner result', async (t) => {
-  const db = await localDatabase(t);
-  await chat(db, 'manual');
-  await startWaitingWhatsAppCheck(db, 'u', 200);
-  const task = await claimWaitingWhatsAppCheck(db, 'u', 'device-a', 201);
-  await db.prepare(`UPDATE chats SET workflow_status='archived',archived_at=202,updated_at=202 WHERE id='manual'`).run();
-  const result = await completeWaitingWhatsAppCheck(db, 'u', 'device-a', { batchId: task.batchId, chatId: 'manual', status: 'joined' }, 203);
-  assert.equal(result.applied, 'skipped');
-  assert.equal((await chatRow(db, 'manual')).workflow_status, 'archived');
-});
 
 void test('retired waiting-* candidate rows can no longer trigger automated inspection or leave', async (t) => {
   const db = await localDatabase(t);

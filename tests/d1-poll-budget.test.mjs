@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { claimDiscoveryExecutorQueue, wakeDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
-import { claimWaitingWhatsAppCheck, readWaitingWhatsAppCheckStatus } from '../lib/chats/whatsapp-waiting-check.ts';
+import { enrichWaitingCheckProblems } from '../lib/chats/whatsapp-waiting-check.ts';
 import { claimWhatsAppAutopostJob } from '../lib/messenger-automation.ts';
 import { addSelectedChatToJoin, readSelectedChats, readSelectedChatsCount, saveSelectedChats } from '../lib/chats/telegram-selected.ts';
 import { readSyncRevision } from '../lib/sync-revision.ts';
@@ -64,7 +64,9 @@ void test('idle runner polls stay within a fixed D1 row budget regardless of dat
   const firstDiscovery = await rows(metered => claimDiscoveryExecutorQueue(metered, 'u', 'device', 1, NOW));
   assert.ok(firstDiscovery >= CANDIDATES, 'the seeded data must make the uncached queue read expensive');
   assert.ok(await rows(metered => claimDiscoveryExecutorQueue(metered, 'u', 'device', 1, NOW + 10)) <= 3, 'repeated empty Discovery polls must be served from the idle marker');
-  assert.ok(await rows(metered => claimWaitingWhatsAppCheck(metered, 'u', 'device', NOW)) <= 2);
+  // Since commit 3b the WhatsApp Waiting-check runner holds one WebSocket to the owner's Durable
+  // Object instead of polling an HTTP endpoint, so there is no D1-touching idle poll left to meter
+  // here at all — a genuine zero, not merely a bounded one.
   assert.ok(await rows(metered => claimWhatsAppAutopostJob(metered, 'u', 'device', NOW)) <= 5);
 
   await wakeDiscoveryExecutorQueue(db, 'u');
@@ -76,7 +78,12 @@ void test('page polls (sync revision, Waiting-check status, Telegram selected li
   await seed(db);
   const { rows } = meter(db);
   assert.ok(await rows(metered => readSyncRevision(metered, 'u')) <= 2);
-  assert.ok(await rows(metered => readWaitingWhatsAppCheckStatus(metered, 'u')) <= 10);
+  // The browser's Waiting-check status poll goes to the owner Durable Object now (commit 3b), which
+  // only reaches D1 at all to enrich a finished batch's problem list — bounded by how many problems
+  // that one batch reported (<=30), never by the owner's total chat count.
+  assert.ok(await rows(metered => enrichWaitingCheckProblems(metered, 'u', [], NOW)) === 0, 'no problems to enrich means no D1 read at all');
+  const manyProblems = Array.from({ length: 30 }, (_, index) => ({ chatId: `chat-${index}`, name: `chat-${index}`, reason: 'whatsapp_join_retry_later' }));
+  assert.ok(await rows(metered => enrichWaitingCheckProblems(metered, 'u', manyProblems, NOW)) <= 60, 'enriching a full problem list must use index lookups, not scan all chats');
 
   // Real owners have thousands of Telegram chats; the selected list must not scan them per link.
   const telegram = [];
