@@ -155,20 +155,29 @@ void test('Chat list page reads its own queue, not every chat of the owner', asy
     const status = telegram ? 'archived' : index < 300 ? 'waiting' : index < 600 ? 'ready' : 'archived';
     statements.push(db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,is_private,created_at,updated_at)
       VALUES (?1,'u',?2,?1,?3,?3,?4,0,1,?5)`).bind(`list-${index}`, telegram ? 'telegram' : 'whatsapp', link, status, index));
+    // Real chats carry a history; the per-chat subqueries (snooze count, leave, state token) read it.
+    if (status !== 'archived') for (let event = 0; event < 4; event += 1) {
+      statements.push(db.prepare(`INSERT INTO activity_events(id,user_id,event_type,platform,chat_id,occurred_at,event_date,metadata_json,source_key)
+        VALUES (?1,'u',?2,'whatsapp',?3,?4,'2027-01-15',?5,?1)`).bind(`list-${index}-e${event}`, event === 3 ? 'publication' : 'chat_state_changed', `list-${index}`, 1000 + event, JSON.stringify({ action: ['snooze', 'joined', 'approved'][event % 3] })));
+    }
     if (statements.length >= 200) await db.batch(statements.splice(0));
   }
   if (statements.length) await db.batch(statements);
   const { rows } = meter(db);
   const page = status => rows(metered => chatListPageStatement(metered, { userId: 'u', platform: 'whatsapp', status, needsReview: false, today: '2027-01-15', now: NOW, offset: 0, accountId: null }).all());
 
-  // Measured: 150 rows for a 50-row page (was ≈5 900 with the `?3='profile_review' OR …` filter).
+  // Measured: 150 rows for a 50-row page without history (was ≈5 900 with the `?3='profile_review' OR …`
+  // filter); with 4 history events per chat the per-chat subqueries add ≈9 rows for each of the 50.
   for (const status of ['waiting', 'ready']) {
     const read = await page(status);
-    assert.ok(read <= 200, `${status} page read ${read} rows`);
+    assert.ok(read <= 700, `${status} page read ${read} rows`);
   }
-  // Two statuses must be sorted, so the review queue reads that queue (600 chats): measured 1 803 rows.
+  // The review queue spans two statuses: each status arm stops after its first 50 rows and the per-chat
+  // subqueries run for the 50 page rows only. Measured 800 rows; one sort over the whole queue, with the
+  // subqueries evaluated for all 600 chats before it, read 3 903 here (≈3 400 per call on staging, d1
+  // insights 2026-10-04).
   const review = await page('profile_review');
-  assert.ok(review <= 600 * 4, `profile_review page read ${review} rows`);
+  assert.ok(review <= 1000, `profile_review page read ${review} rows`);
 });
 
 void test('Dashboard chat total comes from the queue counters, not a count over every chat', async (t) => {

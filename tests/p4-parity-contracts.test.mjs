@@ -99,7 +99,7 @@ void test('manual publishing and profile management cover the remaining operator
   assert.match(platform, /Потребують правил \(\$\{profileSummary\?\.needsReview\|\|0\}\)/);
   // The page order is index-friendly now (see tests/d1-budget-contract.test.mjs); availability is computed per row.
   assert.match(route, /chatListPageStatement\(env\.DB,/);
-  assert.match(source('lib/chats/list-query.ts'), /ORDER BY \$\{orderColumn\} DESC,c\.id LIMIT 50 OFFSET/);
+  assert.match(source('lib/chats/list-query.ts'), /ORDER BY c\.updated_at DESC,c\.id LIMIT 50 OFFSET/);
   assert.match(route, /action === 'undo_published'/);
   assert.match(publication, /export async function undoManualPublication/);
   assert.match(publication, /manualUndo/);

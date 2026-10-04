@@ -29,7 +29,10 @@ void test('Platforms GET uses queue counters and an index-friendly page order',(
   assert.match(route,/const totalStatement = search/);
   assert.match(route,/chatListPageStatement\(env\.DB,/);
   const listQuery=read('lib/chats/list-query.ts');
-  assert.match(listQuery,/ORDER BY \$\{orderColumn\} DESC,c\.id LIMIT 50 OFFSET/);
+  assert.match(listQuery,/ORDER BY c\.updated_at DESC,c\.id LIMIT 50 OFFSET/);
+  // The two-status review queue merges two index-ordered arms instead of sorting the whole queue.
+  assert.match(listQuery,/LIMIT \?6\+50\)`;/);
+  assert.match(listQuery,/WITH page AS MATERIALIZED \(SELECT id FROM \(\$\{reviewBranch\('waiting'\)\} UNION ALL \$\{reviewBranch\('ready'\)\}\)/);
   // The status must stay visible to the planner; the old `?3='profile_review' OR …` walked all owner chats.
   assert.doesNotMatch(listQuery+route,/AND c\.workflow_status IN \('waiting','ready'\)\) OR c\.workflow_status=\?3/);
   assert.doesNotMatch(route,/ORDER BY published_today ASC,CASE WHEN c\.snoozed_until/);
