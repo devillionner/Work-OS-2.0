@@ -4,45 +4,46 @@ import test from 'node:test';
 
 const source=await readFile(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8');
 
-void test('runner consumes paired executor tasks and posts guarded callbacks',()=>{
+void test('runner authenticates its live WebSocket with the executor token as a query parameter',()=>{
   assert.match(source,/WORK_OS_EXECUTOR_TOKEN/);
-  assert.ok(source.includes('Authorization:'));
-  assert.match(source,/\/api\/chat-discovery\/executor\?limit=\$\{EXECUTOR_QUEUE_LIMIT\}/);
-  assert.match(source,/action:'inspect'/);
-  assert.match(source,/action:'executor-leave'/);
+  assert.match(source,/url\.searchParams\.set\('token',token\)/);
+  assert.match(source,/url\.searchParams\.set\('kind','runner'\)/);
+  assert.doesNotMatch(source,/Authorization:/);
+  assert.match(source,/type:'result',process:'discovery'/);
+  assert.match(source,/type:'release',process:taskProcess/);
   assert.match(source,/function canAdvanceDiscoverySource\(\)\{\s*return false;/);
 });
-void test('runner services D1-backed pending checks while local Discovery remains active',()=>{
+void test('runner services live-channel pending checks while local Discovery remains active, serialized through one CDP lock',()=>{
   assert.match(source,/readWorkOsLocalDiscoveryTaskViaCdp/);
   assert.match(source,/writeWorkOsLocalDiscoveryResultViaCdp/);
   assert.match(source,/processLocalPreflight/);
-  assert.match(source,/CLOUD_AUTOMATION_POLL_MS=15000/);
-  assert.match(source,/runD1BackedTaskOnce/);
-  assert.match(source,/cloudPolled=true/);
   assert.match(source,/approval_required/);
-  const scheduler=source.indexOf('runD1BackedTaskOnce');
+  assert.match(source,/function withCdpLock\(fn\)/);
+  assert.match(source,/outcome=await withCdpLock\(runOnce\)/);
+  assert.match(source,/await withCdpLock\(\(\)=>\{/);
+  const pump=source.indexOf('async function pumpTaskQueue');
   const local=source.indexOf('readWorkOsLocalDiscoveryTaskViaCdp',source.indexOf('async function runOnce'));
-  assert.ok(scheduler>0&&local>scheduler);
+  assert.ok(pump>0&&local>pump);
 });
 
 void test('runner automates verified WhatsApp leave via CDP and retains operator-confirmed fallback',()=>{
   assert.match(source,/leaveWhatsappTaskViaCdp/);
   assert.match(source,/Verified WhatsApp leave accepted by Work OS/);
   assert.match(source,/leave automation stopped fail-closed/);
-  assert.match(source,/if\(!process\.stdin\.isTTY\)return 'idle'/);
+  assert.match(source,/if\(!process\.stdin\.isTTY\)\{releaseTask\(ws,'discovery',task/);
 });
 
 void test('runner requires operator confirmation before reporting external leave',()=>{
   const prompt=source.indexOf('Confirm only AFTER you actually left the chat');
-  const callback=source.lastIndexOf("action:'executor-leave'");
+  const callback=source.lastIndexOf("type:'result',process:'discovery',candidateId:task.candidateId,chatStateToken");
   assert.ok(prompt>0&&callback>prompt);
   assert.match(source,/xdg-open/);
 });
 
 void test('runner verifies the exact messenger target before inspection or leave callbacks',()=>{
   const targetPrompt=source.indexOf('Exact target verified as');
-  const inspectCallback=source.indexOf("action:'inspect'");
-  const leaveCallback=source.indexOf("action:'executor-leave'");
+  const inspectCallback=source.indexOf("type:'result',process:'discovery',candidateId:task.candidateId,result:inspection.result");
+  const leaveCallback=source.indexOf("type:'result',process:'discovery',candidateId:task.candidateId,chatStateToken");
   assert.ok(targetPrompt>0&&inspectCallback>targetPrompt);
   assert.match(source,/targetVerified:true/);
   assert.ok(leaveCallback>targetPrompt);
@@ -69,34 +70,33 @@ void test('runner uses optional WhatsApp Web CDP automation but sends no callbac
 });
 
 
-void test('runner fairly alternates pending checks and WhatsApp autopost with confirmed-send callbacks',()=>{
-  assert.match(source,/\/api\/messenger-automation\/executor\?platform=whatsapp/);
+void test('autopost tasks push a confirmed-send result back over the live channel, independent of the other two processes',()=>{
   assert.match(source,/sendWhatsappAutopostViaCdp/);
-  assert.match(source,/complete-whatsapp-autopost/);
+  assert.match(source,/type:'result',process:'autopost',jobId:job\.jobId,status:'sent'/);
   assert.match(source,/sendConfirmed:true/);
-  assert.match(source,/const autopostFirst=preferAutopost/);
-  assert.match(source,/preferAutopost=!preferAutopost/);
   assert.match(source,/WhatsApp autopost stopped fail-closed/);
   assert.match(source,/Confirmed WhatsApp autopost accepted by Work OS/);
+  // Commit 3e: each process gets pushed its own task independently by the owner Durable Object — the
+  // runner no longer alternates between them itself (that round-robin existed only to share one HTTP
+  // poll fairly in the pull model).
+  assert.doesNotMatch(source,/preferAutopost/);
 });
 
-void test('runner never source-crawls through D1 and keeps bounded idle queue polling',()=>{
-  assert.match(source,/const TASK_POLL_MS=3000/);
+void test('runner never source-crawls through D1 and keeps bounded idle local-preflight polling',()=>{
   assert.match(source,/const IDLE_POLL_MIN_MS=2000/);
   assert.match(source,/const IDLE_POLL_MAX_MS=5000/);
-  assert.match(source,/const CLOUD_AUTOMATION_POLL_MS=15000/);
   assert.match(source,/function canAdvanceDiscoverySource\(\)\{\s*return false;/);
   assert.match(source,/Math\.min\(IDLE_POLL_MAX_MS,idleDelayMs\*2\)/);
   assert.match(source,/Non-interactive Discovery runner requires WORK_OS_WHATSAPP_CDP/);
   assert.match(source,/WHATSAPP_RUNTIME_COOLDOWN_MS=300000/);
-  assert.match(source,/backing off until the browser adapter is available/);
+  assert.match(source,/releasing until the browser adapter is available/);
 });
 
 
-void test('non-interactive runner fails before API polling without a WhatsApp runtime and transient CDP state pauses automated messenger work',()=>{
+void test('non-interactive runner fails before opening the live channel without a WhatsApp runtime, and transient CDP state pauses automated messenger work',()=>{
   const startupGuard=source.indexOf('Non-interactive Discovery runner requires WORK_OS_WHATSAPP_CDP');
-  const firstApi=source.indexOf('api(`/api/chat-discovery/executor?limit=${EXECUTOR_QUEUE_LIMIT}`)');
-  assert.ok(startupGuard>0&&firstApi>startupGuard);
+  const firstConnect=source.indexOf('function connectLiveChannel');
+  assert.ok(startupGuard>0&&firstConnect>startupGuard);
   assert.match(source,/WHATSAPP_RUNTIME_TRANSIENT_REASONS\.has\(automated\.reason\)/);
   assert.match(source,/markWhatsappRuntimeBlocked\('cdp_unavailable'\)/);
   assert.match(source,/clearWhatsappRuntimeBlock\(\)/);
@@ -120,14 +120,16 @@ void test('runner can bootstrap its token from the exact Work OS page over local
 });
 
 
-void test('runner skips a locally blocked candidate instead of starving the executor queue',()=>{
-  assert.match(source,/const EXECUTOR_QUEUE_LIMIT=1/);
+void test('runner releases a locally blocked Discovery candidate back to the DO instead of retrying it in a tight loop',()=>{
   assert.match(source,/const TASK_BLOCK_COOLDOWN_MS=300000/);
   assert.match(source,/const taskBlockedUntil=new Map/);
-  assert.match(source,/queuedTasks\.find\(item=>!taskIsLocallyBlocked\(item\)\)/);
+  assert.match(source,/if\(taskIsLocallyBlocked\(task\)\)\{/);
+  assert.match(source,/releaseTask\(ws,'discovery',task,Number\(taskBlockedUntil\.get\(task\.candidateId\)\|\|0\)\)/);
   assert.match(source,/markTaskBlocked\(task,inspection\.reason\)/);
   assert.match(source,/another candidate may continue/);
-  assert.doesNotMatch(source,/executor\?limit=20/);
+  // scheduleReady must wait out that candidate's own cooldown, or the DO (which always pushes the
+  // same single next-eligible candidate) would just hand the same blocked item straight back.
+  assert.match(source,/candidateUntilMs-Date\.now\(\)/);
 });
 
 
@@ -144,7 +146,9 @@ void test('background runner can acquire the Work OS executor token after Opera 
 });
 
 void test('runner re-reads a revoked executor token from the Work OS page instead of retrying it forever',()=>{
-  assert.match(source,/response\.status===401&&process\.argv\.includes\('--token-from-work-os-page'\)\)\{token='';nextTokenResolveAt=0;\}/);
+  // A rejected WS handshake (commit 3e: no more 401-checking api() helper) is the new revocation
+  // signal — same re-read, same exemption for a fixed env/clipboard token.
+  assert.match(source,/if\(process\.argv\.includes\('--token-from-work-os-page'\)\)\{token='';nextTokenResolveAt=0;\}/);
 });
 
 
@@ -180,7 +184,7 @@ void test('local source step searches Telegram groups and alternates with WhatsA
 });
 
 void test('Telegram refusal stops the run on the same step and already searched groups are skipped for a week',()=>{
-  const refill=source.slice(source.indexOf('async function refillLocalSourceOnce'),source.indexOf('async function runWhatsAppAutopostOnce'));
+  const refill=source.slice(source.indexOf('async function refillLocalSourceOnce'),source.indexOf('let liveWs=null'));
   assert.match(refill,/if\(crawled\.blockedReason\)\{/);
   assert.match(refill,/pauseWorkOsLocalDiscoveryRunViaCdp\(baseUrl/);
   assert.match(refill,/setStatus\('attention'/);
@@ -195,34 +199,37 @@ void test('source refill has only a short idle gap',()=>{
   assert.match(source,/LOCAL_SOURCE_MIN_MS=500/);
 });
 
-void test('waiting checks are operator batches claimed one chat at a time and runtime problems release the chat',()=>{
-  const start=source.indexOf('async function runWaitingCheckOnce');
-  const block=source.slice(start,source.indexOf('async function runDiscoveryExecutorOnce',start));
-  assert.match(block,/api\('\/api\/chat-discovery\/waiting-check\/executor'\)/);
+void test('waiting checks are pushed one chat at a time over the live channel and runtime problems release the chat',()=>{
+  const start=source.indexOf('async function handleWaitingCheckTask');
+  const block=source.slice(start,source.indexOf('async function handleAutopostTask',start));
   assert.match(block,/checkWhatsappWaitingInviteViaCdp\(task/);
-  assert.match(block,/action:'release'/);
-  assert.match(block,/action:'complete'/);
+  assert.match(block,/releaseTask\(ws,'waiting_check',task\)/);
+  assert.match(block,/type:'result',process:'waiting_check'/);
   assert.doesNotMatch(source,/pause-waiting-check/);
-  const d1=source.slice(source.indexOf('async function runD1BackedTaskOnce'));
-  assert.ok(d1.indexOf('runWaitingCheckOnce')<d1.indexOf('runWhatsAppAutopostOnce'));
 });
 
-void test('runner reads D1 only on the cloud cadence and backs off to one poll a minute when idle',()=>{
-  const runOnce=source.slice(source.indexOf('async function runOnce'),source.indexOf("console.log('Work OS Discovery runner started."));
-  assert.equal(runOnce.split('runD1BackedTaskOnce()').length-1,1);
-  assert.match(source,/const CLOUD_AUTOMATION_IDLE_MAX_MS=60000/);
-  assert.match(runOnce,/cloudAutomationDelayMs=Math\.min\(CLOUD_AUTOMATION_IDLE_MAX_MS,cloudAutomationDelayMs\*2\)/);
-  assert.match(runOnce,/if\(cloudOutcome\)\{\s*lastCloudWorkAt=Date\.now\(\);\s*cloudAutomationDelayMs=CLOUD_AUTOMATION_POLL_MS;/);
+void test('commit 3e: the live channel replaces D1 polling entirely — no cloud cadence, no idle backoff, no per-process alternation',()=>{
+  assert.doesNotMatch(source,/runD1BackedTaskOnce|CLOUD_AUTOMATION_POLL_MS|CLOUD_AUTOMATION_IDLE_MAX_MS|cloudAutomationDelayMs|nextCloudAutomationAt/);
+  assert.match(source,/function connectLiveChannel\(\)/);
+  assert.match(source,/const WS_RECONNECT_MIN_MS=1000/);
+  assert.match(source,/const WS_RECONNECT_MAX_MS=30000/);
+  assert.match(source,/wsReconnectDelayMs=Math\.min\(WS_RECONNECT_MAX_MS,wsReconnectDelayMs\*2\)/);
 });
 
-void test('runner polls Work OS only while the site is in use or it still has work, and never when the site is idle',()=>{
-  const runOnce=source.slice(source.indexOf('async function runOnce'),source.indexOf("console.log('Work OS Discovery runner started."));
-  assert.match(runOnce,/&&await cloudDemand\(\)\)\{/);
-  assert.match(source,/const USER_ACTIVE_WINDOW_MS=15\*60_000/);
-  assert.match(source,/const WORK_GRACE_MS=5\*60_000/);
-  assert.match(source,/readWorkOsLastActivityViaCdp\(baseUrl/);
-  assert.match(source,/wanted=userActive\|\|Date\.now\(\)-lastCloudWorkAt<WORK_GRACE_MS/);
-  assert.match(source,/setStatus\('paused'/);
+void test('runner never gates the live channel on whether Work OS is in use — an idle connection costs nothing, unlike the old D1 poll',()=>{
+  assert.doesNotMatch(source,/cloudDemand|USER_ACTIVE_WINDOW_MS|WORK_GRACE_MS|DEMAND_CHECK_MS|readWorkOsLastActivityViaCdp/);
+  assert.doesNotMatch(source,/setStatus\('paused'/);
+  // The live channel connects unconditionally once a token exists; only token availability gates it.
+  const connect=source.slice(source.indexOf('function connectLiveChannel'),source.indexOf('function scheduleReconnect'));
+  assert.match(connect,/if\(!token\)\{setTimeout\(connectLiveChannel,2000\);return;\}/);
+});
+
+void test('a rejected handshake and a later drop both trigger reconnect, not just one of the two WebSocket events',()=>{
+  const connect=source.slice(source.indexOf('function connectLiveChannel'),source.indexOf('function scheduleReconnect'));
+  assert.match(connect,/ws\.addEventListener\('close',onDown\)/);
+  assert.match(connect,/ws\.addEventListener\('error',onDown\)/);
+  assert.match(connect,/let settled=false/);
+  assert.match(connect,/if\(settled\)return;\s*settled=true;/);
 });
 
 void test('runner never interrupts a WhatsApp message sync and gives Discovery operations time to wait it out',()=>{

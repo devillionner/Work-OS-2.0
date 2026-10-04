@@ -14,7 +14,6 @@ import {
   leaveWhatsappGroupViaRuntime,
   leaveWhatsappTaskViaCdp,
   readWorkOsExecutorTokenViaCdp,
-  readWorkOsLastActivityViaCdp,
   readWorkOsLocalDiscoveryTaskViaCdp,
   readWorkOsLocalDiscoverySeedDataViaCdp,
   readWorkOsLocalDiscoverySourceFeedbackViaCdp,
@@ -41,21 +40,14 @@ if(!process.stdin.isTTY&&!whatsappCdp){
 }
 const terminal=readline.createInterface({input:process.stdin,output:process.stdout});
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-const TASK_POLL_MS=3000;
 const LOCAL_PREFLIGHT_POLL_MS=1500;
 const LOCAL_SOURCE_MIN_MS=500;
 const LOCAL_SOURCE_TARGET_QUEUE=12;
-const SOURCE_ADVANCE_MS=20000;
-const EXECUTOR_QUEUE_LIMIT=1;
-const CLOUD_AUTOMATION_POLL_MS=15000;
-// Every cloud poll reads D1 (the Discovery queue scans the owner's candidates), so an idle runner
-// backs off to one poll a minute and returns to the base cadence as soon as work appears.
-const CLOUD_AUTOMATION_IDLE_MAX_MS=60000;
-// Work OS (and D1) is polled only while it is wanted: the operator used a Work OS tab recently, or the
-// runner itself still had work a moment ago (a started Waiting check/autopost finishes on its own).
-const USER_ACTIVE_WINDOW_MS=15*60_000;
-const WORK_GRACE_MS=5*60_000;
-const DEMAND_CHECK_MS=10_000;
+// Commit 3e: waiting_check/autopost/discovery no longer poll D1 over HTTP on a timer — the owner
+// Durable Object pushes one task per process over this WebSocket the instant the runner is ready for
+// it, and an idle connection costs nothing. Only the reconnect backoff is a timer now.
+const WS_RECONNECT_MIN_MS=1000;
+const WS_RECONNECT_MAX_MS=30000;
 const TASK_BLOCK_COOLDOWN_MS=300000;
 const INCOMPLETE_QUALIFICATION_COOLDOWN_MS=15000;
 const qualificationAttempts=new Map();
@@ -79,8 +71,8 @@ const TOKEN_REFRESH_MS=60000;
 const IDLE_POLL_MIN_MS=2000;
 const IDLE_POLL_MAX_MS=5000;
 const WHATSAPP_RUNTIME_TRANSIENT_REASONS=new Set(['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready','whatsapp_messages_loading']);
-// Discovery executor leases last 90 s; an inspect/leave that has to wait out a WhatsApp message sync
-// (30–60 s after opening an invite on a large account) still has to finish inside that lease.
+// An inspect/leave sometimes has to wait out a WhatsApp message sync (30–60 s after opening an
+// invite on a large account); this just bounds how long one candidate holds up the next.
 const DISCOVERY_WHATSAPP_TIMEOUT_MS=80000;
 // WhatsApp Web home may legitimately sync for minutes; reloading it earlier restarts that sync.
 const WHATSAPP_STUCK_LOADING_MS=180000;
@@ -138,14 +130,6 @@ async function refreshExecutorTokenIfNeeded(){
   if(resolved)token=resolved;
 }
 
-async function api(path,init={}){
-  const response=await fetch(baseUrl+path,{...init,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json',...init.headers}});
-  const body=await response.json().catch(()=>({}));
-  // A revoked or recreated executor token is re-read from the Work OS page instead of retrying it forever.
-  if(response.status===401&&process.argv.includes('--token-from-work-os-page')){token='';nextTokenResolveAt=0;}
-  if(!response.ok) throw new Error(body.error||`Work OS HTTP ${response.status}`);
-  return body;
-}
 const statusFile=process.env.WORK_OS_RUNNER_STATUS_FILE
   ||join(process.env.XDG_STATE_HOME||join(homedir(),'.local','state'),'work-os','runner-status.json');
 let lastStatusKey='';
@@ -159,29 +143,6 @@ function setStatus(state,detail){
     writeFileSync(`${statusFile}.tmp`,JSON.stringify({state,detail,pid:process.pid,updatedAt:Date.now()}));
     renameSync(`${statusFile}.tmp`,statusFile);
   }catch{}
-}
-
-let lastCloudWorkAt=0;
-let demandCheckedAt=0;
-let cloudWanted=false;
-async function cloudDemand(){
-  if(Date.now()-demandCheckedAt<DEMAND_CHECK_MS)return cloudWanted;
-  demandCheckedAt=Date.now();
-  let wanted=false;
-  try{
-    const activity=await readWorkOsLastActivityViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp});
-    const userActive=activity.kind==='result'&&Date.now()-activity.lastActiveAt<USER_ACTIVE_WINDOW_MS;
-    wanted=userActive||Date.now()-lastCloudWorkAt<WORK_GRACE_MS;
-    if(!wanted)setStatus('paused',activity.kind==='result'&&activity.pageOpen
-      ?'Сайтом зараз не користуються — база не опитується'
-      :'Вкладка Work OS закрита — база не опитується');
-  }catch{
-    wanted=Date.now()-lastCloudWorkAt<WORK_GRACE_MS;
-    if(!wanted)setStatus('no_browser','Браузер з портом 9222 не відкритий — база не опитується');
-  }
-  if(wanted!==cloudWanted)console.log(wanted?'Work OS is in use: cloud polling resumed.':'Work OS is not in use: cloud polling paused (no D1 reads).');
-  cloudWanted=wanted;
-  return wanted;
 }
 
 function openUrl(url){
@@ -240,11 +201,7 @@ let whatsappLoadingSignals=0;
 let whatsappLoadingSince=0;
 let whatsappHomeRecoveryPending=false;
 let lastWhatsappReloadAt=0;
-let nextSourceAdvanceAt=0;
 let nextLocalSourceAt=0;
-let nextCloudAutomationAt=0;
-let cloudAutomationDelayMs=CLOUD_AUTOMATION_POLL_MS;
-let preferAutopost=false;
 const taskBlockedUntil=new Map();
 function markTaskBlocked(task,reason,cooldownMs=TASK_BLOCK_COOLDOWN_MS){
   taskBlockedUntil.set(task.candidateId,Date.now()+cooldownMs);
@@ -264,16 +221,11 @@ function markWhatsappRuntimeBlocked(reason){
   console.warn(`WhatsApp runtime temporarily blocks automated WhatsApp actions (${reason}); retry after cooldown.`);
 }
 function clearWhatsappRuntimeBlock(){whatsappRuntimeBlockedUntil=0;}
+// Source discovery stays local-first (the browser-driven Telegram/web crawl below): this never
+// becomes true again without touching this exact line, a deliberate tripwire against reintroducing
+// the server-side source advance that commit 2026-10-02 retired.
 function canAdvanceDiscoverySource(){
   return false;
-}
-async function advanceDiscoverySource(){
-  nextSourceAdvanceAt=Date.now()+SOURCE_ADVANCE_MS;
-  const source=await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'advance-discovery'})});
-  if(!source.advanced)return null;
-  const added=Math.max(0,Number(source.batch?.added)||0);
-  console.log(`Discovery source advanced via ${source.source}: searched ${source.batch?.searched||0}, added ${added}, duplicates ${source.batch?.duplicates||0}; qualified targets ${source.run?.targetCount||0}/${source.run?.goal||0}`);
-  return added>0?'source_added':'source_advanced';
 }
 
 function evaluateLocalPreflight(task,result){
@@ -638,50 +590,38 @@ async function refillLocalSourceOnce(local){
   return (applied.added||0)>0?'source_added':'local_task';
 }
 
-async function runWhatsAppAutopostOnce(){
-  const automation=await api('/api/messenger-automation/executor?platform=whatsapp');
-  if(automation.task?.kind!=='whatsapp_autopost')return null;
-  const job=automation.task;
-  if(!whatsappCdp){
-    console.warn('WhatsApp autopost requires WORK_OS_WHATSAPP_CDP; backing off until the browser adapter is available.');
-    return 'idle';
-  }
-  let automated;
-  try{automated=await sendWhatsappAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp});}
-  catch(error){
-    markWhatsappRuntimeBlocked('cdp_unavailable');
-    console.warn(`WhatsApp autopost CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
-    return 'idle';
-  }
-  if(automated.kind==='result'&&automated.result.sendConfirmed===true){
-    clearWhatsappRuntimeBlock();
-    await api('/api/messenger-automation/executor',{method:'POST',body:JSON.stringify({
-      action:'complete-whatsapp-autopost',jobId:job.jobId,status:'sent',
-      observedTarget:automated.result.observedTarget,targetVerified:true,sendConfirmed:true,
-    })});
-    console.log(`Confirmed WhatsApp autopost accepted by Work OS for ${automated.result.observedTarget}.`);
-    return 'task';
-  }
-  console.warn(`WhatsApp autopost stopped fail-closed: ${automated.reason}`);
-  if(WHATSAPP_RUNTIME_TRANSIENT_REASONS.has(automated.reason)){
-    markWhatsappRuntimeBlocked(automated.reason);
-    return 'idle';
-  }
-  await api('/api/messenger-automation/executor',{method:'POST',body:JSON.stringify({
-    action:'complete-whatsapp-autopost',jobId:job.jobId,status:'failed',
-    observedTarget:job.target.expectedName,targetVerified:false,sendConfirmed:false,errorCode:automated.reason,
-  })});
-  return 'task';
+// --- Live channel (commit 3e): one WebSocket to the owner Durable Object replaces the three HTTP
+// executor endpoints above. The DO pushes at most one task per process (waiting_check/autopost/
+// discovery) the instant this runner is ready for it; the runner answers with 'result' (applies and
+// advances), 'release' (a technical problem unrelated to this one item — the DO will not redispatch
+// until an explicit 'ready') or implicitly does nothing but 'release' for anything it cannot act on.
+// A lost connection is itself the DO's signal that whatever was in flight needs to be retried; there
+// is nothing here to reconcile on reconnect beyond reopening the socket.
+
+let liveWs=null;
+let wsReconnectDelayMs=WS_RECONNECT_MIN_MS;
+
+function sendLive(ws,message){
+  if(ws&&ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(message));
 }
 
-// Operator-started Waiting check (Platforms → WhatsApp → Очікування). The server owns the batch:
-// it hands out one chat at a time and stops the batch on fatal or repeated failures.
-async function runWaitingCheckOnce(){
-  if(!whatsappCdp)return null;
-  const claimed=await api('/api/chat-discovery/waiting-check/executor');
-  const task=claimed?.task;
-  if(task?.kind!=='whatsapp_waiting_check')return null;
-  const target={batchId:task.batchId,chatId:task.chatId};
+// The per-process backoff before asking the DO for the next task after a release: at least as long as
+// any global WhatsApp-runtime cooldown just set, and at least as long as a given candidate's own local
+// cooldown (Discovery only) — otherwise the DO would immediately redispatch the same blocked item.
+function scheduleReady(taskProcess,candidateUntilMs=0){
+  const delay=Math.max(0,whatsappRuntimeBlockedUntil-Date.now(),candidateUntilMs-Date.now());
+  setTimeout(()=>sendLive(liveWs,{type:'ready',process:taskProcess}),delay);
+}
+
+function releaseTask(ws,taskProcess,task,candidateUntilMs=0){
+  if(taskProcess==='waiting_check')sendLive(ws,{type:'release',process:taskProcess,batchId:task.batchId,chatId:task.chatId});
+  else if(taskProcess==='autopost')sendLive(ws,{type:'release',process:taskProcess,jobId:task.jobId});
+  else if(taskProcess==='discovery')sendLive(ws,{type:'release',process:taskProcess,candidateId:task.candidateId});
+  scheduleReady(taskProcess,candidateUntilMs);
+}
+
+async function handleWaitingCheckTask(ws,task){
+  if(!whatsappCdp||Date.now()<whatsappRuntimeBlockedUntil){releaseTask(ws,'waiting_check',task);return;}
   console.log(`WhatsApp waiting check: ${task.name}`);
   setStatus('working',`Перевірка «Очікування»: ${task.name}`);
   let outcome;
@@ -697,40 +637,69 @@ async function runWaitingCheckOnce(){
     }else{
       markWhatsappRuntimeBlocked(outcome.reason);
     }
-    await api('/api/chat-discovery/waiting-check/executor',{method:'POST',body:JSON.stringify({action:'release',...target})});
-    return 'idle';
+    releaseTask(ws,'waiting_check',task);
+    return;
   }
   clearWhatsappRuntimeBlock();
-  await api('/api/chat-discovery/waiting-check/executor',{method:'POST',body:JSON.stringify({
-    action:'complete',...target,status:outcome.status,reason:outcome.reason,observedName:outcome.observedName,
-  })});
+  sendLive(ws,{type:'result',process:'waiting_check',batchId:task.batchId,chatId:task.chatId,
+    status:outcome.status,reason:outcome.reason,observedName:outcome.observedName});
   console.log(`WhatsApp waiting check result: ${outcome.status}${outcome.reason?` (${outcome.reason})`:''}`);
   if(outcome.diagnostic)console.log('WhatsApp waiting check diagnostic: '+JSON.stringify(outcome.diagnostic));
-  nextCloudAutomationAt=0;
-  return 'task';
 }
 
-async function runDiscoveryExecutorOnce(){
-  const queue=await api(`/api/chat-discovery/executor?limit=${EXECUTOR_QUEUE_LIMIT}`);
-  const queuedTasks=Array.isArray(queue.tasks)?queue.tasks:[];
-  const task=queuedTasks.find(item=>!taskIsLocallyBlocked(item));
-  if(!task){
-    if(queuedTasks.length)return 'idle';
-    if(canAdvanceDiscoverySource(queue)){
-      const sourceOutcome=await advanceDiscoverySource();
-      if(sourceOutcome)return sourceOutcome;
-    }
-    return null;
+async function handleAutopostTask(ws,job){
+  if(!whatsappCdp){
+    console.warn('WhatsApp autopost requires WORK_OS_WHATSAPP_CDP; releasing until the browser adapter is available.');
+    releaseTask(ws,'autopost',job,Date.now()+WHATSAPP_RUNTIME_COOLDOWN_MS);
+    return;
   }
+  if(Date.now()<whatsappRuntimeBlockedUntil){releaseTask(ws,'autopost',job);return;}
+  let automated;
+  try{automated=await sendWhatsappAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp});}
+  catch(error){
+    markWhatsappRuntimeBlocked('cdp_unavailable');
+    console.warn(`WhatsApp autopost CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
+    releaseTask(ws,'autopost',job);
+    return;
+  }
+  if(automated.kind==='result'&&automated.result.sendConfirmed===true){
+    clearWhatsappRuntimeBlock();
+    sendLive(ws,{type:'result',process:'autopost',jobId:job.jobId,status:'sent',
+      observedTarget:automated.result.observedTarget,targetVerified:true,sendConfirmed:true});
+    console.log(`Confirmed WhatsApp autopost accepted by Work OS for ${automated.result.observedTarget}.`);
+    return;
+  }
+  console.warn(`WhatsApp autopost stopped fail-closed: ${automated.reason}`);
+  if(WHATSAPP_RUNTIME_TRANSIENT_REASONS.has(automated.reason)){
+    markWhatsappRuntimeBlocked(automated.reason);
+    releaseTask(ws,'autopost',job);
+    return;
+  }
+  sendLive(ws,{type:'result',process:'autopost',jobId:job.jobId,status:'failed',
+    observedTarget:job.target.expectedName,targetVerified:false,sendConfirmed:false,errorCode:automated.reason});
+}
+
+async function handleDiscoveryTask(ws,task){
+  if(taskIsLocallyBlocked(task)){
+    // This exact candidate failed ambiguously a moment ago (see markTaskBlocked below); D1 never
+    // learned that, so without this local cooldown the DO would just hand it straight back on the
+    // very next 'ready'. Nothing else is queued behind it in the push model, so this is a real pause
+    // on Discovery dispatch, not merely a skip to another candidate — an accepted, narrow tradeoff of
+    // the single-task push protocol for a fail-closed safety path that should be rare in practice.
+    releaseTask(ws,'discovery',task,Number(taskBlockedUntil.get(task.candidateId)||0));
+    return;
+  }
+  if(Date.now()<whatsappRuntimeBlockedUntil){releaseTask(ws,'discovery',task);return;}
   if(task.action==='leave'){
     if(task.runtime==='whatsapp_web'&&whatsappCdp){
       try{
         const automated=await leaveWhatsappTaskViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:DISCOVERY_WHATSAPP_TIMEOUT_MS});
         if(automated.kind==='result'&&automated.result.left===true){
           clearWhatsappRuntimeBlock();
-          await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'executor-leave',candidateId:task.candidateId,version:task.candidateVersion,chatStateToken:task.chatStateToken,targetVerified:true})});
+          clearTaskBlock(task);
+          sendLive(ws,{type:'result',process:'discovery',candidateId:task.candidateId,chatStateToken:task.chatStateToken,targetVerified:true});
           console.log('Verified WhatsApp leave accepted by Work OS.');
-          return 'task';
+          return;
         }
         if(WHATSAPP_RUNTIME_TRANSIENT_REASONS.has(automated.reason))markWhatsappRuntimeBlocked(automated.reason);
         console.warn(`WhatsApp leave automation stopped fail-closed: ${automated.reason}`);
@@ -739,59 +708,129 @@ async function runDiscoveryExecutorOnce(){
         markWhatsappRuntimeBlocked('cdp_unavailable');
         console.warn(`WhatsApp leave CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
       }
-      if(!process.stdin.isTTY)return 'idle';
+      if(!process.stdin.isTTY){releaseTask(ws,'discovery',task,Number(taskBlockedUntil.get(task.candidateId)||0));return;}
       console.log('Falling back to operator-confirmed leave; no callback was sent for the ambiguous browser state.');
     }
     openUrl(task.link);
     console.log(`\nLeave requested: ${task.name}`);
     const targetVerified=yes(await terminal.question(`Exact target verified as "${task.expectedTarget?.name||task.name}"? [y/N] `));
-    if(!targetVerified){console.log('Target was not verified; leave skipped fail-closed.');return 'idle';}
-    if(!yes(await terminal.question('Confirm only AFTER you actually left the chat [y/N]: '))) return 'idle';
-    await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'executor-leave',candidateId:task.candidateId,version:task.candidateVersion,chatStateToken:task.chatStateToken,targetVerified:true})});
+    if(!targetVerified){console.log('Target was not verified; leave skipped fail-closed.');releaseTask(ws,'discovery',task);return;}
+    if(!yes(await terminal.question('Confirm only AFTER you actually left the chat [y/N]: '))){releaseTask(ws,'discovery',task);return;}
+    sendLive(ws,{type:'result',process:'discovery',candidateId:task.candidateId,chatStateToken:task.chatStateToken,targetVerified:true});
   }else{
     const inspection=await inspectTask(task);
     if(inspection.kind==='blocked'){
       markTaskBlocked(task,inspection.reason);
-      return 'idle';
+      releaseTask(ws,'discovery',task,Number(taskBlockedUntil.get(task.candidateId)||0));
+      return;
     }
-    await api('/api/chat-discovery/executor',{method:'POST',body:JSON.stringify({action:'inspect',candidateId:task.candidateId,version:task.candidateVersion,minMembers:task.minMembers,result:inspection.result})});
+    sendLive(ws,{type:'result',process:'discovery',candidateId:task.candidateId,result:inspection.result});
   }
   clearTaskBlock(task);
   console.log('Result accepted by Work OS.');
-  return 'task';
 }
 
-async function runD1BackedTaskOnce(){
-  const waiting=await runWaitingCheckOnce();
-  if(waiting)return waiting;
-  const autopostFirst=preferAutopost;
-  preferAutopost=!preferAutopost;
-  if(autopostFirst){
-    const autopost=await runWhatsAppAutopostOnce();
-    if(autopost)return autopost;
+// Waiting_check/autopost/discovery all ultimately drive the one shared WhatsApp/Telegram browser tab
+// through whatsappCdp, same as the local preflight loop below — withCdpLock (further down) serializes
+// every one of them so two never run at once just because the DO happened to push more than one task.
+const incomingTaskQueue=[];
+let processingTask=false;
+function enqueueTask(ws,taskProcess,task){
+  incomingTaskQueue.push({ws,taskProcess,task});
+  pumpTaskQueue();
+}
+async function pumpTaskQueue(){
+  if(processingTask)return;
+  const next=incomingTaskQueue.shift();
+  if(!next)return;
+  processingTask=true;
+  try{
+    await withCdpLock(()=>{
+      if(next.taskProcess==='waiting_check')return handleWaitingCheckTask(next.ws,next.task);
+      if(next.taskProcess==='autopost')return handleAutopostTask(next.ws,next.task);
+      if(next.taskProcess==='discovery')return handleDiscoveryTask(next.ws,next.task);
+    });
+  }catch(error){
+    console.error(`Live channel task handler (${next.taskProcess}) failed: ${error instanceof Error?error.message:String(error)}`);
+  }finally{
+    processingTask=false;
+    pumpTaskQueue();
   }
-  const discovery=await runDiscoveryExecutorOnce();
-  if(discovery)return discovery;
-  return autopostFirst?null:runWhatsAppAutopostOnce();
+}
+
+function onLiveMessage(ws,raw){
+  let message;
+  try{message=JSON.parse(raw);}catch{return;}
+  if(message.type==='task'&&['waiting_check','autopost','discovery'].includes(message.process)){
+    enqueueTask(ws,message.process,message.task);
+    return;
+  }
+  // 'pong'/'hello' need no action; 'command'/'progress'/'process_state'/'runner_status' are either
+  // browser-facing broadcasts the runner never receives or not-yet-used generic relay (the Discovery
+  // autonomous run) — ignore anything else instead of crashing on it.
+}
+
+function liveChannelUrl(){
+  const url=new URL(baseUrl);
+  url.protocol=url.protocol==='https:'?'wss:':'ws:';
+  url.pathname='/api/live';
+  url.search='';
+  url.searchParams.set('kind','runner');
+  url.searchParams.set('token',token);
+  return url.toString();
+}
+
+function connectLiveChannel(){
+  if(!token){setTimeout(connectLiveChannel,2000);return;}
+  let ws;
+  try{ws=new WebSocket(liveChannelUrl());}
+  catch(error){console.error(`Live channel connect failed: ${error instanceof Error?error.message:String(error)}`);scheduleReconnect();return;}
+  liveWs=ws;
+  // A rejected handshake (wrong/expired token, unreachable host) fires only 'error' on this runtime's
+  // WebSocket, never 'close' — readyState is left stuck at CONNECTING. A later drop of an
+  // already-open connection fires 'close' (sometimes preceded by 'error'). Reconnecting from both,
+  // guarded so a connection that fires both only reconnects once, covers both cases.
+  let settled=false;
+  const onDown=()=>{
+    if(settled)return;
+    settled=true;
+    if(liveWs===ws)liveWs=null;
+    console.warn('Work OS live channel disconnected; reconnecting…');
+    setStatus('reconnecting','З’єднання з Work OS перервано — перепідключення…');
+    // A revoked or rotated token is re-read from the Work OS page instead of retrying it forever; a
+    // fixed env/clipboard token is left as-is (nothing here could refresh it).
+    if(process.argv.includes('--token-from-work-os-page')){token='';nextTokenResolveAt=0;}
+    scheduleReconnect();
+  };
+  ws.addEventListener('open',()=>{
+    wsReconnectDelayMs=WS_RECONNECT_MIN_MS;
+    console.log('Connected to the Work OS live channel.');
+    setStatus('ready','Готовий: підключено до Work OS');
+  });
+  ws.addEventListener('message',(event)=>onLiveMessage(ws,event.data));
+  ws.addEventListener('close',onDown);
+  ws.addEventListener('error',onDown);
+}
+function scheduleReconnect(){
+  const delay=wsReconnectDelayMs;
+  wsReconnectDelayMs=Math.min(WS_RECONNECT_MAX_MS,wsReconnectDelayMs*2);
+  setTimeout(async()=>{await refreshExecutorTokenIfNeeded();connectLiveChannel();},delay);
+}
+
+// Serializes local preflight's runOnce() iterations with live-channel task handling: both ultimately
+// drive the one shared whatsappCdp browser tab and must never run concurrently.
+let cdpLockChain=Promise.resolve();
+function withCdpLock(fn){
+  const run=cdpLockChain.then(fn,fn);
+  cdpLockChain=run.then(()=>{},()=>{});
+  return run;
 }
 
 async function runOnce(){
   if(!token)await refreshExecutorTokenIfNeeded();
-  let cloudPolled=false;
   if(!token)setStatus('no_token','Немає підключення: на сайті натисніть «Підключити цей браузер»');
-  if(token&&Date.now()>=nextCloudAutomationAt&&Date.now()>=whatsappRuntimeBlockedUntil&&await cloudDemand()){
-    cloudPolled=true;
-    nextCloudAutomationAt=Date.now()+CLOUD_AUTOMATION_POLL_MS;
-    const cloudOutcome=await runD1BackedTaskOnce();
-    if(cloudOutcome){
-      lastCloudWorkAt=Date.now();
-      cloudAutomationDelayMs=CLOUD_AUTOMATION_POLL_MS;
-      return cloudOutcome;
-    }
-    setStatus('ready','Готовий: чекає на завдання з Work OS');
-    cloudAutomationDelayMs=Math.min(CLOUD_AUTOMATION_IDLE_MAX_MS,cloudAutomationDelayMs*2);
-    nextCloudAutomationAt=Date.now()+cloudAutomationDelayMs;
-  }
+  // waiting_check/autopost/discovery no longer run from here at all (commit 3e) — the live channel's
+  // own message handler dispatches them the instant the owner Durable Object pushes a task.
   if(whatsappCdp){
     try{
       const skipCandidateIds=[...taskBlockedUntil.entries()]
@@ -853,27 +892,21 @@ async function runOnce(){
       console.warn(`Local Discovery bridge unavailable: ${error instanceof Error?error.message:String(error)}`);
     }
   }
-  // D1-backed work runs only on the cloud cadence above; polling it on every local loop burned D1 reads.
   return 'idle';
 }
 
 console.log('Work OS Discovery runner started. Ctrl+C to stop.');
 setStatus('starting','Запускається…');
 for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{setStatus('stopped','Runner зупинено');process.exit(0);});
+connectLiveChannel();
 let idleDelayMs=IDLE_POLL_MIN_MS;
 while(true){
   let outcome='idle';
-  try{outcome=await runOnce();}
+  try{outcome=await withCdpLock(runOnce);}
   catch(error){console.error(error instanceof Error?error.message:String(error));}
   let waitMs=idleDelayMs;
   if(outcome==='local_task'||outcome==='local_wait'){
     waitMs=LOCAL_PREFLIGHT_POLL_MS;
-    idleDelayMs=IDLE_POLL_MIN_MS;
-  }else if(outcome==='task'||outcome==='source_added'){
-    waitMs=TASK_POLL_MS;
-    idleDelayMs=IDLE_POLL_MIN_MS;
-  }else if(outcome==='source_advanced'){
-    waitMs=SOURCE_ADVANCE_MS;
     idleDelayMs=IDLE_POLL_MIN_MS;
   }else{
     idleDelayMs=Math.min(IDLE_POLL_MAX_MS,idleDelayMs*2);

@@ -37,10 +37,12 @@ WORK_OS_URL = os.environ.get('WORK_OS_URL', 'https://work-os-2-staging.devillion
 COLORS = {
     'working': '#2563eb', 'ready': '#16a34a', 'starting': '#16a34a', 'paused': '#9ca3af',
     'no_token': '#f59e0b', 'no_browser': '#f59e0b', 'attention': '#f59e0b', 'stopped': '#dc2626',
+    'reconnecting': '#f59e0b',
 }
 LABELS = {
     'working': 'Працює', 'ready': 'Готовий', 'starting': 'Запускається', 'paused': 'Пауза',
     'no_token': 'Не підключений', 'no_browser': 'Немає браузера', 'attention': 'Потрібна увага', 'stopped': 'Зупинений',
+    'reconnecting': 'Перепідключення',
 }
 
 

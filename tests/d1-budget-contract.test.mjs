@@ -47,12 +47,12 @@ void test('Discovery search is local-first and D1 work stays targeted until expl
   const deploy=read('scripts/deploy-staging.mjs');
   const preview=read('lib/chat-discovery/local-preview.ts');
   assert.match(runner,/function canAdvanceDiscoverySource\(\)\{\s*return false;/);
-  // The local loop is fast (2–5 s) but touches D1 only on the cloud cadence, only while Work OS is in
-  // use, and the empty Discovery queue is remembered server-side.
-  assert.match(runner,/EXECUTOR_QUEUE_LIMIT=1/);
-  assert.match(runner,/CLOUD_AUTOMATION_POLL_MS=15000/);
-  assert.match(runner,/CLOUD_AUTOMATION_IDLE_MAX_MS=60000/);
-  assert.match(runner,/&&await cloudDemand\(\)\)\{/);
+  // The local loop is fast (2–5 s) but touches D1 only indirectly: waiting_check/autopost/discovery
+  // (commits 3b/3c/3d) moved off this runner's own D1 polling entirely onto the owner Durable
+  // Object's live-channel push (commit 3e) — an idle connection reads nothing, regardless of whether
+  // Work OS is in use.
+  assert.match(runner,/function connectLiveChannel\(\)/);
+  assert.doesNotMatch(runner,/CLOUD_AUTOMATION_POLL_MS|cloudDemand/);
   assert.match(auth,/EXECUTOR_HEARTBEAT_SECONDS = 60/);
   assert.match(executor,/sourceAdvanceNeeded: false/);
   assert.doesNotMatch(executor,/SELECT min_members,status FROM chat_discovery_runs/);
