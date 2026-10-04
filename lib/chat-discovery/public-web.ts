@@ -2,7 +2,7 @@ import seedData from './seeds.ts';
 import { cleanChatName, normalizeGroupLink, type ChatPlatform } from '../chats/bulk-input.ts';
 
 export type DiscoveryPlatform = Extract<ChatPlatform, 'whatsapp' | 'viber'>;
-export type DiscoverySourceKind = 'public_web' | 'curated' | 'manual' | 'telegram_global';
+export type DiscoverySourceKind = 'public_web' | 'curated' | 'manual' | 'telegram_global' | 'telegram_scanned';
 
 export type DiscoverySource = {
   kind: DiscoverySourceKind;
@@ -586,7 +586,10 @@ export function extractInviteRecords(
     // Otherwise a query such as "Українці Горлівка" can make an unrelated Arabic/Russian
     // WhatsApp catalogue look Ukrainian. Only factual text adjacent to the invite counts;
     // hand-curated sources may additionally contribute their trusted directory context.
-    const factualEvidence = source.kind === 'curated'
+    // 'telegram_scanned' is the same kind of fact: the runner read this title directly off the
+    // Telegram group it scanned, not off a search query, so a group named e.g. "Українці
+    // Регенсбургу" counts even when the specific invite message itself says only "приєднуйтесь 👇".
+    const factualEvidence = source.kind === 'curated' || source.kind === 'telegram_scanned'
       ? [source.context, source.sourceTitle, context].filter(Boolean).join(' · ')
       : context;
     if (!isLikelyUkrainianCommunity(factualEvidence)) continue;

@@ -176,7 +176,7 @@ function priority(candidate: RunCandidate) {
   if (/^(?:tiktok|facebook|instagram|whatsapp|telegram)$/iu.test(name.trim())) score -= 14;
   if (/(?:eventbrite|реєстрац|майстер-клас|майстер клас|\bviews?\b|ref=share|\/groups\/|<span|https?:\/\/|href=|style=)/iu.test(name)) score -= 10;
   if (name.length > 140) score -= 6;
-  if (source?.kind === 'telegram_global') score += 2;
+  if (source?.kind === 'telegram_global' || source?.kind === 'telegram_scanned') score += 2;
   else if (source?.kind === 'curated') score += 1;
   return score;
 }

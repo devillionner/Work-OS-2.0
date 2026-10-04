@@ -23,7 +23,7 @@ import {
 type FetchLike=(input:string,init?:RequestInit)=>Promise<Response>;
 type KnownRow={platform:string;normalized_link:string};
 type CandidateState={id:string;version:number;imported_chat_id:string|null;decision:string};
-const SOURCE_KINDS=new Set<DiscoverySourceKind>(['public_web','curated','manual','telegram_global']);
+const SOURCE_KINDS=new Set<DiscoverySourceKind>(['public_web','curated','manual','telegram_global','telegram_scanned']);
 
 export type LocalDiscoveryPreview=DiscoveryCandidate&{
   localOnly:true;
@@ -102,8 +102,11 @@ export async function previewTelegramDiscoveryText(
   if(containsInvite&&(!sourceTitle||!isTelegramUrl(sourceUrl))){
     throw new DiscoveryError('Для Telegram-скану з WhatsApp invite потрібні назва чату та коректне посилання на Telegram-джерело.');
   }
+  // 'telegram_scanned' (not 'telegram_global'): sourceTitle here is the real title of the Telegram
+  // group the runner opened and scanned, not a search-engine snippet — it counts as factual evidence
+  // of the group's Ukrainian identity even when the specific invite message doesn't repeat it.
   const records=containsInvite?extractInviteRecords(normalized,['whatsapp'],{
-    kind:'telegram_global',sourceUrl,sourceTitle,query,seedLabel,seedKind:'telegram_chat',context,
+    kind:'telegram_scanned',sourceUrl,sourceTitle,query,seedLabel,seedKind:'telegram_chat',context,
   }):[];
   const preview=await prepareLocalPreviews(db,userId,records,{
     knownLinks:cleanKnownLinks(input.knownLinks),
