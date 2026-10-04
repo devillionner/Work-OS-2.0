@@ -1,6 +1,6 @@
 {
   "name": "work-os-2",
-  "version": "0.2.88",
+  "version": "0.2.89",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -55,6 +55,7 @@
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.34",
     "drizzle-kit": "0.31.10",
+    "esbuild": "0.28.2",
     "miniflare": "4.20260515.0",
     "oxfmt": "0.61.0",
     "oxlint": "1.76.0",
