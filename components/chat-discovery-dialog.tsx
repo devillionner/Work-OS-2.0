@@ -71,7 +71,9 @@ export function ChatDiscoveryDialog({
   const [workspace, setWorkspace] = useState<Workspace>({ run: null, telegramPlan: null, counts: EMPTY_COUNTS, importedCount: 0, waitingWhatsAppCount: 0, candidates: [] });
   const [workspaceLoadedAt, setWorkspaceLoadedAt] = useState(0);
   const platforms: DiscoveryPlatform[] = ['whatsapp'];
-  const [goal, setGoal] = useState(50);
+  // null = no operator override yet: the field follows the current/paused run's own goal. Set only by the
+  // operator editing the field, and cleared once a fresh run actually starts with it (see below).
+  const [goalOverride, setGoalOverride] = useState<number | null>(null);
   const minMembers = 700;
   const [filter, setFilter] = useState<DecisionFilter>('active');
   const [loading, setLoading] = useState(false);
@@ -83,6 +85,7 @@ export function ChatDiscoveryDialog({
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [localPreview,setLocalPreview]=useState<LocalPreviewSession>(EMPTY_RUN);
+  const goal=goalOverride??(localPreview.goal||50);
   const [runnerConnected,setRunnerConnected]=useState<boolean|null>(null);
   const [liveConnected,setLiveConnected]=useState(false);
   // The persisted Work OS history is a D1 read: it is loaded only when the operator opens «Історія».
@@ -211,13 +214,17 @@ export function ChatDiscoveryDialog({
     throw new Error(lastError);
   }
 
+  // A changed goal means the operator wants a fresh run, not a continuation of the paused one — even
+  // though the button still reads «Продовжити» until they touch the field (see the sync effect above).
+  const willResume=canResume(localPreview)&&goal===localPreview.goal;
+
   async function startAutonomousSearch() {
     if(telegramBusy)return;
     setError('');
     setNotice('');
     setTelegramBusy(true);
     try{
-      if(canResume(localPreview)){
+      if(willResume){
         const resumed=await postRun({action:'resume'});
         setFilter('active');
         setNotice(resumed.completionReason===null&&localPreview.completionReason==='source_error'
@@ -227,6 +234,7 @@ export function ChatDiscoveryDialog({
       }
       await postRun({action:'start',goal});
       setFilter('active');
+      setGoalOverride(null);
     }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося запустити автопошук.');}
     finally{setTelegramBusy(false);}
   }
@@ -426,6 +434,7 @@ export function ChatDiscoveryDialog({
   }
 
   function close() {
+    setGoalOverride(null);
     onClose();
   }
 
@@ -528,7 +537,7 @@ export function ChatDiscoveryDialog({
                     max={100}
                     value={autonomousRunning?displayedGoal:goal}
                     disabled={telegramBusy||autonomousRunning}
-                    onChange={event => setGoal(clampNumber(event.target.value, 1, 100, 50))}
+                    onChange={event => setGoalOverride(clampNumber(event.target.value, 1, 100, 50))}
                   />
                 </label>
                 <details className="rounded-xl border border-border/70 bg-background">
@@ -545,7 +554,7 @@ export function ChatDiscoveryDialog({
                       {pausing?<LoaderCircle data-icon="inline-start"/>:<Square data-icon="inline-start"/>}{pausing?'Зберігаємо паузу…':'Зупинити автопошук'}
                     </Button>
                   : <Button className="min-h-11 w-full justify-center sm:min-h-9" type="button" disabled={telegramBusy} onClick={() => void startAutonomousSearch()}>
-                      {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<Search data-icon="inline-start"/>}{telegramBusy?'Запускаємо…':localPreview.pauseSummary&&!localPreview.done?'Продовжити автопошук':localPreview.completionReason==='source_error'?'Продовжити пошук':'Запустити автопошук'}
+                      {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<Search data-icon="inline-start"/>}{telegramBusy?'Запускаємо…':willResume&&localPreview.pauseSummary&&!localPreview.done?'Продовжити автопошук':willResume&&localPreview.completionReason==='source_error'?'Продовжити пошук':'Запустити автопошук'}
                     </Button>}
               </div>
 

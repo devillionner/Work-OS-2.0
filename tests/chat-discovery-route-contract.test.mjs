@@ -7,15 +7,10 @@ void test('Chat Discovery mutation route preserves the browser API contract', as
 
   assert.match(route, /readJsonObject\(request, 256 \* 1024\)/);
   assert.match(route, /Math\.floor\(Date\.now\(\) \/ 1000\)/);
-  assert.match(route, /if \(body\.action === 'start'\)/);
   assert.match(route, /if \(body\.action === 'archive-stale-imports'\)/);
   assert.match(route, /event_type='chat_discovery_imported'/);
   assert.match(route, /joined_at IS NULL/);
   assert.match(route, /Очищено: старий автопошук/);
-  assert.match(route, /return json\(\{ run \}\)/);
-  assert.match(route, /if \(body\.action === 'cancel'\)/);
-  assert.match(route, /Number\.isSafeInteger\(body\.version\)/);
-  assert.match(route, /cancelDiscoveryRun\(env\.DB, user\.id, body\.runId, Number\(body\.version\), now\)/);
   assert.match(route, /if \(url\.searchParams\.get\('executor'\) === '1'\)/);
   assert.match(route, /readDiscoveryExecutorQueue\(env\.DB, user\.id, url\.searchParams\.get\('limit'\)\)/);
   assert.match(route, /if \(body\.action === 'import'\)/);
@@ -26,6 +21,11 @@ void test('Chat Discovery mutation route preserves the browser API contract', as
   assert.match(route, /Telegram source preview тепер локальний/);
   assert.doesNotMatch(route, /body\.action === 'handoff'/);
   assert.doesNotMatch(route, /body\.expectedVersion/);
+  // The pre-DO autonomous run engine (start/cancel a chat_discovery_runs row server-side) is retired;
+  // running state now lives in the owner Durable Object (see tests/owner-channel-discovery-run.test.mjs).
+  assert.doesNotMatch(route, /body\.action === 'start'/);
+  assert.doesNotMatch(route, /body\.action === 'cancel'/);
+  assert.doesNotMatch(route, /cancelDiscoveryRun|startDiscoveryRun/);
 });
 
 void test('Chat Discovery rejects malformed versioned mutations before domain calls', async () => {
@@ -33,8 +33,8 @@ void test('Chat Discovery rejects malformed versioned mutations before domain ca
 
   assert.match(route, /typeof body\.candidateId !== 'string'/);
   assert.match(route, /Number\.isSafeInteger\(body\.version\)/);
-  assert.match(route, /typeof body\.runId !== 'string'/);
   assert.match(route, /throw new DiscoveryError\('Невідома дія\.'\)/);
+  assert.doesNotMatch(route, /body\.runId/);
 });
 
 

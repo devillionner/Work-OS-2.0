@@ -9,10 +9,6 @@ import {
 } from './domain.ts';
 import { applyDiscoveryInspection } from './inspection.ts';
 import {
-  buildPublicSearchTasks,
-  buildTelegramSearchPlan,
-  discoverPublicWeb,
-  discoverTelegramPublic,
   extractInviteRecords,
   type DiscoveryPlatform,
   type DiscoveryRecord,
@@ -20,7 +16,6 @@ import {
   type DiscoverySourceKind,
 } from './public-web.ts';
 
-type FetchLike=(input:string,init?:RequestInit)=>Promise<Response>;
 type KnownRow={platform:string;normalized_link:string};
 type CandidateState={id:string;version:number;imported_chat_id:string|null;decision:string};
 const SOURCE_KINDS=new Set<DiscoverySourceKind>(['public_web','curated','manual','telegram_global','telegram_scanned']);
@@ -34,55 +29,6 @@ export type LocalDiscoveryPreview=DiscoveryCandidate&{
   groupId?:string;
   checkedRunId?:string;
 };
-
-export async function searchLocalDiscoveryPreview(
-  db:D1Database,
-  userId:string,
-  input:{platforms?:unknown;telegramCursor?:unknown;sourceCursor?:unknown;knownLinks?:unknown;minMembers?:unknown},
-  now:number,
-  fetcher:FetchLike=fetch,
-) {
-  const platforms=cleanPlatforms(input.platforms);
-  const telegramCursor=boundedInteger(input.telegramCursor,0,1_000_000,0);
-  const sourceCursor=boundedInteger(input.sourceCursor,0,1_000_000,0);
-  const minMembers=boundedInteger(input.minMembers,700,18_000,700);
-  const knownLinks=cleanKnownLinks(input.knownLinks);
-
-  const batchSize=1;
-  const telegramPlan=buildTelegramSearchPlan(telegramCursor,batchSize);
-  const totalPublicTasks=buildPublicSearchTasks(platforms).length;
-  const telegramDone=telegramPlan.done;
-  const publicDone=sourceCursor>=totalPublicTasks;
-  if(telegramDone&&publicDone){
-    return {source:'idle' as const,telegramCursor,sourceCursor,done:true,previews:[],batch:{searched:0,added:0,duplicates:0,errors:0}};
-  }
-
-  const completedBatches=Math.floor(telegramCursor/batchSize)+Math.floor(sourceCursor/batchSize);
-  const usePublic=!publicDone&&(telegramDone||completedBatches%3===2);
-  if(!usePublic&&!telegramDone){
-    const found=await discoverTelegramPublic({cursor:telegramCursor,maxQueries:batchSize,pageLimit:1},fetcher);
-    const preview=await prepareLocalPreviews(db,userId,found.records,{knownLinks,minMembers,now});
-    return {
-      source:'telegram' as const,
-      telegramCursor:found.nextCursor,
-      sourceCursor,
-      done:false,
-      previews:preview.previews,
-      batch:{searched:found.searched,added:preview.previews.length,duplicates:preview.duplicates,errors:found.errors},
-    };
-  }
-
-  const found=await discoverPublicWeb({platforms,cursor:sourceCursor,maxQueries:batchSize,pageLimit:1,includeCurated:false},fetcher);
-  const preview=await prepareLocalPreviews(db,userId,found.records,{knownLinks,minMembers,now});
-  return {
-    source:'public_web' as const,
-    telegramCursor,
-    sourceCursor:found.nextCursor,
-    done:telegramDone&&found.done,
-    previews:preview.previews,
-    batch:{searched:found.searched,added:preview.previews.length,duplicates:preview.duplicates,errors:found.errors},
-  };
-}
 
 export async function previewTelegramDiscoveryText(
   db:D1Database,
@@ -497,11 +443,6 @@ function safeDiscoveryNameHint(value:string){
   return /\p{L}/u.test(cleaned)?cleaned:'';
 }
 
-function cleanPlatforms(value:unknown):DiscoveryPlatform[]{
-  const values=Array.isArray(value)?value:[];
-  const result=[...new Set(values.filter((item):item is DiscoveryPlatform=>item==='whatsapp'||item==='viber'))];
-  return result.length?result:['whatsapp'];
-}
 function cleanKnownLinks(value:unknown):Set<string>{
   const result=new Set<string>();
   if(!Array.isArray(value))return result;

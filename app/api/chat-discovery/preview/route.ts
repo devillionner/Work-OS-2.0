@@ -7,7 +7,6 @@ import {
   confirmLocalDiscoveryPreview,
   previewTelegramDiscoveryText,
   readDiscoveryTelegramGroupSources,
-  searchLocalDiscoveryPreview,
 } from '@/lib/chat-discovery/local-preview';
 
 function json(value:unknown,status=200){
@@ -36,15 +35,6 @@ export async function POST(request:Request):Promise<Response>{
   if(body instanceof Response)return body;
   const now=Math.floor(Date.now()/1000);
   try{
-    if(body.action==='search'){
-      return json(await searchLocalDiscoveryPreview(env.DB,user.id,{
-        platforms:body.platforms,
-        telegramCursor:body.telegramCursor,
-        sourceCursor:body.sourceCursor,
-        knownLinks:body.knownLinks,
-        minMembers:body.minMembers,
-      },now));
-    }
     if(body.action==='telegram'){
       return json(await previewTelegramDiscoveryText(env.DB,user.id,{
         text:body.text,sourceUrl:body.sourceUrl,sourceTitle:body.sourceTitle,query:body.query,

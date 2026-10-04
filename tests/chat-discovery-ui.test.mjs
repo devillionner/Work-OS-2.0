@@ -42,24 +42,6 @@ void test('local autonomous preflight exposes only factual targets before D1 con
   assert.match(preview,/До D1 можна підтвердити лише фактично перевірений цільовий чат/);
 });
 
-void test('browser-local source crawl uses targeted D1 dedupe and no owner-wide 10k scan', async () => {
-  const preview = await readFile(new URL('../lib/chat-discovery/local-preview.ts', import.meta.url), 'utf8');
-  // One bounded source query per Worker call.
-  assert.match(preview, /const batchSize=1;/);
-  assert.match(preview, /buildTelegramSearchPlan\(telegramCursor,batchSize\)/);
-  assert.match(preview, /maxQueries:batchSize,pageLimit:1/);
-  // Each invite is one unique-index lookup; `normalized_link IN (json_each)` without the platform walked every
-  // chat and candidate of the owner per source (measured in tests/d1-poll-budget.test.mjs).
-  assert.match(preview, /FROM json_each\(\?2\) j CROSS JOIN chats c\s+WHERE c\.user_id=\?1 AND c\.platform=\?3 AND c\.normalized_link=j\.value/);
-  assert.match(preview, /FROM json_each\(\?2\) j CROSS JOIN chat_discovery_candidates d\s+WHERE d\.user_id=\?1 AND d\.platform=\?3 AND d\.normalized_link=j\.value/);
-  assert.doesNotMatch(preview, /normalized_link IN \(SELECT value FROM json_each/);
-  assert.doesNotMatch(preview, /LIMIT 10001/);
-  const searchStart=preview.indexOf('export async function searchLocalDiscoveryPreview');
-  const searchBody=preview.slice(searchStart,preview.indexOf('export async function',searchStart+1));
-  assert.doesNotMatch(searchBody,/INSERT INTO chat_discovery_candidates/);
-  assert.doesNotMatch(searchBody,/UPDATE chat_discovery_runs/);
-});
-
 void test('final local automation outcomes are the persistence boundary', async () => {
   const [dialog, preview] = await Promise.all([
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
@@ -84,12 +66,11 @@ void test('Discovery executor cannot source-crawl raw candidates before factual 
 // Operator decision 2026-10-02: outcomes stay in the tab session; non-targets become durable dedupe only
 // through «Архівувати всі» (one batch), targets only through «Підтвердити».
 void test('local WhatsApp outcomes become durable dedupe only through archive-all, targets only through confirm', async()=>{
-  const [previewRoute,previewDomain,adapter,dialog,domain]=await Promise.all([
+  const [previewRoute,previewDomain,adapter,dialog]=await Promise.all([
     readFile(new URL('../app/api/chat-discovery/preview/route.ts',import.meta.url),'utf8'),
     readFile(new URL('../lib/chat-discovery/local-preview.ts',import.meta.url),'utf8'),
     readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8'),
     readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8'),
-    readFile(new URL('../lib/chat-discovery/domain.ts',import.meta.url),'utf8'),
   ]);
   assert.match(previewRoute,/body\.action==='archive-outcomes'/);
   assert.match(previewDomain,/export async function archiveLocalDiscoveryOutcomes/);
@@ -98,9 +79,6 @@ void test('local WhatsApp outcomes become durable dedupe only through archive-al
   assert.doesNotMatch(adapter,/persist-outcome/);
   assert.match(dialog,/action:'archive-outcomes',items:chunk\.map\(archiveItem\)/);
   assert.match(dialog,/Дані пошуку/);
-  const reset=domain.slice(domain.indexOf('export async function resetDiscoveryWorkspace'),domain.indexOf('export async function continueDiscoveryRun'));
-  assert.match(reset,/preservedCandidates/);
-  assert.doesNotMatch(reset,/DELETE FROM chat_discovery_candidates/);
 });
 
 void test('saved target is an explicit operator decision point', async()=>{
@@ -132,7 +110,7 @@ void test('manual Telegram recovery stays out of the operator modal', async () =
 void test('discovery UI goal remains WhatsApp-first and requires no manual keyword inputs', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
   assert.match(dialog, /Цільових чатів/);
-  assert.match(dialog, /useState\(50\)/);
+  assert.match(dialog, /const goal=goalOverride\?\?\(localPreview\.goal\|\|50\);/);
   assert.match(dialog, /const minMembers = 700/);
   assert.match(dialog, /const platforms: DiscoveryPlatform\[\] = \['whatsapp'\]/);
   assert.doesNotMatch(dialog, /id="discovery-min-members"/);
@@ -300,19 +278,6 @@ void test('the Discovery run continues when the modal or the tab is closed and e
 });
 
 
-void test('browser-local Discovery source requests stay below the Worker CPU-risk envelope', async () => {
-  const [preview, publicWeb] = await Promise.all([
-    readFile(new URL('../lib/chat-discovery/local-preview.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../lib/chat-discovery/public-web.ts', import.meta.url), 'utf8'),
-  ]);
-  assert.match(preview,/maxQueries:batchSize,pageLimit:1/);
-  assert.match(preview,/includeCurated:false/);
-  assert.doesNotMatch(preview,/includeCurated:true/);
-  assert.match(publicWeb,/MAX_PAGE_BYTES = 450_000/);
-  assert.match(publicWeb,/if\(!hasRequestedInvite\)return \[\]/);
-});
-
-
 void test('source pacing lives in the owner DO dispatch instead of a fast modal polling loop', async () => {
   const [dialog,channel]=await Promise.all([
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url),'utf8'),
@@ -323,12 +288,6 @@ void test('source pacing lives in the owner DO dispatch instead of a fast modal 
   assert.doesNotMatch(dialog,/\},350\);|\},750\);/);
 });
 
-
-void test('each autonomous source request is a single bounded task and public search is interleaved every third batch', async () => {
-  const preview=await readFile(new URL('../lib/chat-discovery/local-preview.ts', import.meta.url),'utf8');
-  assert.match(preview,/const batchSize=1/);
-  assert.match(preview,/completedBatches%3===2/);
-});
 
 void test('autonomous start reaches the runner through the owner DO, not the tab', async()=>{
   const channel=await readFile(new URL('../workers/owner-channel.js',import.meta.url),'utf8');
@@ -370,14 +329,32 @@ void test('resuming a paused discovery run keeps cursor candidates and durable d
     readFile(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8'),
   ]);
   const start=dialog.slice(dialog.indexOf('async function startAutonomousSearch'),dialog.indexOf('async function stopAutonomousSearch'));
-  assert.match(start,/if\(canResume\(localPreview\)\)\{\s*const resumed=await postRun\(\{action:'resume'\}\);/);
+  assert.match(start,/if\(willResume\)\{\s*const resumed=await postRun\(\{action:'resume'\}\);/);
   assert.match(start,/Уже перевірені запрошення й переглянуті Telegram-групи не повторюються/);
+  // willResume requires an unchanged goal: editing the field while paused starts fresh instead of
+  // silently resuming the old run with its old goal (operator-reported bug, 2026-10-04).
+  assert.match(dialog,/const willResume=canResume\(localPreview\)&&goal===localPreview\.goal;/);
   // A new run keeps unconfirmed results, so nothing already checked is checked again.
   assert.match(runState,/candidates: previous\.candidates\.filter\(\(candidate\) => FINISHED_STATES\.has\(String\(candidate\.preflightState\)\)\)/);
   const resume=runState.slice(runState.indexOf('export function resumeRun'),runState.indexOf('export function canResume'));
   assert.match(resume,/\.\.\.state,/);
   assert.match(resume,/pauseSummary: null/);
   assert.match(dialog,/Продовжити автопошук/);
+});
+
+void test('changing the goal field on a paused run starts fresh instead of resuming the old goal',async()=>{
+  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  // The field shows the paused run's real goal until the operator edits it (goalOverride stays null),
+  // so reopening the dialog never silently resumes with a stale default of 50.
+  assert.match(dialog,/const \[goalOverride, setGoalOverride\] = useState<number \| null>\(null\);/);
+  assert.match(dialog,/const goal=goalOverride\?\?\(localPreview\.goal\|\|50\);/);
+  assert.match(dialog,/onChange=\{event => setGoalOverride\(clampNumber\(event\.target\.value, 1, 100, 50\)\)\}/);
+  // A successful fresh start (not a resume) clears the override, so the field tracks the new run's own goal next time.
+  const start=dialog.slice(dialog.indexOf('async function startAutonomousSearch'),dialog.indexOf('async function stopAutonomousSearch'));
+  assert.match(start,/await postRun\(\{action:'start',goal\}\);\s*setFilter\('active'\);\s*setGoalOverride\(null\);/);
+  // The button label itself must follow willResume, not the raw paused state, or it would still promise
+  // «Продовжити» for a click that is actually about to start a brand-new run.
+  assert.match(dialog,/willResume&&localPreview\.pauseSummary&&!localPreview\.done\?'Продовжити автопошук':willResume&&localPreview\.completionReason==='source_error'\?'Продовжити пошук':'Запустити автопошук'/);
 });
 
 void test('pause transition stays visually coherent while archive persistence runs',async()=>{

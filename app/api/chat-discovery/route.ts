@@ -9,12 +9,8 @@ import { createDiscoveryExecutorDevice, listDiscoveryExecutorDevices, revokeDisc
 import {
   DiscoveryError,
   archiveDiscoveryCandidateForOperator,
-  cancelDiscoveryRun,
   handoffDiscoveryCandidate,
   readDiscoveryWorkspace,
-  readTelegramDiscoveryPlan,
-  resetDiscoveryWorkspace,
-  startDiscoveryRun,
 } from '@/lib/chat-discovery/domain';
 
 function json(value: unknown, status = 200) {
@@ -124,32 +120,11 @@ export async function POST(request: Request): Promise<Response> {
       if (typeof body.deviceId !== 'string' || !body.deviceId) throw new DiscoveryError('Підключення executor не вказано.');
       return json(await revokeDiscoveryExecutorDevice(env.DB, user.id, body.deviceId, now));
     }
-    if (body.action === 'reset') {
-      return json(await resetDiscoveryWorkspace(env.DB, user.id));
-    }
     if (body.action === 'archive-stale-imports') {
       return json(await archiveStaleDiscoveryImports(env.DB, user.id, now));
     }
-    if (body.action === 'start') {
-      const run = await startDiscoveryRun(env.DB, user.id, {
-        platforms: body.platforms,
-        goal: body.goal,
-        minMembers: body.minMembers,
-      }, now);
-      return json({ run });
-    }
-    if (body.action === 'telegram-plan') {
-      if (typeof body.runId !== 'string' || !body.runId) throw new DiscoveryError('Запуск пошуку не вказаний.');
-      return json(await readTelegramDiscoveryPlan(env.DB, user.id, body.runId, Number(body.limit) || 6));
-    }
     if (body.action === 'continue') {
       throw new DiscoveryError('Source search тепер працює локально в браузері. Сирі кандидати не записуються в D1.', 409);
-    }
-    if (body.action === 'cancel') {
-      if (typeof body.runId !== 'string' || !body.runId || !Number.isSafeInteger(body.version)) {
-        throw new DiscoveryError('Некоректний стан запуску.');
-      }
-      return json(await cancelDiscoveryRun(env.DB, user.id, body.runId, Number(body.version), now));
     }
     if (body.action === 'ingest-telegram') {
       throw new DiscoveryError('Telegram source preview тепер локальний. Використовуйте preview API; запис у D1 відбувається лише після підтвердження.', 409);

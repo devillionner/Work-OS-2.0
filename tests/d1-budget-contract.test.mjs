@@ -68,20 +68,17 @@ void test('Discovery search is local-first and D1 work stays targeted until expl
   assert.doesNotMatch(executor,/claimDiscoveryExecutorQueue|assertDiscoveryExecutorLease/);
   assert.match(deploy,/if \(fingerprintCheck\.allowed\)/);
   assert.match(deploy,/Skipping remote D1 migration list for this code-only deploy/);
-  // One bounded source query per Worker call (was six before the source crawl moved to the browser).
-  assert.match(preview,/const batchSize=1;/);
-  assert.match(preview,/buildTelegramSearchPlan\(telegramCursor,batchSize\)/);
-  assert.match(preview,/maxQueries:batchSize,pageLimit:1/);
   // Invite dedupe is one unique-index lookup per link (platform bound), never a walk over the owner's chats.
   assert.match(preview,/FROM json_each\(\?2\) j CROSS JOIN chats c/);
   assert.doesNotMatch(preview,/normalized_link IN \(SELECT value FROM json_each/);
-  const searchStart=preview.indexOf('export async function searchLocalDiscoveryPreview');
-  // Only the search step itself must stay write-free; persisting an operator decision is an explicit action.
-  const searchEnd=preview.indexOf('export async function',searchStart+1);
-  const searchBody=preview.slice(searchStart,searchEnd);
-  assert.ok(searchStart>=0&&searchEnd>searchStart);
-  assert.doesNotMatch(searchBody,/INSERT INTO/);
-  assert.doesNotMatch(searchBody,/UPDATE chat_discovery_runs/);
+  // Telegram scanning itself moved fully to the browser/runner (CDP); previewTelegramDiscoveryText only
+  // turns already-scanned text into previews and must stay write-free until an explicit confirm/archive.
+  const previewStart=preview.indexOf('export async function previewTelegramDiscoveryText');
+  const previewEnd=preview.indexOf('export async function',previewStart+1);
+  const previewBody=preview.slice(previewStart,previewEnd);
+  assert.ok(previewStart>=0&&previewEnd>previewStart);
+  assert.doesNotMatch(previewBody,/INSERT INTO/);
+  assert.doesNotMatch(previewBody,/UPDATE chat_discovery_runs/);
   assert.doesNotMatch(preview,/LIMIT 10001/);
 });
 

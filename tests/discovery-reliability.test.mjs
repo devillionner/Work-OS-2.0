@@ -2,34 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-const source=readFileSync(new URL('../scripts/chat-discovery-source-crawl.mjs',import.meta.url),'utf8');
 const runner=readFileSync(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8');
 const adapter=readFileSync(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
 const loadModule=code=>import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
-const seedData={cities:[{country:'Німеччина',uk:'Берлін',name:'Berlin'}],keywords:['назва міста чат']};
-test('empty successful directory falls back to web search',async()=>{
-  const m=await loadModule(source+'\n// empty directory test');
-  const calls=[];
-  const result=await m.crawlLocalDiscoverySource(15,{seedData,fetcher:async url=>{
-    calls.push(url);return new Response('<html>No matches</html>');
-  }});
-  assert.ok(calls.some(url=>url.includes('search.brave.com')));
-  assert.equal(result.nextCursor,16);
-});
-test('failed graph sources are not permanently consumed',async()=>{
-  const m=await loadModule(source+'\n// graph failure test');
-  const calls=[];
-  const fetcher=async url=>{
-    calls.push(url);
-    if(url.includes('t.me/s/'))throw Error('temporary failure');
-    return new Response('<html>No matches</html>');
-  };
-  await m.crawlLocalDiscoverySource(15,{seedData,fetcher});
-  const first=calls.filter(url=>url.includes('t.me/s/'));
-  calls.length=0;
-  await m.crawlLocalDiscoverySource(16,{seedData,fetcher});
-  assert.ok(calls.some(url=>first.includes(url)));
-});
 function harness({metadataFailure=false,persistFailure=false,joinUnavailable=false,postJoinEvidenceGap=false}={}){
   let checkpoint=null;
   const writes=[],joins=[];
