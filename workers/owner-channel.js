@@ -638,7 +638,10 @@ export class OwnerChannel {
       if (message.runId === run.runId && run.running && sourceOutcomes) {
         const applied = await this.applyRunSourceStep(run, message, sourceOutcomes, now);
         next = applied.state;
-        ws.send(JSON.stringify({ type: 'run_source_applied', process: 'discovery_run', runId: run.runId, added: applied.added, duplicates: applied.duplicates, scannedGroups: Array.isArray(message.scannedGroups) ? message.scannedGroups : [] }));
+        const failed = sourceOutcomes.filter((outcome) => !outcome.ok);
+        ws.send(JSON.stringify({ type: 'run_source_applied', process: 'discovery_run', runId: run.runId, added: applied.added, duplicates: applied.duplicates,
+          extracted: sourceOutcomes.reduce((sum, outcome) => sum + (outcome.ok ? outcome.extracted ?? 0 : 0), 0),
+          errors: failed.length, error: failed[0]?.reason ?? null, scannedGroups: Array.isArray(message.scannedGroups) ? message.scannedGroups : [] }));
       }
     } else if (message.type === 'pause') {
       if (job?.kind === 'source' && job.runId === message.runId) state.discoveryRunJob = null;
@@ -682,9 +685,11 @@ export class OwnerChannel {
       try {
         const preview = await previewTelegramDiscoveryText(this.env.DB, userId, { ...source, knownLinks, minMembers: 700 }, Math.floor(now / 1000));
         for (const item of preview.previews) knownLinks.push(item.link);
-        outcomes.push({ ok: true, sourceUrl: source.sourceUrl, previews: preview.previews, added: preview.batch.added, duplicates: preview.batch.duplicates });
+        outcomes.push({ ok: true, sourceUrl: source.sourceUrl, previews: preview.previews, added: preview.batch.added, duplicates: preview.batch.duplicates, extracted: preview.batch.extracted });
       } catch (error) {
-        outcomes.push({ ok: false, sourceUrl: source.sourceUrl, query: source.query, reason: error instanceof Error ? error.message.slice(0, 200) : 'preview_failed' });
+        const reason = error instanceof Error ? error.message.slice(0, 200) : 'preview_failed';
+        console.warn('Discovery run source preview failed', reason);
+        outcomes.push({ ok: false, sourceUrl: source.sourceUrl, query: source.query, reason });
       }
     }
     return outcomes;

@@ -68,7 +68,7 @@ export type SourceBatch = {
   warnings?: RunIssue[];
 };
 export type SourcePreviewOutcome =
-  | { ok: true; sourceUrl: string; previews: LocalDiscoveryPreview[]; added: number; duplicates: number }
+  | { ok: true; sourceUrl: string; previews: LocalDiscoveryPreview[]; added: number; duplicates: number; extracted?: number }
   | { ok: false; sourceUrl: string; query: string; reason: string };
 export type SourceFeedbackEntry = {
   score: number; lastCrawledAt: number; lastOutcomeAt: number; added: number; duplicates: number;

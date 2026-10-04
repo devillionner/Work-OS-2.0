@@ -892,7 +892,8 @@ function onLiveMessage(ws,raw){
       enqueueTask(ws,'discovery_run_source',{runId:String(message.runId||''),cursor:Number(message.cursor)||0,feedback:message.feedback||{}});
     }else if(message.type==='run_source_applied'){
       markGroupsScanned(Array.isArray(message.scannedGroups)?message.scannedGroups.map(String):[]);
-      console.log('Discovery source applied: added '+(Number(message.added)||0)+', duplicates '+(Number(message.duplicates)||0));
+      console.log('Discovery source applied: extracted '+(Number(message.extracted)||0)+', added '+(Number(message.added)||0)+', duplicates '+(Number(message.duplicates)||0)
+        +(Number(message.errors)?', errors '+Number(message.errors)+' ('+String(message.error||'unknown')+')':''));
     }
     return;
   }
