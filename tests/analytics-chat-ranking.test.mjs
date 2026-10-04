@@ -56,8 +56,11 @@ void test('analytics ranking UI and API expose platform direction language and c
   const workspace = readFileSync(join(root, 'components', 'analytics-workspace.tsx'), 'utf8');
   const css = readFileSync(join(root, 'app', 'globals.css'), 'utf8');
 
-  assert.match(route, /LEFT JOIN chat_profiles pr ON pr\.chat_id=c\.id/);
-  assert.match(route, /pr\.language,pr\.directions_json/);
+  // The per-chat SQL lives in lib/analytics-chats.ts since 2026-10-04 (grouped before the joins).
+  const chatSql = readFileSync(join(root, 'lib', 'analytics-chats.ts'), 'utf8');
+  assert.match(route, /chatActivityStatement\(env\.DB, user\.id, from, to\)/);
+  assert.match(chatSql, /LEFT JOIN chat_profiles pr ON pr\.chat_id=c\.id/);
+  assert.match(chatSql, /pr\.language,pr\.directions_json/);
   assert.match(workspace, /aria-label="Фільтри рейтингу чатів"/);
   for (const label of ['Платформа', 'Напрямок', 'Мова', 'Недостатньо даних'])
     assert.match(workspace, new RegExp(label));

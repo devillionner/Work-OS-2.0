@@ -50,7 +50,9 @@ export async function GET(request:Request):Promise<Response> {
   const chats=chatResult.results.map(row=>({...row,publications:Number(row.publications||0),responses:Number(row.responses||0),responseRate:rate(Number(row.responses||0),Number(row.publications||0))}));
   const recommendation=buildAnalyticsRecommendation(chats,days);
   const payload=buildAnalyticsOverview({range:{from,to,days},totals,targets,monthlyGoal,previousBookings:previous.bookings,recommendation});
-  await putRevisionJson(cacheRequest,payload,180);
+  // The key carries the owner revision and the date range, so any write or a new day already yields a
+  // new key; a longer lifetime cannot serve stale numbers, it only keeps unchanged views cached.
+  await putRevisionJson(cacheRequest,payload,600);
   return Response.json(payload,{headers:{'Cache-Control':'no-store','X-Work-OS-Cache':'MISS'}});
 }
 

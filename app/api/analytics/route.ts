@@ -203,7 +203,9 @@ export async function GET(request: Request): Promise<Response> {
     archivedChats: archiveReasons.reduce((sum, row) => sum + row.count, 0),
   };
   const payload = { ...data, targets, outcomes, insights, trends, subjects };
-  if (cacheRequest) await putRevisionJson(cacheRequest, payload, 180);
+  // Revision + date range are in the key (any write or a new day yields a new key), so the longest
+  // lifetime putRevisionJson allows cannot serve stale numbers.
+  if (cacheRequest) await putRevisionJson(cacheRequest, payload, 600);
   return Response.json(payload, { headers: { 'Cache-Control': 'no-store', 'X-Work-OS-Cache':'MISS' } });
 }
 
