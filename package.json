@@ -15,12 +15,12 @@
     "typecheck": "tsc -p tsconfig.chat-discovery.json --pretty false",
     "verify": "npm run build",
     "verify:local": "npm run lint && npm run typecheck && npm run test:full && npm run build",
-    "test": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.mjs",
+    "test": "node --experimental-strip-types --test --test-concurrency=16 tests/*.test.mjs",
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/apply-d1-migrations.mjs",
-    "test:staging": "node --experimental-strip-types --test --test-concurrency=1 tests/chat-discovery-cloud.test.mjs tests/chat-discovery-route-contract.test.mjs tests/chat-discovery-scan-gate.test.mjs tests/chat-discovery-ui.test.mjs tests/platform-browser-open.test.mjs tests/release-version.test.mjs tests/wrangler-config.test.mjs",
-    "test:full": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.mjs",
+    "test:staging": "node --experimental-strip-types --test --test-concurrency=16 tests/chat-discovery-cloud.test.mjs tests/chat-discovery-route-contract.test.mjs tests/chat-discovery-scan-gate.test.mjs tests/chat-discovery-ui.test.mjs tests/platform-browser-open.test.mjs tests/release-version.test.mjs tests/wrangler-config.test.mjs",
+    "test:full": "node --experimental-strip-types --test --test-concurrency=16 tests/*.test.mjs",
     "discovery:runner": "node scripts/chat-discovery-runner.mjs"
   },
   "dependencies": {
