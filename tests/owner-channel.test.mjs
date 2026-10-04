@@ -364,6 +364,78 @@ void test('a runtime-problem release waits for an explicit ready before redispat
   assert.equal(runner.sent[0]?.task?.jobId, job.id);
 });
 
+// Commit 3f: browsers subscribe to the live channel instead of polling, so every autopost state change
+// that alters what the queue shows must reach them; the queue reload itself stays the source of truth.
+void test('autopost queue changes, dispatch, completion and release are all broadcast to browser sockets', async (t) => {
+  const db = await localDatabase(t);
+  const a = await seedAutopostable(db, { chatId: 'wa-a' });
+  const b = await seedAutopostable(db, { chatId: 'wa-b' });
+  const jobA = await createWhatsAppAutopostJob(db, 'u', { requestKey: 'request_live_a_long', chatId: a }, 100, '2026-09-24');
+  const jobB = await createWhatsAppAutopostJob(db, 'u', { requestKey: 'request_live_b_long', chatId: b }, 101, '2026-09-24');
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const runner = withSocket(ctx, mockSocket(), ['runner']);
+  const browser = withSocket(ctx, mockSocket(), ['browser']);
+
+  await wake(channel, 'u');
+  assert.deepEqual(browser.sent, [
+    { type: 'process_state', process: 'autopost', jobId: null, status: 'queue_changed' },
+    { type: 'process_state', process: 'autopost', jobId: jobA.id, status: 'running' },
+  ]);
+  assert.ok(runner.sent.every((message) => message.type !== 'process_state'), 'browser-facing broadcasts never go to the runner');
+
+  browser.sent.length = 0;
+  await channel.webSocketMessage(runner, JSON.stringify({
+    type: 'result', process: 'autopost', jobId: jobA.id, status: 'sent',
+    observedTarget: (await db.prepare(`SELECT expected_name FROM whatsapp_autopost_jobs WHERE id=?1`).bind(jobA.id).first()).expected_name,
+    targetVerified: true, sendConfirmed: true,
+  }));
+  assert.deepEqual(browser.sent, [
+    { type: 'process_state', process: 'autopost', jobId: jobA.id, status: 'sent' },
+    { type: 'process_state', process: 'autopost', jobId: jobB.id, status: 'running' },
+  ]);
+
+  browser.sent.length = 0;
+  await channel.webSocketMessage(runner, JSON.stringify({ type: 'release', process: 'autopost', jobId: jobB.id }));
+  assert.deepEqual(browser.sent, [{ type: 'process_state', process: 'autopost', jobId: jobB.id, status: 'released' }]);
+});
+
+void test('a runner disconnect with an in-flight autopost job tells browsers the job was released and the runner went offline', async (t) => {
+  const db = await localDatabase(t);
+  const chatId = await seedAutopostable(db);
+  const job = await createWhatsAppAutopostJob(db, 'u', { requestKey: 'request_live_drop_long', chatId }, 100, '2026-09-24');
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const runner = withSocket(ctx, mockSocket(), ['runner']);
+  const browser = withSocket(ctx, mockSocket(), ['browser']);
+  await wake(channel, 'u');
+  browser.sent.length = 0;
+
+  ctx.closeSocket(runner);
+  await channel.webSocketClose(runner, 1006, 'network', false);
+
+  assert.deepEqual(browser.sent, [
+    { type: 'process_state', process: 'autopost', jobId: job.id, status: 'released' },
+    { type: 'runner_status', connected: false },
+  ]);
+});
+
+void test('waiting_check start and stop over HTTP are broadcast to every browser socket with the same payload the caller gets', async (t) => {
+  const db = await localDatabase(t);
+  await seedChat(db, { id: 'a', platform: 'whatsapp', status: 'waiting' });
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const otherDevice = withSocket(ctx, mockSocket(), ['browser']);
+
+  const started = await (await waitingCheckRequest(channel, 'u', { method: 'POST', body: JSON.stringify({ action: 'start' }) })).json();
+  assert.deepEqual(otherDevice.sent, [{ type: 'process_state', process: 'waiting_check', ...started }]);
+
+  otherDevice.sent.length = 0;
+  const stopped = await (await waitingCheckRequest(channel, 'u', { method: 'POST', body: JSON.stringify({ action: 'stop' }) })).json();
+  assert.equal(stopped.active, false);
+  assert.deepEqual(otherDevice.sent, [{ type: 'process_state', process: 'waiting_check', ...stopped }]);
+});
+
 // --- discovery (per-candidate executor): real business logic, backed by local D1 (Miniflare) ---
 // Commit 3d. Unlike autopost, there is no D1 lease to claim/release: the candidate rows carry no
 // ownership columns anymore, so the open WebSocket plus the in-memory discoveryCurrentTask are the

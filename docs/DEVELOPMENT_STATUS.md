@@ -1,3 +1,71 @@
+## 2026-10-04 — Сайт на live-канал замість опитування (коміт 3f)
+
+- Новий `lib/live-channel.ts` — браузерний клієнт `/api/live?kind=browser` (авторизація сесійною
+  кукою, як і було з 3a). Один WebSocket на сторінку, спільний для всіх підписників
+  (`subscribeLiveMessages`/`subscribeLiveStatus`), відкритий лише поки є хоч один підписник;
+  відписка відкладена на один тік, щоб StrictMode/перемонтування не рвали сокет посеред handshake.
+  Лише прийом: старт/стоп waiting_check і створення/скасування автопосту й далі йдуть звичайними
+  HTTP POST (DO вже міст із 3b/3c). Reconnect 1с→30с (подвоєння), скидання backoff на `open`;
+  повернення онлайн/у видиму вкладку — негайна спроба без очікування backoff.
+- **Перевірено емпірично, не з читання специфікації**: у Chromium (вбудований браузер) відхилений
+  handshake (реальна HTTP 401-відповідь і connection refused) дає `error`, а ПОТІМ `close(1006)`,
+  `readyState` = CLOSED — бага Node-рантайму з 3e тут немає. Reconnect однаково висить на обох
+  подіях із прапорцем `settled` (одне перепідключення на сокет), як у runner-і. Окремо прогнано сам
+  `lib/live-channel.ts` (зібраний esbuild) у браузері проти справжнього `ws`-сервера: backoff
+  1→2→4→8 с під час 401, відновлення одразу після зняття відмови, ping на 30-й/60-й секунді,
+  «заглушений» pong → сокет закрито рівно через 10 с і перепідключено через 1 с.
+- **Keepalive (знайдено в документації Cloudflare під час 3f, а не в попередніх підкомітах)**:
+  Cloudflare закриває WebSocket після 100 с без трафіку. Обидва клієнти — браузер і runner — шлють
+  `{"type":"ping"}` кожні 30 с; це рівно рядок `setWebSocketAutoResponse`-пари DO, тож ping не будить
+  DO і не виконує жодного його коду. Без цього простоюючий runner із 3e, найімовірніше, рвав би
+  з'єднання раз на ~100 с: кожне перепідключення — D1-читання на перевірку токена + dispatch
+  autopost/discovery, плюс «офлайн→онлайн» для всіх відкритих вкладок. Відсутність pong
+  (браузер: 10 с; runner: до наступного ping) = напіввідкритий сокет після сну/зміни мережі →
+  примусовий reconnect. Живої перевірки на staging ще не було: це факт із документації, а не
+  виміряний на staging розрив.
+- `workers/owner-channel.js`: autopost тепер шле браузерам `{type:'process_state', process:'autopost',
+  jobId, status}` — `queue_changed` на кожен `/autopost-wake` (створення/пакет/скасування з будь-якого
+  пристрою), `running` на dispatch, статус результату (`sent`/`failed`) на result, `released` на
+  release і на розрив runner-а з активною задачею. Waiting-check HTTP POST (start/stop/retry) тепер
+  теж шле `process_state` з тим самим payload, що отримує ініціатор, — раніше інші пристрої про старт
+  і стоп не дізнавалися зовсім (broadcast був лише після результату runner-а).
+- `components/server-sync.tsx`: логіка `checkRevision`/`wake`/backoff не переписувалась. Будь-яке
+  вхідне live-повідомлення (і `hello` при (пере)підключенні — події могли загубитись, поки сокет
+  лежав) іде через той самий coalesce `scheduleWake` (новий reason `'live'`) в один авторитетний
+  `/api/sync`-чек. Поки сокет відкритий, таймер не опитує D1 — лише локально перевіряє київську дату
+  раз на 60 с; щойно сокет падає, повертається звичайне опитування (з 30 с).
+- `components/platform-workspace.tsx`: безумовний `setInterval` (15/60 с) для `refreshWaitingCheck`
+  прибрано. `process_state` waiting_check подається прямо в `parseWaitingCheckView` (форма payload =
+  GET-відповідь), `runner_status` → один `refreshWaitingCheck()` (за `runnerSeenAt`). Поки
+  live-канал знає, що runner підключений, панель бере `runnerSeenAt` = зараз: без цього значення з
+  останнього GET «старіло» б і через 3 хв панель хибно показала б «Runner не працює». Інтервал
+  лишився ЛИШЕ як фолбек, поки live-канал недоступний (та сама поведінка, що й до 3f). Autopost
+  `process_state` (крім `running`/`released`, які нічого видимого не змінюють) → `invalidateQueueCache
+  ('whatsapp')` + `reloadChats`; пристрій-ініціатор отримує й власний `queue_changed`, тож робить
+  один зайвий reload своєї черги — свідомо не дедуплікується, рідкісна дія.
+- **Архітектурний компроміс (свідомий, з плану)**: live-канал знає лише про runner-процеси
+  (waiting_check/autopost/discovery і стан runner-а), а не про довільні мутації — ліди, звіти,
+  аналітику, зміни Telegram-черг на іншому пристрої. Поки сокет відкритий і фонове опитування
+  `/api/sync` зупинене, такі зміни підтягуються на focus/online/visibility або з першим будь-яким
+  live-повідомленням, а не самі у фоні до хвилини, як раніше. Ця сама вкладка (і сусідні вкладки
+  через BroadcastChannel) як і раніше бачить свої зміни одразу. Інші фонові опитування поза планом
+  3f (`global-timers` раз на 120 с, `workday-card`, Viber-джоби в Library) не чіпались.
+- Тести: новий `tests/live-channel.test.mjs` — поведінковий сценарій на фейковому WebSocket +
+  mock-таймерах (один сокет на сторінку, reconnect після лише `error` і після `close` рівно один раз,
+  backoff, pong не доходить до підписників, ping = рядок auto-response DO, без pong → reconnect,
+  останній відписаний закриває сокет без подальших спроб) + контракти server-sync/workspace/runner.
+  `tests/owner-channel.test.mjs` 24→27: autopost broadcast-и (queue_changed/running/sent/released),
+  розрив runner-а з активним автопостом, broadcast старту/стопу waiting_check іншим пристроям.
+- Релізна версія `0.2.92` (`lib/app-meta.ts`, `package.json`/`package-lock.json` `"version"`).
+- Докази: `npm run lint`/`npm run typecheck`/`npm run build` — зелені (`dist/server/owner-channel.js`
+  перезібрано, містить нові broadcast-и). Повний `npm run test:full` — 907/938 (було 900/931; +7 рівно
+  нові тести), ті самі 31 відоме падіння з `docs/TODO.md`, звірено за назвами `diff`-ом — ідентично,
+  нуль нових. Емпірична перевірка WebSocket-поведінки — у вбудованому браузері проти локальних
+  серверів (див. вище), не на staging. Рівень «код + локальний тест + браузерна перевірка клієнта»:
+  на staging живого прийняття 3f ще не було. Приймання оператором (старт із телефона, стоп, офлайн
+  ПК) потребує оновленого й перезапущеного runner-а на ПК (`scripts/chat-discovery-runner.mjs`, тепер
+  ще й з keepalive) — Worker/DO деплоїться на push сам, runner — ні.
+
 ## 2026-10-04 — Runner на WebSocket замість опитування (коміт 3e)
 
 - `scripts/chat-discovery-runner.mjs` переписаний: три HTTP executor-ендпоінти (вже видалені/410 у

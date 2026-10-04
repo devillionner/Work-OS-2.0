@@ -80,6 +80,9 @@ export class OwnerChannel {
       if (!userId) return new Response(null, { status: 401 });
       const state = await this.readState();
       if (state.userId !== userId) state.userId = userId;
+      // Called after a create/batch/cancel on one device: other open tabs/devices reload their queue
+      // (new "Автопост у черзі" badge, or a cancelled one gone) instead of finding out on next focus.
+      this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: null, status: 'queue_changed' });
       await this.dispatchNextAutopostJob(state);
       await this.writeState(state);
       return new Response(null, { status: 204 });
@@ -182,7 +185,10 @@ export class OwnerChannel {
       const error = await this.applyWaitingCheckCommand(state, body, now);
       if (error) return error;
       await this.writeState(state);
-      return Response.json(await this.waitingCheckStatusJson(state, now), { headers: { 'Cache-Control': 'no-store' } });
+      const status = await this.waitingCheckStatusJson(state, now);
+      // Start/stop from one device shows up on every other open tab/device without a poll.
+      this.broadcast('browser', { type: 'process_state', process: 'waiting_check', ...status });
+      return Response.json(status, { headers: { 'Cache-Control': 'no-store' } });
     }
     return new Response('Method not allowed', { status: 405 });
   }
@@ -327,6 +333,7 @@ export class OwnerChannel {
     if (!task) return;
     state.autopostCurrentJobId = task.jobId;
     this.broadcast('runner', { type: 'task', process: 'autopost', task });
+    this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: task.jobId, status: 'running' });
   }
 
   /** @param {{jobId:string; status:string; observedTarget?:string; targetVerified?:boolean; sendConfirmed?:boolean; errorCode?:string}} message */
@@ -336,6 +343,9 @@ export class OwnerChannel {
     state.autopostCurrentJobId = null;
     try { await completeWhatsAppAutopostJob(this.env.DB, state.userId, message, nowSeconds()); }
     catch { /* job already resolved another way (e.g. operator cancel) — nothing left to apply */ }
+    // Sent before the next dispatch so a browser sees this job finish before the next one starts;
+    // either way it reloads its queue, which is where the authoritative job status lives.
+    this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: message.jobId, status: String(message.status || '') });
     await this.dispatchNextAutopostJob(state);
     await this.writeState(state);
   }
@@ -347,6 +357,7 @@ export class OwnerChannel {
     await releaseWhatsAppAutopostJob(this.env.DB, state.userId, message.jobId, nowSeconds());
     state.autopostCurrentJobId = null;
     await this.writeState(state);
+    this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: message.jobId, status: 'released' });
   }
 
   /** @param {WebSocket} _ws */
@@ -435,6 +446,7 @@ export class OwnerChannel {
       // means whatever job was in flight must go back to 'pending' instead of waiting on a timeout.
       if (state.autopostCurrentJobId && state.userId) {
         await releaseWhatsAppAutopostJob(this.env.DB, state.userId, state.autopostCurrentJobId, nowSeconds());
+        this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: state.autopostCurrentJobId, status: 'released' });
         state.autopostCurrentJobId = null;
       }
       // Discovery's task was never written to D1, so losing the connection just means forgetting it

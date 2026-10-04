@@ -29,6 +29,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { handleTabKeyNavigation } from '@/lib/tab-navigation';
 import { announceDataChange } from '@/lib/client-sync';
+import { subscribeLiveMessages, subscribeLiveStatus, type LiveStatus } from '@/lib/live-channel';
 import { PlatformOverview, type PlatformLinkItem as LinkItem, type PublicationPace } from '@/components/platform-overview';
 import { WorkspaceInitialLoading } from '@/components/workspace-load-state';
 
@@ -82,6 +83,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const [duplicatesOpen,setDuplicatesOpen]=useState(false);
   const [notice,setNotice]=useState('');
   const [waitingCheck,setWaitingCheck]=useState<WaitingCheckView>(EMPTY_WAITING_CHECK);
+  const [liveStatus,setLiveStatus]=useState<LiveStatus>({connected:false,runnerConnected:null});
   const [profileChat,setProfileChat]=useState<Chat|null>(null);
   const profileTrigger=useRef<HTMLButtonElement|null>(null);
   const [historyChat,setHistoryChat]=useState<Chat|null>(null);
@@ -297,35 +299,71 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     return()=>{cancelled=true;};
   },[active,platform,queue]);
 
+  const applyWaitingCheckView=useCallback((next:WaitingCheckView)=>{
+    setWaitingCheck(current=>{
+      const progressed=next.counts.joined+next.counts.pending+next.counts.requested
+        !==current.counts.joined+current.counts.pending+current.counts.requested;
+      if((current.active&&!next.active)||(next.active&&progressed)){
+        invalidateQueueCache('whatsapp');
+        queueMicrotask(()=>void reloadChats.current(true));
+      }
+      return next;
+    });
+  },[invalidateQueueCache]);
+
   const refreshWaitingCheck=useCallback(async()=>{
     try{
       const response=await fetch('/api/chat-discovery/waiting-check',{cache:'no-store'});
       const body=await readWaitingCheckResponse(response);
       if(!response.ok)return;
-      const next=parseWaitingCheckView(body);
-      setWaitingCheck(current=>{
-        const progressed=next.counts.joined+next.counts.pending+next.counts.requested
-          !==current.counts.joined+current.counts.pending+current.counts.requested;
-        if((current.active&&!next.active)||(next.active&&progressed)){
-          invalidateQueueCache('whatsapp');
-          queueMicrotask(()=>void reloadChats.current(true));
-        }
-        return next;
-      });
+      applyWaitingCheckView(parseWaitingCheckView(body));
     }catch{}
-  },[invalidateQueueCache]);
+  },[applyWaitingCheckView]);
 
   useEffect(()=>{
     if(!active||platform!=='whatsapp'||queue!=='waiting')return;
     void refreshWaitingCheck();
   },[active,platform,queue,refreshWaitingCheck]);
 
+  // The owner Durable Object pushes every Waiting-check result, start/stop from any device and the
+  // runner going on/offline, so this tab no longer polls for them. A process_state payload is exactly
+  // the GET status response, so it is applied as-is; runner_status carries no last-seen time, so it
+  // triggers one status read (a rare event, not a timer).
   useEffect(()=>{
     if(!active||platform!=='whatsapp'||queue!=='waiting')return;
-    // Idle polling keeps the runner status current before the operator starts a check.
+    const unsubscribeMessages=subscribeLiveMessages(message=>{
+      if(message.type==='process_state'&&message.process==='waiting_check')applyWaitingCheckView(parseWaitingCheckView(message));
+      else if(message.type==='runner_status')void refreshWaitingCheck();
+    });
+    const unsubscribeStatus=subscribeLiveStatus(setLiveStatus);
+    return()=>{unsubscribeMessages();unsubscribeStatus();};
+  },[active,platform,queue,applyWaitingCheckView,refreshWaitingCheck]);
+
+  useEffect(()=>{
+    if(!active||platform!=='whatsapp'||queue!=='waiting'||liveStatus.connected)return;
+    // Fallback only while the live channel is down: keeps the runner status current the old way.
     const timer=window.setInterval(()=>void refreshWaitingCheck(),waitingCheck.active?15_000:60_000);
     return()=>window.clearInterval(timer);
-  },[active,platform,queue,waitingCheck.active,refreshWaitingCheck]);
+  },[active,platform,queue,liveStatus.connected,waitingCheck.active,refreshWaitingCheck]);
+
+  // Autopost jobs finishing, being released or created/cancelled on another device change the
+  // «Автопост у черзі» badges; the queue itself stays the source of truth, so reload it. A job merely
+  // starting ('running') or going back to pending ('released') changes nothing visible.
+  useEffect(()=>{
+    if(!active||platform!=='whatsapp')return;
+    return subscribeLiveMessages(message=>{
+      if(message.type!=='process_state'||message.process!=='autopost')return;
+      if(message.status==='running'||message.status==='released')return;
+      invalidateQueueCache('whatsapp');
+      void reloadChats.current(true);
+    });
+  },[active,platform,invalidateQueueCache]);
+
+  // An open live channel that knows the runner is connected is proof it is online right now; the
+  // runnerSeenAt from the last status read would otherwise go stale without a poll refreshing it.
+  const waitingCheckView=liveStatus.connected&&liveStatus.runnerConnected===true
+    ? {...waitingCheck,runnerSeenAt:Math.floor(clock/1000)}
+    : waitingCheck;
 
   // Decide a problem chat straight from the Waiting-check panel through the regular chat action API.
   async function resolveWaitingProblem(problem:WaitingCheckView['problems'][number],action:WaitingCheckProblemAction){
@@ -723,7 +761,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
         {queues.filter(item=>platform!=='viber'||item.key!=='profile_review').map(item=><button type="button" key={item.key} role="tab" aria-selected={queue===item.key} tabIndex={queue===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{if(item.key!=='ready'){setQuickPublishMode(false);setQuickAdvertisementId(null);}setQueue(item.key);setProfileFilter('all');setOffset(0)}}>{item.label}<span>{tabCounts?(tabCounts[item.key]||0):'–'}</span></button>)}
         {platform==='telegram'&&<button type="button" role="tab" aria-selected={queue==='selected'} tabIndex={queue==='selected'?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>{setQuickPublishMode(false);setQuickAdvertisementId(null);setQueue('selected');setProfileFilter('all');setOffset(0)}}>Відібрані<span>{selectedChats?.items.length??selectedCount??'–'}</span></button>}
       </div>
-      {queue==='waiting'&&platform==='whatsapp'&&<WhatsappWaitingCheckPanel view={waitingCheck} nowSeconds={Math.floor(clock/1000)} busy={busy!==null} onAction={action=>void changeWaitingCheck(action)} onConnect={()=>void connectWaitingCheckRunner()} onProblemAction={(problem,action)=>void resolveWaitingProblem(problem,action)}/>}
+      {queue==='waiting'&&platform==='whatsapp'&&<WhatsappWaitingCheckPanel view={waitingCheckView} nowSeconds={Math.floor(clock/1000)} busy={busy!==null} onAction={action=>void changeWaitingCheck(action)} onConnect={()=>void connectWaitingCheckRunner()} onProblemAction={(problem,action)=>void resolveWaitingProblem(problem,action)}/>}
       {queue==='ready'&&(platform==='whatsapp'||platform==='viber')&&<div className={'platform-queue-context '+(quickPublishMode?'is-active':'')}>
         <div><strong>{platform==='whatsapp'?'Автопублікація черги':quickPublishMode?'Швидкий режим увімкнено':'Швидкий режим'}</strong><span>{platform==='whatsapp'
           ? (whatsappAutopostImage

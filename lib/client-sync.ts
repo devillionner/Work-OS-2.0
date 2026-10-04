@@ -15,7 +15,7 @@ export type DataSyncScope =
 
 export type DataSyncDetail = {
   scope: DataSyncScope;
-  reason: 'poll' | 'focus' | 'online' | 'local-write' | 'cross-tab';
+  reason: 'poll' | 'focus' | 'online' | 'local-write' | 'cross-tab' | 'live';
   at: number;
   /** The authoritative global revision this signal carries, when known server-side (poll/focus/online/cross-tab). */
   revision?: number;
@@ -23,7 +23,8 @@ export type DataSyncDetail = {
 
 /**
  * Announces a successful local mutation to this tab and sibling tabs.
- * Cross-device freshness is handled by the periodic server-sync heartbeat.
+ * Cross-device freshness is handled by server-sync (live channel pushes, focus/online checks, and
+ * the periodic heartbeat whenever the live channel is down).
  */
 export function announceDataChange(scope: DataSyncScope = 'all'): void {
   if (typeof window === 'undefined') return;

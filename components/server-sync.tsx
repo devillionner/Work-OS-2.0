@@ -9,6 +9,7 @@ import {
   type DataSyncDetail,
   type DataSyncScope,
 } from '@/lib/client-sync';
+import { subscribeLiveMessages, subscribeLiveStatus } from '@/lib/live-channel';
 
 type SyncResponse = { revision?: number };
 type SyncCheckResult = 'changed' | 'same' | 'skipped' | 'failed';
@@ -108,6 +109,12 @@ export function ServerSync() {
     let pollTimer: number | null = null;
     let pollDelay = SERVER_SYNC_ACTIVE_MS;
     let failureDelay = 0;
+    // While the owner live channel is open, every runner-process change arrives as a pushed message
+    // (each one triggers a wake below), so the blind revision poll would only re-read D1 for nothing.
+    // The timer then keeps just the local Kyiv business-day check; it goes back to real polling the
+    // moment the socket drops. Trade-off: mutations the channel does not know about (leads, reports
+    // from another device) are picked up on focus/online/visibility, not in the background.
+    let liveConnected = false;
 
     const schedulePoll = (delay: number) => {
       if (stopped) return;
@@ -144,6 +151,10 @@ export function ServerSync() {
         pollDelay = SERVER_SYNC_ACTIVE_MS;
         failureDelay = 0;
         schedulePoll(pollDelay);
+        return;
+      }
+      if (liveConnected) {
+        schedulePoll(SERVER_SYNC_IDLE_MAX_MS);
         return;
       }
       if (!navigator.onLine) {
@@ -206,6 +217,20 @@ export function ServerSync() {
       channel.onmessage = (event: MessageEvent<DataSyncDetail | undefined>) => scheduleWake('cross-tab', event.data?.scope ?? 'all');
     }
 
+    // Any pushed message (hello on (re)connect included — events may have been missed while down) is a
+    // hint, never data: it goes through the same coalesced authoritative revision check as cross-tab signals.
+    const onLiveMessage = () => scheduleWake('live', 'all');
+    const onLiveStatus = ({ connected }: { connected: boolean }) => {
+      if (connected === liveConnected) return;
+      liveConnected = connected;
+      if (!connected) {
+        pollDelay = SERVER_SYNC_IDLE_MIN_MS;
+        schedulePoll(pollDelay);
+      }
+    };
+    const unsubscribeLiveMessages = subscribeLiveMessages(onLiveMessage);
+    const unsubscribeLiveStatus = subscribeLiveStatus(onLiveStatus);
+
     schedulePoll(0);
     window.addEventListener('focus', onFocus);
     window.addEventListener('online', onOnline);
@@ -223,6 +248,8 @@ export function ServerSync() {
       window.removeEventListener(DATA_SYNC_REQUEST_EVENT, onSyncRequest);
       document.removeEventListener('visibilitychange', onVisibility);
       channel?.close();
+      unsubscribeLiveMessages();
+      unsubscribeLiveStatus();
     };
   }, [checkRevision, refreshBusinessDay]);
 

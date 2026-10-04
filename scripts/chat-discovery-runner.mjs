@@ -48,6 +48,13 @@ const LOCAL_SOURCE_TARGET_QUEUE=12;
 // it, and an idle connection costs nothing. Only the reconnect backoff is a timer now.
 const WS_RECONNECT_MIN_MS=1000;
 const WS_RECONNECT_MAX_MS=30000;
+// Cloudflare closes a WebSocket after 100 s without traffic, and an idle runner sends nothing — without
+// a keepalive it would drop and reconnect (token check + dispatch reads in D1, an offline/online flap
+// for every open browser) every couple of minutes. This exact string is the owner DO's hibernation
+// auto-response pair, so a ping never wakes the DO or runs any of its code.
+const WS_KEEPALIVE_MS=30000;
+const WS_PING=JSON.stringify({type:'ping'});
+const WS_PONG=JSON.stringify({type:'pong'});
 const TASK_BLOCK_COOLDOWN_MS=300000;
 const INCOMPLETE_QUALIFICATION_COOLDOWN_MS=15000;
 const qualificationAttempts=new Map();
@@ -791,10 +798,14 @@ function connectLiveChannel(){
   // already-open connection fires 'close' (sometimes preceded by 'error'). Reconnecting from both,
   // guarded so a connection that fires both only reconnects once, covers both cases.
   let settled=false;
+  let keepalive=null;
+  let awaitingPong=false;
   const onDown=()=>{
     if(settled)return;
     settled=true;
+    if(keepalive)clearInterval(keepalive);
     if(liveWs===ws)liveWs=null;
+    try{ws.close();}catch{}
     console.warn('Work OS live channel disconnected; reconnecting…');
     setStatus('reconnecting','З’єднання з Work OS перервано — перепідключення…');
     // A revoked or rotated token is re-read from the Work OS page instead of retrying it forever; a
@@ -806,8 +817,18 @@ function connectLiveChannel(){
     wsReconnectDelayMs=WS_RECONNECT_MIN_MS;
     console.log('Connected to the Work OS live channel.');
     setStatus('ready','Готовий: підключено до Work OS');
+    keepalive=setInterval(()=>{
+      // A ping still unanswered a whole interval later means a half-open socket (sleep, network
+      // switch) that would otherwise look connected forever while no task can arrive.
+      if(awaitingPong){console.warn('Work OS live channel stopped answering pings.');onDown();return;}
+      awaitingPong=true;
+      try{ws.send(WS_PING);}catch{onDown();}
+    },WS_KEEPALIVE_MS);
   });
-  ws.addEventListener('message',(event)=>onLiveMessage(ws,event.data));
+  ws.addEventListener('message',(event)=>{
+    if(event.data===WS_PONG){awaitingPong=false;return;}
+    onLiveMessage(ws,event.data);
+  });
   ws.addEventListener('close',onDown);
   ws.addEventListener('error',onDown);
 }
