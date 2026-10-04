@@ -22,18 +22,24 @@ async function seedAutopostable(db, { chatId = 'wa-1' } = {}) {
 
 function mockSocket() {
   const sent = [];
-  return { sent, readyState: 1, send: (data) => sent.push(JSON.parse(data)), close() { this.readyState = 3; } };
+  return { sent, readyState: 1, send: (data) => sent.push(JSON.parse(data)), close() { this.readyState = 3; },
+    attachment: null, serializeAttachment(value) { this.attachment = value; }, deserializeAttachment() { return this.attachment; } };
 }
 
 function mockCtx() {
   const stored = new Map();
   const sockets = [];
+  const alarms = [];
   return {
     sockets,
+    alarms,
     storage: {
       get: async (key) => stored.get(key),
       put: async (key, value) => { stored.set(key, value); },
+      async setAlarm(at) { alarms.push(at); },
     },
+    // Last auto-answered ping per socket, as the Hibernation API reports it.
+    getWebSocketAutoResponseTimestamp(ws) { return ws.lastPingAt ? new Date(ws.lastPingAt) : null; },
     acceptWebSocket(ws, tags = []) { sockets.push({ ws, tags, closed: false }); },
     // Matches what staging showed (2026-10-04): inside webSocketClose the closing socket is STILL
     // listed by getWebSockets(), only no longer OPEN — a "last runner gone" check must not count it.
@@ -50,7 +56,7 @@ function withSocket(ctx, ws, tags) {
   return ws;
 }
 
-const emptyState = { userId: null, processes: {}, waitingCheckBatch: null, autopostCurrentJobId: null, discoveryCurrentTask: null, runnerLastSeenAt: null };
+const emptyState = { userId: null, processes: {}, waitingCheckBatch: null, autopostCurrentJobId: null, discoveryCurrentTask: null, runnerLastSeenAt: null, runnerOnline: false };
 
 void test('a start command from the browser is relayed to runner sockets and persisted (the Discovery autonomous run still uses the generic command relay by design)', async () => {
   const ctx = mockCtx();
@@ -399,6 +405,53 @@ void test('a runner connecting alone releases tasks left in flight by a connecti
 
   const task = second.sent.find((message) => message.type === 'task' && message.process === 'autopost');
   assert.equal(task?.task.jobId, job.id, 'the orphaned claim is released and dispatched again to the new runner');
+});
+
+// Presence must not depend on how the runtime lists a closing socket or on object identity: staging
+// showed both the closing socket still listed and the runner shown online long after it was stopped.
+void test('a runner close is detected through its connection tag even when the runtime still lists the socket as open', async (t) => {
+  const db = await localDatabase(t);
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const listed = withSocket(ctx, mockSocket(), ['runner', 'conn:a']);
+  const browser = withSocket(ctx, mockSocket(), ['browser']);
+  await channel.onRunnerConnected(listed, 'u');
+  browser.sent.length = 0;
+
+  // The close handler receives a different object for the same connection; the listed one stays OPEN.
+  const closing = { ...mockSocket(), readyState: 1 };
+  ctx.getTags = (ws) => (ws === closing ? ['runner', 'conn:a'] : ctx.sockets.find((entry) => entry.ws === ws)?.tags ?? []);
+  await channel.webSocketClose(closing, 1006, '', false);
+
+  assert.deepEqual(browser.sent, [{ type: 'runner_status', connected: false }]);
+});
+
+void test('a runner that stops pinging is found dead by the alarm and by a status read, without its close ever arriving', async (t) => {
+  const db = await localDatabase(t);
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const runner = withSocket(ctx, mockSocket(), ['runner', 'conn:r']);
+  const browser = withSocket(ctx, mockSocket(), ['browser']);
+  await channel.onRunnerConnected(runner, 'u');
+  assert.equal(ctx.alarms.length, 1, 'connecting a runner arms the liveness alarm');
+
+  // Fresh ping: the alarm keeps watching.
+  runner.lastPingAt = Date.now() - 10_000;
+  await channel.alarm();
+  assert.equal(ctx.alarms.length, 2);
+
+  // Last ping 2 minutes ago, socket still listed as OPEN: dead.
+  const lastPing = Date.now() - 120_000;
+  runner.lastPingAt = lastPing;
+  browser.sent.length = 0;
+  const status = await (await waitingCheckRequest(channel, 'u', { method: 'GET' })).json();
+  assert.equal(status.runnerSeenAt, Math.floor(lastPing / 1000), 'last seen = last ping, not the connect time');
+  assert.deepEqual(browser.sent, [{ type: 'runner_status', connected: false }]);
+
+  browser.sent.length = 0;
+  await channel.alarm();
+  assert.deepEqual(browser.sent, [], 'already marked offline: no repeated broadcast');
+  assert.equal(ctx.alarms.length, 2, 'and no further alarms');
 });
 
 // Commit 3f: browsers subscribe to the live channel instead of polling, so every autopost state change

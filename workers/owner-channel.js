@@ -39,9 +39,15 @@ import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
 /** @typedef {'browser'|'runner'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
+// The runner pings every 30 s and the runtime records each auto-answered ping per socket. A runner socket
+// with no ping (or connect) for this long is dead even if its close never reached this object.
+const RUNNER_STALE_MS = 75_000;
+// While a runner is believed connected, an alarm re-checks those ping times (no D1) so a PC that loses
+// power or network shows as offline everywhere within about two minutes, not only on a clean close.
+const RUNNER_WATCH_MS = 90_000;
 const PING = JSON.stringify({ type: 'ping' });
 const PONG = JSON.stringify({ type: 'pong' });
 
@@ -110,7 +116,11 @@ export class OwnerChannel {
 
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
-    this.ctx.acceptWebSocket(server, deviceId ? [kind, `device:${deviceId}`] : [kind]);
+    // A per-connection tag identifies "this socket" without relying on object identity, which the
+    // runtime does not guarantee between the close handler and getWebSockets().
+    const connTag = `conn:${crypto.randomUUID()}`;
+    this.ctx.acceptWebSocket(server, deviceId ? [kind, connTag, `device:${deviceId}`] : [kind, connTag]);
+    server.serializeAttachment({ connectedAt: Date.now() });
 
     if (kind === 'browser') await this.onBrowserConnected(server, userId);
     else await this.onRunnerConnected(server, userId);
@@ -139,6 +149,8 @@ export class OwnerChannel {
     const state = await this.readState();
     if (userId && state.userId !== userId) state.userId = userId;
     state.runnerLastSeenAt = nowSeconds();
+    state.runnerOnline = true;
+    await this.scheduleRunnerWatch();
     // The only runner now connected cannot be working on anything yet: any in-flight task still
     // recorded belongs to a connection whose close was never processed (staging, before 2026-10-04,
     // left such claims stuck and blocked all further dispatch), so release it before dispatching.
@@ -180,16 +192,18 @@ export class OwnerChannel {
     if (state.userId !== userId) state.userId = userId;
 
     if (request.method === 'GET') {
+      // Status first: it may find the runner dead by ping time and update state (see markRunnerOffline).
+      const status = await this.waitingCheckStatusJson(state, now);
       await this.writeState(state);
-      return Response.json(await this.waitingCheckStatusJson(state, now), { headers: { 'Cache-Control': 'no-store' } });
+      return Response.json(status, { headers: { 'Cache-Control': 'no-store' } });
     }
     if (request.method === 'POST') {
       let body;
       try { body = await request.json(); } catch { return Response.json({ error: 'Некоректний запит.' }, { status: 400 }); }
       const error = await this.applyWaitingCheckCommand(state, body, now);
       if (error) return error;
-      await this.writeState(state);
       const status = await this.waitingCheckStatusJson(state, now);
+      await this.writeState(state);
       // Start/stop from one device shows up on every other open tab/device without a poll.
       this.broadcast('browser', { type: 'process_state', process: 'waiting_check', ...status });
       return Response.json(status, { headers: { 'Cache-Control': 'no-store' } });
@@ -238,6 +252,7 @@ export class OwnerChannel {
     const rawProblems = state.waitingCheckBatch?.problems ?? [];
     const problems = base.active ? rawProblems : await enrichWaitingCheckProblems(this.env.DB, /** @type {string} */ (state.userId), rawProblems, now);
     const runnerConnected = this.openRunnerCount() > 0;
+    if (!runnerConnected && state.runnerOnline) await this.markRunnerOffline(state);
     return { ...base, problems, runnerSeenAt: runnerConnected ? now : (state.runnerLastSeenAt ?? null) };
   }
 
@@ -452,11 +467,36 @@ export class OwnerChannel {
     try { ws.close(1000, 'closed'); } catch { /* already closed */ }
     if (this.tagsOf(ws).includes('runner') && this.openRunnerCount(ws) === 0) {
       const state = await this.readState();
-      state.runnerLastSeenAt = nowSeconds();
-      await this.releaseOrphanedTasks(state);
+      await this.markRunnerOffline(state, nowSeconds());
       await this.writeState(state);
-      this.broadcast('browser', { type: 'runner_status', connected: false });
     }
+  }
+
+  // Alarm: re-check runner liveness by ping times while a runner is believed connected.
+  async alarm() {
+    const state = await this.readState();
+    if (!state.runnerOnline) return;
+    if (this.openRunnerCount() > 0) { await this.scheduleRunnerWatch(); return; }
+    await this.markRunnerOffline(state);
+    await this.writeState(state);
+  }
+
+  async scheduleRunnerWatch() {
+    await this.ctx.storage.setAlarm(Date.now() + RUNNER_WATCH_MS);
+  }
+
+  /**
+   * Runner gone (clean close, or found dead by ping time): remember when it was last seen, release its
+   * in-flight tasks and tell every browser. Idempotent through state.runnerOnline.
+   * @param {OwnerChannelState} state
+   * @param {number|null} [seenAt] seconds; defaults to the last ping/connect of any runner socket
+   */
+  async markRunnerOffline(state, seenAt = null) {
+    const lastActivity = Math.max(0, ...this.ctx.getWebSockets('runner').map((socket) => this.lastActivityMs(socket)));
+    state.runnerLastSeenAt = seenAt ?? (lastActivity ? Math.floor(lastActivity / 1000) : (state.runnerLastSeenAt ?? null));
+    state.runnerOnline = false;
+    await this.releaseOrphanedTasks(state);
+    this.broadcast('browser', { type: 'runner_status', connected: false });
   }
 
   /**
@@ -492,7 +532,31 @@ export class OwnerChannel {
    * @param {WebSocket|null} [except]
    */
   openRunnerCount(except = null) {
-    return this.ctx.getWebSockets('runner').filter((socket) => socket !== except && socket.readyState === 1).length;
+    const exceptTag = except ? this.connTagOf(except) : null;
+    const now = Date.now();
+    return this.ctx.getWebSockets('runner').filter((socket) => {
+      if (socket === except || socket.readyState !== 1) return false;
+      if (exceptTag && this.connTagOf(socket) === exceptTag) return false;
+      const last = this.lastActivityMs(socket);
+      return last === 0 || now - last < RUNNER_STALE_MS;
+    }).length;
+  }
+
+  /** @param {WebSocket} ws */
+  connTagOf(ws) {
+    return this.tagsOf(ws).find((tag) => tag.startsWith('conn:')) ?? null;
+  }
+
+  /**
+   * Last sign of life of a socket in ms: its latest auto-answered ping, else when it connected; 0 when
+   * neither is known.
+   * @param {WebSocket} ws
+   */
+  lastActivityMs(ws) {
+    const ping = this.ctx.getWebSocketAutoResponseTimestamp?.(ws)?.getTime?.() ?? 0;
+    let connectedAt = 0;
+    try { connectedAt = Number(ws.deserializeAttachment?.()?.connectedAt) || 0; } catch { /* no attachment */ }
+    return Math.max(ping, connectedAt);
   }
 
   /** @param {WebSocket} ws */
@@ -514,7 +578,7 @@ export class OwnerChannel {
   /** @returns {Promise<OwnerChannelState>} */
   async readState() {
     const stored = await this.ctx.storage.get(STORAGE_KEY);
-    return stored ?? { userId: null, processes: {}, waitingCheckBatch: null, autopostCurrentJobId: null, discoveryCurrentTask: null, runnerLastSeenAt: null };
+    return stored ?? { userId: null, processes: {}, waitingCheckBatch: null, autopostCurrentJobId: null, discoveryCurrentTask: null, runnerLastSeenAt: null, runnerOnline: false };
   }
 
   /** @param {OwnerChannelState} state */
