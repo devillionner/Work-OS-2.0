@@ -632,7 +632,9 @@ export class OwnerChannel {
       if (Number(message.runtimeBlockedUntil) > now) state.discoveryRunCandidatesBlockedUntil = Number(message.runtimeBlockedUntil);
       if (job?.kind === 'candidate' && job.candidateId === candidateId) state.discoveryRunJob = null;
     } else if (message.type === 'source_result') {
-      if (job?.kind === 'source' && job.runId === message.runId) state.discoveryRunJob = null;
+      // A partial result is one scanned group of a step still in progress: apply it now (it shows up on
+      // every device right away and survives a Stop), but the step stays in flight.
+      if (job?.kind === 'source' && job.runId === message.runId && !message.partial) state.discoveryRunJob = null;
       if (message.runId === run.runId && run.running && sourceOutcomes) {
         const applied = await this.applyRunSourceStep(run, message, sourceOutcomes, now);
         next = applied.state;
@@ -652,7 +654,7 @@ export class OwnerChannel {
       await saveRun(this.ctx.storage, run, next);
       this.broadcastRunState(next);
     }
-    if (message.type !== 'progress') await this.dispatchRun(state);
+    if (message.type !== 'progress' && !(message.type === 'source_result' && message.partial)) await this.dispatchRun(state);
     await this.writeState(state);
   }
 

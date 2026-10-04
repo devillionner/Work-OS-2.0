@@ -204,3 +204,21 @@ void test('a pause that arrives during a Telegram step\'s D1 work is not undone 
   assert.ok(state.pauseSummary);
   assert.equal(hook, null, 'the pause really ran in the middle of the D1 work');
 });
+
+void test('a partial Telegram result (one scanned group) is applied immediately while the step stays in flight', async (t) => {
+  const { channel, runner, browser } = await setup(t);
+  const { run } = await post(channel, { action: 'start', goal: 5 });
+  runner.sent.length = 0;
+  browser.sent.length = 0;
+
+  await message(channel, runner, { type: 'source_result', runId: run.runId, partial: true, batch: { nextCursor: 0, searched: 1, done: false, totalTasks: 30 }, sources: [telegramSource], scannedGroups: ['ua_berlin_chat'] });
+  const state = (await (await runRequest(channel, { method: 'GET' })).json()).run;
+  assert.equal(state.candidates.length, 1, 'the invite is in the run (and on every device) before the step ends');
+  assert.equal(state.telegramCursor, 0, 'the cursor moves only when the whole step is done');
+  assert.ok(ofType(browser, 'process_state').length > 0);
+  assert.deepEqual(ofType(runner, 'run_source_applied').map((item) => item.scannedGroups), [['ua_berlin_chat']]);
+  assert.deepEqual(ofType(runner, 'run_task'), [], 'no new item while the step is still running');
+
+  await message(channel, runner, { type: 'source_result', runId: run.runId, batch: { nextCursor: 1, searched: 0, done: false, totalTasks: 30 }, sources: [], scannedGroups: [] });
+  assert.equal(ofType(runner, 'run_task').length, 1, 'the found candidate is checked once the step finishes');
+});

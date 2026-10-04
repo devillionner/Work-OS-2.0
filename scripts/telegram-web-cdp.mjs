@@ -48,10 +48,16 @@ export function isTelegramFloodText(text) {
 }
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+// Thrown from any wait inside a Telegram step once the operator stopped the run, so a long group scan
+// ends within a fraction of a second instead of finishing the group (live report 2026-10-04).
+export class TelegramStopped extends Error {
+  constructor() { super('telegram_stopped'); this.name = 'TelegramStopped'; }
+}
 // Human-like pause between Telegram actions so the account is not rate limited.
 export function telegramActionPauseMs(random = Math.random) { return 4_000 + Math.floor(random() * 4_000); }
 
-export async function openTelegramWebSession({ cdpBaseUrl, pauseMs = telegramActionPauseMs } = {}) {
+export async function openTelegramWebSession({ cdpBaseUrl, pauseMs = telegramActionPauseMs, shouldStop = () => false } = {}) {
   const base = cdpBaseUrl ? normalizeLocalCdpBaseUrl(cdpBaseUrl) : null;
   if (!base) return { kind: 'blocked', reason: 'cdp_not_configured' };
   let pages;
@@ -64,7 +70,7 @@ export async function openTelegramWebSession({ cdpBaseUrl, pauseMs = telegramAct
     && item.webSocketDebuggerUrl && isLocalCdpWebSocketUrl(item.webSocketDebuggerUrl));
   if (!page) return { kind: 'blocked', reason: 'telegram_tab_missing' };
   const client = await createCdpClient(page.webSocketDebuggerUrl);
-  const session = new TelegramWebSession(client, pauseMs);
+  const session = new TelegramWebSession(client, pauseMs, shouldStop);
   try {
     await client.send('Page.bringToFront');
     await client.send('Emulation.setDeviceMetricsOverride', WIDE_VIEWPORT);
@@ -78,10 +84,23 @@ export async function openTelegramWebSession({ cdpBaseUrl, pauseMs = telegramAct
   return { kind: 'result', session };
 }
 
-class TelegramWebSession {
-  constructor(client, pauseMs) {
+export class TelegramWebSession {
+  constructor(client, pauseMs, shouldStop = () => false) {
     this.client = client;
     this.pauseMs = pauseMs;
+    this.shouldStop = shouldStop;
+  }
+
+  checkStop() { if (this.shouldStop()) throw new TelegramStopped(); }
+
+  // Every wait in a step goes through here and re-checks the stop flag four times a second.
+  async wait(ms) {
+    const end = Date.now() + Math.max(0, ms);
+    this.checkStop();
+    while (Date.now() < end) {
+      await sleep(Math.min(250, end - Date.now()));
+      this.checkStop();
+    }
   }
 
   close() { try { this.client.close(); } catch {} }
@@ -92,7 +111,7 @@ class TelegramWebSession {
     return response?.result?.value;
   }
 
-  async pause() { await sleep(Math.max(0, Number(this.pauseMs()) || 0)); }
+  async pause() { await this.wait(Math.max(0, Number(this.pauseMs()) || 0)); }
 
   async key(key, code, keyCode, modifiers = 0) {
     for (const type of ['keyDown', 'keyUp']) {
@@ -127,7 +146,7 @@ class TelegramWebSession {
       if (!hidden) break;
       await this.click(`[...document.querySelectorAll('#LeftColumn .left-header button')]
         .find(b=>/close|закрити|закрыть/iu.test(b.getAttribute('aria-label')||b.title||''))`);
-      await sleep(700);
+      await this.wait(700);
     }
     const focused = await this.evaluate(`(()=>{const input=document.getElementById('telegram-search-input');
       if(!input||input.closest('.SearchInput--hidden'))return false;input.focus();input.select();return document.activeElement===input;})()`);
@@ -141,7 +160,7 @@ class TelegramWebSession {
     let previous = -1;
     let stableSince = Date.now();
     while (Date.now() - startedAt < RESULT_WAIT_MS) {
-      await sleep(500);
+      await this.wait(500);
       if (await this.floodVisible()) return { flood: true };
       const count = await this.evaluate(`document.querySelectorAll('.LeftSearch .ListItem.search-result').length`);
       if (count !== previous) { previous = count; stableSince = Date.now(); }
@@ -167,7 +186,7 @@ class TelegramWebSession {
     if (!match) return null;
     const clicked = await this.click(`document.querySelectorAll('.LeftSearch .ListItem.search-result')[${match.index}]`);
     if (!clicked) return null;
-    await sleep(2_500);
+    await this.wait(2_500);
     return match;
   }
 
@@ -198,7 +217,7 @@ class TelegramWebSession {
     const opened = await this.click(`[...document.querySelectorAll('#MiddleColumn .MiddleHeader button')]
       .find(b=>/search|пошук|поиск/iu.test(b.getAttribute('aria-label')||b.title||''))`);
     if (!opened) return { opened: false };
-    await sleep(800);
+    await this.wait(800);
     if (!await this.focusInChatSearchInput()) return { opened: false };
     const filtered = await this.evaluate(`/(?:^|\\s)(?:from|від|от):/iu.test([...document.querySelectorAll('#MiddleColumn .SearchInput')]
       .map(el=>el.innerText||'').join(' '))`);
@@ -209,7 +228,7 @@ class TelegramWebSession {
     let previous = -1;
     let stableSince = Date.now();
     while (Date.now() - startedAt < RESULT_WAIT_MS) {
-      await sleep(500);
+      await this.wait(500);
       if (await this.floodVisible()) return { opened: true, flood: true };
       const count = await this.evaluate(`document.querySelectorAll('.MiddleSearchResult').length`);
       if (count !== previous) { previous = count; stableSince = Date.now(); }
@@ -233,7 +252,7 @@ class TelegramWebSession {
 
   async closeInChatSearch() {
     await this.key('Escape', 'Escape', 27);
-    await sleep(300);
+    await this.wait(300);
   }
 }
 
@@ -286,9 +305,10 @@ export async function scanTelegramGroupForInvites(session, { username, title = '
   }
   // A cut snippet only shows "chat.whatsapp.com/…": open that message and read the real link.
   for (const index of truncated.slice(0, MAX_TRUNCATED_RESULT_OPENS)) {
+    session.checkStop();
     const clicked = await session.click(`document.querySelectorAll('.MiddleSearchResult')[${index}]`);
     if (!clicked) continue;
-    await sleep(2_000);
+    await session.wait(2_000);
     if (await session.floodVisible()) return { kind: 'blocked', reason: 'telegram_flood_wait' };
     for (const message of (await session.readVisibleInviteMessages()) || []) {
       for (const invite of completeWhatsappInvites([message.text, ...message.links].join('\n'))) {

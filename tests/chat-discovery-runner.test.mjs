@@ -185,7 +185,7 @@ void test('Telegram refusal stops the run on the same step and already searched 
   assert.match(step,/if\(crawled\.blockedReason\)\{/);
   assert.match(step,/sendLive\(liveWs,\{type:'pause',process:'discovery_run',runId:job\.runId,reason:crawled\.blockedReason,query:crawled\.query\}\)/);
   assert.match(step,/setStatus\('attention'/);
-  assert.match(step,/nextCursor:crawled\.interrupted\?cursor:cursor\+1/);
+  assert.match(step,/if\(crawled\.interrupted\)return;\s*const batch=\{\s*nextCursor:cursor\+1,/);
   // Groups count as searched only after the DO applied their invites.
   assert.doesNotMatch(step,/markGroupsScanned/);
   assert.match(source,/message\.type==='run_source_applied'\)\{\s*markGroupsScanned\(/);
@@ -279,4 +279,28 @@ void test('deferred candidates do not count as queued, so they cannot starve the
   const runState=await readFile(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8');
   assert.match(runState,/candidate\.id !== state\.activeCandidateId && !\(Number\(candidate\.skipUntil\) > now\)/);
   assert.match(runState,/return state\.running && !state\.sourceExhausted && queuedCount\(state, now\) < SOURCE_TARGET_QUEUE;/);
+});
+
+// Live report 2026-10-04: after Stop the runner kept scrolling Telegram for up to a minute, and results
+// appeared only when a whole 3-group step finished, so a paused step threw away what it had found.
+void test('Stop interrupts a Telegram step mid-group, and each scanned group is reported to the DO right away', async () => {
+  const telegram = await readFile(new URL('../scripts/telegram-web-cdp.mjs', import.meta.url), 'utf8');
+  const sessionClass = telegram.slice(telegram.indexOf('export class TelegramWebSession'), telegram.indexOf('// Global Telegram search for one plan query'));
+  assert.match(sessionClass, /async wait\(ms\) \{[\s\S]*?await sleep\(Math\.min\(250, end - Date\.now\(\)\)\);\s*this\.checkStop\(\);/);
+  assert.match(sessionClass, /async pause\(\) \{ await this\.wait\(/);
+  // Only wait() itself sleeps; every other wait inside a step goes through it and its stop check.
+  assert.equal((sessionClass.match(/await sleep\(/g) || []).length, 1, 'no wait inside a step bypasses the stop check');
+  assert.match(source, /openTelegramWebSession\(\{cdpBaseUrl:whatsappCdp,shouldStop:\(\)=>!localRunStillActive\(local\)\}\)/);
+  assert.match(source, /if\(error\?\.name==='TelegramStopped'\)\{outcome\.interrupted=true;/);
+  assert.match(source, /type:'source_result',process:'discovery_run',runId:job\.runId,partial:true,/);
+});
+
+void test('a Telegram session wait ends within a fraction of a second after Stop', async () => {
+  const { TelegramWebSession, TelegramStopped } = await import('../scripts/telegram-web-cdp.mjs');
+  let stopped = false;
+  const session = new TelegramWebSession({ close() {} }, () => 5_000, () => stopped);
+  setTimeout(() => { stopped = true; }, 200);
+  const startedAt = Date.now();
+  await assert.rejects(session.pause(), (error) => error instanceof TelegramStopped);
+  assert.ok(Date.now() - startedAt < 800, `stopped after ${Date.now() - startedAt} ms, not after the full 5 s pause`);
 });

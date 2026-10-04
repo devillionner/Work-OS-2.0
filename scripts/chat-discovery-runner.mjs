@@ -466,11 +466,15 @@ function groupRecentlyScanned(scanned,username){
 
 // One plan step in the operator's Telegram Web tab: public groups only, never joins, never writes D1.
 // Returns the WhatsApp-invite sources plus the groups that were fully searched.
-async function crawlTelegramGroupStep(step,local){
+// `onGroupSource` (optional) receives each group's invites as soon as that group is scanned, so results show
+// up while the step is still running and a Stop never throws away what was already found.
+async function crawlTelegramGroupStep(step,local,onGroupSource=null){
   const startedAt=Date.now();
   const query=step.kind==='search'?step.query:'Приєднані Telegram-групи';
   const outcome={query,sources:[],scannedGroups:[],warnings:[],blockedReason:null,interrupted:false};
-  const opened=await openTelegramWebSession({cdpBaseUrl:whatsappCdp});
+  // Stop is checked inside every wait of the Telegram session, not only between groups (live report
+  // 2026-10-04: a paused run kept scrolling Telegram for up to a minute).
+  const opened=await openTelegramWebSession({cdpBaseUrl:whatsappCdp,shouldStop:()=>!localRunStillActive(local)});
   if(opened.kind!=='result'){outcome.blockedReason=opened.reason;return outcome;}
   const session=opened.session;
   try{
@@ -495,10 +499,14 @@ async function crawlTelegramGroupStep(step,local){
       }
       console.log(`Telegram group @${group.username} (${scan.memberCount??'?'} members): ${scan.invites.length} WhatsApp invites`);
       const source=telegramGroupSource(scan,{query,place:step.place||''});
-      if(source)outcome.sources.push(source);
+      if(source){
+        if(onGroupSource){onGroupSource(source,group.username);outcome.streamedGroups=(outcome.streamedGroups||0)+1;}
+        else outcome.sources.push(source);
+      }
     }
   }catch(error){
-    outcome.warnings.push({query,reason:'telegram_step_failed · '+(error instanceof Error?error.message:String(error))});
+    if(error?.name==='TelegramStopped'){outcome.interrupted=true;console.log('Telegram step stopped mid-group: the run was paused.');}
+    else outcome.warnings.push({query,reason:'telegram_step_failed · '+(error instanceof Error?error.message:String(error))});
   }finally{
     session.close();
     outcome.durationMs=Date.now()-startedAt;
@@ -627,29 +635,37 @@ async function handleRunSourceStep(job){
   if(cursor>=plan.length){sendSourceResult(job,{nextCursor:cursor,searched:0,done:true,totalTasks:plan.length});return;}
   const step=plan[cursor];
   setStatus('working',step.kind==='search'?`Telegram: шукаємо групи «${step.query}»`:'Telegram: перевіряємо приєднані групи');
-  const crawled=await crawlTelegramGroupStep(step,{runId:job.runId});
+  // Each group's invites go to the DO right away (partial: cursor unchanged, the step stays in flight).
+  const streamed=new Set();
+  const crawled=await crawlTelegramGroupStep(step,{runId:job.runId},(source,username)=>{
+    streamed.add(String(username).toLowerCase());
+    sendLive(liveWs,{type:'source_result',process:'discovery_run',runId:job.runId,partial:true,
+      batch:{nextCursor:cursor,searched:1,done:false,totalTasks:plan.length},sources:[source],scannedGroups:[username]});
+  });
+  const unstreamedGroups=crawled.scannedGroups.filter(username=>!streamed.has(String(username).toLowerCase()));
   if(crawled.blockedReason){
     // Stop instead of hammering Telegram; the cursor stays on this step, so «Продовжити» resumes it.
     console.warn(`Telegram source stopped: ${crawled.blockedReason}`);
     setStatus('attention',TELEGRAM_BLOCK_LABELS[crawled.blockedReason]||`Telegram: ${crawled.blockedReason}`);
-    if(crawled.scannedGroups.length||crawled.sources.length){
-      sendSourceResult(job,{nextCursor:cursor,searched:crawled.scannedGroups.length,done:false,totalTasks:plan.length},crawled.sources,crawled.scannedGroups);
+    if(unstreamedGroups.length||crawled.sources.length){
+      sendSourceResult(job,{nextCursor:cursor,searched:unstreamedGroups.length,done:false,totalTasks:plan.length},crawled.sources,unstreamedGroups);
     }
     sendLive(liveWs,{type:'pause',process:'discovery_run',runId:job.runId,reason:crawled.blockedReason,query:crawled.query});
     return;
   }
-  if(crawled.interrupted&&!crawled.sources.length)return;
+  // Paused mid-step: what was found is already in the DO (streamed); the step resumes from its start.
+  if(crawled.interrupted)return;
   const batch={
-    nextCursor:crawled.interrupted?cursor:cursor+1,
-    searched:crawled.scannedGroups.length,
-    done:!crawled.interrupted&&cursor+1>=plan.length,
+    nextCursor:cursor+1,
+    searched:unstreamedGroups.length,
+    done:cursor+1>=plan.length,
     totalTasks:plan.length,
     errors:[],
     warnings:crawled.warnings,
   };
   for(const warning of batch.warnings.slice(0,4))console.warn('Discovery source warning: '+String(warning?.query||'source')+' · '+String(warning?.reason||'unavailable'));
-  sendSourceResult(job,batch,crawled.sources,crawled.scannedGroups);
-  console.log('Telegram source step: cursor '+batch.nextCursor+'/'+plan.length+', groups '+crawled.scannedGroups.length+', sources '+crawled.sources.length+', sourceMs '+(crawled.durationMs||0));
+  sendSourceResult(job,batch,crawled.sources,unstreamedGroups);
+  console.log('Telegram source step: cursor '+batch.nextCursor+'/'+plan.length+', groups '+crawled.scannedGroups.length+', sources '+(crawled.sources.length+streamed.size)+', sourceMs '+(crawled.durationMs||0));
 }
 
 // --- Live channel (commit 3e): one WebSocket to the owner Durable Object replaces the three HTTP
