@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { OwnerChannel } from '../workers/owner-channel.js';
 import { createWhatsAppAutopostJob } from '../lib/messenger-automation.ts';
+import { readChatState } from '../lib/chats/state.ts';
 import { localDatabase, seedChat } from './helpers/local-d1.mjs';
 
 async function seedAutopostable(db, { chatId = 'wa-1' } = {}) {
@@ -48,9 +49,9 @@ function withSocket(ctx, ws, tags) {
   return ws;
 }
 
-const emptyState = { userId: null, processes: {}, waitingCheckBatch: null, autopostCurrentJobId: null, runnerLastSeenAt: null };
+const emptyState = { userId: null, processes: {}, waitingCheckBatch: null, autopostCurrentJobId: null, discoveryCurrentTask: null, runnerLastSeenAt: null };
 
-void test('a start command from the browser is relayed to runner sockets and persisted (generic processes not yet migrated)', async () => {
+void test('a start command from the browser is relayed to runner sockets and persisted (the Discovery autonomous run still uses the generic command relay by design)', async () => {
   const ctx = mockCtx();
   const channel = new OwnerChannel(ctx, {});
   const runner = withSocket(ctx, mockSocket(), ['runner']);
@@ -78,7 +79,7 @@ void test('stop clears the running flag so a reconnecting runner is not told to 
   assert.equal(state.processes.discovery.running, false);
 });
 
-void test('runner progress/result messages for a not-yet-migrated process reach browser sockets only', async () => {
+void test('runner progress messages for the Discovery autonomous run (generic relay, not the per-candidate protocol) reach browser sockets only', async () => {
   const ctx = mockCtx();
   const channel = new OwnerChannel(ctx, {});
   const runnerA = withSocket(ctx, mockSocket(), ['runner']);
@@ -361,4 +362,149 @@ void test('a runtime-problem release waits for an explicit ready before redispat
 
   await channel.webSocketMessage(runner, JSON.stringify({ type: 'ready', process: 'autopost' }));
   assert.equal(runner.sent[0]?.task?.jobId, job.id);
+});
+
+// --- discovery (per-candidate executor): real business logic, backed by local D1 (Miniflare) ---
+// Commit 3d. Unlike autopost, there is no D1 lease to claim/release: the candidate rows carry no
+// ownership columns anymore, so the open WebSocket plus the in-memory discoveryCurrentTask are the
+// only proof of "who is working on this". The Discovery autonomous run (source crawl goal/cursor)
+// is untouched by this commit and still speaks the generic command/progress relay tested above.
+
+async function seedDiscoveryCandidate(db, { id, chatId, platform = 'whatsapp' } = {}) {
+  await seedChat(db, { id: chatId, platform, status: 'to_join' });
+  const link = `https://example.test/${chatId}`;
+  await db.prepare(`INSERT INTO chat_discovery_candidates
+    (id,user_id,platform,link,normalized_link,discovered_at,imported_chat_id,created_at,updated_at)
+    VALUES (?1,'u',?2,?3,?3,1,?4,1,1)`).bind(id, platform, link, chatId).run();
+  return { candidateId: id, chatId };
+}
+
+// Already rejected and joined externally: deriveAction returns 'leave' regardless of pacing, so the
+// dispatched task's resultAction is 'executor-leave' instead of 'inspect'.
+async function seedDiscoveryLeaveCandidate(db, { id, chatId }) {
+  await db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,joined_at,archived_at,created_at,updated_at)
+    VALUES (?1,'u','whatsapp',?1,?2,?2,'archived',1,1,1,1)`).bind(chatId, `https://example.test/${chatId}`).run();
+  const link = `https://example.test/${id}`;
+  await db.prepare(`INSERT INTO chat_discovery_candidates
+    (id,user_id,platform,link,normalized_link,discovered_at,membership_state,decision,imported_chat_id,created_at,updated_at)
+    VALUES (?1,'u','whatsapp',?2,?2,1,'joined','rejected',?3,1,1)`).bind(id, link, chatId).run();
+  return { candidateId: id, chatId };
+}
+
+async function discoveryWake(channel, userId) {
+  const url = new URL(`https://owner-channel/discovery-wake?userId=${encodeURIComponent(userId)}`);
+  return channel.fetch(new Request(url, { method: 'POST' }));
+}
+
+void test('waking the DO dispatches the next Discovery candidate to the runner as a join_and_inspect task', async (t) => {
+  const db = await localDatabase(t);
+  const { candidateId, chatId } = await seedDiscoveryCandidate(db, { id: 'cand-1', chatId: 'wa-1' });
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const runner = withSocket(ctx, mockSocket(), ['runner']);
+
+  await discoveryWake(channel, 'u');
+
+  assert.equal(runner.sent.length, 1);
+  assert.equal(runner.sent[0].type, 'task');
+  assert.equal(runner.sent[0].process, 'discovery');
+  assert.equal(runner.sent[0].task.candidateId, candidateId);
+  assert.equal(runner.sent[0].task.chatId, chatId);
+  assert.equal(runner.sent[0].task.action, 'join_and_inspect');
+  assert.equal(runner.sent[0].task.resultAction, 'inspect');
+});
+
+void test('an inspect result applies the inspection and dispatches the next candidate', async (t) => {
+  const db = await localDatabase(t);
+  await seedDiscoveryCandidate(db, { id: 'cand-a', chatId: 'wa-a' });
+  await seedDiscoveryCandidate(db, { id: 'cand-b', chatId: 'wa-b' });
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const runner = withSocket(ctx, mockSocket(), ['runner']);
+  await discoveryWake(channel, 'u');
+  const task = runner.sent[0].task;
+  assert.equal(task.candidateId, 'cand-a');
+
+  await channel.webSocketMessage(runner, JSON.stringify({
+    type: 'result', process: 'discovery', candidateId: task.candidateId,
+    result: {
+      status: 'inspected', targetVerified: true, accessible: true, membershipState: 'joined',
+      observedName: 'Українці Тест', chatType: 'group', memberCount: 900,
+      topicMatch: 'match', canWrite: true, adsPolicy: 'allowed', activityState: 'active',
+    },
+  }));
+
+  const stored = await db.prepare(`SELECT decision FROM chat_discovery_candidates WHERE id=?1`).bind('cand-a').first();
+  assert.equal(stored.decision, 'target');
+  assert.equal(runner.sent.at(-1).type, 'task');
+  assert.equal(runner.sent.at(-1).task.candidateId, 'cand-b');
+});
+
+void test('a Discovery executor-leave result confirms the external leave using the dispatched task\'s chatStateToken', async (t) => {
+  const db = await localDatabase(t);
+  const { candidateId, chatId } = await seedDiscoveryLeaveCandidate(db, { id: 'cand-leave', chatId: 'wa-leave' });
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const runner = withSocket(ctx, mockSocket(), ['runner']);
+  await discoveryWake(channel, 'u');
+  const task = runner.sent[0].task;
+  assert.equal(task.candidateId, candidateId);
+  assert.equal(task.resultAction, 'executor-leave');
+
+  await channel.webSocketMessage(runner, JSON.stringify({
+    type: 'result', process: 'discovery', candidateId: task.candidateId,
+    chatStateToken: task.chatStateToken, targetVerified: true,
+  }));
+
+  assert.ok((await readChatState(db, 'u', chatId)).left_at !== null);
+});
+
+void test('a stale Discovery result for a candidate that is no longer the in-flight task is ignored', async (t) => {
+  const db = await localDatabase(t);
+  const { candidateId } = await seedDiscoveryCandidate(db, { id: 'cand-stale', chatId: 'wa-stale' });
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const runner = withSocket(ctx, mockSocket(), ['runner']);
+  await discoveryWake(channel, 'u');
+
+  await channel.webSocketMessage(runner, JSON.stringify({
+    type: 'result', process: 'discovery', candidateId: 'not-the-current-one',
+    result: { status: 'inspected', targetVerified: true, accessible: true, membershipState: 'joined' },
+  }));
+
+  const stored = await db.prepare(`SELECT decision FROM chat_discovery_candidates WHERE id=?1`).bind(candidateId).first();
+  assert.equal(stored.decision, 'review');
+});
+
+void test('a Discovery runtime-problem release waits for an explicit ready before redispatching', async (t) => {
+  const db = await localDatabase(t);
+  const { candidateId } = await seedDiscoveryCandidate(db, { id: 'cand-rel', chatId: 'wa-rel' });
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const runner = withSocket(ctx, mockSocket(), ['runner']);
+  await discoveryWake(channel, 'u');
+  runner.sent.length = 0;
+
+  await channel.webSocketMessage(runner, JSON.stringify({ type: 'release', process: 'discovery', candidateId }));
+  assert.deepEqual(runner.sent, []);
+
+  await channel.webSocketMessage(runner, JSON.stringify({ type: 'ready', process: 'discovery' }));
+  assert.equal(runner.sent[0]?.task?.candidateId, candidateId);
+});
+
+void test('a Discovery disconnect forgets the in-flight task (nothing to release in D1) so reconnect redispatches the same candidate', async (t) => {
+  const db = await localDatabase(t);
+  const { candidateId } = await seedDiscoveryCandidate(db, { id: 'cand-disc', chatId: 'wa-disc' });
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const runner = withSocket(ctx, mockSocket(), ['runner']);
+  await discoveryWake(channel, 'u');
+  assert.equal(runner.sent[0].task.candidateId, candidateId);
+
+  ctx.closeSocket(runner);
+  await channel.webSocketClose(runner, 1006, 'network', false);
+
+  const reconnected = withSocket(ctx, mockSocket(), ['runner']);
+  await channel.onRunnerConnected(reconnected, 'u');
+  assert.ok(reconnected.sent.some((message) => message.type === 'task' && message.task?.candidateId === candidateId));
 });

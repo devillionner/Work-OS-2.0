@@ -14,7 +14,7 @@ import {
   startDiscoveryRun,
 } from '../lib/chat-discovery/domain.ts';
 import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
-import { assertDiscoveryExecutorLease, claimDiscoveryExecutorQueue, completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
+import { completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
 import { createWaitingCheckBatch, isWaitingCheckBatchActive, readEligibleWaitingChats, stopWaitingCheckBatch, waitingCheckStatusFromBatch } from '../lib/chats/whatsapp-waiting-check.ts';
 import { buildTelegramSearchPlan, discoverPublicWeb, discoverTelegramPublic, extractInviteRecords, isLikelyUkrainianCommunity, safePublicUrl, telegramOlderPreviewUrl, telegramPublicChannelKey, telegramPublicPreviewUrl, telegramPublicSearchQueries } from '../lib/chat-discovery/public-web.ts';
 import { inferLocalPreviewTopicMatch } from '../lib/chat-discovery/local-preview.ts';
@@ -1081,12 +1081,12 @@ void test('executor queue exposes only the next safe external action and clears 
 
 void test('WhatsApp pending checks wait three days and require another explicit batch start', async (t) => {
   const { db, candidate } = await importedCandidate(t, 'PendingRecheck123');
-  const first = await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 200);
+  const first = await readDiscoveryExecutorQueue(db, 'u', 1, 200);
   assert.equal(first.tasks.length, 1);
 
   const pending = await applyDiscoveryInspection(db, 'u', {
     candidateId:candidate.id, expectedVersion:first.tasks[0].candidateVersion,
-    executorDeviceId:'device-a', requireTargetVerification:true,
+    requireTargetVerification:true,
     result:{status:'inspected',targetVerified:true,accessible:true,membershipState:'pending',observedName:'Українці Praha'},
   }, 201);
   assert.equal(pending.membershipState, 'pending');
@@ -1097,7 +1097,7 @@ void test('WhatsApp pending checks wait three days and require another explicit 
     WHERE dc.id=?1`).bind(candidate.id).first();
   assert.equal(stored.checked_at,201);
   assert.ok(stored.snoozed_until>201);
-  assert.equal((await claimDiscoveryExecutorQueue(db,'u','device-a',1,stored.snoozed_until+1)).tasks.length,0);
+  assert.equal((await readDiscoveryExecutorQueue(db,'u',1,stored.snoozed_until+1)).tasks.length,0);
 
   // Waiting-check batch state itself (start/claim/stop over the owner Durable Object) moved to
   // commit 3b — see tests/owner-channel.test.mjs. What stays a Discovery-side contract is that the
@@ -1115,7 +1115,7 @@ void test('legacy waiting chats are enrolled only by the operator batch and crea
     'https://chat.whatsapp.com/LegacyWaiting123','https://chat.whatsapp.com/LegacyWaiting123',
     'waiting',0,100,100)`).run();
 
-  assert.equal((await claimDiscoveryExecutorQueue(db,'u','device-a',1,200)).tasks.length,0);
+  assert.equal((await readDiscoveryExecutorQueue(db,'u',1,200)).tasks.length,0);
   const items = await readEligibleWaitingChats(db, 'u', 200);
   const batch = createWaitingCheckBatch(items, 200);
   assert.equal(batch.total,1);
@@ -1125,55 +1125,14 @@ void test('legacy waiting chats are enrolled only by the operator batch and crea
   const status=waitingCheckStatusFromBatch(stopped);
   assert.equal(status.active,false);
   assert.equal(status.remaining,0);
-  assert.equal((await claimDiscoveryExecutorQueue(db,'u','device-a',1,202)).tasks.length,0);
+  assert.equal((await readDiscoveryExecutorQueue(db,'u',1,202)).tasks.length,0);
   assert.equal((await db.prepare(`SELECT COUNT(*) AS n FROM chat_discovery_candidates`).first()).n,0);
 });
 
-void test('executor claims are exclusive per device and recover after a bounded lease', async (t) => {
-  const { db, candidate } = await importedCandidate(t, 'ExecutorLease123');
-  const first = await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 10, 200);
-  assert.equal(first.tasks.length, 1);
-  assert.equal(first.leaseSeconds, 90);
-  assert.equal(first.tasks[0].leaseExpiresAt, 290);
-
-  const competing = await claimDiscoveryExecutorQueue(db, 'u', 'device-b', 10, 201);
-  assert.equal(competing.tasks.length, 0);
-  await assert.rejects(
-    assertDiscoveryExecutorLease(db, 'u', 'device-b', candidate.id, first.tasks[0].candidateVersion, 201),
-    /більше не належить цьому пристрою/,
-  );
-  await assert.doesNotReject(
-    assertDiscoveryExecutorLease(db, 'u', 'device-a', candidate.id, first.tasks[0].candidateVersion, 201),
-  );
-
-  const recovered = await claimDiscoveryExecutorQueue(db, 'u', 'device-b', 10, 291);
-  assert.equal(recovered.tasks.length, 1);
-  assert.equal(recovered.tasks[0].candidateId, candidate.id);
-  assert.ok(recovered.tasks[0].candidateVersion>first.tasks[0].candidateVersion);
-  await assert.rejects(
-    assertDiscoveryExecutorLease(db, 'u', 'device-a', candidate.id, first.tasks[0].candidateVersion, 291),
-    /більше не належить цьому пристрою/,
-  );
-});
-
-void test('reclaimed executor lease fences stale join callback before chat state changes', async (t) => {
-  const { db, candidate, chatId } = await importedCandidate(t, 'ExecutorFence123');
-  const first = await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 200);
-  assert.equal(first.tasks.length, 1);
-  const recovered = await claimDiscoveryExecutorQueue(db, 'u', 'device-b', 1, 291);
-  assert.equal(recovered.tasks.length, 1);
-  await assert.rejects(
-    applyDiscoveryInspection(db, 'u', {
-      candidateId:candidate.id, expectedVersion:first.tasks[0].candidateVersion,
-      executorDeviceId:'device-a', requireTargetVerification:true,
-      result:{status:'inspected',targetVerified:true,accessible:true,membershipState:'joined',observedName:'Українці Praha'},
-    }, 291),
-    /Кандидат уже змінився|Стан чату вже змінився/,
-  );
-  const chat = await readChatState(db, 'u', chatId);
-  assert.equal(chat.workflow_status, 'to_join');
-  assert.equal(chat.joined_at, null);
-});
+// Per-candidate executor_lease_device_id/expires_at fencing retired in commit 3d: the owner Durable
+// Object's in-memory discoveryCurrentTask is now the sole ownership proof (see tests/owner-channel.test.mjs
+// for the DO-level dispatch/result/release/ready/reconnect coverage that replaces what used to be tested
+// here via two competing device ids and a bounded lease).
 
 void test('executor leave result archives a rejected joined WhatsApp chat and confirms the real external leave', async (t) => {
   const { db, candidate, chatId } = await importedCandidate(t, 'ExecutorLeave123');

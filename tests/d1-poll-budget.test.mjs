@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { claimDiscoveryExecutorQueue, wakeDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
 import { enrichWaitingCheckProblems } from '../lib/chats/whatsapp-waiting-check.ts';
 import { claimWhatsAppAutopostJob } from '../lib/messenger-automation.ts';
 import { addSelectedChatToJoin, readSelectedChats, readSelectedChatsCount, saveSelectedChats } from '../lib/chats/telegram-selected.ts';
@@ -61,16 +60,13 @@ void test('idle runner polls stay within a fixed D1 row budget regardless of dat
   await seed(db);
   const { rows } = meter(db);
 
-  const firstDiscovery = await rows(metered => claimDiscoveryExecutorQueue(metered, 'u', 'device', 1, NOW));
-  assert.ok(firstDiscovery >= CANDIDATES, 'the seeded data must make the uncached queue read expensive');
-  assert.ok(await rows(metered => claimDiscoveryExecutorQueue(metered, 'u', 'device', 1, NOW + 10)) <= 3, 'repeated empty Discovery polls must be served from the idle marker');
-  // Since commit 3b the WhatsApp Waiting-check runner holds one WebSocket to the owner's Durable
-  // Object instead of polling an HTTP endpoint, so there is no D1-touching idle poll left to meter
-  // here at all — a genuine zero, not merely a bounded one.
+  // Since commit 3b/3c/3d the WhatsApp Waiting-check, Autopost and Discovery runners all hold one
+  // WebSocket to the owner's Durable Object instead of polling an HTTP endpoint on a timer, so there
+  // is no D1-touching idle poll left to meter here for any of the three — a genuine zero, not merely
+  // a bounded one. The DO still reads D1 when it actually has a reason to (a runner connects, a
+  // result/ready arrives, an operator action wakes it) but that cost is bounded by real events, not
+  // by a blind interval — see tests/owner-channel.test.mjs for that dispatch's own coverage.
   assert.ok(await rows(metered => claimWhatsAppAutopostJob(metered, 'u', NOW)) <= 5);
-
-  await wakeDiscoveryExecutorQueue(db, 'u');
-  assert.ok(await rows(metered => claimDiscoveryExecutorQueue(metered, 'u', 'device', 1, NOW + 20)) >= CANDIDATES, 'an operator action wakes the queue immediately');
 });
 
 void test('page polls (sync revision, Waiting-check status, Telegram selected list) stay bounded', async (t) => {

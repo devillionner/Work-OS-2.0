@@ -33,11 +33,13 @@ import {
   completeWhatsAppAutopostJob,
   releaseWhatsAppAutopostJob,
 } from '../lib/messenger-automation.ts';
+import { readDiscoveryExecutorQueue, completeDiscoveryExternalLeave } from '../lib/chat-discovery/executor.ts';
+import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
 
 /** @typedef {'browser'|'runner'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, runnerLastSeenAt: number|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 const PING = JSON.stringify({ type: 'ping' });
@@ -79,6 +81,14 @@ export class OwnerChannel {
       const state = await this.readState();
       if (state.userId !== userId) state.userId = userId;
       await this.dispatchNextAutopostJob(state);
+      await this.writeState(state);
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === '/discovery-wake' && request.method === 'POST') {
+      if (!userId) return new Response(null, { status: 401 });
+      const state = await this.readState();
+      if (state.userId !== userId) state.userId = userId;
+      await this.dispatchNextDiscoveryTask(state);
       await this.writeState(state);
       return new Response(null, { status: 204 });
     }
@@ -145,6 +155,10 @@ export class OwnerChannel {
     // released any in-flight job back to 'pending' (see webSocketClose), so reconnect just looks for
     // new work instead of resuming anything specific.
     await this.dispatchNextAutopostJob(state);
+    // Discovery's per-candidate task is never written to D1 at dispatch time (see
+    // dispatchNextDiscoveryTask), so a disconnect left D1 untouched; webSocketClose only had to forget
+    // the in-memory discoveryCurrentTask, and a fresh read here finds the same candidate again.
+    await this.dispatchNextDiscoveryTask(state);
     await this.writeState(state);
   }
 
@@ -250,6 +264,16 @@ export class OwnerChannel {
       return;
     }
 
+    if (message.process === 'discovery') {
+      // Only the per-candidate executor protocol (join/inspect/leave) is real business logic here.
+      // The Discovery autonomous run (source crawl goal/cursor) still speaks the generic
+      // command/progress relay above/below by design — see commit 3's plan for why that layer stays
+      // separate from this per-candidate lease migration.
+      if (message.type === 'result') return this.handleDiscoveryResult(message);
+      if (message.type === 'release') return this.handleDiscoveryRelease(message);
+      if (message.type === 'ready') return this.handleDiscoveryReady(ws);
+    }
+
     if (message.type === 'progress' || message.type === 'result') {
       this.broadcast('browser', message);
     }
@@ -333,6 +357,71 @@ export class OwnerChannel {
   }
 
   /**
+   * Picks the next Discovery per-candidate task (join/inspect/leave) and pushes it to the runner,
+   * unless one is already in flight. Unlike autopost's claim, there is nothing to write to D1 first:
+   * the candidate rows this reads carry no lease columns anymore (retired in commit 3d) — the open
+   * WebSocket plus this in-memory discoveryCurrentTask are the only ownership proof, the same as
+   * waiting_check's batch. A disconnect (webSocketClose) only has to forget discoveryCurrentTask, not
+   * undo any D1 write, so a later reconnect's fresh read naturally finds the same candidate again.
+   * @param {OwnerChannelState} state
+   */
+  async dispatchNextDiscoveryTask(state) {
+    if (state.discoveryCurrentTask || !state.userId) return;
+    const { tasks } = await readDiscoveryExecutorQueue(this.env.DB, state.userId, 1, nowSeconds());
+    const task = tasks[0];
+    if (!task) return;
+    state.discoveryCurrentTask = task;
+    this.broadcast('runner', { type: 'task', process: 'discovery', task });
+  }
+
+  /** @param {{candidateId:string; result?:unknown; chatStateToken?:string; targetVerified?:unknown}} message */
+  async handleDiscoveryResult(message) {
+    const state = await this.readState();
+    const current = state.discoveryCurrentTask;
+    if (!state.userId || !current || current.candidateId !== message.candidateId) return; // stale/mismatched — ignore
+    state.discoveryCurrentTask = null;
+    const now = nowSeconds();
+    try {
+      if (current.resultAction === 'executor-leave') {
+        await completeDiscoveryExternalLeave(this.env.DB, state.userId, {
+          candidateId: message.candidateId,
+          expectedVersion: current.candidateVersion,
+          chatStateToken: message.chatStateToken,
+          targetVerified: message.targetVerified,
+        }, now);
+      } else {
+        await applyDiscoveryInspection(this.env.DB, state.userId, {
+          candidateId: message.candidateId,
+          expectedVersion: current.candidateVersion,
+          result: message.result,
+          minMembers: current.minMembers,
+          requireTargetVerification: true,
+        }, now);
+      }
+    } catch { /* candidate/chat already changed another way (e.g. operator action) — nothing left to apply */ }
+    await this.dispatchNextDiscoveryTask(state);
+    await this.writeState(state);
+  }
+
+  /** @param {{candidateId:string}} message */
+  async handleDiscoveryRelease(message) {
+    const state = await this.readState();
+    if (!state.discoveryCurrentTask || state.discoveryCurrentTask.candidateId !== message.candidateId) return;
+    // A technical problem (WhatsApp Web failed to load, CDP unreachable) is not tied to this one
+    // candidate — do not redispatch immediately, or a persistent global problem becomes a tight retry
+    // loop. The runner sends its own 'ready' once it is done backing off (same protocol as waiting_check/autopost).
+    state.discoveryCurrentTask = null;
+    await this.writeState(state);
+  }
+
+  /** @param {WebSocket} _ws */
+  async handleDiscoveryReady(_ws) {
+    const state = await this.readState();
+    await this.dispatchNextDiscoveryTask(state);
+    await this.writeState(state);
+  }
+
+  /**
    * @param {WebSocket} ws
    * @param {number} _code
    * @param {string} _reason
@@ -348,6 +437,9 @@ export class OwnerChannel {
         await releaseWhatsAppAutopostJob(this.env.DB, state.userId, state.autopostCurrentJobId, nowSeconds());
         state.autopostCurrentJobId = null;
       }
+      // Discovery's task was never written to D1, so losing the connection just means forgetting it
+      // here — the next dispatch (reconnect, or another event) reads D1 fresh and finds it again.
+      if (state.discoveryCurrentTask) state.discoveryCurrentTask = null;
       await this.writeState(state);
       this.broadcast('browser', { type: 'runner_status', connected: false });
     }
@@ -380,7 +472,7 @@ export class OwnerChannel {
   /** @returns {Promise<OwnerChannelState>} */
   async readState() {
     const stored = await this.ctx.storage.get(STORAGE_KEY);
-    return stored ?? { userId: null, processes: {}, waitingCheckBatch: null, autopostCurrentJobId: null, runnerLastSeenAt: null };
+    return stored ?? { userId: null, processes: {}, waitingCheckBatch: null, autopostCurrentJobId: null, discoveryCurrentTask: null, runnerLastSeenAt: null };
   }
 
   /** @param {OwnerChannelState} state */

@@ -38,16 +38,13 @@ void test('Chat Discovery rejects malformed versioned mutations before domain ca
 });
 
 
-void test('dedicated executor bridge leases tasks to the authenticated device before callbacks', async () => {
-  const route = await readFile(new URL('../app/api/chat-discovery/executor/route.ts', import.meta.url), 'utf8');
-  assert.match(route, /claimDiscoveryExecutorQueue\(env\.DB, executor\.userId, executor\.deviceId/);
-  assert.match(route, /assertDiscoveryExecutorLease\(env\.DB, executor\.userId, executor\.deviceId/);
-  assert.match(route, /requireTargetVerification: true/);
-  assert.match(route, /executorDeviceId: executor\.deviceId/);
-  assert.match(route, /targetVerified: body\.targetVerified/);
-  assert.match(route, /body\.action === 'advance-discovery'/);
-  assert.doesNotMatch(route, /pause-waiting-check/);
-  assert.doesNotMatch(route, /advanceAutonomousDiscoveryRun/);
+void test('the retired per-device HTTP Discovery executor route is gone, not left to silently 404-bridge the old protocol', async () => {
+  // Commit 3d: the per-candidate executor_lease_device_id/expires_at claim/lease this route used to
+  // bridge is retired — Discovery dispatch now goes through the owner Durable Object (workers/owner-
+  // channel.js) over the same task/result/release/ready protocol as waiting_check/autopost. There is
+  // no remaining branch to keep here (unlike messenger-automation's Viber safe-mode), so the whole
+  // route is deleted, matching how the waiting-check executor route was retired in commit 3b.
+  await assert.rejects(readFile(new URL('../app/api/chat-discovery/executor/route.ts', import.meta.url), 'utf8'));
 });
 
 // Operator decision 2026-10-02: search and qualification never write D1; only «Підтвердити» (confirm) and

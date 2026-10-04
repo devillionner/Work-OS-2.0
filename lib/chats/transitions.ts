@@ -1,7 +1,6 @@
 import { businessDate } from '../business-time.ts';
 import { discoveryMembershipForTransition, discoveryMembershipStatement } from '../chat-discovery/workflow-link.ts';
 import { chatStateEvent, chatStateTokenSql, type ChatState } from './state.ts';
-import { wakeDiscoveryExecutorQueueStatement } from '../chat-discovery/queue-idle.ts';
 
 const ALLOWED_FROM: Record<string, readonly string[]> = {
   joined: ['to_join'], waiting: ['to_join'], failed: ['to_join'], approved: ['waiting'],
@@ -11,7 +10,6 @@ const ALLOWED_FROM: Record<string, readonly string[]> = {
 
 export async function transitionChat(db: D1Database, input: {
   userId: string; chat: ChatState; action: string; accountId: string | null; now: number; reason?: string;
-  executorFence?: { candidateId: string; candidateVersion: number; deviceId: string };
 }): Promise<{ ok: boolean; error?: string }> {
   const { userId, chat, action, now } = input;
   if (!ALLOWED_FROM[action]?.includes(chat.workflow_status)) return {ok:false,error:'Стан чату вже змінився. Оновіть список.'};
@@ -39,13 +37,9 @@ export async function transitionChat(db: D1Database, input: {
       archived_at=CASE WHEN ?5='assign_account' THEN archived_at WHEN ?6 THEN ?3 ELSE NULL END,
       telegram_account_id=?8,updated_at=?3
       WHERE id=?9 AND user_id=?10 AND ${chatStateTokenSql('chats')}=?11
-        AND (?12=0 OR EXISTS(SELECT 1 FROM telegram_accounts a WHERE a.id=?8 AND a.user_id=?10 AND a.is_enabled=1))
-        AND (?13 IS NULL OR EXISTS(SELECT 1 FROM chat_discovery_candidates dc
-          WHERE dc.id=?13 AND dc.user_id=?10 AND dc.imported_chat_id=?9 AND dc.version=?14
-            AND dc.executor_lease_device_id=?15 AND dc.executor_lease_expires_at>?3))`)
+        AND (?12=0 OR EXISTS(SELECT 1 FROM telegram_accounts a WHERE a.id=?8 AND a.user_id=?10 AND a.is_enabled=1))`)
       .bind(status,Number(joining),now,Number(reset),action,Number(archived),reason,
-        accountId,chat.id,userId,chat.state_token,Number(needsActiveAccount),
-        input.executorFence?.candidateId??null,input.executorFence?.candidateVersion??null,input.executorFence?.deviceId??null),
+        accountId,chat.id,userId,chat.state_token,Number(needsActiveAccount)),
     chatStateEvent(db,{id:eventId,userId,chatId:chat.id,action,now,previous:chat.state_token}),
   ];
   if (invalidatesTodayJoin) {
@@ -88,8 +82,6 @@ export async function transitionChat(db: D1Database, input: {
       WHERE id=?2 AND user_id=?3 AND EXISTS(SELECT 1 FROM activity_events e WHERE e.id=?4 AND e.user_id=?3)`)
       .bind(now,accountId,userId,metricId));
   }
-  // Discovery executor tasks depend on the WhatsApp/Viber chat queue, so a move may create work.
-  if (chat.platform === 'whatsapp' || chat.platform === 'viber') statements.push(wakeDiscoveryExecutorQueueStatement(db, userId));
   const results = await db.batch(statements);
   return results[0].meta.changes ? {ok:true} : {ok:false,error:'Чат або Telegram-акаунт уже змінено. Оновіть список.'};
 }

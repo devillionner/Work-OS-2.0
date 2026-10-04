@@ -4,7 +4,7 @@ import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { readChatState } from '@/lib/chats/state';
 import { transitionChat } from '@/lib/chats/transitions';
 import { applyDiscoveryInspection } from '@/lib/chat-discovery/inspection';
-import { completeDiscoveryExternalLeave, readDiscoveryExecutorQueue, wakeDiscoveryExecutorQueue } from '@/lib/chat-discovery/executor';
+import { completeDiscoveryExternalLeave, readDiscoveryExecutorQueue } from '@/lib/chat-discovery/executor';
 import { createDiscoveryExecutorDevice, listDiscoveryExecutorDevices, revokeDiscoveryExecutorDevice } from '@/lib/chat-discovery/executor-auth';
 import {
   DiscoveryError,
@@ -19,6 +19,22 @@ import {
 
 function json(value: unknown, status = 200) {
   return Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
+}
+
+// Operator actions that create or change executor-relevant Discovery state (a candidate becomes
+// to_join, or a joined candidate is rejected and needs an external leave) have to tell the owner
+// Durable Object a task may now be dispatchable — it no longer learns this by polling D1 on a timer.
+// A failed wake is non-fatal: D1 already reflects the change, and the next real event (a runner
+// reconnect, or another result/ready) picks it up — same tolerance as wakeOwnerChannelAutopost.
+async function wakeOwnerChannelDiscovery(userId: string) {
+  try {
+    const stub = env.OWNER_CHANNEL.get(env.OWNER_CHANNEL.idFromName(userId));
+    const url = new URL('https://owner-channel/discovery-wake');
+    url.searchParams.set('userId', userId);
+    await stub.fetch(new Request(url, { method: 'POST' }));
+  } catch (error) {
+    console.error('Discovery wake failed', error instanceof Error ? error.name : 'unknown');
+  }
 }
 
 async function archiveStaleDiscoveryImports(db:D1Database,userId:string,now:number){
@@ -101,8 +117,6 @@ export async function POST(request: Request): Promise<Response> {
   const now = Math.floor(Date.now() / 1000);
 
   try {
-    // Operator Discovery actions can create executor work; let the runner see it on its next poll.
-    if (body.action !== 'pair-executor' && body.action !== 'revoke-executor') await wakeDiscoveryExecutorQueue(env.DB, user.id);
     if (body.action === 'pair-executor') {
       return json(await createDiscoveryExecutorDevice(env.DB, user.id, body.name, now));
     }
@@ -144,24 +158,30 @@ export async function POST(request: Request): Promise<Response> {
       if (typeof body.candidateId !== 'string' || !body.candidateId || !Number.isSafeInteger(body.version)) {
         throw new DiscoveryError('Некоректний кандидат.');
       }
-      return json(await archiveDiscoveryCandidateForOperator(env.DB,user.id,body.candidateId,Number(body.version),now));
+      const archived = await archiveDiscoveryCandidateForOperator(env.DB,user.id,body.candidateId,Number(body.version),now);
+      await wakeOwnerChannelDiscovery(user.id);
+      return json(archived);
     }
     if (body.action === 'import') {
       if (typeof body.candidateId !== 'string' || !body.candidateId || !Number.isSafeInteger(body.version)) {
         throw new DiscoveryError('Некоректний кандидат.');
       }
-      return json(await handoffDiscoveryCandidate(env.DB, user.id, body.candidateId, Number(body.version), now));
+      const handoff = await handoffDiscoveryCandidate(env.DB, user.id, body.candidateId, Number(body.version), now);
+      await wakeOwnerChannelDiscovery(user.id);
+      return json(handoff);
     }
     if (body.action === 'inspect') {
       if (typeof body.candidateId !== 'string' || !body.candidateId || !Number.isSafeInteger(body.version)) {
         throw new DiscoveryError('Некоректний кандидат.');
       }
-      return json(await applyDiscoveryInspection(env.DB, user.id, {
+      const inspected = await applyDiscoveryInspection(env.DB, user.id, {
         candidateId: body.candidateId,
         expectedVersion: Number(body.version),
         result: body.result,
         minMembers: body.minMembers,
-      }, now));
+      }, now);
+      await wakeOwnerChannelDiscovery(user.id);
+      return json(inspected);
     }
     if (body.action === 'executor-leave') {
       if (typeof body.candidateId !== 'string' || !body.candidateId || !Number.isSafeInteger(body.version)

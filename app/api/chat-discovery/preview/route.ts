@@ -14,6 +14,20 @@ function json(value:unknown,status=200){
   return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});
 }
 
+// Confirming a found target can insert a new to_join chat, which is executor-dispatchable work for
+// the owner Durable Object — see app/api/chat-discovery/route.ts's wakeOwnerChannelDiscovery for why
+// a failed wake is non-fatal here (D1 already has the change; the next real event picks it up).
+async function wakeOwnerChannelDiscovery(userId: string) {
+  try {
+    const stub = env.OWNER_CHANNEL.get(env.OWNER_CHANNEL.idFromName(userId));
+    const url = new URL('https://owner-channel/discovery-wake');
+    url.searchParams.set('userId', userId);
+    await stub.fetch(new Request(url, { method: 'POST' }));
+  } catch (error) {
+    console.error('Discovery wake failed', error instanceof Error ? error.name : 'unknown');
+  }
+}
+
 export async function POST(request:Request):Promise<Response>{
   const user=await getCurrentUser();
   if(!user)return json({error:'Потрібна авторизація.'},401);
@@ -45,9 +59,11 @@ export async function POST(request:Request):Promise<Response>{
       return json(await readDiscoveryTelegramGroupSources(env.DB,user.id));
     }
     if(body.action==='confirm'){
-      return json(await confirmLocalDiscoveryPreview(env.DB,user.id,{
+      const confirmed = await confirmLocalDiscoveryPreview(env.DB,user.id,{
         platform:body.platform,link:body.link,name:body.name,sources:body.sources,minMembers:body.minMembers,runId:body.runId,preflight:body.preflight,
-      },now));
+      },now);
+      await wakeOwnerChannelDiscovery(user.id);
+      return json(confirmed);
     }
     throw new DiscoveryError('Невідома preview-дія.');
   }catch(error){

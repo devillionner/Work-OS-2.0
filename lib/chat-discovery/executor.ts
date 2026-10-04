@@ -3,9 +3,6 @@ import { transitionChat } from '../chats/transitions.ts';
 import { changeChatLeave } from '../chats/leave.ts';
 import { supportsChatLeaveChecklist } from '../chats/leave-policy.ts';
 import { DiscoveryError, type DiscoveryDecision } from './domain.ts';
-import { markDiscoveryQueueIdle, markDiscoveryQueueWork, readDiscoveryQueueMarkers } from './queue-idle.ts';
-
-export { DISCOVERY_QUEUE_IDLE_SECONDS, wakeDiscoveryExecutorQueue } from './queue-idle.ts';
 
 export type DiscoveryExecutorAction =
   | 'join_and_inspect'
@@ -28,7 +25,6 @@ export type DiscoveryExecutorTask = {
   runtime: 'whatsapp_web' | 'viber_native';
   expectedTarget: { name: string; link: string };
   safety: { requiresTargetVerification: true; unknownState: 'fail_closed' };
-  leaseExpiresAt?: number;
 };
 
 type CandidateTaskRow = {
@@ -117,54 +113,6 @@ export async function readDiscoveryExecutorQueue(
   return { tasks, sourceAdvanceNeeded: false };
 }
 
-
-export async function claimDiscoveryExecutorQueue(
-  db: D1Database,
-  userId: string,
-  deviceId: string,
-  limitInput: unknown,
-  now: number,
-): Promise<{ tasks: DiscoveryExecutorTask[]; leaseSeconds: number; sourceAdvanceNeeded: boolean }> {
-  const leaseSeconds = 90;
-  const limit = boundedLimit(limitInput);
-  const markers = await readDiscoveryQueueMarkers(db, userId);
-  if (markers.idleUntil > now) return { tasks: [], leaseSeconds, sourceAdvanceNeeded: false };
-  const queue = await readDiscoveryExecutorQueue(db, userId, limit, now);
-  if (queue.tasks.length) await markDiscoveryQueueWork(db, userId, now);
-  else await markDiscoveryQueueIdle(db, userId, markers.lastWorkAt, now);
-  const tasks: DiscoveryExecutorTask[] = [];
-  for (const task of queue.tasks) {
-    if (tasks.length >= limit) break;
-    const leaseExpiresAt = now + leaseSeconds;
-    const claimed = await db.prepare(`UPDATE chat_discovery_candidates
-      SET executor_lease_device_id=?1,executor_lease_expires_at=?2,version=version+1
-      WHERE id=?3 AND user_id=?4 AND version=?5
-        AND (executor_lease_device_id=?1 OR executor_lease_expires_at IS NULL OR executor_lease_expires_at<=?6)
-      RETURNING version`)
-      .bind(deviceId, leaseExpiresAt, task.candidateId, userId, task.candidateVersion, now)
-      .first<{version:number}>();
-    if (!claimed) continue;
-    tasks.push({ ...task, candidateVersion:Number(claimed.version), leaseExpiresAt });
-  }
-  return { tasks, leaseSeconds, sourceAdvanceNeeded: queue.sourceAdvanceNeeded };
-}
-
-export async function assertDiscoveryExecutorLease(
-  db: D1Database,
-  userId: string,
-  deviceId: string,
-  candidateId: string,
-  expectedVersion: number,
-  now: number,
-) {
-  const lease = await db.prepare(`SELECT executor_lease_device_id,executor_lease_expires_at
-    FROM chat_discovery_candidates WHERE id=?1 AND user_id=?2 AND version=?3 LIMIT 1`)
-    .bind(candidateId, userId, expectedVersion)
-    .first<{executor_lease_device_id:string|null;executor_lease_expires_at:number|null}>();
-  if (!lease || lease.executor_lease_device_id !== deviceId || !lease.executor_lease_expires_at || lease.executor_lease_expires_at <= now) {
-    throw new DiscoveryError('Задача executor більше не належить цьому пристрою. Оновіть чергу.', 409);
-  }
-}
 
 export async function completeDiscoveryExternalLeave(
   db: D1Database,

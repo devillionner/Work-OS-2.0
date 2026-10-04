@@ -44,7 +44,6 @@ void test('Discovery search is local-first and D1 work stays targeted until expl
   const runner=read('scripts/chat-discovery-runner.mjs');
   const auth=read('lib/chat-discovery/executor-auth.ts');
   const executor=read('lib/chat-discovery/executor.ts');
-  const route=read('app/api/chat-discovery/executor/route.ts');
   const deploy=read('scripts/deploy-staging.mjs');
   const preview=read('lib/chat-discovery/local-preview.ts');
   assert.match(runner,/function canAdvanceDiscoverySource\(\)\{\s*return false;/);
@@ -54,15 +53,16 @@ void test('Discovery search is local-first and D1 work stays targeted until expl
   assert.match(runner,/CLOUD_AUTOMATION_POLL_MS=15000/);
   assert.match(runner,/CLOUD_AUTOMATION_IDLE_MAX_MS=60000/);
   assert.match(runner,/&&await cloudDemand\(\)\)\{/);
-  assert.match(executor,/if \(markers\.idleUntil > now\) return \{ tasks: \[\], leaseSeconds, sourceAdvanceNeeded: false \}/);
   assert.match(auth,/EXECUTOR_HEARTBEAT_SECONDS = 60/);
   assert.match(executor,/sourceAdvanceNeeded: false/);
   assert.doesNotMatch(executor,/SELECT min_members,status FROM chat_discovery_runs/);
   assert.match(executor,/LIMIT \?3`\)\.bind\(userId, now, limit\);/);
   assert.match(executor,/discoveryExecutorQueueStatement\(db, userId, now, limit\)\.all<CandidateTaskRow>\(\)/);
   assert.doesNotMatch(executor,/Math\.max\(limit \* 3, 20\)/);
-  assert.match(route,/Source discovery тепер локальний і не пише проміжні результати в D1/);
-  assert.doesNotMatch(route,/advanceAutonomousDiscoveryRun/);
+  // Commit 3d: the per-device HTTP executor route (and the executor_lease_device_id/expires_at claim
+  // it used to bridge) is gone entirely — Discovery dispatch now goes through the owner Durable
+  // Object (see tests/chat-discovery-route-contract.test.mjs and tests/owner-channel.test.mjs).
+  assert.doesNotMatch(executor,/claimDiscoveryExecutorQueue|assertDiscoveryExecutorLease/);
   assert.match(deploy,/if \(fingerprintCheck\.allowed\)/);
   assert.match(deploy,/Skipping remote D1 migration list for this code-only deploy/);
   // One bounded source query per Worker call (was six before the source crawl moved to the browser).

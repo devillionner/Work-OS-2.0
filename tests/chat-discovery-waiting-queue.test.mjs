@@ -6,7 +6,7 @@ import test from 'node:test';
 // end-to-end there now — see tests/owner-channel.test.mjs. What remains here is unrelated to that
 // batch state: the Discovery executor queue's own retired-row/pacing guards, and the pure WhatsApp
 // Web CDP classification helpers.
-import { claimDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
+import { readDiscoveryExecutorQueue } from '../lib/chat-discovery/executor.ts';
 import { classifyWhatsAppSnapshot, toWaitingCheckOutcome } from '../scripts/whatsapp-web-cdp.mjs';
 import { localDatabase } from './helpers/local-d1.mjs';
 
@@ -26,7 +26,7 @@ void test('retired waiting-* candidate rows can no longer trigger automated insp
     reason_codes_json,imported_chat_id,created_at,updated_at
   ) SELECT 'waiting-approved','u','whatsapp',name,link,normalized_link,100,'joined','inspected','rejected','[]','approved',100,100
     FROM chats WHERE id='approved'`).run();
-  assert.equal((await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 10_000)).tasks.length, 0);
+  assert.equal((await readDiscoveryExecutorQueue(db, 'u', 1, 10_000)).tasks.length, 0);
 });
 
 void test('an attempted not_checked candidate is paced instead of being re-claimed on the next poll', async (t) => {
@@ -41,11 +41,11 @@ void test('an attempted not_checked candidate is paced instead of being re-claim
   ) VALUES ('cand-pace','u','whatsapp','Українці Brno','https://chat.whatsapp.com/PaceRetry123',
     'https://chat.whatsapp.com/PaceRetry123',100,'not_checked','not_checked','review','[]','tj',100,100)`).run();
 
-  assert.equal((await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 200)).tasks.length, 1);
+  assert.equal((await readDiscoveryExecutorQueue(db, 'u', 1, 200)).tasks.length, 1);
   await db.prepare(`UPDATE chat_discovery_candidates SET checked_at=200,updated_at=200,version=version+1 WHERE id='cand-pace'`).run();
 
-  assert.equal((await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 201)).tasks.length, 0);
-  assert.equal((await claimDiscoveryExecutorQueue(db, 'u', 'device-a', 1, 200 + 300)).tasks.length, 1);
+  assert.equal((await readDiscoveryExecutorQueue(db, 'u', 1, 201)).tasks.length, 0);
+  assert.equal((await readDiscoveryExecutorQueue(db, 'u', 1, 200 + 300)).tasks.length, 1);
 });
 
 const waitingTask = {

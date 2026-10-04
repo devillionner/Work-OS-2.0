@@ -71,14 +71,11 @@ void test('final local automation outcomes are the persistence boundary', async 
 });
 
 void test('Discovery executor cannot source-crawl raw candidates before factual local qualification', async () => {
-  const [runner, route, executor] = await Promise.all([
+  const [runner, executor] = await Promise.all([
     readFile(new URL('../scripts/chat-discovery-runner.mjs', import.meta.url), 'utf8'),
-    readFile(new URL('../app/api/chat-discovery/executor/route.ts', import.meta.url), 'utf8'),
     readFile(new URL('../lib/chat-discovery/executor.ts', import.meta.url), 'utf8'),
   ]);
   assert.match(runner,/function canAdvanceDiscoverySource\(\)\{\s*return false;/);
-  assert.match(route,/Source discovery тепер локальний і не пише проміжні результати в D1/);
-  assert.doesNotMatch(route,/advanceAutonomousDiscoveryRun/);
   assert.match(executor,/sourceAdvanceNeeded: false/);
   assert.doesNotMatch(executor,/SELECT min_members,status FROM chat_discovery_runs/);
 });

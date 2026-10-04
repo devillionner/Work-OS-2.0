@@ -1,3 +1,81 @@
+## 2026-10-04 — Discovery (per-candidate join/inspect/leave) на DO-координацію (коміт 3d)
+
+- Найскладніший підкоміт коміту 3. `chat_discovery_candidates.executor_lease_device_id/expires_at`
+  (per-candidate lease, на відміну від одного job-рядка в 3b/3c) більше ніде не пишеться нічим з
+  нового коду — міграция 0035 не видалена (колонки лишились у схемі, `revokeDiscoveryExecutorDevice`
+  і далі очищує їх при відкликанні пристрою), просто DO відкрите WebSocket-з'єднання з runner-ом тепер
+  єдиний доказ володіння задачею (той самий патерн, що й `autopostCurrentJobId`/`waitingCheckBatch`).
+  `claimDiscoveryExecutorQueue` (писав lease+бампив version) і `assertDiscoveryExecutorLease` видалені
+  повністю, а не лишені мертвим кодом — `readDiscoveryExecutorQueue` (чисте читання, без побічних
+  ефектів) тепер викликається прямо з DO з `limit=1` замість пакету до 20.
+- `OwnerChannel` отримав `discoveryCurrentTask` (повний об'єкт задачі, не лише id — потрібен
+  `resultAction`/`candidateVersion`/`chatStateToken` для застосування результату) і той самий
+  `task`/`result`/`release`/`ready` протокол по WS, що й waiting_check/autopost:
+  `dispatchNextDiscoveryTask` читає D1 й штовхає ОДНУ задачу (не пакет — у push-моделі DO сам штовхає,
+  щойно runner готовий, причина пакетування в pull-моделі зникла); `handleDiscoveryResult` викликає
+  `applyDiscoveryInspection` (дія `inspect`) або `completeDiscoveryExternalLeave` (дія
+  `executor-leave`) залежно від `resultAction` задачі, звіряючи `candidateId` з поточною задачею —
+  пізній/чужий результат тихо ігнорується; `release` (технічна проблема) не штовхає задачу негайно,
+  чекає явного `ready` від runner-а після власного бекофу (той самий захист від тугого циклу).
+  Розрив з'єднання (`webSocketClose`) просто забуває `discoveryCurrentTask` — на відміну від autopost,
+  тут нема чого відкочувати в D1 (dispatch нічого не пише), тож реконект і свіже читання D1 природно
+  повертають того самого кандидата.
+- `lib/chats/transitions.ts` і `lib/chat-discovery/inspection.ts`: прибрано `executorFence`-параметр
+  і відповідну fencing-умову в UPDATE (`executor_lease_device_id=... AND executor_lease_expires_at>...`)
+  — опціональний `version`-чек і так лишається єдиним потрібним захистом від застарілого запису.
+  `lib/chat-discovery/queue-idle.ts` (весь механізм 30-хвилинного idle-маркера на
+  `user_settings`, потрібний лише pull-моделі з опитуванням на таймері) видалено файлом цілком —
+  викликати його більше нема звідки: `wakeDiscoveryExecutorQueueStatement` у `transitionChat` і
+  `wakeDiscoveryExecutorQueue` у браузерному роуті замінені прямим HTTP-викликом DO
+  (`wakeOwnerChannelDiscovery`, той самий тонкий-міст патерн, що й `wakeOwnerChannelAutopost` з 3c),
+  зробленим ТІЛЬКИ після дій, що реально можуть створити executor-роботу (`import`,
+  `archive-candidate`, `inspect` у `app/api/chat-discovery/route.ts`; `confirm` у
+  `app/api/chat-discovery/preview/route.ts` — саме звідси тепер реально заходять нові кандидати,
+  не через застарілі `continue`/`ingest-telegram`, які й далі кидають помилку) — вужче за стару
+  поведінку (вейк на майже кожній дії), бо DO-вейк коштує реального читання D1 всередині
+  `dispatchNextDiscoveryTask`, на відміну від дешевого `DELETE` старого idle-маркера.
+- Старий per-device HTTP executor-роут `app/api/chat-discovery/executor/route.ts` (GET-claim +
+  POST inspect/executor-leave) видалено файлом цілком, а не лишено сумісним проміжним шляхом чи
+  410-заглушкою — на відміну від `messenger-automation/executor` (там лишилась жива Viber-гілка),
+  Discovery обробляє WhatsApp і Viber в ОДНОМУ коді, тож немає жодної ще-не-мігрованої гілки, яку
+  треба зберігати; той самий підхід, що й видалення `waiting-check/executor/route.ts` у 3b.
+- **Побіжна знахідка, не баг**: бандл DO (`dist/server/owner-channel.js`) виріс із ~34.5 КБ (3a) до
+  ~598 КБ без стиснення / ~85 КБ gzip. Причина — не помилка tree-shaking: `applyDiscoveryInspection`
+  реально викликає `reconcileDiscoveryRunGoal` (щоб цільовий лічильник автопошуку лишався точним
+  після кожної інспекції, яка б не прийшла — через DO чи колишній HTTP-шлях), а та функція реально
+  викликає `buildPublicSearchTasks`, якій потрібні куровані дані `lib/chat-discovery/seeds.ts`
+  (269 КБ, міста/ключові слова для джерел автопошуку). Ці дані й раніше були частиною головного
+  Worker-бандла (через браузерні роути) — тепер вони просто задубльовані і в DO-бандл. Ліміт
+  Cloudflare (стиснений скрипт) далеко не досягнутий, і `scripts/deploy-staging.mjs` не має
+  розмірного guard'а, тож це не блокує деплой — лише вартий згадки факт для майбутніх комітів.
+- Тести: `tests/owner-channel.test.mjs` 18→24 (6 нових на Discovery: dispatch join_and_inspect,
+  inspect-result→advance до наступного кандидата, executor-leave-result через `chatStateToken`
+  задачі, застарілий/чужий result ігнорується, release/ready не штовхає негайно, disconnect забуває
+  задачу й реконект штовхає того самого кандидата знову). `tests/chat-discovery-cloud.test.mjs`:
+  прибрано 2 тести, що перевіряли саме lease-механізм (конкуренція двох пристроїв, відновлення після
+  простроченого lease) — інваріант «пізній/чужий результат ігнорується» тепер покритий на рівні DO;
+  2 інші тести (pending-recheck, legacy-waiting) переведені з `claimDiscoveryExecutorQueue` на
+  `readDiscoveryExecutorQueue`. `tests/chat-discovery-waiting-queue.test.mjs` — те саме для двох
+  pacing-тестів. `tests/chat-discovery-route-contract.test.mjs`, `tests/chat-discovery-ui.test.mjs`,
+  `tests/d1-budget-contract.test.mjs`, `tests/d1-poll-budget.test.mjs` — прибрано
+  читання/твердження про видалений executor-роут і застарілий idle-маркер; `d1-poll-budget` отримав
+  той самий коментар «genuine zero», що й waiting_check у 3b, замість твердження про кешований
+  idle-поллінг. `tsconfig.chat-discovery.json` — додано `lib/chats/leave.ts`, `leave-policy.ts`,
+  `bulk-input.ts` (тепер фактично компілюються у Worker транзитивно через `executor.ts`/`domain.ts`;
+  решта `lib/chat-discovery/**` уже покривав наявний glob).
+- Докази: `npm run lint`/`npm run typecheck`/`npm run build` — зелені; `dist/server/owner-channel.js`
+  перевірено вручну (0 `import`, `export {OwnerChannel}` на місці). Повний `npm run test:full` —
+  899/930 (було 895/926 до цього коміту — +4 рівно нові тести), ті самі 31 відоме падіння з
+  `docs/TODO.md` (13 `chat-discovery-cloud.test.mjs` + 18 `discovery-source-outcomes.test.mjs`),
+  звірено пофайлово й потестово — збіг точний, нуль нових падінь. Це рівень «код + локальний тест»:
+  живої перевірки на staging ще не було (і бути не може — runner і далі говоритиме лише з уже
+  видаленими/410-гілками HTTP-executor-роутів для всіх трьох процесів одразу, як і узгоджено від 3c;
+  повністю лагодиться в 3e).
+- Релізна версія піднята до `0.2.90` (`lib/app-meta.ts`, `package.json`/`package-lock.json`
+  `"version"` синхронізовано) — підкомiт суто внутрішній, без нового видимого ефекту для оператора,
+  тож `APP_CHANGES` чесно переписаний без вигаданої переваги (третій пункт лише узагальнено на
+  автопостинг і автопошук, без заяв про помітну різницю).
+
 ## 2026-10-04 — WhatsApp Autopost на DO-координацію (коміт 3c)
 
 - Третій підкоміт коміту 3, лише `whatsapp_autopost_jobs` (Viber safe-mode — окрема частина
