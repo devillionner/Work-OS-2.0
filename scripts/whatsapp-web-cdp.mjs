@@ -1670,7 +1670,7 @@ export async function resetWhatsappPageViaCdp({cdpBaseUrl}={}) {
 const INVITE_NAVIGATION_REUSE_MS = 180_000;
 const lastInviteNavigation = { url:'', at:0 };
 
-async function openWhatsappInviteWhenSynced(client, page, targetUrl, deadline) {
+async function openWhatsappInviteWhenSynced(client, page, targetUrl, deadline, signal = null) {
   if (lastInviteNavigation.url === targetUrl && Date.now() - lastInviteNavigation.at < INVITE_NAVIGATION_REUSE_MS) {
     return { kind:'ok', navigated:false };
   }
@@ -1681,9 +1681,11 @@ async function openWhatsappInviteWhenSynced(client, page, targetUrl, deadline) {
       && current.searchParams.get('code') === target.searchParams.get('code')) return { kind:'ok', navigated:false };
   } catch {}
   while (shouldDeferForGlobalWhatsAppLoading(await readSnapshot(client).catch(() => null))) {
+    if (signal?.aborted) return { kind:'blocked', reason:'cancelled' };
     if (Date.now() + POLL_MS >= deadline) return { kind:'blocked', reason:'whatsapp_messages_loading' };
     await sleep(POLL_MS);
   }
+  if (signal?.aborted) return { kind:'blocked', reason:'cancelled' };
   await client.send('Page.navigate', { url: targetUrl });
   lastInviteNavigation.url = targetUrl;
   lastInviteNavigation.at = Date.now();
@@ -1692,8 +1694,11 @@ async function openWhatsappInviteWhenSynced(client, page, targetUrl, deadline) {
 
 export async function inspectWhatsappTaskViaCdp(
   task,
-  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS, enrich = true, waitThroughLoading = true } = {},
+  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS, enrich = true, waitThroughLoading = true, signal = null } = {},
 ) {
+  // `signal` (optional) lets the operator's Stop reach a check already in progress: it is checked
+  // before navigating, on every wait poll and — the guarantee that matters — right before any click,
+  // so nothing is pressed in WhatsApp after Stop. A CDP call already in flight still finishes first.
   if (task.runtime !== 'whatsapp_web' || task.platform !== 'whatsapp') {
     return { kind: 'blocked', reason: 'unsupported_runtime' };
   }
@@ -1712,15 +1717,17 @@ export async function inspectWhatsappTaskViaCdp(
     await client.send('Page.enable');
     await client.send('Runtime.enable');
     const operationDeadline = Date.now() + timeoutMs;
-    const opened = await openWhatsappInviteWhenSynced(client, page, targetUrl, operationDeadline);
+    const opened = await openWhatsappInviteWhenSynced(client, page, targetUrl, operationDeadline, signal);
+    if (opened.kind === 'blocked' && opened.reason === 'cancelled') return { kind:'blocked', reason:'cancelled' };
     if (opened.kind === 'blocked') return { kind:'blocked', reason:opened.reason, diagnostic:{ url:String(page.url||''), globalLoading:true, beforeNavigate:true } };
 
     const remainingBudget = () => Math.max(POLL_MS, operationDeadline - Date.now());
     const navigatedInviteCode = whatsappInviteCode(task.expectedTarget?.link || task.link);
     let currentTask = task;
     const actions = [];
-    let classified = await waitForClassification(client, currentTask, remainingBudget(), null, navigatedInviteCode, waitThroughLoading);
+    let classified = await waitForClassification(client, currentTask, remainingBudget(), null, navigatedInviteCode, waitThroughLoading, signal);
     for (let step = 0; step < 3 && classified.kind === 'action'; step += 1) {
+      if (signal?.aborted) return { kind:'blocked', reason:'cancelled', actions };
       const observedName = classified.observedName || currentTask.expectedTarget?.name || currentTask.name;
       const clicked = await clickExactButton(client, classified.buttonText, observedName);
       if (!clicked) return { kind: 'blocked', reason: 'expected_control_disappeared' };
@@ -1729,7 +1736,7 @@ export async function inspectWhatsappTaskViaCdp(
         : currentTask;
       const action = classified.action;
       actions.push(action);
-      classified = await waitForClassification(client, observedTask, remainingBudget(), action, navigatedInviteCode);
+      classified = await waitForClassification(client, observedTask, remainingBudget(), action, navigatedInviteCode, false, signal);
       currentTask = observedTask;
     }
     if (enrich && classified.kind === 'result' && classified.result.membershipState === 'joined' && classified.result.targetVerified === true) {
@@ -1745,7 +1752,7 @@ export async function inspectWhatsappTaskViaCdp(
 // queue and the runner backs off instead of reporting a chat failure.
 export const WAITING_CHECK_RUNTIME_REASONS = new Set([
   'cdp_not_configured', 'cdp_not_local', 'cdp_websocket_not_local', 'unsupported_runtime',
-  'whatsapp_not_authenticated', 'page_not_ready', 'whatsapp_messages_loading',
+  'whatsapp_not_authenticated', 'page_not_ready', 'whatsapp_messages_loading', 'cancelled',
 ]);
 
 export function toWaitingCheckOutcome(outcome) {
@@ -1772,7 +1779,7 @@ export function toWaitingCheckOutcome(outcome) {
 // "Join"/"Request to join" is pressed once and the factual state after the click is reported.
 // Opening an invite reloads WhatsApp Web, which then re-syncs messages for tens of seconds on a large
 // account; the check waits that sync out instead of giving up and reloading again on every retry.
-export async function checkWhatsappWaitingInviteViaCdp(task, { cdpBaseUrl, timeoutMs = WAITING_CHECK_TIMEOUT_MS } = {}) {
+export async function checkWhatsappWaitingInviteViaCdp(task, { cdpBaseUrl, timeoutMs = WAITING_CHECK_TIMEOUT_MS, signal = null } = {}) {
   const outcome = await inspectWhatsappTaskViaCdp({
     platform: 'whatsapp',
     runtime: 'whatsapp_web',
@@ -1780,7 +1787,7 @@ export async function checkWhatsappWaitingInviteViaCdp(task, { cdpBaseUrl, timeo
     name: task.name,
     link: task.link,
     expectedTarget: { name: task.name, link: task.link },
-  }, { cdpBaseUrl, timeoutMs, enrich: false, waitThroughLoading: true });
+  }, { cdpBaseUrl, timeoutMs, enrich: false, waitThroughLoading: true, signal });
   return toWaitingCheckOutcome(outcome);
 }
 
@@ -1823,12 +1830,13 @@ export function shouldDeferForGlobalWhatsAppLoading(snapshot) {
     && (!Array.isArray(snapshot?.targetHeadings)||snapshot.targetHeadings.length===0);
 }
 
-async function waitForClassification(client, task, timeoutMs, afterAction = null, navigatedInviteCode = null, waitThroughLoading = false) {
+async function waitForClassification(client, task, timeoutMs, afterAction = null, navigatedInviteCode = null, waitThroughLoading = false, signal = null) {
   const deadline = Date.now() + timeoutMs;
   let last = { kind: 'blocked', reason: 'page_not_ready' };
   let diagnostic = null;
   let loadingSince = 0;
   while (Date.now() < deadline) {
+    if (signal?.aborted) return { kind: 'blocked', reason: 'cancelled' };
     const snapshot = await readSnapshot(client);
     if(shouldDeferForGlobalWhatsAppLoading(snapshot)){
       if(!loadingSince)loadingSince=Date.now();

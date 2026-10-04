@@ -627,16 +627,37 @@ function releaseTask(ws,taskProcess,task,candidateUntilMs=0){
   scheduleReady(taskProcess,candidateUntilMs);
 }
 
+// The Waiting check in progress, so the operator's Stop (a 'cancel' pushed by the owner DO) can abort
+// it before anything is pressed in WhatsApp instead of letting it run to the end.
+let currentWaitingCheck=null;
+function cancelWaitingCheck(batchId){
+  for(let index=incomingTaskQueue.length-1;index>=0;index-=1){
+    const queued=incomingTaskQueue[index];
+    if(queued.taskProcess==='waiting_check'&&queued.task?.batchId===batchId)incomingTaskQueue.splice(index,1);
+  }
+  if(currentWaitingCheck&&currentWaitingCheck.batchId===batchId){
+    console.log(`WhatsApp waiting check cancelled by the operator: ${currentWaitingCheck.name}`);
+    currentWaitingCheck.controller.abort();
+  }
+}
+
 async function handleWaitingCheckTask(ws,task){
   if(!whatsappCdp||Date.now()<whatsappRuntimeBlockedUntil){releaseTask(ws,'waiting_check',task);return;}
   console.log(`WhatsApp waiting check: ${task.name}`);
   setStatus('working',`Перевірка «Очікування»: ${task.name}`);
+  const controller=new AbortController();
+  currentWaitingCheck={batchId:task.batchId,name:task.name,controller};
   let outcome;
-  try{outcome=await checkWhatsappWaitingInviteViaCdp(task,{cdpBaseUrl:whatsappCdp});}
+  try{outcome=await checkWhatsappWaitingInviteViaCdp(task,{cdpBaseUrl:whatsappCdp,signal:controller.signal});}
   catch(error){
     console.warn(`WhatsApp waiting check CDP unavailable: ${error instanceof Error?error.message:String(error)}`);
     outcome={kind:'blocked',reason:'cdp_unavailable'};
+  }finally{
+    if(currentWaitingCheck?.controller===controller)currentWaitingCheck=null;
   }
+  // Stopped by the operator: the DO already fenced this batch, so there is nothing to report or release,
+  // and it is not a WhatsApp runtime problem (no cooldown).
+  if(controller.signal.aborted)return;
   if(outcome.kind==='blocked'){
     if(outcome.reason==='whatsapp_messages_loading'){
       whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+WHATSAPP_LOADING_COOLDOWN_MS);
@@ -773,6 +794,10 @@ function onLiveMessage(ws,raw){
   try{message=JSON.parse(raw);}catch{return;}
   if(message.type==='task'&&['waiting_check','autopost','discovery'].includes(message.process)){
     enqueueTask(ws,message.process,message.task);
+    return;
+  }
+  if(message.type==='cancel'&&message.process==='waiting_check'){
+    cancelWaitingCheck(message.batchId);
     return;
   }
   // 'pong'/'hello' need no action; 'command'/'progress'/'process_state'/'runner_status' are either

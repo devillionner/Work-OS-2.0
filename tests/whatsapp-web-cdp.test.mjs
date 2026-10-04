@@ -820,9 +820,9 @@ void test('every invite navigation waits out a running WhatsApp message sync ins
 
 void test('waiting check waits out the WhatsApp sync caused by opening the invite within the server lease',()=>{
   assert.match(source,/const WAITING_CHECK_TIMEOUT_MS = 100_000;/);
-  assert.match(source,/enrich: false, waitThroughLoading: true \}\);/);
+  assert.match(source,/enrich: false, waitThroughLoading: true, signal \}\);/);
   assert.match(source,/if\(waitThroughLoading&&Date\.now\(\)\+POLL_MS<deadline\)\{/);
-  assert.match(source,/waitForClassification\(client, currentTask, remainingBudget\(\), null, navigatedInviteCode, waitThroughLoading\)/);
+  assert.match(source,/waitForClassification\(client, currentTask, remainingBudget\(\), null, navigatedInviteCode, waitThroughLoading, signal\)/);
 });
 
 void test('waiting check presses the Ukrainian "Запит на приєднання" button behind the approval notice',()=>{

@@ -365,6 +365,23 @@ void test('a runtime-problem release waits for an explicit ready before redispat
   assert.equal(runner.sent[0]?.task?.jobId, job.id);
 });
 
+void test('stop tells the runner to cancel the check in progress; stopping an inactive batch sends nothing', async (t) => {
+  const db = await localDatabase(t);
+  await seedChat(db, { id: 'a', platform: 'whatsapp', status: 'waiting' });
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const runner = withSocket(ctx, mockSocket(), ['runner']);
+  const started = await (await waitingCheckRequest(channel, 'u', { method: 'POST', body: JSON.stringify({ action: 'start' }) })).json();
+  runner.sent.length = 0;
+
+  await waitingCheckRequest(channel, 'u', { method: 'POST', body: JSON.stringify({ action: 'stop' }) });
+  assert.deepEqual(runner.sent, [{ type: 'cancel', process: 'waiting_check', batchId: started.batchId }]);
+
+  runner.sent.length = 0;
+  await waitingCheckRequest(channel, 'u', { method: 'POST', body: JSON.stringify({ action: 'stop' }) });
+  assert.deepEqual(runner.sent, []);
+});
+
 // Commit 3f: browsers subscribe to the live channel instead of polling, so every autopost state change
 // that alters what the queue shows must reach them; the queue reload itself stays the source of truth.
 void test('autopost queue changes, dispatch, completion and release are all broadcast to browser sockets', async (t) => {

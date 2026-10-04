@@ -214,7 +214,12 @@ export class OwnerChannel {
       return null;
     }
     if (action === 'stop') {
+      const wasActive = isWaitingCheckBatchActive(state.waitingCheckBatch);
+      const batchId = state.waitingCheckBatch?.batchId;
       state.waitingCheckBatch = stopWaitingCheckBatch(state.waitingCheckBatch, now);
+      // Fencing alone only rejects the in-flight chat's result; telling the runner lets it abort that
+      // check before anything is pressed in WhatsApp, so Stop is immediate on the PC too.
+      if (wasActive) this.broadcast('runner', { type: 'cancel', process: 'waiting_check', batchId });
       return null;
     }
     return Response.json({ error: 'Невідома дія.' }, { status: 400 });

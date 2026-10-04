@@ -51,7 +51,7 @@ void test('retries on the same WhatsApp invite do not restart deep-link loading'
   assert.match(block,/current\.searchParams\.get\('code'\) === target\.searchParams\.get\('code'\)\) return \{ kind:'ok', navigated:false \}/u);
   assert.match(block,/lastInviteNavigation\.url === targetUrl/u);
   const inspect=adapter.slice(end,adapter.indexOf('async function findOrCreateWhatsappPage',end));
-  assert.match(inspect,/await openWhatsappInviteWhenSynced\(client, page, targetUrl, operationDeadline\)/u);
+  assert.match(inspect,/await openWhatsappInviteWhenSynced\(client, page, targetUrl, operationDeadline(, signal)?\)/u);
   assert.doesNotMatch(inspect,/Page\.navigate/u);
 });
 

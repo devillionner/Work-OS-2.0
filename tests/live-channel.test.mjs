@@ -147,3 +147,19 @@ void test('the runner tray returns to ready once the pushed task queue is draine
   const runner = readFileSync(new URL('../scripts/chat-discovery-runner.mjs', import.meta.url), 'utf8');
   assert.match(runner, /processingTask=false;[\s\S]{0,260}if\(!incomingTaskQueue\.length&&liveWs&&liveWs\.readyState===WebSocket\.OPEN\)setStatus\('ready','Готовий: підключено до Work OS'\);/);
 });
+
+void test('Stop reaches a Waiting check in progress: the runner aborts it before any WhatsApp click', async () => {
+  const runner = readFileSync(new URL('../scripts/chat-discovery-runner.mjs', import.meta.url), 'utf8');
+  const cdp = readFileSync(new URL('../scripts/whatsapp-web-cdp.mjs', import.meta.url), 'utf8');
+  assert.match(runner, /if\(message\.type==='cancel'&&message\.process==='waiting_check'\)\{\s*cancelWaitingCheck\(message\.batchId\);/);
+  assert.match(runner, /queued\.taskProcess==='waiting_check'&&queued\.task\?\.batchId===batchId\)incomingTaskQueue\.splice\(index,1\)/);
+  assert.match(runner, /currentWaitingCheck\.controller\.abort\(\);/);
+  assert.match(runner, /checkWhatsappWaitingInviteViaCdp\(task,\{cdpBaseUrl:whatsappCdp,signal:controller\.signal\}\)/);
+  // An aborted check reports nothing and triggers no runtime cooldown.
+  assert.match(runner, /if\(controller\.signal\.aborted\)return;\s*if\(outcome\.kind==='blocked'\)\{/);
+  // The guarantee: the abort check sits immediately before the click.
+  assert.match(cdp, /if \(signal\?\.aborted\) return \{ kind:'blocked', reason:'cancelled', actions \};\s*const observedName = [^\n]*\n\s*const clicked = await clickExactButton/);
+  assert.match(cdp, /if \(signal\?\.aborted\) return \{ kind:'blocked', reason:'cancelled' \};\s*await client\.send\('Page\.navigate'/);
+  const { toWaitingCheckOutcome } = await import('../scripts/whatsapp-web-cdp.mjs');
+  assert.deepEqual(toWaitingCheckOutcome({ kind: 'blocked', reason: 'cancelled' }), { kind: 'blocked', reason: 'cancelled' }, 'a cancelled check is never reported as a problem chat');
+});
