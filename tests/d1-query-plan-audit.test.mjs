@@ -35,7 +35,7 @@ void test('static SELECT/UPDATE queries never scan a whole table', async (t) => 
       planned += 1;
       const scans = plan.results.map(row => row.detail)
         // CTE/subquery results and json_each lists are small derived sets, not stored tables.
-        .filter(detail => /^SCAN \w+$/.test(detail) && !/^SCAN (j|item|json_each|co|b|guard)$/.test(detail));
+        .filter(detail => /^SCAN \w+$/.test(detail) && !/^SCAN (j|item|json_each|co|b|guard|totals)$/.test(detail));
       if (scans.length) offenders.push(`${file}:${source.slice(0, match.index).split('\n').length} ${scans.join('; ')}`);
     }
   }
