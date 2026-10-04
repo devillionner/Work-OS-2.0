@@ -19,11 +19,12 @@ export async function readAnalyticsTrends(
   to: string,
 ): Promise<AnalyticsTrendPoint[]> {
   const [eventsResult, lessonsResult] = await db.batch([
-    db.prepare(`SELECT event_date,event_type,COUNT(*) AS count
-      FROM activity_events
-      WHERE user_id=?1 AND event_date>=?2 AND event_date<=?3 AND cancelled_at IS NULL
+    // Day × type counters (migration 0041) instead of every event of the range; platform is not needed here.
+    db.prepare(`SELECT event_date,event_type,SUM(active_count) AS count
+      FROM activity_daily_counts
+      WHERE user_id=?1 AND event_date>=?2 AND event_date<=?3
         AND event_type IN ('chat_joined','publication','lead_created','lesson_booked','curator_booking_pending')
-      GROUP BY event_date,event_type ORDER BY event_date,event_type`).bind(userId,from,to),
+      GROUP BY event_date,event_type HAVING SUM(active_count)>0 ORDER BY event_date,event_type`).bind(userId,from,to),
     db.prepare(`SELECT lesson.lesson_date,COUNT(*) AS count
       FROM lessons lesson
       WHERE lesson.user_id=?1 AND lesson.status='completed'
