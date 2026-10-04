@@ -761,6 +761,9 @@ async function pumpTaskQueue(){
     console.error(`Live channel task handler (${next.taskProcess}) failed: ${error instanceof Error?error.message:String(error)}`);
   }finally{
     processingTask=false;
+    // Once the pushed queue is drained (e.g. the operator pressed Stop and the DO sends nothing more),
+    // the tray must not keep showing the last task as if it were still running.
+    if(!incomingTaskQueue.length&&liveWs&&liveWs.readyState===WebSocket.OPEN)setStatus('ready','Готовий: підключено до Work OS');
     pumpTaskQueue();
   }
 }

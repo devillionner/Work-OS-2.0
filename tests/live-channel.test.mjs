@@ -142,3 +142,8 @@ void test('the runner keeps its live channel alive with the same auto-response p
   assert.match(runner, /if\(event\.data===WS_PONG\)\{awaitingPong=false;return;\}/);
   assert.match(runner, /if\(keepalive\)clearInterval\(keepalive\);/);
 });
+
+void test('the runner tray returns to ready once the pushed task queue is drained (e.g. after Stop)', () => {
+  const runner = readFileSync(new URL('../scripts/chat-discovery-runner.mjs', import.meta.url), 'utf8');
+  assert.match(runner, /processingTask=false;[\s\S]{0,260}if\(!incomingTaskQueue\.length&&liveWs&&liveWs\.readyState===WebSocket\.OPEN\)setStatus\('ready','Готовий: підключено до Work OS'\);/);
+});
