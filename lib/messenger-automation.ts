@@ -6,7 +6,6 @@ import { readWhatsAppAutopostImage } from './whatsapp-autopost-media.ts';
 import { cleanWhatsAppAutopostCaption, readWhatsAppAutopostCaption } from './whatsapp-autopost-caption.ts';
 
 const VIBER_SAFE_LEASE_SECONDS=90;
-const WHATSAPP_AUTOPOST_LEASE_SECONDS=90;
 const WHATSAPP_CUSTOM_AUTOPOST_TITLE='[Системний] WhatsApp автопост · власний текст';
 
 function customWhatsAppAutopostMaterialId(userId:string){
@@ -218,7 +217,6 @@ export type WhatsAppAutopostTask={
   };
   publishedOn:string;
   safety:{createsPublication:'after_confirmed_send';requiresTargetVerification:true;requiresSendConfirmation:true};
-  leaseExpiresAt:number;
 };
 
 type WhatsAppAutopostRow={
@@ -375,20 +373,24 @@ export async function readActiveWhatsAppAutopostJob(db:D1Database,userId:string,
   return row?publicWhatsAppAutopostJob(row):null;
 }
 
+// The owner's Durable Object (commit 3c) is the only claimant now, and its WebSocket connection to
+// the runner is the ownership proof — so an operator cancel always wins immediately, not just once a
+// time-boxed lease has expired. A runner that later reports a result for a cancelled job simply finds
+// its claim-time UPDATE affecting zero rows (status is no longer 'claimed') and the DO treats that as
+// stale, exactly like a late waiting-check result.
 export async function cancelWhatsAppAutopostJob(db:D1Database,userId:string,jobId:string,now:number){
   const result=await db.prepare(`UPDATE whatsapp_autopost_jobs
-    SET status='cancelled',active_key=NULL,executor_device_id=NULL,lease_expires_at=NULL,updated_at=?1,completed_at=?1
-    WHERE id=?2 AND user_id=?3
-      AND (status='pending' OR (status='claimed' AND lease_expires_at<=?1))`).bind(now,jobId,userId).run();
-  if(Number(result.meta.changes||0)!==1)throw new MessengerAutomationError('Autopost уже виконується executor-ом; дочекайтеся результату або завершення lease.',409);
+    SET status='cancelled',active_key=NULL,updated_at=?1,completed_at=?1
+    WHERE id=?2 AND user_id=?3 AND status IN ('pending','claimed')`).bind(now,jobId,userId).run();
+  if(Number(result.meta.changes||0)!==1)throw new MessengerAutomationError('Autopost уже завершено.',409);
   return {ok:true};
 }
 
-export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,deviceId:string,now:number):Promise<WhatsAppAutopostTask|null>{
+export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:number):Promise<WhatsAppAutopostTask|null>{
   for(let attempt=0;attempt<3;attempt+=1){
     const row=await db.prepare(`SELECT * FROM whatsapp_autopost_jobs
-      WHERE user_id=?1 AND (status='pending' OR (status='claimed' AND lease_expires_at<=?2))
-      ORDER BY created_at,id LIMIT 1`).bind(userId,now).first<WhatsAppAutopostRow>();
+      WHERE user_id=?1 AND status='pending'
+      ORDER BY created_at,id LIMIT 1`).bind(userId).first<WhatsAppAutopostRow>();
     if(!row)return null;
 
     const chat=await readChatState(db,userId,row.chat_id);
@@ -415,12 +417,9 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,devic
       await failWhatsAppAutopostJob(db,userId,row.id,'stale_precondition',now);
       continue;
     }
-    const leaseExpiresAt=now+WHATSAPP_AUTOPOST_LEASE_SECONDS;
     const claimed=await db.prepare(`UPDATE whatsapp_autopost_jobs
-      SET status='claimed',executor_device_id=?1,lease_expires_at=?2,updated_at=?3
-      WHERE id=?4 AND user_id=?5
-        AND (status='pending' OR (status='claimed' AND lease_expires_at<=?3))`)
-      .bind(deviceId,leaseExpiresAt,now,row.id,userId).run();
+      SET status='claimed',updated_at=?1 WHERE id=?2 AND user_id=?3 AND status='pending'`)
+      .bind(now,row.id,userId).run();
     if(Number(claimed.meta.changes||0)!==1)continue;
     const image=await readWhatsAppAutopostImage(db,userId,true);
     return {
@@ -434,20 +433,29 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,devic
       },
       publishedOn:row.published_on,
       safety:{createsPublication:'after_confirmed_send',requiresTargetVerification:true,requiresSendConfirmation:true},
-      leaseExpiresAt,
     };
   }
   return null;
 }
 
-export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,deviceId:string,input:{
+// A runtime problem (not specific to this job) puts it back to 'pending' without a result — same
+// idea as the Waiting-check release, and also what a dropped runner connection does on its own
+// (see OwnerChannel.webSocketClose), so a crashed runner can't strand a job in 'claimed' forever.
+export async function releaseWhatsAppAutopostJob(db:D1Database,userId:string,jobId:string,now:number){
+  const result=await db.prepare(`UPDATE whatsapp_autopost_jobs
+    SET status='pending',updated_at=?1 WHERE id=?2 AND user_id=?3 AND status='claimed'`)
+    .bind(now,jobId,userId).run();
+  return Number(result.meta.changes||0)===1;
+}
+
+export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,input:{
   jobId:unknown;status:unknown;observedTarget:unknown;targetVerified:unknown;sendConfirmed:unknown;errorCode?:unknown;
 },now:number){
   const jobId=typeof input.jobId==='string'?input.jobId.trim():'';
   if(!jobId)throw new MessengerAutomationError('WhatsApp autopost задача не вказана.');
   const row=await readWhatsAppAutopostRow(db,userId,jobId);
-  if(!row||row.status!=='claimed'||row.executor_device_id!==deviceId||!row.lease_expires_at||row.lease_expires_at<=now)
-    throw new MessengerAutomationError('WhatsApp autopost lease вже не належить цьому executor.',409);
+  if(!row||row.status!=='claimed')
+    throw new MessengerAutomationError('WhatsApp autopost задача вже не в роботі.',409);
 
   const targetVerified=input.targetVerified===true;
   const sendConfirmed=input.sendConfirmed===true;
@@ -460,10 +468,9 @@ export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,de
     );
     const result={requestedStatus:requestedSent?'sent':'failed',observedTarget,targetVerified,sendConfirmed,errorCode};
     const updated=await db.prepare(`UPDATE whatsapp_autopost_jobs
-      SET status='failed',active_key=NULL,executor_device_id=NULL,lease_expires_at=NULL,
-        result_json=?1,updated_at=?2,completed_at=?2
-      WHERE id=?3 AND user_id=?4 AND status='claimed' AND executor_device_id=?5 AND lease_expires_at>?2`)
-      .bind(JSON.stringify(result),now,jobId,userId,deviceId).run();
+      SET status='failed',active_key=NULL,result_json=?1,updated_at=?2,completed_at=?2
+      WHERE id=?3 AND user_id=?4 AND status='claimed'`)
+      .bind(JSON.stringify(result),now,jobId,userId).run();
     if(Number(updated.meta.changes||0)!==1)throw new MessengerAutomationError('WhatsApp autopost результат уже змінився.',409);
     return {ok:true,status:'failed',publicationId:null,result};
   }
@@ -476,20 +483,18 @@ export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,de
   if(!publication.ok){
     const result={requestedStatus:'sent',observedTarget,targetVerified,sendConfirmed,errorCode:'publication_reconcile_failed',publicationError:publication.error};
     const updated=await db.prepare(`UPDATE whatsapp_autopost_jobs
-      SET status='failed',active_key=NULL,executor_device_id=NULL,lease_expires_at=NULL,
-        result_json=?1,updated_at=?2,completed_at=?2
-      WHERE id=?3 AND user_id=?4 AND status='claimed' AND executor_device_id=?5 AND lease_expires_at>?2`)
-      .bind(JSON.stringify(result),now,jobId,userId,deviceId).run();
+      SET status='failed',active_key=NULL,result_json=?1,updated_at=?2,completed_at=?2
+      WHERE id=?3 AND user_id=?4 AND status='claimed'`)
+      .bind(JSON.stringify(result),now,jobId,userId).run();
     if(Number(updated.meta.changes||0)!==1)throw new MessengerAutomationError('WhatsApp autopost accounting result уже змінився.',409);
     return {ok:false,status:'failed',publicationId:null,result};
   }
 
   const result={requestedStatus:'sent',observedTarget,targetVerified:true,sendConfirmed:true,errorCode:null,publicationId:publication.publicationId};
   const update=await db.prepare(`UPDATE whatsapp_autopost_jobs
-    SET status='sent',active_key=NULL,executor_device_id=NULL,lease_expires_at=NULL,
-      publication_id=?1,result_json=?2,updated_at=?3,completed_at=?3
-    WHERE id=?4 AND user_id=?5 AND status='claimed' AND executor_device_id=?6 AND lease_expires_at>?3`)
-    .bind(publication.publicationId,JSON.stringify(result),now,jobId,userId,deviceId).run();
+    SET status='sent',active_key=NULL,publication_id=?1,result_json=?2,updated_at=?3,completed_at=?3
+    WHERE id=?4 AND user_id=?5 AND status='claimed'`)
+    .bind(publication.publicationId,JSON.stringify(result),now,jobId,userId).run();
   if(Number(update.meta.changes||0)!==1){
     const latest=await readWhatsAppAutopostRow(db,userId,jobId);
     if(latest?.status==='sent'&&latest.publication_id===publication.publicationId)
@@ -499,23 +504,15 @@ export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,de
   return {ok:true,status:'sent',publicationId:publication.publicationId,result};
 }
 
-export async function releaseWhatsAppAutopostJobsForDevice(db:D1Database,userId:string,deviceId:string,now:number){
-  await db.prepare(`UPDATE whatsapp_autopost_jobs
-    SET status='pending',executor_device_id=NULL,lease_expires_at=NULL,updated_at=?1
-    WHERE user_id=?2 AND executor_device_id=?3 AND status='claimed'`).bind(now,userId,deviceId).run();
-}
-
 export async function releaseMessengerAutomationJobsForDevice(db:D1Database,userId:string,deviceId:string,now:number){
-  await Promise.all([
-    releaseViberSafeJobsForDevice(db,userId,deviceId,now),
-    releaseWhatsAppAutopostJobsForDevice(db,userId,deviceId,now),
-  ]);
+  // WhatsApp autopost claims are no longer device-bound (the DO's WebSocket owns that, and releases
+  // on disconnect on its own) — only Viber safe-mode still uses the per-device HTTP executor lease.
+  await releaseViberSafeJobsForDevice(db,userId,deviceId,now);
 }
 
 async function failWhatsAppAutopostJob(db:D1Database,userId:string,jobId:string,errorCode:string,now:number){
   await db.prepare(`UPDATE whatsapp_autopost_jobs
-    SET status='failed',active_key=NULL,executor_device_id=NULL,lease_expires_at=NULL,
-      result_json=?1,updated_at=?2,completed_at=?2
+    SET status='failed',active_key=NULL,result_json=?1,updated_at=?2,completed_at=?2
     WHERE id=?3 AND user_id=?4 AND status IN ('pending','claimed')`)
     .bind(JSON.stringify({requestedStatus:'failed',targetVerified:false,sendConfirmed:false,errorCode}),now,jobId,userId).run();
 }

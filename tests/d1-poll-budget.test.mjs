@@ -67,7 +67,7 @@ void test('idle runner polls stay within a fixed D1 row budget regardless of dat
   // Since commit 3b the WhatsApp Waiting-check runner holds one WebSocket to the owner's Durable
   // Object instead of polling an HTTP endpoint, so there is no D1-touching idle poll left to meter
   // here at all — a genuine zero, not merely a bounded one.
-  assert.ok(await rows(metered => claimWhatsAppAutopostJob(metered, 'u', 'device', NOW)) <= 5);
+  assert.ok(await rows(metered => claimWhatsAppAutopostJob(metered, 'u', NOW)) <= 5);
 
   await wakeDiscoveryExecutorQueue(db, 'u');
   assert.ok(await rows(metered => claimDiscoveryExecutorQueue(metered, 'u', 'device', 1, NOW + 20)) >= CANDIDATES, 'an operator action wakes the queue immediately');

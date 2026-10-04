@@ -28,11 +28,16 @@ import {
   stopWaitingCheckBatch,
   waitingCheckStatusFromBatch,
 } from '../lib/chats/whatsapp-waiting-check.ts';
+import {
+  claimWhatsAppAutopostJob,
+  completeWhatsAppAutopostJob,
+  releaseWhatsAppAutopostJob,
+} from '../lib/messenger-automation.ts';
 
 /** @typedef {'browser'|'runner'} ChannelKind */
-/** @typedef {'autopost'|'discovery'} GenericProcessName */
+/** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, runnerLastSeenAt: number|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, runnerLastSeenAt: number|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 const PING = JSON.stringify({ type: 'ping' });
@@ -68,6 +73,14 @@ export class OwnerChannel {
     }
     if (url.pathname === '/waiting-check') {
       return this.handleWaitingCheckHttp(request, userId);
+    }
+    if (url.pathname === '/autopost-wake' && request.method === 'POST') {
+      if (!userId) return new Response(null, { status: 401 });
+      const state = await this.readState();
+      if (state.userId !== userId) state.userId = userId;
+      await this.dispatchNextAutopostJob(state);
+      await this.writeState(state);
+      return new Response(null, { status: 204 });
     }
     return new Response('Expected a WebSocket upgrade.', { status: 426 });
   }
@@ -128,6 +141,10 @@ export class OwnerChannel {
       state.waitingCheckBatch = batch;
       if (task) server.send(JSON.stringify({ type: 'task', process: 'waiting_check', task }));
     }
+    // Unlike waiting_check's in-memory batch, an autopost job row lives in D1: a disconnect already
+    // released any in-flight job back to 'pending' (see webSocketClose), so reconnect just looks for
+    // new work instead of resuming anything specific.
+    await this.dispatchNextAutopostJob(state);
     await this.writeState(state);
   }
 
@@ -223,6 +240,16 @@ export class OwnerChannel {
       return;
     }
 
+    if (message.process === 'autopost') {
+      if (message.type === 'result') return this.handleAutopostResult(message);
+      // 'release' (runtime problem) and 'ready' (resume after the runner's own backoff) mirror
+      // waiting_check's protocol exactly — see releaseWhatsAppAutopostJob's comment for why a
+      // release does not immediately redispatch.
+      if (message.type === 'release') return this.handleAutopostRelease(message);
+      if (message.type === 'ready') return this.handleAutopostReady(ws);
+      return;
+    }
+
     if (message.type === 'progress' || message.type === 'result') {
       this.broadcast('browser', message);
     }
@@ -264,6 +291,48 @@ export class OwnerChannel {
   }
 
   /**
+   * Claims the next pending WhatsApp autopost job and pushes it to the runner, unless one is
+   * already in flight. Called after a browser create/cancel wakes the DO, after a runner connects,
+   * and after a result/ready — the same "one task in flight, advance on completion" shape as
+   * waiting_check, just backed by a durable D1 row instead of an in-memory queue snapshot.
+   * @param {OwnerChannelState} state
+   */
+  async dispatchNextAutopostJob(state) {
+    if (state.autopostCurrentJobId || !state.userId) return;
+    const task = await claimWhatsAppAutopostJob(this.env.DB, state.userId, nowSeconds());
+    if (!task) return;
+    state.autopostCurrentJobId = task.jobId;
+    this.broadcast('runner', { type: 'task', process: 'autopost', task });
+  }
+
+  /** @param {{jobId:string; status:string; observedTarget?:string; targetVerified?:boolean; sendConfirmed?:boolean; errorCode?:string}} message */
+  async handleAutopostResult(message) {
+    const state = await this.readState();
+    if (!state.userId || state.autopostCurrentJobId !== message.jobId) return; // stale/mismatched — ignore
+    state.autopostCurrentJobId = null;
+    try { await completeWhatsAppAutopostJob(this.env.DB, state.userId, message, nowSeconds()); }
+    catch { /* job already resolved another way (e.g. operator cancel) — nothing left to apply */ }
+    await this.dispatchNextAutopostJob(state);
+    await this.writeState(state);
+  }
+
+  /** @param {{jobId:string}} message */
+  async handleAutopostRelease(message) {
+    const state = await this.readState();
+    if (!state.userId || state.autopostCurrentJobId !== message.jobId) return;
+    await releaseWhatsAppAutopostJob(this.env.DB, state.userId, message.jobId, nowSeconds());
+    state.autopostCurrentJobId = null;
+    await this.writeState(state);
+  }
+
+  /** @param {WebSocket} _ws */
+  async handleAutopostReady(_ws) {
+    const state = await this.readState();
+    await this.dispatchNextAutopostJob(state);
+    await this.writeState(state);
+  }
+
+  /**
    * @param {WebSocket} ws
    * @param {number} _code
    * @param {string} _reason
@@ -273,6 +342,12 @@ export class OwnerChannel {
     if (this.tagsOf(ws).includes('runner') && this.ctx.getWebSockets('runner').length === 0) {
       const state = await this.readState();
       state.runnerLastSeenAt = nowSeconds();
+      // The runner's connection is the only ownership proof an autopost claim has — losing it
+      // means whatever job was in flight must go back to 'pending' instead of waiting on a timeout.
+      if (state.autopostCurrentJobId && state.userId) {
+        await releaseWhatsAppAutopostJob(this.env.DB, state.userId, state.autopostCurrentJobId, nowSeconds());
+        state.autopostCurrentJobId = null;
+      }
       await this.writeState(state);
       this.broadcast('browser', { type: 'runner_status', connected: false });
     }
@@ -305,7 +380,7 @@ export class OwnerChannel {
   /** @returns {Promise<OwnerChannelState>} */
   async readState() {
     const stored = await this.ctx.storage.get(STORAGE_KEY);
-    return stored ?? { userId: null, processes: {}, waitingCheckBatch: null, runnerLastSeenAt: null };
+    return stored ?? { userId: null, processes: {}, waitingCheckBatch: null, autopostCurrentJobId: null, runnerLastSeenAt: null };
   }
 
   /** @param {OwnerChannelState} state */

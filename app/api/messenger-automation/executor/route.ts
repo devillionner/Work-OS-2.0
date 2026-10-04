@@ -5,22 +5,23 @@ import { authenticateDiscoveryExecutor } from '@/lib/chat-discovery/executor-aut
 import {
   MessengerAutomationError,
   claimViberSafeNoteJob,
-  claimWhatsAppAutopostJob,
   completeViberSafeNoteJob,
-  completeWhatsAppAutopostJob,
 } from '@/lib/messenger-automation';
 
 function json(value:unknown,status=200){
   return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});
 }
 
+// WhatsApp autopost claim/complete moved to the owner Durable Object in commit 3c — the runner will
+// reach it over /api/live starting commit 3e. This bridge keeps serving Viber safe-mode exactly as
+// before (it still uses the per-device HTTP lease; only WhatsApp autopost was migrated).
 export async function GET(request:Request):Promise<Response>{
   const now=Math.floor(Date.now()/1000);
   try{
     const executor=await authenticateDiscoveryExecutor(env.DB,request,now);
     const url=new URL(request.url);
-    const platform=url.searchParams.get('platform');
-    if(platform==='whatsapp') return json({task:await claimWhatsAppAutopostJob(env.DB,executor.userId,executor.deviceId,now)});
+    if(url.searchParams.get('platform')==='whatsapp')
+      return json({error:'WhatsApp autopost тепер координується через /api/live (коміт 3e).'},410);
     return json({task:await claimViberSafeNoteJob(env.DB,executor.userId,executor.deviceId,now)});
   }catch(error){
     if(error instanceof DiscoveryError||error instanceof MessengerAutomationError)return json({error:error.message},error.status);
@@ -42,10 +43,7 @@ export async function POST(request:Request):Promise<Response>{
       },now));
     }
     if(body.action==='complete-whatsapp-autopost'){
-      return json(await completeWhatsAppAutopostJob(env.DB,executor.userId,executor.deviceId,{
-        jobId:body.jobId,status:body.status,observedTarget:body.observedTarget,targetVerified:body.targetVerified,
-        sendConfirmed:body.sendConfirmed,errorCode:body.errorCode,
-      },now));
+      return json({error:'WhatsApp autopost тепер координується через /api/live (коміт 3e).'},410);
     }
     throw new MessengerAutomationError('Невідома messenger automation executor дія.');
   }catch(error){

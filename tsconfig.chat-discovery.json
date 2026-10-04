@@ -16,7 +16,16 @@
     "lib/chats/snooze.ts",
     "lib/chats/state.ts",
     "lib/business-time.ts",
-    "lib/leads/domain/time.ts"
+    "lib/leads/domain/time.ts",
+    "lib/messenger-automation.ts",
+    "lib/library.ts",
+    "lib/subjects.ts",
+    "lib/directions.ts",
+    "lib/chats/advertisement-selection.ts",
+    "lib/chats/publication.ts",
+    "lib/chats/profile.ts",
+    "lib/whatsapp-autopost-media.ts",
+    "lib/whatsapp-autopost-caption.ts"
   ],
   "exclude": [
     "node_modules",

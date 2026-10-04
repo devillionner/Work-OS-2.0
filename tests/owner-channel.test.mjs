@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { OwnerChannel } from '../workers/owner-channel.js';
+import { createWhatsAppAutopostJob } from '../lib/messenger-automation.ts';
 import { localDatabase, seedChat } from './helpers/local-d1.mjs';
+
+async function seedAutopostable(db, { chatId = 'wa-1' } = {}) {
+  await seedChat(db, { id: chatId, platform: 'whatsapp', status: 'ready', joined: 10 });
+  await db.prepare(`INSERT INTO library_items
+    (id,user_id,kind,collection,version,title,uk_text,ru_text,tags_json,platforms_json,created_at,updated_at)
+    VALUES ('ad-'||?1,'u','advertisement','advertisement',1,'Ad','Текст','Текст RU','[]','["whatsapp"]',1,1)`).bind(chatId).run();
+  return chatId;
+}
 
 // OwnerChannel.fetch() constructs a real WebSocketPair/Response{webSocket}, which only exist inside
 // the Workers runtime (Miniflare/production) — not in plain Node. These tests exercise the message
@@ -39,7 +48,7 @@ function withSocket(ctx, ws, tags) {
   return ws;
 }
 
-const emptyState = { userId: null, processes: {}, waitingCheckBatch: null, runnerLastSeenAt: null };
+const emptyState = { userId: null, processes: {}, waitingCheckBatch: null, autopostCurrentJobId: null, runnerLastSeenAt: null };
 
 void test('a start command from the browser is relayed to runner sockets and persisted (generic processes not yet migrated)', async () => {
   const ctx = mockCtx();
@@ -62,11 +71,11 @@ void test('stop clears the running flag so a reconnecting runner is not told to 
   const channel = new OwnerChannel(ctx, {});
   const runner = withSocket(ctx, mockSocket(), ['runner']);
 
-  await channel.webSocketMessage(runner, JSON.stringify({ type: 'command', process: 'autopost', action: 'start' }));
-  await channel.webSocketMessage(runner, JSON.stringify({ type: 'command', process: 'autopost', action: 'stop' }));
+  await channel.webSocketMessage(runner, JSON.stringify({ type: 'command', process: 'discovery', action: 'start' }));
+  await channel.webSocketMessage(runner, JSON.stringify({ type: 'command', process: 'discovery', action: 'stop' }));
 
   const state = await ctx.storage.get('state');
-  assert.equal(state.processes.autopost.running, false);
+  assert.equal(state.processes.discovery.running, false);
 });
 
 void test('runner progress/result messages for a not-yet-migrated process reach browser sockets only', async () => {
@@ -272,4 +281,84 @@ void test('a finished batch reports enriched problems; an operator action remove
   const after = await (await waitingCheckRequest(channel, 'u', { method: 'GET' })).json();
   assert.deepEqual(after.problems.map((item) => item.chatId), ['p1']);
   assert.equal(after.counts.failed, 2);
+});
+
+// --- autopost: real business logic, backed by local D1 (Miniflare) ---
+
+async function wake(channel, userId) {
+  const url = new URL(`https://owner-channel/autopost-wake?userId=${encodeURIComponent(userId)}`);
+  return channel.fetch(new Request(url, { method: 'POST' }));
+}
+
+void test('creating a job and waking the DO dispatches it to the runner', async (t) => {
+  const db = await localDatabase(t);
+  const chatId = await seedAutopostable(db);
+  const job = await createWhatsAppAutopostJob(db, 'u', { requestKey: 'request_wake_1_long', chatId }, 100, '2026-09-24');
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const runner = withSocket(ctx, mockSocket(), ['runner']);
+
+  await wake(channel, 'u');
+
+  assert.equal(runner.sent.length, 1);
+  assert.equal(runner.sent[0].type, 'task');
+  assert.equal(runner.sent[0].process, 'autopost');
+  assert.equal(runner.sent[0].task.jobId, job.id);
+  assert.equal((await db.prepare(`SELECT status FROM whatsapp_autopost_jobs WHERE id=?1`).bind(job.id).first()).status, 'claimed');
+});
+
+void test('a sent result completes the job and dispatches the next pending one', async (t) => {
+  const db = await localDatabase(t);
+  const a = await seedAutopostable(db, { chatId: 'wa-a' });
+  const b = await seedAutopostable(db, { chatId: 'wa-b' });
+  const jobA = await createWhatsAppAutopostJob(db, 'u', { requestKey: 'request_a_long_enough', chatId: a }, 100, '2026-09-24');
+  await createWhatsAppAutopostJob(db, 'u', { requestKey: 'request_b_long_enough', chatId: b }, 101, '2026-09-24');
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const runner = withSocket(ctx, mockSocket(), ['runner']);
+  await wake(channel, 'u');
+
+  await channel.webSocketMessage(runner, JSON.stringify({
+    type: 'result', process: 'autopost', jobId: jobA.id, status: 'sent',
+    observedTarget: (await db.prepare(`SELECT expected_name FROM whatsapp_autopost_jobs WHERE id=?1`).bind(jobA.id).first()).expected_name,
+    targetVerified: true, sendConfirmed: true,
+  }));
+
+  assert.equal((await db.prepare(`SELECT status FROM whatsapp_autopost_jobs WHERE id=?1`).bind(jobA.id).first()).status, 'sent');
+  assert.equal(runner.sent.at(-1).type, 'task');
+  assert.notEqual(runner.sent.at(-1).task.jobId, jobA.id);
+});
+
+void test('a disconnect releases the in-flight job back to pending instead of leaking a stuck claim', async (t) => {
+  const db = await localDatabase(t);
+  const chatId = await seedAutopostable(db);
+  const job = await createWhatsAppAutopostJob(db, 'u', { requestKey: 'request_disconnect_long', chatId }, 100, '2026-09-24');
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const runner = withSocket(ctx, mockSocket(), ['runner']);
+  await wake(channel, 'u');
+  assert.equal((await db.prepare(`SELECT status FROM whatsapp_autopost_jobs WHERE id=?1`).bind(job.id).first()).status, 'claimed');
+
+  ctx.closeSocket(runner);
+  await channel.webSocketClose(runner, 1006, 'network', false);
+
+  assert.equal((await db.prepare(`SELECT status FROM whatsapp_autopost_jobs WHERE id=?1`).bind(job.id).first()).status, 'pending');
+});
+
+void test('a runtime-problem release waits for an explicit ready before redispatching', async (t) => {
+  const db = await localDatabase(t);
+  const chatId = await seedAutopostable(db);
+  const job = await createWhatsAppAutopostJob(db, 'u', { requestKey: 'request_release_long', chatId }, 100, '2026-09-24');
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const runner = withSocket(ctx, mockSocket(), ['runner']);
+  await wake(channel, 'u');
+  runner.sent.length = 0;
+
+  await channel.webSocketMessage(runner, JSON.stringify({ type: 'release', process: 'autopost', jobId: job.id }));
+  assert.deepEqual(runner.sent, []);
+  assert.equal((await db.prepare(`SELECT status FROM whatsapp_autopost_jobs WHERE id=?1`).bind(job.id).first()).status, 'pending');
+
+  await channel.webSocketMessage(runner, JSON.stringify({ type: 'ready', process: 'autopost' }));
+  assert.equal(runner.sent[0]?.task?.jobId, job.id);
 });

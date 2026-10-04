@@ -9,6 +9,7 @@ import {
   createWhatsAppAutopostJob,
   cancelWhatsAppAutopostJob,
   readLatestWhatsAppAutopostJob,
+  releaseWhatsAppAutopostJob,
 } from '../lib/messenger-automation.ts';
 import { recordManualPublication } from '../lib/chats/publication.ts';
 import { readChatState } from '../lib/chats/state.ts';
@@ -61,13 +62,13 @@ void test('confirmed WhatsApp autopost creates exactly one canonical publication
   const job=await createWhatsAppAutopostJob(db,'u',{
     requestKey:'request_autopost_sent',chatId:chat.id,
   },NOW,DATE);
-  const task=await claimWhatsAppAutopostJob(db,'u','device',NOW+1);
+  const task=await claimWhatsAppAutopostJob(db,'u',NOW+1);
   assert.equal(task?.kind,'whatsapp_autopost');
   assert.equal(task?.target.expectedName,'Українці Berlin');
   assert.equal(task?.material.text,'Тест WhatsApp');
   assert.equal(task?.safety.createsPublication,'after_confirmed_send');
 
-  const completed=await completeWhatsAppAutopostJob(db,'u','device',{
+  const completed=await completeWhatsAppAutopostJob(db,'u',{
     jobId:job.id,status:'sent',observedTarget:'Українці Berlin',targetVerified:true,sendConfirmed:true,
   },NOW+2);
   assert.equal(completed.status,'sent');
@@ -92,8 +93,8 @@ void test('wrong target or unconfirmed send fails closed with zero publication f
   const job=await createWhatsAppAutopostJob(db,'u',{
     requestKey:'request_autopost_wrong',chatId:chat.id,
   },NOW,DATE);
-  await claimWhatsAppAutopostJob(db,'u','device',NOW+1);
-  const completed=await completeWhatsAppAutopostJob(db,'u','device',{
+  await claimWhatsAppAutopostJob(db,'u',NOW+1);
+  const completed=await completeWhatsAppAutopostJob(db,'u',{
     jobId:job.id,status:'sent',observedTarget:'Інший чат',targetVerified:true,sendConfirmed:true,
     errorCode:'wrong_target',
   },NOW+2);
@@ -102,17 +103,21 @@ void test('wrong target or unconfirmed send fails closed with zero publication f
   assert.equal(await db.prepare(`SELECT COUNT(*) FROM activity_events WHERE event_type='publication'`).first('COUNT(*)'),0);
 });
 
-void test('expired WhatsApp autopost lease cannot create a publication fact',async t=>{
-  const {db,chat}=await setup(t,'expired');
+void test('completing a job that is no longer claimed (released back to pending) fails closed',async t=>{
+  const {db,chat}=await setup(t,'released');
   const job=await createWhatsAppAutopostJob(db,'u',{
-    requestKey:'request_autopost_expired',chatId:chat.id,
+    requestKey:'request_autopost_released',chatId:chat.id,
   },NOW,DATE);
-  const task=await claimWhatsAppAutopostJob(db,'u','device',NOW+1);
+  const task=await claimWhatsAppAutopostJob(db,'u',NOW+1);
   assert.ok(task);
+  // A runtime problem (or a dropped runner connection) puts the job back to 'pending' without a
+  // result — the owner Durable Object's own connection is the only lease now, so nothing here times
+  // out; see releaseWhatsAppAutopostJob and OwnerChannel.webSocketClose.
+  assert.equal(await releaseWhatsAppAutopostJob(db,'u',job.id,NOW+2),true);
   await assert.rejects(
-    completeWhatsAppAutopostJob(db,'u','device',{
+    completeWhatsAppAutopostJob(db,'u',{
       jobId:job.id,status:'sent',observedTarget:'Українці Berlin',targetVerified:true,sendConfirmed:true,
-    },task.leaseExpiresAt),
+    },NOW+3),
     error=>error instanceof MessengerAutomationError&&error.status===409,
   );
   assert.equal(await db.prepare('SELECT COUNT(*) FROM chat_publications').first('COUNT(*)'),0);
@@ -124,12 +129,12 @@ void test('confirmed send is still recorded if Library eligibility changes after
   const job=await createWhatsAppAutopostJob(db,'u',{
     requestKey:'request_autopost_factfirst',chatId:chat.id,
   },NOW,DATE);
-  const task=await claimWhatsAppAutopostJob(db,'u','device',NOW+1);
+  const task=await claimWhatsAppAutopostJob(db,'u',NOW+1);
   assert.ok(task);
   await db.prepare('UPDATE library_items SET archived_at=?1,updated_at=?1 WHERE id=?2')
     .bind(NOW+2,advertisementId).run();
 
-  const completed=await completeWhatsAppAutopostJob(db,'u','device',{
+  const completed=await completeWhatsAppAutopostJob(db,'u',{
     jobId:job.id,status:'sent',observedTarget:'Українці Berlin',targetVerified:true,sendConfirmed:true,
   },NOW+3);
   assert.equal(completed.status,'sent');
@@ -139,22 +144,22 @@ void test('confirmed send is still recorded if Library eligibility changes after
 });
 
 
-void test('claimed WhatsApp autopost cannot be cancelled while a send may be in flight',async t=>{
+void test('an operator cancel wins immediately even while a send may be in flight, fencing a later result',async t=>{
   const {db,chat}=await setup(t,'cancelrace');
   const job=await createWhatsAppAutopostJob(db,'u',{
     requestKey:'request_autopost_cancelrace',chatId:chat.id,
   },NOW,DATE);
-  const task=await claimWhatsAppAutopostJob(db,'u','device',NOW+1);
+  const task=await claimWhatsAppAutopostJob(db,'u',NOW+1);
   assert.ok(task);
+  // No lease to wait out any more — the operator can cancel a claimed job right away.
+  await cancelWhatsAppAutopostJob(db,'u',job.id,NOW+2);
   await assert.rejects(
-    cancelWhatsAppAutopostJob(db,'u',job.id,NOW+2),
+    completeWhatsAppAutopostJob(db,'u',{
+      jobId:job.id,status:'sent',observedTarget:'Українці Berlin',targetVerified:true,sendConfirmed:true,
+    },NOW+3),
     error=>error instanceof MessengerAutomationError&&error.status===409,
   );
-  const completed=await completeWhatsAppAutopostJob(db,'u','device',{
-    jobId:job.id,status:'sent',observedTarget:'Українці Berlin',targetVerified:true,sendConfirmed:true,
-  },NOW+3);
-  assert.equal(completed.status,'sent');
-  assert.equal(await db.prepare('SELECT COUNT(*) FROM chat_publications').first('COUNT(*)'),1);
+  assert.equal(await db.prepare('SELECT COUNT(*) FROM chat_publications').first('COUNT(*)'),0);
 });
 
 
@@ -181,7 +186,7 @@ void test('batch autopost queues multiple ready chats and reserves distinct unus
   const repeated=await createWhatsAppAutopostBatch(db,'u',{limit:30},NOW+1,DATE);
   assert.equal(repeated.created,0);
 
-  const firstTask=await claimWhatsAppAutopostJob(db,'u','device',NOW+2);
+  const firstTask=await claimWhatsAppAutopostJob(db,'u',NOW+2);
   assert.ok(firstTask);
   assert.ok(batch.jobs.some(job=>job.id===firstTask.jobId));
   assert.ok(batch.jobs.some(job=>job.advertisementId===firstTask.material.advertisementId));
@@ -221,10 +226,10 @@ void test('custom WhatsApp caption can autopost without a normal active Library 
   assert.equal(hidden.uk_text,'Власний текст автопоста');
   assert.ok(hidden.archived_at);
 
-  const task=await claimWhatsAppAutopostJob(db,'u','device',NOW+1);
+  const task=await claimWhatsAppAutopostJob(db,'u',NOW+1);
   assert.ok(task);
   assert.equal(task.material.text,'Власний текст автопоста');
-  const completed=await completeWhatsAppAutopostJob(db,'u','device',{
+  const completed=await completeWhatsAppAutopostJob(db,'u',{
     jobId:job.id,status:'sent',observedTarget:'Українці Custom',targetVerified:true,sendConfirmed:true,
   },NOW+2);
   assert.equal(completed.status,'sent');

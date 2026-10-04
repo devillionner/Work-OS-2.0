@@ -25,6 +25,22 @@ function json(value:unknown,status=200){
   return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});
 }
 
+// WhatsApp autopost claim/complete moved to the owner Durable Object (commit 3c): D1 still holds
+// the job rows (read/created/cancelled here as before), but something has to tell the DO a new
+// 'pending' row exists so it can push it to a connected runner instead of the runner polling for
+// it. A failed wake is non-fatal — the job already exists in D1 and the next natural trigger (a
+// runner reconnect) picks it up — so this never fails the request that created/cancelled the job.
+async function wakeOwnerChannelAutopost(userId:string){
+  try{
+    const stub=env.OWNER_CHANNEL.get(env.OWNER_CHANNEL.idFromName(userId));
+    const url=new URL('https://owner-channel/autopost-wake');
+    url.searchParams.set('userId',userId);
+    await stub.fetch(new Request(url,{method:'POST'}));
+  }catch(error){
+    console.error('Autopost wake failed',error instanceof Error?error.name:'unknown');
+  }
+}
+
 export async function GET(request:Request):Promise<Response>{
   const user=await getCurrentUser();
   if(!user)return json({error:'Потрібна авторизація.'},401);
@@ -81,9 +97,11 @@ export async function POST(request:Request):Promise<Response>{
       return json({caption:''});
     }
     if(body.action==='whatsapp-autopost'){
-      return json({job:await createWhatsAppAutopostJob(env.DB,user.id,{
+      const job=await createWhatsAppAutopostJob(env.DB,user.id,{
         requestKey:body.requestKey,chatId:body.chatId,advertisementId:body.advertisementId,language:body.language,caption:body.caption,
-      },now,businessDate(now))});
+      },now,businessDate(now));
+      await wakeOwnerChannelAutopost(user.id);
+      return json({job});
     }
     if(body.action==='whatsapp-autopost-batch'){
       let caption:unknown=body.caption;
@@ -95,11 +113,15 @@ export async function POST(request:Request):Promise<Response>{
         else await deleteWhatsAppAutopostCaption(env.DB,user.id);
         caption=cleaned;
       }
-      return json(await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,caption},now,businessDate(now)));
+      const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,caption},now,businessDate(now));
+      if(batch.created>0)await wakeOwnerChannelAutopost(user.id);
+      return json(batch);
     }
     if(body.action==='cancel-whatsapp-autopost'){
       if(typeof body.jobId!=='string'||!body.jobId)throw new MessengerAutomationError('WhatsApp autopost задача не вказана.');
-      return json(await cancelWhatsAppAutopostJob(env.DB,user.id,body.jobId,now));
+      const result=await cancelWhatsAppAutopostJob(env.DB,user.id,body.jobId,now);
+      await wakeOwnerChannelAutopost(user.id);
+      return json(result);
     }
     throw new MessengerAutomationError('Невідома messenger automation дія.');
   }catch(error){

@@ -1,3 +1,35 @@
+## 2026-10-04 — WhatsApp Autopost на DO-координацію (коміт 3c)
+
+- Третій підкоміт коміту 3, лише `whatsapp_autopost_jobs` (Viber safe-mode — окрема частина
+  `lib/messenger-automation.ts` — не чіпали, лишилась на HTTP-executor-lease як була). Job-рядки
+  й далі живуть у D1 (операторський UI їх читає напряму, без DO) — переїхало тільки «хто зараз
+  виконує»: замість `executor_device_id`/`lease_expires_at` DO тримає один
+  `autopostCurrentJobId` і сам фіксує захоплення атомарним `UPDATE ... WHERE status='pending'`.
+  `cancelWhatsAppAutopostJob` тепер скасовує `claimed`-задачу одразу (раніше чекав lease) —
+  пізній результат від runner-а просто не знаходить рядок у статусі `claimed` і тихо ігнорується
+  (той самий патерн, що й у 3b для waiting_check).
+- Браузерний роут (`/api/messenger-automation`) лишився майже незмінним — тільки додано
+  `wakeOwnerChannelAutopost` після create/batch/cancel (POST `/autopost-wake` до DO, щоб той
+  одразу штовхнув задачу підключеному runner-у, а не чекав опитування). Старий executor-роут
+  (`/api/messenger-automation/executor`) для WhatsApp-гілки повертає `410` (Viber-гілка
+  незмінна). DO: `result`/`release`/`ready` по WS, той самий захист від тугого циклу на
+  `release`, що й у waiting_check. Розрив'єднання runner-а звільняє задачу назад у `pending`
+  (`webSocketClose`) — заміна таймауту lease.
+- `scripts/chat-discovery-runner.mjs` не чіпали. Важливо: `runWhatsAppAutopostOnce()` не має
+  guard на недоступність і тепер кине виняток на кожному циклі (410), а через порядок виклику в
+  `runD1BackedTaskOnce` (waiting_check → autopost → discovery) це й раніше, і тепер блокує
+  Discovery-автоматизацію того ж циклу — відповідає початковому «усі три не працюють до 3e»,
+  не новий сюрприз.
+- Тести: `owner-channel.test.mjs` 14→18 (4 нових на autopost: dispatch, result→advance,
+  disconnect→release, release/ready); `whatsapp-autopost.test.mjs` переписано під нові сигнатури
+  (без `deviceId`), два тести про lease замінено на тести про release/cancel-wins-immediately.
+  `tsconfig.chat-discovery.json`: додано `lib/messenger-automation.ts` і дерево (`library.ts`,
+  `subjects.ts`, `directions.ts`, `chats/advertisement-selection.ts`, `chats/publication.ts`,
+  `chats/profile.ts`, `whatsapp-autopost-{media,caption}.ts`).
+- Докази: lint/typecheck/build зелені (реальний `npm run build` з більшим бандлом DO);
+  `owner-channel.test.mjs` 18/18, `whatsapp-autopost.test.mjs`+суміжні 38/38. Повний
+  `npm run test:full` — 895/926, ті самі 31 відомі падіння з `docs/TODO.md`, нуль нових.
+
 ## 2026-10-04 — WhatsApp Waiting check на DO-координацію (коміт 3b)
 
 - Другий підкоміт коміту 3 (Waiting check → Autopost → Discovery, Waiting check — найпростіший,
