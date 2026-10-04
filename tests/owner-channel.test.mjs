@@ -22,7 +22,7 @@ async function seedAutopostable(db, { chatId = 'wa-1' } = {}) {
 
 function mockSocket() {
   const sent = [];
-  return { sent, send: (data) => sent.push(JSON.parse(data)) };
+  return { sent, readyState: 1, send: (data) => sent.push(JSON.parse(data)), close() { this.readyState = 3; } };
 }
 
 function mockCtx() {
@@ -35,11 +35,11 @@ function mockCtx() {
       put: async (key, value) => { stored.set(key, value); },
     },
     acceptWebSocket(ws, tags = []) { sockets.push({ ws, tags, closed: false }); },
-    // Matches the real Hibernation API: a just-closed socket drops out of getWebSockets() (so a
-    // "last runner gone" check sees zero), but getTags(ws) on that same socket still resolves —
-    // the close handler needs to know what the closing socket WAS.
-    closeSocket(ws) { const entry = sockets.find((item) => item.ws === ws); if (entry) entry.closed = true; },
-    getWebSockets(tag) { return sockets.filter((entry) => !entry.closed && (!tag || entry.tags.includes(tag))).map((entry) => entry.ws); },
+    // Matches what staging showed (2026-10-04): inside webSocketClose the closing socket is STILL
+    // listed by getWebSockets(), only no longer OPEN — a "last runner gone" check must not count it.
+    // getTags(ws) on that socket still resolves, so the close handler knows what the socket was.
+    closeSocket(ws) { ws.readyState = 3; },
+    getWebSockets(tag) { return sockets.filter((entry) => !tag || entry.tags.includes(tag)).map((entry) => entry.ws); },
     getTags(ws) { return sockets.find((entry) => entry.ws === ws)?.tags ?? []; },
     setWebSocketAutoResponse() {},
   };
@@ -380,6 +380,25 @@ void test('stop tells the runner to cancel the check in progress; stopping an in
   runner.sent.length = 0;
   await waitingCheckRequest(channel, 'u', { method: 'POST', body: JSON.stringify({ action: 'stop' }) });
   assert.deepEqual(runner.sent, []);
+});
+
+void test('a runner connecting alone releases tasks left in flight by a connection whose close was never processed', async (t) => {
+  const db = await localDatabase(t);
+  const chatId = await seedAutopostable(db);
+  const job = await createWhatsAppAutopostJob(db, 'u', { requestKey: 'request_orphan_long', chatId }, 100, '2026-09-24');
+  const ctx = mockCtx();
+  const channel = new OwnerChannel(ctx, { DB: db });
+  const first = withSocket(ctx, mockSocket(), ['runner']);
+  await wake(channel, 'u');
+  assert.equal(first.sent.at(-1).task.jobId, job.id);
+  // The old connection vanishes without webSocketClose ever running (what staging did before the fix).
+  first.readyState = 3;
+
+  const second = withSocket(ctx, mockSocket(), ['runner']);
+  await channel.onRunnerConnected(second, 'u');
+
+  const task = second.sent.find((message) => message.type === 'task' && message.process === 'autopost');
+  assert.equal(task?.task.jobId, job.id, 'the orphaned claim is released and dispatched again to the new runner');
 });
 
 // Commit 3f: browsers subscribe to the live channel instead of polling, so every autopost state change

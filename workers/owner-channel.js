@@ -128,7 +128,7 @@ export class OwnerChannel {
   async onBrowserConnected(server, userId) {
     const state = await this.readState();
     if (userId && state.userId !== userId) { state.userId = userId; await this.writeState(state); }
-    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.ctx.getWebSockets('runner').length > 0 }));
+    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0 }));
   }
 
   /**
@@ -139,6 +139,10 @@ export class OwnerChannel {
     const state = await this.readState();
     if (userId && state.userId !== userId) state.userId = userId;
     state.runnerLastSeenAt = nowSeconds();
+    // The only runner now connected cannot be working on anything yet: any in-flight task still
+    // recorded belongs to a connection whose close was never processed (staging, before 2026-10-04,
+    // left such claims stuck and blocked all further dispatch), so release it before dispatching.
+    if (this.openRunnerCount(server) === 0) await this.releaseOrphanedTasks(state);
     server.send(JSON.stringify({ type: 'hello', processes: state.processes }));
     this.broadcast('browser', { type: 'runner_status', connected: true });
     // A runner that reconnects (sleep/network blip, not an explicit stop) must resume whatever
@@ -233,7 +237,7 @@ export class OwnerChannel {
     const base = waitingCheckStatusFromBatch(state.waitingCheckBatch);
     const rawProblems = state.waitingCheckBatch?.problems ?? [];
     const problems = base.active ? rawProblems : await enrichWaitingCheckProblems(this.env.DB, /** @type {string} */ (state.userId), rawProblems, now);
-    const runnerConnected = this.ctx.getWebSockets('runner').length > 0;
+    const runnerConnected = this.openRunnerCount() > 0;
     return { ...base, problems, runnerSeenAt: runnerConnected ? now : (state.runnerLastSeenAt ?? null) };
   }
 
@@ -444,22 +448,32 @@ export class OwnerChannel {
    * @param {boolean} _wasClean
    */
   async webSocketClose(ws, _code, _reason, _wasClean) {
-    if (this.tagsOf(ws).includes('runner') && this.ctx.getWebSockets('runner').length === 0) {
+    // Complete the close handshake from our side too (harmless if it is already closed).
+    try { ws.close(1000, 'closed'); } catch { /* already closed */ }
+    if (this.tagsOf(ws).includes('runner') && this.openRunnerCount(ws) === 0) {
       const state = await this.readState();
       state.runnerLastSeenAt = nowSeconds();
-      // The runner's connection is the only ownership proof an autopost claim has — losing it
-      // means whatever job was in flight must go back to 'pending' instead of waiting on a timeout.
-      if (state.autopostCurrentJobId && state.userId) {
-        await releaseWhatsAppAutopostJob(this.env.DB, state.userId, state.autopostCurrentJobId, nowSeconds());
-        this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: state.autopostCurrentJobId, status: 'released' });
-        state.autopostCurrentJobId = null;
-      }
-      // Discovery's task was never written to D1, so losing the connection just means forgetting it
-      // here — the next dispatch (reconnect, or another event) reads D1 fresh and finds it again.
-      if (state.discoveryCurrentTask) state.discoveryCurrentTask = null;
+      await this.releaseOrphanedTasks(state);
       await this.writeState(state);
       this.broadcast('browser', { type: 'runner_status', connected: false });
     }
+  }
+
+  /**
+   * In-flight autopost/Discovery tasks owned by a runner connection that no longer exists.
+   * @param {OwnerChannelState} state
+   */
+  async releaseOrphanedTasks(state) {
+    // The runner's connection is the only ownership proof an autopost claim has — losing it
+    // means whatever job was in flight must go back to 'pending' instead of waiting on a timeout.
+    if (state.autopostCurrentJobId && state.userId) {
+      await releaseWhatsAppAutopostJob(this.env.DB, state.userId, state.autopostCurrentJobId, nowSeconds());
+      this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: state.autopostCurrentJobId, status: 'released' });
+    }
+    state.autopostCurrentJobId = null;
+    // Discovery's task was never written to D1, so losing the connection just means forgetting it
+    // here — the next dispatch reads D1 fresh and finds it again.
+    state.discoveryCurrentTask = null;
   }
 
   /**
@@ -468,6 +482,17 @@ export class OwnerChannel {
    */
   async webSocketError(ws, _error) {
     await this.webSocketClose(ws, 1011, 'error', false);
+  }
+
+  /**
+   * Runner sockets that are really open. Found live on staging (2026-10-04): inside webSocketClose the
+   * runtime still lists the closing socket in getWebSockets(), so a plain length check never saw "no
+   * runner left" — the browsers were never told the runner went offline and runnerLastSeenAt kept the
+   * connect time. Counting only OPEN sockets other than the closing one works either way.
+   * @param {WebSocket|null} [except]
+   */
+  openRunnerCount(except = null) {
+    return this.ctx.getWebSockets('runner').filter((socket) => socket !== except && socket.readyState === 1).length;
   }
 
   /** @param {WebSocket} ws */
