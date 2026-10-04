@@ -970,6 +970,13 @@ function reasonLabel(value: string) {
     access_unavailable: 'чат недоступний',
     qualification_unverified: 'не вдалося підтвердити всі критерії',
     fresh_join_history_unavailable: 'старі повідомлення недоступні після вступу — потрібна ручна перевірка',
+    telegram_flood_wait: 'Telegram тимчасово обмежив пошук — продовж пізніше',
+    telegram_tab_missing: 'відкрий web.telegram.org/a в Opera з портом 9222 і натисни «Продовжити»',
+    telegram_not_authenticated: 'потрібен вхід у Telegram Web (web.telegram.org/a)',
+    telegram_tab_unavailable: 'вкладка Telegram стала недоступна',
+    telegram_search_unavailable: 'пошук у Telegram тимчасово недоступний',
+    cdp_unavailable: 'зв’язок із браузером runner-а втрачено',
+    cdp_not_configured: 'runner не налаштовано для з’єднання з браузером',
   };
   return labels[value] || value;
 }

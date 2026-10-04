@@ -151,6 +151,58 @@ void test('a WhatsApp-runtime release hands the turn to Telegram steps and arms 
   assert.ok(ctx.alarms.length >= 0);
 });
 
+void test('a candidate cooldown expires and the DO alarm redispatches it with no operator action', async (t) => {
+  const { ctx, channel, runner } = await setup(t);
+  const { run } = await post(channel, { action: 'start', goal: 5 });
+  // The plan is exhausted by this same step (done: true), so once the one candidate it produced cools
+  // down there is nothing else dispatchRun could pick instead — the alarm is the only way back.
+  await message(channel, runner, { type: 'source_result', runId: run.runId, batch: { nextCursor: 1, searched: 1, done: true, totalTasks: 1 }, sources: [telegramSource], scannedGroups: ['ua_berlin_chat'] });
+  const task = ofType(runner, 'run_task')[0].task;
+  runner.sent.length = 0;
+
+  await message(channel, runner, { type: 'release', candidateId: task.candidateId, until: Date.now() + 50 });
+  assert.deepEqual(ofType(runner, 'run_task'), [], 'still cooling down: nothing dispatched yet');
+  assert.deepEqual(ofType(runner, 'run_source'), [], 'the plan is exhausted: no Telegram step to fall back on either');
+  assert.ok(ctx.alarms.length > 0, 'a wake-up alarm was armed for when the cooldown expires');
+
+  await new Promise((resolve) => setTimeout(resolve, 70));
+  await channel.alarm();
+  assert.equal(ofType(runner, 'run_task')[0]?.task.candidateId, task.candidateId, 'the alarm redispatched the same candidate once its cooldown passed');
+});
+
+void test('a runner that drops mid WhatsApp check is cleared, and a reconnecting runner gets the same candidate again', async (t) => {
+  const { ctx, channel, runner } = await setup(t);
+  const { run } = await post(channel, { action: 'start', goal: 5 });
+  await message(channel, runner, { type: 'source_result', runId: run.runId, batch: { nextCursor: 1, searched: 1, done: false, totalTasks: 30 }, sources: [telegramSource] });
+  const task = ofType(runner, 'run_task')[0].task;
+  await message(channel, runner, { type: 'progress', candidateId: task.candidateId, runId: run.runId, checkpoint: { attempts: 1 } });
+
+  // The runner vanishes (crash, network drop, closed tab) before it ever answers with a result.
+  await channel.webSocketClose(runner, 1006, '', false);
+  const state = (await (await runRequest(channel, { method: 'GET' })).json()).run;
+  assert.equal(state.activeCandidateId, null, 'the slot is freed, not left claimed forever');
+  assert.equal(state.candidates[0].preflightState, 'queued', 'the candidate itself is untouched: no result was ever lost or invented');
+
+  const again = withSocket(ctx, mockSocket(), ['runner', 'conn:r2']);
+  await channel.onRunnerConnected(again, 'u');
+  assert.equal(ofType(again, 'run_task')[0]?.task.candidateId, task.candidateId, 'the same candidate is dispatched again, not skipped or duplicated');
+});
+
+void test('a runner that drops mid Telegram step is cleared, and a reconnecting runner gets the same step again', async (t) => {
+  const { ctx, channel, runner } = await setup(t);
+  await post(channel, { action: 'start', goal: 5 });
+  assert.deepEqual(ofType(runner, 'run_source').map((item) => item.cursor), [0], 'the empty queue starts with a Telegram step at cursor 0');
+
+  // The runner vanishes before ever answering with a source_result for this step.
+  await channel.webSocketClose(runner, 1006, '', false);
+  const state = (await (await runRequest(channel, { method: 'GET' })).json()).run;
+  assert.equal(state.telegramCursor, 0, 'the cursor never moved: the abandoned step was not half-counted');
+
+  const again = withSocket(ctx, mockSocket(), ['runner', 'conn:r2']);
+  await channel.onRunnerConnected(again, 'u');
+  assert.deepEqual(ofType(again, 'run_source').map((item) => item.cursor), [0], 'the same Telegram step is requested again after reconnect, not skipped');
+});
+
 void test('confirm/archive/non-target/retry from the UI update the run; a reconnecting runner gets the plan and the next item', async (t) => {
   const { ctx, channel, runner } = await setup(t);
   const { run } = await post(channel, { action: 'start', goal: 5 });

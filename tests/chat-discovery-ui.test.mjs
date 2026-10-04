@@ -416,6 +416,26 @@ void test('stale source cooldown warnings disappear after pause and resume', asy
   assert.match(runState.slice(runState.indexOf('export function resumeRun'),runState.indexOf('export function canResume')),/sourceFailures: 0, sourceIssues: \[\]/);
 });
 
+void test('every Telegram pause reason has an operator-readable label, on the phone and on the tray',async()=>{
+  const [cdp,dialog,runner]=await Promise.all([
+    readFile(new URL('../scripts/telegram-web-cdp.mjs',import.meta.url),'utf8'),
+    readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8'),
+    readFile(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8'),
+  ]);
+  const reasons=[...cdp.matchAll(/kind: 'blocked', reason: '([a-z_]+)'/g)].map((match)=>match[1]);
+  assert.ok(reasons.length>=7,'expected at least the 7 known Telegram block reasons');
+  const reasonLabelBody=dialog.slice(dialog.indexOf('function reasonLabel'),dialog.indexOf('function clampNumber'));
+  const trayLabelBody=runner.slice(runner.indexOf('const TELEGRAM_BLOCK_LABELS'),runner.indexOf('const TELEGRAM_BLOCK_LABELS')+2000);
+  for(const reason of new Set(reasons)){
+    assert.match(reasonLabelBody,new RegExp(`${reason}:`),`reasonLabel() is missing a phone-facing translation for ${reason}`);
+    assert.match(trayLabelBody,new RegExp(`${reason}:`),`TELEGRAM_BLOCK_LABELS is missing a tray translation for ${reason}`);
+  }
+  // telegram_search_filtered is absorbed per-group (scanTelegramGroupForInvites turns it into
+  // kind:'result', status:'search_unavailable') and never reaches the operator as a pause reason, so it
+  // is correctly absent from `reasons` above and needs no label.
+  assert.ok(!reasons.includes('telegram_search_filtered'));
+});
+
 
 void test('Discovery candidate cards use one clear details disclosure and an explicit review action',async()=>{
   const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');

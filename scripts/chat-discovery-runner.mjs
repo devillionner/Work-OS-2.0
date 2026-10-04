@@ -513,6 +513,10 @@ const TELEGRAM_BLOCK_LABELS={
   telegram_flood_wait:'Telegram тимчасово обмежив пошук — автопошук зупинено, продовж пізніше',
   telegram_tab_missing:'Відкрий web.telegram.org/a в Opera з портом 9222 і продовж автопошук',
   telegram_not_authenticated:'Увійди в Telegram Web (web.telegram.org/a) і продовж автопошук',
+  telegram_tab_unavailable:'Вкладка Telegram стала недоступна — перевідкрий web.telegram.org/a і продовж автопошук',
+  telegram_search_unavailable:'Пошук у Telegram тимчасово недоступний — продовж автопошук пізніше',
+  cdp_unavailable:'Зв’язок із браузером runner-а втрачено — перевір Opera й продовж автопошук',
+  cdp_not_configured:'Runner не налаштовано для з’єднання з браузером — перевір конфігурацію',
 };
 
 // --- Discovery autonomous run over the live channel (2026-10-04) -----------------------------------

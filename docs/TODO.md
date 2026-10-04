@@ -17,7 +17,7 @@
 
 27 помилок (24 коментарі) позначено `oxlint-disable-next-line ... -- TODO: потребує зміни логіки/розмітки (docs/TODO.md)`. Виправлення змінює поведінку, тому потребує окремої задачі. Знайти всі: `grep -rn "docs/TODO.md" components`.
 
-- [ ] `react/react-compiler` EffectSetState (setState синхронно в useEffect): `components/chat-discovery-dialog.tsx`, `chat-profile-dialog.tsx`, `leads/workspace.tsx`, `library-workspace.tsx`, `platform-workspace.tsx`, `reports-workspace.tsx`, `settings-workspace.tsx`.
+- [ ] `react/react-compiler` EffectSetState (setState синхронно в useEffect): `chat-profile-dialog.tsx`, `leads/workspace.tsx`, `library-workspace.tsx`, `platform-workspace.tsx`, `reports-workspace.tsx`, `settings-workspace.tsx`. (`chat-discovery-dialog.tsx` прибрано зі списку 2026-10-05: фікс бага резюму зі старою метою — коміт `b592f35` — замінив саме це `useEffect(setState(...))` на похідне значення в тілі компонента; придушення `oxlint-disable-next-line react/react-compiler` у файлі більше немає, `npm run lint` підтверджує.)
 - [ ] `react/react-compiler` Refs (ref.current під час render): `components/leads/workspace.tsx`, `library-workspace.tsx`, `platform-workspace.tsx`.
 - [ ] `react/react-compiler` PreserveManualMemo: `components/server-sync.tsx` (`checkRevision`).
 - [ ] `react-hooks/exhaustive-deps`: `components/platform-workspace.tsx` (effect з `[filterKey]` без `platform` і `queue`).
