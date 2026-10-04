@@ -4,47 +4,14 @@
 
 ## 1. Тести, що падають
 
-Стан на 2026-10-04 (після перенесення автопошуку в DO): `npm run test:full` — 926/956, 30 падінь — усі нижче (звірено за назвами `diff`-ом, нових нема). «source bridge keeps cursor on preview failure…» тепер проходить: логіку перенесено в `lib/chat-discovery/run-state.ts#applySourceBatch`, тест переписано на неї.
-
-Стан на 2026-10-02: `npm run test:full` — 31 падіння (було 71). Виправлено всі недискаверні: це були застарілі перевірки коду після переробок (перейменування, перенесення в `PlatformOverview`, нові межі D1), а одна — справжня регресія: зник окремий екран «вичерпано денний ліміт бази», його відновлено в `components/work-os-bootstrap.tsx`. Решта — тести Discovery: runner і адаптер переписали 2026-09-29 без локального прогону тестів, тож частина падінь може означати втрачену поведінку, а не лише застарілий текст. Їх розбирають окремо, кожен перевіряючи по коду. Runner/UI/reliability уже переписано під єдиний механізм відкладення (`deferLocalPreflight`, до 3 спроб); лишилися `chat-discovery-cloud` і `discovery-source-outcomes` (31). Спільна причина, перевірена на першому з них: серверний пошук (`searchLocalDiscoveryPreview`) обмежено одним запитом за виклик (`batchSize=1`), а куровані джерела вимкнено (`includeCurated:false`) — їх тепер обходить браузерний runner (`scripts/chat-discovery-source-crawl.mjs`). Тести ж чекають, що сервер за один виклик пройде Telegram і веб-джерела. Їх треба переносити на браузерний обхід або на покрокові виклики разом із живою перевіркою автопошуку — правити наосліп ризиковано. Перевірено 2026-10-02 на тестах обходу джерел (`discovery-source-outcomes`): план тепер починається з країн («Українці Німеччина» на кроці 15) і формулює запити без «в»; 429 від пошуковика коректно не валить крок (курсор іде далі, є попередження), але вибір джерел графа Telegram залежить від рейтингу й стану, накопиченого між тестами, тож тести зі статичними даними («Бремен») більше не потрапляють у потрібне джерело. Ці тести треба переписувати з ізольованим станом графа.
-
-~~Можлива регресія: локальна кваліфікація тепер приймає `chatType==='community'`...~~ — застаріло, перевірено 2026-10-04: цей запис написано о 11:52 2026-10-02 (`d64d10b`), а вже о 15:59 того ж дня (`65893d0`) `scripts/chat-discovery-runner.mjs` отримав явний скринінг до вступу — `if(pre.chatType==='community')reasons.push('community_not_supported')` одразу після метаданих, і якщо чат ще не приєднаний, функція повертає `rejected` БЕЗ виклику вступу (`joinWhatsappInviteViaRuntime` не викликається). Той самий коміт додав ідентичний скрин і в `evaluateLocalPreflight`/`lib/chat-discovery/domain.ts#evaluateDiscoveryCandidate`. Регресії немає — запис лишили невидаленим помилково.
-
-### `tests/chat-discovery-cloud.test.mjs` (13)
-- [ ] `tests/chat-discovery-cloud.test.mjs:30` — local preview falls back to a clean source label when extracted HTML name is noisy
-- [ ] `tests/chat-discovery-cloud.test.mjs:106` — Telegram discovery accepts only factual Ukrainian invite snippets from Brave and rejects unrelated catalogues
-- [ ] `tests/chat-discovery-cloud.test.mjs:174` — local-first discovery starts with bounded Telegram batches and avoids the heavy curated bootstrap
-- [ ] `tests/chat-discovery-cloud.test.mjs:229` — Telegram public discovery broadens search only when the strict result lacks enough public sources
-- [ ] `tests/chat-discovery-cloud.test.mjs:270` — Telegram source ranking compares all query variants before fetching the single best source
-- [ ] `tests/chat-discovery-cloud.test.mjs:298` — Telegram public source budget is channel-deduplicated before page fetch
-- [ ] `tests/chat-discovery-cloud.test.mjs:324` — Telegram public history follow-up is same-channel, before-only and bounded to one extra page per task
-- [ ] `tests/chat-discovery-cloud.test.mjs:350` — Telegram public history does not paginate when the first preview already contains an invite
-- [ ] `tests/chat-discovery-cloud.test.mjs:380` — Discovery reset removes only discovery workspace state and preserves linked chats for dedupe
-- [ ] `tests/chat-discovery-cloud.test.mjs:647` — qualification is fail-closed until every target criterion is confirmed
-- [ ] `tests/chat-discovery-cloud.test.mjs:749` — autonomous Discovery advances the seed matrix through public Telegram pages without operator query input
-- [ ] `tests/chat-discovery-cloud.test.mjs:780` — Discovery goal counts only new confirmed targets, never raw invite yield
-- [ ] `tests/chat-discovery-cloud.test.mjs:821` — archived unavailable WhatsApp history suppresses rediscovery and automatic rejoin in later runs
-
-### `tests/discovery-source-outcomes.test.mjs` (17)
-- [ ] `tests/discovery-source-outcomes.test.mjs:82` — repeated global WhatsApp loading triggers a bounded self-heal reload
-- [ ] `tests/discovery-source-outcomes.test.mjs:124` — global WhatsApp message loading is deferred without burning the full invite timeout
-- [ ] `tests/discovery-source-outcomes.test.mjs:167` — web-search 429 does not fail the source step when Telegram graph fallback exists
-- [ ] `tests/discovery-source-outcomes.test.mjs:180` — search advances with a warning when all optional search sources are unavailable
-- [ ] `tests/discovery-source-outcomes.test.mjs:213` — TG.ME post result can feed a WhatsApp invite directly into local preview source
-- [ ] `tests/discovery-source-outcomes.test.mjs:226` — directory channel result is searched inside Telegram for group invites
-- [ ] `tests/discovery-source-outcomes.test.mjs:259` — WhatsApp topic matcher includes local-language Ukrainian identity roots
-- [ ] `tests/discovery-source-outcomes.test.mjs:281` — search challenge skips the exact query when Telegram directory also fails
-- [ ] `tests/discovery-source-outcomes.test.mjs:293` — temporary external search failure warns and advances when Telegram directory also fails
-- [ ] `tests/discovery-source-outcomes.test.mjs:311` — source crawl keeps scanning Telegram history even after a current-page invite
-- [ ] `tests/discovery-source-outcomes.test.mjs:345` — runner passes invite metadata into joined qualification to avoid redundant info opening
-- [ ] `tests/discovery-source-outcomes.test.mjs:359` — metadata failure defers candidate without opening the heavy WhatsApp UI
-- [ ] `tests/discovery-source-outcomes.test.mjs:373` — unknown qualification has bounded retries and never leaves a joined chat
-- [ ] `tests/discovery-source-outcomes.test.mjs:390` — source plan is read from the authorized Work OS browser session without HTTP
-- [ ] `tests/discovery-source-outcomes.test.mjs:458` — WhatsApp invite metadata and UI inspection foreground the WhatsApp tab first
-- [ ] `tests/discovery-source-outcomes.test.mjs:520` — direct qualification ignores WhatsApp service events for activity
-- [ ] `tests/discovery-source-outcomes.test.mjs:622` — TG.ME group-invite preview can feed a WhatsApp invite directly
-
-Примітка: `tests/discovery-source-outcomes.test.mjs` до 2026-10-01 взагалі не парсився (синтаксичні помилки), тому раніше рахувався як одне падіння. Після виправлення синтаксису його тести запускаються, і 21 з них падає.
+- [x] **Закрито 2026-10-05.** Усі 30 відомих падінь (`chat-discovery-cloud.test.mjs` 13 +
+  `discovery-source-outcomes.test.mjs` 17) були тестами старого серверного рушія автопошуку
+  (до-DO: `startDiscoveryRun`/`continueDiscoveryRun`/`advanceAutonomousDiscoveryRun`/
+  `searchLocalDiscoveryPreview`/`discoverPublicWeb`/`discoverTelegramPublic`/web-crawl у
+  `chat-discovery-source-crawl.mjs`), який runner більше не викликає. Код і тести видалено
+  разом (п. 3 нижче); кілька живих тестів (архівація, membership, виконавча черга, Viber
+  leave) переписано на поточний `confirmLocalDiscoveryPreview`. `npm run test:full`:
+  **893/893, 0 падінь**. Деталі — `docs/DEVELOPMENT_STATUS.md` (2026-10-05).
 
 ## 2. Lint-помилки, приглушені точковими коментарями
 
@@ -65,7 +32,7 @@
 - [x] «Опубліковано сьогодні» (`chat_publications JOIN chats`, `app/api/chats/route.ts` і `readPublicationState`) фільтрував `c.platform` вже після JOIN — виміряно на staging: 161–168 рядків/виклик на ~3 результати, 336 викликів/добу. Виправлено міграцією 0040 (новий стовпець `chat_publications.platform` + індекс `(user_id, platform, published_on)`, винесено в `lib/chats/daily-links.ts#publishedTodayStatement`); той самий патерн виправлено і в `lib/chats/advertisement-selection.ts` та `app/api/library/route.ts`. Локальний тест підтверджує, що читання чужої (великої) платформи не впливає на вартість запиту цільової.
 - [x] `app/api/analytics/route.ts` (розбивка причин архівації) мав `WHERE user_id=?1 AND workflow_status='archived' AND archived_at BETWEEN …` без індексу на `workflow_status` — планувальник ішов `SEARCH` лише по `user_id` й читав усі чати власника, а не лише архівні за період. Знайдено новим тестом-охоронцем (нижче), не було у топі staging на момент перевірки. Виправлено міграцією 0040: `chats_user_status_archived_idx (user_id, workflow_status, archived_at)`; `EXPLAIN QUERY PLAN` підтверджує використання нового індексу з усіма трьома умовами.
 - [ ] `lib/chats/daily-links.ts#availableTodayStatement` і подібний запит `eligibleTelegramChats` у `lib/chats/telegram-schedule.ts` виміряно на staging (2026-10-03): 438 і 263 рядки/виклик у середньому (116 і 109 викликів/добу). Індекс уже оптимальний (`chats_user_platform_status_updated_idx`/`chats_user_account_status_updated_idx`, підтверджено `EXPLAIN QUERY PLAN`); вартість пропорційна розміру всієй черги «Готові», а не кількості дійсно вільних чатів, бо `NOT EXISTS`/профільні умови фільтруються вже після індексного скану. Щоб звести це до порядку результату, потрібен окремий read-model (аналог `chat_queue_counts`) для «доступно сьогодні» — не зроблено в цьому коміті, бо це нова абстракція, а не index-фікс.
-- [ ] Обхід каналів (`crawlLocalDiscoverySource`, t.me/s, tg.me, lyzem, Brave у `scripts/chat-discovery-source-crawl.mjs`) з 2026-10-02 не викликається runner-ом (джерела — лише Telegram-групи). Код і його тести (частина з 18 падінь `discovery-source-outcomes`) треба видалити окремим кроком.
+- [x] Обхід каналів (`crawlLocalDiscoverySource`, t.me/s, tg.me, lyzem, Brave у `scripts/chat-discovery-source-crawl.mjs`) з 2026-10-02 не викликався runner-ом (джерела — лише Telegram-групи). Видалено 2026-10-05 разом з усім старим до-DO рушієм автопошуку (п. 1 вище) — лишились лише живі `telegramGroupDiscoveryPlan`/`telegramGroupSource`/`workbookSearchPlan`.
 
 - [x] Політика автопошуку для вступлених груп з невідомими критеріями — перевірено 2026-10-04 (читання коду й git-історії): пункт був застарілим, опис описував поведінку ДО коміту `65893d0` (2026-10-02, той самий день, пізніше за інцидент із групою «Загальний»), який саме цей рядок і змінив — `decision: 'rejected'` → `decision: 'review'` (`lib/chat-discovery/inspection.ts`). Невідомі критерії зараз ведуть у `review` з `qualification_unverified`, `needsExternalLeave: false`, вихід у чергу не ставиться; тест `verified executor inspection keeps unverified joined chats in review for the operator instead of leaving` (`tests/chat-discovery-cloud.test.mjs:1465`) це перевіряє і проходить. Рівень доказів — код + локальний тест; живий приклад саме з невідомими критеріями в цьому запуску не траплявся (усі живі результати сесії були однозначні: `target`/`rejected`/`unavailable`/`skipped`).
 

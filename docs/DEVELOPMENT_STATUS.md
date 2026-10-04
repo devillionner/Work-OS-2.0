@@ -1,3 +1,37 @@
+## 2026-10-05 — Рестарт автопошуку з новою метою; прибрано мертвий до-DO рушій
+
+- Живий звіт оператора: на паузі зміна «Цільових чатів» і натискання кнопки все одно
+  резюмило старий запуск зі старою метою — `startAutonomousSearch` перевіряв лише
+  `canResume(localPreview)` і слав `'resume'` без `goal` взагалі, тож нове число в полі
+  ніколи нікуди не йшло. Виправлено в `components/chat-discovery-dialog.tsx`: `goal` тепер
+  похідне значення (`goalOverride ?? localPreview.goal`, без useEffect — щоб не зловити
+  EffectSetState), а резюм відбувається лише коли `goal===localPreview.goal` (`willResume`);
+  інакше йде `'start'` із новою метою — `run-state.ts#startRun` вже й так коректно скидає
+  Telegram-курсор і лічильник мети для нового runId, бракувало лише цього вибору в UI.
+  Рівень доказів — код + lint/typecheck/build + новий текстовий тест
+  (`tests/chat-discovery-ui.test.mjs`); живий запуск на паузі з новою метою оператором ще
+  не перевірявся.
+- Окремим кроком — прибрано весь старий серверний рушій автопошуку (до переходу на
+  Durable Object 2026-10-04): `lib/chat-discovery/domain.ts` (`startDiscoveryRun`,
+  `continueDiscoveryRun`, `advanceAutonomousDiscoveryRun`, `cancelDiscoveryRun`,
+  `ingestTelegramDiscovery`, `readTelegramDiscoveryPlan`, `resetDiscoveryWorkspace` +
+  ексклюзивні хелпери), `lib/chat-discovery/public-web.ts` (`discoverPublicWeb`/
+  `discoverTelegramPublic` — Brave-пошук і web-crawl), `lib/chat-discovery/local-preview.ts`
+  (`searchLocalDiscoveryPreview`), `scripts/chat-discovery-source-crawl.mjs` (увесь
+  web/Brave/tg.me/Lyzem-граф обходу джерел — лишились лише живі
+  `telegramGroupDiscoveryPlan`/`telegramGroupSource`/`workbookSearchPlan`), відповідні
+  HTTP-дії в `app/api/chat-discovery/{route,preview/route}.ts`, і 5 задекларованих-але-
+  невикористовуваних констант у `scripts/chat-discovery-runner.mjs`. Підтверджено мертвим
+  ретельним аналізом графу викликів від живих точок входу (`workers/owner-channel.js`,
+  `scripts/chat-discovery-runner.mjs`), не здогадкою.
+- **Усі 30 відомих падінь тестів із `docs/TODO.md` були якраз тестами цього мертвого
+  рушія** — видалено разом із ним; кілька живих тестів (архівація, membership-переходи,
+  виконавча черга, Viber leave-checklist) переписано на поточний
+  `confirmLocalDiscoveryPreview` замість старого `startDiscoveryRun`/`continueDiscoveryRun`.
+  Повний `npm run test:full`: **893/893, 0 падінь** (було 926/956 із 30 відомими). TODO.md
+  п.1 («Тести, що падають») тепер неактуальний цілком — варто прибрати в наступному кроці.
+  lint/typecheck/build — зелені. Версія `0.2.102`.
+
 ## 2026-10-04 — Автопошук: знайдені запрошення нарешті стають кандидатами (не «added 0»)
 
 - Відкрита проблема №1 цього етапу: живий запуск знаходив WhatsApp-запрошення в Telegram-групах
