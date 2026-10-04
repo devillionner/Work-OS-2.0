@@ -4,7 +4,7 @@
 
 ## 1. Тести, що падають
 
-Стан на 2026-10-04 (після коміту 3f): `npm run test:full` — 907/938, ті самі 31 падіння, що й нижче (звірено за назвами `diff`-ом, нових нема).
+Стан на 2026-10-04 (після перенесення автопошуку в DO): `npm run test:full` — 926/956, 30 падінь — усі нижче (звірено за назвами `diff`-ом, нових нема). «source bridge keeps cursor on preview failure…» тепер проходить: логіку перенесено в `lib/chat-discovery/run-state.ts#applySourceBatch`, тест переписано на неї.
 
 Стан на 2026-10-02: `npm run test:full` — 31 падіння (було 71). Виправлено всі недискаверні: це були застарілі перевірки коду після переробок (перейменування, перенесення в `PlatformOverview`, нові межі D1), а одна — справжня регресія: зник окремий екран «вичерпано денний ліміт бази», його відновлено в `components/work-os-bootstrap.tsx`. Решта — тести Discovery: runner і адаптер переписали 2026-09-29 без локального прогону тестів, тож частина падінь може означати втрачену поведінку, а не лише застарілий текст. Їх розбирають окремо, кожен перевіряючи по коду. Runner/UI/reliability уже переписано під єдиний механізм відкладення (`deferLocalPreflight`, до 3 спроб); лишилися `chat-discovery-cloud` і `discovery-source-outcomes` (31). Спільна причина, перевірена на першому з них: серверний пошук (`searchLocalDiscoveryPreview`) обмежено одним запитом за виклик (`batchSize=1`), а куровані джерела вимкнено (`includeCurated:false`) — їх тепер обходить браузерний runner (`scripts/chat-discovery-source-crawl.mjs`). Тести ж чекають, що сервер за один виклик пройде Telegram і веб-джерела. Їх треба переносити на браузерний обхід або на покрокові виклики разом із живою перевіркою автопошуку — правити наосліп ризиковано. Перевірено 2026-10-02 на тестах обходу джерел (`discovery-source-outcomes`): план тепер починається з країн («Українці Німеччина» на кроці 15) і формулює запити без «в»; 429 від пошуковика коректно не валить крок (курсор іде далі, є попередження), але вибір джерел графа Telegram залежить від рейтингу й стану, накопиченого між тестами, тож тести зі статичними даними («Бремен») більше не потрапляють у потрібне джерело. Ці тести треба переписувати з ізольованим станом графа.
 
@@ -25,7 +25,7 @@
 - [ ] `tests/chat-discovery-cloud.test.mjs:780` — Discovery goal counts only new confirmed targets, never raw invite yield
 - [ ] `tests/chat-discovery-cloud.test.mjs:821` — archived unavailable WhatsApp history suppresses rediscovery and automatic rejoin in later runs
 
-### `tests/discovery-source-outcomes.test.mjs` (18)
+### `tests/discovery-source-outcomes.test.mjs` (17)
 - [ ] `tests/discovery-source-outcomes.test.mjs:82` — repeated global WhatsApp loading triggers a bounded self-heal reload
 - [ ] `tests/discovery-source-outcomes.test.mjs:124` — global WhatsApp message loading is deferred without burning the full invite timeout
 - [ ] `tests/discovery-source-outcomes.test.mjs:167` — web-search 429 does not fail the source step when Telegram graph fallback exists
@@ -40,7 +40,6 @@
 - [ ] `tests/discovery-source-outcomes.test.mjs:359` — metadata failure defers candidate without opening the heavy WhatsApp UI
 - [ ] `tests/discovery-source-outcomes.test.mjs:373` — unknown qualification has bounded retries and never leaves a joined chat
 - [ ] `tests/discovery-source-outcomes.test.mjs:390` — source plan is read from the authorized Work OS browser session without HTTP
-- [ ] `tests/discovery-source-outcomes.test.mjs:420` — source bridge keeps cursor on preview failure and reports a resumable stop
 - [ ] `tests/discovery-source-outcomes.test.mjs:458` — WhatsApp invite metadata and UI inspection foreground the WhatsApp tab first
 - [ ] `tests/discovery-source-outcomes.test.mjs:520` — direct qualification ignores WhatsApp service events for activity
 - [ ] `tests/discovery-source-outcomes.test.mjs:622` — TG.ME group-invite preview can feed a WhatsApp invite directly
@@ -78,7 +77,7 @@
 
 - [ ] Бюджет ≤ 100 000 рядків/день не підтверджений: знімок `d1 insights` 2026-10-04 (24 год, день розробки й деплоїв) — топ-30 = 227 828 рядків. Найважчі — дії оператора, не опитування: сторінка списку чатів `app/api/chats` (рядок сторінки/пошуку, у середньому 3 361 рядок/виклик, 21 виклик), `app/api/analytics` (`COALESCE(e.chat_id,l.source_chat_id)`, 2 144/виклик), `lib/analytics-trends.ts` (`event_date,event_type,COUNT(*)`, 3 249/виклик), `lib/activity-summary.ts`/`lib/reports/checkpoints.ts` (418/виклик, 56 викликів). Список чатів розібрано й виправлено 2026-10-04 (черга «Уточнити профіль»: 4 003 → 750 рядків локально, див. `docs/DEVELOPMENT_STATUS.md`); переміряти на staging. Аналітику переведено 2026-10-04 на денні лічильники (міграція 0041) і дешевшу розбивку по чатах — локально в 2–13 разів менше рядків; розбивка по чатах і далі пропорційна кількості подій періоду. Переміряти на staging. Переміряти звичайний день після оновлення runner-а.
 - [ ] `SELECT id,user_id,last_seen_at FROM chat_discovery_executor_devices` — 357 викликів за ту саму добу (перевірка токена runner-а). Імовірно, старий runner на ПК і/або перепідключення idle-з'єднання без keepalive (додано в 3f). Переміряти після оновлення runner-а; очікувано — кілька викликів на добу.
-- [ ] Автопошук (Discovery autonomous run) не запускається з телефона: стан і цикл у sessionStorage вкладки (`components/chat-discovery-dialog.tsx`). Перенести в DO (відкладено планом коміту 3).
+- [x] Автопошук перенесено в DO 2026-10-04 (див. `docs/DEVELOPMENT_STATUS.md`); живе приймання оператором ще попереду.
 - [ ] Інші таймерні звернення до сервера, яких 3f не стосувався, і далі опитують D1: `components/global-timers.tsx` (`/api/timers`, не частіше 120 с), `components/workday-card.tsx` (15–60 с), Viber-джоби в `components/library-workspace.tsx` (до 60 с). Усі обмежені за рядками, але суперечать новому правилу «без таймерного опитування» — перевести на live-канал або подієву перевірку.
 - [ ] Lease-колонки `chat_discovery_candidates.executor_lease_*` і `whatsapp_autopost_jobs.executor_device_id/lease_expires_at` більше не пишуться новим кодом, але лишаються в схемі (`active_key` автопосту — не lease, а ключ «одна активна задача на чат», лишається; Viber safe-note jobs і далі мають живий lease). Видалити окремим кроком після живого прийняття (не additive — потрібен окремий дозвіл).
 - [ ] Бандл DO `dist/server/owner-channel.js` ~598 КБ (≈85 КБ gzip) через дубль `lib/chat-discovery/seeds.ts` (269 КБ). Ліміт не досягнутий, але варто винести seeds із шляху `applyDiscoveryInspection` → `reconcileDiscoveryRunGoal`.

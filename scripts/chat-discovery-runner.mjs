@@ -14,14 +14,6 @@ import {
   leaveWhatsappGroupViaRuntime,
   leaveWhatsappTaskViaCdp,
   readWorkOsExecutorTokenViaCdp,
-  readWorkOsLocalDiscoveryTaskViaCdp,
-  readWorkOsLocalDiscoverySeedDataViaCdp,
-  readWorkOsLocalDiscoverySourceFeedbackViaCdp,
-  updateWorkOsLocalDiscoverySourceFeedbackViaCdp,
-  writeWorkOsLocalDiscoveryResultViaCdp,
-  markWorkOsLocalDiscoveryCandidateViaCdp,
-  applyWorkOsLocalDiscoverySourceBatchViaCdp,
-  pauseWorkOsLocalDiscoveryRunViaCdp,
   sendWhatsappAutopostViaCdp,
   checkWhatsappWaitingInviteViaCdp,
   toWhatsAppWebInviteUrl,
@@ -40,9 +32,9 @@ if(!process.stdin.isTTY&&!whatsappCdp){
 }
 const terminal=readline.createInterface({input:process.stdin,output:process.stdout});
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-const LOCAL_PREFLIGHT_POLL_MS=1500;
-const LOCAL_SOURCE_MIN_MS=500;
-const LOCAL_SOURCE_TARGET_QUEUE=12;
+// How long a Discovery check waits for WhatsApp Web's home to finish loading before the owner DO is told
+// to give the turn to a Telegram step instead.
+const WHATSAPP_HOME_NOT_READY_MS=20_000;
 // Commit 3e: waiting_check/autopost/discovery no longer poll D1 over HTTP on a timer — the owner
 // Durable Object pushes one task per process over this WebSocket the instant the runner is ready for
 // it, and an idle connection costs nothing. Only the reconnect backoff is a timer now.
@@ -58,14 +50,11 @@ const WS_PONG=JSON.stringify({type:'pong'});
 const TASK_BLOCK_COOLDOWN_MS=300000;
 const INCOMPLETE_QUALIFICATION_COOLDOWN_MS=15000;
 const qualificationAttempts=new Map();
-let localSourceSeedData=null;
-let localSourceSeedVersion=0;
 let localSourcePlan=null;
 let localSourcePlanRunId='';
 // Telegram groups already searched for WhatsApp invites; a repeated run skips them for a week.
 const TELEGRAM_GROUP_RESCAN_MS=7*24*60*60*1000;
 const SEARCH_GROUPS_PER_STEP=3;
-let sourceFeedbackRefreshAt=0;
 const PAGE_RECOVERY_COOLDOWN_MS=15000;
 const WHATSAPP_LOADING_COOLDOWN_MS=10000;
 const WHATSAPP_LOADING_RELOAD_AFTER=3;
@@ -75,7 +64,6 @@ const METADATA_RETRY_COOLDOWN_MS=60000;
 const METADATA_INCOMPLETE_COOLDOWN_MS=60000;
 const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
 const TOKEN_REFRESH_MS=60000;
-const IDLE_POLL_MIN_MS=2000;
 const IDLE_POLL_MAX_MS=5000;
 const WHATSAPP_RUNTIME_TRANSIENT_REASONS=new Set(['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready','whatsapp_messages_loading']);
 // An inspect/leave sometimes has to wait out a WhatsApp message sync (30–60 s after opening an
@@ -208,7 +196,6 @@ let whatsappLoadingSignals=0;
 let whatsappLoadingSince=0;
 let whatsappHomeRecoveryPending=false;
 let lastWhatsappReloadAt=0;
-let nextLocalSourceAt=0;
 const taskBlockedUntil=new Map();
 function markTaskBlocked(task,reason,cooldownMs=TASK_BLOCK_COOLDOWN_MS){
   taskBlockedUntil.set(task.candidateId,Date.now()+cooldownMs);
@@ -260,10 +247,9 @@ function evaluateLocalPreflight(task,result){
 async function processLocalPreflightVisible(task){
   const checkpoint=task.checkpoint||{attempts:0,startedAt:Date.now()};
   task={...task,checkpoint:{...checkpoint,attempts:Number(checkpoint.attempts||0)+1}};
-  const marked=await markWorkOsLocalDiscoveryCandidateViaCdp(baseUrl,task,{cdpBaseUrl:whatsappCdp});
+  const marked=markRunCandidate(task);
   if(marked.kind!=='result')return 'local_wait';
-  try{return await processLocalPreflight(task);}
-  finally{await markWorkOsLocalDiscoveryCandidateViaCdp(baseUrl,null,{cdpBaseUrl:whatsappCdp}).catch(()=>{});}
+  return processLocalPreflight(task);
 }
 
 function addDiscoveryStageTime(task,key,elapsedMs){
@@ -278,23 +264,19 @@ async function completeLocalPreflight(task,payload){
   const final={...payload,runId:task.runId,completedAt:Date.now(),
     durationMs:Math.max(0,Date.now()-Number(checkpoint.startedAt||Date.now())),
     stageMs:{...checkpoint.stageMs}};
-  // Keep the factual outcome in session storage before awaiting server persistence.
-  // A failed write retries only persistence, never the external join/leave.
-  await markWorkOsLocalDiscoveryCandidateViaCdp(baseUrl,{...task,checkpoint:{...checkpoint,final}},{cdpBaseUrl:whatsappCdp});
+  // The factual outcome goes to the owner DO as a checkpoint first, so a lost result message retries only
+  // the reporting, never the external join/leave (the next dispatch carries checkpoint.final back).
+  markRunCandidate({...task,checkpoint:{...checkpoint,final}});
   const persistStartedAt=Date.now();
-  const saved=await writeWorkOsLocalDiscoveryResultViaCdp(baseUrl,task.candidateId,final,{cdpBaseUrl:whatsappCdp});
+  const saved=writeRunResult(task,final);
   const persistMs=Math.max(0,Date.now()-persistStartedAt);
   if(saved.kind!=='result'){
     markTaskBlocked(task,saved.reason||'persist_failed',30000);
     return 'local_task';
   }
   clearTaskBlock(task);
+  // Local source ranking for this runner; the DO keeps the durable source feedback from the same result.
   recordDiscoverySourceOutcome(task.sources,final.decision,final.reasonCodes,final.result);
-  await updateWorkOsLocalDiscoverySourceFeedbackViaCdp(baseUrl,(task.sources||[]).map(source=>({
-    sourceUrl:source.sourceUrl,decision:final.decision,reasonCodes:final.reasonCodes,
-    memberCount:final.result?.memberCount,canWrite:final.result?.canWrite,
-  })),{cdpBaseUrl:whatsappCdp}).catch(()=>{});
-  sourceFeedbackRefreshAt=0;
   console.log('Discovery outcome '+JSON.stringify({candidateId:task.candidateId,name:final.result?.observedName||task.name,
     decision:final.decision,reasons:final.reasonCodes,attempts:checkpoint.attempts,durationMs:final.durationMs,
     stageMs:{...final.stageMs,persistMs}}));
@@ -309,8 +291,9 @@ async function deferLocalPreflight(task,reason,result){
       result:result||checkpoint.result||{status:'incomplete',reason},
     });
   }
-  await markWorkOsLocalDiscoveryCandidateViaCdp(baseUrl,{...task,checkpoint},{cdpBaseUrl:whatsappCdp});
+  markRunCandidate({...task,checkpoint});
   markTaskBlocked(task,reason,15000);
+  releaseRunCandidate(task,Date.now()+15000);
   return 'local_task';
 }
 
@@ -354,9 +337,10 @@ async function qualifyLocalResult(task,result){
     result:{...result,topicMatch:evaluated.topicMatch},leftAfterCheck,leaveReason});
 }
 
-async function localRunStillActive(task){
-  const current=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp});
-  return current.kind==='result'&&current.active===true&&String(current.runId||'')===String(task.runId||'');
+// The owner DO pushes run_control on start/resume/pause and run_plan on every (re)connect; a paused or
+// replaced run, or a dropped channel, stops the check before its next external WhatsApp/Telegram action.
+function localRunStillActive(task){
+  return Boolean(liveWs&&liveWs.readyState===WebSocket.OPEN&&runControl.active&&runControl.runId&&runControl.runId===String(task.runId||''));
 }
 
 async function processLocalPreflight(task){
@@ -452,23 +436,13 @@ async function processLocalPreflight(task){
   return qualifyLocalResult(task,result);
 }
 
-async function resolveLocalSourcePlan(runId){
+function resolveRunSourcePlan(runId){
   if(localSourcePlan&&localSourcePlanRunId===runId)return localSourcePlan;
-  const result=await readWorkOsLocalDiscoverySeedDataViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp});
-  if(result.kind!=='result')throw new Error(result.reason||'source_plan_unavailable');
-  localSourceSeedData=result.seedData;
-  localSourceSeedVersion=Number(result.version)||0;
-  localSourcePlan=telegramGroupDiscoveryPlan(localSourceSeedData,result.telegramGroups||[]);
+  if(!runPlan||runPlan.runId!==runId)throw new Error('source_plan_unavailable');
+  localSourcePlan=telegramGroupDiscoveryPlan(runPlan.seedData,runPlan.telegramGroups||[]);
   localSourcePlanRunId=runId;
-  console.log(`Discovery source plan loaded from authorized Work OS page${localSourceSeedVersion?` (v${localSourceSeedVersion})`:''}: ${localSourcePlan.length} Telegram steps, ${(result.telegramGroups||[]).length} joined Telegram chats.`);
+  console.log(`Discovery source plan received from Work OS: ${localSourcePlan.length} Telegram steps, ${(runPlan.telegramGroups||[]).length} joined Telegram chats.`);
   return localSourcePlan;
-}
-
-async function refreshLocalSourceFeedback(){
-  if(Date.now()<sourceFeedbackRefreshAt)return;
-  sourceFeedbackRefreshAt=Date.now()+5000;
-  const result=await readWorkOsLocalDiscoverySourceFeedbackViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp});
-  if(result.kind==='result')hydrateDiscoverySourceFeedback(result.feedback||{});
 }
 
 const scannedGroupsFile=join(dirname(statusFile),'telegram-scanned-groups.json');
@@ -538,42 +512,133 @@ const TELEGRAM_BLOCK_LABELS={
   telegram_not_authenticated:'Увійди в Telegram Web (web.telegram.org/a) і продовж автопошук',
 };
 
-async function refillLocalSourceOnce(local){
-  if(local?.active!==true||local.sourceExhausted===true||Number(local.queuedCount||0)>=LOCAL_SOURCE_TARGET_QUEUE)return 'local_wait';
-  if(Date.now()<nextLocalSourceAt)return 'local_wait';
-  const cursor=Number(local.sourceCursor)||0;
-  let plan;
+// --- Discovery autonomous run over the live channel (2026-10-04) -----------------------------------
+// The run's state lives in the owner Durable Object (lib/chat-discovery/run-state.ts), not in the Work OS
+// tab any more: the DO pushes run_plan (seeds + joined Telegram groups, once per run/connection),
+// run_control (active or not), and one item at a time — run_task (check one WhatsApp invite) or
+// run_source (one Telegram plan step). The runner answers with progress/result/release/source_result/
+// pause. The WhatsApp/Telegram work below is unchanged; only where its state goes changed.
+let runPlan=null;
+let runControl={runId:'',active:false};
+let runTaskAnswered=false;
+
+function liveOpen(){return Boolean(liveWs&&liveWs.readyState===WebSocket.OPEN);}
+
+function markRunCandidate(task){
+  if(!liveOpen())return {kind:'blocked',reason:'live_channel_down'};
+  sendLive(liveWs,{type:'progress',process:'discovery_run',candidateId:task.candidateId,runId:task.runId,
+    name:task.name,link:task.link,checkpoint:task.checkpoint||null});
+  return {kind:'result'};
+}
+
+function writeRunResult(task,final){
+  if(!liveOpen())return {kind:'blocked',reason:'live_channel_down'};
+  sendLive(liveWs,{type:'result',process:'discovery_run',candidateId:task.candidateId,payload:final});
+  runTaskAnswered=true;
+  return {kind:'result'};
+}
+
+// Keeps the candidate queued but tells the DO not to hand it out before `untilMs`; a WhatsApp-runtime
+// cooldown also gives Telegram steps the turn meanwhile.
+function releaseRunCandidate(task,untilMs,runtimeUntilMs=whatsappRuntimeBlockedUntil){
+  runTaskAnswered=true;
+  sendLive(liveWs,{type:'release',process:'discovery_run',candidateId:task.candidateId,until:untilMs,
+    runtimeBlockedUntil:runtimeUntilMs>Date.now()?runtimeUntilMs:0});
+}
+
+// WhatsApp Web home must be authenticated and finished loading before a Discovery check (same rules the
+// old local loop applied before every candidate, including the bounded self-heal reload).
+async function whatsappHomeReady(){
   try{
-    plan=await resolveLocalSourcePlan(String(local.runId||''));
-    await refreshLocalSourceFeedback();
-  }catch(error){
-    const reason=error instanceof Error?error.message:String(error);
-    await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,{nextCursor:cursor,searched:0,done:false,totalTasks:0,
-      errors:[{cursor,query:'План пошуку Work OS',reason}],sources:[]},{cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
-    nextLocalSourceAt=Date.now()+10_000;
-    return 'local_wait';
+    const health=await readWhatsappHomeHealthViaCdp({cdpBaseUrl:whatsappCdp});
+    if(health.kind!=='result'||health.home!==true)return true;
+    if(health.authenticated!==true){markWhatsappRuntimeBlocked('whatsapp_not_authenticated');return false;}
+    if(health.ready!==true){
+      if(health.loading===true){
+        whatsappLoadingSignals+=1;
+        if(!whatsappLoadingSince)whatsappLoadingSince=Date.now();
+        if(whatsappLoadingSignals===1)console.warn('WhatsApp Web home is still loading; waiting before metadata qualification.');
+        const canReload=whatsappLoadingSignals>=WHATSAPP_LOADING_RELOAD_AFTER
+          &&Date.now()-whatsappLoadingSince>=WHATSAPP_STUCK_LOADING_MS
+          &&Date.now()-lastWhatsappReloadAt>=WHATSAPP_LOADING_RELOAD_COOLDOWN_MS;
+        if(canReload){
+          try{
+            const reset=await resetWhatsappPageViaCdp({cdpBaseUrl:whatsappCdp});
+            if(reset.kind==='result'){
+              lastWhatsappReloadAt=Date.now();
+              whatsappLoadingSignals=0;
+              whatsappLoadingSince=0;
+              whatsappHomeRecoveryPending=true;
+              whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+WHATSAPP_LOADING_COOLDOWN_MS);
+              console.warn('WhatsApp Web stayed on message loading; reloaded home and will resume after cooldown.');
+            }
+          }catch(error){
+            console.warn('WhatsApp Web recovery reload failed: '+(error instanceof Error?error.message:String(error)));
+          }
+        }
+      }
+      return false;
+    }
+    if(whatsappHomeRecoveryPending||whatsappLoadingSignals>0){
+      whatsappHomeRecoveryPending=false;
+      whatsappLoadingSignals=0;
+      whatsappLoadingSince=0;
+      console.log('WhatsApp Web home is ready again; resuming queued Discovery candidates.');
+    }
+  }catch{}
+  return true;
+}
+
+async function handleRunCandidateTask(task){
+  if(!localRunStillActive(task))return; // paused/replaced: the DO already abandoned this item
+  runTaskAnswered=false;
+  if(!whatsappCdp){releaseRunCandidate(task,Date.now()+WHATSAPP_RUNTIME_COOLDOWN_MS,Date.now()+WHATSAPP_RUNTIME_COOLDOWN_MS);return;}
+  if(Date.now()<whatsappRuntimeBlockedUntil||taskIsLocallyBlocked(task)){
+    releaseRunCandidate(task,Math.max(whatsappRuntimeBlockedUntil,Number(taskBlockedUntil.get(task.candidateId)||0),Date.now()+1000));
+    return;
   }
-  if(cursor>=plan.length){
-    await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,{nextCursor:cursor,searched:0,done:true,totalTasks:plan.length,sources:[]},
-      {cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
-    return 'local_wait';
+  if(!await whatsappHomeReady()){
+    const runtimeUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+WHATSAPP_HOME_NOT_READY_MS);
+    releaseRunCandidate(task,runtimeUntil,runtimeUntil);
+    return;
   }
+  setStatus('working',`WhatsApp: перевіряємо ${task.name}`);
+  try{await processLocalPreflightVisible(task);}
+  catch(error){console.warn('Discovery check failed: '+(error instanceof Error?error.message:String(error)));}
+  // Every dispatched item gets an answer while the run is active, or the DO would wait for it forever.
+  if(!runTaskAnswered&&localRunStillActive(task))releaseRunCandidate(task,Date.now()+15000);
+}
+
+function sendSourceResult(job,batch,sources=[],scannedGroups=[]){
+  sendLive(liveWs,{type:'source_result',process:'discovery_run',runId:job.runId,batch,sources,scannedGroups});
+}
+
+async function handleRunSourceStep(job){
+  if(!runControl.active||runControl.runId!==job.runId)return;
+  hydrateDiscoverySourceFeedback(job.feedback||{});
+  const cursor=Number(job.cursor)||0;
+  let plan;
+  try{plan=resolveRunSourcePlan(job.runId);}
+  catch(error){
+    sendSourceResult(job,{nextCursor:cursor,searched:0,done:false,totalTasks:0,
+      errors:[{query:'План пошуку Work OS',reason:error instanceof Error?error.message:String(error)}]});
+    return;
+  }
+  if(cursor>=plan.length){sendSourceResult(job,{nextCursor:cursor,searched:0,done:true,totalTasks:plan.length});return;}
   const step=plan[cursor];
   setStatus('working',step.kind==='search'?`Telegram: шукаємо групи «${step.query}»`:'Telegram: перевіряємо приєднані групи');
-  const crawled=await crawlTelegramGroupStep(step,local);
+  const crawled=await crawlTelegramGroupStep(step,{runId:job.runId});
   if(crawled.blockedReason){
     // Stop instead of hammering Telegram; the cursor stays on this step, so «Продовжити» resumes it.
     console.warn(`Telegram source stopped: ${crawled.blockedReason}`);
     setStatus('attention',TELEGRAM_BLOCK_LABELS[crawled.blockedReason]||`Telegram: ${crawled.blockedReason}`);
     if(crawled.scannedGroups.length||crawled.sources.length){
-      const partial=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,{nextCursor:cursor,searched:crawled.scannedGroups.length,
-        done:false,totalTasks:plan.length,sources:crawled.sources},{cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
-      if(partial.kind==='result')markGroupsScanned(crawled.scannedGroups);
+      sendSourceResult(job,{nextCursor:cursor,searched:crawled.scannedGroups.length,done:false,totalTasks:plan.length},crawled.sources,crawled.scannedGroups);
     }
-    await pauseWorkOsLocalDiscoveryRunViaCdp(baseUrl,{reason:crawled.blockedReason,query:crawled.query},{cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
-    return 'local_wait';
+    sendLive(liveWs,{type:'pause',process:'discovery_run',runId:job.runId,reason:crawled.blockedReason,query:crawled.query});
+    return;
   }
-  if(crawled.interrupted&&!crawled.sources.length)return 'local_wait';
+  if(crawled.interrupted&&!crawled.sources.length)return;
   const batch={
     nextCursor:crawled.interrupted?cursor:cursor+1,
     searched:crawled.scannedGroups.length,
@@ -581,20 +646,10 @@ async function refillLocalSourceOnce(local){
     totalTasks:plan.length,
     errors:[],
     warnings:crawled.warnings,
-    query:crawled.query,
-    sources:crawled.sources,
   };
   for(const warning of batch.warnings.slice(0,4))console.warn('Discovery source warning: '+String(warning?.query||'source')+' · '+String(warning?.reason||'unavailable'));
-  const applied=await applyWorkOsLocalDiscoverySourceBatchViaCdp(baseUrl,batch,{cdpBaseUrl:whatsappCdp,expectedRunId:String(local.runId||'')});
-  nextLocalSourceAt=Date.now()+(applied.errors?10_000:LOCAL_SOURCE_MIN_MS);
-  if(applied.kind!=='result')return 'local_wait';
-  markGroupsScanned(crawled.scannedGroups);
-  if(Array.isArray(applied.sourceStats)&&applied.sourceStats.length){
-    await updateWorkOsLocalDiscoverySourceFeedbackViaCdp(baseUrl,applied.sourceStats,{cdpBaseUrl:whatsappCdp}).catch(()=>{});
-    sourceFeedbackRefreshAt=0;
-  }
-  console.log('Telegram source step: cursor '+batch.nextCursor+'/'+plan.length+', groups '+crawled.scannedGroups.length+', sources '+batch.sources.length+', added '+(applied.added||0)+', duplicates '+(applied.duplicates||0)+', sourceMs '+(crawled.durationMs||0));
-  return (applied.added||0)>0?'source_added':'local_task';
+  sendSourceResult(job,batch,crawled.sources,crawled.scannedGroups);
+  console.log('Telegram source step: cursor '+batch.nextCursor+'/'+plan.length+', groups '+crawled.scannedGroups.length+', sources '+crawled.sources.length+', sourceMs '+(crawled.durationMs||0));
 }
 
 // --- Live channel (commit 3e): one WebSocket to the owner Durable Object replaces the three HTTP
@@ -777,6 +832,8 @@ async function pumpTaskQueue(){
       if(next.taskProcess==='waiting_check')return handleWaitingCheckTask(next.ws,next.task);
       if(next.taskProcess==='autopost')return handleAutopostTask(next.ws,next.task);
       if(next.taskProcess==='discovery')return handleDiscoveryTask(next.ws,next.task);
+      if(next.taskProcess==='discovery_run_task')return handleRunCandidateTask(next.task);
+      if(next.taskProcess==='discovery_run_source')return handleRunSourceStep(next.task);
     });
   }catch(error){
     console.error(`Live channel task handler (${next.taskProcess}) failed: ${error instanceof Error?error.message:String(error)}`);
@@ -798,6 +855,29 @@ function onLiveMessage(ws,raw){
   }
   if(message.type==='cancel'&&message.process==='waiting_check'){
     cancelWaitingCheck(message.batchId);
+    return;
+  }
+  if(message.process==='discovery_run'){
+    if(message.type==='run_plan'){
+      runPlan={runId:String(message.runId||''),seedData:message.seedData,telegramGroups:Array.isArray(message.telegramGroups)?message.telegramGroups:[]};
+      localSourcePlan=null;localSourcePlanRunId='';
+      runControl={runId:runPlan.runId,active:true};
+    }else if(message.type==='run_control'){
+      runControl={runId:String(message.runId||''),active:message.active===true};
+      if(!runControl.active){
+        for(let index=incomingTaskQueue.length-1;index>=0;index-=1){
+          if(String(incomingTaskQueue[index].taskProcess).startsWith('discovery_run'))incomingTaskQueue.splice(index,1);
+        }
+        console.log('Discovery autonomous run paused from Work OS.');
+      }
+    }else if(message.type==='run_task'&&message.task){
+      enqueueTask(ws,'discovery_run_task',message.task);
+    }else if(message.type==='run_source'){
+      enqueueTask(ws,'discovery_run_source',{runId:String(message.runId||''),cursor:Number(message.cursor)||0,feedback:message.feedback||{}});
+    }else if(message.type==='run_source_applied'){
+      markGroupsScanned(Array.isArray(message.scannedGroups)?message.scannedGroups.map(String):[]);
+      console.log('Discovery source applied: added '+(Number(message.added)||0)+', duplicates '+(Number(message.duplicates)||0));
+    }
     return;
   }
   // 'pong'/'hello' need no action; 'command'/'progress'/'process_state'/'runner_status' are either
@@ -875,90 +955,16 @@ function withCdpLock(fn){
   return run;
 }
 
-async function runOnce(){
-  if(!token)await refreshExecutorTokenIfNeeded();
-  if(!token)setStatus('no_token','Немає підключення: на сайті натисніть «Підключити цей браузер»');
-  // waiting_check/autopost/discovery no longer run from here at all (commit 3e) — the live channel's
-  // own message handler dispatches them the instant the owner Durable Object pushes a task.
-  if(whatsappCdp){
-    try{
-      const skipCandidateIds=[...taskBlockedUntil.entries()]
-        .filter(([,until])=>until>Date.now())
-        .map(([candidateId])=>candidateId);
-      const local=await readWorkOsLocalDiscoveryTaskViaCdp(baseUrl,{cdpBaseUrl:whatsappCdp,skipCandidateIds});
-      if(local.kind==='result'&&local.active===true){
-        // Telegram Web and WhatsApp Web both need their tab in the foreground, so source search and
-        // WhatsApp qualification take turns: a queued invite is checked first, otherwise one Telegram step runs.
-        if(local.task&&Date.now()>=whatsappRuntimeBlockedUntil){
-          let whatsappReady=true;
-          try{
-            const health=await readWhatsappHomeHealthViaCdp({cdpBaseUrl:whatsappCdp});
-            if(health.kind==='result'&&health.home===true){
-              if(health.authenticated!==true){
-                markWhatsappRuntimeBlocked('whatsapp_not_authenticated');
-                whatsappReady=false;
-              }else if(health.ready!==true){
-                whatsappReady=false;
-                if(health.loading===true){
-                  whatsappLoadingSignals+=1;
-                  if(!whatsappLoadingSince)whatsappLoadingSince=Date.now();
-                  if(whatsappLoadingSignals===1)console.warn('WhatsApp Web home is still loading; waiting before metadata qualification.');
-                  const canReload=whatsappLoadingSignals>=WHATSAPP_LOADING_RELOAD_AFTER
-                    &&Date.now()-whatsappLoadingSince>=WHATSAPP_STUCK_LOADING_MS
-                    &&Date.now()-lastWhatsappReloadAt>=WHATSAPP_LOADING_RELOAD_COOLDOWN_MS;
-                  if(canReload){
-                    try{
-                      const reset=await resetWhatsappPageViaCdp({cdpBaseUrl:whatsappCdp});
-                      if(reset.kind==='result'){
-                        lastWhatsappReloadAt=Date.now();
-                        whatsappLoadingSignals=0;
-                        whatsappLoadingSince=0;
-                        whatsappHomeRecoveryPending=true;
-                        whatsappRuntimeBlockedUntil=Math.max(whatsappRuntimeBlockedUntil,Date.now()+WHATSAPP_LOADING_COOLDOWN_MS);
-                        console.warn('WhatsApp Web stayed on message loading; reloaded home and will resume after cooldown.');
-                      }
-                    }catch(error){
-                      console.warn('WhatsApp Web recovery reload failed: '+(error instanceof Error?error.message:String(error)));
-                    }
-                  }
-                }
-              }else if(whatsappHomeRecoveryPending||whatsappLoadingSignals>0){
-                whatsappHomeRecoveryPending=false;
-                whatsappLoadingSignals=0;
-                whatsappLoadingSince=0;
-                console.log('WhatsApp Web home is ready again; resuming queued Discovery candidates.');
-              }
-            }
-          }catch{}
-          if(whatsappReady){
-            setStatus('working',`WhatsApp: перевіряємо ${local.task.name}`);
-            return processLocalPreflightVisible(local.task);
-          }
-        }
-        return refillLocalSourceOnce(local);
-      }
-    }catch(error){
-      console.warn(`Local Discovery bridge unavailable: ${error instanceof Error?error.message:String(error)}`);
-    }
-  }
-  return 'idle';
-}
-
 console.log('Work OS Discovery runner started. Ctrl+C to stop.');
 setStatus('starting','Запускається…');
 for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{setStatus('stopped','Runner зупинено');process.exit(0);});
 connectLiveChannel();
-let idleDelayMs=IDLE_POLL_MIN_MS;
+// Everything (Waiting check, autopost, Discovery executor and the autonomous run) now arrives pushed over
+// the live channel; this loop only keeps the executor token available until the channel can connect.
 while(true){
-  let outcome='idle';
-  try{outcome=await withCdpLock(runOnce);}
-  catch(error){console.error(error instanceof Error?error.message:String(error));}
-  let waitMs=idleDelayMs;
-  if(outcome==='local_task'||outcome==='local_wait'){
-    waitMs=LOCAL_PREFLIGHT_POLL_MS;
-    idleDelayMs=IDLE_POLL_MIN_MS;
-  }else{
-    idleDelayMs=Math.min(IDLE_POLL_MAX_MS,idleDelayMs*2);
+  if(!token){
+    await refreshExecutorTokenIfNeeded();
+    if(!token)setStatus('no_token','Немає підключення: на сайті натисніть «Підключити цей браузер»');
   }
-  await sleep(waitMs);
+  await sleep(IDLE_POLL_MAX_MS);
 }

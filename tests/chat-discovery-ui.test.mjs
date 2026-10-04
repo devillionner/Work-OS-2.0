@@ -3,40 +3,41 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 
 void test('Platforms exposes an explicit autonomous outcome loop plus a local manual fallback', async () => {
-  const [workspace, dialog, previewRoute, previewDomain] = await Promise.all([
+  const [workspace, dialog, previewRoute, previewDomain, runRoute] = await Promise.all([
     readFile(new URL('../components/platform-workspace.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../app/api/chat-discovery/preview/route.ts', import.meta.url), 'utf8'),
     readFile(new URL('../lib/chat-discovery/local-preview.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../app/api/chat-discovery/run/route.ts', import.meta.url), 'utf8'),
   ]);
   assert.match(workspace, /ChatDiscoveryDialog/);
   assert.match(workspace, /Знайти чати/);
   assert.match(dialog, /Запустити автопошук/);
-  assert.doesNotMatch(dialog, /action:'start'/);
-  assert.match(dialog, /work-os:chat-discovery-local-preview:v3/);
-  assert.match(dialog, /running:true/);
-  assert.match(dialog, /LOCAL_SOURCE_SEEDS_KEY/);
+  // Since 2026-10-04 the run lives in the owner Durable Object: the dialog starts/pauses it over HTTP and
+  // shows it, the tab's sessionStorage holds nothing.
+  assert.match(dialog, /await postRun\(\{action:'start',goal\}\)/);
+  assert.doesNotMatch(dialog, /sessionStorage|work-os:chat-discovery-local-preview/);
+  assert.match(runRoute, /const ACTIONS = new Set\(\['start', 'resume', 'pause', 'confirmed', 'archived', 'non-target', 'retry'\]\)/);
   assert.match(dialog, /localTargets\.length/);
   assert.match(dialog, /'Підтвердити'/);
   assert.match(dialog, /Архівувати всі/);
   assert.match(dialog, /Дані пошуку/);
-  assert.match(dialog, /sessionStorage/);
   assert.match(dialog, /Відхилити/);
   assert.match(previewRoute, /body\.action==='confirm'/);
   assert.match(previewDomain, /confirmLocalDiscoveryPreview/);
 });
 
 void test('local autonomous preflight exposes only factual targets before D1 confirmation', async () => {
-  const [dialog, runner, preview] = await Promise.all([
+  const [dialog, runner, preview, runState] = await Promise.all([
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../scripts/chat-discovery-runner.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../lib/chat-discovery/local-preview.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../lib/chat-discovery/run-state.ts', import.meta.url), 'utf8'),
   ]);
-  assert.match(dialog,/LOCAL_PREFLIGHT_RESULTS_KEY/);
   assert.match(dialog,/preflightState==='target'/);
   assert.match(dialog,/emptyCandidateCopy/);
-  assert.match(runner,/readWorkOsLocalDiscoveryTaskViaCdp/);
-  assert.match(runner,/writeWorkOsLocalDiscoveryResultViaCdp/);
+  assert.match(runState,/export function applyResult\(state: DiscoveryRunState, candidateId: string, payload: RunResultPayload, now: number\)/);
+  assert.match(runner,/type:'result',process:'discovery_run',candidateId:task\.candidateId,payload:final/);
   assert.match(runner,/approval_required/);
   assert.match(preview,/До D1 можна підтвердити лише фактично перевірений цільовий чат/);
 });
@@ -103,10 +104,14 @@ void test('local WhatsApp outcomes become durable dedupe only through archive-al
 });
 
 void test('saved target is an explicit operator decision point', async()=>{
-  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  const [dialog,runState]=await Promise.all([
+    readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8'),
+    readFile(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8'),
+  ]);
   assert.match(dialog,/archiveCandidate\(candidate/);
   assert.match(dialog,/action:'archive-candidate'/);
-  assert.match(dialog,/operator_rejected/);
+  assert.match(dialog,/await postRun\(\{action:'non-target',candidateId:candidate\.id\}\)/);
+  assert.match(runState,/operator_rejected/);
   assert.match(dialog,/Лишити в роботі/);
   assert.match(dialog,/В архів/);
   assert.match(dialog,/savedJoinedTarget/);
@@ -285,12 +290,13 @@ void test('Preview API transient HTML/5xx does not stop local autonomous search'
   assert.match(dialog,/throw new Error\(lastError\)/);
 });
 
-void test('local Discovery continues when the modal is closed', async () => {
+void test('the Discovery run continues when the modal or the tab is closed and every device sees it', async () => {
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
-  assert.ok(dialog.includes("setLocalPreview(readLocalPreviewSession())"));
-  assert.ok(dialog.includes("if(!localPreviewHydrated)return;"));
-  assert.ok(dialog.includes("if(!localPreviewHydrated||!localPreview.running)return;"));
-  assert.equal(dialog.includes("if(!open||!localPreviewHydrated||!localPreview.running)return;"), false);
+  // The dialog only reads the run (DO storage, no D1) when it is open and on every pushed change.
+  assert.match(dialog, /fetch\('\/api\/chat-discovery\/run',\{cache:'no-store'\}\)/);
+  assert.match(dialog, /message\.type!=='process_state'\|\|message\.process!=='discovery_run'/);
+  assert.match(dialog, /if\(!open\|\|liveConnected\|\|!localPreview\.running\)return;/);
+  assert.match(dialog, /Можна закрити модалку чи вкладку й запустити з телефона/);
 });
 
 
@@ -307,14 +313,14 @@ void test('browser-local Discovery source requests stay below the Worker CPU-ris
 });
 
 
-void test('source pacing lives in the external runner instead of a fast modal polling loop', async () => {
-  const [dialog,runner]=await Promise.all([
+void test('source pacing lives in the owner DO dispatch instead of a fast modal polling loop', async () => {
+  const [dialog,channel]=await Promise.all([
     readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url),'utf8'),
-    readFile(new URL('../scripts/chat-discovery-runner.mjs', import.meta.url),'utf8'),
+    readFile(new URL('../workers/owner-channel.js', import.meta.url),'utf8'),
   ]);
-  assert.match(runner,/const LOCAL_SOURCE_MIN_MS=500/);
-  assert.match(runner,/applied\.errors\?10_000:LOCAL_SOURCE_MIN_MS/);
-  assert.doesNotMatch(dialog,/\},350\);/);
+  assert.match(channel,/if \(needsSourceStep\(run, now\)\) \{/);
+  assert.match(dialog,/const RUN_FALLBACK_POLL_MS=15_000;/);
+  assert.doesNotMatch(dialog,/\},350\);|\},750\);/);
 });
 
 
@@ -324,50 +330,53 @@ void test('each autonomous source request is a single bounded task and public se
   assert.match(preview,/completedBatches%3===2/);
 });
 
-void test('autonomous start is synchronously visible to the external CDP runner',async()=>{
-  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
-  const start=dialog.slice(dialog.indexOf('async function startAutonomousSearch'),dialog.indexOf('async function stopAutonomousSearch'));
-  assert.match(start,/sessionStorage\.setItem\(LOCAL_PREVIEW_KEY,JSON\.stringify\(nextRun\)\)/);
-  assert.match(start,/setLocalPreview\(nextRun\)/);
-  assert.ok(start.indexOf('sessionStorage.setItem(LOCAL_PREVIEW_KEY')<start.indexOf('setLocalPreview(nextRun)'));
+void test('autonomous start reaches the runner through the owner DO, not the tab', async()=>{
+  const channel=await readFile(new URL('../workers/owner-channel.js',import.meta.url),'utf8');
+  const http=channel.slice(channel.indexOf('async handleDiscoveryRunHttp'),channel.indexOf('In-flight autopost/Discovery tasks owned by'));
+  assert.match(http,/next = startRun\(run, \{ runId: crypto\.randomUUID\(\), goal: body\.goal, now \}\)/);
+  assert.match(http,/this\.broadcast\('runner', await this\.runPlanMessage\(next\.runId\)\)/);
+  assert.match(http,/this\.broadcast\('runner', \{ type: 'run_control', process: 'discovery_run', runId: next\.runId, active: true \}\)/);
 });
 
-void test('live WhatsApp check state survives UI session normalization',async()=>{
-  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
-  assert.match(dialog,/activeCandidateName:typeof value\.activeCandidateName==='string'/);
-  assert.match(dialog,/lastCheckedName:typeof value\.lastCheckedName==='string'/);
-  assert.match(dialog,/lastCheckedDecision:value\.lastCheckedDecision==='review'\|\|value\.lastCheckedDecision==='target'/);
-  assert.match(dialog,/lastCheckedName:typeof value\.lastCheckedName==='string'/);
+void test('the WhatsApp check in progress is shown from the run state the runner reports', async()=>{
+  const [dialog,runState]=await Promise.all([
+    readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8'),
+    readFile(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8'),
+  ]);
+  assert.match(runState,/activeCandidateName: input\.name \|\| candidate\.name/);
+  assert.match(runState,/lastCheckedName: candidate\.name \|\| 'WhatsApp chat'/);
   assert.match(dialog,/Перевіряємо WhatsApp:/);
 });
 
-void test('pausing autonomous discovery preserves unfinished candidates and momentum',async()=>{
-  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
-  const stop=dialog.slice(dialog.indexOf('async function stopAutonomousSearch'),dialog.indexOf('function retryIncompleteCandidate'));
-  assert.match(stop,/running:false/);
-  assert.match(stop,/(candidate|c)\.preflightState==='queued'/);
-  assert.doesNotMatch(stop,/action:'persist-outcome'/);
-  assert.doesNotMatch(stop,/paused_unverified/);
-  assert.match(stop,/pauseSummary/);
-  assert.match(stop,/telegramCursor/);
+void test('pausing autonomous discovery preserves unfinished candidates and momentum', async()=>{
+  const [dialog,runState]=await Promise.all([
+    readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8'),
+    readFile(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8'),
+  ]);
+  const stop=dialog.slice(dialog.indexOf('async function stopAutonomousSearch'),dialog.indexOf('async function retryIncompleteCandidate'));
+  assert.match(stop,/await postRun\(\{action:'pause'\}\)/);
+  assert.doesNotMatch(stop,/persist-outcome|paused_unverified/);
+  const pause=runState.slice(runState.indexOf('export function pauseRun'),runState.indexOf('export function pauseOnSourceBlock'));
+  assert.match(pause,/running: false/);
+  assert.match(pause,/unverified: count\('queued'\)/);
+  assert.match(pause,/cursor: state\.telegramCursor/);
   assert.match(dialog,/Пошук на паузі/);
   assert.match(dialog,/Прогрес збережено/);
 });
 
-void test('resuming a paused discovery run keeps cursor candidates and durable dedupe history',async()=>{
-  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+void test('resuming a paused discovery run keeps cursor candidates and durable dedupe history', async()=>{
+  const [dialog,runState]=await Promise.all([
+    readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8'),
+    readFile(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8'),
+  ]);
   const start=dialog.slice(dialog.indexOf('async function startAutonomousSearch'),dialog.indexOf('async function stopAutonomousSearch'));
-  assert.match(start,/if\(localPreview\.pauseSummary&&!localPreview\.done\)/);
-  assert.match(start,/\.\.\.localPreview/);
-  assert.match(start,/runId:crypto\.randomUUID\(\)/);
-  assert.match(start,/pauseSummary:null/);
+  assert.match(start,/if\(canResume\(localPreview\)\)\{\s*const resumed=await postRun\(\{action:'resume'\}\);/);
   assert.match(start,/Уже перевірені запрошення й переглянуті Telegram-групи не повторюються/);
   // A new run keeps unconfirmed results, so nothing already checked is checked again.
-  assert.match(start,/candidates:carried/);
-  // Only the resume branch (up to its return); the fresh-run branch below legitimately starts from EMPTY_LOCAL_PREVIEW.
-  const resumeFrom=start.indexOf('if(localPreview.pauseSummary');
-  const resumeBlock=start.slice(resumeFrom,start.indexOf('return;',resumeFrom));
-  assert.doesNotMatch(resumeBlock,/\.\.\.EMPTY_LOCAL_PREVIEW/);
+  assert.match(runState,/candidates: previous\.candidates\.filter\(\(candidate\) => FINISHED_STATES\.has\(String\(candidate\.preflightState\)\)\)/);
+  const resume=runState.slice(runState.indexOf('export function resumeRun'),runState.indexOf('export function canResume'));
+  assert.match(resume,/\.\.\.state,/);
+  assert.match(resume,/pauseSummary: null/);
   assert.match(dialog,/Продовжити автопошук/);
 });
 
@@ -419,15 +428,15 @@ void test('Discovery UI explains browser progress versus durable Work OS decisio
 });
 
 
-void test('stale source cooldown warnings disappear after pause and resume',async()=>{
-  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+void test('stale source cooldown warnings disappear after pause and resume', async()=>{
+  const [dialog,runState]=await Promise.all([
+    readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8'),
+    readFile(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8'),
+  ]);
   // Shown while running (temporary source problems) and after a Telegram stop (what to fix before resuming).
   assert.match(dialog,/\{localPreview\.sourceIssues\.length>0&&<details/);
-  const stop=dialog.slice(dialog.indexOf('async function stopAutonomousSearch'),dialog.indexOf('function retryIncompleteCandidate'));
-  assert.match(stop,/sourceFailures:0,sourceIssues:\[\]/);
-  const start=dialog.slice(dialog.indexOf('async function startAutonomousSearch'),dialog.indexOf('async function stopAutonomousSearch'));
-  assert.match(start,/sourceFailures:0,/);
-  assert.match(start,/sourceIssues:\[\]/);
+  assert.match(runState.slice(runState.indexOf('export function pauseRun'),runState.indexOf('export function pauseOnSourceBlock')),/sourceFailures: 0, sourceIssues: \[\]/);
+  assert.match(runState.slice(runState.indexOf('export function resumeRun'),runState.indexOf('export function canResume')),/sourceFailures: 0, sourceIssues: \[\]/);
 });
 
 
@@ -452,12 +461,12 @@ void test('Discovery qualification has one visible source of truth',async()=>{
 });
 
 
-void test('final WhatsApp facts never inherit optimistic source guesses',async()=>{
-  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
-  assert.match(dialog,/topicMatch:result\.topicMatch==='match'\|\|result\.topicMatch==='mismatch'\?result\.topicMatch:'unknown'/);
-  assert.match(dialog,/canWrite:typeof result\.canWrite==='boolean'\?result\.canWrite:null/);
-  assert.match(dialog,/activityState:result\.activityState==='active'\|\|result\.activityState==='dead'\?result\.activityState:'unknown'/);
-  assert.doesNotMatch(dialog,/result\.topicMatch==='match'\|\|result\.topicMatch==='mismatch'\?result\.topicMatch:candidate\.topicMatch/);
+void test('final WhatsApp facts never inherit optimistic source guesses', async()=>{
+  const runState=await readFile(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8');
+  assert.match(runState,/topicMatch: result\.topicMatch === 'match' \|\| result\.topicMatch === 'mismatch' \? result\.topicMatch : 'unknown'/);
+  assert.match(runState,/canWrite: typeof result\.canWrite === 'boolean' \? result\.canWrite : null/);
+  assert.match(runState,/activityState: result\.activityState === 'active' \|\| result\.activityState === 'dead' \? result\.activityState : 'unknown'/);
+  assert.doesNotMatch(runState,/result\.topicMatch === 'mismatch' \? result\.topicMatch : candidate\.topicMatch/);
 });
 
 

@@ -13,17 +13,18 @@ void test('runner authenticates its live WebSocket with the executor token as a 
   assert.match(source,/type:'release',process:taskProcess/);
   assert.match(source,/function canAdvanceDiscoverySource\(\)\{\s*return false;/);
 });
-void test('runner services live-channel pending checks while local Discovery remains active, serialized through one CDP lock',()=>{
-  assert.match(source,/readWorkOsLocalDiscoveryTaskViaCdp/);
-  assert.match(source,/writeWorkOsLocalDiscoveryResultViaCdp/);
+// 2026-10-04: the autonomous run's state moved from the Work OS tab into the owner Durable Object; the
+// runner no longer polls the tab through CDP but gets run items pushed like every other process.
+void test('the autonomous run is pushed over the live channel and serialized with every other task through one CDP lock',()=>{
+  assert.doesNotMatch(source,/readWorkOsLocalDiscoveryTaskViaCdp|writeWorkOsLocalDiscoveryResultViaCdp|markWorkOsLocalDiscoveryCandidateViaCdp|applyWorkOsLocalDiscoverySourceBatchViaCdp|async function runOnce/);
+  assert.match(source,/function withCdpLock\(fn\)/);
+  assert.match(source,/await withCdpLock\(\(\)=>\{/);
+  assert.match(source,/if\(next\.taskProcess==='discovery_run_task'\)return handleRunCandidateTask\(next\.task\);/);
+  assert.match(source,/if\(next\.taskProcess==='discovery_run_source'\)return handleRunSourceStep\(next\.task\);/);
+  assert.match(source,/message\.type==='run_task'&&message\.task\)\{\s*enqueueTask\(ws,'discovery_run_task',message\.task\);/);
+  for(const type of ['progress','result','release','source_result','pause'])assert.match(source,new RegExp(`type:'${type}',process:'discovery_run'`));
   assert.match(source,/processLocalPreflight/);
   assert.match(source,/approval_required/);
-  assert.match(source,/function withCdpLock\(fn\)/);
-  assert.match(source,/outcome=await withCdpLock\(runOnce\)/);
-  assert.match(source,/await withCdpLock\(\(\)=>\{/);
-  const pump=source.indexOf('async function pumpTaskQueue');
-  const local=source.indexOf('readWorkOsLocalDiscoveryTaskViaCdp',source.indexOf('async function runOnce'));
-  assert.ok(pump>0&&local>pump);
 });
 
 void test('runner automates verified WhatsApp leave via CDP and retains operator-confirmed fallback',()=>{
@@ -82,11 +83,9 @@ void test('autopost tasks push a confirmed-send result back over the live channe
   assert.doesNotMatch(source,/preferAutopost/);
 });
 
-void test('runner never source-crawls through D1 and keeps bounded idle local-preflight polling',()=>{
-  assert.match(source,/const IDLE_POLL_MIN_MS=2000/);
-  assert.match(source,/const IDLE_POLL_MAX_MS=5000/);
+void test('runner never source-crawls through D1 and no longer polls the Work OS tab',()=>{
   assert.match(source,/function canAdvanceDiscoverySource\(\)\{\s*return false;/);
-  assert.match(source,/Math\.min\(IDLE_POLL_MAX_MS,idleDelayMs\*2\)/);
+  assert.doesNotMatch(source,/IDLE_POLL_MIN_MS|idleDelayMs|LOCAL_PREFLIGHT_POLL_MS|LOCAL_SOURCE_MIN_MS/);
   assert.match(source,/Non-interactive Discovery runner requires WORK_OS_WHATSAPP_CDP/);
   assert.match(source,/WHATSAPP_RUNTIME_COOLDOWN_MS=300000/);
   assert.match(source,/releasing until the browser adapter is available/);
@@ -152,8 +151,11 @@ void test('runner re-reads a revoked executor token from the Work OS page instea
 });
 
 
-void test('local Discovery can skip temporarily blocked candidates and continue the queue',()=>{
-  assert.match(source,/skipCandidateIds=\[\.\.\.taskBlockedUntil\.entries\(\)\]/);
+void test('a locally cooled-down candidate goes back to the DO with its cooldown so other candidates continue',()=>{
+  const handler=source.slice(source.indexOf('async function handleRunCandidateTask'),source.indexOf('function sendSourceResult'));
+  assert.match(handler,/if\(Date\.now\(\)<whatsappRuntimeBlockedUntil\|\|taskIsLocallyBlocked\(task\)\)\{\s*releaseRunCandidate\(task,Math\.max\(whatsappRuntimeBlockedUntil,Number\(taskBlockedUntil\.get\(task\.candidateId\)\|\|0\),Date\.now\(\)\+1000\)\);/);
+  // Every dispatched item is answered while the run is active, or the DO would wait for it forever.
+  assert.match(handler,/if\(!runTaskAnswered&&localRunStillActive\(task\)\)releaseRunCandidate\(task,Date\.now\(\)\+15000\);/);
   assert.match(source,/PAGE_RECOVERY_COOLDOWN_MS=15000/);
 });
 
@@ -166,37 +168,29 @@ void test('runner recovers a WhatsApp home stuck on message loading without stea
   assert.match(source,/reloaded home and will resume after cooldown/);
 });
 
-void test('local Discovery idle polling reacts within a few seconds',()=>{
-  assert.match(source,/IDLE_POLL_MIN_MS=2000/);
-  assert.match(source,/IDLE_POLL_MAX_MS=5000/);
-});
-
 // Since 2026-10-02 sources are public Telegram groups searched in the operator's Telegram Web tab (no
 // channels). Telegram Web and WhatsApp Web both need the foreground, so the two take turns instead of
 // running a background source pump next to WhatsApp work.
-void test('local source step searches Telegram groups and alternates with WhatsApp checks',()=>{
-  assert.match(source,/telegramGroupDiscoveryPlan\(localSourceSeedData,result\.telegramGroups\|\|\[\]\)/);
+void test('a Telegram source step searches public groups from the plan the DO pushed with the run',()=>{
+  assert.match(source,/telegramGroupDiscoveryPlan\(runPlan\.seedData,runPlan\.telegramGroups\|\|\[\]\)/);
   assert.match(source,/searchTelegramPublicGroups\(session,step\.query/);
   assert.match(source,/scanTelegramGroupForInvites\(session,group\)/);
   assert.doesNotMatch(source,/crawlLocalDiscoverySource|startLocalSourceRefill|localSourceInFlight/);
-  const runOnce=source.slice(source.indexOf('async function runOnce'),source.indexOf("console.log('Work OS Discovery runner started."));
-  assert.ok(runOnce.indexOf('return processLocalPreflightVisible(local.task)')<runOnce.indexOf('return refillLocalSourceOnce(local)'));
+  // Turn-taking with WhatsApp checks now lives in the DO (one run item in flight, a queued candidate first).
+  assert.match(source,/message\.type==='run_source'\)\{\s*enqueueTask\(ws,'discovery_run_source'/);
 });
 
 void test('Telegram refusal stops the run on the same step and already searched groups are skipped for a week',()=>{
-  const refill=source.slice(source.indexOf('async function refillLocalSourceOnce'),source.indexOf('let liveWs=null'));
-  assert.match(refill,/if\(crawled\.blockedReason\)\{/);
-  assert.match(refill,/pauseWorkOsLocalDiscoveryRunViaCdp\(baseUrl/);
-  assert.match(refill,/setStatus\('attention'/);
-  assert.match(refill,/nextCursor:crawled\.interrupted\?cursor:cursor\+1/);
-  // Groups count as searched only after their invites reached the Work OS session.
-  assert.ok(refill.lastIndexOf('markGroupsScanned(crawled.scannedGroups)')>refill.lastIndexOf('applyWorkOsLocalDiscoverySourceBatchViaCdp'));
+  const step=source.slice(source.indexOf('async function handleRunSourceStep'),source.indexOf('// --- Live channel (commit 3e)'));
+  assert.match(step,/if\(crawled\.blockedReason\)\{/);
+  assert.match(step,/sendLive\(liveWs,\{type:'pause',process:'discovery_run',runId:job\.runId,reason:crawled\.blockedReason,query:crawled\.query\}\)/);
+  assert.match(step,/setStatus\('attention'/);
+  assert.match(step,/nextCursor:crawled\.interrupted\?cursor:cursor\+1/);
+  // Groups count as searched only after the DO applied their invites.
+  assert.doesNotMatch(step,/markGroupsScanned/);
+  assert.match(source,/message\.type==='run_source_applied'\)\{\s*markGroupsScanned\(/);
   assert.match(source,/const TELEGRAM_GROUP_RESCAN_MS=7\*24\*60\*60\*1000/);
   assert.match(source,/if\(!await localRunStillActive\(local\)\)\{outcome\.interrupted=true;break;\}/);
-});
-
-void test('source refill has only a short idle gap',()=>{
-  assert.match(source,/LOCAL_SOURCE_MIN_MS=500/);
 });
 
 void test('waiting checks are pushed one chat at a time over the live channel and runtime problems release the chat',()=>{
@@ -243,15 +237,13 @@ void test('runner never interrupts a WhatsApp message sync and gives Discovery o
 
 // Local Discovery after the 2026-09-29 rewrite: every per-candidate problem (retry later, slow page,
 // metadata gaps, incomplete facts) goes through one bounded deferral instead of reason-specific branches.
-const localPreflight=source.slice(source.indexOf('async function processLocalPreflight('),source.indexOf('async function resolveLocalSourcePlan'));
+const localPreflight=source.slice(source.indexOf('async function processLocalPreflight('),source.indexOf('function resolveRunSourcePlan'));
 
 void test('a failing or slow local candidate is deferred alone with bounded retries and never freezes WhatsApp',()=>{
   const defer=source.slice(source.indexOf('async function deferLocalPreflight'),source.indexOf('const FRESH_JOIN_MANUAL_REVIEW_REASONS'));
   assert.match(defer,/if\(Number\(checkpoint\.attempts\)>=3\)\{/);
   assert.match(defer,/decision:'unavailable',reasonCodes:\['retry_exhausted',reason\]/);
-  assert.match(defer,/markTaskBlocked\(task,reason,15000\)/);
-  assert.match(source,/const skipCandidateIds=\[\.\.\.taskBlockedUntil\.entries\(\)\]/);
-  assert.match(source,/readWorkOsLocalDiscoveryTaskViaCdp\(baseUrl,\{cdpBaseUrl:whatsappCdp,skipCandidateIds\}\)/);
+  assert.match(defer,/markTaskBlocked\(task,reason,15000\);\s*releaseRunCandidate\(task,Date\.now\(\)\+15000\);/);
   assert.doesNotMatch(source,/markWhatsappRuntimeBlocked\('whatsapp_join_retry_later'\)/);
   assert.match(localPreflight,/return deferLocalPreflight\(task,joined\.reason\|\|'direct_join_failed',pre\)/);
 });
@@ -284,7 +276,7 @@ void test('local Discovery joins through the WhatsApp runtime and uses the invit
 });
 
 void test('deferred candidates do not count as queued, so they cannot starve the Telegram source step',async()=>{
-  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
-  assert.match(adapter,/queuedCount:candidates\.filter\(item=>item\?\.preflightState==='queued'&&!results\[item\?\.id\]&&!skipped\.has\(item\?\.id\)\)\.length/);
-  assert.match(source,/Number\(local\.queuedCount\|\|0\)>=LOCAL_SOURCE_TARGET_QUEUE\)return 'local_wait'/);
+  const runState=await readFile(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8');
+  assert.match(runState,/candidate\.id !== state\.activeCandidateId && !\(Number\(candidate\.skipUntil\) > now\)/);
+  assert.match(runState,/return state\.running && !state\.sourceExhausted && queuedCount\(state, now\) < SOURCE_TARGET_QUEUE;/);
 });

@@ -40,23 +40,18 @@ function cookedRegexAround(marker){
   return new Function(`return ${literal};`)();
 }
 
-void test('Discovery candidate priority matches whole words in Cyrillic and Latin',()=>{
-  const boost=cookedRegexAround('famil|');
-  assert.equal(boost.test('Українці Берлін чат'),true);
-  assert.equal(boost.test('WhatsApp chat Bremen'),true);
-  assert.equal(boost.test('Чат, оголошення'),true);
-  assert.equal(boost.test('chatbot'),false);
-
-  const penalty=cookedRegexAround('майстер клас|');
-  assert.equal(penalty.test('IT & Business Ukraine'),true);
-  assert.equal(penalty.test('it&business'),true);
-  assert.equal(penalty.test('Українське кафе'),true);
-  assert.equal(penalty.test('Café Kyiv'),true);
-  assert.equal(penalty.test('кафедра'),false);
+// The candidate priority moved from CDP-injected page JS into lib/chat-discovery/run-state.ts (2026-10-04);
+// checked through the dispatcher's real ordering instead of extracting the regex literal.
+void test('Discovery candidate priority matches whole words in Cyrillic and Latin',async()=>{
+  const { EMPTY_RUN, nextCandidateTask } = await import('../lib/chat-discovery/run-state.ts');
+  const candidate=(id,name)=>({ id, platform:'whatsapp', name, link:`https://chat.whatsapp.com/${id}`, localOnly:true, sources:[], preflightState:'queued' });
+  const first=(a,b)=>nextCandidateTask({ ...EMPTY_RUN, runId:'r', running:true, candidates:[candidate('a',a),candidate('b',b)] },0).task.name;
+  assert.equal(first('Bremen info','WhatsApp chat Bremen'),'WhatsApp chat Bremen','"chat" as a whole word boosts');
+  assert.equal(first('Чат, оголошення','Новини'),'Чат, оголошення');
+  assert.equal(first('chatbot Bremen','Bremen info x'),'chatbot Bremen','"chatbot" is not the word "chat" (equal score keeps order)');
+  assert.equal(first('Українське кафе','Українська громада'),'Українська громада','"кафе" as a whole word is penalised');
+  assert.equal(first('Café Kyiv','Kyiv'),'Kyiv');
+  assert.equal(first('кафедра Київ','Київ'),'кафедра Київ','"кафедра" is not "кафе" (equal score keeps order)');
+  assert.equal(first('IT & Business Ukraine','Ukraine'),'Ukraine');
 });
 
-void test('legacy Brave stop recovery matches only the Brave host literally',()=>{
-  const brave=cookedRegexAround('search_rate_limited');
-  assert.equal(brave.test('search.brave.com HTTP 429'),true);
-  assert.equal(brave.test('searchXbraveYcom'),false);
-});

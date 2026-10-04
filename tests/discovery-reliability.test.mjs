@@ -35,11 +35,11 @@ function harness({metadataFailure=false,persistFailure=false,joinUnavailable=fal
   const writes=[],joins=[];
   const deps={
     baseUrl:'test',whatsappCdp:'test',console:{log(){},warn(){}},
-    markWorkOsLocalDiscoveryCandidateViaCdp:async(_url,task)=>{if(task?.checkpoint)checkpoint=task.checkpoint;return {kind:'result'};},
-    writeWorkOsLocalDiscoveryResultViaCdp:async(_url,id,payload)=>{writes.push(payload);return {kind:persistFailure?'blocked':'result'};},
-    readWorkOsLocalDiscoveryTaskViaCdp:async()=>({kind:'result',active:true,runId:'r'}),
-    updateWorkOsLocalDiscoverySourceFeedbackViaCdp:async()=>({kind:'result'}),
-    sourceFeedbackRefreshAt:0,
+    // The run's state goes to the owner Durable Object over the live channel since 2026-10-04.
+    markRunCandidate:task=>{if(task?.checkpoint)checkpoint=task.checkpoint;return {kind:'result'};},
+    writeRunResult:(_task,payload)=>{writes.push(payload);return {kind:persistFailure?'blocked':'result'};},
+    releaseRunCandidate(){},
+    liveWs:{readyState:1},WebSocket:{OPEN:1},runControl:{runId:'r',active:true},
     recordDiscoverySourceOutcome(){},clearTaskBlock(){},markTaskBlocked(){},
     queryWhatsappInviteViaCdp:async()=>metadataFailure?{kind:'blocked',reason:'page_not_ready'}:{kind:'result',result:{memberCount:900,groupId:'group@g.us',topicMatch:'match',chatType:'group',canWrite:true}},
     inspectWhatsappTaskViaCdp:async()=>joinUnavailable?{kind:'result',result:{membershipState:'joined',chatType:'group',memberCount:900,topicMatch:'match',canWrite:true,adsPolicy:'allowed',activityState:'active',targetVerified:true,accessible:true}}:{kind:'blocked',reason:'page_not_ready'},
@@ -55,7 +55,7 @@ function harness({metadataFailure=false,persistFailure=false,joinUnavailable=fal
         ...(postJoinEvidenceGap?{joinedThisAttempt:true}:{})}};
     },
   };
-  const code=runner.slice(runner.indexOf('function evaluateLocalPreflight'),runner.indexOf('async function resolveLocalSourcePlan'));
+  const code=runner.slice(runner.indexOf('function evaluateLocalPreflight'),runner.indexOf('function resolveRunSourcePlan'));
   const ctx=vm.createContext({...deps,Date});
   vm.runInContext(code+';globalThis.run=processLocalPreflightVisible;',ctx);
   return {writes,joins,get checkpoint(){return checkpoint;},run:()=>ctx.run({candidateId:'a',runId:'r',name:'test',checkpoint})};
@@ -90,42 +90,19 @@ test('activity uses today/yesterday in Kyiv and rejects future dates',async()=>{
 });
 // Operator decision 2026-10-02: a WhatsApp qualification result stays in the Work OS tab session; only
 // «Підтвердити» and «Архівувати всі» write D1. The page-side write must not touch the network at all.
-test('a qualification result is stored only in the tab session and never sent to Work OS/D1',async()=>{
-  const m=await loadModule(adapter);
-  const key='work-os:chat-discovery-local-preview:v3';
-  const resultsKey='work-os:chat-discovery-local-preflight-results:v1';
-  const storage=new Map([[key,JSON.stringify({runId:'r',running:false,telegramCursor:99,candidates:[{id:'a',platform:'whatsapp',link:'https://chat.whatsapp.com/abcdefgh',name:'a'},{id:'b'}]})]]);
-  const networkCalls=[];
-  const sandbox={
-    sessionStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},
-    window:{dispatchEvent(){}},CustomEvent:class {},Date,
-    fetch:async(...args)=>{networkCalls.push(args);throw new Error('no network expected');},
-  };
-  const oldFetch=globalThis.fetch,oldSocket=globalThis.WebSocket;
-  globalThis.fetch=async()=>({ok:true,json:async()=>[{type:'page',url:'https://work.example/',webSocketDebuggerUrl:'ws://127.0.0.1:9222/test'}]});
-  globalThis.WebSocket=class extends EventTarget{
-    constructor(){super();queueMicrotask(()=>this.dispatchEvent(new Event('open')));}
-    send(raw){
-      const message=JSON.parse(raw);
-      Promise.resolve(vm.runInNewContext(message.params.expression,sandbox)).then(value=>{
-        const event=new Event('message');event.data=JSON.stringify({id:message.id,result:{result:{value}}});this.dispatchEvent(event);
-      });
-    }
-    close(){}
-  };
-  try{
-    const written=await m.writeWorkOsLocalDiscoveryResultViaCdp('https://work.example','a',{runId:'r',decision:'rejected',reasonCodes:['too_few_members'],result:{}},{cdpBaseUrl:'http://127.0.0.1:9222'});
-    assert.equal(written.kind,'result');
-    assert.equal(networkCalls.length,0);
-    const result=JSON.parse(storage.get(key));
-    assert.equal(result.running,false);
-    assert.equal(result.telegramCursor,99);
-    assert.equal(result.candidates.length,2);
-    assert.deepEqual(JSON.parse(storage.get(resultsKey)).a.reasonCodes,['too_few_members']);
-  }finally{globalThis.fetch=oldFetch;globalThis.WebSocket=oldSocket;}
-  const writer=adapter.slice(adapter.indexOf('export async function writeWorkOsLocalDiscoveryResultViaCdp'),adapter.indexOf('async function listWorkOsPagesForCdp'));
+// Operator decision 2026-10-02: a WhatsApp qualification result is not written to D1; only «Підтвердити»
+// and «Архівувати всі» write D1. Since 2026-10-04 it goes to the owner Durable Object's storage instead of
+// the tab session — still no network call from the runner other than the live channel, and no D1 write.
+test('a qualification result goes only to the owner DO over the live channel and never to D1',()=>{
+  const writer=runner.slice(runner.indexOf('function writeRunResult'),runner.indexOf('function releaseRunCandidate'));
+  assert.match(writer,/sendLive\(liveWs,\{type:'result',process:'discovery_run',candidateId:task\.candidateId,payload:final\}\)/);
   assert.doesNotMatch(writer,/fetch\(|persist-outcome/);
   assert.doesNotMatch(runner,/persist-outcome/);
+  const channel=readFileSync(new URL('../workers/owner-channel.js',import.meta.url),'utf8');
+  const handler=channel.indexOf('async handleDiscoveryRunMessage');
+  const resultBranch=channel.slice(channel.indexOf("} else if (message.type === 'result') {",handler),channel.indexOf("} else if (message.type === 'release') {",handler));
+  assert.match(resultBranch,/applyRunResult\(run, candidateId, message\.payload \?\? \{\}, now\)/);
+  assert.doesNotMatch(resultBranch,/this\.env\.DB/);
 });
 
 test('runner records source, metadata, join and persistence timing stages',()=>{
@@ -137,15 +114,11 @@ test('runner records source, metadata, join and persistence timing stages',()=>{
 });
 
 
-test('runner hydrates source feedback from browser localStorage without a D1/API scan',()=>{
-  assert.match(runner,/readWorkOsLocalDiscoverySourceFeedbackViaCdp/);
-  assert.match(runner,/hydrateDiscoverySourceFeedback/);
-  assert.match(runner,/updateWorkOsLocalDiscoverySourceFeedbackViaCdp/);
-  const start=adapter.indexOf('export async function readWorkOsLocalDiscoverySourceFeedbackViaCdp');
-  const end=adapter.indexOf('export async function updateWorkOsLocalDiscoverySourceFeedbackViaCdp',start);
-  const block=adapter.slice(start,end);
-  assert.match(block,/localStorage\.getItem/);
-  assert.doesNotMatch(block,/fetch\s*\(/u);
+test('runner hydrates source feedback pushed by the owner DO with each Telegram step, without a D1/API scan',()=>{
+  assert.match(runner,/hydrateDiscoverySourceFeedback\(job\.feedback\|\|\{\}\)/);
+  assert.doesNotMatch(runner,/readWorkOsLocalDiscoverySourceFeedbackViaCdp|updateWorkOsLocalDiscoverySourceFeedbackViaCdp/);
+  const channel=readFileSync(new URL('../workers/owner-channel.js',import.meta.url),'utf8');
+  assert.match(channel,/type: 'run_source', process: 'discovery_run', runId: run\.runId, cursor: run\.telegramCursor, feedback: await loadSourceFeedback\(this\.ctx\.storage\)/);
 });
 
 test('missing direct-join module falls back to factual UI inspection',async()=>{
@@ -184,12 +157,10 @@ test('retry checkpoint drops stale final while preserving joined identity',async
 
 test('UI retry uses the reset checkpoint instead of replaying a saved final outcome',()=>{
   const ui=readFileSync(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
-  const start=ui.indexOf('function retryIncompleteCandidate');
-  const end=ui.indexOf('async function addLocalTargetsToJoin',start);
-  const block=ui.slice(start,end);
-  assert.match(block,/storedCandidate=current\.candidates\.find/);
-  assert.match(block,/resetDiscoveryRetryCheckpoint\(storedCandidate\)/);
-  assert.match(block,/delete results\[candidate\.id\]/);
+  const runState=readFileSync(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8');
+  assert.match(ui,/await postRun\(\{action:'retry',candidateId:candidate\.id\}\)/);
+  const retry=runState.slice(runState.indexOf('export function retryCandidate'),runState.indexOf('function feedbackSourceKey'));
+  assert.match(retry,/discoveryCheckpoint: resetDiscoveryRetryCheckpoint\(stored, now\)/);
 });
 
 
@@ -248,11 +219,10 @@ test('joined recovery without groupId refreshes invite metadata before inspectio
   const deps={
     POST_JOIN_EVIDENCE_RECHECK_MS:300000,
     baseUrl:'test',whatsappCdp:'test',console:{log(){},warn(){}},
-    markWorkOsLocalDiscoveryCandidateViaCdp:async(_url,task)=>{if(task?.checkpoint)checkpoint=task.checkpoint;return {kind:'result'};},
-    writeWorkOsLocalDiscoveryResultViaCdp:async()=>({kind:'result'}),
-    readWorkOsLocalDiscoveryTaskViaCdp:async()=>({kind:'result',active:true,runId:'r'}),
-    updateWorkOsLocalDiscoverySourceFeedbackViaCdp:async()=>({kind:'result'}),
-    sourceFeedbackRefreshAt:0,
+    markRunCandidate:task=>{if(task?.checkpoint)checkpoint=task.checkpoint;return {kind:'result'};},
+    writeRunResult:()=>({kind:'result'}),
+    releaseRunCandidate(){},
+    liveWs:{readyState:1},WebSocket:{OPEN:1},runControl:{runId:'r',active:true},
     recordDiscoverySourceOutcome(){},clearTaskBlock(){},markTaskBlocked(){},
     queryWhatsappInviteViaCdp:async task=>{queries.push(task);return {kind:'result',result:{
       groupId:'recovered@g.us',memberCount:702,topicMatch:'match',chatType:'group',canWrite:true,
@@ -266,7 +236,7 @@ test('joined recovery without groupId refreshes invite metadata before inspectio
       joinedAt:task.preflightFacts?.joinedAt||Date.now(),recentMessageCount:0,
     }};},
   };
-  const code=runner.slice(runner.indexOf('function evaluateLocalPreflight'),runner.indexOf('async function resolveLocalSourcePlan'));
+  const code=runner.slice(runner.indexOf('function evaluateLocalPreflight'),runner.indexOf('function resolveRunSourcePlan'));
   const ctx=vm.createContext({...deps,Date});
   vm.runInContext(code+';globalThis.run=processLocalPreflightVisible;',ctx);
   await ctx.run({candidateId:'joined-no-gid',runId:'r',name:'Загальний',membershipState:'joined',checkpoint});

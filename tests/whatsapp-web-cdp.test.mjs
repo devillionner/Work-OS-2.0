@@ -28,11 +28,10 @@ const task = {
   },
 };
 
-void test('Work OS local preflight bridge finds the active tab when duplicate Work OS tabs are open', () => {
-  assert.match(source,/listWorkOsPagesForCdp/);
-  assert.match(source,/for\(const page of pagesResult\.pages\)/);
-  assert.match(source,/if\(value\.active===true\|\|value\.task\)/);
-  assert.match(source,/work_os_result_target_not_found/);
+void test('the Work OS tab is only read for the executor token; the run-state bridge into the tab is gone', () => {
+  assert.match(source,/async function listWorkOsPagesForCdp/);
+  assert.match(source,/export async function readWorkOsExecutorTokenViaCdp/);
+  assert.doesNotMatch(source,/readWorkOsLocalDiscoveryTaskViaCdp|applyWorkOsLocalDiscoverySourceBatchViaCdp|writeWorkOsLocalDiscoveryResultViaCdp|work-os:chat-discovery-local-preview/);
 });
 
 void test('WhatsApp invite conversion keeps only the exact invite code', () => {
@@ -708,11 +707,12 @@ void test('WhatsApp autopost never sends or confirms after its 90s lease',()=>{
 });
 
 
-void test('local Discovery checks high-signal Ukrainian candidates before malformed low-signal rows without changing qualification criteria',()=>{
-  assert.match(source,/const priority=\(item\)=>/);
-  assert.match(source,/score\+=8/);
-  assert.match(source,/score-=8/);
-  assert.match(source,/\.sort\(\(a,b\)=>priority\(b\)-priority\(a\)\)/);
+void test('local Discovery checks high-signal Ukrainian candidates before malformed low-signal rows without changing qualification criteria',async()=>{
+  const runState=await readFile(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8');
+  assert.match(runState,/function priority\(candidate: RunCandidate\)/);
+  assert.match(runState,/score \+= 8/);
+  assert.match(runState,/score -= 8/);
+  assert.match(runState,/\.sort\(\(a, b\) => priority\(b\) - priority\(a\)\)/);
 });
 
 
@@ -722,9 +722,9 @@ void test('current WhatsApp header and composer surfaces are included in factual
   assert.match(source,/#main \[contenteditable="true"\]\[role="textbox"\]/);
 });
 
-void test('browser-local task reader accepts a temporary skip list so one incomplete candidate cannot block the queue',()=>{
-  assert.match(source,/skipCandidateIds=\[\]/);
-  assert.match(source,/!skipped\.has\(item\.id\)/);
+void test('a candidate in local cooldown is skipped by the dispatcher so one incomplete candidate cannot block the queue',async()=>{
+  const runState=await readFile(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8');
+  assert.match(runState,/!\(Number\(candidate\.skipUntil\) > now\)/);
 });
 
 

@@ -175,3 +175,32 @@ void test('confirm/archive/non-target/retry from the UI update the run; a reconn
   assert.equal(ofType(again, 'run_plan')[0]?.runId, run.runId);
   assert.ok(ofType(again, 'run_source').length + ofType(again, 'run_task').length === 1, 'exactly one run item is pushed');
 });
+
+// Awaiting D1 lets other events into a Durable Object. A pause pressed on a phone while a Telegram step's
+// duplicate check runs must survive the step (it used to be a sessionStorage race in the tab, too).
+void test('a pause that arrives during a Telegram step\'s D1 work is not undone by the step', async (t) => {
+  const { db, ctx, runner } = await setup(t);
+  let hook = null;
+  const wrap = (statement) => {
+    const wrapped = Object.create(statement);
+    wrapped.bind = (...values) => wrap(statement.bind(...values));
+    for (const method of ['all', 'first', 'run']) wrapped[method] = async (...args) => { if (hook) { const run = hook; hook = null; await run(); } return statement[method](...args); };
+    return wrapped;
+  };
+  const slowDb = new Proxy(db, { get(target, property) {
+    if (property === 'prepare') return (sql) => wrap(target.prepare(sql));
+    if (property === 'batch') return async (statements) => { if (hook) { const run = hook; hook = null; await run(); } return target.batch(statements); };
+    const value = target[property];
+    return typeof value === 'function' ? value.bind(target) : value;
+  } });
+  const channel = new OwnerChannel(ctx, { DB: slowDb });
+  const { run } = await post(channel, { action: 'start', goal: 5 });
+
+  hook = async () => { await post(channel, { action: 'pause' }); };
+  await message(channel, runner, { type: 'source_result', runId: run.runId, batch: { nextCursor: 1, searched: 1, done: false, totalTasks: 30 }, sources: [telegramSource] });
+
+  const state = (await (await runRequest(channel, { method: 'GET' })).json()).run;
+  assert.equal(state.running, false, 'the pause pressed during the step stays in effect');
+  assert.ok(state.pauseSummary);
+  assert.equal(hook, null, 'the pause really ran in the middle of the D1 work');
+});

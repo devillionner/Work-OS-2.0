@@ -10,9 +10,9 @@ import { Input } from '@/components/ui/input';
 import type { DiscoveryCandidate, DiscoveryDecision, DiscoveryRun } from '@/lib/chat-discovery/domain';
 import type { DiscoveryPlatform, TelegramSearchPlan } from '@/lib/chat-discovery/public-web';
 import type { LocalDiscoveryPreview } from '@/lib/chat-discovery/local-preview';
-import chatDiscoverySeeds from '@/lib/chat-discovery/seeds';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
-import { resetDiscoveryRetryCheckpoint } from '@/lib/chat-discovery/retry-state';
+import { EMPTY_RUN, NON_TARGET_STATES, canResume, runTargetCount, type DiscoveryRunState } from '@/lib/chat-discovery/run-state';
+import { subscribeLiveMessages, subscribeLiveStatus } from '@/lib/live-channel';
 import { normalizeGroupLink } from '@/lib/chats/bulk-input';
 
 type Workspace = {
@@ -25,55 +25,9 @@ type Workspace = {
   error?: string;
 };
 type ImportResponse = { chatId?: string; existing?: boolean; workflowStatus?: string; error?: string };
-type LocalPreviewSession = {
-  runId?:string;
-  sourceTotal:number;
-  sourceErrors:number;
-  sourceFailures:number;
-  sourceIssues:Array<{reason:string;query:string}>;
-  telegramCursor:number;
-  discoveryMetrics?:{completed:number;targets:number;totalCheckMs:number;reasons:Record<string,number>};
-  sourceCursor:number;
-  searched:number;
-  processed:number;
-  duplicates:number;
-  rejected:number;
-  emptySourceBatches:number;
-  done:boolean;
-  running:boolean;
-  sourceExhausted:boolean;
-  goal:number;
-  lastActivityAt:number|null;
-  completionReason:'goal_reached'|'sources_exhausted'|'source_error'|null;
-  candidates:LocalDiscoveryPreview[];
-  confirmedThisRun?:number;
-  activeCandidateId?:string|null;
-  activeCandidateName?:string|null;
-  activeCandidateLink?:string|null;
-  activeCandidateStartedAt?:number|null;
-  lastCheckedName?:string|null;
-  lastCheckedDecision?:'review'|'target'|'rejected'|'skipped'|'unavailable'|null;
-  lastCheckedAt?:number|null;
-  lastCheckedReasonCodes?:string[];
-  pauseSummary?:{
-    at:number;
-    cursor:number;
-    targets:number;
-    rejected:number;
-    skipped:number;
-    unavailable:number;
-    unverified:number;
-    archiveFailed:number;
-  }|null;
-};
-type LocalPreflightPayload={
-  decision:'review'|'target'|'rejected'|'skipped'|'unavailable';
-  reasonCodes:string[];
-  result:Record<string,unknown>;
-  leftAfterCheck?:boolean;
-  leaveReason?:string|null;
-  completedAt:number;
-};
+// The run lives in the owner Durable Object since 2026-10-04 (lib/chat-discovery/run-state.ts): this tab
+// only shows it and sends commands, so closing the tab no longer stops it and every device sees it.
+type LocalPreviewSession = DiscoveryRunState;
 type SearchPreviewResponse={
   source:'telegram'|'public_web'|'idle';
   telegramCursor:number;
@@ -101,19 +55,9 @@ const EMPTY_COUNTS: Record<DiscoveryDecision, number> = {
   rejected: 0,
   unavailable: 0,
 };
-const LOCAL_PREVIEW_KEY='work-os:chat-discovery-local-preview:v3';
-const LOCAL_PREFLIGHT_RESULTS_KEY='work-os:chat-discovery-local-preflight-results:v1';
-const LOCAL_SOURCE_SEEDS_KEY='work-os:chat-discovery-source-seeds:v1';
-const LOCAL_TELEGRAM_GROUPS_KEY='work-os:chat-discovery-telegram-groups:v1';
-const LOCAL_SOURCE_START_CURSOR=0;
 const ARCHIVE_CHUNK=100;
-const FINISHED_STATES=new Set(['target','review','rejected','skipped','unavailable']);
-const NON_TARGET_STATES=new Set(['rejected','skipped','unavailable']);
-const EMPTY_LOCAL_PREVIEW:LocalPreviewSession={
-  sourceTotal:0,sourceErrors:0,sourceFailures:0,sourceIssues:[],
-  telegramCursor:0,sourceCursor:0,searched:0,processed:0,duplicates:0,rejected:0,emptySourceBatches:0,
-  done:false,running:false,sourceExhausted:false,goal:50,lastActivityAt:null,completionReason:null,candidates:[],
-};
+// Fallback refresh of the run while the live channel is down and the dialog is open.
+const RUN_FALLBACK_POLL_MS=15_000;
 
 export function ChatDiscoveryDialog({
   open,
@@ -138,8 +82,9 @@ export function ChatDiscoveryDialog({
   const [pausing,setPausing]=useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
-  const [localPreview,setLocalPreview]=useState<LocalPreviewSession>(EMPTY_LOCAL_PREVIEW);
-  const [localPreviewHydrated,setLocalPreviewHydrated]=useState(false);
+  const [localPreview,setLocalPreview]=useState<LocalPreviewSession>(EMPTY_RUN);
+  const [runnerConnected,setRunnerConnected]=useState<boolean|null>(null);
+  const [liveConnected,setLiveConnected]=useState(false);
   // The persisted Work OS history is a D1 read: it is loaded only when the operator opens «Історія».
   const load = useCallback(async (options: { silent?: boolean } = {}) => {
     const silent=options.silent===true;
@@ -169,58 +114,50 @@ export function ChatDiscoveryDialog({
     return () => clearTimeout(timer);
   }, [open, filter, load]);
 
-  useEffect(()=>{
-    const restored=readLocalPreviewSession();
-    // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
-    setLocalPreview(restored);
-    setGoal(restored.goal);
-    setLocalPreviewHydrated(true);
+  const loadRun=useCallback(async()=>{
+    try{
+      const response=await fetch('/api/chat-discovery/run',{cache:'no-store'});
+      const body=await response.json() as {run?:LocalPreviewSession;runnerConnected?:boolean;error?:string};
+      if(!response.ok||!body.run)return;
+      setLocalPreview(body.run);
+      setRunnerConnected(body.runnerConnected===true);
+    }catch{}
   },[]);
 
+  // The owner DO pushes a signal for every run change; the dialog re-reads the run (DO storage, no D1).
   useEffect(()=>{
-    if(!localPreviewHydrated)return;
-    try{window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(localPreview));}catch{}
-  },[localPreviewHydrated,localPreview]);
+    if(!open)return;
+    const initial=setTimeout(()=>void loadRun(),0);
+    let timer:ReturnType<typeof setTimeout>|null=null;
+    const offMessages=subscribeLiveMessages(message=>{
+      if(message.type==='runner_status'&&typeof message.connected==='boolean')setRunnerConnected(message.connected);
+      if(message.type!=='process_state'||message.process!=='discovery_run')return;
+      if(timer!==null)clearTimeout(timer);
+      timer=setTimeout(()=>{timer=null;void loadRun();},300);
+    });
+    const offStatus=subscribeLiveStatus(status=>{
+      setLiveConnected(status.connected);
+      if(status.runnerConnected!==null)setRunnerConnected(status.runnerConnected);
+    });
+    return()=>{clearTimeout(initial);offMessages();offStatus();if(timer!==null)clearTimeout(timer);};
+  },[open,loadRun]);
 
   useEffect(()=>{
-    if(!localPreviewHydrated)return;
-    const timer=window.setInterval(()=>{
-      let results:Record<string,LocalPreflightPayload>={};
-      try{results=JSON.parse(window.sessionStorage.getItem(LOCAL_PREFLIGHT_RESULTS_KEY)||'{}') as Record<string,LocalPreflightPayload>;}catch{}
-      if(!Object.keys(results).length)return;
-      setLocalPreview(current=>applyLocalPreflightResults(current,results));
-    },750);
+    if(!open||liveConnected||!localPreview.running)return;
+    const timer=window.setInterval(()=>void loadRun(),RUN_FALLBACK_POLL_MS);
     return()=>window.clearInterval(timer);
-  },[localPreviewHydrated]);
+  },[open,liveConnected,localPreview.running,loadRun]);
 
   const runTargets=runTargetCount(localPreview);
-  useEffect(()=>{
-    if(!localPreviewHydrated||!localPreview.running)return;
-    if(runTargets>=localPreview.goal){
-      // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
-      setLocalPreview(current=>({...current,running:false,done:true,completionReason:'goal_reached',lastActivityAt:Date.now()}));
-      return;
-    }
-    const queuedCount=localPreview.candidates.filter(candidate=>candidate.preflightState==='queued').length;
-    if(localPreview.sourceExhausted&&queuedCount===0){
-      setLocalPreview(current=>({...current,running:false,done:true,completionReason:'sources_exhausted',lastActivityAt:Date.now()}));
-    }
-  },[localPreviewHydrated,localPreview.running,localPreview.goal,localPreview.sourceExhausted,localPreview.candidates,runTargets]);
 
-  useEffect(()=>{
-    if(!localPreviewHydrated)return;
-    // Keep the private source plan browser-local and refresh it after F5/deploy so an
-    // already-running local Discovery session can continue without any D1/API read.
-    try{window.sessionStorage.setItem(LOCAL_SOURCE_SEEDS_KEY,JSON.stringify(chatDiscoverySeeds));}
-    catch{}
-  },[localPreviewHydrated]);
-
-  useEffect(()=>{
-    if(!localPreviewHydrated)return;
-    const sync=()=>setLocalPreview(readLocalPreviewSession());
-    window.addEventListener('work-os:chat-discovery-local-update',sync);
-    return()=>window.removeEventListener('work-os:chat-discovery-local-update',sync);
-  },[localPreviewHydrated]);
+  async function postRun(body:Record<string,unknown>){
+    const response=await fetch('/api/chat-discovery/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const payload=await response.json().catch(()=>({})) as {run?:LocalPreviewSession;runnerConnected?:boolean;error?:string};
+    if(!response.ok||!payload.run)throw new Error(payload.error||'Не вдалося змінити автопошук.');
+    setLocalPreview(payload.run);
+    setRunnerConnected(payload.runnerConnected===true);
+    return payload.run;
+  }
 
   async function post(body: Record<string, unknown>) {
     const response = await fetch('/api/chat-discovery', {
@@ -278,119 +215,38 @@ export function ChatDiscoveryDialog({
     if(telegramBusy)return;
     setError('');
     setNotice('');
-    try{window.sessionStorage.setItem(LOCAL_SOURCE_SEEDS_KEY,JSON.stringify(chatDiscoverySeeds));}
-    catch{setError('Не вдалося підготувати локальний план пошуку в цій вкладці.');return;}
-    if(localPreview.completionReason==='source_error'){
-      setLocalPreview(current=>({...current,running:true,done:false,sourceFailures:0,sourceIssues:[],completionReason:null,pauseSummary:null,lastActivityAt:Date.now()}));
-      setNotice('Продовжуємо з кроку, на якому зупинились.');
-      return;
-    }
-    if(localPreview.pauseSummary&&!localPreview.done){
-      const resumed:LocalPreviewSession={
-        ...localPreview,
-        running:true,
-        done:false,
-        sourceFailures:0,
-        sourceIssues:[],
-        completionReason:null,
-        pauseSummary:null,
-        activeCandidateId:null,
-        activeCandidateName:null,
-        activeCandidateLink:null,
-        activeCandidateStartedAt:null,
-        lastActivityAt:Date.now(),
-      };
-      try{window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(resumed));}
-      catch{setError('Не вдалося відновити локальний автопошук у браузерній сесії.');return;}
-      setLocalPreview(resumed);
-      window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
-      setFilter('active');
-      setNotice(`Продовжуємо з кроку ${resumed.telegramCursor}. Уже перевірені запрошення й переглянуті Telegram-групи не повторюються.`);
-      return;
-    }
     setTelegramBusy(true);
-    // Telegram groups that the owner's accounts already joined: one bounded D1 read per run start.
     try{
-      const groups=await postPreview({action:'telegram-groups'}) as {groups?:Array<{name:string;link:string}>};
-      window.sessionStorage.setItem(LOCAL_TELEGRAM_GROUPS_KEY,JSON.stringify(Array.isArray(groups.groups)?groups.groups:[]));
-    }catch{
-      setNotice('Список приєднаних Telegram-груп не завантажився — шукаємо лише через пошук Telegram.');
-    }finally{
-      setTelegramBusy(false);
-    }
-    setFilter('active');
-    // Finished results stay until the operator confirms or archives them, so a new run never re-checks them.
-    const carried=readLocalPreviewSession().candidates.filter(candidate=>FINISHED_STATES.has(String(candidate.preflightState)));
-    const nextRun:LocalPreviewSession={
-      ...EMPTY_LOCAL_PREVIEW,
-      runId:crypto.randomUUID(),
-      running:true,
-      goal,
-      telegramCursor:LOCAL_SOURCE_START_CURSOR,
-      sourceCursor:LOCAL_SOURCE_START_CURSOR,
-      candidates:carried,
-      confirmedThisRun:0,
-      lastActivityAt:Date.now(),
-    };
-    // The external runner reads sessionStorage directly through CDP. Persist the
-    // run synchronously before React scheduling so the UI cannot show "running"
-    // while the runner still sees the previous stopped state.
-    try{window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(nextRun));}
-    catch{setError('Не вдалося записати стан автопошуку в браузерну сесію.');return;}
-    setLocalPreview(nextRun);
-    window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
+      if(canResume(localPreview)){
+        const resumed=await postRun({action:'resume'});
+        setFilter('active');
+        setNotice(resumed.completionReason===null&&localPreview.completionReason==='source_error'
+          ?'Продовжуємо з кроку, на якому зупинились.'
+          :`Продовжуємо з кроку ${resumed.telegramCursor}. Уже перевірені запрошення й переглянуті Telegram-групи не повторюються.`);
+        return;
+      }
+      await postRun({action:'start',goal});
+      setFilter('active');
+    }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося запустити автопошук.');}
+    finally{setTelegramBusy(false);}
   }
 
   async function stopAutonomousSearch(){
     if(telegramBusy)return;
     setPausing(true);
-    const current=readLocalPreviewSession();
-    const candidates=current.candidates;
-    const stopped:LocalPreviewSession={
-      ...current,running:false,sourceFailures:0,sourceIssues:[],activeCandidateId:null,activeCandidateName:null,
-      activeCandidateLink:null,activeCandidateStartedAt:null,lastActivityAt:Date.now(),
-      pauseSummary:{
-        at:Date.now(),cursor:current.telegramCursor,
-        targets:candidates.filter(c=>c.preflightState==='target').length,
-        rejected:candidates.filter(c=>c.preflightState==='rejected').length,
-        skipped:candidates.filter(c=>c.preflightState==='skipped').length,
-        unavailable:candidates.filter(c=>c.preflightState==='unavailable').length,
-        unverified:candidates.filter(c=>c.preflightState==='queued').length,
-        archiveFailed:0,
-      },
-    };
     try{
-      window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(stopped));
-      setLocalPreview(stopped);
-      window.dispatchEvent(new CustomEvent('work-os:chat-discovery-local-update'));
+      await postRun({action:'pause'});
       setNotice('Пошук зупинено. Неперевірені чати збережено в черзі; завершені результати не повторюються.');
-    }catch{setError('Не вдалося зберегти паузу.');}
+    }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося зберегти паузу.');}
     finally{setPausing(false);}
   }
 
-  function retryIncompleteCandidate(candidate:DiscoveryCandidate){
+  async function retryIncompleteCandidate(candidate:DiscoveryCandidate){
     if(localPreview.running||telegramBusy)return;
-    const current=readLocalPreviewSession();
-    const storedCandidate=current.candidates.find(item=>item.id===candidate.id)||candidate;
-    const recovered={
-      ...storedCandidate,localOnly:true,preflightState:'queued',preflightReasonCodes:[],
-      decision:'review',reasonCodes:[],
-      discoveryCheckpoint:resetDiscoveryRetryCheckpoint(storedCandidate),
-    } as LocalDiscoveryPreview;
-    const next:LocalPreviewSession={
-      ...current,done:false,completionReason:null,
-      candidates:[...current.candidates.filter(c=>c.id!==candidate.id),recovered],
-      pauseSummary:{at:Date.now(),cursor:current.telegramCursor,targets:0,rejected:0,
-        skipped:0,unavailable:0,unverified:1,archiveFailed:0},
-    };
     try{
-      const results=JSON.parse(window.sessionStorage.getItem(LOCAL_PREFLIGHT_RESULTS_KEY)||'{}');
-      delete results[candidate.id];
-      window.sessionStorage.setItem(LOCAL_PREFLIGHT_RESULTS_KEY,JSON.stringify(results));
-      window.sessionStorage.setItem(LOCAL_PREVIEW_KEY,JSON.stringify(next));
-      setLocalPreview(next);
+      await postRun({action:'retry',candidateId:candidate.id});
       setNotice('Кандидат повернуто в чергу. Натисни «Продовжити автопошук». Уже приєднаний чат перевірятиметься без повторного вступу.');
-    }catch{setError('Не вдалося відновити кандидата.');}
+    }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося відновити кандидата.');}
   }
 
   // «Архівувати всі»: the only way non-target results reach D1 — one request per 100 chats, one D1 batch each.
@@ -411,17 +267,17 @@ export function ChatDiscoveryDialog({
     }catch(reason){
       setError(reason instanceof Error?reason.message:'Не вдалося архівувати нецільові чати.');
     }finally{
-      if(archived.size)setLocalPreview(current=>({...current,candidates:current.candidates.filter(candidate=>!archived.has(candidate.id))}));
+      if(archived.size)await postRun({action:'archived',candidateIds:[...archived]}).catch(()=>loadRun());
       setTelegramBusy(false);
     }
   }
 
   // Local only: a target or a chat waiting for a decision moves to «Нецільові»; D1 is touched by «Архівувати всі».
-  function moveToNonTarget(candidate:LocalDiscoveryPreview){
-    setLocalPreview(current=>({...current,candidates:current.candidates.map(item=>item.id===candidate.id
-      ?{...item,decision:'rejected',preflightState:'rejected',reasonCodes:['operator_rejected'],preflightReasonCodes:['operator_rejected']}
-      :item)}));
-    setNotice('Чат перенесено в «Нецільові». У Work OS він потрапить лише після «Архівувати всі».');
+  async function moveToNonTarget(candidate:LocalDiscoveryPreview){
+    try{
+      await postRun({action:'non-target',candidateId:candidate.id});
+      setNotice('Чат перенесено в «Нецільові». У Work OS він потрапить лише після «Архівувати всі».');
+    }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося перенести чат.');}
   }
 
   async function markInviteInvalid(candidate: DiscoveryCandidate) {
@@ -513,7 +369,7 @@ export function ChatDiscoveryDialog({
   }
 
   async function archiveCandidate(candidate:DiscoveryCandidate){
-    if(isLocalPreview(candidate)){moveToNonTarget(candidate);return;}
+    if(isLocalPreview(candidate)){await moveToNonTarget(candidate);return;}
     if(inspectingId||importingId)return;
     setInspectingId(candidate.id);
     setError('');
@@ -550,10 +406,7 @@ export function ChatDiscoveryDialog({
             },
           }) as unknown as ImportResponse
         : await post({action:'import',candidateId:candidate.id,version:candidate.version}) as unknown as ImportResponse;
-      if(isLocalPreview(candidate)){
-        removeLocalPreview(candidate.id);
-        setLocalPreview(current=>({...current,confirmedThisRun:(current.confirmedThisRun||0)+1}));
-      }
+      if(isLocalPreview(candidate))await postRun({action:'confirmed',candidateId:candidate.id}).catch(()=>loadRun());
       setNotice(payload.existing
         ? 'Чат уже був у Work OS — дубль не створено.'
         : useFactualConfirm
@@ -566,10 +419,6 @@ export function ChatDiscoveryDialog({
     } finally {
       setImportingId(null);
     }
-  }
-
-  function removeLocalPreview(id:string){
-    setLocalPreview(current=>({...current,candidates:current.candidates.filter(candidate=>candidate.id!==id)}));
   }
 
   function changeFilter(next: DecisionFilter) {
@@ -662,7 +511,8 @@ export function ChatDiscoveryDialog({
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <h3 className="text-base font-semibold">{autonomousRunning?'Пошук працює':'Новий запуск'}</h3>
-                  <p className="mt-1 text-xs leading-5 text-foreground/70">{autonomousRunning?'Можна закрити модалку: прогрес не загубиться.':'Обери мету й запусти. Решту Work OS зробить автоматично.'}</p>
+                  <p className="mt-1 text-xs leading-5 text-foreground/70">{autonomousRunning?'Можна закрити модалку чи вкладку й запустити з телефона — пошук іде, поки runner на ПК підключений.':'Обери мету й запусти. Решту Work OS зробить автоматично.'}</p>
+                  {runnerConnected===false&&<p className="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-400">Runner на ПК не підключений: пошук продовжиться, щойно він підключиться.</p>}
                 </div>
                 <Badge>WhatsApp</Badge>
               </div>
@@ -910,74 +760,6 @@ export function ChatDiscoveryDialog({
   </Dialog>;
 }
 
-function applyLocalPreflightResults(current:LocalPreviewSession,results:Record<string,LocalPreflightPayload>):LocalPreviewSession{
-  let changed=false;
-  let duplicates=current.duplicates;
-  const seenTargets=new Map<string,string>();
-  const candidates=current.candidates.map(candidate=>{
-    if(candidate.preflightState==='target'){
-      const identity=localTargetIdentity(candidate);
-      if(identity)seenTargets.set(identity,candidate.id);
-    }
-    return candidate;
-  }).map((candidate):LocalDiscoveryPreview=>{
-    if(candidate.preflightState!=='queued')return candidate;
-    const payload=results[candidate.id];
-    if(!payload)return candidate;
-    changed=true;
-    const result=payload.result||{};
-    const observedName=typeof result.observedName==='string'&&result.observedName.trim()?result.observedName.trim():candidate.name;
-    const memberCount=typeof result.memberCount==='number'&&Number.isFinite(result.memberCount)?result.memberCount:null;
-    const next:LocalDiscoveryPreview={
-      ...candidate,
-      name:observedName,
-      checkedAt:Number.isFinite(payload.completedAt)?Math.floor(payload.completedAt/1000):candidate.checkedAt,
-      memberCount:memberCount??candidate.memberCount,
-      groupId:typeof result.groupId==='string'?result.groupId:candidate.groupId,
-      leaveReason:payload.leaveReason||null,
-      chatType:result.chatType==='community'?'community':result.chatType==='group'?'group':candidate.chatType,
-      activityState:result.activityState==='active'||result.activityState==='dead'?result.activityState:'unknown',
-      topicMatch:result.topicMatch==='match'||result.topicMatch==='mismatch'?result.topicMatch:'unknown',
-      canWrite:typeof result.canWrite==='boolean'?result.canWrite:null,
-      adsPolicy:['allowed','forbidden','operator_confirmed','inferred_allowed'].includes(String(result.adsPolicy))?result.adsPolicy as LocalDiscoveryPreview['adsPolicy']:'unknown',
-      membershipState:payload.leftAfterCheck?'left':result.membershipState==='joined'?'joined':result.membershipState==='pending'?'pending':candidate.membershipState,
-      accessState:result.accessible===true?'available':result.accessible===false?'unavailable':candidate.accessState,
-      linkState:result.reason==='invalid_whatsapp_link'?'invalid':result.targetVerified===true?'valid':candidate.linkState,
-      inspectionState:result.status==='inspected'||result.status==='manual_review'?'inspected':'failed',
-      decision:payload.decision==='review'?'review':payload.decision==='target'?'target':payload.decision==='unavailable'?'unavailable':'rejected',
-      reasonCodes:Array.isArray(payload.reasonCodes)?payload.reasonCodes:[],
-      preflightState:payload.decision,
-      preflightReasonCodes:Array.isArray(payload.reasonCodes)?payload.reasonCodes:[],
-      leftAfterCheck:payload.leftAfterCheck===true,
-      checkedRunId:current.runId,
-      updatedAt:Number.isFinite(payload.completedAt)?Math.floor(payload.completedAt/1000):candidate.updatedAt,
-    };
-    if(next.preflightState==='target'){
-      const identity=localTargetIdentity(next);
-      const existing=identity?seenTargets.get(identity):null;
-      if(existing&&existing!==next.id){
-        duplicates+=1;
-        return {...next,decision:'rejected',preflightState:'rejected',preflightReasonCodes:['duplicate_joined_chat'],reasonCodes:['duplicate_joined_chat']};
-      }
-      if(identity)seenTargets.set(identity,next.id);
-    }
-    return next;
-  });
-  if(!changed)return current;
-  const queuedCount=candidates.filter(candidate=>candidate.preflightState==='queued').length;
-  const reached=runTargetCount({...current,candidates})>=current.goal;
-  const exhausted=current.sourceExhausted&&queuedCount===0&&!reached;
-  return {
-    ...current,
-    candidates,
-    duplicates,
-    running:current.running&&!(reached||exhausted),
-    done:reached||exhausted,
-    completionReason:reached?'goal_reached':exhausted?'sources_exhausted':current.completionReason,
-    lastActivityAt:Date.now(),
-  };
-}
-
 function localCandidatesForFilter(candidates:LocalDiscoveryPreview[],filter:DecisionFilter){
   if(filter==='active'){
     // Chats waiting for an operator decision first, then the queue.
@@ -985,13 +767,6 @@ function localCandidatesForFilter(candidates:LocalDiscoveryPreview[],filter:Deci
   }
   return candidates.filter(candidate=>(filter==='target'&&candidate.preflightState==='target')
     ||(filter==='rejected'&&NON_TARGET_STATES.has(String(candidate.preflightState))));
-}
-
-// Progress toward the goal counts targets of this run only (unconfirmed ones carried over from a previous run
-// are shown but do not end a new run immediately) plus targets already confirmed during this run.
-function runTargetCount(session:LocalPreviewSession){
-  const current=session.candidates.filter(candidate=>candidate.preflightState==='target'&&candidate.checkedRunId===session.runId).length;
-  return current+(session.confirmedThisRun||0);
 }
 
 function archiveItem(candidate:LocalDiscoveryPreview){
@@ -1013,67 +788,10 @@ function archiveItem(candidate:LocalDiscoveryPreview){
   };
 }
 
-function localTargetIdentity(candidate:LocalDiscoveryPreview){
-  return candidate.groupId? `group:${candidate.groupId}` : `invite:${candidate.link}`;
-}
-
-function readLocalPreviewSession():LocalPreviewSession{
-  try{
-    const raw=window.sessionStorage.getItem(LOCAL_PREVIEW_KEY);
-    if(!raw)return EMPTY_LOCAL_PREVIEW;
-    const value=JSON.parse(raw) as Partial<LocalPreviewSession>;
-    const candidates=Array.isArray(value.candidates)?value.candidates
-      .filter((item):item is LocalDiscoveryPreview=>Boolean(item&&typeof item==='object'&&(item as LocalDiscoveryPreview).localOnly===true&&typeof (item as LocalDiscoveryPreview).link==='string'))
-      .map<LocalDiscoveryPreview>(item=>({...item,preflightState:item.preflightState||'queued',preflightReasonCodes:Array.isArray(item.preflightReasonCodes)?item.preflightReasonCodes:[],leftAfterCheck:item.leftAfterCheck===true}))
-      :[];
-    return {
-      runId:typeof value.runId==='string'?value.runId:undefined,
-      discoveryMetrics:value.discoveryMetrics,
-      sourceTotal:safeNonNegativeInt(value.sourceTotal),
-      sourceErrors:safeNonNegativeInt(value.sourceErrors),
-      sourceFailures:safeNonNegativeInt(value.sourceFailures),
-      sourceIssues:Array.isArray(value.sourceIssues)?value.sourceIssues.filter(item=>item&&typeof item.reason==='string'&&typeof item.query==='string').slice(0,8):[],
-      telegramCursor:safeNonNegativeInt(value.telegramCursor),
-      sourceCursor:safeNonNegativeInt(value.sourceCursor),
-      searched:safeNonNegativeInt(value.searched),
-      processed:safeNonNegativeInt(value.processed),
-      duplicates:safeNonNegativeInt(value.duplicates),
-      rejected:safeNonNegativeInt(value.rejected),
-      emptySourceBatches:safeNonNegativeInt(value.emptySourceBatches),
-      done:value.done===true,
-      running:value.running===true,
-      sourceExhausted:value.sourceExhausted===true,
-      goal:clampNumber(value.goal,1,100,50),
-      lastActivityAt:Number.isFinite(Number(value.lastActivityAt))?Number(value.lastActivityAt):null,
-      completionReason:value.completionReason==='goal_reached'||value.completionReason==='sources_exhausted'||value.completionReason==='source_error'?value.completionReason:null,
-      activeCandidateId:typeof value.activeCandidateId==='string'?value.activeCandidateId:null,
-      activeCandidateName:typeof value.activeCandidateName==='string'?value.activeCandidateName:null,
-      activeCandidateLink:typeof value.activeCandidateLink==='string'?value.activeCandidateLink:null,
-      activeCandidateStartedAt:Number.isFinite(Number(value.activeCandidateStartedAt))?Number(value.activeCandidateStartedAt):null,
-      lastCheckedName:typeof value.lastCheckedName==='string'?value.lastCheckedName:null,
-      lastCheckedDecision:value.lastCheckedDecision==='review'||value.lastCheckedDecision==='target'||value.lastCheckedDecision==='rejected'||value.lastCheckedDecision==='skipped'||value.lastCheckedDecision==='unavailable'?value.lastCheckedDecision:null,
-      lastCheckedAt:Number.isFinite(Number(value.lastCheckedAt))?Number(value.lastCheckedAt):null,
-      lastCheckedReasonCodes:Array.isArray(value.lastCheckedReasonCodes)?value.lastCheckedReasonCodes.filter((item):item is string=>typeof item==='string').slice(0,8):[],
-      pauseSummary:value.pauseSummary&&typeof value.pauseSummary==='object'?{
-        at:Number.isFinite(Number(value.pauseSummary.at))?Number(value.pauseSummary.at):Date.now(),
-        cursor:safeNonNegativeInt(value.pauseSummary.cursor),
-        targets:safeNonNegativeInt(value.pauseSummary.targets),
-        rejected:safeNonNegativeInt(value.pauseSummary.rejected),
-        skipped:safeNonNegativeInt(value.pauseSummary.skipped),
-        unavailable:safeNonNegativeInt(value.pauseSummary.unavailable),
-        unverified:safeNonNegativeInt(value.pauseSummary.unverified),
-        archiveFailed:safeNonNegativeInt(value.pauseSummary.archiveFailed),
-      }:null,
-      candidates,
-      confirmedThisRun:safeNonNegativeInt(value.confirmedThisRun),
-    };
-  }catch{return EMPTY_LOCAL_PREVIEW;}
-}
 function formatActivityTime(value:number|null){
   if(!value)return '—';
   return new Intl.DateTimeFormat('uk-UA',{hour:'2-digit',minute:'2-digit'}).format(new Date(value));
 }
-function safeNonNegativeInt(value:unknown){const number=Number(value);return Number.isSafeInteger(number)&&number>=0?number:0;}
 function isLocalPreview(candidate:DiscoveryCandidate):candidate is LocalDiscoveryPreview{
   return (candidate as Partial<LocalDiscoveryPreview>).localOnly===true;
 }

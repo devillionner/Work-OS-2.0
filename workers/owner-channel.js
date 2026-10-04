@@ -605,6 +605,10 @@ export class OwnerChannel {
     const state = await this.readState();
     const job = state.discoveryRunJob;
     const now = Date.now();
+    // A Telegram step's D1 duplicate check happens BEFORE the run is (re)loaded: awaiting D1 lets other
+    // events in (a pause from a phone, for example), so the step must apply to the state as it is after
+    // that, never to a copy loaded before it.
+    const sourceOutcomes = message.type === 'source_result' ? await this.previewRunSources(message, now, /** @type {string} */ (state.userId)) : null;
     const run = await loadRun(this.ctx.storage);
     let next = run;
 
@@ -629,8 +633,8 @@ export class OwnerChannel {
       if (job?.kind === 'candidate' && job.candidateId === candidateId) state.discoveryRunJob = null;
     } else if (message.type === 'source_result') {
       if (job?.kind === 'source' && job.runId === message.runId) state.discoveryRunJob = null;
-      if (message.runId === run.runId && run.running) {
-        const applied = await this.applyRunSourceStep(run, message, now, /** @type {string} */ (state.userId));
+      if (message.runId === run.runId && run.running && sourceOutcomes) {
+        const applied = await this.applyRunSourceStep(run, message, sourceOutcomes, now);
         next = applied.state;
         ws.send(JSON.stringify({ type: 'run_source_applied', process: 'discovery_run', runId: run.runId, added: applied.added, duplicates: applied.duplicates, scannedGroups: Array.isArray(message.scannedGroups) ? message.scannedGroups : [] }));
       }
@@ -654,14 +658,17 @@ export class OwnerChannel {
 
   /**
    * Parses one crawled Telegram step's sources into WhatsApp-invite previews (duplicate check against D1,
-   * read-only) and merges them into the run.
-   * @param {import('../lib/chat-discovery/run-state.ts').DiscoveryRunState} run
+   * read-only). Known links come from a snapshot; previews already in the run are skipped again when the
+   * outcomes are merged into the fresh state (applySourceBatch).
    * @param {any} message
    * @param {number} now
    * @param {string} userId
    */
-  async applyRunSourceStep(run, message, now, userId) {
-    const knownLinks = run.candidates.map((candidate) => candidate.link).filter(Boolean);
+  async previewRunSources(message, now, userId) {
+    const snapshot = await loadRun(this.ctx.storage);
+    if (!userId || message.runId !== snapshot.runId || !snapshot.running) return null;
+    const knownLinks = snapshot.candidates.map((candidate) => candidate.link).filter(Boolean);
+    /** @type {import('../lib/chat-discovery/run-state.ts').SourcePreviewOutcome[]} */
     const outcomes = [];
     for (const raw of Array.isArray(message.sources) ? message.sources.slice(0, 40) : []) {
       const source = {
@@ -678,6 +685,17 @@ export class OwnerChannel {
         outcomes.push({ ok: false, sourceUrl: source.sourceUrl, query: source.query, reason: error instanceof Error ? error.message.slice(0, 200) : 'preview_failed' });
       }
     }
+    return outcomes;
+  }
+
+  /**
+   * Merges a Telegram step's parsed previews into the (freshly loaded) run.
+   * @param {import('../lib/chat-discovery/run-state.ts').DiscoveryRunState} run
+   * @param {any} message
+   * @param {import('../lib/chat-discovery/run-state.ts').SourcePreviewOutcome[]} outcomes
+   * @param {number} now
+   */
+  async applyRunSourceStep(run, message, outcomes, now) {
     const batch = message.batch && typeof message.batch === 'object' ? message.batch : {};
     const applied = applySourceBatch(run, {
       nextCursor: Math.max(0, Number(batch.nextCursor) || 0), searched: Math.max(0, Number(batch.searched) || 0),

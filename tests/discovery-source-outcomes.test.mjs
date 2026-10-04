@@ -58,9 +58,11 @@ void test('retries on the same WhatsApp invite do not restart deep-link loading'
 void test('Discovery waits for a healthy WhatsApp home before reopening invite deep links',async()=>{
   const runner=await readFile(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8');
   assert.match(runner,/readWhatsappHomeHealthViaCdp/u);
-  assert.match(runner,/health\.home===true/u);
+  assert.match(runner,/async function whatsappHomeReady\(\)/u);
   assert.match(runner,/health\.ready!==true/u);
   assert.match(runner,/WhatsApp Web home is ready again/u);
+  const handler=runner.slice(runner.indexOf('async function handleRunCandidateTask'),runner.indexOf('function sendSourceResult'));
+  assert.ok(handler.indexOf('await whatsappHomeReady()')<handler.indexOf('await processLocalPreflightVisible(task)'));
   const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
   const start=adapter.indexOf('export async function readWhatsappHomeHealthViaCdp');
   const end=adapter.indexOf('export async function resetWhatsappPageViaCdp',start);
@@ -94,32 +96,6 @@ void test('repeated global WhatsApp loading triggers a bounded self-heal reload'
   const block=adapter.slice(start,end);
   assert.match(block,/Page\.navigate/u);
   assert.match(block,/https:\/\/web\.whatsapp\.com\//u);
-});
-
-void test('legacy target_not_verified outcomes are requeued only once',async()=>{
-  const source=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
-  const start=source.indexOf('const legacyReasons=');
-  const end=source.indexOf('if(resultsChanged)',start);
-  const block=source.slice(start,end);
-  assert.match(block,/preflightState==='unavailable'/u);
-  assert.match(block,/legacyReasons\.length===1/u);
-  assert.match(block,/legacyReasons\[0\]==='target_not_verified'/u);
-  assert.match(block,/!Number\.isFinite\(item\?\.memberCount\)/u);
-  assert.match(block,/revalidationVersion!=='target-verification-v2'/u);
-  assert.match(block,/preflightState='queued'/u);
-  assert.match(block,/delete results\[item\.id\]/u);
-});
-
-void test('legacy Brave rate-limit source stop is narrowly recoverable',async()=>{
-  const source=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
-  const start=source.indexOf('const recoverableLegacySearchStop=');
-  const end=source.indexOf('const resultRaw=',start);
-  const block=source.slice(start,end);
-  assert.match(block,/completionReason==='source_error'/u);
-  assert.match(block,/search\\\\\.brave\\\\\.com/u);
-  assert.match(block,/source_http_429/u);
-  assert.match(block,/running:true/u);
-  assert.match(block,/sourceFailures:0/u);
 });
 
 void test('global WhatsApp message loading is deferred without burning the full invite timeout',async()=>{
@@ -406,42 +382,26 @@ void test('source plan is read from the authorized Work OS browser session witho
   assert.equal(result.seedData.cities[0].name,'Berlin');
 });
 
-void test('hydration restores the browser-local source plan after F5 or deploy',async()=>{
-  const source=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
-  const writes=[...source.matchAll(/sessionStorage\.setItem\(LOCAL_SOURCE_SEEDS_KEY,JSON\.stringify\(chatDiscoverySeeds\)\)/gu)];
-  assert.ok(writes.length>=2,'plan should be written on hydration and explicit start');
-  assert.match(source,/if\(!localPreviewHydrated\)return;[\s\S]{0,500}LOCAL_SOURCE_SEEDS_KEY/u);
-});
-
-void test('autonomous search writes the source plan into browser session storage',async()=>{
-  const source=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
-  assert.match(source,/sessionStorage\.setItem\(LOCAL_SOURCE_SEEDS_KEY,JSON\.stringify\(chatDiscoverySeeds\)\)/u);
+void test('the source plan travels from the owner DO to the runner with every run and reconnect',async()=>{
+  const channel=await readFile(new URL('../workers/owner-channel.js',import.meta.url),'utf8');
+  assert.match(channel,/import chatDiscoverySeeds from '\.\.\/lib\/chat-discovery\/seeds\.ts';/u);
+  assert.match(channel,/type: 'run_plan', process: 'discovery_run', runId, seedData: chatDiscoverySeeds, telegramGroups: await loadTelegramGroups\(this\.ctx\.storage\)/u);
+  assert.match(channel,/if \(run\.running && run\.runId\) \{\s*server\.send\(JSON\.stringify\(await this\.runPlanMessage\(run\.runId\)\)\);/u);
 });
 
 void test('source bridge keeps cursor on preview failure and reports a resumable stop',async()=>{
-  const source=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
-  const fn=source.slice(source.indexOf('export async function applyWorkOsLocalDiscoverySourceBatchViaCdp'),source.indexOf('export async function writeWorkOsLocalDiscoveryResultViaCdp')).replace('export ','');
-  const {runInNewContext}=await import('node:vm');
-  const key='preview';
-  const store=new Map([[key,JSON.stringify({runId:'run',running:true,telegramCursor:15,sourceFailures:2,candidates:[]})]]);
-  const sandbox={
-    sessionStorage:{getItem:key=>store.get(key),setItem:(key,value)=>store.set(key,value)},
-    window:{dispatchEvent:()=>{}},CustomEvent:class {},
-    fetch:async()=>new Response('busy',{status:503}),
-  };
-  const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
-  const run=new AsyncFunction('listWorkOsPagesForCdp','createCdpClient','batch',
-    "const WORK_OS_LOCAL_PREVIEW_KEY='preview';\n"+fn+"\nreturn applyWorkOsLocalDiscoverySourceBatchViaCdp('https://staging.example',batch,{});");
-  const result=await run(async()=>({pages:[{webSocketDebuggerUrl:'local'}]}),async()=>({
-    send:async(_method,args)=>({result:{value:await runInNewContext(args.expression,sandbox)}}),close:()=>{},
-  }),{searched:1,nextCursor:16,totalTasks:100,done:true,sources:[{sourceUrl:'https://t.me/s/test',text:'invite',query:'test'}],errors:[]});
-  const state=JSON.parse(store.get(key));
-  assert.equal(result.errors,1);
+  // The tab bridge became lib/chat-discovery/run-state.ts#applySourceBatch (2026-10-04).
+  const { EMPTY_RUN, applySourceBatch, canResume } = await import('../lib/chat-discovery/run-state.ts');
+  const { state, errors } = applySourceBatch({ ...EMPTY_RUN, runId:'run', running:true, telegramCursor:15, sourceFailures:2 },
+    { searched:1, nextCursor:16, totalTasks:100, done:true },
+    [{ ok:false, sourceUrl:'https://t.me/s/test', query:'test', reason:'preview_http_503' }], Date.now());
+  assert.equal(errors,1);
   assert.equal(state.telegramCursor,15);
   assert.equal(state.sourceExhausted,false);
   assert.equal(state.running,false);
   assert.equal(state.completionReason,'source_error');
   assert.equal(state.sourceIssues[0].reason,'preview_http_503');
+  assert.equal(canResume(state),true);
 });
 
 // Three working lists (operator decision 2026-10-02): «В роботі» (decision needed first, then the queue),
@@ -449,7 +409,7 @@ void test('source bridge keeps cursor on preview failure and reports a resumable
 void test('local lists split work, targets and non-targets while the target list stays strict',async()=>{
   const source=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
   const {stripTypeScriptTypes}=await import('node:module');
-  const fn=source.slice(source.indexOf('function localCandidatesForFilter'),source.indexOf('// Progress toward the goal'));
+  const fn=source.slice(source.indexOf('function localCandidatesForFilter'),source.indexOf('function archiveItem'));
   const filter=new Function('NON_TARGET_STATES',stripTypeScriptTypes(fn)+'\nreturn localCandidatesForFilter;')(new Set(['rejected','skipped','unavailable']));
   const candidates=[{preflightState:'target'},{preflightState:'queued'},{preflightState:'rejected'},{preflightState:'skipped'},{preflightState:'unavailable'},{preflightState:'review'}];
   assert.deepEqual(filter(candidates,'active'),[candidates[5],candidates[1]]);
@@ -566,12 +526,10 @@ void test('source feedback rewards viable-size writable supply even while factua
 
 // The Telegram-group plan has no exhausted channel bootstrap band anymore: fresh runs start at step 0.
 void test('fresh UI and CDP discovery runs start the Telegram group plan at its first step',async()=>{
-  const ui=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
-  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
-  assert.match(ui,/const LOCAL_SOURCE_START_CURSOR=0/);
-  assert.match(ui,/telegramCursor:LOCAL_SOURCE_START_CURSOR/);
-  assert.match(ui,/sourceCursor:LOCAL_SOURCE_START_CURSOR/);
-  assert.match(adapter,/telegramCursor:0,sourceCursor:0/);
+  const { EMPTY_RUN, startRun } = await import('../lib/chat-discovery/run-state.ts');
+  const started=startRun({ ...EMPTY_RUN, telegramCursor:57, candidates:[] },{ runId:'new', goal:10, now:1 });
+  assert.equal(started.telegramCursor,0);
+  assert.equal(EMPTY_RUN.telegramCursor,0);
 });
 
 void test('joined qualification reads a deeper factual history without relaxing criteria',async()=>{
@@ -605,14 +563,13 @@ void test('browser-local feedback suppresses recently saturated Telegram sources
 });
 
 void test('source feedback storage is bounded, local-only, and only receives successful preview stats',async()=>{
-  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
-  assert.match(adapter,/work-os:chat-discovery-source-feedback:v1/);
-  assert.match(adapter,/now\+6\*60\*60\*1000/);
-  assert.match(adapter,/\.slice\(-500\)/);
-  assert.match(adapter,/sourceStats\.push\(\{sourceUrl:source\.sourceUrl,added:sourceAdded,duplicates:sourceDuplicates\}\)/);
-  const failureGuard=adapter.indexOf('if(!res.ok||!payload)');
-  const statsWrite=adapter.indexOf('sourceStats.push');
-  assert.ok(statsWrite>failureGuard);
+  const runState=await readFile(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8');
+  assert.match(runState,/now \+ 6 \* 60 \* 60 \* 1000/);
+  assert.match(runState,/\.slice\(-500\)/);
+  const batch=runState.slice(runState.indexOf('export function applySourceBatch'),runState.indexOf('export function markConfirmed'));
+  const failureGuard=batch.indexOf('if (!outcome.ok)');
+  const statsWrite=batch.indexOf('sourceStats.push');
+  assert.ok(failureGuard>0&&statsWrite>failureGuard,'failed previews never produce feedback stats');
 });
 
 
