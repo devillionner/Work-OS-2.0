@@ -35,11 +35,35 @@ import {
 } from '../lib/messenger-automation.ts';
 import { readDiscoveryExecutorQueue, completeDiscoveryExternalLeave } from '../lib/chat-discovery/executor.ts';
 import { applyDiscoveryInspection } from '../lib/chat-discovery/inspection.ts';
+import { previewTelegramDiscoveryText, readDiscoveryTelegramGroupSources } from '../lib/chat-discovery/local-preview.ts';
+import chatDiscoverySeeds from '../lib/chat-discovery/seeds.ts';
+import {
+  applyResult as applyRunResult,
+  applySourceBatch,
+  canResume,
+  clearActive,
+  markActive,
+  markConfirmed,
+  moveToNonTarget,
+  needsSourceStep,
+  nextCandidateTask,
+  nextSkipExpiry,
+  pauseOnSourceBlock,
+  pauseRun,
+  releaseCandidate,
+  removeCandidates,
+  resumeRun,
+  retryCandidate,
+  settleRun,
+  startRun,
+  updateSourceFeedback,
+} from '../lib/chat-discovery/run-state.ts';
+import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFeedback, saveTelegramGroups } from '../lib/chat-discovery/run-store.ts';
 
 /** @typedef {'browser'|'runner'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 // The runner pings every 30 s and the runtime records each auto-answered ping per socket. A runner socket
@@ -92,6 +116,9 @@ export class OwnerChannel {
       await this.dispatchNextAutopostJob(state);
       await this.writeState(state);
       return new Response(null, { status: 204 });
+    }
+    if (url.pathname === '/discovery-run') {
+      return this.handleDiscoveryRunHttp(request, userId);
     }
     if (url.pathname === '/discovery-wake' && request.method === 'POST') {
       if (!userId) return new Response(null, { status: 401 });
@@ -178,6 +205,11 @@ export class OwnerChannel {
     // dispatchNextDiscoveryTask), so a disconnect left D1 untouched; webSocketClose only had to forget
     // the in-memory discoveryCurrentTask, and a fresh read here finds the same candidate again.
     await this.dispatchNextDiscoveryTask(state);
+    const run = await loadRun(this.ctx.storage);
+    if (run.running && run.runId) {
+      server.send(JSON.stringify(await this.runPlanMessage(run.runId)));
+      await this.dispatchRun(state);
+    }
     await this.writeState(state);
   }
 
@@ -293,6 +325,8 @@ export class OwnerChannel {
       if (message.type === 'ready') return this.handleAutopostReady(ws);
       return;
     }
+
+    if (message.process === 'discovery_run') return this.handleDiscoveryRunMessage(ws, message);
 
     if (message.process === 'discovery') {
       // Only the per-candidate executor protocol (join/inspect/leave) is real business logic here.
@@ -475,10 +509,25 @@ export class OwnerChannel {
   // Alarm: re-check runner liveness by ping times while a runner is believed connected.
   async alarm() {
     const state = await this.readState();
-    if (!state.runnerOnline) return;
-    if (this.openRunnerCount() > 0) { await this.scheduleRunnerWatch(); return; }
-    await this.markRunnerOffline(state);
+    if (state.runnerOnline && this.openRunnerCount() === 0) await this.markRunnerOffline(state);
+    if (state.discoveryRunWakeAt && state.discoveryRunWakeAt <= Date.now()) {
+      state.discoveryRunWakeAt = null;
+      await this.dispatchRun(state);
+    }
+    await this.scheduleAlarm(state);
     await this.writeState(state);
+  }
+
+  /**
+   * One alarm per object: the earliest of the runner liveness re-check (while a runner is believed
+   * connected) and the moment a cooled-down Discovery run item becomes dispatchable again.
+   * @param {OwnerChannelState} state
+   */
+  async scheduleAlarm(state) {
+    const times = [];
+    if (state.runnerOnline) times.push(Date.now() + RUNNER_WATCH_MS);
+    if (state.discoveryRunWakeAt && state.discoveryRunWakeAt > Date.now()) times.push(state.discoveryRunWakeAt);
+    if (times.length) await this.ctx.storage.setAlarm(Math.min(...times));
   }
 
   async scheduleRunnerWatch() {
@@ -499,6 +548,210 @@ export class OwnerChannel {
     this.broadcast('browser', { type: 'runner_status', connected: false });
   }
 
+  // --- Discovery autonomous run ("автопошук", process 'discovery_run') ---------------------------
+  // State and rules: lib/chat-discovery/run-state.ts (stored by run-store.ts). At most ONE run item is in
+  // flight: a WhatsApp check of a queued candidate takes priority, otherwise one Telegram source step when
+  // the queue is short — the same turn-taking the runner's own loop did when the state lived in the tab
+  // (both need their browser tab in the foreground). D1 is only read here (duplicate check of new invites,
+  // and the owner's joined Telegram groups once per run start); results reach D1 only through the
+  // operator's «Підтвердити» / «Архівувати всі».
+
+  /** @param {string} runId */
+  async runPlanMessage(runId) {
+    return { type: 'run_plan', process: 'discovery_run', runId, seedData: chatDiscoverySeeds, telegramGroups: await loadTelegramGroups(this.ctx.storage) };
+  }
+
+  /** @param {import('../lib/chat-discovery/run-state.ts').DiscoveryRunState} run */
+  broadcastRunState(run) {
+    this.broadcast('browser', { type: 'process_state', process: 'discovery_run', runId: run.runId ?? null, running: run.running, done: run.done });
+  }
+
+  /**
+   * Pushes the next run item to the runner unless one is already in flight.
+   * @param {OwnerChannelState} state
+   */
+  async dispatchRun(state) {
+    if (state.discoveryRunJob || this.openRunnerCount() === 0) return;
+    const now = Date.now();
+    let run = await loadRun(this.ctx.storage);
+    if (!run.running || !run.runId) return;
+    const blockedUntil = Number(state.discoveryRunCandidatesBlockedUntil) || 0;
+    if (blockedUntil <= now) {
+      const picked = nextCandidateTask(run, now);
+      if (picked.state !== run) { await saveRun(this.ctx.storage, run, picked.state); run = picked.state; }
+      if (picked.task) {
+        state.discoveryRunJob = { kind: 'candidate', candidateId: picked.task.candidateId, runId: run.runId };
+        this.broadcast('runner', { type: 'run_task', process: 'discovery_run', task: picked.task });
+        return;
+      }
+    }
+    if (needsSourceStep(run, now)) {
+      state.discoveryRunJob = { kind: 'source', runId: run.runId, cursor: run.telegramCursor };
+      this.broadcast('runner', { type: 'run_source', process: 'discovery_run', runId: run.runId, cursor: run.telegramCursor, feedback: await loadSourceFeedback(this.ctx.storage) });
+      return;
+    }
+    const wakeTimes = [nextSkipExpiry(run, now), blockedUntil > now ? blockedUntil : null].filter((value) => value !== null);
+    if (wakeTimes.length) {
+      state.discoveryRunWakeAt = Math.min(.../** @type {number[]} */ (wakeTimes));
+      await this.scheduleAlarm(state);
+    }
+  }
+
+  /**
+   * @param {WebSocket} ws
+   * @param {any} message
+   */
+  async handleDiscoveryRunMessage(ws, message) {
+    const state = await this.readState();
+    const job = state.discoveryRunJob;
+    const now = Date.now();
+    const run = await loadRun(this.ctx.storage);
+    let next = run;
+
+    if (message.type === 'progress') {
+      next = markActive(run, { candidateId: String(message.candidateId || ''), runId: message.runId, name: message.name, link: message.link, checkpoint: message.checkpoint ?? null }, now) ?? run;
+    } else if (message.type === 'result') {
+      const candidateId = String(message.candidateId || '');
+      const before = run.candidates.find((candidate) => candidate.id === candidateId);
+      next = applyRunResult(run, candidateId, message.payload ?? {}, now) ?? run;
+      if (job?.kind === 'candidate' && job.candidateId === candidateId) state.discoveryRunJob = null;
+      if (next !== run && before && message.payload) {
+        const payload = message.payload;
+        await saveSourceFeedback(this.ctx.storage, updateSourceFeedback(await loadSourceFeedback(this.ctx.storage),
+          (before.sources || []).map((source) => ({ sourceUrl: source.sourceUrl, decision: payload.decision, reasonCodes: payload.reasonCodes,
+            memberCount: payload.result?.memberCount ?? null, canWrite: payload.result?.canWrite ?? null })), now));
+      }
+    } else if (message.type === 'release') {
+      const candidateId = String(message.candidateId || '');
+      next = releaseCandidate(run, candidateId, Number(message.until) || now + 15_000);
+      // A WhatsApp-runtime problem (not this chat's): give Telegram steps the turn until it passes.
+      if (Number(message.runtimeBlockedUntil) > now) state.discoveryRunCandidatesBlockedUntil = Number(message.runtimeBlockedUntil);
+      if (job?.kind === 'candidate' && job.candidateId === candidateId) state.discoveryRunJob = null;
+    } else if (message.type === 'source_result') {
+      if (job?.kind === 'source' && job.runId === message.runId) state.discoveryRunJob = null;
+      if (message.runId === run.runId && run.running) {
+        const applied = await this.applyRunSourceStep(run, message, now, /** @type {string} */ (state.userId));
+        next = applied.state;
+        ws.send(JSON.stringify({ type: 'run_source_applied', process: 'discovery_run', runId: run.runId, added: applied.added, duplicates: applied.duplicates, scannedGroups: Array.isArray(message.scannedGroups) ? message.scannedGroups : [] }));
+      }
+    } else if (message.type === 'pause') {
+      if (job?.kind === 'source' && job.runId === message.runId) state.discoveryRunJob = null;
+      if (message.runId === run.runId) {
+        next = pauseOnSourceBlock(run, { reason: String(message.reason || 'telegram_unavailable'), query: String(message.query || '') }, now);
+        if (next !== run) this.broadcast('runner', { type: 'run_control', process: 'discovery_run', runId: run.runId, active: false });
+      }
+    } else {
+      return;
+    }
+
+    if (next !== run) {
+      await saveRun(this.ctx.storage, run, next);
+      this.broadcastRunState(next);
+    }
+    if (message.type !== 'progress') await this.dispatchRun(state);
+    await this.writeState(state);
+  }
+
+  /**
+   * Parses one crawled Telegram step's sources into WhatsApp-invite previews (duplicate check against D1,
+   * read-only) and merges them into the run.
+   * @param {import('../lib/chat-discovery/run-state.ts').DiscoveryRunState} run
+   * @param {any} message
+   * @param {number} now
+   * @param {string} userId
+   */
+  async applyRunSourceStep(run, message, now, userId) {
+    const knownLinks = run.candidates.map((candidate) => candidate.link).filter(Boolean);
+    const outcomes = [];
+    for (const raw of Array.isArray(message.sources) ? message.sources.slice(0, 40) : []) {
+      const source = {
+        sourceUrl: String(raw?.sourceUrl || '').slice(0, 1000), sourceTitle: String(raw?.sourceTitle || '').slice(0, 180),
+        query: String(raw?.query || '').slice(0, 500), seedLabel: String(raw?.seedLabel || '').slice(0, 180),
+        context: String(raw?.context || '').slice(0, 700), text: String(raw?.text || '').slice(0, 45_000),
+      };
+      if (!source.text || !source.sourceUrl) continue;
+      try {
+        const preview = await previewTelegramDiscoveryText(this.env.DB, userId, { ...source, knownLinks, minMembers: 700 }, Math.floor(now / 1000));
+        for (const item of preview.previews) knownLinks.push(item.link);
+        outcomes.push({ ok: true, sourceUrl: source.sourceUrl, previews: preview.previews, added: preview.batch.added, duplicates: preview.batch.duplicates });
+      } catch (error) {
+        outcomes.push({ ok: false, sourceUrl: source.sourceUrl, query: source.query, reason: error instanceof Error ? error.message.slice(0, 200) : 'preview_failed' });
+      }
+    }
+    const batch = message.batch && typeof message.batch === 'object' ? message.batch : {};
+    const applied = applySourceBatch(run, {
+      nextCursor: Math.max(0, Number(batch.nextCursor) || 0), searched: Math.max(0, Number(batch.searched) || 0),
+      done: batch.done === true, totalTasks: Math.max(0, Number(batch.totalTasks) || 0),
+      errors: Array.isArray(batch.errors) ? batch.errors.slice(0, 8).map((item) => ({ reason: String(item?.reason || 'source_failed').slice(0, 300), query: String(item?.query || '').slice(0, 500) })) : [],
+      warnings: Array.isArray(batch.warnings) ? batch.warnings.slice(0, 4).map((item) => ({ reason: String(item?.reason || 'source_warning').slice(0, 300), query: String(item?.query || '').slice(0, 500) })) : [],
+    }, outcomes, now);
+    if (applied.sourceStats.length) {
+      await saveSourceFeedback(this.ctx.storage, updateSourceFeedback(await loadSourceFeedback(this.ctx.storage), applied.sourceStats, now));
+    }
+    return applied;
+  }
+
+  /**
+   * Browser side of the run, bridged by app/api/chat-discovery/run/route.ts (session already verified).
+   * @param {Request} request
+   * @param {string} userId
+   */
+  async handleDiscoveryRunHttp(request, userId) {
+    if (!userId) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
+    const state = await this.readState();
+    if (state.userId !== userId) state.userId = userId;
+    const run = await loadRun(this.ctx.storage);
+    if (request.method === 'GET') {
+      await this.writeState(state);
+      return Response.json({ run, runnerConnected: this.openRunnerCount() > 0 }, { headers: { 'Cache-Control': 'no-store' } });
+    }
+    if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
+    let body;
+    try { body = await request.json(); } catch { return Response.json({ error: 'Некоректний запит.' }, { status: 400 }); }
+    const now = Date.now();
+    const action = body?.action;
+    let next = run;
+    if (action === 'start') {
+      if (run.running) return Response.json({ error: 'Автопошук уже працює.' }, { status: 409 });
+      // One bounded D1 read per run start: the Telegram groups the owner's accounts already joined.
+      try { await saveTelegramGroups(this.ctx.storage, (await readDiscoveryTelegramGroupSources(this.env.DB, userId)).groups); }
+      catch { await saveTelegramGroups(this.ctx.storage, []); }
+      next = startRun(run, { runId: crypto.randomUUID(), goal: body.goal, now });
+    } else if (action === 'resume') {
+      if (!canResume(run)) return Response.json({ error: 'Немає зупиненого автопошуку, який можна продовжити.' }, { status: 409 });
+      next = resumeRun(run, now);
+    } else if (action === 'pause') {
+      if (!run.running) return Response.json({ run, runnerConnected: this.openRunnerCount() > 0 });
+      next = pauseRun(run, now);
+    } else if (action === 'confirmed') {
+      next = settleRun(markConfirmed(run, String(body.candidateId || '')), now);
+    } else if (action === 'archived') {
+      next = removeCandidates(run, Array.isArray(body.candidateIds) ? body.candidateIds.map(String).slice(0, 1000) : []);
+    } else if (action === 'non-target') {
+      next = moveToNonTarget(run, String(body.candidateId || ''));
+    } else if (action === 'retry') {
+      next = retryCandidate(run, String(body.candidateId || ''), now);
+    } else {
+      return Response.json({ error: 'Невідома дія.' }, { status: 400 });
+    }
+    if (next !== run) await saveRun(this.ctx.storage, run, next);
+    // Start/resume/pause abandon whatever run item was in flight: after a pause the runner drops it
+    // without answering, and a late answer is still applied (or ignored) on its own merits.
+    if (action === 'start' || action === 'resume' || action === 'pause') state.discoveryRunJob = null;
+    if (action === 'start' || action === 'resume') {
+      if (next.runId) this.broadcast('runner', await this.runPlanMessage(next.runId));
+      this.broadcast('runner', { type: 'run_control', process: 'discovery_run', runId: next.runId, active: true });
+      state.discoveryRunCandidatesBlockedUntil = 0;
+      await this.dispatchRun(state);
+    } else if (action === 'pause') {
+      // Like Stop in the Waiting check: the runner drops the run before its next WhatsApp/Telegram action.
+      this.broadcast('runner', { type: 'run_control', process: 'discovery_run', runId: run.runId, active: false });
+    }
+    if (next !== run) this.broadcastRunState(next);
+    await this.writeState(state);
+    return Response.json({ run: next, runnerConnected: this.openRunnerCount() > 0 }, { headers: { 'Cache-Control': 'no-store' } });
+  }
+
   /**
    * In-flight autopost/Discovery tasks owned by a runner connection that no longer exists.
    * @param {OwnerChannelState} state
@@ -514,6 +767,14 @@ export class OwnerChannel {
     // Discovery's task was never written to D1, so losing the connection just means forgetting it
     // here — the next dispatch reads D1 fresh and finds it again.
     state.discoveryCurrentTask = null;
+    // The autonomous run's in-flight item lives only in DO storage; forgetting the job (and the active
+    // marker) lets the next runner get the same candidate or Telegram step again.
+    if (state.discoveryRunJob) {
+      state.discoveryRunJob = null;
+      const run = await loadRun(this.ctx.storage);
+      const cleared = clearActive(run);
+      if (cleared !== run) await saveRun(this.ctx.storage, run, cleared);
+    }
   }
 
   /**

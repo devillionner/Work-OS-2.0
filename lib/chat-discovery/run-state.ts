@@ -298,7 +298,8 @@ export function runTargetCount(state: DiscoveryRunState) {
   return current + (state.confirmedThisRun || 0);
 }
 
-function withCompletion(state: DiscoveryRunState, now: number): DiscoveryRunState {
+/** Finishes a running run once its goal is reached or the plan is exhausted with nothing left queued. */
+export function settleRun(state: DiscoveryRunState, now: number): DiscoveryRunState {
   if (!state.running) return state;
   const queued = state.candidates.some((candidate) => candidate.preflightState === 'queued');
   const reached = runTargetCount(state) >= state.goal;
@@ -356,7 +357,7 @@ export function applyResult(state: DiscoveryRunState, candidateId: string, paylo
   const metrics = state.discoveryMetrics || { completed: 0, targets: 0, totalCheckMs: 0, reasons: {} };
   const reasons = { ...metrics.reasons };
   for (const reason of reasonCodes) reasons[reason] = (reasons[reason] || 0) + 1;
-  return withCompletion({
+  return settleRun({
     ...state,
     ...(state.activeCandidateId === candidateId ? clearedActive : {}),
     candidates,
@@ -426,7 +427,7 @@ export function applySourceBatch(
     sourceExhausted: state.sourceExhausted || (errors === 0 && batch.done),
     lastActivityAt: now,
   };
-  return { state: withCompletion(next, now), added, duplicates, rejected, errors, sourceStats };
+  return { state: settleRun(next, now), added, duplicates, rejected, errors, sourceStats };
 }
 
 /** «Підтвердити» succeeded in D1: the result leaves the run and counts toward this run's goal. */
