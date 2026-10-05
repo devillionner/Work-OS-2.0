@@ -312,14 +312,27 @@ async function completeFreshJoinManualReview(task,result,evaluated){
   });
 }
 
+// approval_required: a join request may or may not have actually reached WhatsApp — membershipState
+// is 'pending' once a Request-to-join button was found and clicked, but the UI adapter's text-only
+// fallback (approval-required wording with no matching button on the page) still reports
+// membershipState 'not_checked' with this same reason. Operator decision 2026-10-05: score it against
+// every OTHER criterion (member count, topic, chat type, write access) by pretending membership is
+// 'joined' just for this one check, so "not joined yet" never counts against it on its own — a genuine
+// failure on any other criterion still rejects it exactly as before a request was ever attempted.
+function qualifyApprovalRequired(task,result){
+  const asIfJoined=evaluateLocalPreflight(task,{...result,membershipState:'joined'});
+  if(asIfJoined.decision==='rejected'){
+    return completeLocalPreflight(task,{decision:'rejected',reasonCodes:asIfJoined.reasonCodes,result,leftAfterCheck:false});
+  }
+  // Review, not the generic 'incomplete' retry loop (which would just re-poll a few times and then
+  // discard it — approval can take days, not seconds, and a missing button may work again on retry).
+  return completeLocalPreflight(task,{decision:'review',reasonCodes:['approval_required'],
+    result:{...result,status:'inspected'}});
+}
+
 async function qualifyLocalResult(task,result){
-  // A join request was just sent and is awaiting admin approval (operator decision 2026-10-05): not
-  // joined, so writability/topic/ads cannot be observed yet — this is neither a pass nor a rejection,
-  // it is a fact for the operator to see. Review, not the generic 'incomplete' retry loop (which would
-  // just re-poll a few times and then discard it — approval can take days, not seconds).
-  if(result.membershipState==='pending'){
-    return completeLocalPreflight(task,{decision:'review',reasonCodes:['approval_required'],
-      result:{...result,status:'inspected'}});
+  if(result.reason==='approval_required'||result.membershipState==='pending'){
+    return qualifyApprovalRequired(task,result);
   }
   const evaluated=evaluateLocalPreflight(task,result);
   if(needsFreshJoinManualReview(task,result,evaluated)){

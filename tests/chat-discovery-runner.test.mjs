@@ -283,10 +283,17 @@ void test('an approval-gated invite that clears member-count/topic/community sti
   const textFallback=adapter.indexOf("task.action === 'join_and_inspect' && approvalRequiredPattern.test");
   assert.ok(requestCheck>0&&textFallback>requestCheck,'the request button is tried before the text-only fallback gives up');
   assert.match(adapter,/if \(requestButtonText\) \{\s*return \{ kind: 'action', action: 'request', buttonText: requestButtonText, observedName \};/);
-  // A sent-but-not-yet-approved request (membershipState 'pending') is a review candidate the operator
-  // can see, not a dead end — and not the generic 'incomplete' retry loop (approval can take days).
-  // qualifyLocalResult is defined before the localPreflight slice starts, so check the full source.
-  assert.match(source,/if\(result\.membershipState==='pending'\)\{\s*return completeLocalPreflight\(task,\{decision:'review',reasonCodes:\['approval_required'\]/);
+  // Both outcomes of an approval-required check — a sent-but-not-yet-approved request
+  // (membershipState 'pending') AND the text-only fallback that found no clickable button
+  // (membershipState stays 'not_checked') — are review candidates the operator can see, not a dead
+  // end, and not the generic 'incomplete' retry loop (approval can take days; a missing button may
+  // just work on the next retry). qualifyLocalResult is defined before the localPreflight slice
+  // starts, so check the full source.
+  assert.match(source,/if\(result\.reason==='approval_required'\|\|result\.membershipState==='pending'\)\{\s*return qualifyApprovalRequired\(task,result\);/);
+  assert.match(source,/function qualifyApprovalRequired\(task,result\)\{/);
+  assert.match(source,/const asIfJoined=evaluateLocalPreflight\(task,\{\.\.\.result,membershipState:'joined'\}\);/);
+  assert.match(source,/if\(asIfJoined\.decision==='rejected'\)\{\s*return completeLocalPreflight\(task,\{decision:'rejected',reasonCodes:asIfJoined\.reasonCodes,result,leftAfterCheck:false\}\);/);
+  assert.match(source,/return completeLocalPreflight\(task,\{decision:'review',reasonCodes:\['approval_required'\]/);
 });
 
 void test('local Discovery joins through the WhatsApp runtime and uses the invite UI only as a bounded fallback',async()=>{

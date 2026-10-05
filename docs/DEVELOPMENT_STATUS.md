@@ -1,3 +1,34 @@
+## 2026-10-05 — Approval-required чати: виправлено пропуск випадку «кнопку не знайдено» (частина 3 з 2)
+
+- Знайдено живою перевіркою оператора: ретрай старого пропущеного кандидата («Комфорт...», Bm57vWw)
+  після частини 1+2 видав `decision:'rejected'`, `reasonCodes:['approval_required']`,
+  `membershipState:'not_checked'` — у вікні він показав лише «У нецільові», без «Підтвердити». Це
+  реальний баг частини 1, не задумана поведінка.
+- Причина: частина 1 у `scripts/chat-discovery-runner.mjs#qualifyLocalResult` перевіряла лише
+  `result.membershipState==='pending'` (кнопку «Запит на приєднання» знайдено й натиснуто). Але
+  текстовий fallback у `scripts/whatsapp-web-cdp.mjs#classifyWhatsAppSnapshot` (текст про схвалення
+  є, клікабельної кнопки немає) повертає той самий `reason:'approval_required'`, та
+  `membershipState` лишається `'not_checked'` — цей варіант провалювався крізь загальну
+  `evaluateLocalPreflight`, де `'approval_required'` не входить у `incompleteReasons`, і рахувався
+  як `'rejected'`.
+- Виправлення:
+  1. `scripts/chat-discovery-runner.mjs`: нова `qualifyApprovalRequired(task,result)` обробляє
+     ОБИДВА випадки (`result.reason==='approval_required' || result.membershipState==='pending'`)
+     однаково — оцінює решту критеріїв, підставляючи `membershipState:'joined'` лише для цієї
+     перевірки; реальний провал іншого критерію й далі веде до `'rejected'`, інакше завжди
+     `decision:'review'`.
+  2. `components/chat-discovery-dialog.tsx#isPendingApprovalCandidate`: прибрано вимогу
+     `membershipState==='pending'` — кнопка «Підтвердити» тепер з'являється для
+     `preflightState==='review' && reasonCodes.includes('approval_required')` незалежно від
+     конкретного значення `membershipState` (бо цей reasonCode видає лише
+     `qualifyApprovalRequired`). `importCandidate` і так уже примусово шле `membershipState:'pending'`
+     у підтвердження — тут нічого міняти не треба було.
+- Тести: `tests/chat-discovery-runner.test.mjs` оновлено під нову структуру (33/33 окремо),
+  `npm run test:full` 901/901, lint/typecheck/build зелені.
+- Рівень доказів: код + тести. Сам цей баг знайдено живою перевіркою оператора (не придумано
+  заздалегідь) — тому саме ретрай 8 раніше повторно перевірених старих кандидатів треба зробити ще
+  раз після цього пушу й рестарту runner-а, бо попередній ретрай міг зачепити цю саму помилку.
+
 ## 2026-10-05 — Approval-required чати: підтвердження веде в «Очікування» (частина 2 з 2)
 
 - Рішення оператора: кандидат, що пройшов усі перевірювані критерії й отримав надісланий запит на

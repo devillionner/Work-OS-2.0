@@ -821,8 +821,13 @@ function isLocalPreview(candidate:DiscoveryCandidate):candidate is LocalDiscover
 }
 
 function isPendingApprovalCandidate(candidate:DiscoveryCandidate){
+  // membershipState is 'pending' when a Request-to-join button was actually clicked, but stays
+  // whatever the WhatsApp check last reported (e.g. 'not_checked') when the UI's text-only fallback
+  // fired because no clickable button was found — the runner routes both through the same
+  // decision:'review'+reasonCodes:['approval_required'] outcome (qualifyApprovalRequired), so this
+  // check must not require membershipState==='pending' to find the second case too.
   return isLocalPreview(candidate)&&candidate.preflightState==='review'
-    &&candidate.membershipState==='pending'&&candidate.reasonCodes.includes('approval_required');
+    &&candidate.reasonCodes.includes('approval_required');
 }
 
 function candidateIdentity(candidate:DiscoveryCandidate){
