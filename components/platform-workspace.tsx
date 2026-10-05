@@ -175,8 +175,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     if(previousFilter.current===filterKey)return;
     previousFilter.current=filterKey;
     setOffset(0);
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- TODO: потребує зміни логіки (docs/TODO.md)
-  },[filterKey]);
+  },[filterKey,platform,queue]);
 
   useEffect(()=>{
     if(restoredView.current||!availablePlatforms.length)return;
