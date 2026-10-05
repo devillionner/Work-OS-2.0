@@ -115,8 +115,9 @@
   інакше йде `'start'` із новою метою — `run-state.ts#startRun` вже й так коректно скидає
   Telegram-курсор і лічильник мети для нового runId, бракувало лише цього вибору в UI.
   Рівень доказів — код + lint/typecheck/build + новий текстовий тест
-  (`tests/chat-discovery-ui.test.mjs`); живий запуск на паузі з новою метою оператором ще
-  не перевірявся.
+  (`tests/chat-discovery-ui.test.mjs`); **живий запуск на паузі з новою метою підтверджено
+  оператором 2026-10-05** — пауза → зміна «Цільових чатів» → «Запустити автопошук» справді
+  стартує заново з 0, а не резюмить стару мету.
 - Окремим кроком — прибрано весь старий серверний рушій автопошуку (до переходу на
   Durable Object 2026-10-04): `lib/chat-discovery/domain.ts` (`startDiscoveryRun`,
   `continueDiscoveryRun`, `advanceAutonomousDiscoveryRun`, `cancelDiscoveryRun`,
