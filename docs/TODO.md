@@ -37,7 +37,21 @@
 - [ ] `react/react-compiler` Refs (ref.current під час render): `components/leads/workspace.tsx`, `library-workspace.tsx`, `platform-workspace.tsx`.
 - [ ] `react/react-compiler` PreserveManualMemo: `components/server-sync.tsx` (`checkRevision`).
 - [ ] `react-hooks/exhaustive-deps`: `components/platform-workspace.tsx` (effect з `[filterKey]` без `platform` і `queue`).
-- [ ] `jsx-a11y/prefer-tag-over-role` (`role="status"` → `<output>`): `components/chat-discovery-dialog.tsx`, `library-workspace.tsx` (4), `platform-workspace.tsx` (2).
+- [x] **Частково закрито 2026-10-05.** `jsx-a11y/prefer-tag-over-role` (`role="status"` → `<output>`) у
+  `library-workspace.tsx` (4 випадки) і `platform-workspace.tsx` (1, не 2 — старий підрахунок був
+  неточний) — пряма заміна тегу безпечна там, де контейнер `display:grid`/`flex` (CSS "blockification"
+  flex/grid-елементів — стандарт, не здогадка) або де оригінал уже був `<span>` (inline→inline, без
+  зміни). Один вкладений випадок (`library-workspace.tsx`, статус Viber safe-mode) був у звичайному
+  block-контейнері — заміна на інлайновий `<output>` змінила б вигляд (full-width банер → вузька
+  інлайнова «пігулка»), тож там клас лишився на зовнішньому `<div>`, а голий `<output>` всередині несе
+  лише семантику. Лінт/typecheck/build зелені; **живий візуальний тест у браузері не робився** —
+  потрібен автентифікований dev-сеанс із конкретними сид-даними (бібліотека з неповним перекладом,
+  профільна черга), а CSS-поведінка тут гарантована специфікацією, не припущенням. Якщо колись
+  виглядатиме не так — дивись сюди.
+  **Лишилось**: `chat-discovery-dialog.tsx:565` — `<details role="status">` (розкривний віджет із
+  `<summary>`); `<output>` не може замінити `<details>` без втрати згортання, потрібне інше рішення
+  (наприклад, прибрати `role="status"` з `<details>` і обгорнути `<summary>` в окремий `<output>` для
+  живого оголошення) — не зроблено, не мало очевидного дрібного фіксу.
 
 ## 3. Знайдені баги
 
