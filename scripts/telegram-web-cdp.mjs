@@ -160,8 +160,8 @@ export class TelegramWebSession {
     // has, never a hard failure.
     const expanded = await this.click(`[...document.querySelectorAll('.LeftSearch [role="button"], .LeftSearch .ListItem-button, .LeftSearch span, .LeftSearch a')]
       .find(el=>/^(show more|показати (більше|ще)|показать (больше|ещё))$/iu.test((el.innerText||'').trim()))`);
-    if (expanded) return this.waitForSearchResults();
-    return result;
+    if (expanded) { const after = await this.waitForSearchResults(); return { ...after, expanded: true }; }
+    return { ...result, expanded: false };
   }
 
   async waitForSearchResults() {
@@ -281,7 +281,7 @@ export async function searchTelegramPublicGroups(session, query, { limit = 6 } =
     groups.push({ username: item.username, title: item.title, memberCount: parseTelegramMemberCount(item.status) });
     if (groups.length >= limit) break;
   }
-  return { kind: 'result', groups };
+  return { kind: 'result', groups, expanded: Boolean(typed.expanded) };
 }
 
 // Opens one public group WITHOUT joining and collects the WhatsApp invites posted in it.

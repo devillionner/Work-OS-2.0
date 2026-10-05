@@ -482,6 +482,7 @@ async function crawlTelegramGroupStep(step,local,onGroupSource=null){
     if(step.kind==='search'){
       const found=await searchTelegramPublicGroups(session,step.query,{limit:25});
       if(found.kind!=='result'){outcome.blockedReason=found.reason;return outcome;}
+      console.log(`Telegram search «${step.query}»: ${found.groups.length} found in quick panel, Show More ${found.expanded?'clicked':'NOT clicked'}`);
       groups=found.groups.filter(group=>!groupRecentlyScanned(scanned,group.username)).slice(0,SEARCH_GROUPS_PER_STEP);
     }else{
       groups=(step.groups||[]).filter(group=>!groupRecentlyScanned(scanned,group.username));
