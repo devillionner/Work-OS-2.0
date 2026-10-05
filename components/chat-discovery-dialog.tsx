@@ -403,7 +403,12 @@ export function ChatDiscoveryDialog({
     setImportingId(candidate.id);
     setError('');
     try {
-      if(isLocalPreview(candidate)&&candidate.preflightState!=='target')throw new Error('Спочатку дочекайся фактичної WhatsApp-перевірки цього чату.');
+      // A join request was already sent and is awaiting admin approval (operator decision 2026-10-05):
+      // every criterion that can be checked without joining already passed, so this is worth confirming
+      // too — it lands in the Waiting queue, not "ready", via the same membershipState:'pending' path a
+      // regular Waiting recheck uses.
+      const pendingApproval=isPendingApprovalCandidate(candidate);
+      if(isLocalPreview(candidate)&&candidate.preflightState!=='target'&&!pendingApproval)throw new Error('Спочатку дочекайся фактичної WhatsApp-перевірки цього чату.');
       const savedJoinedTarget=!isLocalPreview(candidate)
         &&candidate.decision==='target'&&!candidate.importedChatId&&candidate.membershipState==='joined';
       const useFactualConfirm=isLocalPreview(candidate)||savedJoinedTarget;
@@ -411,7 +416,7 @@ export function ChatDiscoveryDialog({
         ? await postPreview({
             action:'confirm',platform:candidate.platform,link:candidate.link,name:candidate.name,sources:candidate.sources,minMembers,
             preflight:{
-              status:'inspected',accessible:true,targetVerified:true,membershipState:'joined',observedName:candidate.name,
+              status:'inspected',accessible:true,targetVerified:true,membershipState:pendingApproval?'pending':'joined',observedName:candidate.name,
               chatType:candidate.chatType,memberCount:candidate.memberCount,topicMatch:candidate.topicMatch,canWrite:candidate.canWrite,
               adsPolicy:candidate.adsPolicy,activityState:candidate.activityState,
             },
@@ -699,6 +704,10 @@ export function ChatDiscoveryDialog({
                           </details>
                         </>}
                         {!candidate.importedChatId && candidate.decision==='review' && isLocalPreview(candidate) && <>
+                          {isPendingApprovalCandidate(candidate) && <Button type="button" size="sm" disabled={importingId !== null || inspectingId !== null} title="Запит на вступ уже надіслано — чат піде в чергу «Очікування» до схвалення адміністратора." onClick={() => void importCandidate(candidate)}>
+                            {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
+                            Підтвердити
+                          </Button>}
                           <Button type="button" size="sm" variant="ghost" title="Перенесе чат у «Нецільові» лише в цій вкладці; у Work OS — після «Архівувати всі»." onClick={() => moveToNonTarget(candidate)}>
                             У нецільові
                           </Button>
@@ -809,6 +818,11 @@ function formatActivityTime(value:number|null){
 }
 function isLocalPreview(candidate:DiscoveryCandidate):candidate is LocalDiscoveryPreview{
   return (candidate as Partial<LocalDiscoveryPreview>).localOnly===true;
+}
+
+function isPendingApprovalCandidate(candidate:DiscoveryCandidate){
+  return isLocalPreview(candidate)&&candidate.preflightState==='review'
+    &&candidate.membershipState==='pending'&&candidate.reasonCodes.includes('approval_required');
 }
 
 function candidateIdentity(candidate:DiscoveryCandidate){

@@ -312,6 +312,46 @@ void test('invalid auto-imported WhatsApp invite is archived safely without clai
   assert.equal((await readChatState(db, 'u', candidate.importedChatId)).workflow_status, 'archived');
 });
 
+// Operator decision 2026-10-05: a WhatsApp group that clears every checkable criterion but needs admin
+// approval to join is worth confirming, same as a regular target — it lands in the Waiting queue
+// (membershipState 'pending'), not "ready", via the same transition a normal Waiting recheck uses.
+void test('a join request pending admin approval confirms straight into the Waiting queue', async (t) => {
+  const db = await localDatabase(t);
+  const handed = await confirmLocalDiscoveryPreview(db, 'u', {
+    platform:'whatsapp', link:'https://chat.whatsapp.com/PendingApproval123', name:'Українці Valencia', sources:[],
+    preflight:{
+      status:'inspected', accessible:true, targetVerified:true, membershipState:'pending', observedName:'Українці Valencia',
+      chatType:'group', memberCount:1200, topicMatch:'unknown', canWrite:null, adsPolicy:'unknown', activityState:'unknown',
+    },
+  }, 100);
+  assert.equal(handed.existing, false);
+  assert.equal(handed.decision, 'review');
+  assert.equal(handed.workflowStatus, 'waiting');
+
+  const chat = await readChatState(db, 'u', handed.chatId);
+  assert.ok(chat);
+  assert.equal(chat.workflow_status, 'waiting');
+
+  const candidate = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.importedChatId === handed.chatId);
+  assert.ok(candidate);
+  assert.equal(candidate.membershipState, 'pending');
+});
+
+void test('a pending-approval chat that genuinely fails a hard criterion is still refused, not confirmed anyway', async (t) => {
+  const db = await localDatabase(t);
+  await assert.rejects(confirmLocalDiscoveryPreview(db, 'u', {
+    platform:'whatsapp', link:'https://chat.whatsapp.com/PendingTooSmall123', name:'Малий чат', sources:[],
+    preflight:{
+      status:'inspected', accessible:true, targetVerified:true, membershipState:'pending', observedName:'Малий чат',
+      chatType:'group', memberCount:5, topicMatch:'unknown', canWrite:null, adsPolicy:'unknown', activityState:'unknown',
+    },
+  }, 100));
+  // The preview row itself is kept (same as any other refused confirm), but never promoted to a chat.
+  const stored = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.link === 'https://chat.whatsapp.com/PendingTooSmall123');
+  assert.ok(stored);
+  assert.equal(stored.importedChatId, null);
+});
+
 async function importedCandidate(t, suffix) {
   const db = await localDatabase(t);
   const link = `https://chat.whatsapp.com/${suffix}`;

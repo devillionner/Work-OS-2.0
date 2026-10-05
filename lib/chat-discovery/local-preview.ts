@@ -309,7 +309,12 @@ async function handoffConfirmedLocalCandidate(
     minMembers,
     requireTargetVerification:true,
   },now);
-  if(outcome.decision!=='target'){
+  // A join request was sent and is awaiting admin approval (operator decision 2026-10-05): 'target' is
+  // structurally impossible before the admin approves (evaluateDiscoveryCandidate requires membershipState
+  // 'joined'), so applyDiscoveryInspection reports 'review' here even though every checkable criterion
+  // already passed — only a genuine 'rejected' (something changed) is a real failure for this case.
+  const pendingApproval=preflight.membershipState==='pending';
+  if(outcome.decision!=='target'&&!(pendingApproval&&outcome.decision!=='rejected')){
     throw new DiscoveryError('Preflight більше не підтверджує всі цільові критерії. Чат не зараховано.',409);
   }
   return {...handed,workflowStatus:outcome.workflowStatus,decision:outcome.decision};
@@ -323,7 +328,7 @@ function validateTargetPreflight(value:unknown,minMembers:number){
     status:'inspected',
     accessible:raw.accessible===true,
     targetVerified:raw.targetVerified===true,
-    membershipState:raw.membershipState==='joined'?'joined' as const:'not_checked' as const,
+    membershipState:raw.membershipState==='joined'?'joined' as const:raw.membershipState==='pending'?'pending' as const:'not_checked' as const,
     observedName:typeof raw.observedName==='string'?cleanChatName(raw.observedName):'',
     chatType:raw.chatType==='community'?'community' as const:raw.chatType==='group'?'group' as const:'unknown' as const,
     memberCount:Number.isSafeInteger(memberCount)?memberCount:null,
@@ -345,7 +350,23 @@ function validateTargetPreflight(value:unknown,minMembers:number){
     accessState:result.accessible?'available':'unavailable',
     linkState:result.accessible?'valid':'invalid',
   },minMembers);
-  if(result.targetVerified!==true||evaluated.decision!=='target'){
+  if(result.targetVerified!==true){
+    throw new DiscoveryError('До D1 можна підтвердити лише фактично перевірений цільовий чат.',409);
+  }
+  // A join request was sent and is awaiting admin approval (operator decision 2026-10-05): not joined
+  // yet, so 'target' is structurally impossible, but evaluateDiscoveryCandidate's early hard-rejection
+  // checks (member count, chat type, confirmed topic mismatch, confirmed no-write) already ran above —
+  // 'rejected' here is a genuine failure, same as for a regular target. Anything else ('review', from
+  // the membership/inspection facts being unknown because we are not joined yet) is exactly what is
+  // expected and is accepted: applyDiscoveryInspection already knows how to route a 'pending' result
+  // into the Waiting queue once the candidate is linked to a chat.
+  if(result.membershipState==='pending'){
+    if(evaluated.decision==='rejected'){
+      throw new DiscoveryError('Чат не відповідає критеріям — запит на вступ не підтверджує цільовий чат.',409);
+    }
+    return result;
+  }
+  if(evaluated.decision!=='target'){
     throw new DiscoveryError('До D1 можна підтвердити лише фактично перевірений цільовий чат.',409);
   }
   return result;
