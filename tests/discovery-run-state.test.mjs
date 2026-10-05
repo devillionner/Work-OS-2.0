@@ -131,6 +131,13 @@ void test('an exhausted plan with nothing queued finishes the run; Telegram bloc
   assert.equal(exhausted.done, true);
   assert.equal(exhausted.completionReason, 'sources_exhausted');
 
+  // A stray 'pause' for the step that just finished the plan must not undo the honest sources_exhausted
+  // stop (a Telegram block and an exhausted plan can race if the runner's pause message for the last
+  // step arrives after the step's own source_result already settled the run).
+  const raced = pauseOnSourceBlock(exhausted, { reason: 'telegram_flood_wait', query: 'Українці Берлін' }, NOW + 1000);
+  assert.equal(raced, exhausted, 'pauseOnSourceBlock is a no-op once the run is no longer running');
+  assert.equal(raced.completionReason, 'sources_exhausted', 'the honest reason is not overwritten by a late pause');
+
   const blocked = pauseOnSourceBlock(running([candidate('q')]), { reason: 'telegram_flood_wait', query: 'Українці Берлін' }, NOW);
   assert.equal(blocked.running, false);
   assert.equal(blocked.completionReason, 'source_error');
