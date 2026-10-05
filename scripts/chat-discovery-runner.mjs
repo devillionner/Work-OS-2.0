@@ -467,7 +467,9 @@ function groupRecentlyScanned(scanned,username){
 // Returns the WhatsApp-invite sources plus the groups that were fully searched.
 // `onGroupSource` (optional) receives each group's invites as soon as that group is scanned, so results show
 // up while the step is still running and a Stop never throws away what was already found.
-async function crawlTelegramGroupStep(step,local,onGroupSource=null){
+// `onProgress` (optional) receives (groupsScanned, groupsTotal, invitesFoundSoFar) after every group, so the
+// operator can see "3/12 групи, 2 посилання" while the step is still mid-flight, before any WhatsApp check.
+async function crawlTelegramGroupStep(step,local,onGroupSource=null,onProgress=null){
   const startedAt=Date.now();
   const query=step.kind==='search'?step.query:'Приєднані Telegram-групи';
   const outcome={query,sources:[],scannedGroups:[],warnings:[],blockedReason:null,interrupted:false};
@@ -487,6 +489,8 @@ async function crawlTelegramGroupStep(step,local,onGroupSource=null){
     }else{
       groups=(step.groups||[]).filter(group=>!groupRecentlyScanned(scanned,group.username));
     }
+    let invitesFound=0;
+    if(onProgress)onProgress(0,groups.length,0);
     for(const group of groups){
       if(!await localRunStillActive(local)){outcome.interrupted=true;break;}
       await session.pause();
@@ -495,14 +499,17 @@ async function crawlTelegramGroupStep(step,local,onGroupSource=null){
       outcome.scannedGroups.push(group.username);
       if(scan.status!=='scanned'){
         console.log(`Telegram group @${group.username}: ${scan.status}`);
+        if(onProgress)onProgress(outcome.scannedGroups.length,groups.length,invitesFound);
         continue;
       }
       console.log(`Telegram group @${group.username} (${scan.memberCount??'?'} members): ${scan.invites.length} WhatsApp invites`);
+      invitesFound+=scan.invites.length;
       const source=telegramGroupSource(scan,{query,place:step.place||''});
       if(source){
         if(onGroupSource){onGroupSource(source,group.username);outcome.streamedGroups=(outcome.streamedGroups||0)+1;}
         else outcome.sources.push(source);
       }
+      if(onProgress)onProgress(outcome.scannedGroups.length,groups.length,invitesFound);
     }
   }catch(error){
     if(error?.name==='TelegramStopped'){outcome.interrupted=true;console.log('Telegram step stopped mid-group: the run was paused.');}
@@ -639,15 +646,21 @@ async function handleRunSourceStep(job){
   if(cursor>=plan.length){sendSourceResult(job,{nextCursor:cursor,searched:0,done:true,totalTasks:plan.length});return;}
   const step=plan[cursor];
   setStatus('working',step.kind==='search'?`Telegram: шукаємо групи «${step.query}»`:'Telegram: перевіряємо приєднані групи');
-  sendLive(liveWs,{type:'source_progress',process:'discovery_run',runId:job.runId,
-    activity:step.kind==='search'?`Шукаємо «${step.query}»`:'Перевіряємо вступлені групи'});
+  const stepLabel=step.kind==='search'?`Шукаємо «${step.query}»`:'Перевіряємо вступлені групи';
+  sendLive(liveWs,{type:'source_progress',process:'discovery_run',runId:job.runId,activity:stepLabel});
+  // Group-by-group progress within this one step — visible before any of it reaches a WhatsApp check.
+  const sendStepProgress=(scanned,total,invites)=>{
+    if(!total)return;
+    sendLive(liveWs,{type:'source_progress',process:'discovery_run',runId:job.runId,
+      activity:`${stepLabel}: ${scanned}/${total} груп${invites?`, знайдено ${invites}`:''}`});
+  };
   // Each group's invites go to the DO right away (partial: cursor unchanged, the step stays in flight).
   const streamed=new Set();
   const crawled=await crawlTelegramGroupStep(step,{runId:job.runId},(source,username)=>{
     streamed.add(String(username).toLowerCase());
     sendLive(liveWs,{type:'source_result',process:'discovery_run',runId:job.runId,partial:true,
       batch:{nextCursor:cursor,searched:1,done:false,totalTasks:plan.length},sources:[source],scannedGroups:[username]});
-  });
+  },sendStepProgress);
   const unstreamedGroups=crawled.scannedGroups.filter(username=>!streamed.has(String(username).toLowerCase()));
   if(crawled.blockedReason){
     // Stop instead of hammering Telegram; the cursor stays on this step, so «Продовжити» resumes it.
