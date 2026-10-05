@@ -639,6 +639,8 @@ async function handleRunSourceStep(job){
   if(cursor>=plan.length){sendSourceResult(job,{nextCursor:cursor,searched:0,done:true,totalTasks:plan.length});return;}
   const step=plan[cursor];
   setStatus('working',step.kind==='search'?`Telegram: шукаємо групи «${step.query}»`:'Telegram: перевіряємо приєднані групи');
+  sendLive(liveWs,{type:'source_progress',process:'discovery_run',runId:job.runId,
+    activity:step.kind==='search'?`Шукаємо «${step.query}»`:'Перевіряємо вступлені групи'});
   // Each group's invites go to the DO right away (partial: cursor unchanged, the step stays in flight).
   const streamed=new Set();
   const crawled=await crawlTelegramGroupStep(step,{runId:job.runId},(source,username)=>{

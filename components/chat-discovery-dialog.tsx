@@ -11,7 +11,7 @@ import type { DiscoveryCandidate, DiscoveryDecision, DiscoveryRun } from '@/lib/
 import type { DiscoveryPlatform, TelegramSearchPlan } from '@/lib/chat-discovery/public-web';
 import type { LocalDiscoveryPreview } from '@/lib/chat-discovery/local-preview';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
-import { EMPTY_RUN, NON_TARGET_STATES, canResume, runTargetCount, type DiscoveryRunState } from '@/lib/chat-discovery/run-state';
+import { EMPTY_RUN, NON_TARGET_STATES, SOURCE_TARGET_QUEUE, canResume, queuedCount, runTargetCount, type DiscoveryRunState } from '@/lib/chat-discovery/run-state';
 import { subscribeLiveMessages, subscribeLiveStatus } from '@/lib/live-channel';
 import { normalizeGroupLink } from '@/lib/chats/bulk-input';
 
@@ -87,6 +87,7 @@ export function ChatDiscoveryDialog({
   const [localPreview,setLocalPreview]=useState<LocalPreviewSession>(EMPTY_RUN);
   const goal=goalOverride??(localPreview.goal||50);
   const [runnerConnected,setRunnerConnected]=useState<boolean|null>(null);
+  const [sourceActivity,setSourceActivity]=useState<string|null>(null);
   const [liveConnected,setLiveConnected]=useState(false);
   // The persisted Work OS history is a D1 read: it is loaded only when the operator opens «Історія».
   const load = useCallback(async (options: { silent?: boolean } = {}) => {
@@ -120,10 +121,11 @@ export function ChatDiscoveryDialog({
   const loadRun=useCallback(async()=>{
     try{
       const response=await fetch('/api/chat-discovery/run',{cache:'no-store'});
-      const body=await response.json() as {run?:LocalPreviewSession;runnerConnected?:boolean;error?:string};
+      const body=await response.json() as {run?:LocalPreviewSession;runnerConnected?:boolean;discoverySourceActivity?:string|null;error?:string};
       if(!response.ok||!body.run)return;
       setLocalPreview(body.run);
       setRunnerConnected(body.runnerConnected===true);
+      setSourceActivity(body.discoverySourceActivity||null);
     }catch{}
   },[]);
 
@@ -155,10 +157,11 @@ export function ChatDiscoveryDialog({
 
   async function postRun(body:Record<string,unknown>){
     const response=await fetch('/api/chat-discovery/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    const payload=await response.json().catch(()=>({})) as {run?:LocalPreviewSession;runnerConnected?:boolean;error?:string};
+    const payload=await response.json().catch(()=>({})) as {run?:LocalPreviewSession;runnerConnected?:boolean;discoverySourceActivity?:string|null;error?:string};
     if(!response.ok||!payload.run)throw new Error(payload.error||'Не вдалося змінити автопошук.');
     setLocalPreview(payload.run);
     setRunnerConnected(payload.runnerConnected===true);
+    setSourceActivity(payload.discoverySourceActivity||null);
     return payload.run;
   }
 
@@ -456,7 +459,7 @@ export function ChatDiscoveryDialog({
       ? `Перевіряємо WhatsApp: ${activeCandidateName}`
       : localQueued>0
         ? `У черзі ${localQueued}: готуємо наступну WhatsApp-перевірку`
-        : 'Шукаємо WhatsApp-запрошення в публічних Telegram-групах'
+        : sourceActivity||'Шукаємо WhatsApp-запрошення в публічних Telegram-групах'
     : localPreview.completionReason==='goal_reached'
       ? 'Мету досягнуто — підтверди потрібні цільові чати'
       : localPreview.completionReason==='sources_exhausted'
@@ -586,6 +589,9 @@ export function ChatDiscoveryDialog({
                   <div className="flex items-center justify-between gap-3">
                     <span>WhatsApp <strong className="ml-1 text-foreground">{localChecked}</strong></span>
                     <span>Активність <strong className="ml-1 text-foreground">{formatActivityTime(localPreview.lastActivityAt)}</strong></span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span>У черзі на WhatsApp <strong className="ml-1 text-foreground">{queuedCount(localPreview,Date.now())}/{SOURCE_TARGET_QUEUE}</strong></span>
                   </div>
                 </div>
               </details>

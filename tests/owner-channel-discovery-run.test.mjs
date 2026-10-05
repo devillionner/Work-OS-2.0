@@ -274,3 +274,26 @@ void test('a partial Telegram result (one scanned group) is applied immediately 
   await message(channel, runner, { type: 'source_result', runId: run.runId, batch: { nextCursor: 1, searched: 0, done: false, totalTasks: 30 }, sources: [], scannedGroups: [] });
   assert.equal(ofType(runner, 'run_task').length, 1, 'the found candidate is checked once the step finishes');
 });
+
+void test('a live source_progress message shows the current Telegram step on every device and clears once a candidate check starts', async (t) => {
+  const { channel, runner, browser } = await setup(t);
+  const { run } = await post(channel, { action: 'start', goal: 5 });
+  // A fresh run with an empty queue starts with a Telegram source step already in flight (cursor 0).
+  browser.sent.length = 0;
+
+  await message(channel, runner, { type: 'source_progress', runId: run.runId, activity: 'Шукаємо «Барахолка Харків»' });
+  assert.ok(ofType(browser, 'process_state').length > 0, 'the browser is told to refresh');
+  let state = await (await runRequest(channel, { method: 'GET' })).json();
+  assert.equal(state.discoverySourceActivity, 'Шукаємо «Барахолка Харків»');
+
+  // A message for a step that is no longer the in-flight one (stale/abandoned) must not overwrite it.
+  await message(channel, runner, { type: 'source_progress', runId: 'some-other-run', activity: 'should be ignored' });
+  state = await (await runRequest(channel, { method: 'GET' })).json();
+  assert.equal(state.discoverySourceActivity, 'Шукаємо «Барахолка Харків»', 'a message for a stale runId is ignored');
+
+  // Once the step's invite becomes a queued candidate and the DO dispatches it for a WhatsApp check,
+  // the source-activity line clears — the dialog shows the candidate name instead at that point.
+  await message(channel, runner, { type: 'source_result', runId: run.runId, batch: { nextCursor: 1, searched: 1, done: false, totalTasks: 30 }, sources: [telegramSource] });
+  state = await (await runRequest(channel, { method: 'GET' })).json();
+  assert.equal(state.discoverySourceActivity, null, 'cleared once a WhatsApp candidate check is dispatched instead');
+});

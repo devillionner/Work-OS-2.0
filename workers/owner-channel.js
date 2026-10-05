@@ -63,7 +63,7 @@ import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFee
 /** @typedef {'browser'|'runner'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 // The runner pings every 30 s and the runtime records each auto-answered ping per socket. A runner socket
@@ -581,6 +581,7 @@ export class OwnerChannel {
       if (picked.state !== run) { await saveRun(this.ctx.storage, run, picked.state); run = picked.state; }
       if (picked.task) {
         state.discoveryRunJob = { kind: 'candidate', candidateId: picked.task.candidateId, runId: run.runId };
+        state.discoverySourceActivity = null;
         this.broadcast('runner', { type: 'run_task', process: 'discovery_run', task: picked.task });
         return;
       }
@@ -603,6 +604,18 @@ export class OwnerChannel {
    */
   async handleDiscoveryRunMessage(ws, message) {
     const state = await this.readState();
+    // Ephemeral "what the runner is doing right now" for the dialog's status line — not part of the
+    // durable run snapshot (changes every few seconds, nothing to resume from it). Only accepted while
+    // this is genuinely the in-flight source step, so a stale/delayed message from an abandoned step
+    // cannot overwrite a newer one.
+    if (message.type === 'source_progress') {
+      if (state.discoveryRunJob?.kind === 'source' && state.discoveryRunJob.runId === message.runId) {
+        state.discoverySourceActivity = String(message.activity || '').slice(0, 200) || null;
+        await this.writeState(state);
+        this.broadcast('browser', { type: 'process_state', process: 'discovery_run', runId: message.runId });
+      }
+      return;
+    }
     const job = state.discoveryRunJob;
     const now = Date.now();
     // A Telegram step's D1 duplicate check happens BEFORE the run is (re)loaded: awaiting D1 lets other
@@ -644,7 +657,7 @@ export class OwnerChannel {
           errors: failed.length, error: failed[0]?.reason ?? null, scannedGroups: Array.isArray(message.scannedGroups) ? message.scannedGroups : [] }));
       }
     } else if (message.type === 'pause') {
-      if (job?.kind === 'source' && job.runId === message.runId) state.discoveryRunJob = null;
+      if (job?.kind === 'source' && job.runId === message.runId) { state.discoveryRunJob = null; state.discoverySourceActivity = null; }
       if (message.runId === run.runId) {
         next = pauseOnSourceBlock(run, { reason: String(message.reason || 'telegram_unavailable'), query: String(message.query || '') }, now);
         if (next !== run) this.broadcast('runner', { type: 'run_control', process: 'discovery_run', runId: run.runId, active: false });
@@ -728,7 +741,7 @@ export class OwnerChannel {
     const run = await loadRun(this.ctx.storage);
     if (request.method === 'GET') {
       await this.writeState(state);
-      return Response.json({ run, runnerConnected: this.openRunnerCount() > 0 }, { headers: { 'Cache-Control': 'no-store' } });
+      return Response.json({ run, runnerConnected: this.openRunnerCount() > 0, discoverySourceActivity: state.discoverySourceActivity ?? null }, { headers: { 'Cache-Control': 'no-store' } });
     }
     if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
     let body;
@@ -746,7 +759,7 @@ export class OwnerChannel {
       if (!canResume(run)) return Response.json({ error: 'Немає зупиненого автопошуку, який можна продовжити.' }, { status: 409 });
       next = resumeRun(run, now);
     } else if (action === 'pause') {
-      if (!run.running) return Response.json({ run, runnerConnected: this.openRunnerCount() > 0 });
+      if (!run.running) return Response.json({ run, runnerConnected: this.openRunnerCount() > 0, discoverySourceActivity: state.discoverySourceActivity ?? null });
       next = pauseRun(run, now);
     } else if (action === 'confirmed') {
       next = settleRun(markConfirmed(run, String(body.candidateId || '')), now);
@@ -762,7 +775,7 @@ export class OwnerChannel {
     if (next !== run) await saveRun(this.ctx.storage, run, next);
     // Start/resume/pause abandon whatever run item was in flight: after a pause the runner drops it
     // without answering, and a late answer is still applied (or ignored) on its own merits.
-    if (action === 'start' || action === 'resume' || action === 'pause') state.discoveryRunJob = null;
+    if (action === 'start' || action === 'resume' || action === 'pause') { state.discoveryRunJob = null; state.discoverySourceActivity = null; }
     if (action === 'start' || action === 'resume') {
       if (next.runId) this.broadcast('runner', await this.runPlanMessage(next.runId));
       this.broadcast('runner', { type: 'run_control', process: 'discovery_run', runId: next.runId, active: true });
@@ -774,7 +787,7 @@ export class OwnerChannel {
     }
     if (next !== run) this.broadcastRunState(next);
     await this.writeState(state);
-    return Response.json({ run: next, runnerConnected: this.openRunnerCount() > 0 }, { headers: { 'Cache-Control': 'no-store' } });
+    return Response.json({ run: next, runnerConnected: this.openRunnerCount() > 0, discoverySourceActivity: state.discoverySourceActivity ?? null }, { headers: { 'Cache-Control': 'no-store' } });
   }
 
   /**
@@ -796,6 +809,7 @@ export class OwnerChannel {
     // marker) lets the next runner get the same candidate or Telegram step again.
     if (state.discoveryRunJob) {
       state.discoveryRunJob = null;
+      state.discoverySourceActivity = null;
       const run = await loadRun(this.ctx.storage);
       const cleared = clearActive(run);
       if (cleared !== run) await saveRun(this.ctx.storage, run, cleared);
