@@ -701,28 +701,17 @@ export function classifyWhatsAppSnapshot(task, snapshot) {
     return { kind: 'action', action: 'view', buttonText: viewButtonText, observedName };
   }
 
-  if (task.action === 'join_and_inspect' && approvalRequiredPattern.test(targetRegionText)) {
-    return {
-      kind:'result',
-      result:{
-        status:'failed',
-        targetVerified:true,
-        accessible:true,
-        membershipState:'not_checked',
-        observedName,
-        chatType:'group',
-        reason:'approval_required',
-      },
-    };
-  }
-
   const requestButtonText = firstMatchingButton(snapshot, requestJoinPattern);
-  // Waiting check mirrors Prototype Checker: an invite that still offers "Request to join" means no
-  // request is pending, so the request is (re)sent and the chat stays in Waiting for three days.
-  if (requestButtonText && task.action === 'waiting_check') {
+  // An invite that still offers "Request to join" means no request is pending yet: send it, for
+  // join_and_inspect exactly like waiting_check. Operator decision 2026-10-05: a candidate that
+  // already cleared the member-count/topic/chat-type checks upstream is worth requesting and letting
+  // sit in Waiting for the admin's approval, not discarding outright just because it is not an
+  // instant join. The result lands in membershipState 'pending' via the check above once the request
+  // shows as sent (identical to how a Waiting recheck sees its own pending request).
+  if (requestButtonText) {
     return { kind: 'action', action: 'request', buttonText: requestButtonText, observedName };
   }
-  if (requestButtonText && task.action === 'join_and_inspect') {
+  if (task.action === 'join_and_inspect' && approvalRequiredPattern.test(targetRegionText)) {
     return {
       kind:'result',
       result:{

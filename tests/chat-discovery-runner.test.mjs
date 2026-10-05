@@ -261,7 +261,32 @@ void test('local Discovery screens invite metadata and rejects impossible candid
   assert.ok(query>0&&reject>query&&join>reject);
   assert.match(localPreflight,/pre\.memberCount<minMembers\)reasons\.push\('too_few_members'\)/);
   assert.match(localPreflight,/pre\.canWrite===false\)reasons\.push\('cannot_write'\)/);
-  assert.match(localPreflight,/if\(pre\.approvalRequired===true\)\{\s*return completeLocalPreflight\(task,\{decision:'skipped',reasonCodes:\['approval_required'\]/);
+});
+
+// Operator decision 2026-10-05: an invite that needs admin approval is no longer skipped on sight — it
+// is screened against member-count/topic/community like any other candidate first (same order as
+// above), and only once it passes does the join attempt run and actually send the request.
+void test('an approval-gated invite that clears member-count/topic/community still gets a join request sent, and lands in review while it is pending — not skipped',async()=>{
+  const reject=localPreflight.indexOf("return completeLocalPreflight(task,{decision:'rejected',reasonCodes:reasons");
+  const approvalEarlyExit=localPreflight.indexOf("decision:'skipped',reasonCodes:['approval_required']");
+  assert.equal(approvalEarlyExit,-1,'approval_required no longer short-circuits before the member-count/topic/community screen');
+  assert.ok(reject>0);
+
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  // The direct WhatsApp runtime API has no "request to join" call — approval_required from it now
+  // falls back to the UI adapter (same fallback lane as direct_join_unavailable) instead of giving up.
+  assert.match(localPreflight,/\['direct_join_unavailable','joined_identity_missing','approval_required'\]\.includes\(joined\.reason\)/);
+  // The UI adapter sends the actual "Request to join" click for join_and_inspect too, not only
+  // waiting_check — the button check now runs before the text-only approvalRequiredPattern fallback
+  // (which still exists for the rare case where the text appears without any clickable button).
+  const requestCheck=adapter.indexOf("if (requestButtonText) {");
+  const textFallback=adapter.indexOf("task.action === 'join_and_inspect' && approvalRequiredPattern.test");
+  assert.ok(requestCheck>0&&textFallback>requestCheck,'the request button is tried before the text-only fallback gives up');
+  assert.match(adapter,/if \(requestButtonText\) \{\s*return \{ kind: 'action', action: 'request', buttonText: requestButtonText, observedName \};/);
+  // A sent-but-not-yet-approved request (membershipState 'pending') is a review candidate the operator
+  // can see, not a dead end — and not the generic 'incomplete' retry loop (approval can take days).
+  // qualifyLocalResult is defined before the localPreflight slice starts, so check the full source.
+  assert.match(source,/if\(result\.membershipState==='pending'\)\{\s*return completeLocalPreflight\(task,\{decision:'review',reasonCodes:\['approval_required'\]/);
 });
 
 void test('local Discovery joins through the WhatsApp runtime and uses the invite UI only as a bounded fallback',async()=>{
@@ -271,7 +296,7 @@ void test('local Discovery joins through the WhatsApp runtime and uses the invit
   assert.match(adapter,/export async function leaveWhatsappGroupViaRuntime/);
   // The UI adapter runs only on the last metadata attempt or when the runtime join module is unavailable.
   assert.match(localPreflight,/if\(Number\(task\.checkpoint\?\.attempts\)>=3\)\{[\s\S]*?inspectWhatsappTaskViaCdp\(task/);
-  assert.match(localPreflight,/\['direct_join_unavailable','joined_identity_missing'\]\.includes\(joined\.reason\)/);
+  assert.match(localPreflight,/\['direct_join_unavailable','joined_identity_missing','approval_required'\]\.includes\(joined\.reason\)/);
   assert.match(localPreflight,/Do not perform a second join after a timeout if WhatsApp may have accepted it/);
 });
 

@@ -313,6 +313,14 @@ async function completeFreshJoinManualReview(task,result,evaluated){
 }
 
 async function qualifyLocalResult(task,result){
+  // A join request was just sent and is awaiting admin approval (operator decision 2026-10-05): not
+  // joined, so writability/topic/ads cannot be observed yet — this is neither a pass nor a rejection,
+  // it is a fact for the operator to see. Review, not the generic 'incomplete' retry loop (which would
+  // just re-poll a few times and then discard it — approval can take days, not seconds).
+  if(result.membershipState==='pending'){
+    return completeLocalPreflight(task,{decision:'review',reasonCodes:['approval_required'],
+      result:{...result,status:'inspected'}});
+  }
   const evaluated=evaluateLocalPreflight(task,result);
   if(needsFreshJoinManualReview(task,result,evaluated)){
     return completeFreshJoinManualReview(task,result,evaluated);
@@ -380,9 +388,9 @@ async function processLocalPreflight(task){
   if(pre.reason==='invalid_whatsapp_link'){
     return completeLocalPreflight(task,{decision:'unavailable',reasonCodes:['invalid_whatsapp_link'],result:pre});
   }
-  if(pre.approvalRequired===true){
-    return completeLocalPreflight(task,{decision:'skipped',reasonCodes:['approval_required'],result:pre});
-  }
+  // approvalRequired is screened against member-count/topic/community below like any other candidate —
+  // only once those pass does the join attempt run, which sends the request instead of giving up
+  // immediately (operator decision 2026-10-05): see qualifyLocalResult's membershipState 'pending' case.
   const minMembers=Math.max(700,Number(task.minMembers)||700);
   const reasons=[];
   if(Number.isFinite(pre.memberCount)&&pre.memberCount<minMembers)reasons.push('too_few_members');
@@ -410,9 +418,13 @@ async function processLocalPreflight(task){
   }
   task=addDiscoveryStageTime(task,'joinAndInspectMs',Date.now()-joinStartedAt);
   if(joined.kind!=='result'){
-    if(['direct_join_unavailable','joined_identity_missing'].includes(joined.reason)){
+    // approval_required: the direct WhatsApp API has no "request to join" call, only instant join —
+    // fall back to the UI path (operator decision 2026-10-05) so a candidate that already cleared
+    // member-count/topic/chat-type can still send the request and land in membershipState 'pending'
+    // instead of being discarded outright.
+    if(['direct_join_unavailable','joined_identity_missing','approval_required'].includes(joined.reason)){
       if(!await localRunStillActive(task))return 'local_wait';
-      console.warn('Direct invite module unavailable; checking exact invite through WhatsApp UI.');
+      console.warn(joined.reason==='approval_required'?'Approval required; requesting to join through WhatsApp UI.':'Direct invite module unavailable; checking exact invite through WhatsApp UI.');
       const fallback=await inspectWhatsappTaskViaCdp(task,{cdpBaseUrl:whatsappCdp,timeoutMs:30000})
         .catch(()=>({kind:'blocked',reason:'ui_inspection_failed'}));
       if(fallback.kind==='result'){
@@ -422,8 +434,8 @@ async function processLocalPreflight(task){
       }
       return deferLocalPreflight(task,fallback.reason||'ui_inspection_failed',pre);
     }
-    if(['approval_required','invalid_whatsapp_link'].includes(joined.reason)){
-      return completeLocalPreflight(task,{decision:joined.reason==='approval_required'?'skipped':'unavailable',
+    if(joined.reason==='invalid_whatsapp_link'){
+      return completeLocalPreflight(task,{decision:'unavailable',
         reasonCodes:[joined.reason],result:{...pre,status:'failed',reason:joined.reason}});
     }
     if(joined.groupId){

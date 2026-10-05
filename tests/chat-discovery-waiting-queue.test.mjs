@@ -58,7 +58,7 @@ const invitePage = (extra) => ({
   targetTexts: ['Українці Варшава'], headerTitles: [], buttons: [], bodyText: '', ...extra,
 });
 
-void test('waiting check presses Request to join or Join like Prototype Checker; Discovery join stays fail-closed', () => {
+void test('waiting check and Discovery join both press Request to join or Join like Prototype Checker (operator decision 2026-10-05)', () => {
   const request = classifyWhatsAppSnapshot(waitingTask, invitePage({ buttons: ['Request to join'], bodyText: 'Request to join' }));
   assert.equal(request.kind, 'action');
   assert.equal(request.action, 'request');
@@ -68,8 +68,11 @@ void test('waiting check presses Request to join or Join like Prototype Checker;
   const pending = classifyWhatsAppSnapshot(waitingTask, invitePage({ bodyText: 'Request to join sent' }));
   assert.equal(pending.result.membershipState, 'pending');
 
+  // A Discovery candidate that already cleared member-count/topic/community gets the same request
+  // sent, instead of being discarded the moment a chat turns out to need admin approval.
   const discovery = classifyWhatsAppSnapshot({ ...waitingTask, action: 'join_and_inspect' }, invitePage({ buttons: ['Request to join'], bodyText: 'Request to join' }));
-  assert.equal(discovery.result.reason, 'approval_required');
+  assert.equal(discovery.kind, 'action');
+  assert.equal(discovery.action, 'request');
 });
 
 void test('browser outcomes map to waiting-check results; runtime problems are not chat failures', () => {

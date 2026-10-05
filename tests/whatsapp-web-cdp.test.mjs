@@ -69,7 +69,10 @@ void test('join is allowed only after exact target verification', () => {
   });
 });
 
-void test('approval-required invite is skipped without sending a join request', () => {
+// Operator decision 2026-10-05: an approval-gated invite that already cleared member-count/topic/
+// community is worth requesting, same as a Waiting recheck does — not discarding it outright just
+// because joining is not instant. join_and_inspect now sends the request exactly like waiting_check.
+void test('approval-required invite sends the join request, same as a Waiting recheck', () => {
   for(const label of ['Request to join','Подати запит на вступ','Надіслати запит на вступ']){
     const result = classifyWhatsAppSnapshot(task, {
       url:'https://web.whatsapp.com/accept?code=AbCdEfGh1234',
@@ -79,10 +82,7 @@ void test('approval-required invite is skipped without sending a join request', 
       buttons:[label],
       bodyText:label,
     });
-    assert.equal(result.kind,'result',label);
-    assert.equal(result.result.reason,'approval_required',label);
-    assert.equal(result.result.membershipState,'not_checked',label);
-    assert.equal(result.result.targetVerified,true,label);
+    assert.deepEqual(result,{kind:'action',action:'request',buttonText:label,observedName:'Українці Варшава'},label);
   }
 });
 
