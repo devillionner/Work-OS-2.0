@@ -18,6 +18,22 @@
 27 помилок (24 коментарі) позначено `oxlint-disable-next-line ... -- TODO: потребує зміни логіки/розмітки (docs/TODO.md)`. Виправлення змінює поведінку, тому потребує окремої задачі. Знайти всі: `grep -rn "docs/TODO.md" components`.
 
 - [ ] `react/react-compiler` EffectSetState (setState синхронно в useEffect): `chat-profile-dialog.tsx`, `leads/workspace.tsx`, `library-workspace.tsx`, `platform-workspace.tsx`, `reports-workspace.tsx`, `settings-workspace.tsx`. (`chat-discovery-dialog.tsx` прибрано зі списку 2026-10-05: фікс бага резюму зі старою метою — коміт `b592f35` — замінив саме це `useEffect(setState(...))` на похідне значення в тілі компонента; придушення `oxlint-disable-next-line react/react-compiler` у файлі більше немає, `npm run lint` підтверджує.)
+  **ПОПЕРЕДЖЕННЯ (спроба 2026-10-05, відкочено, нічого не закомічено)**: це НЕ однорідний список «забутих» ефектів —
+  кожен файл ховає свій навмисний, уже раз полагоджений баг, і наївний фікс ризикує його повернути.
+  `chat-profile-dialog.tsx:21-34` — пробував замінити на ключ-ремонт внутрішнього компонента
+  (`key={chat.id}`, точно патерн з коміту `6f8317c`) — `tests/workspace-loading-contract.test.mjs:188`
+  («dialog and CRM state sync uses props instead of remount keys») одразу це ловить: раніше (коміти
+  `6f8317c`→`70076fc`, 2026-09-24) тут БУВ ключ `` `${open}:${chat.id}:${chat.stateToken}` ``, і його
+  свідомо прибрали — ремонт на зміну `stateToken` (фонове оновлення чату, поки оператор ще не зберіг
+  форму) стирав незбережений ввід. Git-історія (`5d18053`, `04914e7`, `4a73f5a`, `8c691cd`, `11ca5bd`,
+  `278895f`) показує той самий клас «remount flicker / втрата вводу» баг через КІЛЬКА компонентів
+  (leads/conversation, publish-dialog, settings, global-timers, history-діалоги) — усі виправлені тим
+  самим «sync без ремонту» підходом, який і ловить лінтер. `platform-workspace.tsx:128`/
+  `settings-workspace.tsx:40` — інший патерн: `useEffect(()=>{if(active)return;setXOpen(false)...})`
+  закриває всі модалки вкладки при втраті фокусу — це не похідне значення, а навмисний побічний
+  ефект, похідне значення тут не підходить напряму. Перш ніж чіпати БУДЬ-ЯКИЙ з цих 13 придушень:
+  `git log --oneline --all | grep -i "remount\|flicker"` і прочитати відповідний коміт — імовірно,
+  правильний фікс буде «залишити як є», а не прибрати коментар.
 - [ ] `react/react-compiler` Refs (ref.current під час render): `components/leads/workspace.tsx`, `library-workspace.tsx`, `platform-workspace.tsx`.
 - [ ] `react/react-compiler` PreserveManualMemo: `components/server-sync.tsx` (`checkRevision`).
 - [ ] `react-hooks/exhaustive-deps`: `components/platform-workspace.tsx` (effect з `[filterKey]` без `platform` і `queue`).
