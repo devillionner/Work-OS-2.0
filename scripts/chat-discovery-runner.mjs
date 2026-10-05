@@ -52,7 +52,11 @@ let localSourcePlan=null;
 let localSourcePlanRunId='';
 // Telegram groups already searched for WhatsApp invites; a repeated run skips them for a week.
 const TELEGRAM_GROUP_RESCAN_MS=7*24*60*60*1000;
-const SEARCH_GROUPS_PER_STEP=3;
+// Maximum coverage (operator decision 2026-10-05): scan every group the search step captured instead
+// of only the first few — slower per step, but a query is only ever searched once per plan, so groups
+// left unscanned here are lost for good (confirmed live: a Kharkiv "барахолка" search found 5 groups,
+// only 3 were ever opened).
+const SEARCH_GROUPS_PER_STEP=12;
 const PAGE_RECOVERY_COOLDOWN_MS=15000;
 const WHATSAPP_LOADING_COOLDOWN_MS=10000;
 const WHATSAPP_LOADING_RELOAD_AFTER=3;
@@ -476,7 +480,7 @@ async function crawlTelegramGroupStep(step,local,onGroupSource=null){
     const scanned=readScannedGroups();
     let groups;
     if(step.kind==='search'){
-      const found=await searchTelegramPublicGroups(session,step.query,{limit:8});
+      const found=await searchTelegramPublicGroups(session,step.query,{limit:25});
       if(found.kind!=='result'){outcome.blockedReason=found.reason;return outcome;}
       groups=found.groups.filter(group=>!groupRecentlyScanned(scanned,group.username)).slice(0,SEARCH_GROUPS_PER_STEP);
     }else{

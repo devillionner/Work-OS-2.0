@@ -152,7 +152,16 @@ export class TelegramWebSession {
       if(!input||input.closest('.SearchInput--hidden'))return false;input.focus();input.select();return document.activeElement===input;})()`);
     if (!focused) return { flood: false, unavailable: true };
     await this.client.send('Input.insertText', { text: String(query) });
-    return this.waitForSearchResults();
+    const result = await this.waitForSearchResults();
+    if (result.flood) return result;
+    // Maximum coverage (operator decision 2026-10-05): the quick combined panel truncates each
+    // category to a handful of rows behind a "Show More"/"Показати більше" link. Best-effort: a
+    // missing/renamed link just means click() no-ops and we keep whatever the quick panel already
+    // has, never a hard failure.
+    const expanded = await this.click(`[...document.querySelectorAll('.LeftSearch [role="button"], .LeftSearch .ListItem-button, .LeftSearch span, .LeftSearch a')]
+      .find(el=>/^(show more|показати (більше|ще)|показать (больше|ещё))$/iu.test((el.innerText||'').trim()))`);
+    if (expanded) return this.waitForSearchResults();
+    return result;
   }
 
   async waitForSearchResults() {

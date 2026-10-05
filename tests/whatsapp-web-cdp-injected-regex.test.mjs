@@ -7,25 +7,35 @@ const path=new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url);
 const source=readFileSync(path,'utf8');
 const file=ts.createSourceFile('whatsapp-web-cdp.mjs',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
 
-function templateParts(){
+function templatePartsOf(name,fileSource){
   const parts=[];
+  const parsed=ts.createSourceFile(name,fileSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
   const visit=(node)=>{
     if(ts.isNoSubstitutionTemplateLiteral(node)||ts.isTemplateHead(node)||ts.isTemplateMiddle(node)||ts.isTemplateTail(node)){
-      parts.push({raw:node.rawText??'',cooked:node.text,line:file.getLineAndCharacterOfPosition(node.getStart()).line+1});
+      parts.push({raw:node.rawText??'',cooked:node.text,line:parsed.getLineAndCharacterOfPosition(node.getStart()).line+1});
     }
     ts.forEachChild(node,visit);
   };
-  visit(file);
+  visit(parsed);
   return parts;
 }
 
-// Code injected into the WhatsApp/Work OS tab is built from template literals, so a single
-// backslash is consumed by the template itself: `\s` becomes `s` and `\b` becomes backspace.
+function templateParts(){ return templatePartsOf('whatsapp-web-cdp.mjs',source); }
+
+// Code injected into a browser tab (WhatsApp/Work OS, and since 2026-10-02 Telegram Web A for
+// Discovery sources) is built from template literals, so a single backslash is consumed by the
+// template itself: `\s` becomes `s` and `\b` becomes backspace.
 void test('template literals sent through CDP keep regex escapes',()=>{
+  const files=[
+    ['whatsapp-web-cdp.mjs',source],
+    ['telegram-web-cdp.mjs',readFileSync(new URL('../scripts/telegram-web-cdp.mjs',import.meta.url),'utf8')],
+  ];
   const lossy=[];
-  for(const part of templateParts()){
-    for(const match of part.raw.matchAll(/\\(.)/gsu)){
-      if(!/[\\`$'"nrtu0\n]/u.test(match[1]))lossy.push(`${part.line}: \\${match[1]}`);
+  for(const [name,fileSource] of files){
+    for(const part of templatePartsOf(name,fileSource)){
+      for(const match of part.raw.matchAll(/\\(.)/gsu)){
+        if(!/[\\`$'"nrtu0\n]/u.test(match[1]))lossy.push(`${name}:${part.line}: \\${match[1]}`);
+      }
     }
   }
   assert.deepEqual(lossy,[]);
