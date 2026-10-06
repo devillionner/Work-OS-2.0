@@ -372,12 +372,17 @@ export async function searchTelegramPublicGroups(session, query, { limit = 6 } =
 // Opens one public group WITHOUT joining and collects the WhatsApp invites posted in it.
 export async function scanTelegramGroupForInvites(session, { username, title = '' }) {
   let opened = await session.openSearchResult(username);
-  if (!opened) {
+  // Nothing in the panel yet (a «joined»/revisit step searches nothing of its own), so look the chat up.
+  // Telegram's global search matches a bare word against chat TITLES; only «@handle» resolves the username
+  // itself. Searching the bare handle is why every joined-group step came back not_found (167 of 177 in the
+  // operator's log, 2026-10-07) — the title is tried too, since a chat already in the list matches by name.
+  for (const query of opened ? [] : [`@${username}`, username, title].filter(Boolean)) {
     await session.pause();
-    const typed = await session.typeGlobalSearch(username);
+    const typed = await session.typeGlobalSearch(query);
     if (typed.flood) return { kind: 'blocked', reason: 'telegram_flood_wait' };
     if (typed.unavailable) return { kind: 'blocked', reason: 'telegram_search_unavailable' };
     opened = await session.openSearchResult(username);
+    if (opened) break;
   }
   if (!opened) return { kind: 'result', status: 'not_found', username, title, invites: [] };
   if (classifyTelegramSearchStatus(opened.status) !== 'group') return { kind: 'result', status: 'not_group', username, title: opened.title, invites: [] };
