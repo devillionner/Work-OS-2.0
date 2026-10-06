@@ -877,21 +877,44 @@ async function readWhatsappMediaPreviewDiagnostic(client){
   }catch{return '';}
 }
 
+// Which editable field is the photo's caption. WhatsApp Web shows the caption inside the media preview, but
+// the ordinary chat composer stays in the DOM too, and «any editor outside <footer>» picked the wrong one on
+// the operator's build: the text landed in the chat composer, the photo went out with no caption, and the
+// send confirmation (which looks for the caption on the sent message) failed with media_send_not_confirmed
+// (live report 2026-10-07). So every editable field present BEFORE the photo is attached is marked, and the
+// caption is the visible one that appeared WITH the preview — no class names, no footer guessing.
+const MARK_EXISTING_EDITORS_JS = `(() => {
+  const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
+  for(const node of document.querySelectorAll('[contenteditable="true"]'))node.removeAttribute('data-work-os-pre');
+  for(const node of [...document.querySelectorAll('[contenteditable="true"]')].filter(visible))node.setAttribute('data-work-os-pre','1');
+  return true;
+})()`;
+// The caption node, in the one form all three steps (wait, type, verify) must agree on.
+const CAPTION_NODE_JS = `(() => {
+  const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
+  const editors=[...document.querySelectorAll('[contenteditable="true"]')].filter(visible);
+  return editors.find((node)=>!node.hasAttribute('data-work-os-pre'))
+    ||editors.find((node)=>!node.closest('footer'))
+    ||null;
+})()`;
+const SEND_CONTROL_JS = `(() => {
+  const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
+  return [...document.querySelectorAll('button, [role="button"]')].filter(visible).find((node)=>{
+    const label=String(node.getAttribute('aria-label')||node.getAttribute('title')||node.textContent||'').trim();
+    // Substring, not an exact label: WhatsApp renames these controls between builds (wds-ic-send-filled and
+    // «Надіслати (Enter)» both have to count as the send control).
+    return /\\b(send|надісла|відправ|отправ)/i.test(label)||Boolean(node.querySelector('[data-icon*="send"], [data-testid*="send"]'));
+  })||null;
+})()`;
+
+async function markWhatsappEditorsBeforeMedia(client){
+  try{await client.send('Runtime.evaluate',{expression:MARK_EXISTING_EDITORS_JS,returnByValue:true});}catch{}
+}
+
 async function waitForWhatsappMediaPreview(client,timeoutMs){
   const deadline=Date.now()+timeoutMs;
   while(Date.now()<deadline){
-    const expression=`(() => {
-      const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
-      const editors=[...document.querySelectorAll('[contenteditable="true"][role="textbox"], [contenteditable="true"]')].filter(visible);
-      const caption=editors.find((node)=>!node.closest('footer'));
-      const send=[...document.querySelectorAll('button, [role="button"]')].filter(visible).find((node)=>{
-        const label=String(node.getAttribute('aria-label')||node.getAttribute('title')||node.textContent||'').trim();
-        // Substring, not an exact label: WhatsApp renames these controls between builds (wds-ic-send-filled
-        // and «Надіслати (Enter)» both have to count as the send control).
-        return /\b(send|надісла|відправ|отправ)/i.test(label)||Boolean(node.querySelector('[data-icon*="send"], [data-testid*="send"]'));
-      });
-      return Boolean(caption&&send);
-    })()`;
+    const expression=`Boolean(${CAPTION_NODE_JS}&&${SEND_CONTROL_JS})`;
     const response=await client.send('Runtime.evaluate',{expression,returnByValue:true});
     if(response?.result?.value===true)return true;
     await sleep(POLL_MS);
@@ -901,9 +924,7 @@ async function waitForWhatsappMediaPreview(client,timeoutMs){
 
 async function focusAndClearWhatsappMediaCaption(client){
   const expression=`(() => {
-    const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
-    const editors=[...document.querySelectorAll('[contenteditable="true"][role="textbox"], [contenteditable="true"]')].filter(visible);
-    const node=editors.find((item)=>!item.closest('footer'));
+    const node=${CAPTION_NODE_JS};
     if(!node)return false;
     node.focus();
     const selection=window.getSelection();
@@ -923,9 +944,7 @@ async function waitForWhatsappMediaCaption(client,expectedText,timeoutMs){
   const deadline=Date.now()+timeoutMs;
   while(Date.now()<deadline){
     const expression=`(() => {
-      const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
-      const editors=[...document.querySelectorAll('[contenteditable="true"][role="textbox"], [contenteditable="true"]')].filter(visible);
-      const node=editors.find((item)=>!item.closest('footer'));
+      const node=${CAPTION_NODE_JS};
       return String(node?.innerText||node?.textContent||'');
     })()`;
     const response=await client.send('Runtime.evaluate',{expression,returnByValue:true});
@@ -941,7 +960,7 @@ async function clickWhatsappMediaSend(client){
     const controls=[...document.querySelectorAll('button, [role="button"]')].filter(visible);
     const matches=(node)=>{
       const label=String(node.getAttribute('aria-label')||node.getAttribute('title')||node.textContent||'').trim();
-      return /^(send|надіслати|відправити|отправить)$/i.test(label)||Boolean(node.querySelector('[data-icon="send"], [data-testid*="send"]'));
+      return /\\b(send|надісла|відправ|отправ)/i.test(label)||Boolean(node.querySelector('[data-icon*="send"], [data-testid*="send"]'));
     };
     const button=controls.find((node)=>!node.closest('footer')&&matches(node))||controls.find(matches);
     if(!button||button.hasAttribute('disabled'))return false;
@@ -1001,6 +1020,7 @@ export async function sendWhatsappAutopostViaCdp(
     const media=task.material?.media;
     if(media?.base64){
       if(!/^image\/(jpeg|png|webp)$/u.test(String(media.contentType||'')))return {kind:'blocked',reason:'unsupported_media_type'};
+      await markWhatsappEditorsBeforeMedia(client);
       if(!await injectWhatsappImage(client,media))return {kind:'blocked',reason:'media_attach_failed'};
       if(!await waitForWhatsappMediaPreview(client,Math.min(remainingBudget(),AUTOPOST_MEDIA_PREVIEW_MS))){
         const diagnostic=await readWhatsappMediaPreviewDiagnostic(client);
