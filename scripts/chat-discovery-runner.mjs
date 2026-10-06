@@ -19,7 +19,7 @@ import {
   toWhatsAppWebInviteUrl,
 } from './whatsapp-web-cdp.mjs';
 import { recordDiscoverySourceOutcome, hydrateDiscoverySourceFeedback, telegramGroupDiscoveryPlan, telegramGroupSource } from './chat-discovery-source-crawl.mjs';
-import { openTelegramWebSession, scanTelegramGroupForInvites, searchTelegramPublicGroups } from './telegram-web-cdp.mjs';
+import { TELEGRAM_PARALLEL_TABS, openTelegramWebSessions, scanTelegramGroupForInvites, searchTelegramPublicGroups } from './telegram-web-cdp.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
@@ -56,7 +56,9 @@ const TELEGRAM_GROUP_RESCAN_MS=7*24*60*60*1000;
 // of only the first few — slower per step, but a query is only ever searched once per plan, so groups
 // left unscanned here are lost for good (confirmed live: a Kharkiv "барахолка" search found 5 groups,
 // only 3 were ever opened).
-const SEARCH_GROUPS_PER_STEP=12;
+// Doubled on 2026-10-06 together with parallel tabs: four tabs scan a step of 24 groups in roughly the
+// wall-clock time one tab needed for 12, and `searchTelegramPublicGroups` reads up to 25 rows anyway.
+const SEARCH_GROUPS_PER_STEP=24;
 const PAGE_RECOVERY_COOLDOWN_MS=15000;
 const WHATSAPP_LOADING_COOLDOWN_MS=10000;
 const WHATSAPP_LOADING_RELOAD_AFTER=3;
@@ -488,8 +490,10 @@ function groupRecentlyScanned(scanned,username){
   return Date.now()-Number(scanned[String(username).toLowerCase()]||0)<TELEGRAM_GROUP_RESCAN_MS;
 }
 
-// One plan step in the operator's Telegram Web tab: public groups only, never joins, never writes D1.
-// Returns the WhatsApp-invite sources plus the groups that were fully searched.
+// One plan step across the operator's Telegram Web tabs: public groups only, never joins, never writes D1.
+// Returns the WhatsApp-invite sources plus the groups that were fully searched. Since 2026-10-06 the groups
+// of a step are scanned by up to TELEGRAM_PARALLEL_TABS tabs of the same account at once; a pacer shared by
+// those tabs keeps the request rate Telegram sees roughly where one tab left it.
 // `onGroupSource` (optional) receives each group's invites as soon as that group is scanned, so results show
 // up while the step is still running and a Stop never throws away what was already found.
 // `onProgress` (optional) receives (groupsScanned, groupsTotal, invitesFoundSoFar) after every group, so the
@@ -497,17 +501,24 @@ function groupRecentlyScanned(scanned,username){
 async function crawlTelegramGroupStep(step,local,onGroupSource=null,onProgress=null){
   const startedAt=Date.now();
   const query=step.kind==='search'?step.query:'Приєднані Telegram-групи';
-  const outcome={query,sources:[],scannedGroups:[],warnings:[],blockedReason:null,interrupted:false};
+  const outcome={query,sources:[],scannedGroups:[],warnings:[],blockedReason:null,interrupted:false,tabs:0};
+  // A flood or a dead tab in ANY tab has to stop the others within a fraction of a second: the Telegram
+  // limit belongs to the account, not to the tab. `aborted` is that account-wide brake; it is deliberately
+  // separate from the operator's Stop, so a flood is never reported as "the operator paused".
+  let aborted=false;
   // Stop is checked inside every wait of the Telegram session, not only between groups (live report
   // 2026-10-04: a paused run kept scrolling Telegram for up to a minute).
-  const opened=await openTelegramWebSession({cdpBaseUrl:whatsappCdp,shouldStop:()=>!localRunStillActive(local)});
+  const opened=await openTelegramWebSessions({cdpBaseUrl:whatsappCdp,maxTabs:TELEGRAM_PARALLEL_TABS,shouldStop:()=>aborted||!localRunStillActive(local)});
   if(opened.kind!=='result'){outcome.blockedReason=opened.reason;return outcome;}
-  const session=opened.session;
+  const sessions=opened.sessions;
+  outcome.tabs=sessions.length;
+  if(sessions.length<opened.requestedTabs)console.log(`Telegram: ${sessions.length} of ${opened.openTabs} open tab(s) usable — scanning with ${sessions.length}.`);
   try{
     const scanned=readScannedGroups();
     let groups;
     if(step.kind==='search'){
-      const found=await searchTelegramPublicGroups(session,step.query,{limit:25});
+      // The group search itself stays in one tab; only the per-group scans below fan out across the pool.
+      const found=await searchTelegramPublicGroups(sessions[0],step.query,{limit:25});
       if(found.kind!=='result'){outcome.blockedReason=found.reason;return outcome;}
       console.log(`Telegram search «${step.query}»: ${found.groups.length} found in quick panel, Show More ${found.expanded?'clicked':'NOT clicked'}`);
       groups=found.groups.filter(group=>!groupRecentlyScanned(scanned,group.username)).slice(0,SEARCH_GROUPS_PER_STEP);
@@ -516,31 +527,54 @@ async function crawlTelegramGroupStep(step,local,onGroupSource=null,onProgress=n
     }
     let invitesFound=0;
     if(onProgress)onProgress(0,groups.length,0);
-    for(const group of groups){
-      if(!await localRunStillActive(local)){outcome.interrupted=true;break;}
-      await session.pause();
-      const scan=await scanTelegramGroupForInvites(session,group);
-      if(scan.kind!=='result'){outcome.blockedReason=scan.reason;break;}
-      outcome.scannedGroups.push(group.username);
-      if(scan.status!=='scanned'){
-        console.log(`Telegram group @${group.username}: ${scan.status}`);
+    // One shared cursor rather than a fixed split: group scans differ wildly in length, so a tab that
+    // finishes early takes the next group instead of idling. Single-threaded JS makes the ++ safe.
+    let nextGroup=0;
+    const scanWithSession=async session=>{
+      for(;;){
+        if(aborted)return;
+        if(!localRunStillActive(local)){outcome.interrupted=true;return;}
+        if(nextGroup>=groups.length)return;
+        const group=groups[nextGroup++];
+        await session.pause();
+        const scan=await scanTelegramGroupForInvites(session,group);
+        if(scan.kind!=='result'){
+          if(!outcome.blockedReason)outcome.blockedReason=scan.reason;
+          aborted=true;
+          return;
+        }
+        outcome.scannedGroups.push(group.username);
+        if(scan.status!=='scanned'){
+          console.log(`Telegram [${session.label}] group @${group.username}: ${scan.status}`);
+          if(onProgress)onProgress(outcome.scannedGroups.length,groups.length,invitesFound);
+          continue;
+        }
+        console.log(`Telegram [${session.label}] group @${group.username} (${scan.memberCount??'?'} members): ${scan.invites.length} WhatsApp invites`);
+        invitesFound+=scan.invites.length;
+        const source=telegramGroupSource(scan,{query,place:step.place||''});
+        if(source){
+          if(onGroupSource){onGroupSource(source,group.username);outcome.streamedGroups=(outcome.streamedGroups||0)+1;}
+          else outcome.sources.push(source);
+        }
         if(onProgress)onProgress(outcome.scannedGroups.length,groups.length,invitesFound);
-        continue;
       }
-      console.log(`Telegram group @${group.username} (${scan.memberCount??'?'} members): ${scan.invites.length} WhatsApp invites`);
-      invitesFound+=scan.invites.length;
-      const source=telegramGroupSource(scan,{query,place:step.place||''});
-      if(source){
-        if(onGroupSource){onGroupSource(source,group.username);outcome.streamedGroups=(outcome.streamedGroups||0)+1;}
-        else outcome.sources.push(source);
+    };
+    const workers=sessions.slice(0,Math.max(1,Math.min(sessions.length,groups.length)));
+    // allSettled, not all: one tab failing must not throw away what the other three already scanned.
+    for(const result of await Promise.allSettled(workers.map(scanWithSession))){
+      if(result.status==='fulfilled')continue;
+      const error=result.reason;
+      if(error?.name==='TelegramStopped'){
+        // A TelegramStopped raised after a flood is our own brake, not the operator's Stop.
+        if(!outcome.blockedReason){outcome.interrupted=true;console.log('Telegram step stopped mid-group: the run was paused.');}
       }
-      if(onProgress)onProgress(outcome.scannedGroups.length,groups.length,invitesFound);
+      else outcome.warnings.push({query,reason:'telegram_step_failed · '+(error instanceof Error?error.message:String(error))});
     }
   }catch(error){
     if(error?.name==='TelegramStopped'){outcome.interrupted=true;console.log('Telegram step stopped mid-group: the run was paused.');}
     else outcome.warnings.push({query,reason:'telegram_step_failed · '+(error instanceof Error?error.message:String(error))});
   }finally{
-    session.close();
+    for(const session of sessions)session.close();
     outcome.durationMs=Date.now()-startedAt;
   }
   return outcome;
@@ -709,7 +743,7 @@ async function handleRunSourceStep(job){
   };
   for(const warning of batch.warnings.slice(0,4))console.warn('Discovery source warning: '+String(warning?.query||'source')+' · '+String(warning?.reason||'unavailable'));
   sendSourceResult(job,batch,crawled.sources,unstreamedGroups);
-  console.log('Telegram source step: cursor '+batch.nextCursor+'/'+plan.length+', groups '+crawled.scannedGroups.length+', sources '+(crawled.sources.length+streamed.size)+', sourceMs '+(crawled.durationMs||0));
+  console.log('Telegram source step: cursor '+batch.nextCursor+'/'+plan.length+', tabs '+(crawled.tabs||1)+', groups '+crawled.scannedGroups.length+', sources '+(crawled.sources.length+streamed.size)+', sourceMs '+(crawled.durationMs||0));
 }
 
 // --- Live channel (commit 3e): one WebSocket to the owner Durable Object replaces the three HTTP

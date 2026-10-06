@@ -2,8 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  TELEGRAM_MIN_ACTION_GAP_MS,
+  TELEGRAM_PARALLEL_TABS,
+  TelegramStopped,
+  TelegramWebSession,
   classifyTelegramSearchStatus,
   completeWhatsappInvites,
+  createTelegramPacer,
   isTelegramFloodText,
   parseTelegramMemberCount,
   telegramActionPauseMs,
@@ -50,6 +55,32 @@ void test('Telegram rate limits are recognised so the run stops instead of hamme
   assert.equal(isTelegramFloodText('Українці Валенсія'), false);
   const pauses = [0, 0.5, 0.999].map(value => telegramActionPauseMs(() => value));
   assert.ok(pauses.every(ms => ms >= 4000 && ms < 8000));
+});
+
+// Operator decision 2026-10-06: four tabs of the SAME Telegram account scan in parallel. The flood limit
+// belongs to the account, so the tabs book their request-shaped actions in one shared pacer; otherwise four
+// tabs would simply quadruple the request rate the pauses above exist to keep down.
+void test('the shared pacer spaces parallel tabs so the account sees one action per gap', () => {
+  let now = 1_000;
+  const reserve = createTelegramPacer(2_500, () => now);
+  // Four tabs booking at the same instant are spread across the gap instead of firing together.
+  assert.deepEqual([reserve(), reserve(), reserve(), reserve()], [0, 2_500, 5_000, 7_500]);
+  // A tab that arrives after the queue drained waits for nobody.
+  now = 20_000;
+  assert.equal(reserve(), 0);
+  assert.equal(reserve(), 2_500);
+  // Four tabs at the default gap stay slower than one tab's own 4–8 s pause would be on its own.
+  assert.ok(TELEGRAM_MIN_ACTION_GAP_MS * TELEGRAM_PARALLEL_TABS >= 8_000,
+    'four paced tabs must not exceed the request rate a single unpaced tab produced');
+});
+
+void test('a paced action waits for its slot and still ends on Stop', async () => {
+  let stopped = false;
+  const session = new TelegramWebSession({ close() {} }, () => 0, () => stopped, { reserveSlot: () => 5_000 });
+  setTimeout(() => { stopped = true; }, 200);
+  const startedAt = Date.now();
+  await assert.rejects(session.paced(), (error) => error instanceof TelegramStopped);
+  assert.ok(Date.now() - startedAt < 800, `paced() held for ${Date.now() - startedAt} ms instead of releasing on Stop`);
 });
 
 void test('joined Telegram chats become sources only through a public username', () => {

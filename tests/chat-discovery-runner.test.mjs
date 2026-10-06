@@ -168,12 +168,12 @@ void test('runner recovers a WhatsApp home stuck on message loading without stea
   assert.match(source,/reloaded home and will resume after cooldown/);
 });
 
-// Since 2026-10-02 sources are public Telegram groups searched in the operator's Telegram Web tab (no
-// channels). Telegram Web and WhatsApp Web both need the foreground, so the two take turns instead of
-// running a background source pump next to WhatsApp work.
+// Since 2026-10-02 sources are public Telegram groups searched in the operator's Telegram Web tabs (no
+// channels). WhatsApp Web still needs the foreground, so WhatsApp work and Telegram steps take turns
+// instead of running a background source pump next to each other.
 void test('a Telegram source step searches public groups from the plan the DO pushed with the run',()=>{
   assert.match(source,/telegramGroupDiscoveryPlan\(runPlan\.seedData,runPlan\.telegramGroups\|\|\[\]\)/);
-  assert.match(source,/searchTelegramPublicGroups\(session,step\.query/);
+  assert.match(source,/searchTelegramPublicGroups\(sessions\[0\],step\.query/);
   assert.match(source,/scanTelegramGroupForInvites\(session,group\)/);
   assert.doesNotMatch(source,/crawlLocalDiscoverySource|startLocalSourceRefill|localSourceInFlight/);
   // Turn-taking with WhatsApp checks now lives in the DO (one run item in flight, a queued candidate first).
@@ -190,7 +190,7 @@ void test('Telegram refusal stops the run on the same step and already searched 
   assert.doesNotMatch(step,/markGroupsScanned/);
   assert.match(source,/message\.type==='run_source_applied'\)\{\s*markGroupsScanned\(/);
   assert.match(source,/const TELEGRAM_GROUP_RESCAN_MS=7\*24\*60\*60\*1000/);
-  assert.match(source,/if\(!await localRunStillActive\(local\)\)\{outcome\.interrupted=true;break;\}/);
+  assert.match(source,/if\(!localRunStillActive\(local\)\)\{outcome\.interrupted=true;return;\}/);
 });
 
 void test('waiting checks are pushed one chat at a time over the live channel and runtime problems release the chat',()=>{
@@ -322,9 +322,25 @@ void test('Stop interrupts a Telegram step mid-group, and each scanned group is 
   assert.match(sessionClass, /async pause\(\) \{ await this\.wait\(/);
   // Only wait() itself sleeps; every other wait inside a step goes through it and its stop check.
   assert.equal((sessionClass.match(/await sleep\(/g) || []).length, 1, 'no wait inside a step bypasses the stop check');
-  assert.match(source, /openTelegramWebSession\(\{cdpBaseUrl:whatsappCdp,shouldStop:\(\)=>!localRunStillActive\(local\)\}\)/);
+  assert.match(source, /openTelegramWebSessions\(\{cdpBaseUrl:whatsappCdp,maxTabs:TELEGRAM_PARALLEL_TABS,shouldStop:\(\)=>aborted\|\|!localRunStillActive\(local\)\}\)/);
   assert.match(source, /if\(error\?\.name==='TelegramStopped'\)\{outcome\.interrupted=true;/);
   assert.match(source, /type:'source_result',process:'discovery_run',runId:job\.runId,partial:true,/);
+});
+
+// Operator decision 2026-10-06: four Telegram Web tabs of the same account scan one step together.
+void test('a Telegram step fans its groups out over the tab pool without losing or double-scanning one', () => {
+  const step = source.slice(source.indexOf('async function crawlTelegramGroupStep'), source.indexOf('const TELEGRAM_BLOCK_LABELS={'));
+  // One shared cursor: a tab takes the next group, so no group is scanned twice and none is skipped.
+  assert.match(step, /let nextGroup=0;/);
+  assert.match(step, /if\(nextGroup>=groups\.length\)return;\s*const group=groups\[nextGroup\+\+\];/);
+  // allSettled, not all: one failing tab must not discard what the others already scanned.
+  assert.match(step, /await Promise\.allSettled\(workers\.map\(scanWithSession\)\)/);
+  assert.match(step, /const workers=sessions\.slice\(0,Math\.max\(1,Math\.min\(sessions\.length,groups\.length\)\)\)/);
+  // A flood belongs to the account, so it brakes every tab — and is never reported as an operator Stop.
+  assert.match(step, /if\(!outcome\.blockedReason\)outcome\.blockedReason=scan\.reason;\s*aborted=true;/);
+  assert.match(step, /if\(!outcome\.blockedReason\)\{outcome\.interrupted=true;/);
+  // Every leased tab is closed, not just the first one.
+  assert.match(step, /for\(const session of sessions\)session\.close\(\);/);
 });
 
 void test('a Telegram session wait ends within a fraction of a second after Stop', async () => {
