@@ -914,10 +914,43 @@ async function markWhatsappEditorsBeforeMedia(client){
 async function waitForWhatsappMediaPreview(client,timeoutMs){
   const deadline=Date.now()+timeoutMs;
   while(Date.now()<deadline){
-    const expression=`Boolean(${CAPTION_NODE_JS}&&${SEND_CONTROL_JS})`;
+    const expression=`Boolean(${SEND_CONTROL_JS})`;
     const response=await client.send('Runtime.evaluate',{expression,returnByValue:true});
     if(response?.result?.value===true)return true;
     await sleep(POLL_MS);
+  }
+  return false;
+}
+
+// On the operator's WhatsApp build the media editor opens with NO caption field at all: the diagnostic found
+// exactly one contenteditable on the page and it was the chat composer (icons scissors/crop/filter/draw and
+// the send control were there, a caption editor was not). The caption input only mounts once that strip at
+// the bottom of the editor is clicked, so click it — to the left of the send control, in its row — and wait
+// for the field to appear.
+async function openWhatsappMediaCaption(client,timeoutMs){
+  const deadline=Date.now()+timeoutMs;
+  const captionPresent=`Boolean(${CAPTION_NODE_JS})`;
+  const already=await client.send('Runtime.evaluate',{expression:captionPresent,returnByValue:true});
+  if(already?.result?.value===true)return true;
+  const point=`(() => {
+    const send=${SEND_CONTROL_JS};
+    if(!send)return null;
+    const rect=send.getBoundingClientRect();
+    // The caption strip shares the send control's row and fills the space to its left.
+    const x=Math.max(24,Math.round(rect.left-Math.min(320,rect.left/2)));
+    return JSON.stringify({x,y:Math.round(rect.top+rect.height/2)});
+  })()`;
+  while(Date.now()<deadline){
+    const response=await client.send('Runtime.evaluate',{expression:point,returnByValue:true});
+    const raw=response?.result?.value;
+    if(!raw)return false;
+    const {x,y}=JSON.parse(String(raw));
+    for(const type of ['mouseMoved','mousePressed','mouseReleased']){
+      await client.send('Input.dispatchMouseEvent',{type,x,y,button:'left',clickCount:type==='mouseMoved'?0:1,buttons:type==='mousePressed'?1:0});
+    }
+    await sleep(POLL_MS);
+    const found=await client.send('Runtime.evaluate',{expression:captionPresent,returnByValue:true});
+    if(found?.result?.value===true)return true;
   }
   return false;
 }
@@ -1027,7 +1060,12 @@ export async function sendWhatsappAutopostViaCdp(
         if(diagnostic)console.warn('WhatsApp autopost media preview diagnostic: '+diagnostic);
         return {kind:'blocked',reason:'media_preview_not_ready'};
       }
-      if(!await focusAndClearWhatsappMediaCaption(client))return {kind:'blocked',reason:'media_caption_not_found'};
+      if(!await openWhatsappMediaCaption(client,Math.min(remainingBudget(),8_000))
+        ||!await focusAndClearWhatsappMediaCaption(client)){
+        const diagnostic=await readWhatsappMediaPreviewDiagnostic(client);
+        if(diagnostic)console.warn('WhatsApp autopost caption diagnostic: '+diagnostic);
+        return {kind:'blocked',reason:'media_caption_not_found'};
+      }
       await client.send('Input.insertText',{text});
       if(!await waitForWhatsappMediaCaption(client,text,Math.min(remainingBudget(),5_000)))return {kind:'blocked',reason:'media_caption_mismatch'};
       if(Date.now()>=operationDeadline)return {kind:'blocked',reason:'autopost_budget_exhausted'};
