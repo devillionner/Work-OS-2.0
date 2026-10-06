@@ -17,6 +17,7 @@ import { supportsChatLeaveChecklist } from '@/lib/chats/leave-policy';
 import { shouldSuggestChatArchive } from '@/lib/chats/snooze-history';
 import { EMPTY_WAITING_CHECK, parseWaitingCheckView, waitingCheckArchiveReason, type WaitingCheckView } from '@/lib/chats/whatsapp-waiting-check-copy';
 import { WhatsappWaitingCheckPanel, type WaitingCheckAction, type WaitingCheckProblemAction } from '@/components/whatsapp-waiting-check-panel';
+import { WhatsappAutopostDialog, type WhatsAppAutopostProgress } from '@/components/whatsapp-autopost-dialog';
 import { TelegramSelectedChats } from '@/components/telegram-selected-chats';
 import { pairThisBrowserExecutor } from '@/lib/chat-discovery/executor-storage';
 import type { SelectedChatsView } from '@/lib/chats/telegram-selected';
@@ -94,9 +95,11 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const [quickAdvertisementId,setQuickAdvertisementId]=useState<string|null>(null);
   const [whatsappAutopostImage,setWhatsappAutopostImage]=useState<WhatsAppAutopostImage|null>(null);
   const [whatsappAutopostImageLoaded,setWhatsappAutopostImageLoaded]=useState(false);
-  const whatsappAutopostImageInput=useRef<HTMLInputElement|null>(null);
   const [whatsappAutopostCaption,setWhatsappAutopostCaption]=useState('');
   const [whatsappAutopostCaptionLoaded,setWhatsappAutopostCaptionLoaded]=useState(false);
+  const [whatsappAutopostProgress,setWhatsappAutopostProgress]=useState<WhatsAppAutopostProgress|null>(null);
+  const [autopostOpen,setAutopostOpen]=useState(false);
+  const autopostTrigger=useRef<HTMLElement|null>(null);
   const [loading,setLoading] = useState(true);
   const [busy,setBusy] = useState<string|null>(null);
   const runAction=useRef(createActionGate());
@@ -212,10 +215,11 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     setWhatsappAutopostImageLoaded(false);setWhatsappAutopostCaptionLoaded(false);
     void fetch('/api/messenger-automation',{cache:'no-store'})
       .then(async response=>{
-        const body=await response.json() as {whatsappAutopostImage?:WhatsAppAutopostImage|null;whatsappAutopostCaption?:string};
+        const body=await response.json() as {whatsappAutopostImage?:WhatsAppAutopostImage|null;whatsappAutopostCaption?:string;whatsappAutopostProgress?:WhatsAppAutopostProgress};
         if(!cancelled&&response.ok){
           setWhatsappAutopostImage(body.whatsappAutopostImage||null);
           setWhatsappAutopostCaption(typeof body.whatsappAutopostCaption==='string'?body.whatsappAutopostCaption:'');
+          setWhatsappAutopostProgress(body.whatsappAutopostProgress||null);
         }
       })
       .catch(()=>{})
@@ -337,6 +341,22 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     const unsubscribeStatus=subscribeLiveStatus(setLiveStatus);
     return()=>{unsubscribeMessages();unsubscribeStatus();};
   },[active,platform,queue,applyWaitingCheckView,refreshWaitingCheck]);
+
+  // Autopost progress follows the same rule: the DO broadcasts a process_state for every claim, send and
+  // release, so the dialog's «10 з 30» is refreshed by those events and never by a timer.
+  useEffect(()=>{
+    if(!active||platform!=='whatsapp'||queue!=='ready')return;
+    const refresh=async()=>{
+      try{
+        const response=await fetch('/api/messenger-automation?progress=1',{cache:'no-store'});
+        const body=await response.json() as {whatsappAutopostProgress?:WhatsAppAutopostProgress};
+        if(response.ok)setWhatsappAutopostProgress(body.whatsappAutopostProgress||null);
+      }catch{/* the next event refreshes it */}
+    };
+    return subscribeLiveMessages(message=>{
+      if(message.type==='process_state'&&message.process==='autopost')void refresh();
+    });
+  },[active,platform,queue]);
 
   useEffect(()=>{
     if(!active||platform!=='whatsapp'||queue!=='waiting'||liveStatus.connected)return;
@@ -588,7 +608,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
         setWhatsappAutopostImage(body.image);setWhatsappAutopostImageLoaded(true);
         setNotice('Фото автопоста збережено. Наступний WhatsApp автопост відправлятиме фото з текстом як підписом.');
       }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося підготувати фото автопоста.');}
-      finally{setBusy(null);if(whatsappAutopostImageInput.current)whatsappAutopostImageInput.current.value='';}
+      finally{setBusy(null);}
     });
   }
 
@@ -642,6 +662,31 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     });
   }
 
+  // «Зупинити автопост»: everything not yet sent is cancelled in one request. A job the runner already
+  // holds is cancelled too — its confirmed send still lands, but no further job is pushed to it.
+  async function stopWhatsAppAutopostBatch() {
+    if(platform!=='whatsapp'||busy!==null)return;
+    await runAction.current(async()=>{
+      setBusy('whatsapp-autopost-stop');setError('');setNotice('');
+      try{
+        const response=await fetch('/api/messenger-automation',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'cancel-whatsapp-autopost-batch'}),
+        });
+        const body=await response.json() as {cancelled?:number;progress?:WhatsAppAutopostProgress;error?:string};
+        if(!response.ok)throw new Error(body.error||'Не вдалося зупинити автопост.');
+        setWhatsappAutopostProgress(body.progress||null);
+        invalidateQueueCache('whatsapp');
+        announceDataChange('platforms');
+        await reloadChats.current(true);
+        const cancelled=Number(body.cancelled||0);
+        setNotice(cancelled?`Автопост зупинено, скасовано ${cancelled} чатів у черзі.`:'Активних задач автопоста вже не було.');
+      }catch(reason){
+        setError(reason instanceof Error?reason.message:'Не вдалося зупинити автопост.');
+      }finally{setBusy(null);}
+    });
+  }
+
   async function startWhatsAppAutopostBatch() {
     if(platform!=='whatsapp'||queue!=='ready'||busy!==null||!whatsappAutopostImage||!whatsappAutopostCaptionLoaded)return;
     await runAction.current(async()=>{
@@ -659,6 +704,11 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
         await reloadChats.current(true);
         const created=Number(body.created||0);
         const skipped=Number(body.skipped||0);
+        try{
+          const progressResponse=await fetch('/api/messenger-automation?progress=1',{cache:'no-store'});
+          const progressBody=await progressResponse.json() as {whatsappAutopostProgress?:WhatsAppAutopostProgress};
+          if(progressResponse.ok)setWhatsappAutopostProgress(progressBody.whatsappAutopostProgress||null);
+        }catch{/* live events refresh it */}
         setNotice(created
           ? 'Поставлено в WhatsApp автопост: '+created+' чатів'+(skipped?'; пропущено '+skipped+' без безпечного material/rule match':'')+'. Executor відправлятиме їх по одному з confirmed-send перевіркою.'
           : 'Нових чатів для безпечного автопосту зараз немає.');
@@ -718,6 +768,12 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     <ChatDuplicatesDialog open={duplicatesOpen} onClose={()=>setDuplicatesOpen(false)}/>
     <ChatProfileDialog open={profileChat!==null} chat={profileChat} onClose={()=>setProfileChat(null)} onSaved={savedProfile} onOpenChat={()=>{if(profileChat)openChat(profileChat);}} finalFocus={()=>profileTrigger.current}/>
     <ChatHistoryDialog open={historyChat!==null} chat={historyChat} onClose={()=>setHistoryChat(null)} finalFocus={()=>historyTrigger.current}/>
+    <WhatsappAutopostDialog open={autopostOpen} onClose={()=>setAutopostOpen(false)} image={whatsappAutopostImage}
+      imageLoaded={whatsappAutopostImageLoaded} caption={whatsappAutopostCaption} captionLoaded={whatsappAutopostCaptionLoaded}
+      busy={busy!==null} queueSize={data?.counts.ready||0} progress={whatsappAutopostProgress} onCaptionChange={setWhatsappAutopostCaption}
+      onUploadImage={file=>void uploadWhatsAppAutopostImage(file)} onRemoveImage={()=>void removeWhatsAppAutopostImage()}
+      onSaveCaption={()=>void saveWhatsAppAutopostCaption()} onClearCaption={()=>void clearWhatsAppAutopostCaption()}
+      onStart={()=>void startWhatsAppAutopostBatch()} onStop={()=>void stopWhatsAppAutopostBatch()} finalFocus={()=>autopostTrigger.current}/>
     <ChatPublishDialog open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={async({advertisementId,language})=>{if(!publishChat)return false;const quick=quickPublishMode&&(publishChat.platform==='whatsapp'||publishChat.platform==='viber');const result=await act(publishChat,'published',{advertisementId,language,quick},{action:'undo_published',label:'Публікацію можна скасувати протягом 8 секунд.'});if(!result.ok){if(result.refresh){setPublishChat(null);setNotice(`${result.error} Список уже оновлено — відкрийте актуальний чат повторно.`);return false;}throw new Error(result.error);}if(quick&&advertisementId&&!quickAdvertisementId){setQuickAdvertisementId(advertisementId);setNotice('Матеріал швидкого режиму зафіксовано. Публікацію можна скасувати кнопкою поруч; матеріал серії залишиться обраним.');}return true;}} onOpenChat={()=>{if(publishChat)openChat(publishChat);}} finalFocus={()=>publishTrigger.current} quickMode={publishQuickMode} preferredAdvertisementId={quickAdvertisementId}/>
     {notice&&<output className="reports-notice"><span>{notice}</span>{undo&&<Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>void undoLast()}>Скасувати</Button>}</output>}
     <section className="platform-header">
@@ -764,25 +820,11 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       {queue==='ready'&&(platform==='whatsapp'||platform==='viber')&&<div className={'platform-queue-context '+(quickPublishMode?'is-active':'')}>
         <div><strong>{platform==='whatsapp'?'Автопублікація черги':quickPublishMode?'Швидкий режим увімкнено':'Швидкий режим'}</strong><span>{platform==='whatsapp'
           ? (whatsappAutopostImage
-            ? `Фото «${whatsappAutopostImage.fileName}» буде додано до кожного повідомлення; текст піде підписом. Профілі вручну підтверджувати не потрібно — якщо правила вже підтверджені, Work OS їх врахує.`
-            : 'Додайте одне фото для автопоста. Після цього Work OS сам підбере матеріали й поставить до 30 чатів у confirmed-send чергу; профілі вручну підтверджувати не потрібно.')
+            ? `Фото «${whatsappAutopostImage.fileName}»${whatsappAutopostCaption.trim()?' і власний текст':', текст із Library'}. Work OS поставить до 30 чатів у чергу з підтвердженням відправки.`
+            : 'Фото ще не додано — без нього автопост не запуститься. Налаштування відкриються в окремому вікні.')
           : quickPublishMode?(quickAdvertisementId?'Матеріал серії вже зафіксовано. Підтверджуйте тільки фактично зроблені публікації.':'Оберіть матеріал у першому чаті — далі він лишатиметься для серії.'):'Один матеріал для серії чатів, із ручним підтвердженням кожної фактичної публікації.'}</span></div>
         {platform==='whatsapp'
-          ? <div>
-              <label className="chat-publish-search" htmlFor="whatsapp-autopost-caption">
-                <span>Текст автопоста</span>
-                <Textarea id="whatsapp-autopost-caption" rows={6} maxLength={4000} disabled={busy!==null||!whatsappAutopostCaptionLoaded} value={whatsappAutopostCaption} onChange={event=>setWhatsappAutopostCaption(event.target.value)} placeholder="Вставте текст, який має піти під фото. Залиште порожнім — Work OS візьме текст із Library." />
-                <small className="muted-note">{whatsappAutopostCaption.trim()?'Цей текст буде використано як підпис до фото для нових автопостів.':'Поле порожнє — для кожного чату Work OS використає відповідний текст із Library.'}</small>
-              </label>
-              <div className="lead-actions">
-                <input ref={whatsappAutopostImageInput} className="sr-only" type="file" accept="image/*" onChange={event=>{const file=event.target.files?.[0];if(file)void uploadWhatsAppAutopostImage(file);}} />
-                <Button type="button" size="sm" variant="outline" disabled={busy!==null} onClick={()=>whatsappAutopostImageInput.current?.click()}><ImagePlus data-icon="inline-start"/>{whatsappAutopostImage?'Замінити фото':'Додати фото'}</Button>
-                {whatsappAutopostImage&&<Button type="button" size="sm" variant="ghost" disabled={busy!==null} onClick={()=>void removeWhatsAppAutopostImage()}>Прибрати фото</Button>}
-                <Button type="button" size="sm" variant="outline" disabled={busy!==null||!whatsappAutopostCaptionLoaded} onClick={()=>void saveWhatsAppAutopostCaption()}>Зберегти текст</Button>
-                {whatsappAutopostCaption&&<Button type="button" size="sm" variant="ghost" disabled={busy!==null} onClick={()=>void clearWhatsAppAutopostCaption()}>Очистити текст</Button>}
-                <Button type="button" size="sm" disabled={busy!==null||!whatsappAutopostImageLoaded||!whatsappAutopostImage||!whatsappAutopostCaptionLoaded} onClick={()=>void startWhatsAppAutopostBatch()}><Send data-icon="inline-start"/>Автопост черги</Button>
-              </div>
-            </div>
+          ? <Button type="button" size="sm" disabled={busy!==null} onClick={event=>{autopostTrigger.current=event.currentTarget;setAutopostOpen(true);}}><Send data-icon="inline-start"/>{whatsappAutopostImage?'Автопост черги':'Налаштувати автопост'}</Button>
           : <Button type="button" size="sm" variant={quickPublishMode?'outline':'default'} disabled={busy!==null} onClick={()=>{setQuickPublishMode(value=>{const next=!value;if(!next)setQuickAdvertisementId(null);return next;});}}><Send data-icon="inline-start"/>{quickPublishMode?'Завершити':'Увімкнути'}</Button>}
       </div>}
       {(platform==='viber'||platform==='whatsapp')&&data&&<section className={'joined-today-panel '+(joinedTodayOpen?'is-open':'')} aria-label={`${selected.label} чати, приєднані сьогодні`}>

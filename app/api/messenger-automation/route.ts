@@ -5,6 +5,7 @@ import { businessDate } from '@/lib/business-time';
 import {
   MessengerAutomationError,
   cancelViberSafeNoteJob,
+  cancelWhatsAppAutopostBatch,
   cancelWhatsAppAutopostJob,
   createViberSafeNoteJob,
   createWhatsAppAutopostBatch,
@@ -12,6 +13,7 @@ import {
   readLatestViberSafeNoteJob,
   readLatestWhatsAppAutopostJob,
   readViberSafeNoteJob,
+  readWhatsAppAutopostProgress,
 } from '@/lib/messenger-automation';
 import { publicWhatsAppAutopostImage, readWhatsAppAutopostImage } from '@/lib/whatsapp-autopost-media';
 import {
@@ -45,19 +47,27 @@ export async function GET(request:Request):Promise<Response>{
   const user=await getCurrentUser();
   if(!user)return json({error:'Потрібна авторизація.'},401);
   try{
-    const viberJobId=new URL(request.url).searchParams.get('viberJobId')?.trim()||'';
+    const url=new URL(request.url);
+    const viberJobId=url.searchParams.get('viberJobId')?.trim()||'';
     if(viberJobId)return json({job:await readViberSafeNoteJob(env.DB,user.id,viberJobId)});
-    const [job,whatsappAutopost,image,caption]=await Promise.all([
+    // The autopost dialog refreshes on every live-channel autopost event, so that path reads one grouped
+    // count instead of the image row and the rest of the settings.
+    if(url.searchParams.get('progress')==='1'){
+      return json({whatsappAutopostProgress:await readWhatsAppAutopostProgress(env.DB,user.id,businessDate(Math.floor(Date.now()/1000)))});
+    }
+    const [job,whatsappAutopost,image,caption,progress]=await Promise.all([
       readLatestViberSafeNoteJob(env.DB,user.id),
       readLatestWhatsAppAutopostJob(env.DB,user.id),
       readWhatsAppAutopostImage(env.DB,user.id),
       readWhatsAppAutopostCaption(env.DB,user.id),
+      readWhatsAppAutopostProgress(env.DB,user.id,businessDate(Math.floor(Date.now()/1000))),
     ]);
     return json({
       job,
       whatsappAutopost,
       whatsappAutopostImage:image?publicWhatsAppAutopostImage(image):null,
       whatsappAutopostCaption:caption?.text||'',
+      whatsappAutopostProgress:progress,
     });
   }
   catch(error){
@@ -122,6 +132,14 @@ export async function POST(request:Request):Promise<Response>{
       const result=await cancelWhatsAppAutopostJob(env.DB,user.id,body.jobId,now);
       await wakeOwnerChannelAutopost(user.id);
       return json(result);
+    }
+    // «Зупинити» в діалозі автопоста: усе, що ще не відправлено, скасовується одним запитом. Задача, яку
+    // runner уже тримає в роботі, теж переходить у cancelled — підтверджена відправка дійде, але нових
+    // задач він більше не отримає.
+    if(body.action==='cancel-whatsapp-autopost-batch'){
+      const result=await cancelWhatsAppAutopostBatch(env.DB,user.id,businessDate(now),now);
+      await wakeOwnerChannelAutopost(user.id);
+      return json({...result,progress:await readWhatsAppAutopostProgress(env.DB,user.id,businessDate(now))});
     }
     throw new MessengerAutomationError('Невідома messenger automation дія.');
   }catch(error){

@@ -363,8 +363,8 @@ button:not([data-slot="button"]) { color: inherit; }
 .direction-checks input { width:18px; height:18px; flex:0 0 auto; accent-color: var(--primary); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .dialog-actions [data-slot="button"] { min-height:42px; }
-:is(.today-settings-dialog,.chat-bulk-dialog,.chat-profile-dialog,.chat-history-dialog,.chat-publish-dialog,.chat-csv-dialog,.chat-duplicates-dialog,.library-history-dialog,.report-history-dialog,.report-correction-dialog,.import-dialog) [data-slot="button"],
-:is(.today-settings-dialog,.chat-bulk-dialog,.chat-profile-dialog,.chat-publish-dialog,.chat-csv-dialog,.chat-duplicates-dialog,.report-correction-dialog,.import-dialog) [data-slot="input"] { min-height:42px; }
+:is(.today-settings-dialog,.chat-bulk-dialog,.chat-profile-dialog,.chat-history-dialog,.chat-publish-dialog,.whatsapp-autopost-dialog,.chat-csv-dialog,.chat-duplicates-dialog,.library-history-dialog,.report-history-dialog,.report-correction-dialog,.import-dialog) [data-slot="button"],
+:is(.today-settings-dialog,.chat-bulk-dialog,.chat-profile-dialog,.chat-publish-dialog,.whatsapp-autopost-dialog,.chat-csv-dialog,.chat-duplicates-dialog,.report-correction-dialog,.import-dialog) [data-slot="input"] { min-height:42px; }
 .chat-profile-dialog select,.report-correction-dialog select { min-height:42px; }
 .settings-workspace { max-width: 1400px; display: grid; gap: 18px; margin: 0 auto; padding: clamp(22px,4vw,54px); }
 .settings-hero, .settings-panel { border: 1px solid var(--border); border-radius: 16px; background: var(--card); box-shadow: 0 4px 14px rgba(27,31,43,.035); }
@@ -1124,6 +1124,14 @@ button:not([data-slot="button"]) { color: inherit; }
 .chat-publish-dialog[data-slot="dialog-content"] { display:flex; flex-direction:column; width:min(680px,calc(100vw - 24px)); max-width:680px; max-height:90dvh; overflow-y:auto; gap:16px; padding:24px; background:var(--card); color:var(--foreground); box-shadow:0 24px 70px rgb(25 31 48 / .18); }
 .chat-publish-dialog > * { flex-shrink:0; }
 .chat-publish-dialog [data-slot="dialog-header"] { padding-right:36px; }
+.whatsapp-autopost-dialog[data-slot="dialog-content"] { display:flex; flex-direction:column; width:min(620px,calc(100vw - 24px)); max-width:620px; max-height:90dvh; overflow-y:auto; gap:16px; padding:24px; background:var(--card); color:var(--foreground); box-shadow:0 24px 70px rgb(25 31 48 / .18); }
+.whatsapp-autopost-dialog > * { flex-shrink:0; }
+.whatsapp-autopost-dialog [data-slot="dialog-header"] { padding-right:36px; }
+.whatsapp-autopost-progress { display:grid; gap:6px; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--surface-subtle); }
+.whatsapp-autopost-progress-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+.whatsapp-autopost-progress-head span { font-variant-numeric:tabular-nums; font-weight:600; }
+.whatsapp-autopost-progress progress { width:100%; height:8px; }
+.whatsapp-autopost-photo { display:grid; gap:6px; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--surface-subtle); }
 .chat-publish-close { position:absolute; right:12px; top:12px; }
 .chat-publish-chat { display:grid; gap:5px; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--surface-subtle); }
 .chat-publish-chat span { overflow-wrap:anywhere; color:var(--muted-foreground); font-size:12px; }

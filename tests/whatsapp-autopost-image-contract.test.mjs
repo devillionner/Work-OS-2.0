@@ -16,11 +16,12 @@ void test('WhatsApp autopost image is stored without a schema migration and expo
 
 void test('mobile Platforms UI requires an image before starting a new WhatsApp autopost',()=>{
   const workspace=read('components/platform-workspace.tsx');
-  assert.match(workspace,/Додати фото/);
-  assert.match(workspace,/Замінити фото/);
+  const dialog=read('components/whatsapp-autopost-dialog.tsx');
+  assert.match(dialog,/Додати фото/);
+  assert.match(dialog,/Замінити фото/);
+  assert.match(dialog,/Профілі вручну підтверджувати не потрібно/);
   assert.match(workspace,/normalizeWhatsAppAutopostImage/);
   assert.match(workspace,/!whatsappAutopostImageLoaded\|\|!whatsappAutopostImage/);
-  assert.match(workspace,/Профілі вручну підтверджувати не потрібно/);
 });
 
 void test('WhatsApp Web adapter injects the image in-memory and confirms a media message',()=>{

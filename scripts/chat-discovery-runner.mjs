@@ -882,6 +882,13 @@ async function handleAutopostTask(ws,job){
     releaseTask(ws,'autopost',job,until);
     return;
   }
+  // The tray showed nothing at all while autopost drove the browser, so WhatsApp chats opened on their own
+  // with no sign of which process was doing it (operator report 2026-10-06). Discovery and the Waiting check
+  // both report themselves; autopost now does the same, with the batch position the DO sent along.
+  const progress=job.progress&&Number(job.progress.total)>0
+    ? `${Math.min(Number(job.progress.done)+1,Number(job.progress.total))}/${Number(job.progress.total)} · `
+    : '';
+  setStatus('working',`WhatsApp автопост: ${progress}${job.target?.expectedName||'чат'}`);
   let automated;
   try{automated=await sendWhatsappAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp});}
   catch(error){

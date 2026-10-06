@@ -210,6 +210,8 @@ export type WhatsAppAutopostJob={
 export type WhatsAppAutopostTask={
   kind:'whatsapp_autopost';
   jobId:string;
+  /** Where this job sits in today's batch, so the runner tray can show «3 / 30» like Discovery does. */
+  progress?:WhatsAppAutopostProgress;
   target:{chatId:string;expectedName:string;expectedLink:string};
   material:{
     advertisementId:string;advertisementVersion:number;language:'uk'|'ru';text:string;
@@ -386,6 +388,34 @@ export async function cancelWhatsAppAutopostJob(db:D1Database,userId:string,jobI
   return {ok:true};
 }
 
+export type WhatsAppAutopostProgress = { total:number; done:number; pending:number; claimed:number; sent:number; failed:number; cancelled:number; running:boolean };
+
+/**
+ * How far today's autopost batch has got. One grouped count over a single day's jobs (at most the batch
+ * limit of rows), so it is safe to read on every live-channel autopost event — the operator asked to see
+ * «10 з 30», and the runner tray shows the same numbers (operator request 2026-10-06).
+ */
+export async function readWhatsAppAutopostProgress(db:D1Database,userId:string,date:string):Promise<WhatsAppAutopostProgress>{
+  const rows=await db.prepare(`SELECT status,COUNT(*) AS count FROM whatsapp_autopost_jobs
+    WHERE user_id=?1 AND published_on=?2 GROUP BY status`).bind(userId,date).all<{status:string;count:number}>();
+  const counts:Record<string,number>={};
+  for(const row of rows.results||[])counts[String(row.status)]=Number(row.count)||0;
+  const pending=counts.pending||0;
+  const claimed=counts.claimed||0;
+  const sent=counts.sent||0;
+  const failed=counts.failed||0;
+  const cancelled=counts.cancelled||0;
+  return {total:pending+claimed+sent+failed+cancelled,done:sent+failed,pending,claimed,sent,failed,cancelled,running:pending+claimed>0};
+}
+
+/** Operator pressed «Зупинити»: every job of today's batch that has not been sent yet is cancelled. */
+export async function cancelWhatsAppAutopostBatch(db:D1Database,userId:string,date:string,now:number){
+  const result=await db.prepare(`UPDATE whatsapp_autopost_jobs
+    SET status='cancelled',active_key=NULL,updated_at=?1,completed_at=?1
+    WHERE user_id=?2 AND published_on=?3 AND status IN ('pending','claimed')`).bind(now,userId,date).run();
+  return {cancelled:Number(result.meta.changes||0)};
+}
+
 export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:number):Promise<WhatsAppAutopostTask|null>{
   for(let attempt=0;attempt<3;attempt+=1){
     const row=await db.prepare(`SELECT * FROM whatsapp_autopost_jobs
@@ -422,9 +452,11 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
       .bind(now,row.id,userId).run();
     if(Number(claimed.meta.changes||0)!==1)continue;
     const image=await readWhatsAppAutopostImage(db,userId,true);
+    const progress=await readWhatsAppAutopostProgress(db,userId,row.published_on);
     return {
       kind:'whatsapp_autopost',
       jobId:row.id,
+      progress,
       target:{chatId:row.chat_id,expectedName:row.expected_name,expectedLink:row.expected_link},
       material:{
         advertisementId:row.advertisement_id,advertisementVersion:Number(row.advertisement_version),
