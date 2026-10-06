@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
@@ -81,6 +82,20 @@ void test('a paced action waits for its slot and still ends on Stop', async () =
   const startedAt = Date.now();
   await assert.rejects(session.paced(), (error) => error instanceof TelegramStopped);
   assert.ok(Date.now() - startedAt < 800, `paced() held for ${Date.now() - startedAt} ms instead of releasing on Stop`);
+});
+
+// Measured on the operator's machine 2026-10-06: attaching four tabs one after another cost ~2.5 s more per
+// step than one tab did, and most steps of a plan find no new group at all, so they paid it for nothing.
+void test('the tab pool attaches its tabs in parallel, so a step with nothing to scan pays one settle delay', async () => {
+  const telegram = await readFile(new URL('../scripts/telegram-web-cdp.mjs', import.meta.url), 'utf8');
+  const opener = telegram.slice(
+    telegram.indexOf('export async function openTelegramWebSessions'),
+    telegram.indexOf('// One tab, for callers that do not parallelise.'),
+  );
+  assert.match(opener, /await Promise\.all\(wanted\.map\(/);
+  assert.doesNotMatch(opener, /await attachTelegramSession[\s\S]*?\n  \}/, 'no sequential attach loop may come back');
+  // The degraded foreground fallback keeps one tab and must close the ones it will not use.
+  assert.match(opener, /for \(const extra of sessions\.slice\(1\)\) extra\.close\(\);/);
 });
 
 void test('joined Telegram chats become sources only through a public username', () => {

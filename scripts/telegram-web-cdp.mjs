@@ -125,18 +125,20 @@ export async function openTelegramWebSessions({
   if (!pages) return { kind: 'blocked', reason: 'cdp_unavailable' };
   if (!pages.length) return { kind: 'blocked', reason: 'telegram_tab_missing' };
   const reserveSlot = createTelegramPacer(minActionGapMs);
-  const sessions = [];
-  let lastFailure = null;
   const wanted = pages.slice(0, Math.max(1, Number(maxTabs) || 1));
-  for (let index = 0; index < wanted.length; index += 1) {
-    const attached = await attachTelegramSession(wanted[index], { pauseMs, shouldStop, reserveSlot, label: `tab${index + 1}` });
-    if (attached.kind !== 'result') { lastFailure = attached.reason; continue; }
-    sessions.push(attached.session);
-    // Without focus emulation a tab only works in the foreground, and several of them would fight over it:
-    // fall back to exactly one tab, which is how the runner behaved before parallel scanning.
-    if (!attached.session.focusEmulated) break;
+  // Attaching in parallel, not one tab after another: each attach costs a settle delay plus a few CDP
+  // round trips, and paying that four times in a row made every step ~2.5 s slower — including the many
+  // steps whose search finds no new group to scan at all (measured on the operator's machine 2026-10-06).
+  const attached = await Promise.all(wanted.map((page, index) =>
+    attachTelegramSession(page, { pauseMs, shouldStop, reserveSlot, label: `tab${index + 1}` })));
+  const sessions = attached.filter(item => item.kind === 'result').map(item => item.session);
+  if (!sessions.length) return { kind: 'blocked', reason: attached.find(item => item.reason)?.reason || 'telegram_tab_unavailable' };
+  // Without focus emulation a tab only works in the foreground, and several of them would fight over it:
+  // fall back to exactly one tab, which is how the runner behaved before parallel scanning.
+  if (!sessions[0].focusEmulated) {
+    for (const extra of sessions.slice(1)) extra.close();
+    sessions.length = 1;
   }
-  if (!sessions.length) return { kind: 'blocked', reason: lastFailure || 'telegram_tab_unavailable' };
   return { kind: 'result', sessions, requestedTabs: wanted.length, openTabs: pages.length };
 }
 
