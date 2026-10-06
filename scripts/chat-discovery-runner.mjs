@@ -66,6 +66,9 @@ const WHATSAPP_RUNTIME_COOLDOWN_MS=300000;
 const TOKEN_REFRESH_MS=60000;
 const IDLE_POLL_MAX_MS=5000;
 const WHATSAPP_RUNTIME_TRANSIENT_REASONS=new Set(['cdp_not_configured','cdp_not_local','cdp_websocket_not_local','whatsapp_not_authenticated','page_not_ready','whatsapp_messages_loading']);
+// Autopost stages that run strictly before the send control is clicked — see handleAutopostTask.
+const WHATSAPP_AUTOPOST_RETRY_REASONS=new Set(['media_attach_failed','media_preview_not_ready','media_caption_not_found','media_caption_mismatch','autopost_budget_exhausted']);
+const WHATSAPP_AUTOPOST_RETRY_COOLDOWN_MS=60000;
 // An inspect/leave sometimes has to wait out a WhatsApp message sync (30–60 s after opening an
 // invite on a large account); this just bounds how long one candidate holds up the next.
 const DISCOVERY_WHATSAPP_TIMEOUT_MS=80000;
@@ -869,6 +872,16 @@ async function handleAutopostTask(ws,job){
     return;
   }
   if(Date.now()<whatsappRuntimeBlockedUntil){releaseTask(ws,'autopost',job);return;}
+  // Live report 2026-10-06: a queue started right after the runner reconnected burned eight jobs in seconds —
+  // every one of them hit a WhatsApp Web that was still on its loading screen, and a fail-closed autopost
+  // marks the job failed for good. The Discovery candidate handler already waits for a healthy home; autopost
+  // never did. Nothing has been sent at this point, so releasing the job is safe and it simply retries.
+  if(!await whatsappHomeReady()){
+    const until=Math.max(whatsappRuntimeBlockedUntil,Date.now()+WHATSAPP_HOME_NOT_READY_MS);
+    console.warn('WhatsApp autopost postponed: WhatsApp Web is not ready yet.');
+    releaseTask(ws,'autopost',job,until);
+    return;
+  }
   let automated;
   try{automated=await sendWhatsappAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp});}
   catch(error){
@@ -888,6 +901,13 @@ async function handleAutopostTask(ws,job){
   if(WHATSAPP_RUNTIME_TRANSIENT_REASONS.has(automated.reason)){
     markWhatsappRuntimeBlocked(automated.reason);
     releaseTask(ws,'autopost',job);
+    return;
+  }
+  // Everything up to and including the attached photo's preview happens BEFORE the send control is clicked,
+  // so a timeout there cannot have sent anything: the job goes back to the queue instead of being marked
+  // failed. Only a failure at or after the send click stays fail-closed, where a retry could double-post.
+  if(WHATSAPP_AUTOPOST_RETRY_REASONS.has(automated.reason)){
+    releaseTask(ws,'autopost',job,Date.now()+WHATSAPP_AUTOPOST_RETRY_COOLDOWN_MS);
     return;
   }
   sendLive(ws,{type:'result',process:'autopost',jobId:job.jobId,status:'failed',

@@ -235,3 +235,23 @@ void test('custom WhatsApp caption can autopost without a normal active Library 
   assert.equal(completed.status,'sent');
   assert.equal(await db.prepare("SELECT COUNT(*) FROM chat_publications WHERE chat_id='custom-caption-chat' AND source='whatsapp_autopost'").first('COUNT(*)'),1);
 });
+
+// Live report 2026-10-06: a queue started right after the runner reconnected burned eight jobs in seconds —
+// each one hit a WhatsApp Web still on its loading screen, and a fail-closed autopost marks the job failed
+// for good. Nothing is sent before the send control is clicked, so those stages must retry, not burn.
+void test('autopost waits for a ready WhatsApp and retries the stages that happen before the send click',async()=>{
+  const { readFile }=await import('node:fs/promises');
+  const runner=await readFile(new URL('../scripts/chat-discovery-runner.mjs',import.meta.url),'utf8');
+  const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
+  const handler=runner.slice(runner.indexOf('async function handleAutopostTask'),runner.indexOf('async function handleDiscoveryTask'));
+  assert.match(handler,/if\(!await whatsappHomeReady\(\)\)\{/);
+  assert.match(handler,/WHATSAPP_AUTOPOST_RETRY_REASONS\.has\(automated\.reason\)/);
+  // The retry set must stop at the send click: a failure at or after it could double-post.
+  for(const reason of ['media_attach_failed','media_preview_not_ready','media_caption_not_found','media_caption_mismatch'])
+    assert.ok(runner.includes(`'${reason}'`),`${reason} must be retryable`);
+  assert.doesNotMatch(runner,/WHATSAPP_AUTOPOST_RETRY_REASONS=new Set\(\[[^\]]*media_send_control_not_found/);
+  assert.doesNotMatch(runner,/WHATSAPP_AUTOPOST_RETRY_REASONS=new Set\(\[[^\]]*send_not_confirmed/);
+  // A bare reason could not tell a slow WhatsApp from a renamed control; the log now says which it was.
+  assert.match(adapter,/readWhatsappMediaPreviewDiagnostic/);
+  assert.match(adapter,/AUTOPOST_MEDIA_PREVIEW_MS = 20_000/);
+});

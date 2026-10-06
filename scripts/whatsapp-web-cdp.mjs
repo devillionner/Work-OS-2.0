@@ -4,6 +4,9 @@ const DEFAULT_TIMEOUT_MS = 45_000;
 // payload preparation share one 45 s budget and confirmation gets at most 30 s, so a send can
 // never happen or be confirmed after the lease has passed to another claim.
 const AUTOPOST_SEND_CONFIRM_MS = 30_000;
+// The attached photo's preview overlay. Eight seconds was arbitrary and too tight on a WhatsApp Web that is
+// still waking up, which burned a whole queue of jobs at once (live report 2026-10-06).
+const AUTOPOST_MEDIA_PREVIEW_MS = 20_000;
 const POLL_MS = 400;
 // Stays below the server's 120s Waiting-check lease.
 const WAITING_CHECK_TIMEOUT_MS = 100_000;
@@ -852,6 +855,28 @@ async function injectWhatsappImage(client, media) {
   return response?.result?.value===true;
 }
 
+// What the preview actually looked like when the wait ran out. A bare 'media_preview_not_ready' could mean a
+// slow WhatsApp or a renamed control, and the log could not tell the two apart (live report 2026-10-06).
+async function readWhatsappMediaPreviewDiagnostic(client){
+  const expression=`(() => {
+    const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
+    const editors=[...document.querySelectorAll('[contenteditable="true"]')].filter(visible);
+    const buttons=[...document.querySelectorAll('button, [role="button"]')].filter(visible);
+    return JSON.stringify({
+      loading:Boolean(document.querySelector('[data-testid="wa-web-loading-screen"]')),
+      editors:editors.length,
+      captionEditors:editors.filter((node)=>!node.closest('footer')).length,
+      buttons:buttons.length,
+      icons:[...new Set(buttons.map((node)=>node.querySelector('[data-icon]')?.getAttribute('data-icon')).filter(Boolean))].slice(0,12),
+      labels:[...new Set(buttons.map((node)=>String(node.getAttribute('aria-label')||node.getAttribute('title')||'').trim()).filter(Boolean))].slice(0,12),
+    });
+  })()`;
+  try{
+    const response=await client.send('Runtime.evaluate',{expression,returnByValue:true});
+    return String(response?.result?.value||'');
+  }catch{return '';}
+}
+
 async function waitForWhatsappMediaPreview(client,timeoutMs){
   const deadline=Date.now()+timeoutMs;
   while(Date.now()<deadline){
@@ -861,7 +886,9 @@ async function waitForWhatsappMediaPreview(client,timeoutMs){
       const caption=editors.find((node)=>!node.closest('footer'));
       const send=[...document.querySelectorAll('button, [role="button"]')].filter(visible).find((node)=>{
         const label=String(node.getAttribute('aria-label')||node.getAttribute('title')||node.textContent||'').trim();
-        return /^(send|надіслати|відправити|отправить)$/i.test(label)||Boolean(node.querySelector('[data-icon="send"], [data-testid*="send"]'));
+        // Substring, not an exact label: WhatsApp renames these controls between builds (wds-ic-send-filled
+        // and «Надіслати (Enter)» both have to count as the send control).
+        return /\b(send|надісла|відправ|отправ)/i.test(label)||Boolean(node.querySelector('[data-icon*="send"], [data-testid*="send"]'));
       });
       return Boolean(caption&&send);
     })()`;
@@ -975,7 +1002,11 @@ export async function sendWhatsappAutopostViaCdp(
     if(media?.base64){
       if(!/^image\/(jpeg|png|webp)$/u.test(String(media.contentType||'')))return {kind:'blocked',reason:'unsupported_media_type'};
       if(!await injectWhatsappImage(client,media))return {kind:'blocked',reason:'media_attach_failed'};
-      if(!await waitForWhatsappMediaPreview(client,Math.min(remainingBudget(),8_000)))return {kind:'blocked',reason:'media_preview_not_ready'};
+      if(!await waitForWhatsappMediaPreview(client,Math.min(remainingBudget(),AUTOPOST_MEDIA_PREVIEW_MS))){
+        const diagnostic=await readWhatsappMediaPreviewDiagnostic(client);
+        if(diagnostic)console.warn('WhatsApp autopost media preview diagnostic: '+diagnostic);
+        return {kind:'blocked',reason:'media_preview_not_ready'};
+      }
       if(!await focusAndClearWhatsappMediaCaption(client))return {kind:'blocked',reason:'media_caption_not_found'};
       await client.send('Input.insertText',{text});
       if(!await waitForWhatsappMediaCaption(client,text,Math.min(remainingBudget(),5_000)))return {kind:'blocked',reason:'media_caption_mismatch'};
