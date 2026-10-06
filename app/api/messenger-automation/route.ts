@@ -14,6 +14,7 @@ import {
   readLatestWhatsAppAutopostJob,
   readViberSafeNoteJob,
   readWhatsAppAutopostProgress,
+  resetWhatsAppAutopostQueue,
 } from '@/lib/messenger-automation';
 import { publicWhatsAppAutopostImage, readWhatsAppAutopostImage } from '@/lib/whatsapp-autopost-media';
 import {
@@ -138,6 +139,12 @@ export async function POST(request:Request):Promise<Response>{
     // задач він більше не отримає.
     if(body.action==='cancel-whatsapp-autopost-batch'){
       const result=await cancelWhatsAppAutopostBatch(env.DB,user.id,businessDate(now),now);
+      await wakeOwnerChannelAutopost(user.id);
+      return json({...result,progress:await readWhatsAppAutopostProgress(env.DB,user.id,businessDate(now))});
+    }
+    // «Скинути»: прибрати сьогоднішню чергу повністю, щоб наступний запуск почався з початку.
+    if(body.action==='reset-whatsapp-autopost'){
+      const result=await resetWhatsAppAutopostQueue(env.DB,user.id,businessDate(now));
       await wakeOwnerChannelAutopost(user.id);
       return json({...result,progress:await readWhatsAppAutopostProgress(env.DB,user.id,businessDate(now))});
     }

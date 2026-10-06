@@ -664,6 +664,29 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
 
   // «Зупинити автопост»: everything not yet sent is cancelled in one request. A job the runner already
   // holds is cancelled too — its confirmed send still lands, but no further job is pushed to it.
+  // «Скинути чергу»: сьогоднішні задачі прибираються, щоб наступний запуск почався з першого чату.
+  async function resetWhatsAppAutopostQueue() {
+    if(platform!=='whatsapp'||busy!==null)return;
+    await runAction.current(async()=>{
+      setBusy('whatsapp-autopost-reset');setError('');setNotice('');
+      try{
+        const response=await fetch('/api/messenger-automation',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'reset-whatsapp-autopost'}),
+        });
+        const body=await response.json() as {removed?:number;progress?:WhatsAppAutopostProgress;error?:string};
+        if(!response.ok)throw new Error(body.error||'Не вдалося скинути чергу автопоста.');
+        setWhatsappAutopostProgress(body.progress||null);
+        invalidateQueueCache('whatsapp');
+        announceDataChange('platforms');
+        await reloadChats.current(true);
+        setNotice(`Чергу автопоста скинуто (прибрано ${Number(body.removed||0)}). Наступний запуск почнеться з початку.`);
+      }catch(reason){
+        setError(reason instanceof Error?reason.message:'Не вдалося скинути чергу автопоста.');
+      }finally{setBusy(null);}
+    });
+  }
+
   async function stopWhatsAppAutopostBatch() {
     if(platform!=='whatsapp'||busy!==null)return;
     await runAction.current(async()=>{
@@ -773,7 +796,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       busy={busy!==null} queueSize={data?.counts.ready||0} progress={whatsappAutopostProgress} onCaptionChange={setWhatsappAutopostCaption}
       onUploadImage={file=>void uploadWhatsAppAutopostImage(file)} onRemoveImage={()=>void removeWhatsAppAutopostImage()}
       onSaveCaption={()=>void saveWhatsAppAutopostCaption()} onClearCaption={()=>void clearWhatsAppAutopostCaption()}
-      onStart={()=>void startWhatsAppAutopostBatch()} onStop={()=>void stopWhatsAppAutopostBatch()} finalFocus={()=>autopostTrigger.current}/>
+      onStart={()=>void startWhatsAppAutopostBatch()} onStop={()=>void stopWhatsAppAutopostBatch()} onReset={()=>void resetWhatsAppAutopostQueue()} finalFocus={()=>autopostTrigger.current}/>
     <ChatPublishDialog open={publishChat!==null} chat={publishChat} onClose={()=>setPublishChat(null)} onPublished={async({advertisementId,language})=>{if(!publishChat)return false;const quick=quickPublishMode&&(publishChat.platform==='whatsapp'||publishChat.platform==='viber');const result=await act(publishChat,'published',{advertisementId,language,quick},{action:'undo_published',label:'Публікацію можна скасувати протягом 8 секунд.'});if(!result.ok){if(result.refresh){setPublishChat(null);setNotice(`${result.error} Список уже оновлено — відкрийте актуальний чат повторно.`);return false;}throw new Error(result.error);}if(quick&&advertisementId&&!quickAdvertisementId){setQuickAdvertisementId(advertisementId);setNotice('Матеріал швидкого режиму зафіксовано. Публікацію можна скасувати кнопкою поруч; матеріал серії залишиться обраним.');}return true;}} onOpenChat={()=>{if(publishChat)openChat(publishChat);}} finalFocus={()=>publishTrigger.current} quickMode={publishQuickMode} preferredAdvertisementId={quickAdvertisementId}/>
     {notice&&<output className="reports-notice"><span>{notice}</span>{undo&&<Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>void undoLast()}>Скасувати</Button>}</output>}
     <section className="platform-header">

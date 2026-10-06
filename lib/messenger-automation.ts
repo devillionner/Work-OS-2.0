@@ -405,7 +405,21 @@ export async function readWhatsAppAutopostProgress(db:D1Database,userId:string,d
   const sent=counts.sent||0;
   const failed=counts.failed||0;
   const cancelled=counts.cancelled||0;
-  return {total:pending+claimed+sent+failed+cancelled,done:sent+failed,pending,claimed,sent,failed,cancelled,running:pending+claimed>0};
+  // Cancelled jobs are out of the count: pressing «Автопост черги» again re-queues the chats whose earlier
+  // job failed or was stopped, so counting every row of the day showed «11 з 90» for 30 chats (operator
+  // report 2026-10-07). The total is the live attempt — queued plus finished — and nothing else.
+  return {total:pending+claimed+sent+failed,done:sent+failed,pending,claimed,sent,failed,cancelled,running:pending+claimed>0};
+}
+
+/**
+ * Operator pressed «Скинути»: today's autopost jobs are removed outright, except the ones actually sent, so
+ * the next «Автопост черги» starts from a clean queue instead of resuming where the last one stopped.
+ * A sent job stays — it is the record that the chat already got its message today.
+ */
+export async function resetWhatsAppAutopostQueue(db:D1Database,userId:string,date:string){
+  const result=await db.prepare(`DELETE FROM whatsapp_autopost_jobs
+    WHERE user_id=?1 AND published_on=?2 AND status!='sent'`).bind(userId,date).run();
+  return {removed:Number(result.meta.changes||0)};
 }
 
 /** Operator pressed «Зупинити»: every job of today's batch that has not been sent yet is cancelled. */

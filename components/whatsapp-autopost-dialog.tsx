@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
-import { ImagePlus, Send, Square } from 'lucide-react';
+import { ImagePlus, RotateCcw, Send, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -14,7 +14,7 @@ export type WhatsAppAutopostProgress = { total:number; done:number; pending:numb
 // on every visit, so they live in a dialog now — the queue row keeps a one-line summary of what is set.
 export function WhatsappAutopostDialog({
   open, onClose, image, imageLoaded, caption, captionLoaded, busy, queueSize, progress,
-  onCaptionChange, onUploadImage, onRemoveImage, onSaveCaption, onClearCaption, onStart, onStop, finalFocus,
+  onCaptionChange, onUploadImage, onRemoveImage, onSaveCaption, onClearCaption, onStart, onStop, onReset, finalFocus,
 }:{
   open:boolean;
   onClose:()=>void;
@@ -32,6 +32,7 @@ export function WhatsappAutopostDialog({
   onClearCaption:()=>void;
   onStart:()=>void;
   onStop:()=>void;
+  onReset:()=>void;
   finalFocus?:()=>HTMLElement|null;
 }) {
   const fileInput=useRef<HTMLInputElement|null>(null);
@@ -58,8 +59,13 @@ export function WhatsappAutopostDialog({
           {`Відправлено ${progress.sent}`}
           {progress.failed?` · не вдалося ${progress.failed}`:''}
           {progress.pending||progress.claimed?` · лишилось ${progress.pending+progress.claimed}`:''}
-          {progress.cancelled?` · скасовано ${progress.cancelled}`:''}
         </small>
+        {!running&&progress.done>0&&<div className="lead-actions">
+          <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onReset}>
+            <RotateCcw data-icon="inline-start"/>Скинути чергу
+          </Button>
+          <small className="muted-note">Почати постинг спочатку: сьогоднішня черга очиститься, уже відправлені чати лишаться.</small>
+        </div>}
       </section>}
 
       <div className="whatsapp-autopost-photo">
