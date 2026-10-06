@@ -142,7 +142,7 @@ void test('Chat Discovery modal uses a wide split layout with independent candid
   assert.match(dialog, /Фільтр кандидатів/);
   assert.match(dialog, /Автопошук WhatsApp-чатів/);
   assert.match(dialog, /\['active', 'В роботі'/);
-  assert.match(dialog, /\['target', 'Цільові'/);
+  assert.match(dialog, /\['target', 'Готові підтвердити'/);
   assert.match(dialog, /\['rejected', 'Нецільові'/);
   assert.doesNotMatch(dialog, /StatTile/);
 });
@@ -230,7 +230,7 @@ void test('operator-first Discovery UI shows useful local throughput and keeps t
   const dialog = await readFile(new URL('../components/chat-discovery-dialog.tsx', import.meta.url), 'utf8');
   assert.match(dialog, /із \{displayedGoal\} цільових чатів/);
   assert.match(dialog, />В роботі <strong/);
-  assert.match(dialog, />Цільові <strong/);
+  assert.match(dialog, />Готові підтвердити <strong/);
   assert.match(dialog, />Нецільові <strong/);
   assert.match(dialog, /Дані пошуку/);
   assert.match(dialog, /Підключення WhatsApp/);
@@ -243,7 +243,7 @@ void test('Discovery shows a simple activity time without a ticking countdown', 
   assert.match(dialog, /formatActivityTime\(localPreview\.lastActivityAt\)/);
   assert.match(dialog, /hour:'2-digit',minute:'2-digit'/);
   assert.match(dialog, /flex items-center justify-between gap-3/);
-  assert.match(dialog, />WhatsApp <strong/);
+  assert.match(dialog, />Перевірено у WhatsApp <strong/);
   assert.match(dialog, />Активність <strong/);
   assert.doesNotMatch(dialog, /Пошукових кроків/);
   assert.doesNotMatch(dialog, /lastRunActivitySeconds|setInterval\(\(\)=>setClockMs/);

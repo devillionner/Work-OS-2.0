@@ -741,7 +741,7 @@ export class OwnerChannel {
     const run = await loadRun(this.ctx.storage);
     if (request.method === 'GET') {
       await this.writeState(state);
-      return Response.json({ run, runnerConnected: this.openRunnerCount() > 0, discoverySourceActivity: state.discoverySourceActivity ?? null }, { headers: { 'Cache-Control': 'no-store' } });
+      return Response.json({ run, runnerConnected: this.openRunnerCount() > 0, discoverySourceActivity: state.discoverySourceActivity ?? null, discoveryRunCandidatesBlockedUntil: state.discoveryRunCandidatesBlockedUntil ?? 0 }, { headers: { 'Cache-Control': 'no-store' } });
     }
     if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
     let body;
@@ -759,7 +759,7 @@ export class OwnerChannel {
       if (!canResume(run)) return Response.json({ error: 'Немає зупиненого автопошуку, який можна продовжити.' }, { status: 409 });
       next = resumeRun(run, now);
     } else if (action === 'pause') {
-      if (!run.running) return Response.json({ run, runnerConnected: this.openRunnerCount() > 0, discoverySourceActivity: state.discoverySourceActivity ?? null });
+      if (!run.running) return Response.json({ run, runnerConnected: this.openRunnerCount() > 0, discoverySourceActivity: state.discoverySourceActivity ?? null, discoveryRunCandidatesBlockedUntil: state.discoveryRunCandidatesBlockedUntil ?? 0 });
       next = pauseRun(run, now);
     } else if (action === 'confirmed') {
       next = settleRun(markConfirmed(run, String(body.candidateId || '')), now);
@@ -787,7 +787,7 @@ export class OwnerChannel {
     }
     if (next !== run) this.broadcastRunState(next);
     await this.writeState(state);
-    return Response.json({ run: next, runnerConnected: this.openRunnerCount() > 0, discoverySourceActivity: state.discoverySourceActivity ?? null }, { headers: { 'Cache-Control': 'no-store' } });
+    return Response.json({ run: next, runnerConnected: this.openRunnerCount() > 0, discoverySourceActivity: state.discoverySourceActivity ?? null, discoveryRunCandidatesBlockedUntil: state.discoveryRunCandidatesBlockedUntil ?? 0 }, { headers: { 'Cache-Control': 'no-store' } });
   }
 
   /**

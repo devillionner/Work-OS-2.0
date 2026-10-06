@@ -13,7 +13,6 @@ import type { LocalDiscoveryPreview } from '@/lib/chat-discovery/local-preview';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 import { EMPTY_RUN, NON_TARGET_STATES, SOURCE_TARGET_QUEUE, canResume, queuedCount, runTargetCount, type DiscoveryRunState } from '@/lib/chat-discovery/run-state';
 import { subscribeLiveMessages, subscribeLiveStatus } from '@/lib/live-channel';
-import { normalizeGroupLink } from '@/lib/chats/bulk-input';
 
 type Workspace = {
   run: DiscoveryRun | null;
@@ -88,6 +87,7 @@ export function ChatDiscoveryDialog({
   const goal=goalOverride??(localPreview.goal||50);
   const [runnerConnected,setRunnerConnected]=useState<boolean|null>(null);
   const [sourceActivity,setSourceActivity]=useState<string|null>(null);
+  const [whatsappBlockedUntil,setWhatsappBlockedUntil]=useState(0);
   const [liveConnected,setLiveConnected]=useState(false);
   // The persisted Work OS history is a D1 read: it is loaded only when the operator opens «Історія».
   const load = useCallback(async (options: { silent?: boolean } = {}) => {
@@ -121,11 +121,12 @@ export function ChatDiscoveryDialog({
   const loadRun=useCallback(async()=>{
     try{
       const response=await fetch('/api/chat-discovery/run',{cache:'no-store'});
-      const body=await response.json() as {run?:LocalPreviewSession;runnerConnected?:boolean;discoverySourceActivity?:string|null;error?:string};
+      const body=await response.json() as {run?:LocalPreviewSession;runnerConnected?:boolean;discoverySourceActivity?:string|null;discoveryRunCandidatesBlockedUntil?:number;error?:string};
       if(!response.ok||!body.run)return;
       setLocalPreview(body.run);
       setRunnerConnected(body.runnerConnected===true);
       setSourceActivity(body.discoverySourceActivity||null);
+      setWhatsappBlockedUntil(Number(body.discoveryRunCandidatesBlockedUntil)||0);
     }catch{}
   },[]);
 
@@ -157,11 +158,12 @@ export function ChatDiscoveryDialog({
 
   async function postRun(body:Record<string,unknown>){
     const response=await fetch('/api/chat-discovery/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    const payload=await response.json().catch(()=>({})) as {run?:LocalPreviewSession;runnerConnected?:boolean;discoverySourceActivity?:string|null;error?:string};
+    const payload=await response.json().catch(()=>({})) as {run?:LocalPreviewSession;runnerConnected?:boolean;discoverySourceActivity?:string|null;discoveryRunCandidatesBlockedUntil?:number;error?:string};
     if(!response.ok||!payload.run)throw new Error(payload.error||'Не вдалося змінити автопошук.');
     setLocalPreview(payload.run);
     setRunnerConnected(payload.runnerConnected===true);
     setSourceActivity(payload.discoverySourceActivity||null);
+    setWhatsappBlockedUntil(Number(payload.discoveryRunCandidatesBlockedUntil)||0);
     return payload.run;
   }
 
@@ -457,10 +459,13 @@ export function ChatDiscoveryDialog({
   const progressPercent=displayedGoal>0?Math.min(100,Math.round((displayedTargetCount/displayedGoal)*100)):0;
   const activeCandidateName=String(localPreview.activeCandidateName||'').trim();
   const pauseSummary=localPreview.pauseSummary;
+  const whatsappBlocked=whatsappBlockedUntil>Date.now();
   const runActivity=pausing
     ? 'Зупиняємо пошук · зберігаємо прогрес'
     : autonomousRunning
-    ? activeCandidateName
+    ? whatsappBlocked
+      ? `WhatsApp тимчасово недоступний — автопошук продовжує Telegram-пошук, спробує WhatsApp знову о ${formatActivityTime(whatsappBlockedUntil)}`
+      : activeCandidateName
       ? `Перевіряємо WhatsApp: ${activeCandidateName}`
       : localQueued>0
         ? `У черзі ${localQueued}: готуємо наступну WhatsApp-перевірку`
@@ -510,7 +515,7 @@ export function ChatDiscoveryDialog({
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground sm:justify-end">
             <span>В роботі <strong className="text-foreground">{localQueued+localManualReview}</strong></span>
-            <span>Цільові <strong className="text-foreground">{localTargets.length}</strong></span>
+            <span>Готові підтвердити <strong className="text-foreground">{localTargets.length}</strong></span>
             <span>Нецільові <strong className="text-foreground">{localNonTargets.length}</strong></span>
           </div>
         </div>
@@ -587,12 +592,13 @@ export function ChatDiscoveryDialog({
               <details className="mt-3 border-t border-border/60 pt-3">
                 <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Дані пошуку</summary>
                 <div className="mt-2 grid gap-1.5 text-xs text-foreground/70">
+                  <p className="text-[11px] text-muted-foreground">Технічні деталі — для довідки, стежити не обов&apos;язково.</p>
                   <div className="flex items-center justify-between gap-3">
-                    <span>План <strong className="ml-1 text-foreground">{localPreview.telegramCursor}/{localPreview.sourceTotal||'—'}</strong></span>
+                    <span>Перевірено запитів пошуку <strong className="ml-1 text-foreground">{localPreview.telegramCursor}/{localPreview.sourceTotal||'—'}</strong></span>
                     <span>Дублі <strong className="ml-1 text-foreground">{localPreview.duplicates}</strong></span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
-                    <span>WhatsApp <strong className="ml-1 text-foreground">{localChecked}</strong></span>
+                    <span>Перевірено у WhatsApp <strong className="ml-1 text-foreground">{localChecked}</strong></span>
                     <span>Активність <strong className="ml-1 text-foreground">{formatActivityTime(localPreview.lastActivityAt)}</strong></span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
@@ -624,7 +630,7 @@ export function ChatDiscoveryDialog({
             <div className="mt-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Фільтр кандидатів">
               {([
                 ['active', 'В роботі', localQueued+localManualReview],
-                ['target', 'Цільові', localTargets.length],
+                ['target', 'Готові підтвердити', localTargets.length],
                 ['rejected', 'Нецільові', localNonTargets.length],
                 ['history', 'Історія Work OS', filter==='history'?workspace.candidates.length:null],
               ] as Array<[DecisionFilter, string, number|null]>).map(([key, label, count]) =>
@@ -828,23 +834,6 @@ function isPendingApprovalCandidate(candidate:DiscoveryCandidate){
   // check must not require membershipState==='pending' to find the second case too.
   return isLocalPreview(candidate)&&candidate.preflightState==='review'
     &&candidate.reasonCodes.includes('approval_required');
-}
-
-function candidateIdentity(candidate:DiscoveryCandidate){
-  const normalized=normalizeGroupLink(candidate.link);
-  return normalized? `${normalized.platform}|${normalized.link}` : `${candidate.platform}|${String(candidate.link||'').trim()}`;
-}
-
-function mergeDiscoveryCandidates(persisted:DiscoveryCandidate[],local:DiscoveryCandidate[]){
-  const seen=new Set<string>();
-  const merged:DiscoveryCandidate[]=[];
-  for(const candidate of [...persisted,...local]){
-    const key=candidateIdentity(candidate);
-    if(seen.has(key))continue;
-    seen.add(key);
-    merged.push(candidate);
-  }
-  return merged;
 }
 
 function emptyCandidateCopy(filter:DecisionFilter,running:boolean,queued:number,checked:number){
