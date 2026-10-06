@@ -1,5 +1,5 @@
-export const APP_VERSION = '0.2.110';
-export const APP_RELEASE_DATE = '2026-10-05';
+export const APP_VERSION = '0.2.111';
+export const APP_RELEASE_DATE = '2026-10-06';
 
 // User-facing copy only. Keep each note short and plain; technical details belong in docs and commits.
 export const APP_CHANGES = [
@@ -7,4 +7,5 @@ export const APP_CHANGES = [
   'У вікні автопошуку тепер видно прогрес усередині кроку — скільки груп уже перевірено й скільки посилань знайдено, ще до перевірки у WhatsApp.',
   'Чат, що потребує схвалення адміністратора для вступу, тепер можна підтвердити — він надішле запит і піде в «Очікування».',
   'Виправлено: частина чатів, де не вдалось одразу знайти кнопку запиту на вступ, помилково йшла в нецільові замість «Потрібне твоє рішення».',
+  'Нецільові чати тепер теж можна повернути в чергу на повторну перевірку, а не лише «не вдалося перевірити».',
 ] as const;

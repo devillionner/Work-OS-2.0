@@ -681,8 +681,8 @@ export function ChatDiscoveryDialog({
                         <a className="inline-flex h-11 items-center gap-1.5 rounded-[9px] border border-border bg-background px-2.5 text-[0.8rem] font-semibold hover:bg-muted sm:h-8" href={candidate.link} target="_blank" rel="noreferrer">
                           Відкрити {platformLabel(candidate.platform)} <ExternalLink className="size-3.5"/>
                         </a>
-                        {!candidate.importedChatId && candidate.decision==='unavailable'
-                          &&candidate.reasonCodes.some(reason=>['qualification_incomplete','paused_unverified','retry_exhausted'].includes(reason))
+                        {!candidate.importedChatId && isLocalPreview(candidate) && (candidate.decision==='rejected'
+                          ||(candidate.decision==='unavailable'&&candidate.reasonCodes.some(reason=>['qualification_incomplete','paused_unverified','retry_exhausted'].includes(reason))))
                           &&<Button type="button" size="sm" variant="outline" disabled={localPreview.running||telegramBusy} onClick={()=>retryIncompleteCandidate(candidate)}>Повторити перевірку</Button>}
                         {!candidate.importedChatId && candidate.decision==='review' && !isLocalPreview(candidate) && <>
                           <Button type="button" size="sm" disabled={importingId !== null || inspectingId !== null} onClick={() => void importCandidate(candidate)}>
