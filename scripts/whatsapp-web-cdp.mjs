@@ -818,6 +818,33 @@ export async function leaveWhatsappTaskViaCdp(
   }
 }
 
+// Paste the photo into the composer, the way a person presses Ctrl+V — which is exactly what the previous
+// Prototype Checker did (clipboard SetImage + Ctrl+V into the composer) and why captions worked there.
+// Feeding the hidden input[type=file] instead opens WhatsApp's full media EDITOR (crop/draw/filter), and on
+// the operator's build that editor has no caption field at all; the paste route opens the ordinary preview
+// that does. Verified against devillionner/Prototype-Checker-Work-OS, autopost-photo-helper.ps1 (2026-10-07).
+async function pasteWhatsappImage(client, media) {
+  const expression=`(() => {
+    const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
+    const node=[...document.querySelectorAll('[contenteditable="true"]')].filter(visible).find((item)=>item.closest('footer'))
+      ||[...document.querySelectorAll('[contenteditable="true"]')].filter(visible)[0];
+    if(!node||typeof DataTransfer==='undefined')return false;
+    try{
+      const raw=atob(${JSON.stringify(String(media.base64||''))});
+      const bytes=new Uint8Array(raw.length);
+      for(let i=0;i<raw.length;i+=1)bytes[i]=raw.charCodeAt(i);
+      const file=new File([bytes],${JSON.stringify(String(media.fileName||'work-os.jpg'))},{type:${JSON.stringify(String(media.contentType||'image/jpeg'))}});
+      const transfer=new DataTransfer();
+      transfer.items.add(file);
+      node.focus();
+      node.dispatchEvent(new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true}));
+      return true;
+    }catch{return false;}
+  })()`;
+  const response=await client.send('Runtime.evaluate',{expression,returnByValue:true});
+  return response?.result?.value===true;
+}
+
 async function injectWhatsappImage(client, media) {
   const openAttach = `(() => {
     const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
@@ -1084,23 +1111,28 @@ export async function sendWhatsappAutopostViaCdp(
       // exist at all on the operator's build — the diagnostic found only the sidebar search and the composer
       // while the editor was open, and clicking the strip under the photo mounted nothing (2026-10-07).
       if(!await focusAndClearComposer(client))return {kind:'blocked',reason:'composer_not_found'};
-      await client.send('Input.insertText',{text});
-      if(!await waitForComposerText(client,text,Math.min(remainingBudget(),5_000)))return {kind:'blocked',reason:'composer_content_mismatch'};
       await markWhatsappEditorsBeforeMedia(client);
-      if(!await injectWhatsappImage(client,media))return {kind:'blocked',reason:'media_attach_failed'};
+      // Paste first (the Prototype Checker's route, which yields a preview WITH a caption box); the hidden
+      // file input stays as the fallback for a build where the paste handler does not take the file.
+      let pasted=await pasteWhatsappImage(client,media);
+      if(pasted)pasted=await waitForWhatsappMediaPreview(client,Math.min(remainingBudget(),6_000));
+      if(!pasted&&!await injectWhatsappImage(client,media))return {kind:'blocked',reason:'media_attach_failed'};
       if(!await waitForWhatsappMediaPreview(client,Math.min(remainingBudget(),AUTOPOST_MEDIA_PREVIEW_MS))){
         const diagnostic=await readWhatsappMediaPreviewDiagnostic(client);
         if(diagnostic)console.warn('WhatsApp autopost media preview diagnostic: '+diagnostic);
         return {kind:'blocked',reason:'media_preview_not_ready'};
       }
-      // If this build DOES show a caption field, it is already prefilled from the composer — only type into it
-      // when it is there and empty. A build without one (see above) simply sends what the composer carried.
-      if(await openWhatsappMediaCaption(client,Math.min(remainingBudget(),2_500))){
-        if(!await waitForWhatsappMediaCaption(client,text,Math.min(remainingBudget(),3_000))){
-          if(!await focusAndClearWhatsappMediaCaption(client))return {kind:'blocked',reason:'media_caption_not_found'};
-          await client.send('Input.insertText',{text});
-          if(!await waitForWhatsappMediaCaption(client,text,Math.min(remainingBudget(),5_000)))return {kind:'blocked',reason:'media_caption_mismatch'};
-        }
+      // The preview that the paste opens has its own caption box; type the text into it. A build that showed no
+      // caption box at all (the file-input editor) still sends — the text then has to be in the composer, which
+      // is the fallback path's own problem, not this one's.
+      if(await openWhatsappMediaCaption(client,Math.min(remainingBudget(),6_000))){
+        if(!await focusAndClearWhatsappMediaCaption(client))return {kind:'blocked',reason:'media_caption_not_found'};
+        await client.send('Input.insertText',{text});
+        if(!await waitForWhatsappMediaCaption(client,text,Math.min(remainingBudget(),5_000)))return {kind:'blocked',reason:'media_caption_mismatch'};
+      }else{
+        const diagnostic=await readWhatsappMediaPreviewDiagnostic(client);
+        if(diagnostic)console.warn('WhatsApp autopost caption diagnostic: '+diagnostic);
+        return {kind:'blocked',reason:'media_caption_not_found'};
       }
       if(Date.now()>=operationDeadline)return {kind:'blocked',reason:'autopost_budget_exhausted'};
       if(!await clickWhatsappMediaSend(client))return {kind:'blocked',reason:'media_send_control_not_found'};
