@@ -352,6 +352,31 @@ void test('a pending-approval chat that genuinely fails a hard criterion is stil
   assert.equal(stored.importedChatId, null);
 });
 
+// Regression (live operator report, 2026-10-06): every candidate the current live Telegram-group-scan
+// search path finds carries a source with kind 'telegram_scanned' (previewTelegramDiscoveryText,
+// local-preview.ts), but migrations/0031_chat_discovery.sql's CHECK constraint on
+// chat_discovery_sources.source_kind never allowed it — so confirming ANY freshly found target failed
+// with a generic 500 at the final INSERT. Fixed by migrations/0042 widening the constraint.
+void test('confirming a candidate found via the live Telegram-scan path persists its telegram_scanned source', async (t) => {
+  const db = await localDatabase(t);
+  const handed = await confirmLocalDiscoveryPreview(db, 'u', {
+    platform:'whatsapp', link:'https://chat.whatsapp.com/TelegramScanned123', name:'Українці Наварри',
+    sources:[{
+      kind:'telegram_scanned', sourceUrl:'https://t.me/s/some_group', sourceTitle:'Українці Наварри',
+      query:'Українці Pamplona', seedLabel:'Pamplona', seedKind:'telegram_chat', context:'Українці Наварри · приєднуйтесь',
+    }],
+    preflight:{
+      status:'inspected', accessible:true, targetVerified:true, membershipState:'joined', observedName:'Українці Наварри',
+      chatType:'group', memberCount:950, topicMatch:'match', canWrite:true, adsPolicy:'unknown', activityState:'unknown',
+    },
+  }, 100);
+  assert.equal(handed.existing, false);
+  assert.equal(handed.decision, 'target');
+  const candidate = (await readDiscoveryWorkspace(db, 'u')).candidates.find(item => item.importedChatId === handed.chatId);
+  assert.ok(candidate);
+  assert.equal(candidate.sources[0]?.kind, 'telegram_scanned');
+});
+
 async function importedCandidate(t, suffix) {
   const db = await localDatabase(t);
   const link = `https://chat.whatsapp.com/${suffix}`;
