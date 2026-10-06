@@ -1,3 +1,32 @@
+## 2026-10-06 — «Підтвердити» на знайденому чаті падало назавжди: CHECK-обмеження не знало про telegram_scanned
+
+- Оператор живцем натиснув «Підтвердити» на цільовому чаті («Українці Наварри/Pamplona & Navarra»,
+  4 з 4 критеріїв) одразу після попереднього пушу (`66713e7`) — отримав помилку «Локальний preview
+  пошуку не завершено. Спробуйте ще раз.».
+- Відтворено локально (Miniflare + реальні міграції) точним payload-ом, який шле
+  `importCandidate`/`postPreview({action:'confirm',...})`: `D1_ERROR: CHECK constraint failed:
+  source_kind IN ('public_web','curated','manual','telegram_global')`.
+- Причина: живий Telegram-скан (`lib/chat-discovery/public-web.ts`, з 2026-10-04) позначає КОЖНЕ
+  знайдене джерело як `kind:'telegram_scanned'` (`local-preview.ts:58`,
+  `previewTelegramDiscoveryText`); код-рівня allowlist (`local-preview.ts:21`, `SOURCE_KINDS`) це
+  значення знав, але CHECK-обмеження колонки `chat_discovery_sources.source_kind`
+  (`migrations/0031_chat_discovery.sql:69`) — ні. Отже підтвердження БУДЬ-ЯКОГО щойно знайденого через
+  живий пошук цільового чату падало на фінальному `INSERT INTO chat_discovery_sources` — відколи ця
+  фіча стала єдиним живим джерелом кандидатів (2026-10-04), і до сьогодні, бо наявні тести викликали
+  `confirmLocalDiscoveryPreview` із `sources:[]` і цей шлях не зачіпали.
+- Виправлення: `migrations/0042_chat_discovery_sources_telegram_scanned_kind.sql` — SQLite не дозволяє
+  змінити CHECK на місці, тож таблицю перестворено (ідентична схема + розширений CHECK), дані
+  скопійовано без втрат, індекс відновлено. Новий регресійний тест
+  (`tests/chat-discovery-cloud.test.mjs`) підтверджує confirm із `source.kind:'telegram_scanned'`.
+- Тести: `chat-discovery-cloud` (новий тест + решта) + `migration-format` + `d1-query-plan-audit` +
+  `staging-migration-preflight` + `d1-poll-budget` — 54/54 зелені. lint/typecheck/build — зелені.
+  Версія 0.2.114.
+- Деплой підтверджено: `/api/build` → `68000d4`, `migrationFingerprint` змінився з
+  `cbda6c9e…` на `0d9be601…` (0042 застосована).
+- Рівень доказів: код + локальна репродукція + регресійний тест + підтверджений деплой. Чи саме ця
+  конкретна «Українці Наварри/Pamplona & Navarra» тепер підтверджується на staging — оператору
+  варто спробувати ще раз і повідомити.
+
 ## 2026-10-06 — Автопошук: підказка на готові чати, повторний пошук через тиждень, вирівняний WhatsApp-regex
 
 - Оператор підняв три окремі питання одразу: (1) чи можна покращити візуал діалогу автопошуку,
