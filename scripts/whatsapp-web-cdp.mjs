@@ -869,6 +869,32 @@ async function readWhatsappMediaPreviewDiagnostic(client){
       buttons:buttons.length,
       icons:[...new Set(buttons.map((node)=>node.querySelector('[data-icon]')?.getAttribute('data-icon')).filter(Boolean))].slice(0,12),
       labels:[...new Set(buttons.map((node)=>String(node.getAttribute('aria-label')||node.getAttribute('title')||'').trim()).filter(Boolean))].slice(0,12),
+      // Every field the caption could possibly be, not just contenteditable ones: this build may use a plain
+      // input or textarea, and guessing cost three rounds already (2026-10-07).
+      fields:[...document.querySelectorAll('input, textarea, [contenteditable]')].map((node)=>({
+        tag:node.tagName.toLowerCase(),
+        type:node.getAttribute('type')||'',
+        editable:node.getAttribute('contenteditable')||'',
+        role:node.getAttribute('role')||'',
+        label:String(node.getAttribute('aria-label')||node.getAttribute('placeholder')||node.getAttribute('data-placeholder')||'').slice(0,40),
+        visible:visible(node),
+        inFooter:Boolean(node.closest('footer')),
+      })).slice(0,14),
+      // What actually sits in the send control's row — the strip where a caption belongs.
+      strip:(()=>{
+        const send=[...document.querySelectorAll('button, [role="button"]')].filter(visible).find((node)=>node.querySelector('[data-icon*="send"]'));
+        if(!send)return null;
+        let box=send.parentElement;
+        for(let step=0;step<3&&box&&box.getBoundingClientRect().width<window.innerWidth*0.5;step+=1)box=box.parentElement;
+        if(!box)return null;
+        return [...box.children].map((node)=>({
+          tag:node.tagName.toLowerCase(),
+          role:node.getAttribute('role')||'',
+          label:String(node.getAttribute('aria-label')||'').slice(0,30),
+          text:String(node.innerText||'').replace(/\\s+/g,' ').trim().slice(0,30),
+          fields:node.querySelectorAll('input, textarea, [contenteditable]').length,
+        })).slice(0,10);
+      })(),
     });
   })()`;
   try{
