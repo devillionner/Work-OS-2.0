@@ -38,6 +38,7 @@ export function WhatsappAutopostDialog({
   const fileInput=useRef<HTMLInputElement|null>(null);
   const ready=imageLoaded&&Boolean(image)&&captionLoaded;
   const running=progress?.running===true;
+  const hasQueue=Boolean(progress&&(progress.total>0||progress.cancelled>0));
 
   return <Dialog open={open} onOpenChange={next=>{if(!next&&!busy)onClose();}}>
     <DialogContent className="whatsapp-autopost-dialog" finalFocus={finalFocus}>
@@ -60,12 +61,7 @@ export function WhatsappAutopostDialog({
           {progress.failed?` · не вдалося ${progress.failed}`:''}
           {progress.pending||progress.claimed?` · лишилось ${progress.pending+progress.claimed}`:''}
         </small>
-        {!running&&progress.done>0&&<div className="lead-actions">
-          <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onReset}>
-            <RotateCcw data-icon="inline-start"/>Скинути чергу
-          </Button>
-          <small className="muted-note">Почати постинг спочатку: сьогоднішня черга очиститься, уже відправлені чати лишаться.</small>
-        </div>}
+
       </section>}
 
       <div className="whatsapp-autopost-photo">
@@ -97,6 +93,12 @@ export function WhatsappAutopostDialog({
       </div>
 
       <div className="dialog-actions">
+        {/* Always reachable, not only while a batch is counted: a queue where everything was cancelled has a
+            total of zero and the operator still has to be able to start over (report 2026-10-07). */}
+        {hasQueue&&!running&&<Button variant="outline" disabled={busy} onClick={onReset}
+          title="Почати постинг спочатку: сьогоднішня черга очиститься, уже відправлені чати лишаться">
+          <RotateCcw data-icon="inline-start"/>Скинути чергу
+        </Button>}
         <Button variant="outline" disabled={busy} onClick={onClose}>Закрити</Button>
         {running
           ? <Button variant="outline" disabled={busy} onClick={onStop}><Square data-icon="inline-start"/>Зупинити автопост</Button>
