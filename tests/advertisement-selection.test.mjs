@@ -98,12 +98,15 @@ void test('selection exposes confirmed profile cadence and weekday blocks before
   assert.equal(allowed?.publicationReason, null);
 });
 
+// Operator decision 2026-10-06: the rules of a profile that EXISTS still block (cadence, next allowed date);
+// a profile that was never confirmed only warns, on every platform.
 void test('manual publish dialog explains profile rule blocks and prevents confirmation', () => {
   const source = readFileSync(join(process.cwd(), 'components', 'chat-publish-dialog.tsx'), 'utf8');
   assert.match(source, /Публікація зараз недоступна:/);
-  assert.match(source, /profileRequired/);
-  assert.match(source, /disabled=\{loading\|\|busy\|\|profileRequired\|\|!publicationRule\.allowed\|\|\(quickMode&&!selected\)\}/);
+  assert.match(source, /disabled=\{loading\|\|busy\|\|!publicationRule\.allowed\|\|\(quickMode&&!selected\)\}/);
   assert.match(source, /publicationAllowed!==false/);
+  assert.doesNotMatch(source, /profileRequired/);
+  assert.match(source, /профілю|Профіль чату ще не підтверджено/);
 });
 
 

@@ -124,17 +124,19 @@ void test('WhatsApp and Viber quick publishing locks one material without bypass
   assert.match(platform, /setQuickAdvertisementId\(advertisementId\)/);
   assert.match(platform, /act\(publishChat,'published',\{advertisementId,language,quick\},\{action:'undo_published'/);
   assert.match(platform, /!chat\.profileConfirmed&&\(queue==='ready'\|\|queue==='profile_review'\)&&<Badge variant="outline">Профіль пізніше<\/Badge>/);
-  assert.match(platform, /return !chat\.profileConfirmed&&!quickMode&&chat\.platform==='telegram';/);
-  assert.match(platform, /profileBlocksManualPublication\(chat,quickPublishMode\)/);
   assert.match(platform, /setProfileChat\(chat\)/);
+  // Operator decision 2026-10-06: an unconfirmed profile warns but no longer blocks publication anywhere.
+  assert.doesNotMatch(platform, /profileBlocksManualPublication/);
   assert.match(publish, /quickMode&&preferredAdvertisementId/);
   assert.match(publish, /Матеріал швидкого режиму/);
   assert.match(publish, /quickMode&&!selected/);
-  assert.match(publish, /profileRequired/);
+  assert.doesNotMatch(publish, /profileRequired/);
   assert.match(publish, /Профіль чату ще не підтверджено/);
-  assert.match(publication, /!quickMode && chat\.platform === 'telegram' && profile\?\.reviewStatus !== 'confirmed'/);
-  assert.match(publication, /\?10=1 OR c\.platform IN \('viber','whatsapp'\) OR EXISTS\(SELECT 1 FROM chat_profiles pr WHERE pr\.chat_id=c\.id AND pr\.review_status='confirmed'\)/);
+  assert.doesNotMatch(publication, /review_status !== 'confirmed'/);
+  assert.doesNotMatch(publication, /review_status='confirmed'\)\)/);
+  // The rules of a profile that exists are still enforced, as is the cadence advance after publishing.
   assert.match(publication, /profilePublicationRule\(profile,date\)/);
+  assert.match(publication, /profile\?\.reviewStatus === 'confirmed' \? nextProfilePublicationDate/);
   assert.match(publication, /chat\.workflow_status !== 'ready'/);
   assert.match(publication, /advertisementId/);
   assert.match(publication, /JSON\.stringify\(eventMetadata\)/);

@@ -39,9 +39,10 @@ export async function recordManualPublication(
   const profileRow = await db.prepare(`SELECT p.cadence,p.weekdays_json,p.custom_interval_days,p.next_allowed_on,p.review_status
     FROM chat_profiles p JOIN chats c ON c.id=p.chat_id WHERE p.chat_id=?1 AND c.user_id=?2 LIMIT 1`).bind(chat.id,userId).first<Record<string,unknown>>();
   const profile = publicationProfile(profileRow);
-  // WhatsApp and Viber publish without a confirmed profile (operator decision 2026-10-02); Telegram still needs one.
-  if (!quickMode && chat.platform === 'telegram' && profile?.reviewStatus !== 'confirmed')
-    return { ok:false,error:'Звичайна публікація потребує підтвердженого профілю чату. Уточніть профіль чату.' };
+  // Every platform publishes without a confirmed profile (operator decision 2026-10-06; WhatsApp and Viber
+  // since 2026-10-02). The profile is the rules engine for cadence and direction, and the operator is still
+  // writing those rules — making it a gate only stopped the manual work it was meant to support. A profile
+  // that DOES exist is still obeyed below, and «Уточнити профіль» keeps its own queue.
   if (profile) {
     const rule = profilePublicationRule(profile,date);
     if (!rule.allowed) return { ok:false,error:rule.reason || 'Публікація зараз недоступна.' };
@@ -83,13 +84,12 @@ export async function recordManualPublication(
         AND NOT EXISTS(SELECT 1 FROM chat_discovery_candidates dc
           WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.decision!='target' AND dc.id NOT LIKE 'waiting-%')
         AND ${chatStateTokenSql()}=?9
-        AND (?10=1 OR c.platform IN ('viber','whatsapp') OR EXISTS(SELECT 1 FROM chat_profiles pr WHERE pr.chat_id=c.id AND pr.review_status='confirmed'))
         AND (?6 IS NULL OR EXISTS(SELECT 1 FROM library_items li
           WHERE li.id=?6 AND li.user_id=c.user_id AND li.kind='advertisement' AND li.archived_at IS NULL))
         AND (c.platform!='telegram' OR EXISTS(SELECT 1 FROM telegram_accounts a
           WHERE a.id=COALESCE(c.telegram_account_id,?5) AND a.user_id=c.user_id AND a.is_enabled=1))
       ON CONFLICT(user_id,chat_id,published_on) DO NOTHING`)
-      .bind(publicationId,date,now,sourceKey,accountId,advertisementId,chat.id,userId,input.stateToken,Number(quickMode)),
+      .bind(publicationId,date,now,sourceKey,accountId,advertisementId,chat.id,userId,input.stateToken),
     db.prepare(`INSERT INTO activity_events
       (id,user_id,event_type,platform,chat_id,lead_id,lesson_id,occurred_at,event_date,metadata_json,source_key,telegram_account_id)
       SELECT ?1,p.user_id,'publication',c.platform,p.chat_id,NULL,NULL,p.published_at,p.published_on,
