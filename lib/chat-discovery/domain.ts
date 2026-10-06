@@ -290,9 +290,14 @@ export function inferDiscoveryTopicMatch(name: string, sources: DiscoverySource[
   const text = normalizeText(raw);
   if (/(shooting|casting|кастинг|масовк|vfs\s*slots?|visa\s*slots?|passport\s*appointment|driving\s*licen[cs]e\s*appointment)/u.test(text)) return 'mismatch';
   if (NON_TARGET_GROUP_PATTERN.test(raw)) return 'mismatch';
+  // A Ukrainian-audience group IS the topic (operator decision 2026-10-07): the old extra allowlist of
+  // «барахолка/мамочки/оренда…» words turned every ordinary city community into 'unknown', which meant
+  // review and a manual qualification for the operator. The mismatch patterns above still rule out the
+  // groups that are genuinely not targets, and size/write access stay separate criteria.
   const ukrainian = /(україн|украин|ukrain|🇺🇦)/u.test(raw.toLocaleLowerCase('uk-UA'));
-  if (!ukrainian) return 'unknown';
-  const relevant = /(барахол|куплю|продам|продаж|market|оголош|объявлен|дошка|доска|мам|батьк|parent|family|community|спільнот|авто|оренд|rent|житл|перевез|допомог|help|україн|украин)/u;
+  if (ukrainian) return 'match';
+  // No Ukrainian marker in the name: a clearly relevant community intent still counts.
+  const relevant = /(барахол|куплю|продам|продаж|оголош|объявлен|дошка|доска|мамоч|батьк|біжен|бежен|переселен|діаспор|диаспор|refuge|diaspora)/u;
   return relevant.test(text) ? 'match' : 'unknown';
 }
 

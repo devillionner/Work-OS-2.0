@@ -5,6 +5,7 @@ import { transitionChat } from '../chats/transitions.ts';
 import {
   DiscoveryError,
   evaluateDiscoveryCandidate,
+  inferDiscoveryTopicMatch,
   reconcileDiscoveryRunGoal,
   type DiscoveryCandidate,
   type DiscoveryDecision,
@@ -121,12 +122,16 @@ export async function applyDiscoveryInspection(
   const observedName = cleanChatName(result.observedName || '');
   const nextName = observedName && (isGeneratedName(current.name) || (input.requireTargetVerification === true && result.targetVerified === true))
     ? observedName : current.name;
+  // A verified inspection used to BLANK the topic back to 'unknown' whenever the runner reported no topic of
+  // its own — so a candidate whose name already matched at discovery time still landed in review and waited
+  // for a manual qualification (operator report 2026-10-07). The inspection knows the real chat name, which
+  // is better evidence than the invite text, so re-infer from it instead of discarding what we had.
   const nextTopic = result.topicMatch ?? (
     input.requireTargetVerification === true
       && result.status === 'inspected'
       && result.targetVerified === true
       && canonicalMembership === 'joined'
-      ? 'unknown'
+      ? inferDiscoveryTopicMatch(nextName || current.name, [])
       : current.topic_match
   );
   const reason = (result.reason || '').slice(0, 100);
