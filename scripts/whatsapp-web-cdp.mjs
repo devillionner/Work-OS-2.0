@@ -1493,14 +1493,30 @@ async function readSnapshot(client) {
     );
     const composer = Boolean(composerNode);
     const composerText = clean(composerNode?.innerText || composerNode?.textContent || '');
-    const messageRows = [...document.querySelectorAll('[data-testid="msg-container"]')].slice(-50).map((node) => {
-      const identified = node.getAttribute('data-id') ? node : node.querySelector('[data-id]');
-      return {
-        key: identified?.getAttribute('data-id') || '',
-        text: clean(node.innerText || node.textContent || ''),
-        hasMedia: Boolean(node.querySelector('img, video, canvas, [data-testid*="image"], [data-testid*="media"]')),
-      };
-    }).filter((row) => row.key && (row.text || row.hasMedia));
+    // Messages are found by their data-id, not by data-testid: the operator's WhatsApp build carries almost no
+    // data-testid attributes at all (the diagnostic found exactly one on the whole page), so the old
+    // '[data-testid="msg-container"]' selector matched nothing and every send came back unconfirmed even
+    // though the message had actually gone out — media_send_not_confirmed on a visibly posted photo
+    // (operator report 2026-10-07). data-id is WhatsApp's own message key and has been stable across builds.
+    const seenKeys = new Set();
+    const messageRows = [...document.querySelectorAll('#main [data-id], [data-testid="msg-container"], div[role="row"]')]
+      .map((node) => (node.getAttribute('data-id') ? node : node.querySelector('[data-id]')))
+      .filter((node) => {
+        const key = node?.getAttribute('data-id') || '';
+        if (!key || seenKeys.has(key)) return false;
+        seenKeys.add(key);
+        return true;
+      })
+      .slice(-50)
+      .map((node) => {
+        const row = node.closest('div[role="row"]') || node;
+        return {
+          key: node.getAttribute('data-id') || '',
+          text: clean(row.innerText || row.textContent || ''),
+          hasMedia: Boolean(row.querySelector('img, video, canvas, [data-testid*="image"], [data-testid*="media"]')),
+        };
+      })
+      .filter((row) => row.key && (row.text || row.hasMedia));
     const hasQr = Boolean(document.querySelector('canvas[aria-label*="QR" i], [data-ref] canvas'));
     return {
       url: location.href,
