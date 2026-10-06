@@ -999,7 +999,7 @@ async function focusAndClearWhatsappMediaCaption(client){
 }
 
 async function waitForWhatsappMediaCaption(client,expectedText,timeoutMs){
-  const expected=normalizeMessageText(expectedText);
+  const expected=looseMessageText(expectedText);
   const deadline=Date.now()+timeoutMs;
   while(Date.now()<deadline){
     const expression=`(() => {
@@ -1007,7 +1007,7 @@ async function waitForWhatsappMediaCaption(client,expectedText,timeoutMs){
       return String(node?.innerText||node?.textContent||'');
     })()`;
     const response=await client.send('Runtime.evaluate',{expression,returnByValue:true});
-    if(normalizeMessageText(response?.result?.value||'')===expected)return true;
+    if(looseMessageText(response?.result?.value||'')===expected)return true;
     await sleep(POLL_MS);
   }
   return false;
@@ -1104,12 +1104,12 @@ export async function sendWhatsappAutopostViaCdp(
       }
       if(Date.now()>=operationDeadline)return {kind:'blocked',reason:'autopost_budget_exhausted'};
       if(!await clickWhatsappMediaSend(client))return {kind:'blocked',reason:'media_send_control_not_found'};
-      const expected=normalizeMessageText(text);
+      const expected=looseMessageText(text);
       const deadline=Date.now()+confirmWindowMs;
       while(Date.now()<deadline){
         const snapshot=await readSnapshot(client);
         const confirmed=(snapshot.messageRows||[]).some((row)=>
-          row.key&&!beforeKeys.has(row.key)&&row.hasMedia===true&&normalizeMessageText(row.text||'').includes(expected)
+          row.key&&!beforeKeys.has(row.key)&&row.hasMedia===true&&looseMessageText(row.text||'').includes(expected)
         );
         if(confirmed)return {kind:'result',result:{status:'sent',observedTarget,targetVerified:true,sendConfirmed:true,mediaConfirmed:true}};
         await sleep(POLL_MS);
@@ -1125,12 +1125,12 @@ export async function sendWhatsappAutopostViaCdp(
     await client.send('Input.dispatchKeyEvent', { type:'keyDown', key:'Enter', code:'Enter', windowsVirtualKeyCode:13, nativeVirtualKeyCode:13 });
     await client.send('Input.dispatchKeyEvent', { type:'keyUp', key:'Enter', code:'Enter', windowsVirtualKeyCode:13, nativeVirtualKeyCode:13 });
 
-    const expected = normalizeMessageText(text);
+    const expected = looseMessageText(text);
     const deadline = Date.now() + confirmWindowMs;
     while (Date.now() < deadline) {
       const snapshot = await readSnapshot(client);
       const confirmed = (snapshot.messageRows || []).some((row) =>
-        row.key && !beforeKeys.has(row.key) && normalizeMessageText(row.text) === expected
+        row.key && !beforeKeys.has(row.key) && looseMessageText(row.text) === expected
       );
       if (confirmed && !normalizeMessageText(snapshot.composerText || '')) {
         return { kind:'result', result:{ status:'sent', observedTarget, targetVerified:true, sendConfirmed:true } };
@@ -1709,11 +1709,11 @@ async function focusAndClearComposer(client) {
 }
 
 async function waitForComposerText(client, expectedText, timeoutMs) {
-  const expected = normalizeMessageText(expectedText);
+  const expected = looseMessageText(expectedText);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const snapshot = await readSnapshot(client);
-    if (snapshot.composer && normalizeMessageText(snapshot.composerText || '') === expected) return true;
+    if (snapshot.composer && looseMessageText(snapshot.composerText || '') === expected) return true;
     await sleep(POLL_MS);
   }
   return false;
@@ -1721,6 +1721,14 @@ async function waitForComposerText(client, expectedText, timeoutMs) {
 
 function normalizeMessageText(value) {
   return String(value || '').replace(/\r\n/gu, '\n').replace(/\u00a0/gu, ' ').trim();
+}
+
+// For comparing what WE typed with what the page shows back. WhatsApp's composer renders each line as its own
+// block, so a long caption with blank lines between sections comes back with a different number of newlines
+// than it went in with — an exact match then fails even though every word is there (composer_content_mismatch
+// on the operator's caption, 2026-10-07). Collapsing whitespace keeps the words and their order as the test.
+function looseMessageText(value) {
+  return normalizeMessageText(value).replace(/\s+/gu, ' ');
 }
 
 async function clickExactHeader(client, expectedName) {
