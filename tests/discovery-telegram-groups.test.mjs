@@ -128,6 +128,28 @@ void test('the plan alternates Telegram searches with joined groups and drops th
   assert.ok(queries.some(query => /Барахолка Валенсія/u.test(query)));
 });
 
+// Operator finding 2026-10-06: the plan spent a third of its time on «Мамочки» (10 groups out of 1 422
+// queries) while the marketplace intent, with the best measured hit rate, was capped at the five largest
+// cities per country. The long tail now carries the measured winners instead.
+void test('the long tail of the plan carries the templates that actually return groups', () => {
+  const manyCities = {
+    keywords: seedData.keywords.concat(['Назва міста чат']),
+    cities: Array.from({ length: 40 }, (unused, index) => ({
+      country: 'Іспанія', uk: `Місто${index}`, name: `City${index}`, population: 900000 - index,
+    })),
+  };
+  const queries = telegramGroupDiscoveryPlan(manyCities, []).filter(step => step.kind === 'search').map(step => step.query);
+  const tail = queries.slice(Math.floor(queries.length / 2));
+  const countIn = (list, pattern) => list.filter(query => pattern.test(query)).length;
+
+  assert.ok(countIn(tail, /^Барахолка /u) > 0, 'the marketplace intent reaches beyond the largest cities');
+  assert.equal(countIn(tail, /^Мамочки /u), 0, 'the weakest measured template no longer fills the tail');
+  // Across the whole plan the marketplace intent must not stay a rounding error next to «Мамочки».
+  assert.ok(countIn(queries, /^Барахолка /u) > countIn(queries, /^Мамочки /u));
+  // «Мамочки» is cheap in the fast lane (five cities per country) and is kept there, not dropped outright.
+  assert.ok(countIn(queries, /^Мамочки /u) > 0);
+});
+
 void test('a scanned group becomes one Telegram source for the Work OS preview', () => {
   assert.equal(telegramGroupSource({ username: 'x', title: 'X', invites: [] }), null);
   const source = telegramGroupSource({ username: 'espanolukraine', title: 'Українці в Іспанії', invites: [

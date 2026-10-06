@@ -180,7 +180,23 @@ void test('a Telegram source step searches public groups from the plan the DO pu
   assert.match(source,/message\.type==='run_source'\)\{\s*enqueueTask\(ws,'discovery_run_source'/);
 });
 
-void test('Telegram refusal stops the run on the same step and already searched groups are skipped for a week',()=>{
+// Operator goal 2026-10-06: автопошук has to find chats every day. A search plan alone cannot do that — it
+// only ever reaches groups a query surfaces — so every run opens the known invite sources first.
+void test('a run starts by revisiting the groups that are known to post invites',()=>{
+  const resolve=source.slice(source.indexOf('function resolveRunSourcePlan'),source.indexOf('const scannedGroupsFile'));
+  assert.match(resolve,/const revisit=resolveRevisitGroups\(runId\)/);
+  assert.match(resolve,/localSourcePlan=\[\.\.\.revisitSteps\(revisit\),\.\.\.telegramGroupDiscoveryPlan\(runPlan\.seedData,runPlan\.telegramGroups\|\|\[\]\)\]/);
+  // The DO re-sends run_plan with the same runId after a runner restart while the run cursor keeps counting
+  // steps, so the revisit list has to be frozen per run instead of recomputed from the clock.
+  assert.match(source,/stored&&stored\.runId===runId&&Array\.isArray\(stored\.groups\)/);
+  assert.match(source,/writeStateFile\(revisitPlanFile,\{runId,groups\}\)/);
+  // A group counts as an invite source only by what the scan actually read; one that could not be opened
+  // (gone, join request only) must not win a daily slot.
+  assert.match(source,/noteGroupScanned\(group\.username,scan\.status==='scanned'\?scan\.invites\.length:0\)/);
+  assert.match(source,/rememberScannedGroups\(readScannedGroups\(\),scans,Date\.now\(\)\)/);
+});
+
+void test('Telegram refusal stops the run on the same step and a scanned group waits out its own cooldown',()=>{
   const step=source.slice(source.indexOf('async function handleRunSourceStep'),source.indexOf('// --- Live channel (commit 3e)'));
   assert.match(step,/if\(crawled\.blockedReason\)\{/);
   assert.match(step,/sendLive\(liveWs,\{type:'pause',process:'discovery_run',runId:job\.runId,reason:crawled\.blockedReason,query:crawled\.query\}\)/);
@@ -189,7 +205,10 @@ void test('Telegram refusal stops the run on the same step and already searched 
   // Groups count as searched only after the DO applied their invites.
   assert.doesNotMatch(step,/markGroupsScanned/);
   assert.match(source,/message\.type==='run_source_applied'\)\{\s*markGroupsScanned\(/);
-  assert.match(source,/const TELEGRAM_GROUP_RESCAN_MS=7\*24\*60\*60\*1000/);
+  // Since 2026-10-06 the cooldown is per group, not a flat week: scripts/telegram-group-memory.mjs decides.
+  assert.match(source,/groupRecentlyScanned\(scanned,group\.username\)/);
+  assert.match(source,/return !isGroupScanDue\(scanned,username,Date\.now\(\)\)/);
+  assert.doesNotMatch(source,/TELEGRAM_GROUP_RESCAN_MS/);
   assert.match(source,/if\(!localRunStillActive\(local\)\)\{outcome\.interrupted=true;return;\}/);
 });
 

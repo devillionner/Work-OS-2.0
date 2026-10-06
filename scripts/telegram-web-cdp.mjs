@@ -351,15 +351,22 @@ export async function searchTelegramPublicGroups(session, query, { limit = 6 } =
   const results = await session.readSearchResults();
   const groups = [];
   const seen = new Set();
+  // Why a query found nothing is not visible from the group count alone: Telegram may have returned no rows
+  // at all, or only channels, or only chats without a public username. 95% of the searches in the operator's
+  // 2026-10-06 log returned zero groups, and these counters are what tells those three cases apart.
+  const rejected = { rows: 0, channels: 0, nameless: 0, other: 0 };
   for (const item of Array.isArray(results) ? results : []) {
-    if (!item.username || classifyTelegramSearchStatus(item.status) !== 'group') continue;
+    rejected.rows += 1;
+    const kind = classifyTelegramSearchStatus(item.status);
+    if (!item.username) { rejected.nameless += 1; continue; }
+    if (kind !== 'group') { rejected[kind === 'channel' ? 'channels' : 'other'] += 1; continue; }
     const key = item.username.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     groups.push({ username: item.username, title: item.title, memberCount: parseTelegramMemberCount(item.status) });
     if (groups.length >= limit) break;
   }
-  return { kind: 'result', groups, expanded: Boolean(typed.expanded) };
+  return { kind: 'result', groups, expanded: Boolean(typed.expanded), rejected };
 }
 
 // Opens one public group WITHOUT joining and collects the WhatsApp invites posted in it.

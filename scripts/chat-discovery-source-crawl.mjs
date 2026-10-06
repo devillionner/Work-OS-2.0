@@ -107,15 +107,30 @@ export function workbookSearchPlan(seed) {
     pickTemplate(/Дитяча барахолка/iu),
     pickTemplate(/Перевізники|Перевезення/iu),
   ].filter(Boolean);
-  const broadTemplates=[
-    pickTemplate(/назва міста чат/iu),
-    pickTemplate(/Українці в місті/iu),
-  ].filter(Boolean);
-  const fallbackTemplates=[
-    pickTemplate(/назва міста чат/iu),
-    pickTemplate(/Українці в місті/iu),
-    pickTemplate(/Батьки|Мамочки/iu),
-  ].filter(Boolean);
+  // The fast lane above is cheap (the five largest cities per country) and deliberately broad. The two tiers
+  // below are not: they span 20 and 120 places per country, so between them they are almost the whole plan,
+  // and which templates they carry decides what the run spends its day on. Ranked by what the operator's
+  // runner log actually measured over 4 612 Telegram searches (2026-10-04..06) — share of queries that
+  // returned at least one public group, with the sample size that backs it:
+  //   «Барахолка X» 16.7% (42 queries) · «X чат» 10.7% (1 434) · «Українці X» 4.8% (1 427, 180 groups)
+  //   «Батьки X» 4.9% (41 — too small to outrank the two above) · never measured · «Мамочки X» 0.5%
+  //   (10 groups out of 1 422 queries) · «Дитяча барахолка X» 0% (42) · «Перевізники X» 0% (54)
+  // Until this ranking the tail carried «Мамочки» over 120 places per country: a third of the entire plan,
+  // roughly 85 minutes of searching, for ten groups. Ranking instead of a fixed list also keeps the deep
+  // tail reachable for a workbook that simply has other keywords.
+  const measuredRank=text=>{
+    if(text.startsWith('Барахолка'))return 0;
+    if(/назва міста чат/iu.test(text))return 1;
+    if(/Українці в місті/iu.test(text))return 2;
+    if(/Батьки/iu.test(text))return 3;
+    if(/Мамочки/iu.test(text))return 5;
+    if(/Дитяча барахолка|Перевізники|Перевезення/iu.test(text))return 6;
+    if(english.has(text))return 7;
+    return 4; // never measured: ahead of what is proven dead, behind what is proven to work
+  };
+  const rankedTemplates=[...cityTemplates].sort((a,b)=>measuredRank(a)-measuredRank(b));
+  const broadTemplates=rankedTemplates.slice(0,3);
+  const fallbackTemplates=rankedTemplates.slice(0,3);
   const tasks=[];
   const seenQueries=new Set();
   const push=task=>{

@@ -18,8 +18,9 @@ import {
   checkWhatsappWaitingInviteViaCdp,
   toWhatsAppWebInviteUrl,
 } from './whatsapp-web-cdp.mjs';
-import { recordDiscoverySourceOutcome, hydrateDiscoverySourceFeedback, telegramGroupDiscoveryPlan, telegramGroupSource } from './chat-discovery-source-crawl.mjs';
+import { JOINED_GROUPS_PER_STEP, recordDiscoverySourceOutcome, hydrateDiscoverySourceFeedback, telegramGroupDiscoveryPlan, telegramGroupSource } from './chat-discovery-source-crawl.mjs';
 import { TELEGRAM_PARALLEL_TABS, openTelegramWebSessions, scanTelegramGroupForInvites, searchTelegramPublicGroups } from './telegram-web-cdp.mjs';
+import { MAX_REVISIT_GROUPS, isGroupScanDue, parseScanMemory, productiveGroupsDue, rememberScannedGroups } from './telegram-group-memory.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
@@ -50,8 +51,6 @@ const WS_PONG=JSON.stringify({type:'pong'});
 const TASK_BLOCK_COOLDOWN_MS=300000;
 let localSourcePlan=null;
 let localSourcePlanRunId='';
-// Telegram groups already searched for WhatsApp invites; a repeated run skips them for a week.
-const TELEGRAM_GROUP_RESCAN_MS=7*24*60*60*1000;
 // Maximum coverage (operator decision 2026-10-05): scan every group the search step captured instead
 // of only the first few — slower per step, but a query is only ever searched once per plan, so groups
 // left unscanned here are lost for good (confirmed live: a Kharkiv "барахолка" search found 5 groups,
@@ -465,29 +464,62 @@ async function processLocalPreflight(task){
 function resolveRunSourcePlan(runId){
   if(localSourcePlan&&localSourcePlanRunId===runId)return localSourcePlan;
   if(!runPlan||runPlan.runId!==runId)throw new Error('source_plan_unavailable');
-  localSourcePlan=telegramGroupDiscoveryPlan(runPlan.seedData,runPlan.telegramGroups||[]);
+  const revisit=resolveRevisitGroups(runId);
+  localSourcePlan=[...revisitSteps(revisit),...telegramGroupDiscoveryPlan(runPlan.seedData,runPlan.telegramGroups||[])];
   localSourcePlanRunId=runId;
-  console.log(`Discovery source plan received from Work OS: ${localSourcePlan.length} Telegram steps, ${(runPlan.telegramGroups||[]).length} joined Telegram chats.`);
+  console.log(`Discovery source plan received from Work OS: ${localSourcePlan.length} Telegram steps, ${(runPlan.telegramGroups||[]).length} joined Telegram chats, ${revisit.length} groups revisited for new invites.`);
   return localSourcePlan;
 }
 
 const scannedGroupsFile=join(dirname(statusFile),'telegram-scanned-groups.json');
+function writeStateFile(path,value){
+  try{
+    mkdirSync(dirname(path),{recursive:true});
+    writeFileSync(`${path}.tmp`,JSON.stringify(value));
+    renameSync(`${path}.tmp`,path);
+  }catch{}
+}
 function readScannedGroups(){
-  try{return JSON.parse(readFileSync(scannedGroupsFile,'utf8'))||{};}catch{return {};}
+  try{return parseScanMemory(JSON.parse(readFileSync(scannedGroupsFile,'utf8')));}catch{return {};}
+}
+// How many invites the group scanned in the step currently in flight held. The DO echoes only the group
+// names back in run_source_applied, so the counts wait here until that acknowledgement arrives — a step the
+// DO never applied must stay unmarked and be scanned again.
+const scannedInviteCounts=new Map();
+function noteGroupScanned(username,invites){
+  scannedInviteCounts.set(String(username).toLowerCase(),Number(invites)||0);
 }
 function markGroupsScanned(usernames){
   if(!usernames.length)return;
-  const now=Date.now();
-  const entries=Object.entries(readScannedGroups()).filter(([,at])=>now-Number(at)<TELEGRAM_GROUP_RESCAN_MS);
-  for(const username of usernames)entries.push([username.toLowerCase(),now]);
-  try{
-    mkdirSync(dirname(scannedGroupsFile),{recursive:true});
-    writeFileSync(`${scannedGroupsFile}.tmp`,JSON.stringify(Object.fromEntries(entries.slice(-20000))));
-    renameSync(`${scannedGroupsFile}.tmp`,scannedGroupsFile);
-  }catch{}
+  const scans=usernames.map(username=>({username,invites:scannedInviteCounts.get(String(username).toLowerCase())||0}));
+  for(const scan of scans)scannedInviteCounts.delete(String(scan.username).toLowerCase());
+  writeStateFile(scannedGroupsFile,rememberScannedGroups(readScannedGroups(),scans,Date.now()));
 }
 function groupRecentlyScanned(scanned,username){
-  return Date.now()-Number(scanned[String(username).toLowerCase()]||0)<TELEGRAM_GROUP_RESCAN_MS;
+  return !isGroupScanDue(scanned,username,Date.now());
+}
+
+// A run starts by reopening the groups that are known to post WhatsApp invites and whose day has passed —
+// the only steps that can yield something new without the search plan finding a group it has never seen.
+// The list is frozen per run: the DO re-sends run_plan with the same runId after a runner restart
+// (workers/owner-channel.js), and the run cursor counts steps, so a plan whose length moved with the clock
+// would silently shift every step after that restart.
+const revisitPlanFile=join(dirname(statusFile),'telegram-revisit-plan.json');
+function resolveRevisitGroups(runId){
+  try{
+    const stored=JSON.parse(readFileSync(revisitPlanFile,'utf8'));
+    if(stored&&stored.runId===runId&&Array.isArray(stored.groups))return stored.groups;
+  }catch{}
+  const groups=productiveGroupsDue(readScannedGroups(),Date.now(),MAX_REVISIT_GROUPS).map(username=>({username,title:''}));
+  writeStateFile(revisitPlanFile,{runId,groups});
+  return groups;
+}
+function revisitSteps(groups){
+  const steps=[];
+  for(let index=0;index<groups.length;index+=JOINED_GROUPS_PER_STEP){
+    steps.push({kind:'joined',groups:groups.slice(index,index+JOINED_GROUPS_PER_STEP)});
+  }
+  return steps;
 }
 
 // One plan step across the operator's Telegram Web tabs: public groups only, never joins, never writes D1.
@@ -520,7 +552,10 @@ async function crawlTelegramGroupStep(step,local,onGroupSource=null,onProgress=n
       // The group search itself stays in one tab; only the per-group scans below fan out across the pool.
       const found=await searchTelegramPublicGroups(sessions[0],step.query,{limit:25});
       if(found.kind!=='result'){outcome.blockedReason=found.reason;return outcome;}
-      console.log(`Telegram search «${step.query}»: ${found.groups.length} found in quick panel, Show More ${found.expanded?'clicked':'NOT clicked'}`);
+      const rejected=found.rejected||{rows:0,channels:0,nameless:0,other:0};
+      console.log(`Telegram search «${step.query}»: ${found.groups.length} groups of ${rejected.rows} rows`
+        +` (${rejected.channels} channels, ${rejected.nameless} without username, ${rejected.other} other)`
+        +`, Show More ${found.expanded?'clicked':'NOT clicked'}`);
       groups=found.groups.filter(group=>!groupRecentlyScanned(scanned,group.username)).slice(0,SEARCH_GROUPS_PER_STEP);
     }else{
       groups=(step.groups||[]).filter(group=>!groupRecentlyScanned(scanned,group.username));
@@ -544,6 +579,9 @@ async function crawlTelegramGroupStep(step,local,onGroupSource=null,onProgress=n
           return;
         }
         outcome.scannedGroups.push(group.username);
+        // A group that could not be read at all (gone, join request only) counts as holding no invites, so
+        // it falls back to the long cooldown instead of a daily revisit.
+        noteGroupScanned(group.username,scan.status==='scanned'?scan.invites.length:0);
         if(scan.status!=='scanned'){
           console.log(`Telegram [${session.label}] group @${group.username}: ${scan.status}`);
           if(onProgress)onProgress(outcome.scannedGroups.length,groups.length,invitesFound);
