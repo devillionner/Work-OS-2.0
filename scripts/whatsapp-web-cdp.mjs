@@ -1079,6 +1079,13 @@ export async function sendWhatsappAutopostViaCdp(
     const media=task.material?.media;
     if(media?.base64){
       if(!/^image\/(jpeg|png|webp)$/u.test(String(media.contentType||'')))return {kind:'blocked',reason:'unsupported_media_type'};
+      // The caption goes into the CHAT COMPOSER first, before the photo is attached: WhatsApp carries whatever
+      // the composer holds into the media preview as the caption. The preview's own caption field does not
+      // exist at all on the operator's build — the diagnostic found only the sidebar search and the composer
+      // while the editor was open, and clicking the strip under the photo mounted nothing (2026-10-07).
+      if(!await focusAndClearComposer(client))return {kind:'blocked',reason:'composer_not_found'};
+      await client.send('Input.insertText',{text});
+      if(!await waitForComposerText(client,text,Math.min(remainingBudget(),5_000)))return {kind:'blocked',reason:'composer_content_mismatch'};
       await markWhatsappEditorsBeforeMedia(client);
       if(!await injectWhatsappImage(client,media))return {kind:'blocked',reason:'media_attach_failed'};
       if(!await waitForWhatsappMediaPreview(client,Math.min(remainingBudget(),AUTOPOST_MEDIA_PREVIEW_MS))){
@@ -1086,14 +1093,15 @@ export async function sendWhatsappAutopostViaCdp(
         if(diagnostic)console.warn('WhatsApp autopost media preview diagnostic: '+diagnostic);
         return {kind:'blocked',reason:'media_preview_not_ready'};
       }
-      if(!await openWhatsappMediaCaption(client,Math.min(remainingBudget(),8_000))
-        ||!await focusAndClearWhatsappMediaCaption(client)){
-        const diagnostic=await readWhatsappMediaPreviewDiagnostic(client);
-        if(diagnostic)console.warn('WhatsApp autopost caption diagnostic: '+diagnostic);
-        return {kind:'blocked',reason:'media_caption_not_found'};
+      // If this build DOES show a caption field, it is already prefilled from the composer — only type into it
+      // when it is there and empty. A build without one (see above) simply sends what the composer carried.
+      if(await openWhatsappMediaCaption(client,Math.min(remainingBudget(),2_500))){
+        if(!await waitForWhatsappMediaCaption(client,text,Math.min(remainingBudget(),3_000))){
+          if(!await focusAndClearWhatsappMediaCaption(client))return {kind:'blocked',reason:'media_caption_not_found'};
+          await client.send('Input.insertText',{text});
+          if(!await waitForWhatsappMediaCaption(client,text,Math.min(remainingBudget(),5_000)))return {kind:'blocked',reason:'media_caption_mismatch'};
+        }
       }
-      await client.send('Input.insertText',{text});
-      if(!await waitForWhatsappMediaCaption(client,text,Math.min(remainingBudget(),5_000)))return {kind:'blocked',reason:'media_caption_mismatch'};
       if(Date.now()>=operationDeadline)return {kind:'blocked',reason:'autopost_budget_exhausted'};
       if(!await clickWhatsappMediaSend(client))return {kind:'blocked',reason:'media_send_control_not_found'};
       const expected=normalizeMessageText(text);
