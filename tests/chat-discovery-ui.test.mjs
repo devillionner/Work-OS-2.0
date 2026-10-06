@@ -329,11 +329,11 @@ void test('resuming a paused discovery run keeps cursor candidates and durable d
     readFile(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8'),
   ]);
   const start=dialog.slice(dialog.indexOf('async function startAutonomousSearch'),dialog.indexOf('async function stopAutonomousSearch'));
-  assert.match(start,/if\(willResume\)\{\s*const resumed=await postRun\(\{action:'resume'\}\);/);
+  assert.match(start,/if\(willResume\)\{\s*const replaying=localPreview\.completionReason===.sources_exhausted.;\s*const resumed=await postRun\(\{action:'resume'\}\);/);
   assert.match(start,/Уже перевірені запрошення й переглянуті Telegram-групи не повторюються/);
   // willResume requires an unchanged goal: editing the field while paused starts fresh instead of
   // silently resuming the old run with its old goal (operator-reported bug, 2026-10-04).
-  assert.match(dialog,/const willResume=canResume\(localPreview\)&&goal===localPreview\.goal;/);
+  assert.match(dialog,/const willResume=canResume\(localPreview,Date\.now\(\)\)&&goal===localPreview\.goal;/);
   // A new run keeps unconfirmed results, so nothing already checked is checked again.
   assert.match(runState,/candidates: previous\.candidates\.filter\(\(candidate\) => FINISHED_STATES\.has\(String\(candidate\.preflightState\)\)\)/);
   const resume=runState.slice(runState.indexOf('export function resumeRun'),runState.indexOf('export function canResume'));
@@ -354,7 +354,17 @@ void test('changing the goal field on a paused run starts fresh instead of resum
   assert.match(start,/await postRun\(\{action:'start',goal\}\);\s*setFilter\('active'\);\s*setGoalOverride\(null\);/);
   // The button label itself must follow willResume, not the raw paused state, or it would still promise
   // «Продовжити» for a click that is actually about to start a brand-new run.
-  assert.match(dialog,/willResume&&localPreview\.pauseSummary&&!localPreview\.done\?'Продовжити автопошук':willResume&&localPreview\.completionReason==='source_error'\?'Продовжити пошук':'Запустити автопошук'/);
+  assert.match(dialog,/willResume&&localPreview\.pauseSummary&&!localPreview\.done\?'Продовжити автопошук':willResume&&localPreview\.completionReason==='source_error'\?'Продовжити пошук':willResume&&localPreview\.completionReason==='sources_exhausted'\?'Шукати ще раз':'Запустити автопошук'/);
+});
+
+void test('an exhausted search plan becomes replayable a week later, with its own notice and button label (operator decision 2026-10-06)',async()=>{
+  const dialog=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
+  assert.match(dialog,/willResume&&localPreview\.completionReason==='sources_exhausted'\?'Шукати ще раз'/);
+  assert.match(dialog,/Минув тиждень — можна шукати знову/);
+  assert.match(dialog,/Повторний пошук за тим самим планом стане доступний через тиждень після завершення/);
+  const start=dialog.slice(dialog.indexOf('async function startAutonomousSearch'),dialog.indexOf('async function stopAutonomousSearch'));
+  assert.match(start,/const replaying=localPreview\.completionReason==='sources_exhausted';/);
+  assert.match(start,/Пошук за тим самим планом запущено знову/);
 });
 
 void test('pause transition stays visually coherent while archive persistence runs',async()=>{

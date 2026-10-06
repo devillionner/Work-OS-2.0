@@ -44,7 +44,10 @@ export async function previewTelegramDiscoveryText(
   const seedLabel=boundedText(input.seedLabel,180)||sourceTitle||query||'Telegram';
   const context=boundedText(input.context,700);
   const normalized=text.replaceAll('\\/','/');
-  const containsInvite=/(?:https?:\/\/)?chat\.whatsapp\.com\//iu.test(normalized);
+  // Must match extractInviteRecords' own gate exactly (public-web.ts) — a stricter local copy
+  // requiring a trailing "/" silently dropped messages with a bare "chat.whatsapp.com" (e.g. a
+  // link cut off right at the domain) that extractInviteRecords would otherwise have found.
+  const containsInvite=/chat\.whatsapp\.com/iu.test(normalized);
   if(containsInvite&&(!sourceTitle||!isTelegramUrl(sourceUrl))){
     throw new DiscoveryError('Для Telegram-скану з WhatsApp invite потрібні назва чату та коректне посилання на Telegram-джерело.');
   }

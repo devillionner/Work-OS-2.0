@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  EMPTY_RUN, applyResult, applySourceBatch, canResume, markActive, markConfirmed, moveToNonTarget, needsSourceStep,
-  nextCandidateTask, nextSkipExpiry, pauseOnSourceBlock, pauseRun, queuedCount, releaseCandidate, removeCandidates,
-  resumeRun, retryCandidate, runTargetCount, startRun, updateSourceFeedback,
+  EMPTY_RUN, TELEGRAM_PLAN_RESCAN_MS, applyResult, applySourceBatch, canResume, markActive, markConfirmed, moveToNonTarget,
+  needsSourceStep, nextCandidateTask, nextSkipExpiry, pauseOnSourceBlock, pauseRun, queuedCount, releaseCandidate,
+  removeCandidates, resumeRun, retryCandidate, runTargetCount, startRun, updateSourceFeedback,
 } from '../lib/chat-discovery/run-state.ts';
 
 // The autonomous Discovery run's rules, moved out of the Work OS tab (sessionStorage + CDP-injected JS)
@@ -150,6 +150,28 @@ void test('an exhausted plan with nothing queued finishes the run; Telegram bloc
   assert.equal(canResume(paused), true);
   assert.equal(needsSourceStep(paused, NOW), false);
   assert.equal(needsSourceStep(resumeRun(paused, NOW), NOW), true);
+});
+
+void test('an exhausted plan becomes replayable a week later, and resuming it rewinds the cursor (operator decision 2026-10-06)', () => {
+  const state = running([candidate('a', { preflightState: 'target', checkedRunId: 'run-1' })], { goal: 50 });
+  const exhausted = applySourceBatch(state, { nextCursor: 2427, searched: 1, done: true, totalTasks: 2427 }, [], NOW).state;
+  assert.equal(exhausted.completionReason, 'sources_exhausted');
+  assert.equal(canResume(exhausted, NOW), false, 'not replayable the moment it finishes');
+  assert.equal(canResume(exhausted, NOW + TELEGRAM_PLAN_RESCAN_MS - 1), false, 'not replayable a moment before a week passes');
+  assert.equal(canResume(exhausted, NOW + TELEGRAM_PLAN_RESCAN_MS), true, 'replayable once a full week has passed');
+
+  const replayed = resumeRun(exhausted, NOW + TELEGRAM_PLAN_RESCAN_MS);
+  assert.equal(replayed.running, true);
+  assert.equal(replayed.done, false);
+  assert.equal(replayed.completionReason, null);
+  assert.equal(replayed.telegramCursor, 0, 'the same deterministic plan starts over from its first step');
+  assert.equal(replayed.sourceExhausted, false);
+  assert.equal(replayed.candidates.some((item) => item.id === 'a'), true, 'the already-confirmed target is not lost on replay');
+  assert.equal(needsSourceStep(replayed, NOW + TELEGRAM_PLAN_RESCAN_MS), true);
+
+  // An ordinary pause/Telegram-stop resume (not an exhausted plan) must keep resuming from the same step.
+  const blocked = pauseOnSourceBlock(running([candidate('q')], { telegramCursor: 15 }), { reason: 'telegram_flood_wait', query: 'q' }, NOW);
+  assert.equal(resumeRun(blocked, NOW).telegramCursor, 15, 'a resume unrelated to plan exhaustion never rewinds the cursor');
 });
 
 void test('operator actions: confirm counts toward the goal, archive removes, reject moves, retry re-queues without a second join', () => {

@@ -85,6 +85,11 @@ export const NON_TARGET_STATES = new Set(['rejected', 'skipped', 'unavailable'])
 /** Stop refilling from Telegram once this many candidates wait for a WhatsApp check. */
 export const SOURCE_TARGET_QUEUE = 12;
 const MAX_SOURCE_FAILURES = 2;
+/** An exhausted search plan can be replayed from the start after this long (operator decision 2026-10-06):
+ * Telegram's own search results change over time, and the per-group scan cache (runner,
+ * TELEGRAM_GROUP_RESCAN_MS) plus the D1 invite dedupe already skip anything still fresh, so a replay only
+ * ever surfaces genuinely new groups or invites — never the same ones again. */
+export const TELEGRAM_PLAN_RESCAN_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const EMPTY_RUN: DiscoveryRunState = {
   sourceTotal: 0, sourceErrors: 0, sourceFailures: 0, sourceIssues: [], telegramCursor: 0,
@@ -112,16 +117,26 @@ export function startRun(previous: DiscoveryRunState, input: { runId: string; go
   };
 }
 
-/** «Продовжити»: after a pause or a Telegram stop, resume from the same step and queue. */
+/** «Продовжити»: after a pause or a Telegram stop, resume from the same step and queue. A replay of an
+ * exhausted plan (see canResume) additionally rewinds the cursor so the same deterministic plan runs
+ * again from its first step. */
 export function resumeRun(state: DiscoveryRunState, now: number): DiscoveryRunState {
+  const replay = state.done && state.completionReason === 'sources_exhausted';
   return {
     ...state, ...clearedActive, running: true, done: false, sourceFailures: 0, sourceIssues: [],
     completionReason: null, pauseSummary: null, lastActivityAt: now,
+    ...(replay ? { telegramCursor: 0, sourceExhausted: false } : {}),
   };
 }
 
-export function canResume(state: DiscoveryRunState) {
-  return Boolean(state.runId) && !state.running && !state.done && (state.completionReason === 'source_error' || Boolean(state.pauseSummary));
+export function canResume(state: DiscoveryRunState, now: number) {
+  if (!state.runId) return false;
+  if (!state.running && !state.done && (state.completionReason === 'source_error' || Boolean(state.pauseSummary))) return true;
+  // A fully searched plan is replayable once it has sat exhausted for a week — see TELEGRAM_PLAN_RESCAN_MS.
+  if (state.done && state.completionReason === 'sources_exhausted' && state.lastActivityAt !== null) {
+    return now - state.lastActivityAt >= TELEGRAM_PLAN_RESCAN_MS;
+  }
+  return false;
 }
 
 export function pauseRun(state: DiscoveryRunState, now: number): DiscoveryRunState {

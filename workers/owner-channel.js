@@ -756,7 +756,7 @@ export class OwnerChannel {
       catch { await saveTelegramGroups(this.ctx.storage, []); }
       next = startRun(run, { runId: crypto.randomUUID(), goal: body.goal, now });
     } else if (action === 'resume') {
-      if (!canResume(run)) return Response.json({ error: 'Немає зупиненого автопошуку, який можна продовжити.' }, { status: 409 });
+      if (!canResume(run, now)) return Response.json({ error: 'Немає зупиненого автопошуку, який можна продовжити.' }, { status: 409 });
       next = resumeRun(run, now);
     } else if (action === 'pause') {
       if (!run.running) return Response.json({ run, runnerConnected: this.openRunnerCount() > 0, discoverySourceActivity: state.discoverySourceActivity ?? null, discoveryRunCandidatesBlockedUntil: state.discoveryRunCandidatesBlockedUntil ?? 0 });

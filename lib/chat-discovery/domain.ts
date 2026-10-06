@@ -1,6 +1,6 @@
 import { businessDate } from '../business-time.ts';
 import { cleanChatName, normalizeGroupLink, suggestedChatName, type ChatPlatform } from '../chats/bulk-input.ts';
-import { buildPublicSearchTasks, buildTelegramSearchPlan, type DiscoveryPlatform, type DiscoverySource, type TelegramSearchPlan } from './public-web.ts';
+import { buildPublicSearchTasks, buildTelegramSearchPlan, type DiscoveryPlatform, type DiscoverySource } from './public-web.ts';
 
 export type DiscoveryDecision = 'review' | 'target' | 'rejected' | 'unavailable';
 export type DiscoveryRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
@@ -115,37 +115,28 @@ export async function reconcileDiscoveryRunGoal(
   return mapRun(fresh);
 }
 
+// Only the candidate list is ever read by a caller (the dialog's «Історія» tab and tests) — the run/
+// telegramPlan/counts/importedCount/waitingWhatsAppCount fields this used to also compute here dated
+// back to the pre-2026-10-04 D1-resident run model and were never rendered after the run moved to the
+// owner Durable Object; they cost 4 extra D1 round-trips on every «Історія» open for nothing.
 export async function readDiscoveryWorkspace(
   db: D1Database,
   userId: string,
   input: { decision?: string | null; waitingWhatsApp?: boolean; limit?: number } = {},
-): Promise<{ run: DiscoveryRun | null; telegramPlan: TelegramSearchPlan | null; counts: Record<DiscoveryDecision, number>; importedCount: number; waitingWhatsAppCount: number; candidates: DiscoveryCandidate[] }> {
+): Promise<{ candidates: DiscoveryCandidate[] }> {
   const decision = ['review', 'target', 'rejected', 'unavailable'].includes(input.decision || '') ? input.decision! : null;
   const limit = Math.max(1, Math.min(100, Number(input.limit) || 60));
-  const [run, countsResult, importedResult, waitingWhatsAppResult, candidateResult] = await Promise.all([
-    latestRun(db, userId),
-    db.prepare(`SELECT decision,COUNT(*) AS count FROM chat_discovery_candidates WHERE user_id=?1 GROUP BY decision`).bind(userId).all<{ decision: DiscoveryDecision; count: number }>(),
-    db.prepare(`SELECT COUNT(*) AS count FROM chat_discovery_candidates WHERE user_id=?1 AND imported_chat_id IS NOT NULL`).bind(userId).first<{ count: number }>(),
-    db.prepare(`SELECT COUNT(*) AS count FROM chat_discovery_candidates WHERE user_id=?1 AND platform='whatsapp' AND membership_state='pending' AND imported_chat_id IS NOT NULL`).bind(userId).first<{ count: number }>(),
-    input.waitingWhatsApp
-      ? db.prepare(`SELECT * FROM chat_discovery_candidates WHERE user_id=?1 AND platform='whatsapp' AND membership_state='pending' AND imported_chat_id IS NOT NULL ORDER BY updated_at ASC,id LIMIT ?2`).bind(userId, limit).all<CandidateRow>()
-      : decision
-      ? db.prepare(`SELECT * FROM chat_discovery_candidates WHERE user_id=?1 AND decision=?2 ORDER BY updated_at DESC,id LIMIT ?3`).bind(userId, decision, limit).all<CandidateRow>()
-      : db.prepare(`SELECT * FROM chat_discovery_candidates WHERE user_id=?1 ORDER BY
-          CASE decision WHEN 'target' THEN 0 WHEN 'review' THEN 1 WHEN 'rejected' THEN 2 ELSE 3 END,
-          updated_at DESC,id LIMIT ?2`).bind(userId, limit).all<CandidateRow>(),
-  ]);
+  const candidateResult = await (input.waitingWhatsApp
+    ? db.prepare(`SELECT * FROM chat_discovery_candidates WHERE user_id=?1 AND platform='whatsapp' AND membership_state='pending' AND imported_chat_id IS NOT NULL ORDER BY updated_at ASC,id LIMIT ?2`).bind(userId, limit).all<CandidateRow>()
+    : decision
+    ? db.prepare(`SELECT * FROM chat_discovery_candidates WHERE user_id=?1 AND decision=?2 ORDER BY updated_at DESC,id LIMIT ?3`).bind(userId, decision, limit).all<CandidateRow>()
+    : db.prepare(`SELECT * FROM chat_discovery_candidates WHERE user_id=?1 ORDER BY
+        CASE decision WHEN 'target' THEN 0 WHEN 'review' THEN 1 WHEN 'rejected' THEN 2 ELSE 3 END,
+        updated_at DESC,id LIMIT ?2`).bind(userId, limit).all<CandidateRow>());
 
   const candidates = candidateResult.results;
   const sources = await readSources(db, userId, candidates.map((candidate) => candidate.id));
-  const counts: Record<DiscoveryDecision, number> = { review: 0, target: 0, rejected: 0, unavailable: 0 };
-  for (const item of countsResult.results) counts[item.decision] = Number(item.count) || 0;
   return {
-    run: run ? mapRun(run) : null,
-    telegramPlan: run ? buildTelegramSearchPlan(run.telegram_cursor, 6) : null,
-    counts,
-    importedCount: Number(importedResult?.count || 0),
-    waitingWhatsAppCount: Number(waitingWhatsAppResult?.count || 0),
     candidates: candidates.map((candidate) => mapCandidate(candidate, sources.get(candidate.id) || [])),
   };
 }
@@ -335,11 +326,6 @@ async function readSources(db: D1Database, userId: string, candidateIds: string[
     map.set(row.candidate_id, list);
   }
   return map;
-}
-
-async function latestRun(db: D1Database, userId: string) {
-  return db.prepare(`SELECT * FROM chat_discovery_runs WHERE user_id=?1
-    ORDER BY updated_at DESC,id DESC LIMIT 1`).bind(userId).first<RunRow>();
 }
 
 async function readRun(db: D1Database, userId: string, runId: string) {

@@ -7,19 +7,14 @@ import { ChatDiscoveryExecutorPanel } from '@/components/chat-discovery-executor
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import type { DiscoveryCandidate, DiscoveryDecision, DiscoveryRun } from '@/lib/chat-discovery/domain';
-import type { DiscoveryPlatform, TelegramSearchPlan } from '@/lib/chat-discovery/public-web';
+import type { DiscoveryCandidate, DiscoveryDecision } from '@/lib/chat-discovery/domain';
+import type { DiscoveryPlatform } from '@/lib/chat-discovery/public-web';
 import type { LocalDiscoveryPreview } from '@/lib/chat-discovery/local-preview';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 import { EMPTY_RUN, NON_TARGET_STATES, SOURCE_TARGET_QUEUE, canResume, queuedCount, runTargetCount, type DiscoveryRunState } from '@/lib/chat-discovery/run-state';
 import { subscribeLiveMessages, subscribeLiveStatus } from '@/lib/live-channel';
 
 type Workspace = {
-  run: DiscoveryRun | null;
-  telegramPlan: TelegramSearchPlan | null;
-  counts: Record<DiscoveryDecision, number>;
-  importedCount: number;
-  waitingWhatsAppCount: number;
   candidates: DiscoveryCandidate[];
   error?: string;
 };
@@ -48,12 +43,6 @@ type ManualInspectionDraft = {
 // Three working lists of the local session plus the persisted Work OS history (loaded only on demand).
 type DecisionFilter = 'active' | 'target' | 'rejected' | 'history';
 
-const EMPTY_COUNTS: Record<DiscoveryDecision, number> = {
-  review: 0,
-  target: 0,
-  rejected: 0,
-  unavailable: 0,
-};
 const ARCHIVE_CHUNK=100;
 // Fallback refresh of the run while the live channel is down and the dialog is open.
 const RUN_FALLBACK_POLL_MS=15_000;
@@ -67,7 +56,7 @@ export function ChatDiscoveryDialog({
   onClose: () => void;
   onImported: (platform: DiscoveryPlatform) => void;
 }) {
-  const [workspace, setWorkspace] = useState<Workspace>({ run: null, telegramPlan: null, counts: EMPTY_COUNTS, importedCount: 0, waitingWhatsAppCount: 0, candidates: [] });
+  const [workspace, setWorkspace] = useState<Workspace>({ candidates: [] });
   const [workspaceLoadedAt, setWorkspaceLoadedAt] = useState(0);
   const platforms: DiscoveryPlatform[] = ['whatsapp'];
   // null = no operator override yet: the field follows the current/paused run's own goal. Set only by the
@@ -221,7 +210,7 @@ export function ChatDiscoveryDialog({
 
   // A changed goal means the operator wants a fresh run, not a continuation of the paused one — even
   // though the button still reads «Продовжити» until they touch the field (see the sync effect above).
-  const willResume=canResume(localPreview)&&goal===localPreview.goal;
+  const willResume=canResume(localPreview,Date.now())&&goal===localPreview.goal;
 
   async function startAutonomousSearch() {
     if(telegramBusy)return;
@@ -230,9 +219,12 @@ export function ChatDiscoveryDialog({
     setTelegramBusy(true);
     try{
       if(willResume){
+        const replaying=localPreview.completionReason==='sources_exhausted';
         const resumed=await postRun({action:'resume'});
         setFilter('active');
-        setNotice(resumed.completionReason===null&&localPreview.completionReason==='source_error'
+        setNotice(replaying
+          ?'Пошук за тим самим планом запущено знову. Чати, перевірені менше тижня тому, пропускаються — у списку з’являться лише нові запрошення.'
+          :resumed.completionReason===null&&localPreview.completionReason==='source_error'
           ?'Продовжуємо з кроку, на якому зупинились.'
           :`Продовжуємо з кроку ${resumed.telegramCursor}. Уже перевірені запрошення й переглянуті Telegram-групи не повторюються.`);
         return;
@@ -477,7 +469,7 @@ export function ChatDiscoveryDialog({
         : localPreview.completionReason==='source_error'?'Пошук зупинено: Telegram недоступний або обмежив пошук':'Автопошук зупинений';
   const visibleLocal=localCandidatesForFilter(localPreview.candidates,filter);
   const displayCandidates:DiscoveryCandidate[]=filter==='history'?workspace.candidates:visibleLocal;
-  const emptyCopy=emptyCandidateCopy(filter,autonomousRunning,localQueued,localChecked);
+  const emptyCopy=emptyCandidateCopy(filter,autonomousRunning,localQueued,localChecked,localTargets.length);
 
 
 
@@ -515,7 +507,7 @@ export function ChatDiscoveryDialog({
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground sm:justify-end">
             <span>В роботі <strong className="text-foreground">{localQueued+localManualReview}</strong></span>
-            <span>Готові підтвердити <strong className="text-foreground">{localTargets.length}</strong></span>
+            <span>Готові підтвердити <strong className={localTargets.length>0?'text-emerald-700 dark:text-emerald-400':'text-foreground'}>{localTargets.length}</strong></span>
             <span>Нецільові <strong className="text-foreground">{localNonTargets.length}</strong></span>
           </div>
         </div>
@@ -567,11 +559,14 @@ export function ChatDiscoveryDialog({
                       {pausing?<LoaderCircle data-icon="inline-start"/>:<Square data-icon="inline-start"/>}{pausing?'Зберігаємо паузу…':'Зупинити автопошук'}
                     </Button>
                   : <Button className="min-h-11 w-full justify-center sm:min-h-9" type="button" disabled={telegramBusy} onClick={() => void startAutonomousSearch()}>
-                      {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<Search data-icon="inline-start"/>}{telegramBusy?'Запускаємо…':willResume&&localPreview.pauseSummary&&!localPreview.done?'Продовжити автопошук':willResume&&localPreview.completionReason==='source_error'?'Продовжити пошук':'Запустити автопошук'}
+                      {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<Search data-icon="inline-start"/>}{telegramBusy?'Запускаємо…':willResume&&localPreview.pauseSummary&&!localPreview.done?'Продовжити автопошук':willResume&&localPreview.completionReason==='source_error'?'Продовжити пошук':willResume&&localPreview.completionReason==='sources_exhausted'?'Шукати ще раз':'Запустити автопошук'}
                     </Button>}
               </div>
 
-              {localPreview.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">План пошуку завершено: знайдено {displayedTargetCount} із {localPreview.goal} цільових.</div>}
+              {localPreview.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">
+                План пошуку завершено: знайдено {displayedTargetCount} із {localPreview.goal} цільових.{' '}
+                {willResume?'Минув тиждень — можна шукати знову: у тих самих Telegram-групах могли зʼявитися нові запрошення.':'Повторний пошук за тим самим планом стане доступний через тиждень після завершення.'}
+              </div>}
               {localPreview.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: знайдено {displayedTargetCount} із {localPreview.goal}. Підтверди потрібні у списку «Цільові».</div>}
               {!autonomousRunning&&pauseSummary&&<div className="mt-3 rounded-xl bg-muted/25 px-3 py-2.5 text-xs leading-5 text-foreground/70">Пошук на паузі. Прогрес збережено — «Продовжити» почне з того ж кроку.</div>}
               {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- TODO: потребує зміни розмітки (docs/TODO.md) */}
@@ -641,7 +636,7 @@ export function ChatDiscoveryDialog({
                   aria-selected={filter === key}
                   disabled={loading}
                   onClick={() => changeFilter(key)}
-                  className={`min-h-11 shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors sm:min-h-8 ${filter === key ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border/70 bg-background text-foreground/70 hover:bg-muted/40 hover:text-foreground'}`}
+                  className={`min-h-11 shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors sm:min-h-8 ${filter === key ? 'border-primary/40 bg-primary/10 text-primary' : key==='target'&&count!==null&&count>0 ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/15' : 'border-border/70 bg-background text-foreground/70 hover:bg-muted/40 hover:text-foreground'}`}
                 >
                   {label}{count!==null&&<span className="ml-1 tabular-nums">{count}</span>}
                 </button>)}
@@ -836,10 +831,12 @@ function isPendingApprovalCandidate(candidate:DiscoveryCandidate){
     &&candidate.reasonCodes.includes('approval_required');
 }
 
-function emptyCandidateCopy(filter:DecisionFilter,running:boolean,queued:number,checked:number){
-  if(filter==='active')return running
-    ?{title:'Шукаємо в Telegram-групах',detail:`У черзі ${queued}, уже перевірено ${checked}. Знайдені WhatsApp-запрошення з’являться тут.`}
-    :{title:'Нічого не в роботі',detail:'Запусти або продовж автопошук.'};
+function emptyCandidateCopy(filter:DecisionFilter,running:boolean,queued:number,checked:number,targetCount:number){
+  if(filter==='active'){
+    if(running)return {title:'Шукаємо в Telegram-групах',detail:`У черзі ${queued}, уже перевірено ${checked}. Знайдені WhatsApp-запрошення з’являться тут.`};
+    if(targetCount>0)return {title:'У черзі зараз нічого немає',detail:`Але ${targetCount===1?'є 1 чат, готовий':`є ${targetCount} готових`} до підтвердження — перейди на вкладку «Готові підтвердити».`};
+    return {title:'Нічого не в роботі',detail:'Запусти або продовж автопошук.'};
+  }
   if(filter==='target')return {title:'Цільових чатів поки немає',detail:'Тут з’являться чати, де всі критерії підтверджені в WhatsApp.'};
   if(filter==='rejected')return {title:'Нецільових немає',detail:'Тут з’являться відсіяні чати з причинами.'};
   return {title:'Історія порожня',detail:'Підтверджені й архівовані чати Work OS з’являться тут.'};
