@@ -1026,7 +1026,7 @@ async function focusAndClearWhatsappMediaCaption(client){
 }
 
 async function waitForWhatsappMediaCaption(client,expectedText,timeoutMs){
-  const expected=looseMessageText(expectedText);
+  const expected=textProbe(expectedText);
   const deadline=Date.now()+timeoutMs;
   while(Date.now()<deadline){
     const expression=`(() => {
@@ -1034,7 +1034,7 @@ async function waitForWhatsappMediaCaption(client,expectedText,timeoutMs){
       return String(node?.innerText||node?.textContent||'');
     })()`;
     const response=await client.send('Runtime.evaluate',{expression,returnByValue:true});
-    if(looseMessageText(response?.result?.value||'')===expected)return true;
+    if(looseMessageText(response?.result?.value||'').startsWith(expected))return true;
     await sleep(POLL_MS);
   }
   return false;
@@ -1136,7 +1136,7 @@ export async function sendWhatsappAutopostViaCdp(
       }
       if(Date.now()>=operationDeadline)return {kind:'blocked',reason:'autopost_budget_exhausted'};
       if(!await clickWhatsappMediaSend(client))return {kind:'blocked',reason:'media_send_control_not_found'};
-      const expected=looseMessageText(text);
+      const expected=textProbe(text);
       const deadline=Date.now()+confirmWindowMs;
       while(Date.now()<deadline){
         const snapshot=await readSnapshot(client);
@@ -1753,6 +1753,16 @@ async function waitForComposerText(client, expectedText, timeoutMs) {
 
 function normalizeMessageText(value) {
   return String(value || '').replace(/\r\n/gu, '\n').replace(/\u00a0/gu, ' ').trim();
+}
+
+// How much of the text has to match to call it ours. WhatsApp caps a photo caption (and reflows what it
+// shows back), so demanding the whole string fails on a long advertisement — media_caption_mismatch on the
+// operator's text, 2026-10-07. The Prototype Checker compared a 100-character probe for exactly this reason
+// (autopost-photo-helper.ps1, Test-WhatsAppMessageVisible); this is the same rule.
+const TEXT_MATCH_PROBE = 100;
+function textProbe(value) {
+  const normalized = looseMessageText(value);
+  return normalized.length > TEXT_MATCH_PROBE ? normalized.slice(0, TEXT_MATCH_PROBE) : normalized;
 }
 
 // For comparing what WE typed with what the page shows back. WhatsApp's composer renders each line as its own
