@@ -194,8 +194,8 @@ void test('Platforms uses a compact operator hierarchy and an unambiguous public
   assert.match(css, /@container platform-workspace \(max-width:900px\)[\s\S]*\.platform-overview \{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); \}/);
   assert.match(css, /\.platform-queue-context \{ display:flex;/);
   assert.match(css, /\.chat-action-utilities \{ display:flex;/);
-  assert.match(css, /\.chat-row\.is-published \{ background:#fbfcfd; \}/);
-  assert.match(css, /\.queue-tabs button\[aria-selected='true'\] \{ background:#fff; color:#2445cf;/);
+  assert.match(css, /\.chat-row\.is-published \{ background:var\(--surface-subtle\); \}/);
+  assert.match(css, /\.queue-tabs button\[aria-selected='true'\] \{ background: var\(--card\); color:var\(--accent-foreground\);/);
   assert.doesNotMatch(css, /\.today-links|\.quick-publish-bar|\.posting-pace/);
 });
 
@@ -275,9 +275,9 @@ void test('Remaining workspace controls meet final sizing and mobile nav readabi
   assert.match(css, /\.archive-dialog-custom \[data-slot="button"\] \{ min-height:42px; \}/);
   assert.match(css, /\.report-form-link \{[^}]*min-height:42px;/);
   assert.match(css, /\.mobile-bottom-nav button \{[^}]*font-size: 10px;/);
-  assert.match(css, /\.mobile-bottom-nav button\[aria-current='page'\] \{ background:#eef2ff;/);
+  assert.match(css, /\.mobile-bottom-nav button\[aria-current='page'\] \{ background:var\(--accent\);/);
   assert.match(css, /\.archive-dialog-reasons \[data-slot="button"\], \.archive-dialog-custom input, \.archive-dialog-custom \[data-slot="button"\] \{ min-height:44px; \}/);
-  assert.match(css, /--muted-foreground: #69707d;/);
+  assert.match(css, /--muted-foreground: #5f6775;/);
   assert.doesNotMatch(css, /color:\s*#(?:7b8190|747a88|8b909b|747986|7b818d|858b96|767c88|787e89|868b96|7c8390|727987|737986|777e8b|747b87|7a818e|737a88)\b/i);
 });
 
@@ -379,7 +379,7 @@ void test('Leads workspace shares the primary workspace hero hierarchy', () => {
   const css = text(join(root, 'app', 'globals.css'));
   assert.match(workspace, /<section className="leads-hero">[\s\S]*?<p className="eyebrow">CRM та супровід<\/p>[\s\S]*?<h2>Контакти, учні та уроки<\/h2>/);
   assert.match(css, /\.leads-workspace \{ max-width:1400px; display:grid; gap:18px; margin:0 auto; padding:clamp\(22px,4vw,54px\); \}/);
-  assert.match(css, /\.leads-hero \{ display:flex; align-items:flex-end; justify-content:space-between; gap:24px; padding:26px; background:linear-gradient\(115deg,#fff 0%,#fff 58%,#eef2ff 100%\); \}/);
+  assert.match(css, /\.leads-hero \{ display:flex; align-items:flex-end; justify-content:space-between; gap:24px; padding:26px; background:linear-gradient\(115deg,#fff 0%,#fff 58%,var\(--accent\) 100%\); \}/);
 });
 
 void test('Wide desktop compacts Telegram warmup without changing mobile flow', () => {
@@ -408,7 +408,7 @@ void test('Release metadata stays synchronized and the change dialog has an opaq
   assert.match(meta, /APP_RELEASE_DATE = '\d{4}-\d{2}-\d{2}'/);
   assert.match(dialog, /Intl\.DateTimeFormat\('uk-UA',[\s\S]*APP_RELEASE_DATE/);
   assert.doesNotMatch(dialog, />11 вересня 2026<\/time>/);
-  assert.match(css, /\.app-release-dialog\[data-slot="dialog-content"\] \{[^}]*background:#fff;[^}]*color:var\(--foreground\);[^}]*box-shadow:/);
+  assert.match(css, /\.app-release-dialog\[data-slot="dialog-content"\] \{[^}]*background: var\(--card\);[^}]*color:var\(--foreground\);[^}]*box-shadow:/);
 });
 
 void test('Primary buttons keep their foreground token instead of inheriting page text', () => {

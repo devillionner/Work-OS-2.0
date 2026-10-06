@@ -21,8 +21,8 @@
   overflow-y: auto;
   resize: vertical;
   padding: 14px 16px;
-  border-color: #d8dde6;
-  background: #fbfcfe;
+  border-color: var(--border);
+  background: var(--surface-subtle);
   line-height: 1.55;
 }
 
@@ -270,32 +270,32 @@
   width: min(100%, 460px);
   padding: 34px;
   overflow: hidden;
-  border: 1px solid #d9deea;
+  border: 1px solid var(--border);
   border-radius: 24px;
-  background: #fff;
+  background: var(--card);
   box-shadow: 0 28px 90px rgb(24 31 52 / .18);
   text-align: center;
 }
-.app-update-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 4px; background: linear-gradient(90deg, #3157f6, #6f86ff, #3157f6); background-size: 200% 100%; animation: app-update-shimmer 1.3s linear infinite; }
+.app-update-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 4px; background: linear-gradient(90deg, var(--primary), #6f86ff, var(--primary)); background-size: 200% 100%; animation: app-update-shimmer 1.3s linear infinite; }
 .app-update-brand { display: grid; place-items: center; width: 38px; height: 38px; margin-bottom: 22px; border-radius: 11px; background: var(--primary); color: var(--primary-foreground); font-weight: 850; }
-.app-update-icon { display: grid; place-items: center; width: 58px; height: 58px; margin-bottom: 18px; border-radius: 18px; background: #eef2ff; color: var(--primary); }
-.app-update-icon.is-complete { background: #ecfdf3; color: #087443; }
+.app-update-icon { display: grid; place-items: center; width: 58px; height: 58px; margin-bottom: 18px; border-radius: 18px; background: var(--accent); color: var(--primary); }
+.app-update-icon.is-complete { background: var(--success-surface); color: var(--success); }
 .app-update-icon svg { width: 28px; height: 28px; }
 .app-update-card .eyebrow { margin-bottom: 7px; }
 .app-update-card h2 { margin: 0; font-size: clamp(24px, 5vw, 31px); line-height: 1.08; letter-spacing: -.035em; }
 .app-update-description { max-width: 360px; margin: 13px 0 0; color: var(--muted-foreground); font-size: 14px; line-height: 1.55; }
 
-.app-update-progress { width: 100%; height: 7px; margin: 24px 0 17px; overflow: hidden; border-radius: 999px; background: #e8ebf3; }
+.app-update-progress { width: 100%; height: 7px; margin: 24px 0 17px; overflow: hidden; border-radius: 999px; background: var(--border); }
 .app-update-progress span { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width .35s ease; }
 .app-update-steps { display: grid; gap: 8px; width: 100%; margin: 0; padding: 0; list-style: none; text-align: left; }
-.app-update-steps li { display: flex; align-items: center; gap: 9px; min-height: 32px; color: #8a909c; font-size: 12px; }
-.app-update-steps li > span { display: grid; place-items: center; flex: 0 0 23px; width: 23px; height: 23px; border: 1px solid #d9dde7; border-radius: 50%; background: #fff; font-size: 10px; font-weight: 800; }
+.app-update-steps li { display: flex; align-items: center; gap: 9px; min-height: 32px; color: var(--muted-foreground); font-size: 12px; }
+.app-update-steps li > span { display: grid; place-items: center; flex: 0 0 23px; width: 23px; height: 23px; border: 1px solid var(--border); border-radius: 50%; background: var(--card); font-size: 10px; font-weight: 800; }
 .app-update-steps li.is-current { color: var(--foreground); font-weight: 700; }
-.app-update-steps li.is-current > span { border-color: #b7c4ff; background: #eef2ff; color: var(--primary); }
-.app-update-steps li.is-complete { color: #087443; }
-.app-update-steps li.is-complete > span { border-color: #bbebd1; background: #ecfdf3; color: #087443; }
+.app-update-steps li.is-current > span { border-color: var(--accent-border); background: var(--accent); color: var(--primary); }
+.app-update-steps li.is-complete { color: var(--success); }
+.app-update-steps li.is-complete > span { border-color: var(--success); background: var(--success-surface); color: var(--success); }
 .app-update-card > [data-slot="button"] { margin-top: 22px; min-height: 44px; }
-.app-update-note { margin-top: 18px; color: #8a909c; font-size: 10px; }
+.app-update-note { margin-top: 18px; color: var(--muted-foreground); font-size: 10px; }
 
 @keyframes app-update-pulse { 70% { box-shadow: 0 0 0 8px rgb(49 87 246 / 0); } 100% { box-shadow: 0 0 0 0 rgb(49 87 246 / 0); } }
 @keyframes app-update-shimmer { to { background-position: -200% 0; } }

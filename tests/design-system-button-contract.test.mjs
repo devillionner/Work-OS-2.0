@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const button = readFileSync(join(process.cwd(), 'components', 'ui', 'button.tsx'), 'utf8');
-const select = readFileSync(join(process.cwd(), 'components', 'ui', 'select.tsx'), 'utf8');
 const nativeSelect = readFileSync(join(process.cwd(), 'components', 'ui', 'native-select.tsx'), 'utf8');
 
 void test('shared primary action uses the readable blue accent hierarchy', () => {
@@ -23,13 +22,9 @@ void test('shared button sizes keep the design-system minimum interaction target
   assert.match(button, /'icon-lg': 'size-11'/);
 });
 
-void test('shared select trigger and options keep the design-system minimum interaction target', () => {
-  assert.match(select, /data-\[size=default\]:h-\[42px\]/);
-  assert.match(select, /data-\[size=sm\]:h-\[42px\]/);
-  assert.match(select, /min-h-\[42px\]/);
-});
-
-void test('native select keeps the same minimum interaction target as custom selects', () => {
+// The custom shadcn `select` was never rendered by the app and was removed with the
+// other unreachable components/ui files; `native-select` is the select the app uses.
+void test('native select keeps the design-system minimum interaction target', () => {
   assert.match(nativeSelect, /h-\[42px\]/);
   assert.match(nativeSelect, /data-\[size=sm\]:h-\[42px\]/);
 });
