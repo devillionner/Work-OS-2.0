@@ -986,6 +986,7 @@ function reasonLabel(value: string) {
     access_unavailable: 'чат недоступний',
     qualification_unverified: 'не вдалося підтвердити всі критерії',
     fresh_join_history_unavailable: 'старі повідомлення недоступні після вступу — потрібна ручна перевірка',
+    telegram_search_throttled: 'Telegram перестав повертати результати пошуку — схоже на тимчасове обмеження акаунта. Продовж за кілька годин, план лишився на цьому ж кроці.',
     telegram_flood_wait: 'Telegram тимчасово обмежив пошук — продовж пізніше',
     telegram_tab_missing: 'відкрий web.telegram.org/a в Opera з портом 9222 і натисни «Продовжити»',
     telegram_not_authenticated: 'потрібен вхід у Telegram Web (web.telegram.org/a)',

@@ -58,6 +58,14 @@ let localSourcePlanRunId='';
 // Doubled on 2026-10-06 together with parallel tabs: four tabs scan a step of 24 groups in roughly the
 // wall-clock time one tab needed for 12, and `searchTelegramPublicGroups` reads up to 25 rows anyway.
 const SEARCH_GROUPS_PER_STEP=24;
+// Telegram throttles an account's global search silently: the panel keeps opening and simply returns nothing
+// at all, with no flood banner. Measured 2026-10-07 on the operator's account — 96 searches in a row, exactly
+// one row returned between them. A step that found nothing still advances the plan cursor, so an unnoticed
+// throttle burns the whole 2 400-query plan in an hour and reports «план завершено» with zero finds (which is
+// what happened on 2026-10-06). After this many consecutive searches that return no ROWS AT ALL — not merely
+// no groups — the run stops on its current step instead, and «Продовжити» resumes it later.
+const TELEGRAM_EMPTY_SEARCH_LIMIT=10;
+let telegramEmptySearchStreak=0;
 const PAGE_RECOVERY_COOLDOWN_MS=15000;
 const WHATSAPP_LOADING_COOLDOWN_MS=10000;
 const WHATSAPP_LOADING_RELOAD_AFTER=3;
@@ -559,6 +567,12 @@ async function crawlTelegramGroupStep(step,local,onGroupSource=null,onProgress=n
       console.log(`Telegram search «${step.query}»: ${found.groups.length} groups of ${rejected.rows} rows`
         +` (${rejected.channels} channels, ${rejected.nameless} without username, ${rejected.other} other)`
         +`, Show More ${found.expanded?'clicked':'NOT clicked'}`);
+      telegramEmptySearchStreak=rejected.rows>0?0:telegramEmptySearchStreak+1;
+      if(telegramEmptySearchStreak>=TELEGRAM_EMPTY_SEARCH_LIMIT){
+        telegramEmptySearchStreak=0;
+        outcome.blockedReason='telegram_search_throttled';
+        return outcome;
+      }
       groups=found.groups.filter(group=>!groupRecentlyScanned(scanned,group.username)).slice(0,SEARCH_GROUPS_PER_STEP);
     }else{
       groups=(step.groups||[]).filter(group=>!groupRecentlyScanned(scanned,group.username));
@@ -622,6 +636,7 @@ async function crawlTelegramGroupStep(step,local,onGroupSource=null,onProgress=n
 }
 
 const TELEGRAM_BLOCK_LABELS={
+  telegram_search_throttled:'Telegram перестав повертати результати пошуку — автопошук зупинено, продовж за кілька годин',
   telegram_flood_wait:'Telegram тимчасово обмежив пошук — автопошук зупинено, продовж пізніше',
   telegram_tab_missing:'Відкрий web.telegram.org/a в Opera з портом 9222 і продовж автопошук',
   telegram_not_authenticated:'Увійди в Telegram Web (web.telegram.org/a) і продовж автопошук',
