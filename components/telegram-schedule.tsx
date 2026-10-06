@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Copy, RefreshCw, Shuffle, Trash2, Unlink } from 'lucide-react';
+import { Check, Copy, ExternalLink, RefreshCw, Shuffle, Trash2, Unlink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,7 +17,7 @@ type Settings = {
 type Chat = { id:string; name:string; link:string };
 type Slot = {
   id:string; sequence:number; scheduledAt:number; chatId:string|null;
-  chatName:string|null; chatLink:string|null; status:'pending'|'completed';
+  chatName:string|null; chatLink:string|null; chatStateToken:string|null; status:'pending'|'completed';
   completedAt:number|null; version:number;
 };
 type Snapshot = {
@@ -107,6 +107,23 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
     if(!saved)return;
     await post({action:'generate',count:slotCount});
   }
+  // The operator's actual loop (request 2026-10-06): open the chat from its slot, post by hand, press
+  // «Опубліковано» right there. Recording the publication is what marks the slot completed server-side.
+  async function markPublished(slot:Slot) {
+    if(!slot.chatId||!slot.chatStateToken||busy)return;
+    setBusy(true);setError('');
+    try{
+      const response=await fetch('/api/chats',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({id:slot.chatId,action:'published',stateToken:slot.chatStateToken,accountId}),
+      });
+      const body=await response.json() as {error?:string};
+      if(!response.ok)throw new Error(body.error||'Не вдалося відмітити публікацію.');
+      await load();
+    }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося відмітити публікацію.');}
+    finally{setBusy(false);}
+  }
+
   async function clearPending() {
     if(!data?.pending)return;
     await post({action:'clear_pending'});
@@ -198,7 +215,10 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
               {slot.chatId&&!candidates.some(chat=>chat.id===slot.chatId)&&<option value={slot.chatId}>{slot.chatName||slot.chatId}</option>}
               {candidates.map(chat=><option key={chat.id} value={chat.id}>{chat.name}</option>)}
             </select>
-            <span className="telegram-slot-link">{slot.chatLink||'—'}</span>
+            {slot.chatLink
+              ? <a className="telegram-slot-link" href={slot.chatLink} target="_blank" rel="noreferrer" title="Відкрити чат у новій вкладці">{slot.chatLink.replace(/^https:\/\//,'')}<ExternalLink aria-hidden="true"/></a>
+              : <span className="telegram-slot-link">—</span>}
+            {slot.status==='pending'&&slot.chatId&&<Button size="sm" disabled={busy||disabled||!slot.chatStateToken} onClick={()=>void markPublished(slot)}><Check data-icon="inline-start"/>Опубліковано</Button>}
             {slot.status==='pending'&&slot.chatId&&<Button variant="ghost" size="icon" aria-label="Відв’язати чат від слота" disabled={busy||disabled} onClick={()=>void editSlot(slot,undefined,null)}><Unlink/></Button>}
           </article>;
         })}

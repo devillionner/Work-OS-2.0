@@ -1,4 +1,5 @@
 import { isoWeekday, profilePublicationEligibilitySql } from './profile.ts';
+import { chatStateTokenSql } from './state.ts';
 
 export class TelegramScheduleError extends Error {
   status: number;
@@ -12,7 +13,7 @@ export type TelegramScheduleSettings = {
 export type TelegramScheduleChat = { id:string; name:string; link:string };
 export type TelegramScheduleSlot = {
   id:string; sequence:number; scheduledAt:number; chatId:string|null; chatName:string|null;
-  chatLink:string|null; status:'pending'|'completed'; completedAt:number|null; version:number;
+  chatLink:string|null; chatStateToken:string|null; status:'pending'|'completed'; completedAt:number|null; version:number;
 };
 export type TelegramScheduleSnapshot = {
   accountId:string; settings:TelegramScheduleSettings; eligibleChats:TelegramScheduleChat[];
@@ -38,7 +39,8 @@ export async function readTelegramSchedule(db:D1Database,input:{userId:string;ac
     FROM telegram_schedule_settings WHERE user_id=?1 AND telegram_account_id=?2`).bind(input.userId,input.accountId).first<Record<string,unknown>>();
   const settings=parseSettings(row,input.now);
   const eligibleChats=await eligibleTelegramChats(db,{...input,excludePending:false});
-  const slotResult=await db.prepare(`SELECT s.id,s.sequence,s.scheduled_at,s.chat_id,s.status,s.completed_at,s.version,c.name chat_name,c.link chat_link
+  const slotResult=await db.prepare(`SELECT s.id,s.sequence,s.scheduled_at,s.chat_id,s.status,s.completed_at,s.version,c.name chat_name,c.link chat_link,
+      CASE WHEN c.id IS NULL THEN NULL ELSE ${chatStateTokenSql()} END chat_state_token
     FROM telegram_schedule_slots s LEFT JOIN chats c ON c.id=s.chat_id AND c.user_id=s.user_id
     WHERE s.user_id=?1 AND s.telegram_account_id=?2 ORDER BY s.scheduled_at DESC,s.sequence DESC LIMIT 100`)
     .bind(input.userId,input.accountId).all<Record<string,unknown>>();
@@ -149,7 +151,8 @@ async function eligibleTelegramChats(db:D1Database,input:{userId:string;accountI
       AND (c.joined_at IS NULL OR c.joined_at+21600<=?3)
       AND (?5='' OR lower(c.name) LIKE ?6 ESCAPE '\\' OR lower(c.link) LIKE ?6 ESCAPE '\\')
       AND NOT EXISTS(SELECT 1 FROM chat_publications p WHERE p.user_id=c.user_id AND p.chat_id=c.id AND p.published_on=?4)
-      AND ${profilePublicationEligibilitySql('?4','?7')}
+      AND (${profilePublicationEligibilitySql('?4','?7')}
+        OR NOT EXISTS(SELECT 1 FROM chat_profiles pu WHERE pu.chat_id=c.id AND pu.review_status='confirmed'))
       ${pending}
     ORDER BY COALESCE(c.joined_at,c.created_at),c.updated_at,c.id LIMIT 500`)
     .bind(input.userId,input.accountId,input.now,input.date,search,pattern,isoWeekday(input.date)).all<TelegramScheduleChat>();
@@ -184,6 +187,7 @@ function parseSettings(row:Record<string,unknown>|null,now:number):TelegramSched
 function slotView(row:Record<string,unknown>):TelegramScheduleSlot {
   return {id:String(row.id),sequence:Number(row.sequence),scheduledAt:Number(row.scheduled_at),chatId:typeof row.chat_id==='string'?row.chat_id:null,
     chatName:typeof row.chat_name==='string'?row.chat_name:null,chatLink:typeof row.chat_link==='string'?row.chat_link:null,
+    chatStateToken:typeof row.chat_state_token==='string'?row.chat_state_token:null,
     status:row.status==='completed'?'completed':'pending',completedAt:row.completed_at===null||row.completed_at===undefined?null:Number(row.completed_at),version:Number(row.version||0)};
 }
 function uniqueIds(values:string[]) { return [...new Set(values.map(value=>value.trim()).filter(Boolean))]; }

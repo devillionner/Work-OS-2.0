@@ -1395,9 +1395,11 @@ button:not([data-slot="button"]) { color: inherit; }
 .telegram-schedule-chat-option:hover { background:var(--muted); }
 .telegram-schedule-chat-option span { display:grid; min-width:0; }
 .telegram-schedule-chat-option small,.telegram-slot-link { overflow:hidden; color:var(--muted-foreground); text-overflow:ellipsis; white-space:nowrap; }
+a.telegram-slot-link { display:inline-flex; align-items:center; gap:6px; color:var(--primary); text-decoration:underline; text-underline-offset:3px; }
+a.telegram-slot-link svg { flex-shrink:0; width:13px; height:13px; }
 .telegram-schedule-next { display:flex; justify-content:space-between; gap:12px; margin-top:12px; padding:10px 12px; border-radius:10px; background:#f5f7fb; }
 .telegram-schedule-slots { display:grid; gap:7px; margin-top:12px; }
-.telegram-schedule-slots article { display:grid; grid-template-columns:auto 80px minmax(170px,1fr) minmax(120px,1fr) auto; align-items:center; gap:8px; padding:9px 10px; border:1px solid var(--border); border-radius:10px; }
+.telegram-schedule-slots article { display:grid; grid-template-columns:auto 80px minmax(170px,1fr) minmax(120px,1fr) auto auto; align-items:center; gap:8px; padding:9px 10px; border:1px solid var(--border); border-radius:10px; }
 .telegram-schedule-slots article.is-done { opacity:.62; background:var(--surface-subtle); }
 .telegram-slot-time,.telegram-schedule-slots select { min-height:42px; border:1px solid var(--input); border-radius:8px; background:var(--card); padding:0 8px; }
 .telegram-schedule-controls [data-slot="input"],.telegram-schedule-controls button,.telegram-schedule-mode [data-slot="input"],.telegram-schedule-mode button,.telegram-schedule-create [data-slot="input"],.telegram-schedule-create button,.telegram-schedule-slots button,.telegram-warmup button { min-height:42px; }
@@ -1407,7 +1409,7 @@ button:not([data-slot="button"]) { color: inherit; }
 .telegram-warmup-steps li>span { display:grid; place-items:center; width:28px; height:28px; border-radius:50%; background:var(--muted); }
 .telegram-warmup-steps li.is-done>span { background:#e9f7ee; }
 .telegram-warmup-steps p { margin:3px 0 0; color:var(--muted-foreground); }
-@media(max-width:720px) { .telegram-disclosure-summary{min-height:60px;padding:12px}.telegram-disclosure-body{padding:0 12px 12px}.telegram-schedule-controls{grid-template-columns:1fr;align-items:stretch}.telegram-schedule-controls [data-slot="input"],.telegram-schedule-controls button,.telegram-schedule-mode [data-slot="input"],.telegram-schedule-mode button,.telegram-schedule-create [data-slot="input"],.telegram-schedule-create button,.telegram-slot-time,.telegram-schedule-slots select,.telegram-schedule-slots button,.telegram-warmup button{min-height:44px}.telegram-schedule-slots article{grid-template-columns:auto minmax(76px,.55fr) minmax(0,1.45fr) auto}.telegram-slot-link{grid-column:2/4;grid-row:2}.telegram-schedule-slots article>[data-slot="button"]{grid-column:4;grid-row:1}.telegram-schedule-next{flex-direction:column}.telegram-schedule-chat-option{min-height:44px} }
+@media(max-width:720px) { .telegram-disclosure-summary{min-height:60px;padding:12px}.telegram-disclosure-body{padding:0 12px 12px}.telegram-schedule-controls{grid-template-columns:1fr;align-items:stretch}.telegram-schedule-controls [data-slot="input"],.telegram-schedule-controls button,.telegram-schedule-mode [data-slot="input"],.telegram-schedule-mode button,.telegram-schedule-create [data-slot="input"],.telegram-schedule-create button,.telegram-slot-time,.telegram-schedule-slots select,.telegram-schedule-slots button,.telegram-warmup button{min-height:44px}.telegram-schedule-slots article{grid-template-columns:auto minmax(76px,.55fr) minmax(0,1.45fr) auto}.telegram-slot-link{grid-column:2/5;grid-row:2}.telegram-schedule-slots article>[data-slot="button"]{grid-column:4;grid-row:1}.telegram-schedule-next{flex-direction:column}.telegram-schedule-chat-option{min-height:44px} }
 
 /* Navigation accessibility */
 .nav-item:focus-visible,
