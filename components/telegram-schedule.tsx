@@ -205,12 +205,13 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
       </div>
       {data.nextSlot&&<div className="telegram-schedule-next"><span>Наступна дія</span><strong>{formatTime(data.nextSlot.scheduledAt)} · {data.nextSlot.chatName||'Призначити чат'}</strong></div>}
       <div className="telegram-schedule-slots">
-        {data.slots.map(slot=>{
+        {data.slots.map((slot,index)=>{
+          const slotNum=index+1;
           const candidates=data.eligibleChats.filter(chat=>!pendingChatIds.has(chat.id)||chat.id===slot.chatId);
           return <article key={slot.id} className={slot.status==='completed'?'is-done':''}>
-            <div><Badge variant={slot.status==='completed'?'secondary':'outline'}>{slot.status==='completed'?'Готово':`#${slot.sequence}`}</Badge></div>
-            <input className="telegram-slot-time" aria-label={`Час слота ${slot.sequence}`} defaultValue={formatTime(slot.scheduledAt)} disabled={busy||disabled||slot.status==='completed'} onBlur={event=>{const value=event.target.value;if(value!==formatTime(slot.scheduledAt))void editSlot(slot,value);}}/>
-            <select aria-label={`Чат слота ${slot.sequence}`} value={slot.chatId||''} disabled={busy||disabled||slot.status==='completed'} onChange={event=>void editSlot(slot,undefined,event.target.value||null)}>
+            <div><Badge variant={slot.status==='completed'?'secondary':'outline'}>{slot.status==='completed'?'Готово':`#${slotNum}`}</Badge></div>
+            <input className="telegram-slot-time" aria-label={`Час слота ${slotNum}`} defaultValue={formatTime(slot.scheduledAt)} disabled={busy||disabled||slot.status==='completed'} onBlur={event=>{const value=event.target.value;if(value!==formatTime(slot.scheduledAt))void editSlot(slot,value);}}/>
+            <select aria-label={`Чат слота ${slotNum}`} value={slot.chatId||''} disabled={busy||disabled||slot.status==='completed'} onChange={event=>void editSlot(slot,undefined,event.target.value||null)}>
               <option value="">Без чату</option>
               {slot.chatId&&!candidates.some(chat=>chat.id===slot.chatId)&&<option value={slot.chatId}>{slot.chatName||slot.chatId}</option>}
               {candidates.map(chat=><option key={chat.id} value={chat.id}>{chat.name}</option>)}
