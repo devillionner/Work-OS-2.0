@@ -170,33 +170,276 @@ export function ReportsWorkspace({ onOpenLead, syncRevision=0, active=true }: { 
     onOpenLead?.(id);
   }
 
-  return <div className={`reports-workspace ${selectedDate ? 'has-selected-day' : ''}`} aria-busy={loading}>
-    <WorkspaceRefreshIndicator active={loading&&data!==null} label="Оновлюємо звіти…" />
-    <section className="reports-hero"><div><p className="eyebrow">Контроль результату</p><h2>Історія звітів</h2><p>Обирай день у календарі, переглядай показники та коригуй звіт без втрати дат.</p><p className="muted-note">Форма адміністраторів відкривається вручну — Work OS не відправляє її автоматично.</p></div><div className="reports-hero-actions"><div className="reports-external-actions"><a className="report-form-link" href={MANAGER_SCHEDULE_URL} target="_blank" rel="noopener noreferrer"><ExternalLink />Графік керівника</a><a className="report-form-link" href={ADMIN_REPORT_FORM_URL} target="_blank" rel="noopener noreferrer"><ExternalLink />Відкрити форму адміністраторів</a></div><div className="reports-date-actions"><Button variant="outline" size="sm" onClick={() => chooseDate(today)} disabled={loading || saving || selected === today}>Сьогодні</Button><Button variant="outline" size="sm" onClick={() => void load()} disabled={loading || saving}><RefreshCw data-icon="inline-start" className={loading ? 'is-spinning' : undefined} />Оновити</Button></div></div></section>
-    {error && <div className="workspace-error" role="alert">{error}{reportConflict ? ' Локальний текст залишено без змін. Скопіюйте його за потреби та натисніть «Оновити», щоб завантажити актуальну версію.' : ''}</div>}
-    {notice && <output className="reports-notice">{notice}</output>}
-    {calendarData?.previousReportReminder?.pending && <output className="workspace-error">{`Не здано фінальний звіт за ${formatDate(calendarData.previousReportReminder.date)}. Відкрий цей день у календарі та заверши звіт.`}</output>}
-    <div className="reports-layout">
-      <section className="reports-calendar-card"><div className="reports-month-head"><Button variant="ghost" size="icon" aria-label="Попередній місяць" onClick={() => moveMonth(-1)}><ChevronLeft /></Button><h3>{formatMonth(month)}</h3><Button variant="ghost" size="icon" aria-label="Наступний місяць" onClick={() => moveMonth(1)} disabled={saving || month >= today.slice(0, 7)}><ChevronRight /></Button></div><fieldset className="reports-calendar-filters" aria-label="Фільтр календаря">{calendarFilters.map((filter) => <Button key={filter.value} type="button" size="sm" variant={calendarFilter === filter.value ? 'secondary' : 'ghost'} aria-pressed={calendarFilter === filter.value} onClick={() => setCalendarFilter(filter.value)}>{filter.label}</Button>)}</fieldset><div className="reports-weekdays">{['Пн','Вт','Ср','Чт','Пт','Сб','Нд'].map((day) => <span key={day}>{day}</span>)}</div><div className="reports-calendar-grid">{days.map((day) => { const report = reportByDate.get(day.date); const context = contextByDate.get(day.date); const revision = report?.revisionCount || 0; const revisionClass = reportRevisionHeatClass(revision); const matches = matchesCalendarFilter(calendarFilter,day,report); return <button key={day.date} type="button" disabled={day.isFuture} className={`report-day ${day.isCurrentMonth ? '' : 'is-muted'} ${day.isFuture ? 'is-future' : ''} ${selected === day.date ? 'is-selected' : ''} ${report ? 'has-report' : ''} ${report?.submittedAt ? 'is-submitted' : ''} ${report?.stale ? 'is-stale' : ''} ${revisionClass} ${matches ? '' : 'is-filtered-out'}`} title={day.isFuture ? 'Майбутня дата недоступна' : report ? `${report.stale ? 'Застарілий звіт · ' : ''}${report.submittedAt ? 'Здано · ' : 'Чернетка · '}Збережених версій: ${revision}` : 'Додати звіт'} aria-label={`${formatDate(day.date)}. ${calendarContextLabels(day.date, context).join(', ') || 'Без подій'}. ${report ? `Збережених версій: ${revision}. ` : ''}${report?.stale ? 'Звіт потребує оновлення' : report?.submittedAt ? 'Звіт здано' : report ? 'Є чернетка звіту' : 'Звіту немає'}`} onClick={() => chooseDate(day.date)}><span>{day.day}</span><ReportCalendarContext date={day.date} context={context} />{report && <i className={report.submittedAt ? 'is-submitted' : 'is-draft'} aria-label={report.stale ? 'Застарілий звіт' : report.submittedAt ? 'Звіт здано' : 'Чернетка звіту'} />}</button>; })}</div><div className="reports-legend" aria-label="Інтенсивність календаря за кількістю версій"><span><i className="legend-dot revision-1" />1 версія</span><span><i className="legend-dot revision-2" />2 версії</span><span><i className="legend-dot revision-3" />3 версії</span><span><i className="legend-dot revision-4" />4+ версій</span><span><i className="legend-state is-draft" />Чернетка</span><span><i className="legend-state is-submitted" />Здано</span><span><i className="legend-dot is-stale" />Потребує оновлення</span></div></section>
-      <section className="reports-editor-card">{selectedDate && <Button type="button" variant="ghost" className="report-mobile-back" onClick={() => { setSelectedDate(null); setNotice(''); setError(''); }}>← До календаря</Button>}{loading&&!data ? <WorkspaceInitialLoading compact label="Завантажуємо звіти…"/> : selected&&editorData ? <><div className="card-heading"><div><p className="eyebrow">Звіт за день</p><h3>{formatDate(selected)}</h3></div><div className="reports-editor-actions">{onOpenLead && editorData?.leadCommandScope ? <Button variant="outline" size="sm" onClick={() => setBackdatedLeadOpen(true)} disabled={saving}><UserPlus data-icon="inline-start" />Новий лід за дату</Button> : null}<Button ref={reportHistoryTrigger} variant="outline" size="sm" onClick={() => setHistoryOpen(true)} disabled={saving}><History data-icon="inline-start" />Версії</Button>{editorData?.selected?.stale ? <Badge variant="outline">Потребує оновлення</Badge> : editorData?.selected?.submittedAt ? <Badge variant="secondary">Здано</Badge> : editorData?.selected ? <Badge variant="outline">Чернетка</Badge> : <Badge variant="outline">Немає звіту</Badge>}</div></div><Textarea aria-label="Текст щоденного звіту" disabled={saving} value={text} onChange={(event) => setText(event.target.value)} placeholder="Встав текст щоденного звіту або внеси коригування…" rows={14} />{!editorData?.selected && editorData?.suggestedText ? <p className="muted-note">Чернетку автоматично сформовано з подій за цей день. Перевір текст перед збереженням.</p> : null}<div className="reports-editor-footer"><div className="reports-editor-meta"><span className="muted-note">Остання зміна: {editorData?.selected ? formatTime(editorData.selected.updatedAt) : 'ще не створено'}</span><span className="muted-note">Остання фінальна здача: {editorData?.selected?.submittedAt ? formatTime(editorData.selected.submittedAt) : 'ще не здано'}</span></div><div className="reports-editor-actions"><Button variant="outline" onClick={() => void copyReport()} disabled={loading || saving || !text.trim()}><Copy data-icon="inline-start" />Копіювати</Button><Button variant="outline" onClick={() => void save(false)} disabled={loading || saving || reportConflict || !text.trim()}><Save data-icon="inline-start" />{saving ? 'Зберігаємо…' : 'Зберегти чернетку'}</Button><Button onClick={() => void save(true)} disabled={loading || saving || reportConflict || !text.trim() || !editorData?.finalReportState?.canSubmit}>{saving ? 'Здаємо…' : editorData?.selected?.submittedAt ? 'Здати оновлення' : 'Здати фінальний'}</Button></div></div>{editorData?.finalReportState && !editorData.finalReportState.canSubmit && <p className="muted-note">{editorData.finalReportState.reason}</p>}{editorData?.goalPlanFact ? <GoalPlanFactView data={editorData.goalPlanFact} /> : null}{editorData?.summary.length ? <Summary summary={editorData.summary} /> : null}{editorData?.details?.length ? <details className="report-disclosure"><summary><span>Джерела та деталізація</span><small>{editorData.details.length} подій</small></summary><ReportEventDetails details={editorData.details} onOpenLead={onOpenLead} /></details> : null}{active&&<ReportCheckpoints date={selected} />}</> : selected ? <WorkspaceInitialLoading compact label="Завантажуємо вибраний звіт…"/> : <div className="workspace-empty"><FileText /><strong>Оберіть дату</strong><p>Дні зі звітом позначені синім.</p></div>}</section>
+  return (
+    <div className={`reports-workspace ${selectedDate ? 'has-selected-day' : ''}`} aria-busy={loading}>
+      <WorkspaceRefreshIndicator active={loading&&data!==null} label="Оновлюємо звіти…" />
+      <section className="reports-hero">
+        <div>
+          <p className="eyebrow">Контроль результату</p>
+          <h2>Історія звітів</h2>
+          <p>Обирай день у календарі, переглядай показники та коригуй звіт без втрати дат.</p>
+          <p className="muted-note text-xs">Форма адміністраторів відкривається вручну — Work OS не відправляє її автоматично.</p>
+        </div>
+        <div className="reports-hero-actions">
+          <div className="reports-external-actions">
+            <a className="report-form-link" href={MANAGER_SCHEDULE_URL} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="size-3.5" />
+              Графік керівника
+            </a>
+            <a className="report-form-link" href={ADMIN_REPORT_FORM_URL} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="size-3.5" />
+              Форма адміністраторів
+            </a>
+          </div>
+          <div className="reports-date-actions">
+            <Button variant="outline" size="sm" onClick={() => chooseDate(today)} disabled={loading || saving || selected === today}>
+              Сьогодні
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading || saving}>
+              <RefreshCw className={`size-3.5 mr-1 ${loading ? 'is-spinning' : ''}`} />
+              Оновити
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {error && <div className="workspace-error" role="alert">{error}{reportConflict ? ' Локальний текст залишено без змін. Скопіюйте його за потреби та натисніть «Оновити», щоб завантажити актуальну версію.' : ''}</div>}
+      {notice && <output className="reports-notice">{notice}</output>}
+      {calendarData?.previousReportReminder?.pending && (
+        <output className="workspace-error">{`Не здано фінальний звіт за ${formatDate(calendarData.previousReportReminder.date)}. Відкрий цей день у календарі та заверши звіт.`}</output>
+      )}
+
+      <div className="reports-layout">
+        <section className="reports-calendar-card">
+          <div className="reports-month-head">
+            <Button variant="ghost" size="icon" aria-label="Попередній місяць" onClick={() => moveMonth(-1)}>
+              <ChevronLeft className="size-4" />
+            </Button>
+            <h3>{formatMonth(month)}</h3>
+            <Button variant="ghost" size="icon" aria-label="Наступний місяць" onClick={() => moveMonth(1)} disabled={saving || month >= today.slice(0, 7)}>
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+          <fieldset className="reports-calendar-filters" aria-label="Фільтр календаря">
+            {calendarFilters.map((filter) => (
+              <Button
+                key={filter.value}
+                type="button"
+                size="sm"
+                variant={calendarFilter === filter.value ? 'secondary' : 'ghost'}
+                aria-pressed={calendarFilter === filter.value}
+                onClick={() => setCalendarFilter(filter.value)}
+              >
+                {filter.label}
+              </Button>
+            ))}
+          </fieldset>
+          <div className="reports-weekdays">
+            {['Пн','Вт','Ср','Чт','Пт','Сб','Нд'].map((day) => <span key={day}>{day}</span>)}
+          </div>
+          <div className="reports-calendar-grid">
+            {days.map((day) => {
+              const report = reportByDate.get(day.date);
+              const context = contextByDate.get(day.date);
+              const revision = report?.revisionCount || 0;
+              const revisionClass = reportRevisionHeatClass(revision);
+              const matches = matchesCalendarFilter(calendarFilter,day,report);
+              return (
+                <button
+                  key={day.date}
+                  type="button"
+                  disabled={day.isFuture}
+                  className={`report-day ${day.isCurrentMonth ? '' : 'is-muted'} ${day.isFuture ? 'is-future' : ''} ${selected === day.date ? 'is-selected' : ''} ${report ? 'has-report' : ''} ${report?.submittedAt ? 'is-submitted' : ''} ${report?.stale ? 'is-stale' : ''} ${revisionClass} ${matches ? '' : 'is-filtered-out'}`}
+                  title={day.isFuture ? 'Майбутня дата недоступна' : report ? `${report.stale ? 'Застарілий звіт · ' : ''}${report.submittedAt ? 'Здано · ' : 'Чернетка · '}Збережених версій: ${revision}` : 'Додати звіт'}
+                  aria-label={`${formatDate(day.date)}. ${calendarContextLabels(day.date, context).join(', ') || 'Без подій'}. ${report ? `Збережених версій: ${revision}. ` : ''}${report?.stale ? 'Звіт потребує оновлення' : report?.submittedAt ? 'Звіт здано' : report ? 'Є чернетка звіту' : 'Звіту немає'}`}
+                  onClick={() => chooseDate(day.date)}
+                >
+                  <span className="report-day-number">{day.day}</span>
+                  <ReportCalendarContext date={day.date} context={context} />
+                  {report && (
+                    <i
+                      className={report.submittedAt ? 'is-submitted' : 'is-draft'}
+                      aria-label={report.stale ? 'Застарілий звіт' : report.submittedAt ? 'Звіт здано' : 'Чернетка звіту'}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <div className="reports-legend" aria-label="Інтенсивність календаря за кількістю версій">
+            <span><i className="legend-dot revision-1" />1 версія</span>
+            <span><i className="legend-dot revision-2" />2 версії</span>
+            <span><i className="legend-dot revision-3" />3 версії</span>
+            <span><i className="legend-dot revision-4" />4+ версій</span>
+            <span><i className="legend-state is-draft" />Чернетка</span>
+            <span><i className="legend-state is-submitted" />Здано</span>
+            <span><i className="legend-dot is-stale" />Потребує оновлення</span>
+          </div>
+        </section>
+
+        <section className="reports-editor-card">
+          {selectedDate && (
+            <Button type="button" variant="ghost" className="report-mobile-back" onClick={() => { setSelectedDate(null); setNotice(''); setError(''); }}>
+              <ChevronLeft className="size-4" />
+              До календаря
+            </Button>
+          )}
+          {loading && !data ? (
+            <WorkspaceInitialLoading compact label="Завантажуємо звіти…"/>
+          ) : selected && editorData ? (
+            <>
+              <div className="card-heading">
+                <div>
+                  <p className="eyebrow">Звіт за день</p>
+                  <h3>{formatDate(selected)}</h3>
+                </div>
+                <div className="reports-editor-actions">
+                  {onOpenLead && editorData?.leadCommandScope ? (
+                    <Button variant="outline" size="sm" onClick={() => setBackdatedLeadOpen(true)} disabled={saving}>
+                      <UserPlus className="size-3.5 mr-1" />
+                      Новий лід за дату
+                    </Button>
+                  ) : null}
+                  <Button ref={reportHistoryTrigger} variant="outline" size="sm" onClick={() => setHistoryOpen(true)} disabled={saving}>
+                    <History className="size-3.5 mr-1" />
+                    Версії
+                  </Button>
+                  {editorData?.selected?.stale ? (
+                    <Badge variant="outline" className="border-amber-400 text-amber-800 bg-amber-50">Потребує оновлення</Badge>
+                  ) : editorData?.selected?.submittedAt ? (
+                    <Badge variant="secondary" className="bg-emerald-50 text-emerald-800 border-emerald-300">Здано</Badge>
+                  ) : editorData?.selected ? (
+                    <Badge variant="outline">Чернетка</Badge>
+                  ) : (
+                    <Badge variant="outline">Немає звіту</Badge>
+                  )}
+                </div>
+              </div>
+              <Textarea
+                aria-label="Текст щоденного звіту"
+                disabled={saving}
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                placeholder="Встав текст щоденного звіту або внеси коригування…"
+                rows={14}
+                className="reports-textarea"
+              />
+              {!editorData?.selected && editorData?.suggestedText ? (
+                <p className="muted-note text-xs">Чернетку автоматично сформовано з подій за цей день. Перевір текст перед збереженням.</p>
+              ) : null}
+              <div className="reports-editor-footer">
+                <div className="reports-editor-meta">
+                  <span className="muted-note">Остання зміна: {editorData?.selected ? formatTime(editorData.selected.updatedAt) : 'ще не створено'}</span>
+                  <span className="muted-note">Остання фінальна здача: {editorData?.selected?.submittedAt ? formatTime(editorData.selected.submittedAt) : 'ще не здано'}</span>
+                </div>
+                <div className="reports-editor-actions">
+                  <Button variant="outline" size="sm" onClick={() => void copyReport()} disabled={loading || saving || !text.trim()}>
+                    <Copy className="size-3.5 mr-1" />
+                    Копіювати
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => void save(false)} disabled={loading || saving || reportConflict || !text.trim()}>
+                    <Save className="size-3.5 mr-1" />
+                    {saving ? 'Зберігаємо…' : 'Зберегти чернетку'}
+                  </Button>
+                  <Button size="sm" onClick={() => void save(true)} disabled={loading || saving || reportConflict || !text.trim() || !editorData?.finalReportState?.canSubmit}>
+                    {saving ? 'Здаємо…' : editorData?.selected?.submittedAt ? 'Здати оновлення' : 'Здати фінальний'}
+                  </Button>
+                </div>
+              </div>
+              {editorData?.finalReportState && !editorData.finalReportState.canSubmit && (
+                <p className="muted-note text-xs">{editorData.finalReportState.reason}</p>
+              )}
+              {editorData?.goalPlanFact ? <GoalPlanFactView data={editorData.goalPlanFact} /> : null}
+              {editorData?.summary.length ? <Summary summary={editorData.summary} /> : null}
+              {editorData?.details?.length ? (
+                <details className="report-disclosure">
+                  <summary>
+                    <span>Джерела та деталізація</span>
+                    <small>{editorData.details.length} подій</small>
+                  </summary>
+                  <ReportEventDetails details={editorData.details} onOpenLead={onOpenLead} />
+                </details>
+              ) : null}
+              {active&&<ReportCheckpoints date={selected} />}
+            </>
+          ) : selected ? (
+            <WorkspaceInitialLoading compact label="Завантажуємо вибраний звіт…"/>
+          ) : (
+            <div className="workspace-empty">
+              <FileText className="size-10 opacity-30 mx-auto mb-2" />
+              <strong>Оберіть дату</strong>
+              <p>Дні зі звітом позначені кольором на календарі.</p>
+            </div>
+          )}
+        </section>
+      </div>
+      <ReportHistoryDialog open={historyOpen} date={selected} currentRevision={editorData?.selected?.revisionCount ?? 0} onClose={() => setHistoryOpen(false)} onRestored={() => { setNotice('Версію відновлено як нову.'); void load(selected); }} finalFocus={() => reportHistoryTrigger.current} />
+      {backdatedLeadOpen && selected ? <LeadEditor defaultResponseDate={selected} close={() => setBackdatedLeadOpen(false)} save={createBackdatedLead} /> : null}
     </div>
-    <ReportHistoryDialog open={historyOpen} date={selected} currentRevision={editorData?.selected?.revisionCount ?? 0} onClose={() => setHistoryOpen(false)} onRestored={() => { setNotice('Версію відновлено як нову.'); void load(selected); }} finalFocus={() => reportHistoryTrigger.current} />
-    {backdatedLeadOpen && selected ? <LeadEditor defaultResponseDate={selected} close={() => setBackdatedLeadOpen(false)} save={createBackdatedLead} /> : null}
-  </div>;
+  );
 }
 
 function reportViewKey(month:string,date:string|null){return `${month}:${date||''}`;}
 
 function GoalPlanFactView({ data }: { data: GoalPlanFact }) {
-  return <div className="report-summary"><p className="eyebrow">План / факт</p><div><strong>День</strong><span>План: {data.dailyTarget}</span><span>Факт: {data.dailyActual}</span></div><div><strong>Місяць</strong><span>План: {data.monthlyTarget}</span><span>Факт: {data.monthlyActual}</span></div></div>;
+  return (
+    <div className="report-summary">
+      <p className="eyebrow">План / факт</p>
+      <div className="report-goal-row">
+        <strong>День</strong>
+        <span>План: {data.dailyTarget}</span>
+        <span>Факт: {data.dailyActual}</span>
+      </div>
+      <div className="report-goal-row">
+        <strong>Місяць</strong>
+        <span>План: {data.monthlyTarget}</span>
+        <span>Факт: {data.monthlyActual}</span>
+      </div>
+    </div>
+  );
 }
 
-function Summary({ summary }: { summary: ReportData['summary'] }) { const grouped = new Map<string, Record<string, number>>(); for (const row of summary) { const current = grouped.get(row.platform) || {}; current[row.eventType] = (current[row.eventType] || 0) + row.count; grouped.set(row.platform, current); } return <div className="report-summary"><p className="eyebrow">Події в базі за цей день</p>{Array.from(grouped).map(([platform, values]) => <div key={platform}><strong>{platformNames[platform] || platform}</strong><span>Оголошення: {values.publication || 0}</span><span>Відгуки: {values.lead_created || 0}</span><span>Записи: {(values.lesson_booked || 0) + (values.curator_booking_pending || 0)}</span></div>)}</div>; }
+function Summary({ summary }: { summary: ReportData['summary'] }) {
+  const grouped = new Map<string, Record<string, number>>();
+  for (const row of summary) {
+    const current = grouped.get(row.platform) || {};
+    current[row.eventType] = (current[row.eventType] || 0) + row.count;
+    grouped.set(row.platform, current);
+  }
+  return (
+    <div className="report-summary">
+      <p className="eyebrow">Події в базі за цей день</p>
+      <div className="report-platform-events-grid">
+        {Array.from(grouped).map(([platform, values]) => (
+          <div key={platform} className="report-platform-event-card">
+            <strong>{platformNames[platform] || platform}</strong>
+            <span>Оголошення: <b>{values.publication || 0}</b></span>
+            <span>Відгуки: <b>{values.lead_created || 0}</b></span>
+            <span>Записи: <b>{(values.lesson_booked || 0) + (values.curator_booking_pending || 0)}</b></span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ReportEventDetails({ details, onOpenLead }: { details: ReportEventDetail[]; onOpenLead?: (leadId: string) => void }) {
   const sources = details.filter((event) => event.eventType === 'chat_joined' || event.eventType === 'publication');
   const responses = details.filter((event) => event.eventType === 'lead_created');
   const bookings = details.filter((event) => event.eventType === 'lesson_booked' || event.eventType === 'curator_booking_pending');
-  return <section className="report-event-details" aria-label="Деталізація подій"><div className="report-event-details-head"><p className="eyebrow">Деталізація подій</p><span>Показано: {details.length}</span></div><div className="report-event-columns"><EventList title="Джерельні події" events={sources} onOpenLead={onOpenLead} /><EventList title="Відгуки" events={responses} onOpenLead={onOpenLead} /><EventList title="Записи" events={bookings} onOpenLead={onOpenLead} /></div></section>;
+  return (
+    <section className="report-event-details" aria-label="Деталізація подій">
+      <div className="report-event-details-head">
+        <p className="eyebrow">Деталізація подій</p>
+        <span>Показано: {details.length}</span>
+      </div>
+      <div className="report-event-columns">
+        <EventList title="Джерельні події" events={sources} onOpenLead={onOpenLead} />
+        <EventList title="Відгуки" events={responses} onOpenLead={onOpenLead} />
+        <EventList title="Записи" events={bookings} onOpenLead={onOpenLead} />
+      </div>
+    </section>
+  );
 }
 function EventList({ title, events, onOpenLead }: { title: string; events: ReportEventDetail[]; onOpenLead?: (leadId: string) => void }) {
   return <div className="report-event-list"><h4>{title} <span>{events.length}</span></h4>{events.length ? <ul>{events.map((event) => {

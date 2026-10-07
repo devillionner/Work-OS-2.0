@@ -238,23 +238,84 @@ export function AnalyticsWorkspace({ syncRevision=0, active=true }: { syncRevisi
 }
 
 function Metric({ metric, label, value, hint, onOpen }: { metric: AnalyticsMetricKey; label: string; value: number; hint: string; onOpen: (metric: AnalyticsMetricKey) => void }) {
-  return <div className="analytics-metric"><span>{label}</span><strong>{value}</strong><small>{hint}</small><Button type="button" size="sm" variant="ghost" onClick={() => onOpen(metric)}>Що входить · Події</Button></div>;
+  return (
+    <div className="analytics-metric-card">
+      <div className="analytics-metric-head">
+        <span className="analytics-metric-label">{label}</span>
+      </div>
+      <strong className="analytics-metric-value">{value}</strong>
+      <p className="analytics-metric-hint">{hint}</p>
+      <Button type="button" size="sm" variant="ghost" className="analytics-metric-btn" onClick={() => onOpen(metric)}>
+        <span>Що входить · Події</span>
+      </Button>
+    </div>
+  );
 }
 
 function FunnelStep({ title, value, detail }: { title: string; value: number; detail: string }) {
-  return <div className="funnel-step"><span>{title}</span><strong>{value}</strong><small>{detail}</small></div>;
+  return (
+    <div className="funnel-step-card">
+      <span className="funnel-step-title">{title}</span>
+      <strong className="funnel-step-value">{value}</strong>
+      <small className="funnel-step-detail">{detail}</small>
+    </div>
+  );
 }
 
-function Outcome({ label, value }: { label:string; value:number }) {
-  return <div className="analytics-outcome"><span>{label}</span><strong>{value}</strong></div>;
+function Outcome({ label, value, color }: { label:string; value:number; color?:string }) {
+  return (
+    <div className="analytics-outcome-card">
+      <div className="analytics-outcome-dot" style={color ? { background: color } : undefined} />
+      <span className="analytics-outcome-label">{label}</span>
+      <strong className="analytics-outcome-value">{value}</strong>
+    </div>
+  );
 }
 
 function SubjectAnalytics({ data }: { data: SubjectData }) {
-  return <section className="analytics-card analytics-subjects">
-    <div className="card-heading"><div><p className="eyebrow">Напрямки попиту</p><h3>Предмети</h3><p className="muted-note analytics-card-note">Відгуки та записи за той самий вибраний період.</p></div><Badge variant="outline">{formatRange(data.from, data.to)}</Badge></div>
-    <div className="subject-overview"><div><span>Відгуки</span><strong>{data.total.responses}</strong></div><div><span>Записи</span><strong>{data.total.bookings}</strong></div><div><span>Конверсія</span><strong>{analyticsPercentLabel(data.total.conversion, data.total.responses)}</strong></div></div>
-    <div className="analytics-table analytics-subject-table"><div className="analytics-table-head"><span>Предмет</span><span>Відгуки</span><span>Записи</span><span>Конверсія</span></div>{data.rows.map((row) => <div className="analytics-table-row" key={row.subject}><strong>{row.subject}</strong><span>{row.responses}</span><span>{row.bookings}</span><span>{analyticsPercentLabel(row.conversion, row.responses)}</span></div>)}{!data.rows.length && <div className="analytics-empty">За цей період ще немає відгуків або записів.</div>}</div>
-  </section>;
+  return (
+    <section className="analytics-card analytics-subjects">
+      <div className="card-heading">
+        <div>
+          <p className="eyebrow">Напрямки попиту</p>
+          <h3>Предмети</h3>
+          <p className="muted-note analytics-card-note">Відгуки та записи за вибраний період.</p>
+        </div>
+        <Badge variant="outline">{formatRange(data.from, data.to)}</Badge>
+      </div>
+      <div className="subject-overview">
+        <div className="subject-stat-card">
+          <span>Відгуки</span>
+          <strong>{data.total.responses}</strong>
+        </div>
+        <div className="subject-stat-card">
+          <span>Записи</span>
+          <strong>{data.total.bookings}</strong>
+        </div>
+        <div className="subject-stat-card">
+          <span>Конверсія</span>
+          <strong>{analyticsPercentLabel(data.total.conversion, data.total.responses)}</strong>
+        </div>
+      </div>
+      <div className="analytics-table analytics-subject-table">
+        <div className="analytics-table-head">
+          <span>Предмет</span>
+          <span>Відгуки</span>
+          <span>Записи</span>
+          <span>Конверсія</span>
+        </div>
+        {data.rows.map((row) => (
+          <div className="analytics-table-row" key={row.subject}>
+            <strong>{row.subject}</strong>
+            <span>{row.responses}</span>
+            <span>{row.bookings}</span>
+            <span className="analytics-conv-badge">{analyticsPercentLabel(row.conversion, row.responses)}</span>
+          </div>
+        ))}
+        {!data.rows.length && <div className="analytics-empty">За цей період ще немає відгуків або записів.</div>}
+      </div>
+    </section>
+  );
 }
 
 function formatRange(from: string, to: string) {

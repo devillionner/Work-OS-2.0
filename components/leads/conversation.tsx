@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { Download, Plus, MessageSquare, User, Bot, Trash2, Paperclip, Edit3 } from 'lucide-react';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import { Button } from '@/components/ui/button';
 import {
@@ -179,24 +180,28 @@ export function Conversation({
     <section className="lead-panel" aria-labelledby="conversation-title">
       <div className="lead-section-head">
         <div>
+          <p className="eyebrow">Комунікація</p>
           <h3 id="conversation-title">Історія спілкування</h3>
           <p className="muted-note">
-            Ручні записи переписки. Повідомлення звідси не надсилаються у
-            месенджери.
+            Внутрішні записи CRM. Повідомлення зберігаються локально й не надсилаються в месенджери.
           </p>
         </div>
         <div className="lead-actions">
           <a
             href={`/api/leads?id=${encodeURIComponent(detail.lead.id)}&export=txt`}
             download
+            className="lead-export-btn"
           >
+            <Download className="size-3.5 mr-1" />
             Експорт .txt
           </a>
           <Button
-            variant="outline"
+            variant="default"
+            size="sm"
             disabled={archived}
             onClick={() => setEditing('new')}
           >
+            <Plus className="size-3.5 mr-1" />
             Додати повідомлення
           </Button>
         </div>
@@ -211,32 +216,49 @@ export function Conversation({
       />
       {mediaError && <p className="lead-error" role="alert">{mediaError}</p>}
       {!messages.length && (
-        <p className="lead-empty">Повідомлень ще немає.</p>
+        <div className="lead-empty">
+          <MessageSquare className="size-8 opacity-30 mx-auto mb-2" />
+          <p>Повідомлень ще немає. Зафіксуйте ключові деталі бесіди.</p>
+        </div>
       )}
       {page.hasMore && page.before && (
         <div className="lead-history-more">
-          <Button variant="ghost" onClick={() => void loadOlder()} disabled={olderBusy}>
-            {olderBusy ? 'Завантаження…' : 'Показати попередні'}
+          <Button variant="ghost" size="sm" onClick={() => void loadOlder()} disabled={olderBusy}>
+            {olderBusy ? 'Завантаження…' : 'Показати попередні повідомлення'}
           </Button>
           {olderError && <p className="lead-error" role="alert">{olderError}</p>}
         </div>
       )}
       <ol className="lead-messages">
         {messages.map((m) => (
-          <li key={m.id} className={m.sender === 'me' ? 'from-me' : ''}>
-            <div>
-              <strong>{m.sender === 'lead' ? 'Лід' : 'Я'}</strong>
-              <time dateTime={new Date(m.sentAt * 1000).toISOString()}>
+          <li key={m.id} className={`lead-message-bubble ${m.sender === 'me' ? 'from-me' : 'from-lead'}`}>
+            <div className="lead-message-header">
+              <span className="lead-message-sender-chip">
+                {m.sender === 'lead' ? (
+                  <>
+                    <User className="size-3 mr-1" />
+                    Лід
+                  </>
+                ) : (
+                  <>
+                    <Bot className="size-3 mr-1" />
+                    Я (Оператор)
+                  </>
+                )}
+              </span>
+              <time dateTime={new Date(m.sentAt * 1000).toISOString()} className="lead-message-time">
                 {displayTime(m.sentAt)} (Київ)
               </time>
             </div>
-            <p className="lead-preserve">{m.body}</p>
+            <div className="lead-message-body">
+              <p className="lead-preserve">{m.body}</p>
+            </div>
             {!!m.attachments.length && (
               <ul className="lead-attachments" aria-label="Вкладення">
                 {m.attachments.map((attachment) => {
                   const url = `/api/leads/attachments?id=${encodeURIComponent(attachment.id)}`;
                   return (
-                    <li key={attachment.id}>
+                    <li key={attachment.id} className="lead-attachment-item">
                       {isPreviewImage(attachment.contentType) && (
                         <a href={url} target="_blank" rel="noreferrer" className="lead-attachment-preview" aria-label={`Відкрити ${attachment.fileName}`}>
                           <span
@@ -246,8 +268,8 @@ export function Conversation({
                           />
                         </a>
                       )}
-                      <div>
-                        <a href={url} target="_blank" rel="noreferrer" download={!isPreviewImage(attachment.contentType)}>
+                      <div className="lead-attachment-info">
+                        <a href={url} target="_blank" rel="noreferrer" download={!isPreviewImage(attachment.contentType)} className="lead-attachment-filename">
                           {attachment.fileName}
                         </a>
                         <small>{formatFileSize(attachment.sizeBytes)} · {attachment.contentType}</small>
@@ -256,44 +278,53 @@ export function Conversation({
                         type="button"
                         size="sm"
                         variant="ghost"
+                        className="lead-attachment-delete-btn"
                         disabled={archived || mediaBusy}
                         onClick={() => setDeletingAttachment({
                           messageId: m.id,
                           attachmentId: attachment.id,
                           fileName: attachment.fileName,
                         })}
+                        title="Видалити файл"
                       >
-                        Видалити файл
+                        <Trash2 className="size-3.5 text-red-500" />
                       </Button>
                     </li>
                   );
                 })}
               </ul>
             )}
-            <div className="lead-actions">
+            <div className="lead-actions lead-message-actions">
               <Button
                 type="button"
                 variant="ghost"
+                size="sm"
                 disabled={archived || mediaBusy}
                 onClick={() => chooseAttachments(m.id)}
                 aria-label={`Прикріпити файл до повідомлення від ${displayTime(m.sentAt)}`}
               >
+                <Paperclip className="size-3 mr-1" />
                 {mediaBusy && uploadingMessageId === m.id ? 'Додаємо…' : 'Прикріпити файл'}
               </Button>
               <Button
                 variant="ghost"
+                size="sm"
                 disabled={archived}
                 onClick={() => setEditing(m.id)}
                 aria-label={`Редагувати повідомлення від ${displayTime(m.sentAt)}`}
               >
+                <Edit3 className="size-3 mr-1" />
                 Редагувати
               </Button>
               <Button
                 variant="ghost"
+                size="sm"
                 disabled={archived}
                 onClick={() => setDeleting(m.id)}
                 aria-label={`Видалити повідомлення від ${displayTime(m.sentAt)}`}
+                className="text-slate-500 hover:text-red-600"
               >
+                <Trash2 className="size-3 mr-1" />
                 Видалити
               </Button>
             </div>

@@ -801,14 +801,35 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     {notice&&<output className="reports-notice"><span>{notice}</span>{undo&&<Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>void undoLast()}>Скасувати</Button>}</output>}
     <section className="platform-header">
       <div className="platform-header-main">
-        <div><p className="eyebrow">Робочі платформи</p><h2>Платформи</h2><p>Черги чатів, приєднання та підтверджені публікації — без зайвих проміжних екранів.</p></div>
+        <div>
+          <p className="eyebrow">Робочі платформи</p>
+          <h2>Платформи</h2>
+          <p>Черги чатів, приєднання та підтверджені публікації — без зайвих проміжних екранів.</p>
+        </div>
         <div className="platform-header-actions">
-          <Button variant="outline" disabled={busy!==null} onClick={()=>setDiscoveryOpen(true)}><Search data-icon="inline-start"/>Знайти чати</Button>
-          <Button disabled={busy!==null} onClick={()=>setBulkOpen(true)}><Plus data-icon="inline-start"/>Додати чати</Button>
+          <Button variant="outline" disabled={busy!==null} onClick={()=>setDiscoveryOpen(true)}>
+            <Search data-icon="inline-start"/>Знайти чати
+          </Button>
+          <Button disabled={busy!==null} onClick={()=>setBulkOpen(true)}>
+            <Plus data-icon="inline-start"/>Додати чати
+          </Button>
         </div>
       </div>
       <div className="platform-picker" role="tablist" aria-label="Платформа">
-        {availablePlatforms.map(item=><button type="button" key={item.key} role="tab" aria-selected={platform===item.key} tabIndex={platform===item.key?0:-1} onKeyDown={handleTabKeyNavigation} onClick={()=>selectPlatform(item.key)}><i style={{background:item.color}} />{item.label}</button>)}
+        {availablePlatforms.map(item=>(
+          <button
+            type="button"
+            key={item.key}
+            role="tab"
+            aria-selected={platform===item.key}
+            tabIndex={platform===item.key?0:-1}
+            onKeyDown={handleTabKeyNavigation}
+            onClick={()=>selectPlatform(item.key)}
+          >
+            <i style={{background:item.color}} aria-hidden="true" />
+            <span>{item.label}</span>
+          </button>
+        ))}
       </div>
     </section>
 
@@ -878,7 +899,12 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
           }}/>
         : <>
       <div className="chat-toolbar">
-        <label htmlFor="chat-search"><Search/><Input id="chat-search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Пошук за назвою або посиланням"/><span className="sr-only">Пошук чатів</span></label>
+        <label htmlFor="chat-search" className="relative flex-1">
+          <Search className="chat-search-icon" aria-hidden="true"/>
+          <Input id="chat-search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Пошук за назвою або посиланням"/>
+          {search&&<button type="button" className="chat-search-clear" onClick={()=>setSearch('')} aria-label="Очистити пошук"><X className="size-3.5"/></button>}
+          <span className="sr-only">Пошук чатів</span>
+        </label>
         {(queue==='waiting'||queue==='ready')&&platform!=='viber'&&<><Button type="button" variant="outline" size="sm" title={profileSummary?`Підтверджені: ${profileSummary.confirmed}; чернетки: ${profileSummary.draft}; без профілю: ${profileSummary.empty}`:'Фільтр профілів'} aria-pressed={profileFilter==='needs_review'} onClick={()=>{setProfileFilter(value=>value==='all'?'needs_review':'all');setOffset(0);}}><UserRoundCheck data-icon="inline-start"/>{profileFilter==='needs_review'?`Усі профілі (${data?.counts[queue]||0})`:`Потребують правил (${profileSummary?.needsReview||0})`}</Button>{profileSummary&&<span className="profile-counts" aria-label={`Профілі: підтверджені ${profileSummary.confirmed}, чернетки ${profileSummary.draft}, без профілю ${profileSummary.empty}`}>✓ {profileSummary.confirmed} · чернетки {profileSummary.draft} · без профілю {profileSummary.empty}</span>}</>}{queue==='profile_review'&&profileSummary&&<output className="profile-counts" aria-label={`Потрібно уточнити профілі: чернетки ${profileSummary.draft}, без профілю ${profileSummary.empty}`}>Чернетки {profileSummary.draft} · без профілю {profileSummary.empty}</output>}
         <Button type="button" variant="outline" size="sm" disabled={busy!==null||platform==='telegram'&&!accountId} onClick={()=>setDuplicatesOpen(true)}>Дублікати</Button>
       </div>
@@ -886,13 +912,13 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       {!data&&(loading||switchingList) ? <WorkspaceInitialLoading compact label={`Завантажуємо ${selected.label}…`}/> : data?.chats.length ? <>
         <div className="chat-list">
         {data.chats.map((chat,index)=><article className={`chat-row ${chat.publishedToday?'is-published':''} ${lastOpenedByPlatform[platform]===chat.id?'is-last-opened':''} ${index>=mobileVisibleChats?'mobile-progressive-hidden':''}`} key={chat.id}>
-          <div className="chat-main"><div className="chat-name-line"><strong>{chat.name}</strong>{lastOpenedByPlatform[platform]===chat.id&&<Badge variant="outline">Останній відкритий</Badge>}{platform!=='viber'&&!chat.profileConfirmed&&(queue==='ready'||queue==='profile_review')&&<Badge variant="outline">Профіль пізніше</Badge>}{queue==='profile_review'&&<Badge variant="secondary">{chat.status==='waiting'?'Очікування':'Для публікації'}</Badge>}{queue==='ready'&&chat.discoveryDecision&&chat.discoveryDecision!=='target'&&<Badge variant="outline">Потрібна кваліфікація</Badge>}{chat.autopostJobId&&<Badge variant="secondary">Автопост у черзі</Badge>}{chat.publishedToday&&<Badge variant="secondary">Опубліковано сьогодні</Badge>}</div><button className="chat-native-link" type="button" title={chat.link} aria-label={`Відкрити ${selected.label}: ${chat.link}`} onClick={()=>openChat(chat)}>{compactChatLink(chat.link)}</button>{chat.archiveReason&&<small>Причина: {chat.archiveReason}</small>}{queue==='archived'&&chat.archivedAt&&<small>Архівовано {formatDateTime(chat.archivedAt)}</small>}{queue==='archived'&&supportsChatLeaveChecklist(platform)&&chat.joinedAt!==null&&<small>{chat.leftAt?`Вихід із чату підтверджено ${formatDateTime(chat.leftAt)}`:'Ще потрібно вручну вийти з чату й підтвердити це тут.'}</small>}{chat.snoozedUntil&&chat.snoozedUntil>clock/1000&&<small>Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{(queue==='waiting'||queue==='ready')&&shouldSuggestChatArchive(chat.snoozeCount)&&<div><small>Відкладали {chat.snoozeCount} рази. Якщо чат уже неактуальний, краще перенести його в архів.</small><Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>toggleArchive(chat.id)}><Archive data-icon="inline-start"/>Архівувати</Button></div>}{queue==='ready'&&!canPublish(chat,clock)&&(chat.discoveryDecision&&chat.discoveryDecision!=='target'
+          <div className="chat-main"><div className="chat-name-line"><strong title={chat.name}>{chat.name}</strong>{lastOpenedByPlatform[platform]===chat.id&&<Badge variant="outline" className="border-primary/40 bg-accent text-primary">Останній відкритий</Badge>}{platform!=='viber'&&!chat.profileConfirmed&&(queue==='ready'||queue==='profile_review')&&<Badge variant="outline" className="border-amber-500/40 text-amber-800 dark:text-amber-400">Профіль пізніше</Badge>}{queue==='profile_review'&&<Badge variant="secondary">{chat.status==='waiting'?'Очікування':'Для публікації'}</Badge>}{queue==='ready'&&chat.discoveryDecision&&chat.discoveryDecision!=='target'&&<Badge variant="outline" className="border-amber-500/40 text-amber-800 dark:text-amber-400">Потрібна кваліфікація</Badge>}{chat.autopostJobId&&<Badge variant="secondary" className="bg-primary/10 text-primary">Автопост у черзі</Badge>}{chat.publishedToday&&<Badge variant="secondary" className="bg-emerald-500/10 text-emerald-800 dark:text-emerald-400">Опубліковано сьогодні</Badge>}</div><button className="chat-native-link" type="button" title={chat.link} aria-label={`Відкрити ${selected.label}: ${chat.link}`} onClick={()=>openChat(chat)}>{compactChatLink(chat.link)}</button>{chat.archiveReason&&<small className="chat-meta-note">Причина: {chat.archiveReason}</small>}{queue==='archived'&&chat.archivedAt&&<small className="chat-meta-note">Архівовано {formatDateTime(chat.archivedAt)}</small>}{queue==='archived'&&supportsChatLeaveChecklist(platform)&&chat.joinedAt!==null&&<small className="chat-meta-note">{chat.leftAt?`Вихід із чату підтверджено ${formatDateTime(chat.leftAt)}`:'Ще потрібно вручну вийти з чату й підтвердити це тут.'}</small>}{chat.snoozedUntil&&chat.snoozedUntil>clock/1000&&<small className="chat-meta-note">Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{(queue==='waiting'||queue==='ready')&&shouldSuggestChatArchive(chat.snoozeCount)&&<div className="chat-snooze-warning"><small>Відкладали {chat.snoozeCount} рази. Якщо чат уже неактуальний, краще перенести його в архів.</small><Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>toggleArchive(chat.id)}><Archive data-icon="inline-start"/>Архівувати</Button></div>}{queue==='ready'&&!canPublish(chat,clock)&&(chat.discoveryDecision&&chat.discoveryDecision!=='target'
   ? <small className="wait-note"><Clock3/>Публікація заблокована до завершення кваліфікації чату.</small>
   : <small className="wait-note"><Clock3/>Публікація буде доступна {formatDateTime(chat.availableAt!)}</small>)}</div>
           <div className="chat-actions">
             {platform==='telegram'&&queue!=='to_join'&&queue!=='profile_review'&&<select disabled={busy!==null} className="chat-account-select" value={chat.telegramAccountId||''} onChange={event=>assignAccount(chat,event.target.value)} aria-label="Telegram-акаунт чату">{accounts.filter(item=>item.enabled||item.id===chat.telegramAccountId).map(account=><option value={account.id} key={account.id}>{account.name} · #{account.number}</option>)}</select>}
-            {queue==='to_join'&&<><Button size="icon" onClick={()=>act(chat,'joined')} disabled={busy!==null} aria-label="Успішно приєднано"><Check/></Button>{(platform==='telegram'||platform==='whatsapp')&&<Button variant="outline" size="icon" onClick={()=>act(chat,'waiting')} disabled={busy!==null} aria-label="Очікуємо запрошення"><Clock3/></Button>}<Button variant="outline" size="icon" onClick={()=>act(chat,'failed',{reason:'Не вдалося приєднатися'},{action:'restore',label:'Невдале приєднання можна скасувати протягом 8 секунд.'})} disabled={busy!==null} aria-label="Не вдалося приєднатися"><X/></Button></>}
-            {queue==='waiting'&&<Button onClick={()=>act(chat,'approved')} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>Прийняли</Button>}
+            {queue==='to_join'&&<><Button size="icon" onClick={()=>act(chat,'joined')} disabled={busy!==null} aria-label="Успішно приєднано" className="chat-btn-join"><Check/></Button>{(platform==='telegram'||platform==='whatsapp')&&<Button variant="outline" size="icon" onClick={()=>act(chat,'waiting')} disabled={busy!==null} aria-label="Очікуємо запрошення" className="chat-btn-waiting"><Clock3/></Button>}<Button variant="outline" size="icon" onClick={()=>act(chat,'failed',{reason:'Не вдалося приєднатися'},{action:'restore',label:'Невдале приєднання можна скасувати протягом 8 секунд.'})} disabled={busy!==null} aria-label="Не вдалося приєднатися" className="chat-btn-failed"><X/></Button></>}
+            {queue==='waiting'&&<Button onClick={()=>act(chat,'approved')} disabled={busy!==null} className="chat-btn-approve"><UserRoundCheck data-icon="inline-start"/>Прийняли</Button>}
             {queue==='ready'&&<>{!chat.publishedToday&&<Button onClick={(event)=>{publishTrigger.current=event.currentTarget;setPublishChat(chat);}} disabled={busy!==null||Boolean(chat.autopostJobId)||Boolean(chat.discoveryDecision&&chat.discoveryDecision!=='target')||!canPublish(chat,clock)}><Send data-icon="inline-start"/>{readyActionLabel(chat,clock)}</Button>}{platform==='whatsapp'&&!chat.publishedToday&&<Button type="button" variant={chat.autopostJobId?'outline':'default'} size="sm" disabled={busy!==null||Boolean(chat.discoveryDecision&&chat.discoveryDecision!=='target')||(!chat.autopostJobId&&(!whatsappAutopostImageLoaded||!whatsappAutopostImage||!canPublish(chat,clock)))} onClick={()=>void toggleWhatsAppAutopost(chat)}><Send data-icon="inline-start"/>{chat.autopostJobId?'Скасувати автопост':'Автопост'}</Button>}{platform==='whatsapp'&&<Button variant="outline" size="icon" onClick={()=>setConfirmation({kind:'return',chat})} disabled={busy!==null||Boolean(chat.autopostJobId)} aria-label="Повернути для приєднання"><Undo2/></Button>}</>}
             {platform!=='viber'&&(queue==='waiting'||queue==='ready'||queue==='profile_review')&&<Button variant={queue==='profile_review'?'default':'outline'} onClick={(event)=>{profileTrigger.current=event.currentTarget;setProfileChat(chat);}} disabled={busy!==null}><UserRoundCheck data-icon="inline-start"/>{queue==='profile_review'?'Уточнити профіль':'Профіль'}</Button>}
             {(queue==='waiting'||queue==='ready')&&<Button variant="outline" title={isSnoozed(chat,clock)?'Скасувати відкладення':'Відкласти на 3 календарні дні'} onClick={()=>{const snoozed=isSnoozed(chat,clock);return act(chat,snoozed?'unsnooze':'snooze',{},snoozed?undefined:{action:'unsnooze',label:'Відкладення можна скасувати протягом 8 секунд.'});}} disabled={busy!==null||chat.publishedToday}>{isSnoozed(chat,clock)?'Повернути зараз':'+3 дні'}</Button>}
@@ -907,9 +933,9 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
         </article>)}
         </div>
         {data.chats.length>mobileVisibleChats&&<div className="mobile-list-more"><Button type="button" variant="outline" onClick={()=>setMobileListState({key:mobileListKey,count:Math.min(mobileVisibleChats+MOBILE_LIST_CHUNK,data.chats.length)})}>Показати ще чати</Button></div>}
-      </>:<div className="workspace-empty"><MessageSquareEmpty/><strong>{queue==='profile_review'?'Усі профілі уточнено':'У цій черзі нічого немає'}</strong><p>{queue==='profile_review'?'Чернеток і чатів без підтверджених правил тут більше немає.':'Зміни платформу, чергу або очисть пошук.'}</p></div>}
+      </>:<div className="workspace-empty"><MessageSquareEmpty/><strong>{queue==='profile_review'?'Усі профілі уточено':'У цій черзі нічого немає'}</strong><p>{queue==='profile_review'?'Чернеток і чатів без підтверджених правил тут більше немає.':'Змініть платформу, чергу або очистіть пошук.'}</p></div>}
       {!loading&&data&&data.total>50&&<div className="chat-pagination"><Button variant="outline" size="sm" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-50))}><ChevronLeft data-icon="inline-start"/>Назад</Button><span>{offset+1}–{Math.min(offset+50,data.total)} із {data.total}</span><Button variant="outline" size="sm" disabled={offset+50>=data.total} onClick={()=>setOffset(offset+50)}>Далі<ChevronRight data-icon="inline-end"/></Button></div>}
-        </>}
+      </>}
     </section>
   </div>;
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Clock3, Pause, Play, RotateCcw, Square, Trash2 } from 'lucide-react';
+import { Clock3, Pause, Play, RotateCcw, Square, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -63,7 +63,7 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
         headers: { Accept: 'application/json' },
       });
       if (!response.ok) return 'failed';
-      const result = await response.json() as WorkdayResponse;
+      const result = (await response.json()) as WorkdayResponse;
       if (generation !== syncGeneration.current || busyRef.current) return 'skipped';
       const next = result.workday ?? null;
       const nextToday = result.today || today;
@@ -169,18 +169,20 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
     let refreshAfter = false;
     try {
       const payload: Record<string, unknown> = { action };
-      if (workday && action !== 'start') Object.assign(payload, {
-        id: workday.id,
-        workDate: workday.workDate,
-        expectedVersion: workday.version,
-        confirmIncomplete,
-      });
+      if (workday && action !== 'start') {
+        Object.assign(payload, {
+          id: workday.id,
+          workDate: workday.workDate,
+          expectedVersion: workday.version,
+          confirmIncomplete,
+        });
+      }
       const response = await fetch('/api/workday', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const result = await response.json() as WorkdayResponse;
+      const result = (await response.json()) as WorkdayResponse;
       if (!response.ok) {
         if (result.requiresConfirmation) {
           setConfirmCount(result.unfinishedCount ?? unfinishedCount);
@@ -228,34 +230,127 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
 
   return (
     <section className={`workday-card workday-card--${status}`} data-workday-status={status} aria-labelledby="workday-title">
-      <div className="workday-icon"><Clock3 /></div>
+      <div className="workday-icon" aria-hidden="true">
+        <Clock3 />
+        {status === 'active' && <span className="workday-pulse" />}
+      </div>
       <div className="workday-main">
         <div className="workday-heading">
           <div className="workday-heading-copy">
             <p className="eyebrow">Робочий день</p>
             <h2 id="workday-title">{workday ? statusLabel(workday.status) : 'Ще не розпочато'}</h2>
           </div>
-          <Badge className="workday-status" variant="secondary" aria-live="polite">{statusText}</Badge>
+          <Badge className="workday-status" variant={status === 'active' ? 'default' : 'secondary'} aria-live="polite">
+            <span className={`workday-status-dot is-${status}`} aria-hidden="true" />
+            {statusText}
+          </Badge>
         </div>
-        <p className="workday-time">Активний час: <strong>{formatDuration(seconds)}</strong></p>
-        {staleOpen && <p className="muted-note">Відкритий день за {formatDate(workday!.workDate)}. Заверши його перед стартом нового.</p>}
-        {confirmCount !== null && <p className="muted-note">Залишилося справ: {confirmCount}. Завершити день попри це?</p>}
-        {workday?.status === 'ended' && <p className="muted-note">Завершили випадково? Поверніть день, щоб продовжити з попереднього часу, або скиньте сьогоднішній день, щоб почати заново.</p>}
-        {showPlan && <div className="workday-plan"><strong>План дня</strong><span>Записи: {plan.dailyGoal} · місячна ціль: {plan.monthlyGoal}</span><span>Фокус: {plan.focusDirections.length ? plan.focusDirections.join(', ') : 'без окремого напрямку'}</span><small>{workday?.plan ? `Зафіксовано на старті о ${formatTime(workday.plan.createdAt)}` : 'Цілі зафіксуються під час старту й не зміняться заднім числом.'}</small></div>}
+
+        <div className="workday-timer-display">
+          <span className="workday-timer-label">Активний час</span>
+          <p className="workday-time">
+            <strong>{formatDuration(seconds)}</strong>
+          </p>
+        </div>
+
+        {staleOpen && (
+          <div className="workday-alert is-warning">
+            <AlertCircle className="workday-alert-icon" />
+            <p className="muted-note">Відкритий день за {formatDate(workday!.workDate)}. Заверши його перед стартом нового.</p>
+          </div>
+        )}
+        {confirmCount !== null && (
+          <div className="workday-alert is-warning">
+            <AlertCircle className="workday-alert-icon" />
+            <p className="muted-note">Залишилося справ: {confirmCount}. Завершити день попри це?</p>
+          </div>
+        )}
+        {workday?.status === 'ended' && (
+          <div className="workday-alert is-neutral">
+            <CheckCircle2 className="workday-alert-icon" />
+            <p className="muted-note">Завершили випадково? Поверніть день, щоб продовжити з попереднього часу, або скиньте сьогоднішній день, щоб почати заново.</p>
+          </div>
+        )}
+
+        {showPlan && (
+          <div className="workday-plan">
+            <div className="workday-plan-header">
+              <strong>План дня</strong>
+              <small>
+                {workday?.plan
+                  ? `Зафіксовано на старті о ${formatTime(workday.plan.createdAt)}`
+                  : 'Цілі зафіксуються під час старту й не зміняться заднім числом.'}
+              </small>
+            </div>
+            <div className="workday-plan-metrics">
+              <span className="workday-plan-pill">
+                Записи: <strong>{plan.dailyGoal}</strong>
+              </span>
+              <span className="workday-plan-pill">
+                місячна ціль: <strong>{plan.monthlyGoal}</strong>
+              </span>
+            </div>
+            <div className="workday-plan-focus">
+              <span className="workday-plan-focus-label">Фокус:</span>
+              <span className="workday-plan-focus-val">
+                {plan.focusDirections.length ? plan.focusDirections.join(', ') : 'без окремого напрямку'}
+              </span>
+            </div>
+          </div>
+        )}
+
         {error && <p className="lead-error" role="alert">{error}</p>}
       </div>
+
       <div className="workday-actions">
-        {!workday && <Button onClick={() => mutate('start')} disabled={busy}><Play data-icon="inline-start" />Почати день</Button>}
-        {workday?.status === 'active' && <Button variant="outline" onClick={() => mutate('pause')} disabled={busy}><Pause data-icon="inline-start" />Пауза</Button>}
-        {workday?.status === 'paused' && <Button variant="outline" onClick={() => mutate('resume')} disabled={busy}><Play data-icon="inline-start" />Продовжити</Button>}
-        {workday && workday.status !== 'ended' && confirmCount === null && <Button variant="outline" onClick={() => mutate('end')} disabled={busy}><Square data-icon="inline-start" />Завершити день</Button>}
-        {confirmCount !== null && <>
-          <Button onClick={() => mutate('end', true)} disabled={busy}>Завершити попри {confirmCount}</Button>
-          <Button variant="outline" onClick={() => setConfirmCount(null)} disabled={busy}>Не завершувати</Button>
-        </>}
-        {workday?.status === 'ended' && <Button variant="outline" onClick={() => mutate('reopen')} disabled={busy}><RotateCcw data-icon="inline-start" />Повернути день</Button>}
-        {workday?.status === 'ended' && workday.workDate === currentToday && <Button variant="destructive" onClick={() => setResetOpen(true)} disabled={busy}><Trash2 data-icon="inline-start" />Скинути день</Button>}
+        {!workday && (
+          <Button onClick={() => mutate('start')} disabled={busy}>
+            <Play data-icon="inline-start" />
+            Почати день
+          </Button>
+        )}
+        {workday?.status === 'active' && (
+          <Button variant="outline" onClick={() => mutate('pause')} disabled={busy}>
+            <Pause data-icon="inline-start" />
+            Пауза
+          </Button>
+        )}
+        {workday?.status === 'paused' && (
+          <Button variant="default" onClick={() => mutate('resume')} disabled={busy}>
+            <Play data-icon="inline-start" />
+            Продовжити
+          </Button>
+        )}
+        {workday && workday.status !== 'ended' && confirmCount === null && (
+          <Button variant="outline" onClick={() => mutate('end')} disabled={busy}>
+            <Square data-icon="inline-start" />
+            Завершити день
+          </Button>
+        )}
+        {confirmCount !== null && (
+          <>
+            <Button onClick={() => mutate('end', true)} disabled={busy}>
+              Завершити попри {confirmCount}
+            </Button>
+            <Button variant="outline" onClick={() => setConfirmCount(null)} disabled={busy}>
+              Не завершувати
+            </Button>
+          </>
+        )}
+        {workday?.status === 'ended' && (
+          <Button variant="outline" onClick={() => mutate('reopen')} disabled={busy}>
+            <RotateCcw data-icon="inline-start" />
+            Повернути день
+          </Button>
+        )}
+        {workday?.status === 'ended' && workday.workDate === currentToday && (
+          <Button variant="destructive" onClick={() => setResetOpen(true)} disabled={busy}>
+            <Trash2 data-icon="inline-start" />
+            Скинути день
+          </Button>
+        )}
       </div>
+
       <ConfirmDialog
         open={resetOpen}
         title="Скинути робочий день?"
@@ -264,7 +359,9 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
         busy={busy}
         destructive
         onCancel={() => setResetOpen(false)}
-        onConfirm={() => { void mutate('reset'); }}
+        onConfirm={() => {
+          void mutate('reset');
+        }}
       />
     </section>
   );
@@ -273,6 +370,7 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
 function statusLabel(status: WorkdaySnapshot['status']) {
   return status === 'active' ? 'Робота триває' : status === 'paused' ? 'На паузі' : 'День завершено';
 }
+
 function formatDuration(seconds: number) {
   const total = Math.max(0, Math.floor(seconds));
   const hours = Math.floor(total / 3600);
@@ -285,15 +383,28 @@ function formatDate(value: string) {
   const [year, month, day] = value.split('-');
   return `${day}.${month}.${year}`;
 }
+
 function formatTime(value: number | null) {
   if (value === null) return '—';
   return new Intl.DateTimeFormat('uk-UA', {
-    hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Kyiv',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Europe/Kyiv',
   }).format(new Date(value * 1000));
 }
 
 function workdaySignature(value: WorkdaySnapshot | null, today: string) {
   return value
-    ? [today,value.id,value.workDate,value.status,value.version,value.activeSince,value.pausedAt,value.endedAt,value.plan?.createdAt ?? ''].join(':')
+    ? [
+        today,
+        value.id,
+        value.workDate,
+        value.status,
+        value.version,
+        value.activeSince,
+        value.pausedAt,
+        value.endedAt,
+        value.plan?.createdAt ?? '',
+      ].join(':')
     : today + ':idle';
 }

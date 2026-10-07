@@ -1,5 +1,26 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Search,
+  Plus,
+  Phone,
+  Send,
+  ExternalLink,
+  Copy,
+  Check,
+  RotateCcw,
+  Archive,
+  History,
+  User,
+  Clock,
+  Sparkles,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  CheckCircle2,
+  AlertCircle,
+  FileText,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -45,6 +66,7 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
   const [responseChange, setResponseChange] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [notice, setNotice] = useState('');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const busy = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -68,7 +90,9 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
     }
     try {
       await navigator.clipboard.writeText(value);
+      setCopiedKey(label);
       setNotice(`${label} скопійовано.`);
+      setTimeout(() => setCopiedKey(null), 1800);
     } catch {
       setNotice(`Не вдалося скопіювати ${label.toLowerCase()}. Скопіюйте вручну.`);
     }
@@ -222,22 +246,30 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
         <div>
           <p className="eyebrow">CRM та супровід</p>
           <h2>Контакти, учні та уроки</h2>
-          <p>Один лід — повна історія родини.</p>
+          <p>Один лід — повна історія родини: воронка, комунікації, графік занять та учні.</p>
         </div>
-        <Button onClick={() => setEditor('create')}>Новий лід</Button>
+        <Button onClick={() => setEditor('create')}>
+          <Plus data-icon="inline-start" />
+          Новий лід
+        </Button>
       </section>
       <TodayLeadsPanel refreshKey={refresh} onSelect={openLead} />
       <div className="leads-layout">
         <section className="leads-list" aria-label="Список лідів">
-          <label htmlFor="lead-search">Пошук ліда</label>
-          <Input
-            ref={searchInput}
-            id="lead-search"
-            type="search"
-            placeholder="Ім’я, контакт, предмет, викладач або стан"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          <div className="leads-search-box">
+            <label htmlFor="lead-search">Пошук ліда</label>
+            <div className="leads-search-input-wrap">
+              <Search className="leads-search-icon" aria-hidden="true" />
+              <Input
+                ref={searchInput}
+                id="lead-search"
+                type="search"
+                placeholder="Ім’я, контакт, предмет, викладач або стан (/)"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+          </div>
           <fieldset className="lead-filters" aria-label="Фільтр лідів">
             {[
               ['active', 'Активні'],
@@ -262,7 +294,8 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
             ))}
             {(filter !== 'active' || search || offset !== 0) && (
               <Button type="button" size="sm" variant="ghost" onClick={resetListControls}>
-                Скинути фільтри
+                <RotateCcw className="size-3 mr-1" />
+                Скинути
               </Button>
             )}
           </fieldset>
@@ -277,70 +310,99 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
             <WorkspaceInitialLoading compact label="Завантажуємо ліди…"/>
           ) : (
             <>
-              <p className="muted-note">Знайдено: {list.total}</p>
+              <div className="leads-list-summary">
+                <span className="muted-note">Знайдено: <strong>{list.total}</strong></span>
+              </div>
               {list.leads.length ? (
-                <ul>
-                  {list.leads.map((lead, index) => (
-                    <li className={index >= mobileVisibleLeads ? 'mobile-progressive-hidden' : undefined} key={lead.id}>
-                      <button
-                        type="button"
-                        className="lead-list-item"
-                        aria-current={selected === lead.id ? 'true' : undefined}
-                        onClick={() => openLead(lead.id)}
-                      >
-                        <div>
-                          <strong>{lead.name}</strong>
-                          <span>{labels[lead.platform] ?? lead.platform}</span>
-                        </div>
-                        <p>{lead.subject || 'Предмет не вказано'}</p>
-                        <div>
-                          <span>{labels[lead.funnelStage]}</span>
-                          {lead.qualification && (
-                            <Badge variant="outline">
-                              {lead.qualification}
-                            </Badge>
+                <ul className="leads-items-list">
+                  {list.leads.map((lead, index) => {
+                    const initials = lead.name.slice(0, 2).toUpperCase();
+                    return (
+                      <li className={index >= mobileVisibleLeads ? 'mobile-progressive-hidden' : undefined} key={lead.id}>
+                        <button
+                          type="button"
+                          className="lead-list-item"
+                          aria-current={selected === lead.id ? 'true' : undefined}
+                          onClick={() => openLead(lead.id)}
+                        >
+                          <div className="lead-item-header">
+                            <div className="lead-item-avatar" aria-hidden="true">
+                              {initials}
+                            </div>
+                            <div className="lead-item-name-group">
+                              <strong>{lead.name}</strong>
+                              <span className="lead-item-platform-badge">{labels[lead.platform] ?? lead.platform}</span>
+                            </div>
+                          </div>
+                          <p className="lead-item-subject">{lead.subject || 'Предмет не вказано'}</p>
+                          <div className="lead-item-tags">
+                            <span className={`lead-stage-pill stage-${lead.funnelStage}`}>
+                              <i className="lead-stage-dot" />
+                              {labels[lead.funnelStage]}
+                            </span>
+                            {lead.qualification && (
+                              <Badge variant="outline" className="lead-qual-badge">
+                                Квал. {lead.qualification}
+                              </Badge>
+                            )}
+                            {lead.duplicateState !== 'none' && (
+                              <Badge variant="outline" className="lead-dup-badge">Дублікат?</Badge>
+                            )}
+                          </div>
+                          {lead.nextAction && (
+                            <div className={`lead-item-next-action ${lead.overdue ? 'is-overdue' : ''}`}>
+                              {lead.overdue ? <AlertCircle className="size-3 flex-shrink-0" /> : <Clock className="size-3 flex-shrink-0" />}
+                              <span>{lead.overdue ? 'Прострочено · ' : ''}{lead.nextAction}</span>
+                            </div>
                           )}
-                          {lead.duplicateState !== 'none' && (
-                            <span>Дублікат?</span>
-                          )}
-                        </div>
-                        {lead.nextAction && (
-                          <p className={lead.overdue ? 'lead-error' : ''}>
-                            {lead.overdue ? 'Прострочено · ' : ''}
-                            {lead.nextAction}
-                          </p>
-                        )}
-                      </button>
-                    </li>
-                  ))}
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : (
-                <p className="lead-empty">Лідів за цим фільтром немає.</p>
+                <div className="lead-empty">
+                  <User className="size-8 mx-auto mb-2 opacity-40" />
+                  <p>Лідів за цим фільтром немає.</p>
+                </div>
               )}
               {list.leads.length > mobileVisibleLeads && (
-                <div className="mobile-list-more"><Button type="button" variant="outline" onClick={() => setMobileListState({ key: mobileListKey, count: Math.min(mobileVisibleLeads + MOBILE_LIST_CHUNK, list.leads.length) })}>Показати ще лідів</Button></div>
+                <div className="mobile-list-more">
+                  <Button type="button" variant="outline" onClick={() => setMobileListState({ key: mobileListKey, count: Math.min(mobileVisibleLeads + MOBILE_LIST_CHUNK, list.leads.length) })}>
+                    Показати ще лідів
+                  </Button>
+                </div>
               )}
-              <div className="lead-actions">
+              <div className="lead-actions leads-pagination">
                 <Button
                   variant="ghost"
+                  size="sm"
                   disabled={offset === 0}
                   onClick={() => setOffset((v) => Math.max(0, v - 50))}
                 >
+                  <ChevronLeft className="size-4" />
                   Назад
                 </Button>
                 <Button
                   variant="ghost"
+                  size="sm"
                   disabled={offset + 50 >= list.total}
                   onClick={() => setOffset((v) => v + 50)}
                 >
                   Далі
+                  <ChevronRight className="size-4" />
                 </Button>
               </div>
             </>
           )}
         </section>
         <div className="lead-detail" aria-label="Картка ліда">
-          {selected && <Button type="button" variant="ghost" className="lead-mobile-back" onClick={() => { setSelected(null); setDetailError(''); setNotice(''); }}>← До списку лідів</Button>}
+          {selected && (
+            <Button type="button" variant="ghost" className="lead-mobile-back" onClick={() => { setSelected(null); setDetailError(''); setNotice(''); }}>
+              <ChevronLeft className="size-4" />
+              До списку лідів
+            </Button>
+          )}
           {detailError ? (
             <p className="lead-error" role="alert">
               {detailError}{' '}
@@ -349,9 +411,10 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
               </Button>
             </p>
           ) : !selected ? (
-            <div className="lead-panel lead-empty">
+            <div className="lead-panel lead-empty lead-empty-placeholder">
+              <User className="size-12 mx-auto mb-3 opacity-30" />
               <h2>Оберіть ліда</h2>
-              <p>Відкрийте контакт зі списку або створіть новий.</p>
+              <p>Відкрийте контакт зі списку або створіть новий для супроводу.</p>
             </div>
           ) : !current ? (
             <WorkspaceInitialLoading compact label="Завантажуємо картку ліда…"/>
@@ -359,55 +422,69 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
             <div key={current.lead.id}>
               <section className="lead-panel lead-summary">
                 <div className="lead-section-head">
-                  <div>
-                    <p className="eyebrow">
-                      {labels[current.lead.platform] ?? current.lead.platform}
-                    </p>
+                  <div className="lead-header-title-block">
+                    <div className="lead-platform-badge-wrap">
+                      <p className="eyebrow">
+                        {labels[current.lead.platform] ?? current.lead.platform}
+                      </p>
+                    </div>
                     <h2 ref={heading} tabIndex={-1}>
                       {current.lead.name}
                     </h2>
                   </div>
-                  <Badge variant="outline">
+                  <Badge variant={current.lead.archivedAt !== null ? 'outline' : 'default'} className="lead-status-badge">
                     {current.lead.archivedAt !== null
                       ? 'В архіві'
                       : (labels[current.lead.status] ?? current.lead.status)}
                   </Badge>
                 </div>
-                <p>
-                  {current.lead.subject || 'Предмет не вказано'} · Відгук:{' '}
-                  {current.lead.responseDate || 'Не вказано'}
-                </p>
+                <div className="lead-meta-subline">
+                  <span className="lead-meta-subject">{current.lead.subject || 'Предмет не вказано'}</span>
+                  <span className="lead-meta-dot">·</span>
+                  <span className="lead-meta-response">Відгук: {current.lead.responseDate || 'Не вказано'}</span>
+                </div>
                 <div className="lead-contact-lines">
                   {current.lead.phone && (
-                    <>
-                      <span>Телефон: {current.lead.phone}</span>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => void copyText('Телефон', current.lead.phone)}>Копіювати телефон</Button>
-                    </>
+                    <div className="lead-contact-chip">
+                      <Phone className="size-3.5" />
+                      <span>{current.lead.phone}</span>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => void copyText('Телефон', current.lead.phone)} title="Копіювати телефон">
+                        {copiedKey === 'Телефон' ? <Check className="size-3 text-emerald-600" /> : <Copy className="size-3" />}
+                      </Button>
+                    </div>
                   )}
                   {current.lead.telegramUsername && (
-                    <>
-                      <span>Telegram: {current.lead.telegramUsername}</span>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => void copyText('Telegram', current.lead.telegramUsername)}>Копіювати Telegram</Button>
-                    </>
+                    <div className="lead-contact-chip">
+                      <Send className="size-3.5" />
+                      <span>{current.lead.telegramUsername}</span>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => void copyText('Telegram', current.lead.telegramUsername)} title="Копіювати Telegram">
+                        {copiedKey === 'Telegram' ? <Check className="size-3 text-emerald-600" /> : <Copy className="size-3" />}
+                      </Button>
+                    </div>
                   )}
                   {safeUrl(current.lead.sourceChatLink) && (
                     <a
                       href={current.lead.sourceChatLink}
                       target="_blank"
                       rel="noreferrer"
+                      className="lead-source-link"
                     >
-                      Джерело відгуку ↗
+                      <ExternalLink className="size-3.5" />
+                      Джерело відгуку
                     </a>
                   )}
                 </div>
                 {current.lead.note && (
-                  <div>
+                  <div className="lead-note-box">
                     <p className="lead-preserve">{current.lead.note}</p>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => void copyText('Нотатку', current.lead.note)}>Копіювати нотатку</Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => void copyText('Нотатку', current.lead.note)}>
+                      {copiedKey === 'Нотатку' ? <Check className="size-3 text-emerald-600" /> : <Copy className="size-3" />}
+                      Копіювати
+                    </Button>
                   </div>
                 )}
                 {current.lead.duplicateState !== 'none' && (
-                  <p>Дублікат: {labels[current.lead.duplicateState]}</p>
+                  <p className="lead-duplicate-notice">Дублікат: {labels[current.lead.duplicateState]}</p>
                 )}
                 <div className="lead-actions lead-contact-actions">
                   <div className="lead-action-primary">
@@ -427,18 +504,34 @@ export function LeadsWorkspace({ account, initialLeadId, syncRevision=0, active=
                     </Button>
                   </div>
                   <div className="lead-action-utility">
-                    <Button ref={historyTrigger} variant="ghost" size="sm" onClick={() => setHistoryOpen(true)}>Історія</Button>
-                    <Button variant="ghost" size="sm" onClick={reload}>Оновити</Button>
+                    <Button ref={historyTrigger} variant="ghost" size="sm" onClick={() => setHistoryOpen(true)}>
+                      <History className="size-3.5 mr-1" />
+                      Історія
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={reload}>
+                      <RotateCcw className="size-3.5 mr-1" />
+                      Оновити
+                    </Button>
                     <Button
                       className={current.lead.archivedAt !== null ? 'lead-restore-action' : 'lead-archive-action'}
                       variant="ghost"
                       size="sm"
                       onClick={() => setArchive(true)}
                     >
-                      {current.lead.archivedAt !== null ? 'Відновити' : 'Архівувати'}
+                      {current.lead.archivedAt !== null ? (
+                        <>
+                          <RotateCcw className="size-3.5 mr-1" />
+                          Відновити
+                        </>
+                      ) : (
+                        <>
+                          <Archive className="size-3.5 mr-1" />
+                          Архівувати
+                        </>
+                      )}
                     </Button>
                   </div>
-                  <output>{notice}</output>
+                  {notice && <output className="lead-feedback-notice">{notice}</output>}
                 </div>
               </section>
               {active&&<>
