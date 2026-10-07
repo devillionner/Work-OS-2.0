@@ -379,7 +379,7 @@ void test('Leads workspace shares the primary workspace hero hierarchy', () => {
   const css = text(join(root, 'app', 'globals.css'));
   assert.match(workspace, /<section className="leads-hero">[\s\S]*?<p className="eyebrow">CRM та супровід<\/p>[\s\S]*?<h2>Контакти, учні та уроки<\/h2>/);
   assert.match(css, /\.leads-workspace \{ max-width:1400px; display:grid; gap:18px; margin:0 auto; padding:clamp\(22px,4vw,54px\); \}/);
-  assert.match(css, /\.leads-hero \{ display:flex; align-items:flex-end; justify-content:space-between; gap:24px; padding:26px; background:linear-gradient\(115deg,#fff 0%,#fff 58%,var\(--accent\) 100%\); \}/);
+  assert.match(css, /\.leads-hero \{ display:flex; align-items:flex-end; justify-content:space-between; gap:24px; padding:26px; background:linear-gradient\(115deg, var\(--card\) 0%, var\(--card\) 58%, var\(--accent-subtle\) 100%\); \}/);
 });
 
 void test('Wide desktop compacts Telegram warmup without changing mobile flow', () => {

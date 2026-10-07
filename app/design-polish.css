@@ -228,10 +228,10 @@
   gap: 11px;
   width: min(calc(100% - 24px), 620px);
   padding: 11px 13px;
-  border: 1px solid #cbd5ff;
+  border: 1px solid var(--accent-border);
   border-radius: 14px;
-  background: rgb(255 255 255 / .97);
-  box-shadow: 0 14px 42px rgb(32 48 90 / .16);
+  background: var(--card);
+  box-shadow: var(--shadow-lg);
   transform: translateX(-50%);
   backdrop-filter: blur(16px);
 }
@@ -240,7 +240,7 @@
 .app-update-banner strong { font-size: 13px; }
 .app-update-banner span { margin-top: 2px; color: var(--muted-foreground); font-size: 11px; line-height: 1.35; }
 .app-update-banner small { color: var(--muted-foreground); font-family: var(--font-mono), monospace; font-size: 10px; white-space: nowrap; }
-.app-update-pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 0 rgb(49 87 246 / .35); animation: app-update-pulse 1.4s ease-out infinite; }
+.app-update-pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 0 hsl(var(--primary-h) var(--primary-s) var(--primary-l) / .35); animation: app-update-pulse 1.4s ease-out infinite; }
 
 .app-update-backdrop {
   position: fixed;
@@ -257,7 +257,7 @@
   margin: 0;
   padding: max(20px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
   border: 0;
-  background: rgb(242 244 249 / .92);
+  background: hsl(var(--background-h) var(--background-s) var(--background-l) / .92);
   color: var(--foreground);
   backdrop-filter: blur(18px);
 }
@@ -273,10 +273,10 @@
   border: 1px solid var(--border);
   border-radius: 24px;
   background: var(--card);
-  box-shadow: 0 28px 90px rgb(24 31 52 / .18);
+  box-shadow: var(--shadow-xl);
   text-align: center;
 }
-.app-update-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 4px; background: linear-gradient(90deg, var(--primary), #6f86ff, var(--primary)); background-size: 200% 100%; animation: app-update-shimmer 1.3s linear infinite; }
+.app-update-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 4px; background: linear-gradient(90deg, var(--primary), var(--primary-hover), var(--primary)); background-size: 200% 100%; animation: app-update-shimmer 1.3s linear infinite; }
 .app-update-brand { display: grid; place-items: center; width: 38px; height: 38px; margin-bottom: 22px; border-radius: 11px; background: var(--primary); color: var(--primary-foreground); font-weight: 850; }
 .app-update-icon { display: grid; place-items: center; width: 58px; height: 58px; margin-bottom: 18px; border-radius: 18px; background: var(--accent); color: var(--primary); }
 .app-update-icon.is-complete { background: var(--success-surface); color: var(--success); }
