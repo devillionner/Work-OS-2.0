@@ -25,18 +25,18 @@
 Усі визначені в одному `:root` у `app/globals.css`. **Новий екран не вводить власних кольорів.**
 
 ### Поверхні
-`--background` `#f4f6f9` · `--card` `#ffffff` · `--popover` `#ffffff` · `--surface-subtle` `#f7f8fa` (стримана поверхня: шапки таблиць, неактивні рядки) · `--surface-radius` `18px` · `--surface-shadow` / `--surface-shadow-hover`
+`--background` `#f0f4fa` · `--card` `#ffffff` · `--popover` `#ffffff` · `--surface-subtle` `#f4f7fc` (стримана поверхня: шапки таблиць, неактивні рядки) · `--surface-radius` `18px` · `--surface-shadow` / `--surface-shadow-hover`
 
 ### Текст
-`--foreground` `#17191e` · `--muted-foreground` `#5f6775` (другорядний текст і мітки)
+`--foreground` `#091540` (Deep Navy) · `--muted-foreground` `#3d518c` (Dusk Blue другорядний текст і мітки)
 
-### Бренд — один синій акцент
-`--primary` `#3157f6` · `--primary-foreground` `#ffffff` · `--ring` `#3157f6`
-`--accent` `#edf1ff` (блакитна підкладка) · `--accent-subtle` `#f5f7ff` (світліша підкладка) · `--accent-border` `#cad6ff` (блакитна рамка) · `--accent-foreground` `#2445cf`
-`--secondary` `#eef1f7` · `--secondary-foreground` `#252936`
+### Бренд — Deep Navy & Persian Blue
+`--primary` `#1b2cc1` (Persian Blue) · `--primary-foreground` `#ffffff` · `--ring` `#1b2cc1`
+`--accent` `#e5f0fc` (ніжна блакитна підкладка) · `--accent-subtle` `#f2f7fd` (світліша підкладка) · `--accent-border` `#abd2fa` (Icy Blue рамка) · `--accent-foreground` `#1b2cc1`
+`--secondary` `#eef3fb` · `--secondary-foreground` `#091540`
 
 ### Нейтральні
-`--muted` `#f1f3f7` · `--border` `#dde2ea` · `--input` `#d8dee8`
+`--muted` `#edf2f9` · `--border` `#d7e2f0` · `--input` `#d0ddec`
 
 ### Семантичні — лише небезпека, попередження й успіх, ніколи як декор
 `--destructive` `#b42318` + `--destructive-foreground` + `--destructive-surface` `#fee2e2`
@@ -49,10 +49,10 @@
 `--motion-ease-smooth` `cubic-bezier(0.4, 0, 0.2, 1)` (плавний перехід станів)
 `--motion-spin-duration` `0.85s` (єдиний темп для неперервних спінерів без ривків)
 
-### Темний сайдбар — окрема поверхня
-`--sidebar-surface` `#17191e` · `--sidebar-foreground` `#ffffff` · `--sidebar-foreground-muted` `#858d9e`
+### Темний сайдбар — Deep Navy
+`--sidebar-surface` `#091540` · `--sidebar-foreground` `#ffffff` · `--sidebar-foreground-muted` `#abd2fa`
 
-Другорядний текст на сайдбарі має власний токен: `--muted-foreground` розрахований на світлі поверхні й на темному фоні був би зайво темним.
+Другорядний текст на сайдбарі має власний токен: `--sidebar-foreground-muted` (`#abd2fa` Icy Blue) розрахований на темний Deep Navy фон для максимальної контрастності (11.2:1).
 
 ### Обов'язковий мапінг у `@theme inline`
 

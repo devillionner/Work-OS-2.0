@@ -277,7 +277,7 @@ void test('Remaining workspace controls meet final sizing and mobile nav readabi
   assert.match(css, /\.mobile-bottom-nav button \{[^}]*font-size: 10px;/);
   assert.match(css, /\.mobile-bottom-nav button\[aria-current='page'\] \{ background:var\(--accent\);/);
   assert.match(css, /\.archive-dialog-reasons \[data-slot="button"\], \.archive-dialog-custom input, \.archive-dialog-custom \[data-slot="button"\] \{ min-height:44px; \}/);
-  assert.match(css, /--muted-foreground: #5f6775;/);
+  assert.match(css, /--muted-foreground: #3d518c;/);
   assert.doesNotMatch(css, /color:\s*#(?:7b8190|747a88|8b909b|747986|7b818d|858b96|767c88|787e89|868b96|7c8390|727987|737986|777e8b|747b87|7a818e|737a88)\b/i);
 });
 

@@ -34,40 +34,39 @@
    renders: do not add a second :root later in the file to override part of it.
    Контраст кожного тексту перевіряє tests/design-tokens.test.mjs розрахунком WCAG. */
 :root {
-  /* Surfaces */
-  --background: #f4f6f9;
-  --foreground: #17191e;
+  /* Surfaces: Deep Navy themed clean light workspace */
+  --background: #f0f4fa;
+  --foreground: #091540;
   --card: #ffffff;
-  --card-foreground: #17191e;
+  --card-foreground: #091540;
   --popover: #ffffff;
-  --popover-foreground: #17191e;
-  --surface-subtle: #f7f8fa;
+  --popover-foreground: #091540;
+  --surface-subtle: #f4f7fc;
   --surface-radius: 18px;
-  --surface-shadow: 0 8px 28px rgb(24 32 52 / .045);
-  --surface-shadow-hover: 0 12px 34px rgb(24 32 52 / .075);
+  --surface-shadow: 0 8px 28px rgb(9 21 64 / .055);
+  --surface-shadow-hover: 0 12px 34px rgb(9 21 64 / .095);
 
-  /* Brand: one blue accent, used for primary action, focus and selection. */
-  --primary: #3157f6;
+  /* Brand: Persian Blue (#1B2CC1) primary, Cornflower (#7692FF) highlight, Icy (#ABD2FA) accent */
+  --primary: #1b2cc1;
   --primary-foreground: #ffffff;
-  --secondary: #eef1f7;
-  --secondary-foreground: #252936;
-  --accent: #edf1ff;
-  --accent-subtle: #f5f7ff;
-  --accent-border: #cad6ff;
-  --accent-foreground: #2445cf;
-  --ring: #3157f6;
+  --secondary: #eef3fb;
+  --secondary-foreground: #091540;
+  --accent: #e5f0fc;
+  --accent-subtle: #f2f7fd;
+  --accent-border: #abd2fa;
+  --accent-foreground: #1b2cc1;
+  --ring: #1b2cc1;
 
-  /* Dark sidebar: its own surface, so muted text there is tuned to the dark
-     background instead of reusing the light-surface token. */
-  --sidebar-surface: #17191e;
+  /* Dark sidebar: Deep Navy surface (#091540) with Icy Blue (#ABD2FA) text */
+  --sidebar-surface: #091540;
   --sidebar-foreground: #ffffff;
-  --sidebar-foreground-muted: #858d9e;
+  --sidebar-foreground-muted: #abd2fa;
 
-  /* Neutrals */
-  --muted: #f1f3f7;
-  --muted-foreground: #5f6775;
-  --border: #dde2ea;
-  --input: #d8dee8;
+  /* Neutrals: Dusk Blue (#3D518C) typography and clean structure */
+  --muted: #edf2f9;
+  --muted-foreground: #3d518c;
+  --border: #d7e2f0;
+  --input: #d0ddec;
 
   /* Semantic: danger and warning only, never decorative (CORE-03). */
   --destructive: #b42318;
