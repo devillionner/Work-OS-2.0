@@ -29,6 +29,7 @@ import { ReportsWorkspace } from '@/components/reports-workspace';
 import { LibraryWorkspace } from '@/components/library-workspace';
 import { TodaySettingsDialog } from '@/components/today-settings-dialog';
 import { SettingsWorkspace } from '@/components/settings-workspace';
+import { WorkspaceErrorBoundary } from '@/components/workspace-error-boundary';
 import { GlobalTimers } from '@/components/global-timers';
 import { AppReleaseDialog } from '@/components/app-release-dialog';
 import { WorkdayCard } from '@/components/workday-card';
@@ -470,12 +471,12 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkO
           </div>
         </WorkspacePane>
 
-        {visitedViews.has('platforms') && <WorkspacePane active={activeView === 'platforms'}><PlatformWorkspace enabledPlatforms={snapshot.enabledPlatforms} syncRevision={syncRevision} businessDate={snapshot.today} active={activeView === 'platforms'} /></WorkspacePane>}
-        {visitedViews.has('leads') && <WorkspacePane active={activeView === 'leads'}><LeadsWorkspace account={user.email} initialLeadId={leadToOpen} syncRevision={syncRevision} active={activeView === 'leads'} /></WorkspacePane>}
-        {visitedViews.has('analytics') && <WorkspacePane active={activeView === 'analytics'}><AnalyticsWorkspace syncRevision={syncRevision} active={activeView === 'analytics'} /></WorkspacePane>}
-        {visitedViews.has('reports') && <WorkspacePane active={activeView === 'reports'}><ReportsWorkspace syncRevision={syncRevision} active={activeView === 'reports'} onOpenLead={(leadId) => { setLeadToOpen(leadId); navigateTo('leads'); }} /></WorkspacePane>}
-        {visitedViews.has('library') && <WorkspacePane active={activeView === 'library'}><LibraryWorkspace syncRevision={syncRevision} active={activeView === 'library'} /></WorkspacePane>}
-        {visitedViews.has('settings') && <WorkspacePane active={activeView === 'settings'}><SettingsWorkspace user={user} snapshot={snapshot} active={activeView === 'settings'} onRefresh={() => router.refresh()} /></WorkspacePane>}
+        {visitedViews.has('platforms') && <WorkspacePane active={activeView === 'platforms'}><WorkspaceErrorBoundary name="Платформи"><PlatformWorkspace enabledPlatforms={snapshot.enabledPlatforms} syncRevision={syncRevision} businessDate={snapshot.today} active={activeView === 'platforms'} /></WorkspaceErrorBoundary></WorkspacePane>}
+        {visitedViews.has('leads') && <WorkspacePane active={activeView === 'leads'}><WorkspaceErrorBoundary name="Ліди"><LeadsWorkspace account={user.email} initialLeadId={leadToOpen} syncRevision={syncRevision} active={activeView === 'leads'} /></WorkspaceErrorBoundary></WorkspacePane>}
+        {visitedViews.has('analytics') && <WorkspacePane active={activeView === 'analytics'}><WorkspaceErrorBoundary name="Аналітика"><AnalyticsWorkspace syncRevision={syncRevision} active={activeView === 'analytics'} /></WorkspaceErrorBoundary></WorkspacePane>}
+        {visitedViews.has('reports') && <WorkspacePane active={activeView === 'reports'}><WorkspaceErrorBoundary name="Звіти"><ReportsWorkspace syncRevision={syncRevision} active={activeView === 'reports'} onOpenLead={(leadId) => { setLeadToOpen(leadId); navigateTo('leads'); }} /></WorkspaceErrorBoundary></WorkspacePane>}
+        {visitedViews.has('library') && <WorkspacePane active={activeView === 'library'}><WorkspaceErrorBoundary name="Матеріали"><LibraryWorkspace syncRevision={syncRevision} active={activeView === 'library'} /></WorkspaceErrorBoundary></WorkspacePane>}
+        {visitedViews.has('settings') && <WorkspacePane active={activeView === 'settings'}><WorkspaceErrorBoundary name="Налаштування"><SettingsWorkspace user={user} snapshot={snapshot} active={activeView === 'settings'} onRefresh={() => router.refresh()} /></WorkspaceErrorBoundary></WorkspacePane>}
 
         <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
           {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => (

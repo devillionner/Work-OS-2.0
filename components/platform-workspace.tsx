@@ -771,7 +771,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
     });
   }
 
-  const selected = useMemo(() => platforms.find(item=>item.key===platform)!,[platform]);
+  const selected = useMemo(() => platforms.find(item=>item.key===platform) ?? availablePlatforms[0] ?? platforms[0] ?? { key: 'telegram', label: 'Telegram', color: '#2563eb' },[availablePlatforms, platform]);
   const activeAccount=accounts.find(item=>item.id===accountId);
   const profileSummary=data?.profileCounts[queue];
   const breakSeconds=activeAccount?.breakUntil?Math.max(0,activeAccount.breakUntil-Math.floor(clock/1000)):0;
