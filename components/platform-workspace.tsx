@@ -103,6 +103,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const [loading,setLoading] = useState(true);
   const [busy,setBusy] = useState<string|null>(null);
   const runAction=useRef(createActionGate());
+  const refreshExpiredBreak=useRef(createRefreshGate(15_000));
   const activeLoad=useRef<AbortController|null>(null);
   const loadNumber=useRef(0);
   const reloadChats=useRef<(silent?:boolean) => Promise<void>>(async()=>{});
