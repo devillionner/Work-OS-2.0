@@ -984,25 +984,6 @@ function formatDuration(seconds:number){return `${String(Math.floor(seconds/60))
 function activeBreakExpired(accounts:TelegramAccount[],accountId:string|null,clock:number){const account=accounts.find(item=>item.id===accountId);return Boolean(account?.breakUntil&&account.breakUntil*1000<=clock);}
 function canPermanentlyDelete(chat:Chat){return chat.status==='archived'&&chat.archiveReason==='Чат не існує'&&(!supportsChatLeaveChecklist(chat.platform)||chat.joinedAt===null||chat.leftAt!==null);}
 
-function telegramWebLink(link:string):string {
-  let url:URL;
-  try { url=new URL(link.trim()); } catch { return link; }
-  const host=url.hostname.toLowerCase().replace(/^www\./,'');
-  if(!['t.me','telegram.me','telegram.dog'].includes(host)) return link;
-  const parts=url.pathname.split('/').filter(Boolean);
-  // Invite link: t.me/+HASH or t.me/joinchat/HASH
-  if(parts[0]?.startsWith('+')) {
-    const code=parts[0].slice(1);
-    return `https://web.telegram.org/a/?tgaddr=${encodeURIComponent(`tg://join?invite=${code}`)}`;
-  }
-  if(parts[0]?.toLowerCase()==='joinchat'&&parts[1]) {
-    return `https://web.telegram.org/a/?tgaddr=${encodeURIComponent(`tg://join?invite=${parts[1]}`)}`;
-  }
-  // Public username — use tgaddr so Telegram Web resolves after app bootstrap
-  if(parts[0]) return `https://web.telegram.org/a/?tgaddr=${encodeURIComponent(`tg://resolve?domain=${parts[0]}`)}`;
-  return link;
-}
-
 function openNativeChat(platform:Platform, link:string) {
   if(platform==='whatsapp') {
     let url:URL;
@@ -1013,10 +994,6 @@ function openNativeChat(platform:Platform, link:string) {
       const code=parts[0]?.toLowerCase()==='invite'?parts[1]:parts[0];
       if(code) window.open(`https://web.whatsapp.com/accept?code=${encodeURIComponent(safeDecode(code))}`,'_blank','noopener,noreferrer');
     }
-    return;
-  }
-  if(platform==='telegram') {
-    window.open(telegramWebLink(link),'_blank','noopener,noreferrer');
     return;
   }
   window.open(link,'_blank','noopener,noreferrer');
