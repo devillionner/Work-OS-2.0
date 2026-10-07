@@ -43,6 +43,12 @@
 `--warning` `#8c5e00` + `--warning-surface` `#fef4e5`
 `--success` `#087443` + `--success-surface` `#dcfce7`
 
+### Рух та ритм (Motion & Rhythm)
+`--motion-fast` `150ms` · `--motion-base` `220ms` · `--motion-slow` `350ms`
+`--motion-ease-spring` `cubic-bezier(0.16, 1, 0.3, 1)` (плавна пружинна децелерація для діалогів, мобільних панелей і кнопок)
+`--motion-ease-smooth` `cubic-bezier(0.4, 0, 0.2, 1)` (плавний перехід станів)
+`--motion-spin-duration` `0.85s` (єдиний темп для неперервних спінерів без ривків)
+
 ### Темний сайдбар — окрема поверхня
 `--sidebar-surface` `#17191e` · `--sidebar-foreground` `#ffffff` · `--sidebar-foreground-muted` `#858d9e`
 

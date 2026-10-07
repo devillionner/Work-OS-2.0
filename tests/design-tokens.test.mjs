@@ -116,3 +116,14 @@ void test('colours that failed contrast are gone from the stylesheets', () => {
 void test('metadata text never drops below the 10 px floor', () => {
   assert.doesNotMatch(css, /font-size:\s*[0-9]px(?![0-9])/);
 });
+
+void test('motion rhythm tokens are declared and have valid easing and duration values', () => {
+  const found = tokens();
+  for (const name of ['--motion-fast', '--motion-base', '--motion-slow', '--motion-ease-spring', '--motion-ease-smooth', '--motion-spin-duration']) {
+    assert.ok(found.has(name), `${name} must be declared in :root for unified animation rhythm`);
+  }
+  assert.match(found.get('--motion-fast'), /^[0-9]+ms$/);
+  assert.match(found.get('--motion-base'), /^[0-9]+ms$/);
+  assert.match(found.get('--motion-ease-spring'), /^cubic-bezier\(/);
+});
+
