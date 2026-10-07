@@ -996,8 +996,7 @@ function openNativeChat(platform:Platform, link:string) {
     }
     return;
   }
-  const nativeLink=nativeChatLink(platform,link);
-  if(nativeLink) window.location.assign(nativeLink);
+  window.open(link,'_blank','noopener,noreferrer');
 }
 
 function nativeChatLink(platform:Platform, link:string) {
