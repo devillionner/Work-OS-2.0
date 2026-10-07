@@ -143,21 +143,40 @@ export function WhatsappAutopostDialog({
 
             <div className="whatsapp-autopost-stats-grid">
               <span className="stat-pill is-sent">
-                <CheckCircle2 className="size-3" /> Відправлено: <b>{progress.sent}</b>
+                <CheckCircle2 className="size-3 text-emerald-600 dark:text-emerald-400" /> Відправлено: <b>{progress.sent}</b>
               </span>
               {progress.failed > 0 && (
                 <span className="stat-pill is-failed">
-                  <XCircle className="size-3" /> Помилка: <b>{progress.failed}</b>
+                  <XCircle className="size-3 text-destructive" /> Помилка: <b>{progress.failed}</b>
                 </span>
               )}
               {progress.pending + progress.claimed > 0 && (
                 <span className="stat-pill is-pending">
-                  <Loader2 className="size-3 animate-spin" /> Лишилось: <b>{progress.pending + progress.claimed}</b>
+                  <Loader2 className="size-3 animate-spin text-amber-600 dark:text-amber-400" /> Лишилось: <b>{progress.pending + progress.claimed}</b>
                 </span>
               )}
               {progress.cancelled > 0 && (
                 <span className="stat-pill is-cancelled">
                   Скасовано: <b>{progress.cancelled}</b>
+                </span>
+              )}
+            </div>
+
+            <div className="whatsapp-autopost-log-note">
+              {running ? (
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="size-3.5 animate-spin text-primary shrink-0" />
+                  Executor відправляє повідомлення по черзі з підтвердженням доставки для кожного чату.
+                </span>
+              ) : progress.failed > 0 ? (
+                <span className="flex items-center gap-1.5 text-xs text-destructive font-medium">
+                  <XCircle className="size-3.5 shrink-0" />
+                  Автопост завершено із {progress.failed} помилками. Перевірте проблемні чати у списку.
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                  <CheckCircle2 className="size-3.5 shrink-0" />
+                  Усі чати в черзі успішно опрацьовано та підтверджено.
                 </span>
               )}
             </div>

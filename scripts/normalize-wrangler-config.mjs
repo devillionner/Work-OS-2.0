@@ -79,12 +79,29 @@ export async function writeWorkerEntryWrapper(serverDir) {
 export async function normalizeGeneratedWranglerFile(
   filePath = 'dist/server/wrangler.json',
 ) {
-  const raw = await readFile(filePath, 'utf8');
+  let raw;
+  let fromSource = false;
+  try {
+    raw = await readFile(filePath, 'utf8');
+  } catch (err) {
+    if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
+      try {
+        raw = await readFile('wrangler.jsonc', 'utf8');
+        fromSource = true;
+      } catch {
+        raw = await readFile('wrangler.json', 'utf8');
+        fromSource = true;
+      }
+    } else {
+      throw err;
+    }
+  }
   const original = JSON.parse(raw);
   const normalized = normalizeGeneratedWranglerConfig(original);
-  if (original.main === 'index.js') await writeWorkerEntryWrapper(path.dirname(filePath));
+  if (original.main === 'index.js' || fromSource) await writeWorkerEntryWrapper(path.dirname(filePath));
+  if (fromSource) normalized.main = WORKER_ENTRY_FILENAME;
   const next = `${JSON.stringify(normalized)}\n`;
-  if (next === raw || next.trim() === raw.trim()) return false;
+  if (!fromSource && (next === raw || next.trim() === raw.trim())) return false;
   await writeFile(filePath, next, 'utf8');
   return true;
 }

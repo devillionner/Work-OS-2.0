@@ -21,7 +21,7 @@ import { WhatsappAutopostDialog, type WhatsAppAutopostProgress } from '@/compone
 import { TelegramSelectedChats } from '@/components/telegram-selected-chats';
 import { pairThisBrowserExecutor } from '@/lib/chat-discovery/executor-storage';
 import type { SelectedChatsView } from '@/lib/chats/telegram-selected';
-import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, ExternalLink, History, ImagePlus, Plus, RotateCcw, Search, Send, Settings2, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
+import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, ExternalLink, History, ImagePlus, Plus, RotateCcw, Search, Send, Settings2, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -124,7 +124,13 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
   const [lastOpenedByPlatform,setLastOpenedByPlatform] = useState<Record<string,string|null>>({});
   const restoredView=useRef(false);
   const restoreScroll=useRef<number|null>(null);
-  const refreshExpiredBreak=useRef(createRefreshGate(120_000));
+  const [copiedChatId,setCopiedChatId] = useState<string|null>(null);
+  const copyChatLink = useCallback(async (chat:Chat)=>{
+    if(!chat.link)return;
+    await navigator.clipboard.writeText(chat.link);
+    setCopiedChatId(chat.id);
+    setTimeout(()=>setCopiedChatId(curr=>curr===chat.id?null:curr),1800);
+  },[]);
   const availablePlatforms = useMemo(() => platforms.filter((item) => !enabledPlatforms || enabledPlatforms.includes(item.key)), [enabledPlatforms]);
   const requestAccountId=platform==='telegram'?accountId:null;
   const requestKey=`${platform}:${queue}:${search}:${profileFilter}:${offset}:${requestAccountId||''}`;
@@ -912,9 +918,31 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       {!data&&(loading||switchingList) ? <WorkspaceInitialLoading compact label={`Завантажуємо ${selected.label}…`}/> : data?.chats.length ? <>
         <div className="chat-list">
         {data.chats.map((chat,index)=><article className={`chat-row ${chat.publishedToday?'is-published':''} ${lastOpenedByPlatform[platform]===chat.id?'is-last-opened':''} ${index>=mobileVisibleChats?'mobile-progressive-hidden':''}`} key={chat.id}>
-          <div className="chat-main"><div className="chat-name-line"><strong title={chat.name}>{chat.name}</strong>{lastOpenedByPlatform[platform]===chat.id&&<Badge variant="outline" className="border-primary/40 bg-accent text-primary">Останній відкритий</Badge>}{platform!=='viber'&&!chat.profileConfirmed&&(queue==='ready'||queue==='profile_review')&&<Badge variant="outline" className="border-amber-500/40 text-amber-800 dark:text-amber-400">Профіль пізніше</Badge>}{queue==='profile_review'&&<Badge variant="secondary">{chat.status==='waiting'?'Очікування':'Для публікації'}</Badge>}{queue==='ready'&&chat.discoveryDecision&&chat.discoveryDecision!=='target'&&<Badge variant="outline" className="border-amber-500/40 text-amber-800 dark:text-amber-400">Потрібна кваліфікація</Badge>}{chat.autopostJobId&&<Badge variant="secondary" className="bg-primary/10 text-primary">Автопост у черзі</Badge>}{chat.publishedToday&&<Badge variant="secondary" className="bg-emerald-500/10 text-emerald-800 dark:text-emerald-400">Опубліковано сьогодні</Badge>}</div><button className="chat-native-link" type="button" title={chat.link} aria-label={`Відкрити ${selected.label}: ${chat.link}`} onClick={()=>openChat(chat)}>{compactChatLink(chat.link)}</button>{chat.archiveReason&&<small className="chat-meta-note">Причина: {chat.archiveReason}</small>}{queue==='archived'&&chat.archivedAt&&<small className="chat-meta-note">Архівовано {formatDateTime(chat.archivedAt)}</small>}{queue==='archived'&&supportsChatLeaveChecklist(platform)&&chat.joinedAt!==null&&<small className="chat-meta-note">{chat.leftAt?`Вихід із чату підтверджено ${formatDateTime(chat.leftAt)}`:'Ще потрібно вручну вийти з чату й підтвердити це тут.'}</small>}{chat.snoozedUntil&&chat.snoozedUntil>clock/1000&&<small className="chat-meta-note">Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}{(queue==='waiting'||queue==='ready')&&shouldSuggestChatArchive(chat.snoozeCount)&&<div className="chat-snooze-warning"><small>Відкладали {chat.snoozeCount} рази. Якщо чат уже неактуальний, краще перенести його в архів.</small><Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>toggleArchive(chat.id)}><Archive data-icon="inline-start"/>Архівувати</Button></div>}{queue==='ready'&&!canPublish(chat,clock)&&(chat.discoveryDecision&&chat.discoveryDecision!=='target'
-  ? <small className="wait-note"><Clock3/>Публікація заблокована до завершення кваліфікації чату.</small>
-  : <small className="wait-note"><Clock3/>Публікація буде доступна {formatDateTime(chat.availableAt!)}</small>)}</div>
+          <div className="chat-main">
+            <div className="chat-name-line">
+              <strong title={chat.name}>{chat.name}</strong>
+              {lastOpenedByPlatform[platform]===chat.id&&<Badge variant="outline" className="border-primary/40 bg-accent text-primary">Останній відкритий</Badge>}
+              {platform!=='viber'&&!chat.profileConfirmed&&(queue==='ready'||queue==='profile_review')&&<Badge variant="outline" className="border-amber-500/40 text-amber-800 dark:text-amber-400">Профіль пізніше</Badge>}
+              {queue==='profile_review'&&<Badge variant="secondary">{chat.status==='waiting'?'Очікування':'Для публікації'}</Badge>}
+              {queue==='ready'&&chat.discoveryDecision&&chat.discoveryDecision!=='target'&&<Badge variant="outline" className="border-amber-500/40 text-amber-800 dark:text-amber-400">Потрібна кваліфікація</Badge>}
+              {chat.autopostJobId&&<Badge variant="secondary" className="border border-blue-500/30 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400">Автопост у черзі</Badge>}
+              {chat.publishedToday&&<Badge variant="secondary" className="border border-emerald-500/30 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400">Опубліковано сьогодні</Badge>}
+            </div>
+            <div className="chat-meta-line">
+              <button className="chat-native-link" type="button" title={chat.link} aria-label={`Відкрити ${selected.label}: ${chat.link}`} onClick={()=>openChat(chat)}>
+                {compactChatLink(chat.link)}
+              </button>
+              {chat.archiveReason&&<small className="chat-meta-note">Причина: {chat.archiveReason}</small>}
+              {queue==='archived'&&chat.archivedAt&&<small className="chat-meta-note">Архівовано {formatDateTime(chat.archivedAt)}</small>}
+              {queue==='archived'&&supportsChatLeaveChecklist(platform)&&chat.joinedAt!==null&&<small className="chat-meta-note">{chat.leftAt?`Вихід підтверджено ${formatDateTime(chat.leftAt)}`:'Ще потрібно вручну вийти з чату.'}</small>}
+              {chat.snoozedUntil&&chat.snoozedUntil>clock/1000&&<small className="chat-meta-note flex items-center gap-1"><Clock3 className="size-3 text-amber-600"/>Відкладено до {formatDateTime(chat.snoozedUntil)}</small>}
+              {chat.joinedAt&&queue!=='archived'&&<small className="chat-meta-note">Приєднано: {formatDateTime(chat.joinedAt)}</small>}
+            </div>
+            {(queue==='waiting'||queue==='ready')&&shouldSuggestChatArchive(chat.snoozeCount)&&<div className="chat-snooze-warning"><small>Відкладали {chat.snoozeCount} рази. Якщо чат уже неактуальний, краще перенести його в архів.</small><Button type="button" variant="outline" size="sm" disabled={busy!==null} onClick={()=>toggleArchive(chat.id)}><Archive data-icon="inline-start"/>Архівувати</Button></div>}
+            {queue==='ready'&&!canPublish(chat,clock)&&(chat.discoveryDecision&&chat.discoveryDecision!=='target'
+              ? <small className="wait-note"><Clock3 className="size-3.5"/>Публікація заблокована до завершення кваліфікації чату.</small>
+              : <small className="wait-note"><Clock3 className="size-3.5"/>Публікація буде доступна {formatDateTime(chat.availableAt!)}</small>)}
+          </div>
           <div className="chat-actions">
             {platform==='telegram'&&queue!=='to_join'&&queue!=='profile_review'&&<select disabled={busy!==null} className="chat-account-select" value={chat.telegramAccountId||''} onChange={event=>assignAccount(chat,event.target.value)} aria-label="Telegram-акаунт чату">{accounts.filter(item=>item.enabled||item.id===chat.telegramAccountId).map(account=><option value={account.id} key={account.id}>{account.name} · #{account.number}</option>)}</select>}
             {queue==='to_join'&&<><Button size="icon" onClick={()=>act(chat,'joined')} disabled={busy!==null} aria-label="Успішно приєднано" className="chat-btn-join"><Check/></Button>{(platform==='telegram'||platform==='whatsapp')&&<Button variant="outline" size="icon" onClick={()=>act(chat,'waiting')} disabled={busy!==null} aria-label="Очікуємо запрошення" className="chat-btn-waiting"><Clock3/></Button>}<Button variant="outline" size="icon" onClick={()=>act(chat,'failed',{reason:'Не вдалося приєднатися'},{action:'restore',label:'Невдале приєднання можна скасувати протягом 8 секунд.'})} disabled={busy!==null} aria-label="Не вдалося приєднатися" className="chat-btn-failed"><X/></Button></>}
@@ -925,9 +953,10 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
             {queue==='archived'&&supportsChatLeaveChecklist(platform)&&chat.joinedAt!==null&&<Button variant="outline" onClick={()=>act(chat,chat.leftAt?'undo_leave':'confirm_leave')} disabled={busy!==null}>{chat.leftAt?<><Undo2 data-icon="inline-start"/>Скасувати вихід</>:<><Check data-icon="inline-start"/>Я вийшов</>}</Button>}
             {queue==='archived'&&<><Button variant="outline" onClick={()=>act(chat,'restore')} disabled={busy!==null}><RotateCcw data-icon="inline-start"/>Відновити</Button>{canPermanentlyDelete(chat)&&<Button variant="outline" onClick={()=>setDeleteChat(chat)} disabled={busy!==null}><Trash2 data-icon="inline-start"/>Видалити назавжди</Button>}</>}
             <div className="chat-action-utilities">
-              <Button variant="outline" size="icon" type="button" onClick={()=>openChat(chat)} aria-label={`Відкрити чат у ${selected.label}`}><ExternalLink/></Button>
-              <Button variant="ghost" size="icon" type="button" aria-label="Історія чату" title="Історія чату" onClick={(event)=>{historyTrigger.current=event.currentTarget;setHistoryChat(chat);}} disabled={busy!==null}><History/></Button>
-              {queue!=='archived'&&<Button variant="ghost" size="icon" onClick={()=>toggleArchive(chat.id)} aria-label="Перенести в архів"><Archive/></Button>}
+              <Button variant="ghost" size="icon" type="button" onClick={()=>void copyChatLink(chat)} aria-label="Скопіювати посилання" title={copiedChatId===chat.id?'Скопійовано!':'Копіювати посилання'} className={copiedChatId===chat.id?'text-emerald-600 dark:text-emerald-400':''}>{copiedChatId===chat.id?<Check className="size-3.5 text-emerald-600 dark:text-emerald-400"/>:<Copy className="size-3.5"/>}</Button>
+              <Button variant="outline" size="icon" type="button" onClick={()=>openChat(chat)} aria-label={`Відкрити чат у ${selected.label}`} title={`Відкрити чат у ${selected.label}`}><ExternalLink className="size-3.5"/></Button>
+              <Button variant="ghost" size="icon" type="button" aria-label="Історія чату" title="Історія чату" onClick={(event)=>{historyTrigger.current=event.currentTarget;setHistoryChat(chat);}} disabled={busy!==null}><History className="size-3.5"/></Button>
+              {queue!=='archived'&&<Button variant="ghost" size="icon" onClick={()=>toggleArchive(chat.id)} aria-label="Перенести в архів" title="Перенести в архів"><Archive className="size-3.5"/></Button>}
             </div>
           </div>
         </article>)}

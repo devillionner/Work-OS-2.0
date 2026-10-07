@@ -230,66 +230,74 @@ export function WorkdayCard({ initial, today, unfinishedCount, dailyGoal, monthl
 
   return (
     <section className={`workday-card workday-card--${status}`} data-workday-status={status} aria-labelledby="workday-title">
-      <div className="workday-header">
-        <div className="workday-heading-row">
-          <div className="workday-icon" aria-hidden="true">
-            <Clock3 />
-            {status === 'active' && <span className="workday-pulse" />}
-          </div>
+      <div className="workday-icon" aria-hidden="true">
+        <Clock3 />
+        {status === 'active' && <span className="workday-pulse" />}
+      </div>
+
+      <div className="workday-main">
+        <div className="workday-heading">
           <div className="workday-heading-copy">
             <p className="eyebrow">Робочий день</p>
             <h2 id="workday-title">{workday ? statusLabel(workday.status) : 'Ще не розпочато'}</h2>
           </div>
+          <Badge className="workday-status" variant={status === 'active' ? 'default' : 'secondary'} aria-live="polite">
+            <span className={`workday-status-dot is-${status}`} aria-hidden="true" />
+            {statusText}
+          </Badge>
         </div>
-        <Badge className="workday-status" variant={status === 'active' ? 'default' : 'secondary'} aria-live="polite">
-          <span className={`workday-status-dot is-${status}`} aria-hidden="true" />
-          {statusText}
-        </Badge>
-      </div>
 
-      <div className="workday-timer-display">
-        <span className="workday-timer-label">Активний час</span>
-        <p className="workday-time">
-          <strong>{formatDuration(seconds)}</strong>
-        </p>
-      </div>
+        <div className="workday-timer-display">
+          <span className="workday-timer-label">Активний час</span>
+          <p className="workday-time">
+            <strong>{formatDuration(seconds)}</strong>
+          </p>
+        </div>
 
-      {staleOpen && (
-        <div className="workday-alert is-warning">
-          <AlertCircle className="workday-alert-icon" />
-          <p className="muted-note">Відкритий день за {formatDate(workday!.workDate)}. Заверши його перед стартом нового.</p>
-        </div>
-      )}
-      {confirmCount !== null && (
-        <div className="workday-alert is-warning">
-          <AlertCircle className="workday-alert-icon" />
-          <p className="muted-note">Залишилося справ: {confirmCount}. Завершити день попри це?</p>
-        </div>
-      )}
-      {workday?.status === 'ended' && (
-        <div className="workday-alert is-neutral">
-          <CheckCircle2 className="workday-alert-icon" />
-          <p className="muted-note">Завершили випадково? Поверніть день, щоб продовжити з попереднього часу, або скиньте сьогоднішній день, щоб почати заново.</p>
-        </div>
-      )}
-
-      {showPlan && (
-        <div className="workday-plan">
-          <div className="workday-plan-metrics">
-            <span className="workday-plan-pill">
-              Записи: <strong>{plan.dailyGoal}</strong>
-            </span>
-            <span className="workday-plan-pill">
-              Місячна ціль: <strong>{plan.monthlyGoal}</strong>
-            </span>
-            <span className="workday-plan-pill">
-              Фокус: <strong>{plan.focusDirections.length ? plan.focusDirections.join(', ') : 'без напрямку'}</strong>
-            </span>
+        {staleOpen && (
+          <div className="workday-alert is-warning">
+            <AlertCircle className="workday-alert-icon" />
+            <p className="muted-note">Відкритий день за {formatDate(workday!.workDate)}. Заверши його перед стартом нового.</p>
           </div>
-        </div>
-      )}
+        )}
+        {confirmCount !== null && (
+          <div className="workday-alert is-warning">
+            <AlertCircle className="workday-alert-icon" />
+            <p className="muted-note">Залишилося справ: {confirmCount}. Завершити день попри це?</p>
+          </div>
+        )}
+        {workday?.status === 'ended' && (
+          <div className="workday-alert is-neutral">
+            <CheckCircle2 className="workday-alert-icon" />
+            <p className="muted-note">Завершили випадково? Поверніть день, щоб продовжити з попереднього часу, або скиньте сьогоднішній день, щоб почати заново.</p>
+          </div>
+        )}
 
-      {error && <p className="lead-error" role="alert">{error}</p>}
+        {showPlan && (
+          <div className="workday-plan">
+            <div className="workday-plan-metrics">
+              <span className="workday-plan-item">
+                Записи: <strong>{plan.dailyGoal}</strong>
+              </span>
+              <span className="workday-plan-sep" aria-hidden="true">·</span>
+              <span className="workday-plan-item">
+                Місячна ціль: <strong>{plan.monthlyGoal}</strong>
+              </span>
+              <span className="workday-plan-sep" aria-hidden="true">·</span>
+              <span className="workday-plan-item">
+                Фокус: <strong>{plan.focusDirections.length ? plan.focusDirections.join(', ') : 'всі'}</strong>
+              </span>
+            </div>
+            <small className="workday-plan-note">
+              {workday?.plan
+                ? `Зафіксовано на старті о ${formatTime(workday.plan.createdAt)}`
+                : 'Цілі зафіксуються під час старту й не зміняться заднім числом.'}
+            </small>
+          </div>
+        )}
+
+        {error && <p className="lead-error" role="alert">{error}</p>}
+      </div>
 
       <div className="workday-actions">
         {!workday && (

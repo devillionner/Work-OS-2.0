@@ -395,7 +395,7 @@ export function LibraryWorkspace({ syncRevision = 0, active = true }: { syncRevi
     collection === 'advertisement' && selected
       ? selected.platforms.filter((value) => !canonicalLibraryPlatform(value))
       : [];
-  const emptyWorkspace = viewReady && !editorOpen && visibleItems.length === 0;
+  const emptyWorkspace=viewReady&&!editorOpen&&visibleItems.length===0;
 
   return (
     <div
