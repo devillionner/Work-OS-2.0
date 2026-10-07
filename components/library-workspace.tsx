@@ -88,9 +88,9 @@ export function LibraryWorkspace({ syncRevision = 0, active = true }: { syncRevi
   const [notice, setNotice] = useState('');
   const [viberJob, setViberJob] = useState<ViberSafeJob | null>(null);
   const [viberBusy, setViberBusy] = useState(false);
-  const [loadedKey, setLoadedKey] = useState('');
+  const [loadedKey,setLoadedKey]=useState('');
   const [copiedLang, setCopiedLang] = useState<'uk' | 'ru' | null>(null);
-  const viewCache = useRef(new Map<string, Item[]>());
+  const viewCache=useRef(new Map<string,Item[]>());
   const loadSeq = useRef(0);
   const lastSyncRevision = useRef(syncRevision);
 
@@ -99,11 +99,8 @@ export function LibraryWorkspace({ syncRevision = 0, active = true }: { syncRevi
       const key = libraryViewKey(collection, archived, search);
       const request = ++loadSeq.current;
       const cached = viewCache.current.get(key);
-      if (cached) {
-        setItems(cached);
-        setLoadedKey(key);
-        setLoading(false);
-      } else if (!silent) setLoading(true);
+      if(cached){setItems(cached);setLoadedKey(key);} else setLoadedKey('');
+      if (!cached && !silent) setLoading(true);
       setRefreshing(true);
       setError('');
       try {
@@ -113,14 +110,14 @@ export function LibraryWorkspace({ syncRevision = 0, active = true }: { syncRevi
         if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити бібліотеку.');
         const next = body.items || [];
         viewCache.current.set(key, next);
-        if (request === loadSeq.current) {
+        if(request===loadSeq.current) {
           setItems(next);
           setLoadedKey(key);
         }
       } catch (reason) {
-        if (request === loadSeq.current) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити бібліотеку.');
+        if(request===loadSeq.current) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити бібліотеку.');
       } finally {
-        if (request === loadSeq.current) {
+        if(request===loadSeq.current) {
           setLoading(false);
           setRefreshing(false);
         }
@@ -135,7 +132,7 @@ export function LibraryWorkspace({ syncRevision = 0, active = true }: { syncRevi
   }, [load, search]);
 
   useEffect(() => {
-    if (active) return;
+    if(active)return;
     // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
     setHistoryOpen(false);
     setArchiveCandidate(null);
@@ -376,11 +373,11 @@ export function LibraryWorkspace({ syncRevision = 0, active = true }: { syncRevi
 
   const isKnowledge = collection === 'knowledge';
   const platformOptions = collection === 'advertisement' ? [...LIBRARY_ADVERTISEMENT_PLATFORMS] : [];
-  const currentViewKey = libraryViewKey(collection, archived, search);
+  const currentViewKey=libraryViewKey(collection,archived,search);
   // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
   const cachedView = viewCache.current.get(currentViewKey);
-  const viewReady = loadedKey === currentViewKey || cachedView !== undefined;
-  const viewItems = loadedKey === currentViewKey ? items : cachedView || [];
+  const viewReady=loadedKey===currentViewKey||cachedView!==undefined;
+  const viewItems=loadedKey===currentViewKey?items:(cachedView||[]);
   const visibleItems =
     platformFilter === 'all'
       ? viewItems
@@ -520,9 +517,7 @@ export function LibraryWorkspace({ syncRevision = 0, active = true }: { syncRevi
 
       <div className="library-layout">
         <section className="library-list">
-          {!viewReady ? (
-            <WorkspaceInitialLoading compact label="Завантажуємо бібліотеку…" />
-          ) : visibleItems.length ? (
+          {!viewReady?<WorkspaceInitialLoading compact label="Завантажуємо бібліотеку…" /> : visibleItems.length ? (
             visibleItems.map((item) => (
               <button
                 type="button"

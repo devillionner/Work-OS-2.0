@@ -13,18 +13,22 @@ export function PlatformOverview({
   joined,
   published,
 }: {
-  pace: PublicationPace;
+  pace?: PublicationPace;
   available?: PlatformLinkItem[];
-  joined: PlatformLinkItem[];
-  published: PlatformLinkItem[];
+  joined?: PlatformLinkItem[];
+  published?: PlatformLinkItem[];
 }) {
+  const safePace = pace ?? { ratePerHour: 0, completed: 0, target: 0 };
+  const safeJoined = joined ?? [];
+  const safePublished = published ?? [];
+
   return (
     <section className={`platform-overview ${available ? 'has-available' : ''}`} aria-label="Сьогоднішній стан">
-      <DailyStat label="Темп" value={`${pace.ratePerHour}/год`} icon={<Gauge className="size-3.5" />} />
-      <DailyStat label="Ціль" value={`${pace.completed} / ${pace.target}`} icon={<Target className="size-3.5" />} />
+      <DailyStat label="Темп" value={`${safePace.ratePerHour}/год`} icon={<Gauge className="size-3.5" />} />
+      <DailyStat label="Ціль" value={`${safePace.completed} / ${safePace.target}`} icon={<Target className="size-3.5" />} />
       {available && <DailyLinkStat label="Доступні" items={available} icon={<Layers className="size-3.5" />} />}
-      <DailyLinkStat label="Приєднано" items={joined} icon={<UserPlus className="size-3.5" />} />
-      <DailyLinkStat label="Опубліковано" items={published} icon={<Send className="size-3.5" />} />
+      <DailyLinkStat label="Приєднано" items={safeJoined} icon={<UserPlus className="size-3.5" />} />
+      <DailyLinkStat label="Опубліковано" items={safePublished} icon={<Send className="size-3.5" />} />
     </section>
   );
 }

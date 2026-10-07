@@ -107,7 +107,7 @@ export function WhatsappAutopostDialog({
             </Badge>
           </div>
           <DialogDescription>
-            Work OS автоматично підбере матеріали й виконає безпечну відправку до 30 чатів у черзі з підтвердженням відправки на кожному кроці.
+            Work OS автоматично підбере матеріали й виконає безпечну відправку до 30 чатів у черзі з підтвердженням відправки на кожному кроці. Профілі вручну підтверджувати не потрібно.
           </DialogDescription>
         </DialogHeader>
 
@@ -126,7 +126,7 @@ export function WhatsappAutopostDialog({
                 <strong className="text-sm font-semibold">{running ? 'Автопост виконується' : 'Автопост завершено'}</strong>
               </div>
               <span className="text-sm font-bold tabular-nums text-foreground">
-                {progress.done} з {progress.total} ({progressPercent}%)
+                {`${progress.done} з ${progress.total}`} ({progressPercent}%)
               </span>
             </div>
 
@@ -226,7 +226,7 @@ export function WhatsappAutopostDialog({
                   title="Обрати інше фото"
                 >
                   <ImagePlus className="size-3.5" data-icon="inline-start" />
-                  Замінити
+                  Замінити фото
                 </Button>
                 <Button
                   type="button"
@@ -253,7 +253,7 @@ export function WhatsappAutopostDialog({
                 <UploadCloud className="size-6 text-primary" />
               </div>
               <div className="text-center">
-                <strong className="block text-xs font-semibold text-foreground">Натисніть для завантаження фото</strong>
+                <strong className="block text-xs font-semibold text-foreground">Додати фото</strong>
                 <span className="block text-[11px] text-muted-foreground">JPG, PNG або WebP (до 640 КБ, автоматичне стискання)</span>
               </div>
             </button>
@@ -277,7 +277,7 @@ export function WhatsappAutopostDialog({
             disabled={busy || !captionLoaded}
             value={caption}
             onChange={(event) => onCaptionChange(event.target.value)}
-            placeholder="Вставте текст, який має піти під фото. Якщо залишити порожнім — Work OS автоматично підставить текст із Library для кожного чату."
+            placeholder="Вставте текст, який має піти під фото. Залиште порожнім, щоб Work OS автоматично підставила текст із Library для кожного чату."
             className="whatsapp-autopost-textarea"
           />
 

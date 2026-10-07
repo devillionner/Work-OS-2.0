@@ -1612,11 +1612,12 @@ body { background:var(--background); }
 .eyebrow { margin-bottom:4px; color:var(--muted-foreground); font-size:10px; font-weight:750; text-transform:uppercase; letter-spacing:.06em; }
 .muted-note { color:var(--muted-foreground); }
 
-.dashboard-grid,.platform-workspace,.leads-workspace,.analytics-workspace,.reports-workspace,.library-workspace,.settings-workspace {
-  gap:14px;
+.dashboard-grid, .platform-workspace, .leads-workspace, .analytics-workspace, .reports-workspace, .library-workspace, .settings-workspace {
+  gap: 16px;
+  padding: 20px 24px 48px;
+  max-width: 1360px;
+  margin: 0 auto;
 }
-.dashboard-grid { max-width:1360px; }
-.platform-workspace,.leads-workspace,.analytics-workspace,.reports-workspace,.library-workspace,.settings-workspace { max-width:1360px; }
 
 .dashboard-grid section,.platform-workspace section,.analytics-hero,.analytics-card,.reports-hero,.reports-calendar-card,.reports-editor-card,
 .library-hero,.library-list,.library-editor,.settings-hero,.settings-panel,.leads-hero,.leads-list,.lead-panel {

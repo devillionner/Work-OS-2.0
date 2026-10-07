@@ -100,7 +100,7 @@ export function ChatPublishDialog({
   });
   const [focusPlan, setFocusPlan] = useState<FocusPlan | null>(null);
   const [focusDecision, setFocusDecision] = useState<'kept' | 'refreshed' | null>(null);
-  const selectionCache = useRef(new Map<string, SelectionPayload>());
+  const selectionCache=useRef(new Map<string,SelectionPayload>());
   const chatId = chat?.id;
   const chatLanguage = chat?.profile.language;
 

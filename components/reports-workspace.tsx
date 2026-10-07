@@ -286,7 +286,7 @@ export function ReportsWorkspace({ onOpenLead, syncRevision=0, active=true }: { 
           )}
           {loading && !data ? (
             <WorkspaceInitialLoading compact label="Завантажуємо звіти…"/>
-          ) : selected && editorData ? (
+          ) : selected&&editorData ? (
             <>
               <div className="card-heading">
                 <div>

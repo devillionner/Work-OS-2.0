@@ -107,7 +107,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkO
 
   const navigateTo = (next: ViewKey) => {
     const fromDrawer = mobileOpen;
-    setVisitedViews((current) => (current.has(next) ? current : new Set(current).add(next)));
+    setVisitedViews((current) => current.has(next) ? current : new Set(current).add(next));
     setActiveView(next);
     setMobileOpen(false);
     if (fromDrawer) requestAnimationFrame(() => pageHeadingRef.current?.focus());
