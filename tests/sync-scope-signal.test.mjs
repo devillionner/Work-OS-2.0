@@ -53,5 +53,5 @@ void test('platform mutations announce their own scope instead of the broad all'
   assert.doesNotMatch(workspace, /announceDataChange\('all'\)/);
   assert.match(workspace, /announceDataChange\('platforms'\)/);
   const matches = workspace.match(/announceDataChange\('platforms'\)/g) || [];
-  assert.equal(matches.length, 5, 'all five platform mutation sites should announce the platforms scope');
+  assert.equal(matches.length, 7, 'all platform mutation sites should announce the platforms scope');
 });

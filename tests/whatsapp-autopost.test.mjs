@@ -14,6 +14,7 @@ import {
 import { recordManualPublication } from '../lib/chats/publication.ts';
 import { readChatState } from '../lib/chats/state.ts';
 import { localDatabase, seedChat } from './helpers/local-d1.mjs';
+import { chatListPageStatement } from '../lib/chats/list-query.ts';
 
 const NOW=Date.parse('2026-09-24T12:00:00Z')/1000;
 const DATE='2026-09-24';
@@ -255,3 +256,174 @@ void test('autopost waits for a ready WhatsApp and retries the stages that happe
   assert.match(adapter,/readWhatsappMediaPreviewDiagnostic/);
   assert.match(adapter,/AUTOPOST_MEDIA_PREVIEW_MS = 20_000/);
 });
+
+void test('confirmed send to target with bidi unicode marks creates publication and moves chat to published today', async t => {
+  const { db, chat, advertisementId } = await setup(t, 'bidi');
+  const job = await createWhatsAppAutopostJob(db, 'u', {
+    requestKey: 'request_autopost_bidi', chatId: chat.id,
+  }, NOW, DATE);
+  const task = await claimWhatsAppAutopostJob(db, 'u', NOW + 1);
+  assert.equal(task?.kind, 'whatsapp_autopost');
+  assert.equal(task?.target.expectedName, 'Українці Berlin');
+
+  // WhatsApp Web DOM title routinely contains LRM \u200e marks around localized text
+  const observedWithBidi = '\u200eУкраїнці Berlin\u200e';
+  const completed = await completeWhatsAppAutopostJob(db, 'u', {
+    jobId: job.id,
+    status: 'sent',
+    observedTarget: observedWithBidi,
+    targetVerified: true,
+    sendConfirmed: true,
+  }, NOW + 2);
+
+  assert.equal(completed.ok, true);
+  assert.equal(completed.status, 'sent');
+  assert.ok(completed.publicationId);
+  assert.equal(completed.result.errorCode, null);
+
+  // 1. Publication row is recorded in D1
+  const publication = await db.prepare(`SELECT source, source_key, advertisement_id FROM chat_publications
+    WHERE user_id='u' AND chat_id=?1 AND published_on=?2`).bind(chat.id, DATE).first();
+  assert.equal(publication.source, 'whatsapp_autopost');
+  assert.equal(publication.source_key, `whatsapp-autopost:${job.id}`);
+  assert.equal(publication.advertisement_id, advertisementId);
+
+  // 2. Publication activity event is emitted
+  assert.equal(await db.prepare(`SELECT COUNT(*) FROM activity_events
+    WHERE user_id='u' AND event_type='publication' AND cancelled_at IS NULL`).first('COUNT(*)'), 1);
+
+  // 3. Direct SQL verifies published_today = 1
+  const publishedDirect = await db.prepare(
+    `SELECT EXISTS(SELECT 1 FROM chat_publications WHERE user_id='u' AND chat_id=?1 AND published_on=?2) AS published_today`
+  ).bind(chat.id, DATE).first('published_today');
+  assert.equal(publishedDirect, 1);
+
+  // 4. Queue query verifies chatListPageStatement derives published_today = 1
+  const page = await chatListPageStatement(db, {
+    userId: 'u', platform: 'whatsapp', status: 'ready', needsReview: false,
+    today: DATE, now: NOW + 2, offset: 0, accountId: null,
+  }).all();
+  const listedChat = page.results.find(row => row.id === chat.id);
+  assert.ok(listedChat);
+  assert.equal(listedChat.published_today, 1);
+
+  // 5. Autopost job row in D1 is marked 'sent'
+  const latestJob = await readLatestWhatsAppAutopostJob(db, 'u');
+  assert.equal(latestJob?.status, 'sent');
+  assert.equal(latestJob?.publicationId, completed.publicationId);
+});
+
+void test('confirmed send with emoji or punctuation variations succeeds via loose target matching', async t => {
+  const { db, chat } = await setup(t, 'emoji');
+  const job = await createWhatsAppAutopostJob(db, 'u', {
+    requestKey: 'request_autopost_emoji', chatId: chat.id,
+  }, NOW, DATE);
+  await claimWhatsAppAutopostJob(db, 'u', NOW + 1);
+
+  // WhatsApp Web DOM title has flag emoji and punctuation differences
+  const observedWithEmoji = 'Українці Berlin 🇺🇦';
+  const completed = await completeWhatsAppAutopostJob(db, 'u', {
+    jobId: job.id,
+    status: 'sent',
+    observedTarget: observedWithEmoji,
+    targetVerified: true,
+    sendConfirmed: true,
+  }, NOW + 2);
+
+  assert.equal(completed.ok, true);
+  assert.equal(completed.status, 'sent');
+  assert.ok(completed.publicationId);
+  assert.equal(completed.result.errorCode, null);
+
+  assert.equal(await db.prepare(`SELECT COUNT(*) FROM chat_publications
+    WHERE user_id='u' AND chat_id=?1 AND published_on=?2`).bind(chat.id, DATE).first('COUNT(*)'), 1);
+
+  const publishedDirect = await db.prepare(
+    `SELECT EXISTS(SELECT 1 FROM chat_publications WHERE user_id='u' AND chat_id=?1 AND published_on=?2) AS published_today`
+  ).bind(chat.id, DATE).first('published_today');
+  assert.equal(publishedDirect, 1);
+});
+
+void test('completely mismatched target name fails closed with target_not_verified and zero publication facts', async t => {
+  const { db, chat } = await setup(t, 'mismatch');
+  const job = await createWhatsAppAutopostJob(db, 'u', {
+    requestKey: 'request_autopost_mismatch', chatId: chat.id,
+  }, NOW, DATE);
+  await claimWhatsAppAutopostJob(db, 'u', NOW + 1);
+
+  // Target completely differs; runner mistakenly reported sent/confirmed without errorCode
+  const completed = await completeWhatsAppAutopostJob(db, 'u', {
+    jobId: job.id,
+    status: 'sent',
+    observedTarget: 'Different Group',
+    targetVerified: true,
+    sendConfirmed: true,
+  }, NOW + 2);
+
+  assert.equal(completed.ok, true);
+  assert.equal(completed.status, 'failed');
+  assert.equal(completed.publicationId, null);
+  assert.equal(completed.result.errorCode, 'target_not_verified');
+  assert.equal(completed.result.observedTarget, 'Different Group');
+
+  // Verify zero publications and events written
+  assert.equal(await db.prepare(`SELECT COUNT(*) FROM chat_publications
+    WHERE user_id='u' AND chat_id=?1 AND published_on=?2`).bind(chat.id, DATE).first('COUNT(*)'), 0);
+  assert.equal(await db.prepare(`SELECT COUNT(*) FROM activity_events WHERE event_type='publication'`).first('COUNT(*)'), 0);
+
+  // Chat remains unpublished today
+  const publishedDirect = await db.prepare(
+    `SELECT EXISTS(SELECT 1 FROM chat_publications WHERE user_id='u' AND chat_id=?1 AND published_on=?2) AS published_today`
+  ).bind(chat.id, DATE).first('published_today');
+  assert.equal(publishedDirect, 0);
+
+  // Job row in D1 is marked 'failed'
+  const jobRow = await readLatestWhatsAppAutopostJob(db, 'u');
+  assert.equal(jobRow?.status, 'failed');
+});
+
+void test('autopost completion stays within bounded D1 rows read budget', async t => {
+  const { db, chat } = await setup(t, 'budget');
+  const job = await createWhatsAppAutopostJob(db, 'u', {
+    requestKey: 'request_autopost_budget', chatId: chat.id,
+  }, NOW, DATE);
+  await claimWhatsAppAutopostJob(db, 'u', NOW + 1);
+
+  let readRows = 0;
+  const count = result => { readRows += result?.meta?.rows_read || 0; return result; };
+  const wrap = statement => {
+    const wrapped = Object.create(statement);
+    wrapped.bind = (...values) => wrap(statement.bind(...values));
+    wrapped.all = async () => count(await statement.all());
+    wrapped.run = async () => count(await statement.run());
+    wrapped.first = async column => {
+      const row = count(await statement.all()).results[0] ?? null;
+      return column && row ? row[column] : row;
+    };
+    return wrapped;
+  };
+  const metered = new Proxy(db, {
+    get(target, property) {
+      if (property === 'prepare') return sql => wrap(target.prepare(sql));
+      if (property === 'batch') return async statements => {
+        const results = await target.batch(statements);
+        results.forEach(count);
+        return results;
+      };
+      const value = target[property];
+      return typeof value === 'function' ? value.bind(target) : value;
+    }
+  });
+
+  const completed = await completeWhatsAppAutopostJob(metered, 'u', {
+    jobId: job.id,
+    status: 'sent',
+    observedTarget: '\u200eУкраїнці Berlin\u200e',
+    targetVerified: true,
+    sendConfirmed: true,
+  }, NOW + 2);
+
+  assert.equal(completed.status, 'sent');
+  assert.ok(readRows <= 20, `autopost completion read ${readRows} rows; must be bounded <= 20`);
+});
+

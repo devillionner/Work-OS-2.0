@@ -399,11 +399,16 @@ export class OwnerChannel {
     const state = await this.readState();
     if (!state.userId || state.autopostCurrentJobId !== message.jobId) return; // stale/mismatched — ignore
     state.autopostCurrentJobId = null;
-    try { await completeWhatsAppAutopostJob(this.env.DB, state.userId, message, nowSeconds()); }
-    catch { /* job already resolved another way (e.g. operator cancel) — nothing left to apply */ }
+    let status = 'failed';
+    try {
+      const outcome = await completeWhatsAppAutopostJob(this.env.DB, state.userId, message, nowSeconds());
+      status = (outcome && typeof outcome.status === 'string') ? outcome.status : 'failed';
+    } catch {
+      // job already resolved another way (e.g. operator cancel) — nothing left to apply
+    }
     // Sent before the next dispatch so a browser sees this job finish before the next one starts;
     // either way it reloads its queue, which is where the authoritative job status lives.
-    this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: message.jobId, status: String(message.status || '') });
+    this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: message.jobId, status });
     await this.dispatchNextAutopostJob(state);
     await this.writeState(state);
   }

@@ -996,7 +996,13 @@ function openNativeChat(platform:Platform, link:string) {
     }
     return;
   }
-  window.open(link,'_blank','noopener,noreferrer');
+  if(platform==='telegram') {
+    window.open(link,'_blank','noopener,noreferrer');
+    return;
+  }
+  const nativeLink=nativeChatLink(platform,link);
+  if(nativeLink) window.location.assign(nativeLink);
+  else window.open(link,'_blank','noopener,noreferrer');
 }
 
 function nativeChatLink(platform:Platform, link:string) {

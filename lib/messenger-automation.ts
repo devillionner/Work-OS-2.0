@@ -507,7 +507,13 @@ export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,in
   const sendConfirmed=input.sendConfirmed===true;
   const requestedSent=input.status==='sent';
   const observedTarget=typeof input.observedTarget==='string'?input.observedTarget.trim().slice(0,180):'';
-  const exactTarget=normalizeTarget(observedTarget)===normalizeTarget(row.expected_name);
+  const normalizedExpected=normalizeTarget(row.expected_name);
+  const normalizedObserved=normalizeTarget(observedTarget);
+  const looseExpected=looseTarget(row.expected_name);
+  const looseObserved=looseTarget(observedTarget);
+  const exactTarget=(Boolean(normalizedExpected)&&normalizedObserved===normalizedExpected)||(
+    sendConfirmed&&Boolean(looseExpected)&&looseObserved===looseExpected
+  );
   if(!requestedSent||!targetVerified||!exactTarget||!sendConfirmed){
     const errorCode=cleanErrorCode(input.errorCode)||(
       !targetVerified||!exactTarget?'target_not_verified':!sendConfirmed?'send_not_confirmed':'adapter_failed'
@@ -578,8 +584,17 @@ function publicWhatsAppAutopostJob(row:WhatsAppAutopostRow):WhatsAppAutopostJob{
   };
 }
 
-function normalizeTarget(value:string){
-  return value.normalize('NFC').trim().replace(/\s+/g,' ').toLocaleLowerCase('uk-UA');
+export function normalizeTarget(value:string):string{
+  return String(value||'')
+    .normalize('NFC')
+    .replace(/[\u200e\u200f\u202a-\u202e]/gu,'')
+    .trim()
+    .replace(/\s+/gu,' ')
+    .toLocaleLowerCase('uk-UA');
+}
+
+export function looseTarget(value:string):string{
+  return normalizeTarget(value).replace(/[^\p{L}\p{N}]+/gu,' ').trim();
 }
 
 async function readJobRow(db:D1Database,userId:string,id:string){

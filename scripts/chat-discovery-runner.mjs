@@ -914,9 +914,10 @@ async function handleAutopostTask(ws,job){
   }
   if(automated.kind==='result'&&automated.result.sendConfirmed===true){
     clearWhatsappRuntimeBlock();
+    const observedTarget=automated.result.observedTarget||job.target?.expectedName;
     sendLive(ws,{type:'result',process:'autopost',jobId:job.jobId,status:'sent',
-      observedTarget:automated.result.observedTarget,targetVerified:true,sendConfirmed:true});
-    console.log(`Confirmed WhatsApp autopost accepted by Work OS for ${automated.result.observedTarget}.`);
+      observedTarget,targetVerified:true,sendConfirmed:true});
+    console.log(`Confirmed WhatsApp autopost accepted by Work OS for ${observedTarget}.`);
     return;
   }
   console.warn(`WhatsApp autopost stopped fail-closed: ${automated.reason}`);
@@ -933,7 +934,7 @@ async function handleAutopostTask(ws,job){
     return;
   }
   sendLive(ws,{type:'result',process:'autopost',jobId:job.jobId,status:'failed',
-    observedTarget:job.target.expectedName,targetVerified:false,sendConfirmed:false,errorCode:automated.reason});
+    observedTarget:job.target?.expectedName,targetVerified:false,sendConfirmed:false,errorCode:automated.reason});
 }
 
 async function handleDiscoveryTask(ws,task){
