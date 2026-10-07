@@ -293,16 +293,16 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkO
                       ))}
                     </div>
                   ) : (
-                    <p className="focus-empty-note">Фокус напрямків ще не налаштований.</p>
+                    <p className="focus-empty-note">Фокус напрямків: <span>усі напрямки активні</span></p>
                   )}
                 </div>
               </div>
               <div className="focus-actions">
-                <Button size="lg" onClick={() => navigateTo('platforms')}>
+                <Button onClick={() => navigateTo('platforms')}>
                   <MessageSquareText data-icon="inline-start" />
                   Почати постинг
                 </Button>
-                <Button size="lg" variant="outline" onClick={() => setTodaySettingsOpen(true)}>
+                <Button variant="outline" onClick={() => setTodaySettingsOpen(true)}>
                   <Target data-icon="inline-start" />
                   Налаштувати ціль
                 </Button>
