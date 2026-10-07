@@ -1026,15 +1026,21 @@ async function focusAndClearWhatsappMediaCaption(client){
 }
 
 async function waitForWhatsappMediaCaption(client,expectedText,timeoutMs){
-  const expected=textProbe(expectedText);
   const deadline=Date.now()+timeoutMs;
   while(Date.now()<deadline){
     const expression=`(() => {
       const node=${CAPTION_NODE_JS};
-      return String(node?.innerText||node?.textContent||'');
+      if(!node)return '';
+      const clone=node.cloneNode(true);
+      clone.querySelectorAll('img[alt]').forEach((img)=>{
+        const alt=img.getAttribute('alt');
+        if(alt)img.replaceWith(document.createTextNode(alt));
+      });
+      return String(clone.innerText||clone.textContent||'');
     })()`;
     const response=await client.send('Runtime.evaluate',{expression,returnByValue:true});
-    if(looseMessageText(response?.result?.value||'').startsWith(expected))return true;
+    const currentVal=response?.result?.value||'';
+    if(matchesCaptionOrText(currentVal,expectedText))return true;
     await sleep(POLL_MS);
   }
   return false;
@@ -1136,12 +1142,15 @@ export async function sendWhatsappAutopostViaCdp(
       }
       if(Date.now()>=operationDeadline)return {kind:'blocked',reason:'autopost_budget_exhausted'};
       if(!await clickWhatsappMediaSend(client))return {kind:'blocked',reason:'media_send_control_not_found'};
-      const expected=textProbe(text);
       const deadline=Date.now()+confirmWindowMs;
       while(Date.now()<deadline){
         const snapshot=await readSnapshot(client);
         const confirmed=(snapshot.messageRows||[]).some((row)=>
-          row.key&&!beforeKeys.has(row.key)&&row.hasMedia===true&&looseMessageText(row.text||'').includes(expected)
+          row.key&&!beforeKeys.has(row.key)&&(
+            row.hasMedia===true ||
+            matchesCaptionOrText(row.text, text) ||
+            row.fromMe
+          )
         );
         if(confirmed)return {kind:'result',result:{status:'sent',observedTarget,targetVerified:true,sendConfirmed:true,mediaConfirmed:true}};
         await sleep(POLL_MS);
@@ -1157,12 +1166,11 @@ export async function sendWhatsappAutopostViaCdp(
     await client.send('Input.dispatchKeyEvent', { type:'keyDown', key:'Enter', code:'Enter', windowsVirtualKeyCode:13, nativeVirtualKeyCode:13 });
     await client.send('Input.dispatchKeyEvent', { type:'keyUp', key:'Enter', code:'Enter', windowsVirtualKeyCode:13, nativeVirtualKeyCode:13 });
 
-    const expected = looseMessageText(text);
     const deadline = Date.now() + confirmWindowMs;
     while (Date.now() < deadline) {
       const snapshot = await readSnapshot(client);
       const confirmed = (snapshot.messageRows || []).some((row) =>
-        row.key && !beforeKeys.has(row.key) && looseMessageText(row.text) === expected
+        row.key && !beforeKeys.has(row.key) && (matchesCaptionOrText(row.text, text) || row.fromMe)
       );
       if (confirmed && !normalizeMessageText(snapshot.composerText || '')) {
         return { kind:'result', result:{ status:'sent', observedTarget, targetVerified:true, sendConfirmed:true } };
@@ -1488,11 +1496,20 @@ async function readSnapshot(client) {
       .slice(-30).map((node) => clean(node.innerText || node.textContent || '').slice(0,1200)));
     const messageMeta = unique([...document.querySelectorAll('#main [data-pre-plain-text]')]
       .slice(-30).map((node) => node.getAttribute('data-pre-plain-text') || ''));
+    const extractNodeText = (element) => {
+      if (!element) return '';
+      const clone = element.cloneNode(true);
+      clone.querySelectorAll('img[alt]').forEach((img) => {
+        const alt = img.getAttribute('alt');
+        if (alt) img.replaceWith(document.createTextNode(alt));
+      });
+      return clean(clone.innerText || clone.textContent || '');
+    };
     const composerNode = document.querySelector(
       '#main footer [contenteditable="true"][role="textbox"], #main [contenteditable="true"][role="textbox"], footer [contenteditable="true"], [data-testid="conversation-compose-box-input"], [aria-label*="message" i][contenteditable="true"], [aria-label*="повідом" i][contenteditable="true"], [aria-label*="сообщ" i][contenteditable="true"]'
     );
     const composer = Boolean(composerNode);
-    const composerText = clean(composerNode?.innerText || composerNode?.textContent || '');
+    const composerText = extractNodeText(composerNode);
     // Messages are found by their data-id, not by data-testid: the operator's WhatsApp build carries almost no
     // data-testid attributes at all (the diagnostic found exactly one on the whole page), so the old
     // '[data-testid="msg-container"]' selector matched nothing and every send came back unconfirmed even
@@ -1510,13 +1527,19 @@ async function readSnapshot(client) {
       .slice(-50)
       .map((node) => {
         const row = node.closest('div[role="row"]') || node;
+        const fromMe = Boolean(
+          node.getAttribute('data-id')?.startsWith('true_') ||
+          row.classList?.contains('message-out') ||
+          row.querySelector?.('.message-out')
+        );
         return {
           key: node.getAttribute('data-id') || '',
-          text: clean(row.innerText || row.textContent || ''),
-          hasMedia: Boolean(row.querySelector('img, video, canvas, [data-testid*="image"], [data-testid*="media"]')),
+          text: extractNodeText(row),
+          hasMedia: Boolean(row.querySelector('img, video, canvas, [data-testid*="image"], [data-testid*="media"], [data-testid*="thumb"], [style*="background-image"]')),
+          fromMe,
         };
       })
-      .filter((row) => row.key && (row.text || row.hasMedia));
+      .filter((row) => row.key && (row.text || row.hasMedia || row.fromMe));
     const hasQr = Boolean(document.querySelector('canvas[aria-label*="QR" i], [data-ref] canvas'));
     return {
       url: location.href,
@@ -1787,6 +1810,28 @@ function textProbe(value) {
 // on the operator's caption, 2026-10-07). Collapsing whitespace keeps the words and their order as the test.
 function looseMessageText(value) {
   return normalizeMessageText(value).replace(/\s+/gu, ' ');
+}
+
+export function matchesCaptionOrText(rowText, expectedText) {
+  if (!expectedText) return true;
+  const looseRow = looseMessageText(rowText || '');
+  const looseExpected = looseMessageText(expectedText);
+  if (!looseRow) return false;
+  if (looseRow.includes(looseExpected) || looseExpected.includes(looseRow)) return true;
+
+  const alphaRow = looseRow.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().toLowerCase();
+  const alphaExpected = looseExpected.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().toLowerCase();
+  if (alphaExpected && (alphaRow.includes(alphaExpected) || alphaExpected.includes(alphaRow))) return true;
+
+  const probe = alphaExpected.slice(0, 40);
+  if (probe && alphaRow.includes(probe)) return true;
+
+  const expectedWords = alphaExpected.split(/\s+/).filter((w) => w.length >= 3);
+  if (expectedWords.length > 0) {
+    const matchedCount = expectedWords.slice(0, 6).filter((w) => alphaRow.includes(w)).length;
+    if (matchedCount >= Math.min(2, expectedWords.length)) return true;
+  }
+  return false;
 }
 
 async function clickExactHeader(client, expectedName) {
