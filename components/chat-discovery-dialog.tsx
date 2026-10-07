@@ -567,7 +567,7 @@ export function ChatDiscoveryDialog({
                 План пошуку завершено: знайдено {displayedTargetCount} із {localPreview.goal} цільових.{' '}
                 {willResume?'Минув тиждень — можна шукати знову: у тих самих Telegram-групах могли зʼявитися нові запрошення.':'Повторний пошук за тим самим планом стане доступний через тиждень після завершення.'}
               </div>}
-              {localPreview.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: знайдено {displayedTargetCount} із {localPreview.goal}. Підтверди потрібні у списку «Цільові».</div>}
+              {localPreview.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: знайдено {displayedTargetCount} із {localPreview.goal}. Підтверди потрібні у списку «Готові підтвердити».</div>}
               {!autonomousRunning&&pauseSummary&&<div className="mt-3 rounded-xl bg-muted/25 px-3 py-2.5 text-xs leading-5 text-foreground/70">Пошук на паузі. Прогрес збережено — «Продовжити» почне з того ж кроку.</div>}
               {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- TODO: потребує зміни розмітки (docs/TODO.md) */}
               {localPreview.sourceIssues.length>0&&<details role="status" className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5">
@@ -679,7 +679,7 @@ export function ChatDiscoveryDialog({
                       </details>
 
                       <div className="mt-3 flex flex-wrap items-center gap-2 [&>button]:min-h-11 sm:[&>button]:min-h-8">
-                        <a className="inline-flex h-11 items-center gap-1.5 rounded-[9px] border border-border bg-background px-2.5 text-[0.8rem] font-semibold hover:bg-muted sm:h-8" href={candidate.link} target="_blank" rel="noreferrer">
+                        <a className="inline-flex h-11 items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-[0.8rem] font-semibold hover:bg-muted sm:h-8" href={candidate.link} target="_blank" rel="noreferrer">
                           Відкрити {platformLabel(candidate.platform)} <ExternalLink className="size-3.5"/>
                         </a>
                         {!candidate.importedChatId && isLocalPreview(candidate) && (candidate.decision==='rejected'
