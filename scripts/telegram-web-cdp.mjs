@@ -22,7 +22,7 @@ const groupStatusPattern = /(?:\bmembers?\b|учасник|участник|memb
 const channelStatusPattern = /(?:subscribers?|підписник|подписчик)/iu;
 const joinRequestPattern = /(?:request to join|apply to join|join request|подати (?:запит|заявку)|запит на (?:вступ|приєднання)|подать заявку|заявк[ау] на вступление|запрос на вступление)/iu;
 const floodPattern = /(?:too many (?:requests|attempts)|flood|please wait|try again later|забагато (?:запитів|спроб)|слишком много (?:запросов|попыток)|повторіть (?:спробу )?пізніше|повторите (?:попытку )?позже)/iu;
-const inviteCodePattern = /(?:https?:\/\/)?chat\.whatsapp\.com\/(?:invite\/)?([A-Za-z0-9]{18,32})(?![A-Za-z0-9…]|\.\.\.)/giu;
+const inviteCodePattern = /(?:https?:\/\/)?chat\.whatsapp\.com\/(?:invite\/)?([A-Za-z0-9_-]{18,32})(?![A-Za-z0-9_…-]|\.\.\.)/giu;
 
 export function classifyTelegramSearchStatus(status) {
   const text = String(status || '');
