@@ -998,8 +998,8 @@ function telegramWebLink(link:string):string {
   if(parts[0]?.toLowerCase()==='joinchat'&&parts[1]) {
     return `https://web.telegram.org/a/?tgaddr=${encodeURIComponent(`tg://join?invite=${parts[1]}`)}`;
   }
-  // Public username
-  if(parts[0]) return `https://web.telegram.org/a/#@${parts[0]}`;
+  // Public username — use tgaddr so Telegram Web resolves after app bootstrap
+  if(parts[0]) return `https://web.telegram.org/a/?tgaddr=${encodeURIComponent(`tg://resolve?domain=${parts[0]}`)}`;
   return link;
 }
 
