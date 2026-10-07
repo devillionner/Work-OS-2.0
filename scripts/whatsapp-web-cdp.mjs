@@ -1145,14 +1145,26 @@ export async function sendWhatsappAutopostViaCdp(
       const deadline=Date.now()+confirmWindowMs;
       while(Date.now()<deadline){
         const snapshot=await readSnapshot(client);
-        const confirmed=(snapshot.messageRows||[]).some((row)=>
+        const candidate=(snapshot.messageRows||[]).find((row)=>
           row.key&&!beforeKeys.has(row.key)&&(
             row.hasMedia===true ||
             matchesCaptionOrText(row.text, text) ||
             row.fromMe
           )
         );
-        if(confirmed)return {kind:'result',result:{status:'sent',observedTarget,targetVerified:true,sendConfirmed:true,mediaConfirmed:true}};
+        if(candidate){
+          if(candidate.error===true){
+            return {kind:'blocked',reason:'media_send_failed'};
+          }
+          if(candidate.pending===true&&candidate.ack!==true){
+            // Image is still actively uploading to WhatsApp servers. Keep waiting!
+            await sleep(POLL_MS);
+            continue;
+          }
+          // Upload and send confirmed by WhatsApp. Pause briefly so local state settles cleanly.
+          await sleep(1000);
+          return {kind:'result',result:{status:'sent',observedTarget,targetVerified:true,sendConfirmed:true,mediaConfirmed:true}};
+        }
         await sleep(POLL_MS);
       }
       return {kind:'blocked',reason:'media_send_not_confirmed'};
@@ -1169,10 +1181,16 @@ export async function sendWhatsappAutopostViaCdp(
     const deadline = Date.now() + confirmWindowMs;
     while (Date.now() < deadline) {
       const snapshot = await readSnapshot(client);
-      const confirmed = (snapshot.messageRows || []).some((row) =>
+      const candidate = (snapshot.messageRows || []).find((row) =>
         row.key && !beforeKeys.has(row.key) && (matchesCaptionOrText(row.text, text) || row.fromMe)
       );
-      if (confirmed && !normalizeMessageText(snapshot.composerText || '')) {
+      if (candidate && !normalizeMessageText(snapshot.composerText || '')) {
+        if (candidate.error === true) return { kind:'blocked', reason:'send_failed' };
+        if (candidate.pending === true && candidate.ack !== true) {
+          await sleep(POLL_MS);
+          continue;
+        }
+        await sleep(600);
         return { kind:'result', result:{ status:'sent', observedTarget, targetVerified:true, sendConfirmed:true } };
       }
       await sleep(POLL_MS);
@@ -1239,6 +1257,9 @@ async function openWhatsappInviteWhenSynced(client, page, targetUrl, deadline, s
     if (Date.now() + POLL_MS >= deadline) return { kind:'blocked', reason:'whatsapp_messages_loading' };
     await sleep(POLL_MS);
   }
+  try {
+    await client.send('Runtime.evaluate', { expression: `window.onbeforeunload = null;` });
+  } catch {}
   if (signal?.aborted) return { kind:'blocked', reason:'cancelled' };
   await client.send('Page.navigate', { url: targetUrl });
   lastInviteNavigation.url = targetUrl;
@@ -1532,11 +1553,23 @@ async function readSnapshot(client) {
           row.classList?.contains('message-out') ||
           row.querySelector?.('.message-out')
         );
+        const pending = Boolean(
+          row.querySelector?.('[data-icon="msg-time"], [data-icon="status-time"], [data-testid="msg-time"], [aria-label*="Pending" i], [aria-label*="Очікування" i], [aria-label*="Часы" i], circle, progress, [data-testid="spinner"]')
+        );
+        const error = Boolean(
+          row.querySelector?.('[data-icon="msg-error"], [data-icon="status-error"], [data-testid="msg-error"], [aria-label*="Error" i], [aria-label*="Помилка" i], [aria-label*="не вдалося" i], [aria-label*="Не удалось" i]')
+        );
+        const ack = Boolean(
+          row.querySelector?.('[data-icon="msg-check"], [data-icon="msg-dblcheck"], [data-icon="msg-dblcheck-ack"], [data-testid="msg-check"], [data-testid="msg-dblcheck"], [aria-label*="Sent" i], [aria-label*="Надіслано" i], [aria-label*="Отправлено" i], [aria-label*="Delivered" i], [aria-label*="Доставлено" i], [aria-label*="Read" i], [aria-label*="Прочитано" i]')
+        );
         return {
           key: node.getAttribute('data-id') || '',
           text: extractNodeText(row),
           hasMedia: Boolean(row.querySelector('img, video, canvas, [data-testid*="image"], [data-testid*="media"], [data-testid*="thumb"], [style*="background-image"]')),
           fromMe,
+          pending,
+          error,
+          ack,
         };
       })
       .filter((row) => row.key && (row.text || row.hasMedia || row.fromMe));
@@ -1956,6 +1989,16 @@ export async function createCdpClient(url) {
     try {
       message = JSON.parse(String(event.data));
     } catch {
+      return;
+    }
+    if (message.method === 'Page.javascriptDialogOpening') {
+      try {
+        socket.send(JSON.stringify({
+          id: ++nextId,
+          method: 'Page.handleJavaScriptDialog',
+          params: { accept: true },
+        }));
+      } catch {}
       return;
     }
     if (!message.id || !pending.has(message.id)) return;
