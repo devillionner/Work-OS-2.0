@@ -95,12 +95,33 @@ export async function generateTelegramSchedule(db:D1Database,input:{userId:strin
   const max=await db.prepare(`SELECT COALESCE(MAX(sequence),0) n FROM telegram_schedule_slots WHERE user_id=?1 AND telegram_account_id=?2`)
     .bind(input.userId,input.accountId).first<{n?:number}>();
   const startSequence=Number(max?.n||0);
+  const existingSlots=await db.prepare(`SELECT id, status, chat_id, scheduled_at FROM telegram_schedule_slots WHERE user_id=?1 AND telegram_account_id=?2`)
+    .bind(input.userId,input.accountId).all<{id:string;status:string;chat_id:string|null;scheduled_at:number}>();
+  const existingMap=new Map(existingSlots.results.map(slot=>[roundMillis(slot.scheduled_at),slot]));
   const intervalSeconds=settings.intervalMinutes*60;
   const statements=[];
+  let sourceIdx=0;
   for(let i=0;i<count;i++) {
     const scheduledAt=roundMillis(settings.baseAt+intervalSeconds*(i+1));
+    const existing=existingMap.get(scheduledAt);
+    if(existing) {
+      if(existing.status==='completed') {
+        // Slot is already completed in history — do not consume an eligible chat for it
+        continue;
+      }
+      if(existing.status==='pending'&&!existing.chat_id) {
+        // Slot is pending but has no chat assigned (or chat was deleted) — assign next eligible chat
+        if(sourceIdx<source.length) {
+          const chat=source[sourceIdx++];
+          statements.push(db.prepare(`UPDATE telegram_schedule_slots SET chat_id=?1, updated_at=?2, version=version+1
+            WHERE id=?3 AND user_id=?4 AND telegram_account_id=?5 AND status='pending'`)
+            .bind(chat.id,input.now,existing.id,input.userId,input.accountId));
+        }
+      }
+      continue;
+    }
     const id=slotId(input.accountId,scheduledAt);
-    const chatId=source[i]?.id||null;
+    const chatId=sourceIdx<source.length?source[sourceIdx++].id:null;
     statements.push(db.prepare(`INSERT OR IGNORE INTO telegram_schedule_slots
       (id,user_id,telegram_account_id,sequence,scheduled_at,chat_id,status,created_at,updated_at)
       VALUES (?1,?2,?3,?4,?5,?6,'pending',?7,?7)`)

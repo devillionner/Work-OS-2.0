@@ -202,3 +202,43 @@ void test('publication undo restores exactly the matching Telegram slot and keep
   assert.equal(stillUntouchedB.completed, 0);
   assert.equal(stillUntouchedB.pending, 1);
 });
+
+void test('generation does not waste eligible chats on past completed slots and fills empty pending slots', async (t) => {
+  const db = await localDatabase(t);
+  await seedAccount(db, 'acc', 'u', 1);
+  const chat1 = await telegramChat(db, 'chat-1', 'acc');
+  const chat2 = await telegramChat(db, 'chat-2', 'acc');
+  const chat3 = await telegramChat(db, 'chat-3', 'acc');
+
+  await saveTelegramScheduleSettings(db, {
+    userId: 'u', accountId: 'acc', expectedVersion: 0,
+    intervalMinutes: 10, baseAt: NOW, selectionMode: 'auto', manualChatIds: [], now: NOW, date: DATE,
+  });
+
+  // Generate 2 slots: slot 1 (NOW+600) -> chat-1, slot 2 (NOW+1200) -> chat-2
+  await generateTelegramSchedule(db, { userId: 'u', accountId: 'acc', count: 2, now: NOW, date: DATE });
+
+  // Complete slot 1 with chat-1
+  await recordManualPublication(db, {
+    userId: 'u', chat: chat1, accountId: 'acc', now: NOW + 600, date: DATE, stateToken: chat1.state_token,
+  });
+
+  // Now clear chat from slot 2, leaving it pending without a chat
+  const snapAfterPub = await readTelegramSchedule(db, { userId: 'u', accountId: 'acc', now: NOW + 700, date: DATE });
+  await updateTelegramScheduleSlot(db, {
+    userId: 'u', accountId: 'acc', slotId: snapAfterPub.slots[1].id, expectedVersion: snapAfterPub.slots[1].version,
+    chatId: null, now: NOW + 700, date: DATE,
+  });
+
+  // Available eligible chats now: chat-2, chat-3 (chat-1 is published today)
+  // Re-run generate for 3 slots (slot 1 completed, slot 2 pending empty, slot 3 new)
+  const snapNew = await generateTelegramSchedule(db, { userId: 'u', accountId: 'acc', count: 3, now: NOW + 700, date: DATE });
+  assert.equal(snapNew.slots.length, 3);
+  assert.equal(snapNew.slots[0].status, 'completed');
+  assert.equal(snapNew.slots[0].chatId, 'chat-1'); // completed stays untouched
+  assert.equal(snapNew.slots[1].status, 'pending');
+  assert.equal(snapNew.slots[1].chatId, 'chat-2'); // empty pending slot 2 received chat-2!
+  assert.equal(snapNew.slots[2].status, 'pending');
+  assert.equal(snapNew.slots[2].chatId, 'chat-3'); // new slot 3 received chat-3!
+});
+
