@@ -349,12 +349,12 @@ export function ChatPublishDialog({
             </div>
 
             {profileMissing && (
-              <div className="chat-publish-warning">
+              <output className="chat-publish-warning">
                 <AlertCircle className="size-4 shrink-0" />
                 <span>
                   Профіль чату ще не підтверджено — публікацію це не блокує, але правила частоти й напрямку для цього чату не перевіряються. Чат залишиться в черзі «Уточнити профіль».
                 </span>
-              </div>
+              </output>
             )}
 
             {focusPlan && (

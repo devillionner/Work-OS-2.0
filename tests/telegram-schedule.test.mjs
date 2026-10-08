@@ -3,12 +3,14 @@ import test from 'node:test';
 import { businessDate } from '../lib/business-time.ts';
 import { recordManualPublication, undoManualPublication } from '../lib/chats/publication.ts';
 import {
+  archiveTelegramScheduleSlot,
   clearPendingTelegramSchedule,
   generateTelegramSchedule,
   intervalMinutesForRate,
   ratePerHourForInterval,
   readTelegramSchedule,
   saveTelegramScheduleSettings,
+  unlinkTelegramScheduleSlot,
   updateTelegramScheduleSlot,
 } from '../lib/chats/telegram-schedule.ts';
 import { localDatabase, seedChat } from './helpers/local-d1.mjs';
@@ -283,5 +285,84 @@ void test('schedule starts clean on next business day and past pending slots are
   assert.equal(day2Generated.completed, 0);
   assert.equal(day2Generated.pending, 2);
 });
+
+void test('archiving or unlinking a slot shifts remaining chats up and assigns new eligible chat to last slot', async (t) => {
+  const db = await localDatabase(t);
+  await seedAccount(db, 'acc', 'u', 1);
+  const chat1 = await telegramChat(db, 'chat-1', 'acc');
+  const chat2 = await telegramChat(db, 'chat-2', 'acc');
+  const chat3 = await telegramChat(db, 'chat-3', 'acc');
+  const chat4 = await telegramChat(db, 'chat-4', 'acc');
+  const chat5 = await telegramChat(db, 'chat-5', 'acc');
+
+  await saveTelegramScheduleSettings(db, {
+    userId: 'u', accountId: 'acc', expectedVersion: 0,
+    intervalMinutes: 10, baseAt: NOW, selectionMode: 'auto', manualChatIds: [], now: NOW, date: DATE,
+  });
+
+  // Generate 3 slots with chat-1, chat-2, chat-3
+  let snap = await generateTelegramSchedule(db, { userId: 'u', accountId: 'acc', count: 3, now: NOW, date: DATE });
+  assert.equal(snap.slots[0].chatId, 'chat-1');
+  assert.equal(snap.slots[1].chatId, 'chat-2');
+  assert.equal(snap.slots[2].chatId, 'chat-3');
+
+  // Archive slot 2 (chat-2) with reason 'Забанено'
+  const slot2Id = snap.slots[1].id;
+  snap = await archiveTelegramScheduleSlot(db, {
+    userId: 'u', accountId: 'acc', slotId: slot2Id,
+    reason: 'Забанено', stateToken: chat2.state_token, now: NOW + 10, date: DATE,
+  });
+
+  // Verify chat-2 is archived in DB
+  const archivedRow = await db.prepare("SELECT workflow_status, archive_reason FROM chats WHERE id='chat-2'").first();
+  assert.equal(archivedRow.workflow_status, 'archived');
+  assert.equal(archivedRow.archive_reason, 'Забанено');
+
+  // Verify slots were reflowed:
+  // Slot 1: chat-1 (unchanged)
+  // Slot 2: chat-3 (shifted up from slot 3)
+  // Slot 3: chat-4 (new eligible chat assigned to last slot!)
+  assert.equal(snap.slots.length, 3);
+  assert.equal(snap.slots[0].chatId, 'chat-1');
+  assert.equal(snap.slots[1].chatId, 'chat-3');
+  assert.equal(snap.slots[2].chatId, 'chat-4');
+
+  // Now archive slot 1 (chat-1) with reason 'Чат не цільовий'
+  const slot1Id = snap.slots[0].id;
+  snap = await archiveTelegramScheduleSlot(db, {
+    userId: 'u', accountId: 'acc', slotId: slot1Id,
+    reason: 'Чат не цільовий', stateToken: chat1.state_token, now: NOW + 20, date: DATE,
+  });
+
+  // Verify chat-1 is archived in DB
+  const archivedRow1 = await db.prepare("SELECT workflow_status, archive_reason FROM chats WHERE id='chat-1'").first();
+  assert.equal(archivedRow1.workflow_status, 'archived');
+  assert.equal(archivedRow1.archive_reason, 'Чат не цільовий');
+
+  // Verify slots reflowed after archiving slot 1:
+  // Slot 1: chat-3 (shifted up from slot 2)
+  // Slot 2: chat-4 (shifted up from slot 3)
+  // Slot 3: chat-5 (new eligible chat assigned to last slot!)
+  assert.equal(snap.slots.length, 3);
+  assert.equal(snap.slots[0].chatId, 'chat-3');
+  assert.equal(snap.slots[1].chatId, 'chat-4');
+  assert.equal(snap.slots[2].chatId, 'chat-5');
+
+  // Now unlink slot 1 (chat-3)
+  const currentSlot1Id = snap.slots[0].id;
+  snap = await unlinkTelegramScheduleSlot(db, {
+    userId: 'u', accountId: 'acc', slotId: currentSlot1Id, now: NOW + 30, date: DATE,
+  });
+
+  // Unlinked chat-3 is still ready, so it becomes eligible again and fills the last slot:
+  // Slot 1: chat-4 (shifted up from slot 2)
+  // Slot 2: chat-5 (shifted up from slot 3)
+  // Slot 3: chat-3 (re-eligible chat fills the last slot!)
+  assert.equal(snap.slots.length, 3);
+  assert.equal(snap.slots[0].chatId, 'chat-4');
+  assert.equal(snap.slots[1].chatId, 'chat-5');
+  assert.equal(snap.slots[2].chatId, 'chat-3');
+});
+
 
 

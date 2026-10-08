@@ -63,6 +63,6 @@ void test('no platform turns the publish button into a profile gate any more',as
   // The profile is still reachable from its own button and keeps its own queue — it just does not block.
   assert.match(workspace,/queue==='profile_review'\?'Уточнити профіль':'Профіль'/);
   assert.doesNotMatch(dialog,/profileRequired/);
-  assert.match(dialog,/profileMissing&&<output className="chat-publish-warning">/);
+  assert.match(dialog,/profileMissing\s*&&\s*\(?\s*<output className="chat-publish-warning">/);
   assert.doesNotMatch(dialog,/Потрібен профіль/);
 });

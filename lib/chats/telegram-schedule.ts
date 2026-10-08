@@ -1,5 +1,6 @@
 import { isoWeekday, profilePublicationEligibilitySql } from './profile.ts';
-import { chatStateTokenSql } from './state.ts';
+import { chatStateTokenSql, type ChatState } from './state.ts';
+import { transitionChat } from './transitions.ts';
 import { businessDayStart, shiftBusinessDate } from '../business-time.ts';
 import { businessDateTime, lessonEpoch } from '../leads/domain/time.ts';
 
@@ -174,6 +175,141 @@ export async function clearPendingTelegramSchedule(db:D1Database,input:{userId:s
   await requireAccount(db,input.userId,input.accountId);
   await db.prepare(`DELETE FROM telegram_schedule_slots WHERE user_id=?1 AND telegram_account_id=?2 AND status='pending'`).bind(input.userId,input.accountId).run();
   return readTelegramSchedule(db,input);
+}
+
+export async function archiveTelegramScheduleSlot(db:D1Database,input:{
+  userId:string;accountId:string;slotId:string;reason:string;stateToken?:string;now:number;date:string;
+}):Promise<TelegramScheduleSnapshot> {
+  await requireAccount(db,input.userId,input.accountId);
+  const dayStart=businessDayStart(input.date);
+  const nextDayStart=businessDayStart(shiftBusinessDate(input.date,1));
+
+  const slot=await db.prepare(`SELECT s.id,s.chat_id,s.status,s.scheduled_at,c.workflow_status,c.platform,
+      ${chatStateTokenSql('c')} state_token
+    FROM telegram_schedule_slots s
+    JOIN chats c ON c.id=s.chat_id AND c.user_id=s.user_id
+    WHERE s.id=?1 AND s.user_id=?2 AND s.telegram_account_id=?3 AND s.status='pending' AND s.scheduled_at>=?4 AND s.scheduled_at<?5`)
+    .bind(input.slotId,input.userId,input.accountId,dayStart,nextDayStart)
+    .first<{id:string;chat_id:string;status:string;scheduled_at:number;workflow_status:string;platform:string;state_token:string}>();
+
+  if(!slot||!slot.chat_id){
+    throw new TelegramScheduleError('Слот або призначений чат не знайдено чи вже змінено.',404);
+  }
+
+  if(input.stateToken&&slot.state_token!==input.stateToken){
+    throw new TelegramScheduleError('Стан чату вже змінився. Оновіть список.',409);
+  }
+
+  const chatState:ChatState={
+    id:slot.chat_id,
+    platform:slot.platform as 'telegram',
+    workflow_status:slot.workflow_status as 'to_join'|'waiting'|'ready'|'archived',
+    state_token:slot.state_token,
+    telegram_account_id:input.accountId,
+    joined_at:null,
+    snoozed_until:null,
+  };
+
+  const transitionResult=await transitionChat(db,{
+    userId:input.userId,
+    chat:chatState,
+    action:'archive',
+    accountId:input.accountId,
+    now:input.now,
+    reason:input.reason,
+  });
+
+  if(!transitionResult.ok){
+    throw new TelegramScheduleError(transitionResult.error||'Не вдалося перенести чат в архів.',409);
+  }
+
+  await reflowPendingSlots(db,{
+    userId:input.userId,
+    accountId:input.accountId,
+    targetSlotId:slot.id,
+    now:input.now,
+    date:input.date,
+  });
+
+  return readTelegramSchedule(db,{userId:input.userId,accountId:input.accountId,now:input.now,date:input.date});
+}
+
+export async function unlinkTelegramScheduleSlot(db:D1Database,input:{
+  userId:string;accountId:string;slotId:string;now:number;date:string;
+}):Promise<TelegramScheduleSnapshot> {
+  await requireAccount(db,input.userId,input.accountId);
+  await reflowPendingSlots(db,{
+    userId:input.userId,
+    accountId:input.accountId,
+    targetSlotId:input.slotId,
+    now:input.now,
+    date:input.date,
+  });
+  return readTelegramSchedule(db,{userId:input.userId,accountId:input.accountId,now:input.now,date:input.date});
+}
+
+async function reflowPendingSlots(db:D1Database,input:{
+  userId:string;accountId:string;targetSlotId:string;now:number;date:string;
+}) {
+  const dayStart=businessDayStart(input.date);
+  const nextDayStart=businessDayStart(shiftBusinessDate(input.date,1));
+
+  const pendingSlots=await db.prepare(`SELECT id,sequence,scheduled_at,chat_id,version
+    FROM telegram_schedule_slots
+    WHERE user_id=?1 AND telegram_account_id=?2 AND status='pending' AND scheduled_at>=?3 AND scheduled_at<?4
+    ORDER BY scheduled_at ASC,sequence ASC`)
+    .bind(input.userId,input.accountId,dayStart,nextDayStart)
+    .all<{id:string;sequence:number;scheduled_at:number;chat_id:string|null;version:number}>();
+
+  const slots=pendingSlots.results;
+  const targetIndex=slots.findIndex(s=>s.id===input.targetSlotId);
+  if(targetIndex===-1)return;
+
+  const newAssignments:Array<{slotId:string;chatId:string|null}>=[];
+
+  for(let i=targetIndex;i<slots.length-1;i++){
+    newAssignments.push({
+      slotId:slots[i].id,
+      chatId:slots[i+1].chat_id,
+    });
+  }
+
+  const currentlyAssigned=new Set<string>();
+  for(let i=0;i<targetIndex;i++){
+    if(slots[i].chat_id)currentlyAssigned.add(slots[i].chat_id!);
+  }
+  for(const item of newAssignments){
+    if(item.chatId)currentlyAssigned.add(item.chatId);
+  }
+
+  const eligible=await eligibleTelegramChats(db,{
+    userId:input.userId,
+    accountId:input.accountId,
+    now:input.now,
+    date:input.date,
+    excludePending:false,
+  });
+
+  const nextChat=eligible.find(c=>!currentlyAssigned.has(c.id))??null;
+  const lastSlot=slots[slots.length-1];
+  newAssignments.push({
+    slotId:lastSlot.id,
+    chatId:nextChat?nextChat.id:null,
+  });
+
+  const clearStatements=slots.slice(targetIndex).map(slot=>
+    db.prepare(`UPDATE telegram_schedule_slots SET chat_id=NULL,updated_at=?1,version=version+1
+      WHERE id=?2 AND user_id=?3 AND telegram_account_id=?4 AND status='pending'`)
+      .bind(input.now,slot.id,input.userId,input.accountId)
+  );
+
+  const assignStatements=newAssignments.map(item=>
+    db.prepare(`UPDATE telegram_schedule_slots SET chat_id=?1,updated_at=?2,version=version+1
+      WHERE id=?3 AND user_id=?4 AND telegram_account_id=?5 AND status='pending'`)
+      .bind(item.chatId,input.now,item.slotId,input.userId,input.accountId)
+  );
+
+  await db.batch([...clearStatements,...assignStatements]);
 }
 async function eligibleTelegramChats(db:D1Database,input:{userId:string;accountId:string;now:number;date:string;search?:string;excludePending:boolean}):Promise<TelegramScheduleChat[]> {
   const search=(input.search||'').trim().slice(0,150).toLowerCase();

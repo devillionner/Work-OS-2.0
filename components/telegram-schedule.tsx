@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Copy, ExternalLink, RefreshCw, Shuffle, Trash2, Unlink } from 'lucide-react';
+import { Archive, Check, Copy, ExternalLink, RefreshCw, Shuffle, Trash2, Unlink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { TelegramWarmup } from '@/components/telegram-warmup';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 import { businessDate, businessDateTime, lessonEpoch } from '@/lib/leads/domain/time';
 
@@ -40,6 +41,8 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
   const [manualIds,setManualIds]=useState<string[]>([]);
   const [slotCount,setSlotCount]=useState(7);
   const [clearConfirm,setClearConfirm]=useState(false);
+  const [archiveSlot,setArchiveSlot]=useState<Slot|null>(null);
+  const [customArchiveReason,setCustomArchiveReason]=useState('');
 
   const applySnapshot=useCallback((next:Snapshot)=>{
     setData(next);
@@ -129,7 +132,41 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
     await post({action:'clear_pending'});
     setClearConfirm(false);
   }
+  async function archiveSlotAction(slot:Slot,reason:string){
+    if(!accountId||!slot.chatId||busy)return;
+    setBusy(true);setError('');
+    try{
+      const response=await fetch('/api/telegram-schedule',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'archive_slot',accountId,slotId:slot.id,reason,stateToken:slot.chatStateToken}),
+      });
+      const next=await response.json() as Snapshot&{error?:string};
+      if(!response.ok)throw new Error(next.error||'Не вдалося перенести чат в архів.');
+      applySnapshot(next);
+      setArchiveSlot(null);
+      setCustomArchiveReason('');
+    }catch(err){setError(err instanceof Error?err.message:'Не вдалося перенести чат в архів.');}
+    finally{setBusy(false);}
+  }
+  async function unlinkSlotAction(slot:Slot){
+    if(!accountId||busy)return;
+    setBusy(true);setError('');
+    try{
+      const response=await fetch('/api/telegram-schedule',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'unlink_slot',accountId,slotId:slot.id}),
+      });
+      const next=await response.json() as Snapshot&{error?:string};
+      if(!response.ok)throw new Error(next.error||'Не вдалося відв’язати чат від слота.');
+      applySnapshot(next);
+    }catch(err){setError(err instanceof Error?err.message:'Не вдалося відв’язати чат від слота.');}
+    finally{setBusy(false);}
+  }
   async function editSlot(slot:Slot,time?:string,chatId?:string|null) {
+    if(chatId===null){
+      void unlinkSlotAction(slot);
+      return;
+    }
     const payload:Record<string,unknown>={action:'slot',slotId:slot.id,expectedVersion:slot.version};
     if(time!==undefined){
       const epoch=lessonEpoch(businessDate(slot.scheduledAt),time);
@@ -167,7 +204,20 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
   }
 
   if(!accountId)return null;
-  return <><ConfirmDialog open={clearConfirm} title="Очистити невиконані слоти?" description={`Буде видалено ${data?.pending||0} невиконаних слотів лише цього Telegram-акаунта. Виконані слоти залишаться в історії.`} confirmLabel="Очистити слоти" destructive busy={busy} onCancel={()=>setClearConfirm(false)} onConfirm={()=>void clearPending()}/><TelegramWarmup accountId={accountId}/><details className="telegram-schedule" aria-label="Telegram-розклад">
+  return <><ConfirmDialog open={clearConfirm} title="Очистити невиконані слоти?" description={`Буде видалено ${data?.pending||0} невиконаних слотів лише цього Telegram-акаунта. Виконані слоти залишаться в історії.`} confirmLabel="Очистити слоти" destructive busy={busy} onCancel={()=>setClearConfirm(false)} onConfirm={()=>void clearPending()}/>
+  <Dialog open={archiveSlot!==null} onOpenChange={(next)=>{if(!next&&!busy){setArchiveSlot(null);setCustomArchiveReason('');setError('');}}}>
+    <DialogContent className="archive-dialog" showCloseButton={false}>
+      <DialogHeader><DialogTitle>Перенести чат в архів?</DialogTitle><DialogDescription>{archiveSlot?`«${archiveSlot.chatName||'Чат'}». Оберіть причину — чат перейде в архів, наступні слоти підтягнуться вгору, а на останнє місце стане новий чат.`:'Оберіть причину архівації.'}</DialogDescription></DialogHeader>
+      <fieldset className="archive-dialog-reasons">
+        <legend className="sr-only">Причина архівації</legend>
+        {['Забанено','Чат не існує','Чат не цільовий'].map(reason=><Button type="button" variant="outline" disabled={busy||disabled} key={reason} onClick={()=>{if(archiveSlot)void archiveSlotAction(archiveSlot,reason);}}>{reason}</Button>)}
+      </fieldset>
+      <div className="archive-dialog-custom"><Input value={customArchiveReason} maxLength={100} disabled={busy||disabled} aria-label="Власна причина архівації" placeholder="Інша причина" onChange={event=>setCustomArchiveReason(event.target.value)}/><Button disabled={busy||disabled||!customArchiveReason.trim()} onClick={()=>{const reason=customArchiveReason.trim();if(archiveSlot&&reason)void archiveSlotAction(archiveSlot,reason);}}>Архівувати</Button></div>
+      {error&&<p className="archive-dialog-error" role="alert">{error}</p>}
+      <DialogFooter><Button type="button" variant="outline" disabled={busy||disabled} onClick={()=>{setArchiveSlot(null);setCustomArchiveReason('');setError('');}}>Скасувати</Button></DialogFooter>
+    </DialogContent>
+  </Dialog>
+  <TelegramWarmup accountId={accountId}/><details className="telegram-schedule" aria-label="Telegram-розклад">
     <summary className="telegram-disclosure-summary">
       <div><strong>План публікацій</strong><small>{data?.nextSlot?`Наступна: ${formatTime(data.nextSlot.scheduledAt)} · ${data.nextSlot.chatName||'призначити чат'}`:'Окремий розклад для поточного Telegram ID'}</small></div>
       <div className="telegram-schedule-summary"><Badge variant="secondary">{data?.completed||0}/{total}</Badge><span>{progress}%</span></div>
@@ -220,7 +270,8 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
               ? <a className="telegram-slot-link" href={slot.chatLink} target="_blank" rel="noreferrer" title="Відкрити чат у новій вкладці">{slot.chatLink.replace(/^https:\/\//,'')}<ExternalLink aria-hidden="true"/></a>
               : <span className="telegram-slot-link">—</span>}
             {slot.status==='pending'&&slot.chatId&&<Button size="sm" disabled={busy||disabled||!slot.chatStateToken} onClick={()=>void markPublished(slot)}><Check data-icon="inline-start"/>Опубліковано</Button>}
-            {slot.status==='pending'&&slot.chatId&&<Button variant="ghost" size="icon" aria-label="Відв’язати чат від слота" disabled={busy||disabled} onClick={()=>void editSlot(slot,undefined,null)}><Unlink/></Button>}
+            {slot.status==='pending'&&slot.chatId&&<Button variant="ghost" size="icon" aria-label="Перенести чат в архів" title="Перенести чат в архів" disabled={busy||disabled} onClick={()=>setArchiveSlot(slot)}><Archive className="size-3.5"/></Button>}
+            {slot.status==='pending'&&slot.chatId&&<Button variant="ghost" size="icon" aria-label="Відв’язати чат від слота" title="Відв’язати чат від слота" disabled={busy||disabled} onClick={()=>void unlinkSlotAction(slot)}><Unlink className="size-3.5"/></Button>}
           </article>;
         })}
         {!data.slots.length&&<p className="muted-note">Розклад ще не створено.</p>}

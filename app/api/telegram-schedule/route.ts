@@ -3,10 +3,12 @@ import { getCurrentUser } from '@/lib/auth';
 import { businessDate } from '@/lib/business-time';
 import {
   TelegramScheduleError,
+  archiveTelegramScheduleSlot,
   clearPendingTelegramSchedule,
   generateTelegramSchedule,
   readTelegramSchedule,
   saveTelegramScheduleSettings,
+  unlinkTelegramScheduleSlot,
   updateTelegramScheduleSlot,
 } from '@/lib/chats/telegram-schedule';
 import { readBoundedText } from '@/lib/http-body';
@@ -94,6 +96,32 @@ export async function POST(request: Request): Promise<Response> {
     }
     if (action === 'clear_pending') {
       return Response.json(await clearPendingTelegramSchedule(env.DB, { userId: user.id, accountId, now, date }));
+    }
+    if (action === 'archive_slot') {
+      const slotId = text(body.slotId);
+      const reason = text(body.reason);
+      const stateToken = text(body.stateToken);
+      if (!slotId) return bad('Оберіть слот для архівації.');
+      return Response.json(await archiveTelegramScheduleSlot(env.DB, {
+        userId: user.id,
+        accountId,
+        slotId,
+        reason,
+        stateToken: stateToken || undefined,
+        now,
+        date,
+      }));
+    }
+    if (action === 'unlink_slot') {
+      const slotId = text(body.slotId);
+      if (!slotId) return bad('Оберіть слот.');
+      return Response.json(await unlinkTelegramScheduleSlot(env.DB, {
+        userId: user.id,
+        accountId,
+        slotId,
+        now,
+        date,
+      }));
     }
     return bad('Невідома дія розкладу.');
   } catch (reason) {
