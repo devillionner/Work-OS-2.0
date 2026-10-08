@@ -1,5 +1,7 @@
 import { isoWeekday, profilePublicationEligibilitySql } from './profile.ts';
 import { chatStateTokenSql } from './state.ts';
+import { businessDayStart, shiftBusinessDate } from '../business-time.ts';
+import { businessDateTime, lessonEpoch } from '../leads/domain/time.ts';
 
 export class TelegramScheduleError extends Error {
   status: number;
@@ -35,15 +37,21 @@ export function ratePerHourForInterval(intervalMinutes:number) {
 
 export async function readTelegramSchedule(db:D1Database,input:{userId:string;accountId:string;now:number;date:string;search?:string}):Promise<TelegramScheduleSnapshot> {
   await requireAccount(db,input.userId,input.accountId);
+  const dayStart = businessDayStart(input.date);
+  const nextDayStart = businessDayStart(shiftBusinessDate(input.date, 1));
+  await db.prepare(`DELETE FROM telegram_schedule_slots WHERE user_id=?1 AND telegram_account_id=?2 AND status='pending' AND scheduled_at<?3`)
+    .bind(input.userId,input.accountId,dayStart).run();
+
   const row=await db.prepare(`SELECT interval_minutes,base_at,selection_mode,manual_chat_ids_json,version
     FROM telegram_schedule_settings WHERE user_id=?1 AND telegram_account_id=?2`).bind(input.userId,input.accountId).first<Record<string,unknown>>();
-  const settings=parseSettings(row,input.now);
+  const settings=parseSettings(row,input.now,input.date);
   const eligibleChats=await eligibleTelegramChats(db,{...input,excludePending:false});
   const slotResult=await db.prepare(`SELECT s.id,s.sequence,s.scheduled_at,s.chat_id,s.status,s.completed_at,s.version,c.name chat_name,c.link chat_link,
       CASE WHEN c.id IS NULL THEN NULL ELSE ${chatStateTokenSql()} END chat_state_token
     FROM telegram_schedule_slots s LEFT JOIN chats c ON c.id=s.chat_id AND c.user_id=s.user_id
-    WHERE s.user_id=?1 AND s.telegram_account_id=?2 ORDER BY s.scheduled_at DESC,s.sequence DESC LIMIT 100`)
-    .bind(input.userId,input.accountId).all<Record<string,unknown>>();
+    WHERE s.user_id=?1 AND s.telegram_account_id=?2 AND s.scheduled_at>=?3 AND s.scheduled_at<?4
+    ORDER BY s.scheduled_at DESC,s.sequence DESC LIMIT 100`)
+    .bind(input.userId,input.accountId,dayStart,nextDayStart).all<Record<string,unknown>>();
   const slots=slotResult.results.map(slotView).reverse();
   const pending=slots.filter(slot=>slot.status==='pending').length;
   const completed=slots.filter(slot=>slot.status==='completed').length;
@@ -81,9 +89,14 @@ export async function generateTelegramSchedule(db:D1Database,input:{userId:strin
   await requireAccount(db,input.userId,input.accountId);
   const count=Math.trunc(input.count);
   if(!Number.isFinite(count)||count<1||count>MAX_SLOTS) throw new TelegramScheduleError(`Кількість слотів має бути від 1 до ${MAX_SLOTS}.`);
+  const dayStart = businessDayStart(input.date);
+  const nextDayStart = businessDayStart(shiftBusinessDate(input.date, 1));
+  await db.prepare(`DELETE FROM telegram_schedule_slots WHERE user_id=?1 AND telegram_account_id=?2 AND status='pending' AND scheduled_at<?3`)
+    .bind(input.userId,input.accountId,dayStart).run();
+
   const stored=await db.prepare(`SELECT interval_minutes,base_at,selection_mode,manual_chat_ids_json,version FROM telegram_schedule_settings
     WHERE user_id=?1 AND telegram_account_id=?2`).bind(input.userId,input.accountId).first<Record<string,unknown>>();
-  const settings=parseSettings(stored,input.now);
+  const settings=parseSettings(stored,input.now,input.date);
   const eligible=await eligibleTelegramChats(db,{...input,excludePending:true});
   const eligibleMap=new Map(eligible.map(chat=>[chat.id,chat]));
   const source=settings.selectionMode==='manual'
@@ -92,11 +105,11 @@ export async function generateTelegramSchedule(db:D1Database,input:{userId:strin
   if(settings.selectionMode==='manual'&&source.length<count) {
     throw new TelegramScheduleError(`Для ${count} слотів доступно лише ${source.length} із вибраних чатів. Виберіть ще чати або зменште кількість слотів.`,409);
   }
-  const max=await db.prepare(`SELECT COALESCE(MAX(sequence),0) n FROM telegram_schedule_slots WHERE user_id=?1 AND telegram_account_id=?2`)
-    .bind(input.userId,input.accountId).first<{n?:number}>();
+  const max=await db.prepare(`SELECT COALESCE(MAX(sequence),0) n FROM telegram_schedule_slots WHERE user_id=?1 AND telegram_account_id=?2 AND scheduled_at>=?3 AND scheduled_at<?4`)
+    .bind(input.userId,input.accountId,dayStart,nextDayStart).first<{n?:number}>();
   const startSequence=Number(max?.n||0);
-  const existingSlots=await db.prepare(`SELECT id, status, chat_id, scheduled_at FROM telegram_schedule_slots WHERE user_id=?1 AND telegram_account_id=?2`)
-    .bind(input.userId,input.accountId).all<{id:string;status:string;chat_id:string|null;scheduled_at:number}>();
+  const existingSlots=await db.prepare(`SELECT id, status, chat_id, scheduled_at FROM telegram_schedule_slots WHERE user_id=?1 AND telegram_account_id=?2 AND scheduled_at>=?3 AND scheduled_at<?4`)
+    .bind(input.userId,input.accountId,dayStart,nextDayStart).all<{id:string;status:string;chat_id:string|null;scheduled_at:number}>();
   const existingMap=new Map(existingSlots.results.map(slot=>[roundMillis(slot.scheduled_at),slot]));
   const intervalSeconds=settings.intervalMinutes*60;
   const statements=[];
@@ -192,9 +205,18 @@ async function requireAccount(db:D1Database,userId:string,accountId:string) {
   if(!account) throw new TelegramScheduleError('Активний Telegram-акаунт не знайдено.',404);
 }
 
-function parseSettings(row:Record<string,unknown>|null,now:number):TelegramScheduleSettings {
+function parseSettings(row:Record<string,unknown>|null,now:number,date?:string):TelegramScheduleSettings {
   const interval=row ? Number(row.interval_minutes) : DEFAULT_INTERVAL_MINUTES;
-  const base=row ? Number(row.base_at) : now;
+  let base=row ? Number(row.base_at) : now;
+  if(date && Number.isFinite(base) && base >= 0) {
+    const dayStart = businessDayStart(date);
+    const nextDayStart = businessDayStart(shiftBusinessDate(date, 1));
+    if(base < dayStart || base >= nextDayStart) {
+      const timeOfDay = businessDateTime(base).slice(11, 16);
+      const todayBase = lessonEpoch(date, timeOfDay);
+      base = todayBase ?? (now >= dayStart && now < nextDayStart ? now : dayStart);
+    }
+  }
   let manualChatIds:string[]=[];
   try { const raw=typeof row?.manual_chat_ids_json==='string'?row.manual_chat_ids_json:'[]'; const parsed=JSON.parse(raw); if(Array.isArray(parsed)) manualChatIds=uniqueIds(parsed.filter((value):value is string=>typeof value==='string')); } catch {}
   return {

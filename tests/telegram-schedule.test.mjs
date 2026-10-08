@@ -242,3 +242,46 @@ void test('generation does not waste eligible chats on past completed slots and 
   assert.equal(snapNew.slots[2].chatId, 'chat-3'); // new slot 3 received chat-3!
 });
 
+void test('schedule starts clean on next business day and past pending slots are cleaned up', async (t) => {
+  const db = await localDatabase(t);
+  await seedAccount(db, 'acc', 'u', 1);
+  const chat1 = await telegramChat(db, 'day1-chat1', 'acc');
+  const chat2 = await telegramChat(db, 'day1-chat2', 'acc');
+
+  await saveTelegramScheduleSettings(db, {
+    userId: 'u', accountId: 'acc', expectedVersion: 0,
+    intervalMinutes: 10, baseAt: NOW, selectionMode: 'auto', manualChatIds: [], now: NOW, date: DATE,
+  });
+
+  // Generate slots for day 1
+  await generateTelegramSchedule(db, { userId: 'u', accountId: 'acc', count: 2, now: NOW, date: DATE });
+  // Complete slot 1
+  await recordManualPublication(db, {
+    userId: 'u', chat: chat1, accountId: 'acc', now: NOW + 600, date: DATE, stateToken: chat1.state_token,
+  });
+
+  // Day 1 has 1 completed, 1 pending slot
+  const day1Snap = await readTelegramSchedule(db, { userId: 'u', accountId: 'acc', now: NOW + 700, date: DATE });
+  assert.equal(day1Snap.completed, 1);
+  assert.equal(day1Snap.pending, 1);
+  assert.equal(day1Snap.slots.length, 2);
+
+  // Day 2 (tomorrow)
+  const TOMORROW = NOW + 86400;
+  const TOMORROW_DATE = businessDate(TOMORROW);
+
+  // Reading tomorrow's schedule should return 0 slots (clean slate for the new day)
+  const day2Snap = await readTelegramSchedule(db, { userId: 'u', accountId: 'acc', now: TOMORROW, date: TOMORROW_DATE });
+  assert.equal(day2Snap.completed, 0);
+  assert.equal(day2Snap.pending, 0);
+  assert.equal(day2Snap.slots.length, 0);
+  assert.equal(day2Snap.nextSlot, null);
+
+  // Stale pending slot from day 1 was deleted, so chat2 is eligible on day 2 without conflict
+  const day2Generated = await generateTelegramSchedule(db, { userId: 'u', accountId: 'acc', count: 2, now: TOMORROW, date: TOMORROW_DATE });
+  assert.equal(day2Generated.slots.length, 2);
+  assert.equal(day2Generated.completed, 0);
+  assert.equal(day2Generated.pending, 2);
+});
+
+
