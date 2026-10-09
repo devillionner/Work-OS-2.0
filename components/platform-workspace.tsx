@@ -455,7 +455,14 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
 
   function savedProfile() {
     invalidateQueueCache(platform);
+    if(platform==='telegram') setScheduleRefreshKey(value=>value+1);
     setProfileChat(null); void reloadChats.current(true);
+  }
+
+  function addedChats() {
+    invalidateQueueCache(platform);
+    if(platform==='telegram') setScheduleRefreshKey(value=>value+1);
+    void reloadChats.current(true);
   }
 
   function importedDiscoveryChat(nextPlatform:'whatsapp'|'viber') {
@@ -526,7 +533,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
           ? 'Публікацію відмічено. Якщо це помилка, скасуйте її зараз; наступний доступний чат лишився перед очима.'
           : 'Публікацію відмічено. Чат переміщено нижче завершених на сьогодні, щоб наступний доступний лишався перед очима.');
       }
-      if((action==='published'||action==='undo_published')&&chat.platform==='telegram') setScheduleRefreshKey(value=>value+1);
+      if(chat.platform==='telegram') setScheduleRefreshKey(value=>value+1);
       result={ok:true};
     } catch(reason) {
       const error=reason instanceof Error ? reason.message : 'Не вдалося виконати дію.';
@@ -858,7 +865,7 @@ export function PlatformWorkspace({ enabledPlatforms, syncRevision, businessDate
       </div>}
     </section>}
 
-    {platform==='telegram'&&accountId&&<TelegramSchedule accountId={accountId} refreshKey={scheduleRefreshKey} />}
+    {platform==='telegram'&&accountId&&<TelegramSchedule accountId={accountId} refreshKey={scheduleRefreshKey} onScheduleChange={()=>void reloadChats.current(true)} />}
 
     {data&&<PlatformOverview pace={data.publicationPace} available={queue==='ready'?data.availableToday:undefined} joined={data.joinedToday} published={data.publishedToday}/>}
 

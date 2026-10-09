@@ -43,6 +43,8 @@ export async function readTelegramSchedule(db:D1Database,input:{userId:string;ac
   await db.prepare(`DELETE FROM telegram_schedule_slots WHERE user_id=?1 AND telegram_account_id=?2 AND status='pending' AND scheduled_at<?3`)
     .bind(input.userId,input.accountId,dayStart).run();
 
+  await healAndReflowPendingSlots(db,input);
+
   const row=await db.prepare(`SELECT interval_minutes,base_at,selection_mode,manual_chat_ids_json,version
     FROM telegram_schedule_settings WHERE user_id=?1 AND telegram_account_id=?2`).bind(input.userId,input.accountId).first<Record<string,unknown>>();
   const settings=parseSettings(row,input.now,input.date);
@@ -223,13 +225,17 @@ export async function archiveTelegramScheduleSlot(db:D1Database,input:{
     throw new TelegramScheduleError(transitionResult.error||'Не вдалося перенести чат в архів.',409);
   }
 
-  await reflowPendingSlots(db,{
+  // Clear slot's chat_id first so transition is cleanly reflected
+  await db.prepare(`UPDATE telegram_schedule_slots SET chat_id=NULL,updated_at=?1,version=version+1
+    WHERE id=?2 AND user_id=?3 AND telegram_account_id=?4 AND status='pending'`)
+    .bind(input.now,slot.id,input.userId,input.accountId).run();
+
+  await healAndReflowPendingSlots(db,{
     userId:input.userId,
     accountId:input.accountId,
-    targetSlotId:slot.id,
     now:input.now,
     date:input.date,
-  });
+  },{force:true});
 
   return readTelegramSchedule(db,{userId:input.userId,accountId:input.accountId,now:input.now,date:input.date});
 }
@@ -238,19 +244,21 @@ export async function unlinkTelegramScheduleSlot(db:D1Database,input:{
   userId:string;accountId:string;slotId:string;now:number;date:string;
 }):Promise<TelegramScheduleSnapshot> {
   await requireAccount(db,input.userId,input.accountId);
-  await reflowPendingSlots(db,{
+  await db.prepare(`UPDATE telegram_schedule_slots SET chat_id=NULL,updated_at=?1,version=version+1
+    WHERE id=?2 AND user_id=?3 AND telegram_account_id=?4 AND status='pending'`)
+    .bind(input.now,input.slotId,input.userId,input.accountId).run();
+  await healAndReflowPendingSlots(db,{
     userId:input.userId,
     accountId:input.accountId,
-    targetSlotId:input.slotId,
     now:input.now,
     date:input.date,
-  });
+  },{force:true});
   return readTelegramSchedule(db,{userId:input.userId,accountId:input.accountId,now:input.now,date:input.date});
 }
 
-async function reflowPendingSlots(db:D1Database,input:{
-  userId:string;accountId:string;targetSlotId:string;now:number;date:string;
-}) {
+export async function healAndReflowPendingSlots(db:D1Database,input:{
+  userId:string;accountId:string;now:number;date:string;
+},options?:{force?:boolean}) {
   const dayStart=businessDayStart(input.date);
   const nextDayStart=businessDayStart(shiftBusinessDate(input.date,1));
 
@@ -262,25 +270,7 @@ async function reflowPendingSlots(db:D1Database,input:{
     .all<{id:string;sequence:number;scheduled_at:number;chat_id:string|null;version:number}>();
 
   const slots=pendingSlots.results;
-  const targetIndex=slots.findIndex(s=>s.id===input.targetSlotId);
-  if(targetIndex===-1)return;
-
-  const newAssignments:Array<{slotId:string;chatId:string|null}>=[];
-
-  for(let i=targetIndex;i<slots.length-1;i++){
-    newAssignments.push({
-      slotId:slots[i].id,
-      chatId:slots[i+1].chat_id,
-    });
-  }
-
-  const currentlyAssigned=new Set<string>();
-  for(let i=0;i<targetIndex;i++){
-    if(slots[i].chat_id)currentlyAssigned.add(slots[i].chat_id!);
-  }
-  for(const item of newAssignments){
-    if(item.chatId)currentlyAssigned.add(item.chatId);
-  }
+  if(slots.length===0) return;
 
   const eligible=await eligibleTelegramChats(db,{
     userId:input.userId,
@@ -289,27 +279,71 @@ async function reflowPendingSlots(db:D1Database,input:{
     date:input.date,
     excludePending:false,
   });
+  const eligibleMap=new Map(eligible.map(c=>[c.id,c]));
 
-  const nextChat=eligible.find(c=>!currentlyAssigned.has(c.id))??null;
-  const lastSlot=slots[slots.length-1];
-  newAssignments.push({
-    slotId:lastSlot.id,
-    chatId:nextChat?nextChat.id:null,
-  });
+  const invalidSlots=slots.filter(slot=>slot.chat_id!==null&&!eligibleMap.has(slot.chat_id));
+  if(invalidSlots.length===0&&!options?.force) return;
 
-  const clearStatements=slots.slice(targetIndex).map(slot=>
-    db.prepare(`UPDATE telegram_schedule_slots SET chat_id=NULL,updated_at=?1,version=version+1
-      WHERE id=?2 AND user_id=?3 AND telegram_account_id=?4 AND status='pending'`)
-      .bind(input.now,slot.id,input.userId,input.accountId)
-  );
+  const row=await db.prepare(`SELECT interval_minutes,base_at,selection_mode,manual_chat_ids_json,version
+    FROM telegram_schedule_settings WHERE user_id=?1 AND telegram_account_id=?2`).bind(input.userId,input.accountId).first<Record<string,unknown>>();
+  const settings=parseSettings(row,input.now,input.date);
 
-  const assignStatements=newAssignments.map(item=>
-    db.prepare(`UPDATE telegram_schedule_slots SET chat_id=?1,updated_at=?2,version=version+1
-      WHERE id=?3 AND user_id=?4 AND telegram_account_id=?5 AND status='pending'`)
-      .bind(item.chatId,input.now,item.slotId,input.userId,input.accountId)
-  );
+  const candidatePool = settings.selectionMode === 'manual'
+    ? settings.manualChatIds.map(id => eligibleMap.get(id)).filter((chat): chat is TelegramScheduleChat => Boolean(chat))
+    : eligible;
 
-  await db.batch([...clearStatements,...assignStatements]);
+  // Collect valid already assigned chats in current slot order, ignoring invalid / archived / duplicate chats
+  const validAssignedChatIds: string[] = [];
+  const assignedSet = new Set<string>();
+
+  for(const slot of slots) {
+    if(slot.chat_id && eligibleMap.has(slot.chat_id) && !assignedSet.has(slot.chat_id)) {
+      validAssignedChatIds.push(slot.chat_id);
+      assignedSet.add(slot.chat_id);
+    }
+  }
+
+  // Find remaining available chats from pool not yet assigned to any slot
+  const remainingCandidates = candidatePool.filter(c => !assignedSet.has(c.id));
+  let candidateIdx = 0;
+
+  const targetAssignments: Array<{ slotId: string; currentChatId: string | null; targetChatId: string | null }> = [];
+
+  for(let i = 0; i < slots.length; i++) {
+    let targetChatId: string | null = null;
+    if(i < validAssignedChatIds.length) {
+      targetChatId = validAssignedChatIds[i];
+    } else if(candidateIdx < remainingCandidates.length) {
+      targetChatId = remainingCandidates[candidateIdx++].id;
+    }
+    targetAssignments.push({
+      slotId: slots[i].id,
+      currentChatId: slots[i].chat_id,
+      targetChatId,
+    });
+  }
+
+  const hasChanges = targetAssignments.some(item => item.currentChatId !== item.targetChatId);
+  if(!hasChanges) return;
+
+  // Batch update: clear first to prevent UNIQUE constraint collisions on (user_id, telegram_account_id, chat_id)
+  const clearStatements = targetAssignments
+    .filter(item => item.currentChatId !== item.targetChatId && item.currentChatId !== null)
+    .map(item =>
+      db.prepare(`UPDATE telegram_schedule_slots SET chat_id=NULL,updated_at=?1,version=version+1
+        WHERE id=?2 AND user_id=?3 AND telegram_account_id=?4 AND status='pending'`)
+        .bind(input.now, item.slotId, input.userId, input.accountId)
+    );
+
+  const assignStatements = targetAssignments
+    .filter(item => item.currentChatId !== item.targetChatId && item.targetChatId !== null)
+    .map(item =>
+      db.prepare(`UPDATE telegram_schedule_slots SET chat_id=?1,updated_at=?2,version=version+1
+        WHERE id=?3 AND user_id=?4 AND telegram_account_id=?5 AND status='pending'`)
+        .bind(item.targetChatId, input.now, item.slotId, input.userId, input.accountId)
+    );
+
+  await db.batch([...clearStatements, ...assignStatements]);
 }
 async function eligibleTelegramChats(db:D1Database,input:{userId:string;accountId:string;now:number;date:string;search?:string;excludePending:boolean}):Promise<TelegramScheduleChat[]> {
   const search=(input.search||'').trim().slice(0,150).toLowerCase();

@@ -26,9 +26,9 @@ type Snapshot = {
   pending:number; completed:number; nextSlot:Slot|null;
 };
 
-type Props = { accountId:string|null; refreshKey:number; disabled?:boolean };
+type Props = { accountId:string|null; refreshKey:number; disabled?:boolean; onScheduleChange?:()=>void };
 
-export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
+export function TelegramSchedule({accountId,refreshKey,disabled=false,onScheduleChange}:Props) {
   const [data,setData]=useState<Snapshot|null>(null);
   const [loading,setLoading]=useState(false);
   const [busy,setBusy]=useState(false);
@@ -75,7 +75,9 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
       const response=await fetch('/api/telegram-schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accountId,...body})});
       const next=await response.json() as Snapshot&{error?:string};
       if(!response.ok)throw new Error(next.error||'Не вдалося оновити розклад.');
-      applySnapshot(next);return next;
+      applySnapshot(next);
+      onScheduleChange?.();
+      return next;
     } catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося оновити розклад.');return null;}
     finally{setBusy(false);}
   }
@@ -123,6 +125,7 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
       const body=await response.json() as {error?:string};
       if(!response.ok)throw new Error(body.error||'Не вдалося відмітити публікацію.');
       await load();
+      onScheduleChange?.();
     }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося відмітити публікацію.');}
     finally{setBusy(false);}
   }
@@ -145,6 +148,7 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
       applySnapshot(next);
       setArchiveSlot(null);
       setCustomArchiveReason('');
+      onScheduleChange?.();
     }catch(err){setError(err instanceof Error?err.message:'Не вдалося перенести чат в архів.');}
     finally{setBusy(false);}
   }
@@ -159,6 +163,7 @@ export function TelegramSchedule({accountId,refreshKey,disabled=false}:Props) {
       const next=await response.json() as Snapshot&{error?:string};
       if(!response.ok)throw new Error(next.error||'Не вдалося відв’язати чат від слота.');
       applySnapshot(next);
+      onScheduleChange?.();
     }catch(err){setError(err instanceof Error?err.message:'Не вдалося відв’язати чат від слота.');}
     finally{setBusy(false);}
   }

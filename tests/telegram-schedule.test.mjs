@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { businessDate } from '../lib/business-time.ts';
 import { recordManualPublication, undoManualPublication } from '../lib/chats/publication.ts';
+import { transitionChat } from '../lib/chats/transitions.ts';
 import {
   archiveTelegramScheduleSlot,
   clearPendingTelegramSchedule,
@@ -363,6 +364,62 @@ void test('archiving or unlinking a slot shifts remaining chats up and assigns n
   assert.equal(snap.slots[1].chatId, 'chat-5');
   assert.equal(snap.slots[2].chatId, 'chat-3');
 });
+
+void test('archiving or modifying chat outside schedule auto-heals and reflows plan on read', async (t) => {
+  const db = await localDatabase(t);
+  await seedAccount(db, 'acc', 'u', 1);
+  const chat1 = await telegramChat(db, 'chat-1', 'acc');
+  const chat2 = await telegramChat(db, 'chat-2', 'acc');
+  const chat3 = await telegramChat(db, 'chat-3', 'acc');
+  const chat4 = await telegramChat(db, 'chat-4', 'acc');
+  const chat5 = await telegramChat(db, 'chat-5', 'acc');
+
+  await saveTelegramScheduleSettings(db, {
+    userId: 'u', accountId: 'acc', expectedVersion: 0,
+    intervalMinutes: 10, baseAt: NOW, selectionMode: 'auto', manualChatIds: [], now: NOW, date: DATE,
+  });
+
+  // Generate 3 slots with chat-1, chat-2, chat-3
+  let snap = await generateTelegramSchedule(db, { userId: 'u', accountId: 'acc', count: 3, now: NOW, date: DATE });
+  assert.equal(snap.slots[0].chatId, 'chat-1');
+  assert.equal(snap.slots[1].chatId, 'chat-2');
+  assert.equal(snap.slots[2].chatId, 'chat-3');
+
+  // Archive chat-2 via standard transitionChat (outside schedule, like from chats table)
+  const result = await transitionChat(db, {
+    userId: 'u',
+    chat: chat2,
+    action: 'archive',
+    accountId: 'acc',
+    now: NOW + 10,
+    reason: 'Забанено',
+  });
+  assert.equal(result.ok, true);
+
+  // When schedule is read (e.g. refreshed in UI), it automatically heals and reflows:
+  // Slot 1: chat-1 (stays)
+  // Slot 2: chat-3 (shifted up)
+  // Slot 3: chat-4 (filled with next eligible chat)
+  snap = await readTelegramSchedule(db, { userId: 'u', accountId: 'acc', now: NOW + 20, date: DATE });
+  assert.equal(snap.slots.length, 3);
+  assert.equal(snap.slots[0].chatId, 'chat-1');
+  assert.equal(snap.slots[1].chatId, 'chat-3');
+  assert.equal(snap.slots[2].chatId, 'chat-4');
+
+  // Snooze chat-1 for 3 days
+  await db.prepare("UPDATE chats SET snoozed_until=?1 WHERE id='chat-1' AND user_id='u'").bind(NOW + 86400 * 3).run();
+
+  // Next read auto-heals again:
+  // Slot 1: chat-3 (shifted up)
+  // Slot 2: chat-4 (shifted up)
+  // Slot 3: chat-5 (filled with next eligible chat)
+  snap = await readTelegramSchedule(db, { userId: 'u', accountId: 'acc', now: NOW + 30, date: DATE });
+  assert.equal(snap.slots.length, 3);
+  assert.equal(snap.slots[0].chatId, 'chat-3');
+  assert.equal(snap.slots[1].chatId, 'chat-4');
+  assert.equal(snap.slots[2].chatId, 'chat-5');
+});
+
 
 
 
