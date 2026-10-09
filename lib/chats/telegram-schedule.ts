@@ -264,9 +264,9 @@ export async function healAndReflowPendingSlots(db:D1Database,input:{
 
   const pendingSlots=await db.prepare(`SELECT id,sequence,scheduled_at,chat_id,version
     FROM telegram_schedule_slots
-    WHERE user_id=?1 AND telegram_account_id=?2 AND status='pending' AND scheduled_at>=?3 AND scheduled_at<?4
+    WHERE user_id=?1 AND telegram_account_id=?2 AND status='pending'
     ORDER BY scheduled_at ASC,sequence ASC`)
-    .bind(input.userId,input.accountId,dayStart,nextDayStart)
+    .bind(input.userId,input.accountId)
     .all<{id:string;sequence:number;scheduled_at:number;chat_id:string|null;version:number}>();
 
   const slots=pendingSlots.results;
