@@ -1,12 +1,12 @@
 import { EmptyState } from '@/components/ui/empty-state';
 import { analyticsPercentLabel } from '@/lib/analytics-rate';
-import { AnalyticsCard } from './card';
+import { SectionCard } from '@/components/views/shared/card';
 import type { PlatformRow } from './types';
 
 /** Результат за платформами: оголошення, відгуки, записи, проведені й відгук/оголошення. */
 export function PlatformsCard({ platforms, className }: { platforms: PlatformRow[]; className?: string }) {
   return (
-    <AnalyticsCard className={className} title="Результат за платформами">
+    <SectionCard className={className} title="Результат за платформами">
       {platforms.length === 0 ? (
         <EmptyState text="За цей період на платформах ще немає подій." />
       ) : (
@@ -37,6 +37,6 @@ export function PlatformsCard({ platforms, className }: { platforms: PlatformRow
           </table>
         </div>
       )}
-    </AnalyticsCard>
+    </SectionCard>
   );
 }

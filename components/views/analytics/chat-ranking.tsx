@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Select } from '@/components/ui/select';
 import { CHAT_RANKING_MIN_PUBLICATIONS, chatLanguageLabel, hasEnoughChatRankingData, rankAnalyticsChats, responseConversionLabel, type AnalyticsRankedChat } from '@/lib/analytics-chat-ranking';
-import { AnalyticsCard, BarRow } from './card';
+import { SectionCard, BarRow } from '@/components/views/shared/card';
 
 const LIMIT = 12;
 
@@ -26,7 +26,7 @@ export function ChatRanking({ chats, className }: { chats: AnalyticsRankedChat[]
   const shown = expanded ? ranked : ranked.slice(0, LIMIT);
 
   return (
-    <AnalyticsCard
+    <SectionCard
       className={className}
       title="Ефективність чатів"
       note={`Конверсія = відгуки / публікації за вибраний період. Чати з менш ніж ${CHAT_RANKING_MIN_PUBLICATIONS} публікаціями — мала вибірка. До 100 чатів з активністю.`}
@@ -75,6 +75,6 @@ export function ChatRanking({ chats, className }: { chats: AnalyticsRankedChat[]
           ) : null}
         </>
       )}
-    </AnalyticsCard>
+    </SectionCard>
   );
 }

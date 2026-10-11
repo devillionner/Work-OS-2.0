@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 import type { AnalyticsOverview } from '@/lib/analytics-overview';
-import { AnalyticsCard } from './card';
+import { SectionCard } from '@/components/views/shared/card';
 import type { InsightsData } from './types';
 import { plural } from './types';
 
@@ -36,7 +36,7 @@ export function InsightsCard({ insights, overview, overviewError, className }: {
   const comparison = overview?.comparison;
   const bottleneck = overview?.bottleneck;
   return (
-    <AnalyticsCard className={className} title="Що важливо зараз">
+    <SectionCard className={className} title="Що важливо зараз">
       {overview && goal && comparison ? (
         <ul className="m-0 flex list-none flex-col p-0">
           <Insight lead={`${goal.actual} / ${goal.target}`}>
@@ -86,6 +86,6 @@ export function InsightsCard({ insights, overview, overviewError, className }: {
           <p className="m-0 mt-3 text-ink-2">У вибраному періоді архівацій немає.</p>
         )}
       </details>
-    </AnalyticsCard>
+    </SectionCard>
   );
 }

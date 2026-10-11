@@ -8,7 +8,7 @@ import { Ghost } from '@/components/ui/ghost';
 import { Surface } from '@/components/ui/surface';
 import { labels } from '@/components/views/leads/client';
 import { formatDate, formatRange, type MetricKey } from './types';
-import { useRemote } from './use-remote';
+import { useRemote } from '@/components/views/shared/use-remote';
 
 type MetricEvent = {
   id: string;

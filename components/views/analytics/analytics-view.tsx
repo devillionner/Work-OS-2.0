@@ -19,7 +19,7 @@ import { MetricPanel } from './metric-panel';
 import { PlatformsCard } from './platforms-card';
 import { SubjectsCard } from './subjects-card';
 import { currentDate, formatRange, PERIODS, plural, previousRange, type AnalyticsData, type AnalyticsPeriod, type MetricKey } from './types';
-import { useRemote } from './use-remote';
+import { useRemote } from '@/components/views/shared/use-remote';
 
 // recharts живе тільки в чанку графіка.
 const TrendChart = lazy(() => import('./trend-chart'));

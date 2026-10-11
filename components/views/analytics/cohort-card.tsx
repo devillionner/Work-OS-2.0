@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { analyticsPercentLabel } from '@/lib/analytics-rate';
-import { AnalyticsCard } from './card';
+import { SectionCard } from '@/components/views/shared/card';
 import { formatPercent, type AnalyticsData } from './types';
 
 type Column = { label: string; title: string };
@@ -77,7 +77,7 @@ export function CohortCard({ cohort, className }: { cohort: AnalyticsData['cohor
   const shownChats = expanded ? chatRows : chatRows.slice(0, CHAT_LIMIT);
 
   return (
-    <AnalyticsCard className={className} title="Що сталося з відгуками" note="Когорта лідів за датою отримання відгуку; пізніші записи й уроки лишаються за початковим чатом-джерелом.">
+    <SectionCard className={className} title="Що сталося з відгуками" note="Когорта лідів за датою отримання відгуку; пізніші записи й уроки лишаються за початковим чатом-джерелом.">
       {totals.leads === 0 ? (
         <EmptyState text="У цьому періоді ще немає відгуків — когорти з’являться, коли надійдуть перші ліди." />
       ) : (
@@ -115,6 +115,6 @@ export function CohortCard({ cohort, className }: { cohort: AnalyticsData['cohor
           <p className="m-0 text-xs text-ink-2">Колонки: Відгук — відгуки від публікацій · Запис — ліди із записом від відгуків · Урок — проведені від записів · Неявка — не прийшли від записів. Яскравість відносна в межах колонки.</p>
         </>
       )}
-    </AnalyticsCard>
+    </SectionCard>
   );
 }

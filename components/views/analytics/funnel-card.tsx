@@ -1,6 +1,6 @@
 import { analyticsPercentLabel } from '@/lib/analytics-rate';
 import { cn } from '@/lib/utils';
-import { AnalyticsCard } from './card';
+import { SectionCard } from '@/components/views/shared/card';
 import type { AnalyticsData, Targets, Totals } from './types';
 
 type Step = { key: keyof Totals; label: string; rate?: keyof Targets; from?: keyof Totals; unit: string };
@@ -25,7 +25,7 @@ const OUTCOMES: ReadonlyArray<{ key: keyof AnalyticsData['outcomes']; label: str
 export function FunnelCard({ data, className }: { data: AnalyticsData; className?: string }) {
   const peak = Math.max(1, ...STEPS.map((step) => data.totals[step.key]));
   return (
-    <AnalyticsCard className={className} title="Де втрачається результат" note="Активність за датою події. Червоним позначено крок, де конверсія нижча за задану ціль.">
+    <SectionCard className={className} title="Де втрачається результат" note="Активність за датою події. Червоним позначено крок, де конверсія нижча за задану ціль.">
       <ol className="m-0 flex list-none flex-col p-0">
         {STEPS.map((step) => {
           const value = data.totals[step.key];
@@ -59,6 +59,6 @@ export function FunnelCard({ data, className }: { data: AnalyticsData; className
         </dl>
         <p className="m-0 text-xs text-ink-2">Події уроків за тим самим періодом; перенесення не створює нового запису.</p>
       </div>
-    </AnalyticsCard>
+    </SectionCard>
   );
 }

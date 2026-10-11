@@ -2,8 +2,8 @@ import { useId, type ReactNode } from 'react';
 import { Surface } from '@/components/ui/surface';
 import { cn } from '@/lib/utils';
 
-/** Картка розділу аналітики: заголовок 17/500, необов'язкове пояснення й права частина шапки. */
-export function AnalyticsCard({ title, note, aside, className, children }: { title: string; note?: ReactNode; aside?: ReactNode; className?: string; children: ReactNode }) {
+/** Картка розділу: заголовок 17/500, необов'язкове пояснення й права частина шапки. */
+export function SectionCard({ title, note, aside, className, children }: { title: string; note?: ReactNode; aside?: ReactNode; className?: string; children: ReactNode }) {
   const id = useId();
   return (
     <Surface as="section" variant="glass" radius="card" spot data-reveal aria-labelledby={id} className={cn('flex min-w-0 flex-col gap-4 p-5 @4xl:p-6', className)}>

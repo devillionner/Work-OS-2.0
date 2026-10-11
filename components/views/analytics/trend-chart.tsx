@@ -5,7 +5,7 @@ import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip,
 import { useMediaQuery } from '@/components/shell/use-media';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Segmented } from '@/components/ui/segmented';
-import { AnalyticsCard } from './card';
+import { SectionCard } from '@/components/views/shared/card';
 import { formatShort, SERIES, type SeriesKey, type TrendPoint } from './types';
 
 const MAX_POINTS = 120;
@@ -72,7 +72,7 @@ export default function TrendChart({ points, previous, periodLabel, className }:
   const summary = `${label}: ${periodLabel}, усього ${total}${previousTotal !== null ? `, попередній період ${previousTotal}` : ''}, найбільше значення ${peak}`;
 
   return (
-    <AnalyticsCard
+    <SectionCard
       className={className}
       title="Динаміка за днями"
       note={points.length > MAX_POINTS ? `Дні об’єднані по ${Math.ceil(points.length / MAX_POINTS)}, суми не обрізаються.` : undefined}
@@ -106,6 +106,6 @@ export default function TrendChart({ points, previous, periodLabel, className }:
           </ResponsiveContainer>
         </figure>
       )}
-    </AnalyticsCard>
+    </SectionCard>
   );
 }
