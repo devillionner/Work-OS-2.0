@@ -19,7 +19,9 @@ export async function GET(request:Request):Promise<Response> {
     return Response.json({error:error instanceof Error?error.message:'Некоректний період аналітики.'},{status:400,headers:{'Cache-Control':'no-store'}});
   }
   const {from,to,days}=range;
-  const cacheRequest=await revisionCacheRequest(env.DB,user.id,'analytics-overview',`${from}:${to}`);
+  // Порівняння з попереднім відрізком екран бере із власного запиту (/api/analytics?compare=1), тож тут воно лише за явним compare=1.
+  const withPrevious=new URL(request.url).searchParams.get('compare')==='1';
+  const cacheRequest=await revisionCacheRequest(env.DB,user.id,'analytics-overview',`${from}:${to}${withPrevious?':compare':''}`);
   const cached=await matchRevisionJson(cacheRequest);
   if(cached)return cached;
   const previousEnd=shiftBusinessDate(from,-1);
@@ -28,7 +30,7 @@ export async function GET(request:Request):Promise<Response> {
   const [monthlyGoal,currentEvents,previousEvents,targetResult,chatResult]=await Promise.all([
     readMonthlyGoalProgress(env.DB,user.id,to),
     activitySummaryStatement(env.DB,user.id,from,to).all<ActivitySummaryRow>(),
-    activitySummaryStatement(env.DB,user.id,previousStart,previousEnd).all<ActivitySummaryRow>(),
+    withPrevious?activitySummaryStatement(env.DB,user.id,previousStart,previousEnd).all<ActivitySummaryRow>():Promise.resolve({results:[] as ActivitySummaryRow[]}),
     env.DB.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('target_publication_rate','target_response_rate','target_booking_rate','target_completion_rate')`).bind(user.id).all<{setting_key:string;value_json:string}>(),
     env.DB.prepare(`SELECT COALESCE(e.chat_id,l.source_chat_id) AS id,COALESCE(c.name,'Без назви') AS name,COALESCE(c.platform,'unknown') AS platform,COALESCE(c.workflow_status,'unknown') AS status,
       SUM(CASE WHEN e.event_type='publication' THEN 1 ELSE 0 END) AS publications,

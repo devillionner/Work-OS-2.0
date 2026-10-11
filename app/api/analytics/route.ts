@@ -44,16 +44,31 @@ export async function GET(request: Request): Promise<Response> {
   }
   const { from, to } = range;
   const wantsCsv = url.searchParams.get('format') === 'csv';
-  const cacheRequest = wantsCsv ? null : await revisionCacheRequest(env.DB, user.id, 'analytics', `${from}:${to}`);
+  // compare=1: порівняльний період для дельт KPI й пунктиру графіка — лише підсумки й тренд, без когорт, рейтингу чатів і предметів.
+  // cohort=0: основний запит без когорт — вони вантажаться окремо (/api/analytics/cohort), коли картка потрапляє в в'юпорт.
+  const compare = !wantsCsv && url.searchParams.get('compare') === '1';
+  const skipCohort = !wantsCsv && url.searchParams.get('cohort') === '0';
+  const cacheKey = `${from}:${to}${compare ? ':compare' : skipCohort ? ':nocohort' : ''}`;
+  const cacheRequest = wantsCsv ? null : await revisionCacheRequest(env.DB, user.id, 'analytics', cacheKey);
   if (cacheRequest) {
     const cached = await matchRevisionJson(cacheRequest);
     if (cached) return cached;
+  }
+  if (compare) {
+    const [trends, [summary, completed]] = await Promise.all([
+      readAnalyticsTrends(env.DB, user.id, from, to),
+      env.DB.batch([activitySummaryStatement(env.DB, user.id, from, to), completedOperatorLessonsStatement(env.DB, user.id, from, to)]),
+    ]);
+    const totals = funnelTotals(summary.results as EventAggregate[], completed.results as Array<{ platform: string; count: number }>);
+    const light = { range, totals: { ...totals, ...totalRates(totals) }, trends };
+    if (cacheRequest) await putRevisionJson(cacheRequest, light, 600);
+    return Response.json(light, { headers: { 'Cache-Control': 'no-store', 'X-Work-OS-Cache': 'MISS' } });
   }
   const archiveFrom = businessDayStart(from);
   const archiveTo = businessDayStart(shiftBusinessDate(to, 1));
 
   const [cohort, trends, subjects, batch] = await Promise.all([
-    readAnalyticsCohort(env.DB, user.id, from, to),
+    skipCohort ? Promise.resolve(null) : readAnalyticsCohort(env.DB, user.id, from, to),
     readAnalyticsTrends(env.DB, user.id, from, to),
     readSubjectAnalyticsRange(env.DB, user.id, from, to),
     env.DB.batch([
@@ -72,7 +87,6 @@ export async function GET(request: Request): Promise<Response> {
   const eventRows = eventsResult.results as EventAggregate[];
   const completedRows = lessonsResult.results as Array<{ platform: string; count: number }>;
   const completedByPlatform = new Map(completedRows.map((row) => [row.platform, Number(row.count || 0)]));
-  const totals = { joined: 0, publications: 0, responses: 0, bookings: 0, completed: 0 };
   const emptyCounts = (): FunnelCounts => ({ joined: 0, publications: 0, responses: 0, bookings: 0 });
   const byPlatform = new Map<string, FunnelCounts>();
   for (const row of eventRows) {
@@ -85,11 +99,7 @@ export async function GET(request: Request): Promise<Response> {
     byPlatform.set(key, current);
   }
   const platformKeys = new Set([...byPlatform.keys(), ...completedByPlatform.keys()]);
-  totals.joined = Array.from(byPlatform.values()).reduce((sum, row) => sum + row.joined, 0);
-  totals.publications = Array.from(byPlatform.values()).reduce((sum, row) => sum + row.publications, 0);
-  totals.responses = Array.from(byPlatform.values()).reduce((sum, row) => sum + row.responses, 0);
-  totals.bookings = Array.from(byPlatform.values()).reduce((sum, row) => sum + row.bookings, 0);
-  totals.completed = Array.from(completedByPlatform.values()).reduce((sum, count) => sum + count, 0);
+  const totals = funnelTotals(eventRows, completedRows);
   const outcomes = {
     booked: eventRows.filter((row) => row.event_type === 'lesson_booked').reduce((sum,row)=>sum+Number(row.count||0),0),
     completed: eventRows.filter((row) => row.event_type === 'lesson_completed').reduce((sum,row)=>sum+Number(row.count||0),0),
@@ -138,47 +148,43 @@ export async function GET(request: Request): Promise<Response> {
   }));
   const activityByChat = new Map(chats.map((row) => [row.id, row]));
 
-  const data: AnalyticsExportData = {
-    range,
+  const cohortPart = cohort ? {
     totals: {
-      ...totals,
-      publicationRate: rate(totals.publications, totals.joined),
-      responseRate: rate(totals.responses, totals.publications),
-      bookingRate: rate(totals.bookings, totals.responses),
-      completionRate: rate(totals.completed, totals.bookings),
+      ...cohort.totals,
+      bookingLeadRate: rate(cohort.totals.bookedLeads, cohort.totals.leads),
+      completionRate: rate(cohort.totals.completed, cohort.totals.bookings),
+      noShowRate: rate(cohort.totals.noShow, cohort.totals.bookings),
     },
-    platforms,
-    chats,
-    cohort: {
-      totals: {
-        ...cohort.totals,
-        bookingLeadRate: rate(cohort.totals.bookedLeads, cohort.totals.leads),
-        completionRate: rate(cohort.totals.completed, cohort.totals.bookings),
-        noShowRate: rate(cohort.totals.noShow, cohort.totals.bookings),
-      },
-      platforms: cohort.platforms.map((row) => ({
-        key: row.platform,
-        name: PLATFORM_META[row.platform]?.name || row.platform,
+    platforms: cohort.platforms.map((row) => ({
+      key: row.platform,
+      name: PLATFORM_META[row.platform]?.name || row.platform,
+      ...row,
+      bookingLeadRate: rate(row.bookedLeads, row.leads),
+      completionRate: rate(row.completed, row.bookings),
+      noShowRate: rate(row.noShow, row.bookings),
+    })),
+    chats: cohort.chats.map((row) => {
+      const activity = activityByChat.get(row.id);
+      const publications = activity?.publications || 0;
+      return {
         ...row,
+        platformName: PLATFORM_META[row.platform]?.name || row.platform,
+        publications,
+        leadRate: rate(row.leads, publications),
         bookingLeadRate: rate(row.bookedLeads, row.leads),
         completionRate: rate(row.completed, row.bookings),
         noShowRate: rate(row.noShow, row.bookings),
-      })),
-      chats: cohort.chats.map((row) => {
-        const activity = activityByChat.get(row.id);
-        const publications = activity?.publications || 0;
-        return {
-          ...row,
-          platformName: PLATFORM_META[row.platform]?.name || row.platform,
-          publications,
-          leadRate: rate(row.leads, publications),
-          bookingLeadRate: rate(row.bookedLeads, row.leads),
-          completionRate: rate(row.completed, row.bookings),
-          noShowRate: rate(row.noShow, row.bookings),
-        };
-      }),
-    },
+      };
+    }),
+  } : null;
+  const base = {
+    range,
+    totals: { ...totals, ...totalRates(totals) },
+    platforms,
+    chats,
   };
+  // Когорти є завжди в експорті; у JSON для екрана їх немає (cohort=0) і вони приходять із /api/analytics/cohort.
+  const data = (cohortPart ? { ...base, cohort: cohortPart } : base) as AnalyticsExportData;
 
   if (wantsCsv) {
     return new Response(analyticsCsv(data), {
@@ -207,6 +213,28 @@ export async function GET(request: Request): Promise<Response> {
   // lifetime putRevisionJson allows cannot serve stale numbers.
   if (cacheRequest) await putRevisionJson(cacheRequest, payload, 600);
   return Response.json(payload, { headers: { 'Cache-Control': 'no-store', 'X-Work-OS-Cache':'MISS' } });
+}
+
+type FunnelTotals = { joined: number; publications: number; responses: number; bookings: number; completed: number };
+function funnelTotals(eventRows: EventAggregate[], completedRows: Array<{ platform: string; count: number }>): FunnelTotals {
+  const totals: FunnelTotals = { joined: 0, publications: 0, responses: 0, bookings: 0, completed: 0 };
+  for (const row of eventRows) {
+    const count = Number(row.count || 0);
+    if (row.event_type === 'chat_joined') totals.joined += count;
+    if (row.event_type === 'publication') totals.publications += count;
+    if (row.event_type === 'lead_created') totals.responses += count;
+    if (row.event_type === 'lesson_booked' || row.event_type === 'curator_booking_pending') totals.bookings += count;
+  }
+  totals.completed = completedRows.reduce((sum, row) => sum + Number(row.count || 0), 0);
+  return totals;
+}
+function totalRates(totals: FunnelTotals) {
+  return {
+    publicationRate: rate(totals.publications, totals.joined),
+    responseRate: rate(totals.responses, totals.publications),
+    bookingRate: rate(totals.bookings, totals.responses),
+    completionRate: rate(totals.completed, totals.bookings),
+  };
 }
 
 function settingPercent(value:string):number { try { const parsed=JSON.parse(value); return Number.isInteger(parsed)&&parsed>=0&&parsed<=100?parsed:0; } catch { return 0; } }

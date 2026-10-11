@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { analyticsPercentLabel } from '@/lib/analytics-rate';
+import { Ghost } from '@/components/ui/ghost';
 import { SectionCard } from '@/components/views/shared/card';
-import { formatPercent, type AnalyticsData } from './types';
+import { formatPercent, type AnalyticsData, type CohortData } from './types';
 
 type Column = { label: string; title: string };
 type HeatRow = { id: string; label: string; sub: string; cells: Array<number | null>; strong?: boolean };
@@ -60,24 +61,68 @@ function Heatmap({ columns, rows, label }: { columns: readonly Column[]; rows: H
   );
 }
 
-/** Що сталося з відгуками періоду: когорта за датою отримання ліда, по платформах і по чатах-джерелах. */
-export function CohortCard({ cohort, className }: { cohort: AnalyticsData['cohort']; className?: string }) {
+/**
+ * Що сталося з відгуками періоду: когорта за датою отримання ліда, по платформах і по чатах-джерелах.
+ * Дані приходять окремим запитом, який стартує, коли картка вперше потрапляє в в'юпорт (`onVisible`).
+ */
+export function CohortCard({ cohort, error, chats, observeKey, onVisible, onRetry, className }: {
+  cohort: CohortData | null;
+  error: string;
+  chats: AnalyticsData['chats'];
+  observeKey: string | null;
+  onVisible: () => void;
+  onRetry: () => void;
+  className?: string;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const visible = useRef(onVisible);
+  useEffect(() => { visible.current = onVisible; });
+  useEffect(() => {
+    const node = box.current;
+    if (!node || !observeKey) return;
+    const observer = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) visible.current(); }, { rootMargin: '240px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [observeKey]);
+
+  return (
+    <div ref={box} className={className}>
+      {cohort ? <CohortBody cohort={cohort} chats={chats} /> : (
+        <SectionCard title="Що сталося з відгуками">
+          {error ? (
+            <div className="flex flex-col items-start gap-3">
+              <p role="alert" className="m-0 text-sm text-hot">{error}</p>
+              <Button variant="outline" size="sm" onClick={onRetry}>Спробувати ще раз</Button>
+            </div>
+          ) : <div aria-busy="true" className="flex flex-col gap-3"><Ghost className="h-16 rounded-inner" /><Ghost className="h-40 rounded-inner" /></div>}
+        </SectionCard>
+      )}
+    </div>
+  );
+}
+
+function CohortBody({ cohort, chats }: { cohort: CohortData; chats: AnalyticsData['chats'] }) {
   const [expanded, setExpanded] = useState(false);
   const totals = cohort.totals;
+  const publicationsByChat = useMemo(() => new Map(chats.map((chat) => [chat.id, chat.publications])), [chats]);
   const platformRows: HeatRow[] = [
     { id: 'all', label: 'Усі платформи', sub: `${totals.leads} лідів`, strong: true, cells: [rate(totals.bookingLeadRate, totals.leads), rate(totals.completionRate, totals.bookings), rate(totals.noShowRate, totals.bookings)] },
     ...cohort.platforms.map((row) => ({ id: row.key, label: row.name, sub: `${row.leads} лідів · ${row.bookings} зап.`, cells: [rate(row.bookingLeadRate, row.leads), rate(row.completionRate, row.bookings), rate(row.noShowRate, row.bookings)] })),
   ];
-  const chatRows: HeatRow[] = cohort.chats.map((row) => ({
-    id: row.id,
-    label: row.name,
-    sub: `${row.platformName} · ${row.publications} публ. · ${row.leads} відг. · ${row.bookings} зап.`,
-    cells: [rate(row.leadRate, row.publications), rate(row.bookingLeadRate, row.leads), rate(row.completionRate, row.bookings), rate(row.noShowRate, row.bookings)],
-  }));
+  const chatRows: HeatRow[] = cohort.chats.map((row) => {
+    const publications = publicationsByChat.get(row.id) ?? 0;
+    const leadRate = publications > 0 ? Math.round((row.leads / publications) * 1000) / 10 : 0;
+    return {
+      id: row.id,
+      label: row.name,
+      sub: `${row.platformName} · ${publications} публ. · ${row.leads} відг. · ${row.bookings} зап.`,
+      cells: [rate(leadRate, publications), rate(row.bookingLeadRate, row.leads), rate(row.completionRate, row.bookings), rate(row.noShowRate, row.bookings)],
+    };
+  });
   const shownChats = expanded ? chatRows : chatRows.slice(0, CHAT_LIMIT);
 
   return (
-    <SectionCard className={className} title="Що сталося з відгуками" note="Ліди за датою відгуку; записи й уроки лишаються за початковим чатом.">
+    <SectionCard title="Що сталося з відгуками" note="Ліди за датою відгуку; записи й уроки лишаються за початковим чатом.">
       {totals.leads === 0 ? (
         <EmptyState text="У цьому періоді ще немає відгуків — когорти з’являться, коли надійдуть перші ліди." />
       ) : (

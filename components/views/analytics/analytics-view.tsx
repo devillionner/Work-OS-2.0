@@ -18,7 +18,7 @@ import { KpiRow } from './kpi-row';
 import { MetricPanel } from './metric-panel';
 import { PlatformsCard } from './platforms-card';
 import { SubjectsCard } from './subjects-card';
-import { comparisonWindow, currentDate, formatRange, humanRange, PERIODS, plural, sliceComparison, type AnalyticsData, type AnalyticsPeriod, type MetricKey } from './types';
+import { comparisonWindow, currentDate, formatRange, humanRange, PERIODS, plural, toPreviousWindow, type AnalyticsData, type AnalyticsPeriod, type ComparisonData, type CohortData, type MetricKey } from './types';
 import { useRemote } from '@/components/views/shared/use-remote';
 
 // recharts живе тільки в чанку графіка.
@@ -47,13 +47,17 @@ export default function AnalyticsView() {
     return customValid ? new URLSearchParams({ period, from: customFrom, to: customTo }).toString() : null;
   }, [period, customFrom, customTo, customValid]);
 
-  const current = useRemote<AnalyticsData>(query ? `/api/analytics?${query}` : null, { refresh, enabled: active, keepPrevious: true, fallback: 'Не вдалося завантажити аналітику.' });
+  const current = useRemote<AnalyticsData>(query ? `/api/analytics?${query}&cohort=0` : null, { refresh, enabled: active, keepPrevious: true, fallback: 'Не вдалося завантажити аналітику.' });
   const data = current.data;
   // Період беремо з вибору, а не з відповіді: для одноденного тижня чи місяця сервер повертає period «day».
   const compare = useMemo(() => (data && !current.stale ? comparisonWindow(period, data.range) : null), [data, period, current.stale]);
-  const previousQuery = useMemo(() => (compare ? new URLSearchParams({ period: 'custom', from: compare.from, to: compare.fetchTo }).toString() : null), [compare]);
-  const previous = useRemote<AnalyticsData>(previousQuery ? `/api/analytics?${previousQuery}` : null, { refresh, enabled: active && data !== null });
+  const previousQuery = useMemo(() => (compare ? new URLSearchParams({ period: 'custom', from: compare.from, to: compare.to, compare: '1' }).toString() : null), [compare]);
+  const previous = useRemote<ComparisonData>(previousQuery ? `/api/analytics?${previousQuery}` : null, { refresh, enabled: active && data !== null });
   const overview = useRemote<AnalyticsOverview>(query ? `/api/analytics/overview?${query}` : null, { refresh, enabled: active, keepPrevious: true });
+  // Когорти важкі для D1 (≈3 тис. рядків): вантажимо один раз, коли картка вперше з'являється в в'юпорті, окремо для кожного періоду.
+  const cohortUrl = query ? `/api/analytics/cohort?${query}` : null;
+  const [cohortFor, setCohortFor] = useState<string | null>(null);
+  const cohort = useRemote<CohortData>(cohortUrl, { refresh, enabled: active && cohortUrl !== null && cohortFor === cohortUrl, fallback: 'Не вдалося завантажити когорти.' });
 
   const reload = useCallback(() => setRefresh((value) => value + 1), []);
 
@@ -68,7 +72,7 @@ export default function AnalyticsView() {
     if (query) window.location.assign(`/api/analytics?${query}&format=csv`);
   };
 
-  const previousData = useMemo(() => (previous.data && compare ? sliceComparison(previous.data, compare) : null), [previous.data, compare]);
+  const previousData = useMemo(() => (previous.data ? toPreviousWindow(previous.data) : null), [previous.data]);
   const refreshing = current.loading && data !== null;
 
   return (
@@ -130,14 +134,14 @@ export default function AnalyticsView() {
           ) : (
             <div className="grid grid-cols-1 gap-3 @4xl:grid-cols-12 @4xl:gap-4">
               <Suspense fallback={<Ghost className="h-[420px] rounded-card @4xl:col-span-8" />}>
-                <TrendChart className="@4xl:col-span-8" points={data.trends} previous={previousData?.trends ?? null} previousWhole={previousData?.whole ?? null} periodLabel={formatRange(data.range.from, data.range.to)} />
+                <TrendChart className="@4xl:col-span-8" points={data.trends} previous={previousData?.trends ?? null} periodLabel={formatRange(data.range.from, data.range.to)} />
               </Suspense>
               <InsightsCard className="@4xl:col-span-4" insights={data.insights} overview={overview.data} overviewError={Boolean(overview.error)} bookings={data.totals.bookings} previous={previousData} />
               <FunnelCard className="@4xl:col-span-6" data={data} />
               <SubjectsCard className="@4xl:col-span-6" data={data.subjects} />
               <PlatformsCard className="@4xl:col-span-12" platforms={data.platforms} />
               <ChatRanking className="@4xl:col-span-12" chats={data.chats} />
-              <CohortCard className="@4xl:col-span-12" cohort={data.cohort} />
+              <CohortCard className="@4xl:col-span-12" cohort={cohort.data} error={cohort.error} chats={data.chats} observeKey={cohortUrl} onVisible={() => setCohortFor(cohortUrl)} onRetry={reload} />
             </div>
           )}
         </div>
