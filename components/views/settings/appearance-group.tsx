@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ATMOSPHERE_PHOTO_EVENT, clearAtmospherePhoto, loadAtmospherePhoto, saveAtmospherePhoto } from '@/components/shell/atmosphere-store';
+import { AtmosphereSwatch } from '@/components/shell/atmosphere';
 import { useTheme, type AtmospherePreset, type Density } from '@/components/shell/theme-provider';
 import { Button } from '@/components/ui/button';
 import { Segmented } from '@/components/ui/segmented';
@@ -15,6 +16,8 @@ const PRESETS: ReadonlyArray<{ key: Exclude<AtmospherePreset, 'photo'>; label: s
   { key: 'coast', label: 'Узбережжя' },
   { key: 'forest', label: 'Ліс' },
   { key: 'road', label: 'Дорога' },
+  { key: 'mercury', label: 'Ртуть' },
+  { key: 'steel', label: 'Синя сталь' },
 ];
 
 /** Вигляд: тема, атмосфера (пресети й власне фото, що живе лише в IndexedDB цього пристрою) і щільність. */
@@ -65,7 +68,7 @@ export function AppearanceGroup() {
         <div className="flex flex-wrap items-center gap-2">
           {PRESETS.map((item) => (
             <button key={item.key} type="button" aria-pressed={atmosphere === item.key} onClick={() => setAtmosphere(item.key)} className={cn('flex items-center gap-2.5 rounded-full border py-1.5 [@media(pointer:coarse)]:py-2 pl-1.5 pr-4 text-[13px] font-medium transition-colors duration-200 active:scale-[0.985]', atmosphere === item.key ? 'border-line-strong bg-raised' : 'border-line hover:bg-raised')}>
-              <span aria-hidden="true" data-atmosphere={item.key} className="size-7 rounded-full border border-line" style={{ background: 'conic-gradient(from 210deg, var(--atm-1), var(--atm-3), var(--atm-2), var(--atm-1))' }} />
+              <AtmosphereSwatch preset={item.key} />
               {item.label}
             </button>
           ))}

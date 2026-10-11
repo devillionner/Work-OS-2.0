@@ -8,6 +8,7 @@ import { Sheet } from '@/components/ui/sheet';
 
 const ATMOSPHERES: Array<{ key: AtmospherePreset; label: string }> = [
   { key: 'fog', label: 'Туман' }, { key: 'coast', label: 'Узбережжя' }, { key: 'forest', label: 'Ліс' }, { key: 'road', label: 'Дорога' },
+  { key: 'mercury', label: 'Ртуть' }, { key: 'steel', label: 'Синя сталь' },
 ];
 
 /** Швидкі налаштування з шестерні PulseRail: атмосфера й перехід до налаштувань. */

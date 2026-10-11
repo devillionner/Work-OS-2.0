@@ -41,6 +41,9 @@
 [data-atmosphere="fog"] { --atm-1: #3b4a45; --atm-2: #1d2a2c; --atm-3: #55625a; --atm-4: #12171a; }
 [data-atmosphere="coast"] { --atm-1: #24465f; --atm-2: #0e1b2a; --atm-3: #c4713f; --atm-4: #0a1119; }
 [data-atmosphere="forest"] { --atm-1: #1c3a2c; --atm-2: #0b1a14; --atm-3: #2f5a44; --atm-4: #07100c; }
+/* «Ртуть» і «Синя сталь»: металеві атмосфери. Їхні градієнти живуть у components/shell/atmosphere.tsx, тут лише кольори. */
+[data-atmosphere="mercury"] { --atm-veil: 74%; --hg-mid: #7B8494; --hg-dark: #3A414D; --hg-deep: #12151B; --hg-rim: 150 185 235; --glass: rgb(16 17 20 / 0.72); }
+[data-atmosphere="steel"] { --atm-veil: 42%; --st-0: #0B0D10; --st-1: #1C2026; --st-2: #3A4048; --st-3: #59616C; --st-glow: 0 0 255; }
 [data-atmosphere="road"] { --atm-1: #5b4636; --atm-2: #1f1915; --atm-3: #8a6a4a; --atm-4: #0d0b09; }
 
 @theme {
@@ -112,6 +115,9 @@ body::after {
   .atmosphere { position: fixed; inset: 0; z-index: 0; overflow: hidden; background: var(--field); pointer-events: none; }
   .atmosphere .atm-layer { position: absolute; inset: 0; opacity: var(--atm-opacity); }
   .atmosphere .atm-blob { position: absolute; border-radius: 50%; filter: blur(80px); will-change: auto; }
+  /* На телефоні поза картками текст лежить просто на атмосфері без скла, тож металеві атмосфери затемнює плоска вуаль (щільність у --atm-veil, перевірена на AA); у «Синій сталі» синє світіння лежить над вуаллю: білий на #0000FF і так має 8.6:1. */
+  .atmosphere .atm-veil { display: none; }
+  @media (max-width: 767px) { .atmosphere .atm-veil { display: block; position: absolute; inset: 0; background: color-mix(in srgb, var(--field) var(--atm-veil), transparent); } }
   .atmosphere .atm-dither { mask-image: radial-gradient(circle at 50% 50%, #000 0.6px, transparent 0.9px); mask-size: 4px 4px; opacity: 0.35; }
   [data-atmosphere="road"] .atm-vignette { background: radial-gradient(120% 70% at 50% 120%, var(--atm-4) 30%, transparent 70%); }
 }

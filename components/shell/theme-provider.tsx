@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from 'react';
 
-export type AtmospherePreset = 'fog' | 'coast' | 'forest' | 'road' | 'photo';
+export type AtmospherePreset = 'fog' | 'coast' | 'forest' | 'road' | 'mercury' | 'steel' | 'photo';
 export type Density = 'comfortable' | 'compact';
 
 export const ATMOSPHERE_KEY = 'work-os:atmosphere';
@@ -12,7 +12,7 @@ const LEGACY_THEME_KEY = 'work-os:theme';
 
 type AppearanceSnapshot = { atmosphere: AtmospherePreset; density: Density };
 
-const ATMOSPHERES = ['fog', 'coast', 'forest', 'road', 'photo'] as const;
+const ATMOSPHERES = ['fog', 'coast', 'forest', 'road', 'mercury', 'steel', 'photo'] as const;
 const DENSITIES = ['comfortable', 'compact'] as const;
 const SERVER_SNAPSHOT: AppearanceSnapshot = { atmosphere: 'fog', density: 'comfortable' };
 
