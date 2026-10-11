@@ -69,7 +69,6 @@ export function Atmosphere() {
         <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${photoUrl})` }} />
       ) : null}
       {atmosphere === 'photo' && photoUrl ? <div className="absolute inset-0 bg-field opacity-40" /> : null}
-      <div className="atm-tint" />
     </div>
   );
 }

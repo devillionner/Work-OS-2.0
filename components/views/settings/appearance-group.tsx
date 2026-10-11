@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ATMOSPHERE_PHOTO_EVENT, clearAtmospherePhoto, loadAtmospherePhoto, saveAtmospherePhoto } from '@/components/shell/atmosphere-store';
-import { ThemePicker } from '@/components/shell/theme-picker';
 import { useTheme, type AtmospherePreset, type Density } from '@/components/shell/theme-provider';
 import { Button } from '@/components/ui/button';
 import { Segmented } from '@/components/ui/segmented';
@@ -62,9 +61,6 @@ export function AppearanceGroup() {
 
   return (
     <Group id="appearance" title="Вигляд" note="Налаштування вигляду діють лише на цьому пристрої.">
-      <Row label="Тема" stacked>
-        <ThemePicker />
-      </Row>
       <Row label="Атмосфера" description="Тло за склом. Власне фото не залишає цей пристрій і не потрапляє в базу даних." stacked>
         <div className="flex flex-wrap items-center gap-2">
           {PRESETS.map((item) => (

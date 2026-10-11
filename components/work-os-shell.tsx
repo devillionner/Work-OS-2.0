@@ -205,7 +205,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
             <div className="relative flex h-dvh justify-center p-3">
               <div className="flex h-full w-full max-w-[1680px] gap-3 rounded-frame border border-line bg-sunken p-4">
                 <Rail active={activeView} leadCount={snapshot.leads} canExpand={desktop} onNavigate={navigate} onPrefetch={prefetchView} onOpenRelease={openRelease} />
-                <div className="glass frost finish relative flex min-w-0 flex-1 overflow-hidden rounded-panel">
+                <div className="glass frost relative flex min-w-0 flex-1 overflow-hidden rounded-panel">
                   <div className="flex min-w-0 flex-1 flex-col">
                     {topbar}
                     <main ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-8 pt-1">{panes}</main>
@@ -226,7 +226,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
 function InspectorColumn({ onElement }: { onElement: (element: HTMLElement | null) => void }) {
   const count = useOpenPanelCount();
   return (
-    <div className="finish shrink-0 overflow-hidden border-l border-line bg-glass-strong" style={{ width: count > 0 ? 'var(--inspector-w)' : 0, borderLeftWidth: count > 0 ? 1 : 0 }}>
+    <div className="shrink-0 overflow-hidden border-l border-line bg-glass-strong" style={{ width: count > 0 ? 'var(--inspector-w)' : 0, borderLeftWidth: count > 0 ? 1 : 0 }}>
       <div ref={onElement} className="h-full" style={{ width: 'var(--inspector-w)' }} />
     </div>
   );

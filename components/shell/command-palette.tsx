@@ -7,7 +7,6 @@ import { CornerDownLeft, Search } from 'lucide-react';
 import { CREATE_ACTIONS } from '@/components/shell/create-menu';
 import { emitCommand } from '@/components/shell/command-bus';
 import { useSearchItems } from '@/components/shell/search-index';
-import { THEMES, useTheme } from '@/components/shell/theme-provider';
 import { VIEWS, type ViewKey } from '@/components/shell/views';
 import { Kbd } from '@/components/ui/kbd';
 import { unicodeSearchIncludes } from '@/lib/unicode-search';
@@ -31,13 +30,11 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: { open: boole
 
 function PaletteBody({ onClose, onNavigate }: { onClose: () => void; onNavigate: (view: ViewKey) => void }) {
   const [query, setQuery] = useState('');
-  const { theme, setTheme } = useTheme();
   const indexed = useSearchItems();
   const run = (action: () => void) => () => { onClose(); action(); };
 
   const views = VIEWS.filter((view) => unicodeSearchIncludes(view.label, query));
   const creates = CREATE_ACTIONS.filter((action) => unicodeSearchIncludes(action.label, query));
-  const themes = THEMES.map((item) => ({ key: item.value, label: `Тема: ${item.label}` })).filter((item) => unicodeSearchIncludes(item.label, query));
 
   const dynamic = useMemo(() => {
     if (query.trim().length < 2) return [] as Array<[string, typeof indexed]>;
@@ -50,7 +47,7 @@ function PaletteBody({ onClose, onNavigate }: { onClose: () => void; onNavigate:
     return Array.from(groups.entries());
   }, [indexed, query]);
 
-  const empty = !views.length && !creates.length && !themes.length && !dynamic.length;
+  const empty = !views.length && !creates.length && !dynamic.length;
 
   return (
     <Command shouldFilter={false} label="Палітра команд" loop>
@@ -68,7 +65,6 @@ function PaletteBody({ onClose, onNavigate }: { onClose: () => void; onNavigate:
             {items.map((item) => <Row key={item.id} onSelect={run(item.run)} hint={item.hint}>{item.label}</Row>)}
           </Group>
         ))}
-        {themes.length ? <Group heading="Вигляд">{themes.map((item) => <Row key={item.key} onSelect={run(() => setTheme(item.key))} hint={item.key === theme ? 'зараз' : undefined}>{item.label}</Row>)}</Group> : null}
       </Command.List>
     </Command>
   );
