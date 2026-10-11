@@ -9,6 +9,7 @@ import { Input, Textarea } from '@/components/ui/input';
 import { SearchField } from '@/components/ui/search-field';
 import type { ChatProfile } from '@/lib/chats/profile';
 import { cn } from '@/lib/utils';
+import { humanError } from '@/components/ui/human-error';
 
 export type PublishChat = { id: string; name: string; link: string; platform: string; profileConfirmed: boolean; profile: ChatProfile };
 type PublicationDetails = { advertisementId: string | null; language: 'uk' | 'ru' | null };
@@ -92,7 +93,7 @@ function PublishBody({ chat, quickMode, preferred, onClose, onPublished, onOpenC
         if (next.language) setLanguage(next.language);
         if (next.notice) setNotice(next.notice);
       })
-      .catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error && reason.name !== 'AbortError' && reason.name !== 'TypeError' ? reason.message : 'Не вдалося підібрати оголошення. Перевір з’єднання.'); })
+      .catch((reason) => { if (!controller.signal.aborted) setError(humanError(reason, 'Не вдалося підібрати оголошення. Перевір з’єднання.')); })
       .finally(() => { clearTimeout(timeout); if (!controller.signal.aborted) setLoading(false); });
     return () => { controller.abort(); clearTimeout(timeout); };
   }, [chat.id, chatLanguage, quickMode, preferred]);
@@ -130,7 +131,7 @@ function PublishBody({ chat, quickMode, preferred, onClose, onPublished, onOpenC
       const payload = selectionValue as SelectionPayload;
       setItems(payload.items); setFocusPlan(payload.focusPlan); setRule({ allowed: payload.publicationAllowed !== false, reason: payload.publicationReason || null }); setSelectedId(null); setFocusDecision('refreshed');
       setNotice('Невиконану частину плану оновлено під поточний фокус. Уже опубліковані пункти не змінено.');
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося оновити план дня.'); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося оновити план дня.')); }
     finally { setBusy(false); }
   }
 
@@ -144,7 +145,7 @@ function PublishBody({ chat, quickMode, preferred, onClose, onPublished, onOpenC
     if (busy || !rule.allowed || (quickMode && !selectedId)) return;
     setBusy(true); setError('');
     try { if (await onPublished({ advertisementId: selectedId, language: publicationLanguage })) onClose(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося відмітити публікацію. Онови список і спробуй ще раз.'); }
+    catch (reason) { setError(humanError(reason, 'Не вдалося відмітити публікацію. Онови список і спробуй ще раз.')); }
     finally { setBusy(false); }
   }
 

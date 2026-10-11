@@ -8,6 +8,7 @@ import { SectionCard } from '@/components/views/shared/card';
 import { useRemote } from '@/components/views/shared/use-remote';
 import { cn } from '@/lib/utils';
 import { formatClock } from './types';
+import { humanError } from '@/components/ui/human-error';
 
 type Checkpoint = {
   slot: '13:00' | '16:00' | '19:00';
@@ -51,7 +52,7 @@ export default function Checkpoints({ date, active, className }: { date: string;
       setOverride({ date, attempt, items: body.checkpoints });
       toast.push({ message: `Проміжний звіт ${item.slot} здано.`, tone: 'ok' });
     } catch (reason) {
-      toast.push({ message: reason instanceof Error ? reason.message : 'Не вдалося здати проміжний звіт.', tone: 'hot' });
+      toast.push({ message: humanError(reason, 'Не вдалося здати проміжний звіт.'), tone: 'hot' });
     } finally {
       setSaving(null);
     }

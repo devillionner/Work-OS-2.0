@@ -9,6 +9,7 @@ import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/toast';
 import { FOCUS_DIRECTIONS } from '@/lib/directions';
+import { humanError } from '@/components/ui/human-error';
 
 /** Цілі записів, цільова конверсія воронки й напрямки фокусу. Відкривається з «Сьогодні» і з «Налаштування». */
 export function GoalsPanel({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -59,7 +60,7 @@ function GoalsForm({ onClose }: { onClose: () => void }) {
       toast.push({ message: 'Цілі збережено.' });
       onClose();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Не вдалося зберегти цілі.');
+      setError(humanError(reason, 'Не вдалося зберегти цілі.'));
     } finally {
       setSaving(false);
     }

@@ -7,6 +7,7 @@ import { Ghost } from '@/components/ui/ghost';
 import type { ChatHistoryItem } from '@/lib/chats/history';
 import type { ChatAnalyticsEvent, ChatAnalyticsPeriod, ChatAnalyticsSnapshot } from '@/lib/chats/analytics';
 import { cn } from '@/lib/utils';
+import { humanError } from '@/components/ui/human-error';
 
 type HistoryChat = { id: string; name: string; link: string };
 const EVENT_NAMES: Record<string, string> = {
@@ -61,7 +62,7 @@ function HistoryBody({ chat }: { chat: HistoryChat }) {
         cache.set(key, { events, analytics });
         setData({ events, analytics }); setLoadedKey(key); setError('');
       })
-      .catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити історію.'); });
+      .catch((reason) => { if (!controller.signal.aborted) setError(humanError(reason, 'Не вдалося завантажити історію.')); });
     return () => controller.abort();
   }, [chat.id, period, key]);
 

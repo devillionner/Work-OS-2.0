@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Surface } from '@/components/ui/surface';
 import { useToast } from '@/components/ui/toast';
 import { viberJobStatus, type Item, type ViberSafeJob } from './types';
+import { humanError } from '@/components/ui/human-error';
 
 const pending = (job: ViberSafeJob | null) => job?.status === 'pending' || job?.status === 'claimed';
 
@@ -60,7 +61,7 @@ export function ViberCard({ item }: { item: Item }) {
       setJob(body.job);
       toast.push({ message: 'Safe-mode: задачу створено. Відправлення дозволене лише в «Мої нотатки».' });
     } catch (reason) {
-      toast.push({ message: reason instanceof Error ? reason.message : 'Не вдалося запустити Viber safe-mode тест.', tone: 'hot' });
+      toast.push({ message: humanError(reason, 'Не вдалося запустити Viber safe-mode тест.'), tone: 'hot' });
     } finally {
       setBusy(false);
     }
@@ -76,7 +77,7 @@ export function ViberCard({ item }: { item: Item }) {
       setJob({ ...job, status: 'cancelled' });
       toast.push({ message: 'Тест скасовано. Публікацію не зараховано.' });
     } catch (reason) {
-      toast.push({ message: reason instanceof Error ? reason.message : 'Не вдалося скасувати Viber safe-mode тест.', tone: 'hot' });
+      toast.push({ message: humanError(reason, 'Не вдалося скасувати Viber safe-mode тест.'), tone: 'hot' });
     } finally {
       setBusy(false);
     }

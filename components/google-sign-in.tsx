@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { humanError } from '@/components/ui/human-error';
 
 type GoogleCredentialResponse = { credential?: string };
 
@@ -54,7 +55,7 @@ export function GoogleSignIn({ clientId }: { clientId: string }) {
             if (!response.ok) throw new Error(result.error || 'Не вдалося увійти.');
             window.location.assign('/');
           } catch (cause) {
-            setError(cause instanceof Error ? cause.message : 'Не вдалося увійти.');
+            setError(humanError(cause, 'Не вдалося увійти.'));
             busyRef.current = false;
             setBusy(false);
           }

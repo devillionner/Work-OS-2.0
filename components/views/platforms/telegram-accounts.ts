@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useSyncExternalStore } from 'react';
+import { humanError } from '@/components/ui/human-error';
 
 export type TelegramAccount = { id: string; number: number; name: string; enabled: boolean; selected: boolean; joinStreak: number; joinBatchSize: number; breakMinutes: number; breakUntil: number | null };
 type State = { accounts: TelegramAccount[]; loaded: boolean; error: string; busy: boolean };
@@ -24,7 +25,7 @@ export function loadTelegramAccounts(force = false): Promise<void> {
       if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити Telegram-акаунти.');
       emit({ accounts: body.accounts || [], loaded: true, error: '' });
     } catch (reason) {
-      emit({ loaded: true, error: reason instanceof Error ? reason.message : 'Не вдалося завантажити Telegram-акаунти.' });
+      emit({ loaded: true, error: humanError(reason, 'Не вдалося завантажити Telegram-акаунти.') });
     } finally {
       inflight = null;
     }
@@ -47,7 +48,7 @@ export async function telegramAccountAction(action: string, id?: string, extra: 
     await loadTelegramAccounts(true);
     return true;
   } catch (reason) {
-    emit({ busy: false, error: reason instanceof Error ? reason.message : 'Не вдалося оновити акаунт.' });
+    emit({ busy: false, error: humanError(reason, 'Не вдалося оновити акаунт.') });
     return false;
   }
 }

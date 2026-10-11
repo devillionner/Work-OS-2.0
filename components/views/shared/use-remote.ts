@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { humanError } from '@/components/ui/human-error';
 
 type Entry<T> = { data: T; refresh: number };
 type Failure = { message: string; refresh: number };
@@ -39,7 +40,7 @@ export function useRemote<T>(url: string | null, { refresh = 0, enabled = true, 
       })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;
-        setFailures((current) => ({ ...current, [url]: { message: reason instanceof Error ? reason.message : fallback, refresh } }));
+        setFailures((current) => ({ ...current, [url]: { message: humanError(reason, fallback), refresh } }));
       });
     return () => controller.abort();
   }, [url, refresh, enabled, fallback]);

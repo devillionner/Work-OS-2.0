@@ -19,6 +19,7 @@ import { GoalHistoryPanel } from './goal-history-panel';
 import { RestorePanel } from './restore-panel';
 import { UpdatePreview } from './update-preview';
 import { Group, Row } from './ui';
+import { humanError } from '@/components/ui/human-error';
 
 const PLATFORMS: ReadonlyArray<[string, string]> = [['telegram', 'Telegram'], ['whatsapp', 'WhatsApp'], ['viber', 'Viber'], ['facebook', 'Facebook']];
 
@@ -71,7 +72,7 @@ export function PlatformsGroup() {
       refreshSnapshot();
     } catch (reason) {
       setPending(null);
-      toast.push({ message: reason instanceof Error ? reason.message : 'Не вдалося зберегти платформи.', tone: 'hot' });
+      toast.push({ message: humanError(reason, 'Не вдалося зберегти платформи.'), tone: 'hot' });
     } finally {
       setSaving(false);
     }

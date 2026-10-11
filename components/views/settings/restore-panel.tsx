@@ -10,6 +10,7 @@ import { useRemote } from '@/components/views/shared/use-remote';
 import type { BackupTable } from '@/lib/backups/export';
 import { CLOUD_BACKUP_MAX_BYTES, inspectCloudBackup, type CloudBackupInspection } from '@/lib/backups/inspect';
 import { BackupButton } from './backup-button';
+import { humanError } from '@/components/ui/human-error';
 
 type Preview = {
   sha256: string;
@@ -73,7 +74,7 @@ export function RestorePanel({ open, onOpenChange }: { open: boolean; onOpenChan
       setPreview(result);
       setRawBackup(text);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Не вдалося перевірити файл.');
+      setError(humanError(cause, 'Не вдалося перевірити файл.'));
     } finally {
       setReading(false);
     }
@@ -90,7 +91,7 @@ export function RestorePanel({ open, onOpenChange }: { open: boolean; onOpenChan
       setAttempt((value) => value + 1);
       toast.push({ message: 'Копію збережено в безпечній зоні.', tone: 'ok' });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Не вдалося зберегти копію в безпечній зоні.');
+      setError(humanError(cause, 'Не вдалося зберегти копію в безпечній зоні.'));
     } finally {
       setStaging(false);
     }
@@ -109,7 +110,7 @@ export function RestorePanel({ open, onOpenChange }: { open: boolean; onOpenChan
       if (current.status !== 'completed') throw new Error(current.error || 'Відновлення призупинене. Його можна безпечно продовжити.');
       toast.push({ message: 'Відновлення завершено. Наявні дані не змінювалися.', tone: 'ok' });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Не вдалося завершити відновлення.');
+      setError(humanError(cause, 'Не вдалося завершити відновлення.'));
     } finally {
       setRestoring(false);
       setConfirmOpen(false);

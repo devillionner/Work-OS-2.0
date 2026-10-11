@@ -2,6 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react';
 import { announceDataChange, DATA_SYNC_EVENT, type DataSyncDetail } from '@/lib/client-sync';
+import { humanError } from '@/components/ui/human-error';
 
 export type ScheduleSettings = { intervalMinutes: number; baseAt: number; selectionMode: 'auto' | 'manual'; manualChatIds: string[]; version: number };
 export type ScheduleChat = { id: string; name: string; link: string };
@@ -35,7 +36,7 @@ export function loadSchedule(accountId: string, force = false): Promise<void> {
       if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити розклад.');
       write(accountId, { snapshot: body, loading: false });
     } catch (reason) {
-      write(accountId, { loading: false, error: reason instanceof Error ? reason.message : 'Не вдалося завантажити розклад.' });
+      write(accountId, { loading: false, error: humanError(reason, 'Не вдалося завантажити розклад.') });
     } finally {
       inflight.delete(accountId);
     }
@@ -54,7 +55,7 @@ async function request(accountId: string, body: Record<string, unknown>, failure
     announceDataChange('platforms');
     return next;
   } catch (reason) {
-    write(accountId, { busy: false, error: reason instanceof Error ? reason.message : failure });
+    write(accountId, { busy: false, error: humanError(reason, failure) });
     return null;
   }
 }
@@ -81,7 +82,7 @@ export const telegramSchedule = {
       await loadSchedule(accountId, true);
       return true;
     } catch (reason) {
-      write(accountId, { busy: false, error: reason instanceof Error ? reason.message : 'Не вдалося відмітити публікацію.' });
+      write(accountId, { busy: false, error: humanError(reason, 'Не вдалося відмітити публікацію.') });
       return false;
     }
   },

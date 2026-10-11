@@ -11,6 +11,7 @@ import { diffReportText } from '@/lib/reports/diff';
 import type { ReportHistoryItem } from '@/lib/reports/history';
 import { cn } from '@/lib/utils';
 import { formatDate, formatStamp } from './types';
+import { humanError } from '@/components/ui/human-error';
 
 const signed = (value: number) => (value > 0 ? `+${value}` : String(value));
 
@@ -36,7 +37,7 @@ export function HistoryPanel({ open, onOpenChange, date, currentRevision, onRest
       onRestored();
       onOpenChange(false);
     } catch (reason) {
-      toast.push({ message: reason instanceof Error ? reason.message : 'Не вдалося відновити версію звіту.', tone: 'hot' });
+      toast.push({ message: humanError(reason, 'Не вдалося відновити версію звіту.'), tone: 'hot' });
     } finally {
       setRestoringId(null);
     }

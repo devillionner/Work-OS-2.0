@@ -7,6 +7,7 @@ import { Ghost } from '@/components/ui/ghost';
 import { Surface } from '@/components/ui/surface';
 import type { TodayLeadsActivity } from '@/lib/leads/today';
 import { labels } from './client';
+import { humanError } from '@/components/ui/human-error';
 
 /** Відгуки та записи за день: лічильники й два короткі списки. Завантажується один раз і за подією синхронізації. */
 export function TodayStrip({ refreshKey, onSelect }: { refreshKey: number; onSelect: (id: string) => void }) {
@@ -21,7 +22,7 @@ export function TodayStrip({ refreshKey, onSelect }: { refreshKey: number; onSel
         if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити активність лідів за сьогодні.');
         if (!controller.signal.aborted) { setData(body); setError(''); }
       })
-      .catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити активність лідів за сьогодні.'); });
+      .catch((reason) => { if (!controller.signal.aborted) setError(humanError(reason, 'Не вдалося завантажити активність лідів за сьогодні.')); });
     return () => controller.abort();
   }, [refreshKey]);
 

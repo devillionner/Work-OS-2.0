@@ -9,6 +9,7 @@ import { createActionGate } from '@/lib/action-gate';
 import { BULK_IMPORT_MAX_TEXT, CHAT_PLATFORM_NAMES, parseBulkImportText, type BulkInput, type ChatPlatform } from '@/lib/chats/bulk-input';
 import type { BulkPreview, BulkPreviewItem, BulkResult } from '@/lib/chats/bulk';
 import { markCrossBatchDuplicates, mergeBulkResults, splitBulkBatches } from '@/lib/chats/bulk-client';
+import { humanError } from '@/components/ui/human-error';
 
 const STATUS_NAMES: Record<BulkPreviewItem['status'], string> = { new: 'Новий', existing: 'Уже є', archived: 'В архіві', duplicate: 'Повтор у списку', invalid: 'Нерозпізнане посилання' };
 type Submission = { action: 'add'; requestId: string; revision: number; items: BulkInput[]; skipped: number };
@@ -58,7 +59,7 @@ export function BulkPanel({ open, onClose, onAdded, enabledPlatforms }: { open: 
           offset += batch.length;
         }
         setPlan({ revision, items: markCrossBatchDuplicates(items) }); setVisible(50); setProgress(null); job.current = null; submission.current = null;
-      } catch (reason) { setError(reason instanceof Error && reason.name !== 'AbortError' && reason.name !== 'TypeError' ? reason.message : 'Не вдалося перевірити список. Перевір з’єднання та спробуй ще раз.'); }
+      } catch (reason) { setError(humanError(reason, 'Не вдалося перевірити список. Перевір з’єднання та спробуй ще раз.')); }
       finally { setBusy(null); }
     });
   }
@@ -97,7 +98,7 @@ export function BulkPanel({ open, onClose, onAdded, enabledPlatforms }: { open: 
           updateProgress(currentJob, true);
           setError(`Імпорт завершено: додано ${currentJob.completed}, пропущено ${currentJob.failed}. Пропущені посилання вже були в базі або змінилися під час імпорту.`);
         } else { setPlan(null); setText(''); setProgress(null); onClose(); }
-      } catch (reason) { setError(reason instanceof Error && reason.name !== 'AbortError' && reason.name !== 'TypeError' ? reason.message : 'Не вдалося підтвердити результат. Спробуй ще раз.'); }
+      } catch (reason) { setError(humanError(reason, 'Не вдалося підтвердити результат. Спробуй ще раз.')); }
       finally { setBusy(null); }
     });
   }

@@ -8,6 +8,7 @@ import { Segmented } from '@/components/ui/segmented';
 import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 import { Group, Row } from './ui';
+import { humanError } from '@/components/ui/human-error';
 
 const PRESETS: ReadonlyArray<{ key: Exclude<AtmospherePreset, 'photo'>; label: string }> = [
   { key: 'fog', label: 'Туман' },
@@ -39,7 +40,7 @@ export function AppearanceGroup() {
       setAtmosphere('photo');
       toast.push({ message: 'Фото збережено на цьому пристрої.', tone: 'ok' });
     } catch (reason) {
-      toast.push({ message: reason instanceof Error ? reason.message : 'Не вдалося зберегти фото.', tone: 'hot' });
+      toast.push({ message: humanError(reason, 'Не вдалося зберегти фото.'), tone: 'hot' });
     } finally {
       setBusy(false);
     }

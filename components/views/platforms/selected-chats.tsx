@@ -10,6 +10,7 @@ import { SearchField } from '@/components/ui/search-field';
 import { Select } from '@/components/ui/select';
 import { useToast } from '@/components/ui/toast';
 import type { SelectedChatView, SelectedChatsView } from '@/lib/chats/telegram-selected';
+import { humanError } from '@/components/ui/human-error';
 
 const PAGE = 100;
 const STATUS_LABELS: Record<string, string> = { to_join: 'Для приєднання', waiting: 'Очікування', ready: 'Для публікації', failed: 'Не вдалося', archived: 'Архів' };
@@ -63,7 +64,7 @@ export function SelectedChats({ view, loading, accounts, onImported, onAdded, on
       onImported(body);
       toast.push({ message: `Імпортовано ${body.items.length} чатів${body.skipped ? `, пропущено ${body.skipped} без посилання або дублікатів` : ''}.` });
       setVisible(PAGE);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося імпортувати файл.'); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося імпортувати файл.')); }
     finally { setBusy(null); if (fileInput.current) fileInput.current.value = ''; }
   }
 
@@ -76,7 +77,7 @@ export function SelectedChats({ view, loading, accounts, onImported, onAdded, on
       const links = Array.isArray(body.links) ? body.links : [];
       onBulkAdded(links);
       toast.push({ message: links.length ? `${links.length} найактивніших чатів додано в чергу «Для приєднання».` : 'Нових чатів для додавання не лишилося.' });
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося додати чати.'); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося додати чати.')); }
     finally { setBusy(null); }
   }
 
@@ -87,7 +88,7 @@ export function SelectedChats({ view, loading, accounts, onImported, onAdded, on
       const added = reply.added === true;
       onAdded(chat.link, reply.status ?? 'to_join', reply.accountId ?? null, added);
       toast.push({ message: added ? `«${chat.title}» додано в чергу «Для приєднання».` : `«${chat.title}» уже є в Work OS.` });
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося додати чат.'); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося додати чат.')); }
     finally { setBusy(null); }
   }
 

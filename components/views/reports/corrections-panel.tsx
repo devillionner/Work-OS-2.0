@@ -14,6 +14,7 @@ import { useRemote } from '@/components/views/shared/use-remote';
 import { announceDataChange } from '@/lib/client-sync';
 import { cn } from '@/lib/utils';
 import { formatDate } from './types';
+import { humanError } from '@/components/ui/human-error';
 
 export type CorrectionTab = 'publication' | 'lesson' | 'chat';
 const TABS = [
@@ -97,7 +98,7 @@ function PublicationForm({ date, enabled }: { date: string; enabled: boolean }) 
       setChatId(''); setAdvertisementId(''); setLanguage('');
       setAttempt((value) => value + 1);
     } catch (reason) {
-      toast.push({ message: reason instanceof Error ? reason.message : 'Не вдалося додати історичну публікацію.', tone: 'hot' });
+      toast.push({ message: humanError(reason, 'Не вдалося додати історичну публікацію.'), tone: 'hot' });
     } finally {
       setSaving(false);
     }
@@ -173,7 +174,7 @@ function LessonForm({ date, enabled }: { date: string; enabled: boolean }) {
       setLessonId(''); setReason(''); setStatus('completed'); setRequestId(crypto.randomUUID());
       setAttempt((value) => value + 1);
     } catch (failure) {
-      toast.push({ message: failure instanceof Error ? failure.message : 'Не вдалося зберегти результат уроку.', tone: 'hot' });
+      toast.push({ message: humanError(failure, 'Не вдалося зберегти результат уроку.'), tone: 'hot' });
     } finally {
       setSaving(false);
     }
@@ -229,7 +230,7 @@ function ChatForm({ date, enabled }: { date: string; enabled: boolean }) {
       toast.push({ message: `${result.name || 'Чат'} додано до звіту за ${formatDate(date)}.`, tone: 'ok' });
       setLink(''); setName(''); setAccountId(''); setRequestId(crypto.randomUUID());
     } catch (reason) {
-      toast.push({ message: reason instanceof Error ? reason.message : 'Не вдалося додати історичний чат.', tone: 'hot' });
+      toast.push({ message: humanError(reason, 'Не вдалося додати історичний чат.'), tone: 'hot' });
     } finally {
       setSaving(false);
     }

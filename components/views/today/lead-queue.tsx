@@ -10,6 +10,7 @@ import { Surface } from '@/components/ui/surface';
 import { SwipeRow } from '@/components/ui/swipe-row';
 import { useToast } from '@/components/ui/toast';
 import type { DashboardSnapshot } from '@/lib/dashboard';
+import { humanError } from '@/components/ui/human-error';
 
 type Task = DashboardSnapshot['leadTasks'][number];
 type Section = 'today' | 'tomorrow' | 'followup';
@@ -48,7 +49,7 @@ export function LeadQueue() {
       toast.push({ message: 'Нагадування позначено як надіслане.' });
       refreshSnapshot();
     } catch (reason) {
-      toast.push({ message: reason instanceof Error ? reason.message : 'Не вдалося оновити нагадування.', tone: 'hot' });
+      toast.push({ message: humanError(reason, 'Не вдалося оновити нагадування.'), tone: 'hot' });
     } finally {
       setBusyId(null);
     }

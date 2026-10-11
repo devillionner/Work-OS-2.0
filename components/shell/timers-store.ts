@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { createRefreshGate } from '@/lib/refresh-gate';
+import { humanError } from '@/components/ui/human-error';
 
 export type TimerItem = { id: string; label: string; platform: string | null; telegramAccountId: string | null; durationSeconds: number; startedAt: number; endsAt: number; status: 'running' | 'completed'; completedAt: number | null };
 export type TimerPlatform = 'telegram' | 'whatsapp' | 'viber' | 'facebook' | 'general';
@@ -111,7 +112,7 @@ export async function dismissTimer(id: string) {
 export function describe(reason: unknown) {
   if (reason instanceof Error && (reason.name === 'TimeoutError' || reason.name === 'AbortError')) return 'Сервер не відповідає. Таймери синхронізуються автоматично, щойно зв’язок відновиться.';
   if (reason instanceof Error && /failed to fetch|networkerror|load failed/i.test(reason.message)) return 'Немає зв’язку із сервером. Таймери синхронізуються після відновлення мережі.';
-  return reason instanceof Error ? reason.message : 'Сталася помилка.';
+  return humanError(reason, 'Сталася помилка.');
 }
 
 export function formatTimerDuration(seconds: number) {

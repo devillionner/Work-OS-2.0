@@ -15,6 +15,7 @@ import type { LocalDiscoveryPreview } from '@/lib/chat-discovery/local-preview';
 import { EMPTY_RUN, NON_TARGET_STATES, SOURCE_TARGET_QUEUE, canResume, queuedCount, runTargetCount, type DiscoveryRunState } from '@/lib/chat-discovery/run-state';
 import { subscribeLiveMessages, subscribeLiveStatus } from '@/lib/live-channel';
 import { cn } from '@/lib/utils';
+import { humanError } from '@/components/ui/human-error';
 
 type Workspace = {
   candidates: DiscoveryCandidate[];
@@ -96,7 +97,7 @@ export function DiscoveryPanel({
       setWorkspaceLoadedAt(Date.now());
       return body;
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити пошук чатів.');
+      setError(humanError(reason, 'Не вдалося завантажити пошук чатів.'));
       return null;
     } finally {
       if(!silent)setLoading(false);
@@ -199,7 +200,7 @@ export function DiscoveryPanel({
         }
         return payload;
       }catch(reason){
-        lastError=reason instanceof Error?reason.message:lastError;
+        lastError=humanError(reason, lastError);
         if(body.action==='search'&&attempt<attempts){
           await new Promise(resolve=>window.setTimeout(resolve,750*attempt));
           continue;
@@ -234,7 +235,7 @@ export function DiscoveryPanel({
       await postRun({action:'start',goal});
       setFilter('active');
       setGoalOverride(null);
-    }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося запустити автопошук.');}
+    }catch(reason){setError(humanError(reason, 'Не вдалося запустити автопошук.'));}
     finally{setTelegramBusy(false);}
   }
 
@@ -244,7 +245,7 @@ export function DiscoveryPanel({
     try{
       await postRun({action:'pause'});
       setNotice('Пошук зупинено. Неперевірені чати збережено в черзі; завершені результати не повторюються.');
-    }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося зберегти паузу.');}
+    }catch(reason){setError(humanError(reason, 'Не вдалося зберегти паузу.'));}
     finally{setPausing(false);}
   }
 
@@ -253,7 +254,7 @@ export function DiscoveryPanel({
     try{
       await postRun({action:'retry',candidateId:candidate.id});
       setNotice('Кандидат повернуто в чергу. Натисни «Продовжити автопошук». Уже приєднаний чат перевірятиметься без повторного вступу.');
-    }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося відновити кандидата.');}
+    }catch(reason){setError(humanError(reason, 'Не вдалося відновити кандидата.'));}
   }
 
   // «Архівувати всі»: the only way non-target results reach D1 — one request per 100 chats, one D1 batch each.
@@ -272,7 +273,7 @@ export function DiscoveryPanel({
       }
       setNotice(`Архівовано ${archived.size} нецільових чатів. Автопошук більше їх не перевірятиме.`);
     }catch(reason){
-      setError(reason instanceof Error?reason.message:'Не вдалося архівувати нецільові чати.');
+      setError(humanError(reason, 'Не вдалося архівувати нецільові чати.'));
     }finally{
       if(archived.size)await postRun({action:'archived',candidateIds:[...archived]}).catch(()=>loadRun());
       setTelegramBusy(false);
@@ -284,7 +285,7 @@ export function DiscoveryPanel({
     try{
       await postRun({action:'non-target',candidateId:candidate.id});
       setNotice('Чат перенесено в «Нецільові». У Work OS він потрапить лише після «Архівувати всі».');
-    }catch(reason){setError(reason instanceof Error?reason.message:'Не вдалося перенести чат.');}
+    }catch(reason){setError(humanError(reason, 'Не вдалося перенести чат.'));}
   }
 
   async function markInviteInvalid(candidate: DiscoveryCandidate) {
@@ -305,7 +306,7 @@ export function DiscoveryPanel({
       setNotice('Invite недійсний або прострочений — кандидат відхилено без створення чату.');
       await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Не вдалося зафіксувати недійсний invite.');
+      setError(humanError(reason, 'Не вдалося зафіксувати недійсний invite.'));
     } finally {
       setInspectingId(null);
     }
@@ -368,7 +369,7 @@ export function DiscoveryPanel({
       setManualDraft(null);
       await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Не вдалося зберегти кваліфікацію.');
+      setError(humanError(reason, 'Не вдалося зберегти кваліфікацію.'));
       await load();
     } finally {
       setInspectingId(null);
@@ -387,7 +388,7 @@ export function DiscoveryPanel({
         : 'Кандидат архівовано і більше не потрапить в автопошук.');
       await load({silent:true});
     }catch(reason){
-      setError(reason instanceof Error?reason.message:'Не вдалося архівувати кандидата.');
+      setError(humanError(reason, 'Не вдалося архівувати кандидата.'));
       await load({silent:true});
     }finally{
       setInspectingId(null);
@@ -427,7 +428,7 @@ export function DiscoveryPanel({
       onImported(candidate.platform as DiscoveryPlatform);
       if(filter==='history')await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Не вдалося підтвердити чат.');
+      setError(humanError(reason, 'Не вдалося підтвердити чат.'));
     } finally {
       setImportingId(null);
     }

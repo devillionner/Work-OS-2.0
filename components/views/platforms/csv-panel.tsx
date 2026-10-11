@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { Download, Upload } from 'lucide-react';
 import { Panel } from '@/components/shell/panel';
 import { Button } from '@/components/ui/button';
+import { humanError } from '@/components/ui/human-error';
 
 type Platform = 'telegram' | 'whatsapp' | 'viber' | 'facebook';
 type Preview = { revision: number; total: number; add: number; existing: number; conflicts: string[]; byPlatform: Record<Platform, { total: number; add: number; existing: number }> };
@@ -36,7 +37,7 @@ export function CsvPanel({ open, onClose, onImported }: { open: boolean; onClose
       if (!response.ok) throw new Error(body.error || 'Не вдалося обробити CSV.');
       if (mode === 'preview') { setPreview(body); return; }
       setNotice(`Імпорт завершено: додано ${body.inserted || 0} чатів.`); setPreview(null); onImported();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося обробити CSV.'); if (mode === 'apply') setPreview(null); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося обробити CSV.')); if (mode === 'apply') setPreview(null); }
     finally { setBusy(false); }
   }
   async function download() {
@@ -48,7 +49,7 @@ export function CsvPanel({ open, onClose, onImported }: { open: boolean; onClose
       const match = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') || '');
       const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = match?.[1] || 'work-os-chats.csv'; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
       setNotice('CSV експортовано.');
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося експортувати CSV.'); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося експортувати CSV.')); }
     finally { setBusy(false); }
   }
 

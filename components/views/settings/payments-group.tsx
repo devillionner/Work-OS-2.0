@@ -10,6 +10,7 @@ import { useToast } from '@/components/ui/toast';
 import { useRemote } from '@/components/views/shared/use-remote';
 import { DEFAULT_PAYMENT_RULES, type BonusPeriodMode, type PaymentRules, type PaymentSummary } from '@/lib/payments';
 import { Block, Group, Row } from './ui';
+import { humanError } from '@/components/ui/human-error';
 
 type Payload = { rules: PaymentRules; summary: PaymentSummary; error?: string };
 
@@ -66,7 +67,7 @@ export function PaymentsGroup() {
       toast.push({ message: 'Правила виплат збережено.', tone: 'ok' });
       refreshSnapshot();
     } catch (reason) {
-      toast.push({ message: reason instanceof Error ? reason.message : 'Не вдалося зберегти правила виплат.', tone: 'hot' });
+      toast.push({ message: humanError(reason, 'Не вдалося зберегти правила виплат.'), tone: 'hot' });
     } finally {
       setSaving(false);
     }

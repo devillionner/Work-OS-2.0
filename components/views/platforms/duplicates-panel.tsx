@@ -9,6 +9,7 @@ import { ConfirmDialog } from '@/components/ui/dialog';
 import { Ghost } from '@/components/ui/ghost';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { humanError } from '@/components/ui/human-error';
 
 type Platform = 'telegram' | 'whatsapp' | 'viber' | 'facebook';
 type Account = { id: string; number: number; name: string; enabled: boolean; selected: boolean };
@@ -58,11 +59,11 @@ export function DuplicatesPanel({ open, onClose }: { open: boolean; onClose: () 
       const next = body.groups || [];
       const nextNames = Object.fromEntries(next.flatMap((group) => group.chats.map((chat) => [chat.id, chat.name])));
       cache.current.set(key, { groups: next, names: nextNames }); setGroups(next); setNames(nextNames); setLoadedKey(key);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити дублікати.'); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося завантажити дублікати.')); }
     finally { setLoading(false); }
   }, [open, platform, accountId]);
 
-  useEffect(() => { if (!open) return; const timer = setTimeout(() => void loadAccounts().catch((reason) => setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити акаунти.')), 0); return () => clearTimeout(timer); }, [open, loadAccounts]);
+  useEffect(() => { if (!open) return; const timer = setTimeout(() => void loadAccounts().catch((reason) => setError(humanError(reason, 'Не вдалося завантажити акаунти.'))), 0); return () => clearTimeout(timer); }, [open, loadAccounts]);
   useEffect(() => { if (!open) return; const timer = setTimeout(() => void load(), 0); return () => clearTimeout(timer); }, [open, load]);
 
   async function rename(chat: Chat) {
@@ -73,7 +74,7 @@ export function DuplicatesPanel({ open, onClose }: { open: boolean; onClose: () 
       const body = await response.json() as { error?: string };
       if (!response.ok) throw new Error(body.error || 'Не вдалося перейменувати чат.');
       setNotice('Назву збережено.'); await load();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося перейменувати чат.'); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося перейменувати чат.')); }
     finally { setBusy(null); }
   }
 
@@ -85,7 +86,7 @@ export function DuplicatesPanel({ open, onClose }: { open: boolean; onClose: () 
       const body = await response.json() as { error?: string };
       if (!response.ok) throw new Error(body.error || 'Не вдалося архівувати чат.');
       setNotice('Чат перенесено в архів з причиною «Дублікат».'); await load();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося архівувати чат.'); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося архівувати чат.')); }
     finally { setBusy(null); }
   }
 

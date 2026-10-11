@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/toast';
 import { EXECUTOR_DEVICE_STORAGE_KEY, EXECUTOR_TOKEN_STORAGE_KEY, storeExecutorToken } from '@/lib/chat-discovery/executor-storage';
+import { humanError } from '@/components/ui/human-error';
 
 type Device = { id: string; name: string; createdAt: number; lastSeenAt: number | null };
 const formatTime = (value: number) => new Intl.DateTimeFormat('uk-UA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value * 1000));
@@ -25,7 +26,7 @@ export function ExecutorCard() {
       const body = await response.json() as { devices?: Device[]; error?: string };
       if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити executor.');
       setDevices(body.devices || []);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити executor.'); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося завантажити executor.')); }
   }, []);
 
   useEffect(() => { const timer = setTimeout(() => void load(), 0); return () => clearTimeout(timer); }, [load]);
@@ -46,7 +47,7 @@ export function ExecutorCard() {
       setToken(next);
       if (next && payload.device?.id) storeExecutorToken(next, payload.device.id);
       await load();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося підключити executor.'); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося підключити executor.')); }
     finally { setBusy(false); }
   }
 
@@ -61,7 +62,7 @@ export function ExecutorCard() {
         setToken('');
       }
       await load();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося відключити executor.'); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося відключити executor.')); }
     finally { setBusy(false); }
   }
 

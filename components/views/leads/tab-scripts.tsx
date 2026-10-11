@@ -8,6 +8,7 @@ import { Ghost } from '@/components/ui/ghost';
 import { useToast } from '@/components/ui/toast';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import { rankLeadScripts, type LeadScriptItem } from '@/lib/leads/domain/script-match';
+import { humanError } from '@/components/ui/human-error';
 
 let scriptsCache: LeadScriptItem[] | null = null;
 
@@ -27,7 +28,7 @@ export function ScriptsTab({ lead }: { lead: LeadDetail['lead'] }) {
         scriptsCache = body.items ?? [];
         setItems(scriptsCache);
       })
-      .catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити скрипти.'); });
+      .catch((reason) => { if (!controller.signal.aborted) setError(humanError(reason, 'Не вдалося завантажити скрипти.')); });
     return () => controller.abort();
   }, []);
 

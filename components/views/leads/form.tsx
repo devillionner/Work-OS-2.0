@@ -10,6 +10,7 @@ import { Input, Textarea } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { labels } from './client';
+import { humanError } from '@/components/ui/human-error';
 
 const BusyContext = createContext<((busy: boolean) => void) | null>(null);
 
@@ -113,7 +114,7 @@ export function SaveForm({ children, save, label = 'Зберегти', cancel, c
         try {
           await saveSnapshot(data);
         } catch (cause) {
-          setError(cause instanceof Error ? cause.message : 'Не вдалося зберегти.');
+          setError(humanError(cause, 'Не вдалося зберегти.'));
         } finally {
           submitting.current = false;
           dialogBusy?.(false);
@@ -146,7 +147,7 @@ export function Confirmation({ title, description, run, close }: { title: string
           onClick={async () => {
             setBusy(true);
             setError('');
-            try { await run(); close(); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не вдалося виконати дію.'); } finally { setBusy(false); }
+            try { await run(); close(); } catch (cause) { setError(humanError(cause, 'Не вдалося виконати дію.')); } finally { setBusy(false); }
           }}
         >
           {busy ? 'Виконуємо…' : 'Підтвердити'}

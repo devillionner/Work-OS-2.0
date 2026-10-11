@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { WorkOsShell } from '@/components/work-os-shell';
 import { DATA_SYNC_EVENT, type DataSyncDetail } from '@/lib/client-sync';
 import type { DashboardSnapshot } from '@/lib/dashboard';
+import { humanError } from '@/components/ui/human-error';
 
 type BootstrapPayload = {
   snapshot: DashboardSnapshot;
@@ -45,7 +46,7 @@ export function WorkOsBootstrap({ user }: { user: { displayName: string; email: 
         setPayload({ snapshot: body.snapshot, syncRevision: body.syncRevision });
       } catch (reason) {
         if (cancelled || controller.signal.aborted) return;
-        setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити робочі дані.');
+        setError(humanError(reason, 'Не вдалося завантажити робочі дані.'));
       }
     })();
 

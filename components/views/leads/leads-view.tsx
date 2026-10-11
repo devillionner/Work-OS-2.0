@@ -13,6 +13,7 @@ import { Chip } from '@/components/ui/chip';
 import { Ghost } from '@/components/ui/ghost';
 import { SearchField } from '@/components/ui/search-field';
 import { Segmented } from '@/components/ui/segmented';
+import { humanError } from '@/components/ui/human-error';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import { createBrowserCommandClient, getJson, labels, type LeadList, type Mutation } from './client';
 import { LeadBoard } from './lead-board';
@@ -70,7 +71,7 @@ export default function LeadsView() {
     const url = `/api/leads?view=${encodeURIComponent(filter)}&search=${encodeURIComponent(query)}&offset=${offset}`;
     void getJson<LeadList>(url, controller.signal)
       .then((data) => { if (!controller.signal.aborted) { setList(data); setListError(''); } })
-      .catch((error: Error) => { if (!controller.signal.aborted) setListError(error.message); });
+      .catch((error: unknown) => { if (!controller.signal.aborted) setListError(humanError(error, 'Не вдалося завантажити ліди.')); });
     return () => controller.abort();
   }, [filter, query, offset, refresh]);
 
@@ -83,7 +84,7 @@ export default function LeadsView() {
         setDetail((current) => (current?.lead.id === data.lead.id && current.lead.version > data.lead.version ? current : data));
         setDetailError('');
       })
-      .catch((error: Error) => { if (!controller.signal.aborted) setDetailError(error.message); });
+      .catch((error: unknown) => { if (!controller.signal.aborted) setDetailError(humanError(error, 'Не вдалося завантажити картку ліда.')); });
     return () => controller.abort();
   }, [selected, refresh]);
 

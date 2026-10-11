@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { Check, RefreshCw } from 'lucide-react';
 import { Panel } from '@/components/shell/panel';
 import { Button } from '@/components/ui/button';
+import { humanError } from '@/components/ui/human-error';
 
 type ScanStatus = 'updated' | 'unchanged' | 'confirm' | 'error';
 type ScanItem = { id: string; platform: string; currentName: string; suggestedName: string | null; status: ScanStatus; updatedAt: number; error: string | null };
@@ -56,7 +57,7 @@ export function NamesPanel({ open, onClose, onChanged }: { open: boolean; onClos
       setNotice(stopRef.current ? 'Перевірку зупинено після поточної порції. Можна продовжити з цього місця.' : 'Перевірку завершено.');
       if (changed) onChanged();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Не вдалося перевірити назви чатів.');
+      setError(humanError(reason, 'Не вдалося перевірити назви чатів.'));
     } finally { setBusy(false); }
   }
 
@@ -73,7 +74,7 @@ export function NamesPanel({ open, onClose, onChanged }: { open: boolean; onClos
         return { ...current, confirm: Math.max(0, current.confirm - 1), updated: current.updated + 1, platforms: platform ? { ...current.platforms, [item.platform]: { ...platform, confirm: Math.max(0, platform.confirm - 1), updated: platform.updated + 1 } } : current.platforms };
       });
       onChanged();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося підтвердити назву.'); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося підтвердити назву.')); }
   }
 
   function close() {

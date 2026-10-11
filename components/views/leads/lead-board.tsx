@@ -11,6 +11,7 @@ import { useToast } from '@/components/ui/toast';
 import { FUNNEL_STAGES } from '@/lib/leads/domain/validation';
 import { cn } from '@/lib/utils';
 import { labels, type LeadList } from './client';
+import { humanError } from '@/components/ui/human-error';
 
 export type LeadRow = LeadList['leads'][number];
 
@@ -87,7 +88,7 @@ export function LeadBoard({ leads, selectedId, canDrag, onOpen, onCreate, onMove
         onMove(leadId, target).catch((reason: unknown) => {
           capture();
           setOverrides((current) => { const next = { ...current }; delete next[leadId]; return next; });
-          toast.push({ message: reason instanceof Error ? reason.message : 'Не вдалося змінити етап.', tone: 'hot' });
+          toast.push({ message: humanError(reason, 'Не вдалося змінити етап.'), tone: 'hot' });
         });
       },
     })[0]);

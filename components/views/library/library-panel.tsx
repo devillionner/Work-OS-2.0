@@ -15,6 +15,7 @@ import { LIBRARY_ADVERTISEMENT_PLATFORMS, canonicalLibraryPlatform, cleanLibrary
 import { SUBJECT_OPTIONS, canonicalKnownSubject } from '@/lib/subjects';
 import { ViberCard } from './viber-card';
 import { collectionLabel, formFromItem, formatStamp, newForm, platformLabel, splitList, updateDirectionChoice, updatePlatformChoice, type Collection, type Form, type Item } from './types';
+import { humanError } from '@/components/ui/human-error';
 
 type PanelTab = 'edit' | 'history';
 type Version = {
@@ -109,7 +110,7 @@ export function LibraryPanel({ open, onOpenChange, collection, item, onSaved, on
       onSaved({ id: body.id, kind: ad ? 'advertisement' : 'script', collection, version: body.version, title: form.title.trim(), ukText: form.ukText, ruText: form.ruText, notes: form.notes, tags: [...form.tags], platforms: [...form.platforms], usedTodayPlatforms: item?.usedTodayPlatforms ?? [], archivedAt: null, updatedAt: body.updatedAt });
       toast.push({ message: `Збережено · v${body.version}.`, tone: 'ok' });
     } catch (reason) {
-      toast.push({ message: reason instanceof Error ? reason.message : 'Не вдалося зберегти матеріал.', tone: 'hot', duration: 7000 });
+      toast.push({ message: humanError(reason, 'Не вдалося зберегти матеріал.'), tone: 'hot', duration: 7000 });
       onChanged(false);
     } finally {
       setSaving(false);
@@ -128,7 +129,7 @@ export function LibraryPanel({ open, onOpenChange, collection, item, onSaved, on
       setArchiveAsk(false);
       onChanged(true);
     } catch (reason) {
-      toast.push({ message: reason instanceof Error ? reason.message : 'Не вдалося змінити матеріал.', tone: 'hot' });
+      toast.push({ message: humanError(reason, 'Не вдалося змінити матеріал.'), tone: 'hot' });
       onChanged(false);
     } finally {
       setSaving(false);

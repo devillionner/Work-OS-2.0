@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Ghost } from '@/components/ui/ghost';
 import type { LeadHistoryItem } from '@/lib/leads/history';
 import { EditDialog } from './form';
+import { humanError } from '@/components/ui/human-error';
 
 const LEAD_EVENTS: Record<string, string> = {
   lead_created: 'Ліда створено',
@@ -50,7 +51,7 @@ export function HistoryList({ leadId, lessonId }: { leadId: string; lessonId?: s
         cache.set(cacheKey, next);
         if (!controller.signal.aborted) { setEvents(next); setError(''); }
       })
-      .catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити історію.'); });
+      .catch((reason) => { if (!controller.signal.aborted) setError(humanError(reason, 'Не вдалося завантажити історію.')); });
     return () => controller.abort();
   }, [cacheKey, leadId, lessonId]);
 

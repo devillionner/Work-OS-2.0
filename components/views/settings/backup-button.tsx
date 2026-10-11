@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
+import { humanError } from '@/components/ui/human-error';
 
 type Manifest = { app: string; schemaVersion: number; ownerId: string; revision: number; ownerEmail: string; createdAt: string; tables: string[]; counts: Record<string, number> };
 
@@ -69,7 +70,7 @@ export function BackupButton({ onComplete, label = 'Створити резер�
       toast.push({ message: 'Резервну копію збережено файлом.', tone: 'ok' });
       onComplete?.();
     } catch (cause) {
-      toast.push({ message: cause instanceof Error ? cause.message : 'Не вдалося створити резервну копію.', tone: 'hot', duration: 7000 });
+      toast.push({ message: humanError(cause, 'Не вдалося створити резервну копію.'), tone: 'hot', duration: 7000 });
     } finally {
       setBusy(false);
     }

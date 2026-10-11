@@ -12,6 +12,7 @@ import { Select } from '@/components/ui/select';
 import type { ChatProfile, ProfileCadence } from '@/lib/chats/profile';
 import { PROFILE_CADENCES } from '@/lib/chats/profile';
 import { createActionGate } from '@/lib/action-gate';
+import { humanError } from '@/components/ui/human-error';
 
 export type ChatWithProfile = { id: string; name: string; link?: string; platform: string; stateToken: string; profile: ChatProfile };
 
@@ -61,7 +62,7 @@ function ProfileForm({ chat, onClose, onSaved, onOpenChat }: { chat: ChatWithPro
         onSaved(chat.id, (value as { profile: ChatProfile }).profile);
         onClose();
       } catch (reason) {
-        setError(reason instanceof Error && reason.name !== 'AbortError' && reason.name !== 'TypeError' ? reason.message : 'Не вдалося зберегти профіль. Перевір з’єднання та спробуй ще раз.');
+        setError(humanError(reason, 'Не вдалося зберегти профіль. Перевір з’єднання та спробуй ще раз.'));
       } finally { clearTimeout(timeout); setBusy(false); }
     });
   }

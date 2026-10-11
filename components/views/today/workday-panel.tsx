@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { Surface } from '@/components/ui/surface';
 import type { WorkdaySnapshot } from '@/lib/workday';
+import { humanError } from '@/components/ui/human-error';
 
 type WorkdayResponse = { workday?: WorkdaySnapshot | null; today?: string; error?: string; requiresConfirmation?: boolean; unfinishedCount?: number };
 const SYNC_CHANNEL = 'work-os-workday';
@@ -130,7 +131,7 @@ export function WorkdayPanel({ greeting, dateLabel }: { greeting: string; dateLa
       setConfirmCount(null);
       channelRef.current?.postMessage({ type: 'workday-changed', version: result.workday.version });
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Не вдалося оновити робочий день.');
+      setError(humanError(reason, 'Не вдалося оновити робочий день.'));
     } finally {
       busyRef.current = false;
       setBusy(false);

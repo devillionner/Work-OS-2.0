@@ -7,6 +7,7 @@ import { Ghost } from '@/components/ui/ghost';
 import { Surface } from '@/components/ui/surface';
 import type { TelegramWarmupSnapshot } from '@/lib/chats/telegram-warmup';
 import { cn } from '@/lib/utils';
+import { humanError } from '@/components/ui/human-error';
 
 /** План прогріву Telegram-акаунта: ручний чекліст, що не запускає автопостинг і не накладає прихованих лімітів. */
 export function WarmupCard({ accountId }: { accountId: string }) {
@@ -22,7 +23,7 @@ export function WarmupCard({ accountId }: { accountId: string }) {
       const body = await response.json() as { warmup?: TelegramWarmupSnapshot; error?: string };
       if (!response.ok || !body.warmup) throw new Error(body.error || 'Не вдалося завантажити план прогріву.');
       setData(body.warmup);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити план прогріву.'); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося завантажити план прогріву.')); }
     finally { setLoading(false); }
   }, [accountId]);
 
@@ -35,7 +36,7 @@ export function WarmupCard({ accountId }: { accountId: string }) {
       const body = await response.json() as { warmup?: TelegramWarmupSnapshot; error?: string };
       if (!response.ok || !body.warmup) throw new Error(body.error || 'Не вдалося оновити план прогріву.');
       setData(body.warmup);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося оновити план прогріву.'); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося оновити план прогріву.')); }
     finally { setBusy(false); }
   }
 

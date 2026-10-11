@@ -16,6 +16,7 @@ import type { BulkResult } from '@/lib/chats/bulk';
 import type { ChatProfile } from '@/lib/chats/profile';
 import type { SelectedChatsView } from '@/lib/chats/telegram-selected';
 import { EMPTY_WAITING_CHECK, parseWaitingCheckView, waitingCheckArchiveReason, type WaitingCheckView } from '@/lib/chats/whatsapp-waiting-check-copy';
+import { humanError } from '@/components/ui/human-error';
 
 export type Platform = 'telegram' | 'whatsapp' | 'viber' | 'facebook';
 export type WorkflowQueue = 'to_join' | 'waiting' | 'ready' | 'archived';
@@ -199,6 +200,22 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   const activeAccount = accounts.find((item) => item.id === accountId);
   const breakSeconds = activeAccount?.breakUntil ? Math.max(0, activeAccount.breakUntil - Math.floor(clock / 1000)) : 0;
 
+  // Серія приєднань дійшла до порогу акаунта (налаштування «Після N чатів») — перерва «На M хв» стартує сама.
+  // Лише коли поріг досягнуто в цьому сеансі, щоб старий лічильник не запускав перерву при відкритті сторінки.
+  const streakSeen = useRef<{ id: string; value: number } | null>(null);
+  useEffect(() => {
+    const account = activeAccount;
+    if (!account || platform !== 'telegram') { streakSeen.current = null; return; }
+    const previous = streakSeen.current;
+    streakSeen.current = { id: account.id, value: account.joinStreak };
+    if (!previous || previous.id !== account.id || account.breakUntil) return;
+    if (previous.value < account.joinBatchSize && account.joinStreak >= account.joinBatchSize) {
+      void telegramAccountAction('start_break', account.id, { minutes: account.breakMinutes }).then((ok) => {
+        if (ok) toast.push({ message: `Перерва ${account.breakMinutes} хв запущена: приєднано ${account.joinStreak} чатів.` });
+      });
+    }
+  }, [activeAccount, platform, toast]);
+
   // Платформа за замовчуванням і перехід, якщо поточну вимкнули в налаштуваннях.
   useEffect(() => {
     if (availablePlatforms.some((item) => item.key === platform) || !availablePlatforms[0]) return;
@@ -283,7 +300,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       const next = { ...body, requestKey };
       viewCache.current.set(requestKey, next); setCacheState((current) => ({ ...current, [requestKey]: next })); setData(next); hasLoadedData.current = true;
       setCountsByScope((current) => ({ ...current, [`${platform}:${requestAccountId || ''}`]: body.counts }));
-    } catch (reason) { if (!controller.signal.aborted && requestNumber === loadNumber.current) setError(reason instanceof Error ? reason.message : 'Не вдалося завантажити чати.'); }
+    } catch (reason) { if (!controller.signal.aborted && requestNumber === loadNumber.current) setError(humanError(reason, 'Не вдалося завантажити чати.')); }
     finally { if (!silent && !controller.signal.aborted && requestNumber === loadNumber.current) setLoading(false); }
   }, [platform, queue, search, profileFilter, offset, requestAccountId, requestKey]);
 
@@ -403,7 +420,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       toast.push({ message: action === 'approved' ? `«${problem.name}» перенесено в «Для публікації».` : action === 'snooze' ? `«${problem.name}» відкладено на 3 дні.` : `«${problem.name}» перенесено в архів.` });
       invalidateQueueCache('whatsapp'); announceDataChange('platforms');
       await Promise.all([refreshWaitingCheck(), reloadChats.current(true)]);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося виконати дію.'); await refreshWaitingCheck(); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося виконати дію.')); await refreshWaitingCheck(); }
     finally { setBusy(null); }
   }
 
@@ -411,7 +428,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     if (busy !== null) return;
     setBusy('waiting-check'); setError('');
     try { await pairThisBrowserExecutor(); toast.push({ message: 'Цей браузер підключено. Runner підхопить його протягом хвилини — статус оновиться сам.' }); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося підключити цей браузер.'); }
+    catch (reason) { setError(humanError(reason, 'Не вдалося підключити цей браузер.')); }
     finally { setBusy(null); }
   }
 
@@ -429,7 +446,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       else toast.push({ message: 'Перевірку зупинено. Решту чатів не змінено.' });
       invalidateQueueCache('whatsapp');
       await reloadChats.current(true);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося змінити перевірку.'); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося змінити перевірку.')); }
     finally { setBusy(null); }
   }
 
@@ -512,7 +529,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
         }
         result = { ok: true };
       } catch (reason) {
-        const failure = reason instanceof Error ? reason.message : 'Не вдалося виконати дію.';
+        const failure = humanError(reason, 'Не вдалося виконати дію.');
         const publicationAction = action === 'published' || action === 'undo_published';
         // Сервер міг зафіксувати дію, навіть якщо відповідь загубилась: перечитуємо стан до повторної спроби.
         if (publicationAction) { await reloadChats.current(true); announceDataChange('platforms'); }
@@ -536,7 +553,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
         setData((current) => (!current || current.requestKey !== requestKey ? current : { ...current, chats: current.chats.map((item) => (item.id === chat.id ? { ...item, autopostJobId: cancelling ? null : (body.job?.id || item.autopostJobId) } : item)) }));
         invalidateQueueCache('whatsapp'); announceDataChange('platforms');
         toast.push({ message: cancelling ? 'WhatsApp автопублікацію скасовано до підтвердженої відправки.' : 'Чат поставлено в чергу автопублікації. Публікація зафіксується лише після підтвердженої відправки.' });
-      } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося оновити WhatsApp автопублікацію.'); await reloadChats.current(true); }
+      } catch (reason) { setError(humanError(reason, 'Не вдалося оновити WhatsApp автопублікацію.')); await reloadChats.current(true); }
       finally { setBusy(null); }
     });
   }
@@ -556,7 +573,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
 
   async function wa<T>(label: string, run: () => Promise<T>) {
     if (busy !== null) return;
-    await runAction.current(async () => { setBusy(label); setError(''); try { await run(); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не вдалося виконати дію.'); } finally { setBusy(null); } });
+    await runAction.current(async () => { setBusy(label); setError(''); try { await run(); } catch (reason) { setError(humanError(reason, 'Не вдалося виконати дію.')); } finally { setBusy(null); } });
   }
 
   const uploadWhatsAppAutopostImage = (file: File) => wa('whatsapp-autopost-image', async () => {

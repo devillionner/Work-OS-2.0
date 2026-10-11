@@ -18,6 +18,7 @@ import { HistoryPanel } from './history-panel';
 import { ManualDiffPanel } from './manual-diff-panel';
 import { ReportEditor } from './report-editor';
 import { currentDate, formatDate, shiftDay, shiftMonthDate, type DayFilter, type ReportData } from './types';
+import { humanError } from '@/components/ui/human-error';
 
 const Checkpoints = lazy(() => import('./checkpoints'));
 const SubjectsCard = lazy(() => import('./subjects-card'));
@@ -95,7 +96,7 @@ export default function ReportsView() {
       setDraft(null);
       reload();
     } catch (reason) {
-      toast.push({ message: reason instanceof Error ? reason.message : 'Не вдалося зберегти звіт.', tone: 'hot', duration: 7000 });
+      toast.push({ message: humanError(reason, 'Не вдалося зберегти звіт.'), tone: 'hot', duration: 7000 });
     } finally {
       setSaving(false);
     }

@@ -9,6 +9,7 @@ import type { LeadDetail } from '@/lib/leads/application/queries';
 import { cn } from '@/lib/utils';
 import { Confirmation, EditDialog, Field, NoteField, SaveForm, SelectField, textValue, epochValue, datetimeValue } from './form';
 import { displayTime, type Mutation } from './client';
+import { humanError } from '@/components/ui/human-error';
 
 /** Внутрішня історія спілкування: повідомлення, вкладення, довантаження старих, експорт. */
 export function ConversationTab({ detail, mutate, onChanged }: { detail: LeadDetail; mutate: Mutation; onChanged: () => void }) {
@@ -63,7 +64,7 @@ export function ConversationTab({ detail, mutate, onChanged }: { detail: LeadDet
       setOlderMessages((existing) => [...body.messages!, ...existing]);
       setOlderPage(body.page);
     } catch (error) {
-      if (!controller.signal.aborted) setOlderError(error instanceof Error ? error.message : 'Не вдалося завантажити попередні повідомлення.');
+      if (!controller.signal.aborted) setOlderError(humanError(error, 'Не вдалося завантажити попередні повідомлення.'));
     } finally {
       pending.current = null;
       if (!controller.signal.aborted) setOlderBusy(false);
@@ -101,7 +102,7 @@ export function ConversationTab({ detail, mutate, onChanged }: { detail: LeadDet
       }
       onChanged();
     } catch (error) {
-      setMediaError(error instanceof Error ? error.message : 'Не вдалося прикріпити файл.');
+      setMediaError(humanError(error, 'Не вдалося прикріпити файл.'));
       onChanged();
     } finally {
       setMediaBusy(false);
@@ -127,7 +128,7 @@ export function ConversationTab({ detail, mutate, onChanged }: { detail: LeadDet
       setDeletingAttachment(null);
       onChanged();
     } catch (error) {
-      setMediaError(error instanceof Error ? error.message : 'Не вдалося видалити вкладення.');
+      setMediaError(humanError(error, 'Не вдалося видалити вкладення.'));
       onChanged();
     } finally {
       setMediaBusy(false);

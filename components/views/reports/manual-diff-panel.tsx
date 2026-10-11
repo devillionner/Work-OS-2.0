@@ -12,6 +12,7 @@ import type { ReportEventDetail } from '@/lib/reports/details';
 import type { ReportManualAdjustments } from '@/lib/reports/manual-adjustments';
 import { cn } from '@/lib/utils';
 import { formatDate } from './types';
+import { humanError } from '@/components/ui/human-error';
 
 type Payload = {
   date: string;
@@ -68,7 +69,7 @@ export function ManualDiffPanel({ open, onOpenChange, date }: { open: boolean; o
       setDraft(null);
       toast.push({ message: 'Ручну корекцію збережено окремо від подієвого факту.', tone: 'ok' });
     } catch (reason) {
-      toast.push({ message: reason instanceof Error ? reason.message : 'Не вдалося зберегти ручну корекцію.', tone: 'hot' });
+      toast.push({ message: humanError(reason, 'Не вдалося зберегти ручну корекцію.'), tone: 'hot' });
       setSaved(null);
       setDraft(null);
       setAttempt((value) => value + 1);

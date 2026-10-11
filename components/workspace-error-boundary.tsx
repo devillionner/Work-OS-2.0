@@ -4,6 +4,7 @@ import React, { Component, type ErrorInfo, type ReactNode } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Surface } from '@/components/ui/surface';
+import { humanError } from '@/components/ui/human-error';
 
 type Props = {
   name?: string;
@@ -49,7 +50,7 @@ export class WorkspaceErrorBoundary extends Component<Props, State> {
       return (
         <Surface variant="glass" radius="card" role="alert" className="mx-auto my-10 flex max-w-xl flex-col items-start gap-4 p-6">
           <h2 className="m-0 text-[17px] font-medium">Не вдалося завантажити {this.props.name ? `«${this.props.name}»` : 'розділ'}</h2>
-          <p className="m-0 text-sm text-ink-2">{this.state.error?.message || 'Сталася непередбачена помилка під час відображення.'}</p>
+          <p className="m-0 text-sm text-ink-2">{humanError(this.state.error, 'Сталася непередбачена помилка під час відображення. Спробуй ще раз або перезавантаж сторінку.')}</p>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="action" onClick={this.handleReset}><RotateCcw aria-hidden="true" strokeWidth={1.5} />Спробувати ще раз</Button>
             <Button variant="outline" onClick={() => window.location.reload()}>Перезавантажити сторінку</Button>
