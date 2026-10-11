@@ -1,18 +1,20 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, ExternalLink, LoaderCircle, Search, Square, X } from 'lucide-react';
-import { Badge } from '@/components/legacy-ui/badge';
-import { ChatDiscoveryExecutorPanel } from '@/components/chat-discovery-executor-panel';
-import { Button } from '@/components/legacy-ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/legacy-ui/dialog';
-import { Input } from '@/components/legacy-ui/input';
+import { CheckCircle2, ExternalLink, Search, Square } from 'lucide-react';
+import { Panel } from '@/components/shell/panel';
+import { Button } from '@/components/ui/button';
+import { Chip } from '@/components/ui/chip';
+import { Ghost } from '@/components/ui/ghost';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Surface } from '@/components/ui/surface';
 import type { DiscoveryCandidate, DiscoveryDecision } from '@/lib/chat-discovery/domain';
 import type { DiscoveryPlatform } from '@/lib/chat-discovery/public-web';
 import type { LocalDiscoveryPreview } from '@/lib/chat-discovery/local-preview';
-import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 import { EMPTY_RUN, NON_TARGET_STATES, SOURCE_TARGET_QUEUE, canResume, queuedCount, runTargetCount, type DiscoveryRunState } from '@/lib/chat-discovery/run-state';
 import { subscribeLiveMessages, subscribeLiveStatus } from '@/lib/live-channel';
+import { cn } from '@/lib/utils';
 
 type Workspace = {
   candidates: DiscoveryCandidate[];
@@ -47,7 +49,7 @@ const ARCHIVE_CHUNK=100;
 // Fallback refresh of the run while the live channel is down and the dialog is open.
 const RUN_FALLBACK_POLL_MS=15_000;
 
-export function ChatDiscoveryDialog({
+export function DiscoveryPanel({
   open,
   onClose,
   onImported,
@@ -472,317 +474,131 @@ export function ChatDiscoveryDialog({
   const emptyCopy=emptyCandidateCopy(filter,autonomousRunning,localQueued,localChecked,localTargets.length);
 
 
+  const stateTone = (state: 'ok' | 'warn' | 'bad') => (state === 'ok' ? 'bg-ok' : state === 'bad' ? 'bg-hot' : 'bg-warn');
 
-  return <Dialog open={open} onOpenChange={next => { if (!next) close(); }}>
-    <DialogContent
-      className="h-[min(92dvh,920px)] !w-[calc(100dvw-20px)] !max-w-[1240px] !flex !flex-col gap-0 overflow-hidden !rounded-[20px] border-border/80 bg-background !p-0 shadow-xl sm:!w-[calc(100dvw-32px)]"
-      overlayClassName="bg-black/45 supports-backdrop-filter:backdrop-blur-[2px]"
-      showCloseButton={false}
-    >
-      <header className="relative border-b border-border/70 bg-background px-4 py-4 sm:px-6">
-        <DialogHeader className="gap-1 pr-14">
-          <div className="flex items-center gap-2">
-            <DialogTitle className="text-lg font-semibold tracking-tight sm:text-xl">Автопошук WhatsApp-чатів</DialogTitle>
-            {(autonomousRunning||pausing)&&<Badge variant="secondary">Працює</Badge>}
-          </div>
-          <DialogDescription className="text-xs leading-5 text-foreground/65 sm:text-sm">
-            Шукає WhatsApp-запрошення в публічних Telegram-групах і перевіряє їх у WhatsApp. У Work OS нічого не записується, доки ти не натиснеш «Підтвердити» або «Архівувати всі».
-          </DialogDescription>
-        </DialogHeader>
-        <Button className="absolute right-3 top-3 !size-11 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground sm:right-4 sm:top-4 sm:!size-9" variant="ghost" size="icon" aria-label="Закрити" onClick={close}><X/></Button>
+  return <Panel open={open} onOpenChange={(next) => { if (!next) close(); }} title="Автопошук WhatsApp-чатів" subtitle="Шукає WhatsApp-запрошення в публічних Telegram-групах і перевіряє їх у WhatsApp. У Work OS нічого не записується, доки ти не натиснеш «Підтвердити» або «Архівувати всі».">
+    <div className="flex flex-col gap-5">
+      <Surface variant="sunken" radius="inner" className="flex flex-col gap-3 p-4">
+        <div className="flex items-baseline gap-2"><strong className="font-mono text-[32px] font-normal leading-none">{displayedTargetCount}</strong><span className="text-sm text-ink-2">із {displayedGoal} цільових чатів</span></div>
+        <progress className="sr-only" max={100} value={progressPercent} aria-label="Прогрес до мети" />
+        <div aria-hidden="true" className="h-1 overflow-hidden rounded-full bg-line"><div className="h-full origin-left rounded-full bg-ink" style={{ transform: `scaleX(${progressPercent / 100})`, transition: 'transform 0.5s var(--ease-out)' }} /></div>
+        <p className="m-0 flex items-start gap-2 text-sm"><i aria-hidden="true" className={cn('mt-1.5 size-2 shrink-0 rounded-full', autonomousRunning || pausing ? 'bg-ok' : 'bg-line-strong')} /><span className="min-w-0 break-words">{runActivity}</span></p>
+        <p className="m-0 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
+          <span>В роботі <b className="font-mono font-normal text-ink">{localQueued + localManualReview}</b></span>
+          <span>Готові підтвердити <b className={cn('font-mono font-normal', localTargets.length > 0 ? 'text-ok' : 'text-ink')}>{localTargets.length}</b></span>
+          <span>Нецільові <b className="font-mono font-normal text-ink">{localNonTargets.length}</b></span>
+        </p>
+      </Surface>
 
-        <div className="mt-4 grid gap-3 rounded-2xl border border-border/70 bg-muted/15 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:p-5">
-          <div className="min-w-0">
-            <div className="flex items-baseline gap-2">
-              <strong className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">{displayedTargetCount}</strong>
-              <span className="text-sm font-semibold text-foreground/55">із {displayedGoal} цільових чатів</span>
-            </div>
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-background ring-1 ring-border/70">
-              <div className="h-full rounded-full bg-primary transition-[width] duration-500" style={{width:`${progressPercent}%`}}/>
-            </div>
-            <div className="mt-2 flex items-start gap-2 text-sm font-medium text-foreground/80">
-              {(autonomousRunning||pausing)?<LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-primary"/>:<span className="mt-1.5 size-2 shrink-0 rounded-full bg-muted-foreground/60"/>}
-              <span className="min-w-0 break-words">{runActivity}</span>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground sm:justify-end">
-            <span>В роботі <strong className="text-foreground">{localQueued+localManualReview}</strong></span>
-            <span>Готові підтвердити <strong className={localTargets.length>0?'text-emerald-700 dark:text-emerald-400':'text-foreground'}>{localTargets.length}</strong></span>
-            <span>Нецільові <strong className="text-foreground">{localNonTargets.length}</strong></span>
-          </div>
+      {error ? <p role="alert" className="m-0 text-sm text-hot">{error}</p> : null}
+      {notice && !error ? <output className="block text-sm text-ink-2">{notice}</output> : null}
+
+      <section className="flex flex-col gap-4 rounded-inner border border-line p-4" aria-label="Параметри пошуку">
+        <div>
+          <h3 className="m-0 text-[15px] font-medium">{autonomousRunning ? 'Пошук працює' : 'Новий запуск'}</h3>
+          <p className="m-0 mt-1 text-xs text-ink-2">{autonomousRunning ? 'Можна закрити панель чи вкладку й запустити з телефона — пошук іде, поки runner на ПК підключений.' : 'Обери мету й запусти. Решту Work OS зробить автоматично.'}</p>
+          <p className="m-0 mt-1 flex items-center gap-2 text-xs text-ink-2"><i aria-hidden="true" className={cn('size-1.5 rounded-full', runnerConnected ? 'bg-ok' : 'bg-line-strong')} />{runnerConnected === true ? 'Runner на зв’язку' : runnerConnected === false ? 'Runner офлайн — пошук продовжиться, щойно він підключиться. Підключення — в «Налаштування → Сервіс».' : 'Стан runner уточнюється'}</p>
         </div>
-      </header>
+        <label htmlFor="discovery-goal" className="flex flex-col gap-1.5 text-xs font-medium text-ink-2">Цільових чатів
+          <Input id="discovery-goal" type="number" min={1} max={100} value={autonomousRunning ? displayedGoal : goal} disabled={telegramBusy || autonomousRunning} onChange={(event) => setGoalOverride(clampNumber(event.target.value, 1, 100, 50))} />
+        </label>
+        <details className="text-xs text-ink-2"><summary className="cursor-pointer select-none font-medium text-ink">Що вважаємо цільовим чатом</summary><p className="m-0 mt-2 leading-relaxed">WhatsApp-група (не спільнота) на 700–18 000 учасників з українською аудиторією, де можна писати. Реклама й активність не враховуються. Церкви, парафії, молитовні групи — нецільові. Джерела — лише публічні Telegram-групи: ті, де вже є твої акаунти, і відкриті для вступу; закриті (за запитом) пропускаються, у Telegram-групи runner не вступає.</p></details>
+        {autonomousRunning || pausing
+          ? <Button variant="outline" busy={pausing} disabled={telegramBusy} onClick={() => void stopAutonomousSearch()}><Square aria-hidden="true" strokeWidth={1.5} />{pausing ? 'Зберігаємо паузу…' : 'Зупинити автопошук'}</Button>
+          : <Button variant="action" busy={telegramBusy} onClick={() => void startAutonomousSearch()}><Search aria-hidden="true" strokeWidth={1.5} />{telegramBusy ? 'Запускаємо…' : willResume && localPreview.pauseSummary && !localPreview.done ? 'Продовжити автопошук' : willResume && localPreview.completionReason === 'source_error' ? 'Продовжити пошук' : willResume && localPreview.completionReason === 'sources_exhausted' ? 'Шукати ще раз' : 'Запустити автопошук'}</Button>}
+        {localPreview.completionReason === 'sources_exhausted' ? <p className="m-0 text-xs text-ink-2">План пошуку завершено: знайдено {displayedTargetCount} із {localPreview.goal} цільових. {willResume ? 'Минув тиждень — можна шукати знову: у тих самих Telegram-групах могли з’явитися нові запрошення.' : 'Повторний пошук за тим самим планом стане доступний через тиждень після завершення.'}</p> : null}
+        {localPreview.completionReason === 'goal_reached' ? <p className="m-0 text-xs text-ok">Готово: знайдено {displayedTargetCount} із {localPreview.goal}. Підтверди потрібні у списку «Готові підтвердити».</p> : null}
+        {!autonomousRunning && pauseSummary ? <p className="m-0 text-xs text-ink-2">Пошук на паузі. Прогрес збережено — «Продовжити» почне з того ж кроку.</p> : null}
+        {localPreview.sourceIssues.length > 0 ? (
+          <details className="rounded-inner border border-warn/40 text-xs">
+            <summary className="cursor-pointer select-none px-3 py-2.5 font-medium">{autonomousRunning ? 'Деякі джерела тимчасово недоступні' : 'Пошук зупинено: потрібна твоя дія'}</summary>
+            <div className="border-t border-line px-3 py-2.5 text-ink-2">
+              {autonomousRunning ? 'Пошук продовжується за доступними джерелами. Нічого робити не потрібно.' : 'Виправ причину нижче й натисни «Продовжити пошук» — він почнеться з того ж кроку.'}
+              <div className="mt-2 flex flex-col gap-1">{localPreview.sourceIssues.map((issue, index) => <span key={index} className="break-words">{issue.query} · {reasonLabel(issue.reason)}</span>)}</div>
+            </div>
+          </details>
+        ) : null}
+        <details className="text-xs text-ink-2">
+          <summary className="cursor-pointer select-none font-medium text-ink">Дані пошуку</summary>
+          <p className="m-0 mt-2 flex flex-col gap-1">
+            <span>Перевірено запитів пошуку <b className="font-mono font-normal text-ink">{localPreview.telegramCursor}/{localPreview.sourceTotal || '—'}</b> · дублі <b className="font-mono font-normal text-ink">{localPreview.duplicates}</b></span>
+            <span>Перевірено у WhatsApp <b className="font-mono font-normal text-ink">{localChecked}</b> · активність <b className="font-mono font-normal text-ink">{formatActivityTime(localPreview.lastActivityAt)}</b></span>
+            <span>У черзі на WhatsApp <b className="font-mono font-normal text-ink">{queuedCount(localPreview, Date.now())}/{SOURCE_TARGET_QUEUE}</b></span>
+          </p>
+        </details>
+      </section>
 
-      {(error || notice) && <div className="border-b border-border/70 px-5 py-2.5 sm:px-6">
-        {error && <div className="workspace-error" role="alert">{error}</div>}
-        {notice && !error && <output className="reports-notice">{notice}</output>}
-      </div>}
+      <section className="flex flex-col gap-3" aria-label="Кандидати">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div><h3 className="m-0 text-[15px] font-medium">Результати пошуку</h3><p className="m-0 mt-0.5 text-xs text-ink-2">До «Підтвердити» та «Архівувати всі» результати живуть лише в цій вкладці браузера.</p></div>
+          {filter === 'rejected' && localNonTargets.length > 0 ? <Button variant="outline" size="sm" busy={telegramBusy} onClick={() => void archiveAllNonTargets()}>Архівувати всі ({localNonTargets.length})</Button> : null}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {([['active', 'В роботі', localQueued + localManualReview], ['target', 'Готові підтвердити', localTargets.length], ['rejected', 'Нецільові', localNonTargets.length], ['history', 'Історія Work OS', filter === 'history' ? workspace.candidates.length : null]] as Array<[DecisionFilter, string, number | null]>).map(([key, label, count]) =>
+            <Chip key={key} pressed={filter === key} disabled={loading} count={count ?? undefined} onClick={() => changeFilter(key)}>{label}</Chip>)}
+        </div>
 
-      <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[330px_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[350px_minmax(0,1fr)]">
-        <div className="border-b border-border/70 bg-muted/10 p-4 lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r">
-          <div className="grid gap-3">
-            <section className="rounded-2xl border border-border/70 bg-background p-4" aria-label="Параметри пошуку">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <h3 className="text-base font-semibold">{autonomousRunning?'Пошук працює':'Новий запуск'}</h3>
-                  <p className="mt-1 text-xs leading-5 text-foreground/70">{autonomousRunning?'Можна закрити модалку чи вкладку й запустити з телефона — пошук іде, поки runner на ПК підключений.':'Обери мету й запусти. Решту Work OS зробить автоматично.'}</p>
-                  {runnerConnected===false&&<p className="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-400">Runner на ПК не підключений: пошук продовжиться, щойно він підключиться.</p>}
-                </div>
-                <Badge>WhatsApp</Badge>
-              </div>
-
-              <div className="mt-4 grid gap-3">
-                <label htmlFor="discovery-goal" className="grid gap-1.5 text-xs font-medium">
-                  Цільових чатів
-                  <Input
-                    className="h-10 bg-background text-base font-semibold"
-                    id="discovery-goal"
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={autonomousRunning?displayedGoal:goal}
-                    disabled={telegramBusy||autonomousRunning}
-                    onChange={event => setGoalOverride(clampNumber(event.target.value, 1, 100, 50))}
-                  />
-                </label>
-                <details className="rounded-xl border border-border/70 bg-background">
-                  <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-foreground/75">Що вважаємо цільовим чатом</summary>
-                  <div className="border-t border-border/60 px-3 py-2.5 text-xs leading-5 text-foreground/70">
-                    WhatsApp-група (не спільнота) на 700–18 000 учасників з українською аудиторією, де можна писати. Реклама й активність не враховуються. Церкви, парафії, молитовні групи — нецільові. Джерела — лише публічні Telegram-групи: ті, де вже є твої акаунти, і відкриті для вступу; закриті (за запитом) пропускаються, у Telegram-групи runner не вступає.
+        {loading && displayCandidates.length === 0 ? <div aria-busy="true" className="flex flex-col gap-2">{[0, 1, 2].map((item) => <Ghost key={item} className="h-28 rounded-inner" />)}</div> : displayCandidates.length ? (
+          <ul className="m-0 flex list-none flex-col gap-3 p-0">
+            {displayCandidates.map((candidate) => {
+              const criteria = candidateCriteria(candidate);
+              const status = candidateStatus(candidate);
+              const confirmedCriteria = criteria.filter((item) => item.state === 'ok').length;
+              return <li key={candidate.id} className="flex min-w-0 flex-col gap-3 rounded-inner border border-line bg-sunken p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h4 className="m-0 break-words text-sm font-medium leading-snug">{candidateDisplayName(candidate)}</h4>
+                    <p className="m-0 mt-1 text-xs text-ink-2">{status.detail}</p>
+                    <p className="m-0 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"><span className={cn('flex items-center gap-1.5', candidate.decision === 'target' && 'text-ok')}>{candidate.decision === 'target' ? <i aria-hidden="true" className="size-1.5 rounded-full bg-ok" /> : null}{status.label}</span>{candidate.membershipState === 'pending' ? <span className="text-ink-2">Очікує вступу</span> : null}{candidate.membershipState === 'joined' ? <span className="text-ink-2">Приєднано</span> : null}</p>
                   </div>
+                  {status.busy ? <i aria-label="Виконується" className="mt-1 size-2 shrink-0 animate-pulse rounded-full bg-ink" /> : null}
+                </div>
+                <details className="text-xs">
+                  <summary className="cursor-pointer select-none font-medium text-ink-2">Деталі перевірки · {confirmedCriteria} із {criteria.length}</summary>
+                  <dl className="m-0 mt-2 grid grid-cols-2 gap-2">
+                    {criteria.map((item) => <div key={item.label} className="rounded-lg border border-line px-3 py-2"><dt className="flex items-center gap-1.5 text-[11px] text-ink-2"><i aria-hidden="true" className={cn('size-1.5 rounded-full', stateTone(item.state))} />{item.label}</dt><dd className="m-0 mt-0.5 text-sm">{item.value}</dd></div>)}
+                  </dl>
                 </details>
-              </div>
-
-              <div className="mt-4 grid gap-2">
-                {autonomousRunning||pausing
-                  ? <Button className="min-h-11 w-full justify-center sm:min-h-9" type="button" variant="outline" disabled={telegramBusy} onClick={() => void stopAutonomousSearch()}>
-                      {pausing?<LoaderCircle data-icon="inline-start"/>:<Square data-icon="inline-start"/>}{pausing?'Зберігаємо паузу…':'Зупинити автопошук'}
-                    </Button>
-                  : <Button className="min-h-11 w-full justify-center sm:min-h-9" type="button" disabled={telegramBusy} onClick={() => void startAutonomousSearch()}>
-                      {telegramBusy?<LoaderCircle data-icon="inline-start"/>:<Search data-icon="inline-start"/>}{telegramBusy?'Запускаємо…':willResume&&localPreview.pauseSummary&&!localPreview.done?'Продовжити автопошук':willResume&&localPreview.completionReason==='source_error'?'Продовжити пошук':willResume&&localPreview.completionReason==='sources_exhausted'?'Шукати ще раз':'Запустити автопошук'}
-                    </Button>}
-              </div>
-
-              {localPreview.completionReason==='sources_exhausted'&&<div className="mt-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2.5 text-xs leading-5 text-foreground/75">
-                План пошуку завершено: знайдено {displayedTargetCount} із {localPreview.goal} цільових.{' '}
-                {willResume?'Минув тиждень — можна шукати знову: у тих самих Telegram-групах могли зʼявитися нові запрошення.':'Повторний пошук за тим самим планом стане доступний через тиждень після завершення.'}
-              </div>}
-              {localPreview.completionReason==='goal_reached'&&<div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 text-xs font-semibold leading-5 text-foreground">Готово: знайдено {displayedTargetCount} із {localPreview.goal}. Підтверди потрібні у списку «Готові підтвердити».</div>}
-              {!autonomousRunning&&pauseSummary&&<div className="mt-3 rounded-xl bg-muted/25 px-3 py-2.5 text-xs leading-5 text-foreground/70">Пошук на паузі. Прогрес збережено — «Продовжити» почне з того ж кроку.</div>}
-              {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- TODO: потребує зміни розмітки (docs/TODO.md) */}
-              {localPreview.sourceIssues.length>0&&<details role="status" className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5">
-                <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-foreground">
-                  {autonomousRunning?'Деякі джерела тимчасово недоступні':'Пошук зупинено: потрібна твоя дія'}
-                </summary>
-                <div className="border-t border-amber-500/20 px-3 py-2.5 text-xs leading-5 text-foreground/70">
-                  {autonomousRunning?'Пошук продовжується за доступними джерелами. Нічого робити не потрібно.':'Виправ причину нижче й натисни «Продовжити пошук» — він почнеться з того ж кроку.'}
-                  <details className="mt-2">
-                    <summary className="cursor-pointer select-none text-[11px] text-muted-foreground">Технічні причини</summary>
-                    <div className="mt-1 grid gap-1">
-                      {localPreview.sourceIssues.map((issue,index)=><div key={index} className="break-words">{issue.query} · {reasonLabel(issue.reason)}</div>)}
+                <div className="flex flex-wrap items-center gap-2">
+                  <a className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line-strong px-3.5 text-[13px] font-medium transition-colors hover:bg-raised" href={candidate.link} target="_blank" rel="noreferrer">Відкрити {platformLabel(candidate.platform)}<ExternalLink aria-hidden="true" strokeWidth={1.5} className="size-3.5" /></a>
+                  {!candidate.importedChatId && isLocalPreview(candidate) && (candidate.decision === 'rejected' || (candidate.decision === 'unavailable' && candidate.reasonCodes.some((reason) => ['qualification_incomplete', 'paused_unverified', 'retry_exhausted'].includes(reason)))) ? <Button variant="outline" size="sm" disabled={localPreview.running || telegramBusy} onClick={() => retryIncompleteCandidate(candidate)}>Повторити перевірку</Button> : null}
+                  {!candidate.importedChatId && candidate.decision === 'review' && !isLocalPreview(candidate) ? <>
+                    <Button variant="action" size="sm" busy={importingId === candidate.id} disabled={importingId !== null || inspectingId !== null} onClick={() => void importCandidate(candidate)}>Додати на ручну перевірку</Button>
+                    <Button variant="ghost" size="sm" busy={inspectingId === candidate.id} disabled={importingId !== null || inspectingId !== null} onClick={() => void archiveCandidate(candidate)}>Відхилити</Button>
+                    <Button variant="ghost" size="sm" disabled={inspectingId !== null} onClick={() => void markInviteInvalid(candidate)}>Invite недійсний</Button>
+                  </> : null}
+                  {!candidate.importedChatId && isLocalPreview(candidate) && candidate.preflightState === 'review' ? <>
+                    {isPendingApprovalCandidate(candidate) ? <Button variant="action" size="sm" busy={importingId === candidate.id} disabled={importingId !== null || inspectingId !== null} title="Запит на вступ уже надіслано — чат піде в чергу «Очікування» до схвалення адміністратора." onClick={() => void importCandidate(candidate)}>Підтвердити</Button> : null}
+                    <Button variant="ghost" size="sm" title="Перенесе чат у «Нецільові» лише в цій вкладці; у Work OS — після «Архівувати всі»." onClick={() => moveToNonTarget(candidate)}>У нецільові</Button>
+                  </> : null}
+                  {!candidate.importedChatId && candidate.decision === 'target' ? <>
+                    <Button variant="action" size="sm" busy={importingId === candidate.id} disabled={importingId !== null || inspectingId !== null} onClick={() => void importCandidate(candidate)}>{isLocalPreview(candidate) ? 'Підтвердити' : 'Лишити в роботі'}</Button>
+                    <Button variant="outline" size="sm" busy={inspectingId === candidate.id} disabled={importingId !== null || inspectingId !== null} onClick={() => void archiveCandidate(candidate)}>{isLocalPreview(candidate) ? 'У нецільові' : 'В архів'}</Button>
+                  </> : null}
+                  {candidate.importedChatId && candidate.membershipState !== 'left' ? <Button variant="outline" size="sm" onClick={() => toggleManualInspection(candidate)}>{manualDraft?.candidateId === candidate.id ? 'Закрити кваліфікацію' : 'Кваліфікувати вручну'}</Button> : null}
+                </div>
+                {manualDraft?.candidateId === candidate.id && candidate.importedChatId && candidate.membershipState !== 'left' ? (
+                  <div className="flex flex-col gap-3 rounded-inner border border-line bg-glass p-3">
+                    <p className="m-0 flex items-center gap-2 text-sm font-medium"><CheckCircle2 aria-hidden="true" strokeWidth={1.5} className="size-4 text-ink-2" />Ручна кваліфікація</p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">Учасники<Input type="number" min={0} max={10_000_000} value={manualDraft.memberCount} onChange={(event) => setManualDraft({ ...manualDraft, memberCount: event.target.value })} placeholder="700–18000" /></label>
+                      <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">Активність<Select value={manualDraft.activityState} onChange={(event) => setManualDraft({ ...manualDraft, activityState: event.target.value as ManualInspectionDraft['activityState'] })}><option value="unknown">Невідомо</option><option value="active">Активний</option><option value="dead">Неактивний</option></Select></label>
+                      <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">Писати можуть учасники<Select value={manualDraft.canWrite} onChange={(event) => setManualDraft({ ...manualDraft, canWrite: event.target.value as ManualInspectionDraft['canWrite'] })}><option value="unknown">Невідомо</option><option value="yes">Так</option><option value="no">Ні</option></Select></label>
+                      <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">Оголошення<Select value={manualDraft.adsPolicy} onChange={(event) => setManualDraft({ ...manualDraft, adsPolicy: event.target.value as ManualInspectionDraft['adsPolicy'] })}><option value="unknown">Невідомо</option><option value="operator_confirmed">Дозволені</option><option value="forbidden">Заборонені</option></Select></label>
+                      <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">Аудиторія<Select value={manualDraft.topicMatch} onChange={(event) => setManualDraft({ ...manualDraft, topicMatch: event.target.value as ManualInspectionDraft['topicMatch'] })}><option value="unknown">Невідомо</option><option value="match">Цільова</option><option value="mismatch">Нецільова</option></Select></label>
+                      <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">Вступ<Select value={manualDraft.membershipState} onChange={(event) => setManualDraft({ ...manualDraft, membershipState: event.target.value as ManualInspectionDraft['membershipState'] })}><option value="not_checked">Не перевірено</option><option value="pending">Очікує схвалення</option><option value="joined">Приєднано</option></Select></label>
+                      <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">Тип чату<Select value={manualDraft.chatType} onChange={(event) => setManualDraft({ ...manualDraft, chatType: event.target.value as ManualInspectionDraft['chatType'] })}><option value="unknown">Невідомо</option><option value="group">Група</option><option value="community">Спільнота</option><option value="channel">Канал</option></Select></label>
                     </div>
-                  </details>
-                </div>
-              </details>}
-              <details className="mt-3 border-t border-border/60 pt-3">
-                <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">Дані пошуку</summary>
-                <div className="mt-2 grid gap-1.5 text-xs text-foreground/70">
-                  <p className="text-[11px] text-muted-foreground">Технічні деталі — для довідки, стежити не обов&apos;язково.</p>
-                  <div className="flex items-center justify-between gap-3">
-                    <span>Перевірено запитів пошуку <strong className="ml-1 text-foreground">{localPreview.telegramCursor}/{localPreview.sourceTotal||'—'}</strong></span>
-                    <span>Дублі <strong className="ml-1 text-foreground">{localPreview.duplicates}</strong></span>
+                    <Button variant="action" size="sm" className="self-start" busy={inspectingId === candidate.id} onClick={() => void submitManualInspection(candidate)}>Зберегти кваліфікацію</Button>
                   </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span>Перевірено у WhatsApp <strong className="ml-1 text-foreground">{localChecked}</strong></span>
-                    <span>Активність <strong className="ml-1 text-foreground">{formatActivityTime(localPreview.lastActivityAt)}</strong></span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span>У черзі на WhatsApp <strong className="ml-1 text-foreground">{queuedCount(localPreview,Date.now())}/{SOURCE_TARGET_QUEUE}</strong></span>
-                  </div>
-                </div>
-              </details>
-            </section>
-
-            <details className="rounded-2xl border border-border/70 bg-background">
-              <summary className="cursor-pointer select-none px-4 py-3 text-xs font-medium text-muted-foreground hover:text-foreground">Підключення WhatsApp</summary>
-              <div className="border-t border-border/70 p-3"><ChatDiscoveryExecutorPanel /></div>
-            </details>
-
-          </div>
-        </div>
-
-        <section className="flex min-h-[480px] min-w-0 flex-col bg-background lg:min-h-0" aria-label="Кандидати">
-          <div className="border-b border-border/70 bg-background px-4 py-3 sm:px-5 sm:py-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="text-base font-semibold">Результати пошуку</h3>
-                <p className="mt-0.5 text-xs text-foreground/65">До «Підтвердити» та «Архівувати всі» результати живуть лише в цій вкладці браузера.</p>
-              </div>
-              {filter==='rejected'&&localNonTargets.length>0&&<Button type="button" size="sm" variant="outline" disabled={telegramBusy} onClick={()=>void archiveAllNonTargets()}>
-                {telegramBusy?<LoaderCircle data-icon="inline-start"/>:null}Архівувати всі ({localNonTargets.length})
-              </Button>}
-            </div>
-            <div className="mt-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Фільтр кандидатів">
-              {([
-                ['active', 'В роботі', localQueued+localManualReview],
-                ['target', 'Готові підтвердити', localTargets.length],
-                ['rejected', 'Нецільові', localNonTargets.length],
-                ['history', 'Історія Work OS', filter==='history'?workspace.candidates.length:null],
-              ] as Array<[DecisionFilter, string, number|null]>).map(([key, label, count]) =>
-                <button
-                  key={key}
-                  type="button"
-                  role="tab"
-                  aria-selected={filter === key}
-                  disabled={loading}
-                  onClick={() => changeFilter(key)}
-                  className={`min-h-11 shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors sm:min-h-8 ${filter === key ? 'border-primary/40 bg-primary/10 text-primary' : key==='target'&&count!==null&&count>0 ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/15' : 'border-border/70 bg-background text-foreground/70 hover:bg-muted/40 hover:text-foreground'}`}
-                >
-                  {label}{count!==null&&<span className="ml-1 tabular-nums">{count}</span>}
-                </button>)}
-            </div>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto bg-muted/10 p-3 sm:p-4">
-            {loading&&displayCandidates.length>0?<WorkspaceInlineLoading label="Оновлюємо підтверджених кандидатів…"/>:null}
-            {loading&&displayCandidates.length===0
-              ? <WorkspaceInlineLoading label="Завантажуємо кандидатів…"/>
-              : displayCandidates.length
-                ? <div className="grid gap-3">
-                  {displayCandidates.map(candidate => {
-                    const criteria = candidateCriteria(candidate);
-                    const status = candidateStatus(candidate);
-                    const confirmedCriteria=criteria.filter(item=>item.state==='ok').length;
-                    return <article key={candidate.id} className="min-w-0 rounded-2xl border border-border bg-background p-4 sm:p-5">
-                      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <h4 className="break-words text-base font-semibold leading-snug">{candidateDisplayName(candidate)}</h4>
-                          <p className="mt-1 text-sm leading-5 text-foreground/70">{status.detail}</p>
-                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                            <Badge variant={candidate.decision==='target'?'default':'secondary'}>{status.label}</Badge>
-                            {candidate.membershipState==='pending'&&<Badge variant="outline">Очікує вступу</Badge>}
-                            {candidate.membershipState==='joined'&&<Badge variant="outline">Приєднано</Badge>}
-                          </div>
-                        </div>
-                        {status.busy&&<LoaderCircle className="size-4 shrink-0 animate-spin text-primary"/>}
-                      </div>
-
-                      <details className="mt-3 rounded-xl border border-border/70 bg-muted/10">
-                        <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-foreground/75">
-                          Деталі перевірки · {confirmedCriteria} із {criteria.length}
-                        </summary>
-                        <div className="border-t border-border/60 p-3">
-                          <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
-                            {criteria.map(item => <Criterion key={item.label} {...item} />)}
-                          </div>
-                        </div>
-                      </details>
-
-                      <div className="mt-3 flex flex-wrap items-center gap-2 [&>button]:min-h-11 sm:[&>button]:min-h-8">
-                        <a className="inline-flex h-11 items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-[0.8rem] font-semibold hover:bg-muted sm:h-8" href={candidate.link} target="_blank" rel="noreferrer">
-                          Відкрити {platformLabel(candidate.platform)} <ExternalLink className="size-3.5"/>
-                        </a>
-                        {!candidate.importedChatId && isLocalPreview(candidate) && (candidate.decision==='rejected'
-                          ||(candidate.decision==='unavailable'&&candidate.reasonCodes.some(reason=>['qualification_incomplete','paused_unverified','retry_exhausted'].includes(reason))))
-                          &&<Button type="button" size="sm" variant="outline" disabled={localPreview.running||telegramBusy} onClick={()=>retryIncompleteCandidate(candidate)}>Повторити перевірку</Button>}
-                        {!candidate.importedChatId && candidate.decision==='review' && !isLocalPreview(candidate) && <>
-                          <Button type="button" size="sm" disabled={importingId !== null || inspectingId !== null} onClick={() => void importCandidate(candidate)}>
-                            {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                            Додати на ручну перевірку
-                          </Button>
-                          <Button type="button" size="sm" variant="ghost" disabled={importingId !== null || inspectingId !== null} onClick={() => void archiveCandidate(candidate)}>
-                            {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                            Відхилити
-                          </Button>
-                          <details>
-                            <summary className="flex min-h-11 cursor-pointer select-none items-center rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground sm:min-h-8">Ще</summary>
-                            <div className="mt-2">
-                              <Button type="button" size="sm" variant="outline" disabled={inspectingId !== null} onClick={() => void markInviteInvalid(candidate)}>
-                                {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                                Invite недійсний
-                              </Button>
-                            </div>
-                          </details>
-                        </>}
-                        {!candidate.importedChatId && isLocalPreview(candidate) && candidate.preflightState==='review' && <>
-                          {isPendingApprovalCandidate(candidate) && <Button type="button" size="sm" disabled={importingId !== null || inspectingId !== null} title="Запит на вступ уже надіслано — чат піде в чергу «Очікування» до схвалення адміністратора." onClick={() => void importCandidate(candidate)}>
-                            {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                            Підтвердити
-                          </Button>}
-                          <Button type="button" size="sm" variant="ghost" title="Перенесе чат у «Нецільові» лише в цій вкладці; у Work OS — після «Архівувати всі»." onClick={() => moveToNonTarget(candidate)}>
-                            У нецільові
-                          </Button>
-                        </>}
-                        {!candidate.importedChatId && candidate.decision==='target' && <>
-                          <Button type="button" size="sm" disabled={importingId !== null || inspectingId !== null} onClick={() => void importCandidate(candidate)}>
-                            {importingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                            {isLocalPreview(candidate)?'Підтвердити':'Лишити в роботі'}
-                          </Button>
-                          <Button type="button" size="sm" variant="outline" disabled={importingId !== null || inspectingId !== null} onClick={() => void archiveCandidate(candidate)}>
-                            {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                            {isLocalPreview(candidate)?'У нецільові':'В архів'}
-                          </Button>
-                        </>}
-                        {candidate.importedChatId && candidate.membershipState !== 'left' &&
-                          <Button type="button" size="sm" variant="outline" onClick={() => toggleManualInspection(candidate)}>
-                            {manualDraft?.candidateId === candidate.id ? 'Закрити кваліфікацію' : 'Кваліфікувати вручну'}
-                          </Button>}
-                      </div>
-
-                      {manualDraft?.candidateId === candidate.id && candidate.importedChatId && candidate.membershipState !== 'left' && <div className="mt-3 grid gap-3 rounded-xl border border-border/70 bg-muted/20 p-3">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className="size-4 text-primary"/>
-                          <strong className="text-sm">Ручна кваліфікація</strong>
-                        </div>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <label className="grid gap-1 text-xs font-medium">Учасники
-                            <Input type="number" min={0} max={10_000_000} value={manualDraft.memberCount} onChange={event => setManualDraft({...manualDraft, memberCount:event.target.value})} placeholder="700–18000" />
-                          </label>
-                          <label className="grid gap-1 text-xs font-medium">Активність
-                            <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.activityState} onChange={event => setManualDraft({...manualDraft, activityState:event.target.value as ManualInspectionDraft['activityState']})}>
-                              <option value="unknown">Невідомо</option><option value="active">Активний</option><option value="dead">Неактивний</option>
-                            </select>
-                          </label>
-                          <label className="grid gap-1 text-xs font-medium">Писати можуть учасники
-                            <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.canWrite} onChange={event => setManualDraft({...manualDraft, canWrite:event.target.value as ManualInspectionDraft['canWrite']})}>
-                              <option value="unknown">Невідомо</option><option value="yes">Так</option><option value="no">Ні</option>
-                            </select>
-                          </label>
-                          <label className="grid gap-1 text-xs font-medium">Оголошення
-                            <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.adsPolicy} onChange={event => setManualDraft({...manualDraft, adsPolicy:event.target.value as ManualInspectionDraft['adsPolicy']})}>
-                              <option value="unknown">Невідомо</option><option value="operator_confirmed">Дозволені</option><option value="forbidden">Заборонені</option>
-                            </select>
-                          </label>
-                          <label className="grid gap-1 text-xs font-medium">Аудиторія
-                            <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.topicMatch} onChange={event => setManualDraft({...manualDraft, topicMatch:event.target.value as ManualInspectionDraft['topicMatch']})}>
-                              <option value="unknown">Невідомо</option><option value="match">Цільова</option><option value="mismatch">Нецільова</option>
-                            </select>
-                          </label>
-                          <label className="grid gap-1 text-xs font-medium">Вступ
-                            <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.membershipState} onChange={event => setManualDraft({...manualDraft, membershipState:event.target.value as ManualInspectionDraft['membershipState']})}>
-                              <option value="not_checked">Не перевірено</option><option value="pending">Очікує схвалення</option><option value="joined">Приєднано</option>
-                            </select>
-                          </label>
-                          <label className="grid gap-1 text-xs font-medium">Тип чату
-                            <select className="h-9 rounded-md border border-input bg-background px-2" value={manualDraft.chatType} onChange={event => setManualDraft({...manualDraft, chatType:event.target.value as ManualInspectionDraft['chatType']})}>
-                              <option value="unknown">Невідомо</option><option value="group">Група</option><option value="community">Спільнота</option><option value="channel">Канал</option>
-                            </select>
-                          </label>
-                        </div>
-                        <Button type="button" size="sm" className="w-fit" disabled={inspectingId !== null} onClick={() => void submitManualInspection(candidate)}>
-                          {inspectingId === candidate.id ? <LoaderCircle data-icon="inline-start"/> : null}
-                          Зберегти кваліфікацію
-                        </Button>
-                      </div>}
-                    </article>;
-                  })}
-                </div>
-                : <div className="workspace-empty"><Search aria-hidden="true"/><strong>{emptyCopy.title}</strong><p>{emptyCopy.detail}</p></div>}
-          </div>
-        </section>
-      </div>
-    </DialogContent>
-  </Dialog>;
+                ) : null}
+              </li>;
+            })}
+          </ul>
+        ) : <p className="m-0 rounded-inner border border-dashed border-line-strong px-4 py-5 text-sm text-ink-2"><strong className="block font-medium text-ink">{emptyCopy.title}</strong>{emptyCopy.detail}</p>}
+      </section>
+    </div>
+  </Panel>;
 }
 
 function localCandidatesForFilter(candidates:LocalDiscoveryPreview[],filter:DecisionFilter){
@@ -843,18 +659,6 @@ function emptyCandidateCopy(filter:DecisionFilter,running:boolean,queued:number,
 }
 
 type CriterionItem = { label: string; value: string; state: 'ok' | 'warn' | 'bad' };
-
-function Criterion({ label, value, state }: CriterionItem) {
-  const dot = state === 'ok'
-    ? 'bg-emerald-500'
-    : state === 'bad'
-      ? 'bg-destructive'
-      : 'bg-amber-500';
-  return <div className="min-w-0 rounded-xl border border-border/80 bg-background px-3 py-2.5">
-    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-foreground/65"><span className={`size-1.5 shrink-0 rounded-full ${dot}`}/><span className="truncate">{label}</span></div>
-    <div className="mt-1 break-words text-sm font-semibold leading-4 text-foreground">{value}</div>
-  </div>;
-}
 
 function candidateCriteria(candidate: DiscoveryCandidate): CriterionItem[] {
   const count = candidate.memberCount;

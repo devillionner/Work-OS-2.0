@@ -17,19 +17,19 @@ export default function TodayView() {
   const { user } = useShell();
   const [goalsOpen, setGoalsOpen] = useState(false);
   return (
-    <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-3 pb-6 lg:gap-4">
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12 lg:gap-4">
-        <div className="lg:col-span-8"><WorkdayPanel greeting={`${greeting()}, ${firstName(user.displayName)}`} dateLabel={dateLabel()} /></div>
-        <div className="lg:col-span-4"><TimersCard /></div>
+    <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-3 pb-6 @4xl:gap-4">
+      <div className="grid grid-cols-1 gap-3 @4xl:grid-cols-12 @4xl:gap-4">
+        <div className="@4xl:col-span-8"><WorkdayPanel greeting={`${greeting()}, ${firstName(user.displayName)}`} dateLabel={dateLabel()} /></div>
+        <div className="@4xl:col-span-4"><TimersCard /></div>
       </div>
       <KpiStrip />
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12 lg:gap-4">
-        <div className="lg:col-span-4"><FocusCard onOpenGoals={() => setGoalsOpen(true)} /></div>
-        <div className="lg:col-span-8"><LeadQueue /></div>
+      <div className="grid grid-cols-1 gap-3 @4xl:grid-cols-12 @4xl:gap-4">
+        <div className="@4xl:col-span-4"><FocusCard onOpenGoals={() => setGoalsOpen(true)} /></div>
+        <div className="@4xl:col-span-8"><LeadQueue /></div>
       </div>
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12 lg:gap-4">
-        <div className="lg:col-span-4"><PlatformBreakdown /></div>
-        <div className="lg:col-span-8"><ScheduleTimeline /></div>
+      <div className="grid grid-cols-1 gap-3 @4xl:grid-cols-12 @4xl:gap-4">
+        <div className="@4xl:col-span-4"><PlatformBreakdown /></div>
+        <div className="@4xl:col-span-8"><ScheduleTimeline /></div>
       </div>
       <GoalsPanel open={goalsOpen} onOpenChange={setGoalsOpen} />
     </div>

@@ -7,11 +7,18 @@ import { DESKTOP, PHONE, WIDE, useMediaQuery } from '@/components/shell/use-medi
 import { Inspector } from '@/components/ui/inspector';
 import { Segmented } from '@/components/ui/segmented';
 import { Sheet } from '@/components/ui/sheet';
+import { useViewActive } from '@/components/shell/view-pane';
 
 type Slot = { element: HTMLElement | null };
 type PanelStack = { ids: string[] };
 
 const SlotContext = createContext<Slot>({ element: null });
+const OverlayContext = createContext<HTMLElement | null>(null);
+
+/** Контейнер усередині панелі, куди вкладені форми малюються поверх вмісту (крок замість нового вікна). */
+export function usePanelOverlay(): HTMLElement | null {
+  return useContext(OverlayContext);
+}
 
 // Стек відкритих панелей: видима лише остання, попередні повертаються, коли верхня закривається.
 const stackListeners = new Set<() => void>();
@@ -66,29 +73,31 @@ export function Panel<T extends string = string>({ open, onOpenChange, title, su
   const desktop = useMediaQuery(DESKTOP);
   const { ids } = useStack();
   const isTop = ids[ids.length - 1] === id;
+  const [overlay, setOverlay] = useState<HTMLElement | null>(null);
+  const viewActive = useViewActive();
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !viewActive) return;
     setStack([...stack.ids.filter((item) => item !== id), id]);
     return () => setStack(stack.ids.filter((item) => item !== id));
-  }, [open, id]);
+  }, [open, viewActive, id]);
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
   const body = (
     <>
       {tabs && tab && onTabChange ? (
-        <div className="sticky top-0 z-10 -mx-1 mb-4 overflow-x-auto px-1 pb-1 hide-scrollbar">
+        <div className="sticky top-0 z-10 -mx-5 mb-4 bg-glass-strong px-5 pb-2 pt-1">
           <Segmented value={tab} onValueChange={onTabChange} items={tabs} label={title} size="sm" />
         </div>
       ) : null}
-      {children}
+      <OverlayContext.Provider value={overlay}>{children}</OverlayContext.Provider>
     </>
   );
 
-  if (!open || !isTop) return null;
+  if (!open || !isTop || !viewActive) return null;
   if (wide && slot.element) {
     return createPortal(
-      <AsidePanel title={title} subtitle={subtitle} actions={actions} footer={footer} onClose={close}>{body}</AsidePanel>,
+      <AsidePanel title={title} subtitle={subtitle} actions={actions} footer={footer} overlayRef={setOverlay} onClose={close}>{body}</AsidePanel>,
       slot.element,
     );
   }
@@ -102,6 +111,7 @@ export function Panel<T extends string = string>({ open, onOpenChange, title, su
       snap="full"
       actions={actions}
       footer={footer}
+      overlayRef={setOverlay}
       className={!phone && desktop ? 'w-[440px]' : undefined}
     >
       {body}
@@ -109,7 +119,7 @@ export function Panel<T extends string = string>({ open, onOpenChange, title, su
   );
 }
 
-function AsidePanel({ title, subtitle, actions, footer, onClose, children }: { title: string; subtitle?: ReactNode; actions?: ReactNode; footer?: ReactNode; onClose: () => void; children: ReactNode }) {
+function AsidePanel({ title, subtitle, actions, footer, overlayRef, onClose, children }: { title: string; subtitle?: ReactNode; actions?: ReactNode; footer?: ReactNode; overlayRef: (element: HTMLDivElement | null) => void; onClose: () => void; children: ReactNode }) {
   const root = useRef<HTMLDivElement>(null);
   const [returnTo] = useState<Element | null>(() => (typeof document === 'undefined' ? null : document.activeElement));
 
@@ -132,9 +142,10 @@ function AsidePanel({ title, subtitle, actions, footer, onClose, children }: { t
   }, [onClose, returnTo]);
 
   return (
-    <aside ref={root} tabIndex={-1} aria-label={title} className="flex h-full min-h-0 flex-col outline-none">
+    <aside ref={root} tabIndex={-1} aria-label={title} className="relative flex h-full min-h-0 flex-col outline-none">
       <Inspector title={title} subtitle={subtitle} actions={actions} onClose={onClose} className="min-h-0 flex-1">{children}</Inspector>
       {footer ? <div className="shrink-0 border-t border-line px-5 py-3">{footer}</div> : null}
+      <div ref={overlayRef} className="absolute inset-0 z-20 flex flex-col overflow-hidden bg-glass-strong empty:hidden" />
     </aside>
   );
 }

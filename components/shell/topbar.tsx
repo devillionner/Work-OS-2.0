@@ -86,7 +86,7 @@ export function Topbar({ title, phone, user, signOutPath, enabledPlatforms, view
       <div className="min-w-0">
         <h1 className="m-0 truncate text-[22px] font-medium leading-tight tracking-[-0.02em]">{title}</h1>
       </div>
-      <div ref={slotRef} className="flex min-w-0 flex-1 items-center gap-2 empty:hidden" />
+      <div ref={slotRef} className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden px-1 empty:hidden" />
       <div className="ml-auto flex shrink-0 items-center gap-2.5">
         {fallback}
         <TimersButton enabledPlatforms={enabledPlatforms} viewKey={viewKey} />

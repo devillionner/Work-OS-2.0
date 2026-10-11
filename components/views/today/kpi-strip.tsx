@@ -15,7 +15,7 @@ export function KpiStrip() {
   const publication = snapshot.publicationGoal;
   const booking = snapshot.bookingGoal;
   return (
-    <section aria-label="Результат сьогодні" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <section aria-label="Результат сьогодні" className="grid grid-cols-2 gap-3 @4xl:grid-cols-4">
       <Tile
         label="Публікації"
         value={totals.publications}

@@ -5,8 +5,8 @@ import { ChevronLeft, ChevronRight, Copy, ExternalLink, FileText, History, Refre
 import { Badge } from '@/components/legacy-ui/badge';
 import { Button } from '@/components/legacy-ui/button';
 import { Textarea } from '@/components/legacy-ui/textarea';
-import { LeadEditor } from '@/components/leads/lead-editor';
-import { createBrowserCommandClient } from '@/components/leads/client';
+import { LeadEditor } from '@/components/views/leads/lead-editor';
+import { createBrowserCommandClient } from '@/components/views/leads/client';
 import { ReportHistoryDialog } from '@/components/report-history-dialog';
 import { ReportCheckpoints } from '@/components/report-checkpoints';
 import { ReportCalendarContext } from '@/components/report-calendar-context';

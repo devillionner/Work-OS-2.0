@@ -2,7 +2,7 @@
 
 import { Fragment, useState } from 'react';
 import { Check, Copy, ExternalLink } from 'lucide-react';
-import { createBrowserCommandClient } from '@/components/leads/client';
+import { createBrowserCommandClient } from '@/components/views/leads/client';
 import { useShell } from '@/components/shell/shell-context';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';

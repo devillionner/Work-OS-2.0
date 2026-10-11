@@ -38,7 +38,7 @@ export function ViewPane({ active, children }: { active: boolean; children: Reac
 
   return (
     <ViewActiveContext.Provider value={active}>
-      <div ref={ref} data-pane="" data-active={active ? 'true' : 'false'} hidden={!active} aria-hidden={active ? undefined : true} inert={active ? undefined : true} className="min-w-0">
+      <div ref={ref} data-pane="" data-active={active ? 'true' : 'false'} hidden={!active} aria-hidden={active ? undefined : true} inert={active ? undefined : true} className="@container min-w-0">
         {children}
       </div>
     </ViewActiveContext.Provider>

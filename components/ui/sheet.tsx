@@ -21,11 +21,13 @@ type Props = {
   snap?: 'half' | 'full';
   actions?: ReactNode;
   footer?: ReactNode;
+  /** Контейнер для вкладених форм поверх панелі (див. Panel). */
+  overlayRef?: (element: HTMLDivElement | null) => void;
   children: ReactNode;
   className?: string;
 };
 
-export function Sheet({ open, onOpenChange, title, description, side = 'bottom', snap = 'full', actions, footer, children, className }: Props) {
+export function Sheet({ open, onOpenChange, title, description, side = 'bottom', snap = 'full', actions, footer, overlayRef, children, className }: Props) {
   const popup = useRef<HTMLDivElement | null>(null);
   const drag = useRef<{ startY: number; base: number; lastY: number; lastT: number; velocity: number } | null>(null);
 
@@ -110,6 +112,7 @@ export function Sheet({ open, onOpenChange, title, description, side = 'bottom',
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5">{children}</div>
           {footer ? <div className="shrink-0 border-t border-line px-5 py-3">{footer}</div> : null}
+          <div ref={overlayRef} className="absolute inset-0 z-20 flex flex-col overflow-hidden rounded-[inherit] bg-glass-strong empty:hidden" />
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

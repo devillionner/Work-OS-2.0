@@ -26,9 +26,9 @@ export function Tile({ label, value, format, hint, icon: Icon, progress, delta, 
 }) {
   const body = (
     <>
-      <div className="relative flex min-w-0 flex-1 flex-col justify-between gap-4 p-4 sm:p-5">
+      <div className="relative flex min-w-0 flex-1 flex-col justify-between gap-4 p-4 @[16rem]/tile:p-5">
         <span className="text-[13px] text-ink-2">{label}</span>
-        {Icon ? <Icon aria-hidden="true" strokeWidth={1.25} className="absolute right-4 top-4 size-5 text-ink-3 sm:hidden" /> : null}
+        {Icon ? <Icon aria-hidden="true" strokeWidth={1.25} className="absolute right-4 top-4 size-5 text-ink-3 @[16rem]/tile:hidden" /> : null}
         <div className="flex flex-col gap-2">
           <CountUp value={value} format={format} className="text-[40px] font-normal leading-none tracking-[-0.03em]" />
           <div className="flex min-h-4 items-center gap-2 text-xs text-ink-2">
@@ -47,12 +47,12 @@ export function Tile({ label, value, format, hint, icon: Icon, progress, delta, 
           ) : null}
         </div>
       </div>
-      <div className="m-2 ml-0 hidden w-[38%] min-w-[84px] items-center justify-center rounded-inner bg-sunken text-ink-3 sm:flex">
+      <div className="m-2 ml-0 hidden w-[38%] min-w-[84px] items-center justify-center rounded-inner bg-sunken text-ink-3 @[16rem]/tile:flex">
         {aside ?? (Icon ? <Icon aria-hidden="true" strokeWidth={1.25} className="size-9" /> : null)}
       </div>
     </>
   );
-  const shared = cn('flex min-h-[132px] w-full text-left sm:min-h-[148px]', className);
+  const shared = cn('@container/tile flex min-h-[132px] w-full text-left @[16rem]/tile:min-h-[148px]', className);
   return onClick ? (
     <Surface as="button" type="button" lift spot data-reveal onClick={onClick} className={shared}>{body}</Surface>
   ) : (
