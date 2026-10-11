@@ -25,15 +25,16 @@ export function useViewActive(): boolean {
 
 /**
  * Оболонка розділу: тримає змонтованим (стан і дані не губляться), ховає, коли розділ неактивний,
- * і запускає появу блоків `[data-reveal]` при кожній активації.
+ * і запускає появу блоків `[data-reveal]` лише при першому відкритті.
  */
 export function ViewPane({ active, children }: { active: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useReveal(ref, active);
 
+  // Блоки, що з'явилися вже після першого показу, не анімуються при поверненні: позначаємо їх показаними при виході.
   useEffect(() => {
     if (active) return;
-    ref.current?.querySelectorAll('[data-revealed]').forEach((node) => node.removeAttribute('data-revealed'));
+    ref.current?.querySelectorAll('[data-reveal]:not([data-revealed])').forEach((node) => node.setAttribute('data-revealed', ''));
   }, [active]);
 
   return (

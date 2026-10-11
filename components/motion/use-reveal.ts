@@ -3,10 +3,10 @@
 import { type RefObject } from 'react';
 import { gsap, matchMotion, useGSAP } from '@/components/motion/gsap';
 
-const STAGGER_LIMIT = 12;
+const STAGGER_LIMIT = 8;
 
 /**
- * Поява блоків із `[data-reveal]`: y 14 → 0, opacity, blur 8px → 0, stagger 0.035.
+ * Поява блоків із `[data-reveal]` лише при першому показі: y 8 → 0 і opacity за 240 мс, короткий стагер.
  * У стагері не більше 12 елементів, решта з'являються разом. `key` перезапускає поки значення змінюється
  * (наприклад, коли дані завантажились і блоки з'явились у DOM).
  */
@@ -26,14 +26,14 @@ export function useReveal(scope: RefObject<HTMLElement | null>, key: unknown = t
       }
       gsap.fromTo(
         lead,
-        { y: 14, opacity: 0, filter: 'blur(8px)' },
-        { y: 0, opacity: 1, filter: 'blur(0px)', stagger: 0.035, duration: 0.42, ease: 'expo.out', clearProps: 'transform,filter,opacity' },
+        { y: 8, opacity: 0 },
+        { y: 0, opacity: 1, stagger: 0.025, duration: 0.24, ease: 'power3.out', clearProps: 'transform,opacity' },
       );
       if (rest.length) {
         gsap.fromTo(
           rest,
-          { y: 14, opacity: 0, filter: 'blur(8px)' },
-          { y: 0, opacity: 1, filter: 'blur(0px)', duration: 0.42, delay: lead.length * 0.035, ease: 'expo.out', clearProps: 'transform,filter,opacity' },
+          { y: 8, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.24, delay: lead.length * 0.025, ease: 'power3.out', clearProps: 'transform,opacity' },
         );
       }
     });

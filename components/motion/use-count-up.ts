@@ -28,7 +28,7 @@ export function useCountUp<T extends HTMLElement>(value: number, format: (value:
     const state = { v: shown.current };
     const tween = gsap.to(state, {
       v: value,
-      duration: 0.6,
+      duration: 0.3,
       ease: 'power3.out',
       snap: { v: 1 },
       onUpdate: () => {

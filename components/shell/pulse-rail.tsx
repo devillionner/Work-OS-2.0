@@ -27,7 +27,7 @@ export function PulseRail({ rings, onOpenSettings }: { rings: PulseRing[]; onOpe
       const snap = (to: number) => {
         openRef.current = to === 0;
         setOpen(to === 0);
-        gsap.to(node, { x: to, duration: reduced ? 0.01 : 0.42, ease: 'expo.out' });
+        gsap.to(node, { x: to, duration: reduced ? 0.01 : 0.28, ease: 'expo.out' });
       };
       gsap.set(node, { x: WIDTH });
       // Швидкість свайпу рахуємо самі: InertiaPlugin не підключаємо.

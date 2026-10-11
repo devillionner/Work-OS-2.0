@@ -128,7 +128,7 @@ function AsidePanel({ title, subtitle, actions, footer, overlayRef, onClose, chi
     if (!node) return;
     node.focus({ preventScroll: true });
     const mm = matchMotion((reduced) => {
-      gsap.fromTo(node, reduced ? { opacity: 0 } : { x: 40, opacity: 0 }, { x: 0, opacity: 1, duration: reduced ? 0.12 : 0.42, clearProps: 'transform' });
+      gsap.fromTo(node, reduced ? { opacity: 0 } : { x: 24, opacity: 0 }, { x: 0, opacity: 1, duration: reduced ? 0.12 : 0.28, clearProps: 'transform' });
     });
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;

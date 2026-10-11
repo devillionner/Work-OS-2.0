@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ATMOSPHERE_PHOTO_EVENT, clearAtmospherePhoto, loadAtmospherePhoto, saveAtmospherePhoto } from '@/components/shell/atmosphere-store';
-import { useTheme, type AtmospherePreset, type Density, type ThemePreference } from '@/components/shell/theme-provider';
+import { THEMES, useTheme, type AtmospherePreset, type Density, type Theme } from '@/components/shell/theme-provider';
 import { Button } from '@/components/ui/button';
 import { Segmented } from '@/components/ui/segmented';
 import { useToast } from '@/components/ui/toast';
@@ -18,7 +18,7 @@ const PRESETS: ReadonlyArray<{ key: Exclude<AtmospherePreset, 'photo'>; label: s
 
 /** Вигляд: тема, атмосфера (пресети й власне фото, що живе лише в IndexedDB цього пристрою) і щільність. */
 export function AppearanceGroup() {
-  const { preference, setPreference, atmosphere, setAtmosphere, density, setDensity } = useTheme();
+  const { theme, setTheme, atmosphere, setAtmosphere, density, setDensity } = useTheme();
   const toast = useToast();
   const input = useRef<HTMLInputElement>(null);
   const [hasPhoto, setHasPhoto] = useState(false);
@@ -61,7 +61,7 @@ export function AppearanceGroup() {
   return (
     <Group id="appearance" title="Вигляд" note="Налаштування вигляду діють лише на цьому пристрої.">
       <Row label="Тема">
-        <Segmented<ThemePreference> label="Тема" size="sm" value={preference} onValueChange={setPreference} items={[{ value: 'system', label: 'Система' }, { value: 'night', label: 'Ніч' }, { value: 'day', label: 'День' }]} />
+        <Segmented<Theme> label="Тема" size="sm" value={theme} onValueChange={setTheme} items={THEMES} />
       </Row>
       <Row label="Атмосфера" description="Тло за склом. Власне фото не залишає цей пристрій і не потрапляє в базу даних." stacked>
         <div className="flex flex-wrap items-center gap-2">

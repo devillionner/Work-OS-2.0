@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { gsap, matchMotion, useGSAP } from '@/components/motion/gsap';
+import { useEffect, useState } from 'react';
 import { ATMOSPHERE_PHOTO_EVENT, loadAtmospherePhoto } from '@/components/shell/atmosphere-store';
 import { useTheme, type AtmospherePreset } from '@/components/shell/theme-provider';
 
@@ -29,7 +28,6 @@ const LAYOUTS: Record<Exclude<AtmospherePreset, 'photo'>, Spot[]> = {
 
 export function Atmosphere() {
   const { atmosphere } = useTheme();
-  const scope = useRef<HTMLDivElement>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const layout = LAYOUTS[atmosphere === 'photo' ? 'fog' : atmosphere];
 
@@ -54,31 +52,8 @@ export function Atmosphere() {
     };
   }, [atmosphere]);
 
-  // Повільний дрейф плям (60–90 с, yoyo): на паузі, коли вкладка прихована, і зовсім вимкнений при reduced-motion.
-  useGSAP(() => {
-    const root = scope.current;
-    if (!root) return;
-    const blobs = Array.from(root.querySelectorAll<HTMLElement>('.atm-blob'));
-    const tweens: gsap.core.Tween[] = [];
-    const mm = matchMotion((reduced) => {
-      if (reduced) return;
-      blobs.forEach((node, index) => {
-        tweens.push(gsap.to(node, {
-          x: (index % 2 ? -1 : 1) * (40 + index * 14), y: (index % 2 ? 1 : -1) * (30 + index * 10),
-          duration: 60 + index * 8, ease: 'sine.inOut', yoyo: true, repeat: -1,
-        }));
-      });
-    });
-    const onVisibility = () => tweens.forEach((tween) => (document.hidden ? tween.pause() : tween.resume()));
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibility);
-      mm.revert();
-    };
-  }, { scope, dependencies: [atmosphere] });
-
   return (
-    <div className="atmosphere" ref={scope} aria-hidden="true">
+    <div className="atmosphere" aria-hidden="true">
       <div className="atm-layer">
         {layout.map((blob, index) => (
           <div
@@ -94,7 +69,7 @@ export function Atmosphere() {
         <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${photoUrl})` }} />
       ) : null}
       {atmosphere === 'photo' && photoUrl ? <div className="absolute inset-0 bg-field opacity-40" /> : null}
-      <div className="atm-grid" />
+      <div className="atm-tint" />
     </div>
   );
 }

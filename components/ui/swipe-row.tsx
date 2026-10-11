@@ -19,7 +19,7 @@ export function SwipeRow({ children, right, left, className }: { children: React
   const settle = () => {
     const node = content.current;
     if (!node) return;
-    gsap.to(node, { x: 0, duration: prefersReducedMotion() ? 0.01 : 0.35, ease: 'expo.out', onComplete: () => node.parentElement?.removeAttribute('data-swiping') });
+    gsap.to(node, { x: 0, duration: prefersReducedMotion() ? 0.01 : 0.24, ease: 'expo.out', onComplete: () => node.parentElement?.removeAttribute('data-swiping') });
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {

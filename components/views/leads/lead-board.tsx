@@ -49,7 +49,7 @@ export function LeadBoard({ leads, selectedId, canDrag, onOpen, onCreate, onMove
     if (!flip.current) return;
     const state = flip.current;
     flip.current = null;
-    Flip.from(state, { duration: 0.35, ease: 'power3.out' });
+    Flip.from(state, { duration: 0.24, ease: 'power3.out' });
   });
 
   const capture = () => {
@@ -67,20 +67,20 @@ export function LeadBoard({ leads, selectedId, canDrag, onOpen, onCreate, onMove
       zIndexBoost: true,
       dragClickables: true,
       minimumMovement: 6,
-      onPress: () => { gsap.to(card, { rotation: 2.5, scale: 1.02, duration: 0.18 }); card.classList.add('shadow-float'); },
+      onPress: () => { gsap.to(card, { scale: 1.02, duration: 0.16 }); card.classList.add('shadow-float'); },
       onDrag: function () {
         clearOver();
         const column = columnAt(this.pointerX, this.pointerY);
         if (column && column.dataset.stageCol !== card.dataset.stage) column.setAttribute('data-over', 'true');
       },
-      onRelease: () => { gsap.to(card, { rotation: 0, scale: 1, duration: 0.18 }); card.classList.remove('shadow-float'); },
+      onRelease: () => { gsap.to(card, { scale: 1, duration: 0.16 }); card.classList.remove('shadow-float'); },
       onClick: () => onOpen(card.dataset.leadId ?? ''),
       onDragEnd: function () {
         const target = columnAt(this.pointerX, this.pointerY)?.dataset.stageCol;
         clearOver();
         const leadId = card.dataset.leadId ?? '';
         const from = card.dataset.stage ?? '';
-        if (!target || target === from) { gsap.to(card, { x: 0, y: 0, duration: 0.35, ease: 'expo.out' }); return; }
+        if (!target || target === from) { gsap.to(card, { x: 0, y: 0, duration: 0.24, ease: 'expo.out' }); return; }
         capture();
         gsap.set(card, { x: 0, y: 0, rotation: 0, scale: 1 });
         setOverrides((current) => ({ ...current, [leadId]: target }));

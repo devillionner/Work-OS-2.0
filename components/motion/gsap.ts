@@ -8,7 +8,7 @@ let configured = false;
 if (!configured && typeof window !== 'undefined') {
   configured = true;
   gsap.registerPlugin(useGSAP);
-  gsap.defaults({ ease: 'expo.out', duration: 0.42 });
+  gsap.defaults({ ease: 'power3.out', duration: 0.24 });
 }
 
 export const MOTION_FULL = '(prefers-reduced-motion: no-preference)';

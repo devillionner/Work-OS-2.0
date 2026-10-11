@@ -73,7 +73,7 @@ export function Sheet({ open, onOpenChange, title, description, side = 'bottom',
     const half = halfOffset();
     if (state.velocity > CLOSE_VELOCITY || current > half + (height - half) * 0.5) { onOpenChange(false); return; }
     const target = state.velocity < -CLOSE_VELOCITY ? 0 : Math.abs(current) < Math.abs(current - half) ? 0 : half;
-    gsap.to(node, { y: target, duration: prefersReducedMotion() ? 0.01 : 0.35, ease: 'power3.out' });
+    gsap.to(node, { y: target, duration: prefersReducedMotion() ? 0.01 : 0.3, ease: 'power3.out' });
   };
 
   const bottom = side === 'bottom';

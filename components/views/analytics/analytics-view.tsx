@@ -47,7 +47,7 @@ export default function AnalyticsView() {
     return customValid ? new URLSearchParams({ period, from: customFrom, to: customTo }).toString() : null;
   }, [period, customFrom, customTo, customValid]);
 
-  const current = useRemote<AnalyticsData>(query ? `/api/analytics?${query}` : null, { refresh, enabled: active, fallback: 'Не вдалося завантажити аналітику.' });
+  const current = useRemote<AnalyticsData>(query ? `/api/analytics?${query}` : null, { refresh, enabled: active, keepPrevious: true, fallback: 'Не вдалося завантажити аналітику.' });
   const data = current.data;
   const previousQuery = useMemo(() => {
     if (!data) return null;
@@ -55,7 +55,7 @@ export default function AnalyticsView() {
     return new URLSearchParams({ period: 'custom', from: range.from, to: range.to }).toString();
   }, [data]);
   const previous = useRemote<AnalyticsData>(previousQuery ? `/api/analytics?${previousQuery}` : null, { refresh, enabled: active && data !== null });
-  const overview = useRemote<AnalyticsOverview>(query ? `/api/analytics/overview?${query}` : null, { refresh, enabled: active });
+  const overview = useRemote<AnalyticsOverview>(query ? `/api/analytics/overview?${query}` : null, { refresh, enabled: active, keepPrevious: true });
 
   const reload = useCallback(() => setRefresh((value) => value + 1), []);
 
@@ -117,7 +117,7 @@ export default function AnalyticsView() {
       {!data && query && !current.error ? <Skeleton /> : null}
 
       {data ? (
-        <>
+        <div aria-busy={current.stale} className={current.stale ? 'flex flex-col gap-3 opacity-60 transition-opacity duration-150 @4xl:gap-4' : 'flex flex-col gap-3 transition-opacity duration-150 @4xl:gap-4'}>
           <KpiRow data={data} previous={previousData} onOpen={setMetric} />
           <p className="m-0 text-xs text-ink-2">Натисни на показник, щоб побачити події, з яких він складається.</p>
           {isEmpty(data) ? (
@@ -143,7 +143,7 @@ export default function AnalyticsView() {
               <CohortCard className="@4xl:col-span-12" cohort={data.cohort} />
             </div>
           )}
-        </>
+        </div>
       ) : null}
 
       <MetricPanel metric={metric} query={query} onClose={() => setMetric(null)} />

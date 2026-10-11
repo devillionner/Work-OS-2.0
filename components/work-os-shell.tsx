@@ -1,9 +1,8 @@
 'use client';
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { gsap, prefersReducedMotion } from '@/components/motion/gsap';
 import { CommandPalette } from '@/components/shell/command-palette';
-import { emitCommand, useCommand } from '@/components/shell/command-bus';
+import { useCommand } from '@/components/shell/command-bus';
 import { CreateMenu } from '@/components/shell/create-menu';
 import { Dock } from '@/components/shell/dock';
 import { MoreSheet } from '@/components/shell/more-sheet';
@@ -26,13 +25,36 @@ import { SERVER_SYNC_IDLE_MAX_MS } from '@/components/server-sync';
 import { announceDataChange, requestDataSync } from '@/lib/client-sync';
 import type { DashboardSnapshot } from '@/lib/dashboard';
 
-const TodayView = lazy(() => import('@/components/views/today/today-view'));
-const PlatformsView = lazy(() => import('@/components/views/platforms/platforms-view'));
-const LeadsView = lazy(() => import('@/components/views/leads/leads-view'));
-const AnalyticsView = lazy(() => import('@/components/views/analytics/analytics-view'));
-const ReportsView = lazy(() => import('@/components/views/reports/reports-view'));
-const LibraryView = lazy(() => import('@/components/views/library/library-view'));
-const SettingsView = lazy(() => import('@/components/views/settings/settings-view'));
+const loadToday = () => import('@/components/views/today/today-view');
+const loadPlatforms = () => import('@/components/views/platforms/platforms-view');
+const loadLeads = () => import('@/components/views/leads/leads-view');
+const loadAnalytics = () => import('@/components/views/analytics/analytics-view');
+const loadReports = () => import('@/components/views/reports/reports-view');
+const loadLibrary = () => import('@/components/views/library/library-view');
+const loadSettings = () => import('@/components/views/settings/settings-view');
+
+const TodayView = lazy(loadToday);
+const PlatformsView = lazy(loadPlatforms);
+const LeadsView = lazy(loadLeads);
+const AnalyticsView = lazy(loadAnalytics);
+const ReportsView = lazy(loadReports);
+const LibraryView = lazy(loadLibrary);
+const SettingsView = lazy(loadSettings);
+
+// Передзавантажується лише код розділів (разом із важчими чанками всередині), дані — тільки при відкритті.
+const PRELOAD: Record<ViewKey, () => Promise<unknown>> = {
+  today: loadToday,
+  platforms: loadPlatforms,
+  leads: loadLeads,
+  analytics: () => Promise.all([loadAnalytics(), import('@/components/views/analytics/trend-chart')]),
+  reports: () => Promise.all([loadReports(), import('@/components/views/reports/checkpoints'), import('@/components/views/reports/subjects-card')]),
+  library: loadLibrary,
+  settings: loadSettings,
+};
+
+function prefetchView(key: ViewKey) {
+  void PRELOAD[key]().catch(() => undefined);
+}
 
 const VIEW_KEYS: ViewKey[] = ['today', 'platforms', 'leads', 'analytics', 'reports', 'library', 'settings'];
 const FALLBACK_MINUTES = Math.max(1, Math.round(SERVER_SYNC_IDLE_MAX_MS / 60_000));
@@ -72,24 +94,22 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
   const [topbarSlot, setTopbarSlot] = useState<HTMLElement | null>(null);
   const [, setLeadParam] = useQueryParam('lead');
   const scroller = useRef<HTMLDivElement>(null);
-  const navigating = useRef(false);
   useScrollActivity();
 
   const navigate = useCallback((next: ViewKey) => {
-    if (next === getActiveView() || navigating.current) return;
+    if (next === getActiveView()) return;
     if (next === 'today') requestDataSync('focus');
-    const pane = document.querySelector<HTMLElement>('[data-pane][data-active="true"]');
-    if (!pane || prefersReducedMotion()) { setActiveView(next); return; }
-    navigating.current = true;
-    // Вихід за 120 мс: opacity → 0 і blur 6px; вхід блоків — useReveal у ViewPane.
-    gsap.to(pane, {
-      opacity: 0, filter: 'blur(6px)', duration: 0.12, ease: 'power2.in',
-      onComplete: () => {
-        setActiveView(next);
-        gsap.set(pane, { clearProps: 'opacity,filter' });
-        navigating.current = false;
-      },
-    });
+    setActiveView(next);
+  }, []);
+
+  useEffect(() => {
+    const run = () => VIEW_KEYS.forEach(prefetchView);
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(run, { timeout: 4000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const timer = window.setTimeout(run, 1500);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const openLead = useCallback((leadId: string) => {
@@ -128,8 +148,6 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
       { key: 'bookings', label: 'Записи', count: totals.bookings, target: snapshot.bookingGoal.target || null, tone: toneFor(totals.bookings, snapshot.bookingGoal.target) },
     ];
   }, [snapshot.platforms, snapshot.publicationGoal.target, snapshot.bookingGoal.target]);
-
-  const openService = useCallback(() => { navigate('settings'); emitCommand('settings:section', 'service'); }, [navigate]);
 
   const topbar = (
     <Topbar
@@ -178,7 +196,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
               <div className="fixed right-3 z-30" style={{ bottom: 'calc(12px + 64px + 12px + env(safe-area-inset-bottom))' }}>
                 <CreateMenu onNavigate={navigate} fab />
               </div>
-              <Dock active={activeView} onNavigate={navigate} onMore={() => setMoreOpen(true)} />
+              <Dock active={activeView} onNavigate={navigate} onPrefetch={prefetchView} onMore={() => setMoreOpen(true)} />
               <MoreSheet open={moreOpen} onOpenChange={setMoreOpen} active={activeView} onNavigate={navigate} />
               <QuickSettings open={quickOpen} onOpenChange={setQuickOpen} onNavigate={navigate} />
               {overlays}
@@ -186,7 +204,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
           ) : (
             <div className="relative flex h-dvh justify-center p-3">
               <div className="flex h-full w-full max-w-[1680px] gap-3 rounded-frame border border-line bg-sunken p-4">
-                <Rail active={activeView} leadCount={snapshot.leads} canExpand={desktop} onNavigate={navigate} onOpenRelease={openRelease} onOpenService={openService} />
+                <Rail active={activeView} leadCount={snapshot.leads} canExpand={desktop} onNavigate={navigate} onPrefetch={prefetchView} onOpenRelease={openRelease} />
                 <div className="glass frost relative flex min-w-0 flex-1 overflow-hidden rounded-panel">
                   <div className="flex min-w-0 flex-1 flex-col">
                     {topbar}

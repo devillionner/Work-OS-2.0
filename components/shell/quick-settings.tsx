@@ -1,6 +1,6 @@
 'use client';
 
-import { useTheme, type AtmospherePreset, type ThemePreference } from '@/components/shell/theme-provider';
+import { THEMES, useTheme, type AtmospherePreset, type Theme } from '@/components/shell/theme-provider';
 import type { ViewKey } from '@/components/shell/views';
 import { Button } from '@/components/ui/button';
 import { Chip } from '@/components/ui/chip';
@@ -13,13 +13,13 @@ const ATMOSPHERES: Array<{ key: AtmospherePreset; label: string }> = [
 
 /** Швидкі налаштування з шестерні PulseRail: тема, атмосфера й перехід до налаштувань. */
 export function QuickSettings({ open, onOpenChange, onNavigate }: { open: boolean; onOpenChange: (open: boolean) => void; onNavigate: (view: ViewKey) => void }) {
-  const { preference, setPreference, atmosphere, setAtmosphere } = useTheme();
+  const { theme, setTheme, atmosphere, setAtmosphere } = useTheme();
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Швидкі налаштування" side="bottom" snap="half">
       <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
           <span className="text-xs font-medium text-ink-2">Тема</span>
-          <Segmented<ThemePreference> label="Тема" value={preference} onValueChange={setPreference} items={[{ value: 'system', label: 'Система' }, { value: 'night', label: 'Ніч' }, { value: 'day', label: 'День' }]} />
+          <Segmented<Theme> label="Тема" size="sm" value={theme} onValueChange={setTheme} items={THEMES} />
         </div>
         <div className="flex flex-col gap-2">
           <span className="text-xs font-medium text-ink-2">Атмосфера</span>

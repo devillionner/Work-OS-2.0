@@ -26,34 +26,63 @@
   --scroll-thumb: rgb(255 255 255 / 0.12);
   --scroll-thumb-active: rgb(255 255 255 / 0.34);
   --atm-opacity: 1;
+  --atm-tint: transparent;
+  --focus: var(--ink);
 }
-[data-theme="day"] {
-  --field: #E8E8E5;
-  --glass: rgb(255 255 255 / 0.66);
-  --glass-strong: rgb(255 255 255 / 0.86);
-  --solid: #FFFFFF;
-  --sunken: #F3F3F1;
-  --raised: rgb(10 10 12 / 0.04);
-  --line: rgb(10 10 12 / 0.08);
-  --line-strong: rgb(10 10 12 / 0.16);
-  --highlight: inset 0 1px 0 rgb(255 255 255 / 0.9);
-  --ink: #0B0B0C;
-  --ink-2: #57575C;
-  --ink-3: #76767C;
-  --rail: #0A0A0B;                           /* рейка чорна в обох темах */
-  --action: #0B0B0C;  --action-ink: #FFFFFF;  /* головна pill-кнопка: чорна в Дні */
-  --blur: 24px;  --saturate: 160%;
-  --noise-opacity: 0.035;
-  --shadow-float: 0 1px 2px rgb(0 0 0 / 0.04), 0 16px 40px -16px rgb(0 0 0 / 0.14);
-  --scrim: rgb(10 10 12 / 0.28);
-  --atm-opacity: 0.4;
+[data-theme="metal"] {
+  --field: #0B0D10;
+  --glass: rgb(38 42 49 / 0.60);            /* сталь: світліша за «Ніч» */
+  --glass-strong: rgb(46 51 59 / 0.86);
+  --solid: #21262D;
+  --sunken: rgb(0 0 0 / 0.20);              /* утоплені зони темніші за панель, як фрезерований паз */
+  --raised: rgb(255 255 255 / 0.08);
+  --line: rgb(255 255 255 / 0.12);
+  --line-strong: rgb(255 255 255 / 0.26);   /* контрастніші рамки */
+  --highlight: inset 0 1px 0 rgb(255 255 255 / 0.20);  /* виразніший верхній відблиск металу */
+  --ink: #EEF1F5;
+  --ink-2: rgb(238 241 245 / 0.72);
+  --ink-3: rgb(238 241 245 / 0.50);
+  --rail: #050607;
+  --action: #EEF1F5;  --action-ink: #0A0C0F;
+  --blur: 28px;  --saturate: 120%;
+  --noise-opacity: 0.05;
+  --shadow-float: 0 24px 64px -24px rgb(0 0 0 / 0.75);
+  --scrim: rgb(2 4 6 / 0.55);
+  --scroll-thumb: rgb(255 255 255 / 0.16);
+  --scroll-thumb-active: rgb(255 255 255 / 0.38);
+  --atm-opacity: 0.85;
+  --atm-tint: rgb(120 140 165 / 0.10);
+}
+[data-theme="cobalt"] {
+  --field: #070A12;
+  --glass: rgb(24 31 52 / 0.60);
+  --glass-strong: rgb(28 36 60 / 0.86);
+  --solid: #161D33;
+  --sunken: rgb(0 0 20 / 0.28);
+  --raised: rgb(170 190 255 / 0.09);
+  --line: rgb(175 195 255 / 0.13);
+  --line-strong: rgb(175 195 255 / 0.28);
+  --highlight: inset 0 1px 0 rgb(190 210 255 / 0.22);
+  --ink: #EBF0FF;
+  --ink-2: rgb(235 240 255 / 0.72);
+  --ink-3: rgb(235 240 255 / 0.50);
+  --rail: #03040A;
+  --action: #0000FF;  --action-ink: #FFFFFF;  /* акцент власника: головна кнопка, активні стани, фокус */
+  --focus: #0000FF;
+  --blur: 28px;  --saturate: 125%;
+  --noise-opacity: 0.05;
+  --shadow-float: 0 24px 64px -24px rgb(0 2 20 / 0.8);
+  --scrim: rgb(2 4 14 / 0.55);
+  --scroll-thumb: rgb(190 205 255 / 0.18);
+  --scroll-thumb-active: rgb(190 205 255 / 0.40);
+  --atm-opacity: 0.8;
+  --atm-tint: rgb(0 20 140 / 0.22);
 }
 :root {
   /* Сигнали — ТІЛЬКИ стан, ніколи не декор */
   --signal-hot: #FF4A1C;     /* прострочено, помилка, ціль під загрозою */
   --signal-ok: #22D47A;      /* виконано, онлайн */
   --signal-warn: #F2E23A;    /* увага, наближається дедлайн */
-  --iris: conic-gradient(from 200deg, #FF6B3D, #FFD23F, #3DDC97, #4CC9F0, #B388FF, #FF6B3D); /* ТІЛЬКИ LiveOrb */
   --r-frame: 3rem; --r-panel: 2rem; --r-card: 1.5rem; --r-inner: 1rem; --r-field: 0.875rem;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --rail-ink: #F3F3F0; --rail-ink-2: rgb(243 243 240 / 0.55); --rail-line: rgb(255 255 255 / 0.12);
@@ -61,8 +90,6 @@
   /* Палітри атмосфер: чотири кольори на пресет, тема лише змінює --atm-opacity */
   --atm-1: #3b4a45; --atm-2: #1d2a2c; --atm-3: #55625a; --atm-4: #12171a;
 }
-/* Day: сигнали темніші, щоб текст станів тримав AA (≥ 4.5:1) на світлому склі */
-[data-theme="day"] { --signal-hot: #B3280A; --signal-ok: #096B39; --signal-warn: #745800; }
 [data-atmosphere="fog"] { --atm-1: #3b4a45; --atm-2: #1d2a2c; --atm-3: #55625a; --atm-4: #12171a; }
 [data-atmosphere="coast"] { --atm-1: #24465f; --atm-2: #0e1b2a; --atm-3: #c4713f; --atm-4: #0a1119; }
 [data-atmosphere="forest"] { --atm-1: #1c3a2c; --atm-2: #0b1a14; --atm-3: #2f5a44; --atm-4: #07100c; }
@@ -84,7 +111,6 @@
 @layer base {
   * { box-sizing: border-box; }
   html { background: var(--field); color-scheme: dark; -webkit-text-size-adjust: 100%; }
-  html[data-theme="day"] { color-scheme: light; }
   body {
     margin: 0; min-width: 320px; min-height: 100dvh; background: var(--field); color: var(--ink);
     font-family: var(--font-sans); font-size: 14px; line-height: 1.45; font-variant-numeric: tabular-nums;
@@ -94,10 +120,11 @@
   button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   button:disabled { cursor: not-allowed; }
   ::selection { background: var(--ink); color: var(--field); }
-  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-  .inverted :focus-visible { outline-color: var(--action-ink); }
-  .on-rail :focus-visible { outline-color: var(--rail-ink); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .inverted :focus-visible { outline-color: var(--action-ink); box-shadow: none; }
+  .on-rail :focus-visible { outline-color: var(--rail-ink); box-shadow: none; }
   :focus:not(:focus-visible) { outline: none; }
+  [data-theme="cobalt"] :focus-visible { box-shadow: 0 0 0 2px rgb(255 255 255 / 0.92); }
 }
 
 /* Один глобальний шар шуму на весь застосунок */
@@ -128,7 +155,9 @@ body::after {
   .cv-auto { content-visibility: auto; contain-intrinsic-size: auto 72px; }
 
   /* Привидні поверхні */
-  .ghost { position: relative; overflow: hidden; background: var(--sunken); }
+  /* Привид з'являється лише якщо завантаження триває понад 300 мс: до того місце зарезервоване, але нічого не видно */
+  .ghost { position: relative; overflow: hidden; background: var(--sunken); animation: ghost-appear 0.2s ease-out 0.3s backwards; }
+  @keyframes ghost-appear { from { opacity: 0; } }
   .ghost::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, var(--raised), transparent); animation: ghost 1.8s var(--ease-out) infinite; }
   @keyframes ghost { to { transform: translateX(100%); } }
 
@@ -138,7 +167,7 @@ body::after {
   .atmosphere .atm-blob { position: absolute; border-radius: 50%; filter: blur(80px); will-change: auto; }
   .atmosphere .atm-dither { mask-image: radial-gradient(circle at 50% 50%, #000 0.6px, transparent 0.9px); mask-size: 4px 4px; opacity: 0.35; }
   [data-atmosphere="road"] .atm-vignette { background: radial-gradient(120% 70% at 50% 120%, var(--atm-4) 30%, transparent 70%); }
-  html[data-theme="day"] .atm-grid { position: absolute; inset: 0; background: radial-gradient(circle, rgb(0 0 0 / 0.07) 1px, transparent 1.3px) 0 0 / 18px 18px; }
+  .atmosphere .atm-tint { position: absolute; inset: 0; background: var(--atm-tint); }
 }
 
 /* Скролбар: тонкий повзунок на прозорому треку. Firefox — стандартні scrollbar-*; Chromium/Safari — ::-webkit-scrollbar
@@ -153,6 +182,10 @@ body::after {
 }
 
 @media (max-width: 767px) { :root { --toast-bottom: 104px; } }
+
+/* Розділ, що знову стає видимим, лише коротко проявляється: без зсувів і розмиття */
+[data-pane][data-active="true"] { animation: pane-in 0.14s ease-out; }
+@keyframes pane-in { from { opacity: 0; } }
 
 /* Допоміжне */
 .hide-scrollbar { scrollbar-width: none; }

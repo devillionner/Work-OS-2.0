@@ -62,7 +62,7 @@ export function GoogleSignIn({ clientId }: { clientId: string }) {
       });
       const availableWidth = buttonRef.current.clientWidth || buttonRef.current.parentElement?.clientWidth || 320;
       window.google.accounts.id.renderButton(buttonRef.current, {
-        theme: document.documentElement.dataset.theme === 'day' ? 'outline' : 'filled_black',
+        theme: 'filled_black',
         size: 'large',
         width: Math.min(320, Math.max(200, Math.floor(availableWidth))),
         text: 'signin_with',

@@ -57,7 +57,7 @@ function ToastItem({ item, onDone }: { item: ToastItemData; onDone: (id: number)
     const element = node.current;
     if (!element) return;
     const mm = matchMotion((reduced) => {
-      gsap.fromTo(element, reduced ? { opacity: 0 } : { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: reduced ? 0.12 : 0.42 });
+      gsap.fromTo(element, reduced ? { opacity: 0 } : { y: 12, opacity: 0 }, { y: 0, opacity: 1, duration: reduced ? 0.12 : 0.24 });
     });
     const timer = window.setTimeout(close, item.duration ?? 4000);
     return () => { window.clearTimeout(timer); mm.revert(); };

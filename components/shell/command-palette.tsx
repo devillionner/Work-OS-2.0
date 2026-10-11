@@ -3,11 +3,11 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Command } from 'cmdk';
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
-import { CornerDownLeft, Monitor, Moon, Search, Sun } from 'lucide-react';
+import { CornerDownLeft, Search } from 'lucide-react';
 import { CREATE_ACTIONS } from '@/components/shell/create-menu';
 import { emitCommand } from '@/components/shell/command-bus';
 import { useSearchItems } from '@/components/shell/search-index';
-import { useTheme } from '@/components/shell/theme-provider';
+import { THEMES, useTheme } from '@/components/shell/theme-provider';
 import { VIEWS, type ViewKey } from '@/components/shell/views';
 import { Kbd } from '@/components/ui/kbd';
 import { unicodeSearchIncludes } from '@/lib/unicode-search';
@@ -31,17 +31,13 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: { open: boole
 
 function PaletteBody({ onClose, onNavigate }: { onClose: () => void; onNavigate: (view: ViewKey) => void }) {
   const [query, setQuery] = useState('');
-  const { setPreference } = useTheme();
+  const { theme, setTheme } = useTheme();
   const indexed = useSearchItems();
   const run = (action: () => void) => () => { onClose(); action(); };
 
   const views = VIEWS.filter((view) => unicodeSearchIncludes(view.label, query));
   const creates = CREATE_ACTIONS.filter((action) => unicodeSearchIncludes(action.label, query));
-  const themes = [
-    { key: 'night' as const, label: 'Тема: Ніч', icon: Moon },
-    { key: 'day' as const, label: 'Тема: День', icon: Sun },
-    { key: 'system' as const, label: 'Тема: Система', icon: Monitor },
-  ].filter((item) => unicodeSearchIncludes(item.label, query));
+  const themes = THEMES.map((item) => ({ key: item.value, label: `Тема: ${item.label}` })).filter((item) => unicodeSearchIncludes(item.label, query));
 
   const dynamic = useMemo(() => {
     if (query.trim().length < 2) return [] as Array<[string, typeof indexed]>;
@@ -72,7 +68,7 @@ function PaletteBody({ onClose, onNavigate }: { onClose: () => void; onNavigate:
             {items.map((item) => <Row key={item.id} onSelect={run(item.run)} hint={item.hint}>{item.label}</Row>)}
           </Group>
         ))}
-        {themes.length ? <Group heading="Вигляд">{themes.map((item) => <Row key={item.key} onSelect={run(() => setPreference(item.key))} icon={<item.icon aria-hidden="true" strokeWidth={1.5} />}>{item.label}</Row>)}</Group> : null}
+        {themes.length ? <Group heading="Вигляд">{themes.map((item) => <Row key={item.key} onSelect={run(() => setTheme(item.key))} hint={item.key === theme ? 'зараз' : undefined}>{item.label}</Row>)}</Group> : null}
       </Command.List>
     </Command>
   );

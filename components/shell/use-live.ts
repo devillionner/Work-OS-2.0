@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useSyncExternalStore } from 'react';
-import { subscribeLiveMessages, subscribeLiveStatus, type LiveMessage, type LiveStatus } from '@/lib/live-channel';
+import { useSyncExternalStore } from 'react';
+import { subscribeLiveStatus, type LiveStatus } from '@/lib/live-channel';
 
 const SERVER: LiveStatus = { connected: false, runnerConnected: null };
 const subscribers = new Set<() => void>();
@@ -25,11 +25,4 @@ function subscribe(listener: () => void) {
 /** Стан live-каналу (Durable Object) як зовнішній стор. */
 export function useLiveStatus(): LiveStatus {
   return useSyncExternalStore(subscribe, () => latest, () => SERVER);
-}
-
-/** Викликається на кожну вхідну подію каналу. */
-export function useLiveMessage(handler: (message: LiveMessage) => void) {
-  const ref = useRef(handler);
-  useEffect(() => { ref.current = handler; });
-  useEffect(() => subscribeLiveMessages((message) => ref.current(message)), []);
 }
