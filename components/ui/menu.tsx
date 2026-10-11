@@ -20,7 +20,7 @@ export function MenuContent({ children, className, align = 'end', side = 'bottom
 }
 
 export function MenuItem({ className, ...props }: MenuPrimitive.Item.Props) {
-  return <MenuPrimitive.Item className={cn('flex min-h-9 cursor-pointer select-none items-center gap-2.5 rounded-field px-3 text-sm text-ink outline-none data-[highlighted]:bg-raised data-[disabled]:opacity-45 [&_svg]:size-4 [&_svg]:text-ink-2', className)} {...props} />;
+  return <MenuPrimitive.Item className={cn('flex min-h-9 [@media(pointer:coarse)]:min-h-11 cursor-pointer select-none items-center gap-2.5 rounded-field px-3 text-sm text-ink outline-none data-[highlighted]:bg-raised data-[disabled]:opacity-45 [&_svg]:size-4 [&_svg]:text-ink-2', className)} {...props} />;
 }
 
 export function MenuSeparator({ className }: { className?: string }) {

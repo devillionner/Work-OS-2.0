@@ -89,7 +89,7 @@ export function ViberCard({ item }: { item: Item }) {
         <h3 className="m-0 text-sm font-medium">Viber safe-mode · «Мої нотатки»</h3>
         {job ? <Badge tone={job.status === 'sent' ? 'ok' : job.status === 'failed' ? 'hot' : job.status === 'cancelled' ? 'neutral' : 'warn'}>{viberJobStatus(job.status)}</Badge> : null}
       </div>
-      <p className="m-0 text-xs text-ink-2">Безпечний тест executor: не створює факт публікації й не впливає на «Сьогодні», «Звіти» чи «Аналітику». Реальні Viber-чати тут недоступні.</p>
+      <p className="m-0 text-xs text-ink-2">Тест надсилає матеріал лише в «Мої нотатки» і не рахується як публікація.</p>
       <div className="flex flex-wrap gap-2">
         {item.ukText.trim() ? <Button variant="outline" size="sm" disabled={busy || waiting} onClick={() => void run('uk')}>Тест UA</Button> : null}
         {item.ruText.trim() ? <Button variant="outline" size="sm" disabled={busy || waiting} onClick={() => void run('ru')}>Тест RU</Button> : null}

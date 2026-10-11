@@ -147,7 +147,7 @@ export function RestorePanel({ open, onOpenChange }: { open: boolean; onOpenChan
                 <div className="flex flex-col gap-2">
                   <div className="flex items-baseline justify-between gap-3"><p className="m-0 text-sm font-medium">{restoring ? 'Відновлюємо…' : job.status === 'failed' ? 'Можна безпечно продовжити' : 'Відновлення підготовлено'}</p><span className="font-mono text-xs text-ink-2">{job.complete} із {job.total}</span></div>
                   <progress className="sr-only" aria-label="Прогрес відновлення" max={100} value={job.percent} />
-                  <div aria-hidden="true" className="h-1 overflow-hidden rounded-full bg-line"><div className="h-full origin-left rounded-full bg-ink" style={{ transform: `scaleX(${job.percent / 100})`, transition: 'transform 0.4s var(--ease-out)' }} /></div>
+                  <div aria-hidden="true" className="h-1 overflow-hidden rounded-full bg-line"><div className="h-full origin-left rounded-full bg-ink" style={{ transform: `scaleX(${job.percent / 100})`, transition: 'transform 0.32s var(--ease-out)' }} /></div>
                   <p className="m-0 text-xs text-ink-2">{job.percent}% · {job.phase}</p>
                 </div>
               ) : null}

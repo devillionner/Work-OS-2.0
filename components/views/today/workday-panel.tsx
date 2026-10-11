@@ -180,10 +180,9 @@ export function WorkdayPanel({ greeting, dateLabel }: { greeting: string; dateLa
           {workday?.status === 'ended' && workday.workDate === currentToday ? <Button variant="outline" tone="danger" size="xl" disabled={busy} onClick={() => setResetOpen(true)}><Trash2 aria-hidden="true" strokeWidth={1.5} />Скинути день</Button> : null}
         </div>
 
-        {showPlan ? (
+        {showPlan && workday?.plan ? (
           <p className="m-0 text-[13px] text-ink-2">
-            Записи <span className="font-mono text-ink">{plan.dailyGoal}</span> · Місячна ціль <span className="font-mono text-ink">{plan.monthlyGoal}</span> · Фокус <span className="text-ink">{plan.focusDirections.length ? plan.focusDirections.join(', ') : 'усі напрямки'}</span>
-            {' · '}{workday?.plan ? `зафіксовано на старті о ${formatTime(workday.plan.createdAt)}` : 'цілі зафіксуються на старті й не зміняться заднім числом'}
+            Ціль дня зафіксовано о {formatTime(workday.plan.createdAt)}: записи <span className="font-mono text-ink">{plan.dailyGoal}</span> · місяць <span className="font-mono text-ink">{plan.monthlyGoal}</span> · <span className="text-ink">{plan.focusDirections.length ? plan.focusDirections.join(', ') : 'усі напрямки'}</span>
           </p>
         ) : null}
       </div>

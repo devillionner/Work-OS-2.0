@@ -41,7 +41,7 @@ export function Tile({ label, value, format, hint, icon: Icon, progress, delta, 
             <>
               <progress className="sr-only" aria-label={label} max={100} value={Math.round(Math.min(1, progress.value) * 100)} />
               <div aria-hidden="true" className="h-0.5 overflow-hidden rounded-full bg-line">
-                <div className="h-full origin-left rounded-full" style={{ transform: `scaleX(${Math.max(0, Math.min(1, progress.value))})`, background: progress.tone === 'ok' ? 'var(--signal-ok)' : progress.tone === 'warn' ? 'var(--signal-warn)' : progress.tone === 'hot' ? 'var(--signal-hot)' : 'var(--ink)', transition: 'transform 0.6s var(--ease-out)' }} />
+                <div className="h-full origin-left rounded-full" style={{ transform: `scaleX(${Math.max(0, Math.min(1, progress.value))})`, background: progress.tone === 'ok' ? 'var(--signal-ok)' : progress.tone === 'warn' ? 'var(--signal-warn)' : progress.tone === 'hot' ? 'var(--signal-hot)' : 'var(--ink)', transition: 'transform 0.32s var(--ease-out)' }} />
               </div>
             </>
           ) : null}

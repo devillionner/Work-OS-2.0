@@ -137,9 +137,8 @@ export default function ReportsView() {
       </Surface>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-ink-2">
-        <a className="underline-offset-4 hover:text-ink hover:underline" href={MANAGER_SCHEDULE_URL} target="_blank" rel="noopener noreferrer">Графік керівника</a>
-        <a className="underline-offset-4 hover:text-ink hover:underline" href={ADMIN_REPORT_FORM_URL} target="_blank" rel="noopener noreferrer">Форма адміністраторів</a>
-        <span>Форма відкривається вручну — Work OS не відправляє її автоматично.</span>
+        <a className="inline-flex items-center underline-offset-4 hover:text-ink hover:underline [@media(pointer:coarse)]:min-h-11" href={MANAGER_SCHEDULE_URL} target="_blank" rel="noopener noreferrer">Графік керівника</a>
+        <a className="inline-flex items-center underline-offset-4 hover:text-ink hover:underline [@media(pointer:coarse)]:min-h-11" href={ADMIN_REPORT_FORM_URL} target="_blank" rel="noopener noreferrer">Форма адміністраторів</a>
       </div>
 
       {reminder?.pending ? (

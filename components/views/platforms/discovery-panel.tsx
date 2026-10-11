@@ -482,7 +482,7 @@ export function DiscoveryPanel({
       <Surface variant="sunken" radius="inner" className="flex flex-col gap-3 p-4">
         <div className="flex items-baseline gap-2"><strong className="font-mono text-[32px] font-normal leading-none">{displayedTargetCount}</strong><span className="text-sm text-ink-2">із {displayedGoal} цільових чатів</span></div>
         <progress className="sr-only" max={100} value={progressPercent} aria-label="Прогрес до мети" />
-        <div aria-hidden="true" className="h-1 overflow-hidden rounded-full bg-line"><div className="h-full origin-left rounded-full bg-ink" style={{ transform: `scaleX(${progressPercent / 100})`, transition: 'transform 0.5s var(--ease-out)' }} /></div>
+        <div aria-hidden="true" className="h-1 overflow-hidden rounded-full bg-line"><div className="h-full origin-left rounded-full bg-ink" style={{ transform: `scaleX(${progressPercent / 100})`, transition: 'transform 0.32s var(--ease-out)' }} /></div>
         <p className="m-0 flex items-start gap-2 text-sm"><i aria-hidden="true" className={cn('mt-1.5 size-2 shrink-0 rounded-full', autonomousRunning || pausing ? 'bg-ok' : 'bg-line-strong')} /><span className="min-w-0 break-words">{runActivity}</span></p>
         <p className="m-0 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
           <span>В роботі <b className="font-mono font-normal text-ink">{localQueued + localManualReview}</b></span>

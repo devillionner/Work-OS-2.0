@@ -102,8 +102,8 @@ export default function TrendChart({ points, previous, previousWhole, periodLabe
               <XAxis dataKey="label" tickLine={false} axisLine={false} tick={AXIS_TICK} minTickGap={32} tickMargin={8} />
               <YAxis tickLine={false} axisLine={false} tick={AXIS_TICK} width={40} allowDecimals={false} />
               <Tooltip cursor={{ stroke: 'var(--line-strong)' }} content={(props) => <ChartTooltip active={props.active} row={props.payload?.[0]?.payload as Row | undefined} />} />
-              {previous ? <Line dataKey="previous" type="monotone" stroke="var(--ink-2)" strokeWidth={1.5} strokeDasharray="4 4" dot={false} activeDot={false} isAnimationActive={!reduced} animationDuration={700} /> : null}
-              <Area dataKey="current" type="monotone" stroke="var(--ink)" strokeWidth={1.5} fill={`url(#${hatch})`} dot={false} activeDot={{ r: 4, fill: 'var(--ink)', stroke: 'var(--field)', strokeWidth: 2 }} isAnimationActive={!reduced} animationDuration={700} />
+              {previous ? <Line dataKey="previous" type="monotone" stroke="var(--ink-2)" strokeWidth={1.5} strokeDasharray="4 4" dot={false} activeDot={false} isAnimationActive={!reduced} animationDuration={320} /> : null}
+              <Area dataKey="current" type="monotone" stroke="var(--ink)" strokeWidth={1.5} fill={`url(#${hatch})`} dot={false} activeDot={{ r: 4, fill: 'var(--ink)', stroke: 'var(--field)', strokeWidth: 2 }} isAnimationActive={!reduced} animationDuration={320} />
             </ComposedChart>
           </ResponsiveContainer>
         </figure>

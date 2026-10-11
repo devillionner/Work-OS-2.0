@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
-import { gsap, useGSAP } from '@/components/motion/gsap';
+import { gsap, prefersReducedMotion, useGSAP } from '@/components/motion/gsap';
 import { Draggable } from '@/components/motion/draggable';
 import { Flip } from '@/components/motion/flip';
 import { Avatar } from '@/components/ui/avatar';
@@ -50,7 +50,7 @@ export function LeadBoard({ leads, selectedId, canDrag, onOpen, onCreate, onMove
     if (!flip.current) return;
     const state = flip.current;
     flip.current = null;
-    Flip.from(state, { duration: 0.24, ease: 'power3.out' });
+    Flip.from(state, { duration: prefersReducedMotion() ? 0.01 : 0.24, ease: 'power3.out' });
   });
 
   const capture = () => {
@@ -68,7 +68,7 @@ export function LeadBoard({ leads, selectedId, canDrag, onOpen, onCreate, onMove
       zIndexBoost: true,
       dragClickables: true,
       minimumMovement: 6,
-      onPress: () => { gsap.to(card, { scale: 1.02, duration: 0.16 }); card.classList.add('shadow-float'); },
+      onPress: () => { gsap.to(card, { scale: prefersReducedMotion() ? 1 : 1.02, duration: 0.16 }); card.classList.add('shadow-float'); },
       onDrag: function () {
         clearOver();
         const column = columnAt(this.pointerX, this.pointerY);
@@ -81,7 +81,7 @@ export function LeadBoard({ leads, selectedId, canDrag, onOpen, onCreate, onMove
         clearOver();
         const leadId = card.dataset.leadId ?? '';
         const from = card.dataset.stage ?? '';
-        if (!target || target === from) { gsap.to(card, { x: 0, y: 0, duration: 0.24, ease: 'expo.out' }); return; }
+        if (!target || target === from) { gsap.to(card, { x: 0, y: 0, duration: prefersReducedMotion() ? 0.01 : 0.24, ease: 'expo.out' }); return; }
         capture();
         gsap.set(card, { x: 0, y: 0, rotation: 0, scale: 1 });
         setOverrides((current) => ({ ...current, [leadId]: target }));

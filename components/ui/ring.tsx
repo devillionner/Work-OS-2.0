@@ -34,7 +34,7 @@ export function Ring({ value, tone = 'ink', size = 56, stroke = 4, label, track 
     if (!node) return;
     const mm = matchMotion((reduced) => {
       if (reduced) { gsap.set(node, { strokeDashoffset: 1 - ratio }); return; }
-      gsap.to(node, { strokeDashoffset: 1 - ratio, duration: 0.5, ease: 'expo.out' });
+      gsap.to(node, { strokeDashoffset: 1 - ratio, duration: 0.32, ease: 'expo.out' });
     });
     return () => mm.revert();
   }, { dependencies: [ratio] });

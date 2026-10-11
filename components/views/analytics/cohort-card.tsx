@@ -77,7 +77,7 @@ export function CohortCard({ cohort, className }: { cohort: AnalyticsData['cohor
   const shownChats = expanded ? chatRows : chatRows.slice(0, CHAT_LIMIT);
 
   return (
-    <SectionCard className={className} title="Що сталося з відгуками" note="Когорта лідів за датою отримання відгуку; пізніші записи й уроки лишаються за початковим чатом-джерелом.">
+    <SectionCard className={className} title="Що сталося з відгуками" note="Ліди за датою відгуку; записи й уроки лишаються за початковим чатом.">
       {totals.leads === 0 ? (
         <EmptyState text="У цьому періоді ще немає відгуків — когорти з’являться, коли надійдуть перші ліди." />
       ) : (

@@ -44,11 +44,11 @@ export function SearchField({ value, onValueChange, hotkey = true, wrapperClassN
         aria-label={props['aria-label'] ?? placeholder}
         onChange={(event) => onValueChange(event.target.value)}
         onKeyDown={(event) => { if (event.key === 'Escape' && value) { event.stopPropagation(); onValueChange(''); } }}
-        className={cn('h-10 w-full min-w-0 rounded-full border border-line bg-sunken pl-10 pr-12 text-sm text-ink outline-none transition-colors duration-200 placeholder:text-ink-3 hover:border-line-strong focus-visible:border-line-strong [&::-webkit-search-cancel-button]:hidden', className)}
+        className={cn('h-10 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:text-base w-full min-w-0 rounded-full border border-line bg-sunken pl-10 pr-12 text-sm text-ink outline-none transition-colors duration-200 placeholder:text-ink-3 hover:border-line-strong focus-visible:border-line-strong [&::-webkit-search-cancel-button]:hidden', className)}
         {...props}
       />
       {value ? (
-        <button type="button" aria-label="Очистити пошук" onClick={() => { onValueChange(''); ref.current?.focus(); }} className="absolute right-2.5 inline-flex size-7 items-center justify-center rounded-full text-ink-2 hover:bg-raised hover:text-ink">
+        <button type="button" aria-label="Очистити пошук" onClick={() => { onValueChange(''); ref.current?.focus(); }} className="absolute right-2.5 inline-flex size-7 [@media(pointer:coarse)]:size-10 items-center justify-center rounded-full text-ink-2 hover:bg-raised hover:text-ink">
           <X aria-hidden="true" strokeWidth={1.5} className="size-3.5" />
         </button>
       ) : hotkey ? <Kbd className="pointer-events-none absolute right-3.5">/</Kbd> : null}

@@ -126,7 +126,7 @@ export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onRe
       </div>
 
       {reply ? (
-        <EditDialog title="Перша відповідь" description="Фактичний час першої відповіді. Внутрішні повідомлення CRM не фіксують його автоматично." close={() => setReply(false)}>
+        <EditDialog title="Перша відповідь" description="Фактичний час першої відповіді." close={() => setReply(false)}>
           <SaveForm cancel={() => setReply(false)} save={async (f) => { await mutate('first_reply', { at: epochValue(f, 'at') }); setReply(false); }}>
             <Field label="Дата й час (Київ)" name="at" type="datetime-local" value={datetimeValue(now)} required />
           </SaveForm>

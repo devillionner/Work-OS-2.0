@@ -94,7 +94,7 @@ function PublicationForm({ date, enabled }: { date: string; enabled: boolean }) 
     try {
       await post('/api/reports/publication-correction', { date, chatId: chat.id, telegramAccountId: accountId || null, advertisementId: advertisementId || null, language: language || null }, 'Не вдалося додати історичну публікацію.');
       announceDataChange('all');
-      toast.push({ message: `Публікацію за ${formatDate(date)} додано. Підсумки синхронізуються автоматично.`, tone: 'ok' });
+      toast.push({ message: `Публікацію за ${formatDate(date)} додано.`, tone: 'ok' });
       setChatId(''); setAdvertisementId(''); setLanguage('');
       setAttempt((value) => value + 1);
     } catch (reason) {
@@ -238,7 +238,7 @@ function ChatForm({ date, enabled }: { date: string; enabled: boolean }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <Note>Додавай чат лише якщо він реально був приєднаний {formatDate(date)}. Work OS збереже підтверджену дату для звіту, але не вигадуватиме точний час і не змінюватиме поточний прогрів Telegram. Для Telegram за сьогодні 6-годинне очікування рахується від моменту внесення.</Note>
+      <Note>Додавай чат лише якщо він реально був приєднаний {formatDate(date)}. Для Telegram за сьогодні 6-годинне очікування рахується від моменту внесення.</Note>
       <Field label="Посилання" htmlFor={`${id}-link`}>
         <Input id={`${id}-link`} value={link} onChange={(event) => setLink(event.target.value)} maxLength={2048} placeholder="https://t.me/…" autoComplete="off" />
       </Field>

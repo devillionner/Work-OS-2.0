@@ -81,7 +81,7 @@ export function PulseRail({ rings, onOpenSettings }: { rings: PulseRing[]; onOpe
             );
           })}
         </ul>
-        <button type="button" aria-label="Швидкі налаштування" onClick={onOpenSettings} className="inline-grid size-10 place-items-center rounded-full text-rail-ink-2 transition-colors hover:bg-rail-ink/10 active:scale-95">
+        <button type="button" aria-label="Швидкі налаштування" onClick={onOpenSettings} className="inline-grid size-10 [@media(pointer:coarse)]:size-11 place-items-center rounded-full text-rail-ink-2 transition-colors hover:bg-rail-ink/10 active:scale-95">
           <Settings2 aria-hidden="true" strokeWidth={1.5} className="size-5" />
         </button>
       </div>

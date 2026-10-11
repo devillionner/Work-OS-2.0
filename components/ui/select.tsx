@@ -69,7 +69,7 @@ export function Select({ id, name, value, defaultValue, disabled, required, clas
           id={id}
           aria-label={ariaLabel}
           data-slot="select"
-          className={cn(fieldClassName, 'flex h-10 cursor-pointer items-center justify-between gap-2 rounded-full pl-4 pr-3 text-left data-[popup-open]:border-line-strong', className)}
+          className={cn(fieldClassName, 'flex h-10 [@media(pointer:coarse)]:h-11 cursor-pointer items-center justify-between gap-2 rounded-full pl-4 pr-3 text-left data-[popup-open]:border-line-strong', className)}
         >
           <SelectPrimitive.Value className="min-w-0 truncate" />
           <SelectPrimitive.Icon className="flex shrink-0 text-ink-2 transition-transform duration-150 data-[popup-open]:rotate-180">

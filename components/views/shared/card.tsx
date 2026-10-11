@@ -33,7 +33,7 @@ export function BarRow({ label, sub, value, meta, ratio, faint = false }: { labe
         {meta ? <p className="m-0 mt-0.5 font-mono text-xs text-ink-2">{meta}</p> : null}
       </div>
       <div aria-hidden="true" className="col-span-2 h-1 overflow-hidden rounded-full bg-line">
-        <div className={cn('h-full origin-left rounded-full', faint ? 'bg-ink-3' : 'bg-ink')} style={{ transform: `scaleX(${clamped})`, transition: 'transform 0.6s var(--ease-out)' }} />
+        <div className={cn('h-full origin-left rounded-full', faint ? 'bg-ink-3' : 'bg-ink')} style={{ transform: `scaleX(${clamped})`, transition: 'transform 0.32s var(--ease-out)' }} />
       </div>
     </li>
   );

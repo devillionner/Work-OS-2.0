@@ -38,7 +38,7 @@ export function FunnelCard({ data, className }: { data: AnalyticsData; className
               <p className="m-0 truncate text-sm">{step.label}</p>
               <p className="m-0 text-right font-mono text-[15px]">{value}</p>
               <div aria-hidden="true" className="col-span-2 h-1 overflow-hidden rounded-full bg-line">
-                <div className="h-full origin-left rounded-full bg-ink" style={{ transform: `scaleX(${value / peak})`, transition: 'transform 0.6s var(--ease-out)' }} />
+                <div className="h-full origin-left rounded-full bg-ink" style={{ transform: `scaleX(${value / peak})`, transition: 'transform 0.32s var(--ease-out)' }} />
               </div>
               <p className={cn('col-span-2 m-0 text-xs', below ? 'text-hot' : 'text-ink-2')}>
                 {rate === null ? step.unit : `${analyticsPercentLabel(rate, base)} ${step.unit}${target > 0 ? ` · ціль ${target}%` : ''}`}
@@ -57,7 +57,6 @@ export function FunnelCard({ data, className }: { data: AnalyticsData; className
             </div>
           ))}
         </dl>
-        <p className="m-0 text-xs text-ink-2">Події уроків за тим самим періодом; перенесення не створює нового запису.</p>
       </div>
     </SectionCard>
   );

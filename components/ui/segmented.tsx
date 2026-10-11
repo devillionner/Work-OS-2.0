@@ -46,7 +46,7 @@ export function Segmented<T extends string>({ value, onValueChange, items, label
             value={item.value}
             className={cn(
               'relative z-10 inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full font-medium text-ink-2 transition-colors duration-200 hover:text-ink data-[active]:text-action-ink',
-              size === 'sm' ? 'h-7 px-3 text-xs' : 'h-8 px-4 text-[13px]',
+              size === 'sm' ? 'h-7 px-3 text-xs [@media(pointer:coarse)]:h-9' : 'h-8 px-4 text-[13px] [@media(pointer:coarse)]:h-10',
             )}
           >
             {item.label}

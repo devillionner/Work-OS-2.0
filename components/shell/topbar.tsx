@@ -45,7 +45,7 @@ export function Topbar({ title, phone, user, signOutPath, enabledPlatforms, view
 
   const userMenu = (
     <Menu>
-      <MenuTrigger render={<button type="button" aria-label="Обліковий запис" className="inline-flex rounded-full active:scale-95" />}>
+      <MenuTrigger render={<button type="button" aria-label="Обліковий запис" className="inline-flex rounded-full active:scale-95 [@media(pointer:coarse)]:p-0.5" />}>
         <Avatar name={user.displayName} size={40} />
       </MenuTrigger>
       <MenuContent align="end">
@@ -62,7 +62,7 @@ export function Topbar({ title, phone, user, signOutPath, enabledPlatforms, view
     return (
       <>
         <div ref={sentinel} aria-hidden="true" className="h-px" />
-        <header className={cn('sticky top-0 z-20 flex items-center justify-between gap-3 px-4 transition-[padding,background-color] duration-200', compact ? 'glass-strong frost h-14' : 'h-[72px] pt-[env(safe-area-inset-top)]')}>
+        <header className={cn('sticky top-0 z-20 flex items-center justify-between gap-3 px-4 transition-[padding,background-color] duration-200', compact ? 'glass-strong frost h-[calc(56px+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)]' : 'h-[calc(72px+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)]')}>
           <div className="min-w-0">
             <h1 className={cn('m-0 truncate font-medium tracking-[-0.03em]', compact ? 'text-[20px]' : 'text-[28px] leading-tight')}>{title}</h1>
           </div>
