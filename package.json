@@ -1,6 +1,6 @@
 {
   "name": "work-os-2",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -12,7 +12,7 @@
     "deploy": "npm run build && wrangler deploy --config dist/server/wrangler.json",
     "deploy:staging": "node scripts/deploy-staging.mjs",
     "lint": "oxlint --threads=1 app components db lib scripts tests",
-    "typecheck": "tsc -p tsconfig.chat-discovery.json --pretty false",
+    "typecheck": "tsc -p tsconfig.chat-discovery.json --pretty false && tsc -p tsconfig.frontend.json --pretty false",
     "verify": "npm run build",
     "verify:local": "npm run lint && npm run typecheck && npm run test:full && npm run build",
     "test": "node --experimental-strip-types --test --test-concurrency=16 tests/*.test.mjs",

@@ -125,7 +125,7 @@ export function LeadBoard({ leads, selectedId, canDrag, onOpen, onCreate, onMove
                       </span>
                     </button>
                     {lead.nextAction ? <p className="m-0 line-clamp-1 text-xs text-ink-2">{lead.nextAction}</p> : null}
-                    <div className="flex items-center justify-between gap-2 text-[11px] text-ink-3">
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-ink-2">
                       <span>{labels[lead.platform] ?? lead.platform}{lead.qualification ? ` · ${lead.qualification}` : ''}</span>
                       <span className="font-mono">{agoLabel(lead.responseDate)}</span>
                     </div>

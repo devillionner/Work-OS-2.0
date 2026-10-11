@@ -82,7 +82,7 @@ export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onRe
 
       <ol className="m-0 flex list-none gap-1 overflow-x-auto p-0 hide-scrollbar" aria-label="Етапи воронки">
         {FUNNEL_STAGES.map((stage, index) => (
-          <li key={stage} aria-current={stage === lead.funnelStage ? 'step' : undefined} className={cn('flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs', stage === lead.funnelStage ? 'border-transparent bg-action text-action-ink' : stageIndex > index ? 'border-line-strong text-ink' : 'border-line text-ink-3')}>
+          <li key={stage} aria-current={stage === lead.funnelStage ? 'step' : undefined} className={cn('flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs', stage === lead.funnelStage ? 'border-transparent bg-action text-action-ink' : stageIndex > index ? 'border-line-strong text-ink' : 'border-line text-ink-2')}>
             <span className="font-mono">{index + 1}</span>{labels[stage]}
           </li>
         ))}

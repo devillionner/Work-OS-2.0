@@ -123,7 +123,7 @@ export function SelectedChats({ view, loading, accounts, onImported, onAdded, on
               const last = formatLast(chat.last);
               return (
                 <li key={chat.link} className="cv-auto flex items-center gap-3 rounded-inner border border-line bg-sunken px-4 py-3">
-                  <span className="w-8 shrink-0 font-mono text-xs text-ink-3">{items.indexOf(chat) + 1}</span>
+                  <span className="w-8 shrink-0 font-mono text-xs text-ink-2">{items.indexOf(chat) + 1}</span>
                   <div className="min-w-0 flex-1">
                     <p className="m-0 truncate text-sm font-medium">{chat.title}</p>
                     <a href={chat.link} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 truncate font-mono text-[11px] text-ink-2 underline-offset-4 hover:underline">{chat.link.replace(/^https:\/\//, '')}<ExternalLink aria-hidden="true" strokeWidth={1.5} className="size-3 shrink-0" /></a>
