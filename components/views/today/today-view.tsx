@@ -7,7 +7,6 @@ import { KpiStrip } from '@/components/views/today/kpi-strip';
 import { LeadQueue } from '@/components/views/today/lead-queue';
 import { PlatformBreakdown } from '@/components/views/today/platform-breakdown';
 import { ScheduleTimeline } from '@/components/views/today/schedule-timeline';
-import { TimersCard } from '@/components/views/today/timers-card';
 import { WorkdayPanel } from '@/components/views/today/workday-panel';
 import { dateLabel, firstName, greeting } from '@/components/views/shared/pace';
 import { GoalsPanel } from '@/components/views/shared/goals-panel';
@@ -18,10 +17,7 @@ export default function TodayView() {
   const [goalsOpen, setGoalsOpen] = useState(false);
   return (
     <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-3 pb-6 @4xl:gap-4">
-      <div className="grid grid-cols-1 gap-3 @4xl:grid-cols-12 @4xl:gap-4">
-        <div className="@4xl:col-span-8"><WorkdayPanel greeting={`${greeting()}, ${firstName(user.displayName)}`} dateLabel={dateLabel()} /></div>
-        <div className="@4xl:col-span-4"><TimersCard /></div>
-      </div>
+      <WorkdayPanel greeting={`${greeting()}, ${firstName(user.displayName)}`} dateLabel={dateLabel()} />
       <KpiStrip />
       <div className="grid grid-cols-1 gap-3 @4xl:grid-cols-12 @4xl:gap-4">
         <div className="@4xl:col-span-4"><FocusCard onOpenGoals={() => setGoalsOpen(true)} /></div>
