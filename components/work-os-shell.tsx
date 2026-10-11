@@ -208,7 +208,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
                 <div className="glass frost finish relative flex min-w-0 flex-1 overflow-hidden rounded-panel">
                   <div className="flex min-w-0 flex-1 flex-col">
                     {topbar}
-                    <main ref={scroller} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-8 pt-1">{panes}</main>
+                    <main ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-8 pt-1">{panes}</main>
                   </div>
                   {wide ? <InspectorColumn onElement={setAsideElement} /> : null}
                 </div>
