@@ -1,15 +1,1 @@
-# Work OS 2.0
-
-- Read `docs/PRODUCT_REQUIREMENTS.md`, `docs/ROADMAP.md` and `docs/DEVELOPMENT_STATUS.md` before product changes. Latest direct user instructions take precedence.
-- Work directly on `main`; make small verified commits. Run `npm run verify:local` (lint, typecheck, full tests, build) before pushing. `npm run verify` is the existing build-only staging command. Push is not deployment.
-- Prototype Checker at `C:/WorkProjects/Prototype-Checker` and its GitHub repository are read-only references. Do not modify, deploy or migrate that project.
-- Run all automated tests, migration rehearsals, restore drills and synthetic performance checks locally with Miniflare/local D1. Do not use remote D1 as a test fixture. Never add Cloudflare credentials to CI.
-- No routine/daily legacy resync. Final synchronized transfer happens only after functional parity and direct user confirmation. Never clear production D1, delete production data or start a legacy migration without direct confirmation.
-- Production deployment is a separate controlled release after local verification; production migrations require their own explicit authorization. A CLI flag is not user authorization.
-- Finish the reliable manual workflow before AI, advertisement generation or autoposting. Keep these later phases out of the daily UI.
-- Record implementation gaps honestly: code, a successful local test and a deployed/accepted feature are different evidence.
-- D1 budget (operator decision 2026-10-03): an ordinary working day on staging reads at most 100 000 D1 rows; an idle owner reads 0. After every push that touches D1, run `node scripts/d1-insights.mjs` (the one allowed read-only remote command) once `/api/build` shows the new SHA, and record the numbers in `docs/DEVELOPMENT_STATUS.md`.
-- Do not poll D1 on a timer. Cross-device/process changes travel over the owner live channel (Durable Object `workers/owner-channel.js`, reached via `/api/live`; browser client `lib/live-channel.ts`). A timer poll is allowed only as a fallback while the channel is down. Every WebSocket client must send the DO's auto-response ping (`{"type":"ping"}`) at most every 60 s (Cloudflare drops idle sockets after 100 s) and reconnect on both `error` and `close`.
-- The local runner works only on commands: it holds one WebSocket to the DO and gets tasks pushed; it has no D1 access and no part in site data sync. A push redeploys the Worker/DO but never updates the runner on the operator's PC — say so whenever a change needs a runner restart.
-- Heavy SQL lives in `lib/` with a rows-read test. The staging pipeline (`scripts/deploy-staging.mjs`) applies pending additive migrations to staging D1 by itself; production migrations are never part of a push.
-- D1 reads are a hard daily quota. Anything polled on a timer (runner loops, page refresh intervals) must stay bounded in rows read regardless of data size: add or extend a case in `tests/d1-poll-budget.test.mjs`, and never poll an owner-wide scan more often than its server-side throttle allows. Static SELECT/UPDATE queries must plan through an index (`tests/d1-query-plan-audit.test.mjs`); when joining `json_each(...)` to a table, use `CROSS JOIN` so the list drives index lookups.
+Єдине джерело правил — CLAUDE.md. Прочитай його повністю перед будь-якою зміною.
