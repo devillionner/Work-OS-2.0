@@ -5,7 +5,7 @@ import { Sparkline } from '@/components/ui/sparkline';
 import { Tile, type TileDelta } from '@/components/ui/tile';
 import { analyticsPercentLabel } from '@/lib/analytics-rate';
 import { goalRatio } from '@/components/views/shared/pace';
-import { sample, type AnalyticsData, type MetricKey, type Totals } from './types';
+import { sample, type AnalyticsData, type MetricKey, type PreviousWindow, type Totals } from './types';
 
 type Kpi = { key: MetricKey; label: string; icon: LucideIcon; rate: keyof Targets; base: string; from: keyof Totals };
 type Targets = AnalyticsData['targets'];
@@ -29,7 +29,7 @@ export function deltaOf(current: number, previous: number | undefined): TileDelt
 }
 
 /** Чотири показники воронки: число, дельта до попереднього періоду, відсоток від попереднього кроку й ціль. */
-export function KpiRow({ data, previous, onOpen }: { data: AnalyticsData; previous: AnalyticsData | null; onOpen: (metric: MetricKey) => void }) {
+export function KpiRow({ data, previous, onOpen }: { data: AnalyticsData; previous: PreviousWindow | null; onOpen: (metric: MetricKey) => void }) {
   return (
     <section aria-label="Показники періоду" className="grid grid-cols-2 gap-3 @4xl:grid-cols-4 @4xl:gap-4">
       {KPIS.map((kpi) => {

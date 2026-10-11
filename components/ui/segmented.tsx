@@ -30,7 +30,7 @@ export function Segmented<T extends string>({ value, onValueChange, items, label
   }, [value]);
 
   return (
-    <TabsPrimitive.Root value={value} onValueChange={(next) => onValueChange(next as T)}>
+    <TabsPrimitive.Root className="min-w-0 max-w-full" value={value} onValueChange={(next) => onValueChange(next as T)}>
       <TabsPrimitive.List
         ref={list}
         aria-label={label}

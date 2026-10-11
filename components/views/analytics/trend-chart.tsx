@@ -60,13 +60,14 @@ function Legend({ hasPrevious }: { hasPrevious: boolean }) {
 }
 
 /** Головний графік: поточний період — суцільна лінія зі штрихуванням під нею, попередній — пунктир. */
-export default function TrendChart({ points, previous, periodLabel, className }: { points: readonly TrendPoint[]; previous: readonly TrendPoint[] | null; periodLabel: string; className?: string }) {
+export default function TrendChart({ points, previous, previousWhole, periodLabel, className }: { points: readonly TrendPoint[]; previous: readonly TrendPoint[] | null; previousWhole: { label: string; trends: readonly TrendPoint[] } | null; periodLabel: string; className?: string }) {
   const [series, setSeries] = useState<SeriesKey>('publications');
   const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
   const hatch = `hatch-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   const rows = useMemo(() => buildRows(points, previous, series), [points, previous, series]);
   const total = rows.reduce((sum, row) => sum + row.current, 0);
   const previousTotal = previous ? rows.reduce((sum, row) => sum + (row.previous ?? 0), 0) : null;
+  const wholeTotal = previousWhole ? previousWhole.trends.reduce((sum, point) => sum + point[series], 0) : null;
   const peak = Math.max(0, ...rows.map((row) => row.current));
   const label = SERIES.find((item) => item.value === series)?.label ?? '';
   const summary = `${label}: ${periodLabel}, усього ${total}${previousTotal !== null ? `, попередній період ${previousTotal}` : ''}, найбільше значення ${peak}`;
@@ -83,6 +84,7 @@ export default function TrendChart({ points, previous, periodLabel, className }:
         <p className="m-0 flex items-baseline gap-3 text-sm text-ink-2">
           <span><span className="font-mono text-[28px] leading-none tracking-[-0.03em] text-ink">{total}</span> разом</span>
           {previousTotal !== null ? <span>було <span className="font-mono text-ink">{previousTotal}</span></span> : null}
+          {previousWhole && wholeTotal !== null ? <span className="text-xs">Весь {previousWhole.label}: <span className="font-mono text-ink">{wholeTotal}</span></span> : null}
         </p>
       </div>
       {total === 0 && !previousTotal ? (

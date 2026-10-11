@@ -18,7 +18,7 @@ import { KpiRow } from './kpi-row';
 import { MetricPanel } from './metric-panel';
 import { PlatformsCard } from './platforms-card';
 import { SubjectsCard } from './subjects-card';
-import { currentDate, formatRange, PERIODS, plural, previousRange, type AnalyticsData, type AnalyticsPeriod, type MetricKey } from './types';
+import { comparisonWindow, currentDate, formatRange, humanRange, PERIODS, plural, sliceComparison, type AnalyticsData, type AnalyticsPeriod, type MetricKey } from './types';
 import { useRemote } from '@/components/views/shared/use-remote';
 
 // recharts живе тільки в чанку графіка.
@@ -49,11 +49,9 @@ export default function AnalyticsView() {
 
   const current = useRemote<AnalyticsData>(query ? `/api/analytics?${query}` : null, { refresh, enabled: active, keepPrevious: true, fallback: 'Не вдалося завантажити аналітику.' });
   const data = current.data;
-  const previousQuery = useMemo(() => {
-    if (!data) return null;
-    const range = previousRange(data.range.from, data.range.days);
-    return new URLSearchParams({ period: 'custom', from: range.from, to: range.to }).toString();
-  }, [data]);
+  // Період беремо з вибору, а не з відповіді: для одноденного тижня чи місяця сервер повертає period «day».
+  const compare = useMemo(() => (data && !current.stale ? comparisonWindow(period, data.range) : null), [data, period, current.stale]);
+  const previousQuery = useMemo(() => (compare ? new URLSearchParams({ period: 'custom', from: compare.from, to: compare.fetchTo }).toString() : null), [compare]);
   const previous = useRemote<AnalyticsData>(previousQuery ? `/api/analytics?${previousQuery}` : null, { refresh, enabled: active && data !== null });
   const overview = useRemote<AnalyticsOverview>(query ? `/api/analytics/overview?${query}` : null, { refresh, enabled: active, keepPrevious: true });
 
@@ -70,7 +68,7 @@ export default function AnalyticsView() {
     if (query) window.location.assign(`/api/analytics?${query}&format=csv`);
   };
 
-  const previousData = previous.data;
+  const previousData = useMemo(() => (previous.data && compare ? sliceComparison(previous.data, compare) : null), [previous.data, compare]);
   const refreshing = current.loading && data !== null;
 
   return (
@@ -94,9 +92,8 @@ export default function AnalyticsView() {
         ) : null}
         {data ? (
           <p className="m-0 text-[13px] text-ink-2">
-            <span className="font-mono text-ink">{formatRange(data.range.from, data.range.to)}</span>
+            <span className="text-ink">{comparisonCaption(data.range.from, data.range.to, previousData?.range)}</span>
             {` · ${data.range.days} ${plural(data.range.days, 'день', 'дні', 'днів')}`}
-            {previousQuery && previousData ? <>{' · проти '}<span className="font-mono">{formatRange(previousData.range.from, previousData.range.to)}</span></> : null}
           </p>
         ) : null}
         <div className="ml-auto flex items-center gap-2">
@@ -123,7 +120,7 @@ export default function AnalyticsView() {
           {isEmpty(data) ? (
             <>
               <div className="grid grid-cols-1 gap-3 @4xl:grid-cols-12 @4xl:gap-4">
-                <InsightsCard className="@4xl:col-span-12" insights={data.insights} overview={overview.data} overviewError={Boolean(overview.error)} />
+                <InsightsCard className="@4xl:col-span-12" insights={data.insights} overview={overview.data} overviewError={Boolean(overview.error)} bookings={data.totals.bookings} previous={previousData} />
               </div>
               <EmptyState
                 text="За цей період ще немає подій. Обери довший період, щоб побачити динаміку й рейтинги."
@@ -133,13 +130,13 @@ export default function AnalyticsView() {
           ) : (
             <div className="grid grid-cols-1 gap-3 @4xl:grid-cols-12 @4xl:gap-4">
               <Suspense fallback={<Ghost className="h-[420px] rounded-card @4xl:col-span-8" />}>
-                <TrendChart className="@4xl:col-span-8" points={data.trends} previous={previousData?.trends ?? null} periodLabel={formatRange(data.range.from, data.range.to)} />
+                <TrendChart className="@4xl:col-span-8" points={data.trends} previous={previousData?.trends ?? null} previousWhole={previousData?.whole ?? null} periodLabel={formatRange(data.range.from, data.range.to)} />
               </Suspense>
-              <InsightsCard className="@4xl:col-span-4" insights={data.insights} overview={overview.data} overviewError={Boolean(overview.error)} />
+              <InsightsCard className="@4xl:col-span-4" insights={data.insights} overview={overview.data} overviewError={Boolean(overview.error)} bookings={data.totals.bookings} previous={previousData} />
               <FunnelCard className="@4xl:col-span-6" data={data} />
               <SubjectsCard className="@4xl:col-span-6" data={data.subjects} />
-              <PlatformsCard className="@4xl:col-span-5" platforms={data.platforms} />
-              <ChatRanking className="@4xl:col-span-7" chats={data.chats} />
+              <PlatformsCard className="@4xl:col-span-12" platforms={data.platforms} />
+              <ChatRanking className="@4xl:col-span-12" chats={data.chats} />
               <CohortCard className="@4xl:col-span-12" cohort={data.cohort} />
             </div>
           )}
@@ -149,6 +146,14 @@ export default function AnalyticsView() {
       <MetricPanel metric={metric} query={query} onClose={() => setMetric(null)} />
     </div>
   );
+}
+
+/** «1–11 жовтня проти 1–11 вересня» у межах одного місяця; інакше — повні дати поточного й попереднього відрізків. */
+function comparisonCaption(from: string, to: string, previous: { from: string; to: string } | undefined): string {
+  const sameMonth = from.slice(0, 7) === to.slice(0, 7) && (!previous || previous.from.slice(0, 7) === previous.to.slice(0, 7));
+  const current = sameMonth ? humanRange(from, to) : formatRange(from, to);
+  if (!previous) return current;
+  return `${current} проти ${sameMonth ? humanRange(previous.from, previous.to) : formatRange(previous.from, previous.to)}`;
 }
 
 function Skeleton() {

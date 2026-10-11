@@ -64,10 +64,77 @@ export function shiftDate(value: string, offset: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** Попередній період тієї ж довжини, що закінчується за день до початку поточного. */
+/** Попередній період тієї ж довжини, що закінчується за день до початку поточного (для довільних періодів). */
 export function previousRange(from: string, days: number): { from: string; to: string } {
   const to = shiftDate(from, -1);
   return { from: shiftDate(to, -(days - 1)), to };
+}
+
+export type PreviousWindow = {
+  range: { from: string; to: string; days: number };
+  totals: Record<SeriesKey, number>;
+  trends: TrendPoint[];
+  /** Увесь минулий місяць, коли порівняння береться з тих самих днів: лише для періоду «Місяць». */
+  whole: { label: string; trends: TrendPoint[] } | null;
+};
+export type ComparisonWindow = { from: string; to: string; fetchTo: string; wholeLabel: string | null };
+
+/**
+ * З чим порівнювати: календарні періоди — із тими самими днями попереднього (1–11 жовтня проти 1–11 вересня,
+ * тиждень з понеділка проти минулого тижня, рік з 1 січня проти минулого року), довільний — з попереднім відрізком тієї ж довжини.
+ * Для місяця запитується весь минулий місяць: суму тих самих днів і підсумок місяця дає один запит.
+ */
+export function comparisonWindow(period: AnalyticsPeriod, range: AnalyticsData['range']): ComparisonWindow {
+  const { from, to, days } = range;
+  if (period === 'day') { const day = shiftDate(from, -1); return { from: day, to: day, fetchTo: day, wholeLabel: null }; }
+  if (period === 'week') { const start = shiftDate(from, -7); const end = shiftDate(start, days - 1); return { from: start, to: end, fetchTo: end, wholeLabel: null }; }
+  if (period === 'month') {
+    const lastDay = shiftDate(from, -1);
+    const start = `${lastDay.slice(0, 8)}01`;
+    const same = shiftDate(start, Number(to.slice(8, 10)) - 1);
+    return { from: start, to: same > lastDay ? lastDay : same, fetchTo: lastDay, wholeLabel: monthName(start) };
+  }
+  if (period === 'year') {
+    const year = Number(from.slice(0, 4)) - 1;
+    const same = `${year}-${to.slice(5, 10)}`;
+    const end = same === `${year}-02-29` ? `${year}-02-28` : same;
+    return { from: `${year}-01-01`, to: end, fetchTo: end, wholeLabel: null };
+  }
+  const previous = previousRange(from, days);
+  return { from: previous.from, to: previous.to, fetchTo: previous.to, wholeLabel: null };
+}
+
+/** Відповідь за відрізок порівняння: для місяця обрізається до тих самих днів, підсумок усього місяця лишається окремо. */
+export function sliceComparison(data: AnalyticsData, window: ComparisonWindow): PreviousWindow {
+  if (window.to === window.fetchTo) {
+    const { joined, publications, responses, bookings, completed } = data.totals;
+    return { range: data.range, totals: { joined, publications, responses, bookings, completed }, trends: data.trends, whole: null };
+  }
+  const trends = data.trends.filter((point) => point.date <= window.to);
+  const totals = { joined: 0, publications: 0, responses: 0, bookings: 0, completed: 0 };
+  for (const point of trends) for (const key of Object.keys(totals) as SeriesKey[]) totals[key] += point[key];
+  return {
+    range: { from: window.from, to: window.to, days: trends.length },
+    totals,
+    trends,
+    whole: window.wholeLabel ? { label: window.wholeLabel, trends: data.trends } : null,
+  };
+}
+
+const MONTH_FORMAT = new Intl.DateTimeFormat('uk-UA', { month: 'long', timeZone: 'UTC' });
+const DAY_MONTH_FORMAT = new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+
+/** Назва місяця в називному відмінку: «вересень». */
+export function monthName(date: string): string {
+  return MONTH_FORMAT.format(new Date(`${date}T12:00:00Z`));
+}
+
+/** «1–11 жовтня» для відрізка в межах одного місяця; для решти — звичайний запис із датами. */
+export function humanRange(from: string, to: string): string {
+  if (from.slice(0, 7) !== to.slice(0, 7)) return formatRange(from, to);
+  const end = DAY_MONTH_FORMAT.format(new Date(`${to}T12:00:00Z`));
+  if (from === to) return end;
+  return `${Number(from.slice(8, 10))}–${end}`;
 }
 
 export function formatDate(value: string): string {
