@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/legacy-ui/button';
+import { Input } from '@/components/legacy-ui/input';
 import type { ReportEventDetail } from '@/lib/reports/details';
 import type { ReportManualAdjustments } from '@/lib/reports/manual-adjustments';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';

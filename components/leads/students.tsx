@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import type { Mutation } from './client';
 import { EditDialog, Field, NoteField, SaveForm, textValue } from './form';

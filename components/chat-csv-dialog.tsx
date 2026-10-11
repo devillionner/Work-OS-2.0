@@ -2,9 +2,9 @@
 
 import { useRef, useState } from 'react';
 import { Download, LoaderCircle, Upload } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Badge } from '@/components/legacy-ui/badge';
+import { Button } from '@/components/legacy-ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/legacy-ui/dialog';
 
 type Platform='telegram'|'whatsapp'|'viber'|'facebook';
 type Preview={

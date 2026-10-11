@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Copy, ExternalLink, FileText, History, RefreshCw, Save, UserPlus } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/legacy-ui/badge';
+import { Button } from '@/components/legacy-ui/button';
+import { Textarea } from '@/components/legacy-ui/textarea';
 import { LeadEditor } from '@/components/leads/lead-editor';
 import { createBrowserCommandClient } from '@/components/leads/client';
 import { ReportHistoryDialog } from '@/components/report-history-dialog';

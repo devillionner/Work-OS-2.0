@@ -2,9 +2,9 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { ExternalLink, FileUp, Plus, Search } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/legacy-ui/badge';
+import { Button } from '@/components/legacy-ui/button';
+import { Input } from '@/components/legacy-ui/input';
 import type { SelectedChatView, SelectedChatsView } from '@/lib/chats/telegram-selected';
 
 const PAGE = 100;

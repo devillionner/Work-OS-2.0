@@ -2,8 +2,8 @@
 import { useRef, useState } from 'react';
 import { History as HistoryIcon } from 'lucide-react';
 import type { LeadDetail } from '@/lib/leads/application/queries';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/legacy-ui/button';
+import { Badge } from '@/components/legacy-ui/badge';
 import { safeUrl } from '@/lib/leads/domain/validation';
 import { EditDialog, Field, SaveForm, textValue } from './form';
 import { labels, type Mutation } from './client';

@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import { businessDate } from '@/lib/leads/domain/time';
 import { lessonDateRecommendations } from '@/lib/leads/domain/lesson-recommendations';

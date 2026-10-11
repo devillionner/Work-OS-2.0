@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { Link2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/legacy-ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/legacy-ui/dialog';
+import { Input } from '@/components/legacy-ui/input';
 
 type Account={id:string;number:number;name:string;enabled:boolean};
 type AccountPayload={accounts:Account[];error?:string};

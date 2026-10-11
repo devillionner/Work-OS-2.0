@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Cloud, CopyCheck, DatabaseBackup, FileSpreadsheet, History, RefreshCw, ShieldCheck, Sparkles, Target } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/legacy-ui/badge';
+import { Button } from '@/components/legacy-ui/button';
 import { AppUpdateScreenPreview } from '@/components/app-update-screen-preview';
 import { CloudBackupButton } from '@/components/cloud-backup-button';
 import { CloudRestoreDialog } from '@/components/cloud-restore-dialog';

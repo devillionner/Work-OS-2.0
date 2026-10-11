@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BellRing, Check, ChevronDown, Clock3, Plus, TimerReset, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import { createRefreshGate } from '@/lib/refresh-gate';
 
 type TimerItem={id:string;label:string;platform:string|null;telegramAccountId:string|null;durationSeconds:number;startedAt:number;endsAt:number;status:'running'|'completed';completedAt:number|null};

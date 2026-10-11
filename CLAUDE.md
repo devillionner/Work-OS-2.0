@@ -45,6 +45,13 @@ vinext (App Router, сумісний з Next, на Vite + Cloudflare Workers) ·
 - `components/views/<розділ>/` — today, platforms, leads, analytics, reports, library, settings. Кожен розділ підвантажується ліниво.
 - Деталі сутностей відкриваються в Inspector (праворуч, на ПК) або в Sheet (знизу, на телефоні). Модальні діалоги — тільки для підтверджень.
 
+## Ухвалені рішення
+- Blur — окремий клас `.frost` (проп `blur` у `Surface`): лише полотно, Inspector, Sheet і меню. Картки й плитки — `.glass` без blur, інакше бюджет «≤ 2 шари» не тримається.
+- Тема, атмосфера й щільність — зовнішній стор у `components/shell/theme-provider.tsx` (`useTheme`, `useSyncExternalStore`), без React-контексту; початковий стан ставить інлайн-скрипт у `<head>`.
+- Перехідний міст на час переписування: `components/legacy-ui`, `app/legacy.css`, `app/design-polish.css`, `app/update-motion.css`, клас `.legacy-root`, тимчасові імпорти `tw-animate-css` і `shadcn/tailwind.css` у `globals.css`. Усе це видаляється на етапі прибирання.
+- Lint: поки лишаються непереписані файли, у скрипті перелічено каталоги нового коду (`components/ui`, `components/motion`, `components/shell`); на етапі прибирання скрипт стає `oxlint --threads=1 app components hooks db lib scripts tests`.
+- Локальне прев'ю: `vinext dev` не стартує (клас Durable Object не експортується в dev). Для візуальної перевірки — `npm run build`, потім `npx wrangler dev --local --port 3000` на локальній D1 із синтетичним власником `owner@example.test`.
+
 ## Карта екранів
 Функція прототипу 2 → місце в 3.0. Нічого не губиться; рідкісне й технічне живе в «Налаштування → Сервіс».
 Позначки: [шелл] каркас · [inspector] праворуч на ПК / Sheet знизу на телефоні · [підтвердження] модальний ConfirmDialog.

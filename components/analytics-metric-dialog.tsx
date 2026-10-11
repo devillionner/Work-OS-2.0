@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/legacy-ui/dialog';
+import { Button } from '@/components/legacy-ui/button';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 
 export type AnalyticsMetricKey = 'publications' | 'responses' | 'bookings' | 'completed';

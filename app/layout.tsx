@@ -1,24 +1,25 @@
 import type { Metadata, Viewport } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Atmosphere } from '@/components/shell/atmosphere';
 import { PwaRegistration } from '@/components/pwa-registration';
-import { ServerSync } from '@/components/server-sync';
 import { RunnerActivityBeacon } from '@/components/runner-activity-beacon';
+import { ServerSync } from '@/components/server-sync';
+import { THEME_BOOT_SCRIPT } from '@/components/shell/theme-provider';
+import { ToastProvider } from '@/components/ui/toast';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { ViewPersistence } from '@/components/view-persistence';
 import './globals.css';
+import './legacy.css';
 import './design-polish.css';
 import './update-motion.css';
 
-const sans = Geist({ subsets: ['latin'], variable: '--font-sans' });
-const mono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono' });
-
 export const metadata: Metadata = {
-  title: 'Work OS 2.0',
-  description: 'Приватний помічник для постингу, лідів, звітів і статистики.',
+  title: 'Work OS',
+  description: 'Приватна робоча панель для чатів, лідів і публікацій з аналітикою.',
   manifest: '/manifest.webmanifest',
   applicationName: 'Work OS',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'default',
+    statusBarStyle: 'black-translucent',
     title: 'Work OS',
   },
   icons: {
@@ -28,8 +29,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#111111',
-  colorScheme: 'light',
+  themeColor: '#07080A',
+  colorScheme: 'dark light',
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
@@ -39,13 +40,21 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="uk">
-      <body className={`${sans.variable} ${mono.variable}`}>
-        <PwaRegistration />
-        <ServerSync />
-        <RunnerActivityBeacon />
-        <ViewPersistence />
-        {children}
+    <html lang="uk" data-theme="night" data-atmosphere="fog" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
+      <body>
+        <TooltipProvider>
+          <ToastProvider>
+            <Atmosphere />
+            <PwaRegistration />
+            <ServerSync />
+            <RunnerActivityBeacon />
+            <ViewPersistence />
+            <div className="relative z-10">{children}</div>
+          </ToastProvider>
+        </TooltipProvider>
       </body>
     </html>
   );

@@ -3,8 +3,8 @@ import { useState } from 'react';
 import { Clock, AlertTriangle, CheckCircle2, Edit3, ArrowRight, Zap, Hourglass } from 'lucide-react';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import { FUNNEL_STAGES } from '@/lib/leads/domain/validation';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/legacy-ui/button';
+import { Badge } from '@/components/legacy-ui/badge';
 import {
   EditDialog,
   Field,

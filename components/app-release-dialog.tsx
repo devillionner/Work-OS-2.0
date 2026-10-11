@@ -1,9 +1,9 @@
 'use client';
 
 import { History } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Badge } from '@/components/legacy-ui/badge';
+import { Button } from '@/components/legacy-ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/legacy-ui/dialog';
 import { APP_CHANGES, APP_RELEASE_DATE, APP_VERSION } from '@/lib/app-meta';
 
 export function AppReleaseDialog({ open, onClose }: { open: boolean; onClose: () => void }) {

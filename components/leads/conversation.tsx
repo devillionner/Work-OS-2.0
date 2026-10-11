@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Download, Plus, MessageSquare, User, Bot, Trash2, Paperclip, Edit3 } from 'lucide-react';
 import type { LeadDetail } from '@/lib/leads/application/queries';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import {
   Confirmation,
   EditDialog,

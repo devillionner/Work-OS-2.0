@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { CalendarDays, Check, ExternalLink, Loader2, SlidersHorizontal, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/legacy-ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/legacy-ui/dialog';
+import { Input } from '@/components/legacy-ui/input';
+import { Textarea } from '@/components/legacy-ui/textarea';
 import type { ChatProfile, ProfileCadence } from '@/lib/chats/profile';
 import { PROFILE_CADENCES } from '@/lib/chats/profile';
 import { createActionGate } from '@/lib/action-gate';

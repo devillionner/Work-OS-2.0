@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { CalendarClock, TrendingUp, WalletCards } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 import {
   DEFAULT_PAYMENT_RULES,

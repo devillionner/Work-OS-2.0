@@ -7,16 +7,16 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { NativeSelect } from '@/components/ui/native-select';
-import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/legacy-ui/button';
+import { Input } from '@/components/legacy-ui/input';
+import { NativeSelect } from '@/components/legacy-ui/native-select';
+import { Textarea } from '@/components/legacy-ui/textarea';
 import {
   Dialog,
   DialogContent,
   DialogTitle,
   DialogDescription,
-} from '@/components/ui/dialog';
+} from '@/components/legacy-ui/dialog';
 import { labels } from './client';
 const DialogBusy = createContext<((busy: boolean) => void) | null>(null);
 export function Field({

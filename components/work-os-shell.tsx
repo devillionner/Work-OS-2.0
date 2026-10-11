@@ -17,10 +17,10 @@ import {
   Sparkles,
   ArrowRight,
 } from 'lucide-react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Progress, ProgressLabel, ProgressValue } from '@/components/ui/progress';
+import { Avatar, AvatarFallback } from '@/components/legacy-ui/avatar';
+import { Badge } from '@/components/legacy-ui/badge';
+import { Button } from '@/components/legacy-ui/button';
+import { Progress, ProgressLabel, ProgressValue } from '@/components/legacy-ui/progress';
 
 import { PlatformWorkspace } from '@/components/platform-workspace';
 import { LeadsWorkspace } from '@/components/leads/workspace';
@@ -146,7 +146,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkO
   };
 
   return (
-    <div className={`work-layout ${collapsed ? 'is-collapsed' : ''}`}>
+    <div className={`legacy-root work-layout ${collapsed ? 'is-collapsed' : ''}`}>
       <aside className={`work-sidebar ${mobileOpen ? 'is-open' : ''}`} aria-label="Основна навігація">
         <div className="sidebar-head">
           <div className="brand-lockup">

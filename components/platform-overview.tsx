@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Check, Copy, Gauge, Layers, Send, Target, UserPlus } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 
 export type PlatformLinkItem = { id?: string; name?: string; link?: string };
 export type PublicationPace = { ratePerHour: number; completed: number; target: number };

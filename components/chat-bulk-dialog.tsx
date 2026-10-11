@@ -2,10 +2,10 @@
 
 import { useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/legacy-ui/button';
+import { Input } from '@/components/legacy-ui/input';
+import { Textarea } from '@/components/legacy-ui/textarea';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/legacy-ui/dialog';
 import { createActionGate } from '@/lib/action-gate';
 import { BULK_IMPORT_MAX_TEXT, CHAT_PLATFORM_NAMES, parseBulkImportText, type BulkInput, type ChatPlatform } from '@/lib/chats/bulk-input';
 import type { BulkPreview, BulkPreviewItem, BulkResult } from '@/lib/chats/bulk';

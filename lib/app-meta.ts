@@ -1,5 +1,5 @@
-export const APP_VERSION = '0.3.0';
-export const APP_RELEASE_DATE = '2026-10-07';
+export const APP_VERSION = '0.3.1';
+export const APP_RELEASE_DATE = '2026-10-11';
 
 // User-facing copy only. Keep each note short and plain; technical details belong in docs and commits.
 export const APP_CHANGES = [

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { CheckCircle2, Download, LoaderCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 
 type Manifest = {
   app: string; schemaVersion: number; ownerId: string; revision: number; ownerEmail: string; createdAt: string;

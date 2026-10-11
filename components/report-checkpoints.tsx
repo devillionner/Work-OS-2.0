@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Clipboard, Clock3 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import { ReportPublicationCorrection } from '@/components/report-publication-correction';
 import { ReportLessonResultCorrection } from '@/components/report-lesson-result-correction';
 import { ReportChatCorrection } from '@/components/report-chat-correction';

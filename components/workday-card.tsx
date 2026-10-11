@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Clock3, Pause, Play, RotateCcw, Square, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Badge } from '@/components/legacy-ui/badge';
+import { Button } from '@/components/legacy-ui/button';
+import { ConfirmDialog } from '@/components/legacy-ui/confirm-dialog';
 import type { WorkdaySnapshot } from '@/lib/workday';
 
 type Props = {

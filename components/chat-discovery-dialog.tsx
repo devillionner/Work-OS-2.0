@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, ExternalLink, LoaderCircle, Search, Square, X } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { Badge } from '@/components/legacy-ui/badge';
 import { ChatDiscoveryExecutorPanel } from '@/components/chat-discovery-executor-panel';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/legacy-ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/legacy-ui/dialog';
+import { Input } from '@/components/legacy-ui/input';
 import type { DiscoveryCandidate, DiscoveryDecision } from '@/lib/chat-discovery/domain';
 import type { DiscoveryPlatform } from '@/lib/chat-discovery/public-web';
 import type { LocalDiscoveryPreview } from '@/lib/chat-discovery/local-preview';

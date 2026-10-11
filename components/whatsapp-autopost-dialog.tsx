@@ -14,10 +14,10 @@ import {
   UploadCloud,
   XCircle,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/legacy-ui/button';
+import { Textarea } from '@/components/legacy-ui/textarea';
+import { Badge } from '@/components/legacy-ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/legacy-ui/dialog';
 
 export type WhatsAppAutopostImage = {
   fileName: string;

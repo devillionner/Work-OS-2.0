@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { Target, TrendingUp, Compass, Check } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/legacy-ui/button';
+import { Input } from '@/components/legacy-ui/input';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/legacy-ui/dialog';
 import { FOCUS_DIRECTIONS } from '@/lib/directions';
 
 type TodaySettingsDialogProps = {

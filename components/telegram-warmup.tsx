@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Check, RefreshCw } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/legacy-ui/badge';
+import { Button } from '@/components/legacy-ui/button';
 import type { TelegramWarmupSnapshot } from '@/lib/chats/telegram-warmup';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 

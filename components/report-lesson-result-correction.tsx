@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/legacy-ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/legacy-ui/dialog';
+import { Input } from '@/components/legacy-ui/input';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 
 type Lesson={lessonId:string;leadId:string;leadName:string;studentName:string;subject:string;lessonTime:string;status:string};

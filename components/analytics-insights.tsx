@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Sparkles, Target, TrendingUp, TrendingDown, AlertTriangle, Archive, Lightbulb } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { Badge } from '@/components/legacy-ui/badge';
 import type { AnalyticsOverview } from '@/lib/analytics-overview';
 
 type InsightData = {

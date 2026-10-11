@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Cable, Copy, LoaderCircle, Trash2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/legacy-ui/button';
+import { Input } from '@/components/legacy-ui/input';
 import { EXECUTOR_DEVICE_STORAGE_KEY, EXECUTOR_TOKEN_STORAGE_KEY, storeExecutorToken } from '@/lib/chat-discovery/executor-storage';
 
 type Device = { id:string; name:string; createdAt:number; lastSeenAt:number|null };

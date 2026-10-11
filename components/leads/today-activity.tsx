@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { CalendarCheck, MessageSquare, ArrowRight, Sparkles, UserCheck } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/legacy-ui/badge';
+import { Button } from '@/components/legacy-ui/button';
 import type { TodayLeadsActivity } from '@/lib/leads/today';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 import { labels } from './client';

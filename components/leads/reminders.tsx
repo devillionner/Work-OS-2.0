@@ -1,8 +1,8 @@
 'use client';
 import { useState } from 'react';
 import type { LeadDetail } from '@/lib/leads/application/queries';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/legacy-ui/button';
+import { Badge } from '@/components/legacy-ui/badge';
 import {
   Confirmation,
   EditDialog,

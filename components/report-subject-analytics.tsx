@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import type { SubjectAnalytics, SubjectPeriod } from '@/lib/reports/subjects';
 import { analyticsPercentLabel } from '@/lib/analytics-rate';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';

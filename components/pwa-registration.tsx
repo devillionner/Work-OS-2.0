@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, RefreshCw } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import { APP_BUILD_ID } from '@/lib/build-id';
 
 type BuildResponse = { buildId?: string; version?: string };

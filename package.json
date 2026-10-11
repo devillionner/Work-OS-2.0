@@ -1,6 +1,6 @@
 {
   "name": "work-os-2",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -11,7 +11,7 @@
     "start": "wrangler dev --config dist/server/wrangler.json",
     "deploy": "npm run build && wrangler deploy --config dist/server/wrangler.json",
     "deploy:staging": "node scripts/deploy-staging.mjs",
-    "lint": "oxlint --threads=1 app components/work-os-shell.tsx components/pwa-registration.tsx components/server-sync.tsx components/view-persistence.tsx components/app-release-dialog.tsx components/global-timers.tsx components/platform-workspace.tsx components/chat-discovery-dialog.tsx components/chat-bulk-dialog.tsx components/chat-names-dialog.tsx components/chat-profile-dialog.tsx components/chat-history-dialog.tsx components/chat-publish-dialog.tsx components/legacy-import-dialog.tsx components/library-workspace.tsx components/reports-workspace.tsx components/settings-workspace.tsx components/payment-settings.tsx components/leads db lib scripts tests",
+    "lint": "oxlint --threads=1 app components/ui components/motion components/shell components/work-os-shell.tsx components/pwa-registration.tsx components/server-sync.tsx components/view-persistence.tsx components/app-release-dialog.tsx components/global-timers.tsx components/platform-workspace.tsx components/chat-discovery-dialog.tsx components/chat-bulk-dialog.tsx components/chat-names-dialog.tsx components/chat-profile-dialog.tsx components/chat-history-dialog.tsx components/chat-publish-dialog.tsx components/legacy-import-dialog.tsx components/library-workspace.tsx components/reports-workspace.tsx components/settings-workspace.tsx components/payment-settings.tsx components/leads db lib scripts tests",
     "typecheck": "tsc -p tsconfig.chat-discovery.json --pretty false",
     "verify": "npm run build",
     "verify:local": "npm run lint && npm run typecheck && npm run test:full && npm run build",
@@ -25,6 +25,9 @@
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
+    "@fontsource-variable/geist": "5.3.0",
+    "@fontsource-variable/geist-mono": "5.3.0",
+    "@gsap/react": "2.1.2",
     "@shadcn/react": "0.3.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
@@ -32,6 +35,7 @@
     "date-fns": "4.1.0",
     "drizzle-orm": "0.45.2",
     "embla-carousel-react": "8.5.2",
+    "gsap": "3.15.0",
     "input-otp": "1.4.2",
     "jose": "^6.1.3",
     "lucide-react": "1.31.0",

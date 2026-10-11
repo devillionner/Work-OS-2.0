@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Archive, Check, Copy, ExternalLink, RefreshCw, Shuffle, Trash2, Unlink } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/legacy-ui/badge';
+import { Button } from '@/components/legacy-ui/button';
+import { Input } from '@/components/legacy-ui/input';
 import { TelegramWarmup } from '@/components/telegram-warmup';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/legacy-ui/confirm-dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/legacy-ui/dialog';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 import { businessDate, businessDateTime, lessonEpoch } from '@/lib/leads/domain/time';
 

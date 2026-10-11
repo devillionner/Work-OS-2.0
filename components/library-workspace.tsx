@@ -17,12 +17,12 @@ import {
   Tag,
   AlertTriangle,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/legacy-ui/badge';
+import { Button } from '@/components/legacy-ui/button';
+import { Input } from '@/components/legacy-ui/input';
+import { Textarea } from '@/components/legacy-ui/textarea';
 import { LibraryHistoryDialog } from '@/components/library-history-dialog';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { ConfirmDialog } from '@/components/legacy-ui/confirm-dialog';
 import { WorkspaceInitialLoading, WorkspaceRefreshIndicator } from '@/components/workspace-load-state';
 import { handleTabKeyNavigation } from '@/lib/tab-navigation';
 import {

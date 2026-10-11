@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/legacy-ui/badge';
+import { Button } from '@/components/legacy-ui/button';
 import { WorkspaceInlineLoading } from '@/components/workspace-load-state';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import {

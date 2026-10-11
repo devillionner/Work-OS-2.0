@@ -21,9 +21,9 @@ import {
   AlertCircle,
   FileText,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/legacy-ui/button';
+import { Input } from '@/components/legacy-ui/input';
+import { Badge } from '@/components/legacy-ui/badge';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import { safeUrl } from '@/lib/leads/domain/validation';
 import {

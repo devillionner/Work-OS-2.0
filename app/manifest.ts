@@ -2,14 +2,14 @@ import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Work OS 2.0',
+    name: 'Work OS',
     short_name: 'Work OS',
-    description: 'Приватний робочий простір для чатів, лідів, звітів і статистики.',
+    description: 'Приватна робоча панель для чатів, лідів і публікацій з аналітикою.',
     start_url: '/',
     scope: '/',
     display: 'standalone',
-    background_color: '#f5f5f3',
-    theme_color: '#111111',
+    background_color: '#07080A',
+    theme_color: '#07080A',
     orientation: 'any',
     icons: [
       { src: '/pwa-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },

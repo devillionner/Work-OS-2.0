@@ -2,8 +2,8 @@
 
 import { useRef, useState } from 'react';
 import { Check, LoaderCircle, RefreshCw, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/legacy-ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/legacy-ui/dialog';
 
 type ScanStatus = 'updated' | 'unchanged' | 'confirm' | 'error';
 type ScanItem = {
