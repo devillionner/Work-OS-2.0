@@ -92,7 +92,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [asideElement, setAsideElement] = useState<HTMLElement | null>(null);
   const [topbarSlot, setTopbarSlot] = useState<HTMLElement | null>(null);
-  const [, setLeadParam] = useQueryParam('lead');
+  const [leadParam, setLeadParam] = useQueryParam('lead');
   const scroller = useRef<HTMLDivElement>(null);
   useScrollActivity();
 
@@ -113,9 +113,9 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
   }, []);
 
   const openLead = useCallback((leadId: string) => {
-    if (leadId) setLeadParam(leadId);
+    if (leadId) setLeadParam(leadId, leadParam ? 'replace' : 'push');
     navigate('leads');
-  }, [navigate, setLeadParam]);
+  }, [navigate, leadParam, setLeadParam]);
 
   const refreshSnapshot = useCallback(() => announceDataChange('dashboard'), []);
   const openRelease = useCallback(() => setReleaseOpen(true), []);

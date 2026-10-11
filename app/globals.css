@@ -183,6 +183,14 @@ body::after {
 
 @media (max-width: 767px) { :root { --toast-bottom: 104px; } }
 
+/* Перемикання вкладки панелі: короткий crossfade вмісту без зміни висоти */
+.tab-fade { animation: tab-in 0.16s ease-out; }
+@keyframes tab-in { from { opacity: 0; } }
+
+/* Крок усередині панелі виїжджає збоку коротким зсувом */
+.step-in { animation: step-in 0.2s ease-out; }
+@keyframes step-in { from { opacity: 0; translate: 16px 0; } }
+
 /* Розділ, що знову стає видимим, лише коротко проявляється: без зсувів і розмиття */
 [data-pane][data-active="true"] { animation: pane-in 0.14s ease-out; }
 @keyframes pane-in { from { opacity: 0; } }

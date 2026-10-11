@@ -83,21 +83,13 @@ export function Panel<T extends string = string>({ open, onOpenChange, title, su
   }, [open, viewActive, id]);
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
-  const body = (
-    <>
-      {tabs && tab && onTabChange ? (
-        <div className="sticky top-0 z-10 -mx-5 mb-4 bg-glass-strong px-5 pb-2 pt-1">
-          <Segmented value={tab} onValueChange={onTabChange} items={tabs} label={title} size="sm" />
-        </div>
-      ) : null}
-      <OverlayContext.Provider value={overlay}>{children}</OverlayContext.Provider>
-    </>
-  );
+  const tabStrip = tabs && tab && onTabChange ? <Segmented value={tab} onValueChange={onTabChange} items={tabs} label={title} size="sm" /> : undefined;
+  const body = <OverlayContext.Provider value={overlay}>{children}</OverlayContext.Provider>;
 
   if (!open || !isTop || !viewActive) return null;
   if (wide && slot.element) {
     return createPortal(
-      <AsidePanel title={title} subtitle={subtitle} actions={actions} footer={footer} overlayRef={setOverlay} onClose={close}>{body}</AsidePanel>,
+      <AsidePanel title={title} subtitle={subtitle} actions={actions} tabs={tabStrip} contentKey={tab} footer={footer} overlayRef={setOverlay} onClose={close}>{body}</AsidePanel>,
       slot.element,
     );
   }
@@ -110,6 +102,8 @@ export function Panel<T extends string = string>({ open, onOpenChange, title, su
       side={phone ? 'bottom' : 'right'}
       snap="full"
       actions={actions}
+      tabs={tabStrip}
+      contentKey={tab}
       footer={footer}
       overlayRef={setOverlay}
       className={!phone && desktop ? 'w-[440px]' : undefined}
@@ -119,7 +113,7 @@ export function Panel<T extends string = string>({ open, onOpenChange, title, su
   );
 }
 
-function AsidePanel({ title, subtitle, actions, footer, overlayRef, onClose, children }: { title: string; subtitle?: ReactNode; actions?: ReactNode; footer?: ReactNode; overlayRef: (element: HTMLDivElement | null) => void; onClose: () => void; children: ReactNode }) {
+function AsidePanel({ title, subtitle, actions, tabs, contentKey, footer, overlayRef, onClose, children }: { title: string; subtitle?: ReactNode; actions?: ReactNode; tabs?: ReactNode; contentKey?: string; footer?: ReactNode; overlayRef: (element: HTMLDivElement | null) => void; onClose: () => void; children: ReactNode }) {
   const root = useRef<HTMLDivElement>(null);
   const [returnTo] = useState<Element | null>(() => (typeof document === 'undefined' ? null : document.activeElement));
 
@@ -147,9 +141,9 @@ function AsidePanel({ title, subtitle, actions, footer, overlayRef, onClose, chi
 
   return (
     <aside ref={root} tabIndex={-1} aria-label={title} className="relative flex h-full min-h-0 flex-col outline-none">
-      <Inspector title={title} subtitle={subtitle} actions={actions} onClose={onClose} className="min-h-0 flex-1">{children}</Inspector>
+      <Inspector title={title} subtitle={subtitle} actions={actions} tabs={tabs} contentKey={contentKey} onClose={onClose} className="min-h-0 flex-1">{children}</Inspector>
       {footer ? <div className="shrink-0 border-t border-line px-5 py-3">{footer}</div> : null}
-      <div ref={overlayRef} className="absolute inset-0 z-20 flex flex-col overflow-hidden bg-glass-strong empty:hidden" />
+      <div ref={overlayRef} className="absolute inset-0 z-20 flex flex-col overflow-hidden bg-solid empty:hidden" />
     </aside>
   );
 }

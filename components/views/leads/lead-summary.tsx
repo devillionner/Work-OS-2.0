@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import { EditDialog, Field, SaveForm, SelectField, textValue, epochValue, datetimeValue } from './form';
 import { displayTime, labels, type Mutation } from './client';
 
-/** Шапка Inspector: контакти, воронка, наступна дія, факти й швидкі дії над лідом. */
+/** Вкладка «Огляд»: контакти, воронка, наступна дія, факти й швидкі дії над лідом. */
 export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onResponse }: {
   detail: LeadDetail;
   mutate: Mutation;
@@ -23,7 +23,6 @@ export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onRe
   const lead = detail.lead;
   const toast = useToast();
   const [copied, setCopied] = useState<string | null>(null);
-  const [stageEditor, setStageEditor] = useState(false);
   const [reply, setReply] = useState(false);
   const [now] = useState(() => Math.floor(Date.now() / 1000));
   const archived = lead.archivedAt !== null;
@@ -96,7 +95,6 @@ export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onRe
           </p>
           <p className="m-0 mt-0.5 font-mono text-xs text-ink-2">Термін: {lead.nextContactAt !== null ? displayTime(lead.nextContactAt) : 'без терміну'}</p>
         </div>
-        <Button variant="outline" size="sm" disabled={archived} onClick={() => setStageEditor(true)}>Змінити етап</Button>
       </div>
 
       {pastBooked ? (
@@ -126,29 +124,6 @@ export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onRe
         <Button variant="ghost" size="sm" tone={archived ? 'default' : 'danger'} onClick={onArchive}>{archived ? <><RotateCcw aria-hidden="true" strokeWidth={1.5} />Відновити</> : <><Archive aria-hidden="true" strokeWidth={1.5} />Архівувати</>}</Button>
       </div>
 
-      {stageEditor ? (
-        <EditDialog title="Етап і наступна дія" description="Етап воронки, кваліфікація та коли зв’язатися." close={() => setStageEditor(false)}>
-          <SaveForm
-            cancel={() => setStageEditor(false)}
-            save={async (f) => {
-              await mutate('update', {
-                nextAction: textValue(f, 'nextAction'),
-                nextContactAt: epochValue(f, 'nextContactAt', lead.nextContactAt),
-                qualification: textValue(f, 'qualification') || null,
-                familyQualification: textValue(f, 'familyQualification') || null,
-                funnelStage: textValue(f, 'funnelStage'),
-              });
-              setStageEditor(false);
-            }}
-          >
-            <Field label="Наступна дія" name="nextAction" value={lead.nextAction} />
-            <Field label="Коли зв’язатись (Київ)" name="nextContactAt" type="datetime-local" value={datetimeValue(lead.nextContactAt)} />
-            <SelectField label="Кваліфікація ліда" name="qualification" value={lead.qualification ?? ''} options={['', 'A', 'B', 'C']} />
-            <SelectField label="Кваліфікація родини" name="familyQualification" value={lead.familyQualification ?? ''} options={['', 'A', 'B', 'C']} />
-            <SelectField label="Етап воронки" name="funnelStage" value={lead.funnelStage} options={FUNNEL_STAGES} />
-          </SaveForm>
-        </EditDialog>
-      ) : null}
       {reply ? (
         <EditDialog title="Перша відповідь" description="Фактичний час першої відповіді. Внутрішні повідомлення CRM не фіксують його автоматично." close={() => setReply(false)}>
           <SaveForm cancel={() => setReply(false)} save={async (f) => { await mutate('first_reply', { at: epochValue(f, 'at') }); setReply(false); }}>
@@ -157,5 +132,32 @@ export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onRe
         </EditDialog>
       ) : null}
     </div>
+  );
+}
+
+/** Крок «Етап і наступна дія» (відкривається з шапки панелі й з «Огляду»). */
+export function StageEditor({ lead, mutate, close }: { lead: LeadDetail['lead']; mutate: Mutation; close: () => void }) {
+  return (
+    <EditDialog title="Етап і наступна дія" description="Етап воронки, кваліфікація та коли зв’язатися." close={close}>
+      <SaveForm
+        cancel={close}
+        save={async (f) => {
+          await mutate('update', {
+            nextAction: textValue(f, 'nextAction'),
+            nextContactAt: epochValue(f, 'nextContactAt', lead.nextContactAt),
+            qualification: textValue(f, 'qualification') || null,
+            familyQualification: textValue(f, 'familyQualification') || null,
+            funnelStage: textValue(f, 'funnelStage'),
+          });
+          close();
+        }}
+      >
+        <Field label="Наступна дія" name="nextAction" value={lead.nextAction} />
+        <Field label="Коли зв’язатись (Київ)" name="nextContactAt" type="datetime-local" value={datetimeValue(lead.nextContactAt)} />
+        <SelectField label="Кваліфікація ліда" name="qualification" value={lead.qualification ?? ''} options={['', 'A', 'B', 'C']} />
+        <SelectField label="Кваліфікація родини" name="familyQualification" value={lead.familyQualification ?? ''} options={['', 'A', 'B', 'C']} />
+        <SelectField label="Етап воронки" name="funnelStage" value={lead.funnelStage} options={FUNNEL_STAGES} />
+      </SaveForm>
+    </EditDialog>
   );
 }

@@ -99,8 +99,8 @@ export default function LeadsView() {
   const openLead = useCallback((id: string) => {
     openedByPush.current = true;
     setDetailError('');
-    setSelected(id, 'push');
-  }, [setSelected]);
+    setSelected(id, selected ? 'replace' : 'push');
+  }, [selected, setSelected]);
 
   const closeLead = useCallback(() => {
     if (openedByPush.current) { openedByPush.current = false; window.history.back(); }
