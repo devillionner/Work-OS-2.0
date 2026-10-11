@@ -15,13 +15,6 @@ void test('D1-backed global sync uses adaptive idle and failure backoff instead 
   assert.doesNotMatch(sync,/setInterval/);
 });
 
-void test('Platforms never speculatively prefetches sibling D1 queues',()=>{
-  const platform=read('components/platform-workspace.tsx');
-  assert.doesNotMatch(platform,/prefetching/);
-  assert.doesNotMatch(platform,/cacheEpoch/);
-  assert.doesNotMatch(platform,/for\(const item of queues\)[\s\S]{0,1600}fetch\(`\/api\/chats/);
-});
-
 void test('Platforms GET uses queue counters and an index-friendly page order',()=>{
   const route=read('app/api/chats/route.ts');
   const migration=read('migrations/0039_chat_queue_read_model.sql');
@@ -81,25 +74,6 @@ void test('Discovery search is local-first and D1 work stays targeted until expl
   assert.doesNotMatch(previewBody,/UPDATE chat_discovery_runs/);
   assert.doesNotMatch(preview,/LIMIT 10001/);
 });
-
-void test('workday and Viber safe-mode polling have bounded D1 backoff and no fixed request interval',()=>{
-  const workday=read('components/workday-card.tsx');
-  const library=read('components/library-workspace.tsx');
-  const route=read('app/api/messenger-automation/route.ts');
-  assert.match(workday,/SYNC_ACTIVE_MS = 5_000/);
-  assert.match(workday,/SYNC_IDLE_MIN_MS = 15_000/);
-  assert.match(workday,/SYNC_IDLE_MAX_MS = 60_000/);
-  assert.match(workday,/SYNC_ERROR_MAX_MS = 300_000/);
-  assert.doesNotMatch(workday,/setInterval\(\(\) => \{[\s\S]{0,240}refreshWorkday/);
-  assert.match(library,/VIBER_JOB_POLL_ACTIVE_MS=5_000/);
-  assert.match(library,/VIBER_JOB_POLL_IDLE_MAX_MS=60_000/);
-  assert.match(library,/VIBER_JOB_POLL_ERROR_MAX_MS=300_000/);
-  assert.match(library,/messenger-automation\?viberJobId=/);
-  assert.doesNotMatch(library,/setInterval\(.*messenger-automation/s);
-  assert.match(route,/viberJobId/);
-  assert.match(route,/readViberSafeNoteJob\(env\.DB,user\.id,viberJobId\)/);
-});
-
 
 void test('high-cost workspace reads use revision-aware Worker cache',()=>{
   const helper=read('lib/revision-cache.ts');

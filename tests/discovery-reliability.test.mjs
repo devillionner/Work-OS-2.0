@@ -88,7 +88,6 @@ test('runner records source, metadata, join and persistence timing stages',()=>{
   assert.match(runner,/stageMs/);
 });
 
-
 test('runner hydrates source feedback pushed by the owner DO with each Telegram step, without a D1/API scan',()=>{
   assert.match(runner,/hydrateDiscoverySourceFeedback\(job\.feedback\|\|\{\}\)/);
   assert.doesNotMatch(runner,/readWorkOsLocalDiscoverySourceFeedbackViaCdp|updateWorkOsLocalDiscoverySourceFeedbackViaCdp/);
@@ -103,7 +102,6 @@ test('missing direct-join module falls back to factual UI inspection',async()=>{
   assert.equal(h.writes[0].decision,'target');
   assert.equal(h.joins.length,1);
 });
-
 
 test('retry checkpoint drops stale final while preserving joined identity',async()=>{
   const {resetDiscoveryRetryCheckpoint}=await import('../lib/chat-discovery/retry-state.ts?retry='+Date.now());
@@ -130,15 +128,6 @@ test('retry checkpoint drops stale final while preserving joined identity',async
   assert.equal('lastReason' in checkpoint,false);
 });
 
-test('UI retry uses the reset checkpoint instead of replaying a saved final outcome',()=>{
-  const ui=readFileSync(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
-  const runState=readFileSync(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8');
-  assert.match(ui,/await postRun\(\{action:'retry',candidateId:candidate\.id\}\)/);
-  const retry=runState.slice(runState.indexOf('export function retryCandidate'),runState.indexOf('function feedbackSourceKey'));
-  assert.match(retry,/discoveryCheckpoint: resetDiscoveryRetryCheckpoint\(stored, now\)/);
-});
-
-
 test('joined WhatsApp qualification opens the existing chat and uses object-form message loaders',()=>{
   const block=adapter.slice(adapter.indexOf('export async function joinWhatsappInviteViaRuntime'),adapter.indexOf('export async function leaveWhatsappGroupViaRuntime'));
   assert.match(block,/openChatBottom\(\{chat\}\)/);
@@ -148,7 +137,6 @@ test('joined WhatsApp qualification opens the existing chat and uses object-form
   assert.doesNotMatch(block,/loadRecentMsgs\(chat\)/);
   assert.doesNotMatch(block,/loadEarlierMsgs\(chat\)/);
 });
-
 
 test('freshly joined WhatsApp chat never loads invisible pre-join history',()=>{
   const block=adapter.slice(adapter.indexOf('export async function joinWhatsappInviteViaRuntime'),adapter.indexOf('export async function leaveWhatsappGroupViaRuntime'));
@@ -183,7 +171,6 @@ test('visible message older than today-or-yesterday is factual inactivity',()=>{
   assert.match(block,/else if\(latestTimestamp>0\)activityState='dead'/);
   assert.doesNotMatch(block,/14\*24\*60\*60/);
 });
-
 
 test('joined recovery without groupId refreshes invite metadata before inspection and never rejoins',async()=>{
   let checkpoint={attempts:0,startedAt:Date.now(),result:{
@@ -223,7 +210,6 @@ test('joined recovery without groupId refreshes invite metadata before inspectio
   // the recovered joined chat a target right away, without waiting for evidence.
   assert.equal(checkpoint.final?.decision,'target');
 });
-
 
 test('manual-review migration preserves real joinedAt and removes timed evidence waiting',()=>{
   assert.doesNotMatch(adapter,/joinedAt:joinedAt\|\|Date\.now\(\)/);

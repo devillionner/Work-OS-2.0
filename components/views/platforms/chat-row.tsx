@@ -106,7 +106,7 @@ export function ChatRow({ chat, queue, clock, busy, lastOpened, accounts, whatsa
       ) : null}
 
       {(queue === 'waiting' || queue === 'ready') && shouldSuggestChatArchive(chat.snoozeCount) ? (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-warn/40 px-3 py-2 text-xs"><span>Відкладали {chat.snoozeCount} рази. Якщо чат неактуальний, краще в архів.</span><Button variant="outline" size="sm" disabled={busy} onClick={() => onArchive(chat)}><Archive aria-hidden="true" strokeWidth={1.5} />Архівувати</Button></div>
+        <div className="flex items-center justify-between gap-3 rounded-field border border-warn/40 px-3 py-2 text-xs"><span>Відкладали {chat.snoozeCount} рази. Якщо чат неактуальний, краще в архів.</span><Button variant="outline" size="sm" disabled={busy} onClick={() => onArchive(chat)}><Archive aria-hidden="true" strokeWidth={1.5} />Архівувати</Button></div>
       ) : null}
       {queue === 'ready' && !publishable ? <p className="m-0 flex items-center gap-1.5 text-xs text-ink-2"><Clock3 aria-hidden="true" strokeWidth={1.5} className="size-3.5" />{blockedByQualification ? 'Публікація заблокована до завершення кваліфікації чату.' : chat.availableAt ? `Публікація буде доступна ${formatDateTime(chat.availableAt)}` : 'Публікація поки недоступна.'}</p> : null}
 

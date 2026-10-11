@@ -97,7 +97,7 @@ function HistoryBody({ chat }: { chat: HistoryChat }) {
             {metric !== 'all' ? (
               <ol className="m-0 flex list-none flex-col gap-1 p-0">
                 {filterEvents(data.analytics?.events || [], metric).map((event) => (
-                  <li key={event.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-raised">
+                  <li key={event.id} className="flex items-center justify-between gap-3 rounded-field px-2 py-1.5 text-sm hover:bg-raised">
                     <span>{EVENT_NAMES[event.eventType] || event.eventType}{event.leadName ? <span className="text-xs text-ink-2"> · {event.leadName}</span> : null}</span>
                     <time className="font-mono text-[11px] text-ink-2" dateTime={new Date(event.occurredAt * 1000).toISOString()}>{formatTime(event.occurredAt)}</time>
                   </li>

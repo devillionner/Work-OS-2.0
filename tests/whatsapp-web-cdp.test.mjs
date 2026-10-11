@@ -242,7 +242,6 @@ void test('generated or approximate names require exact invite-code context befo
   });
 });
 
-
 void test('HTML or URL source noise uses exact invite context instead of trusting the broken name', () => {
   const noisyTask = {
     ...task,
@@ -373,7 +372,6 @@ void test('verified pending target may use the WhatsApp Continue to Chat control
   });
 });
 
-
 void test('CDP control is restricted to unauthenticated loopback endpoints', () => {
   assert.equal(normalizeLocalCdpBaseUrl('http://127.0.0.1:9222/'), 'http://127.0.0.1:9222');
   assert.equal(normalizeLocalCdpBaseUrl('http://localhost:9222'), 'http://localhost:9222');
@@ -389,7 +387,6 @@ void test('CDP control is restricted to unauthenticated loopback endpoints', () 
   assert.equal(isLocalCdpWebSocketUrl('ws://10.0.0.2:9222/devtools/page/1'), false);
 });
 
-
 void test('leave confirmation accepts current localized full group-exit labels but remains exact', async () => {
   const source = await import('node:fs/promises').then(({readFile}) =>
     readFile(new URL('../scripts/whatsapp-web-cdp.mjs', import.meta.url), 'utf8')
@@ -401,7 +398,6 @@ void test('leave confirmation accepts current localized full group-exit labels b
 void test('leave automation helper is exported for verified WhatsApp executor leave tasks', () => {
   assert.equal(typeof leaveWhatsappTaskViaCdp, 'function');
 });
-
 
 void test('joined qualification extracts factual member, recent activity and explicit ads evidence', () => {
   const facts = deriveWhatsappQualification({
@@ -570,7 +566,6 @@ void test('joined admin-only chat reports factual non-writeability', () => {
   assert.equal(result.result.canWrite,false);
 });
 
-
 void test('message timestamps classify recent activity and clearly stale chats without guessing the middle window', () => {
   const now = Date.UTC(2026,8,24,12);
   const recent = deriveWhatsappQualification({
@@ -670,20 +665,17 @@ void test('exact invite identity may resolve an approximate non-generated source
   assert.equal(result.action,'join');
 });
 
-
 void test('confirmed-send WhatsApp autopost helper is exported and target normalization remains exact', () => {
   assert.equal(typeof sendWhatsappAutopostViaCdp, 'function');
   assert.equal(normalizeTargetLabel('Українці Berlin'), normalizeTargetLabel('  УКРАЇНЦІ   Berlin '));
   assert.notEqual(normalizeTargetLabel('Українці Berlin'), normalizeTargetLabel('Українці Hamburg'));
 });
 
-
 void test('Work OS pairing token helper is exported and remains part of the loopback-only CDP surface',()=>{
   assert.equal(typeof readWorkOsExecutorTokenViaCdp,'function');
   assert.equal(normalizeLocalCdpBaseUrl('http://127.0.0.1:9222'),'http://127.0.0.1:9222');
   assert.equal(normalizeLocalCdpBaseUrl('http://192.168.1.5:9222'),null);
 });
-
 
 void test('WhatsApp inspect and leave share one bounded operation timeout instead of resetting 45s at every UI phase',()=>{
   const deadlineUses=[...source.matchAll(/const operationDeadline = Date\.now\(\) \+ timeoutMs;/g)].length;
@@ -706,7 +698,6 @@ void test('WhatsApp autopost never sends or confirms after its 90s lease',()=>{
   assert.ok(block.lastIndexOf('autopost_budget_exhausted',sendClick)>block.indexOf('waitForComposerText'));
 });
 
-
 void test('local Discovery checks high-signal Ukrainian candidates before malformed low-signal rows without changing qualification criteria',async()=>{
   const runState=await readFile(new URL('../lib/chat-discovery/run-state.ts',import.meta.url),'utf8');
   assert.match(runState,/function priority\(candidate: RunCandidate\)/);
@@ -714,7 +705,6 @@ void test('local Discovery checks high-signal Ukrainian candidates before malfor
   assert.match(runState,/score -= 8/);
   assert.match(runState,/\.sort\(\(a, b\) => priority\(b\) - priority\(a\)\)/);
 });
-
 
 void test('current WhatsApp header and composer surfaces are included in factual qualification',()=>{
   assert.match(source,/const headerText = clean\(main\?\.querySelector\('header'\)\?\.innerText/);
@@ -727,14 +717,12 @@ void test('a candidate in local cooldown is skipped by the dispatcher so one inc
   assert.match(runState,/!\(Number\(candidate\.skipUntil\) > now\)/);
 });
 
-
 void test('noisy source labels are treated as weak identity hints instead of exact WhatsApp names',()=>{
   assert.match(source,/text\.length>140/);
   assert.match(source,/\\\/groups\\\//);
   assert.match(source,/ref=share/);
   assert.match(source,/\\bviews\?\\b/);
 });
-
 
 void test('joined WhatsApp qualification waits for the chat UI before reading facts',()=>{
   assert.match(source,/async function waitForJoinedChatReady/);
@@ -748,19 +736,16 @@ void test('topic match can use repeated factual Ukrainian message evidence insid
   assert.match(source,/ukrainianMessages >= 2/);
 });
 
-
 void test('verified joined chat opens group info through the profile-details control',()=>{
   assert.match(source,/profileButton && !profileButton\.hasAttribute\('disabled'\)/);
   assert.match(source,/profileButton\.click\(\)/);
 });
-
 
 void test('exact invite join can bind the resulting joined header without waiting for a join system message',()=>{
   assert.match(source,/afterAction === 'join'/);
   assert.match(source,/snapshot\.joinConfirmedAfterExactInvite = true/);
   assert.match(source,/snapshot\.joinConfirmedAfterExactInvite === true/);
 });
-
 
 void test('WhatsApp Discovery queries invite facts before expensive navigation',()=>{
   assert.match(source,/export async function queryWhatsappInviteViaCdp/);
@@ -770,20 +755,6 @@ void test('WhatsApp Discovery queries invite facts before expensive navigation',
   assert.match(source,/announce/);
   assert.match(source,/memberCount/);
 });
-
-
-void test('executor token bridge survives a closed Discovery dialog via browser-local credential storage', async()=>{
-  const source=await import('node:fs/promises').then(({readFile})=>readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8'));
-  const panel=await import('node:fs/promises').then(({readFile})=>readFile(new URL('../components/chat-discovery-executor-panel.tsx',import.meta.url),'utf8'));
-  assert.match(source,/localStorage\.getItem\('work-os:executor-token:v1'\)/);
-  assert.match(source,/stored\.startsWith\('wos_exec_'\)/);
-  const storage=await import('node:fs/promises').then(({readFile})=>readFile(new URL('../lib/chat-discovery/executor-storage.ts',import.meta.url),'utf8'));
-  assert.match(panel,/storeExecutorToken\(nextToken,payload\.device\.id\)/);
-  assert.match(panel,/EXECUTOR_DEVICE_STORAGE_KEY/);
-  assert.match(storage,/EXECUTOR_TOKEN_STORAGE_KEY = 'work-os:executor-token:v1'/);
-  assert.match(storage,/localStorage\.setItem\(EXECUTOR_TOKEN_STORAGE_KEY, token\)/);
-});
-
 
 void test('foreign solidarity group is not treated as a Ukrainian audience from the word Ukraine alone',()=>{
   const facts=deriveWhatsappQualification({

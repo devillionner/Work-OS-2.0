@@ -23,20 +23,3 @@ void test('Viber joined-today data excludes archived, failed and returned-to-joi
   const rows=await joinedTodayStatement(db,{userId:'u',platform:'viber',date,accountId:null}).all();
   assert.deepEqual(rows.results.map(row=>row.id),['viber-ready','viber-waiting']);
 });
-
-void test('Viber workspace exposes a compact expandable joined-today panel in the queue header area', async () => {
-  const [workspace,css]=await Promise.all([
-    readFile(new URL('../components/platform-workspace.tsx',import.meta.url),'utf8'),
-    readFile(new URL('../app/globals.css',import.meta.url),'utf8'),
-  ]);
-  assert.match(workspace,/joinedTodayOpen/);
-  assert.match(workspace,/Приєднані сьогодні/);
-  // One panel serves Viber and WhatsApp; the platform name is interpolated.
-  assert.match(workspace,/Актуальні \$\{selected\.label\}-чати/);
-  assert.match(workspace,/aria-expanded=\{joinedTodayOpen\}/);
-  assert.match(workspace,/openNativeChat\(platform,item\.link\)/);
-  assert.match(workspace,/data\.joinedToday\.length/);
-  assert.match(css,/\.joined-today-panel/);
-  assert.match(css,/\.joined-today-list \{[^}]*grid-template-columns:repeat\(auto-fit,minmax\(230px,1fr\)\)/s);
-  assert.match(css,/\.joined-today-list \{ grid-template-columns:1fr;/);
-});

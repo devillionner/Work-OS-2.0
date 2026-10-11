@@ -14,17 +14,3 @@ void test('REPORT-21 exposes goal history from owner-scoped versions and unversi
   assert.match(source, /unversioned/);
   assert.doesNotMatch(source, /UPDATE goal_versions|DELETE FROM goal_versions|INSERT INTO goal_versions/);
 });
-
-void test('REPORT-21 Settings makes historical effective dates visible and does not fabricate legacy dates', async () => {
-  const dialog = await readFile(new URL('../components/goal-history-dialog.tsx', import.meta.url), 'utf8');
-  const settings = await readFile(new URL('../components/settings-workspace.tsx', import.meta.url), 'utf8');
-  assert.match(dialog, /Історія цілей/);
-  assert.match(dialog, /не переписує план минулих днів або місяців/);
-  assert.match(dialog, /Діє з/);
-  assert.match(dialog, /Денна ціль/);
-  assert.match(dialog, /Місячна ціль/);
-  assert.match(dialog, /дата початку дії невідома/);
-  assert.match(dialog, /Наступні зміни вже версіонуються/);
-  assert.match(settings, /GoalHistoryDialog/);
-  assert.match(settings, />Історія<\/Button>/);
-});

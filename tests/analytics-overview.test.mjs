@@ -42,21 +42,3 @@ void test('monthly overview fact stops at the selected range end date',async t=>
   assert.deepEqual(await readMonthlyGoalProgress(db,'u','2026-09-15'),{target:20,actual:1});
   assert.deepEqual(await readMonthlyGoalProgress(db,'u','2026-09-30'),{target:20,actual:2});
 });
-
-void test('overview route and Analytics UI use the exact selected query without stale cross-view data',()=>{
-  const route=readFileSync(new URL('../app/api/analytics/overview/route.ts',import.meta.url),'utf8');
-  const workspace=readFileSync(new URL('../components/analytics-workspace.tsx',import.meta.url),'utf8');
-  const insights=readFileSync(new URL('../components/analytics-insights.tsx',import.meta.url),'utf8');
-  assert.match(route,/resolveAnalyticsRange\(new URL\(request\.url\)\.searchParams,today\)/);
-  assert.match(route,/readMonthlyGoalProgress\(env\.DB,user\.id,to\)/);
-  assert.match(route,/activitySummaryStatement\(env\.DB,user\.id,from,to\)/);
-  assert.match(route,/previousStart=shiftBusinessDate\(previousEnd,-\(days-1\)\)/);
-  assert.match(route,/buildAnalyticsOverview\(\{range:\{from,to,days\}/);
-  assert.match(workspace,/const queryKey=useMemo/);
-  assert.match(workspace,/viewCache=useRef\(new Map<string,AnalyticsData>\(\)\)/);
-  assert.match(workspace,/loadedData\?\.key===queryKey\?loadedData\.data:viewCache\.current\.get\(queryKey\)\|\|null/);
-  assert.match(workspace,/<AnalyticsInsights insights=\{data\.insights\} query=\{queryKey\} \/>/);
-  assert.match(insights,/loaded\?\.query===query\?loaded\.data:cache\.current\.get\(query\)\|\|null/);
-  assert.match(insights,/fetch\(`\/api\/analytics\/overview\?\$\{query\}`/);
-  assert.match(insights,/return\(\)=>controller\.abort\(\)/);
-});

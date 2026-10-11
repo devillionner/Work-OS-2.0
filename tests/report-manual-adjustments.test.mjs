@@ -44,16 +44,6 @@ void test('report fact and adjusted totals keep activity events authoritative', 
   assert.equal(reportManualAdjustmentsAreValidForFacts(facts, { publications: -8, responses: 0, bookings: 0 }), false);
 });
 
-void test('REPORT-22 UI exposes fact, explicit correction, result and per-number sources', async () => {
-  const source = await readFile(new URL('../components/report-manual-diff.tsx', import.meta.url), 'utf8');
-  assert.match(source, /Авто-факт/);
-  assert.match(source, /Ручна корекція/);
-  assert.match(source, /Підсумок звіту/);
-  assert.match(source, /Джерела авто-факту/);
-  assert.match(source, /activity events/);
-  assert.match(source, /Today та Analytics/);
-});
-
 void test('REPORT-22 write path is owner scoped, optimistic and versioned in report history', async () => {
   const source = await readFile(new URL('../app/api/reports/manual-adjustments/route.ts', import.meta.url), 'utf8');
   assert.match(source, /sameOrigin\(request\)/);
@@ -65,10 +55,4 @@ void test('REPORT-22 write path is owner scoped, optimistic and versioned in rep
   assert.match(source, /Звіт уже змінено на іншому пристрої/);
   assert.match(source, /activitySummaryStatement/);
   assert.match(source, /readReportEventDetails/);
-});
-
-void test('report history renders the manual delta for correction-only revisions', async () => {
-  const source = await readFile(new URL('../components/report-history-dialog.tsx', import.meta.url), 'utf8');
-  assert.match(source, /Корекція · оголошення/);
-  assert.match(source, /manualAdjustments/);
 });

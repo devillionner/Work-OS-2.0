@@ -170,7 +170,7 @@ export function ConversationTab({ detail, mutate, onChanged }: { detail: LeadDet
                     return (
                       <li key={attachment.id} className="flex items-center gap-3 rounded-inner border border-line px-3 py-2">
                         {image ? (
-                          <a href={url} target="_blank" rel="noreferrer" aria-label={`Відкрити ${attachment.fileName}`} className="size-10 shrink-0 overflow-hidden rounded-lg bg-sunken">
+                          <a href={url} target="_blank" rel="noreferrer" aria-label={`Відкрити ${attachment.fileName}`} className="size-10 shrink-0 overflow-hidden rounded-field bg-sunken">
                             <span aria-hidden="true" className="block size-full bg-cover bg-center" style={{ backgroundImage: `url("${url}")` }} />
                           </a>
                         ) : null}

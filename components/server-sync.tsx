@@ -37,8 +37,8 @@ export function ServerSync() {
   const pendingCheckRef = useRef<DataSyncDetail['reason'] | null>(null);
   const lastRefreshAt = useRef(0);
   const businessDateRef = useRef(readKyivBusinessDate());
+  const checkAgainRef = useRef<((reason: DataSyncDetail['reason']) => void) | null>(null);
 
-  // oxlint-disable-next-line react/react-compiler -- TODO: потребує зміни логіки (docs/TODO.md)
   const checkRevision = useCallback(async (reason: DataSyncDetail['reason'], scope: DataSyncScope = 'all'): Promise<SyncCheckResult> => {
     if (checkingRef.current) {
       if (reason !== 'poll') pendingCheckRef.current = reason;
@@ -88,9 +88,13 @@ export function ServerSync() {
       checkingRef.current = false;
       const pending = pendingCheckRef.current;
       pendingCheckRef.current = null;
-      if (pending) window.setTimeout(() => void checkRevision(pending), 0);
+      if (pending) window.setTimeout(() => checkAgainRef.current?.(pending), 0);
     }
   }, [router]);
+
+  useEffect(() => {
+    checkAgainRef.current = (reason) => void checkRevision(reason);
+  }, [checkRevision]);
 
   const refreshBusinessDay = useCallback(() => {
     const nextDate = readKyivBusinessDate();

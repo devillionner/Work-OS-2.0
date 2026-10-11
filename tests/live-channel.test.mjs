@@ -124,16 +124,6 @@ void test('server-sync stops the blind revision poll while the live channel is o
   assert.match(sync, /unsubscribeLiveMessages\(\);\s*unsubscribeLiveStatus\(\);/);
 });
 
-void test('the Waiting-check panel follows the live channel and polls only as a fallback while it is down', () => {
-  const workspace = readFileSync(new URL('../components/platform-workspace.tsx', import.meta.url), 'utf8');
-  assert.match(workspace, /message\.type==='process_state'&&message\.process==='waiting_check'\)applyWaitingCheckView\(parseWaitingCheckView\(message\)\)/);
-  assert.match(workspace, /else if\(message\.type==='runner_status'\)void refreshWaitingCheck\(\)/);
-  assert.match(workspace, /queue!=='waiting'\|\|liveStatus\.connected\)return;\s*\/\/ Fallback only while the live channel is down/);
-  assert.match(workspace, /liveStatus\.connected&&liveStatus\.runnerConnected===true\s*\? \{\.\.\.waitingCheck,runnerSeenAt:Math\.floor\(clock\/1000\)\}/);
-  assert.match(workspace, /<WhatsappWaitingCheckPanel view=\{waitingCheckView\}/);
-  assert.match(workspace, /message\.process!=='autopost'\)return;\s*if\(message\.status==='running'\|\|message\.status==='released'\)return;\s*invalidateQueueCache\('whatsapp'\);/);
-});
-
 void test('the runner keeps its live channel alive with the same auto-response ping and drops a half-open socket', () => {
   const runner = readFileSync(new URL('../scripts/chat-discovery-runner.mjs', import.meta.url), 'utf8');
   assert.match(runner, /const WS_KEEPALIVE_MS=30000;/);

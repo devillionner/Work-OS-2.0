@@ -556,7 +556,7 @@ export function DiscoveryPanel({
                 <details className="text-xs">
                   <summary className="cursor-pointer select-none font-medium text-ink-2">Деталі перевірки · {confirmedCriteria} із {criteria.length}</summary>
                   <dl className="m-0 mt-2 grid grid-cols-2 gap-2">
-                    {criteria.map((item) => <div key={item.label} className="rounded-lg border border-line px-3 py-2"><dt className="flex items-center gap-1.5 text-[11px] text-ink-2"><i aria-hidden="true" className={cn('size-1.5 rounded-full', stateTone(item.state))} />{item.label}</dt><dd className="m-0 mt-0.5 text-sm">{item.value}</dd></div>)}
+                    {criteria.map((item) => <div key={item.label} className="rounded-field border border-line px-3 py-2"><dt className="flex items-center gap-1.5 text-[11px] text-ink-2"><i aria-hidden="true" className={cn('size-1.5 rounded-full', stateTone(item.state))} />{item.label}</dt><dd className="m-0 mt-0.5 text-sm">{item.value}</dd></div>)}
                   </dl>
                 </details>
                 <div className="flex flex-wrap items-center gap-2">
@@ -688,24 +688,23 @@ function candidateStatus(candidate:DiscoveryCandidate){
     // so every local-preview branch below must return based on preflightState, the authoritative
     // field everywhere else in this file (tabs, counts, archiving), never falling through to the
     // decision-based branches meant for server-tracked (non-local) candidates further down.
-    const tone='border-border bg-muted/25 text-foreground/70';
     const reasons=(candidate.preflightReasonCodes?.length?candidate.preflightReasonCodes:candidate.reasonCodes).map(reasonLabel).join('; ');
-    if(candidate.preflightState==='review')return {label:'Потрібне твоє рішення',detail:'Не всі критерії вдалося підтвердити автоматично: '+(reasons||'невідомо')+'. Відкрий чат у WhatsApp; якщо не підходить — «У нецільові». З групи автоматично не виходимо.',tone:'border-amber-500/30 bg-amber-500/5 text-foreground',busy:false};
-    if(candidate.preflightState==='skipped')return {label:'Пропущено',detail:'Причина: '+(reasons||'невідомо'),tone,busy:false};
-    if(candidate.preflightState==='unavailable')return {label:'Не вдалося перевірити',detail:'Причина: '+(reasons||'невідомо')+'. Це не висновок про нецільову аудиторію.',tone,busy:false};
-    if(candidate.preflightState==='rejected')return {label:'Нецільовий',detail:'Причина: '+(reasons||'невідомо')+'. '+(candidate.leftAfterCheck?'Вихід із чату підтверджено.':candidate.membershipState==='joined'?'Вихід не підтверджено: '+reasonLabel(candidate.leaveReason||'leave_not_confirmed'):'Відсіяно до вступу.'),tone,busy:false};
-    if(candidate.preflightState==='target')return {label:'Цільовий',detail:'Усі критерії підтверджені в WhatsApp. У Work OS ще не записано — натисни «Підтвердити».',tone:'border-emerald-500/30 bg-emerald-500/5 text-emerald-800 dark:text-emerald-300',busy:false};
-    return {label:'У черзі на перевірку',detail:'Знайдено в Telegram: '+(candidate.sources?.[0]?.sourceTitle||'публічна група')+'. Runner перевірить запрошення в WhatsApp.',tone:'border-border bg-muted/20 text-foreground/70',busy:candidate.preflightState==='queued'};
+    if(candidate.preflightState==='review')return {label:'Потрібне твоє рішення',detail:'Не всі критерії вдалося підтвердити автоматично: '+(reasons||'невідомо')+'. Відкрий чат у WhatsApp; якщо не підходить — «У нецільові». З групи автоматично не виходимо.',busy:false};
+    if(candidate.preflightState==='skipped')return {label:'Пропущено',detail:'Причина: '+(reasons||'невідомо'),busy:false};
+    if(candidate.preflightState==='unavailable')return {label:'Не вдалося перевірити',detail:'Причина: '+(reasons||'невідомо')+'. Це не висновок про нецільову аудиторію.',busy:false};
+    if(candidate.preflightState==='rejected')return {label:'Нецільовий',detail:'Причина: '+(reasons||'невідомо')+'. '+(candidate.leftAfterCheck?'Вихід із чату підтверджено.':candidate.membershipState==='joined'?'Вихід не підтверджено: '+reasonLabel(candidate.leaveReason||'leave_not_confirmed'):'Відсіяно до вступу.'),busy:false};
+    if(candidate.preflightState==='target')return {label:'Цільовий',detail:'Усі критерії підтверджені в WhatsApp. У Work OS ще не записано — натисни «Підтвердити».',busy:false};
+    return {label:'У черзі на перевірку',detail:'Знайдено в Telegram: '+(candidate.sources?.[0]?.sourceTitle||'публічна група')+'. Runner перевірить запрошення в WhatsApp.',busy:candidate.preflightState==='queued'};
   }
-  if(candidate.membershipState==='left')return {label:'Чат уже покинуто',detail:'Для нової кваліфікації спочатку віднови його та підтвердь повторний вступ.',tone:'border-border bg-muted/25 text-foreground/70',busy:false};
-  if(candidate.decision==='review')return {label:'На ручну перевірку',detail:candidate.reasonCodes.includes('fresh_join_history_unavailable')?'Чат пройшов доступні автоматичні перевірки, але старі повідомлення після вступу недоступні. Перевір активність і оголошення вручну.':'Потрібен твій погляд перед остаточним рішенням.',tone:'border-amber-500/30 bg-amber-500/5 text-foreground',busy:false};
-  if(candidate.decision==='target')return {label:'Цільовий',detail:'Усі критерії підтверджені. Лиш у роботі або перенеси в архів.',tone:'border-emerald-500/30 bg-emerald-500/5 text-emerald-800 dark:text-emerald-300',busy:false};
-  if(candidate.decision==='rejected')return {label:'Відхилено автоматично',detail:candidate.membershipState==='joined'?'Чат не відповідає критеріям. Work OS виходить із нього та архівує.':'Чат не відповідає критеріям і не буде зарахований у ціль.',tone:'border-border bg-muted/25 text-foreground/70',busy:false};
-  if(candidate.decision==='unavailable')return {label:'Недоступний',detail:'Invite або сам чат недоступний. Work OS переходить до наступного кандидата.',tone:'border-border bg-muted/25 text-foreground/70',busy:false};
-  if(candidate.membershipState==='pending')return {label:'Очікуємо схвалення в WhatsApp',detail:'Запит на вступ уже відправлено. Система перевірить його повторно сама.',tone:'border-primary/30 bg-primary/5 text-foreground',busy:true};
-  if(candidate.membershipState==='joined')return {label:'Перевіряємо чат',detail:'Вступ підтверджено. Work OS збирає факти й перевіряє критерії.',tone:'border-primary/30 bg-primary/5 text-foreground',busy:true};
-  if(candidate.inspectionState==='failed')return {label:'Спробуємо ще раз',detail:'Попередня перевірка не завершилась. Кандидат лишається в автоматичній черзі.',tone:'border-amber-500/30 bg-amber-500/5 text-foreground',busy:true};
-  return {label:'У черзі',detail:'Work OS перевірить цей чат автоматично. Втручання не потрібне.',tone:'border-border bg-muted/15 text-foreground/75',busy:true};
+  if(candidate.membershipState==='left')return {label:'Чат уже покинуто',detail:'Для нової кваліфікації спочатку віднови його та підтвердь повторний вступ.',busy:false};
+  if(candidate.decision==='review')return {label:'На ручну перевірку',detail:candidate.reasonCodes.includes('fresh_join_history_unavailable')?'Чат пройшов доступні автоматичні перевірки, але старі повідомлення після вступу недоступні. Перевір активність і оголошення вручну.':'Потрібен твій погляд перед остаточним рішенням.',busy:false};
+  if(candidate.decision==='target')return {label:'Цільовий',detail:'Усі критерії підтверджені. Лиш у роботі або перенеси в архів.',busy:false};
+  if(candidate.decision==='rejected')return {label:'Відхилено автоматично',detail:candidate.membershipState==='joined'?'Чат не відповідає критеріям. Work OS виходить із нього та архівує.':'Чат не відповідає критеріям і не буде зарахований у ціль.',busy:false};
+  if(candidate.decision==='unavailable')return {label:'Недоступний',detail:'Invite або сам чат недоступний. Work OS переходить до наступного кандидата.',busy:false};
+  if(candidate.membershipState==='pending')return {label:'Очікуємо схвалення в WhatsApp',detail:'Запит на вступ уже відправлено. Система перевірить його повторно сама.',busy:true};
+  if(candidate.membershipState==='joined')return {label:'Перевіряємо чат',detail:'Вступ підтверджено. Work OS збирає факти й перевіряє критерії.',busy:true};
+  if(candidate.inspectionState==='failed')return {label:'Спробуємо ще раз',detail:'Попередня перевірка не завершилась. Кандидат лишається в автоматичній черзі.',busy:true};
+  return {label:'У черзі',detail:'Work OS перевірить цей чат автоматично. Втручання не потрібне.',busy:true};
 }
 
 function platformLabel(value: string) {

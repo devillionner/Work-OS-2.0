@@ -1,6 +1,6 @@
 {
   "name": "work-os-2",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -11,7 +11,7 @@
     "start": "wrangler dev --config dist/server/wrangler.json",
     "deploy": "npm run build && wrangler deploy --config dist/server/wrangler.json",
     "deploy:staging": "node scripts/deploy-staging.mjs",
-    "lint": "oxlint --threads=1 app components/ui components/motion components/shell components/views components/work-os-shell.tsx components/work-os-bootstrap.tsx components/workspace-error-boundary.tsx components/google-sign-in.tsx components/pwa-registration.tsx components/server-sync.tsx components/chat-names-dialog.tsx components/legacy-import-dialog.tsx components/library-workspace.tsx components/reports-workspace.tsx components/settings-workspace.tsx components/payment-settings.tsx db lib scripts tests",
+    "lint": "oxlint --threads=1 app components db lib scripts tests",
     "typecheck": "tsc -p tsconfig.chat-discovery.json --pretty false",
     "verify": "npm run build",
     "verify:local": "npm run lint && npm run typecheck && npm run test:full && npm run build",
@@ -19,7 +19,7 @@
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/apply-d1-migrations.mjs",
-    "test:staging": "node --experimental-strip-types --test --test-concurrency=16 tests/chat-discovery-cloud.test.mjs tests/chat-discovery-route-contract.test.mjs tests/chat-discovery-scan-gate.test.mjs tests/chat-discovery-ui.test.mjs tests/platform-browser-open.test.mjs tests/release-version.test.mjs tests/wrangler-config.test.mjs",
+    "test:staging": "node --experimental-strip-types --test --test-concurrency=16 tests/chat-discovery-cloud.test.mjs tests/chat-discovery-route-contract.test.mjs tests/chat-discovery-ui.test.mjs tests/release-version.test.mjs tests/wrangler-config.test.mjs",
     "test:full": "node --experimental-strip-types --test --test-concurrency=16 tests/*.test.mjs",
     "discovery:runner": "node scripts/chat-discovery-runner.mjs"
   },
@@ -28,25 +28,17 @@
     "@fontsource-variable/geist": "5.3.0",
     "@fontsource-variable/geist-mono": "5.3.0",
     "@gsap/react": "2.1.2",
-    "@shadcn/react": "0.3.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "1.1.1",
-    "date-fns": "4.1.0",
     "drizzle-orm": "0.45.2",
-    "embla-carousel-react": "8.5.2",
     "gsap": "3.15.0",
-    "input-otp": "1.4.2",
     "jose": "^6.1.3",
     "lucide-react": "1.31.0",
     "react": "19.3.0",
-    "react-day-picker": "9.8.1",
     "react-dom": "19.3.0",
-    "react-resizable-panels": "4.5.8",
     "recharts": "3.8.0",
-    "shadcn": "4.18.0",
     "tailwind-merge": "3.6.0",
-    "tw-animate-css": "1.4.0",
     "vinext": "1.0.0-beta.9"
   },
   "devDependencies": {

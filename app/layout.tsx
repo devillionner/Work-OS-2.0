@@ -7,9 +7,6 @@ import { THEME_BOOT_SCRIPT } from '@/components/shell/theme-provider';
 import { ToastProvider } from '@/components/ui/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import './globals.css';
-import './legacy.css';
-import './design-polish.css';
-import './update-motion.css';
 
 export const metadata: Metadata = {
   title: 'Work OS',

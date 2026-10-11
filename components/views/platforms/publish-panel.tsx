@@ -166,8 +166,8 @@ function PublishBody({ chat, quickMode, preferred, onClose, onPublished, onOpenC
         <section className="flex flex-col gap-3 rounded-inner border border-line p-4" aria-label="Фокус підбору">
           <h3 className="m-0 text-sm font-medium">Фокус підбору матеріалів</h3>
           <dl className="m-0 grid gap-2 sm:grid-cols-2">
-            <div className="rounded-lg bg-sunken px-3 py-2"><dt className="text-[11px] text-ink-2">Активний фокус</dt><dd className="m-0 text-xs">{focusPlan.currentDirections.length ? focusPlan.currentDirections.join(' · ') : 'Без обмеження'}</dd></div>
-            <div className="rounded-lg bg-sunken px-3 py-2"><dt className="text-[11px] text-ink-2">Поточний план</dt><dd className="m-0 text-xs">{focusPlan.planDirections.length ? focusPlan.planDirections.join(' · ') : 'Без обмеження'}</dd></div>
+            <div className="rounded-field bg-sunken px-3 py-2"><dt className="text-[11px] text-ink-2">Активний фокус</dt><dd className="m-0 text-xs">{focusPlan.currentDirections.length ? focusPlan.currentDirections.join(' · ') : 'Без обмеження'}</dd></div>
+            <div className="rounded-field bg-sunken px-3 py-2"><dt className="text-[11px] text-ink-2">Поточний план</dt><dd className="m-0 text-xs">{focusPlan.planDirections.length ? focusPlan.planDirections.join(' · ') : 'Без обмеження'}</dd></div>
           </dl>
           {focusPlan.stale ? (
             <div className="flex flex-col gap-2">

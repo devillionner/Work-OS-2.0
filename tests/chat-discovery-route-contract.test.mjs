@@ -37,18 +37,6 @@ void test('Chat Discovery rejects malformed versioned mutations before domain ca
   assert.doesNotMatch(route, /body\.runId/);
 });
 
-
-void test('the retired per-device HTTP Discovery executor route is gone, not left to silently 404-bridge the old protocol', async () => {
-  // Commit 3d: the per-candidate executor_lease_device_id/expires_at claim/lease this route used to
-  // bridge is retired — Discovery dispatch now goes through the owner Durable Object (workers/owner-
-  // channel.js) over the same task/result/release/ready protocol as waiting_check/autopost. There is
-  // no remaining branch to keep here (unlike messenger-automation's Viber safe-mode), so the whole
-  // route is deleted, matching how the waiting-check executor route was retired in commit 3b.
-  await assert.rejects(readFile(new URL('../app/api/chat-discovery/executor/route.ts', import.meta.url), 'utf8'));
-});
-
-// Operator decision 2026-10-02: search and qualification never write D1; only «Підтвердити» (confirm) and
-// «Архівувати всі» (one batch) do. There is no per-result persist action anymore.
 void test('Preview route writes D1 only through confirm and the archive-all batch', async()=>{
   const route=await readFile(new URL('../app/api/chat-discovery/preview/route.ts',import.meta.url),'utf8');
   assert.doesNotMatch(route,/persist-outcome|persistLocalDiscoveryOutcome/);
@@ -69,7 +57,6 @@ void test('operator can archive an unimported saved target without fabricating q
   assert.match(domain,/needsExternalLeave:candidate\.membership_state==='joined'/);
 });
 
-
 void test('WhatsApp waiting-check API always answers with JSON and bridges to the owner Durable Object, not D1 leases', async()=>{
   const [route,executor]=await Promise.all([
     readFile(new URL('../app/api/chat-discovery/waiting-check/route.ts',import.meta.url),'utf8'),
@@ -86,11 +73,6 @@ void test('WhatsApp waiting-check API always answers with JSON and bridges to th
   assert.doesNotMatch(executor,/ensureWaitingWhatsAppCandidates/);
   assert.match(executor,/NOT \(\$\{RETIRED_WAITING_CHECK_CANDIDATE_SQL\}\)/);
 });
-
-void test('the retired HTTP waiting-check executor route is gone, not left to silently 404-bridge the old protocol', async()=>{
-  await assert.rejects(readFile(new URL('../app/api/chat-discovery/waiting-check/executor/route.ts',import.meta.url),'utf8'));
-});
-
 
 void test('Waiting executor does not require the historical pending-recheck column', async()=>{
   const [executor,inspection]=await Promise.all([

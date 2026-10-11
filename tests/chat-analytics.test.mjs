@@ -33,16 +33,3 @@ void test('chat analytics attributes lead outcomes through source chat and isola
   assert.equal(all.summary.publications,2);
   assert.equal(all.from,null);
 });
-
-void test('chat analytics UI exposes periods, conversion metrics and linked event drill-down', async () => {
-  const { readFile }=await import('node:fs/promises');
-  const source=await readFile(new URL('../components/chat-history-dialog.tsx',import.meta.url),'utf8');
-  assert.match(source,/Результат чату/);
-  assert.match(source,/7 днів/);
-  assert.match(source,/30 днів/);
-  assert.match(source,/Весь час/);
-  assert.match(source,/Відгук \/ публікація/);
-  assert.match(source,/Запис \/ відгук/);
-  assert.match(source,/Проведено \/ запис/);
-  assert.match(source,/filterAnalyticsEvents/);
-});

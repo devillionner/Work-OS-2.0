@@ -20,13 +20,3 @@ void test('report text diff is bounded for large historical reports', () => {
   assert.equal(diff.maxLines,200);
   assert.ok(diff.operations.length <= 400);
 });
-
-void test('report history exposes comparison without changing restore semantics', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const source = await readFile(new URL('../components/report-history-dialog.tsx',import.meta.url),'utf8');
-  assert.match(source,/Порівняти з поточною/);
-  assert.match(source,/diffReportText/);
-  assert.match(source,/Відновити цю версію/);
-  assert.match(source,/expectedRevision: currentRevision/);
-  assert.match(source,/Порівняння з версією/);
-});

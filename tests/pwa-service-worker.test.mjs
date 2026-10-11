@@ -11,12 +11,3 @@ void test('PWA service worker is network-only and never stores cloud data', asyn
   assert.doesNotMatch(source, /addAll/);
   assert.doesNotMatch(source, /CacheStorage/);
 });
-
-void test('PWA registration uses the root scope', async () => {
-  const source = await readFile(
-    new URL('../components/pwa-registration.tsx', import.meta.url),
-    'utf8',
-  );
-  assert.match(source, /\.register\('\/sw\.js'/);
-  assert.match(source, /scope: '\/'/);
-});

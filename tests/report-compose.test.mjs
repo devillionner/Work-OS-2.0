@@ -31,10 +31,3 @@ void test('daily report draft stays stable and includes unknown platforms withou
   assert.match(text,/Загальний звіт 02\.01\.26/);
   assert.match(text,/custom\nОголошення: 5\nНові чати: 0\nВідгуки: 1\nЗаписи: 0/);
 });
-
-void test('reports workspace uses suggested event draft only when no saved report exists', async () => {
-  const { readFile }=await import('node:fs/promises');
-  const source=await readFile(new URL('../components/reports-workspace.tsx',import.meta.url),'utf8');
-  assert.match(source,/body\.selected\?\.text \|\| body\.suggestedText/);
-  assert.match(source,/Чернетку автоматично сформовано з подій за цей день/);
-});

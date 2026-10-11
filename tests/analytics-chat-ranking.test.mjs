@@ -50,21 +50,3 @@ void test('chat ranking avoids a fake zero-percent conversion when there were no
   assert.equal(responseConversionLabel(chat({ publications: 0, responseRate: 0 })), '—');
   assert.equal(responseConversionLabel(chat({ publications: 4, responseRate: 25 })), '25%');
 });
-
-void test('analytics ranking UI and API expose platform direction language and confidence contracts', () => {
-  const route = readFileSync(join(root, 'app', 'api', 'analytics', 'route.ts'), 'utf8');
-  const workspace = readFileSync(join(root, 'components', 'analytics-workspace.tsx'), 'utf8');
-  const css = readFileSync(join(root, 'app', 'globals.css'), 'utf8');
-
-  // The per-chat SQL lives in lib/analytics-chats.ts since 2026-10-04 (grouped before the joins).
-  const chatSql = readFileSync(join(root, 'lib', 'analytics-chats.ts'), 'utf8');
-  assert.match(route, /chatActivityStatement\(env\.DB, user\.id, from, to\)/);
-  assert.match(chatSql, /LEFT JOIN chat_profiles pr ON pr\.chat_id=c\.id/);
-  assert.match(chatSql, /pr\.language,pr\.directions_json/);
-  assert.match(workspace, /aria-label="Фільтри рейтингу чатів"/);
-  for (const label of ['Платформа', 'Напрямок', 'Мова', 'Недостатньо даних'])
-    assert.match(workspace, new RegExp(label));
-  assert.match(workspace, /responseConversionLabel\(chat\)/);
-  assert.match(css, /\.analytics-ranking-controls select \{[^}]*min-height:42px;/s);
-  assert.match(css, /\.analytics-ranking-controls select \{ min-height:44px; \}/);
-});

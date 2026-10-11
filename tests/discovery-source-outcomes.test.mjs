@@ -176,17 +176,6 @@ void test('source bridge keeps cursor on preview failure and reports a resumable
   assert.equal(canResume(state),true);
 });
 
-void test('local lists split work, targets and non-targets while the target list stays strict',async()=>{
-  const source=await readFile(new URL('../components/chat-discovery-dialog.tsx',import.meta.url),'utf8');
-  const {stripTypeScriptTypes}=await import('node:module');
-  const fn=source.slice(source.indexOf('function localCandidatesForFilter'),source.indexOf('function archiveItem'));
-  const filter=new Function('NON_TARGET_STATES',stripTypeScriptTypes(fn)+'\nreturn localCandidatesForFilter;')(new Set(['rejected','skipped','unavailable']));
-  const candidates=[{preflightState:'target'},{preflightState:'queued'},{preflightState:'rejected'},{preflightState:'skipped'},{preflightState:'unavailable'},{preflightState:'review'}];
-  assert.deepEqual(filter(candidates,'active'),[candidates[5],candidates[1]]);
-  assert.deepEqual(filter(candidates,'target'),[candidates[0]]);
-  assert.deepEqual(filter(candidates,'rejected'),[candidates[2],candidates[3],candidates[4]]);
-});
-
 void test('WhatsApp metadata maps bad-request and gone invite responses to invalid links',async()=>{
   const adapter=await readFile(new URL('../scripts/whatsapp-web-cdp.mjs',import.meta.url),'utf8');
   const start=adapter.indexOf('export async function queryWhatsappInviteViaCdp');

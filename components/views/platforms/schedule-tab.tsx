@@ -119,7 +119,7 @@ function ScheduleForm({ accountId, data, busy, error, onToast }: { accountId: st
               <ul className="m-0 flex max-h-56 list-none flex-col gap-1 overflow-y-auto p-0">
                 {visibleChats.map((chat) => (
                   <li key={chat.id}>
-                    <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-2 hover:bg-raised">
+                    <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-field px-2 hover:bg-raised">
                       <input type="checkbox" aria-label={`Вибрати чат ${chat.name}`} checked={selectedSet.has(chat.id)} disabled={busy} className="size-4 accent-[var(--ink)]" onChange={() => setManualIds((current) => (current.includes(chat.id) ? current.filter((item) => item !== chat.id) : [...current, chat.id]))} />
                       <span className="min-w-0"><span className="block truncate text-sm">{chat.name}</span><small className="block truncate text-[11px] text-ink-2">{chat.link}</small></span>
                     </label>

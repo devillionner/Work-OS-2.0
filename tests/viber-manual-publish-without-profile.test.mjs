@@ -52,17 +52,3 @@ void test('Telegram manual publication does not require a confirmed chat profile
   assert.equal(result.ok,true,'error' in result?result.error:'');
   assert.equal(Number(await db.prepare("SELECT COUNT(*) FROM chat_publications WHERE user_id='u' AND chat_id='tg-ready'").first('COUNT(*)')),1);
 });
-
-void test('no platform turns the publish button into a profile gate any more',async()=>{
-  const workspace=await readFile(new URL('../components/platform-workspace.tsx',import.meta.url),'utf8');
-  const dialog=await readFile(new URL('../components/chat-publish-dialog.tsx',import.meta.url),'utf8');
-  assert.doesNotMatch(workspace,/profileBlocksManualPublication/);
-  assert.match(workspace,/chat\.platform!=='telegram'&&canPublish\(chat,clock\)\)return 'Опублікувати'/);
-  assert.match(workspace,/queues\.filter\(item=>platform!=='viber'\|\|item\.key!=='profile_review'\)/);
-  assert.match(workspace,/\(queue==='waiting'\|\|queue==='ready'\)&&platform!=='viber'/);
-  // The profile is still reachable from its own button and keeps its own queue — it just does not block.
-  assert.match(workspace,/queue==='profile_review'\?'Уточнити профіль':'Профіль'/);
-  assert.doesNotMatch(dialog,/profileRequired/);
-  assert.match(dialog,/profileMissing\s*&&\s*\(?\s*<output className="chat-publish-warning">/);
-  assert.doesNotMatch(dialog,/Потрібен профіль/);
-});

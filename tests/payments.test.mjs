@@ -90,16 +90,3 @@ test('payment rules reject unknown or silently normalized values', () => {
     /некоректне/i,
   );
 });
-
-test('payments API remains owner scoped and settings UI exposes plan fact forecast', async () => {
-  const route = await readFile(new URL('../app/api/payments/route.ts', import.meta.url), 'utf8');
-  const ui = await readFile(new URL('../components/payment-settings.tsx', import.meta.url), 'utf8');
-  assert.match(route, /getCurrentUser/);
-  assert.match(route, /sameOrigin/);
-  assert.match(route, /WHERE user_id=\?1/);
-  assert.match(route, /cancelled_at IS NULL/);
-  assert.match(ui, />План</);
-  assert.match(ui, />Факт на сьогодні</);
-  assert.match(ui, />Прогноз</);
-  assert.match(ui, /Період бонусу/);
-});

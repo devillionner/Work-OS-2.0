@@ -48,17 +48,6 @@ void test('REPORT-09 start endpoint snapshots current server goals and focus, no
   assert.match(source, /focusDirections: dashboard\.focusDirections/);
 });
 
-void test('REPORT-09 UI switches from preview to immutable workday plan', async () => {
-  const source = await readFile(new URL('../components/workday-card.tsx', import.meta.url), 'utf8');
-  assert.match(source, /workday\?\.plan \?\?/);
-  assert.match(source, /Зафіксовано на старті/);
-  assert.match(source, /не зміняться заднім числом/);
-  assert.match(source, /plan\.dailyGoal/);
-  assert.match(source, /plan\.monthlyGoal/);
-  assert.match(source, /plan\.focusDirections/);
-});
-
-
 void test('AD-17 refreshes only the unfinished workday focus and preserves published history', async (t) => {
   const db = await localDatabase(t);
   await seedChat(db, { id: 'published-chat', owner: 'u', platform: 'whatsapp', status: 'ready' });

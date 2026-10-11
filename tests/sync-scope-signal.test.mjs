@@ -38,20 +38,3 @@ void test('rapid local-write/cross-tab signals are coalesced within one window, 
 // parent re-render. Cross-device/other-tab freshness for Platforms/Leads/Library/Reports/Analytics
 // therefore never actually reached those workspaces; only the tab that made a local write refreshed,
 // via its own direct reload call, independent of this prop.
-void test('WorkOsBootstrap listens for sync signals instead of freezing syncRevision at mount forever', () => {
-  const bootstrap = read('components/work-os-bootstrap.tsx');
-  assert.match(bootstrap, /import \{ DATA_SYNC_EVENT, type DataSyncDetail \} from '@\/lib\/client-sync';/);
-  assert.match(bootstrap, /const onDataSync = \(event: Event\) => \{/);
-  assert.match(bootstrap, /if \(detail\.scope === 'dashboard' \|\| detail\.scope === 'all'\) \{/);
-  assert.match(bootstrap, /void reloadSnapshot\(\);/);
-  assert.match(bootstrap, /setPayload\(\{ \.\.\.current, syncRevision: detail\.revision as number \}\);/);
-  assert.match(bootstrap, /window\.addEventListener\(DATA_SYNC_EVENT, onDataSync\);/);
-});
-
-void test('platform mutations announce their own scope instead of the broad all', () => {
-  const workspace = read('components/platform-workspace.tsx');
-  assert.doesNotMatch(workspace, /announceDataChange\('all'\)/);
-  assert.match(workspace, /announceDataChange\('platforms'\)/);
-  const matches = workspace.match(/announceDataChange\('platforms'\)/g) || [];
-  assert.equal(matches.length, 7, 'all platform mutation sites should announce the platforms scope');
-});

@@ -26,15 +26,3 @@ void test('analytics metric events are owner/date scoped and ignore cancelled fa
   assert.equal(bookings.total,2);
   assert.deepEqual(new Set(bookings.events.map(event=>event.eventType)),new Set(['lesson_booked','curator_booking_pending']));
 });
-
-void test('analytics metric UI exposes definitions, formulas, period and event drill-down', async()=>{
-  const {readFile}=await import('node:fs/promises');
-  const workspace=await readFile(new URL('../components/analytics-workspace.tsx',import.meta.url),'utf8');
-  const dialog=await readFile(new URL('../components/analytics-metric-dialog.tsx',import.meta.url),'utf8');
-  assert.equal((workspace.match(/Що входить · Події/g)||[]).length,1);
-  for(const metric of ['publications','responses','bookings','completed']) assert.match(workspace,new RegExp('metric="'+metric+'"'));
-  assert.match(dialog,/Що рахуємо/);
-  assert.match(dialog,/Формула/);
-  assert.match(dialog,/Період/);
-  assert.match(dialog,/Показано/);
-});

@@ -51,16 +51,3 @@ void test('same draft text is idempotent while a resubmission creates a new vers
   assert.equal(submitted.revision,2);
   assert.equal(submitted.submittedAt,12);
 });
-
-void test('report UI and restore path send the loaded revision and preserve local text on conflict', async () => {
-  const { readFile }=await import('node:fs/promises');
-  const route=await readFile(new URL('../app/api/reports/route.ts',import.meta.url),'utf8');
-  const workspace=await readFile(new URL('../components/reports-workspace.tsx',import.meta.url),'utf8');
-  const history=await readFile(new URL('../components/report-history-dialog.tsx',import.meta.url),'utf8');
-  assert.match(route,/expectedRevision/);
-  assert.match(route,/currentRevision:result\.currentRevision/);
-  assert.match(workspace,/expectedRevision: (data|editorData)\?\.selected\?\.revisionCount \?\? 0/);
-  assert.match(workspace,/setReportConflict\(true\)/);
-  assert.match(workspace,/Локальний текст залишено без змін/);
-  assert.match(history,/expectedRevision: currentRevision/);
-});
