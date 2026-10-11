@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Archive, Check, Copy, ExternalLink, History, Pencil, Phone, RotateCcw, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
+import { scrollToNode } from '@/components/views/shared/scroll';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import { FUNNEL_STAGES, safeUrl } from '@/lib/leads/domain/validation';
 import { businessDate } from '@/lib/leads/domain/time';
@@ -100,7 +101,7 @@ export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onRe
       {pastBooked ? (
         <output className="flex items-start justify-between gap-3 rounded-inner border border-warn/40 px-4 py-3">
           <p className="m-0 text-sm"><strong className="font-medium">Минулий урок без результату.</strong> {pastBooked.subject} · {pastBooked.lessonDate}. Зафіксуй результат, щоб воронка пішла далі.</p>
-          <Button variant="outline" size="sm" onClick={() => document.getElementById(`lesson-${pastBooked.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>До уроку</Button>
+          <Button variant="outline" size="sm" onClick={() => scrollToNode(document.getElementById(`lesson-${pastBooked.id}`), { block: 'center' })}>До уроку</Button>
         </output>
       ) : null}
 

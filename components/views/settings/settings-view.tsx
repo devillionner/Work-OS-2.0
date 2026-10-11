@@ -5,6 +5,7 @@ import { useCommand } from '@/components/shell/command-bus';
 import { Chip } from '@/components/ui/chip';
 import { AppearanceGroup } from './appearance-group';
 import { DangerGroup, GoalsGroup, PlatformsGroup, ProfileGroup, ServiceGroup } from './groups';
+import { scrollToNode } from '@/components/views/shared/scroll';
 import { PaymentsGroup } from './payments-group';
 
 const SECTIONS = [
@@ -19,11 +20,7 @@ const SECTIONS = [
 
 /** «Налаштування»: згруповані списки в стилі системних; швидкий перехід до групи (`settings:section`). */
 export default function SettingsView() {
-  const scrollTo = useCallback((section: string) => {
-    const node = document.getElementById(`settings-${section}`);
-    if (!node) return;
-    node.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
-  }, []);
+  const scrollTo = useCallback((section: string) => scrollToNode(document.getElementById(`settings-${section}`)), []);
 
   useCommand('settings:section', (section) => {
     if (typeof section === 'string') window.requestAnimationFrame(() => scrollTo(section));

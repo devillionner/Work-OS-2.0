@@ -1,13 +1,17 @@
 'use client';
 
 import { Check, RefreshCw } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 
 export type UpdateScreenPhase = 'updating' | 'finishing' | 'error';
 
 const STEPS = ['Готуємо оновлення', 'Оновлюємо файли', 'Повертаємо до роботи'];
 
-/** Екран оновлення Work OS: використовується справжнім автооновленням і тестовим показом у налаштуваннях. */
+/**
+ * Екран оновлення Work OS: використовується справжнім автооновленням і тестовим показом у налаштуваннях.
+ * Малюється через портал у body: предки з backdrop-filter чи overflow роблять `fixed` відносним до себе, і екран їхав би разом із ними.
+ */
 export function UpdateScreen({ phase, step, exiting, note, onRetry }: { phase: UpdateScreenPhase; step: number; exiting: boolean; note: string; onRetry?: () => void }) {
   const isError = phase === 'error';
   const isFinishing = phase === 'finishing';
@@ -19,10 +23,11 @@ export function UpdateScreen({ phase, step, exiting, note, onRetry }: { phase: U
       : 'Підтягуємо нову версію й синхронізуємо дані. Нічого натискати не потрібно.';
   const progress = isFinishing ? 100 : Math.min(75, Math.max(25, step * 25));
 
-  return (
+  if (typeof document === 'undefined') return null;
+  return createPortal(
     <dialog
       open
-      className={`app-update-backdrop fixed inset-0 z-[95] m-0 grid h-dvh max-h-none w-screen max-w-none place-items-center border-0 bg-scrim p-4 text-ink transition-opacity duration-500 ${exiting ? 'opacity-0' : 'opacity-100'}`}
+      className={`app-update-backdrop fixed inset-0 z-[95] m-0 grid h-dvh max-h-none w-screen max-w-none place-items-center border-0 bg-scrim p-4 text-ink transition-opacity duration-300 ${exiting ? 'opacity-0' : 'opacity-100'}`}
       aria-labelledby="app-update-title"
       aria-describedby="app-update-description"
     >
@@ -39,7 +44,7 @@ export function UpdateScreen({ phase, step, exiting, note, onRetry }: { phase: U
           <>
             <progress className="sr-only" aria-label="Прогрес оновлення" max={100} value={progress} />
             <div aria-hidden="true" className="h-1 overflow-hidden rounded-full bg-line">
-              <div className="h-full origin-left rounded-full bg-ink" style={{ transform: `scaleX(${progress / 100})`, transition: 'transform 0.6s var(--ease-out)' }} />
+              <div className="h-full origin-left rounded-full bg-ink" style={{ transform: `scaleX(${progress / 100})`, transition: 'transform 0.32s var(--ease-out)' }} />
             </div>
             <ol className="m-0 flex list-none flex-col gap-2 p-0 text-sm">
               {STEPS.map((label, index) => {
@@ -47,7 +52,7 @@ export function UpdateScreen({ phase, step, exiting, note, onRetry }: { phase: U
                 const current = !isFinishing && step === index + 1;
                 return (
                   <li key={label} className={`flex items-center gap-3 ${complete || current ? 'text-ink' : 'text-ink-2'}`}>
-                    <span className={`inline-grid size-5 place-items-center rounded-full border text-[11px] ${complete ? 'border-transparent bg-action text-action-ink' : 'border-line-strong'}`}>{complete ? '✓' : index + 1}</span>
+                    <span className={`inline-grid size-5 place-items-center rounded-full border text-[11px] ${complete ? 'border-transparent bg-action text-action-ink' : 'border-line-strong'}`}>{complete ? <Check aria-hidden="true" strokeWidth={2} className="size-3" /> : index + 1}</span>
                     {label}
                   </li>
                 );
@@ -62,6 +67,7 @@ export function UpdateScreen({ phase, step, exiting, note, onRetry }: { phase: U
         )}
         <small className="text-xs text-ink-2">{note}</small>
       </div>
-    </dialog>
+    </dialog>,
+    document.body,
   );
 }

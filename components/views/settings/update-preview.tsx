@@ -5,7 +5,7 @@ import { UpdateScreen } from '@/components/shell/update-screen';
 
 const STEP_HOLD_MS = 1_150;
 const FINISH_HOLD_MS = 1_900;
-const EXIT_MS = 620;
+const EXIT_MS = 360;
 
 /** Тестовий показ екрана оновлення: ті самі кроки, що й у справжнього оновлення, без перезавантаження сайту. */
 export function UpdatePreview({ onClose }: { onClose: () => void }) {
