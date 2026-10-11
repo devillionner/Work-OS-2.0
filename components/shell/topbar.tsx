@@ -100,7 +100,7 @@ export function Topbar({ title, phone, user, signOutPath, enabledPlatforms, view
   );
 }
 
-function signOut(path: string) {
+export function signOut(path: string) {
   const form = document.createElement('form');
   form.method = 'post';
   form.action = path;

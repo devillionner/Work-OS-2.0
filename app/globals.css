@@ -65,6 +65,7 @@
   /* Палітри атмосфер: чотири кольори на пресет, тема лише змінює --atm-opacity */
   --atm-1: #3b4a45; --atm-2: #1d2a2c; --atm-3: #55625a; --atm-4: #12171a;
 }
+[data-atmosphere="fog"] { --atm-1: #3b4a45; --atm-2: #1d2a2c; --atm-3: #55625a; --atm-4: #12171a; }
 [data-atmosphere="coast"] { --atm-1: #24465f; --atm-2: #0e1b2a; --atm-3: #c4713f; --atm-4: #0a1119; }
 [data-atmosphere="forest"] { --atm-1: #1c3a2c; --atm-2: #0b1a14; --atm-3: #2f5a44; --atm-4: #07100c; }
 [data-atmosphere="road"] { --atm-1: #5b4636; --atm-2: #1f1915; --atm-3: #8a6a4a; --atm-4: #0d0b09; }

@@ -70,7 +70,7 @@ export function TimersButton({ enabledPlatforms, viewKey }: { enabledPlatforms: 
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger render={<Button variant="outline" size="md" aria-label="Таймери" className={cn('font-mono', completed.length > 0 && 'border-hot text-hot')} />}>
         <Clock3 aria-hidden="true" strokeWidth={1.5} />
-        <span>{nearest ? formatTimerDuration(nearest.endsAt - now) : 'Таймери'}</span>
+        <span className={nearest ? undefined : 'max-md:sr-only'}>{nearest ? formatTimerDuration(nearest.endsAt - now) : 'Таймери'}</span>
         {timers.length > 0 ? <Badge>{timers.length}</Badge> : null}
       </PopoverTrigger>
       <PopoverContent label="Таймери">
