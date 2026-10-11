@@ -68,11 +68,11 @@ export default function LibraryView() {
     setEditing(null);
   };
 
-  const copy = async (item: Item) => {
-    const text = item.ukText || item.ruText;
+  const copy = async (item: Item, language: 'uk' | 'ru') => {
+    const text = language === 'uk' ? item.ukText : item.ruText;
     try {
       await navigator.clipboard.writeText(text);
-      toast.push({ message: `Скопійовано ${item.ukText ? 'UA' : 'RU'} версію.` });
+      toast.push({ message: `Скопійовано ${language === 'uk' ? 'UA' : 'RU'}.` });
     } catch {
       toast.push({ message: 'Не вдалося скопіювати текст.', tone: 'hot' });
     }
@@ -118,7 +118,7 @@ export default function LibraryView() {
             />
           ) : null}
           <ul aria-label={collectionLabel(collection)} className="m-0 grid list-none grid-cols-1 gap-x-3 gap-y-1 p-0 @xl:grid-cols-2 @4xl:grid-cols-3 @6xl:grid-cols-4 @4xl:gap-x-4">
-            {showing.map((item) => <FolderCard key={item.id} item={item} onOpen={() => setEditing({ item, nonce: 0 })} onCopy={() => void copy(item)} />)}
+            {showing.map((item) => <FolderCard key={item.id} item={item} onOpen={() => setEditing({ item, nonce: 0 })} onCopy={(language) => void copy(item, language)} />)}
             {archived ? null : <AddCard onClick={openNew} />}
           </ul>
         </>

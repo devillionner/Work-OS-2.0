@@ -87,7 +87,6 @@ export function LibraryPanel({ open, onOpenChange, collection, item, onSaved, on
   const [form, setForm] = useState<Form>(() => (item ? formFromItem(item) : newForm(collection)));
   const [saving, setSaving] = useState(false);
   const [archiveAsk, setArchiveAsk] = useState(false);
-  const [copied, setCopied] = useState<'uk' | 'ru' | null>(null);
   const ad = collection === 'advertisement';
   const knowledge = collection === 'knowledge';
   const archived = item?.archivedAt != null;
@@ -140,8 +139,7 @@ export function LibraryPanel({ open, onOpenChange, collection, item, onSaved, on
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(language);
-      window.setTimeout(() => setCopied(null), 1800);
+      toast.push({ message: `Скопійовано ${language === 'uk' ? 'UA' : 'RU'}.` });
     } catch {
       toast.push({ message: 'Не вдалося скопіювати текст.', tone: 'hot' });
     }
@@ -158,7 +156,7 @@ export function LibraryPanel({ open, onOpenChange, collection, item, onSaved, on
           {form[key] ? (
             <span className="flex items-center gap-1">
               <span className="font-mono text-xs text-ink-2">{form[key].length} симв.</span>
-              <Button variant="ghost" size="sm" className="h-7 px-2.5 text-xs" onClick={() => void copy(form[key], code)}>{copied === code ? 'Скопійовано' : 'Копіювати'}</Button>
+              <Button variant="ghost" size="sm" className="h-7 px-2.5 text-xs" onClick={() => void copy(form[key], code)}>{`Копіювати ${code === 'uk' ? 'UA' : 'RU'}`}</Button>
             </span>
           ) : null}
         </div>

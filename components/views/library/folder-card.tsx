@@ -8,16 +8,15 @@ import { Surface } from '@/components/ui/surface';
 import { cleanLibraryPlatforms } from '@/lib/library';
 import { displayPlatforms, platformLabel, type Item } from './types';
 
-/** Картка-папка: силует із язичком, платформи або версія праворуч угорі, два рядки опису, дві дії внизу. */
-export function FolderCard({ item, onOpen, onCopy }: { item: Item; onOpen: () => void; onCopy: () => void }) {
+/** Картка матеріалу: платформи або версія праворуч угорі, два рядки опису, «Відкрити» й копіювання UA/RU одним кліком. */
+export function FolderCard({ item, onOpen, onCopy }: { item: Item; onOpen: () => void; onCopy: (language: 'uk' | 'ru') => void }) {
   const ad = item.collection === 'advertisement';
   const missing = ad && (!item.ukText.trim() || !item.ruText.trim()) ? (item.ukText.trim() ? 'RU' : 'UA') : null;
   const used = cleanLibraryPlatforms(item.usedTodayPlatforms);
   const platforms = displayPlatforms(item.platforms);
   return (
-    <li className="relative pt-3">
-      <span aria-hidden="true" className="absolute left-5 top-0 h-3.5 w-[72px] rounded-t-[10px] border border-b-0 border-line bg-glass" />
-      <Surface variant="glass" radius="card" lift data-reveal className="flex h-full min-h-[224px] flex-col gap-3 rounded-tl-inner p-5">
+    <li>
+      <Surface variant="glass" radius="card" lift data-reveal className="flex h-full min-h-[224px] flex-col gap-3 p-5">
         <div className="flex items-start justify-between gap-3">
           <h3 className="m-0 line-clamp-2 text-[15px] font-medium leading-snug">{item.title}</h3>
           {ad ? (
@@ -38,7 +37,14 @@ export function FolderCard({ item, onOpen, onCopy }: { item: Item; onOpen: () =>
         </div>
         <div className="mt-auto flex items-center justify-between gap-2 pt-1">
           <Button variant="action" size="sm" onClick={onOpen}>Відкрити</Button>
-          <Button variant="ghost" size="sm" onClick={onCopy}>Копіювати</Button>
+          {item.ukText.trim() && item.ruText.trim() ? (
+            <span className="flex items-center gap-0.5">
+              <Button variant="ghost" size="sm" onClick={() => onCopy('uk')}>Копіювати UA</Button>
+              <Button variant="ghost" size="sm" aria-label="Копіювати RU" onClick={() => onCopy('ru')}>RU</Button>
+            </span>
+          ) : item.ukText.trim() || item.ruText.trim() ? (
+            <Button variant="ghost" size="sm" onClick={() => onCopy(item.ukText.trim() ? 'uk' : 'ru')}>Копіювати</Button>
+          ) : null}
         </div>
       </Surface>
     </li>
@@ -48,7 +54,7 @@ export function FolderCard({ item, onOpen, onCopy }: { item: Item; onOpen: () =>
 /** Остання «картка» сітки: пунктирний контур «+ Додати». */
 export function AddCard({ onClick }: { onClick: () => void }) {
   return (
-    <li className="relative pt-3">
+    <li>
       <button type="button" onClick={onClick} className="flex h-full min-h-[224px] w-full flex-col items-center justify-center gap-2 rounded-card border border-dashed border-line-strong text-ink-2 transition-colors duration-200 hover:bg-raised hover:text-ink active:scale-[0.985]">
         <Plus aria-hidden="true" strokeWidth={1.5} className="size-6" />
         <span className="text-sm font-medium">Додати</span>
