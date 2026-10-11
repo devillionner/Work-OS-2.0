@@ -17,7 +17,7 @@ export function FolderCard({ item, onOpen, onCopy }: { item: Item; onOpen: () =>
   return (
     <li className="relative pt-3">
       <span aria-hidden="true" className="absolute left-5 top-0 h-3.5 w-[72px] rounded-t-[10px] border border-b-0 border-line bg-glass" />
-      <Surface variant="glass" radius="card" spot lift data-reveal className="flex h-full min-h-[224px] flex-col gap-3 rounded-tl-inner p-5">
+      <Surface variant="glass" radius="card" lift data-reveal className="flex h-full min-h-[224px] flex-col gap-3 rounded-tl-inner p-5">
         <div className="flex items-start justify-between gap-3">
           <h3 className="m-0 line-clamp-2 text-[15px] font-medium leading-snug">{item.title}</h3>
           {ad ? (

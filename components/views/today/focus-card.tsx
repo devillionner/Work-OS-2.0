@@ -38,7 +38,7 @@ export function FocusCard({ onOpenGoals }: { onOpenGoals: () => void }) {
           {publication.target > 0 ? ` · публікації ${Math.round(goalRatio(publication.completed, publication.target) * 100)}%` : ''}
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="action" size="lg" magnetic className="bg-action-ink text-action" onClick={action.run}>{action.label}<ArrowRight aria-hidden="true" strokeWidth={1.5} /></Button>
+          <Button variant="action" size="lg" className="bg-action-ink text-action" onClick={action.run}>{action.label}<ArrowRight aria-hidden="true" strokeWidth={1.5} /></Button>
           <Button variant="ghost" size="lg" className="text-inherit hover:bg-action-ink/10 hover:text-inherit" onClick={onOpenGoals}>Цілі й напрямки</Button>
         </div>
       </div>

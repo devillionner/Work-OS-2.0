@@ -25,18 +25,16 @@ type OwnProps = {
   radius?: SurfaceRadius;
   /** backdrop-filter: лише полотно, Inspector, Sheet і меню (≤ 2 шари в кадрі). */
   blur?: boolean;
-  /** Світлова пляма за курсором (потрібен useSpotlight на полотні). */
-  spot?: boolean;
   /** Підйом на hover і стиснення при натисканні. */
   lift?: boolean;
 };
 
 export type SurfaceProps<T extends ElementType> = OwnProps & { as?: T } & Omit<ComponentProps<T>, keyof OwnProps | 'as'>;
 
-export function Surface<T extends ElementType = 'div'>({ as, variant = 'glass', radius = 'card', blur = false, spot = false, lift = false, className, ...props }: SurfaceProps<T>) {
+export function Surface<T extends ElementType = 'div'>({ as, variant = 'glass', radius = 'card', blur = false, lift = false, className, ...props }: SurfaceProps<T>) {
   return createElement(as ?? 'div', {
     'data-surface': variant,
-    className: cn(VARIANT[variant], RADIUS[radius], blur && 'frost', spot && 'spot', lift && 'lift', className),
+    className: cn(VARIANT[variant], RADIUS[radius], blur && 'frost', lift && 'lift', className),
     ...props,
   });
 }

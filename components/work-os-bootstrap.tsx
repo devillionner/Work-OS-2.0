@@ -102,7 +102,7 @@ export function WorkOsBootstrap({ user }: { user: { displayName: string; email: 
   if (error) {
     return (
       <AuthScreen eyebrow="Завантаження" title="Не вдалося отримати дані" description={error}>
-        <Button variant="action" size="lg" magnetic onClick={() => setAttempt((value) => value + 1)}>Спробувати ще раз</Button>
+        <Button variant="action" size="lg" onClick={() => setAttempt((value) => value + 1)}>Спробувати ще раз</Button>
       </AuthScreen>
     );
   }

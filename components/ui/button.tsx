@@ -1,9 +1,7 @@
 'use client';
 
-import { useRef } from 'react';
 import { Button as ButtonPrimitive } from '@base-ui/react/button';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { useMagnetic } from '@/components/motion/use-magnetic';
 import { cn } from '@/lib/utils';
 
 export const buttonVariants = cva(
@@ -36,23 +34,14 @@ export const buttonVariants = cva(
 );
 
 export type ButtonProps = ButtonPrimitive.Props & VariantProps<typeof buttonVariants> & {
-  /** Магнітне притягання до курсора (лише (pointer: fine)). */
-  magnetic?: boolean;
   /** Блокує кнопку й ставить aria-busy під час запиту. */
   busy?: boolean;
 };
 
-export function Button({ className, variant, size, tone, magnetic = false, busy = false, disabled, ref, ...props }: ButtonProps) {
-  const inner = useRef<HTMLButtonElement | null>(null);
-  useMagnetic(inner, { enabled: magnetic });
+export function Button({ className, variant, size, tone, busy = false, disabled, ...props }: ButtonProps) {
   return (
     <ButtonPrimitive
       {...props}
-      ref={(node: HTMLButtonElement | null) => {
-        inner.current = node;
-        if (typeof ref === 'function') ref(node);
-        else if (ref) (ref as { current: HTMLButtonElement | null }).current = node;
-      }}
       data-slot="button"
       aria-busy={busy || undefined}
       disabled={disabled || busy}

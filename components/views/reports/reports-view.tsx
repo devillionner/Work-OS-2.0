@@ -120,7 +120,7 @@ export default function ReportsView() {
 
   return (
     <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-3 pb-6 @4xl:gap-4" aria-busy={report.loading}>
-      <Surface variant="glass" radius="card" spot data-reveal className="p-4 @4xl:p-5">
+      <Surface variant="glass" radius="card" data-reveal className="p-4 @4xl:p-5">
         <DayStrip
           month={month}
           selected={selectedDate}

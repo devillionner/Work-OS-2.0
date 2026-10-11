@@ -72,7 +72,13 @@ export function EditDialog({ title, description = 'Зміни зберігают
   return createPortal(
     <div
       className="flex min-h-0 flex-1 flex-col"
-      onKeyDownCapture={(event) => { if (event.key === 'Escape' && !busy) { event.preventDefault(); event.stopPropagation(); close(); } }}
+      onKeyDownCapture={(event) => {
+        // Esc усередині відкритого списку чи меню (портал, але в дереві React) закриває лише його, а не крок.
+        if (event.key !== 'Escape' || busy || (event.target instanceof Element && event.target.closest('[role="listbox"], [role="menu"]'))) return;
+        event.preventDefault();
+        event.stopPropagation();
+        close();
+      }}
     >
       <header className="flex shrink-0 items-start gap-2 px-4 pb-3 pt-4">
         <Button variant="icon" size="md" aria-label="Назад" disabled={busy} onClick={close}><ArrowLeft aria-hidden="true" strokeWidth={1.5} /></Button>

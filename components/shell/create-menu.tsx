@@ -26,8 +26,8 @@ export function CreateMenu({ onNavigate, fab = false }: { onNavigate: (view: Vie
     <Menu>
       <MenuTrigger
         render={fab
-          ? <Button variant="fab" size="xl" magnetic aria-label="Створити" />
-          : <Button variant="action" size="md" magnetic />}
+          ? <Button variant="fab" size="xl" aria-label="Створити" />
+          : <Button variant="action" size="md" />}
       >
         <Plus aria-hidden="true" strokeWidth={1.5} />
         {fab ? null : 'Створити'}

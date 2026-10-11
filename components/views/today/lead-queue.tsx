@@ -55,7 +55,7 @@ export function LeadQueue() {
   };
 
   return (
-    <Surface variant="glass" radius="card" spot data-reveal className="flex flex-col gap-4 p-5 sm:p-6" aria-labelledby="queue-title">
+    <Surface variant="glass" radius="card" data-reveal className="flex flex-col gap-4 p-5 sm:p-6" aria-labelledby="queue-title">
       <div className="flex items-baseline justify-between gap-3">
         <h2 id="queue-title" className="m-0 text-[17px] font-medium">Прострочені ліди й нагадування</h2>
         <span className="font-mono text-sm text-ink-2">{snapshot.leadTaskCount}</span>

@@ -141,7 +141,7 @@ export function WorkdayPanel({ greeting, dateLabel }: { greeting: string; dateLa
   const statusText = !workday ? 'Готово до старту' : workday.status === 'active' ? 'Триває' : workday.status === 'paused' ? 'Пауза' : `Завершено о ${formatTime(workday.endedAt)}`;
 
   return (
-    <Surface variant="glass" radius="card" spot data-reveal className="flex flex-col justify-between gap-8 p-6 sm:p-8" aria-labelledby="workday-title">
+    <Surface variant="glass" radius="card" data-reveal className="flex flex-col justify-between gap-8 p-6 sm:p-8" aria-labelledby="workday-title">
       <div className="flex flex-col gap-2">
         <p className="m-0 text-[13px] text-ink-2">{dateLabel}</p>
         <h2 id="workday-title" className="m-0 text-[clamp(32px,5vw,48px)] font-normal leading-[1.05] tracking-[-0.035em]">{greeting}</h2>
@@ -165,9 +165,9 @@ export function WorkdayPanel({ greeting, dateLabel }: { greeting: string; dateLa
         {error ? <p role="alert" className="m-0 text-sm text-hot">{error}</p> : null}
 
         <div className="flex flex-wrap items-center gap-2.5">
-          {!workday ? <Button variant="action" size="xl" magnetic busy={busy} onClick={() => void mutate('start')}><Play aria-hidden="true" strokeWidth={1.5} />Почати день</Button> : null}
+          {!workday ? <Button variant="action" size="xl" busy={busy} onClick={() => void mutate('start')}><Play aria-hidden="true" strokeWidth={1.5} />Почати день</Button> : null}
           {workday?.status === 'active' ? <Button variant="outline" size="xl" busy={busy} onClick={() => void mutate('pause')}><Pause aria-hidden="true" strokeWidth={1.5} />Пауза</Button> : null}
-          {workday?.status === 'paused' ? <Button variant="action" size="xl" magnetic busy={busy} onClick={() => void mutate('resume')}><Play aria-hidden="true" strokeWidth={1.5} />Продовжити</Button> : null}
+          {workday?.status === 'paused' ? <Button variant="action" size="xl" busy={busy} onClick={() => void mutate('resume')}><Play aria-hidden="true" strokeWidth={1.5} />Продовжити</Button> : null}
           {workday && workday.status !== 'ended' && confirmCount === null ? <Button variant="ghost" size="xl" busy={busy} onClick={() => void mutate('end')}><Square aria-hidden="true" strokeWidth={1.5} />Завершити день</Button> : null}
           {confirmCount !== null ? (
             <>

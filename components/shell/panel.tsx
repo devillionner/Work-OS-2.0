@@ -131,7 +131,11 @@ function AsidePanel({ title, subtitle, actions, footer, overlayRef, onClose, chi
       gsap.fromTo(node, reduced ? { opacity: 0 } : { x: 40, opacity: 0 }, { x: 0, opacity: 1, duration: reduced ? 0.12 : 0.42, clearProps: 'transform' });
     });
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); onClose(); }
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      // Esc у відкритому списку чи меню закриває лише його, а не панель.
+      if (event.target instanceof Element && event.target.closest('[role="listbox"], [role="menu"]')) return;
+      event.preventDefault();
+      onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => {

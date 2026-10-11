@@ -14,7 +14,7 @@ export function TimersCard() {
   const { running, completed } = splitTimers(timers, now);
   const visible = [...completed, ...running].slice(0, 3);
   return (
-    <Surface variant="glass" radius="card" spot data-reveal className="flex h-full flex-col gap-4 p-5 sm:p-6" aria-labelledby="timers-title">
+    <Surface variant="glass" radius="card" data-reveal className="flex h-full flex-col gap-4 p-5 sm:p-6" aria-labelledby="timers-title">
       <div className="flex items-center justify-between gap-3">
         <h2 id="timers-title" className="m-0 text-[17px] font-medium">Таймери</h2>
         <Button variant="outline" size="sm" onClick={() => emitCommand('timers:open')}><Plus aria-hidden="true" strokeWidth={1.5} />Запустити</Button>

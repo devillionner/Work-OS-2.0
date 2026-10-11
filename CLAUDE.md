@@ -51,6 +51,7 @@ vinext (App Router, сумісний з Next, на Vite + Cloudflare Workers) ·
 - Lint: `oxlint --threads=1 app components db lib scripts tests` — чистий на всьому репозиторії, без жодного `oxlint-disable`.
 - Літеральні кольори дозволені лише там, де CSS-змінні неможливі: `themeColor` у `app/layout.tsx`, `app/manifest.ts` і мета-тег `theme-color` у `theme-provider.tsx` (дзеркалять `--field` Ночі/Дня). Решта — тільки токени з `globals.css`. Бекенд (`app/api`, `/audit-access`) заморожений і поза цим правилом.
 - Стан задач Viber safe-mode не опитується за таймером (live-канал їх не віддає): перечитується на focus/visibility/online і кнопкою.
+- Скролбар: Chromium/Safari — `::-webkit-scrollbar` (тонкий округлий повзунок на прозорому треку, виразніший при hover і під час скролу через `data-scrolling` з `useScrollActivity`); Firefox — стандартні `scrollbar-width/color`. У Chromium 121+ задані `scrollbar-*` вимикають webkit-стилі, тому в `@supports selector(::-webkit-scrollbar)` вони скидаються на `auto`.
 - Локальне прев'ю: `vinext dev` не стартує (клас Durable Object не експортується в dev). Для візуальної перевірки — `npm run build`, потім `npx wrangler dev --local --port 3000` на локальній D1 із синтетичним власником `owner@example.test`.
 
 ## Карта екранів

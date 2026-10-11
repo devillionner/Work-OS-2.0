@@ -3,7 +3,6 @@
 import { useRef, useSyncExternalStore } from 'react';
 import { Moon, PanelLeftClose, PanelLeftOpen, Sun } from 'lucide-react';
 import { gsap, matchMotion, useGSAP } from '@/components/motion/gsap';
-import { useMagnetic } from '@/components/motion/use-magnetic';
 import { LiveOrb } from '@/components/shell/live-orb';
 import { useTheme } from '@/components/shell/theme-provider';
 import { VIEWS, type ViewKey } from '@/components/shell/views';
@@ -98,11 +97,8 @@ export function Rail({ active, leadCount, canExpand, onNavigate, onOpenRelease, 
 }
 
 function RailButton({ label, icon: Icon, active, expanded, onClick, badge }: { label: string; icon: (typeof VIEWS)[number]['icon']; active: boolean; expanded: boolean; onClick: () => void; badge?: number }) {
-  const ref = useRef<HTMLButtonElement>(null);
-  useMagnetic(ref, { enabled: !expanded });
   const button = (
     <button
-      ref={ref}
       type="button"
       aria-current={active ? 'page' : undefined}
       aria-label={label}

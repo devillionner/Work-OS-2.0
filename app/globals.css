@@ -23,7 +23,8 @@
   --noise-opacity: 0.055;
   --shadow-float: 0 24px 64px -24px rgb(0 0 0 / 0.7);
   --scrim: rgb(0 0 0 / 0.5);
-  --spot: rgb(255 255 255 / 0.06);
+  --scroll-thumb: rgb(255 255 255 / 0.12);
+  --scroll-thumb-active: rgb(255 255 255 / 0.34);
   --atm-opacity: 1;
 }
 [data-theme="day"] {
@@ -45,7 +46,6 @@
   --noise-opacity: 0.035;
   --shadow-float: 0 1px 2px rgb(0 0 0 / 0.04), 0 16px 40px -16px rgb(0 0 0 / 0.14);
   --scrim: rgb(10 10 12 / 0.28);
-  --spot: rgb(10 10 12 / 0.04);
   --atm-opacity: 0.4;
 }
 :root {
@@ -82,7 +82,7 @@
   --color-scrim: var(--scrim); --color-hot: var(--signal-hot); --color-ok: var(--signal-ok); --color-warn: var(--signal-warn);
 }
 @layer base {
-  * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+  * { box-sizing: border-box; }
   html { background: var(--field); color-scheme: dark; -webkit-text-size-adjust: 100%; }
   html[data-theme="day"] { color-scheme: light; }
   body {
@@ -119,13 +119,11 @@ body::after {
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .glass, .glass-strong { background: var(--solid); } }
   @media (prefers-reduced-transparency: reduce) { .glass, .glass-strong { background: var(--solid); } .frost { -webkit-backdrop-filter: none; backdrop-filter: none; } }
 
-  /* Spotlight і підйом карток */
-  .spot { position: relative; }
-  .spot::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity 0.2s; background: radial-gradient(420px at var(--mx, 50%) var(--my, 50%), var(--spot), transparent 60%); }
-  .spot:hover::before { opacity: 1; }
-  .lift { transition: transform 0.2s var(--ease-out), border-color 0.2s; }
-  .lift:hover { transform: translateY(-2px); border-color: var(--line-strong); }
+  /* Відгук карток: колір рамки на hover, стиснення на натискання */
+  .lift { transition: transform 0.16s var(--ease-out), border-color 0.16s; }
+  .lift:hover { border-color: var(--line-strong); }
   .lift:active, .press:active { transform: scale(0.985); }
+  .scroll-soft { overscroll-behavior: contain; }
   .shadow-float { box-shadow: var(--shadow-float); }
   .cv-auto { content-visibility: auto; contain-intrinsic-size: auto 72px; }
 
@@ -141,6 +139,17 @@ body::after {
   .atmosphere .atm-dither { mask-image: radial-gradient(circle at 50% 50%, #000 0.6px, transparent 0.9px); mask-size: 4px 4px; opacity: 0.35; }
   [data-atmosphere="road"] .atm-vignette { background: radial-gradient(120% 70% at 50% 120%, var(--atm-4) 30%, transparent 70%); }
   html[data-theme="day"] .atm-grid { position: absolute; inset: 0; background: radial-gradient(circle, rgb(0 0 0 / 0.07) 1px, transparent 1.3px) 0 0 / 18px 18px; }
+}
+
+/* Скролбар: тонкий повзунок на прозорому треку. Firefox — стандартні scrollbar-*; Chromium/Safari — ::-webkit-scrollbar
+   (у Chromium 121+ задані scrollbar-width/color вимикають ці стилі, тому в @supports вони скинуті). */
+* { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+@supports selector(::-webkit-scrollbar) {
+  * { scrollbar-width: auto; scrollbar-color: auto; }
+  ::-webkit-scrollbar { width: 12px; height: 12px; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); background-clip: padding-box; border: 3px solid transparent; border-radius: 999px; transition: background-color 0.16s; }
+  ::-webkit-scrollbar-thumb:hover, [data-scrolling]::-webkit-scrollbar-thumb { background: var(--scroll-thumb-active); background-clip: padding-box; }
 }
 
 @media (max-width: 767px) { :root { --toast-bottom: 104px; } }

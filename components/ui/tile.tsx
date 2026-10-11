@@ -54,8 +54,8 @@ export function Tile({ label, value, format, hint, icon: Icon, progress, delta, 
   );
   const shared = cn('@container/tile flex min-h-[132px] w-full text-left @[16rem]/tile:min-h-[148px]', className);
   return onClick ? (
-    <Surface as="button" type="button" lift spot data-reveal onClick={onClick} className={shared}>{body}</Surface>
+    <Surface as="button" type="button" lift data-reveal onClick={onClick} className={shared}>{body}</Surface>
   ) : (
-    <Surface spot data-reveal className={shared}>{body}</Surface>
+    <Surface data-reveal className={shared}>{body}</Surface>
   );
 }

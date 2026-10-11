@@ -52,7 +52,7 @@ export function ScheduleTimeline() {
   const markerAt = nowIndex === -1 ? slots.length : nowIndex;
 
   return (
-    <Surface variant="glass" radius="card" spot data-reveal className="flex flex-col gap-4 p-5 sm:p-6" aria-labelledby="schedule-title">
+    <Surface variant="glass" radius="card" data-reveal className="flex flex-col gap-4 p-5 sm:p-6" aria-labelledby="schedule-title">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h2 id="schedule-title" className="m-0 text-[17px] font-medium">Розклад Telegram</h2>
         <div className="flex items-center gap-3">

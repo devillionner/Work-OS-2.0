@@ -9,7 +9,7 @@ export function PlatformBreakdown() {
   const { snapshot, navigate } = useShell();
   const rows = snapshot.platforms.filter((platform) => snapshot.enabledPlatforms.includes(platform.key) || platform.key === 'threads' || platform.key === 'unknown');
   return (
-    <Surface variant="glass" radius="card" spot data-reveal className="flex flex-col gap-4 p-5" aria-labelledby="breakdown-title">
+    <Surface variant="glass" radius="card" data-reveal className="flex flex-col gap-4 p-5" aria-labelledby="breakdown-title">
       <div className="flex items-center justify-between gap-3">
         <h2 id="breakdown-title" className="m-0 text-[17px] font-medium">Платформи сьогодні</h2>
         <Button variant="ghost" size="sm" onClick={() => navigate('platforms')}>Відкрити</Button>

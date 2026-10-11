@@ -2,7 +2,6 @@
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { gsap, prefersReducedMotion } from '@/components/motion/gsap';
-import { useSpotlight } from '@/components/motion/use-spotlight';
 import { CommandPalette } from '@/components/shell/command-palette';
 import { emitCommand, useCommand } from '@/components/shell/command-bus';
 import { CreateMenu } from '@/components/shell/create-menu';
@@ -13,6 +12,7 @@ import { PulseRail, type PulseRing } from '@/components/shell/pulse-rail';
 import { QuickSettings } from '@/components/shell/quick-settings';
 import { Rail } from '@/components/shell/rail';
 import { ReleasePanel } from '@/components/shell/release-panel';
+import { useScrollActivity } from '@/components/shell/scroll-activity';
 import { ShellProvider, type ShellContextValue } from '@/components/shell/shell-context';
 import { Topbar } from '@/components/shell/topbar';
 import { useQueryParam } from '@/components/shell/url-state';
@@ -71,10 +71,9 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
   const [asideElement, setAsideElement] = useState<HTMLElement | null>(null);
   const [topbarSlot, setTopbarSlot] = useState<HTMLElement | null>(null);
   const [, setLeadParam] = useQueryParam('lead');
-  const canvas = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const navigating = useRef(false);
-  useSpotlight(canvas);
+  useScrollActivity();
 
   const navigate = useCallback((next: ViewKey) => {
     if (next === getActiveView() || navigating.current) return;
@@ -188,7 +187,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
             <div className="relative flex h-dvh justify-center p-3">
               <div className="flex h-full w-full max-w-[1680px] gap-3 rounded-frame border border-line bg-sunken p-4">
                 <Rail active={activeView} leadCount={snapshot.leads} canExpand={desktop} onNavigate={navigate} onOpenRelease={openRelease} onOpenService={openService} />
-                <div ref={canvas} className="glass frost relative flex min-w-0 flex-1 overflow-hidden rounded-panel">
+                <div className="glass frost relative flex min-w-0 flex-1 overflow-hidden rounded-panel">
                   <div className="flex min-w-0 flex-1 flex-col">
                     {topbar}
                     <main ref={scroller} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-8 pt-1">{panes}</main>

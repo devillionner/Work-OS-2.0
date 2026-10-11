@@ -13,7 +13,6 @@ if (!configured && typeof window !== 'undefined') {
 
 export const MOTION_FULL = '(prefers-reduced-motion: no-preference)';
 export const MOTION_REDUCED = '(prefers-reduced-motion: reduce)';
-export const POINTER_FINE = '(pointer: fine)';
 
 /**
  * gsap.matchMedia із двома гілками: повний рух і prefers-reduced-motion (лише миттєві fade).
