@@ -17,7 +17,7 @@ import { Segmented } from '@/components/ui/segmented';
 import { Surface } from '@/components/ui/surface';
 import { useToast } from '@/components/ui/toast';
 import { AccountsCard } from '@/components/views/platforms/accounts-card';
-import { ArchiveReasonDialog } from '@/components/views/platforms/archive-reason-dialog';
+import { ArchiveReasonDialog, JOIN_FAILED_REASON } from '@/components/views/platforms/archive-reason-dialog';
 import { AutopostCard } from '@/components/views/platforms/autopost-card';
 import { BulkPanel } from '@/components/views/platforms/bulk-panel';
 import { ChatHistoryPanel } from '@/components/views/platforms/chat-history-panel';
@@ -30,7 +30,6 @@ import { PublishPanel } from '@/components/views/platforms/publish-panel';
 import { ScheduleTab } from '@/components/views/platforms/schedule-tab';
 import { SelectedChats } from '@/components/views/platforms/selected-chats';
 import { usePlatforms, QUEUES, type Chat } from '@/components/views/platforms/use-platforms';
-import { WarmupCard } from '@/components/views/platforms/warmup-card';
 import { WaitingCheckCard } from '@/components/views/platforms/waiting-check-card';
 
 type Zone = 'overview' | 'schedule' | 'autopost' | 'quick';
@@ -96,7 +95,6 @@ export default function PlatformsView() {
     <div className="flex flex-col gap-4">
       {data ? <PlatformOverview pace={data.publicationPace} available={queue === 'ready' ? data.availableToday : undefined} joined={data.joinedToday} published={data.publishedToday} /> : p.error ? <EmptyState text="Не вдалося завантажити огляд платформи." action={<Button variant="outline" size="sm" onClick={() => void p.reload()}>Спробувати ще раз</Button>} /> : <div className="grid gap-3 @xl:grid-cols-2 @4xl:grid-cols-3">{[0, 1, 2].map((item) => <Ghost key={item} className="h-32 rounded-card" />)}</div>}
       {platform === 'telegram' ? <AccountsCard accounts={p.accounts} accountId={p.accountId} activeAccount={p.activeAccount} breakSeconds={p.breakSeconds} busy={p.busy !== null} onAction={p.accountAction} /> : null}
-      {platform === 'telegram' && p.accountId ? <WarmupCard key={p.accountId} accountId={p.accountId} /> : null}
       {platform === 'whatsapp' ? <WaitingCheckCard view={p.waitingCheckView} nowSeconds={Math.floor(p.clock / 1000)} busy={p.busy !== null} onAction={(action) => void p.changeWaitingCheck(action)} onConnect={() => void p.connectWaitingCheckRunner()} onProblemAction={(problem, action) => void p.resolveWaitingProblem(problem, action)} /> : null}
     </div>
   );
@@ -105,7 +103,7 @@ export default function PlatformsView() {
     <Surface variant="glass" radius="card" className="flex flex-col gap-4 p-5 sm:p-6" aria-labelledby="quick-title">
       <div>
         <h2 id="quick-title" className="m-0 text-[17px] font-medium">Швидкий режим Viber</h2>
-        <p className="m-0 mt-1 max-w-[62ch] text-sm text-ink-2">Один матеріал для серії чатів, із ручним підтвердженням кожної фактичної публікації. Матеріал обирається у першому чаті й далі лишається для серії.</p>
+        <p className="m-0 mt-1 max-w-[62ch] text-sm text-ink-2">Один матеріал для серії чатів; кожну публікацію підтверджуєш вручну.</p>
       </div>
       <p className="m-0 text-sm text-ink-2">{p.quickPublishMode ? (p.quickAdvertisementId ? 'Матеріал серії вже зафіксовано. Підтверджуй лише фактично зроблені публікації.' : 'Обери матеріал у першому чаті — далі він лишатиметься для серії.') : 'Швидкий режим вимкнено.'}</p>
       <Button variant={p.quickPublishMode ? 'outline' : 'action'} className="self-start" disabled={p.busy !== null} onClick={() => { p.setQuickPublishMode(!p.quickPublishMode); if (p.quickPublishMode) p.setQuickAdvertisementId(null); p.selectQueue('ready'); }}>{p.quickPublishMode ? 'Завершити швидкий режим' : 'Увімкнути швидкий режим'}</Button>
@@ -243,7 +241,7 @@ export default function PlatformsView() {
       <ChatHistoryPanel open={historyChat !== null} chat={historyChat ? { id: historyChat.id, name: historyChat.name, link: historyChat.link } : null} onClose={() => setHistoryChat(null)} />
       <PublishPanel open={publishChat !== null} chat={publishChat} quickMode={Boolean(publishQuick)} preferredAdvertisementId={p.quickAdvertisementId} onClose={() => setPublishChat(null)} onPublished={publishAct} onOpenChat={() => { if (publishChat) p.openChat(publishChat); }} />
 
-      <ArchiveReasonDialog open={p.archiveChat !== null} chatName={p.archiveChat?.name ?? null} busy={p.busy !== null} error={p.error} onCancel={() => p.setArchiveChat(null)} onConfirm={(reason) => { const chat = p.archiveChat; if (!chat) return; p.setArchiveChat(null); void p.act(chat, 'archive', { reason }, { action: 'restore', label: 'Архівацію можна скасувати протягом 8 секунд.' }); }} />
+      <ArchiveReasonDialog open={p.archiveChat !== null} chatName={p.archiveChat?.name ?? null} joinFailed={p.archiveChat?.status === 'to_join'} busy={p.busy !== null} error={p.error} onCancel={() => p.setArchiveChat(null)} onConfirm={(reason) => { const chat = p.archiveChat; if (!chat) return; p.setArchiveChat(null); void p.act(chat, chat.status === 'to_join' && reason === JOIN_FAILED_REASON ? 'failed' : 'archive', { reason }, { action: 'restore', label: `В архів: ${reason.toLowerCase()}. Можна скасувати протягом 8 секунд.` }); }} />
       <ConfirmDialog open={p.confirmation !== null} title={p.confirmation?.kind === 'assign' ? 'Перепризначити Telegram-акаунт?' : 'Повернути чат до приєднання?'} description={p.confirmation?.kind === 'assign' ? `Чат перейде з «${p.confirmation.currentName}» на «${p.confirmation.nextName}». Членство в самому Telegram потрібно змінити вручну.` : 'Чат повернеться в чергу «Для приєднання». Історія чату не видаляється.'} confirmLabel={p.confirmation?.kind === 'assign' ? 'Перепризначити' : 'Повернути'} busy={p.busy !== null} onCancel={() => p.setConfirmation(null)} onConfirm={p.confirmPlatformAction} />
       <ConfirmDialog open={p.deleteChat !== null} title="Остаточно видалити чат?" description={p.deleteChat ? `«${p.deleteChat.name}» більше не блокуватиме повторне додавання. Дію не можна скасувати; вона доступна лише для неіснуючого чату без публікацій, лідів або активного розкладу.` : ''} confirmLabel="Видалити назавжди" destructive busy={p.busy !== null} onCancel={() => p.setDeleteChat(null)} onConfirm={() => { const chat = p.deleteChat; p.setDeleteChat(null); if (chat) void p.act(chat, 'permanent_delete', { confirmation: 'PERMANENTLY_DELETE_NONEXISTENT_CHAT' }); }} />
     </div>

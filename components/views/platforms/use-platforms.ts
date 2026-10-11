@@ -526,6 +526,8 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
           toast.push({ message: action === 'published' ? 'Публікацію відмічено. Якщо це помилка, скасуй її зараз.' : undoSpec.label, duration: Math.max(2000, expiresAt - Date.now()), action: { label: 'Скасувати', onClick: () => { void actRef.current(undoChat, undoSpec.action).then((undone) => { if (undone.ok) toast.push({ message: 'Дію скасовано.' }); }); } } });
         } else if (action === 'published') {
           toast.push({ message: 'Публікацію відмічено. Чат переміщено нижче завершених на сьогодні.' });
+        } else if (action === 'joined' || action === 'waiting') {
+          toast.push({ message: action === 'joined' ? 'Чат приєднано.' : 'Чат перенесено в очікування.' });
         }
         result = { ok: true };
       } catch (reason) {

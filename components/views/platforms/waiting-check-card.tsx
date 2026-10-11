@@ -63,12 +63,12 @@ export function WaitingCheckCard({ view, nowSeconds, busy, onAction, onConnect, 
         </dl>
       ) : null}
 
-      {!view.active && !recent ? <p className="m-0 text-xs text-ink-2">Прийняті чати переходять у «Для публікації», заявки без відповіді відкладаються на 3 дні, а якщо заявки ще немає — її буде надіслано автоматично.</p> : null}
+      {!view.active && !recent ? <p className="m-0 text-xs text-ink-2">Прийняті чати переходять у «Для публікації», решта відкладається на 3 дні.</p> : null}
       {recent && view.stopReason ? <p className="m-0 text-xs text-warn">Зупинено — {view.stopReason}. Решту чатів не змінено.</p> : null}
 
       {runnerStuck || (!runner.online && !view.active) ? (
         <div className="flex flex-col items-start gap-3 rounded-inner border border-warn/40 px-4 py-3">
-          <p className="m-0 text-xs text-ink-2">{runnerStuck ? 'Runner не забирає чати. ' : ''}Runner запускається при вході в систему й працює з цим браузером: тримай відкритими WhatsApp Web і цю сторінку. Якщо статус не оновиться протягом хвилини — підключи браузер повторно.</p>
+          <p className="m-0 text-xs text-ink-2">{runnerStuck ? 'Перевірка не стартує. ' : ''}Вона працює через браузер із відкритим WhatsApp Web. Якщо статус не оновився за хвилину, підключи браузер повторно.</p>
           <Button variant="outline" size="sm" disabled={busy} onClick={onConnect}><Cable aria-hidden="true" strokeWidth={1.5} />Підключити цей браузер</Button>
         </div>
       ) : null}

@@ -41,7 +41,7 @@ export function AccountsCard({ accounts, accountId, activeAccount, breakSeconds,
         <div className={cn('flex flex-col gap-3 rounded-inner border px-4 py-3', due && !breakSeconds ? 'border-warn/50' : 'border-line bg-sunken')}>
           <div>
             <p className="m-0 text-sm font-medium">{breakSeconds ? <>Перерва <span className="font-mono">{formatDuration(breakSeconds)}</span></> : <>Приєднано <span className="font-mono">{activeAccount.joinStreak}</span> із <span className="font-mono">{activeAccount.joinBatchSize}</span></>}</p>
-            <p className="m-0 text-xs text-ink-2">{breakSeconds ? 'Лічильник обнулиться автоматично після завершення.' : due ? 'Рекомендовано зробити перерву перед наступними приєднаннями.' : 'До рекомендованої перерви.'}</p>
+            {due && !breakSeconds ? <p className="m-0 text-xs text-ink-2">Час зробити перерву.</p> : null}
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2 text-xs text-ink-2">Після
@@ -68,7 +68,6 @@ export function AccountsCard({ accounts, accountId, activeAccount, breakSeconds,
             <Input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Назва нового акаунта" aria-label="Назва нового Telegram-акаунта" />
             <Button variant="action" size="sm" disabled={busy} onClick={() => void onAction('create', undefined, { name: newName }).then(() => setNewName(''))}><Plus aria-hidden="true" strokeWidth={1.5} />Додати</Button>
           </div>
-          <p className="m-0 text-xs text-ink-2">Вимкнення не видаляє історію. Чати можна перепризначити іншому акаунту з меню рядка.</p>
         </div>
       ) : null}
     </Surface>

@@ -44,7 +44,7 @@ export function AutopostCard({ image, imageLoaded, caption, captionLoaded, busy,
     <Surface variant="glass" radius="card" className="flex flex-col gap-6 p-5 sm:p-6" aria-labelledby="autopost-title">
       <div>
         <h2 id="autopost-title" className="m-0 text-[17px] font-medium">Автопублікація черги</h2>
-        <p className="m-0 mt-1 max-w-[62ch] text-sm text-ink-2">Work OS підбере матеріали й безпечно відправить до 30 чатів із черги «Для публікації» з підтвердженням кожної відправки. Профілі вручну підтверджувати не потрібно.</p>
+        <p className="m-0 mt-1 max-w-[62ch] text-sm text-ink-2">До 30 чатів із черги «Для публікації» по черзі, з підтвердженням кожної відправки.</p>
       </div>
 
       {progress && progress.total > 0 ? (
@@ -62,7 +62,7 @@ export function AutopostCard({ image, imageLoaded, caption, captionLoaded, busy,
               {progress.pending + progress.claimed > 0 ? <span>Лишилось <b className="font-mono font-normal text-ink">{progress.pending + progress.claimed}</b></span> : null}
               {progress.cancelled > 0 ? <span>Скасовано <b className="font-mono font-normal text-ink">{progress.cancelled}</b></span> : null}
             </p>
-            <p className="m-0 mt-1.5 text-xs text-ink-2">{running ? 'Executor відправляє повідомлення по черзі з підтвердженням доставки для кожного чату.' : progress.failed > 0 ? `Автопост завершено з помилками (${progress.failed}). Перевір проблемні чати у списку.` : 'Усі чати в черзі опрацьовано й підтверджено.'}</p>
+            {running ? null : <p className="m-0 mt-1.5 text-xs text-ink-2">{progress.failed > 0 ? `Автопост завершено з помилками (${progress.failed}). Перевір проблемні чати у списку.` : 'Усі чати в черзі опрацьовано й підтверджено.'}</p>}
           </div>
         </section>
       ) : null}
@@ -73,7 +73,7 @@ export function AutopostCard({ image, imageLoaded, caption, captionLoaded, busy,
           <input ref={fileInput} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) onUploadImage(file); }} />
           {image ? (
             <div className="flex flex-col gap-3 rounded-inner border border-line bg-sunken p-4">
-              <div className="min-w-0"><p className="m-0 truncate text-sm font-medium" title={image.fileName}>{image.fileName}</p><p className="m-0 text-xs text-ink-2">{formatBytes(image.sizeBytes)} · JPG оптимізовано для WhatsApp</p></div>
+              <div className="min-w-0"><p className="m-0 truncate text-sm font-medium" title={image.fileName}>{image.fileName}</p><p className="m-0 text-xs text-ink-2">{formatBytes(image.sizeBytes)}</p></div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" disabled={busy} onClick={() => fileInput.current?.click()}><ImagePlus aria-hidden="true" strokeWidth={1.5} />Замінити фото</Button>
                 <Button variant="ghost" size="sm" tone="danger" disabled={busy} onClick={onRemoveImage}><Trash2 aria-hidden="true" strokeWidth={1.5} />Прибрати</Button>
@@ -83,7 +83,7 @@ export function AutopostCard({ image, imageLoaded, caption, captionLoaded, busy,
             <button type="button" disabled={busy} onClick={() => fileInput.current?.click()} className="flex flex-col items-center gap-2 rounded-inner border border-dashed border-line-strong px-4 py-8 text-center transition-colors hover:bg-raised disabled:opacity-45">
               <UploadCloud aria-hidden="true" strokeWidth={1.5} className="size-6 text-ink-2" />
               <span className="text-sm font-medium">Додати фото</span>
-              <span className="text-xs text-ink-2">JPG, PNG або WebP, автоматично стискається до 640 КБ</span>
+              <span className="text-xs text-ink-2">JPG, PNG або WebP</span>
             </button>
           )}
         </section>

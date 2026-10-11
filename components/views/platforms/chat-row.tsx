@@ -1,6 +1,6 @@
 'use client';
 
-import { Archive, Check, Clock3, Copy, Ellipsis, ExternalLink, History, RotateCcw, Send, Trash2, Undo2, UserRoundCheck, X } from 'lucide-react';
+import { Archive, Check, Clock3, Copy, Ellipsis, ExternalLink, History, RotateCcw, Send, Trash2, Undo2, UserRoundCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '@/components/ui/menu';
@@ -113,9 +113,9 @@ export function ChatRow({ chat, queue, clock, busy, lastOpened, accounts, whatsa
       <div className="flex flex-wrap items-center gap-2">
         {queue === 'to_join' ? (
           <>
-            <Button variant="action" size="sm" disabled={busy} onClick={() => onAct(chat, 'joined')}><Check aria-hidden="true" strokeWidth={1.5} />Приєднано</Button>
-            {(chat.platform === 'telegram' || chat.platform === 'whatsapp') ? <Button variant="outline" size="sm" disabled={busy} onClick={() => onAct(chat, 'waiting')}><Clock3 aria-hidden="true" strokeWidth={1.5} />Очікуємо</Button> : null}
-            <Button variant="ghost" size="sm" disabled={busy} onClick={() => onAct(chat, 'failed', { reason: 'Не вдалося приєднатися' }, undo8('Невдале приєднання можна скасувати протягом 8 секунд.', 'restore'))}><X aria-hidden="true" strokeWidth={1.5} />Не вдалося</Button>
+            <Button variant="action" size="sm" disabled={busy} onClick={() => onAct(chat, 'joined')}>Приєднано</Button>
+            {(chat.platform === 'telegram' || chat.platform === 'whatsapp') ? <Button variant="outline" size="sm" disabled={busy} onClick={() => onAct(chat, 'waiting')}>В очікування</Button> : null}
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => onArchive(chat)}>В архів</Button>
           </>
         ) : null}
         {queue === 'waiting' ? <Button variant="action" size="sm" disabled={busy} onClick={() => onAct(chat, 'approved')}><UserRoundCheck aria-hidden="true" strokeWidth={1.5} />Прийняли</Button> : null}
