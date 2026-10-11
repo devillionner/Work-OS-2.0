@@ -31,11 +31,11 @@ export function Tile({ label, value, format, hint, icon: Icon, progress, delta, 
         {Icon ? <Icon aria-hidden="true" strokeWidth={1.25} className="absolute right-4 top-4 size-5 text-ink-3 @[16rem]/tile:hidden" /> : null}
         <div className="flex flex-col gap-2">
           <CountUp value={value} format={format} className="text-[40px] font-normal leading-none tracking-[-0.03em]" />
-          <div className="flex min-h-4 items-center gap-2 text-xs text-ink-2">
+          <div className="flex min-h-4 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-2">
             {delta ? (
-              <span className={cn(delta.tone === 'ok' && 'text-ok', delta.tone === 'hot' && 'text-hot')}>{delta.text}</span>
+              <span className={cn('whitespace-nowrap', delta.tone === 'ok' && 'text-ok', delta.tone === 'hot' && 'text-hot')}>{delta.text}</span>
             ) : null}
-            {hint ? <span className="truncate">{hint}</span> : null}
+            {hint ? <span className="max-w-full truncate">{hint}</span> : null}
           </div>
           {progress ? (
             <>
