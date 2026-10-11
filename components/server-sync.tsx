@@ -16,7 +16,7 @@ type SyncCheckResult = 'changed' | 'same' | 'skipped' | 'failed';
 
 const SERVER_SYNC_ACTIVE_MS = 10_000;
 const SERVER_SYNC_IDLE_MIN_MS = 30_000;
-const SERVER_SYNC_IDLE_MAX_MS = 60_000;
+export const SERVER_SYNC_IDLE_MAX_MS = 60_000;
 const SERVER_SYNC_ERROR_MAX_MS = 300_000;
 const MIN_REFRESH_GAP_MS = 1_200;
 // A runner or a burst of local edits can announce several local-write/cross-tab signals within a few

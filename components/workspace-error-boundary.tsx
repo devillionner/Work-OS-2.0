@@ -1,8 +1,9 @@
 'use client';
 
 import React, { Component, type ErrorInfo, type ReactNode } from 'react';
-import { AlertTriangle, RotateCcw } from 'lucide-react';
-import { Button } from '@/components/legacy-ui/button';
+import { RotateCcw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Surface } from '@/components/ui/surface';
 
 type Props = {
   name?: string;
@@ -46,30 +47,14 @@ export class WorkspaceErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="workspace-error-container p-6 max-w-xl mx-auto my-12 bg-card border border-border rounded-xl shadow-sm text-center">
-          <div className="size-12 rounded-full bg-destructive/10 text-destructive flex items-center justify-center mx-auto mb-4">
-            <AlertTriangle className="size-6" />
+        <Surface variant="glass" radius="card" role="alert" className="mx-auto my-10 flex max-w-xl flex-col items-start gap-4 p-6">
+          <h2 className="m-0 text-[17px] font-medium">Не вдалося завантажити {this.props.name ? `«${this.props.name}»` : 'розділ'}</h2>
+          <p className="m-0 text-sm text-ink-2">{this.state.error?.message || 'Сталася непередбачена помилка під час відображення.'}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="action" onClick={this.handleReset}><RotateCcw aria-hidden="true" strokeWidth={1.5} />Спробувати ще раз</Button>
+            <Button variant="outline" onClick={() => window.location.reload()}>Перезавантажити сторінку</Button>
           </div>
-          <h2 className="text-lg font-semibold text-foreground mb-2">
-            Не вдалося завантажити {this.props.name || 'розділ'}
-          </h2>
-          <p className="text-sm text-muted-foreground mb-6">
-            {this.state.error?.message || 'Сталася непередбачена помилка під час відображення.'}
-          </p>
-          <div className="flex items-center justify-center gap-3">
-            <Button onClick={this.handleReset} variant="default" size="sm">
-              <RotateCcw data-icon="inline-start" className="size-4" />
-              Спробувати знову
-            </Button>
-            <Button
-              onClick={() => window.location.reload()}
-              variant="outline"
-              size="sm"
-            >
-              Перезавантажити сторінку
-            </Button>
-          </div>
-        </div>
+        </Surface>
       );
     }
 

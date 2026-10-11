@@ -3,6 +3,7 @@ import { canonicalDirections } from './directions.ts';
 import { reminderView } from './leads/domain/reminders.ts';
 import { readWorkdaySnapshot, type WorkdaySnapshot } from './workday.ts';
 import { activitySummaryStatement, activityTotals, type ActivitySummaryRow } from './activity-summary.ts';
+import { resolveDailyPublicationGoal } from './publication-goal.ts';
 
 export type DashboardSnapshot = {
   today: string;
@@ -14,6 +15,7 @@ export type DashboardSnapshot = {
   reportSubmittedAt: number | null;
   pendingAfterReport: number;
   bookingGoal: { completed: number; target: number };
+  publicationGoal: { completed: number; target: number };
   monthlyBookingGoal: number;
   focusDirections: string[];
   funnelTargets: { publicationRate:number; responseRate:number; bookingRate:number; completionRate:number };
@@ -48,7 +50,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
     db.prepare(`SELECT COUNT(*) AS count FROM leads WHERE user_id=?1 AND archived_at IS NULL`).bind(userId),
     db.prepare(`SELECT j.completed_at,i.original_filename FROM migration_jobs j JOIN legacy_imports i ON i.id=j.import_id AND i.user_id=j.user_id WHERE j.user_id=?1 AND j.status='completed' ORDER BY j.completed_at DESC LIMIT 1`).bind(userId),
     activitySummaryStatement(db, userId, today, today, submittedActivityRevision === null ? afterReport : null),
-    db.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('focus_directions','daily_booking_goal','monthly_booking_goal','enabled_platforms','target_publication_rate','target_response_rate','target_booking_rate','target_completion_rate')`).bind(userId),
+    db.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('focus_directions','daily_booking_goal','monthly_booking_goal','enabled_platforms','target_publication_rate','target_response_rate','target_booking_rate','target_completion_rate','analytics-daily-goal-schedule-v1')`).bind(userId),
     db.prepare(`SELECT id,name,next_action,next_contact_at FROM leads
       WHERE user_id=?1 AND archived_at IS NULL AND next_contact_at IS NOT NULL AND next_contact_at<=?2
       ORDER BY next_contact_at,id LIMIT 50`).bind(userId, now),
@@ -125,6 +127,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
     reportSubmittedAt: afterReport,
     pendingAfterReport,
     bookingGoal: { completed: activityTotals(eventRows).bookings, target: dailyGoal },
+    publicationGoal: { completed: activityTotals(eventRows).publications, target: resolveDailyPublicationGoal(settingMap.get('analytics-daily-goal-schedule-v1'), today) },
     monthlyBookingGoal,
     focusDirections,
     funnelTargets,

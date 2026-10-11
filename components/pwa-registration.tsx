@@ -1,9 +1,8 @@
 'use client';
-/* oxlint-disable jsx-a11y/prefer-tag-over-role -- custom progress track preserves the Work OS update animation. */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, RefreshCw } from 'lucide-react';
-import { Button } from '@/components/legacy-ui/button';
+import { Button } from '@/components/ui/button';
 import { APP_BUILD_ID } from '@/lib/build-id';
 
 type BuildResponse = { buildId?: string; version?: string };
@@ -25,8 +24,6 @@ const UPDATE_EXIT_MS = 620;
 const UPDATE_CHANNEL = 'work-os-release';
 const PENDING_BUILD_KEY = 'work-os:pending-build';
 const UPDATE_SCROLL_KEY = 'work-os:update-scroll';
-const UPDATE_VIEW_KEY = 'work-os:update-view';
-const VIEW_LABELS = ['Сьогодні', 'Платформи', 'Ліди', 'Аналітика', 'Звіти', 'Бібліотека', 'Налаштування'] as const;
 
 const initialState: UpdateState = {
   phase: 'idle',
@@ -82,8 +79,6 @@ export function PwaRegistration() {
     try {
       sessionStorage.setItem(PENDING_BUILD_KEY, targetBuildId);
       sessionStorage.setItem(UPDATE_SCROLL_KEY, JSON.stringify({ x: window.scrollX, y: window.scrollY }));
-      const activeView = readActiveViewLabel();
-      if (activeView) sessionStorage.setItem(UPDATE_VIEW_KEY, activeView);
 
       if ('serviceWorker' in navigator) {
         await withTimeout((async () => {
@@ -114,7 +109,6 @@ export function PwaRegistration() {
     applying.current = true;
     targetBuildRef.current = pending;
     const scroll = readSavedScroll();
-    const savedView = sessionStorage.getItem(UPDATE_VIEW_KEY);
     let cancelled = false;
 
     queueMicrotask(() => {
@@ -124,7 +118,8 @@ export function PwaRegistration() {
       }
     });
 
-    void restoreActiveView(savedView).then(() => {
+    // Активний розділ відновлює сам стор шелла з localStorage; тут лише позиція прокручування вікна.
+    requestAnimationFrame(() => {
       if (!cancelled && scroll) window.scrollTo({ left: scroll.x, top: scroll.y, behavior: 'auto' });
     });
 
@@ -135,7 +130,6 @@ export function PwaRegistration() {
       if (cancelled) return;
       sessionStorage.removeItem(PENDING_BUILD_KEY);
       sessionStorage.removeItem(UPDATE_SCROLL_KEY);
-      sessionStorage.removeItem(UPDATE_VIEW_KEY);
       applying.current = false;
       targetBuildRef.current = '';
       setUpdate(initialState);
@@ -210,85 +204,70 @@ export function PwaRegistration() {
   const shortBuild = update.targetBuildId ? update.targetBuildId.slice(0, 7) : '';
   if (update.phase === 'available') {
     return (
-      <output className="app-update-banner" aria-live="polite">
-        <span className="app-update-pulse" aria-hidden="true" />
-        <div>
-          <strong>Доступне оновлення Work OS</strong>
-          <span>{update.deferred ? 'Застосуємо одразу після завершення вводу.' : 'Оновлення застосовується автоматично…'}</span>
+      <output className="glass-strong frost shadow-float fixed left-1/2 top-4 z-[95] flex w-[min(440px,calc(100vw-1.5rem))] -translate-x-1/2 items-center gap-3 rounded-full py-2.5 pl-4 pr-5 text-sm" aria-live="polite">
+        <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-ink" />
+        <div className="min-w-0 flex-1">
+          <strong className="block text-sm font-medium">Доступне оновлення Work OS</strong>
+          <span className="block truncate text-xs text-ink-2">{update.deferred ? 'Застосуємо одразу після завершення вводу.' : 'Оновлення застосовується автоматично…'}</span>
         </div>
-        {shortBuild && <small>{update.version ? `v${update.version} · ` : ''}{shortBuild}</small>}
+        {shortBuild ? <small className="font-mono text-[11px] text-ink-2">{update.version ? `v${update.version} · ` : ''}{shortBuild}</small> : null}
       </output>
     );
   }
 
   const isError = update.phase === 'error';
   const isFinishing = update.phase === 'finishing';
-  const statusKey = isError ? 'error' : isFinishing ? 'finishing' : 'updating';
-  const statusTitle = isError
-    ? 'Не вдалося завершити оновлення'
-    : isFinishing
-      ? 'Work OS оновлено'
-      : 'Оновлюємо Work OS';
+  const statusTitle = isError ? 'Не вдалося завершити оновлення' : isFinishing ? 'Work OS оновлено' : 'Оновлюємо Work OS';
   const statusDescription = isError
     ? 'Поточна версія залишається доступною. Можна безпечно повторити спробу.'
     : isFinishing
       ? 'Повертаємо вас до роботи з актуальними даними…'
-      : 'Підтягуємо нову версію та синхронізуємо дані. Нічого натискати не потрібно.';
+      : 'Підтягуємо нову версію й синхронізуємо дані. Нічого натискати не потрібно.';
   const progress = isFinishing ? 100 : Math.min(75, Math.max(25, update.step * 25));
   const steps = ['Готуємо оновлення', 'Оновлюємо файли', 'Повертаємо до роботи'];
 
   return (
     <dialog
       open
-      className={`app-update-backdrop${exiting ? ' is-exiting' : ''}`}
+      className={`app-update-backdrop fixed inset-0 z-[95] m-0 grid h-dvh max-h-none w-screen max-w-none place-items-center border-0 bg-scrim p-4 text-ink transition-opacity duration-500 ${exiting ? 'opacity-0' : 'opacity-100'}`}
       aria-labelledby="app-update-title"
       aria-describedby="app-update-description"
     >
-      <div className="app-update-card" data-phase={update.phase}>
-        <div className="app-update-status-mark" aria-hidden="true">
-          <span className="app-update-status-brand">W</span>
-          {isFinishing && <Check className="app-update-status-check" />}
-          {isError && <RefreshCw className="app-update-status-error" />}
+      <div className="glass-strong frost shadow-float flex w-[min(420px,100%)] flex-col gap-5 rounded-panel p-7" data-phase={update.phase}>
+        <span aria-hidden="true" className="relative inline-grid size-12 place-items-center rounded-full border border-line-strong text-[17px] font-medium">
+          W
+          {isFinishing ? <Check className="absolute -right-1 -top-1 size-5 rounded-full bg-ok p-0.5 text-action-ink" /> : null}
+        </span>
+        <div className="flex flex-col gap-2">
+          <h2 id="app-update-title" className="m-0 text-[22px] font-medium tracking-[-0.02em]" aria-live="polite">{statusTitle}</h2>
+          <p id="app-update-description" className="m-0 text-sm text-ink-2">{statusDescription}</p>
         </div>
-        <h2 id="app-update-title" aria-live="polite">
-          <span key={`title-${statusKey}`} className="app-update-status-copy">{statusTitle}</span>
-        </h2>
-        <p id="app-update-description" className="app-update-description">
-          <span key={`description-${statusKey}`} className="app-update-status-copy">{statusDescription}</span>
-        </p>
-        {!isError && (
-          <div
-            className="app-update-progress"
-            role="progressbar"
-            aria-label="Прогрес оновлення"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={progress}
-          >
-            <span style={{ width: `${progress}%` }} />
-          </div>
-        )}
-        {!isError && (
-          <ol className="app-update-steps">
-            {steps.map((label, index) => {
-              const complete = isFinishing || update.step > index + 1;
-              const current = !isFinishing && update.step === index + 1;
-              return (
-                <li key={label} className={complete ? 'is-complete' : current ? 'is-current' : ''}>
-                  <span>{complete ? '✓' : index + 1}</span>
-                  {label}
-                </li>
-              );
-            })}
-          </ol>
-        )}
-        {isError && (
-          <Button onClick={() => void applyUpdate()}>
-            <RefreshCw data-icon="inline-start" />
+        {!isError ? (
+          <>
+            <progress className="sr-only" aria-label="Прогрес оновлення" max={100} value={progress} />
+            <div aria-hidden="true" className="h-1 overflow-hidden rounded-full bg-line">
+              <div className="h-full origin-left rounded-full bg-ink" style={{ transform: `scaleX(${progress / 100})`, transition: 'transform 0.6s var(--ease-out)' }} />
+            </div>
+            <ol className="m-0 flex list-none flex-col gap-2 p-0 text-sm">
+              {steps.map((label, index) => {
+                const complete = isFinishing || update.step > index + 1;
+                const current = !isFinishing && update.step === index + 1;
+                return (
+                  <li key={label} className={`flex items-center gap-3 ${complete || current ? 'text-ink' : 'text-ink-2'}`}>
+                    <span className={`inline-grid size-5 place-items-center rounded-full border text-[11px] ${complete ? 'border-transparent bg-action text-action-ink' : 'border-line-strong'}`}>{complete ? '✓' : index + 1}</span>
+                    {label}
+                  </li>
+                );
+              })}
+            </ol>
+          </>
+        ) : (
+          <Button variant="action" onClick={() => void applyUpdate()}>
+            <RefreshCw aria-hidden="true" strokeWidth={1.5} />
             Спробувати ще раз
           </Button>
         )}
-        <small className="app-update-note">Поточний розділ і позиція сторінки збережуться автоматично.</small>
+        <small className="text-xs text-ink-2">Поточний розділ і позиція сторінки збережуться автоматично.</small>
       </div>
     </dialog>
   );
@@ -299,31 +278,6 @@ function isEditing(): boolean {
   if (!element) return false;
   if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) return true;
   return element instanceof HTMLElement && element.isContentEditable;
-}
-
-function readActiveViewLabel(): string | null {
-  const current = document.querySelector<HTMLElement>('.nav-item[aria-current="page"]');
-  if (!current) return null;
-  const title = current.getAttribute('title') || '';
-  const text = `${title} ${current.textContent || ''}`;
-  return VIEW_LABELS.find((label) => text.includes(label)) || null;
-}
-
-async function restoreActiveView(savedView: string | null): Promise<void> {
-  if (!savedView || savedView === 'Сьогодні') return;
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.nav-item'));
-    const target = buttons.find((button) => {
-      const text = `${button.getAttribute('title') || ''} ${button.textContent || ''}`;
-      return text.includes(savedView);
-    });
-    if (target) {
-      target.click();
-      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
-      return;
-    }
-    await new Promise((resolve) => window.setTimeout(resolve, 50));
-  }
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

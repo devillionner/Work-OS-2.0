@@ -6,7 +6,6 @@ import { ServerSync } from '@/components/server-sync';
 import { THEME_BOOT_SCRIPT } from '@/components/shell/theme-provider';
 import { ToastProvider } from '@/components/ui/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { ViewPersistence } from '@/components/view-persistence';
 import './globals.css';
 import './legacy.css';
 import './design-polish.css';
@@ -51,7 +50,6 @@ export default function RootLayout({
             <PwaRegistration />
             <ServerSync />
             <RunnerActivityBeacon />
-            <ViewPersistence />
             <div className="relative z-10">{children}</div>
           </ToastProvider>
         </TooltipProvider>

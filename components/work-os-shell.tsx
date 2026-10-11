@@ -1,563 +1,226 @@
 'use client';
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
-import {
-  BarChart3,
-  BookOpenText,
-  ChevronLeft,
-  ChevronRight,
-  FileText,
-  LayoutDashboard,
-  Menu,
-  MessageSquareText,
-  Settings,
-  Target,
-  UsersRound,
-  X,
-  Sparkles,
-  ArrowRight,
-} from 'lucide-react';
-import { Avatar, AvatarFallback } from '@/components/legacy-ui/avatar';
-import { Badge } from '@/components/legacy-ui/badge';
-import { Button } from '@/components/legacy-ui/button';
-import { Progress, ProgressLabel, ProgressValue } from '@/components/legacy-ui/progress';
-
-import { PlatformWorkspace } from '@/components/platform-workspace';
-import { LeadsWorkspace } from '@/components/leads/workspace';
-import { AnalyticsWorkspace } from '@/components/analytics-workspace';
-import { ReportsWorkspace } from '@/components/reports-workspace';
-import { LibraryWorkspace } from '@/components/library-workspace';
-import { TodaySettingsDialog } from '@/components/today-settings-dialog';
-import { SettingsWorkspace } from '@/components/settings-workspace';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { gsap, prefersReducedMotion } from '@/components/motion/gsap';
+import { useSpotlight } from '@/components/motion/use-spotlight';
+import { CommandPalette } from '@/components/shell/command-palette';
+import { emitCommand, useCommand } from '@/components/shell/command-bus';
+import { CreateMenu } from '@/components/shell/create-menu';
+import { Dock } from '@/components/shell/dock';
+import { MoreSheet } from '@/components/shell/more-sheet';
+import { PanelSlotProvider, useOpenPanelCount } from '@/components/shell/panel';
+import { PulseRail, type PulseRing } from '@/components/shell/pulse-rail';
+import { QuickSettings } from '@/components/shell/quick-settings';
+import { Rail } from '@/components/shell/rail';
+import { ReleasePanel } from '@/components/shell/release-panel';
+import { ShellProvider, type ShellContextValue } from '@/components/shell/shell-context';
+import { Topbar } from '@/components/shell/topbar';
+import { useQueryParam } from '@/components/shell/url-state';
+import { DESKTOP, PHONE, WIDE, useMediaQuery } from '@/components/shell/use-media';
+import { ViewPane, TopbarSlotProvider } from '@/components/shell/view-pane';
+import { getActiveView, setActiveView, useActiveView, viewLabel, type ViewKey } from '@/components/shell/views';
+import { Ghost } from '@/components/ui/ghost';
+import { toneFor } from '@/components/views/shared/pace';
 import { WorkspaceErrorBoundary } from '@/components/workspace-error-boundary';
-import { GlobalTimers } from '@/components/global-timers';
-import { AppReleaseDialog } from '@/components/app-release-dialog';
-import { WorkdayCard } from '@/components/workday-card';
-import { createBrowserCommandClient } from '@/components/leads/client';
-import { APP_VERSION } from '@/lib/app-meta';
-import { requestDataSync } from '@/lib/client-sync';
-import { useRouter } from 'next/navigation';
+import { SERVER_SYNC_IDLE_MAX_MS } from '@/components/server-sync';
+import { announceDataChange, requestDataSync } from '@/lib/client-sync';
 import type { DashboardSnapshot } from '@/lib/dashboard';
 
-type WorkOsShellProps = {
+const TodayView = lazy(() => import('@/components/views/today/today-view'));
+const PlatformsView = lazy(() => import('@/components/views/platforms/platforms-view'));
+const LeadsView = lazy(() => import('@/components/views/leads/leads-view'));
+const AnalyticsView = lazy(() => import('@/components/views/analytics/analytics-view'));
+const ReportsView = lazy(() => import('@/components/views/reports/reports-view'));
+const LibraryView = lazy(() => import('@/components/views/library/library-view'));
+const SettingsView = lazy(() => import('@/components/views/settings/settings-view'));
+
+const VIEW_KEYS: ViewKey[] = ['today', 'platforms', 'leads', 'analytics', 'reports', 'library', 'settings'];
+const FALLBACK_MINUTES = Math.max(1, Math.round(SERVER_SYNC_IDLE_MAX_MS / 60_000));
+
+function renderView(key: ViewKey): ReactNode {
+  switch (key) {
+    case 'today': return <TodayView />;
+    case 'platforms': return <PlatformsView />;
+    case 'leads': return <LeadsView />;
+    case 'analytics': return <AnalyticsView />;
+    case 'reports': return <ReportsView />;
+    case 'library': return <LibraryView />;
+    case 'settings': return <SettingsView />;
+  }
+}
+
+type Props = {
   user: { displayName: string; email: string };
   signOutPath: string;
   snapshot: DashboardSnapshot;
   syncRevision: number;
 };
 
-const navigation = [
-  { key: 'today', label: 'Сьогодні', icon: LayoutDashboard },
-  { key: 'platforms', label: 'Платформи', icon: MessageSquareText },
-  { key: 'leads', label: 'Ліди', icon: UsersRound },
-  { key: 'analytics', label: 'Аналітика', icon: BarChart3 },
-  { key: 'reports', label: 'Звіти', icon: FileText },
-  { key: 'library', label: 'Бібліотека', icon: BookOpenText },
-] as const;
+export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props) {
+  const activeView = useActiveView();
+  const phone = useMediaQuery(PHONE);
+  const desktop = useMediaQuery(DESKTOP);
+  const wide = useMediaQuery(WIDE);
+  const [visited, setVisited] = useState(() => new Set<ViewKey>([activeView]));
+  if (!visited.has(activeView)) setVisited(new Set(visited).add(activeView));
 
-type ViewKey = (typeof navigation)[number]['key'] | 'settings';
-
-export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: WorkOsShellProps) {
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const mobileCloseRef = useRef<HTMLButtonElement>(null);
-  const mobileDrawerTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const pageHeadingRef = useRef<HTMLHeadingElement>(null);
-
-  const [todaySettingsOpen, setTodaySettingsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
-  const [leadToOpen, setLeadToOpen] = useState<string | null>(null);
-  const router = useRouter();
-  const [todayCommand] = useState(() => createBrowserCommandClient(`${user.email}:today-reminders`));
-  const [taskBusy, setTaskBusy] = useState<string | null>(null);
-  const [taskNotice, setTaskNotice] = useState('');
-  const [activeView, setActiveView] = useState<ViewKey>('today');
-  const [visitedViews, setVisitedViews] = useState<Set<ViewKey>>(() => new Set<ViewKey>(['today']));
+  const [asideElement, setAsideElement] = useState<HTMLElement | null>(null);
+  const [topbarSlot, setTopbarSlot] = useState<HTMLElement | null>(null);
+  const [, setLeadParam] = useQueryParam('lead');
+  const canvas = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const navigating = useRef(false);
+  useSpotlight(canvas);
+
+  const navigate = useCallback((next: ViewKey) => {
+    if (next === getActiveView() || navigating.current) return;
+    if (next === 'today') requestDataSync('focus');
+    const pane = document.querySelector<HTMLElement>('[data-pane][data-active="true"]');
+    if (!pane || prefersReducedMotion()) { setActiveView(next); return; }
+    navigating.current = true;
+    // Вихід за 120 мс: opacity → 0 і blur 6px; вхід блоків — useReveal у ViewPane.
+    gsap.to(pane, {
+      opacity: 0, filter: 'blur(6px)', duration: 0.12, ease: 'power2.in',
+      onComplete: () => {
+        setActiveView(next);
+        gsap.set(pane, { clearProps: 'opacity,filter' });
+        navigating.current = false;
+      },
+    });
+  }, []);
+
+  const openLead = useCallback((leadId: string) => {
+    if (leadId) setLeadParam(leadId);
+    navigate('leads');
+  }, [navigate, setLeadParam]);
+
+  const refreshSnapshot = useCallback(() => announceDataChange('dashboard'), []);
+  const openRelease = useCallback(() => setReleaseOpen(true), []);
+
+  useCommand('release:open', openRelease);
 
   useEffect(() => {
-    if (!mobileOpen) return;
-    const frame = requestAnimationFrame(() => mobileCloseRef.current?.focus());
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      setMobileOpen(false);
-      const trigger = mobileDrawerTriggerRef.current;
-      requestAnimationFrame(() => trigger?.focus());
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setPaletteOpen((value) => !value);
+      }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [mobileOpen]);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
-  const openMobileMenu = (trigger: HTMLButtonElement) => {
-    mobileDrawerTriggerRef.current = trigger;
-    setMobileOpen(true);
-  };
+  useEffect(() => {
+    if (phone) window.scrollTo({ top: 0, behavior: 'auto' });
+    else scroller.current?.scrollTo({ top: 0, behavior: 'auto' });
+  }, [activeView, phone]);
 
-  const closeMobileMenu = () => {
-    setMobileOpen(false);
-    const trigger = mobileDrawerTriggerRef.current;
-    requestAnimationFrame(() => trigger?.focus());
-  };
+  const context = useMemo<ShellContextValue>(() => ({ user, signOutPath, snapshot, syncRevision, navigate, openLead, refreshSnapshot, openRelease }), [user, signOutPath, snapshot, syncRevision, navigate, openLead, refreshSnapshot, openRelease]);
 
-  const activeLabel =
-    activeView === 'settings'
-      ? 'Налаштування'
-      : navigation.find((item) => item.key === activeView)?.label || 'Сьогодні';
+  const rings = useMemo<PulseRing[]>(() => {
+    const totals = snapshot.platforms.reduce((sum, platform) => ({ publications: sum.publications + platform.publications, joined: sum.joined + platform.joined, bookings: sum.bookings + platform.bookings }), { publications: 0, joined: 0, bookings: 0 });
+    return [
+      { key: 'publications', label: 'Публікації', count: totals.publications, target: snapshot.publicationGoal.target || null, tone: toneFor(totals.publications, snapshot.publicationGoal.target) },
+      { key: 'joined', label: 'Нові чати', count: totals.joined, target: null, tone: 'rail' },
+      { key: 'bookings', label: 'Записи', count: totals.bookings, target: snapshot.bookingGoal.target || null, tone: toneFor(totals.bookings, snapshot.bookingGoal.target) },
+    ];
+  }, [snapshot.platforms, snapshot.publicationGoal.target, snapshot.bookingGoal.target]);
 
-  const navigateTo = (next: ViewKey) => {
-    const fromDrawer = mobileOpen;
-    setVisitedViews((current) => current.has(next) ? current : new Set(current).add(next));
-    setActiveView(next);
-    setMobileOpen(false);
-    if (fromDrawer) requestAnimationFrame(() => pageHeadingRef.current?.focus());
-    if (next === 'today' && activeView !== 'today') requestDataSync('focus');
-  };
+  const openService = useCallback(() => { navigate('settings'); emitCommand('settings:section', 'service'); }, [navigate]);
 
-  const orderedLeadTasks = [...snapshot.leadTasks].sort((a, b) => {
-    const sectionOrder = taskSectionRank(a, snapshot.today) - taskSectionRank(b, snapshot.today);
-    return sectionOrder || a.dueAt - b.dueAt || a.leadId.localeCompare(b.leadId);
-  });
+  const topbar = (
+    <Topbar
+      title={viewLabel(activeView)}
+      phone={phone}
+      user={user}
+      signOutPath={signOutPath}
+      enabledPlatforms={snapshot.enabledPlatforms}
+      viewKey={activeView}
+      fallbackMinutes={FALLBACK_MINUTES}
+      onNavigate={navigate}
+      onOpenPalette={() => setPaletteOpen(true)}
+      slotRef={setTopbarSlot}
+    />
+  );
 
-  const copyReminder = async (item: DashboardSnapshot['leadTasks'][number]) => {
-    if (!item.reminderText) return;
-    try {
-      await navigator.clipboard.writeText(item.reminderText);
-      setTaskNotice('Текст нагадування скопійовано.');
-    } catch {
-      setTaskNotice('Не вдалося скопіювати текст.');
-    }
-  };
+  const panes = (
+    <>
+      {VIEW_KEYS.filter((key) => visited.has(key)).map((key) => (
+        <ViewPane key={key} active={activeView === key}>
+          <WorkspaceErrorBoundary name={viewLabel(key)}>
+            <Suspense fallback={<ViewFallback />}>{renderView(key)}</Suspense>
+          </WorkspaceErrorBoundary>
+        </ViewPane>
+      ))}
+    </>
+  );
 
-  const markReminderSent = async (item: DashboardSnapshot['leadTasks'][number]) => {
-    if (!item.reminderId || item.leadVersion === null) return;
-    setTaskBusy(item.reminderId);
-    setTaskNotice('');
-    try {
-      await todayCommand('reminder_mark', { state: 'sent' }, { id: item.leadId, version: item.leadVersion }, item.reminderId);
-      setTaskNotice('Нагадування позначено як надіслане.');
-      router.refresh();
-    } catch (error) {
-      setTaskNotice(error instanceof Error ? error.message : 'Не вдалося оновити нагадування.');
-    } finally {
-      setTaskBusy(null);
-    }
-  };
+  const overlays = (
+    <>
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} onNavigate={navigate} />
+      <ReleasePanel open={releaseOpen} onOpenChange={setReleaseOpen} />
+    </>
+  );
 
   return (
-    <div className={`legacy-root work-layout ${collapsed ? 'is-collapsed' : ''}`}>
-      <aside className={`work-sidebar ${mobileOpen ? 'is-open' : ''}`} aria-label="Основна навігація">
-        <div className="sidebar-head">
-          <div className="brand-lockup">
-            <span className="brand-mark" aria-hidden="true">
-              W
-            </span>
-            {!collapsed && (
-              <div className="brand-text">
-                <strong>Work OS</strong>
-                <span className="brand-badge">2.0</span>
+    <ShellProvider value={context}>
+      <TopbarSlotProvider element={topbarSlot}>
+        <PanelSlotProvider element={asideElement}>
+          <span hidden data-work-os-revision={syncRevision} />
+          {phone ? (
+            <div className="relative min-h-dvh pb-[calc(112px+env(safe-area-inset-bottom))]">
+              {topbar}
+              <main className="flex flex-col gap-3 px-3 pt-2">{panes}</main>
+              <PulseRail rings={rings} onOpenSettings={() => setQuickOpen(true)} />
+              <div className="fixed right-3 z-30" style={{ bottom: 'calc(12px + 64px + 12px + env(safe-area-inset-bottom))' }}>
+                <CreateMenu onNavigate={navigate} fab />
               </div>
-            )}
-          </div>
-          <button
-            ref={mobileCloseRef}
-            className="sidebar-close-mobile"
-            type="button"
-            aria-label="Закрити меню"
-            onClick={closeMobileMenu}
-          >
-            <X />
-          </button>
-        </div>
-
-        <nav className="sidebar-nav">
-          {navigation.map(({ key, label, icon: Icon }) => (
-            <button
-              type="button"
-              className="nav-item"
-              aria-current={activeView === key ? 'page' : undefined}
-              title={collapsed ? label : undefined}
-              key={key}
-              onClick={() => navigateTo(key)}
-            >
-              <Icon className="nav-item-icon" />
-              {!collapsed && <span className="nav-item-label">{label}</span>}
-              {label === 'Ліди' && !collapsed && <span className="nav-count">{snapshot.leads}</span>}
-            </button>
-          ))}
-        </nav>
-
-        <div className="sidebar-bottom">
-          <button
-            className="nav-item"
-            type="button"
-            title={collapsed ? 'Налаштування' : undefined}
-            aria-current={activeView === 'settings' ? 'page' : undefined}
-            onClick={() => navigateTo('settings')}
-          >
-            <Settings className="nav-item-icon" />
-            {!collapsed && <span className="nav-item-label">Налаштування</span>}
-          </button>
-
-          {!collapsed && (
-            <button className="sidebar-release" type="button" onClick={() => setReleaseOpen(true)}>
-              <div className="sidebar-release-top">
-                <span className="sidebar-release-title">
-                  <Sparkles className="sidebar-release-icon" />
-                  Work OS
-                </span>
-                <strong className="sidebar-release-ver">v{APP_VERSION}</strong>
-              </div>
-              <div className="sidebar-release-foot">
-                <small>Що змінилося</small>
-                <ArrowRight className="sidebar-release-arrow" />
-              </div>
-            </button>
-          )}
-
-          <button
-            className="collapse-button"
-            type="button"
-            onClick={() => setCollapsed((value) => !value)}
-            aria-label={collapsed ? 'Розгорнути меню' : 'Згорнути меню'}
-          >
-            {collapsed ? <ChevronRight /> : <ChevronLeft />}
-            {!collapsed && <span>Згорнути меню</span>}
-          </button>
-        </div>
-      </aside>
-
-      {mobileOpen && (
-        <button
-          type="button"
-          className="sidebar-scrim"
-          aria-label="Закрити меню"
-          onClick={closeMobileMenu}
-        />
-      )}
-
-      <main className="work-main" inert={mobileOpen ? true : undefined}>
-        <header className="topbar">
-          <button
-            className="mobile-menu"
-            type="button"
-            aria-label="Відкрити меню"
-            onClick={(event) => openMobileMenu(event.currentTarget)}
-          >
-            <Menu />
-          </button>
-          <div className="topbar-title-block">
-            <p className="eyebrow">{todayLabel()}</p>
-            <h1 ref={pageHeadingRef} tabIndex={-1}>
-              {activeLabel}
-            </h1>
-          </div>
-          <div className="account-block">
-            <GlobalTimers enabledPlatforms={snapshot.enabledPlatforms} viewKey={activeView} />
-            <div className="account-copy">
-              <strong>{user.displayName}</strong>
-              <span>{user.email}</span>
+              <Dock active={activeView} onNavigate={navigate} onMore={() => setMoreOpen(true)} />
+              <MoreSheet open={moreOpen} onOpenChange={setMoreOpen} active={activeView} onNavigate={navigate} />
+              <QuickSettings open={quickOpen} onOpenChange={setQuickOpen} onNavigate={navigate} />
+              {overlays}
             </div>
-            <Avatar className="account-avatar">
-              <AvatarFallback>{initials(user.displayName)}</AvatarFallback>
-            </Avatar>
-            <form method="post" action={signOutPath}>
-              <button className="account-link" type="submit">
-                Вийти
-              </button>
-            </form>
-          </div>
-        </header>
-
-        <WorkspacePane active={activeView === 'today'}>
-          <div className="dashboard-grid">
-            <section className="focus-card" aria-labelledby="focus-title">
-              <div className="focus-heading">
-                <div>
-                  <div className="focus-top-meta">
-                    <p className="eyebrow">Фокус дня</p>
-                    <Badge variant="outline" className="focus-badge">
-                      Ручна робота
-                    </Badge>
+          ) : (
+            <div className="relative flex h-dvh justify-center p-3">
+              <div className="flex h-full w-full max-w-[1680px] gap-3 rounded-frame border border-line bg-sunken p-4">
+                <Rail active={activeView} leadCount={snapshot.leads} canExpand={desktop} onNavigate={navigate} onOpenRelease={openRelease} onOpenService={openService} />
+                <div ref={canvas} className="glass frost relative flex min-w-0 flex-1 overflow-hidden rounded-panel">
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    {topbar}
+                    <main ref={scroller} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-8 pt-1">{panes}</main>
                   </div>
-                  <h2 id="focus-title">Почни з поточних чатів і лідів</h2>
-                  <p className="focus-description">
-                    {snapshot.chats} активних чатів і {snapshot.leads} лідів уже доступні у хмарній базі.
-                  </p>
-                  {snapshot.focusDirections.length ? (
-                    <div className="focus-direction-list">
-                      {snapshot.focusDirections.map((direction) => (
-                        <Badge variant="secondary" key={direction} className="focus-chip">
-                          {direction}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="focus-empty-note">Фокус напрямків: <span>усі напрямки активні</span></p>
-                  )}
+                  {wide ? <InspectorColumn onElement={setAsideElement} /> : null}
                 </div>
               </div>
-              <div className="focus-actions">
-                <Button onClick={() => navigateTo('platforms')}>
-                  <MessageSquareText data-icon="inline-start" />
-                  Почати постинг
-                </Button>
-                <Button variant="outline" onClick={() => setTodaySettingsOpen(true)}>
-                  <Target data-icon="inline-start" />
-                  Налаштувати ціль
-                </Button>
-              </div>
-            </section>
-
-            <WorkdayCard
-              initial={snapshot.workday}
-              today={snapshot.today}
-              unfinishedCount={snapshot.leadTaskCount}
-              dailyGoal={snapshot.bookingGoal.target}
-              monthlyGoal={snapshot.monthlyBookingGoal}
-              focusDirections={snapshot.focusDirections}
-            />
-
-            <section className="goal-card" aria-labelledby="goal-title">
-              <div className="card-heading">
-                <div>
-                  <p className="eyebrow">Ціль на день</p>
-                  <h2 id="goal-title">Записи</h2>
-                  <p className="goal-month-note">Місячна ціль: {snapshot.monthlyBookingGoal}</p>
-                </div>
-                {snapshot.reportSubmittedAt ? (
-                  <Badge variant="secondary">Звіт зафіксовано</Badge>
-                ) : (
-                  <button className="text-action" type="button" onClick={() => setTodaySettingsOpen(true)}>
-                    Змінити
-                  </button>
-                )}
-              </div>
-              <Progress
-                value={Math.min(
-                  100,
-                  (snapshot.bookingGoal.completed / Math.max(1, snapshot.bookingGoal.target)) * 100
-                )}
-                className="goal-progress"
-              >
-                <ProgressLabel>Виконано</ProgressLabel>
-                <ProgressValue>{() => `${snapshot.bookingGoal.completed} із ${snapshot.bookingGoal.target}`}</ProgressValue>
-              </Progress>
-              <p className="muted-note">
-                {snapshot.pendingAfterReport
-                  ? `Після звіту з’явилося ${snapshot.pendingAfterReport} змін у подіях — звіт потребує оновлення.`
-                  : snapshot.reportSubmittedAt
-                    ? 'Показники відповідають останньому зданому звіту.'
-                    : 'Показники рахуються з робочих подій у реальному часі.'}
-              </p>
-            </section>
-
-            <section className="queue-card" aria-labelledby="queue-title">
-              <div className="card-heading">
-                <div>
-                  <p className="eyebrow">Наступні дії</p>
-                  <h2 id="queue-title">Прострочені ліди й нагадування</h2>
-                </div>
-                <Badge variant="secondary">{snapshot.leadTasks.length}</Badge>
-              </div>
-              {taskNotice && <output className="muted-note">{taskNotice}</output>}
-              {orderedLeadTasks.length ? (
-                <ol className="action-list">
-                  {orderedLeadTasks.map((item, index) => {
-                    const section = taskSection(item, snapshot.today);
-                    const previous = index > 0 ? taskSection(orderedLeadTasks[index - 1], snapshot.today) : null;
-                    return (
-                      <Fragment key={`${item.kind}:${item.leadId}:${item.lessonId || item.dueAt}`}>
-                        {section !== previous && (
-                          <li className="action-section" aria-label={taskSectionLabel(section)}>
-                            <span>{taskSectionLabel(section)}</span>
-                          </li>
-                        )}
-                        <li>
-                          <span className="action-index">{index + 1}</span>
-                          <div className="action-main-info">
-                            <strong>{item.leadName}</strong>
-                            <p>
-                              {item.title} · {formatTaskTime(item.dueAt)}
-                            </p>
-                          </div>
-                          <div className="lead-actions">
-                            {item.kind === 'reminder' && item.reminderText ? (
-                              <>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  disabled={taskBusy === item.reminderId}
-                                  onClick={() => void copyReminder(item)}
-                                >
-                                  Копіювати
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={taskBusy === item.reminderId}
-                                  onClick={() => void markReminderSent(item)}
-                                >
-                                  {taskBusy === item.reminderId ? 'Зберігаємо…' : 'Надіслано'}
-                                </Button>
-                              </>
-                            ) : null}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setLeadToOpen(item.leadId);
-                                navigateTo('leads');
-                              }}
-                            >
-                              Відкрити
-                            </Button>
-                          </div>
-                        </li>
-                      </Fragment>
-                    );
-                  })}
-                </ol>
-              ) : (
-                <div className="queue-empty">
-                  <p>Прострочених повторних контактів і активних нагадувань немає.</p>
-                  <Button variant="outline" size="sm" onClick={() => navigateTo('leads')}>
-                    Відкрити лідів
-                  </Button>
-                </div>
-              )}
-            </section>
-
-            <section className="platform-card" aria-labelledby="platform-title">
-              <div className="card-heading">
-                <div>
-                  <p className="eyebrow">Платформи</p>
-                  <h2 id="platform-title">Результат сьогодні</h2>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => navigateTo('platforms')}>
-                  Відкрити платформи
-                </Button>
-              </div>
-              <div className="platform-table">
-                <div className="platform-table-head">
-                  <span>Платформа</span>
-                  <span>Публікації</span>
-                  <span>Нові чати</span>
-                  <span>Відгуки</span>
-                  <span>Записи</span>
-                </div>
-                {snapshot.platforms
-                  .filter(
-                    (platform) =>
-                      snapshot.enabledPlatforms.includes(platform.key) ||
-                      platform.key === 'threads' ||
-                      platform.key === 'unknown'
-                  )
-                  .map((platform) => (
-                    <div className="platform-row" key={platform.key}>
-                      <span className="platform-name">
-                        <i style={{ background: platform.color }} />
-                        {platform.name}
-                      </span>
-                      <strong>{platform.publications}</strong>
-                      <strong>{platform.joined}</strong>
-                      <strong>{platform.responses}</strong>
-                      <strong>{platform.bookings}</strong>
-                    </div>
-                  ))}
-              </div>
-            </section>
-          </div>
-        </WorkspacePane>
-
-        {visitedViews.has('platforms') && <WorkspacePane active={activeView === 'platforms'}><WorkspaceErrorBoundary name="Платформи"><PlatformWorkspace enabledPlatforms={snapshot.enabledPlatforms} syncRevision={syncRevision} businessDate={snapshot.today} active={activeView === 'platforms'} /></WorkspaceErrorBoundary></WorkspacePane>}
-        {visitedViews.has('leads') && <WorkspacePane active={activeView === 'leads'}><WorkspaceErrorBoundary name="Ліди"><LeadsWorkspace account={user.email} initialLeadId={leadToOpen} syncRevision={syncRevision} active={activeView === 'leads'} /></WorkspaceErrorBoundary></WorkspacePane>}
-        {visitedViews.has('analytics') && <WorkspacePane active={activeView === 'analytics'}><WorkspaceErrorBoundary name="Аналітика"><AnalyticsWorkspace syncRevision={syncRevision} active={activeView === 'analytics'} /></WorkspaceErrorBoundary></WorkspacePane>}
-        {visitedViews.has('reports') && <WorkspacePane active={activeView === 'reports'}><WorkspaceErrorBoundary name="Звіти"><ReportsWorkspace syncRevision={syncRevision} active={activeView === 'reports'} onOpenLead={(leadId) => { setLeadToOpen(leadId); navigateTo('leads'); }} /></WorkspaceErrorBoundary></WorkspacePane>}
-        {visitedViews.has('library') && <WorkspacePane active={activeView === 'library'}><WorkspaceErrorBoundary name="Матеріали"><LibraryWorkspace syncRevision={syncRevision} active={activeView === 'library'} /></WorkspaceErrorBoundary></WorkspacePane>}
-        {visitedViews.has('settings') && <WorkspacePane active={activeView === 'settings'}><WorkspaceErrorBoundary name="Налаштування"><SettingsWorkspace user={user} snapshot={snapshot} active={activeView === 'settings'} onRefresh={() => router.refresh()} /></WorkspaceErrorBoundary></WorkspacePane>}
-
-        <nav className="mobile-bottom-nav" aria-label="Мобільна навігація">
-          {navigation.slice(0, 4).map(({ key, label, icon: Icon }) => (
-            <button
-              type="button"
-              aria-current={activeView === key ? 'page' : undefined}
-              key={key}
-              onClick={() => navigateTo(key)}
-            >
-              <Icon />
-              <span>{label}</span>
-            </button>
-          ))}
-          <button
-            type="button"
-            aria-current={['reports', 'library', 'settings'].includes(activeView) ? 'page' : undefined}
-            onClick={(event) => openMobileMenu(event.currentTarget)}
-          >
-            <Menu />
-            <span>Ще</span>
-          </button>
-        </nav>
-
-        <TodaySettingsDialog
-          open={todaySettingsOpen}
-          onClose={() => setTodaySettingsOpen(false)}
-          initialDirections={snapshot.focusDirections}
-          initialDailyGoal={snapshot.bookingGoal.target}
-          initialMonthlyGoal={snapshot.monthlyBookingGoal}
-          initialFunnelTargets={snapshot.funnelTargets}
-          onSaved={() => router.refresh()}
-        />
-        <AppReleaseDialog open={releaseOpen} onClose={() => setReleaseOpen(false)} />
-      </main>
-    </div>
+              {overlays}
+            </div>
+          )}
+        </PanelSlotProvider>
+      </TopbarSlotProvider>
+    </ShellProvider>
   );
 }
 
-function WorkspacePane({ active, children }: { active: boolean; children: ReactNode }) {
+/** Права колонка Inspector: зсуває контент, а не накриває його (≥ 1440px). Ширина змінюється миттєво, вміст виїжджає transform. */
+function InspectorColumn({ onElement }: { onElement: (element: HTMLElement | null) => void }) {
+  const count = useOpenPanelCount();
   return (
-    <div className="workspace-pane" hidden={!active} aria-hidden={active ? undefined : true}>
-      {children}
+    <div className="shrink-0 overflow-hidden border-l border-line bg-glass-strong" style={{ width: count > 0 ? 'var(--inspector-w)' : 0, borderLeftWidth: count > 0 ? 1 : 0 }}>
+      <div ref={onElement} className="h-full" style={{ width: 'var(--inspector-w)' }} />
     </div>
   );
 }
 
-function taskSection(item: DashboardSnapshot['leadTasks'][number], today: string) {
-  if (item.kind !== 'reminder' || !item.lessonDate) return 'followup' as const;
-  return item.lessonDate === today ? ('today' as const) : item.lessonDate > today ? ('tomorrow' as const) : ('today' as const);
-}
-function taskSectionRank(item: DashboardSnapshot['leadTasks'][number], today: string) {
-  const section = taskSection(item, today);
-  return section === 'today' ? 0 : section === 'tomorrow' ? 1 : 2;
-}
-function taskSectionLabel(section: 'followup' | 'today' | 'tomorrow') {
-  if (section === 'tomorrow') return 'Завтра';
-  if (section === 'today') return 'Сьогодні';
-  return 'Повторні контакти';
-}
-
-function initials(value: string) {
-  const parts = value.trim().split(/\s+/).filter(Boolean);
-  return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : value.slice(0, 2)).toUpperCase();
-}
-
-function todayLabel() {
-  const value = new Intl.DateTimeFormat('uk-UA', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    timeZone: 'Europe/Kyiv',
-  }).format(new Date());
-
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-function formatTaskTime(epoch: number) {
-  return new Intl.DateTimeFormat('uk-UA', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Europe/Kyiv',
-  }).format(new Date(epoch * 1000));
+function ViewFallback() {
+  return (
+    <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-3" aria-busy="true">
+      <Ghost className="h-40 rounded-card" />
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[0, 1, 2, 3].map((item) => <Ghost key={item} className="h-36 rounded-card" />)}</div>
+      <Ghost className="h-64 rounded-card" />
+    </div>
+  );
 }

@@ -3,6 +3,7 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { CountUp } from '@/components/motion/count-up';
+import type { RingTone } from '@/components/ui/ring';
 import { Surface } from '@/components/ui/surface';
 import { cn } from '@/lib/utils';
 
@@ -16,7 +17,7 @@ export function Tile({ label, value, format, hint, icon: Icon, progress, delta, 
   hint?: ReactNode;
   icon?: LucideIcon;
   /** Прогрес до цілі, 0–1+. Тонка смужка під числом. */
-  progress?: { value: number; tone?: 'ok' | 'warn' | 'hot' | 'ink' };
+  progress?: { value: number; tone?: RingTone };
   delta?: TileDelta;
   /** Власний вміст утопленої половини замість гліфа. */
   aside?: ReactNode;
@@ -25,8 +26,9 @@ export function Tile({ label, value, format, hint, icon: Icon, progress, delta, 
 }) {
   const body = (
     <>
-      <div className="flex min-w-0 flex-1 flex-col justify-between gap-4 p-5">
+      <div className="relative flex min-w-0 flex-1 flex-col justify-between gap-4 p-4 sm:p-5">
         <span className="text-[13px] text-ink-2">{label}</span>
+        {Icon ? <Icon aria-hidden="true" strokeWidth={1.25} className="absolute right-4 top-4 size-5 text-ink-3 sm:hidden" /> : null}
         <div className="flex flex-col gap-2">
           <CountUp value={value} format={format} className="text-[40px] font-normal leading-none tracking-[-0.03em]" />
           <div className="flex min-h-4 items-center gap-2 text-xs text-ink-2">
@@ -45,12 +47,12 @@ export function Tile({ label, value, format, hint, icon: Icon, progress, delta, 
           ) : null}
         </div>
       </div>
-      <div className="m-2 ml-0 flex w-[38%] min-w-[84px] items-center justify-center rounded-inner bg-sunken text-ink-3">
+      <div className="m-2 ml-0 hidden w-[38%] min-w-[84px] items-center justify-center rounded-inner bg-sunken text-ink-3 sm:flex">
         {aside ?? (Icon ? <Icon aria-hidden="true" strokeWidth={1.25} className="size-9" /> : null)}
       </div>
     </>
   );
-  const shared = cn('flex min-h-[148px] w-full text-left', className);
+  const shared = cn('flex min-h-[132px] w-full text-left sm:min-h-[148px]', className);
   return onClick ? (
     <Surface as="button" type="button" lift spot data-reveal onClick={onClick} className={shared}>{body}</Surface>
   ) : (

@@ -26,14 +26,12 @@ declare global {
 export function GoogleSignIn({ clientId }: { clientId: string }) {
   const buttonRef = useRef<HTMLDivElement>(null);
   const busyRef = useRef(false);
-  const [error, setError] = useState('');
+  const [failure, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const error = clientId ? failure : 'Google-вхід ще не налаштовано.';
 
   useEffect(() => {
-    if (!clientId) {
-      setError('Google-вхід ще не налаштовано.');
-      return;
-    }
+    if (!clientId) return;
 
     let cancelled = false;
     const render = () => {
@@ -64,7 +62,7 @@ export function GoogleSignIn({ clientId }: { clientId: string }) {
       });
       const availableWidth = buttonRef.current.clientWidth || buttonRef.current.parentElement?.clientWidth || 320;
       window.google.accounts.id.renderButton(buttonRef.current, {
-        theme: 'outline',
+        theme: document.documentElement.dataset.theme === 'day' ? 'outline' : 'filled_black',
         size: 'large',
         width: Math.min(320, Math.max(200, Math.floor(availableWidth))),
         text: 'signin_with',
@@ -96,10 +94,10 @@ export function GoogleSignIn({ clientId }: { clientId: string }) {
   }, [clientId]);
 
   return (
-    <div className="google-sign-in-wrap" aria-busy={busy}>
-      <div ref={buttonRef} className={busy ? 'is-busy' : undefined} />
-      {busy && <p className="auth-note">Перевіряємо акаунт…</p>}
-      {error && <p className="auth-error" role="alert">{error}</p>}
+    <div className="flex flex-col items-start gap-3" aria-busy={busy}>
+      <div ref={buttonRef} className={busy ? 'pointer-events-none opacity-50' : undefined} />
+      {busy ? <p className="m-0 text-xs text-ink-2">Перевіряємо акаунт…</p> : null}
+      {error ? <p className="m-0 text-xs text-hot" role="alert">{error}</p> : null}
     </div>
   );
 }

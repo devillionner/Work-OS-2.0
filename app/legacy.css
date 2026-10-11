@@ -60,9 +60,7 @@
   --radius: 0.85rem;
 }
 
-* { box-sizing: border-box; }
-button, a { font: inherit; }
-button:not([data-slot="button"]) { color: inherit; }
+:is(.legacy-root, .legacy-surface) button:not([data-slot="button"]) { color: inherit; }
 
 .eyebrow { margin: 0 0 6px; color: var(--muted-foreground); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 
@@ -357,8 +355,8 @@ button:not([data-slot="button"]) { color: inherit; }
 .card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .card-heading .eyebrow { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted-foreground); margin: 0; }
 .card-heading h2 { font-size: 15px; font-weight: 750; color: var(--foreground); margin: 1px 0 0; }
-.text-action { min-height:42px; display:inline-flex; align-items:center; padding:0 6px; border: 0; background: transparent; color: var(--primary); font-size: 12px; font-weight: 750; cursor: pointer; border-radius: 6px; transition: background var(--motion-fast); }
-.text-action:hover { background: var(--accent); }
+.legacy-text-action { min-height:42px; display:inline-flex; align-items:center; padding:0 6px; border: 0; background: transparent; color: var(--primary); font-size: 12px; font-weight: 750; cursor: pointer; border-radius: 6px; transition: background var(--motion-fast); }
+.legacy-text-action:hover { background: var(--accent); }
 .goal-month-note { margin: 1px 0 0; color: var(--muted-foreground); font-size: 11px; }
 .goal-progress { margin-top: 12px; }
 
@@ -931,7 +929,7 @@ button:not([data-slot="button"]) { color: inherit; }
   .focus-heading { display: grid; }
   .focus-actions { display: grid; grid-template-columns: 1fr; }
   .focus-actions button { width: 100%; }
-  .focus-actions [data-slot="button"], .workday-actions [data-slot="button"], .action-list .lead-actions [data-slot="button"], .text-action, .platform-card .card-heading > [data-slot="button"] { min-height:44px; }
+  .focus-actions [data-slot="button"], .workday-actions [data-slot="button"], .action-list .lead-actions [data-slot="button"], .legacy-text-action, .platform-card .card-heading > [data-slot="button"] { min-height:44px; }
   .workday-card { display:grid; grid-template-columns:44px minmax(0,1fr); padding:19px 16px; }
   .workday-card > .workday-actions { grid-column:1/-1; width:100%; margin-left:0; }
   .workday-actions [data-slot="button"] { flex:1 1 140px; }
@@ -1613,11 +1611,11 @@ a.telegram-slot-link svg { flex-shrink:0; width:13px; height:13px; }
 .card-heading { margin-bottom:12px; }
 .card-heading h2,.analytics-card h3,.reports-month-head h3,.reports-editor-card h3 { font-size:16px; font-weight:750; letter-spacing:-.02em; }
 
-[data-slot="input"],[data-slot="textarea"],select { border-color:var(--input); background: var(--card); }
-[data-slot="input"]:focus-visible,[data-slot="textarea"]:focus-visible,select:focus-visible { border-color:var(--ring); box-shadow:0 0 0 3px rgb(37 99 235 / .18); outline:none; }
-[data-slot="button"] { box-shadow:0 1px 2px rgb(17 20 26 / .04); transition:all var(--motion-fast) var(--motion-ease-smooth), transform var(--motion-fast) var(--motion-ease-spring); }
-[data-slot="button"]:hover:not(:disabled) { box-shadow:0 4px 14px rgb(17 20 26 / .08); }
-[data-slot="button"]:active:not(:disabled) { transform:scale(0.985); }
+:is(.legacy-root, .legacy-surface) [data-slot="input"],:is(.legacy-root, .legacy-surface) [data-slot="textarea"],:is(.legacy-root, .legacy-surface) select { border-color:var(--input); background: var(--card); }
+:is(.legacy-root, .legacy-surface) [data-slot="input"]:focus-visible,:is(.legacy-root, .legacy-surface) [data-slot="textarea"]:focus-visible,:is(.legacy-root, .legacy-surface) select:focus-visible { border-color:var(--ring); box-shadow:0 0 0 3px rgb(37 99 235 / .18); outline:none; }
+:is(.legacy-root, .legacy-surface) [data-slot="button"] { box-shadow:0 1px 2px rgb(17 20 26 / .04); transition:all var(--motion-fast) var(--motion-ease-smooth), transform var(--motion-fast) var(--motion-ease-spring); }
+:is(.legacy-root, .legacy-surface) [data-slot="button"]:hover:not(:disabled) { box-shadow:0 4px 14px rgb(17 20 26 / .08); }
+:is(.legacy-root, .legacy-surface) [data-slot="button"]:active:not(:disabled) { transform:scale(0.985); }
 
 .goal-card,.queue-card,.platform-card,.analytics-card,.reports-calendar-card,.reports-editor-card,.settings-panel { padding:16px 18px; }
 .workday-card { padding:16px 18px; }

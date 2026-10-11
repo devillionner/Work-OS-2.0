@@ -1,6 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AuthScreen } from '@/components/shell/auth-screen';
+import { BootSkeleton } from '@/components/shell/boot-skeleton';
+import { Button } from '@/components/ui/button';
 import { WorkOsShell } from '@/components/work-os-shell';
 import { DATA_SYNC_EVENT, type DataSyncDetail } from '@/lib/client-sync';
 import type { DashboardSnapshot } from '@/lib/dashboard';
@@ -16,7 +19,7 @@ export function WorkOsBootstrap({ user }: { user: { displayName: string; email: 
   const [quotaExceeded, setQuotaExceeded] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const payloadRef = useRef<BootstrapPayload | null>(null);
-  payloadRef.current = payload;
+  useEffect(() => { payloadRef.current = payload; });
 
   useEffect(() => {
     let cancelled = false;
@@ -84,48 +87,37 @@ export function WorkOsBootstrap({ user }: { user: { displayName: string; email: 
   }, [reloadSnapshot]);
 
   if (payload) {
-    return <>
-      <span hidden data-work-os-revision={payload.syncRevision} />
+    return (
       <WorkOsShell
         user={user}
         signOutPath="/api/auth/logout"
         snapshot={payload.snapshot}
         syncRevision={payload.syncRevision}
       />
-    </>;
+    );
   }
 
   if (quotaExceeded) return <D1QuotaRecovery />;
 
-  return (
-    <main className="auth-page">
-      <section className="auth-card" aria-live="polite">
-        <div className="auth-brand"><span>W</span>Work OS 2.0</div>
-        <p className="eyebrow">Завантаження</p>
-        <h1>{error ? 'Не вдалося отримати дані' : 'Відкриваємо Work OS'}</h1>
-        <p className="auth-description">
-          {error || 'Інтерфейс уже завантажено. Підтягуємо актуальні чати, ліди та показники окремим легким запитом.'}
-        </p>
-        {error ? <button className="account-link" type="button" onClick={() => setAttempt(value => value + 1)}>Спробувати ще раз</button> : null}
-      </section>
-    </main>
-  );
+  if (error) {
+    return (
+      <AuthScreen eyebrow="Завантаження" title="Не вдалося отримати дані" description={error}>
+        <Button variant="action" size="lg" magnetic onClick={() => setAttempt((value) => value + 1)}>Спробувати ще раз</Button>
+      </AuthScreen>
+    );
+  }
+
+  return <BootSkeleton />;
 }
 
-// The daily D1 read quota resets on its own; retrying only spends more reads, so no retry control here.
+// Денний ліміт D1 оновлюється сам; повторні спроби лише витрачають читання, тому кнопки «ще раз» тут немає.
 function D1QuotaRecovery() {
   return (
-    <main className="auth-page">
-      <section className="auth-card" aria-live="polite">
-        <div className="auth-brand"><span>W</span>Work OS 2.0</div>
-        <p className="eyebrow">Денний ліміт бази даних</p>
-        <h1>Work OS тимчасово недоступний</h1>
-        <p className="auth-description">
-          Сьогодні вичерпано денний ліміт читання Cloudflare D1. Дані не видалені й не пошкоджені.
-          Доступ відновиться автоматично після оновлення ліміту — о 03:00 за Києвом.
-        </p>
-        <p className="auth-note">Не потрібно постійно перезавантажувати сторінку: кожна спроба лише витрачає ліміт.</p>
-      </section>
-    </main>
+    <AuthScreen
+      eyebrow="Денний ліміт бази даних"
+      title="Work OS тимчасово недоступний"
+      description="Сьогодні вичерпано денний ліміт читання Cloudflare D1. Дані не видалені й не пошкоджені. Доступ відновиться сам після оновлення ліміту — о 03:00 за Києвом."
+      note="Не перезавантажуй сторінку без потреби: кожна спроба лише витрачає ліміт."
+    />
   );
 }
