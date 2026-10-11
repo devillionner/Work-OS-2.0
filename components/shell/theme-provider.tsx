@@ -22,7 +22,7 @@ const THEME_IDS = ['night', 'metal', 'cobalt'] as const;
 const ATMOSPHERES = ['fog', 'coast', 'forest', 'road', 'photo'] as const;
 const DENSITIES = ['comfortable', 'compact'] as const;
 // Дзеркалять --field кожної теми: мета-тег theme-color не вміє читати CSS-змінні.
-const THEME_COLORS: Record<Theme, string> = { night: '#07080A', metal: '#0B0D10', cobalt: '#070A12' };
+const THEME_COLORS: Record<Theme, string> = { night: '#07080A', metal: '#AAB2BC', cobalt: '#05052E' };
 const SERVER_SNAPSHOT: ThemeSnapshot = { theme: 'night', atmosphere: 'fog', density: 'comfortable' };
 
 let snapshot: ThemeSnapshot | null = null;

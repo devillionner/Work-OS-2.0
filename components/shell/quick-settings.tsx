@@ -1,10 +1,10 @@
 'use client';
 
-import { THEMES, useTheme, type AtmospherePreset, type Theme } from '@/components/shell/theme-provider';
+import { ThemePicker } from '@/components/shell/theme-picker';
+import { useTheme, type AtmospherePreset } from '@/components/shell/theme-provider';
 import type { ViewKey } from '@/components/shell/views';
 import { Button } from '@/components/ui/button';
 import { Chip } from '@/components/ui/chip';
-import { Segmented } from '@/components/ui/segmented';
 import { Sheet } from '@/components/ui/sheet';
 
 const ATMOSPHERES: Array<{ key: AtmospherePreset; label: string }> = [
@@ -13,13 +13,13 @@ const ATMOSPHERES: Array<{ key: AtmospherePreset; label: string }> = [
 
 /** Швидкі налаштування з шестерні PulseRail: тема, атмосфера й перехід до налаштувань. */
 export function QuickSettings({ open, onOpenChange, onNavigate }: { open: boolean; onOpenChange: (open: boolean) => void; onNavigate: (view: ViewKey) => void }) {
-  const { theme, setTheme, atmosphere, setAtmosphere } = useTheme();
+  const { atmosphere, setAtmosphere } = useTheme();
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Швидкі налаштування" side="bottom" snap="half">
       <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-2">
           <span className="text-xs font-medium text-ink-2">Тема</span>
-          <Segmented<Theme> label="Тема" size="sm" value={theme} onValueChange={setTheme} items={THEMES} />
+          <ThemePicker compact />
         </div>
         <div className="flex flex-col gap-2">
           <span className="text-xs font-medium text-ink-2">Атмосфера</span>

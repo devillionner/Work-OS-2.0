@@ -119,7 +119,7 @@ export function Sheet({ open, onOpenChange, title, description, side = 'bottom',
           {tabs ? <div className="shrink-0 border-b border-line px-5 pb-3">{tabs}</div> : <div className="shrink-0 border-b border-line" />}
           <div ref={scroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5 pt-4"><div key={contentKey} className="tab-fade">{children}</div></div>
           {footer ? <div className="shrink-0 border-t border-line px-5 py-3">{footer}</div> : null}
-          <div ref={overlayRef} className="absolute inset-0 z-20 flex flex-col overflow-hidden rounded-[inherit] bg-solid empty:hidden" />
+          <div ref={overlayRef} className="absolute inset-0 z-20 flex flex-col overflow-hidden rounded-[inherit] finish bg-solid empty:hidden" />
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
