@@ -1,3 +1,6 @@
+'use client';
+
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { BarRow, SectionCard } from '@/components/views/shared/card';
@@ -19,45 +22,70 @@ export function PlanFact({ data, className }: { data: GoalPlanFact; className?: 
   );
 }
 
-/** Події в базі за день, згруповані за платформою: оголошення, відгуки, записи. */
+const TOTALS: ReadonlyArray<{ key: string; label: string; types: readonly string[] }> = [
+  { key: 'joined', label: 'Приєднано', types: ['chat_joined'] },
+  { key: 'publications', label: 'Публікації', types: ['publication'] },
+  { key: 'responses', label: 'Відгуки', types: ['lead_created'] },
+  { key: 'bookings', label: 'Записи', types: ['lesson_booked', 'curator_booking_pending'] },
+  { key: 'completed', label: 'Уроки', types: ['lesson_completed'] },
+];
+const BREAKDOWN: ReadonlyArray<{ key: string; one: string; few: string; many: string }> = [
+  { key: 'joined', one: 'приєднання', few: 'приєднання', many: 'приєднань' },
+  { key: 'publications', one: 'публікація', few: 'публікації', many: 'публікацій' },
+  { key: 'responses', one: 'відгук', few: 'відгуки', many: 'відгуків' },
+  { key: 'bookings', one: 'запис', few: 'записи', many: 'записів' },
+  { key: 'completed', one: 'урок', few: 'уроки', many: 'уроків' },
+];
+const plural = (count: number, one: string, few: string, many: string) => {
+  const abs = count % 100;
+  if (abs > 10 && abs < 20) return many;
+  const last = abs % 10;
+  return last === 1 ? one : last > 1 && last < 5 ? few : many;
+};
+
+/** Підсумок дня: п'ять чисел зверху й компактний рядок на платформу; без списків чатів. */
 export function EventSummary({ summary, className }: { summary: ReportData['summary']; className?: string }) {
-  const grouped = new Map<string, Record<string, number>>();
+  const byPlatform = new Map<string, Record<string, number>>();
+  const totals: Record<string, number> = {};
   for (const row of summary) {
-    const current = grouped.get(row.platform) || {};
-    current[row.eventType] = (current[row.eventType] || 0) + row.count;
-    grouped.set(row.platform, current);
+    const group = TOTALS.find((item) => item.types.includes(row.eventType));
+    if (!group) continue;
+    const current = byPlatform.get(row.platform) || {};
+    current[group.key] = (current[group.key] || 0) + row.count;
+    byPlatform.set(row.platform, current);
+    totals[group.key] = (totals[group.key] || 0) + row.count;
   }
+  const empty = TOTALS.every((item) => !totals[item.key]);
   return (
-    <SectionCard title="Події в базі за цей день" className={className}>
-      {grouped.size === 0 ? (
+    <SectionCard title="Підсумок дня" className={className}>
+      {empty ? (
         <EmptyState text="За цей день у базі ще немає подій." />
       ) : (
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="text-left text-xs font-medium text-ink-2">
-              <th scope="col" className="pb-2 font-medium">Платформа</th>
-              <th scope="col" className="pb-2 text-right font-medium">Огол.</th>
-              <th scope="col" className="pb-2 text-right font-medium">Відгуки</th>
-              <th scope="col" className="pb-2 text-right font-medium">Записи</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from(grouped).map(([platform, values]) => (
-              <tr key={platform} className="border-t border-line">
-                <th scope="row" className="py-2.5 text-left font-normal">{platformName(platform)}</th>
-                <td className="py-2.5 text-right font-mono">{values.publication || 0}</td>
-                <td className="py-2.5 text-right font-mono">{values.lead_created || 0}</td>
-                <td className="py-2.5 text-right font-mono">{(values.lesson_booked || 0) + (values.curator_booking_pending || 0)}</td>
-              </tr>
+        <>
+          <dl className="m-0 grid grid-cols-5 gap-2 text-center">
+            {TOTALS.map((item) => (
+              <div key={item.key} className="min-w-0"><dd className="m-0 font-mono text-xl">{totals[item.key] || 0}</dd><dt className="truncate text-[11px] text-ink-2">{item.label}</dt></div>
             ))}
-          </tbody>
-        </table>
+          </dl>
+          <ul className="m-0 flex list-none flex-col p-0">
+            {Array.from(byPlatform).map(([platform, values]) => (
+              <li key={platform} className="flex flex-wrap items-baseline justify-between gap-x-3 border-t border-line py-2 text-sm">
+                <span>{platformName(platform)}</span>
+                <span className="text-xs text-ink-2">{BREAKDOWN.filter((item) => values[item.key]).map((item) => `${values[item.key]} ${plural(values[item.key], item.one, item.few, item.many)}`).join(' · ')}</span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </SectionCard>
   );
 }
 
+const LEAD_LIMIT = 10;
+
 function EventList({ title, events, onOpenLead }: { title: string; events: ReportEventDetail[]; onOpenLead: (leadId: string) => void }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? events : events.slice(0, LEAD_LIMIT);
   return (
     <div className="min-w-0">
       <h3 className="m-0 mb-2 flex items-baseline gap-2 text-sm font-medium">{title}<span className="font-mono text-xs text-ink-2">{events.length}</span></h3>
@@ -65,37 +93,33 @@ function EventList({ title, events, onOpenLead }: { title: string; events: Repor
         <p className="m-0 text-xs text-ink-2">Немає активних подій.</p>
       ) : (
         <ul className="m-0 flex list-none flex-col p-0">
-          {events.map((event) => {
-            const source = event.eventType === 'chat_joined' || event.eventType === 'publication';
-            const primary = source ? event.chatName || 'Чат недоступний' : event.leadName || 'Лід недоступний';
+          {shown.map((event) => {
             const platform = platformName(event.platform);
-            const detail = source
-              ? `${platform} · ${event.eventType === 'chat_joined' ? 'приєднання чату' : 'публікація'}`
-              : `${platform} · ${event.eventType === 'lead_created' ? event.leadSubject || 'предмет не вказано' : event.lessonSubject || event.leadSubject || 'предмет не вказано'}`;
+            const subject = event.eventType === 'lead_created' ? event.leadSubject || 'предмет не вказано' : event.lessonSubject || event.leadSubject || 'предмет не вказано';
             return (
               <li key={event.id} className="flex items-center justify-between gap-3 border-t border-line py-2.5 first:border-t-0 first:pt-0">
-                <div className="min-w-0"><p className="m-0 truncate text-sm">{primary}</p><p className="m-0 truncate text-xs text-ink-2">{detail}</p></div>
+                <div className="min-w-0"><p className="m-0 truncate text-sm">{event.leadName || 'Лід недоступний'}</p><p className="m-0 truncate text-xs text-ink-2">{platform} · {subject}</p></div>
                 {event.leadId ? <Button variant="ghost" size="sm" className="shrink-0" onClick={() => onOpenLead(event.leadId!)}>Відкрити</Button> : null}
               </li>
             );
           })}
         </ul>
       )}
+      {events.length > LEAD_LIMIT ? <Button variant="ghost" size="sm" className="mt-2" onClick={() => setAll((value) => !value)}>{all ? 'Згорнути' : `Показати всі (${events.length})`}</Button> : null}
     </div>
   );
 }
 
-/** Джерела та деталізація подій дня: приєднання й публікації, відгуки, записи; ліда можна відкрити. */
+/** Відгуки й записи дня з переходом до ліда; списки чатів не показуємо — їх замінює підсумок дня. */
 export function EventDetails({ details, onOpenLead, className }: { details: ReportEventDetail[]; onOpenLead: (leadId: string) => void; className?: string }) {
-  const sources = details.filter((event) => event.eventType === 'chat_joined' || event.eventType === 'publication');
   const responses = details.filter((event) => event.eventType === 'lead_created');
   const bookings = details.filter((event) => event.eventType === 'lesson_booked' || event.eventType === 'curator_booking_pending');
+  if (!responses.length && !bookings.length) return null;
   return (
-    <SectionCard title="Джерела та деталізація" note={`Показано подій: ${details.length}`} className={className}>
-      <div className="grid grid-cols-1 gap-6 @4xl:grid-cols-3">
-        <EventList title="Джерельні події" events={sources} onOpenLead={onOpenLead} />
-        <EventList title="Відгуки" events={responses} onOpenLead={onOpenLead} />
-        <EventList title="Записи" events={bookings} onOpenLead={onOpenLead} />
+    <SectionCard title="Відгуки й записи дня" className={className}>
+      <div className={responses.length && bookings.length ? 'grid grid-cols-1 gap-6 @4xl:grid-cols-2' : 'grid grid-cols-1 gap-6'}>
+        {responses.length ? <EventList title="Відгуки" events={responses} onOpenLead={onOpenLead} /> : null}
+        {bookings.length ? <EventList title="Записи" events={bookings} onOpenLead={onOpenLead} /> : null}
       </div>
     </SectionCard>
   );
