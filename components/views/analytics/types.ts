@@ -75,6 +75,8 @@ export type PreviousWindow = {
   range: { from: string; to: string; days: number };
   totals: Record<SeriesKey, number>;
   trends: TrendPoint[];
+  /** Платформи порівняльного періоду; `null`, якщо відповідь (з кешу) їх не містила. */
+  platforms: PlatformRow[] | null;
 };
 export type ComparisonWindow = { from: string; to: string };
 
@@ -101,11 +103,11 @@ export function comparisonWindow(period: AnalyticsPeriod, range: AnalyticsData['
   return previousRange(from, days);
 }
 
-/** Відповідь легкого запиту порівняння (`compare=1`): лише підсумки й тренд. */
-export type ComparisonData = { range: AnalyticsData['range']; totals: Totals; trends: TrendPoint[] };
+/** Відповідь легкого запиту порівняння (`compare=1`): підсумки, тренд і агрегат платформ. */
+export type ComparisonData = { range: AnalyticsData['range']; totals: Totals; trends: TrendPoint[]; platforms?: PlatformRow[] };
 export function toPreviousWindow(data: ComparisonData): PreviousWindow {
   const { joined, publications, responses, bookings, completed } = data.totals;
-  return { range: data.range, totals: { joined, publications, responses, bookings, completed }, trends: data.trends };
+  return { range: data.range, totals: { joined, publications, responses, bookings, completed }, trends: data.trends, platforms: data.platforms ?? null };
 }
 
 const DAY_MONTH_FORMAT = new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'long', timeZone: 'UTC' });

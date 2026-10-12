@@ -10,8 +10,7 @@ import { SectionCard, BarRow } from '@/components/views/shared/card';
 const LIMIT = 12;
 
 /** Рейтинг чатів за конверсією відгуків у публікації; чати з малою вибіркою йдуть в кінець зі смужкою без акценту. */
-export function ChatRanking({ chats, className }: { chats: AnalyticsRankedChat[]; className?: string }) {
-  const [platform, setPlatform] = useState('all');
+export function ChatRanking({ chats, platform: platformFilter, onPlatformChange, className }: { chats: AnalyticsRankedChat[]; platform: string; onPlatformChange: (platform: string) => void; className?: string }) {
   const [direction, setDirection] = useState('all');
   const [language, setLanguage] = useState('all');
   const [expanded, setExpanded] = useState(false);
@@ -20,6 +19,8 @@ export function ChatRanking({ chats, className }: { chats: AnalyticsRankedChat[]
     () => [...new Map(chats.map((chat) => [chat.platform, chat.platformName])).entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, 'uk')),
     [chats],
   );
+  // Фільтр, якого немає серед платформ нового періоду, діє як «усі».
+  const platform = platformFilter === 'all' || platforms.some((option) => option.value === platformFilter) ? platformFilter : 'all';
   const directions = useMemo(() => [...new Set(chats.flatMap((chat) => chat.directions))].sort((a, b) => a.localeCompare(b, 'uk')), [chats]);
   const ranked = useMemo(() => rankAnalyticsChats(chats, { platform, direction, language }), [chats, platform, direction, language]);
   const peak = Math.max(1, ...ranked.map((chat) => chat.responseRate));
@@ -33,7 +34,7 @@ export function ChatRanking({ chats, className }: { chats: AnalyticsRankedChat[]
     >
       <fieldset className="m-0 grid min-w-0 grid-cols-1 gap-2 border-0 p-0 @2xl:grid-cols-3">
         <legend className="sr-only">Фільтри рейтингу чатів</legend>
-        <Select aria-label="Платформа" value={platform} onChange={(event) => setPlatform(event.target.value)}>
+        <Select aria-label="Платформа" value={platform} onChange={(event) => onPlatformChange(event.target.value)}>
           <option value="all">Усі платформи</option>
           {platforms.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </Select>

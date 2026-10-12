@@ -44,11 +44,11 @@ export async function GET(request: Request): Promise<Response> {
   }
   const { from, to } = range;
   const wantsCsv = url.searchParams.get('format') === 'csv';
-  // compare=1: порівняльний період для дельт KPI й пунктиру графіка — лише підсумки й тренд, без когорт, рейтингу чатів і предметів.
+  // compare=1: порівняльний період для дельт KPI, пунктиру графіка й платформ — підсумки, тренд і агрегат платформ (з тих самих рядків), без когорт, рейтингу чатів і предметів.
   // cohort=0: основний запит без когорт — вони вантажаться окремо (/api/analytics/cohort), коли картка потрапляє в в'юпорт.
   const compare = !wantsCsv && url.searchParams.get('compare') === '1';
   const skipCohort = !wantsCsv && url.searchParams.get('cohort') === '0';
-  const cacheKey = `${from}:${to}${compare ? ':compare' : skipCohort ? ':nocohort' : ''}`;
+  const cacheKey = `${from}:${to}${compare ? ':compare2' : skipCohort ? ':nocohort' : ''}`;
   const cacheRequest = wantsCsv ? null : await revisionCacheRequest(env.DB, user.id, 'analytics', cacheKey);
   if (cacheRequest) {
     const cached = await matchRevisionJson(cacheRequest);
@@ -59,8 +59,9 @@ export async function GET(request: Request): Promise<Response> {
       readAnalyticsTrends(env.DB, user.id, from, to),
       env.DB.batch([activitySummaryStatement(env.DB, user.id, from, to), completedOperatorLessonsStatement(env.DB, user.id, from, to)]),
     ]);
-    const totals = funnelTotals(summary.results as EventAggregate[], completed.results as Array<{ platform: string; count: number }>);
-    const light = { range, totals: { ...totals, ...totalRates(totals) }, trends };
+    const totals = funnelTotals(summary.results as EventAggregate[], completed.results as CompletedRow[]);
+    const platforms = platformRows(summary.results as EventAggregate[], completed.results as CompletedRow[]);
+    const light = { range, totals: { ...totals, ...totalRates(totals) }, platforms, trends };
     if (cacheRequest) await putRevisionJson(cacheRequest, light, 600);
     return Response.json(light, { headers: { 'Cache-Control': 'no-store', 'X-Work-OS-Cache': 'MISS' } });
   }
@@ -86,19 +87,6 @@ export async function GET(request: Request): Promise<Response> {
 
   const eventRows = eventsResult.results as EventAggregate[];
   const completedRows = lessonsResult.results as Array<{ platform: string; count: number }>;
-  const completedByPlatform = new Map(completedRows.map((row) => [row.platform, Number(row.count || 0)]));
-  const emptyCounts = (): FunnelCounts => ({ joined: 0, publications: 0, responses: 0, bookings: 0 });
-  const byPlatform = new Map<string, FunnelCounts>();
-  for (const row of eventRows) {
-    const key = row.platform || 'unknown';
-    const current = byPlatform.get(key) || emptyCounts();
-    if (row.event_type === 'chat_joined') current.joined += Number(row.count || 0);
-    if (row.event_type === 'publication') current.publications += Number(row.count || 0);
-    if (row.event_type === 'lead_created') current.responses += Number(row.count || 0);
-    if (row.event_type === 'lesson_booked' || row.event_type === 'curator_booking_pending') current.bookings += Number(row.count || 0);
-    byPlatform.set(key, current);
-  }
-  const platformKeys = new Set([...byPlatform.keys(), ...completedByPlatform.keys()]);
   const totals = funnelTotals(eventRows, completedRows);
   const outcomes = {
     booked: eventRows.filter((row) => row.event_type === 'lesson_booked').reduce((sum,row)=>sum+Number(row.count||0),0),
@@ -107,24 +95,7 @@ export async function GET(request: Request): Promise<Response> {
     rescheduled: eventRows.filter((row) => row.event_type === 'lesson_rescheduled').reduce((sum,row)=>sum+Number(row.count||0),0),
     noShow: eventRows.filter((row) => row.event_type === 'lesson_no_show').reduce((sum,row)=>sum+Number(row.count||0),0),
   };
-  const platforms: PlatformRow[] = Array.from(platformKeys)
-    .filter((key) => key !== 'unknown')
-    .map((key) => {
-      const values = byPlatform.get(key) || emptyCounts();
-      const completed = completedByPlatform.get(key) || 0;
-      return {
-        key,
-        name: PLATFORM_META[key]?.name || key,
-        color: PLATFORM_META[key]?.color || '#6b7280',
-        ...values,
-        completed,
-        publicationRate: rate(values.publications, values.joined),
-        responseRate: rate(values.responses, values.publications),
-        bookingRate: rate(values.bookings, values.responses),
-        completionRate: rate(completed, values.bookings),
-      };
-    })
-    .sort((a, b) => b.publications - a.publications || a.name.localeCompare(b.name, 'uk'));
+  const platforms = platformRows(eventRows, completedRows);
 
   const chats = (chatResult.results as Array<{
     chat_id: string; name: string | null; platform: string | null; workflow_status: string | null;
@@ -213,6 +184,43 @@ export async function GET(request: Request): Promise<Response> {
   // lifetime putRevisionJson allows cannot serve stale numbers.
   if (cacheRequest) await putRevisionJson(cacheRequest, payload, 600);
   return Response.json(payload, { headers: { 'Cache-Control': 'no-store', 'X-Work-OS-Cache':'MISS' } });
+}
+
+type CompletedRow = { platform: string; count: number };
+
+/** Рядки платформ з тих самих агрегатів, що й підсумки: нових читань D1 немає, тож годиться і для легкого порівняльного запиту. */
+function platformRows(eventRows: EventAggregate[], completedRows: CompletedRow[]): PlatformRow[] {
+  const completedByPlatform = new Map(completedRows.map((row) => [row.platform, Number(row.count || 0)]));
+  const emptyCounts = (): FunnelCounts => ({ joined: 0, publications: 0, responses: 0, bookings: 0 });
+  const byPlatform = new Map<string, FunnelCounts>();
+  for (const row of eventRows) {
+    const key = row.platform || 'unknown';
+    const current = byPlatform.get(key) || emptyCounts();
+    if (row.event_type === 'chat_joined') current.joined += Number(row.count || 0);
+    if (row.event_type === 'publication') current.publications += Number(row.count || 0);
+    if (row.event_type === 'lead_created') current.responses += Number(row.count || 0);
+    if (row.event_type === 'lesson_booked' || row.event_type === 'curator_booking_pending') current.bookings += Number(row.count || 0);
+    byPlatform.set(key, current);
+  }
+  const platformKeys = new Set([...byPlatform.keys(), ...completedByPlatform.keys()]);
+  return Array.from(platformKeys)
+    .filter((key) => key !== 'unknown')
+    .map((key) => {
+      const values = byPlatform.get(key) || emptyCounts();
+      const completed = completedByPlatform.get(key) || 0;
+      return {
+        key,
+        name: PLATFORM_META[key]?.name || key,
+        color: PLATFORM_META[key]?.color || '#6b7280',
+        ...values,
+        completed,
+        publicationRate: rate(values.publications, values.joined),
+        responseRate: rate(values.responses, values.publications),
+        bookingRate: rate(values.bookings, values.responses),
+        completionRate: rate(completed, values.bookings),
+      };
+    })
+    .sort((a, b) => b.publications - a.publications || a.name.localeCompare(b.name, 'uk'));
 }
 
 type FunnelTotals = { joined: number; publications: number; responses: number; bookings: number; completed: number };

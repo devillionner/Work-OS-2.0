@@ -16,6 +16,7 @@ import { FunnelCard } from './funnel-card';
 import { InsightsCard } from './insights-card';
 import { KpiRow } from './kpi-row';
 import { MetricPanel } from './metric-panel';
+import { scrollToNode } from '@/components/views/shared/scroll';
 import { PlatformsCard } from './platforms-card';
 import { SubjectsCard } from './subjects-card';
 import { comparisonWindow, currentDate, formatRange, humanRange, PERIODS, plural, toPreviousWindow, type AnalyticsData, type AnalyticsPeriod, type ComparisonData, type CohortData, type MetricKey } from './types';
@@ -39,6 +40,8 @@ export default function AnalyticsView() {
   const [customTo, setCustomTo] = useState(today);
   const [refresh, setRefresh] = useState(0);
   const [metric, setMetric] = useState<MetricKey | null>(null);
+  const [chatPlatform, setChatPlatform] = useState('all');
+  const rankingRef = useRef<HTMLDivElement>(null);
   const seenRevision = useRef(syncRevision);
 
   const customValid = Boolean(customFrom && customTo && customFrom <= customTo && customTo <= today);
@@ -74,6 +77,12 @@ export default function AnalyticsView() {
 
   const previousData = useMemo(() => (previous.data ? toPreviousWindow(previous.data) : null), [previous.data]);
   const refreshing = current.loading && data !== null;
+  const chatPlatforms = useMemo(() => new Set(data?.chats.map((chat) => chat.platform) ?? []), [data]);
+  // Клік на платформу ставить її фільтр у рейтингу чатів і гортає до нього.
+  const showPlatformChats = (key: string) => {
+    setChatPlatform(key);
+    scrollToNode(rankingRef.current);
+  };
 
   return (
     <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-3 pb-6 @4xl:gap-4" aria-busy={current.loading}>
@@ -137,10 +146,10 @@ export default function AnalyticsView() {
                 <TrendChart className="@4xl:col-span-8" points={data.trends} previous={previousData?.trends ?? null} periodLabel={formatRange(data.range.from, data.range.to)} />
               </Suspense>
               <InsightsCard className="@4xl:col-span-4" insights={data.insights} overview={overview.data} overviewError={Boolean(overview.error)} bookings={data.totals.bookings} previous={previousData} />
+              <PlatformsCard className="@4xl:col-span-12" platforms={data.platforms} previous={previousData?.platforms ?? null} period={period} chatPlatforms={chatPlatforms} onSelectPlatform={showPlatformChats} />
               <FunnelCard className="@4xl:col-span-6" data={data} />
               <SubjectsCard className="@4xl:col-span-6" data={data.subjects} />
-              <PlatformsCard className="@4xl:col-span-12" platforms={data.platforms} />
-              <ChatRanking className="@4xl:col-span-12" chats={data.chats} />
+              <div ref={rankingRef} className="min-w-0 @4xl:col-span-12"><ChatRanking chats={data.chats} platform={chatPlatform} onPlatformChange={setChatPlatform} /></div>
               <CohortCard className="@4xl:col-span-12" cohort={cohort.data} error={cohort.error} chats={data.chats} observeKey={cohortUrl} onVisible={() => setCohortFor(cohortUrl)} onRetry={reload} />
             </div>
           )}
