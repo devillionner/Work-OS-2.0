@@ -1,13 +1,22 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { nowSeconds } from '@/components/views/today/clock';
 
-/** Поточний час у секундах, що оновлюється раз на хвилину локально (без мережі). */
+/** Поточний час у секундах: оновлюється на початку кожної хвилини локально, без мережі. */
 export function useMinuteClock(): number {
-  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  const [now, setNow] = useState(nowSeconds);
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Math.floor(Date.now() / 1000)), 60_000);
-    return () => window.clearInterval(timer);
+    let timer = 0;
+    const schedule = () => {
+      const wait = 60_500 - (nowSeconds() % 60) * 1000;
+      timer = window.setTimeout(() => { setNow(nowSeconds()); schedule(); }, wait);
+    };
+    schedule();
+    // Після сну вкладки таймер міг відстати: перераховуємо одразу, щойно вкладка знову видима.
+    const onVisible = () => { if (document.visibilityState === 'visible') setNow(nowSeconds()); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { window.clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible); };
   }, []);
   return now;
 }

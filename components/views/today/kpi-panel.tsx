@@ -1,12 +1,18 @@
 'use client';
 
 import { useState } from 'react';
-import { Panel } from '@/components/shell/panel';
+import { Panel, type PanelTab } from '@/components/shell/panel';
 import { useShell } from '@/components/shell/shell-context';
 import type { ViewKey } from '@/components/shell/views';
 import { Button } from '@/components/ui/button';
 
 export type Metric = 'publications' | 'joined' | 'responses' | 'bookings';
+const TABS: ReadonlyArray<PanelTab<Metric>> = [
+  { value: 'publications', label: 'Публікації' },
+  { value: 'joined', label: 'Нові чати' },
+  { value: 'responses', label: 'Відгуки' },
+  { value: 'bookings', label: 'Записи' },
+];
 
 const META: Record<Metric, { title: string; goal: 'publicationGoal' | 'chatGoal' | 'responseGoal' | 'bookingGoal'; view: ViewKey; open: string }> = {
   publications: { title: 'Публікації сьогодні', goal: 'publicationGoal', view: 'platforms', open: 'Відкрити платформи' },
@@ -16,7 +22,7 @@ const META: Record<Metric, { title: string; goal: 'publicationGoal' | 'chatGoal'
 };
 
 /** Розбивка показника за платформами в Inspector: замість окремої таблиці на екрані «Сьогодні». */
-export function KpiPanel({ metric, onClose }: { metric: Metric | null; onClose: () => void }) {
+export function KpiPanel({ metric, onMetricChange, onClose }: { metric: Metric | null; onMetricChange: (metric: Metric) => void; onClose: () => void }) {
   const { snapshot, navigate } = useShell();
   // Пам'ятаємо останній показник, щоб вміст не блимав порожнім, поки панель закривається.
   const [last, setLast] = useState<Metric>('publications');
@@ -35,6 +41,9 @@ export function KpiPanel({ metric, onClose }: { metric: Metric | null; onClose: 
       open={metric !== null}
       onOpenChange={(open) => { if (!open) onClose(); }}
       title={meta.title}
+      tabs={TABS}
+      tab={shown}
+      onTabChange={onMetricChange}
       subtitle={goal.target > 0 ? `${total} із цілі ${goal.target}` : `${total} за день`}
       footer={<Button variant="outline" size="md" className="w-full" onClick={() => { onClose(); navigate(meta.view); }}>{meta.open}</Button>}
     >

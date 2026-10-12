@@ -170,3 +170,5 @@ body::after {
 .edge-fade-r { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
 .edge-fade-l { mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
 .edge-fade-lr { mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }
+/* Шкала дня на ПК: верх приглушується, низ лише трохи, щоб подія під краєм не обривалася. Маска працює лише по альфі. */
+.fade-y { mask-image: linear-gradient(to bottom, transparent, #000 16%, #000 84%, rgb(0 0 0 / 0.4)); -webkit-mask-image: linear-gradient(to bottom, transparent, #000 16%, #000 84%, rgb(0 0 0 / 0.4)); }
