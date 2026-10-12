@@ -109,6 +109,11 @@ export default function LeadsView() {
   }, [syncRevision, reload]);
 
   useCommand('lead:create', () => setCreating(true));
+  // «Усі · N» із «Сьогодні» відкриває ліди з потрібним фільтром.
+  useCommand('leads:filter', (payload) => {
+    const next = FILTERS.find(([key]) => key === payload)?.[0];
+    if (next) { setFilter(next); setOffset(0); }
+  });
 
   const openLead = useCallback((id: string) => {
     openedByPush.current = true;

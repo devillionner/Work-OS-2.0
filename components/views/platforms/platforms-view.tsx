@@ -59,6 +59,13 @@ export default function PlatformsView() {
 
   useCommand('chats:add', () => setBulkOpen(true));
   useCommand('chats:discover', () => { if (p.availablePlatforms.some((item) => item.key === 'whatsapp')) p.selectPlatform('whatsapp'); setDiscoveryOpen(true); });
+  useCommand('platforms:queue', (payload) => {
+    const target = payload as { platform?: string; queue?: string } | undefined;
+    const platformKey = p.availablePlatforms.find((item) => item.key === target?.platform)?.key;
+    const queueKey = QUEUES.find((item) => item.key === target?.queue)?.key;
+    if (platformKey) p.selectPlatform(platformKey);
+    if (queueKey) p.selectQueue(queueKey);
+  });
   useCommand('platforms:telegram-schedule', () => { p.selectPlatform('telegram'); setZone('schedule'); setPhoneSection('schedule'); });
 
   const { platform, queue, data } = p;

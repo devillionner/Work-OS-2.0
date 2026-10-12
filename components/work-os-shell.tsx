@@ -189,7 +189,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
         <PanelSlotProvider element={asideElement}>
           <span hidden data-work-os-revision={syncRevision} />
           {phone ? (
-            <div className="relative min-h-dvh pb-[calc(112px+env(safe-area-inset-bottom))]">
+            <div className="relative min-h-dvh pb-[calc(168px+env(safe-area-inset-bottom))]">
               {topbar}
               <main className="flex flex-col gap-3 px-3 pt-2">{panes}</main>
               <PulseRail rings={rings} onOpenSettings={() => setQuickOpen(true)} />

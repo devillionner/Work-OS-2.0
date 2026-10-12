@@ -1,6 +1,7 @@
 'use client';
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCommand } from '@/components/shell/command-bus';
 import { useShell } from '@/components/shell/shell-context';
 import { useViewActive } from '@/components/shell/view-pane';
 import { Button } from '@/components/ui/button';
@@ -42,6 +43,8 @@ export default function ReportsView() {
   const [backdatedLead, setBackdatedLead] = useState(false);
   const seenRevision = useRef(syncRevision);
   const month = selectedDate.slice(0, 7);
+  // Статуси звітів у «Сьогодні» відкривають потрібний день (вчора чи сьогодні).
+  useCommand('reports:date', (payload) => { if (typeof payload === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(payload) && payload <= today) setSelectedDate(payload); });
 
   const report = useRemote<ReportData>(`/api/reports?month=${month}&date=${selectedDate}`, { refresh, enabled: active, keepPrevious: true, fallback: 'Не вдалося завантажити звіти.' });
   const data = report.data;
