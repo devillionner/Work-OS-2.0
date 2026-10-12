@@ -126,7 +126,7 @@ export default function PlatformsView() {
   const deleteList = p.selected.lists.find((item) => item.id === deleteListId);
 
   const selectedBlock = platform === 'telegram' && queue === 'selected' ? (
-    <Surface variant="glass" radius="card" className="overflow-hidden">
+    <Surface variant="glass" radius="card">
       <SelectedChats
         key={p.selected.listId ?? 'none'}
         view={p.selected.view}
@@ -136,6 +136,8 @@ export default function PlatformsView() {
         listId={p.selected.listId ?? ''}
         listName={selectedList?.name ?? 'Відібрані'}
         onImported={(next) => p.selected.replaceView(next)}
+        onDismiss={p.selected.dismiss}
+        onOpenQueue={() => p.selectQueue('to_join')}
         onAdded={(link, status, chatAccountId, added) => {
           p.selected.setView((current) => ({ ...current, items: current.items.map((item) => (item.link === link ? { ...item, status, accountId: chatAccountId } : item)) }));
           p.invalidateQueueCache('telegram');

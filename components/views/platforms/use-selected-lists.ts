@@ -78,6 +78,30 @@ export function useSelectedLists({ enabled, viewing }: { enabled: boolean; viewi
     setViews((all) => ({ ...all, [listId]: view }));
   }, [listId]);
 
+  // «Пропустити» / «Повернути»: оптимістично змінюємо вид списку, запити йдуть по черзі (кожен — це читання-запис одного рядка
+  // метаданих), а при помилці вид повертається до того, що було.
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const dismiss = useCallback(async (links: string[], skip: boolean): Promise<string> => {
+    const id = listId;
+    if (!id || !links.length) return '';
+    const touched = new Set(links);
+    const apply = (view: SelectedChatsView, on: boolean): SelectedChatsView => {
+      const rest = view.dismissed.filter((link) => !touched.has(link));
+      return { ...view, dismissed: on ? [...rest, ...links.filter((link) => !view.dismissed.includes(link))] : rest };
+    };
+    setViews((all) => (all[id] ? { ...all, [id]: apply(all[id], skip) } : all));
+    const run = async () => {
+      try { await post({ action: skip ? 'skip' : 'unskip', listId: id, links }); return ''; }
+      catch (reason) {
+        setViews((all) => (all[id] ? { ...all, [id]: apply(all[id], !skip) } : all));
+        return humanError(reason, skip ? 'Не вдалося пропустити чат.' : 'Не вдалося повернути чат.');
+      }
+    };
+    const result = queue.current.then(run, run);
+    queue.current = result;
+    return result;
+  }, [listId]);
+
   const create = useCallback(async (): Promise<string> => {
     try {
       const body = await post<{ lists: SelectedListInfo[] }>({ action: 'create-list' });
@@ -109,5 +133,5 @@ export function useSelectedLists({ enabled, viewing }: { enabled: boolean; viewi
   // Лічильник списку: уточнений довжиною завантаженого вмісту.
   const items = useMemo(() => (lists ?? []).map((item) => ({ ...item, count: views[item.id]?.items.length ?? item.count })), [lists, views]);
 
-  return { lists: items, listId, view: current, failed, select, create, rename, remove, setView, replaceView };
+  return { lists: items, listId, view: current, failed, select, create, rename, remove, setView, replaceView, dismiss };
 }

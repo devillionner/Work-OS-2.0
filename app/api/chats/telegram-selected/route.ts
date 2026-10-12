@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { resolveTelegramAccount } from '@/lib/chats/telegram-account';
-import { addSelectedChatToJoin, addTopSelectedChatsToJoin, createSelectedList, deleteSelectedList, parseSelectedExport, readSelectedChats, readSelectedChatsCount, renameSelectedList, saveSelectedChats, SELECTED_IMPORT_MAX_BYTES, SelectedChatsError } from '@/lib/chats/telegram-selected';
+import { addSelectedChatToJoin, addTopSelectedChatsToJoin, createSelectedList, deleteSelectedList, parseSelectedExport, readSelectedChats, readSelectedChatsCount, renameSelectedList, saveSelectedChats, SELECTED_IMPORT_MAX_BYTES, SelectedChatsError, setSelectedChatsDismissed } from '@/lib/chats/telegram-selected';
 
 function json(value:unknown,status=200){
   return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});
@@ -36,6 +36,7 @@ export async function POST(request:Request):Promise<Response>{
         ? await addSelectedChatToJoin(env.DB,user.id,body.link,now,body.listId,accountId)
         : await addTopSelectedChatsToJoin(env.DB,user.id,body.count,now,body.listId,accountId));
     }
+    if(body.action==='skip'||body.action==='unskip')return json(await setSelectedChatsDismissed(env.DB,user.id,body.listId,body.links,body.action==='skip',now));
     if(body.action==='create-list')return json({lists:await createSelectedList(env.DB,user.id,body.name,now)});
     if(body.action==='rename-list')return json({lists:await renameSelectedList(env.DB,user.id,body.listId,body.name,now)});
     if(body.action==='delete-list')return json({lists:await deleteSelectedList(env.DB,user.id,body.listId,now)});

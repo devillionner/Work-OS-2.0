@@ -15,14 +15,16 @@ const LIST_NAME_MAX = 40;
 const listKey = (id: string) => (id === DEFAULT_LIST_ID ? SETTING_KEY : `${SETTING_KEY}:${id}`);
 
 export type SelectedListInfo = { id: string; name: string; count: number };
-type ListsMeta = { lists: Array<{ id: string; name: string; count?: number }> };
+// `dismissed` — посилання, які оператор «пропустив» у цьому списку: вони більше не потрапляють у партії. Живуть у тому самому рядку
+// метаданих, який і так читається при відкритті списку, тож додаткових читань D1 немає, а дія «пропустити» — один запис.
+type ListsMeta = { lists: Array<{ id: string; name: string; count?: number; dismissed?: string[] }> };
 const DEFAULT_META: ListsMeta = { lists: [{ id: DEFAULT_LIST_ID, name: 'Відібрані 1' }] };
 export const SELECTED_MAX_ITEMS = 5000;
 export const SELECTED_IMPORT_MAX_BYTES = 1_500_000;
 
 export type SelectedChat = { link: string; title: string; count: number; last: string | null };
 export type SelectedChatView = SelectedChat & { status: string | null; accountId: string | null };
-export type SelectedChatsView = { importedAt: number | null; skipped: number; items: SelectedChatView[] };
+export type SelectedChatsView = { importedAt: number | null; skipped: number; dismissed: string[]; items: SelectedChatView[] };
 
 type Stored = { importedAt: number; skipped: number; items: SelectedChat[] };
 
@@ -74,7 +76,9 @@ async function readMeta(db: D1Database, userId: string): Promise<{ meta: ListsMe
   try {
     const parsed = row ? JSON.parse(row.value_json) as ListsMeta : null;
     const lists = parsed && Array.isArray(parsed.lists)
-      ? parsed.lists.filter(item => item && typeof item.id === 'string' && typeof item.name === 'string' && /^[a-z0-9]{1,16}$/.test(item.id))
+      ? parsed.lists
+        .filter(item => item && typeof item.id === 'string' && typeof item.name === 'string' && /^[a-z0-9]{1,16}$/.test(item.id))
+        .map(item => (Array.isArray(item.dismissed) ? { ...item, dismissed: item.dismissed.filter(link => typeof link === 'string') } : item))
       : [];
     return lists.length ? { meta: { lists }, stored: true } : { meta: DEFAULT_META, stored: false };
   } catch { return { meta: DEFAULT_META, stored: false }; }
@@ -155,8 +159,9 @@ export async function deleteSelectedList(db: D1Database, userId: string, listId:
 // Most active chats first; each row says whether the chat is already in Work OS, where and for which account.
 export async function readSelectedChats(db: D1Database, userId: string, listIdInput?: unknown): Promise<SelectedChatsView> {
   const { meta } = await readMeta(db, userId);
-  const stored = await readStored(db, userId, resolveListId(meta, listIdInput));
-  if (!stored) return { importedAt: null, skipped: 0, items: [] };
+  const listId = resolveListId(meta, listIdInput);
+  const stored = await readStored(db, userId, listId);
+  if (!stored) return { importedAt: null, skipped: 0, dismissed: [], items: [] };
   // CROSS JOIN pins json_each as the outer loop, so every link is one lookup in the
   // (user_id,platform,normalized_link) unique index. A plain JOIN let SQLite scan all of the owner's
   // Telegram chats once per link: millions of D1 rows read per call on real data.
@@ -167,7 +172,24 @@ export async function readSelectedChats(db: D1Database, userId: string, listIdIn
   const items = stored.items
     .map(item => ({ ...item, status: statusByLink.get(item.link)?.status ?? null, accountId: statusByLink.get(item.link)?.account_id ?? null }))
     .sort((a, b) => b.count - a.count || (b.last ?? '').localeCompare(a.last ?? '') || a.title.localeCompare(b.title, 'uk'));
-  return { importedAt: stored.importedAt ?? null, skipped: stored.skipped ?? 0, items };
+  const present = new Set(stored.items.map(item => item.link));
+  const dismissed = (meta.lists.find(item => item.id === listId)?.dismissed ?? []).filter(link => present.has(link));
+  return { importedAt: stored.importedAt ?? null, skipped: stored.skipped ?? 0, dismissed, items };
+}
+
+const isChatLink = (value: unknown): value is string => typeof value === 'string' && value.length <= 300 && value.startsWith('https://t.me/');
+
+// «Пропустити» / «Повернути»: чат лишається у файлі, але не потрапляє в партії. Один запис у рядок метаданих списку.
+export async function setSelectedChatsDismissed(db: D1Database, userId: string, listIdInput: unknown, linksInput: unknown, dismiss: boolean, now: number) {
+  const { meta } = await readMeta(db, userId);
+  const listId = resolveListId(meta, listIdInput);
+  const links = Array.isArray(linksInput) ? [...new Set(linksInput.filter(isChatLink))] : [];
+  if (!links.length || links.length > SELECTED_BULK_ADD_MAX) throw new SelectedChatsError(`Вкажіть від 1 до ${SELECTED_BULK_ADD_MAX} чатів.`);
+  const current = new Set(meta.lists.find(item => item.id === listId)?.dismissed ?? []);
+  for (const link of links) { if (dismiss) current.add(link); else current.delete(link); }
+  if (current.size > SELECTED_MAX_ITEMS) throw new SelectedChatsError('Забагато пропущених чатів у списку.', 409);
+  await saveMetaStatement(db, userId, { lists: meta.lists.map(item => (item.id === listId ? { ...item, dismissed: [...current] } : item)) }, now).run();
+  return { links };
 }
 
 // One selected chat straight into the join queue of `accountId` («Черга приєднання»): picking it from the owner's own
@@ -207,7 +229,8 @@ export async function addTopSelectedChatsToJoin(db: D1Database, userId: string, 
     throw new SelectedChatsError(`Можна додати від 1 до ${SELECTED_BULK_ADD_MAX} чатів за раз.`);
   }
   const view = await readSelectedChats(db, userId, listIdInput);
-  const picked = view.items.filter(item => item.status === null).slice(0, count)
+  const dismissed = new Set(view.dismissed);
+  const picked = view.items.filter(item => item.status === null && !dismissed.has(item.link)).slice(0, count)
     .flatMap(item => {
       const normalized = normalizeGroupLink(item.link);
       return normalized && normalized.platform === 'telegram' ? [{ id: crypto.randomUUID(), item, normalized }] : [];

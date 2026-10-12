@@ -157,6 +157,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   const [profileFilter, setProfileFilter] = useState<ProfileFilter>('all');
   const [loadedData, setData] = useState<ResponseData | null>(null);
   const [countsByScope, setCountsByScope] = useState<Record<string, ResponseData['counts']>>({});
+  const countsRef = useRef(countsByScope);
   const viewCache = useRef(new Map<string, ResponseData>());
   const [cacheState, setCacheState] = useState<Record<string, ResponseData>>({});
   const [loading, setLoading] = useState(true);
@@ -200,6 +201,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   const data = loadedData?.requestKey === requestKey ? loadedData : cachedData;
   const switchingList = data === null && loadedData !== null && loadedData.requestKey !== requestKey;
   const tabCounts = data?.counts ?? countsByScope[`${platform}:${requestAccountId || ''}`];
+  useEffect(() => { countsRef.current = countsByScope; });
   const filterKey = `${platform}:${queue}:${search}:${profileFilter}`;
   const selectedPlatform = PLATFORMS.find((item) => item.key === platform) ?? PLATFORMS[0];
   const activeAccount = accounts.find((item) => item.id === accountId);
@@ -289,8 +291,22 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
 
   const load = useCallback(async (silent = false) => {
     activeLoad.current?.abort();
-    if (queue === 'selected') { setLoading(false); return; }
     const controller = new AbortController(); activeLoad.current = controller;
+    if (queue === 'selected') {
+      // «Відібрані» — довідковий список без запиту чатів, але лічильники черг мають бути видні завжди. Один разовий запит
+      // (сторінка з одного чату + `chat_queue_counts`): лише коли лічильників цього акаунта ще немає або прийшла live-подія.
+      setLoading(false);
+      const scope = `${platform}:${requestAccountId || ''}`;
+      if (!silent && countsRef.current[scope]) return;
+      try {
+        const params = new URLSearchParams({ platform, status: 'to_join', limit: '1' });
+        if (requestAccountId) params.set('account', requestAccountId);
+        const response = await fetch(`/api/chats?${params}`, { cache: 'no-store', signal: controller.signal });
+        const body = await response.json() as { counts?: ResponseData['counts'] };
+        if (response.ok && body.counts && !controller.signal.aborted) setCountsByScope((current) => ({ ...current, [scope]: body.counts as ResponseData['counts'] }));
+      } catch { /* лічильники лишаться як були; наступна подія чи перемикання черги оновить */ }
+      return;
+    }
     const requestNumber = ++loadNumber.current;
     const cached = viewCache.current.get(requestKey) || null;
     if (!silent && !cached) setLoading(true); else if (!silent) setLoading(false);
