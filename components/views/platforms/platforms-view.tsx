@@ -29,6 +29,7 @@ import { ProfilePanel, type ChatWithProfile } from '@/components/views/platforms
 import { PublishPanel } from '@/components/views/platforms/publish-panel';
 import { ScheduleTab } from '@/components/views/platforms/schedule-tab';
 import { SelectedChats } from '@/components/views/platforms/selected-chats';
+import { SelectedListChips } from '@/components/views/platforms/selected-list-chips';
 import { usePlatforms, QUEUES, type Chat } from '@/components/views/platforms/use-platforms';
 import { WaitingCheckCard } from '@/components/views/platforms/waiting-check-card';
 
@@ -48,6 +49,7 @@ export default function PlatformsView() {
   const [zone, setZone] = useState<Zone>('overview');
   const [phoneSection, setPhoneSection] = useState<'chats' | Zone>('chats');
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [deleteListOpen, setDeleteListOpen] = useState(false);
   const [discoveryOpen, setDiscoveryOpen] = useState(false);
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [profileChat, setProfileChat] = useState<Chat | null>(null);
@@ -122,18 +124,23 @@ export default function PlatformsView() {
   const selectedBlock = platform === 'telegram' && queue === 'selected' ? (
     <Surface variant="glass" radius="card" className="overflow-hidden">
       <SelectedChats
-        view={p.selectedChats}
-        loading={!p.selectedChats && !p.selectedChatsFailed}
+        key={p.selected.listId ?? 'none'}
+        view={p.selected.view}
+        loading={!p.selected.view && !p.selected.failed}
         accounts={p.accounts}
-        onImported={(next) => { p.markSelectedLoaded(); p.setSelectedChats(next); p.setSelectedCount(next.items.length); }}
+        listId={p.selected.listId ?? ''}
+        listName={p.selected.lists.find((item) => item.id === p.selected.listId)?.name ?? 'Відібрані'}
+        canDelete={p.selected.lists.length > 1}
+        onDelete={() => setDeleteListOpen(true)}
+        onImported={(next) => p.selected.replaceView(next)}
         onAdded={(link, status, chatAccountId, added) => {
-          p.setSelectedChats((current) => current && { ...current, items: current.items.map((item) => (item.link === link ? { ...item, status, accountId: chatAccountId } : item)) });
+          p.selected.setView((current) => ({ ...current, items: current.items.map((item) => (item.link === link ? { ...item, status, accountId: chatAccountId } : item)) }));
           const scope = `telegram:${p.requestAccountId || ''}`;
           if (added) p.setCountsByScope((current) => (current[scope] ? { ...current, [scope]: { ...current[scope], to_join: (current[scope].to_join || 0) + 1 } } : current));
         }}
         onBulkAdded={(links) => {
           const added = new Set(links);
-          p.setSelectedChats((current) => current && { ...current, items: current.items.map((item) => (added.has(item.link) ? { ...item, status: 'to_join', accountId: null } : item)) });
+          p.selected.setView((current) => ({ ...current, items: current.items.map((item) => (added.has(item.link) ? { ...item, status: 'to_join', accountId: null } : item)) }));
           p.invalidateQueueCache('telegram');
           const scope = `telegram:${p.requestAccountId || ''}`;
           if (links.length) p.setCountsByScope((current) => (current[scope] ? { ...current, [scope]: { ...current[scope], to_join: (current[scope].to_join || 0) + links.length } } : current));
@@ -152,7 +159,7 @@ export default function PlatformsView() {
       <fieldset className="m-0 flex flex-wrap gap-1.5 border-0 p-0">
         <legend className="sr-only">Черга чатів</legend>
         {QUEUES.filter((item) => platform !== 'viber' || item.key !== 'profile_review').map((item) => <Chip key={item.key} pressed={queue === item.key} count={p.tabCounts ? (p.tabCounts[item.key] || 0) : '–'} onClick={() => p.selectQueue(item.key)}>{item.label}</Chip>)}
-        {platform === 'telegram' ? <Chip pressed={queue === 'selected'} count={p.selectedChats?.items.length ?? p.selectedCount ?? '–'} onClick={() => p.selectQueue('selected')}>Відібрані</Chip> : null}
+        {platform === 'telegram' ? <SelectedListChips lists={p.selected.lists} listId={p.selected.listId} active={queue === 'selected'} onSelect={(id) => { p.selected.select(id); p.selectQueue('selected'); }} onCreate={() => { void p.selected.create().then((error) => { if (error) toast.push({ message: error, tone: 'hot' }); else p.selectQueue('selected'); }); }} onRename={p.selected.rename} /> : null}
       </fieldset>
 
       {queue !== 'selected' ? (
@@ -241,6 +248,15 @@ export default function PlatformsView() {
       <ChatHistoryPanel open={historyChat !== null} chat={historyChat ? { id: historyChat.id, name: historyChat.name, link: historyChat.link } : null} onClose={() => setHistoryChat(null)} />
       <PublishPanel open={publishChat !== null} chat={publishChat} quickMode={Boolean(publishQuick)} preferredAdvertisementId={p.quickAdvertisementId} onClose={() => setPublishChat(null)} onPublished={publishAct} onOpenChat={() => { if (publishChat) p.openChat(publishChat); }} />
 
+      <ConfirmDialog
+        open={deleteListOpen}
+        title="Видалити список?"
+        description={`«${p.selected.lists.find((item) => item.id === p.selected.listId)?.name ?? ''}» зникне зі списків. Чати, які вже додано в роботу, лишаться.`}
+        confirmLabel="Видалити список"
+        destructive
+        onCancel={() => setDeleteListOpen(false)}
+        onConfirm={() => { const id = p.selected.listId; setDeleteListOpen(false); if (id) void p.selected.remove(id).then((error) => { if (error) toast.push({ message: error, tone: 'hot' }); else toast.push({ message: 'Список видалено.' }); }); }}
+      />
       <ArchiveReasonDialog open={p.archiveChat !== null} chatName={p.archiveChat?.name ?? null} joinFailed={p.archiveChat?.status === 'to_join'} busy={p.busy !== null} error={p.error} onCancel={() => p.setArchiveChat(null)} onConfirm={(reason) => { const chat = p.archiveChat; if (!chat) return; p.setArchiveChat(null); void p.act(chat, chat.status === 'to_join' && reason === JOIN_FAILED_REASON ? 'failed' : 'archive', { reason }, { action: 'restore', label: `В архів: ${reason.toLowerCase()}. Можна скасувати протягом 8 секунд.` }); }} />
       <ConfirmDialog open={p.confirmation !== null} title={p.confirmation?.kind === 'assign' ? 'Перепризначити Telegram-акаунт?' : 'Повернути чат до приєднання?'} description={p.confirmation?.kind === 'assign' ? `Чат перейде з «${p.confirmation.currentName}» на «${p.confirmation.nextName}». Членство в самому Telegram потрібно змінити вручну.` : 'Чат повернеться в чергу «Для приєднання». Історія чату не видаляється.'} confirmLabel={p.confirmation?.kind === 'assign' ? 'Перепризначити' : 'Повернути'} busy={p.busy !== null} onCancel={() => p.setConfirmation(null)} onConfirm={p.confirmPlatformAction} />
       <ConfirmDialog open={p.deleteChat !== null} title="Остаточно видалити чат?" description={p.deleteChat ? `«${p.deleteChat.name}» більше не блокуватиме повторне додавання. Дію не можна скасувати; вона доступна лише для неіснуючого чату без публікацій, лідів або активного розкладу.` : ''} confirmLabel="Видалити назавжди" destructive busy={p.busy !== null} onCancel={() => p.setDeleteChat(null)} onConfirm={() => { const chat = p.deleteChat; p.setDeleteChat(null); if (chat) void p.act(chat, 'permanent_delete', { confirmation: 'PERMANENTLY_DELETE_NONEXISTENT_CHAT' }); }} />

@@ -17,8 +17,8 @@ const STATUS_LABELS: Record<string, string> = { to_join: 'Для приєдна�
 type AddReply = { error?: string; added?: boolean; status?: string | null; accountId?: string | null };
 
 // Одне додавання чату — один індексований insert на сервері, а не повний скан чатів, як у bulk-потоці.
-async function addToJoin(chat: SelectedChatView) {
-  const response = await fetch('/api/chats/telegram-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add', link: chat.link }) });
+async function addToJoin(chat: SelectedChatView, listId: string) {
+  const response = await fetch('/api/chats/telegram-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add', link: chat.link, listId }) });
   const value = await response.json().catch(() => ({})) as AddReply;
   if (!response.ok) throw new Error(value.error || `Не вдалося додати чат (HTTP ${response.status}).`);
   return value;
@@ -27,10 +27,14 @@ async function addToJoin(chat: SelectedChatView) {
 const formatLast = (value: string | null) => (value ? new Date(value).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' }) : null);
 
 /** Відібрані Telegram-чати: імпорт JSON-вивантаження, топ за активністю, додавання в «Для приєднання». */
-export function SelectedChats({ view, loading, accounts, onImported, onAdded, onBulkAdded }: {
+export function SelectedChats({ view, loading, accounts, listId, listName, canDelete, onDelete, onImported, onAdded, onBulkAdded }: {
   view: SelectedChatsView | null;
   loading: boolean;
   accounts: Array<{ id: string; name: string; number: number }>;
+  listId: string;
+  listName: string;
+  canDelete: boolean;
+  onDelete: () => void;
   onImported: (next: SelectedChatsView) => void;
   onAdded: (link: string, status: string, accountId: string | null, added: boolean) => void;
   onBulkAdded: (links: string[]) => void;
@@ -58,7 +62,7 @@ export function SelectedChats({ view, loading, accounts, onImported, onAdded, on
       let groups: unknown;
       try { groups = JSON.parse(await file.text()); } catch { throw new Error('Це не JSON-файл.'); }
       const slim = Array.isArray(groups) ? groups.map((row) => { const value = row && typeof row === 'object' ? row as Record<string, unknown> : {}; return { title: value.title, username: value.username, link: value.link, msg_count_in_group: value.msg_count_in_group, last: value.last }; }) : groups;
-      const response = await fetch('/api/chats/telegram-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'import', groups: slim }) });
+      const response = await fetch('/api/chats/telegram-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'import', groups: slim, listId }) });
       const body = await response.json().catch(() => ({})) as SelectedChatsView & { error?: string };
       if (!response.ok) throw new Error(body.error || `Не вдалося імпортувати файл (HTTP ${response.status}).`);
       onImported(body);
@@ -71,7 +75,7 @@ export function SelectedChats({ view, loading, accounts, onImported, onAdded, on
   async function takeTop() {
     setBusy('top'); setError('');
     try {
-      const response = await fetch('/api/chats/telegram-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-top', count: topCount }) });
+      const response = await fetch('/api/chats/telegram-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-top', count: topCount, listId }) });
       const body = await response.json().catch(() => ({})) as { error?: string; added?: number; links?: string[] };
       if (!response.ok) throw new Error(body.error || `Не вдалося додати чати (HTTP ${response.status}).`);
       const links = Array.isArray(body.links) ? body.links : [];
@@ -84,7 +88,7 @@ export function SelectedChats({ view, loading, accounts, onImported, onAdded, on
   async function take(chat: SelectedChatView) {
     setBusy(chat.link); setError('');
     try {
-      const reply = await addToJoin(chat);
+      const reply = await addToJoin(chat, listId);
       const added = reply.added === true;
       onAdded(chat.link, reply.status ?? 'to_join', reply.accountId ?? null, added);
       toast.push({ message: added ? `«${chat.title}» додано в чергу «Для приєднання».` : `«${chat.title}» уже є в Work OS.` });
@@ -96,11 +100,12 @@ export function SelectedChats({ view, loading, accounts, onImported, onAdded, on
     <section className="flex flex-col gap-4 p-4" aria-label="Відібрані Telegram-чати">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 max-w-[60ch]">
-          <h3 className="m-0 text-[15px] font-medium">Відібрані чати</h3>
+          <h3 className="m-0 text-[15px] font-medium">{listName}</h3>
           <p className="m-0 mt-1 text-xs text-ink-2">{items.length ? `${items.length} чатів · уже є в Work OS ${inWork}${view?.importedAt ? ` · файл від ${new Date(view.importedAt * 1000).toLocaleDateString('uk-UA')}` : ''}. Зверху — де надіслано найбільше повідомлень.` : 'Імпортуй JSON-вивантаження груп: чати впорядкуються за кількістю надісланих повідомлень.'}</p>
         </div>
         <input ref={fileInput} type="file" accept="application/json,.json" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); }} />
         <Button variant={items.length ? 'outline' : 'action'} size="sm" busy={busy === 'import'} disabled={busy !== null} onClick={() => fileInput.current?.click()}><FileUp aria-hidden="true" strokeWidth={1.5} />{busy === 'import' ? 'Імпортуємо…' : items.length ? 'Замінити файл' : 'Імпортувати JSON'}</Button>
+        {canDelete ? <Button variant="ghost" size="sm" tone="danger" disabled={busy !== null} onClick={onDelete}>Видалити список</Button> : null}
       </div>
       {items.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">

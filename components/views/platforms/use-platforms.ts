@@ -14,7 +14,7 @@ import { pairThisBrowserExecutor } from '@/lib/chat-discovery/executor-storage';
 import { CHAT_PLATFORM_NAMES, type ChatPlatform } from '@/lib/chats/bulk-input';
 import type { BulkResult } from '@/lib/chats/bulk';
 import type { ChatProfile } from '@/lib/chats/profile';
-import type { SelectedChatsView } from '@/lib/chats/telegram-selected';
+import { useSelectedLists } from '@/components/views/platforms/use-selected-lists';
 import { EMPTY_WAITING_CHECK, parseWaitingCheckView, waitingCheckArchiveReason, type WaitingCheckView } from '@/lib/chats/whatsapp-waiting-check-copy';
 import { humanError } from '@/components/ui/human-error';
 
@@ -171,10 +171,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   const [whatsappCaption, setWhatsappCaption] = useState('');
   const [whatsappCaptionLoaded, setWhatsappCaptionLoaded] = useState(false);
   const [whatsappProgress, setWhatsappProgress] = useState<WhatsAppAutopostProgress | null>(null);
-  const [selectedChats, setSelectedChats] = useState<SelectedChatsView | null>(null);
-  const [selectedChatsFailed, setSelectedChatsFailed] = useState(false);
-  const [selectedCount, setSelectedCount] = useState<number | null>(null);
-  const selectedLoadedAt = useRef(0);
+  const selected = useSelectedLists({ enabled: active && platform === 'telegram', viewing: queue === 'selected' });
 
   const { accounts, accountId } = useTelegramAccounts(true);
   const runAction = useRef(createActionGate());
@@ -320,27 +317,6 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     queueMicrotask(() => void reloadChats.current(true));
     if (platform === 'telegram') void loadTelegramAccounts(true);
   }, [syncRevision, businessDate, platform, invalidateQueueCache, active]);
-
-  // Відібрані Telegram-чати: лічильник вкладки — один рядок налаштувань; список — лише при відкритті вкладки.
-  useEffect(() => {
-    if (!active || platform !== 'telegram') return;
-    let cancelled = false;
-    fetch('/api/chats/telegram-selected?summary=1', { cache: 'no-store' }).then((response) => (response.ok ? response.json() as Promise<{ count?: number }> : null)).then((body) => { if (!cancelled && typeof body?.count === 'number') setSelectedCount(body.count); }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [active, platform]);
-  useEffect(() => {
-    if (!active || platform !== 'telegram' || queue !== 'selected') return;
-    if (Date.now() - selectedLoadedAt.current < 5 * 60_000) return;
-    let cancelled = false;
-    fetch('/api/chats/telegram-selected', { cache: 'no-store' })
-      .then(async (response) => ({ ok: response.ok, body: await response.json().catch(() => null) as SelectedChatsView | null }))
-      .then(({ ok, body }) => {
-        if (cancelled) return;
-        if (ok && body && Array.isArray(body.items)) { selectedLoadedAt.current = Date.now(); setSelectedChats(body); setSelectedCount(body.items.length); setSelectedChatsFailed(false); } else setSelectedChatsFailed(true);
-      })
-      .catch(() => { if (!cancelled) setSelectedChatsFailed(true); });
-    return () => { cancelled = true; };
-  }, [active, platform, queue]);
 
   const applyWaitingCheckView = useCallback((next: WaitingCheckView) => {
     setWaitingCheck((current) => {
@@ -655,7 +631,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     addedChats, savedProfile, importedDiscoveryChat, invalidateQueueCache,
     // Telegram
     accounts, accountId, activeAccount, breakSeconds, accountAction,
-    selectedChats, setSelectedChats, selectedChatsFailed, selectedCount, setSelectedCount, markSelectedLoaded: () => { selectedLoadedAt.current = Date.now(); }, setCountsByScope, requestAccountId,
+    selected, setCountsByScope, requestAccountId,
     // WhatsApp / Viber
     waitingCheckView, changeWaitingCheck, connectWaitingCheckRunner, resolveWaitingProblem, liveStatus,
     quickPublishMode, setQuickPublishMode, quickAdvertisementId, setQuickAdvertisementId,

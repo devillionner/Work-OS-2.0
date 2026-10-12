@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
-import { addSelectedChatToJoin, addTopSelectedChatsToJoin, parseSelectedExport, readSelectedChats, readSelectedChatsCount, saveSelectedChats, SELECTED_IMPORT_MAX_BYTES, SelectedChatsError } from '@/lib/chats/telegram-selected';
+import { addSelectedChatToJoin, addTopSelectedChatsToJoin, createSelectedList, deleteSelectedList, parseSelectedExport, readSelectedChats, readSelectedChatsCount, renameSelectedList, saveSelectedChats, SELECTED_IMPORT_MAX_BYTES, SelectedChatsError } from '@/lib/chats/telegram-selected';
 
 function json(value:unknown,status=200){
   return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});
@@ -12,7 +12,7 @@ export async function GET(request:Request):Promise<Response>{
     const user=await getCurrentUser();
     if(!user)return json({error:'Потрібно увійти.'},401);
     if(new URL(request.url).searchParams.get('summary')==='1')return json(await readSelectedChatsCount(env.DB,user.id));
-    return json(await readSelectedChats(env.DB,user.id));
+    return json(await readSelectedChats(env.DB,user.id,new URL(request.url).searchParams.get('list')));
   }catch(error){
     console.error('Telegram selected chats read failed',error instanceof Error?error.name:'unknown');
     return json({error:'Не вдалося завантажити відібрані чати.'},500);
@@ -27,10 +27,13 @@ export async function POST(request:Request):Promise<Response>{
     const body=await readJsonObject(request,SELECTED_IMPORT_MAX_BYTES);
     if(body instanceof Response)return body;
     const now=Math.floor(Date.now()/1000);
-    if(body.action==='add')return json(await addSelectedChatToJoin(env.DB,user.id,body.link,now));
-    if(body.action==='add-top')return json(await addTopSelectedChatsToJoin(env.DB,user.id,body.count,now));
+    if(body.action==='add')return json(await addSelectedChatToJoin(env.DB,user.id,body.link,now,body.listId));
+    if(body.action==='add-top')return json(await addTopSelectedChatsToJoin(env.DB,user.id,body.count,now,body.listId));
+    if(body.action==='create-list')return json({lists:await createSelectedList(env.DB,user.id,body.name,now)});
+    if(body.action==='rename-list')return json({lists:await renameSelectedList(env.DB,user.id,body.listId,body.name,now)});
+    if(body.action==='delete-list')return json({lists:await deleteSelectedList(env.DB,user.id,body.listId,now)});
     if(body.action!=='import')return json({error:'Невідома дія.'},400);
-    return json(await saveSelectedChats(env.DB,user.id,parseSelectedExport(body.groups),now));
+    return json(await saveSelectedChats(env.DB,user.id,parseSelectedExport(body.groups),now,body.listId));
   }catch(error){
     if(error instanceof SelectedChatsError)return json({error:error.message},error.status);
     console.error('Telegram selected chats import failed',error instanceof Error?error.name:'unknown');
