@@ -1,35 +1,51 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { EmptyState } from '@/components/ui/empty-state';
 import { cn } from '@/lib/utils';
 import { labels } from './client';
 import { agoLabel, type LeadRow } from './lead-board';
+import { sortByRecency, type LeadOrder } from './lead-order';
 
-type SortKey = 'name' | 'funnelStage' | 'nextContactAt' | 'responseDate';
+export type ColumnSortKey = 'name' | 'funnelStage' | 'nextContactAt';
+export type ColumnSort = { key: ColumnSortKey; dir: 1 | -1 };
 
-/** Щільна таблиця лідів: липкий заголовок і сортування по поточній сторінці. */
-export function LeadTable({ leads, selectedId, onOpen }: { leads: LeadRow[]; selectedId: string | null; onOpen: (id: string) => void }) {
-  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 } | null>(null);
+/**
+ * Щільна таблиця лідів: липкий заголовок і сортування по поточній сторінці. Дата відгуку — той самий порядок, що й
+ * перемикач у Topbar (`order`); сортування за іншою колонкою (`columnSort`) вимикає порядок за давністю, доки його не натиснуть знову.
+ */
+export function LeadTable({ leads, order, columnSort, onToggleOrder, onColumnSort, selectedId, onOpen }: {
+  leads: LeadRow[];
+  order: LeadOrder;
+  columnSort: ColumnSort | null;
+  onToggleOrder: () => void;
+  onColumnSort: (key: ColumnSortKey) => void;
+  selectedId: string | null;
+  onOpen: (id: string) => void;
+}) {
   const rows = useMemo(() => {
-    if (!sort) return leads;
-    const value = (lead: LeadRow): string | number => sort.key === 'nextContactAt' ? (lead.nextContactAt ?? Number.MAX_SAFE_INTEGER) : (lead[sort.key] ?? '');
+    if (!columnSort) return sortByRecency(leads, order);
+    const value = (lead: LeadRow): string | number => columnSort.key === 'nextContactAt' ? (lead.nextContactAt ?? Number.MAX_SAFE_INTEGER) : (lead[columnSort.key] ?? '');
     return [...leads].sort((a, b) => {
       const left = value(a); const right = value(b);
-      return (typeof left === 'number' && typeof right === 'number' ? left - right : String(left).localeCompare(String(right), 'uk')) * sort.dir;
+      return (typeof left === 'number' && typeof right === 'number' ? left - right : String(left).localeCompare(String(right), 'uk')) * columnSort.dir;
     });
-  }, [leads, sort]);
+  }, [leads, order, columnSort]);
 
-  const header = (key: SortKey, label: string, className?: string) => (
-    <th scope="col" aria-sort={sort?.key === key ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'} className={cn('sticky top-0 z-10 bg-glass-strong px-3 py-2.5 text-left text-xs font-medium text-ink-2 first:rounded-tl-inner last:rounded-tr-inner', className)}>
-      <button type="button" onClick={() => setSort((current) => (current?.key === key ? { key, dir: current.dir === 1 ? -1 : 1 } : { key, dir: 1 }))} className="inline-flex items-center gap-1 hover:text-ink">
+  const headerClass = 'sticky top-0 z-10 bg-glass-strong px-3 py-2.5 text-left text-xs font-medium text-ink-2 first:rounded-tl-inner last:rounded-tr-inner';
+  const arrow = (dir: 1 | -1) => (dir === 1 ? <ArrowUp aria-hidden="true" strokeWidth={1.5} className="size-3" /> : <ArrowDown aria-hidden="true" strokeWidth={1.5} className="size-3" />);
+  const header = (key: ColumnSortKey, label: string) => (
+    <th scope="col" aria-sort={columnSort?.key === key ? (columnSort.dir === 1 ? 'ascending' : 'descending') : 'none'} className={headerClass}>
+      <button type="button" onClick={() => onColumnSort(key)} className="inline-flex items-center gap-1 hover:text-ink">
         {label}
-        {sort?.key === key ? (sort.dir === 1 ? <ArrowUp aria-hidden="true" strokeWidth={1.5} className="size-3" /> : <ArrowDown aria-hidden="true" strokeWidth={1.5} className="size-3" />) : null}
+        {columnSort?.key === key ? arrow(columnSort.dir) : null}
       </button>
     </th>
   );
+  // Новіші спершу — це спадання дати, тож aria-sort і стрілка описують саме значення дати.
+  const dateDir = order === 'newest' ? -1 : 1;
 
   if (!rows.length) return <EmptyState text="Лідів за цим фільтром немає." />;
   return (
@@ -42,7 +58,12 @@ export function LeadTable({ leads, selectedId, onOpen }: { leads: LeadRow[]; sel
             {header('funnelStage', 'Етап')}
             <th scope="col" className="sticky top-0 z-10 bg-glass-strong px-3 py-2.5 text-left text-xs font-medium text-ink-2">Наступна дія</th>
             {header('nextContactAt', 'Термін')}
-            {header('responseDate', 'Відгук', 'text-right')}
+            <th scope="col" aria-sort={columnSort ? 'none' : (dateDir === 1 ? 'ascending' : 'descending')} className={cn(headerClass, 'text-right')}>
+              <button type="button" onClick={onToggleOrder} className="inline-flex items-center gap-1 hover:text-ink">
+                Відгук
+                {columnSort ? null : arrow(dateDir)}
+              </button>
+            </th>
           </tr>
         </thead>
         <tbody>

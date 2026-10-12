@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
 import { useCommand } from '@/components/shell/command-bus';
 import { useSearchIndex, type SearchItem } from '@/components/shell/search-index';
 import { useShell } from '@/components/shell/shell-context';
@@ -19,7 +19,8 @@ import { createBrowserCommandClient, getJson, labels, type LeadList, type Mutati
 import { LeadBoard } from './lead-board';
 import { LeadEditor } from './lead-editor';
 import { LeadInspector } from './lead-inspector';
-import { LeadTable } from './lead-table';
+import { ORDER_LABEL, readOrder, writeOrder, type LeadOrder } from './lead-order';
+import { LeadTable, type ColumnSort, type ColumnSortKey } from './lead-table';
 import { TodayStrip } from './today-strip';
 
 const FILTERS = [
@@ -44,6 +45,8 @@ export default function LeadsView() {
   const pointerFine = useMediaQuery('(pointer: fine)');
   const [selected, setSelected] = useQueryParam('lead');
   const [mode, setMode] = useState<Mode>(readMode);
+  const [order, setOrder] = useState<LeadOrder>(readOrder);
+  const [columnSort, setColumnSort] = useState<ColumnSort | null>(null);
   const [filter, setFilter] = useState<(typeof FILTERS)[number][0]>('active');
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
@@ -58,6 +61,7 @@ export default function LeadsView() {
   const busy = useRef(false);
   const lastSync = useRef(syncRevision);
   const openedByPush = useRef(false);
+  const boardCapture = useRef<(() => void) | null>(null);
 
   const reload = useCallback(() => setRefresh((value) => value + 1), []);
 
@@ -141,6 +145,17 @@ export default function LeadsView() {
   })), [list, navigate, openLead]);
   useSearchIndex('leads', items);
 
+  // Порядок за давністю діє на дошці завжди, а в списку — доки немає сортування за іншою колонкою.
+  const orderActive = mode === 'board' || columnSort === null;
+  const toggleOrder = () => {
+    if (!orderActive) { setColumnSort(null); return; }
+    boardCapture.current?.();
+    const next: LeadOrder = order === 'newest' ? 'oldest' : 'newest';
+    setOrder(next);
+    writeOrder(next);
+  };
+  const sortByColumn = (key: ColumnSortKey) => setColumnSort((value) => (value?.key === key ? { key, dir: value.dir === 1 ? -1 : 1 } : { key, dir: 1 }));
+
   const changeMode = (next: Mode) => {
     setMode(next);
     try { window.localStorage.setItem(MODE_KEY, next); } catch { /* режим діє до перезавантаження */ }
@@ -150,6 +165,9 @@ export default function LeadsView() {
     <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4 pb-6" aria-busy={!list && !listError}>
       <TopbarControls>
         <Segmented<Mode> label="Режим лідів" value={mode} onValueChange={changeMode} items={[{ value: 'board', label: 'Дошка' }, { value: 'list', label: 'Список' }]} />
+        <Button variant="outline" size="sm" className={orderActive ? 'shrink-0' : 'shrink-0 text-ink-3'} onClick={toggleOrder} aria-label={orderActive ? ORDER_LABEL[order] : `${ORDER_LABEL[order]}, не діє: список відсортовано за колонкою`} title="Порядок за давністю відгуку">
+          {order === 'newest' ? <ArrowDown aria-hidden="true" strokeWidth={1.5} /> : <ArrowUp aria-hidden="true" strokeWidth={1.5} />}{ORDER_LABEL[order]}
+        </Button>
         <SearchField value={search} onValueChange={setSearch} placeholder="Ім’я, контакт, предмет, викладач" wrapperClassName="min-w-[150px] max-w-[320px] flex-1" hotkey={!phone} />
       </TopbarControls>
 
@@ -171,9 +189,9 @@ export default function LeadsView() {
       ) : !list ? (
         <div aria-busy="true" className="flex gap-3 overflow-hidden">{[0, 1, 2, 3].map((item) => <Ghost key={item} className="h-72 w-[272px] shrink-0 rounded-card" />)}</div>
       ) : mode === 'board' ? (
-        <LeadBoard leads={list.leads} selectedId={selected} canDrag={pointerFine && filter !== 'archived'} onOpen={openLead} onCreate={() => setCreating(true)} onMove={moveStage} />
+        <LeadBoard leads={list.leads} order={order} captureRef={boardCapture} selectedId={selected} canDrag={pointerFine && filter !== 'archived'} onOpen={openLead} onCreate={() => setCreating(true)} onMove={moveStage} />
       ) : (
-        <LeadTable leads={list.leads} selectedId={selected} onOpen={openLead} />
+        <LeadTable leads={list.leads} order={order} columnSort={columnSort} onToggleOrder={toggleOrder} onColumnSort={sortByColumn} selectedId={selected} onOpen={openLead} />
       )}
 
       {list && list.total > 50 ? (
