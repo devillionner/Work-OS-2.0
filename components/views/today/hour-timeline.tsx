@@ -52,7 +52,7 @@ export function HourTimeline({ day }: { day: Day }) {
         <h3 id="timeline-title" className="m-0 text-[17px] font-medium">День за годинами</h3>
         <Legend />
       </header>
-      {model.earlierPauseMinutes > 0 ? <p className="m-0 mb-2 pl-1 text-xs text-ink-2">Пауз раніше було {model.earlierPauseMinutes} хв: точний час раніших пауз не зберігається, на шкалі видно лише поточну.</p> : null}
+      {model.earlierPauseMinutes > 0 ? <p className="m-0 mb-2 pl-1 text-xs text-ink-2">Раніше були паузи, разом {model.earlierPauseMinutes} хв. Їхній час не зберігається, на шкалі видно лише поточну паузу.</p> : null}
 
       {day.yesterdayPending ? (
         <div className="mb-2 flex min-h-[42px] min-w-0 items-center gap-2 rounded-inner bg-sunken py-1 pl-2.5 pr-2">

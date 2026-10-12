@@ -25,7 +25,7 @@ export type DayEvent = {
   checkpoint?: Checkpoint;
   /** Найближчий слот розкладу. */
   next: boolean;
-  /** Потребує уваги: прострочене нагадування, слот, що настав чи пропущений, звіт, який пора здати. */
+  /** Потребує уваги: прострочене нагадування, слот, що настав, звіт, який пора здати. Пропущений слот лише позначений, але дію зберігає. */
   attention: boolean;
   /** Минуле, яке лише для довідки: початок дня, пауза, виконане. */
   dim: boolean;
@@ -144,7 +144,7 @@ export function buildDayModel({ now, today, workday, tasks, slots, accountLabel,
       sub: done ? 'опубліковано' : missed ? 'пропущено' : `${accountLabel} · ${relative(slot.scheduledAt, now)}`,
       slot,
       next: next?.id === slot.id,
-      attention: !done && !free && (missed || due),
+      attention: !done && !free && due,
       dim: done || missed,
     });
   }

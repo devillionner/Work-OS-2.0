@@ -48,12 +48,13 @@ export function DayCard({ state, size, earlierPauseMinutes, onOpenGoals }: { sta
   const statusText = !workday ? 'Готово до старту' : workday.status === 'active' ? `Триває з ${formatTime(workday.startedAt)}${pauseNote}` : workday.status === 'paused' ? `Пауза з ${formatTime(workday.pausedAt)}${pauseNote}` : `Завершено о ${formatTime(workday.endedAt)}`;
   const dot = `size-2 shrink-0 rounded-full ${workday?.status === 'active' ? 'bg-ok' : workday?.status === 'paused' ? 'bg-warn' : 'bg-line-strong'}`;
 
+  const wide = size === 'desktop' ? 'px-4 text-sm' : 'px-[22px] text-sm';
   const main = !workday
-    ? <Button variant="action" size="lg" busy={busy} onClick={() => void mutate('start')}><Play aria-hidden="true" strokeWidth={1.5} />Почати день</Button>
+    ? <Button variant="action" size="lg" busy={busy} onClick={() => void mutate('start')} className={wide}><Play aria-hidden="true" strokeWidth={1.5} />Почати день</Button>
     : workday.status === 'active'
-      ? <Button variant="outline" size="lg" busy={busy} onClick={() => void mutate('pause')}><Pause aria-hidden="true" strokeWidth={1.5} />Пауза</Button>
+      ? <Button variant="outline" size="lg" busy={busy} onClick={() => void mutate('pause')} className={wide}><Pause aria-hidden="true" strokeWidth={1.5} />Пауза</Button>
       : workday.status === 'paused'
-        ? <Button variant="action" size="lg" busy={busy} onClick={() => void mutate('resume')}><Play aria-hidden="true" strokeWidth={1.5} />Продовжити</Button>
+        ? <Button variant="action" size="lg" busy={busy} onClick={() => void mutate('resume')} className={wide}><Play aria-hidden="true" strokeWidth={1.5} />Продовжити</Button>
         : null;
 
   return (
@@ -63,7 +64,7 @@ export function DayCard({ state, size, earlierPauseMinutes, onOpenGoals }: { sta
       <p className="m-0 mt-2.5 font-mono text-4xl font-normal leading-none tracking-[-0.03em] tabular-nums" aria-live="off"><ActiveTime workday={workday} /></p>
       <p className="m-0 mt-1.5 flex items-center gap-2 pb-1 text-sm text-ink-2" aria-live="polite"><i aria-hidden="true" className={dot} />{statusText}</p>
 
-      <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
+      <div className={cn('mt-3.5 flex flex-wrap items-center', size === 'phone' ? 'gap-2.5' : 'gap-2')}>
         {confirmCount !== null ? (
           <>
             <Button variant="action" size="lg" busy={busy} onClick={() => void mutate('end', true)}>Завершити попри {confirmCount}</Button>
@@ -72,11 +73,11 @@ export function DayCard({ state, size, earlierPauseMinutes, onOpenGoals }: { sta
         ) : (
           <>
             {main}
-            {workday && workday.status !== 'ended' ? <Button variant="ghost" size="lg" busy={busy} onClick={() => void mutate('end')}><Square aria-hidden="true" strokeWidth={1.5} />Завершити</Button> : null}
+            {workday && workday.status !== 'ended' ? <Button variant="ghost" size="lg" busy={busy} onClick={() => void mutate('end')} className={wide}><Square aria-hidden="true" strokeWidth={1.5} />Завершити</Button> : null}
           </>
         )}
         <Menu>
-          <MenuTrigger render={<Button variant="icon" size="lg" aria-label="Ще дії робочого дня" />}><Ellipsis aria-hidden="true" strokeWidth={1.5} /></MenuTrigger>
+          <MenuTrigger render={<Button variant="icon" size="lg" aria-label="Ще дії робочого дня" className={size === 'desktop' ? 'size-11' : ''} />}><Ellipsis aria-hidden="true" strokeWidth={1.5} /></MenuTrigger>
           <MenuContent align="start" className="max-w-72">
             <MenuItem onClick={onOpenGoals}><Target aria-hidden="true" strokeWidth={1.5} />План дня: цілі й напрямки</MenuItem>
             {showPlan && workday?.plan ? <MenuLabel>Зафіксовано о {formatTime(workday.plan.createdAt)}: записи {plan.dailyGoal}, місяць {plan.monthlyGoal}, {plan.focusDirections.length ? plan.focusDirections.join(', ') : 'усі напрямки'}</MenuLabel> : null}

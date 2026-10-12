@@ -114,7 +114,7 @@ export function useDay(): Day {
       if (task.kind === 'follow_up' || task.reminderText) return { label: 'Готово', round: false, busy: false, run: () => reminders.done(task) };
       return { label: 'Уточнити', round: false, busy: false, run: () => openLead(task.leadId) };
     }
-    if (event.kind === 'slot' && event.slot && accountId && event.slot.chatId && event.slot.chatStateToken && event.slot.status === 'pending' && (event.attention || event.next)) {
+    if (event.kind === 'slot' && event.slot && accountId && event.slot.chatId && event.slot.chatStateToken && event.slot.status === 'pending' && (event.attention || event.next || event.state === 'missed')) {
       const slot = event.slot;
       return {
         label: 'Опубліковано',

@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Surface } from '@/components/ui/surface';
 import { clockOf, dayOf, describeUpcoming, hourLabel, layoutY, shortDate, span, type DayEvent } from '@/components/views/today/day-model';
@@ -28,7 +28,6 @@ export function CenteredTimeline({ day }: { day: Day }) {
   const viewport = useRef<HTMLDivElement>(null);
   const label = useRef<HTMLSpanElement>(null);
   const pinned = useRef(true);
-  const [height, setHeight] = useState(320);
   const [away, setAway] = useState(false);
 
   const minutesOf = (event: DayEvent) => (event.at - model.dayStart) / 60;
@@ -68,14 +67,6 @@ export function CenteredTimeline({ day }: { day: Day }) {
     if (label.current) label.current.textContent = pinned.current ? `${clockOf(now)} · зараз` : describeAt(node.scrollTop);
   });
 
-  useEffect(() => {
-    const node = viewport.current;
-    if (!node) return;
-    const observer = new ResizeObserver(() => setHeight(node.clientHeight));
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-
   const scrollTo = (top: number) => viewport.current?.scrollTo({ top: Math.max(0, top), behavior: smooth() });
   const toFirstAttention = () => {
     const first = model.attention[0];
@@ -91,14 +82,14 @@ export function CenteredTimeline({ day }: { day: Day }) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-col gap-3">
-      <Surface variant="glass" radius="card" data-reveal className="flex shrink-0 items-center justify-between gap-5 px-7 py-[22px]" aria-labelledby="countdown-title">
-        <div className="flex min-w-0 flex-col gap-1.5">
+      <Surface variant="glass" radius="card" data-reveal className="@container flex shrink-0 flex-wrap items-center justify-between gap-x-5 gap-y-3.5 px-7 py-[22px]" aria-labelledby="countdown-title">
+        <div className="flex min-w-0 flex-1 basis-[260px] flex-col gap-1.5">
           {model.attention.length ? (
-            <button type="button" onClick={toFirstAttention} title="Перейти до першої справи, що потребує уваги" className="inline-flex h-7 items-center gap-2 self-start rounded-full border border-line-strong px-3 text-[12.5px] transition-colors duration-150 hover:bg-raised">
+            <button type="button" onClick={toFirstAttention} title="Перейти до першої справи, що потребує уваги" className="inline-flex h-7 items-center gap-2 self-start whitespace-nowrap rounded-full border border-line-strong px-3 text-[12.5px] transition-colors duration-150 hover:bg-raised">
               <i aria-hidden="true" className="size-2 rounded-full bg-hot" />Потребує уваги · {model.attention.length}
             </button>
           ) : null}
-          <h2 id="countdown-title" className="m-0 text-balance text-[34px] font-normal leading-[1.1] tracking-[-0.03em]">
+          <h2 id="countdown-title" className="m-0 text-balance text-[clamp(22px,5.4cqi,34px)] font-normal leading-[1.1] tracking-[-0.03em]">
             {headline.event ? <>{headline.when} <span className="text-ink-2">— {headline.what}</span></> : <><span className="text-ink-2">{headline.when}</span> {headline.what}</>}
           </h2>
           <p className="m-0 text-[13.5px] text-ink-2">{headline.hint}</p>
@@ -113,8 +104,9 @@ export function CenteredTimeline({ day }: { day: Day }) {
 
       <Surface variant="glass" radius="card" data-reveal className="relative flex min-h-0 flex-1 overflow-hidden p-0" aria-label="Шкала дня">
         <div className="relative min-w-0 flex-1">
-          <section ref={viewport} aria-label="Шкала дня, прокручується" onScroll={onScroll} className="hide-scrollbar fade-y absolute inset-0 overflow-y-auto overscroll-contain">
-            <div style={{ paddingTop: height * LINE, paddingBottom: height * (1 - LINE) }}>
+          <section ref={viewport} aria-label="Шкала дня, прокручується" onScroll={onScroll} className="hide-scrollbar fade-y absolute inset-0 overflow-y-auto overscroll-contain" style={{ containerType: 'size' }}>
+            {/* Відступи зверху й знизу у відсотках висоти вікна (cqh), щоб будь-яку хвилину можна було поставити під лінію без вимірювань. */}
+            <div style={{ paddingTop: `${LINE * 100}cqh`, paddingBottom: `${(1 - LINE) * 100}cqh` }}>
               {model.carry.length ? (
                 <div className="mx-5 mb-3">
                   <h3 className="m-0 flex h-7 items-center px-2 text-xs font-medium text-ink-2">Прострочено за минулі дні</h3>
