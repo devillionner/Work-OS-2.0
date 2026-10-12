@@ -2,33 +2,31 @@
 
 import { useRef, useState } from 'react';
 import { useShell } from '@/components/shell/shell-context';
-import { FocusCard } from '@/components/views/today/focus-card';
 import { KpiStrip } from '@/components/views/today/kpi-strip';
-import { LeadQueue } from '@/components/views/today/lead-queue';
-import { PlatformBreakdown } from '@/components/views/today/platform-breakdown';
-import { ScheduleTimeline } from '@/components/views/today/schedule-timeline';
+import { NowList } from '@/components/views/today/now-list';
+import { ScheduleCard } from '@/components/views/today/schedule-card';
 import { WorkdayPanel, type WorkdayStatus } from '@/components/views/today/workday-panel';
 import { dateLabel, firstName, greeting } from '@/components/views/shared/pace';
 import { GoalsPanel } from '@/components/views/shared/goals-panel';
+import { cn } from '@/lib/utils';
 
-/** «Сьогодні»: bento-сітка з 12 колонок. Усі дані — зі знімка дашборда, окремих запитів немає, крім розкладу Telegram. */
+/**
+ * «Сьогодні»: спершу дія, потім декор. Шапка дня одним рядком, стрічка KPI, а під нею «Що зробити зараз» і розклад Telegram
+ * поруч (на телефоні — шапка, «Що зробити зараз», KPI 2×2, розклад). Усі дані — зі знімка дашборда, окремих запитів немає,
+ * крім розкладу Telegram.
+ */
 export default function TodayView() {
-  const { user } = useShell();
+  const { user, snapshot } = useShell();
   const [goalsOpen, setGoalsOpen] = useState(false);
   const [workday, setWorkday] = useState<WorkdayStatus | null>(null);
   const startDay = useRef<(() => void) | null>(null);
+  const schedule = snapshot.enabledPlatforms.includes('telegram');
   return (
-    <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-3 pb-6 @4xl:gap-4">
-      <WorkdayPanel greeting={`${greeting()}, ${firstName(user.displayName)}`} dateLabel={dateLabel()} startRef={startDay} onStatusChange={setWorkday} />
-      <KpiStrip />
-      <div className="grid grid-cols-1 gap-3 @4xl:grid-cols-12 @4xl:gap-4">
-        <div className="@4xl:col-span-4"><FocusCard onOpenGoals={() => setGoalsOpen(true)} workday={workday} onStartDay={() => startDay.current?.()} /></div>
-        <div className="@4xl:col-span-8"><LeadQueue /></div>
-      </div>
-      <div className="grid grid-cols-1 gap-3 @4xl:grid-cols-12 @4xl:gap-4">
-        <div className="@4xl:col-span-4"><PlatformBreakdown /></div>
-        <div className="@4xl:col-span-8"><ScheduleTimeline /></div>
-      </div>
+    <div className="mx-auto grid w-full max-w-[1360px] grid-cols-1 gap-3 pb-6 @4xl:grid-cols-12 @4xl:gap-4">
+      <div className="order-1 @4xl:col-span-12"><WorkdayPanel greeting={`${greeting()}, ${firstName(user.displayName)}`} dateLabel={dateLabel()} startRef={startDay} onStatusChange={setWorkday} onOpenGoals={() => setGoalsOpen(true)} /></div>
+      <div className="order-3 @4xl:order-2 @4xl:col-span-12"><KpiStrip /></div>
+      <div className={cn('order-2 @4xl:order-3 @4xl:col-span-12', schedule && '@4xl:col-span-7')}><NowList workday={workday} onStartDay={() => startDay.current?.()} /></div>
+      {schedule ? <div className="order-4 @4xl:col-span-5"><ScheduleCard /></div> : null}
       <GoalsPanel open={goalsOpen} onOpenChange={setGoalsOpen} />
     </div>
   );

@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pause, Play, RotateCcw, Square, Trash2 } from 'lucide-react';
+import { Ellipsis, Pause, Play, RotateCcw, Square, Target, Trash2 } from 'lucide-react';
 import { useShell } from '@/components/shell/shell-context';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '@/components/ui/menu';
 import { Surface } from '@/components/ui/surface';
 import type { WorkdaySnapshot } from '@/lib/workday';
 import { humanError } from '@/components/ui/human-error';
@@ -12,19 +13,21 @@ import { humanError } from '@/components/ui/human-error';
 type WorkdayResponse = { workday?: WorkdaySnapshot | null; today?: string; error?: string; requiresConfirmation?: boolean; unfinishedCount?: number };
 const SYNC_CHANNEL = 'work-os-workday';
 
-export type WorkdayStatus = { started: boolean; busy: boolean };
+export type WorkdayStatus = { started: boolean; ended: boolean; busy: boolean };
 
 /**
- * Робочий день: привітання, активний час і велика pill-кнопка стану. Дані приходять зі знімка «Сьогодні»;
+ * Робочий день: компактна шапка в один рядок — привітання, активний час, стан і одна головна дія за станом дня (до старту
+ * її немає: «Почати день» живе першим рядком «Що зробити зараз»). Дані приходять зі знімка «Сьогодні»;
  * додатково перечитуються лише коли застосунок знову стає видимим, відновлюється мережа або інша вкладка
  * повідомляє про зміну. Жодного опитування за таймером.
  */
-export function WorkdayPanel({ greeting, dateLabel, startRef, onStatusChange }: {
+export function WorkdayPanel({ greeting, dateLabel, startRef, onStatusChange, onOpenGoals }: {
   greeting: string;
   dateLabel: string;
-  /** Дає картці «Фокус» той самий виклик старту, що й велика pill. */
+  /** Дає списку «Що зробити зараз» той самий виклик старту: до старту дня головна кнопка лише там, одна на екрані. */
   startRef?: { current: (() => void) | null };
   onStatusChange?: (status: WorkdayStatus) => void;
+  onOpenGoals: () => void;
 }) {
   const { snapshot } = useShell();
   const [workday, setWorkday] = useState<WorkdaySnapshot | null>(snapshot.workday);
@@ -153,55 +156,56 @@ export function WorkdayPanel({ greeting, dateLabel, startRef, onStatusChange }: 
   });
 
   const started = workday !== null;
-  useEffect(() => { onStatusChange?.({ started, busy }); }, [started, busy, onStatusChange]);
+  const ended = workday?.status === 'ended';
+  useEffect(() => { onStatusChange?.({ started, ended, busy }); }, [started, ended, busy, onStatusChange]);
 
   const statusText = !workday ? 'Готово до старту' : workday.status === 'active' ? 'Триває' : workday.status === 'paused' ? 'Пауза' : `Завершено о ${formatTime(workday.endedAt)}`;
+  const canReset = workday?.status === 'ended' && workday.workDate === currentToday;
 
   return (
-    <Surface variant="glass" radius="card" data-reveal className="flex flex-col justify-between gap-8 p-6 sm:p-8" aria-labelledby="workday-title">
-      <div className="flex flex-col gap-2">
-        <p className="m-0 text-[13px] text-ink-2">{dateLabel}</p>
-        <h2 id="workday-title" className="m-0 text-[clamp(32px,5vw,48px)] font-normal leading-[1.05] tracking-[-0.035em]">{greeting}</h2>
-      </div>
-
-      <div className="flex flex-col gap-5">
-        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-          <div>
-            <p className="m-0 text-[13px] text-ink-2">Активний час</p>
-            <p className="m-0 font-mono text-[40px] font-normal leading-none tracking-[-0.03em]" aria-live="off">{formatDuration(seconds)}</p>
-          </div>
-          <p className="m-0 flex items-center gap-2 pb-1 text-sm text-ink-2" aria-live="polite">
+    <Surface variant="glass" radius="card" data-reveal className="flex flex-col gap-3 px-5 py-4 sm:px-6" aria-labelledby="workday-title">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <div className="min-w-0 flex-1 basis-48">
+          <p className="m-0 text-[13px] text-ink-2">{dateLabel}</p>
+          <h2 id="workday-title" className="m-0 truncate text-xl font-medium leading-tight tracking-[-0.02em]">{greeting}</h2>
+        </div>
+        <div className="flex items-center gap-3">
+          <p className="m-0 font-mono text-[28px] leading-none tracking-[-0.02em] tabular-nums" aria-live="off" aria-label="Активний час">{formatDuration(seconds)}</p>
+          <p className="m-0 flex items-center gap-2 text-sm text-ink-2" aria-live="polite">
             <i aria-hidden="true" className={`size-2 rounded-full ${workday?.status === 'active' ? 'bg-ok' : workday?.status === 'paused' ? 'bg-warn' : 'bg-line-strong'}`} />
             {statusText}
           </p>
         </div>
-
-        {staleOpen ? <output className="block rounded-inner border border-warn/40 px-4 py-3 text-sm">Відкритий день за {formatDate(workday!.workDate)}. Заверши його перед стартом нового.</output> : null}
-        {confirmCount !== null ? <output className="block rounded-inner border border-warn/40 px-4 py-3 text-sm">Залишилося справ: {confirmCount}. Завершити день попри це?</output> : null}
-        {workday?.status === 'ended' ? <p className="m-0 text-sm text-ink-2">Завершили випадково? Поверни день і продовжиш із попереднього часу або скинь сьогоднішній, щоб почати заново.</p> : null}
-        {error ? <p role="alert" className="m-0 text-sm text-hot">{error}</p> : null}
-
-        <div className="flex flex-wrap items-center gap-2.5">
-          {!workday ? <Button variant="action" size="xl" busy={busy} onClick={() => void mutate('start')}><Play aria-hidden="true" strokeWidth={1.5} />Почати день</Button> : null}
-          {workday?.status === 'active' ? <Button variant="outline" size="xl" busy={busy} onClick={() => void mutate('pause')}><Pause aria-hidden="true" strokeWidth={1.5} />Пауза</Button> : null}
-          {workday?.status === 'paused' ? <Button variant="action" size="xl" busy={busy} onClick={() => void mutate('resume')}><Play aria-hidden="true" strokeWidth={1.5} />Продовжити</Button> : null}
-          {workday && workday.status !== 'ended' && confirmCount === null ? <Button variant="ghost" size="xl" busy={busy} onClick={() => void mutate('end')}><Square aria-hidden="true" strokeWidth={1.5} />Завершити день</Button> : null}
+        <div className="ml-auto flex items-center gap-2">
+          {workday?.status === 'active' ? <Button variant="outline" size="md" busy={busy} onClick={() => void mutate('pause')}><Pause aria-hidden="true" strokeWidth={1.5} />Пауза</Button> : null}
+          {workday?.status === 'paused' ? <Button variant="action" size="md" busy={busy} onClick={() => void mutate('resume')}><Play aria-hidden="true" strokeWidth={1.5} />Продовжити</Button> : null}
+          {workday && workday.status !== 'ended' && confirmCount === null ? <Button variant="ghost" size="md" busy={busy} onClick={() => void mutate('end')}><Square aria-hidden="true" strokeWidth={1.5} />Завершити</Button> : null}
           {confirmCount !== null ? (
             <>
-              <Button variant="action" size="lg" busy={busy} onClick={() => void mutate('end', true)}>Завершити попри {confirmCount}</Button>
-              <Button variant="outline" size="lg" disabled={busy} onClick={() => setConfirmCount(null)}>Не завершувати</Button>
+              <Button variant="action" size="md" busy={busy} onClick={() => void mutate('end', true)}>Завершити попри {confirmCount}</Button>
+              <Button variant="outline" size="md" disabled={busy} onClick={() => setConfirmCount(null)}>Не завершувати</Button>
             </>
           ) : null}
-          {workday?.status === 'ended' ? <Button variant="outline" size="xl" busy={busy} onClick={() => void mutate('reopen')}><RotateCcw aria-hidden="true" strokeWidth={1.5} />Повернути день</Button> : null}
-          {workday?.status === 'ended' && workday.workDate === currentToday ? <Button variant="outline" tone="danger" size="xl" disabled={busy} onClick={() => setResetOpen(true)}><Trash2 aria-hidden="true" strokeWidth={1.5} />Скинути день</Button> : null}
+          {workday?.status === 'ended' ? <Button variant="outline" size="md" busy={busy} title="Продовжити з попереднього часу" onClick={() => void mutate('reopen')}><RotateCcw aria-hidden="true" strokeWidth={1.5} />Повернути день</Button> : null}
+          <Menu>
+            <MenuTrigger render={<Button variant="icon" size="md" aria-label="Ще дії робочого дня" />}><Ellipsis aria-hidden="true" strokeWidth={1.5} /></MenuTrigger>
+            <MenuContent align="end" className="max-w-72">
+              <MenuItem onClick={onOpenGoals}><Target aria-hidden="true" strokeWidth={1.5} />План дня: цілі й напрямки</MenuItem>
+              {showPlan && workday?.plan ? <MenuLabel>Зафіксовано о {formatTime(workday.plan.createdAt)}: записи {plan.dailyGoal}, місяць {plan.monthlyGoal}, {plan.focusDirections.length ? plan.focusDirections.join(', ') : 'усі напрямки'}</MenuLabel> : null}
+              {canReset ? (
+                <>
+                  <MenuSeparator />
+                  <MenuItem onClick={() => setResetOpen(true)}><Trash2 aria-hidden="true" strokeWidth={1.5} />Скинути день</MenuItem>
+                </>
+              ) : null}
+            </MenuContent>
+          </Menu>
         </div>
-
-        {showPlan && workday?.plan ? (
-          <p className="m-0 text-[13px] text-ink-2">
-            Ціль дня зафіксовано о {formatTime(workday.plan.createdAt)}: записи <span className="font-mono text-ink">{plan.dailyGoal}</span> · місяць <span className="font-mono text-ink">{plan.monthlyGoal}</span> · <span className="text-ink">{plan.focusDirections.length ? plan.focusDirections.join(', ') : 'усі напрямки'}</span>
-          </p>
-        ) : null}
       </div>
+
+      {staleOpen ? <output className="block rounded-inner border border-warn/40 px-4 py-3 text-sm">Відкритий день за {formatDate(workday!.workDate)}. Заверши його перед стартом нового.</output> : null}
+      {confirmCount !== null ? <output className="block rounded-inner border border-warn/40 px-4 py-3 text-sm">Залишилося справ: {confirmCount}. Завершити день попри це?</output> : null}
+      {error ? <p role="alert" className="m-0 text-sm text-hot">{error}</p> : null}
 
       <ConfirmDialog
         open={resetOpen}
