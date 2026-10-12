@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useShell } from '@/components/shell/shell-context';
 import { FocusCard } from '@/components/views/today/focus-card';
 import { KpiStrip } from '@/components/views/today/kpi-strip';
 import { LeadQueue } from '@/components/views/today/lead-queue';
 import { PlatformBreakdown } from '@/components/views/today/platform-breakdown';
 import { ScheduleTimeline } from '@/components/views/today/schedule-timeline';
-import { WorkdayPanel } from '@/components/views/today/workday-panel';
+import { WorkdayPanel, type WorkdayStatus } from '@/components/views/today/workday-panel';
 import { dateLabel, firstName, greeting } from '@/components/views/shared/pace';
 import { GoalsPanel } from '@/components/views/shared/goals-panel';
 
@@ -15,12 +15,14 @@ import { GoalsPanel } from '@/components/views/shared/goals-panel';
 export default function TodayView() {
   const { user } = useShell();
   const [goalsOpen, setGoalsOpen] = useState(false);
+  const [workday, setWorkday] = useState<WorkdayStatus | null>(null);
+  const startDay = useRef<(() => void) | null>(null);
   return (
     <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-3 pb-6 @4xl:gap-4">
-      <WorkdayPanel greeting={`${greeting()}, ${firstName(user.displayName)}`} dateLabel={dateLabel()} />
+      <WorkdayPanel greeting={`${greeting()}, ${firstName(user.displayName)}`} dateLabel={dateLabel()} startRef={startDay} onStatusChange={setWorkday} />
       <KpiStrip />
       <div className="grid grid-cols-1 gap-3 @4xl:grid-cols-12 @4xl:gap-4">
-        <div className="@4xl:col-span-4"><FocusCard onOpenGoals={() => setGoalsOpen(true)} /></div>
+        <div className="@4xl:col-span-4"><FocusCard onOpenGoals={() => setGoalsOpen(true)} workday={workday} onStartDay={() => startDay.current?.()} /></div>
         <div className="@4xl:col-span-8"><LeadQueue /></div>
       </div>
       <div className="grid grid-cols-1 gap-3 @4xl:grid-cols-12 @4xl:gap-4">

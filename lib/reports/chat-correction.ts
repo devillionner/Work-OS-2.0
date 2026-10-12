@@ -49,7 +49,6 @@ export async function recordHistoricalJoinedChat(db:D1Database,input:{
     correction:'historical_report',
     accountingDate:input.date,
     exactJoinTime:'unknown',
-    ...(sameDayTelegram?{warmupStartedAt:input.now,warmupPolicy:'correction_time'}:{}),
   };
   const metadata=JSON.stringify({...correctionMetadata,requestHash:hash});
   let results:D1Result[];

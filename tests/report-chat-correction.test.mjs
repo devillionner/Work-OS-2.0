@@ -38,7 +38,6 @@ void test('historical joined chat is idempotent, canonical and does not mutate c
   assert.equal(joinedMetadata.correction,'historical_report');
   assert.equal(joinedMetadata.accountingDate,DATE);
   assert.equal(joinedMetadata.exactJoinTime,'unknown');
-  assert.equal(joinedMetadata.warmupStartedAt,undefined);
   assert.deepEqual(await db.prepare(`SELECT join_streak,break_until,updated_at FROM telegram_accounts WHERE id='u:tg1'`).first(),{
     join_streak:4,break_until:NOW+3600,updated_at:55,
   });
@@ -79,8 +78,6 @@ void test('same-day Telegram correction starts a conservative six-hour warm-up a
   const event=await db.prepare(`SELECT metadata_json FROM activity_events WHERE user_id='u' AND chat_id=?1 AND event_type='chat_joined'`).bind(result.chatId).first();
   const metadata=JSON.parse(event.metadata_json);
   assert.equal(metadata.exactJoinTime,'unknown');
-  assert.equal(metadata.warmupStartedAt,NOW);
-  assert.equal(metadata.warmupPolicy,'correction_time');
 });
 
 void test('historical chat account list is owner scoped',async t=>{

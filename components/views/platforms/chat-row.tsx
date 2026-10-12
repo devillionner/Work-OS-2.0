@@ -69,7 +69,7 @@ export function ChatRow({ chat, queue, clock, busy, lastOpened, accounts, whatsa
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="m-0 truncate text-sm font-medium" title={chat.name}>{chat.name}</p>
-          <button type="button" className="max-w-full truncate text-left font-mono text-[11px] text-ink-2 underline-offset-4 hover:underline" title={chat.link} aria-label={`Відкрити чат: ${chat.link}`} onClick={() => onOpen(chat)}>{compactChatLink(chat.link)}</button>
+          <button type="button" className="-mb-2 -mt-5 max-w-full truncate pb-2 pt-5 text-left font-mono text-[11px] text-ink-2 underline-offset-4 hover:underline" title={chat.link} aria-label={`Відкрити чат: ${chat.link}`} onClick={() => onOpen(chat)}>{compactChatLink(chat.link)}</button>
         </div>
         <Menu>
           <MenuTrigger render={<Button variant="icon" size="sm" aria-label={`Ще дії для «${chat.name}»`} disabled={busy} />}><Ellipsis aria-hidden="true" strokeWidth={1.5} /></MenuTrigger>

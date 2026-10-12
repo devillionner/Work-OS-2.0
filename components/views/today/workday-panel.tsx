@@ -12,12 +12,20 @@ import { humanError } from '@/components/ui/human-error';
 type WorkdayResponse = { workday?: WorkdaySnapshot | null; today?: string; error?: string; requiresConfirmation?: boolean; unfinishedCount?: number };
 const SYNC_CHANNEL = 'work-os-workday';
 
+export type WorkdayStatus = { started: boolean; busy: boolean };
+
 /**
  * Робочий день: привітання, активний час і велика pill-кнопка стану. Дані приходять зі знімка «Сьогодні»;
  * додатково перечитуються лише коли застосунок знову стає видимим, відновлюється мережа або інша вкладка
  * повідомляє про зміну. Жодного опитування за таймером.
  */
-export function WorkdayPanel({ greeting, dateLabel }: { greeting: string; dateLabel: string }) {
+export function WorkdayPanel({ greeting, dateLabel, startRef, onStatusChange }: {
+  greeting: string;
+  dateLabel: string;
+  /** Дає картці «Фокус» той самий виклик старту, що й велика pill. */
+  startRef?: { current: (() => void) | null };
+  onStatusChange?: (status: WorkdayStatus) => void;
+}) {
   const { snapshot } = useShell();
   const [workday, setWorkday] = useState<WorkdaySnapshot | null>(snapshot.workday);
   const [currentToday, setCurrentToday] = useState(snapshot.today);
@@ -138,6 +146,14 @@ export function WorkdayPanel({ greeting, dateLabel }: { greeting: string; dateLa
       if (refreshAfter) void refresh();
     }
   }
+
+  useEffect(() => {
+    if (startRef) startRef.current = () => { void mutate('start'); };
+    return () => { if (startRef) startRef.current = null; };
+  });
+
+  const started = workday !== null;
+  useEffect(() => { onStatusChange?.({ started, busy }); }, [started, busy, onStatusChange]);
 
   const statusText = !workday ? 'Готово до старту' : workday.status === 'active' ? 'Триває' : workday.status === 'paused' ? 'Пауза' : `Завершено о ${formatTime(workday.endedAt)}`;
 

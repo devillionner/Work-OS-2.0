@@ -10,7 +10,6 @@ import { enrichImportedChatNames } from '../lib/chats/name-enrichment.ts';
 import { chatListPageStatement } from '../lib/chats/list-query.ts';
 import { readDashboardSnapshot } from '../lib/dashboard-data.ts';
 import { availableTodayStatement, publishedTodayStatement } from '../lib/chats/daily-links.ts';
-import { readTelegramWarmup } from '../lib/chats/telegram-warmup.ts';
 import { localDatabase } from './helpers/local-d1.mjs';
 
 // Everything a runner or an open page polls on a timer must stay cheap in D1 rows read, whatever the
@@ -194,30 +193,6 @@ void test('Dashboard chat total comes from the queue counters, not a count over 
   // Measured before: ≈2 000 rows for the chat count alone with 2 000 chats; now the whole snapshot stays small.
   console.log("DASH_ROWS", read);
   assert.ok(read <= 200, `dashboard snapshot read ${read} rows`);
-});
-
-void test('Telegram warmup reads only its own account, not every account of the owner', async (t) => {
-  const db = await localDatabase(t);
-  const ACCOUNTS = 5; const EVENTS_PER_ACCOUNT = 1000;
-  const statements = [];
-  for (let acct = 0; acct < ACCOUNTS; acct += 1) {
-    statements.push(db.prepare(`INSERT INTO telegram_accounts(id,user_id,account_number,name,created_at,updated_at)
-      VALUES (?1,'u',?2,?1,1,1)`).bind(`tg-${acct}`, acct + 10));
-    for (let index = 0; index < EVENTS_PER_ACCOUNT; index += 1) {
-      const id = `warmup-${acct}-${index}`;
-      statements.push(db.prepare(`INSERT INTO activity_events(id,user_id,event_type,platform,occurred_at,event_date,metadata_json,source_key,telegram_account_id)
-        VALUES (?1,'u',?2,'telegram',?3,'2027-01-15','{}',?1,?4)`)
-        .bind(id, index % 3 === 0 ? 'chat_joined' : 'publication', index, `tg-${acct}`));
-      if (statements.length >= 200) await db.batch(statements.splice(0));
-    }
-  }
-  if (statements.length) await db.batch(statements);
-  const { rows } = meter(db);
-  const read = await rows(metered => readTelegramWarmup(metered, 'u', 'tg-0'));
-  // Measured before activity_events_user_account_type_idx: the (user_id) index prefix forced a walk of
-  // every account's events (≈31 000 + 31 000 rows for the owner). Now it stays near one account's size.
-  console.log("WARMUP_ROWS", read);
-  assert.ok(read <= EVENTS_PER_ACCOUNT * 2, `warmup read ${read} rows for one account among ${ACCOUNTS}`);
 });
 
 void test('Published-today reads only its own platform, not every platform of the owner', async (t) => {

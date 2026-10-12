@@ -1,25 +1,30 @@
 'use client';
 
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Play } from 'lucide-react';
 import { useShell } from '@/components/shell/shell-context';
 import { Button } from '@/components/ui/button';
 import { Surface } from '@/components/ui/surface';
 import { goalRatio } from '@/components/views/shared/pace';
+import type { WorkdayStatus } from '@/components/views/today/workday-panel';
 
 /** Інвертована картка «Фокус»: одна наступна дія, лічильник прострочених лідів і кнопка переходу. */
-export function FocusCard({ onOpenGoals }: { onOpenGoals: () => void }) {
+export function FocusCard({ onOpenGoals, workday, onStartDay }: { onOpenGoals: () => void; workday: WorkdayStatus | null; onStartDay: () => void }) {
   const { snapshot, navigate, openLead } = useShell();
   const next = snapshot.leadTasks[0];
   const publication = snapshot.publicationGoal;
   const remaining = Math.max(0, publication.target - publication.completed);
 
-  const action = next
-    ? { eyebrow: 'Наступна дія', text: `${next.title} — ${next.leadName}`, label: 'Відкрити ліда', run: () => openLead(next.leadId) }
-    : !snapshot.workday
-      ? { eyebrow: 'Наступна дія', text: 'Почни робочий день, щоб зафіксувати цілі й запустити відлік часу.', label: 'Почати постинг', run: () => navigate('platforms') }
+  // До першого знімка від панелі дня стан береться зі знімка «Сьогодні».
+  const started = workday ? workday.started : Boolean(snapshot.workday);
+  const busy = workday?.busy ?? false;
+
+  const action = !started
+    ? { text: 'Почни робочий день, щоб зафіксувати цілі й запустити відлік часу.', label: 'Почати день', run: onStartDay, start: true }
+    : next
+      ? { text: `${next.title} — ${next.leadName}`, label: 'Відкрити ліда', run: () => openLead(next.leadId), start: false }
       : remaining > 0
-        ? { eyebrow: 'Наступна дія', text: `До цілі публікацій лишилось ${remaining}.`, label: 'Почати постинг', run: () => navigate('platforms') }
-        : { eyebrow: 'Наступна дія', text: 'Ціль публікацій виконано. Перевір відгуки й нових лідів.', label: 'Відкрити лідів', run: () => navigate('leads') };
+        ? { text: `До цілі публікацій лишилось ${remaining}.`, label: 'Почати постинг', run: () => navigate('platforms'), start: false }
+        : { text: 'Ціль публікацій виконано. Перевір відгуки й нових лідів.', label: 'Відкрити лідів', run: () => navigate('leads'), start: false };
 
   return (
     <Surface variant="inverted" radius="card" data-reveal className="flex flex-col justify-between gap-8 p-6" aria-labelledby="focus-title">
@@ -38,7 +43,7 @@ export function FocusCard({ onOpenGoals }: { onOpenGoals: () => void }) {
           {publication.target > 0 ? ` · публікації ${Math.round(goalRatio(publication.completed, publication.target) * 100)}%` : ''}
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="action" size="lg" className="bg-action-ink text-action" onClick={action.run}>{action.label}<ArrowRight aria-hidden="true" strokeWidth={1.5} /></Button>
+          <Button variant="action" size="lg" className="bg-action-ink text-action" busy={action.start && busy} onClick={action.run}>{action.start ? <Play aria-hidden="true" strokeWidth={1.5} /> : null}{action.label}{action.start ? null : <ArrowRight aria-hidden="true" strokeWidth={1.5} />}</Button>
           <Button variant="ghost" size="lg" className="text-inherit hover:bg-action-ink/10 hover:text-inherit" onClick={onOpenGoals}>Цілі й напрямки</Button>
         </div>
       </div>

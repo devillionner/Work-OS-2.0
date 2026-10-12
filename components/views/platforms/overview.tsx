@@ -9,11 +9,11 @@ import { goalTone } from '@/components/ui/ring';
 import { dayProgress } from '@/components/views/shared/pace';
 
 export type PlatformLinkItem = { id?: string; name?: string; link?: string };
-export type PublicationPace = { ratePerHour: number; completed: number; target: number };
+export type PublicationPace = { completed: number; target: number };
 
-/** Огляд платформи: темп і ціль публікацій, приєднані й опубліковані сьогодні (з копіюванням посилань). */
+/** Огляд платформи: ціль публікацій, приєднані й опубліковані сьогодні (з копіюванням посилань). */
 export function PlatformOverview({ pace, available, joined, published }: { pace?: PublicationPace; available?: PlatformLinkItem[]; joined?: PlatformLinkItem[]; published?: PlatformLinkItem[] }) {
-  const safe = pace ?? { ratePerHour: 0, completed: 0, target: 0 };
+  const safe = pace ?? { completed: 0, target: 0 };
   const ratio = safe.target > 0 ? safe.completed / safe.target : 0;
   return (
     <section aria-label="Сьогоднішній стан" className="grid gap-3 @xl:grid-cols-2 @4xl:grid-cols-3">
@@ -22,7 +22,6 @@ export function PlatformOverview({ pace, available, joined, published }: { pace?
         <div className="min-w-0">
           <p className="m-0 text-[13px] text-ink-2">Ціль публікацій</p>
           <p className="m-0 font-mono text-[28px] leading-tight">{safe.completed} <span className="text-base text-ink-2">/ {safe.target}</span></p>
-          <p className="m-0 text-xs text-ink-2">Темп <span className="font-mono text-ink">{safe.ratePerHour}/год</span></p>
         </div>
       </Surface>
       {available ? <LinkStat label="Доступні для публікації" items={available} /> : null}
