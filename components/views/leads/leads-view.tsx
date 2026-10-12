@@ -15,6 +15,7 @@ import { SearchField } from '@/components/ui/search-field';
 import { Segmented } from '@/components/ui/segmented';
 import { humanError } from '@/components/ui/human-error';
 import type { LeadDetail } from '@/lib/leads/application/queries';
+import { cn } from '@/lib/utils';
 import { createBrowserCommandClient, getJson, labels, type LeadList, type Mutation } from './client';
 import { LeadBoard } from './lead-board';
 import { LeadEditor } from './lead-editor';
@@ -164,11 +165,12 @@ export default function LeadsView() {
   return (
     <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4 pb-6" aria-busy={!list && !listError}>
       <TopbarControls>
-        <Segmented<Mode> label="Режим лідів" value={mode} onValueChange={changeMode} items={[{ value: 'board', label: 'Дошка' }, { value: 'list', label: 'Список' }]} />
-        <Button variant="outline" size="sm" className={orderActive ? 'shrink-0' : 'shrink-0 text-ink-3'} onClick={toggleOrder} aria-label={orderActive ? ORDER_LABEL[order] : `${ORDER_LABEL[order]}, не діє: список відсортовано за колонкою`} title="Порядок за давністю відгуку">
-          {order === 'newest' ? <ArrowDown aria-hidden="true" strokeWidth={1.5} /> : <ArrowUp aria-hidden="true" strokeWidth={1.5} />}{ORDER_LABEL[order]}
+        <div className="shrink-0"><Segmented<Mode> label="Режим лідів" value={mode} onValueChange={changeMode} items={[{ value: 'board', label: 'Дошка' }, { value: 'list', label: 'Список' }]} /></div>
+        {/* У вузькому слоті Topbar (на ПК з відкритим Inspector) кнопка порядку лишається іконкою, а пошук стискається. */}
+        <Button variant="outline" size="sm" className={cn('shrink-0 @max-[30rem]/slot:w-8 @max-[30rem]/slot:px-0', !orderActive && 'text-ink-3')} onClick={toggleOrder} aria-label={orderActive ? ORDER_LABEL[order] : `${ORDER_LABEL[order]}, не діє: список відсортовано за колонкою`} title="Порядок за давністю відгуку">
+          {order === 'newest' ? <ArrowDown aria-hidden="true" strokeWidth={1.5} /> : <ArrowUp aria-hidden="true" strokeWidth={1.5} />}<span className="@max-[30rem]/slot:sr-only">{ORDER_LABEL[order]}</span>
         </Button>
-        <SearchField value={search} onValueChange={setSearch} placeholder="Ім’я, контакт, предмет, викладач" wrapperClassName="min-w-[150px] max-w-[320px] flex-1" hotkey={!phone} />
+        <SearchField value={search} onValueChange={setSearch} placeholder="Ім’я, контакт, предмет, викладач" wrapperClassName="min-w-[88px] max-w-[320px] flex-1 @min-[30rem]/slot:min-w-[150px]" hotkey={!phone} />
       </TopbarControls>
 
       <TodayStrip refreshKey={refresh} onSelect={openLead} />
