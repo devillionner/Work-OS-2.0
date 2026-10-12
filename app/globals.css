@@ -45,6 +45,13 @@
 [data-atmosphere="mercury"] { --atm-veil: 74%; --hg-mid: #7B8494; --hg-dark: #3A414D; --hg-deep: #12151B; --hg-rim: 150 185 235; --glass: rgb(16 17 20 / 0.72); }
 [data-atmosphere="steel"] { --atm-veil: 42%; --st-0: #0B0D10; --st-1: #1C2026; --st-2: #3A4048; --st-3: #59616C; --st-glow: 0 0 255; }
 [data-atmosphere="road"] { --atm-1: #5b4636; --atm-2: #1f1915; --atm-3: #8a6a4a; --atm-4: #0d0b09; }
+/* «Промені», «Глибина», «Аврора»: синє світло в темряві (шари — components/shell/atmosphere-light.tsx). Тло #02030A, зерно сильніше за стандартне, скло прозоріше, щоб світло просвічувало. */
+[data-atmosphere="rays"], [data-atmosphere="depth"], [data-atmosphere="aurora"] { --field: #02030A; --noise-opacity: 0.2; }
+[data-atmosphere="rays"] { --atm-veil: 60%; --glass: rgb(16 17 20 / 0.66); --glass-inner: rgb(16 17 20 / 0.34); --glass-strong: rgb(20 21 25 / 0.7); }
+[data-atmosphere="depth"] { --atm-veil: 35%; --glass: rgb(16 17 20 / 0.44); --glass-inner: rgb(16 17 20 / 0.28); --glass-strong: rgb(20 21 25 / 0.5); }
+[data-atmosphere="aurora"] { --atm-veil: 60%; --glass: rgb(16 17 20 / 0.56); --glass-inner: rgb(16 17 20 / 0.3); --glass-strong: rgb(20 21 25 / 0.62); }
+/* На телефоні між атмосферою й текстом лежить вуаль (--atm-veil), тож картки там можуть бути прозорішими, ніж на ПК, де текст лежить на склі полотна. */
+@media (max-width: 767px) { [data-atmosphere="rays"], [data-atmosphere="depth"], [data-atmosphere="aurora"] { --glass: rgb(16 17 20 / 0.32); --glass-inner: rgb(16 17 20 / 0.24); } }
 
 @theme {
   --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -83,18 +90,25 @@ body::after {
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
+/* Плівкове зерно світлих атмосфер: сірий шум із контрастом (світлі й темні цяточки), overlay лежить на світлі за склом. */
+:is([data-atmosphere="rays"], [data-atmosphere="depth"], [data-atmosphere="aurora"]) body::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='g' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0 0 0 0 1'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='2.4' intercept='-0.7'/%3E%3CfeFuncG type='linear' slope='2.4' intercept='-0.7'/%3E%3CfeFuncB type='linear' slope='2.4' intercept='-0.7'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+
 @layer components {
   /* Поверхні. Blur лише на полотні, Inspector, Sheet і меню (≤ 2 шари в кадрі). */
   .glass, .glass-strong { border: 1px solid var(--line); box-shadow: var(--highlight); }
   .glass { background: var(--glass); }
   .glass-strong { background: var(--glass-strong); }
+  /* Скло на склі (картки на полотні): світлі атмосфери задають прозоріше --glass-inner; без нього — те саме --glass. */
+  .glass .glass { background: var(--glass-inner, var(--glass)); }
   .solid { background: var(--solid); border: 1px solid var(--line); }
   .sunken { background: var(--sunken); }
   .inverted { background: var(--action); color: var(--action-ink); border: 1px solid transparent; }
   .frost { -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--saturate)); backdrop-filter: blur(var(--blur)) saturate(var(--saturate)); }
   @media (max-width: 767px) { .frost { -webkit-backdrop-filter: blur(16px) saturate(var(--saturate)); backdrop-filter: blur(16px) saturate(var(--saturate)); } }
-  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .glass, .glass-strong { background-color: var(--solid); } }
-  @media (prefers-reduced-transparency: reduce) { .glass, .glass-strong { background-color: var(--solid); } .frost { -webkit-backdrop-filter: none; backdrop-filter: none; } }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .glass, .glass-strong, .glass .glass { background-color: var(--solid); } }
+  @media (prefers-reduced-transparency: reduce) { .glass, .glass-strong, .glass .glass { background-color: var(--solid); } .frost { -webkit-backdrop-filter: none; backdrop-filter: none; } }
 
   /* Відгук карток: колір рамки на hover, стиснення на натискання */
   .lift { transition: transform 0.16s var(--ease-out), border-color 0.16s; }

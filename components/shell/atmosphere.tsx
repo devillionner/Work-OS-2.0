@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { ATMOSPHERE_PHOTO_EVENT, loadAtmospherePhoto } from '@/components/shell/atmosphere-store';
 import { gsap, matchMotion, useGSAP } from '@/components/motion/gsap';
+import { LightLayers, isLightPreset, lightMotion, lightSwatchStyle } from '@/components/shell/atmosphere-light';
 import { useTheme, type AtmospherePreset } from '@/components/shell/theme-provider';
 
 type Spot = { left: string; top: string; size: string; color: 1 | 2 | 3 | 4; stretch?: string };
-type SpotPreset = Exclude<AtmospherePreset, 'photo' | 'mercury' | 'steel'>;
+type SpotPreset = 'fog' | 'coast' | 'forest' | 'road';
+const isSpotPreset = (value: AtmospherePreset): value is SpotPreset => value === 'fog' || value === 'coast' || value === 'forest' || value === 'road';
 
 // Розкладка плям на пресет; кольори беруться з токенів --atm-1..4 у globals.css.
 const LAYOUTS: Record<SpotPreset, Spot[]> = {
@@ -74,6 +76,7 @@ function swatchStyle(preset: AtmospherePreset): { attrs: { 'data-atmosphere': st
   if (preset === 'steel') {
     return { attrs: { 'data-atmosphere': preset }, style: { backgroundImage: `radial-gradient(circle at 100% 100%, rgb(var(--st-glow) / 0.95), transparent 64%), ${STEEL_BRUSH}, ${STEEL_BASE}` } };
   }
+  if (isLightPreset(preset)) return { attrs: { 'data-atmosphere': preset }, style: lightSwatchStyle(preset) };
   return { attrs: { 'data-atmosphere': preset }, style: { background: 'conic-gradient(from 210deg, var(--atm-1), var(--atm-3), var(--atm-2), var(--atm-1))' } };
 }
 
@@ -87,7 +90,8 @@ export function Atmosphere() {
   const root = useRef<HTMLDivElement>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const metal = atmosphere === 'mercury' || atmosphere === 'steel';
-  const layout = LAYOUTS[atmosphere === 'photo' || metal ? 'fog' : atmosphere];
+  const light = isLightPreset(atmosphere);
+  const layout = LAYOUTS[isSpotPreset(atmosphere) ? atmosphere : 'fog'];
 
   useEffect(() => {
     if (atmosphere !== 'photo') return;
@@ -113,11 +117,13 @@ export function Atmosphere() {
   // Повільний фоновий рух лише через transform і opacity, 20–90 с, yoyo; на паузі, коли вкладка прихована; вимкнено при reduced motion.
   useGSAP(() => {
     const node = root.current;
-    if (!node || !metal) return;
+    if (!node || !(metal || light)) return;
     const mm = matchMotion((reduced) => {
       if (reduced) return;
       const tweens: gsap.core.Tween[] = [];
-      if (atmosphere === 'mercury') {
+      if (isLightPreset(atmosphere)) {
+        tweens.push(...lightMotion(node, atmosphere));
+      } else if (atmosphere === 'mercury') {
         node.querySelectorAll<HTMLElement>('[data-drop]').forEach((drop, index) => {
           const spec = DROPS[index];
           if (!spec) return;
@@ -136,7 +142,9 @@ export function Atmosphere() {
 
   return (
     <div ref={root} className="atmosphere" aria-hidden="true">
-      {atmosphere === 'mercury' ? (
+      {isLightPreset(atmosphere) ? (
+        <LightLayers preset={atmosphere} />
+      ) : atmosphere === 'mercury' ? (
         <div className="absolute inset-0">
           {DROPS.map((drop, index) => (
             <div

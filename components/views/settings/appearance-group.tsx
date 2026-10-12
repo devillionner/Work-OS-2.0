@@ -3,22 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ATMOSPHERE_PHOTO_EVENT, clearAtmospherePhoto, loadAtmospherePhoto, saveAtmospherePhoto } from '@/components/shell/atmosphere-store';
 import { AtmosphereSwatch } from '@/components/shell/atmosphere';
-import { useTheme, type AtmospherePreset, type Density } from '@/components/shell/theme-provider';
+import { PRESET_GROUPS } from '@/components/shell/atmosphere-presets';
+import { useTheme, type Density } from '@/components/shell/theme-provider';
 import { Button } from '@/components/ui/button';
 import { Segmented } from '@/components/ui/segmented';
 import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 import { Group, Row } from './ui';
 import { humanError } from '@/components/ui/human-error';
-
-const PRESETS: ReadonlyArray<{ key: Exclude<AtmospherePreset, 'photo'>; label: string }> = [
-  { key: 'fog', label: 'Туман' },
-  { key: 'coast', label: 'Узбережжя' },
-  { key: 'forest', label: 'Ліс' },
-  { key: 'road', label: 'Дорога' },
-  { key: 'mercury', label: 'Ртуть' },
-  { key: 'steel', label: 'Синя сталь' },
-];
 
 /** Вигляд: тема, атмосфера (пресети й власне фото, що живе лише в IndexedDB цього пристрою) і щільність. */
 export function AppearanceGroup() {
@@ -65,13 +57,20 @@ export function AppearanceGroup() {
   return (
     <Group id="appearance" title="Вигляд" note="Налаштування вигляду діють лише на цьому пристрої.">
       <Row label="Атмосфера" description="Тло за склом. Власне фото не залишає цей пристрій і не потрапляє в базу даних." stacked>
+        {PRESET_GROUPS.map((group) => (
+          <fieldset key={group.label} className="m-0 min-w-0 border-0 p-0">
+            <legend className="mb-2 p-0 text-xs font-medium text-ink-2">{group.label}</legend>
+            <div className="flex flex-wrap items-center gap-2">
+              {group.items.map((item) => (
+                <button key={item.key} type="button" aria-pressed={atmosphere === item.key} onClick={() => setAtmosphere(item.key)} className={cn('flex items-center gap-2.5 rounded-full border py-1.5 [@media(pointer:coarse)]:py-2 pl-1.5 pr-4 text-[13px] font-medium transition-colors duration-200 active:scale-[0.985]', atmosphere === item.key ? 'border-line-strong bg-raised' : 'border-line hover:bg-raised')}>
+                  <AtmosphereSwatch preset={item.key} />
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        ))}
         <div className="flex flex-wrap items-center gap-2">
-          {PRESETS.map((item) => (
-            <button key={item.key} type="button" aria-pressed={atmosphere === item.key} onClick={() => setAtmosphere(item.key)} className={cn('flex items-center gap-2.5 rounded-full border py-1.5 [@media(pointer:coarse)]:py-2 pl-1.5 pr-4 text-[13px] font-medium transition-colors duration-200 active:scale-[0.985]', atmosphere === item.key ? 'border-line-strong bg-raised' : 'border-line hover:bg-raised')}>
-              <AtmosphereSwatch preset={item.key} />
-              {item.label}
-            </button>
-          ))}
           <button type="button" aria-pressed={atmosphere === 'photo'} disabled={!hasPhoto} onClick={() => setAtmosphere('photo')} className={cn('flex h-10 [@media(pointer:coarse)]:h-11 items-center rounded-full border px-4 text-[13px] font-medium transition-colors duration-200 active:scale-[0.985] disabled:opacity-45', atmosphere === 'photo' ? 'border-line-strong bg-raised' : 'border-line hover:bg-raised')}>Власне фото</button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
