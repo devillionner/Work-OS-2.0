@@ -1,3 +1,7 @@
+-- НЕ ЗАСТОСОВАНО. Цю міграцію винесено з `migrations/`, бо збірки Workers Builds для staging падали на кроці
+-- `deploy:staging` (автозастосування міграцій), і staging залишався на 3.1.0. Перед поверненням у `migrations/`
+-- переглянь лог збірки в дашборді Cloudflare й перевір, чи тригери `lead_duplicate_insert` / `lead_duplicate_update`
+-- на staging існують (їх міг зняти невдалий запуск). Повернення: `git mv` назад у `migrations/` разом з рішенням власника.
 -- Native lead writes check for a duplicate contact in a BEFORE trigger. The original condition
 -- ((phone<>'' AND normalized_phone=?) OR (telegram<>'' AND normalized_telegram=?)) cannot use the phone or
 -- telegram indexes as one predicate, so SQLite walked every lead of the owner through
