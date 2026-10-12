@@ -196,17 +196,15 @@ export function rankPublicationAdvertisements(
   const suitable = candidates.filter((candidate) => candidate.directionMatch !== 'other');
   const eligiblePool = suitable.length ? suitable : candidates;
   const eligibleIds = new Set(eligiblePool.map((candidate) => candidate.row.id));
-  const hasUnusedEligible = eligiblePool.some((candidate) => !candidate.usedToday);
 
+  // Використання сьогодні лише знижує місце у списку й підписується («Сьогодні вже було»), але нічого не блокує: так було в
+  // Prototype Checker (`selectAd` ставив невикористані вище й позначав `repeated`). Будь-яке придатне оголошення можна опублікувати.
   const ranked: RankedAdvertisement[] = candidates.map((candidate) => {
     const inEligiblePool = eligibleIds.has(candidate.row.id);
-    const repeatAllowed = candidate.usedToday && inEligiblePool && !hasUnusedEligible;
-    const selectable = !candidate.usedToday || repeatAllowed;
+    const selectable = true;
     const suggestedLanguage = chooseLanguage(candidate.row, input.profileLanguage);
     const notes: string[] = [];
     if (candidate.directionMatch === 'other') notes.push('Інший напрямок — перевірте відповідність вручну.');
-    if (candidate.usedToday && !selectable) notes.push('Вже використано сьогодні на цій платформі; спочатку оберіть невикористаний придатний варіант.');
-    if (repeatAllowed) notes.push('Повтор дозволений: усі придатні варіанти вже використані сьогодні.');
     if (input.profileLanguage && suggestedLanguage && suggestedLanguage !== input.profileLanguage)
       notes.push(`У профілі мова ${input.profileLanguage.toUpperCase()}, але для цього матеріалу доступна лише ${suggestedLanguage.toUpperCase()}.`);
     return {
@@ -229,8 +227,6 @@ export function rankPublicationAdvertisements(
   ranked.sort((a, b) => {
     const recommended = Number(b.recommended) - Number(a.recommended);
     if (recommended) return recommended;
-    const selectable = Number(b.selectable) - Number(a.selectable);
-    if (selectable) return selectable;
     const direction = directionScore(b.directionMatch) - directionScore(a.directionMatch);
     if (direction) return direction;
     const unused = Number(a.usedToday) - Number(b.usedToday);
@@ -257,13 +253,13 @@ export function rankPublicationAdvertisements(
 
 export async function validatePublicationAdvertisementChoice(
   db: D1Database,
-  input: { userId: string; chatId: string; advertisementId: string; date: string; allowSameDayReuse?: boolean },
+  input: { userId: string; chatId: string; advertisementId: string; date: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const selection = await readPublicationAdvertisementSelection(db, input);
   if (!selection) return { ok: false, error: 'Чат не знайдено.' };
   const item = selection.items.find((candidate) => candidate.id === input.advertisementId);
   if (!item) return { ok: false, error: 'Це оголошення недоступне для цієї платформи або вже заархівоване.' };
-  if (!item.selectable && !(input.allowSameDayReuse && item.usedToday)) return { ok: false, error: item.note || 'Оберіть інше оголошення.' };
+  // Перевіряємо лише доступність (платформа, не заархівоване): повторне використання за день дозволене всюди.
   return { ok: true };
 }
 

@@ -198,7 +198,7 @@ function PublishBody({ chat, quickMode, preferred, onClose, onPublished, onOpenC
           {visible.map((item) => (
             <li key={item.id}>
               <button type="button" aria-pressed={selectedId === item.id} disabled={loading || busy || !item.selectable} onClick={() => selectItem(item)} className={cn('flex w-full flex-col gap-1.5 rounded-inner border px-4 py-3 text-left transition-colors disabled:opacity-45', selectedId === item.id ? 'border-line-strong bg-raised' : 'border-line hover:bg-raised')}>
-                <span className="flex items-center justify-between gap-2"><strong className="truncate text-sm font-medium">{item.title}</strong><span className="flex shrink-0 gap-2 text-[11px] text-ink-2">{item.recommended ? <span className="text-ok">Рекомендовано</span> : null}{item.usedToday ? <span>Сьогодні</span> : null}</span></span>
+                <span className="flex items-center justify-between gap-2"><strong className="truncate text-sm font-medium">{item.title}</strong><span className="flex shrink-0 gap-2 text-[11px] text-ink-2">{item.recommended ? <span className="text-ok">Рекомендовано</span> : null}{item.usedToday ? <span>Сьогодні вже було</span> : null}</span></span>
                 <span className="line-clamp-2 text-xs text-ink-2">{item.ukText || item.ruText}</span>
                 <span className="text-[11px] text-ink-2">{item.directionMatch === 'matched' ? 'Напрямок збігається' : item.directionMatch === 'other' ? 'Інший напрямок' : 'Універсальний матеріал'}{item.note ? ` · ${item.note}` : ''}</span>
               </button>

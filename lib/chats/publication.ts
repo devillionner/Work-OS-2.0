@@ -61,7 +61,7 @@ export async function recordManualPublication(
       : (chat.snoozed_until ?? 0) > now ? 'Цей чат відкладено. Публікація ще недоступна.' : 'Для Telegram ще не минуло 6 годин.' };
   }
   if (advertisementId) {
-    const choice = await validatePublicationAdvertisementChoice(db, { userId, chatId: chat.id, advertisementId, date, allowSameDayReuse: quickMode });
+    const choice = await validatePublicationAdvertisementChoice(db, { userId, chatId: chat.id, advertisementId, date });
     if (!choice.ok) return choice;
   }
   const publicationId = crypto.randomUUID();

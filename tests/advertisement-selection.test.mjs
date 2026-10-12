@@ -43,19 +43,21 @@ void test('ranking filters platform and prioritizes confirmed direction before g
   assert.match(items[2].note || '', /Інший напрямок/);
 });
 
-void test('same-platform reuse stays blocked until every suitable choice has been used', () => {
+void test('same-day reuse never blocks: used choices stay selectable and are only ranked lower', () => {
   const rows = [
     row('first', { tags: ['математика'], updated: 1 }),
     row('second', { tags: ['математика'], updated: 2 }),
   ];
   const partlyUsed = rankPublicationAdvertisements(rows, input({ usedToday: new Set(['first']) }));
-  assert.equal(partlyUsed.find((item) => item.id === 'first')?.selectable, false);
-  assert.match(partlyUsed.find((item) => item.id === 'first')?.note || '', /використано сьогодні/);
+  assert.equal(partlyUsed.every((item) => item.selectable), true);
+  assert.equal(partlyUsed.find((item) => item.id === 'first')?.usedToday, true);
+  assert.equal(partlyUsed.find((item) => item.id === 'first')?.recommended, false);
+  assert.doesNotMatch(partlyUsed.find((item) => item.id === 'first')?.note || '', /використано сьогодні/);
   assert.equal(partlyUsed.find((item) => item.id === 'second')?.recommended, true);
+  assert.equal(partlyUsed[0].id, 'second');
 
   const exhausted = rankPublicationAdvertisements(rows, input({ usedToday: new Set(['first', 'second']) }));
   assert.equal(exhausted.every((item) => item.selectable), true);
-  assert.match(exhausted.find((item) => item.id === 'first')?.note || '', /Повтор дозволений/);
 });
 
 void test('profile language is preferred with an explicit available-language fallback', () => {
@@ -73,7 +75,7 @@ void test('selection queries and publication enforcement remain owner scoped', (
   assert.match(selection, /c\.id=\?1 AND c\.user_id=\?2/);
   assert.match(selection, /WHERE user_id=\?1 AND kind='advertisement' AND archived_at IS NULL/);
   assert.match(selection, /p\.user_id=\?1 AND p\.platform=\?2 AND p\.published_on=\?3/);
-  assert.match(publication, /validatePublicationAdvertisementChoice\(db, \{ userId, chatId: chat\.id, advertisementId, date, allowSameDayReuse: quickMode \}\)/);
+  assert.match(publication, /validatePublicationAdvertisementChoice\(db, \{ userId, chatId: chat\.id, advertisementId, date \}\)/);
 });
 
 

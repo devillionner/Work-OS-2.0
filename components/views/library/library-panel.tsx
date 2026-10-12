@@ -215,7 +215,7 @@ export function LibraryPanel({ open, onOpenChange, collection, item, onSaved, on
                 <Field label="Додаткові теги" htmlFor={`${id}-extra`}>
                   <Input id={`${id}-extra`} disabled={locked} value={extraTags.join(', ')} onChange={(event) => set({ tags: [...directions, ...splitList(event.target.value)] })} placeholder="батьки, НМТ, 1–4 клас" />
                 </Field>
-                {item && item.usedTodayPlatforms.length ? <p className="m-0 text-[13px] text-ink-2">Сьогодні вже використано: {cleanLibraryPlatforms(item.usedTodayPlatforms).map(platformLabel).join(', ')}. Повтор на тій самій платформі залежить від наявності невикористаних придатних оголошень.</p> : null}
+                {item && item.usedTodayPlatforms.length ? <p className="m-0 text-[13px] text-ink-2">Сьогодні вже використано: {cleanLibraryPlatforms(item.usedTodayPlatforms).map(platformLabel).join(', ')}.</p> : null}
                 {unsupported.length ? <p className="m-0 text-[13px] text-ink-2">Є старі невідомі платформи: {unsupported.join(', ')}. Обери актуальні зі списку перед збереженням.</p> : null}
                 {item && item.archivedAt === null && cleanLibraryPlatforms(item.platforms).includes('viber') ? <ViberCard key={item.id} item={item} /> : null}
               </>
