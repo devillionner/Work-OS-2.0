@@ -65,7 +65,7 @@ export function GoogleSignIn({ clientId }: { clientId: string }) {
       window.google.accounts.id.renderButton(buttonRef.current, {
         theme: 'filled_black',
         size: 'large',
-        width: Math.min(320, Math.max(200, Math.floor(availableWidth))),
+        width: Math.min(400, Math.max(200, Math.floor(availableWidth))),
         text: 'signin_with',
       });
     };

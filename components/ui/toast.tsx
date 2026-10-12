@@ -50,7 +50,8 @@ function ToastItem({ item, onDone }: { item: ToastItemData; onDone: (id: number)
     const mm = matchMotion((reduced) => {
       gsap.to(element, { y: reduced ? 0 : 12, opacity: 0, duration: reduced ? 0.01 : 0.2, ease: 'power3.in', onComplete: () => onDone(item.id) });
     });
-    window.setTimeout(() => mm.revert(), 400);
+    // Якщо кадри не малюються (вкладка у фоні), твін не завершиться, тож прибираємо Toast і за таймером.
+    window.setTimeout(() => { mm.revert(); onDone(item.id); }, 400);
   }, [item.id, onDone]);
 
   useEffect(() => {

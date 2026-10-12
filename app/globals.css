@@ -133,7 +133,8 @@ body::after {
   ::-webkit-scrollbar-thumb:hover, [data-scrolling]::-webkit-scrollbar-thumb { background: var(--scroll-thumb-active); background-clip: padding-box; }
 }
 
-@media (max-width: 767px) { :root { --toast-bottom: 104px; } }
+/* Toast на телефоні — над Dock і над кнопкою «Створити» (вона закінчується на 144 px від низу). */
+@media (max-width: 767px) { :root { --toast-bottom: 156px; } }
 
 /* Перемикання вкладки панелі: короткий crossfade вмісту без зміни висоти */
 .tab-fade { animation: tab-in 0.16s ease-out; }
