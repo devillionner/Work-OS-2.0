@@ -4,6 +4,7 @@ import { businessDate } from '@/lib/business-time';
 import { canonicalDirections } from '@/lib/directions';
 import { goalVersionStatement } from '@/lib/goals';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
+import { applyDailyGoals } from '@/lib/publication-goal';
 
 const ALLOWED = new Set(['focus_directions', 'daily_booking_goal', 'monthly_booking_goal', 'enabled_platforms', 'target_publication_rate', 'target_response_rate', 'target_booking_rate', 'target_completion_rate']);
 const RATE_KEYS = new Set(['target_publication_rate','target_response_rate','target_booking_rate','target_completion_rate']);
@@ -27,8 +28,21 @@ export async function POST(request: Request): Promise<Response> {
   if (parsed instanceof Response) return parsed;
   const body = parsed as { settings?: unknown };
   if (!body.settings || typeof body.settings !== 'object' || Array.isArray(body.settings)) return Response.json({ error: 'Некоректні налаштування.' }, { status: 400 });
-  const entries = Object.entries(body.settings as Record<string, unknown>).filter(([key]) => ALLOWED.has(key));
-  if (!entries.length || entries.length !== Object.keys(body.settings as Record<string, unknown>).length) return Response.json({ error: 'Є невідомий параметр.' }, { status: 400 });
+  // daily_goals — денні цілі оголошень, нових чатів і відгуків; вони живуть у тому самому рядку розкладу цілей, що й раніше.
+  const { daily_goals: dailyGoals, ...regular } = body.settings as Record<string, unknown>;
+  let goalsToSave: Partial<Record<'ads' | 'chats' | 'responses', number>> | null = null;
+  if (dailyGoals !== undefined) {
+    if (!dailyGoals || typeof dailyGoals !== 'object' || Array.isArray(dailyGoals)) return Response.json({ error: 'Некоректні денні цілі.' }, { status: 400 });
+    goalsToSave = {};
+    for (const [key, value] of Object.entries(dailyGoals as Record<string, unknown>)) {
+      const number = Number(value);
+      if (!['ads', 'chats', 'responses'].includes(key) || !Number.isInteger(number) || number < 0 || number > 100000) return Response.json({ error: 'Денна ціль має бути цілим числом від 0 до 100000.' }, { status: 400 });
+      goalsToSave[key as 'ads' | 'chats' | 'responses'] = number;
+    }
+    if (!Object.keys(goalsToSave).length) return Response.json({ error: 'Некоректні денні цілі.' }, { status: 400 });
+  }
+  const entries = Object.entries(regular).filter(([key]) => ALLOWED.has(key));
+  if ((!entries.length && !goalsToSave) || entries.length !== Object.keys(regular).length) return Response.json({ error: 'Є невідомий параметр.' }, { status: 400 });
   const values = new Map<string, string>();
   for (const [key, value] of entries) {
     if (key === 'focus_directions' || key === 'enabled_platforms') {
@@ -53,6 +67,10 @@ export async function POST(request: Request): Promise<Response> {
     const value = values.get(key);
     if (value === undefined || currentGoals.get(key) === value) continue;
     statements.push(goalVersionStatement(env.DB,{ userId:user.id, key, value:JSON.parse(value), now, today }));
+  }
+  if (goalsToSave) {
+    const row = await env.DB.prepare(`SELECT value_json FROM user_settings WHERE user_id=?1 AND setting_key='analytics-daily-goal-schedule-v1' LIMIT 1`).bind(user.id).first<{ value_json: string }>();
+    statements.push(env.DB.prepare(`INSERT INTO user_settings (user_id,setting_key,value_json,source_import_id,updated_at) VALUES (?1,'analytics-daily-goal-schedule-v1',?2,NULL,?3) ON CONFLICT(user_id,setting_key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at`).bind(user.id, applyDailyGoals(row?.value_json, businessDate(now), goalsToSave), now));
   }
   await env.DB.batch(statements);
   return Response.json({ ok: true, settings: Object.fromEntries([...values].map(([key, value]) => [key, JSON.parse(value)])) });

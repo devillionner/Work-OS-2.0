@@ -144,10 +144,10 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
     const totals = snapshot.platforms.reduce((sum, platform) => ({ publications: sum.publications + platform.publications, joined: sum.joined + platform.joined, bookings: sum.bookings + platform.bookings }), { publications: 0, joined: 0, bookings: 0 });
     return [
       { key: 'publications', label: 'Публікації', count: totals.publications, target: snapshot.publicationGoal.target || null, tone: toneFor(totals.publications, snapshot.publicationGoal.target) },
-      { key: 'joined', label: 'Нові чати', count: totals.joined, target: null, tone: 'rail' },
+      { key: 'joined', label: 'Нові чати', count: totals.joined, target: snapshot.chatGoal.target || null, tone: snapshot.chatGoal.target > 0 ? toneFor(totals.joined, snapshot.chatGoal.target) : 'rail' },
       { key: 'bookings', label: 'Записи', count: totals.bookings, target: snapshot.bookingGoal.target || null, tone: toneFor(totals.bookings, snapshot.bookingGoal.target) },
     ];
-  }, [snapshot.platforms, snapshot.publicationGoal.target, snapshot.bookingGoal.target]);
+  }, [snapshot.platforms, snapshot.publicationGoal.target, snapshot.chatGoal.target, snapshot.bookingGoal.target]);
 
   const topbar = (
     <Topbar

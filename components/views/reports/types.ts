@@ -9,6 +9,8 @@ export type ReportData = {
   calendarContext: CalendarDayContext[];
   selected: Report | null;
   suggestedText: string;
+  /** Чотири рядки «Ціль по … за день: факт/ціль» для вибраного дня. */
+  goalLines: string[];
   summary: Array<{ platform: string; eventType: string; count: number }>;
   details: ReportEventDetail[];
   previousReportReminder: { date: string; pending: boolean };

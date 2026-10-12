@@ -11,10 +11,10 @@ import { useToast } from '@/components/ui/toast';
 import { FOCUS_DIRECTIONS } from '@/lib/directions';
 import { humanError } from '@/components/ui/human-error';
 
-/** Цілі записів, цільова конверсія воронки й напрямки фокусу. Відкривається з «Сьогодні» і з «Налаштування». */
+/** Денні цілі (оголошення, нові чати, відгуки, записи), місячна ціль записів, конверсія воронки й напрямки фокусу. Відкривається з «Сьогодні» і з «Налаштування». */
 export function GoalsPanel({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   return (
-    <Panel open={open} onOpenChange={onOpenChange} title="Цілі й напрямки" subtitle="Денна й місячна ціль записів, цільова конверсія та напрямки фокусу.">
+    <Panel open={open} onOpenChange={onOpenChange} title="Цілі й напрямки" subtitle="Денні цілі, місячна ціль записів, цільова конверсія та напрямки фокусу.">
       <GoalsForm onClose={() => onOpenChange(false)} />
     </Panel>
   );
@@ -26,6 +26,7 @@ function GoalsForm({ onClose }: { onClose: () => void }) {
   const [saving, setSaving] = useState(false);
   const [directions, setDirections] = useState<string[]>(snapshot.focusDirections);
   const [daily, setDaily] = useState(String(snapshot.bookingGoal.target));
+  const [dayGoals, setDayGoals] = useState({ ads: String(snapshot.publicationGoal.target), chats: String(snapshot.chatGoal.target), responses: String(snapshot.responseGoal.target) });
   const [monthly, setMonthly] = useState(String(snapshot.monthlyBookingGoal));
   const [rates, setRates] = useState({
     publicationRate: String(snapshot.funnelTargets.publicationRate),
@@ -45,6 +46,7 @@ function GoalsForm({ onClose }: { onClose: () => void }) {
         body: JSON.stringify({
           settings: {
             focus_directions: directions,
+            daily_goals: { ads: Number(dayGoals.ads), chats: Number(dayGoals.chats), responses: Number(dayGoals.responses) },
             daily_booking_goal: Number(daily),
             monthly_booking_goal: Number(monthly),
             target_publication_rate: Number(rates.publicationRate),
@@ -76,10 +78,20 @@ function GoalsForm({ onClose }: { onClose: () => void }) {
   return (
     <div className="flex flex-col gap-7">
       <fieldset className="m-0 flex flex-col gap-3 border-0 p-0">
-        <legend className="mb-3 p-0 text-[15px] font-medium">Цілі записів</legend>
+        <legend className="mb-3 p-0 text-[15px] font-medium">Цілі на день</legend>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="На день" htmlFor="goal-daily"><Input id="goal-daily" type="number" inputMode="numeric" min={0} max={100000} value={daily} onChange={(event) => setDaily(event.target.value)} /></Field>
-          <Field label="На місяць" htmlFor="goal-monthly"><Input id="goal-monthly" type="number" inputMode="numeric" min={0} max={100000} value={monthly} onChange={(event) => setMonthly(event.target.value)} /></Field>
+          <Field label="Оголошення" htmlFor="goal-ads"><Input id="goal-ads" type="number" inputMode="numeric" min={0} max={100000} value={dayGoals.ads} onChange={(event) => setDayGoals({ ...dayGoals, ads: event.target.value })} /></Field>
+          <Field label="Нові чати" htmlFor="goal-chats"><Input id="goal-chats" type="number" inputMode="numeric" min={0} max={100000} value={dayGoals.chats} onChange={(event) => setDayGoals({ ...dayGoals, chats: event.target.value })} /></Field>
+          <Field label="Відгуки" htmlFor="goal-responses"><Input id="goal-responses" type="number" inputMode="numeric" min={0} max={100000} value={dayGoals.responses} onChange={(event) => setDayGoals({ ...dayGoals, responses: event.target.value })} /></Field>
+          <Field label="Записи" htmlFor="goal-daily"><Input id="goal-daily" type="number" inputMode="numeric" min={0} max={100000} value={daily} onChange={(event) => setDaily(event.target.value)} /></Field>
+        </div>
+        <p className="m-0 text-xs text-ink-2">Нова ціль діє від сьогодні й не переписує минулі дні. 0 означає, що ціль не задана.</p>
+      </fieldset>
+
+      <fieldset className="m-0 flex flex-col gap-3 border-0 p-0">
+        <legend className="mb-3 p-0 text-[15px] font-medium">Ціль записів на місяць</legend>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Записи" htmlFor="goal-monthly"><Input id="goal-monthly" type="number" inputMode="numeric" min={0} max={100000} value={monthly} onChange={(event) => setMonthly(event.target.value)} /></Field>
         </div>
       </fieldset>
 

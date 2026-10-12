@@ -4,8 +4,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/input';
 import { Surface } from '@/components/ui/surface';
+import { Checkbox } from '@/components/ui/toggle';
 import { calendarContextLabels } from '@/lib/reports/calendar-labels';
 import type { CalendarDayContext } from '@/lib/reports/calendar-context';
+import { hasFormLine, replaceGoalLines, setFormLine } from './goal-lines';
 import { formatDate, formatDateLong, formatStamp, type ReportData } from './types';
 
 function Status({ report }: { report: ReportData['selected'] }) {
@@ -52,6 +54,13 @@ export function ReportEditor({ date, data, context, text, onText, saving, confli
       </div>
 
       <Textarea aria-label="Текст щоденного звіту" disabled={saving} value={text} onChange={(event) => onText(event.target.value)} placeholder="Встав текст щоденного звіту або внеси коригування" rows={14} className="min-h-72 font-mono text-[13px] leading-relaxed" />
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <label className="flex min-h-9 cursor-pointer items-center gap-2.5 text-sm [@media(pointer:coarse)]:min-h-11">
+          <Checkbox checked={hasFormLine(text)} disabled={saving} aria-label="Форму заповнено" onCheckedChange={(checked) => onText(setFormLine(text, checked))} />
+          Форму заповнено
+        </label>
+        {data.goalLines.length ? <Button variant="ghost" size="sm" disabled={saving} onClick={() => onText(replaceGoalLines(text, data.goalLines))}>Оновити рядки цілей</Button> : null}
+      </div>
       {!report && data.suggestedText ? <p className="m-0 text-xs text-ink-2">Чернетку сформовано з подій за цей день. Перевір текст перед збереженням.</p> : null}
 
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">

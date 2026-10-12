@@ -6,7 +6,21 @@ const PLATFORM_LABELS: Record<string,string> = {
   telegram:'Telegram', threads:'Threads', whatsapp:'WhatsApp', facebook:'Facebook', viber:'Viber',
 };
 
-export function composeDailyReportText(date: string, rows: ReportSummaryItem[], details: ReportBookingDetail[] = []): string {
+export type ReportGoals = { ads: number | null; chats: number | null; responses: number | null; records: number | null };
+
+/** Чотири рядки «Ціль по … за день: факт/ціль»; не задана ціль (null чи 0) пишеться як «—». Факти — з подій дня. */
+export function composeGoalLines(rows: ReportSummaryItem[], goals: ReportGoals): string[] {
+  const count = (types: string[]) => rows.filter((row) => types.includes(row.eventType)).reduce((sum, row) => sum + Math.max(0, Number(row.count) || 0), 0);
+  const target = (value: number | null) => (value && value > 0 ? String(value) : '—');
+  return [
+    `Ціль по оголошенням за день: ${count(['publication'])}/${target(goals.ads)}`,
+    `Ціль по новим чатам за день: ${count(['chat_joined'])}/${target(goals.chats)}`,
+    `Ціль по відгукам за день: ${count(['lead_created'])}/${target(goals.responses)}`,
+    `Ціль по записам на день: ${count(['lesson_booked', 'curator_booking_pending'])}/${target(goals.records)}`,
+  ];
+}
+
+export function composeDailyReportText(date: string, rows: ReportSummaryItem[], details: ReportBookingDetail[] = [], goals?: ReportGoals): string {
   const grouped = new Map<string,Map<string,number>>();
   for (const row of rows) {
     const platform = row.platform || 'unknown';
@@ -27,6 +41,7 @@ export function composeDailyReportText(date: string, rows: ReportSummaryItem[], 
     for (const booking of bookingLines(details,platform)) lines.push(booking);
     if (index < platforms.length - 1) lines.push('');
   });
+  if (goals) lines.push('', ...composeGoalLines(rows, goals));
   return lines.join('\n');
 }
 

@@ -40,6 +40,9 @@ export function GoalsGroup() {
   const [historyOpen, setHistoryOpen] = useState(false);
   return (
     <Group id="goals" title="Цілі дня" aside={<Button variant="outline" size="sm" onClick={() => setGoalsOpen(true)}>Змінити</Button>}>
+      <Row label="Ціль оголошень на день"><span className="font-mono text-[17px]">{snapshot.publicationGoal.target || '—'}</span></Row>
+      <Row label="Ціль нових чатів на день"><span className="font-mono text-[17px]">{snapshot.chatGoal.target || '—'}</span></Row>
+      <Row label="Ціль відгуків на день"><span className="font-mono text-[17px]">{snapshot.responseGoal.target || '—'}</span></Row>
       <Row label="Ціль записів на день"><span className="font-mono text-[17px]">{snapshot.bookingGoal.target}</span></Row>
       <Row label="Ціль записів на місяць"><span className="font-mono text-[17px]">{snapshot.monthlyBookingGoal}</span></Row>
       <Row label="Напрямки фокусу" description={snapshot.focusDirections.length ? snapshot.focusDirections.join(' · ') : 'Напрямки ще не обрані.'} />

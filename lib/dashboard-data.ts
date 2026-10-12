@@ -3,7 +3,7 @@ import { canonicalDirections } from './directions.ts';
 import { reminderView } from './leads/domain/reminders.ts';
 import { readWorkdaySnapshot, type WorkdaySnapshot } from './workday.ts';
 import { activitySummaryStatement, activityTotals, type ActivitySummaryRow } from './activity-summary.ts';
-import { resolveDailyPublicationGoal } from './publication-goal.ts';
+import { resolveDailyGoalField, resolveDailyPublicationGoal } from './publication-goal.ts';
 
 export type DashboardSnapshot = {
   today: string;
@@ -16,6 +16,8 @@ export type DashboardSnapshot = {
   pendingAfterReport: number;
   bookingGoal: { completed: number; target: number };
   publicationGoal: { completed: number; target: number };
+  chatGoal: { completed: number; target: number };
+  responseGoal: { completed: number; target: number };
   monthlyBookingGoal: number;
   focusDirections: string[];
   funnelTargets: { publicationRate:number; responseRate:number; bookingRate:number; completionRate:number };
@@ -128,6 +130,8 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
     pendingAfterReport,
     bookingGoal: { completed: activityTotals(eventRows).bookings, target: dailyGoal },
     publicationGoal: { completed: activityTotals(eventRows).publications, target: resolveDailyPublicationGoal(settingMap.get('analytics-daily-goal-schedule-v1'), today) },
+    chatGoal: { completed: activityTotals(eventRows).joined, target: resolveDailyGoalField(settingMap.get('analytics-daily-goal-schedule-v1'), today, 'chats') ?? 0 },
+    responseGoal: { completed: activityTotals(eventRows).responses, target: resolveDailyGoalField(settingMap.get('analytics-daily-goal-schedule-v1'), today, 'responses') ?? 0 },
     monthlyBookingGoal,
     focusDirections,
     funnelTargets,

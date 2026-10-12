@@ -14,6 +14,8 @@ export function KpiStrip() {
   );
   const publication = snapshot.publicationGoal;
   const booking = snapshot.bookingGoal;
+  const chatGoal = snapshot.chatGoal;
+  const responseGoal = snapshot.responseGoal;
   return (
     <section aria-label="Результат сьогодні" className="grid grid-cols-2 gap-3 @4xl:grid-cols-4">
       <Tile
@@ -24,8 +26,22 @@ export function KpiStrip() {
         progress={publication.target > 0 ? { value: goalRatio(totals.publications, publication.target), tone: toneFor(totals.publications, publication.target) } : undefined}
         onClick={() => navigate('platforms')}
       />
-      <Tile label="Нові чати" value={totals.joined} icon={MessagesSquare} onClick={() => navigate('platforms')} />
-      <Tile label="Відгуки" value={totals.responses} icon={Reply} onClick={() => navigate('leads')} />
+      <Tile
+        label="Нові чати"
+        value={totals.joined}
+        icon={MessagesSquare}
+        hint={chatGoal.target > 0 ? `ціль ${chatGoal.target}` : undefined}
+        progress={chatGoal.target > 0 ? { value: goalRatio(totals.joined, chatGoal.target), tone: toneFor(totals.joined, chatGoal.target) } : undefined}
+        onClick={() => navigate('platforms')}
+      />
+      <Tile
+        label="Відгуки"
+        value={totals.responses}
+        icon={Reply}
+        hint={responseGoal.target > 0 ? `ціль ${responseGoal.target}` : undefined}
+        progress={responseGoal.target > 0 ? { value: goalRatio(totals.responses, responseGoal.target), tone: toneFor(totals.responses, responseGoal.target) } : undefined}
+        onClick={() => navigate('leads')}
+      />
       <Tile
         label="Записи"
         value={totals.bookings}

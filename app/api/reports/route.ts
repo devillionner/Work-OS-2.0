@@ -9,7 +9,8 @@ import { readPreviousReportReminder } from '@/lib/reports/reminders';
 import { readFinalReportState } from '@/lib/reports/final';
 import { readGoalPlanFact } from '@/lib/goals';
 import { saveReportText } from '@/lib/reports/write';
-import { composeDailyReportText } from '@/lib/reports/compose';
+import { composeDailyReportText, composeGoalLines, type ReportGoals } from '@/lib/reports/compose';
+import { resolveDailyGoalField, resolveDailyPublicationGoal } from '@/lib/publication-goal';
 import { revisionCacheRequest, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
 
 const REQUEST_MAX_BYTES = 32 * 1024;
@@ -35,18 +36,27 @@ export async function GET(request: Request): Promise<Response> {
   ]);
   const selected = selectedResult ?? undefined;
   const selectedDate = selected?.report_date || (validDate(date) && date!.startsWith(month) ? date : null);
-  const [summary, details, previousReportReminder, finalReportState, goalPlanFact] = await Promise.all([
+  const [summary, details, previousReportReminder, finalReportState, goalPlanFact, goalSchedule] = await Promise.all([
     selectedDate ? eventSummary(user.id, selectedDate) : Promise.resolve([]),
     selectedDate ? readReportEventDetails(env.DB, user.id, selectedDate) : Promise.resolve([]),
     readPreviousReportReminder(env.DB, user.id, kyivDate()),
     selectedDate ? readFinalReportState(env.DB,user.id,selectedDate,now,kyivDate()) : Promise.resolve(null),
     selectedDate ? readGoalPlanFact(env.DB,user.id,selectedDate) : Promise.resolve(null),
+    selectedDate ? env.DB.prepare(`SELECT value_json FROM user_settings WHERE user_id=?1 AND setting_key='analytics-daily-goal-schedule-v1' LIMIT 1`).bind(user.id).first<{value_json:string}>() : Promise.resolve(null),
   ]);
   const selectedPublic = selected
     ? { ...publicReport(selected), stale: calendar.find((item) => item.id === selected.id)?.stale ?? false }
     : null;
-  const suggestedText = selectedDate && !selected ? composeDailyReportText(selectedDate, summary, details) : '';
-  const payload={ month, reports: calendar, calendarContext, selected: selectedPublic, suggestedText, summary, details, previousReportReminder, finalReportState, goalPlanFact, leadCommandScope: `reports:${user.id}` };
+  // Цілі дня для рядків наприкінці звіту: оголошення, нові чати, відгуки — з розкладу цілей (1 рядок налаштувань), записи — з денної цілі записів.
+  const goals: ReportGoals | null = selectedDate ? {
+    ads: resolveDailyPublicationGoal(goalSchedule?.value_json, selectedDate),
+    chats: resolveDailyGoalField(goalSchedule?.value_json, selectedDate, 'chats'),
+    responses: resolveDailyGoalField(goalSchedule?.value_json, selectedDate, 'responses'),
+    records: goalPlanFact?.dailyTarget ?? null,
+  } : null;
+  const suggestedText = selectedDate && !selected ? composeDailyReportText(selectedDate, summary, details, goals ?? undefined) : '';
+  const goalLines = goals ? composeGoalLines(summary, goals) : [];
+  const payload={ month, reports: calendar, calendarContext, selected: selectedPublic, suggestedText, goalLines, summary, details, previousReportReminder, finalReportState, goalPlanFact, leadCommandScope: `reports:${user.id}` };
   await putRevisionJson(cacheRequest,payload,45);
   return Response.json(payload,{headers:{'Cache-Control':'no-store','X-Work-OS-Cache':'MISS'}});
 }
