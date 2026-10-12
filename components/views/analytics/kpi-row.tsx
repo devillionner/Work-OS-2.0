@@ -48,6 +48,7 @@ export function KpiRow({ data, previous, onOpen }: { data: AnalyticsData; previo
             hint={`${rate} ${kpi.base}${target > 0 ? ` · ціль ${target}%` : ''}`}
             progress={target > 0 && base > 0 ? { value: goalRatio(data.totals[kpi.rate], target), tone: data.totals[kpi.rate] >= target ? 'ok' : 'hot' } : undefined}
             aside={series.length > 1 ? <Sparkline values={series} width={72} height={32} /> : undefined}
+            title="Події, з яких складається показник"
             onClick={() => onOpen(kpi.key)}
           />
         );

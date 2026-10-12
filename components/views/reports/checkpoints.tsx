@@ -64,7 +64,7 @@ export default function Checkpoints({ date, active, className }: { date: string;
   };
 
   return (
-    <SectionCard title="Проміжні звіти" note="Час визначається від початку робочого дня." className={className}>
+    <SectionCard title="Проміжні звіти" hint="Час визначається від початку робочого дня." className={className}>
       {error && !items ? (
         <div className="flex flex-col items-start gap-3">
           <p role="alert" className="m-0 text-sm text-hot">{error}</p>

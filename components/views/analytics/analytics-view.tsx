@@ -129,11 +129,10 @@ export default function AnalyticsView() {
       {data ? (
         <div aria-busy={current.stale} className={current.stale ? 'flex flex-col gap-3 opacity-60 transition-opacity duration-150 @4xl:gap-4' : 'flex flex-col gap-3 transition-opacity duration-150 @4xl:gap-4'}>
           <KpiRow data={data} previous={previousData} onOpen={setMetric} />
-          <p className="m-0 text-xs text-ink-2">Натисни на показник, щоб побачити події, з яких він складається.</p>
           {isEmpty(data) ? (
             <>
               <div className="grid grid-cols-1 gap-3 @4xl:grid-cols-12 @4xl:gap-4">
-                <InsightsCard className="@4xl:col-span-12" insights={data.insights} overview={overview.data} overviewError={Boolean(overview.error)} bookings={data.totals.bookings} previous={previousData} />
+                <InsightsCard className="@4xl:col-span-12" insights={data.insights} overview={overview.data} overviewError={Boolean(overview.error)} />
               </div>
               <EmptyState
                 text="За цей період ще немає подій. Обери довший період, щоб побачити динаміку й рейтинги."
@@ -145,7 +144,7 @@ export default function AnalyticsView() {
               <Suspense fallback={<Ghost className="h-[420px] rounded-card @4xl:col-span-8" />}>
                 <TrendChart className="@4xl:col-span-8" points={data.trends} previous={previousData?.trends ?? null} periodLabel={formatRange(data.range.from, data.range.to)} />
               </Suspense>
-              <InsightsCard className="@4xl:col-span-4" insights={data.insights} overview={overview.data} overviewError={Boolean(overview.error)} bookings={data.totals.bookings} previous={previousData} />
+              <InsightsCard className="@4xl:col-span-4" insights={data.insights} overview={overview.data} overviewError={Boolean(overview.error)} />
               <PlatformsCard className="@4xl:col-span-12" platforms={data.platforms} previous={previousData?.platforms ?? null} period={period} chatPlatforms={chatPlatforms} onSelectPlatform={showPlatformChats} />
               <FunnelCard className="@4xl:col-span-6" data={data} />
               <SubjectsCard className="@4xl:col-span-6" data={data.subjects} />

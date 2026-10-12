@@ -166,3 +166,7 @@ body::after {
 .hide-scrollbar { scrollbar-width: none; }
 .hide-scrollbar::-webkit-scrollbar { display: none; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }
+/* Підказка, що стрічка прокручується: край, за яким є ще вміст, плавно тане. Клас вмикає клієнт за станом прокрутки. */
+.edge-fade-r { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+.edge-fade-l { mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
+.edge-fade-lr { mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }

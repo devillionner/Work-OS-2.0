@@ -52,6 +52,19 @@ export function LeadBoard({ leads, order, captureRef, selectedId, canDrag, onOpe
   // Кожна колонка окремо; після перенесення картка стає на своє місце за поточним порядком, а не в кінець.
   const columns = useMemo(() => FUNNEL_STAGES.map((stage) => [stage, sortByRecency(leads.filter((lead) => (overrides[lead.id] ?? lead.funnelStage) === stage), order)] as const), [leads, overrides, order]);
 
+  // Колонки вміщуються в ширину (від 11,75 рем кожна); якщо їх усе ж більше, край із продовженням тане, як підказка прокрутки.
+  const [edge, setEdge] = useState({ left: false, right: false });
+  useEffect(() => {
+    const node = board.current;
+    if (!node) return;
+    const update = () => setEdge({ left: node.scrollLeft > 4, right: node.scrollLeft + node.clientWidth < node.scrollWidth - 4 });
+    update();
+    node.addEventListener('scroll', update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => { node.removeEventListener('scroll', update); observer.disconnect(); };
+  }, []);
+
   useLayoutEffect(() => {
     if (!flip.current) return;
     const state = flip.current;
@@ -106,9 +119,9 @@ export function LeadBoard({ leads, order, captureRef, selectedId, canDrag, onOpe
   }, { scope: board, dependencies: [signature, canDrag] });
 
   return (
-    <div ref={board} className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3 hide-scrollbar md:snap-none" aria-label="Дошка лідів">
+    <div ref={board} className={cn('flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3 hide-scrollbar md:snap-none', edge.left && edge.right ? 'edge-fade-lr' : edge.right ? 'edge-fade-r' : edge.left ? 'edge-fade-l' : '')} aria-label="Дошка лідів">
       {columns.map(([stage, items]) => (
-        <section key={stage} data-stage-col={stage} aria-label={labels[stage]} className="flex w-[78vw] shrink-0 snap-start flex-col gap-2 rounded-card border border-line bg-sunken p-2.5 transition-colors duration-200 data-[over=true]:border-line-strong data-[over=true]:bg-raised md:w-[272px]">
+        <section key={stage} data-stage-col={stage} aria-label={labels[stage]} className="flex w-[78vw] shrink-0 snap-start flex-col gap-2 rounded-card border border-line bg-sunken p-2.5 transition-colors duration-200 data-[over=true]:border-line-strong data-[over=true]:bg-raised md:w-auto md:min-w-[11.75rem] md:max-w-[17rem] md:shrink md:basis-0 md:flex-1">
           <header className="flex items-center justify-between gap-2 px-2 pb-1 pt-1.5">
             <h3 className="m-0 text-sm font-medium">{labels[stage]}</h3>
             <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-raised px-1.5 font-mono text-[11px] text-ink-2">{items.length}</span>

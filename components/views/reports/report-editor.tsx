@@ -2,6 +2,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Hint } from '@/components/ui/hint';
 import { Textarea } from '@/components/ui/input';
 import { Surface } from '@/components/ui/surface';
 import { Checkbox } from '@/components/ui/toggle';
@@ -43,7 +44,10 @@ export function ReportEditor({ date, data, context, text, onText, saving, confli
           <h2 id="report-day-title" className="m-0 text-[17px] font-medium">{formatDateLong(date)}</h2>
           <p className="m-0 mt-1 text-[13px] text-ink-2"><span className="font-mono">{formatDate(date)}</span>{labels.length ? ` · ${labels.join(' · ')}` : ''}</p>
         </div>
-        <Status report={report} />
+        <div className="flex items-center gap-1">
+          {!report && data.suggestedText ? <Hint label="Звідки чернетка">Чернетку сформовано з подій за цей день. Перевір текст перед збереженням.</Hint> : null}
+          <Status report={report} />
+        </div>
       </header>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -61,21 +65,22 @@ export function ReportEditor({ date, data, context, text, onText, saving, confli
         </label>
         {data.goalLines.length ? <Button variant="ghost" size="sm" disabled={saving} onClick={() => onText(replaceGoalLines(text, data.goalLines))}>Оновити рядки цілей</Button> : null}
       </div>
-      {!report && data.suggestedText ? <p className="m-0 text-xs text-ink-2">Чернетку сформовано з подій за цей день. Перевір текст перед збереженням.</p> : null}
 
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-        <dl className="m-0 flex flex-col gap-0.5 text-xs text-ink-2">
-          <div className="flex gap-2"><dt>Остання зміна:</dt><dd className="m-0 font-mono">{report ? formatStamp(report.updatedAt) : 'ще не створено'}</dd></div>
-          <div className="flex gap-2"><dt>Остання фінальна здача:</dt><dd className="m-0 font-mono">{report?.submittedAt ? formatStamp(report.submittedAt) : 'ще не здано'}</dd></div>
-          {report ? <div className="flex gap-2"><dt>Версій:</dt><dd className="m-0 font-mono">{report.revisionCount}</dd></div> : null}
-        </dl>
+        {report ? (
+          <dl className="m-0 flex flex-col gap-0.5 text-xs text-ink-2">
+            <div className="flex gap-2"><dt>Остання зміна:</dt><dd className="m-0 font-mono">{formatStamp(report.updatedAt)}</dd></div>
+            {report.submittedAt ? <div className="flex gap-2"><dt>Остання фінальна здача:</dt><dd className="m-0 font-mono">{formatStamp(report.submittedAt)}</dd></div> : null}
+            <div className="flex gap-2"><dt>Версій:</dt><dd className="m-0 font-mono">{report.revisionCount}</dd></div>
+          </dl>
+        ) : <span />}
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" size="sm" disabled={saving || !text.trim()} onClick={onCopy}>Копіювати</Button>
           <Button variant="outline" size="sm" disabled={blocked} onClick={() => onSave(false)}>{saving ? 'Зберігаємо…' : 'Зберегти чернетку'}</Button>
           <Button variant="action" size="sm" disabled={blocked || !data.finalReportState?.canSubmit} onClick={() => onSave(true)}>{saving ? 'Здаємо…' : report?.submittedAt ? 'Здати оновлення' : 'Здати фінальний'}</Button>
+          {data.finalReportState && !data.finalReportState.canSubmit && data.finalReportState.reason ? <Hint label="Чому не можна здати фінальний">{data.finalReportState.reason}</Hint> : null}
         </div>
       </div>
-      {data.finalReportState && !data.finalReportState.canSubmit && data.finalReportState.reason ? <p className="m-0 text-xs text-ink-2">{data.finalReportState.reason}</p> : null}
     </Surface>
   );
 }

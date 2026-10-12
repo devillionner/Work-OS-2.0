@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 export type TileDelta = { text: string; tone?: 'neutral' | 'ok' | 'hot' };
 
 /** KPI-плитка: підпис і велике число ліворуч, утоплена права половина з монохромним гліфом. */
-export function Tile({ label, value, format, hint, icon: Icon, progress, delta, aside, onClick, className }: {
+export function Tile({ label, value, format, hint, icon: Icon, progress, delta, aside, onClick, title, className }: {
   label: string;
   value: number;
   format?: (value: number) => string;
@@ -22,6 +22,8 @@ export function Tile({ label, value, format, hint, icon: Icon, progress, delta, 
   /** Власний вміст утопленої половини замість гліфа. */
   aside?: ReactNode;
   onClick?: () => void;
+  /** Підказка при наведенні, наприклад про те, що плитка відкривається. */
+  title?: string;
   className?: string;
 }) {
   const body = (
@@ -54,7 +56,7 @@ export function Tile({ label, value, format, hint, icon: Icon, progress, delta, 
   );
   const shared = cn('@container/tile flex min-h-[132px] w-full text-left @[16rem]/tile:min-h-[148px]', className);
   return onClick ? (
-    <Surface as="button" type="button" lift data-reveal onClick={onClick} className={shared}>{body}</Surface>
+    <Surface as="button" type="button" lift data-reveal onClick={onClick} title={title} className={shared}>{body}</Surface>
   ) : (
     <Surface data-reveal className={shared}>{body}</Surface>
   );

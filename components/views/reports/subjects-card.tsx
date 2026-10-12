@@ -41,11 +41,11 @@ export default function SubjectsCard({ date, active, className }: { date: string
         <div aria-busy={loading} className="flex flex-col gap-3"><Ghost className="h-14 rounded-inner" /><Ghost className="h-14 rounded-inner" /><Ghost className="h-14 rounded-inner" /></div>
       ) : (
         <>
-          <dl className="m-0 grid grid-cols-3 gap-4">
+          {data.rows.length > 0 ? <dl className="m-0 grid grid-cols-3 gap-4">
             <div><dt className="text-xs text-ink-2">Відгуки</dt><dd className="m-0 font-mono text-[22px] leading-tight tracking-[-0.02em]">{data.total.responses}</dd></div>
             <div><dt className="text-xs text-ink-2">Записи</dt><dd className="m-0 font-mono text-[22px] leading-tight tracking-[-0.02em]">{data.total.bookings}</dd></div>
             <div><dt className="text-xs text-ink-2">Конверсія</dt><dd className="m-0 font-mono text-[22px] leading-tight tracking-[-0.02em]">{analyticsPercentLabel(data.total.conversion, data.total.responses)}</dd></div>
-          </dl>
+          </dl> : null}
           {data.rows.length === 0 ? (
             <EmptyState text="За цей період відгуків і записів немає." />
           ) : (

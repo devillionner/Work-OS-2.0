@@ -25,7 +25,7 @@ const OUTCOMES: ReadonlyArray<{ key: keyof AnalyticsData['outcomes']; label: str
 export function FunnelCard({ data, className }: { data: AnalyticsData; className?: string }) {
   const peak = Math.max(1, ...STEPS.map((step) => data.totals[step.key]));
   return (
-    <SectionCard className={className} title="Де втрачається результат" note="Активність за датою події. Червоним позначено крок, де конверсія нижча за задану ціль.">
+    <SectionCard className={className} title="Де втрачається результат" hint="Активність за датою події. Червоним позначено крок, де конверсія нижча за задану ціль.">
       <ol className="m-0 flex list-none flex-col p-0">
         {STEPS.map((step) => {
           const value = data.totals[step.key];

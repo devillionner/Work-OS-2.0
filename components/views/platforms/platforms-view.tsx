@@ -58,7 +58,7 @@ export default function PlatformsView() {
   const [publishChat, setPublishChat] = useState<Chat | null>(null);
 
   useCommand('chats:add', () => setBulkOpen(true));
-  useCommand('chats:discover', () => setDiscoveryOpen(true));
+  useCommand('chats:discover', () => { if (p.availablePlatforms.some((item) => item.key === 'whatsapp')) p.selectPlatform('whatsapp'); setDiscoveryOpen(true); });
   useCommand('platforms:telegram-schedule', () => { p.selectPlatform('telegram'); setZone('schedule'); setPhoneSection('schedule'); });
 
   const { platform, queue, data } = p;
@@ -186,7 +186,7 @@ export default function PlatformsView() {
     <div className="flex min-w-0 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="action" size="sm" disabled={p.busy !== null} onClick={() => setBulkOpen(true)}><Plus aria-hidden="true" strokeWidth={1.5} />Додати чати</Button>
-        <Button variant="outline" size="sm" disabled={p.busy !== null} onClick={() => setDiscoveryOpen(true)}><Search aria-hidden="true" strokeWidth={1.5} />Знайти чати</Button>
+        {platform === 'whatsapp' ? <Button variant="outline" size="sm" disabled={p.busy !== null} title="Автопошук WhatsApp-груп за запрошеннями в публічних Telegram-групах" onClick={() => setDiscoveryOpen(true)}><Search aria-hidden="true" strokeWidth={1.5} />Знайти чати</Button> : null}
         <Button variant="ghost" size="sm" disabled={p.busy !== null || (platform === 'telegram' && !p.accountId)} onClick={() => setDuplicatesOpen(true)}>Дублікати</Button>
       </div>
       <fieldset className="m-0 flex flex-wrap gap-1.5 border-0 p-0">

@@ -122,7 +122,7 @@ function CohortBody({ cohort, chats }: { cohort: CohortData; chats: AnalyticsDat
   const shownChats = expanded ? chatRows : chatRows.slice(0, CHAT_LIMIT);
 
   return (
-    <SectionCard title="Що сталося з відгуками" note="Ліди за датою відгуку; записи й уроки лишаються за початковим чатом.">
+    <SectionCard title="Що сталося з відгуками" hint="Ліди за датою відгуку; записи й уроки лишаються за початковим чатом.">
       {totals.leads === 0 ? (
         <EmptyState text="У цьому періоді ще немає відгуків — когорти з’являться, коли надійдуть перші ліди." />
       ) : (

@@ -11,7 +11,7 @@ export type CreateAction = { key: string; label: string; icon: typeof Plus; view
 export const CREATE_ACTIONS: ReadonlyArray<CreateAction> = [
   { key: 'lead', label: 'Додати ліда', icon: UserPlus, view: 'leads', command: 'lead:create' },
   { key: 'chats', label: 'Додати чати', icon: MessageSquarePlus, view: 'platforms', command: 'chats:add' },
-  { key: 'discover', label: 'Знайти нові чати', icon: Search, view: 'platforms', command: 'chats:discover' },
+  { key: 'discover', label: 'Знайти WhatsApp-чати', icon: Search, view: 'platforms', command: 'chats:discover' },
   { key: 'material', label: 'Новий матеріал', icon: FilePlus2, view: 'library', command: 'library:create' },
   { key: 'timer', label: 'Запустити таймер', icon: Timer, view: null, command: 'timers:open' },
 ];

@@ -6,6 +6,7 @@ import { Panel } from '@/components/shell/panel';
 import { Button } from '@/components/ui/button';
 import { Chip } from '@/components/ui/chip';
 import { Ghost } from '@/components/ui/ghost';
+import { Hint } from '@/components/ui/hint';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Surface } from '@/components/ui/surface';
@@ -477,7 +478,7 @@ export function DiscoveryPanel({
 
   const stateTone = (state: 'ok' | 'warn' | 'bad') => (state === 'ok' ? 'bg-ok' : state === 'bad' ? 'bg-hot' : 'bg-warn');
 
-  return <Panel open={open} onOpenChange={(next) => { if (!next) close(); }} title="Автопошук WhatsApp-чатів" subtitle="Шукає WhatsApp-запрошення в публічних Telegram-групах і перевіряє їх у WhatsApp. У Work OS нічого не записується, доки ти не натиснеш «Підтвердити» або «Архівувати всі».">
+  return <Panel open={open} onOpenChange={(next) => { if (!next) close(); }} title="Автопошук WhatsApp-чатів" subtitle="Знаходить WhatsApp-групи за запрошеннями в публічних Telegram-групах.">
     <div className="flex flex-col gap-5">
       <Surface variant="sunken" radius="inner" className="flex flex-col gap-3 p-4">
         <div className="flex items-baseline gap-2"><strong className="font-mono text-[32px] font-normal leading-none">{displayedTargetCount}</strong><span className="text-sm text-ink-2">із {displayedGoal} цільових чатів</span></div>
@@ -496,14 +497,12 @@ export function DiscoveryPanel({
 
       <section className="flex flex-col gap-4 rounded-inner border border-line p-4" aria-label="Параметри пошуку">
         <div>
-          <h3 className="m-0 text-[15px] font-medium">{autonomousRunning ? 'Пошук працює' : 'Новий запуск'}</h3>
-          <p className="m-0 mt-1 text-xs text-ink-2">{autonomousRunning ? 'Можна закрити панель чи вкладку й запустити з телефона — пошук іде, поки runner на ПК підключений.' : 'Обери мету й запусти. Решту Work OS зробить автоматично.'}</p>
-          <p className="m-0 mt-1 flex items-center gap-2 text-xs text-ink-2"><i aria-hidden="true" className={cn('size-1.5 rounded-full', runnerConnected ? 'bg-ok' : 'bg-line-strong')} />{runnerConnected === true ? 'Runner на зв’язку' : runnerConnected === false ? 'Runner офлайн — пошук продовжиться, щойно він підключиться. Підключення — в «Налаштування → Сервіс».' : 'Стан runner уточнюється'}</p>
+          <h3 className="m-0 flex items-center gap-1 text-[15px] font-medium">{autonomousRunning ? 'Пошук працює' : 'Новий запуск'}{autonomousRunning ? <Hint label="Пояснення: пошук працює">Можна закрити панель чи вкладку й запустити з телефона — пошук іде, поки runner на ПК підключений.</Hint> : null}</h3>
+          {runnerConnected === false ? <p className="m-0 mt-1 flex items-center gap-2 text-xs text-ink-2"><i aria-hidden="true" className="size-1.5 rounded-full bg-hot" />Runner офлайн — пошук продовжиться, щойно він підключиться. Підключення — в «Налаштування → Сервіс».</p> : null}
         </div>
-        <label htmlFor="discovery-goal" className="flex flex-col gap-1.5 text-xs font-medium text-ink-2">Цільових чатів
+        <label htmlFor="discovery-goal" className="flex flex-col gap-1.5 text-xs font-medium text-ink-2"><span className="flex items-center gap-1">Цільових чатів<Hint label="Що вважаємо цільовим чатом">WhatsApp-група (не спільнота) на 700–18 000 учасників з українською аудиторією, де можна писати. Реклама й активність не враховуються. Церкви, парафії, молитовні групи — нецільові. Джерела — лише публічні Telegram-групи: ті, де вже є твої акаунти, і відкриті для вступу; закриті (за запитом) пропускаються, у Telegram-групи runner не вступає.</Hint></span>
           <Input id="discovery-goal" type="number" min={1} max={100} value={autonomousRunning ? displayedGoal : goal} disabled={telegramBusy || autonomousRunning} onChange={(event) => setGoalOverride(clampNumber(event.target.value, 1, 100, 50))} />
         </label>
-        <details className="text-xs text-ink-2"><summary className="cursor-pointer select-none font-medium text-ink">Що вважаємо цільовим чатом</summary><p className="m-0 mt-2 leading-relaxed">WhatsApp-група (не спільнота) на 700–18 000 учасників з українською аудиторією, де можна писати. Реклама й активність не враховуються. Церкви, парафії, молитовні групи — нецільові. Джерела — лише публічні Telegram-групи: ті, де вже є твої акаунти, і відкриті для вступу; закриті (за запитом) пропускаються, у Telegram-групи runner не вступає.</p></details>
         {autonomousRunning || pausing
           ? <Button variant="outline" busy={pausing} disabled={telegramBusy} onClick={() => void stopAutonomousSearch()}><Square aria-hidden="true" strokeWidth={1.5} />{pausing ? 'Зберігаємо паузу…' : 'Зупинити автопошук'}</Button>
           : <Button variant="action" busy={telegramBusy} onClick={() => void startAutonomousSearch()}><Search aria-hidden="true" strokeWidth={1.5} />{telegramBusy ? 'Запускаємо…' : willResume && localPreview.pauseSummary && !localPreview.done ? 'Продовжити автопошук' : willResume && localPreview.completionReason === 'source_error' ? 'Продовжити пошук' : willResume && localPreview.completionReason === 'sources_exhausted' ? 'Шукати ще раз' : 'Запустити автопошук'}</Button>}
@@ -519,19 +518,16 @@ export function DiscoveryPanel({
             </div>
           </details>
         ) : null}
-        <details className="text-xs text-ink-2">
-          <summary className="cursor-pointer select-none font-medium text-ink">Дані пошуку</summary>
-          <p className="m-0 mt-2 flex flex-col gap-1">
+        <p className="m-0 flex items-center gap-1 text-xs text-ink-2">Дані пошуку<Hint label="Дані пошуку"><span className="flex flex-col gap-1">
             <span>Перевірено запитів пошуку <b className="font-mono font-normal text-ink">{localPreview.telegramCursor}/{localPreview.sourceTotal || '—'}</b> · дублі <b className="font-mono font-normal text-ink">{localPreview.duplicates}</b></span>
             <span>Перевірено у WhatsApp <b className="font-mono font-normal text-ink">{localChecked}</b> · активність <b className="font-mono font-normal text-ink">{formatActivityTime(localPreview.lastActivityAt)}</b></span>
             <span>У черзі на WhatsApp <b className="font-mono font-normal text-ink">{queuedCount(localPreview, Date.now())}/{SOURCE_TARGET_QUEUE}</b></span>
-          </p>
-        </details>
+          </span></Hint></p>
       </section>
 
       <section className="flex flex-col gap-3" aria-label="Кандидати">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div><h3 className="m-0 text-[15px] font-medium">Результати пошуку</h3><p className="m-0 mt-0.5 text-xs text-ink-2">До «Підтвердити» та «Архівувати всі» результати живуть лише в цій вкладці браузера.</p></div>
+          <h3 className="m-0 flex items-center gap-1 text-[15px] font-medium">Результати пошуку<Hint label="Пояснення: результати пошуку">У Work OS нічого не записується, доки ти не натиснеш «Підтвердити» або «Архівувати всі»: до цього результати живуть лише в цій вкладці браузера.</Hint></h3>
           {filter === 'rejected' && localNonTargets.length > 0 ? <Button variant="outline" size="sm" busy={telegramBusy} onClick={() => void archiveAllNonTargets()}>Архівувати всі ({localNonTargets.length})</Button> : null}
         </div>
         <div className="flex flex-wrap gap-1.5">

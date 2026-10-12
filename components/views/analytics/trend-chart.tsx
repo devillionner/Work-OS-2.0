@@ -75,7 +75,7 @@ export default function TrendChart({ points, previous, periodLabel, className }:
     <SectionCard
       className={className}
       title="Динаміка за днями"
-      note={points.length > MAX_POINTS ? `Дні об’єднані по ${Math.ceil(points.length / MAX_POINTS)}, суми не обрізаються.` : undefined}
+      hint={points.length > MAX_POINTS ? `Дні об’єднані по ${Math.ceil(points.length / MAX_POINTS)}, суми не обрізаються.` : undefined}
       aside={<Legend hasPrevious={previous !== null} />}
     >
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">

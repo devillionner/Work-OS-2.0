@@ -1,15 +1,16 @@
 import { useId, type ReactNode } from 'react';
+import { Hint } from '@/components/ui/hint';
 import { Surface } from '@/components/ui/surface';
 import { cn } from '@/lib/utils';
 
-/** Картка розділу: заголовок 17/500, необов'язкове пояснення й права частина шапки. */
-export function SectionCard({ title, note, aside, className, children }: { title: string; note?: ReactNode; aside?: ReactNode; className?: string; children: ReactNode }) {
+/** Картка розділу: заголовок 17/500, видимий підпис (`note`, лише дані: період, діапазон), пояснення в підказці «?» (`hint`) і права частина шапки. */
+export function SectionCard({ title, note, hint, aside, className, children }: { title: string; note?: ReactNode; hint?: ReactNode; aside?: ReactNode; className?: string; children: ReactNode }) {
   const id = useId();
   return (
     <Surface as="section" variant="glass" radius="card" data-reveal aria-labelledby={id} className={cn('flex min-w-0 flex-col gap-4 p-5 @4xl:p-6', className)}>
       <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0">
-          <h2 id={id} className="m-0 text-[17px] font-medium">{title}</h2>
+          <h2 id={id} className="m-0 flex items-center gap-1 text-[17px] font-medium">{title}{hint ? <Hint label={`Пояснення: ${title}`}>{hint}</Hint> : null}</h2>
           {note ? <p className="m-0 mt-1 max-w-[64ch] text-[13px] text-ink-2">{note}</p> : null}
         </div>
         {aside}

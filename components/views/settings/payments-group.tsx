@@ -88,7 +88,7 @@ export function PaymentsGroup() {
     <Group
       id="payments"
       title="Оплати"
-      note="Факт рахується лише з канонічних подій Work OS. Нульові ставки не додають жодних вигаданих нарахувань."
+      hint="Факт рахується з подій Work OS. Нульові ставки нічого не додають."
       aside={<Button variant="action" size="sm" busy={saving} disabled={!dirty} onClick={() => void save()}>{saving ? 'Зберігаємо…' : 'Зберегти'}</Button>}
     >
       {remote.error && !data ? (

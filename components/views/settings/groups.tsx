@@ -27,7 +27,7 @@ export function ProfileGroup() {
   const { user, signOutPath } = useShell();
   return (
     <Group id="profile" title="Профіль">
-      <Row label={<span className="flex items-center gap-3"><Avatar name={user.displayName} size={40} /><span className="min-w-0"><span className="block truncate">{user.displayName}</span><span className="block truncate text-[13px] font-normal text-ink-2">{user.email}</span></span></span>} description="Приватний акаунт: один власник, один оператор.">
+      <Row label={<span className="flex items-center gap-3"><Avatar name={user.displayName} size={40} /><span className="min-w-0"><span className="block truncate">{user.displayName}</span><span className="block truncate text-[13px] font-normal text-ink-2">{user.email}</span></span></span>}>
         <Button variant="outline" size="sm" onClick={() => signOut(signOutPath)}>Вийти</Button>
       </Row>
     </Group>
@@ -82,7 +82,7 @@ export function PlatformsGroup() {
   };
 
   return (
-    <Group id="platforms" title="Платформи" note="Вимкнення лише ховає платформу з робочих екранів. Дані та статистика не видаляються.">
+    <Group id="platforms" title="Платформи" hint="Вимкнення лише ховає платформу з робочих екранів. Дані та статистика не видаляються.">
       {PLATFORMS.map(([platform, label]) => (
         <Row key={platform} label={label}>
           <Switch aria-label={`Показувати ${label}`} checked={enabled.includes(platform)} disabled={saving} onCheckedChange={(checked) => void toggle(platform, checked)} />
@@ -100,7 +100,7 @@ export function ServiceGroup() {
   const [previewing, setPreviewing] = useState(false);
   const close = () => setPanel(null);
   return (
-    <Group id="service" title="Сервіс" note="Рідкісні дії: вони не повинні відволікати під час щоденної роботи.">
+    <Group id="service" title="Сервіс">
       <Row label="Резервна копія" description="Переносна копія всіх даних одним файлом: чати, ліди, звіти, матеріали й історія."><BackupButton /></Row>
       <Row label="Перевірка назв чатів" description="Підтягує доступні назви Telegram, WhatsApp, Viber і Facebook; ручні назви без підтвердження не перезаписує.">
         <Button variant="outline" size="sm" onClick={() => setPanel('names')}>Перевірити</Button>

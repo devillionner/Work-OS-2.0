@@ -1,14 +1,15 @@
 import type { ReactNode } from 'react';
+import { Hint } from '@/components/ui/hint';
 import { Surface } from '@/components/ui/surface';
 import { cn } from '@/lib/utils';
 
 /** Група налаштувань у стилі системних: заголовок над скляним списком рядків. */
-export function Group({ id, title, note, aside, children, tone }: { id: string; title: string; note?: ReactNode; aside?: ReactNode; children: ReactNode; tone?: 'danger' }) {
+export function Group({ id, title, note, hint, aside, children, tone }: { id: string; title: string; note?: ReactNode; /** Пояснення в підказці «?» поруч із заголовком. */ hint?: ReactNode; aside?: ReactNode; children: ReactNode; tone?: 'danger' }) {
   return (
     <section id={`settings-${id}`} aria-labelledby={`settings-${id}-title`} data-reveal className="scroll-mt-4">
       <header className="mb-2 flex flex-wrap items-end justify-between gap-x-4 gap-y-1 px-1">
         <div className="min-w-0">
-          <h2 id={`settings-${id}-title`} className={cn('m-0 text-[17px] font-medium', tone === 'danger' && 'text-hot')}>{title}</h2>
+          <h2 id={`settings-${id}-title`} className={cn('m-0 flex items-center gap-1 text-[17px] font-medium', tone === 'danger' && 'text-hot')}>{title}{hint ? <Hint label={`Пояснення: ${title}`}>{hint}</Hint> : null}</h2>
           {note ? <p className="m-0 mt-0.5 text-[13px] text-ink-2">{note}</p> : null}
         </div>
         {aside}

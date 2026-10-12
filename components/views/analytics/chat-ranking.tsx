@@ -30,7 +30,7 @@ export function ChatRanking({ chats, platform: platformFilter, onPlatformChange,
     <SectionCard
       className={className}
       title="Ефективність чатів"
-      note={`Конверсія = відгуки / публікації за вибраний період. Чати з менш ніж ${CHAT_RANKING_MIN_PUBLICATIONS} публікаціями — мала вибірка.`}
+      hint={`Конверсія = відгуки / публікації за вибраний період. Чати з менш ніж ${CHAT_RANKING_MIN_PUBLICATIONS} публікаціями — мала вибірка.`}
     >
       <fieldset className="m-0 grid min-w-0 grid-cols-1 gap-2 border-0 p-0 @2xl:grid-cols-3">
         <legend className="sr-only">Фільтри рейтингу чатів</legend>

@@ -55,7 +55,7 @@ export function AppearanceGroup() {
   };
 
   return (
-    <Group id="appearance" title="Вигляд" note="Налаштування вигляду діють лише на цьому пристрої.">
+    <Group id="appearance" title="Вигляд" hint="Налаштування вигляду діють лише на цьому пристрої.">
       <Row label="Атмосфера" description="Тло за склом. Власне фото не залишає цей пристрій і не потрапляє в базу даних." stacked>
         {PRESET_GROUPS.map((group) => (
           <fieldset key={group.label} className="m-0 min-w-0 border-0 p-0">

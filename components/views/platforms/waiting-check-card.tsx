@@ -2,6 +2,7 @@
 
 import { Archive, Cable, Check, ExternalLink, Play, RotateCcw, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Hint } from '@/components/ui/hint';
 import { Ring } from '@/components/ui/ring';
 import { Surface } from '@/components/ui/surface';
 import { waitingCheckDone, waitingCheckEtaMinutes, waitingCheckReasonLabel, waitingCheckRunnerOffline, waitingCheckRunnerState, type WaitingCheckView } from '@/lib/chats/whatsapp-waiting-check-copy';
@@ -33,7 +34,7 @@ export function WaitingCheckCard({ view, nowSeconds, busy, onAction, onConnect, 
     <Surface variant="glass" radius="card" className="flex flex-col gap-4 p-5" aria-labelledby="waiting-check-title">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 id="waiting-check-title" className="m-0 text-[15px] font-medium">Перевірка заявок WhatsApp</h2>
+          <h2 id="waiting-check-title" className="m-0 flex items-center gap-1 text-[15px] font-medium">Перевірка заявок WhatsApp<Hint label="Що робить перевірка">Прийняті чати переходять у «Для публікації», решта відкладається на 3 дні.</Hint></h2>
           <p className="m-0 mt-1 flex items-center gap-2 text-xs text-ink-2"><i aria-hidden="true" className={`size-1.5 rounded-full ${runner.online ? 'bg-ok' : 'bg-line-strong'}`} />{runner.label}</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -63,13 +64,13 @@ export function WaitingCheckCard({ view, nowSeconds, busy, onAction, onConnect, 
         </dl>
       ) : null}
 
-      {!view.active && !recent ? <p className="m-0 text-xs text-ink-2">Прийняті чати переходять у «Для публікації», решта відкладається на 3 дні.</p> : null}
       {recent && view.stopReason ? <p className="m-0 text-xs text-warn">Зупинено — {view.stopReason}. Решту чатів не змінено.</p> : null}
 
       {runnerStuck || (!runner.online && !view.active) ? (
-        <div className="flex flex-col items-start gap-3 rounded-inner border border-warn/40 px-4 py-3">
-          <p className="m-0 text-xs text-ink-2">{runnerStuck ? 'Перевірка не стартує. ' : ''}Вона працює через браузер із відкритим WhatsApp Web. Якщо статус не оновився за хвилину, підключи браузер повторно.</p>
+        <div className="flex flex-wrap items-center gap-3">
+          {runnerStuck ? <span className="text-xs text-warn">Перевірка не стартує.</span> : null}
           <Button variant="outline" size="sm" disabled={busy} onClick={onConnect}><Cable aria-hidden="true" strokeWidth={1.5} />Підключити цей браузер</Button>
+          <Hint label="Як працює перевірка">Перевірка йде через браузер із відкритим WhatsApp Web. Якщо статус не оновився за хвилину, підключи браузер повторно.</Hint>
         </div>
       ) : null}
 
