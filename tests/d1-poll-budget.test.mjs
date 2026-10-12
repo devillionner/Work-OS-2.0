@@ -94,7 +94,8 @@ void test('page polls (sync revision, Waiting-check status, Telegram selected li
   assert.ok(await rows(metered => readSelectedChatsCount(metered, 'u')) <= 2, 'the tab badge must not look up every chat');
   assert.ok(await rows(metered => readSelectedChats(metered, 'u')) <= items.length * 3, 'selected list must use index lookups, not scan all chats');
   await saveSelectedChats(db, 'u', { items: [...items, { link: 'https://t.me/budget_new_chat', title: 'Новий', count: 1, last: null }], skipped: 0 }, NOW);
-  assert.ok(await rows(metered => addSelectedChatToJoin(metered, 'u', 'https://t.me/budget_new_chat', NOW)) <= 20, 'adding one selected chat must not scan all chats');
+  await db.prepare(`INSERT OR IGNORE INTO telegram_accounts(id,user_id,account_number,name,is_enabled,is_selected,created_at,updated_at) VALUES ('tg-budget','u',99,'TG',1,0,1,1)`).run();
+  assert.ok(await rows(metered => addSelectedChatToJoin(metered, 'u', 'https://t.me/budget_new_chat', NOW, undefined, 'tg-budget')) <= 20, 'adding one selected chat must not scan all chats');
 });
 
 // Discovery since 2026-10-02: the Telegram-group list is read once per run start, every found invite is

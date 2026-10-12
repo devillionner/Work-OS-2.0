@@ -72,7 +72,10 @@ void test('archive removes an unusable chat from today joins; restore alone does
 
   assert.equal((await transition(db,archived,'restore')).ok,true);
   const restored=await db.prepare("SELECT * FROM chats WHERE id='chat'").first();
-  for(const key of ['joined_at','processed_at','snoozed_until','archive_reason','archived_at','telegram_account_id']) assert.equal(restored[key],null,key);
+  for(const key of ['joined_at','processed_at','snoozed_until','archive_reason','archived_at']) assert.equal(restored[key],null,key);
+  // Telegram: відновлення з архіву повертає чат у чергу приєднання свого акаунта.
+  assert.equal(restored.telegram_account_id,'a');
+  assert.equal(restored.join_candidate_at,NOW);
   assert.equal(await countActive(db,'chat_joined'),0);
   assert.equal((await joinedTodayStatement(db,{userId:'u',platform:'telegram',date:'2026-09-10',accountId:'a'}).all()).results.length,0);
 

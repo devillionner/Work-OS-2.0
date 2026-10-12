@@ -1,12 +1,12 @@
 'use client';
 
-import { Archive, Check, Clock3, Copy, Ellipsis, ExternalLink, History, RotateCcw, Send, Trash2, Undo2, UserRoundCheck } from 'lucide-react';
+import { Archive, Check, Clock3, Copy, Ellipsis, ExternalLink, History, ListMinus, Plus, RotateCcw, Send, Trash2, Undo2, UserRoundCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '@/components/ui/menu';
 import { useToast } from '@/components/ui/toast';
 import type { TelegramAccount } from '@/components/views/platforms/telegram-accounts';
-import { canPublish, compactChatLink, isSnoozed, type Chat, type Queue } from '@/components/views/platforms/use-platforms';
+import { canPublish, compactChatLink, isSnoozed, type Chat, type Queue, type UndoSpec } from '@/components/views/platforms/use-platforms';
 import { supportsChatLeaveChecklist } from '@/lib/chats/leave-policy';
 import { shouldSuggestChatArchive } from '@/lib/chats/snooze-history';
 import { cn } from '@/lib/utils';
@@ -25,12 +25,16 @@ function readyLabel(chat: Chat, clock: number) {
 export type ChatRowProps = {
   chat: Chat;
   queue: Queue;
+  /** Telegram «Для приєднання»: рядок черги (відібраний) чи «Нового чату». */
+  section?: 'queue' | 'pool';
   clock: number;
   busy: boolean;
   lastOpened: boolean;
   accounts: TelegramAccount[];
   whatsappAutopostReady: boolean;
-  onAct: (chat: Chat, action: string, extra?: Record<string, unknown>, undo?: { action: 'restore' | 'unsnooze' | 'undo_published' | 'return_to_join'; label: string }) => void;
+  onAct: (chat: Chat, action: string, extra?: Record<string, unknown>, undo?: UndoSpec) => void;
+  onShortlist: (chat: Chat) => void;
+  onUnshortlist: (chat: Chat) => void;
   onPublish: (chat: Chat) => void;
   onProfile: (chat: Chat) => void;
   onHistory: (chat: Chat) => void;
@@ -43,13 +47,14 @@ export type ChatRowProps = {
 };
 
 /** Рядок чату: ім'я, сигнали стану, головна дія черги й меню решти дій. Без blur, із content-visibility для довгих списків. */
-export function ChatRow({ chat, queue, clock, busy, lastOpened, accounts, whatsappAutopostReady, onAct, onPublish, onProfile, onHistory, onArchive, onOpen, onReturn, onDelete, onAssign, onAutopost }: ChatRowProps) {
+export function ChatRow({ chat, queue, section, clock, busy, lastOpened, accounts, whatsappAutopostReady, onAct, onShortlist, onUnshortlist, onPublish, onProfile, onHistory, onArchive, onOpen, onReturn, onDelete, onAssign, onAutopost }: ChatRowProps) {
   const toast = useToast();
   const [copied, setCopied] = useState(false);
   const snoozed = isSnoozed(chat, clock);
   const blockedByQualification = Boolean(chat.discoveryDecision && chat.discoveryDecision !== 'target');
   const publishable = canPublish(chat, clock);
-  const undo8 = (label: string, action: 'restore' | 'unsnooze' | 'return_to_join') => ({ action, label });
+  const undo8 = (label: string, action: 'restore' | 'unsnooze' | 'return_to_join'): UndoSpec => ({ action, label });
+  const telegramJoin = chat.platform === 'telegram' && queue === 'to_join';
 
   const signals: Array<{ key: string; text: string; tone?: 'ok' | 'warn' }> = [];
   if (lastOpened) signals.push({ key: 'last', text: 'Останній відкритий' });
@@ -74,9 +79,11 @@ export function ChatRow({ chat, queue, clock, busy, lastOpened, accounts, whatsa
         <Menu>
           <MenuTrigger render={<Button variant="icon" size="sm" aria-label={`Ще дії для «${chat.name}»`} disabled={busy} />}><Ellipsis aria-hidden="true" strokeWidth={1.5} /></MenuTrigger>
           <MenuContent align="end">
-            {chat.platform !== 'viber' && (queue === 'waiting' || queue === 'ready' || queue === 'profile_review') ? <MenuItem onClick={() => onProfile(chat)}><UserRoundCheck aria-hidden="true" strokeWidth={1.5} />Профіль і правила</MenuItem> : null}
+            {chat.platform !== 'viber' && (queue === 'waiting' || queue === 'ready' || queue === 'profile_review' || telegramJoin) ? <MenuItem onClick={() => onProfile(chat)}><UserRoundCheck aria-hidden="true" strokeWidth={1.5} />Профіль і правила</MenuItem> : null}
             {(queue === 'waiting' || queue === 'ready') ? <MenuItem disabled={chat.publishedToday} onClick={() => onAct(chat, snoozed ? 'unsnooze' : 'snooze', {}, snoozed ? undefined : undo8('Відкладення можна скасувати протягом 8 секунд.', 'unsnooze'))}><Clock3 aria-hidden="true" strokeWidth={1.5} />{snoozed ? 'Повернути зараз' : 'Відкласти на 3 дні'}</MenuItem> : null}
+            {telegramJoin && section === 'queue' ? <MenuItem onClick={() => onUnshortlist(chat)}><ListMinus aria-hidden="true" strokeWidth={1.5} />Прибрати з черги</MenuItem> : null}
             {queue === 'ready' && chat.platform === 'whatsapp' ? <MenuItem disabled={Boolean(chat.autopostJobId)} onClick={() => onReturn(chat)}><Undo2 aria-hidden="true" strokeWidth={1.5} />Повернути для приєднання</MenuItem> : null}
+            {queue === 'ready' && chat.platform === 'telegram' ? <MenuItem onClick={() => onReturn(chat)}><Undo2 aria-hidden="true" strokeWidth={1.5} />Повернути в чергу приєднання</MenuItem> : null}
             {queue === 'archived' && supportsChatLeaveChecklist(chat.platform) && chat.joinedAt !== null ? <MenuItem onClick={() => onAct(chat, chat.leftAt ? 'undo_leave' : 'confirm_leave')}>{chat.leftAt ? <><Undo2 aria-hidden="true" strokeWidth={1.5} />Скасувати вихід</> : <><Check aria-hidden="true" strokeWidth={1.5} />Я вийшов із чату</>}</MenuItem> : null}
             {queue === 'archived' && canPermanentlyDelete(chat) ? <MenuItem onClick={() => onDelete(chat)}><Trash2 aria-hidden="true" strokeWidth={1.5} />Видалити назавжди</MenuItem> : null}
             <MenuItem onClick={() => void copy()}><Copy aria-hidden="true" strokeWidth={1.5} />{copied ? 'Скопійовано' : 'Копіювати посилання'}</MenuItem>
@@ -111,7 +118,9 @@ export function ChatRow({ chat, queue, clock, busy, lastOpened, accounts, whatsa
       {queue === 'ready' && !publishable ? <p className="m-0 flex items-center gap-1.5 text-xs text-ink-2"><Clock3 aria-hidden="true" strokeWidth={1.5} className="size-3.5" />{blockedByQualification ? 'Публікація заблокована до завершення кваліфікації чату.' : chat.availableAt ? `Публікація буде доступна ${formatDateTime(chat.availableAt)}` : 'Публікація поки недоступна.'}</p> : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        {queue === 'to_join' ? (
+        {queue === 'to_join' && telegramJoin && section === 'pool' ? (
+          <Button variant="action" size="sm" disabled={busy} onClick={() => onShortlist(chat)}><Plus aria-hidden="true" strokeWidth={1.5} />У чергу</Button>
+        ) : queue === 'to_join' ? (
           <>
             <Button variant="action" size="sm" disabled={busy} onClick={() => onAct(chat, 'joined', {}, undo8('Чат приєднано. Можна скасувати протягом 8 секунд.', 'return_to_join'))}>Приєднано</Button>
             {(chat.platform === 'telegram' || chat.platform === 'whatsapp') ? <Button variant="outline" size="sm" disabled={busy} onClick={() => onAct(chat, 'waiting', {}, undo8('Чат у черзі очікування. Можна скасувати протягом 8 секунд.', 'return_to_join'))}>В очікування</Button> : null}

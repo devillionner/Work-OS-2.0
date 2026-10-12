@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
+import { resolveTelegramAccount } from '@/lib/chats/telegram-account';
 import { addSelectedChatToJoin, addTopSelectedChatsToJoin, createSelectedList, deleteSelectedList, parseSelectedExport, readSelectedChats, readSelectedChatsCount, renameSelectedList, saveSelectedChats, SELECTED_IMPORT_MAX_BYTES, SelectedChatsError } from '@/lib/chats/telegram-selected';
 
 function json(value:unknown,status=200){
@@ -27,8 +28,14 @@ export async function POST(request:Request):Promise<Response>{
     const body=await readJsonObject(request,SELECTED_IMPORT_MAX_BYTES);
     if(body instanceof Response)return body;
     const now=Math.floor(Date.now()/1000);
-    if(body.action==='add')return json(await addSelectedChatToJoin(env.DB,user.id,body.link,now,body.listId));
-    if(body.action==='add-top')return json(await addTopSelectedChatsToJoin(env.DB,user.id,body.count,now,body.listId));
+    if(body.action==='add'||body.action==='add-top'){
+      // Відбір із власного списку одразу кладе чат у чергу приєднання вибраного акаунта.
+      const accountId=await resolveTelegramAccount(env.DB,user.id,typeof body.accountId==='string'?body.accountId:null,now);
+      if(!accountId)return json({error:'Додайте активний Telegram-акаунт.'},409);
+      return json(body.action==='add'
+        ? await addSelectedChatToJoin(env.DB,user.id,body.link,now,body.listId,accountId)
+        : await addTopSelectedChatsToJoin(env.DB,user.id,body.count,now,body.listId,accountId));
+    }
     if(body.action==='create-list')return json({lists:await createSelectedList(env.DB,user.id,body.name,now)});
     if(body.action==='rename-list')return json({lists:await renameSelectedList(env.DB,user.id,body.listId,body.name,now)});
     if(body.action==='delete-list')return json({lists:await deleteSelectedList(env.DB,user.id,body.listId,now)});

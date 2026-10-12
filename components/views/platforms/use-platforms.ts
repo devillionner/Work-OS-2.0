@@ -26,14 +26,20 @@ export type Chat = {
   id: string; name: string; link: string; platform: Platform; status: WorkflowQueue; archiveReason: string | null; archivedAt: number | null; profileConfirmed: boolean; profile: ChatProfile;
   publishedToday: boolean; joinedAt: number | null; snoozedUntil: number | null; snoozeCount: number; leftAt: number | null; availableAt: number | null; availableNow: boolean;
   telegramAccountId: string | null; stateToken: string; discoveryDecision: 'review' | 'target' | 'rejected' | 'unavailable' | null; autopostJobId: string | null;
+  /** Telegram «Для публікації»: чат стоїть у слоті розкладу. */
+  inSchedule?: boolean;
+  /** Telegram: час відбору в чергу приєднання; `null` — чат серед «Нових чатів». */
+  candidateAt?: number | null;
 };
 type ProfileCounts = { confirmed: number; draft: number; empty: number; needsReview: number };
 type PublicationState = { chatId: string; chatPublishedToday: boolean; publishedToday: LinkItem[]; availableToday: LinkItem[]; publicationPace: PublicationPace };
+/** Розділи Telegram «Для приєднання»: черга вибраного акаунта (candidates) і «Нові чати» (chats зі сторінкою `limit`). */
+export type JoinSections = { queue: number; pool: number };
 export type ResponseData = {
-  chats: Chat[]; total: number; offset: number; counts: Record<string, number>; profileCounts: Record<string, ProfileCounts>; accountId: string | null;
+  chats: Chat[]; candidates?: Chat[]; sections?: JoinSections; total: number; offset: number; counts: Record<string, number>; profileCounts: Record<string, ProfileCounts>; accountId: string | null;
   joinedToday: LinkItem[]; publishedToday: LinkItem[]; availableToday: LinkItem[]; publicationPace: PublicationPace; requestKey?: string;
 };
-type UndoSpec = { action: 'restore' | 'unsnooze' | 'undo_published' | 'return_to_join'; label: string };
+export type UndoSpec = { action: 'restore' | 'unsnooze' | 'undo_published' | 'return_to_join' | 'shortlist' | 'unshortlist'; label: string; /** Додаткові поля для скасування, наприклад `toPool` для відновлення з «Нових чатів». */ extra?: Record<string, unknown> };
 export type ChatActionResult = { ok: true } | { ok: false; error: string; refresh: boolean };
 export type PlatformConfirmation = { kind: 'assign'; chat: Chat; nextId: string; currentName: string; nextName: string } | { kind: 'return'; chat: Chat };
 type WaitingCheckResponse = Record<string, unknown> & { error?: string };
@@ -157,6 +163,8 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [offset, setOffset] = useState(0);
+  // Скільки «Нових чатів» Telegram завантажено (сторінка 50, «Показати ще» додає ще 50).
+  const [poolLimit, setPoolLimit] = useState(50);
   const [lastOpenedByPlatform, setLastOpenedByPlatform] = useState<Record<string, string | null>>({});
   const [confirmation, setConfirmation] = useState<PlatformConfirmation | null>(null);
   const [deleteChat, setDeleteChat] = useState<Chat | null>(null);
@@ -225,7 +233,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     if (platform === 'viber' && queue === 'profile_review') { queueMicrotask(() => { setQueue('ready'); setProfileFilter('all'); setOffset(0); }); return; }
     if (previousFilter.current === filterKey) return;
     previousFilter.current = filterKey;
-    queueMicrotask(() => setOffset(0));
+    queueMicrotask(() => { setOffset(0); setPoolLimit(50); });
   }, [filterKey, platform, queue]);
 
   // Відновлення останньої платформи й черги в межах сеансу.
@@ -290,6 +298,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     try {
       const params = new URLSearchParams({ platform, status: queue, search, offset: String(offset), profile: profileFilter });
       if (requestAccountId) params.set('account', requestAccountId);
+      if (platform === 'telegram' && queue === 'to_join') params.set('limit', String(poolLimit));
       const response = await fetch(`/api/chats?${params}`, { cache: 'no-store', signal: controller.signal });
       const body = await response.json() as ResponseData & { error?: string };
       if (controller.signal.aborted || requestNumber !== loadNumber.current) return;
@@ -299,7 +308,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       setCountsByScope((current) => ({ ...current, [`${platform}:${requestAccountId || ''}`]: body.counts }));
     } catch (reason) { if (!controller.signal.aborted && requestNumber === loadNumber.current) setError(humanError(reason, 'Не вдалося завантажити чати.')); }
     finally { if (!silent && !controller.signal.aborted && requestNumber === loadNumber.current) setLoading(false); }
-  }, [platform, queue, search, profileFilter, offset, requestAccountId, requestKey]);
+  }, [platform, queue, search, profileFilter, offset, requestAccountId, requestKey, poolLimit]);
 
   useEffect(() => {
     reloadChats.current = load;
@@ -499,11 +508,15 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
         if (action === 'published' || action === 'undo_published') void reloadChats.current(true); else await reloadChats.current(true);
         if (undoable && undoSpec) {
           const undoChat = { ...chat, stateToken: body.stateToken as string, snoozedUntil: body.snoozedUntil ?? chat.snoozedUntil };
-          toast.push({ message: action === 'published' ? 'Публікацію відмічено. Якщо це помилка, скасуй її зараз.' : undoSpec.label, duration: Math.max(2000, expiresAt - Date.now()), action: { label: 'Скасувати', onClick: () => { void actRef.current(undoChat, undoSpec.action).then((undone) => { if (undone.ok) toast.push({ message: 'Дію скасовано.' }); }); } } });
+          toast.push({ message: action === 'published' ? 'Публікацію відмічено. Якщо це помилка, скасуй її зараз.' : undoSpec.label, duration: Math.max(2000, expiresAt - Date.now()), action: { label: 'Скасувати', onClick: () => { void actRef.current(undoChat, undoSpec.action, undoSpec.extra).then((undone) => { if (undone.ok) toast.push({ message: 'Дію скасовано.' }); }); } } });
         } else if (action === 'published') {
           toast.push({ message: 'Публікацію відмічено. Чат переміщено нижче завершених на сьогодні.' });
         } else if (action === 'joined' || action === 'waiting') {
           toast.push({ message: action === 'joined' ? 'Чат приєднано.' : 'Чат перенесено в очікування.' });
+        } else if (action === 'return_to_join' && chat.platform === 'telegram') {
+          toast.push({ message: 'Чат повернуто в чергу приєднання.' });
+        } else if (action === 'restore') {
+          toast.push({ message: chat.platform === 'telegram' && !extra.toPool ? 'Чат повернуто в чергу приєднання.' : 'Чат відновлено.' });
         }
         result = { ok: true };
       } catch (reason) {
@@ -535,6 +548,16 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       finally { setBusy(null); }
     });
   }
+
+  // Відбір у чергу приєднання вибраного акаунта (кнопка «+» у «Нових чатах») і зворотний крок; обидва скасовуються 8 с.
+  const shortlistChat = (chat: Chat) => act(chat, 'shortlist', {}, { action: 'unshortlist', label: 'Додано в чергу. Можна скасувати протягом 8 секунд.' });
+  const unshortlistChat = (chat: Chat) => act(chat, 'unshortlist', {}, { action: 'shortlist', label: 'Прибрано з черги. Можна скасувати протягом 8 секунд.' });
+  // Повернення чату в чергу приєднання: для Telegram без підтвердження, якщо чат не стоїть у слоті розкладу.
+  function returnToQueue(chat: Chat) {
+    if (chat.platform === 'telegram' && !chat.inSchedule) { void act(chat, 'return_to_join'); return; }
+    setConfirmation({ kind: 'return', chat });
+  }
+  const showMoreNewChats = () => setPoolLimit((value) => Math.min(500, value + 50));
 
   function assignAccount(chat: Chat, nextId: string) {
     if (busy !== null || nextId === chat.telegramAccountId) return;
@@ -626,7 +649,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     platform, queue, search, setSearch, profileFilter, setProfileFilter, offset, setOffset, availablePlatforms, selectedPlatform,
     data, loading, switchingList, error, setError, busy, tabCounts, selectPlatform, selectQueue, reload: () => reloadChats.current(),
     // чат
-    openChat, act, clock, lastOpenedByPlatform, toggleWhatsAppAutopost, assignAccount, confirmation, setConfirmation, confirmPlatformAction, deleteChat, setDeleteChat, archiveChat, setArchiveChat,
+    openChat, act, shortlistChat, unshortlistChat, returnToQueue, showMoreNewChats, poolLimit, clock, lastOpenedByPlatform, toggleWhatsAppAutopost, assignAccount, confirmation, setConfirmation, confirmPlatformAction, deleteChat, setDeleteChat, archiveChat, setArchiveChat,
     // callbacks панелей
     addedChats, savedProfile, importedDiscoveryChat, invalidateQueueCache,
     // Telegram

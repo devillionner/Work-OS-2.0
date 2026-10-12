@@ -1,7 +1,12 @@
--- НЕ ЗАСТОСОВАНО. Цю міграцію винесено з `migrations/`, бо збірки Workers Builds для staging падали на кроці
--- `deploy:staging` (автозастосування міграцій), і staging залишався на 3.1.0. Перед поверненням у `migrations/`
--- переглянь лог збірки в дашборді Cloudflare й перевір, чи тригери `lead_duplicate_insert` / `lead_duplicate_update`
--- на staging існують (їх міг зняти невдалий запуск). Повернення: `git mv` назад у `migrations/` разом з рішенням власника.
+-- НЕ ЗАСТОСОВАНО. Цю міграцію винесено з `migrations/`: збірки Workers Builds для staging падали на її автозастосуванні.
+-- Найімовірніша причина (докази — `node scripts/d1-insights.mjs --limit 400 --time-period 7d`: `DROP TRIGGER … insert` ×10,
+-- `CREATE TRIGGER … insert` ×14, `CREATE TRIGGER … update` жодного разу, запису `0043` у `d1_migrations` немає): файл на
+-- віддаленій D1 виконує серверний імпорт (Wrangler лише вантажить його в R2), а не локальний сплітер Wrangler. Імпорт атомарний
+-- («якщо виконання не завершилось, БД повертається до початкового стану»), і тіло тригера тут містить рядок
+-- `SELECT CASE … END;`, що закінчується на `END;` перед справжнім `END;` тригера, — схоже, серверний розбір вважає це кінцем
+-- тригера й падає на неповному `CREATE TRIGGER`. Тому DROP-и виконувалися, але весь імпорт відкочувався: тригери на staging лишилися старі.
+-- Перед поверненням у `migrations/` перепиши тригери без `CASE … END;` (умова в `WHEN`, тіло `SELECT RAISE(ABORT,'…');`)
+-- і перевір лог збірки в дашборді Cloudflare. Повернення — разом із рішенням власника.
 -- Native lead writes check for a duplicate contact in a BEFORE trigger. The original condition
 -- ((phone<>'' AND normalized_phone=?) OR (telegram<>'' AND normalized_telegram=?)) cannot use the phone or
 -- telegram indexes as one predicate, so SQLite walked every lead of the owner through

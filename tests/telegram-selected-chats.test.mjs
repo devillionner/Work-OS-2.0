@@ -39,32 +39,36 @@ void test('selected chats are ordered by message count and show whether the chat
   assert.deepEqual(await readSelectedChatsCount(db, 'other'), { count: 0 });
 });
 
-void test('adding a selected chat puts it into «Для приєднання» once and never duplicates it', async (t) => {
+const seedAccount = (db) => db.prepare(`INSERT INTO telegram_accounts(id,user_id,account_number,name,is_enabled,is_selected,created_at,updated_at) VALUES ('tg1','u',1,'TG 1',1,1,1,1)`).run();
+
+void test('adding a selected chat puts it into the join queue of the account once and never duplicates it', async (t) => {
   const db = await localDatabase(t);
+  await seedAccount(db);
   await saveSelectedChats(db, 'u', parseSelectedExport(exportRows), 100);
-  const first = await addSelectedChatToJoin(db, 'u', 'https://t.me/quietchat', 200);
-  assert.deepEqual(first, { added: true, status: 'to_join', accountId: null });
-  const again = await addSelectedChatToJoin(db, 'u', 'https://t.me/quietchat', 210);
+  const first = await addSelectedChatToJoin(db, 'u', 'https://t.me/quietchat', 200, undefined, 'tg1');
+  assert.deepEqual(first, { added: true, status: 'to_join', accountId: 'tg1' });
+  const again = await addSelectedChatToJoin(db, 'u', 'https://t.me/quietchat', 210, undefined, 'tg1');
   assert.equal(again.added, false);
   const rows = await db.prepare(`SELECT name,workflow_status FROM chats WHERE user_id='u' AND normalized_link='https://t.me/quietchat'`).all();
   assert.deepEqual(rows.results, [{ name: 'Тихий чат', workflow_status: 'to_join' }]);
   const events = await db.prepare(`SELECT COUNT(*) AS count FROM activity_events WHERE user_id='u' AND event_type='chat_bulk_added'`).first();
   assert.equal(events.count, 1);
   assert.equal((await readSelectedChats(db, 'u')).items.find(item => item.link === 'https://t.me/quietchat').status, 'to_join');
-  await assert.rejects(addSelectedChatToJoin(db, 'u', 'https://t.me/not_selected', 220), /немає серед відібраних/);
+  await assert.rejects(addSelectedChatToJoin(db, 'u', 'https://t.me/not_selected', 220, undefined, 'tg1'), /немає серед відібраних/);
 });
 
-void test('top-N adds the most active selected chats that are not in Work OS yet, once', async (t) => {
+void test('top-N adds the most active selected chats that are not in Work OS yet, once, into the join queue', async (t) => {
   const db = await localDatabase(t);
+  await seedAccount(db);
   await db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,is_private,created_at,updated_at)
     VALUES ('c1','u','telegram','Активний чат','https://t.me/busy_chat','https://t.me/busy_chat','waiting',0,1,1)`).run();
   await saveSelectedChats(db, 'u', parseSelectedExport(exportRows), 100);
   // busy_chat (40) is already in work, so the top-2 new ones are the private invite (9) and quietchat (2).
-  const first = await addTopSelectedChatsToJoin(db, 'u', 2, 200);
+  const first = await addTopSelectedChatsToJoin(db, 'u', 2, 200, undefined, 'tg1');
   assert.deepEqual(first, { added: 2, links: ['https://t.me/+AbCdEf12345', 'https://t.me/quietchat'] });
-  assert.deepEqual(await addTopSelectedChatsToJoin(db, 'u', 5, 210), { added: 0, links: [] });
+  assert.deepEqual(await addTopSelectedChatsToJoin(db, 'u', 5, 210, undefined, 'tg1'), { added: 0, links: [] });
   const rows = await db.prepare(`SELECT COUNT(*) AS count FROM chats WHERE user_id='u' AND platform='telegram'`).first();
   assert.equal(rows.count, 3);
-  await assert.rejects(addTopSelectedChatsToJoin(db, 'u', 51, 220), /від 1 до 50/);
-  await assert.rejects(addTopSelectedChatsToJoin(db, 'u', 0, 220), /від 1 до 50/);
+  await assert.rejects(addTopSelectedChatsToJoin(db, 'u', 51, 220, undefined, 'tg1'), /від 1 до 50/);
+  await assert.rejects(addTopSelectedChatsToJoin(db, 'u', 0, 220, undefined, 'tg1'), /від 1 до 50/);
 });

@@ -16,7 +16,7 @@ const EVENT_NAMES: Record<string, string> = {
 };
 const ACTION_NAMES: Record<string, string> = {
   joined: 'Приєднано', waiting: 'Очікування запрошення', approved: 'Запрошення підтверджено', failed: 'Невдале приєднання', archive: 'Перенесено в архів', restore: 'Відновлено',
-  return_to_join: 'Повернуто для приєднання', assign_account: 'Перепризначено акаунт', confirm_leave: 'Вихід із чату підтверджено', undo_leave: 'Підтвердження виходу скасовано', undo_published: 'Публікацію скасовано', rename: 'Чат перейменовано',
+  return_to_join: 'Повернуто для приєднання', shortlist: 'Відібрано в чергу приєднання', unshortlist: 'Прибрано з черги приєднання', assign_account: 'Перепризначено акаунт', confirm_leave: 'Вихід із чату підтверджено', undo_leave: 'Підтвердження виходу скасовано', undo_published: 'Публікацію скасовано', rename: 'Чат перейменовано',
 };
 
 const cache = new Map<string, { events: ChatHistoryItem[]; analytics: ChatAnalyticsSnapshot | null }>();

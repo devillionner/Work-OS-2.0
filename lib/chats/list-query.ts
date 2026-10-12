@@ -3,6 +3,13 @@ import { chatLeftAtSql, chatStateTokenSql } from './state.ts';
 
 export const CHAT_LIST_COLUMNS = () => `c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.archived_at,${chatSnoozeCountSql()} AS snooze_count,${chatLeftAtSql()} AS left_at,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.custom_interval_days AS profile_custom_interval_days,p.next_allowed_on AS profile_next_allowed_on,p.directions_json AS profile_directions,p.note AS profile_note`;
 
+/**
+ * Повний набір колонок рядка чату. `todayParam` — номер параметра з діловою датою (`?4` у списку, `?3` у пошуку).
+ * `in_schedule` рахується лише для чатів Telegram «Для публікації» й іде за частковим унікальним індексом
+ * (user_id, telegram_account_id, chat_id): один пошук на рядок сторінки.
+ */
+export const chatRowColumns = (todayParam: string) => `${CHAT_LIST_COLUMNS()},c.join_candidate_at,CASE WHEN c.workflow_status='ready' AND c.platform='telegram' THEN EXISTS(SELECT 1 FROM telegram_schedule_slots sl WHERE sl.user_id=c.user_id AND sl.telegram_account_id=c.telegram_account_id AND sl.chat_id=c.id AND sl.status='pending') ELSE 0 END AS in_schedule,(SELECT dc.decision FROM chat_discovery_candidates dc WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.id NOT LIKE 'waiting-%' ORDER BY dc.updated_at DESC,dc.id LIMIT 1) AS discovery_decision,(SELECT wa.id FROM whatsapp_autopost_jobs wa WHERE wa.user_id=c.user_id AND wa.chat_id=c.id AND wa.published_on=${todayParam} AND wa.status IN ('pending','claimed') ORDER BY wa.created_at DESC LIMIT 1) AS autopost_job_id,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=${todayParam}) AS published_today`;
+
 // One page (50) of a platform queue. The status must stay a plain equality/IN on the column so the
 // (user_id, platform, workflow_status, updated_at) index drives it: the former
 // `(?3='profile_review' AND …) OR c.workflow_status=?3` walked every chat of the owner (≈6 000 rows per page).
@@ -13,7 +20,7 @@ export function chatListPageStatement(db: D1Database, input: {
   const workflowFilter = 'c.workflow_status=?3';
   const profileFilter = reviewQueue || input.needsReview ? ` AND (p.review_status IS NULL OR p.review_status!='confirmed')` : '';
   const accountFilter = input.platform === 'telegram' ? ` AND (c.telegram_account_id=?7 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))` : '';
-  const columns = `${CHAT_LIST_COLUMNS()},(SELECT dc.decision FROM chat_discovery_candidates dc WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.id NOT LIKE 'waiting-%' ORDER BY dc.updated_at DESC,dc.id LIMIT 1) AS discovery_decision,(SELECT wa.id FROM whatsapp_autopost_jobs wa WHERE wa.user_id=c.user_id AND wa.chat_id=c.id AND wa.published_on=?4 AND wa.status IN ('pending','claimed') ORDER BY wa.created_at DESC LIMIT 1) AS autopost_job_id,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?4) AS published_today`;
+  const columns = chatRowColumns('?4');
   // A single-status queue comes out of the (platform, status, updated_at) index already sorted, so
   // LIMIT stops early and the per-chat subqueries run for the 50 page rows only. The review queue spans
   // two statuses and must be sorted, and inlined that evaluated all eight subqueries for every chat of
@@ -27,4 +34,30 @@ export function chatListPageStatement(db: D1Database, input: {
     : `SELECT ${columns} FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 AND ${workflowFilter}${profileFilter}${accountFilter} AND ?5>=0 ORDER BY c.updated_at DESC,c.id LIMIT 50 OFFSET ?6`;
   return db.prepare(sql)
     .bind(input.userId, input.platform, input.status, input.today, input.now, input.offset, ...(input.accountId ? [input.accountId] : []));
+}
+
+// Telegram «Для приєднання» складається з двох розділів. «Нові чати» — без акаунта (telegram_account_id IS NULL), сторінками
+// за індексом (user_id, platform, workflow_status, updated_at): LIMIT зупиняє читання, тож рядків читається стільки, скільки показано.
+export function telegramNewChatsStatement(db: D1Database, input: { userId: string; today: string; offset: number; limit: number }) {
+  return db.prepare(`SELECT ${chatRowColumns('?2')} FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id
+    WHERE c.user_id=?1 AND c.platform='telegram' AND c.workflow_status='to_join' AND c.telegram_account_id IS NULL
+    ORDER BY c.updated_at DESC,c.id LIMIT ?4 OFFSET ?3`)
+    .bind(input.userId, input.today, input.offset, input.limit);
+}
+
+// «Черга приєднання» вибраного акаунта: чати, відібрані кнопкою «+», у порядку відбору. Індекс акаунта
+// (user_id, telegram_account_id, workflow_status, …) звужує вибірку до черги цього акаунта.
+export function telegramJoinQueueStatement(db: D1Database, input: { userId: string; accountId: string; today: string; limit: number }) {
+  return db.prepare(`SELECT ${chatRowColumns('?2')} FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id
+    WHERE c.user_id=?1 AND c.platform='telegram' AND c.workflow_status='to_join' AND c.telegram_account_id=?3
+    ORDER BY c.join_candidate_at,c.rowid LIMIT ?4`)
+    .bind(input.userId, input.today, input.accountId, input.limit);
+}
+
+// Лічильники обох розділів із read model (chat_queue_counts): не більше двох рядків; account_key '' — нові чати.
+export function telegramJoinSectionCountsStatement(db: D1Database, input: { userId: string; accountId: string }) {
+  return db.prepare(`SELECT account_key,SUM(chat_count) AS count FROM chat_queue_counts
+    WHERE user_id=?1 AND platform='telegram' AND workflow_status='to_join' AND (account_key=?2 OR account_key='')
+    GROUP BY account_key`)
+    .bind(input.userId, input.accountId);
 }

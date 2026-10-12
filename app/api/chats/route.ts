@@ -7,7 +7,8 @@ import { changeChatSnooze } from '@/lib/chats/snooze';
 import { chatSnoozeCountSql } from '@/lib/chats/snooze-history';
 import { chatLeftAtSql, chatStateTokenSql, readChatState } from '@/lib/chats/state';
 import { transitionChat } from '@/lib/chats/transitions';
-import { chatListPageStatement } from '@/lib/chats/list-query';
+import { chatListPageStatement, chatRowColumns, telegramJoinQueueStatement, telegramJoinSectionCountsStatement, telegramNewChatsStatement } from '@/lib/chats/list-query';
+import { resolveTelegramAccount } from '@/lib/chats/telegram-account';
 import { availableTodayStatement, joinedTodayStatement, publishedTodayStatement } from '@/lib/chats/daily-links';
 import { PROFILE_CADENCES, saveChatProfile } from '@/lib/chats/profile';
 import type { ChatProfileInput } from '@/lib/chats/profile';
@@ -19,7 +20,7 @@ import { revisionCacheRequest, matchRevisionJson, putRevisionJson } from '@/lib/
 
 const PLATFORMS = new Set(['telegram', 'whatsapp', 'viber', 'facebook']);
 const STATUSES = new Set(['to_join', 'waiting', 'ready', 'profile_review', 'archived']);
-const ACTIONS = new Set(['joined', 'waiting', 'approved', 'failed', 'archive', 'restore', 'snooze', 'unsnooze', 'confirm_leave', 'undo_leave', 'permanent_delete', 'published', 'undo_published', 'assign_account', 'return_to_join', 'profile']);
+const ACTIONS = new Set(['joined', 'waiting', 'approved', 'failed', 'archive', 'restore', 'snooze', 'unsnooze', 'confirm_leave', 'undo_leave', 'permanent_delete', 'published', 'undo_published', 'assign_account', 'return_to_join', 'profile', 'shortlist', 'unshortlist']);
 const REQUEST_MAX_BYTES = 64 * 1024;
 
 type ChatRow = {
@@ -30,7 +31,10 @@ type ChatRow = {
   profile_custom_interval_days: number | null; profile_next_allowed_on: string | null;
   profile_directions: string | null; profile_note: string | null;
   telegram_account_id: string | null; state_token: string; discovery_decision: string | null; autopost_job_id: string | null;
+  join_candidate_at: number | null; in_schedule: number;
 };
+const JOIN_QUEUE_MAX = 200;
+const POOL_LIMIT_MAX = 500;
 
 export async function GET(request: Request): Promise<Response> {
   const user = await getCurrentUser();
@@ -48,8 +52,11 @@ export async function GET(request: Request): Promise<Response> {
 
   const now = unixNow();
   const today = businessDate(now);
+  // Telegram «Для приєднання» віддає два розділи: «Нові чати» (chats, зі сторінкою `limit`) і чергу вибраного акаунта (candidates).
+  const joinAccount = platform === 'telegram' && status === 'to_join' ? accountId : null;
+  const limit = joinAccount ? Math.min(POOL_LIMIT_MAX, Math.max(1, Math.floor(Number(url.searchParams.get('limit'))) || 50)) : 50;
   const cacheRequest = await revisionCacheRequest(env.DB, user.id, 'chats',
-    `unicode-v1:${platform}:${status}:${profile}:${search}:${offset}:${accountId || ''}:${today}:${Math.floor(now/30)}`);
+    `unicode-v2:${platform}:${status}:${profile}:${search}:${offset}:${joinAccount ? limit : ''}:${accountId || ''}:${today}:${Math.floor(now/30)}`);
   const cached = await matchRevisionJson(cacheRequest);
   if (cached) return cached;
   const normalizedSearch = normalizeChatSearchText(search);
@@ -71,14 +78,22 @@ export async function GET(request: Request): Promise<Response> {
     const searchAccountFilter=platform==='telegram'
       ? ` AND (c.telegram_account_id=?4 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))`
       : '';
-    const searchIndex=await env.DB.prepare(`SELECT c.id,c.name,c.link ${searchSource}
+    const searchIndex=await env.DB.prepare(`SELECT c.id,c.name,c.link,c.telegram_account_id AS account_id ${searchSource}
       WHERE c.user_id=?1 AND c.platform=?2 AND ${workflowFilter}${profileFilter}${searchAccountFilter}
       ORDER BY c.updated_at DESC,c.id`)
       .bind(user.id,platform,status,...(accountId?[accountId]:[]))
-      .all<{id:string;name:string;link:string}>();
+      .all<{id:string;name:string;link:string;account_id:string|null}>();
     const matched=searchIndex.results.filter(row=>chatMatchesSearch(row.name,row.link,normalizedSearch));
-    searchTotal=matched.length;
-    searchPageIds=matched.slice(offset,offset+50).map(row=>row.id);
+    if(joinAccount){
+      // Пошук діє на обидва розділи: уся черга акаунта й сторінка «Нових чатів».
+      const queueMatched=matched.filter(row=>row.account_id!==null);
+      const poolMatched=matched.filter(row=>row.account_id===null);
+      searchTotal=poolMatched.length;
+      searchPageIds=[...queueMatched.slice(0,JOIN_QUEUE_MAX),...poolMatched.slice(offset,offset+limit)].map(row=>row.id);
+    }else{
+      searchTotal=matched.length;
+      searchPageIds=matched.slice(offset,offset+50).map(row=>row.id);
+    }
   }
 
   const counterTotalSql = status === 'profile_review'
@@ -92,12 +107,15 @@ export async function GET(request: Request): Promise<Response> {
     : env.DB.prepare(counterTotalSql).bind(...counterBindings, ...(status === 'profile_review' ? [] : [status]));
   const searchRowStatement=search
     ? searchPageIds&&searchPageIds.length
-      ? env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.archived_at,${chatSnoozeCountSql()} AS snooze_count,${chatLeftAtSql()} AS left_at,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.custom_interval_days AS profile_custom_interval_days,p.next_allowed_on AS profile_next_allowed_on,p.directions_json AS profile_directions,p.note AS profile_note,(SELECT dc.decision FROM chat_discovery_candidates dc WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.id NOT LIKE 'waiting-%' ORDER BY dc.updated_at DESC,dc.id LIMIT 1) AS discovery_decision,(SELECT wa.id FROM whatsapp_autopost_jobs wa WHERE wa.user_id=c.user_id AND wa.chat_id=c.id AND wa.published_on=?3 AND wa.status IN ('pending','claimed') ORDER BY wa.created_at DESC LIMIT 1) AS autopost_job_id,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?3) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 AND c.id IN (${searchPageIds.map((_,index)=>`?${index+4}`).join(',')}) ORDER BY c.updated_at DESC,c.id`)
-        .bind(user.id,platform,today,...searchPageIds)
-      : env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.archived_at,${chatSnoozeCountSql()} AS snooze_count,${chatLeftAtSql()} AS left_at,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.custom_interval_days AS profile_custom_interval_days,p.next_allowed_on AS profile_next_allowed_on,p.directions_json AS profile_directions,p.note AS profile_note,(SELECT dc.decision FROM chat_discovery_candidates dc WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.id NOT LIKE 'waiting-%' ORDER BY dc.updated_at DESC,dc.id LIMIT 1) AS discovery_decision,(SELECT wa.id FROM whatsapp_autopost_jobs wa WHERE wa.user_id=c.user_id AND wa.chat_id=c.id AND wa.published_on=?3 AND wa.status IN ('pending','claimed') ORDER BY wa.created_at DESC LIMIT 1) AS autopost_job_id,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?3) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 AND 0`).bind(user.id,platform,today)
+      ? joinAccount
+        ? env.DB.prepare(`SELECT ${chatRowColumns('?3')} FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 AND c.id IN (SELECT value FROM json_each(?4)) ORDER BY c.updated_at DESC,c.id`)
+          .bind(user.id,platform,today,JSON.stringify(searchPageIds))
+        : env.DB.prepare(`SELECT ${chatRowColumns('?3')} FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 AND c.id IN (${searchPageIds.map((_,index)=>`?${index+4}`).join(',')}) ORDER BY c.updated_at DESC,c.id`)
+          .bind(user.id,platform,today,...searchPageIds)
+      : env.DB.prepare(`SELECT ${chatRowColumns('?3')} FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 AND 0`).bind(user.id,platform,today)
     : null;
   const statements = [
-    searchRowStatement||chatListPageStatement(env.DB,{userId:user.id,platform,status,needsReview:profile==='needs_review',today,now,offset,accountId}),
+    searchRowStatement||(joinAccount?telegramNewChatsStatement(env.DB,{userId:user.id,today,offset,limit}):chatListPageStatement(env.DB,{userId:user.id,platform,status,needsReview:profile==='needs_review',today,now,offset,accountId})),
     totalStatement,
     env.DB.prepare(`SELECT workflow_status,SUM(chat_count) AS count,SUM(profile_confirmed_count) AS confirmed_count,SUM(profile_draft_count) AS draft_count,SUM(profile_empty_count) AS empty_count FROM chat_queue_counts WHERE user_id=?1 AND platform=?2${counterAccountFilter} GROUP BY workflow_status`).bind(...counterBindings),
     joinedTodayStatement(env.DB,{userId:user.id,platform,date:today,accountId}),
@@ -106,10 +124,15 @@ export async function GET(request: Request): Promise<Response> {
     env.DB.prepare(`SELECT COUNT(*) AS count FROM activity_events WHERE user_id=?1 AND event_type='publication' AND event_date=?2 AND cancelled_at IS NULL`).bind(user.id,today),
   ];
   if(status==='ready') statements.push(availableTodayStatement(env.DB,{userId:user.id,platform,date:today,accountId,now}));
+  const joinIndex = statements.length;
+  if(joinAccount){
+    statements.push(telegramJoinSectionCountsStatement(env.DB,{userId:user.id,accountId:joinAccount}));
+    if(!search) statements.push(telegramJoinQueueStatement(env.DB,{userId:user.id,accountId:joinAccount,today,limit:JOIN_QUEUE_MAX}));
+  }
   const results = await env.DB.batch(statements);
   const [rowsResult, totalResult, countsResult, joinedResult, publishedResult, goalResult, publicationCountResult] = results;
   const availableResult = status==='ready' ? results[7] : { results: [] };
-  const chats = (rowsResult.results as ChatRow[]).map((row) => ({
+  const toChat = (row: ChatRow) => ({
     id: row.id, name: row.name, link: row.link, platform: row.platform,
     status: row.workflow_status, archiveReason: row.archive_reason, archivedAt: row.archived_at,
     telegramAccountId: row.telegram_account_id, stateToken: row.state_token,
@@ -125,7 +148,17 @@ export async function GET(request: Request): Promise<Response> {
     snoozeCount: Number(row.snooze_count) || 0,
     leftAt: row.left_at === null || row.left_at === undefined ? null : Number(row.left_at),
     ...publicationAvailability(row, now),
-  }));
+    inSchedule: Boolean(row.in_schedule),
+    candidateAt: row.join_candidate_at === null || row.join_candidate_at === undefined ? null : Number(row.join_candidate_at),
+  });
+  const sectionRows = joinAccount ? (results[joinIndex].results as Array<{ account_key: string; count: number }>) : [];
+  const sections = joinAccount ? { queue: Number(sectionRows.find((row) => row.account_key === joinAccount)?.count || 0), pool: Number(sectionRows.find((row) => row.account_key === '')?.count || 0) } : null;
+  const listedRows = rowsResult.results as ChatRow[];
+  const queueRows = !joinAccount ? [] : search
+    ? listedRows.filter((row) => row.telegram_account_id !== null).sort((a, b) => Number(a.join_candidate_at || 0) - Number(b.join_candidate_at || 0) || (a.id < b.id ? -1 : 1))
+    : (results[joinIndex + 1].results as ChatRow[]);
+  const chats = (joinAccount && search ? listedRows.filter((row) => row.telegram_account_id === null) : listedRows).map(toChat);
+  const candidates = joinAccount ? queueRows.map(toChat) : undefined;
   chats.sort((a,b) => Number(a.publishedToday)-Number(b.publishedToday)
     || Number(Boolean(a.snoozedUntil && a.snoozedUntil>now))-Number(Boolean(b.snoozedUntil && b.snoozedUntil>now)));
   const countRows = countsResult.results as Array<{workflow_status:string;count:number;confirmed_count:number;draft_count:number;empty_count:number}>;
@@ -137,7 +170,7 @@ export async function GET(request: Request): Promise<Response> {
   counts.profile_review=profileCounts.profile_review.needsReview;
   const goalValue = (goalResult.results[0] as {value_json?:string}|undefined)?.value_json;
   const completedPublications = Number((publicationCountResult.results[0] as {count?:number}|undefined)?.count || 0);
-  const payload = { chats, total: Number((totalResult.results[0] as {count?:number})?.count || 0), offset, counts, profileCounts, accountId, joinedToday: joinedResult.results, publishedToday: publishedResult.results, availableToday: availableResult.results, publicationPace: { ratePerHour: 7, completed: completedPublications, target: resolveDailyPublicationGoal(goalValue,today) } };
+  const payload = { chats, ...(candidates ? { candidates, sections } : {}), total: sections ? (search ? searchTotal : sections.pool) : Number((totalResult.results[0] as {count?:number})?.count || 0), offset, counts, profileCounts, accountId, joinedToday: joinedResult.results, publishedToday: publishedResult.results, availableToday: availableResult.results, publicationPace: { ratePerHour: 7, completed: completedPublications, target: resolveDailyPublicationGoal(goalValue,today) } };
   await putRevisionJson(cacheRequest, payload, 45);
   return Response.json(payload, { headers: { 'Cache-Control':'no-store', 'X-Work-OS-Cache':'MISS' } });
 }
@@ -148,7 +181,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
   const parsed = await readJsonObject(request, REQUEST_MAX_BYTES);
   if (parsed instanceof Response) return parsed;
-  const body = parsed as { id?: unknown; action?: unknown; reason?: unknown; confirmation?: unknown; accountId?: unknown; stateToken?: unknown; advertisementId?: unknown; language?: unknown; quick?: unknown; profile?: ChatProfileInput };
+  const body = parsed as { id?: unknown; action?: unknown; reason?: unknown; confirmation?: unknown; accountId?: unknown; stateToken?: unknown; advertisementId?: unknown; language?: unknown; quick?: unknown; toPool?: unknown; profile?: ChatProfileInput };
   const id = typeof body.id === 'string' ? body.id : '';
   const action = typeof body.action === 'string' ? body.action : '';
   if (!id || !ACTIONS.has(action)) return Response.json({ error: 'Невідома дія.' }, { status: 400 });
@@ -221,9 +254,9 @@ export async function POST(request: Request): Promise<Response> {
 
   const targetAccount = action === 'assign_account' ? requestedAccount : accountId;
   const result = await transitionChat(env.DB,{userId:user.id,chat,action,accountId:targetAccount,now,
-    reason:typeof body.reason === 'string' ? body.reason : undefined});
+    reason:typeof body.reason === 'string' ? body.reason : undefined,toPool:body.toPool === true});
   if (!result.ok) return Response.json(result,{status:409});
-  if (action === 'archive' || action === 'failed' || action === 'restore' || action === 'joined' || action === 'waiting') {
+  if (action === 'archive' || action === 'failed' || action === 'restore' || action === 'joined' || action === 'waiting' || action === 'shortlist' || action === 'unshortlist') {
     const next = await readChatState(env.DB,user.id,id);
     return next ? Response.json({ ...result, stateToken: next.state_token })
       : Response.json({ error: 'Не вдалося підтвердити новий стан. Оновіть список.' }, { status: 409 });
@@ -259,15 +292,6 @@ async function readPublicationState(userId:string, chat:{id:string;platform:stri
   };
 }
 
-async function selectedTelegramAccount(userId:string,requested:string|null) {
-  let row=requested
-    ? await env.DB.prepare(`SELECT id FROM telegram_accounts WHERE id=?1 AND user_id=?2 AND is_enabled=1 LIMIT 1`).bind(requested,userId).first<{id:string}>()
-    : await env.DB.prepare(`SELECT id FROM telegram_accounts WHERE user_id=?1 AND is_enabled=1 ORDER BY is_selected DESC,account_number LIMIT 1`).bind(userId).first<{id:string}>();
-  if(!row&&!requested) {
-    const now=unixNow();
-    const id=`${userId}:tg1`;
-    await env.DB.prepare(`INSERT OR IGNORE INTO telegram_accounts (id,user_id,account_number,name,is_enabled,is_selected,created_at,updated_at) VALUES (?1,?2,1,'TG 1',1,1,?3,?3)`).bind(id,userId,now).run();
-    row=await env.DB.prepare(`SELECT id FROM telegram_accounts WHERE id=?1 AND user_id=?2 AND is_enabled=1 LIMIT 1`).bind(id,userId).first<{id:string}>();
-  }
-  return row?.id||null;
+function selectedTelegramAccount(userId:string,requested:string|null) {
+  return resolveTelegramAccount(env.DB,userId,requested,unixNow());
 }

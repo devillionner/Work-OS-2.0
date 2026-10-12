@@ -13,12 +13,12 @@ import type { SelectedChatView, SelectedChatsView } from '@/lib/chats/telegram-s
 import { humanError } from '@/components/ui/human-error';
 
 const PAGE = 100;
-const STATUS_LABELS: Record<string, string> = { to_join: 'Для приєднання', waiting: 'Очікування', ready: 'Для публікації', failed: 'Не вдалося', archived: 'Архів' };
+const STATUS_LABELS: Record<string, string> = { to_join: 'Нові чати', waiting: 'Очікування', ready: 'Для публікації', failed: 'Не вдалося', archived: 'Архів' };
 type AddReply = { error?: string; added?: boolean; status?: string | null; accountId?: string | null };
 
 // Одне додавання чату — один індексований insert на сервері, а не повний скан чатів, як у bulk-потоці.
-async function addToJoin(chat: SelectedChatView, listId: string) {
-  const response = await fetch('/api/chats/telegram-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add', link: chat.link, listId }) });
+async function addToJoin(chat: SelectedChatView, listId: string, accountId: string | null) {
+  const response = await fetch('/api/chats/telegram-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add', link: chat.link, listId, accountId }) });
   const value = await response.json().catch(() => ({})) as AddReply;
   if (!response.ok) throw new Error(value.error || `Не вдалося додати чат (HTTP ${response.status}).`);
   return value;
@@ -26,11 +26,13 @@ async function addToJoin(chat: SelectedChatView, listId: string) {
 
 const formatLast = (value: string | null) => (value ? new Date(value).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' }) : null);
 
-/** Відібрані Telegram-чати: імпорт JSON-вивантаження, топ за активністю, додавання в «Для приєднання». */
-export function SelectedChats({ view, loading, accounts, listId, listName, canDelete, onDelete, onImported, onAdded, onBulkAdded }: {
+/** Відібрані Telegram-чати: імпорт JSON-вивантаження, топ за активністю, додавання одразу в чергу приєднання вибраного акаунта. */
+export function SelectedChats({ view, loading, accounts, accountId, listId, listName, canDelete, onDelete, onImported, onAdded, onBulkAdded }: {
   view: SelectedChatsView | null;
   loading: boolean;
   accounts: Array<{ id: string; name: string; number: number }>;
+  /** Вибраний Telegram-акаунт: його черга приєднання приймає додані чати. */
+  accountId: string | null;
   listId: string;
   listName: string;
   canDelete: boolean;
@@ -75,12 +77,12 @@ export function SelectedChats({ view, loading, accounts, listId, listName, canDe
   async function takeTop() {
     setBusy('top'); setError('');
     try {
-      const response = await fetch('/api/chats/telegram-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-top', count: topCount, listId }) });
+      const response = await fetch('/api/chats/telegram-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-top', count: topCount, listId, accountId }) });
       const body = await response.json().catch(() => ({})) as { error?: string; added?: number; links?: string[] };
       if (!response.ok) throw new Error(body.error || `Не вдалося додати чати (HTTP ${response.status}).`);
       const links = Array.isArray(body.links) ? body.links : [];
       onBulkAdded(links);
-      toast.push({ message: links.length ? `${links.length} найактивніших чатів додано в чергу «Для приєднання».` : 'Нових чатів для додавання не лишилося.' });
+      toast.push({ message: links.length ? `${links.length} найактивніших чатів додано в чергу приєднання.` : 'Нових чатів для додавання не лишилося.' });
     } catch (reason) { setError(humanError(reason, 'Не вдалося додати чати.')); }
     finally { setBusy(null); }
   }
@@ -88,10 +90,10 @@ export function SelectedChats({ view, loading, accounts, listId, listName, canDe
   async function take(chat: SelectedChatView) {
     setBusy(chat.link); setError('');
     try {
-      const reply = await addToJoin(chat, listId);
+      const reply = await addToJoin(chat, listId, accountId);
       const added = reply.added === true;
       onAdded(chat.link, reply.status ?? 'to_join', reply.accountId ?? null, added);
-      toast.push({ message: added ? `«${chat.title}» додано в чергу «Для приєднання».` : `«${chat.title}» уже є в Work OS.` });
+      toast.push({ message: added ? `«${chat.title}» додано в чергу приєднання.` : `«${chat.title}» уже є в Work OS.` });
     } catch (reason) { setError(humanError(reason, 'Не вдалося додати чат.')); }
     finally { setBusy(null); }
   }
@@ -114,7 +116,7 @@ export function SelectedChats({ view, loading, accounts, listId, listName, canDe
           {items.length - inWork > 0 ? (
             <span className="flex items-center gap-2">
               <Select aria-label="Скільки чатів додати" wrapperClassName="w-24" value={topCount} disabled={busy !== null} onChange={(event) => setTopCount(Number(event.target.value))}>{[10, 25, 50].map((value) => <option key={value} value={value}>{value}</option>)}</Select>
-              <Button variant="action" size="sm" busy={busy === 'top'} disabled={busy !== null} title="Додати найактивніші нові чати в чергу «Для приєднання»" onClick={() => void takeTop()}><Plus aria-hidden="true" strokeWidth={1.5} />{busy === 'top' ? 'Додаємо…' : `Топ-${topCount} до приєднання`}</Button>
+              <Button variant="action" size="sm" busy={busy === 'top'} disabled={busy !== null} title="Додати найактивніші нові чати в чергу приєднання" onClick={() => void takeTop()}><Plus aria-hidden="true" strokeWidth={1.5} />{busy === 'top' ? 'Додаємо…' : `Топ-${topCount} до приєднання`}</Button>
             </span>
           ) : null}
         </div>
@@ -136,8 +138,8 @@ export function SelectedChats({ view, loading, accounts, listId, listName, canDe
                   </div>
                   <div className="shrink-0 text-right" title={last ? `Останнє повідомлення ${last}` : undefined}><b className="block font-mono text-sm font-normal">{chat.count}</b><small className="text-[11px] text-ink-2">{last ? `повідомл. · ${last}` : 'повідомл.'}</small></div>
                   {chat.status
-                    ? <span className="shrink-0 text-xs text-ink-2" title="Цей чат уже є в Work OS">{STATUS_LABELS[chat.status] || chat.status}{accountName(chat.accountId) ? ` · ${accountName(chat.accountId)}` : ''}</span>
-                    : <Button variant="outline" size="sm" busy={busy === chat.link} disabled={busy !== null} title="Додати чат у чергу «Для приєднання»" onClick={() => void take(chat)}><Plus aria-hidden="true" strokeWidth={1.5} />{busy === chat.link ? 'Додаємо…' : 'До приєднання'}</Button>}
+                    ? <span className="shrink-0 text-xs text-ink-2" title="Цей чат уже є в Work OS">{chat.status === 'to_join' && chat.accountId ? 'Черга приєднання' : STATUS_LABELS[chat.status] || chat.status}{accountName(chat.accountId) ? ` · ${accountName(chat.accountId)}` : ''}</span>
+                    : <Button variant="outline" size="sm" busy={busy === chat.link} disabled={busy !== null} title="Додати чат у чергу приєднання" onClick={() => void take(chat)}><Plus aria-hidden="true" strokeWidth={1.5} />{busy === chat.link ? 'Додаємо…' : 'До приєднання'}</Button>}
                 </li>
               );
             })}

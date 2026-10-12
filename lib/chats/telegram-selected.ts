@@ -170,10 +170,11 @@ export async function readSelectedChats(db: D1Database, userId: string, listIdIn
   return { importedAt: stored.importedAt ?? null, skipped: stored.skipped ?? 0, items };
 }
 
-// One selected chat into «Для приєднання». The bulk flow scans every chat of the platform twice
-// (preview + add) to catch legacy non-canonical links; here the link is canonical from the import,
+// One selected chat straight into the join queue of `accountId` («Черга приєднання»): picking it from the owner's own
+// selected list is the deliberate shortlisting step, so it skips «Нові чати». The bulk flow scans every chat of the platform
+// twice (preview + add) to catch legacy non-canonical links; here the link is canonical from the import,
 // so the unique (user_id,platform,normalized_link) index alone guards against duplicates.
-export async function addSelectedChatToJoin(db: D1Database, userId: string, link: unknown, now: number, listIdInput?: unknown) {
+export async function addSelectedChatToJoin(db: D1Database, userId: string, link: unknown, now: number, listIdInput: unknown, accountId: string) {
   const { meta } = await readMeta(db, userId);
   const stored = await readStored(db, userId, resolveListId(meta, listIdInput));
   const item = typeof link === 'string' ? stored?.items.find(entry => entry.link === link) : undefined;
@@ -181,16 +182,16 @@ export async function addSelectedChatToJoin(db: D1Database, userId: string, link
   const normalized = normalizeGroupLink(item.link);
   if (!normalized || normalized.platform !== 'telegram') throw new SelectedChatsError('Некоректне посилання чату.');
   const id = crypto.randomUUID();
-  const inserted = await db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,is_private,created_at,updated_at)
-    VALUES (?1,?2,'telegram',?3,?4,?4,'to_join',?5,?6,?6)
+  const inserted = await db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,is_private,telegram_account_id,join_candidate_at,created_at,updated_at)
+    VALUES (?1,?2,'telegram',?3,?4,?4,'to_join',?5,?7,?6,?6,?6)
     ON CONFLICT(user_id,platform,normalized_link) DO NOTHING RETURNING id`)
-    .bind(id, userId, item.title, normalized.link, Number(normalized.private), now).all<{ id: string }>();
+    .bind(id, userId, item.title, normalized.link, Number(normalized.private), now, accountId).all<{ id: string }>();
   const added = inserted.results.length === 1;
   if (added) {
     await db.prepare(`INSERT INTO activity_events(id,user_id,event_type,occurred_at,event_date,metadata_json,source_key)
       VALUES (?1,?2,'chat_bulk_added',?3,?4,?5,?6)`)
       .bind(crypto.randomUUID(), userId, now, businessDate(now),
-        JSON.stringify({ source: 'telegram_selected', result: { added: 1, counts: { telegram: 1 } }, chatIds: [id] }), `chat-selected:${id}`).run();
+        JSON.stringify({ source: 'telegram_selected', queue: true, result: { added: 1, counts: { telegram: 1 } }, chatIds: [id] }), `chat-selected:${id}`).run();
   }
   const row = await db.prepare(`SELECT workflow_status,telegram_account_id FROM chats WHERE user_id=?1 AND platform='telegram' AND normalized_link=?2 LIMIT 1`)
     .bind(userId, normalized.link).first<{ workflow_status: string; telegram_account_id: string | null }>();
@@ -199,8 +200,8 @@ export async function addSelectedChatToJoin(db: D1Database, userId: string, link
 
 export const SELECTED_BULK_ADD_MAX = 50;
 
-// The N most active selected chats that are not in Work OS yet go into «Для приєднання» in one batch.
-export async function addTopSelectedChatsToJoin(db: D1Database, userId: string, countInput: unknown, now: number, listIdInput?: unknown) {
+// The N most active selected chats that are not in Work OS yet go into the join queue of `accountId` in one batch.
+export async function addTopSelectedChatsToJoin(db: D1Database, userId: string, countInput: unknown, now: number, listIdInput: unknown, accountId: string) {
   const count = Math.floor(Number(countInput));
   if (!Number.isSafeInteger(count) || count < 1 || count > SELECTED_BULK_ADD_MAX) {
     throw new SelectedChatsError(`Можна додати від 1 до ${SELECTED_BULK_ADD_MAX} чатів за раз.`);
@@ -212,16 +213,16 @@ export async function addTopSelectedChatsToJoin(db: D1Database, userId: string, 
       return normalized && normalized.platform === 'telegram' ? [{ id: crypto.randomUUID(), item, normalized }] : [];
     });
   if (!picked.length) return { added: 0, links: [] as string[] };
-  const results = await db.batch(picked.map(({ id, item, normalized }) => db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,is_private,created_at,updated_at)
-    VALUES (?1,?2,'telegram',?3,?4,?4,'to_join',?5,?6,?6)
+  const results = await db.batch(picked.map(({ id, item, normalized }) => db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,is_private,telegram_account_id,join_candidate_at,created_at,updated_at)
+    VALUES (?1,?2,'telegram',?3,?4,?4,'to_join',?5,?7,?6,?6,?6)
     ON CONFLICT(user_id,platform,normalized_link) DO NOTHING RETURNING id`)
-    .bind(id, userId, item.title, normalized.link, Number(normalized.private), now)));
+    .bind(id, userId, item.title, normalized.link, Number(normalized.private), now, accountId)));
   const added = picked.filter((_, index) => results[index].results.length === 1);
   if (added.length) {
     await db.prepare(`INSERT INTO activity_events(id,user_id,event_type,occurred_at,event_date,metadata_json,source_key)
       VALUES (?1,?2,'chat_bulk_added',?3,?4,?5,?6)`)
       .bind(crypto.randomUUID(), userId, now, businessDate(now),
-        JSON.stringify({ source: 'telegram_selected', result: { added: added.length, counts: { telegram: added.length } }, chatIds: added.map(entry => entry.id) }),
+        JSON.stringify({ source: 'telegram_selected', queue: true, result: { added: added.length, counts: { telegram: added.length } }, chatIds: added.map(entry => entry.id) }),
         `chat-selected-top:${added[0].id}`).run();
   }
   return { added: added.length, links: added.map(entry => entry.normalized.link) };
