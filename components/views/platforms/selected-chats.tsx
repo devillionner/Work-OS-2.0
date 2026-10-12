@@ -27,16 +27,15 @@ async function addToJoin(chat: SelectedChatView, listId: string, accountId: stri
 const formatLast = (value: string | null) => (value ? new Date(value).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric' }) : null);
 
 /** Відібрані Telegram-чати: імпорт JSON-вивантаження, топ за активністю, додавання одразу в чергу приєднання вибраного акаунта. */
-export function SelectedChats({ view, loading, accounts, accountId, listId, listName, canDelete, onDelete, onImported, onAdded, onBulkAdded }: {
+export function SelectedChats({ view, loading, accounts, accountId, listId, listName, onImported, onAdded, onBulkAdded }: {
   view: SelectedChatsView | null;
   loading: boolean;
   accounts: Array<{ id: string; name: string; number: number }>;
   /** Вибраний Telegram-акаунт: його черга приєднання приймає додані чати. */
   accountId: string | null;
+  /** Список, вибраний ліворуч: файл завжди імпортується саме в нього. */
   listId: string;
   listName: string;
-  canDelete: boolean;
-  onDelete: () => void;
   onImported: (next: SelectedChatsView) => void;
   onAdded: (link: string, status: string, accountId: string | null, added: boolean) => void;
   onBulkAdded: (links: string[]) => void;
@@ -68,7 +67,7 @@ export function SelectedChats({ view, loading, accounts, accountId, listId, list
       const body = await response.json().catch(() => ({})) as SelectedChatsView & { error?: string };
       if (!response.ok) throw new Error(body.error || `Не вдалося імпортувати файл (HTTP ${response.status}).`);
       onImported(body);
-      toast.push({ message: `Імпортовано ${body.items.length} чатів${body.skipped ? `, пропущено ${body.skipped} без посилання або дублікатів` : ''}.` });
+      toast.push({ message: `Імпортовано ${body.items.length} чатів у «${listName}»${body.skipped ? `, пропущено ${body.skipped} без посилання або дублікатів` : ''}.` });
       setVisible(PAGE);
     } catch (reason) { setError(humanError(reason, 'Не вдалося імпортувати файл.')); }
     finally { setBusy(null); if (fileInput.current) fileInput.current.value = ''; }
@@ -100,14 +99,13 @@ export function SelectedChats({ view, loading, accounts, accountId, listId, list
 
   return (
     <section className="flex flex-col gap-4 p-4" aria-label="Відібрані Telegram-чати">
+      <input ref={fileInput} type="file" accept="application/json,.json" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); }} />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 max-w-[60ch]">
           <h3 className="m-0 text-[15px] font-medium">{listName}</h3>
-          <p className="m-0 mt-1 text-xs text-ink-2">{items.length ? `${items.length} чатів · уже є в Work OS ${inWork}${view?.importedAt ? ` · файл від ${new Date(view.importedAt * 1000).toLocaleDateString('uk-UA')}` : ''}. Зверху — де надіслано найбільше повідомлень.` : 'Імпортуй JSON-вивантаження груп: чати впорядкуються за кількістю надісланих повідомлень.'}</p>
+          {items.length ? <p className="m-0 mt-1 text-xs text-ink-2">{`${items.length} чатів · уже є в Work OS ${inWork}${view?.importedAt ? ` · файл від ${new Date(view.importedAt * 1000).toLocaleDateString('uk-UA')}` : ''}. Зверху — де надіслано найбільше повідомлень.`}</p> : null}
         </div>
-        <input ref={fileInput} type="file" accept="application/json,.json" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void importFile(file); }} />
-        <Button variant={items.length ? 'outline' : 'action'} size="sm" busy={busy === 'import'} disabled={busy !== null} onClick={() => fileInput.current?.click()}><FileUp aria-hidden="true" strokeWidth={1.5} />{busy === 'import' ? 'Імпортуємо…' : items.length ? 'Замінити файл' : 'Імпортувати JSON'}</Button>
-        {canDelete ? <Button variant="ghost" size="sm" tone="danger" disabled={busy !== null} onClick={onDelete}>Видалити список</Button> : null}
+        {items.length ? <Button variant="outline" size="sm" busy={busy === 'import'} disabled={busy !== null} onClick={() => fileInput.current?.click()}><FileUp aria-hidden="true" strokeWidth={1.5} />{busy === 'import' ? 'Імпортуємо…' : 'Замінити файл'}</Button> : null}
       </div>
       {items.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">
@@ -123,7 +121,13 @@ export function SelectedChats({ view, loading, accounts, accountId, listId, list
       ) : null}
       {error ? <p role="alert" className="m-0 text-sm text-hot">{error}</p> : null}
       {loading && !view ? <div aria-busy="true" className="flex flex-col gap-2">{[0, 1, 2].map((item) => <Ghost key={item} className="h-16 rounded-inner" />)}</div>
-        : !items.length ? <EmptyState text="Тут поки порожньо." />
+        : !view ? <EmptyState text="Не вдалося завантажити список. Онови сторінку й спробуй ще раз." />
+        : !items.length ? (
+          <div className="flex flex-col items-start gap-3 rounded-inner border border-dashed border-line-strong px-4 py-5">
+            <p className="m-0 max-w-[56ch] text-sm text-ink-2">Список порожній. Завантаж JSON-вивантаження груп: для кожної назва (title), посилання (link) або username та кількість повідомлень (msg_count_in_group). Чати впорядкуються за активністю.</p>
+            <Button variant="action" size="sm" busy={busy === 'import'} disabled={busy !== null} onClick={() => fileInput.current?.click()}><FileUp aria-hidden="true" strokeWidth={1.5} />{busy === 'import' ? 'Завантажуємо…' : 'Завантажити файл'}</Button>
+          </div>
+        )
         : !filtered.length ? <EmptyState text="Нічого не знайдено." />
         : (
           <ol className="m-0 flex list-none flex-col gap-2 p-0">
