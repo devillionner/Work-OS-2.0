@@ -1,13 +1,31 @@
 'use client';
 
-import { Check, FileText, Pause, Play, Send, Square } from 'lucide-react';
+import { BellRing, Check, ClipboardCheck, Flag, Pause, Play, Send, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
-import type { DayEvent, EventKind, Segment } from '@/components/views/today/day-model';
+import type { DayEvent, EventKind, EventState, Segment } from '@/components/views/today/day-model';
 import type { EventAction } from '@/components/views/today/use-day';
 import { cn } from '@/lib/utils';
 
-const ICON: Record<Exclude<EventKind, 'reminder'>, typeof Send> = { slot: Send, checkpoint: FileText, start: Play, pause: Pause, end: Square };
+const ICON: Record<EventKind, LucideIcon> = { slot: Send, reminder: BellRing, checkpoint: ClipboardCheck, start: Play, pause: Pause, end: Flag };
+
+/**
+ * Стан маркера без жовтого: попереду — тонке обведення; час настав — інвертований кружок; виконано — галочка на --raised;
+ * пропущено — пунктир; прострочено — єдиний колір шкали (--signal-hot).
+ */
+const TONE = {
+  pending: 'border-line text-ink-2',
+  due: 'border-action bg-action text-action-ink',
+  done: 'border-transparent bg-raised text-ink-2',
+  missed: 'border-dashed border-line-strong text-ink-3',
+  alert: 'border-hot text-hot',
+} as const;
+type MarkerTone = keyof typeof TONE;
+
+const toneOf = (kind: EventKind, state: EventState): MarkerTone => {
+  if (kind === 'start' || kind === 'pause' || kind === 'end') return 'pending';
+  return state === 'overdue' || state === 'late' ? 'alert' : state === 'due' ? 'due' : state === 'missed' ? 'missed' : state === 'done' ? 'done' : 'pending';
+};
 
 /** Штрихування паузи: один `<pattern>` на екран, рамки інших елементів посилаються на нього через `url(#today-hatch)`. */
 export function HatchDefs() {
@@ -32,32 +50,32 @@ export function SegmentBar({ parts, className }: { parts: ReadonlyArray<{ top: n
   );
 }
 
-/** Пояснення шкали: робота, пауза, прострочено, слот, звіт. */
+/** Пояснення шкали: слот, нагадування, звіт, прострочено, робота, пауза. */
 export function Legend({ className }: { className?: string }) {
   return (
     <div className={cn('flex flex-wrap gap-x-3.5 gap-y-1.5 text-xs text-ink-2', className)}>
+      <span className="inline-flex items-center gap-1.5"><Send aria-hidden="true" strokeWidth={1.5} className="size-3.5" />слот</span>
+      <span className="inline-flex items-center gap-1.5"><BellRing aria-hidden="true" strokeWidth={1.5} className="size-3.5" />нагадування</span>
+      <span className="inline-flex items-center gap-1.5"><ClipboardCheck aria-hidden="true" strokeWidth={1.5} className="size-3.5" />звіт</span>
+      <span className="inline-flex items-center gap-1.5 text-hot"><i aria-hidden="true" className="size-2 rounded-full bg-hot" />прострочено</span>
       <span className="inline-flex items-center gap-1.5"><i aria-hidden="true" className="size-2.5 rounded-[3px] bg-ink" />робота</span>
       <span className="inline-flex items-center gap-1.5"><svg aria-hidden="true" width="10" height="10" className="rounded-[3px] border border-line-strong"><rect width="10" height="10" style={{ fill: 'url(#today-hatch)' }} /></svg>пауза</span>
-      <span className="inline-flex items-center gap-1.5"><i aria-hidden="true" className="size-2 rounded-full bg-hot" />прострочено</span>
-      <span className="inline-flex items-center gap-1.5"><Send aria-hidden="true" strokeWidth={1.5} className="size-3.5" />слот</span>
-      <span className="inline-flex items-center gap-1.5"><FileText aria-hidden="true" strokeWidth={1.5} className="size-3.5" />звіт</span>
     </div>
   );
 }
 
-/** Маркер події: крапка для нагадувань, кружок з іконкою для решти. */
-export function EventLead({ event, className }: { event: DayEvent; className?: string }) {
-  if (event.kind === 'reminder') {
-    const late = event.state === 'overdue';
-    return <i role={late ? 'img' : undefined} aria-label={late ? 'Прострочено' : undefined} aria-hidden={late ? undefined : true} className={cn('size-2 shrink-0 rounded-full', late ? 'bg-hot' : 'bg-ink-3', className)} />;
-  }
-  const Icon = ICON[event.kind];
-  const warn = event.state === 'due' || event.state === 'late' || event.state === 'missed';
+/** Єдиний маркер події: кружок 28 px з іконкою lucide 16 px. Виконані слоти й звіти показують галочку; початок, пауза й кінець дня — власну іконку з тонким обведенням. */
+export function Marker({ kind, state, className }: { kind: EventKind; state: EventState; className?: string }) {
+  const Icon = state === 'done' && (kind === 'slot' || kind === 'checkpoint' || kind === 'reminder') ? Check : ICON[kind];
   return (
-    <span aria-hidden="true" className={cn('grid size-6 shrink-0 place-items-center rounded-full border bg-sunken', warn ? 'border-warn text-warn' : 'border-line text-ink-2', className)}>
-      <Icon strokeWidth={1.5} className="size-3.5" />
+    <span aria-hidden="true" className={cn('grid size-7 shrink-0 place-items-center rounded-full border', TONE[toneOf(kind, state)], className)}>
+      <Icon strokeWidth={1.5} className="size-4" />
     </span>
   );
+}
+
+export function EventLead({ event, className }: { event: DayEvent; className?: string }) {
+  return <Marker kind={event.kind} state={event.state} className={className} />;
 }
 
 /** Дія події: «Готово», «Здати», «Уточнити» або кругла галочка для слота. */
@@ -98,7 +116,7 @@ export function EventRow({ event, time, action, touch, onOpen, bordered = true, 
   return (
     <div data-event={event.id} className={cn('flex min-h-14 items-center gap-2 py-1.5 pl-2 pr-0.5 @4xl:gap-2.5', bordered && 'border-t border-line first:border-t-0', className)}>
       <span className="w-10 shrink-0 font-mono text-xs tabular-nums text-ink-2 @4xl:w-[46px]">{time}</span>
-      <EventLead event={event} className={event.kind === 'reminder' ? 'mx-2' : undefined} />
+      <EventLead event={event} />
       <EventText event={event} onOpen={OPENABLE.has(event.kind) ? () => onOpen(event) : null} trailing={action ? <EventActionButton action={action} touch={touch} /> : null} />
     </div>
   );

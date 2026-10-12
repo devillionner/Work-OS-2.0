@@ -1,11 +1,10 @@
 'use client';
 
-import { FileText } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Surface } from '@/components/ui/surface';
 import { clockOf, dayOf, hourLabel, shortDate, type DayEvent, type Segment } from '@/components/views/today/day-model';
-import { EventRow, HatchDefs, Legend, SegmentBar, TimelineItem } from '@/components/views/today/event-parts';
+import { EventRow, HatchDefs, Legend, Marker, SegmentBar, TimelineItem } from '@/components/views/today/event-parts';
 import type { Day } from '@/components/views/today/use-day';
 import { cn } from '@/lib/utils';
 
@@ -56,7 +55,7 @@ export function HourTimeline({ day }: { day: Day }) {
 
       {day.yesterdayPending ? (
         <div className="mb-2 flex min-h-[42px] min-w-0 items-center gap-2 rounded-inner bg-sunken py-1 pl-2.5 pr-2">
-          <span aria-hidden="true" className="grid size-6 shrink-0 place-items-center rounded-full border border-warn bg-sunken text-warn"><FileText strokeWidth={1.5} className="size-3.5" /></span>
+          <Marker kind="checkpoint" state="late" />
           <span className="min-w-0 flex-1 px-1.5 py-1">
             <b className="block truncate text-sm font-medium text-hot">Звіт за вчора не здано</b>
             <small className="block truncate text-xs text-ink-2">{formatLong(day.yesterdayDate)}</small>

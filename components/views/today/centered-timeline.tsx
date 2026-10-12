@@ -1,10 +1,12 @@
 'use client';
 
-import { Fragment, useLayoutEffect, useRef, useState } from 'react';
+import { ArrowDown, ArrowUp } from 'lucide-react';
+import { Fragment, useLayoutEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Surface } from '@/components/ui/surface';
 import { clockOf, dayOf, describeUpcoming, hourLabel, layoutY, shortDate, span, type DayEvent } from '@/components/views/today/day-model';
 import { EventRow, SegmentBar } from '@/components/views/today/event-parts';
+import { buildTimeAxis } from '@/components/views/today/time-axis';
 import type { Day } from '@/components/views/today/use-day';
 import { cn } from '@/lib/utils';
 
@@ -15,48 +17,91 @@ const MAIN_H = 56;
 const MINOR_H = 38;
 const CARRY_HEAD = 28;
 const CARRY_ROW = 56;
+/** Відступ від верху вмісту, вище якого не піднімаються ні картки, ні мітки годин. */
+const EDGE = 8;
 
 const smooth = () => (window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth') as ScrollBehavior;
 
 /**
  * «Зараз у центрі» для ПК: великий заголовок-відлік до наступної події й вікно шкали дня, де лінія «зараз» закріплена
- * посередині. Прокрутка рухає день під лінією, мітка на лінії показує, куди відгорнули, «До зараз» повертає. Минуле зверху
- * блідне, майбутнє внизу; події не накладаються (розкладка за часом). Позиція лінії оновлюється щохвилини без мережі.
+ * посередині. Прокрутка рухає день під лінією; лінія видна лише в жолобі осі годин і хвостиком після карток, тож картки не
+ * розрізає. Мітка в жолобі показує, куди відгорнули, «До зараз» зі стрілкою в бік поточного часу повертає. Рядки стоять за
+ * часом без накладань (`layoutY`), а час на осі рахується через їхні справжні позиції (`time-axis`): мітки годин, смуга
+ * роботи, позначка «зараз» і мітка лінії не брешуть там, де події стоять щільно. Позиція лінії оновлюється щохвилини без мережі.
  */
 export function CenteredTimeline({ day }: { day: Day }) {
   const { model, now, workday } = day;
   const viewport = useRef<HTMLDivElement>(null);
-  const label = useRef<HTMLSpanElement>(null);
+  const timeLabel = useRef<HTMLSpanElement>(null);
+  const deltaLabel = useRef<HTMLSpanElement>(null);
+  const upButton = useRef<HTMLDivElement>(null);
+  const downButton = useRef<HTMLDivElement>(null);
+  const cards = useRef(new Map<string, HTMLDivElement>());
+  const under = useRef<HTMLDivElement | null>(null);
   const pinned = useRef(true);
-  const [away, setAway] = useState(false);
 
   const minutesOf = (event: DayEvent) => (event.at - model.dayStart) / 60;
   const y = (minutes: number) => (minutes - model.range.from) * PPM;
   const yNow = y(model.nowMinutes);
   const heightOf = (event: DayEvent) => (event.kind === 'slot' || event.kind === 'reminder' || event.kind === 'checkpoint' ? MAIN_H : MINOR_H);
   const positions = layoutY(model.events.map((event) => ({ key: event.id, minutes: minutesOf(event), height: heightOf(event), offset: 8 })), y, yNow, model.nowMinutes, 6);
-  let boxHeight = (model.range.to - model.range.from) * PPM;
-  for (const event of model.events) boxHeight = Math.max(boxHeight, (positions.get(event.id) ?? 0) + heightOf(event) + 8);
+  const rawTop = (event: DayEvent) => positions.get(event.id) ?? y(minutesOf(event));
+
+  // Чесна вісь часу: через центри карток, де вони справді стоять. Якщо щільне минуле виштовхнуло щось вище початку,
+  // увесь вміст зсувається вниз на однакову величину (відносні позиції не змінюються).
+  const axis = buildTimeAxis(model.events.map((event) => ({ minutes: minutesOf(event), px: rawTop(event) + heightOf(event) / 2 })), PPM, { minutes: model.range.from, px: 0 });
+  const shift = Math.max(0, EDGE - Math.min(axis.toPx(model.range.from) - 7, ...model.events.map(rawTop)));
+  const px = (minutes: number) => axis.toPx(minutes) + shift;
+  const minutesAt = (value: number) => axis.toMinutes(value - shift);
+  const topOf = (event: DayEvent) => rawTop(event) + shift;
+  const pNow = px(model.nowMinutes);
+
+  let boxHeight = Math.max((model.range.to - model.range.from) * PPM, px(model.range.to) + EDGE);
+  for (const event of model.events) boxHeight = Math.max(boxHeight, topOf(event) + heightOf(event) + EDGE);
   const carryHeight = model.carry.length ? CARRY_HEAD + model.carry.length * CARRY_ROW + 12 : 0;
-  const nowTarget = carryHeight + yNow;
+  const nowTarget = carryHeight + pNow;
   const hours: number[] = [];
   for (let hour = model.range.from / 60; hour <= model.range.to / 60; hour += 1) hours.push(hour);
 
-  const describeAt = (top: number) => {
-    if (top < carryHeight - 8) return 'Минулі дні';
-    const minutes = model.range.from + (top - carryHeight) / PPM;
-    if (minutes > model.range.to) return 'Завтра';
-    const diff = Math.round(minutes - model.nowMinutes);
-    return `${hourLabel(Math.round(minutes))} · ${diff >= 0 ? 'через' : 'було'} ${span(Math.abs(diff))}`;
-  };
-
-  const onScroll = () => {
+  /** Мітка лінії, кнопка «До зараз» і підсвітка картки під лінією: пряма робота з DOM, щоб прокрутка не перемальовувала React. */
+  const sync = () => {
     const node = viewport.current;
     if (!node) return;
-    const near = Math.abs(node.scrollTop - nowTarget) < 8;
+    const scroll = node.scrollTop;
+    const near = Math.abs(scroll - nowTarget) < 8;
     pinned.current = near;
-    if (label.current) label.current.textContent = near ? `${clockOf(now)} · зараз` : describeAt(node.scrollTop);
-    setAway(!near);
+    const boxY = scroll - carryHeight;
+
+    let time: string;
+    let delta = '';
+    if (near) {
+      time = clockOf(now);
+      delta = 'зараз';
+    } else if (boxY < -EDGE) {
+      time = 'Минулі дні';
+    } else if (boxY > boxHeight) {
+      time = 'Завтра';
+    } else {
+      const minutes = Math.min(1439, Math.max(0, Math.round(minutesAt(boxY))));
+      const diff = minutes - Math.round(model.nowMinutes);
+      time = hourLabel(minutes);
+      delta = diff === 0 ? 'зараз' : `${diff > 0 ? '+' : '−'}${span(Math.abs(diff))}`;
+    }
+    if (timeLabel.current) timeLabel.current.textContent = time;
+    if (deltaLabel.current) {
+      deltaLabel.current.textContent = delta;
+      deltaLabel.current.hidden = !delta;
+    }
+    if (upButton.current) upButton.current.hidden = near || scroll <= nowTarget;
+    if (downButton.current) downButton.current.hidden = near || scroll >= nowTarget;
+
+    const hit = model.events.find((event) => boxY >= topOf(event) && boxY <= topOf(event) + heightOf(event));
+    const card = hit ? cards.current.get(hit.id) ?? null : null;
+    if (card !== under.current) {
+      under.current?.removeAttribute('data-under');
+      card?.setAttribute('data-under', '');
+      under.current = card;
+    }
   };
 
   // Лінія «зараз» стоїть на місці: коли минає хвилина (чи змінюється вміст), день зсувається під нею.
@@ -64,7 +109,7 @@ export function CenteredTimeline({ day }: { day: Day }) {
     const node = viewport.current;
     if (!node) return;
     if (pinned.current) node.scrollTop = nowTarget;
-    if (label.current) label.current.textContent = pinned.current ? `${clockOf(now)} · зараз` : describeAt(node.scrollTop);
+    sync();
   });
 
   const scrollTo = (top: number) => viewport.current?.scrollTo({ top: Math.max(0, top), behavior: smooth() });
@@ -72,7 +117,7 @@ export function CenteredTimeline({ day }: { day: Day }) {
     const first = model.attention[0];
     if (!first) return;
     const carryIndex = model.carry.indexOf(first);
-    scrollTo(carryIndex >= 0 ? CARRY_HEAD + carryIndex * CARRY_ROW + CARRY_ROW / 2 : carryHeight + (positions.get(first.id) ?? y(minutesOf(first))) + heightOf(first) / 2);
+    scrollTo(carryIndex >= 0 ? CARRY_HEAD + carryIndex * CARRY_ROW + CARRY_ROW / 2 : carryHeight + topOf(first) + heightOf(first) / 2);
   };
 
   const started = workday.workday !== null && workday.workday.workDate === dayOf(now);
@@ -104,7 +149,7 @@ export function CenteredTimeline({ day }: { day: Day }) {
 
       <Surface variant="glass" radius="card" data-reveal className="relative flex min-h-0 flex-1 overflow-hidden p-0" aria-label="Шкала дня">
         <div className="relative min-w-0 flex-1">
-          <section ref={viewport} aria-label="Шкала дня, прокручується" onScroll={onScroll} className="hide-scrollbar fade-y absolute inset-0 overflow-y-auto overscroll-contain" style={{ containerType: 'size' }}>
+          <section ref={viewport} aria-label="Шкала дня, прокручується" onScroll={sync} className="hide-scrollbar fade-y absolute inset-0 overflow-y-auto overscroll-contain" style={{ containerType: 'size' }}>
             {/* Відступи зверху й знизу у відсотках висоти вікна (cqh), щоб будь-яку хвилину можна було поставити під лінію без вимірювань. */}
             <div style={{ paddingTop: `${LINE * 100}cqh`, paddingBottom: `${(1 - LINE) * 100}cqh` }}>
               {model.carry.length ? (
@@ -117,20 +162,23 @@ export function CenteredTimeline({ day }: { day: Day }) {
               <div className="relative mx-5" style={{ height: boxHeight }}>
                 {hours.map((hour) => (
                   <Fragment key={hour}>
-                    {Math.abs(y(hour * 60) - yNow) >= 14 ? <span className="absolute left-0 font-mono text-[10.5px] leading-[14px] tabular-nums text-ink-2" style={{ top: y(hour * 60) - 7 }}>{hourLabel(hour * 60)}</span> : null}
-                    <i aria-hidden="true" className="absolute left-14 h-px w-2.5 bg-line-strong" style={{ top: y(hour * 60) }} />
+                    {Math.abs(px(hour * 60) - pNow) >= 14 ? <span className="absolute left-0 font-mono text-[10.5px] leading-[14px] tabular-nums text-ink-2" style={{ top: px(hour * 60) - 7 }}>{hourLabel(hour * 60)}</span> : null}
+                    <i aria-hidden="true" className="absolute left-[110px] h-px w-2.5 bg-line-strong" style={{ top: px(hour * 60) }} />
                   </Fragment>
                 ))}
                 {model.segments.map((segment, index) => (
-                  <span key={index} aria-hidden="true" className="absolute left-[50px] w-1" style={{ top: y(segment.from), height: Math.max(2, (segment.to - segment.from) * PPM) }}>
+                  <span key={index} aria-hidden="true" className="absolute left-[104px] w-1" style={{ top: px(segment.from), height: Math.max(2, px(segment.to) - px(segment.from)) }}>
                     <SegmentBar parts={[{ top: 0, height: 100, kind: segment.kind }]} className="h-full w-full" />
                   </span>
                 ))}
-                <div aria-hidden="true" className="absolute inset-x-0 h-px bg-hot/60" style={{ top: yNow }}>
-                  <span className="absolute -top-2 left-0 rounded-full bg-glass-strong px-1.5 text-[11px] font-medium leading-4 text-hot">зараз</span>
-                </div>
+                <i aria-hidden="true" className="absolute left-[102px] size-2 -translate-y-1/2 rounded-full bg-hot" style={{ top: pNow }} />
                 {model.events.map((event) => (
-                  <div key={event.id} className={cn('absolute left-[70px] right-0 overflow-hidden rounded-[16px] border', event.state === 'overdue' ? 'border-hot' : 'border-line', !event.dim && 'bg-sunken')} style={{ top: positions.get(event.id) ?? y(minutesOf(event)), height: heightOf(event) }}>
+                  <div
+                    key={event.id}
+                    ref={(node) => { if (node) cards.current.set(event.id, node); else cards.current.delete(event.id); }}
+                    className={cn('absolute left-[128px] right-0 overflow-hidden rounded-[16px] border data-[under]:bg-raised', event.state === 'overdue' ? 'border-hot' : 'border-line', !event.dim && 'bg-sunken')}
+                    style={{ top: topOf(event), height: heightOf(event) }}
+                  >
                     <EventRow event={event} time={clockOf(event.at)} action={day.actionOf(event)} touch={false} onOpen={day.openEvent} bordered={false} className="h-full min-h-0 py-1 pr-2" />
                   </div>
                 ))}
@@ -145,10 +193,21 @@ export function CenteredTimeline({ day }: { day: Day }) {
             </div>
           </section>
 
-          <div className="pointer-events-none absolute inset-x-0 z-[5] h-0" style={{ top: `${LINE * 100}%` }}>
-            <span aria-hidden="true" className="absolute inset-x-5 top-0 h-px bg-ink-2" />
-            <span ref={label} aria-live="off" className="absolute -top-3 left-5 rounded-full bg-action px-2.5 font-mono text-xs leading-6 tabular-nums text-action-ink" />
-            {away ? <Button variant="outline" size="sm" onClick={() => scrollTo(nowTarget)} className="pointer-events-auto absolute -top-[18px] right-5 bg-glass-strong">До зараз</Button> : null}
+          <div className="pointer-events-none absolute inset-0 z-[5]">
+            <div aria-hidden="true" className="absolute inset-x-0 h-0" style={{ top: `${LINE * 100}%` }}>
+              <span className="absolute left-5 top-0 h-px w-[122px] bg-ink-2" />
+              <span className="absolute right-1 top-0 h-px w-3.5 bg-ink-2" />
+              <div className="absolute left-5 top-0 flex min-w-16 -translate-y-1/2 flex-col items-center rounded-full bg-action px-2.5 py-1 text-action-ink">
+                <span ref={timeLabel} className="font-mono text-xs leading-4 tabular-nums" />
+                <span ref={deltaLabel} className="text-[10.5px] leading-3 tabular-nums opacity-70" />
+              </div>
+            </div>
+            <div ref={upButton} hidden className="pointer-events-auto absolute right-5 top-3">
+              <Button variant="outline" size="sm" onClick={() => scrollTo(nowTarget)} className="bg-glass-strong"><ArrowUp aria-hidden="true" strokeWidth={1.5} />До зараз</Button>
+            </div>
+            <div ref={downButton} hidden className="pointer-events-auto absolute bottom-3 right-5">
+              <Button variant="outline" size="sm" onClick={() => scrollTo(nowTarget)} className="bg-glass-strong"><ArrowDown aria-hidden="true" strokeWidth={1.5} />До зараз</Button>
+            </div>
           </div>
         </div>
       </Surface>
