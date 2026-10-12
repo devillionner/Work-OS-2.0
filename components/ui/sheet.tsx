@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useRef, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react';
 import { X } from 'lucide-react';
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 import { gsap, prefersReducedMotion } from '@/components/motion/gsap';
@@ -42,10 +42,13 @@ export function Sheet({ open, onOpenChange, title, description, side = 'bottom',
     return height * (1 - HALF / FULL);
   };
 
-  const settle = (node: HTMLDivElement) => {
-    const base = snap === 'half' ? halfOffset() : 0;
-    gsap.set(node, { y: base });
-  };
+  // Початкова зупинка ставиться один раз при появленні вікна: ref-замикання, що змінюється щоразу, скидало б y під час перетягування.
+  const snapRef = useRef(snap);
+  useEffect(() => { snapRef.current = snap; });
+  const mountPopup = useCallback((node: HTMLDivElement | null) => {
+    popup.current = node;
+    if (node) gsap.set(node, { y: snapRef.current === 'half' ? node.offsetHeight * (1 - HALF / FULL) : 0 });
+  }, []);
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (side !== 'bottom' || (event.target as HTMLElement).closest('button')) return;
@@ -88,7 +91,7 @@ export function Sheet({ open, onOpenChange, title, description, side = 'bottom',
       <DialogPrimitive.Portal>
         <DialogPrimitive.Backdrop className="fixed inset-0 z-40 bg-scrim transition-opacity duration-300 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
         <DialogPrimitive.Popup
-          ref={(node: HTMLDivElement | null) => { popup.current = node; if (node && open) settle(node); }}
+          ref={mountPopup}
           className={cn(
             'glass-strong frost shadow-float fixed z-50 flex flex-col outline-none transition-[translate,opacity] duration-300 ease-out',
             bottom

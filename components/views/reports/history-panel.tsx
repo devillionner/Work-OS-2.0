@@ -21,7 +21,7 @@ export function HistoryPanel({ open, onOpenChange, date, currentRevision, onRest
   const [attempt, setAttempt] = useState(0);
   const [compareId, setCompareId] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
-  const { data, error } = useRemote<{ events: ReportHistoryItem[] }>(`/api/reports/history?date=${encodeURIComponent(date)}`, { refresh: attempt, enabled: open, fallback: 'Не вдалося завантажити історію звіту.' });
+  const { data, error } = useRemote<{ events: ReportHistoryItem[] }>(`/api/reports/history?date=${encodeURIComponent(date)}`, { refresh: attempt, enabled: open, revalidateOnEnable: true, fallback: 'Не вдалося завантажити історію звіту.' });
   const events = data?.events ?? null;
   const current = events?.[0] ?? null;
 

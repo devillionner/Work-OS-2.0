@@ -45,7 +45,7 @@ export function ManualDiffPanel({ open, onOpenChange, date }: { open: boolean; o
   const [draft, setDraft] = useState<{ key: string; value: ReportManualAdjustments } | null>(null);
   const [saved, setSaved] = useState<{ date: string; attempt: number; payload: Payload } | null>(null);
   const [saving, setSaving] = useState(false);
-  const remote = useRemote<Payload>(`/api/reports/manual-adjustments?date=${encodeURIComponent(date)}`, { refresh: attempt, enabled: open, fallback: 'Не вдалося завантажити звірку чисел.' });
+  const remote = useRemote<Payload>(`/api/reports/manual-adjustments?date=${encodeURIComponent(date)}`, { refresh: attempt, enabled: open, revalidateOnEnable: true, fallback: 'Не вдалося завантажити звірку чисел.' });
   const data = saved && saved.date === date && saved.attempt === attempt ? saved.payload : remote.data;
   const key = `${date}:${attempt}`;
   const values = draft && draft.key === key ? draft.value : data?.adjustments ?? { publications: 0, responses: 0, bookings: 0 };

@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { gsap, matchMotion } from '@/components/motion/gsap';
 import { DESKTOP, PHONE, WIDE, useMediaQuery } from '@/components/shell/use-media';
@@ -82,7 +82,12 @@ export function Panel<T extends string = string>({ open, onOpenChange, title, su
     return () => setStack(stack.ids.filter((item) => item !== id));
   }, [open, viewActive, id]);
 
-  const close = useCallback(() => onOpenChange(false), [onOpenChange]);
+  // Батьки передають onOpenChange замиканням, яке змінюється на кожному рендері. Тримаємо його в ref, щоб панель не
+  // перемонтовувала ефекти (вхідну анімацію й фокус) щоразу, коли оновлюється розділ (секундний тік, live-подія).
+  const latestOpenChange = useRef(onOpenChange);
+  useEffect(() => { latestOpenChange.current = onOpenChange; });
+  const handleOpenChange = useCallback((next: boolean) => latestOpenChange.current(next), []);
+  const close = useCallback(() => latestOpenChange.current(false), []);
   const tabStrip = tabs && tab && onTabChange ? <Segmented value={tab} onValueChange={onTabChange} items={tabs} label={title} size="sm" /> : undefined;
   const body = <OverlayContext.Provider value={overlay}>{children}</OverlayContext.Provider>;
 
@@ -96,7 +101,7 @@ export function Panel<T extends string = string>({ open, onOpenChange, title, su
   return (
     <Sheet
       open
-      onOpenChange={onOpenChange}
+      onOpenChange={handleOpenChange}
       title={title}
       description={subtitle}
       side={phone ? 'bottom' : 'right'}
@@ -116,28 +121,34 @@ export function Panel<T extends string = string>({ open, onOpenChange, title, su
 function AsidePanel({ title, subtitle, actions, tabs, contentKey, footer, overlayRef, onClose, children }: { title: string; subtitle?: ReactNode; actions?: ReactNode; tabs?: ReactNode; contentKey?: string; footer?: ReactNode; overlayRef: (element: HTMLDivElement | null) => void; onClose: () => void; children: ReactNode }) {
   const root = useRef<HTMLDivElement>(null);
   const [returnTo] = useState<Element | null>(() => (typeof document === 'undefined' ? null : document.activeElement));
+  const latestClose = useRef(onClose);
+  useEffect(() => { latestClose.current = onClose; });
 
-  useEffect(() => {
+  // Вхід — один раз при монтуванні й до першого кадру (layout-ефект), інакше повний вміст на мить блимає перед стартом анімації.
+  useLayoutEffect(() => {
     const node = root.current;
     if (!node) return;
-    node.focus({ preventScroll: true });
     const mm = matchMotion((reduced) => {
-      gsap.fromTo(node, reduced ? { opacity: 0 } : { x: 24, opacity: 0 }, { x: 0, opacity: 1, duration: reduced ? 0.12 : 0.28, clearProps: 'transform' });
+      gsap.fromTo(node, reduced ? { opacity: 0 } : { x: 32, opacity: 0 }, { x: 0, opacity: 1, duration: reduced ? 0.12 : 0.28, clearProps: 'transform' });
     });
+    return () => mm.revert();
+  }, []);
+
+  useEffect(() => {
+    root.current?.focus({ preventScroll: true });
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       // Esc у відкритому списку чи меню закриває лише його, а не панель.
       if (event.target instanceof Element && event.target.closest('[role="listbox"], [role="menu"]')) return;
       event.preventDefault();
-      onClose();
+      latestClose.current();
     };
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
-      mm.revert();
       if (returnTo instanceof HTMLElement && document.contains(returnTo)) returnTo.focus({ preventScroll: true });
     };
-  }, [onClose, returnTo]);
+  }, [returnTo]);
 
   return (
     <aside ref={root} tabIndex={-1} aria-label={title} className="relative flex h-full min-h-0 flex-col outline-none">

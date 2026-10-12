@@ -49,7 +49,7 @@ function List({ title, items, unversioned }: { title: string; items: GoalHistory
 /** Історія цілей: нова ціль діє від своєї дати й не переписує план минулих днів або місяців. */
 export function GoalHistoryPanel({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [attempt, setAttempt] = useState(0);
-  const { data, error } = useRemote<Payload>('/api/settings/goal-history', { refresh: attempt, enabled: open, fallback: 'Не вдалося завантажити історію цілей.' });
+  const { data, error } = useRemote<Payload>('/api/settings/goal-history', { refresh: attempt, enabled: open, revalidateOnEnable: true, fallback: 'Не вдалося завантажити історію цілей.' });
   const items = data?.history ?? [];
   const unversioned = data?.unversioned ?? [];
   return (

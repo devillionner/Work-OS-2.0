@@ -55,6 +55,8 @@ export default function LeadsView() {
   const [list, setList] = useState<LeadList | null>(null);
   const [listError, setListError] = useState('');
   const [detail, setDetail] = useState<LeadDetail | null>(null);
+  // Останні відкриті картки: повторне відкриття ліда й перечитування після дії показують їх одразу, а не привидів.
+  const [seenDetails, setSeenDetails] = useState<Record<string, LeadDetail>>({});
   const [detailError, setDetailError] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [creating, setCreating] = useState(false);
@@ -87,6 +89,12 @@ export default function LeadsView() {
       .then((data) => {
         if (controller.signal.aborted) return;
         setDetail((current) => (current?.lead.id === data.lead.id && current.lead.version > data.lead.version ? current : data));
+        setSeenDetails((current) => {
+          const next = { ...current, [data.lead.id]: data };
+          const ids = Object.keys(next);
+          if (ids.length > 20) delete next[ids[0]];
+          return next;
+        });
         setDetailError('');
       })
       .catch((error: unknown) => { if (!controller.signal.aborted) setDetailError(humanError(error, 'Не вдалося завантажити картку ліда.')); });
@@ -139,6 +147,8 @@ export default function LeadsView() {
   }, [postCommand, reload]);
 
   const current = selected && detail?.lead.id === selected ? detail : null;
+  // Для показу береться свіжа або остання відома картка; для дій — лише свіжа (`current`), щоб не використати застарілу версію.
+  const shown = current ?? (selected ? seenDetails[selected] ?? null : null);
   const rowName = list?.leads.find((lead) => lead.id === selected)?.name ?? 'Лід';
 
   const items = useMemo<SearchItem[]>(() => (list?.leads ?? []).map((lead) => ({
@@ -204,7 +214,7 @@ export default function LeadsView() {
         </div>
       ) : null}
 
-      <LeadInspector open={Boolean(selected)} onClose={closeLead} name={rowName} detail={current} error={detailError} mutate={mutate} reload={reload} onChanged={reload} />
+      <LeadInspector open={Boolean(selected)} onClose={closeLead} name={rowName} detail={shown} error={detailError} mutate={mutate} reload={reload} onChanged={reload} />
       {creating ? <LeadEditor close={() => setCreating(false)} save={async (data) => { await mutate('create', data); }} /> : null}
     </div>
   );
