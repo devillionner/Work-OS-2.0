@@ -33,7 +33,7 @@ export type ResponseData = {
   chats: Chat[]; total: number; offset: number; counts: Record<string, number>; profileCounts: Record<string, ProfileCounts>; accountId: string | null;
   joinedToday: LinkItem[]; publishedToday: LinkItem[]; availableToday: LinkItem[]; publicationPace: PublicationPace; requestKey?: string;
 };
-type UndoSpec = { action: 'restore' | 'unsnooze' | 'undo_published'; label: string };
+type UndoSpec = { action: 'restore' | 'unsnooze' | 'undo_published' | 'return_to_join'; label: string };
 export type ChatActionResult = { ok: true } | { ok: false; error: string; refresh: boolean };
 export type PlatformConfirmation = { kind: 'assign'; chat: Chat; nextId: string; currentName: string; nextName: string } | { kind: 'return'; chat: Chat };
 type WaitingCheckResponse = Record<string, unknown> & { error?: string };
@@ -211,7 +211,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     if (!previous || previous.id !== account.id || account.breakUntil) return;
     if (previous.value < account.joinBatchSize && account.joinStreak >= account.joinBatchSize) {
       void telegramAccountAction('start_break', account.id, { minutes: account.breakMinutes }).then((ok) => {
-        if (ok) toast.push({ message: `Перерва ${account.breakMinutes} хв запущена: приєднано ${account.joinStreak} чатів.` });
+        if (ok) toast.push({ message: `Перерва ${account.breakMinutes} хв запущена: приєднано ${account.joinStreak} чатів.`, duration: 8000, action: { label: 'Скасувати', onClick: () => { void telegramAccountAction('cancel_break', account.id).then((done) => { if (done) toast.push({ message: 'Перерву скасовано, серія починається заново.' }); }); } } });
       });
     }
   }, [activeAccount, platform, toast]);

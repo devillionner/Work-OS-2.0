@@ -88,7 +88,8 @@ export async function GET(request: Request): Promise<Response> {
       : `SELECT COALESCE(SUM(chat_count),0) AS count FROM chat_queue_counts WHERE user_id=?1 AND platform=?2 AND workflow_status=?4${counterAccountFilter}`;
   const totalStatement = search
     ? env.DB.prepare('SELECT ?1 AS count').bind(searchTotal)
-    : env.DB.prepare(counterTotalSql).bind(...counterBindings, status);
+    // Запит profile_review не має ?4: зайвий параметр привласнений статус давав «wrong number of bindings» і 500.
+    : env.DB.prepare(counterTotalSql).bind(...counterBindings, ...(status === 'profile_review' ? [] : [status]));
   const searchRowStatement=search
     ? searchPageIds&&searchPageIds.length
       ? env.DB.prepare(`SELECT c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.archived_at,${chatSnoozeCountSql()} AS snooze_count,${chatLeftAtSql()} AS left_at,c.telegram_account_id,${chatStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.custom_interval_days AS profile_custom_interval_days,p.next_allowed_on AS profile_next_allowed_on,p.directions_json AS profile_directions,p.note AS profile_note,(SELECT dc.decision FROM chat_discovery_candidates dc WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.id NOT LIKE 'waiting-%' ORDER BY dc.updated_at DESC,dc.id LIMIT 1) AS discovery_decision,(SELECT wa.id FROM whatsapp_autopost_jobs wa WHERE wa.user_id=c.user_id AND wa.chat_id=c.id AND wa.published_on=?3 AND wa.status IN ('pending','claimed') ORDER BY wa.created_at DESC LIMIT 1) AS autopost_job_id,EXISTS(SELECT 1 FROM chat_publications cp WHERE cp.user_id=c.user_id AND cp.chat_id=c.id AND cp.published_on=?3) AS published_today FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 AND c.id IN (${searchPageIds.map((_,index)=>`?${index+4}`).join(',')}) ORDER BY c.updated_at DESC,c.id`)
@@ -163,7 +164,7 @@ export async function POST(request: Request): Promise<Response> {
   }
   const requestedAccount = typeof body.accountId === 'string' ? body.accountId : null;
   const accountId = chat.platform === 'telegram' ? (chat.telegram_account_id || await selectedTelegramAccount(user.id,requestedAccount)) : null;
-  if (chat.platform === 'telegram' && !accountId && !['restore','archive','failed','profile','confirm_leave','undo_leave','permanent_delete'].includes(action)) return Response.json({error:'Оберіть активний Telegram-акаунт.'},{status:409});
+  if (chat.platform === 'telegram' && !accountId && !['restore','archive','failed','profile','confirm_leave','undo_leave','permanent_delete','return_to_join'].includes(action)) return Response.json({error:'Оберіть активний Telegram-акаунт.'},{status:409});
   if (action === 'profile') {
     if (!body.profile || typeof body.profile !== 'object' || Array.isArray(body.profile)) return Response.json({error:'Некоректний профіль.'},{status:400});
     const result = await saveChatProfile(env.DB, { userId:user.id, chatId:id, stateToken:chat.state_token, now, profile:body.profile });
@@ -222,7 +223,7 @@ export async function POST(request: Request): Promise<Response> {
   const result = await transitionChat(env.DB,{userId:user.id,chat,action,accountId:targetAccount,now,
     reason:typeof body.reason === 'string' ? body.reason : undefined});
   if (!result.ok) return Response.json(result,{status:409});
-  if (action === 'archive' || action === 'failed' || action === 'restore') {
+  if (action === 'archive' || action === 'failed' || action === 'restore' || action === 'joined' || action === 'waiting') {
     const next = await readChatState(env.DB,user.id,id);
     return next ? Response.json({ ...result, stateToken: next.state_token })
       : Response.json({ error: 'Не вдалося підтвердити новий стан. Оновіть список.' }, { status: 409 });

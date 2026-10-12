@@ -4,7 +4,7 @@ import { chatStateEvent, chatStateTokenSql, type ChatState } from './state.ts';
 
 const ALLOWED_FROM: Record<string, readonly string[]> = {
   joined: ['to_join'], waiting: ['to_join'], failed: ['to_join'], approved: ['waiting'],
-  archive: ['to_join','waiting','ready'], restore: ['archived'], return_to_join: ['ready'],
+  archive: ['to_join','waiting','ready'], restore: ['archived'], return_to_join: ['waiting','ready'],
   assign_account: ['waiting','ready','archived'],
 };
 
@@ -14,7 +14,7 @@ export async function transitionChat(db: D1Database, input: {
   const { userId, chat, action, now } = input;
   if (!ALLOWED_FROM[action]?.includes(chat.workflow_status)) return {ok:false,error:'Стан чату вже змінився. Оновіть список.'};
   if (action === 'waiting' && !['telegram','whatsapp'].includes(chat.platform)) return {ok:false,error:'Для цієї платформи немає очікування запрошення.'};
-  if (action === 'return_to_join' && chat.platform !== 'whatsapp') return {ok:false,error:'Повернення в цю чергу доступне лише для WhatsApp.'};
+  if (action === 'return_to_join' && !['telegram','whatsapp'].includes(chat.platform)) return {ok:false,error:'Повернення в цю чергу доступне лише для Telegram і WhatsApp.'};
   if (action === 'assign_account' && (chat.platform !== 'telegram' || !input.accountId)) return {ok:false,error:'Оберіть активний Telegram-акаунт.'};
 
   const joining = action === 'joined' || action === 'approved';
@@ -47,6 +47,14 @@ export async function transitionChat(db: D1Database, input: {
       WHERE user_id=?2 AND chat_id=?3 AND event_type='chat_joined' AND event_date=?4 AND cancelled_at IS NULL
         AND EXISTS(SELECT 1 FROM activity_events transition_event WHERE transition_event.id=?5 AND transition_event.user_id=?2)`)
       .bind(now,userId,chat.id,businessDate(now),eventId));
+    // Скасоване сьогоднішнє приєднання відкочує й серію приєднань акаунта: так «Скасувати» після «Приєднано»
+    // повертає лічильник «Приєднано N із M» до попереднього значення (рядок лише за ключем акаунта).
+    if (chat.platform === 'telegram' && chat.telegram_account_id) {
+      statements.push(db.prepare(`UPDATE telegram_accounts SET join_streak=MAX(join_streak-1,0),updated_at=?1
+        WHERE id=?2 AND user_id=?3 AND EXISTS(SELECT 1 FROM activity_events e WHERE e.user_id=?3 AND e.chat_id=?4
+          AND e.event_type='chat_joined' AND e.event_date=?5 AND e.cancelled_at=?1)`)
+        .bind(now,chat.telegram_account_id,userId,chat.id,businessDate(now)));
+    }
   }
   const discoveryMembership = discoveryMembershipForTransition(action);
   if (discoveryMembership) {
@@ -79,8 +87,9 @@ export async function transitionChat(db: D1Database, input: {
     if (chat.platform === 'telegram') statements.push(db.prepare(`UPDATE telegram_accounts
       SET join_streak=CASE WHEN break_until IS NOT NULL AND break_until<=?1 THEN 1 ELSE join_streak+1 END,
         break_until=CASE WHEN break_until<=?1 THEN NULL ELSE break_until END,updated_at=?1
-      WHERE id=?2 AND user_id=?3 AND EXISTS(SELECT 1 FROM activity_events e WHERE e.id=?4 AND e.user_id=?3)`)
-      .bind(now,accountId,userId,metricId));
+      WHERE id=?2 AND user_id=?3 AND EXISTS(SELECT 1 FROM activity_events e WHERE e.user_id=?3 AND e.cancelled_at IS NULL
+        AND (e.id=?4 OR (e.source_key=?5 AND e.occurred_at=?1)))`)
+      .bind(now,accountId,userId,metricId,`chat-joined:${chat.id}:${businessDate(now)}`));
   }
   const results = await db.batch(statements);
   return results[0].meta.changes ? {ok:true} : {ok:false,error:'Чат або Telegram-акаунт уже змінено. Оновіть список.'};

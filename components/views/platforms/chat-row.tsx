@@ -30,7 +30,7 @@ export type ChatRowProps = {
   lastOpened: boolean;
   accounts: TelegramAccount[];
   whatsappAutopostReady: boolean;
-  onAct: (chat: Chat, action: string, extra?: Record<string, unknown>, undo?: { action: 'restore' | 'unsnooze' | 'undo_published'; label: string }) => void;
+  onAct: (chat: Chat, action: string, extra?: Record<string, unknown>, undo?: { action: 'restore' | 'unsnooze' | 'undo_published' | 'return_to_join'; label: string }) => void;
   onPublish: (chat: Chat) => void;
   onProfile: (chat: Chat) => void;
   onHistory: (chat: Chat) => void;
@@ -49,7 +49,7 @@ export function ChatRow({ chat, queue, clock, busy, lastOpened, accounts, whatsa
   const snoozed = isSnoozed(chat, clock);
   const blockedByQualification = Boolean(chat.discoveryDecision && chat.discoveryDecision !== 'target');
   const publishable = canPublish(chat, clock);
-  const undo8 = (label: string, action: 'restore' | 'unsnooze') => ({ action, label });
+  const undo8 = (label: string, action: 'restore' | 'unsnooze' | 'return_to_join') => ({ action, label });
 
   const signals: Array<{ key: string; text: string; tone?: 'ok' | 'warn' }> = [];
   if (lastOpened) signals.push({ key: 'last', text: 'Останній відкритий' });
@@ -113,8 +113,8 @@ export function ChatRow({ chat, queue, clock, busy, lastOpened, accounts, whatsa
       <div className="flex flex-wrap items-center gap-2">
         {queue === 'to_join' ? (
           <>
-            <Button variant="action" size="sm" disabled={busy} onClick={() => onAct(chat, 'joined')}>Приєднано</Button>
-            {(chat.platform === 'telegram' || chat.platform === 'whatsapp') ? <Button variant="outline" size="sm" disabled={busy} onClick={() => onAct(chat, 'waiting')}>В очікування</Button> : null}
+            <Button variant="action" size="sm" disabled={busy} onClick={() => onAct(chat, 'joined', {}, undo8('Чат приєднано. Можна скасувати протягом 8 секунд.', 'return_to_join'))}>Приєднано</Button>
+            {(chat.platform === 'telegram' || chat.platform === 'whatsapp') ? <Button variant="outline" size="sm" disabled={busy} onClick={() => onAct(chat, 'waiting', {}, undo8('Чат у черзі очікування. Можна скасувати протягом 8 секунд.', 'return_to_join'))}>В очікування</Button> : null}
             <Button variant="ghost" size="sm" disabled={busy} onClick={() => onArchive(chat)}>В архів</Button>
           </>
         ) : null}

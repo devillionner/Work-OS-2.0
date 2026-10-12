@@ -67,6 +67,9 @@ export async function POST(request:Request):Promise<Response> {
   } else if(action==='start_break') {
     const minutes=Math.min(60,Math.max(5,Number(body.minutes)||account.break_minutes||15));
     await env.DB.prepare(`UPDATE telegram_accounts SET break_minutes=?1,break_until=?2,updated_at=?3 WHERE id=?4 AND user_id=?5`).bind(minutes,now+minutes*60,now,id,user.id).run();
+  } else if(action==='cancel_break') {
+    // Скасування перерви: лише активна перерва, серія приєднань починається заново; оновлюється один рядок за ключем акаунта.
+    await env.DB.prepare(`UPDATE telegram_accounts SET break_until=NULL,join_streak=0,updated_at=?1 WHERE id=?2 AND user_id=?3 AND break_until IS NOT NULL AND break_until>?1`).bind(now,id,user.id).run();
   } else if(action==='settings') {
     const batch=Math.min(20,Math.max(1,Number(body.joinBatchSize)||5));
     const minutes=Math.min(60,Math.max(5,Number(body.breakMinutes)||15));
