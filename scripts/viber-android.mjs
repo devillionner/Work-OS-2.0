@@ -10,6 +10,9 @@ import { join } from 'node:path';
 const VIBER_PACKAGE = 'com.viber.voip';
 const VIBER_LAUNCH = 'com.viber.voip/.WelcomeActivity';
 const MEDIA_PERMISSION = 'android.permission.READ_MEDIA_IMAGES';
+// Допоміжна клавіатура, яка вводить будь-який Unicode за командою adb (кирилиця, емодзі, переноси рядків).
+const ADB_KEYBOARD_PACKAGE = 'com.android.adbkeyboard';
+const ADB_KEYBOARD = `${ADB_KEYBOARD_PACKAGE}/.AdbIME`;
 const REMOTE_UI_DUMP = '/sdcard/workos-ui.xml';
 const POST_TIMEOUT_MS = 4 * 60 * 1000;
 // Фото для відправки лежить у Pictures Android лише на час партії: через 3 хв без відправок воно видаляється.
@@ -29,6 +32,7 @@ export const VIBER_ENV_REASON_TEXT = {
   viber_not_installed: 'У Waydroid не встановлений Viber',
   viber_not_activated: 'Viber у Waydroid не активований',
   viber_language: 'Мова Android має бути англійською',
+  adbkeyboard_missing: 'У Waydroid не встановлена клавіатура ADBKeyBoard',
 };
 
 /** Помилка з кодом причини: severity показує, чи могло щось піти в чат. */
@@ -155,6 +159,8 @@ async function checkEnvironment(android) {
   if (!installed.includes('package:')) throw new ViberStop('viber_not_installed', 'env');
   const locale = (await android.sh('getprop persist.sys.locale')).trim() || (await android.sh('getprop ro.product.locale')).trim() || 'en-US';
   if (!/^en/i.test(locale)) throw new ViberStop('viber_language', 'env', locale);
+  const keyboard = await android.sh(`pm path ${ADB_KEYBOARD_PACKAGE}`, { timeout: 15_000 });
+  if (!keyboard.includes('package:')) throw new ViberStop('adbkeyboard_missing', 'env');
 }
 
 // ---------------------------------------------------------------- Екрани Viber
@@ -181,7 +187,8 @@ async function clearPromos(android, nodes) {
 async function openChatList(android) {
   await android.key(3);
   await sleep(800);
-  await android.sh(`am start -n ${VIBER_LAUNCH}`);
+  // CLEAR_TASK: залишок попередньої задачі (відкритий перегляд фото, розмова) не заважає, Viber починає зі списку чатів.
+  await android.sh(`am start -f 0x10008000 -n ${VIBER_LAUNCH}`);
   const found = await android.waitFor((nodes) => (byId(nodes, 'menu_search') && nodes.some((node) => node.id === 'from' || node.id === 'subject')) ? nodes : null, 40_000, 1500);
   if (found) return clearPromos(android, found.nodes);
   const nodes = await android.dump();
@@ -238,28 +245,30 @@ async function openTarget(android, payload) {
 
 // ---------------------------------------------------------------- Фото
 
-async function ensureImage(android, media) {
+/**
+ * Кладе фото в Pictures Android під новою назвою (завжди найновіше в галереї, тож у панелі чату воно перше) і
+ * прибирає попередні копії. Файл лишається на час партії й видаляється, коли відправок немає 3 хв.
+ */
+async function freshImage(android, media) {
   if (!media?.base64) throw new ViberStop('image_missing', 'before');
-  const name = `workos-autopost-${String(media.sha256 || '').slice(0, 12) || 'image'}.jpg`;
-  const query = async () => {
-    const out = await android.sh(`content query --uri content://media/external/images/media --where ${shQuote(`_display_name='${name}'`)} --projection _id`, { timeout: 20_000 });
-    return (out.match(/_id=(\d+)/) || [])[1] || '';
-  };
-  let id = await query();
-  if (!id) {
-    const dir = await mkdtemp(join(tmpdir(), 'workos-viber-'));
-    try {
-      const local = join(dir, name);
-      await writeFile(local, Buffer.from(media.base64, 'base64'));
-      const pushed = await android.adb(['push', local, `/sdcard/Pictures/${name}`], { timeout: 60_000 });
-      if (pushed.code !== 0) throw new ViberStop('android_error', 'before', 'push');
-    } finally { await rm(dir, { recursive: true, force: true }); }
-    await android.sh(`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Pictures/${name} >/dev/null 2>&1`);
-    for (let attempt = 0; attempt < 6 && !id; attempt += 1) { await sleep(1000); id = await query(); }
+  await removeImages(android);
+  const name = `${IMAGE_PREFIX}${String(media.sha256 || '').slice(0, 12) || 'image'}-${Date.now().toString(36)}.jpg`;
+  const dir = await mkdtemp(join(tmpdir(), 'workos-viber-'));
+  try {
+    const local = join(dir, name);
+    await writeFile(local, Buffer.from(media.base64, 'base64'));
+    const pushed = await android.adb(['push', local, `/sdcard/Pictures/${name}`], { timeout: 60_000 });
+    if (pushed.code !== 0) throw new ViberStop('android_error', 'before', 'push');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+  await android.sh(`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Pictures/${name} >/dev/null 2>&1`);
+  let indexed = false;
+  for (let attempt = 0; attempt < 8 && !indexed; attempt += 1) {
+    await sleep(800);
+    indexed = (await android.sh(`content query --uri content://media/external/images/media --where ${shQuote(`_display_name='${name}'`)} --projection _id`, { timeout: 20_000 })).includes('_id=');
   }
-  if (!id) throw new ViberStop('android_error', 'before', 'media id');
+  if (!indexed) throw new ViberStop('android_error', 'before', 'media index');
   await android.sh(`pm grant ${VIBER_PACKAGE} ${MEDIA_PERMISSION}`);
-  return id;
+  return name;
 }
 
 /** Прибирає фото автопосту з Pictures і з MediaStore (галерея не накопичує їх). */
@@ -300,113 +309,95 @@ const minuteLabels = ({ hours, minutes }) => [0, 1].map((back) => {
   return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
 });
 
+const CAPTION_FIELD = 'custom_cam_preview_media_description';
+
 /**
- * Прокручує список «Share with», доки не знайде рядок із назвою `wanted`. Дві однакові назви на одному екрані — це
- * неоднозначність (пропуск); кінець списку без збігу — `target_not_found`. Прокрутка повільна (без інерції), а
- * перекриття сторінок перевіряється, щоб не проскочити рядок.
+ * Текст у поле підпису через клавіатуру ADB. Стару клавіатуру повертає викликач після відправки: якщо повернути її
+ * раніше, велика екранна клавіатура вискакує, закриває кнопку «Send», а дотики потрапляють у її клавіші.
  */
-async function scrollToRow(android, firstNodes, wanted, guard) {
-  let nodes = firstNodes;
-  let previous = [];
-  let stale = 0;
-  let empty = 0;
-  for (let page = 0; page < 120; page += 1) {
+async function typeCaption(android, caption, guard) {
+  // Порядок важливий: спершу метод вводу, потім фокус у полі, інакше широкомовна команда нікуди не потрапить.
+  await android.sh(`ime set ${ADB_KEYBOARD}`);
+  await sleep(1000);
+  // Порожнє поле віддає в дереві підказку «Add a description…»: так відрізняємо «нічого не набралось» від неповного набору.
+  const isEmpty = (text) => !text || /^Add a description/i.test(text);
+  const base64 = Buffer.from(caption, 'utf8').toString('base64');
+  let typed = '';
+  for (let attempt = 0; attempt < 2 && typed !== caption; attempt += 1) {
+    const field = byId(await android.dump(), CAPTION_FIELD);
+    if (!field) throw new ViberStop('send_ui_unavailable', 'before', 'caption field');
     guard();
-    const rows = nodes.filter((node) => node.id === 'name');
-    const hits = rows.filter((node) => looseName(node.text) === wanted);
-    if (hits.length > 1) throw new ViberStop('target_ambiguous', 'before');
-    if (hits.length === 1) return hits[0];
-    const names = rows.map((node) => node.text);
-    if (page > 0 && names.join('|') === previous.join('|')) { stale += 1; if (stale >= 4) break; } else stale = 0;
-    const list = byId(nodes, 'items_list');
-    if (!list) {
-      // Порожнє дерево: екран ще анімується. Кілька повторів, далі зупинка без відправки.
-      empty += 1;
-      if (empty >= 10) throw new ViberStop('send_ui_unavailable', 'before', 'list');
-      await sleep(1200);
-      nodes = await android.dump();
-      continue;
+    await android.tap(field);
+    await sleep(1200);
+    await android.sh(`am broadcast -a ADB_INPUT_B64 --es msg ${base64}`);
+    for (let poll = 0; poll < 6 && typed !== caption; poll += 1) {
+      await sleep(900);
+      typed = byId(await android.dump(), CAPTION_FIELD)?.text || '';
+      if (typed !== caption && !isEmpty(typed)) break;
     }
-    const height = list.bottom - list.top;
-    const x = Math.round((list.left + list.right) / 2);
-    const from = list.bottom - 30;
-    await android.sh(`input swipe ${x} ${from} ${x} ${from - Math.round(height * 0.6)} 650`);
-    await sleep(700);
-    previous = names;
-    nodes = await android.dump();
-    const next = nodes.filter((node) => node.id === 'name').map((node) => node.text);
-    // Жоден із попередніх рядків не видно: сторінка проскочила, повертаємось на пів кроку назад.
-    if (previous.length && next.length && !next.some((name) => previous.includes(name))) {
-      await android.sh(`input swipe ${x} ${list.top + 60} ${x} ${list.top + 60 + Math.round(height * 0.3)} 650`);
-      await sleep(700);
-      nodes = await android.dump();
-    }
+    // Повторюємо лише коли поле лишилось порожнім; частковий набір не дописуємо вдруге.
+    if (typed !== caption && !isEmpty(typed)) throw new ViberStop('send_ui_unavailable', 'before', 'caption text mismatch');
   }
-  throw new ViberStop('target_not_found', 'before', 'not in the share list');
+  if (typed !== caption) throw new ViberStop('send_ui_unavailable', 'before', 'caption not typed');
 }
 
-/** Виконує дію й чекає зміни стану; якщо стану немає, повторює дію (до `attempts` разів). */
-async function actUntil(android, act, predicate, { attempts = 3, timeout = 8000 } = {}) {
+/** Дотик по вузлу з очікуванням наступного екрана; загублений дотик повторюється, якщо екран не змінився. */
+async function pressUntil(android, locate, predicate, { attempts = 3, timeout = 7000 } = {}) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    await act();
-    const result = await android.waitFor(predicate, timeout);
-    if (result) return result;
+    const nodes = await android.dump();
+    if (predicate(nodes)) return nodes;
+    const target = locate(nodes);
+    if (target) await android.press(target);
+    const hit = await android.waitFor(predicate, timeout);
+    if (hit) return hit.nodes;
   }
   return null;
 }
 
-async function share(android, payload, imageId, targetName, guard) {
-  const caption = String(payload.message || '');
-  await android.key(3);
-  await sleep(600);
-  // 0x10008000 = NEW_TASK | CLEAR_TASK: без нього відкрита розмова перехоплює намір і вікно вибору чату не з'являється.
-  await android.sh(`am start -f 0x10008000 -a android.intent.action.SEND -t image/jpeg --eu android.intent.extra.STREAM content://media/external/images/media/${imageId} -e android.intent.extra.TEXT ${shQuote(caption)} -p ${VIBER_PACKAGE} --grant-read-uri-permission`);
-  const picker = await android.waitFor((nodes) => (byId(nodes, 'items_list') && nodes.some((node) => node.id === 'name') ? nodes : null), 25_000);
-  if (!picker) throw new ViberStop('send_ui_unavailable', 'before', 'picker');
-  // Viber не піднімає щойно відкритий чат у «RECENT» (порядок за активністю), а ввести кирилицю без буфера обміну
-  // неможливо, тож шукаємо рядок із точною назвою прокруткою списку й беремо перший збіг.
-  const wanted = looseName(targetName);
+/**
+ * Публікація прямо у відкритому чаті: «+» біля поля повідомлення → «Gallery» (екран «All Media») → найновіше фото (воно
+ * лише-но покладене) → попередній перегляд → підпис → «Send». Інлайн-панель галереї під полем (іконка в полі) часто валить
+ * Viber у Waydroid, тому не використовується; усі екрани цього шляху `uiautomator dump` витримують.
+ */
+async function attachAndSend(android, caption, guard) {
+  const convo = await android.waitFor((nodes) => (byId(nodes, 'options_menu_open_more') ? nodes : null), 15_000);
+  if (!convo) throw new ViberStop('send_ui_unavailable', 'before', 'plus button');
   guard();
-  const found = await scrollToRow(android, picker.nodes, wanted, guard);
-  const rowFor = (nodes) => nodes.find((node) => node.id === 'name' && looseName(node.text) === wanted);
-  const isSelected = (nodes, row) => nodes.some((node) => node.id === 'check' && node.checked && Math.abs(node.y - row.y) < 40);
-  // Дотики в списку й на кнопках інколи губляться, поки екран оновлюється: довгий дотик і повтор, поки стан не зміниться.
-  const selected = await actUntil(android, async () => {
-    const nodes = await android.dump();
-    const row = rowFor(nodes) || found;
-    if (!isSelected(nodes, row)) await android.press(row);
-  }, (nodes) => {
-    const checked = nodes.filter((node) => node.id === 'check' && node.checked);
-    return checked.length === 1 && nodes.some((node) => node.id === 'add_recipients_counter' && node.text.startsWith('1/')) && byId(nodes, 'fab_send') ? nodes : null;
-  });
-  if (!selected) throw new ViberStop('target_unconfirmed', 'before', 'selection');
-  const checkedBox = selected.nodes.find((node) => node.id === 'check' && node.checked);
-  const checkedName = selected.nodes.filter((node) => node.id === 'name').find((node) => Math.abs(node.y - checkedBox.y) < 40);
-  if (!checkedName || looseName(checkedName.text) !== wanted) throw new ViberStop('target_unconfirmed', 'before', 'wrong row selected');
+  const menu = await pressUntil(android, (nodes) => byId(nodes, 'options_menu_open_more'), (nodes) => (byId(nodes, 'options_more_menu_gallery') ? nodes : null));
+  if (!menu) throw new ViberStop('send_ui_unavailable', 'before', 'plus menu');
   guard();
-  const preview = await actUntil(android, async () => {
+  const firstTile = (nodes) => {
+    const list = byId(nodes, 'recent_media_list');
+    return list ? nodes.filter((node) => node.id === 'image' && node.left >= list.left && node.right <= list.right && node.top >= list.top).sort((x, y) => x.top - y.top || x.left - y.left)[0] : undefined;
+  };
+  const gallery = await pressUntil(android, (nodes) => byId(nodes, 'options_more_menu_gallery'), (nodes) => (firstTile(nodes) ? nodes : null), { timeout: 9000 });
+  if (!gallery) throw new ViberStop('send_ui_unavailable', 'before', 'gallery');
+  guard();
+  const opened = await pressUntil(android, firstTile, (nodes) => (byId(nodes, 'btn_send') && byId(nodes, 'custom_cam_preview_media_description') ? nodes : null), { timeout: 9000 });
+  if (!opened) throw new ViberStop('send_ui_unavailable', 'before', 'preview');
+  const previousIme = caption.trim() ? (await android.sh('settings get secure default_input_method')).trim() : '';
+  try {
+    if (caption.trim()) await typeCaption(android, caption, guard);
+    // Остання точка, де «Зупинити» ще діє: далі повідомлення може піти. Повторний дотик лише якщо вікно перегляду
+    // не закрилось за 8 с: так надіслане повідомлення не задвоїться, а загублений дотик не залишить чат без відправки.
     guard();
-    const fab = byId(await android.dump(), 'fab_send');
-    if (fab) await android.press(fab);
-  }, (nodes) => (byId(nodes, 'btn_send') && byId(nodes, 'custom_cam_preview_media_description') ? nodes : null), { timeout: 10_000 });
-  if (!preview) throw new ViberStop('send_ui_unavailable', 'before', 'preview');
-  if (caption.trim() && !byId(preview.nodes, 'custom_cam_preview_media_description').text.trim()) throw new ViberStop('send_ui_unavailable', 'before', 'caption empty');
-  // Остання точка, де «Зупинити» ще діє: далі повідомлення може піти.
-  guard();
-  // Із цього моменту повідомлення може піти. Повторний дотик лише якщо вікно перегляду не закрилось за 8 с: так
-  // надіслане повідомлення не задвоїться, а загублений дотик не залишить чат без відправки.
-  const inPreview = async () => (await android.focusLine()).includes('MediaPreviewActivity');
-  let sent = false;
-  for (let attempt = 0; attempt < 2 && !sent; attempt += 1) {
-    const send = byId(await android.dump(), 'btn_send');
-    if (send) await android.press(send);
-    for (let wait = 0; wait < 8 && !sent; wait += 1) {
-      await sleep(1000);
-      sent = !(await inPreview());
+    const inPreview = async () => (await android.focusLine()).includes('MediaPreviewActivity');
+    let sent = false;
+    for (let attempt = 0; attempt < 2 && !sent; attempt += 1) {
+      const nodes = await android.dump();
+      const send = byId(nodes, 'btn_send');
+      // Підпис не має змінитись між набором і відправкою (випадковий дотик у клавіатуру дописав би зайве).
+      if (attempt === 0 && caption.trim() && byId(nodes, CAPTION_FIELD)?.text !== caption) throw new ViberStop('send_ui_unavailable', 'before', 'caption changed');
+      if (send) await android.press(send);
+      for (let wait = 0; wait < 8 && !sent; wait += 1) {
+        await sleep(1000);
+        sent = !(await inPreview());
+      }
     }
+    if (!sent) throw new ViberStop('send_not_confirmed', 'after', 'send button did not respond');
+  } finally {
+    if (previousIme && previousIme !== ADB_KEYBOARD) await android.sh(`ime set ${previousIme}`);
   }
-  if (!sent) throw new ViberStop('send_not_confirmed', 'after', 'send button did not respond');
-  return caption;
 }
 
 async function confirmSent(android, caption, targetName) {
@@ -443,11 +434,11 @@ async function post(payload, guard) {
   const android = await connect();
   await checkEnvironment(android);
   guard();
-  const imageId = await ensureImage(android, payload.media);
+  await freshImage(android, payload.media);
   guard();
   const targetName = await openTarget(android, payload);
   guard();
-  await share(android, payload, imageId, targetName, guard);
+  await attachAndSend(android, String(payload.message || ''), guard);
   await confirmSent(android, String(payload.message || ''), targetName);
   lastPostAt = Date.now();
   return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: targetName };
