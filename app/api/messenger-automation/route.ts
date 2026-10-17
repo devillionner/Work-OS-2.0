@@ -16,6 +16,7 @@ import {
   readWhatsAppAutopostProgress,
   resetWhatsAppAutopostQueue,
 } from '@/lib/messenger-automation';
+import { readAutopostAttention, resolveAutopostDecision, type AutopostDecision } from '@/lib/messenger-automation-outcome';
 import { publicWhatsAppAutopostImage, readWhatsAppAutopostImage } from '@/lib/whatsapp-autopost-media';
 import {
   cleanWhatsAppAutopostCaption,
@@ -54,14 +55,29 @@ export async function GET(request:Request):Promise<Response>{
     // The autopost dialog refreshes on every live-channel autopost event, so that path reads one grouped
     // count instead of the image row and the rest of the settings.
     if(url.searchParams.get('progress')==='1'){
-      return json({whatsappAutopostProgress:await readWhatsAppAutopostProgress(env.DB,user.id,businessDate(Math.floor(Date.now()/1000)))});
+      const date=businessDate(Math.floor(Date.now()/1000));
+      const [progress,attention]=await Promise.all([
+        readWhatsAppAutopostProgress(env.DB,user.id,date),
+        readAutopostAttention(env.DB,user.id,'whatsapp'),
+      ]);
+      return json({whatsappAutopostProgress:progress,autopostAttention:attention});
     }
-    const [job,whatsappAutopost,image,caption,progress]=await Promise.all([
+    // Viber-автопост: лічильники сьогоднішньої партії й чати, що чекають рішення (одна згрупована вибірка й один короткий список).
+    if(url.searchParams.get('viber')==='1'){
+      const date=businessDate(Math.floor(Date.now()/1000));
+      const [progress,attention]=await Promise.all([
+        readWhatsAppAutopostProgress(env.DB,user.id,date,'viber'),
+        readAutopostAttention(env.DB,user.id,'viber'),
+      ]);
+      return json({viberAutopostProgress:progress,autopostAttention:attention});
+    }
+    const [job,whatsappAutopost,image,caption,progress,attention]=await Promise.all([
       readLatestViberSafeNoteJob(env.DB,user.id),
       readLatestWhatsAppAutopostJob(env.DB,user.id),
       readWhatsAppAutopostImage(env.DB,user.id),
       readWhatsAppAutopostCaption(env.DB,user.id),
       readWhatsAppAutopostProgress(env.DB,user.id,businessDate(Math.floor(Date.now()/1000))),
+      readAutopostAttention(env.DB,user.id,'whatsapp'),
     ]);
     return json({
       job,
@@ -69,6 +85,7 @@ export async function GET(request:Request):Promise<Response>{
       whatsappAutopostImage:image?publicWhatsAppAutopostImage(image):null,
       whatsappAutopostCaption:caption?.text||'',
       whatsappAutopostProgress:progress,
+      autopostAttention:attention,
     });
   }
   catch(error){
@@ -127,6 +144,42 @@ export async function POST(request:Request):Promise<Response>{
       const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,caption},now,businessDate(now));
       if(batch.created>0)await wakeOwnerChannelAutopost(user.id);
       return json(batch);
+    }
+    // Viber-автопост: та сама черга задач, що й у WhatsApp, але чати Viber, без власного тексту й фото (їх дає нотатка
+    // в «Мої нотатки»), виконує помічник на ПК оператора через runner.
+    if(body.action==='viber-autopost-batch'){
+      const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,platform:'viber'},now,businessDate(now));
+      if(batch.created>0)await wakeOwnerChannelAutopost(user.id);
+      return json(batch);
+    }
+    if(body.action==='cancel-viber-autopost-batch'){
+      const result=await cancelWhatsAppAutopostBatch(env.DB,user.id,businessDate(now),now,'viber');
+      await wakeOwnerChannelAutopost(user.id);
+      return json({...result,progress:await readWhatsAppAutopostProgress(env.DB,user.id,businessDate(now),'viber')});
+    }
+    if(body.action==='reset-viber-autopost'){
+      const result=await resetWhatsAppAutopostQueue(env.DB,user.id,businessDate(now),'viber');
+      await wakeOwnerChannelAutopost(user.id);
+      return json({...result,progress:await readWhatsAppAutopostProgress(env.DB,user.id,businessDate(now),'viber')});
+    }
+    // Рішення власника зі списку «Потребують рішення»: в архів, відкласти на завтра або спробувати ще раз.
+    if(body.action==='resolve-autopost-decision'){
+      const decision=body.decision==='archive'||body.decision==='snooze'||body.decision==='retry'?body.decision as AutopostDecision:null;
+      if(typeof body.jobId!=='string'||!body.jobId||!decision)throw new MessengerAutomationError('Не вказано чат або рішення.');
+      const resolved=await resolveAutopostDecision(env.DB,user.id,{jobId:body.jobId,decision},now);
+      if(!resolved.ok)throw new MessengerAutomationError(resolved.error,409);
+      if(decision==='retry'){
+        const platformRow=await env.DB.prepare(`SELECT platform FROM chats WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(resolved.chatId,user.id).first<{platform:string}>();
+        await createWhatsAppAutopostJob(env.DB,user.id,{requestKey:`retry_${crypto.randomUUID()}`,chatId:resolved.chatId,platform:platformRow?.platform},now,businessDate(now));
+        await wakeOwnerChannelAutopost(user.id);
+      }
+      const platform=body.platform==='viber'?'viber':'whatsapp';
+      const date=businessDate(now);
+      const [progress,attention]=await Promise.all([
+        readWhatsAppAutopostProgress(env.DB,user.id,date,platform),
+        readAutopostAttention(env.DB,user.id,platform),
+      ]);
+      return json({ok:true,progress,autopostAttention:attention});
     }
     if(body.action==='cancel-whatsapp-autopost'){
       if(typeof body.jobId!=='string'||!body.jobId)throw new MessengerAutomationError('WhatsApp autopost задача не вказана.');

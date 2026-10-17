@@ -413,11 +413,13 @@ export class OwnerChannel {
     await this.writeState(state);
   }
 
-  /** @param {{jobId:string}} message */
+  /** @param {{jobId:string; errorCode?:string}} message */
   async handleAutopostRelease(message) {
     const state = await this.readState();
     if (!state.userId || state.autopostCurrentJobId !== message.jobId) return;
-    await releaseWhatsAppAutopostJob(this.env.DB, state.userId, message.jobId, nowSeconds());
+    // Код приходить лише від тимчасової помилки самої задачі: сервер рахує спробу й після третьої пропускає чат на сьогодні.
+    await releaseWhatsAppAutopostJob(this.env.DB, state.userId, message.jobId, nowSeconds(),
+      typeof message.errorCode === 'string' ? message.errorCode : undefined);
     state.autopostCurrentJobId = null;
     await this.writeState(state);
     this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: message.jobId, status: 'released' });

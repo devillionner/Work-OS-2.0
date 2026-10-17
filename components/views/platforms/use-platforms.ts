@@ -5,6 +5,8 @@ import { useToast } from '@/components/ui/toast';
 import { telegramAccountAction, useTelegramAccounts, loadTelegramAccounts, type TelegramAccount } from '@/components/views/platforms/telegram-accounts';
 import type { PlatformLinkItem as LinkItem, PublicationPace } from '@/components/views/platforms/overview';
 import type { WhatsAppAutopostImage, WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
+import type { AutopostAttentionItem, AutopostDecision } from '@/components/views/platforms/autopost-attention';
+import { batchSkipText } from '@/components/views/platforms/autopost-reasons';
 import type { WaitingCheckAction, WaitingCheckProblemAction } from '@/components/views/platforms/waiting-check-card';
 import { announceDataChange } from '@/lib/client-sync';
 import { createActionGate } from '@/lib/action-gate';
@@ -180,6 +182,8 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   const [whatsappCaption, setWhatsappCaption] = useState('');
   const [whatsappCaptionLoaded, setWhatsappCaptionLoaded] = useState(false);
   const [whatsappProgress, setWhatsappProgress] = useState<WhatsAppAutopostProgress | null>(null);
+  const [autopostAttention, setAutopostAttention] = useState<AutopostAttentionItem[]>([]);
+  const [whatsappBatchNote, setWhatsappBatchNote] = useState<string | null>(null);
   const selected = useSelectedLists({ enabled: active && platform === 'telegram', viewing: queue === 'selected' });
 
   const { accounts, accountId } = useTelegramAccounts(true);
@@ -272,8 +276,8 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     let cancelled = false;
     void fetch('/api/messenger-automation', { cache: 'no-store' })
       .then(async (response) => {
-        const body = await response.json() as { whatsappAutopostImage?: WhatsAppAutopostImage | null; whatsappAutopostCaption?: string; whatsappAutopostProgress?: WhatsAppAutopostProgress };
-        if (!cancelled && response.ok) { setWhatsappImage(body.whatsappAutopostImage || null); setWhatsappCaption(typeof body.whatsappAutopostCaption === 'string' ? body.whatsappAutopostCaption : ''); setWhatsappProgress(body.whatsappAutopostProgress || null); }
+        const body = await response.json() as { whatsappAutopostImage?: WhatsAppAutopostImage | null; whatsappAutopostCaption?: string; whatsappAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[] };
+        if (!cancelled && response.ok) { setAutopostAttention(body.autopostAttention || []); setWhatsappImage(body.whatsappAutopostImage || null); setWhatsappCaption(typeof body.whatsappAutopostCaption === 'string' ? body.whatsappAutopostCaption : ''); setWhatsappProgress(body.whatsappAutopostProgress || null); }
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) { setWhatsappImageLoaded(true); setWhatsappCaptionLoaded(true); } });
@@ -382,8 +386,8 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     const refresh = async () => {
       try {
         const response = await fetch('/api/messenger-automation?progress=1', { cache: 'no-store' });
-        const body = await response.json() as { whatsappAutopostProgress?: WhatsAppAutopostProgress };
-        if (response.ok) setWhatsappProgress(body.whatsappAutopostProgress || null);
+        const body = await response.json() as { whatsappAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[] };
+        if (response.ok) { setWhatsappProgress(body.whatsappAutopostProgress || null); setAutopostAttention(body.autopostAttention || []); }
       } catch { /* наступна подія оновить */ }
     };
     return subscribeLiveMessages((message) => { if (message.type === 'process_state' && message.process === 'autopost') void refresh(); });
@@ -637,18 +641,32 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   }); };
   const startWhatsAppAutopostBatch = () => { if (platform !== 'whatsapp' || !whatsappImage || !whatsappCaptionLoaded) return Promise.resolve(); return wa('whatsapp-autopost-batch', async () => {
     setQuickPublishMode(false); setQuickAdvertisementId(null);
-    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'whatsapp-autopost-batch', limit: 30, caption: whatsappCaption }) });
-    const body = await response.json() as { created?: number; skipped?: number; error?: string };
+    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'whatsapp-autopost-batch', caption: whatsappCaption }) });
+    const body = await response.json() as { created?: number; skipped?: number; reasons?: Array<{ code: string; count: number }>; more?: boolean; error?: string };
     if (!response.ok) throw new Error(body.error || 'Не вдалося запустити автопост черги.');
     invalidateQueueCache('whatsapp'); announceDataChange('platforms'); await reloadChats.current(true);
     const created = Number(body.created || 0); const skipped = Number(body.skipped || 0);
     try {
       const progressResponse = await fetch('/api/messenger-automation?progress=1', { cache: 'no-store' });
-      const progressBody = await progressResponse.json() as { whatsappAutopostProgress?: WhatsAppAutopostProgress };
-      if (progressResponse.ok) setWhatsappProgress(progressBody.whatsappAutopostProgress || null);
+      const progressBody = await progressResponse.json() as { whatsappAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[] };
+      if (progressResponse.ok) { setWhatsappProgress(progressBody.whatsappAutopostProgress || null); setAutopostAttention(progressBody.autopostAttention || []); }
     } catch { /* події каналу оновлять прогрес */ }
-    toast.push({ message: created ? `Поставлено в автопост: ${created} чатів${skipped ? `; пропущено ${skipped} без безпечного збігу матеріалу й правил` : ''}. Executor відправлятиме їх по одному з підтвердженням.` : 'Нових чатів для безпечного автопосту зараз немає.' });
+    const why = (body.reasons || []).map((item) => `${batchSkipText(item.code)}: ${item.count}`).join(', ');
+    const note = created
+      ? `Остання партія: поставлено ${created} чатів${skipped ? `, пропущено ${skipped} (${why})` : ''}${body.more ? '. Придатних чатів лишилось ще: запусти автопост повторно, коли партія завершиться' : ''}.`
+      : `Остання партія: нових чатів для автопосту немає${skipped ? `, пропущено ${skipped} (${why})` : ''}.`;
+    setWhatsappBatchNote(note);
+    toast.push({ message: created ? `Поставлено в автопост: ${created} чатів. Відправка йде по одному, з підтвердженням.` : 'Нових чатів для автопосту зараз немає.' });
   }); };
+
+  const decideAutopost = (item: AutopostAttentionItem, decision: AutopostDecision) => wa('autopost-decision', async () => {
+    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'resolve-autopost-decision', jobId: item.jobId, decision, platform }) });
+    const body = await response.json() as { progress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[]; error?: string };
+    if (!response.ok) throw new Error(body.error || 'Не вдалося застосувати рішення.');
+    setWhatsappProgress(body.progress || null); setAutopostAttention(body.autopostAttention || []);
+    invalidateQueueCache(platform); announceDataChange('platforms'); await reloadChats.current(true);
+    toast.push({ message: decision === 'archive' ? 'Чат переміщено в архів.' : decision === 'snooze' ? 'Чат відкладено до завтра.' : 'Чат знову поставлено в чергу автопосту.' });
+  });
 
   async function accountAction(action: string, id?: string, extra: Record<string, unknown> = {}) {
     await runAction.current(async () => {
@@ -674,7 +692,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     // WhatsApp / Viber
     waitingCheckView, changeWaitingCheck, connectWaitingCheckRunner, resolveWaitingProblem, liveStatus,
     quickPublishMode, setQuickPublishMode, quickAdvertisementId, setQuickAdvertisementId,
-    whatsappImage, whatsappImageLoaded, whatsappCaption, setWhatsappCaption, whatsappCaptionLoaded, whatsappProgress,
+    whatsappImage, whatsappImageLoaded, whatsappCaption, setWhatsappCaption, whatsappCaptionLoaded, whatsappProgress, autopostAttention, whatsappBatchNote, decideAutopost,
     uploadWhatsAppAutopostImage, removeWhatsAppAutopostImage, saveWhatsAppAutopostCaption, clearWhatsAppAutopostCaption, resetWhatsAppAutopostQueue, stopWhatsAppAutopostBatch, startWhatsAppAutopostBatch,
   };
 }

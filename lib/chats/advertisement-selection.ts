@@ -81,17 +81,18 @@ export async function readPublicationAdvertisementSelection(
     WHERE c.id=?1 AND c.user_id=?2 AND c.workflow_status='ready' LIMIT 1`).bind(input.chatId, input.userId).first<SelectionChatRow>();
   if (!chat) return null;
 
-  const usedStatement = chat.platform === 'whatsapp'
+  // WhatsApp і Viber автопостять через спільну чергу задач: використаними вважаються й матеріали задач у роботі, але лише тієї самої платформи.
+  const usedStatement = chat.platform === 'whatsapp' || chat.platform === 'viber'
     ? db.prepare(`SELECT DISTINCT advertisement_id FROM (
         SELECT p.advertisement_id AS advertisement_id
         FROM chat_publications p
-        WHERE p.user_id=?1 AND p.platform='whatsapp' AND p.published_on=?2 AND p.advertisement_id IS NOT NULL
+        WHERE p.user_id=?1 AND p.platform=?4 AND p.published_on=?2 AND p.advertisement_id IS NOT NULL
         UNION
         SELECT j.advertisement_id AS advertisement_id
-        FROM whatsapp_autopost_jobs j
+        FROM whatsapp_autopost_jobs j JOIN chats jc ON jc.id=j.chat_id AND jc.user_id=j.user_id
         WHERE j.user_id=?1 AND j.published_on=?2 AND j.status IN ('pending','claimed')
-          AND (?3='' OR j.id<>?3)
-      ) WHERE advertisement_id IS NOT NULL`).bind(input.userId,input.date,input.excludeAutomationJobId||'')
+          AND jc.platform=?4 AND (?3='' OR j.id<>?3)
+      ) WHERE advertisement_id IS NOT NULL`).bind(input.userId,input.date,input.excludeAutomationJobId||'',chat.platform)
     : db.prepare(`SELECT DISTINCT p.advertisement_id
         FROM chat_publications p
         WHERE p.user_id=?1 AND p.platform=?2 AND p.published_on=?3 AND p.advertisement_id IS NOT NULL`)

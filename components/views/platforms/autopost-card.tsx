@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Ring } from '@/components/ui/ring';
 import { Textarea } from '@/components/ui/input';
 import { Surface } from '@/components/ui/surface';
+import { AutopostAttentionList, AutopostOutcomeSummary, type AutopostAttentionItem, type AutopostDecision } from '@/components/views/platforms/autopost-attention';
 
 export type WhatsAppAutopostImage = { fileName: string; contentType: string; sizeBytes: number; sha256: string; updatedAt: number };
-export type WhatsAppAutopostProgress = { total: number; done: number; pending: number; claimed: number; sent: number; failed: number; cancelled: number; running: boolean };
+export type WhatsAppAutopostSettled = { archived: number; waiting: number; snoozed: number; skipped: number; decision: number };
+export type WhatsAppAutopostProgress = { total: number; done: number; pending: number; claimed: number; sent: number; failed: number; cancelled: number; running: boolean; settled?: WhatsAppAutopostSettled };
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} Б`;
@@ -17,7 +19,7 @@ function formatBytes(bytes: number) {
 }
 
 /** Картка-редактор WhatsApp-автопоста: фото й підпис, статус черги кільцем, старт / стоп / скидання черги. */
-export function AutopostCard({ image, imageLoaded, caption, captionLoaded, busy, queueSize, progress, onCaptionChange, onUploadImage, onRemoveImage, onSaveCaption, onClearCaption, onStart, onStop, onReset }: {
+export function AutopostCard({ image, imageLoaded, caption, captionLoaded, busy, queueSize, progress, attention, batchNote, onDecide, onCaptionChange, onUploadImage, onRemoveImage, onSaveCaption, onClearCaption, onStart, onStop, onReset }: {
   image: WhatsAppAutopostImage | null;
   imageLoaded: boolean;
   caption: string;
@@ -25,6 +27,10 @@ export function AutopostCard({ image, imageLoaded, caption, captionLoaded, busy,
   busy: boolean;
   queueSize: number;
   progress: WhatsAppAutopostProgress | null;
+  attention: AutopostAttentionItem[];
+  /** Підсумок останнього запуску партії: скільки чатів поставлено й чому решту пропущено. */
+  batchNote: string | null;
+  onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
   onCaptionChange: (value: string) => void;
   onUploadImage: (file: File) => void;
   onRemoveImage: () => void;
@@ -44,7 +50,7 @@ export function AutopostCard({ image, imageLoaded, caption, captionLoaded, busy,
     <Surface variant="glass" radius="card" className="flex flex-col gap-6 p-5 sm:p-6" aria-labelledby="autopost-title">
       <div>
         <h2 id="autopost-title" className="m-0 text-[17px] font-medium">Автопублікація черги</h2>
-        <p className="m-0 mt-1 max-w-[62ch] text-sm text-ink-2">До 30 чатів із черги «Для публікації» по черзі, з підтвердженням кожної відправки.</p>
+        <p className="m-0 mt-1 max-w-[62ch] text-sm text-ink-2">Усі придатні чати з черги «Для публікації» (до 100 за запуск) по черзі, з підтвердженням кожної відправки. Кожен чат потрапляє в партію один раз на день.</p>
       </div>
 
       {progress && progress.total > 0 ? (
@@ -58,14 +64,18 @@ export function AutopostCard({ image, imageLoaded, caption, captionLoaded, busy,
             </p>
             <p className="m-0 mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
               <span>Відправлено <b className="font-mono font-normal text-ink">{progress.sent}</b></span>
-              {progress.failed > 0 ? <span className="inline-flex items-center gap-1 text-hot"><XCircle aria-hidden="true" strokeWidth={1.5} className="size-3.5" />Помилок <b className="font-mono font-normal">{progress.failed}</b></span> : null}
+              {progress.failed > 0 ? <span className="inline-flex items-center gap-1 text-hot"><XCircle aria-hidden="true" strokeWidth={1.5} className="size-3.5" />Без відправки <b className="font-mono font-normal">{progress.failed}</b></span> : null}
               {progress.pending + progress.claimed > 0 ? <span>Лишилось <b className="font-mono font-normal text-ink">{progress.pending + progress.claimed}</b></span> : null}
               {progress.cancelled > 0 ? <span>Скасовано <b className="font-mono font-normal text-ink">{progress.cancelled}</b></span> : null}
             </p>
-            {running ? null : <p className="m-0 mt-1.5 text-xs text-ink-2">{progress.failed > 0 ? `Автопост завершено з помилками (${progress.failed}). Перевір проблемні чати у списку.` : 'Усі чати в черзі опрацьовано й підтверджено.'}</p>}
+            <div className="mt-1.5"><AutopostOutcomeSummary progress={progress} /></div>
+            {running ? null : <p className="m-0 mt-1.5 text-xs text-ink-2">{progress.failed > 0 ? 'Автопост завершено. Чати без відправки розібрано за правилами, решту можна вирішити нижче.' : 'Усі чати в черзі опрацьовано й підтверджено.'}</p>}
           </div>
         </section>
       ) : null}
+
+      {batchNote ? <p className="m-0 text-xs text-ink-2">{batchNote}</p> : null}
+      <AutopostAttentionList items={attention} busy={busy} onDecide={onDecide} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="flex flex-col gap-3" aria-label="Зображення для публікації">

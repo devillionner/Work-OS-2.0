@@ -21,6 +21,7 @@ import {
 import { JOINED_GROUPS_PER_STEP, recordDiscoverySourceOutcome, hydrateDiscoverySourceFeedback, telegramGroupDiscoveryPlan, telegramGroupSource } from './chat-discovery-source-crawl.mjs';
 import { TELEGRAM_PARALLEL_TABS, openTelegramWebSessions, scanTelegramGroupForInvites, searchTelegramPublicGroups } from './telegram-web-cdp.mjs';
 import { MAX_REVISIT_GROUPS, isGroupScanDue, parseScanMemory, productiveGroupsDue, rememberScannedGroups } from './telegram-group-memory.mjs';
+import { VIBER_ENV_REASON_TEXT, runViberHelper, viberPayloadFromTask } from './viber-forward.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
@@ -77,6 +78,11 @@ const WHATSAPP_RUNTIME_TRANSIENT_REASONS=new Set(['cdp_not_configured','cdp_not_
 // Autopost stages that run strictly before the send control is clicked — see handleAutopostTask.
 const WHATSAPP_AUTOPOST_RETRY_REASONS=new Set(['media_attach_failed','media_preview_not_ready','media_caption_not_found','media_caption_mismatch','autopost_budget_exhausted']);
 const WHATSAPP_AUTOPOST_RETRY_COOLDOWN_MS=60000;
+// Viber-автопост (пересилання нотатки з «Мої нотатки», помічник на ПК): пауза між відправками й очікування, коли Viber не готовий.
+const VIBER_PACE_MIN_MS=8000;
+const VIBER_PACE_MAX_MS=16000;
+const VIBER_ENV_COOLDOWN_MS=60000;
+const VIBER_STATUS_EVERY_MS=60000;
 // An inspect/leave sometimes has to wait out a WhatsApp message sync (30–60 s after opening an
 // invite on a large account); this just bounds how long one candidate holds up the next.
 const DISCOVERY_WHATSAPP_TIMEOUT_MS=80000;
@@ -825,9 +831,10 @@ function scheduleReady(taskProcess,candidateUntilMs=0){
   setTimeout(()=>sendLive(liveWs,{type:'ready',process:taskProcess}),delay);
 }
 
-function releaseTask(ws,taskProcess,task,candidateUntilMs=0){
+// errorCode (лише autopost): тимчасова помилка самої задачі, сервер рахує спробу. Без коду це проблема середовища, не задачі.
+function releaseTask(ws,taskProcess,task,candidateUntilMs=0,errorCode=''){
   if(taskProcess==='waiting_check')sendLive(ws,{type:'release',process:taskProcess,batchId:task.batchId,chatId:task.chatId});
-  else if(taskProcess==='autopost')sendLive(ws,{type:'release',process:taskProcess,jobId:task.jobId});
+  else if(taskProcess==='autopost')sendLive(ws,{type:'release',process:taskProcess,jobId:task.jobId,...(errorCode?{errorCode}:{})});
   else if(taskProcess==='discovery')sendLive(ws,{type:'release',process:taskProcess,candidateId:task.candidateId});
   scheduleReady(taskProcess,candidateUntilMs);
 }
@@ -880,7 +887,59 @@ async function handleWaitingCheckTask(ws,task){
   if(outcome.diagnostic)console.log('WhatsApp waiting check diagnostic: '+JSON.stringify(outcome.diagnostic));
 }
 
+// --- Viber-автопост. Runner лише перевіряє, що Viber доступний (запущений, з увімкненою доступністю, англійською),
+// і віддає завдання помічникові; сам Viber він не запускає й не перезапускає. Помилка середовища повертає завдання в
+// чергу (воно нічого не надсилало), помилка самого завдання стає «пропущено» без повтору, а будь-який збій після
+// натискання «Forward» ніколи не повторюється: дубль у чужій групі гірший за пропуск.
+let lastViberFinishedAt=0;
+let lastViberStatusKey='';
+
+function reportViberStatus(ws,state,reason,detail){
+  const key=`${state}|${reason||''}`;
+  if(key===lastViberStatusKey&&state==='ready')return;
+  lastViberStatusKey=key;
+  sendLive(ws,{type:'progress',process:'viber_status',state,reason:reason||null,text:reason?(VIBER_ENV_REASON_TEXT[reason]||detail||reason):'Viber готовий',at:Date.now()});
+}
+
+async function checkViberStatus(){
+  if(!liveWs||liveWs.readyState!==WebSocket.OPEN||processingTask)return;
+  const result=await runViberHelper('status');
+  reportViberStatus(liveWs,result.status==='ready'?'ready':'blocked',result.reason,result.detail);
+}
+
+async function handleViberForwardTask(ws,job){
+  const progress=job.progress&&Number(job.progress.total)>0
+    ? `${Math.min(Number(job.progress.done)+1,Number(job.progress.total))}/${Number(job.progress.total)} · `
+    : '';
+  const wait=lastViberFinishedAt+VIBER_PACE_MIN_MS+Math.random()*(VIBER_PACE_MAX_MS-VIBER_PACE_MIN_MS)-Date.now();
+  if(lastViberFinishedAt>0&&wait>0)await sleep(wait);
+  setStatus('working',`Viber автопост: ${progress}${job.target?.expectedName||'чат'}`);
+  const overrides=process.env.WORK_OS_VIBER_TEST_TARGET==='my_notes'?{testTarget:'my_notes'}:{};
+  const result=await runViberHelper('post',viberPayloadFromTask(job,overrides));
+  lastViberFinishedAt=Date.now();
+  const reason=String(result.reason||'');
+  if(result.status==='sent'){
+    reportViberStatus(ws,'ready');
+    sendLive(ws,{type:'result',process:'autopost',jobId:job.jobId,status:'sent',
+      observedTarget:result.observedTarget||job.target?.expectedName,targetVerified:true,sendConfirmed:true});
+    console.log(`Confirmed Viber autopost accepted by Work OS for ${job.target?.expectedName}.`);
+    return;
+  }
+  console.warn(`Viber autopost ${result.status}: ${reason}${result.detail?` (${result.detail})`:''}`);
+  if(result.severity==='env'){
+    // Нічого не надсилалось: завдання лишається в черзі, runner чекає й пробує знову, оператор бачить причину на сайті.
+    reportViberStatus(ws,'blocked',reason,result.detail);
+    setStatus('working',`Viber автопост на паузі: ${VIBER_ENV_REASON_TEXT[reason]||reason}`);
+    releaseTask(ws,'autopost',job,Date.now()+VIBER_ENV_COOLDOWN_MS);
+    return;
+  }
+  reportViberStatus(ws,'ready');
+  sendLive(ws,{type:'result',process:'autopost',jobId:job.jobId,status:'failed',
+    observedTarget:job.target?.expectedName,targetVerified:result.severity==='after',sendConfirmed:false,errorCode:reason||'adapter_failed'});
+}
+
 async function handleAutopostTask(ws,job){
+  if(job.kind==='viber_forward')return handleViberForwardTask(ws,job);
   if(!whatsappCdp){
     console.warn('WhatsApp autopost requires WORK_OS_WHATSAPP_CDP; releasing until the browser adapter is available.');
     releaseTask(ws,'autopost',job,Date.now()+WHATSAPP_RUNTIME_COOLDOWN_MS);
@@ -930,7 +989,7 @@ async function handleAutopostTask(ws,job){
   // so a timeout there cannot have sent anything: the job goes back to the queue instead of being marked
   // failed. Only a failure at or after the send click stays fail-closed, where a retry could double-post.
   if(WHATSAPP_AUTOPOST_RETRY_REASONS.has(automated.reason)){
-    releaseTask(ws,'autopost',job,Date.now()+WHATSAPP_AUTOPOST_RETRY_COOLDOWN_MS);
+    releaseTask(ws,'autopost',job,Date.now()+WHATSAPP_AUTOPOST_RETRY_COOLDOWN_MS,automated.reason);
     return;
   }
   sendLive(ws,{type:'result',process:'autopost',jobId:job.jobId,status:'failed',
@@ -1101,6 +1160,8 @@ function connectLiveChannel(){
     wsReconnectDelayMs=WS_RECONNECT_MIN_MS;
     console.log('Connected to the Work OS live channel.');
     setStatus('ready','Готовий: підключено до Work OS');
+    lastViberStatusKey='';
+    setTimeout(()=>{void checkViberStatus();},1500);
     keepalive=setInterval(()=>{
       // A ping still unanswered a whole interval later means a half-open socket (sleep, network
       // switch) that would otherwise look connected forever while no task can arrive.
@@ -1132,6 +1193,8 @@ function withCdpLock(fn){
 }
 
 console.log('Work OS Discovery runner started. Ctrl+C to stop.');
+// Місцева перевірка Viber (процес, доступність, вікно): ніякої мережі й D1, лише `pgrep` і шина доступності.
+setInterval(()=>{void checkViberStatus();},VIBER_STATUS_EVERY_MS);
 setStatus('starting','Запускається…');
 for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{setStatus('stopped','Runner зупинено');process.exit(0);});
 connectLiveChannel();

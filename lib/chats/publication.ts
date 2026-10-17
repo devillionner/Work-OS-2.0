@@ -48,12 +48,12 @@ export async function recordManualPublication(
     if (!rule.allowed) return { ok:false,error:rule.reason || 'Публікація зараз недоступна.' };
   }
   const nextAllowedOn = profile?.reviewStatus === 'confirmed' ? nextProfilePublicationDate(date,profile.cadence,profile.customIntervalDays) : null;
-  const activeAutopost = chat.platform === 'whatsapp'
+  const activeAutopost = chat.platform === 'whatsapp' || chat.platform === 'viber'
     ? await db.prepare(`SELECT id FROM whatsapp_autopost_jobs
         WHERE user_id=?1 AND chat_id=?2 AND published_on=?3 AND status IN ('pending','claimed') LIMIT 1`)
       .bind(userId,chat.id,date).first<{id:string}>()
     : null;
-  if (activeAutopost) return { ok:false,error:'Для цього чату вже виконується WhatsApp автопублікація.' };
+  if (activeAutopost) return { ok:false,error:`Для цього чату вже виконується ${chat.platform === 'viber' ? 'Viber' : 'WhatsApp'} автопублікація.` };
   const availability = publicationAvailability(chat, now);
   if (!availability.availableNow) {
     return { ok: false, ...availability, error: chat.workflow_status !== 'ready'
@@ -119,12 +119,14 @@ export async function recordConfirmedWhatsappAutopostPublication(
   db: D1Database,
   input: {
     userId:string; chatId:string; advertisementId:string; language:'uk'|'ru';
-    now:number; date:string; sourceKey:string; automationJobId:string;
+    now:number; date:string; sourceKey:string; automationJobId:string; platform?:'whatsapp'|'viber';
   },
 ): Promise<{ok:true;publicationId:string;existing:boolean}|{ok:false;error:string}> {
+  // Спільний запис підтвердженої автопублікації: WhatsApp (браузер) і Viber (пересилання нотатки на ПК).
+  const platform = input.platform === 'viber' ? 'viber' : 'whatsapp';
   const chat = await db.prepare(`SELECT id,platform,workflow_status,joined_at,snoozed_until
     FROM chats WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(input.chatId,input.userId).first<PublicationChat>();
-  if(!chat||chat.platform!=='whatsapp') return {ok:false,error:'WhatsApp-чат для автопублікації не знайдено.'};
+  if(!chat||chat.platform!==platform) return {ok:false,error:`${platform==='viber'?'Viber':'WhatsApp'}-чат для автопублікації не знайдено.`};
 
   const existing = await db.prepare(`SELECT id,source_key FROM chat_publications
     WHERE user_id=?1 AND chat_id=?2 AND published_on=?3 LIMIT 1`)
@@ -146,27 +148,27 @@ export async function recordConfirmedWhatsappAutopostPublication(
   const metadata=JSON.stringify({
     advertisementId:input.advertisementId,
     language:input.language,
-    automation:{kind:'whatsapp_autopost',jobId:input.automationJobId,sendConfirmed:true},
+    automation:{kind:`${platform}_autopost`,jobId:input.automationJobId,sendConfirmed:true},
   });
   const statements=[
     db.prepare(`INSERT INTO chat_publications
       (id,user_id,chat_id,published_on,published_at,advertisement_id,source,source_key,created_at,telegram_account_id,platform)
-      SELECT ?1,c.user_id,c.id,?2,?3,?4,'whatsapp_autopost',?5,?3,NULL,'whatsapp'
+      SELECT ?1,c.user_id,c.id,?2,?3,?4,?8,?5,?3,NULL,c.platform
       FROM chats c
-      WHERE c.id=?6 AND c.user_id=?7 AND c.platform='whatsapp'
+      WHERE c.id=?6 AND c.user_id=?7 AND c.platform=?9
         AND NOT EXISTS(SELECT 1 FROM chat_publications p
           WHERE p.user_id=c.user_id AND p.chat_id=c.id AND p.published_on=?2)
         AND EXISTS(SELECT 1 FROM library_items li
           WHERE li.id=?4 AND li.user_id=c.user_id AND li.kind='advertisement')
       ON CONFLICT(user_id,chat_id,published_on) DO NOTHING`)
-      .bind(publicationId,input.date,input.now,input.advertisementId,input.sourceKey,input.chatId,input.userId),
+      .bind(publicationId,input.date,input.now,input.advertisementId,input.sourceKey,input.chatId,input.userId,`${platform}_autopost`,platform),
     db.prepare(`INSERT INTO activity_events
       (id,user_id,event_type,platform,chat_id,lead_id,lesson_id,occurred_at,event_date,metadata_json,source_key,telegram_account_id)
-      SELECT ?1,p.user_id,'publication','whatsapp',p.chat_id,NULL,NULL,p.published_at,p.published_on,
+      SELECT ?1,p.user_id,'publication',?5,p.chat_id,NULL,NULL,p.published_at,p.published_on,
         ?4,p.source_key,NULL
       FROM chat_publications p
       WHERE p.id=?2 AND p.user_id=?3`)
-      .bind(crypto.randomUUID(),publicationId,input.userId,metadata),
+      .bind(crypto.randomUUID(),publicationId,input.userId,metadata,platform),
   ];
   if(profile?.reviewStatus==='confirmed') statements.push(
     db.prepare(`UPDATE chat_profiles SET next_allowed_on=?1,updated_at=?2
