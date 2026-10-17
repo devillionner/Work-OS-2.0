@@ -3,8 +3,8 @@
 // Linux-помічника: { status: 'ready'|'sent'|'skipped'|'failed', reason, severity: 'env'|'before'|'after', detail }.
 // Принцип: усе, що неоднозначне, закінчується без відправки; після натискання «Send» ніщо не повторюється.
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const VIBER_PACKAGE = 'com.viber.voip';
@@ -19,6 +19,8 @@ const POST_TIMEOUT_MS = 4 * 60 * 1000;
 const IMAGE_PREFIX = 'workos-autopost-';
 const IMAGE_KEEP_MS = 3 * 60 * 1000;
 let lastPostAt = 0;
+// Екран Android поточної відправки: при збої з нього знімається знімок для діагностики (`viber-last-failure.png`).
+let currentAndroid = null;
 
 /** Короткі пояснення для журналу й значка в треї; повні тексти для оператора живуть на сайті. */
 export const VIBER_ENV_REASON_TEXT = {
@@ -432,6 +434,7 @@ async function post(payload, guard) {
   guard();
   lastPostAt = Date.now();
   const android = await connect();
+  currentAndroid = android;
   await checkEnvironment(android);
   guard();
   await freshImage(android, payload.media);
@@ -459,6 +462,17 @@ export async function runViberAndroid(action, payload = {}, { shouldAbort = () =
     const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new ViberStop('helper_timeout', 'after', 'timeout')), POST_TIMEOUT_MS); });
     return await Promise.race([work, limit]);
   } catch (error) {
+    if (error instanceof ViberStop && error.severity !== 'env' && error.reason !== 'cancelled' && currentAndroid) {
+      // Що було на екрані в момент збою: текст у деталі журналу й знімок поруч із журналом runner.
+      try {
+        const nodes = await currentAndroid.dump();
+        error.detail = `${error.detail} | screen: ${screenText(nodes).slice(0, 160)}`.trim();
+        const shot = await currentAndroid.adb(['exec-out', 'screencap', '-p'], { timeout: 20_000, buffer: true });
+        const dir = join(homedir(), '.local', 'state', 'work-os');
+        await mkdir(dir, { recursive: true });
+        if (Buffer.isBuffer(shot.stdout) && shot.stdout.length > 1000) await writeFile(join(dir, 'viber-last-failure.png'), shot.stdout);
+      } catch { /* діагностика не має ламати відповідь */ }
+    }
     if (error instanceof ViberStop) return { ok: false, status: error.severity === 'env' ? 'blocked' : error.severity === 'after' ? 'failed' : 'skipped', reason: error.reason, severity: error.severity, detail: error.detail };
     return { ok: false, status: 'failed', reason: 'helper_error', severity: 'after', detail: String(error?.message || error).slice(0, 160) };
   } finally { clearTimeout(timer); }
