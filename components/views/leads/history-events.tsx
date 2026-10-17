@@ -25,6 +25,7 @@ const LEAD_EVENTS: Record<string, string> = {
   lesson_no_show: 'Неявка на урок',
   reminder_sent: 'Нагадування відправлено',
   reminder_skipped: 'Нагадування пропущено',
+  script_used: 'Скрипт використано',
 };
 
 const cache = new Map<string, LeadHistoryItem[]>();
@@ -65,6 +66,7 @@ export function HistoryList({ leadId, lessonId }: { leadId: string; lessonId?: s
           <i aria-hidden="true" className="absolute left-0 top-[14px] size-[11px] rounded-full border border-line-strong bg-field" />
           <p className="m-0 text-sm font-medium">{LEAD_EVENTS[event.eventType] || event.eventType}{event.cancelledAt !== null ? <span className="font-normal text-ink-2"> · скасовано</span> : null}</p>
           {typeof event.metadata.reason === 'string' && event.metadata.reason ? <p className="m-0 text-xs text-ink-2">{event.metadata.reason}</p> : null}
+          {event.eventType === 'script_used' && typeof event.metadata.title === 'string' ? <p className="m-0 text-xs text-ink-2">{event.metadata.title}{event.metadata.language === 'ru' ? ' · RU' : ' · UA'}</p> : null}
           <time className="font-mono text-xs text-ink-2" dateTime={new Date(event.occurredAt * 1000).toISOString()}>{formatTime(event.occurredAt)}</time>
         </li>
       ))}

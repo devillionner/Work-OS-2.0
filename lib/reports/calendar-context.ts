@@ -30,7 +30,7 @@ export async function readCalendarContext(
       .bind(userId, startAt, endAt).all<FollowUpRow>(),
     db.prepare(`SELECT event_date AS date,COUNT(*) AS count FROM activity_events
       WHERE user_id=?1 AND event_date>=?2 AND event_date<?3
-        AND lead_id IS NOT NULL AND cancelled_at IS NULL
+        AND lead_id IS NOT NULL AND cancelled_at IS NULL AND event_type<>'script_used'
       GROUP BY event_date ORDER BY event_date`)
       .bind(userId, start, end).all<CountRow>(),
   ]);

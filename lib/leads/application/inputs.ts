@@ -16,6 +16,7 @@ export function leadFields(
     // Зв'язок із чатом Work OS за id перевіряє й застосовує сервіс (leadFields його не повертає).
     'sourceChatId',
     'contactUnknown',
+    'interest',
     'subject',
     'note',
     'responseDate',
@@ -48,6 +49,7 @@ export function leadFields(
     nextContactAt: null,
     isStudent: 1,
     contactUnknown: 0,
+    interest: '',
     ...current,
     ...input,
   };
@@ -114,6 +116,7 @@ export function leadFields(
     nextAction: v.string(merged.nextAction, 'Наступна дія', 1000),
     nextContactAt: v.nullableEpoch(merged.nextContactAt, 'Наступний контакт'),
     isStudent: v.integer(merged.isStudent, 'Контакт навчається', 0, 1),
+    interest: v.string(merged.interest, 'Інтерес ліда', 80),
   };
   // Контакт можна лишити порожнім лише з явною позначкою «контакт невідомий»; з номером чи ніком позначка знімається.
   const hasContact = Boolean(result.phone || result.telegramUsername);

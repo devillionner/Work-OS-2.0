@@ -1,4 +1,5 @@
 import { canonicalSubjectList } from './subjects.ts';
+import { FUNNEL_STAGES } from './leads/domain/validation.ts';
 
 export const LIBRARY_COLLECTIONS = ['advertisement','official_script','personal_script','knowledge'] as const;
 export const LIBRARY_ADVERTISEMENT_PLATFORMS = ['telegram','whatsapp','viber','facebook'] as const;
@@ -6,6 +7,18 @@ export type LibraryCollection = (typeof LIBRARY_COLLECTIONS)[number];
 export type LibraryAdvertisementPlatform = (typeof LIBRARY_ADVERTISEMENT_PLATFORMS)[number];
 export type LibraryKind = 'advertisement'|'script';
 export type LibraryAction = 'create'|'update'|'archive'|'restore';
+/** Етап воронки, до якого прив'язаний скрипт для рекомендацій; порожньо — для будь-якого етапу. */
+export function cleanLibraryStage(value:unknown):string|null {
+  return typeof value==='string'&&(FUNNEL_STAGES as readonly string[]).includes(value)?value:null;
+}
+/** Гілка скрипту (інтерес ліда, наприклад «екзамени»). */
+export const cleanLibraryBranch=(value:unknown)=>cleanLibraryText(value,80);
+/** Ключ рядка `user_settings` з порядком карток колекції (масив id). */
+export const libraryOrderKey=(collection:LibraryCollection)=>`library_order_${collection}`;
+export function cleanLibraryOrder(value:unknown):string[] {
+  if(!Array.isArray(value))return [];
+  return [...new Set(value.filter((item):item is string=>typeof item==='string'&&item.length>0&&item.length<=80))].slice(0,1000);
+}
 
 export function isLibraryCollection(value:unknown):value is LibraryCollection {
   return typeof value==='string'&&LIBRARY_COLLECTIONS.includes(value as LibraryCollection);

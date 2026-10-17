@@ -25,6 +25,7 @@ export const BACKUP_TABLES = [
   'goal_versions',
   'library_items',
   'library_item_versions',
+  'dev_items',
   'user_settings',
   'activity_events',
 ] as const;

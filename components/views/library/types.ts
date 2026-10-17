@@ -1,7 +1,9 @@
 import { LIBRARY_ADVERTISEMENT_PLATFORMS, canonicalLibraryPlatform, cleanLibraryPlatforms, type LibraryAdvertisementPlatform } from '@/lib/library';
 import { canonicalKnownSubject, type CanonicalSubject } from '@/lib/subjects';
 
-export type Collection = 'advertisement' | 'official_script' | 'personal_script' | 'knowledge';
+/** Колекції, що живуть у `library_items`; «Розробка» має власну таблицю й екран. */
+export type LibraryCollectionKey = 'advertisement' | 'official_script' | 'personal_script' | 'knowledge';
+export type Collection = LibraryCollectionKey | 'development';
 export type Item = {
   id: string;
   kind: 'advertisement' | 'script';
@@ -13,29 +15,35 @@ export type Item = {
   notes: string;
   tags: string[];
   platforms: string[];
+  /** Етап воронки скрипту (порожньо — будь-який), гілка (інтерес ліда), оригінал для власної версії й ключ вбудованого шаблону. */
+  stage: string | null;
+  branch: string;
+  originId: string | null;
+  templateKey: string | null;
   usedTodayPlatforms: string[];
   archivedAt: number | null;
   updatedAt: number;
 };
-export type Form = { title: string; ukText: string; ruText: string; notes: string; tags: string[]; platforms: string[] };
+export type Form = { title: string; ukText: string; ruText: string; notes: string; tags: string[]; platforms: string[]; stage: string; branch: string };
 
 export const COLLECTIONS: ReadonlyArray<{ value: Collection; label: string }> = [
   { value: 'advertisement', label: 'Оголошення' },
   { value: 'official_script', label: 'Офіційні скрипти' },
   { value: 'personal_script', label: 'Особисті скрипти' },
   { value: 'knowledge', label: 'База знань' },
+  { value: 'development', label: 'Розробка' },
 ];
 
 export const collectionLabel = (collection: Collection) => COLLECTIONS.find((item) => item.value === collection)?.label ?? collection;
 
-export function newForm(collection: Collection): Form {
-  return { title: '', ukText: '', ruText: '', notes: '', tags: [], platforms: collection === 'advertisement' ? [...LIBRARY_ADVERTISEMENT_PLATFORMS] : [] };
+export function newForm(collection: LibraryCollectionKey): Form {
+  return { title: '', ukText: '', ruText: '', notes: '', tags: [], platforms: collection === 'advertisement' ? [...LIBRARY_ADVERTISEMENT_PLATFORMS] : [], stage: '', branch: '' };
 }
 
 export function formFromItem(item: Item): Form {
   const known = cleanLibraryPlatforms(item.platforms);
   const platforms = item.collection === 'advertisement' ? (item.platforms.length === 0 ? [...LIBRARY_ADVERTISEMENT_PLATFORMS] : known) : item.platforms;
-  return { title: item.title, ukText: item.ukText, ruText: item.ruText, notes: item.notes, tags: [...item.tags], platforms: [...platforms] };
+  return { title: item.title, ukText: item.ukText, ruText: item.ruText, notes: item.notes, tags: [...item.tags], platforms: [...platforms], stage: item.stage ?? '', branch: item.branch };
 }
 
 export function splitList(value: string): string[] {

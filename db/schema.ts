@@ -26,6 +26,7 @@ export const leads = sqliteTable(
     note: text('note').notNull().default(''),
     needsDetails: integer('needs_details').notNull().default(0),
     contactUnknown: integer('contact_unknown').notNull().default(0),
+    interest: text('interest').notNull().default(''),
     customRemindersJson: text('custom_reminders_json'),
     nextCustomReminderAt: integer('next_custom_reminder_at'),
     status: text('status').notNull(),

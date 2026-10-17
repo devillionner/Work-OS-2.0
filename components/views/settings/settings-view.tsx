@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 import { useCommand } from '@/components/shell/command-bus';
 import { Chip } from '@/components/ui/chip';
 import { AppearanceGroup } from './appearance-group';
+import { DictionariesGroup } from './dictionaries-group';
 import { DangerGroup, GoalsGroup, PlatformsGroup, ProfileGroup, ServiceGroup } from './groups';
 import { scrollToNode } from '@/components/views/shared/scroll';
 import { PaymentsGroup } from './payments-group';
@@ -14,6 +15,7 @@ const SECTIONS = [
   ['platforms', 'Платформи'],
   ['payments', 'Оплати'],
   ['appearance', 'Вигляд'],
+  ['dictionaries', 'Довідники'],
   ['service', 'Сервіс'],
   ['danger', 'Небезпечні дії'],
 ] as const;
@@ -36,6 +38,7 @@ export default function SettingsView() {
       <PlatformsGroup />
       <PaymentsGroup />
       <AppearanceGroup />
+      <DictionariesGroup />
       <ServiceGroup />
       <DangerGroup />
     </div>

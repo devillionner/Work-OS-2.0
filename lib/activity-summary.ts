@@ -5,7 +5,7 @@ export type ActivitySummaryRow = {
   changes_after_report: number;
 };
 
-const SUMMARY_EXCLUDED_TYPES = `'chat_state_changed','chat_bulk_added','chat_profile_changed','report_revision'`;
+const SUMMARY_EXCLUDED_TYPES = `'chat_state_changed','chat_bulk_added','chat_profile_changed','report_revision','script_used'`;
 
 export function activitySummaryStatement(db: D1Database, userId: string, from: string, to: string, submittedAt: number | null = null) {
   // Without a submitted report there is nothing to compare event times against, so the counts come

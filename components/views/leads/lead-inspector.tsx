@@ -70,7 +70,7 @@ export function LeadInspector({ open, onClose, name, detail, error, mutate, relo
           {tab === 'lessons' ? <LessonsTab detail={detail} mutate={mutate} mode="lessons" /> : null}
           {tab === 'students' ? <StudentsTab detail={detail} mutate={mutate} /> : null}
           {tab === 'history' ? <HistoryList leadId={lead.id} /> : null}
-          {tab === 'scripts' ? <ScriptsTab lead={lead} /> : null}
+          {tab === 'scripts' ? <ScriptsTab detail={detail} mutate={mutate} /> : null}
           {stage ? <StageEditor lead={lead} mutate={mutate} close={() => setStage(false)} /> : null}
           {editing ? <LeadEditor lead={lead} sourceChat={detail.sourceChat} close={() => setEditing(false)} save={(data) => mutate('update', data)} /> : null}
           {archive ? (

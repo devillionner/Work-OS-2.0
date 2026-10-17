@@ -5,17 +5,20 @@ import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Surface } from '@/components/ui/surface';
+import { labels as leadLabels } from '@/components/views/leads/client';
 import { cleanLibraryPlatforms } from '@/lib/library';
+import { ScriptText } from './script-editor';
 import { displayPlatforms, platformLabel, type Item } from './types';
 
 /** Картка матеріалу: платформи або версія праворуч угорі, два рядки опису, «Відкрити» й копіювання UA/RU одним кліком. */
-export function FolderCard({ item, onOpen, onCopy }: { item: Item; onOpen: () => void; onCopy: (language: 'uk' | 'ru') => void }) {
+export function FolderCard({ item, sortable, onOpen, onCopy }: { item: Item; sortable: boolean; onOpen: () => void; onCopy: (language: 'uk' | 'ru') => void }) {
   const ad = item.collection === 'advertisement';
+  const script = item.collection === 'official_script' || item.collection === 'personal_script';
   const missing = ad && (!item.ukText.trim() || !item.ruText.trim()) ? (item.ukText.trim() ? 'RU' : 'UA') : null;
   const used = cleanLibraryPlatforms(item.usedTodayPlatforms);
   const platforms = displayPlatforms(item.platforms);
   return (
-    <li>
+    <li data-sort-id={sortable ? item.id : undefined} data-sort-group="grid" data-flip-id={item.id} className={sortable ? 'cursor-grab touch-pan-y rounded-card active:cursor-grabbing data-[over]:outline data-[over]:outline-1 data-[over]:outline-offset-2 data-[over]:outline-line-strong' : undefined}>
       <Surface variant="glass" radius="card" lift data-reveal className="flex h-full min-h-[224px] flex-col gap-3 p-5">
         <div className="flex items-start justify-between gap-3">
           <h3 className="m-0 line-clamp-2 text-[15px] font-medium leading-snug">{item.title}</h3>
@@ -28,9 +31,10 @@ export function FolderCard({ item, onOpen, onCopy }: { item: Item; onOpen: () =>
             <Badge className="shrink-0" aria-label={`Версія ${item.version}`}>v{item.version}</Badge>
           )}
         </div>
-        <p className="m-0 line-clamp-2 text-[13px] text-ink-2">{item.ukText || item.ruText}</p>
+        {script ? <ScriptText text={item.ukText || item.ruText} className="line-clamp-2 text-[13px] text-ink-2" /> : <p className="m-0 line-clamp-2 text-[13px] text-ink-2">{item.ukText || item.ruText}</p>}
         <div className="flex flex-col gap-1 text-xs text-ink-2">
           {missing ? <Badge tone="warn">Додай {missing} версію перед наступним збереженням</Badge> : null}
+          {script && (item.stage || item.branch || item.templateKey) ? <span className="truncate">{[item.templateKey ? 'Шаблон' : '', item.stage ? leadLabels[item.stage] ?? item.stage : '', item.branch].filter(Boolean).join(' · ')}</span> : null}
           {used.length ? <span>Сьогодні: {used.map(platformLabel).join(', ')}</span> : null}
           {item.tags.length ? <span className="truncate">{item.tags.slice(0, 3).map((tag) => `#${tag}`).join(' ')}{item.tags.length > 3 ? ` +${item.tags.length - 3}` : ''}</span> : null}
           {ad ? <span className="font-mono">v{item.version}</span> : null}
