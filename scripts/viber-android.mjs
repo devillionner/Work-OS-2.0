@@ -83,7 +83,7 @@ export function parseUiDump(xml) {
  * хвіст відкидається (лише в кінці й лише слово Viber, саму назву не чіпаємо).
  */
 export const looseName = (value) => String(value || '').normalize('NFC')
-  .replace(/[\s\-–—(\[]*(?:(?<![\p{L}\p{N}])(?:в|у|in|на|для|for)\s+)?(?<![\p{L}\p{N}])viber[)\]]*\s*$/iu, '')
+  .replace(/[\s\-–—([]*(?:(?<![\p{L}\p{N}])(?:в|у|in|на|для|for)\s+)?(?<![\p{L}\p{N}])viber[)\]]*\s*$/iu, '')
   .toLocaleLowerCase('uk-UA').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 // ---------------------------------------------------------------- Waydroid і adb
