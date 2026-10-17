@@ -14,9 +14,15 @@ import { LessonHistory } from './history-events';
 import { Reminders } from './reminders';
 
 /** Заняття ліда: запис, перенесення, результат, запити куратору. Режим «reminders» показує нагадування уроків. */
+const STATUS_DIALOG = {
+  completed: { title: 'Підтвердити проведення уроку', description: 'Урок буде зараховано як одне відвідування. Запис на урок і відвідування рахуються окремо.', confirm: 'Так, урок проведено' },
+  'no-show': { title: 'Підтвердити: учень пішов', description: 'Відвідування не буде зараховано. Результат залишиться в історії цього уроку.', confirm: 'Так, учень пішов' },
+  cancelled: { title: 'Учень відмовився від уроку', description: 'Запис більше не рахуватиметься в «Записах» (цілі, звіти, аналітика). У історії ліда лишиться, що урок був записаний і потім скасований.', confirm: 'Так, скасувати запис' },
+} as const;
+
 export function LessonsTab({ detail, mutate, mode }: { detail: LeadDetail; mutate: Mutation; mode: 'lessons' | 'reminders' }) {
   const [editor, setEditor] = useState<{ mode: 'book' | 'update' | 'reschedule'; id?: string } | null>(null);
-  const [statusAction, setStatusAction] = useState<{ id: string; status: 'completed' | 'no-show' } | null>(null);
+  const [statusAction, setStatusAction] = useState<{ id: string; status: 'completed' | 'no-show' | 'cancelled' } | null>(null);
   const [cancelRequest, setCancelRequest] = useState<string | null>(null);
   const [submitRequest, setSubmitRequest] = useState(false);
   const [historyLesson, setHistoryLesson] = useState<{ id: string; leadId: string; subject: string; date: string } | null>(null);
@@ -31,7 +37,7 @@ export function LessonsTab({ detail, mutate, mode }: { detail: LeadDetail; mutat
         {booked.map((lesson) => (
           <section key={lesson.id} className="flex flex-col gap-3" aria-label={`Нагадування: ${lesson.subject}`}>
             <h3 className="m-0 text-[15px] font-medium">{lesson.subject} <span className="font-mono text-xs font-normal text-ink-2">{lesson.lessonDate} {lesson.lessonTime || ''}</span></h3>
-            <Reminders lesson={lesson} mutate={mutate} disabled={archived} />
+            <Reminders lesson={lesson} leadId={detail.lead.id} leadVersion={detail.lead.version} mutate={mutate} disabled={archived} />
           </section>
         ))}
       </div>
@@ -90,6 +96,7 @@ export function LessonsTab({ detail, mutate, mode }: { detail: LeadDetail; mutat
                     <Button variant={pastBooked ? 'action' : 'outline'} size="sm" disabled={archived} onClick={() => setStatusAction({ id: lesson.id, status: 'completed' })}>Проведено</Button>
                     <Button variant="outline" size="sm" disabled={archived} onClick={() => setEditor({ mode: 'reschedule', id: lesson.id })}>Перенести</Button>
                     <Button variant="outline" size="sm" disabled={archived} onClick={() => setStatusAction({ id: lesson.id, status: 'no-show' })}>Учень пішов</Button>
+                    <Button variant="outline" size="sm" disabled={archived} onClick={() => setStatusAction({ id: lesson.id, status: 'cancelled' })}>Учень відмовився</Button>
                     <Button variant="ghost" size="sm" disabled={archived} onClick={() => setEditor({ mode: 'update', id: lesson.id })}>Дані уроку</Button>
                   </>
                 ) : null}
@@ -117,21 +124,23 @@ export function LessonsTab({ detail, mutate, mode }: { detail: LeadDetail; mutat
       {editor ? <LessonEditor detail={detail} lesson={detail.lessons.find((lesson) => lesson.id === editor.id)} mode={editor.mode} mutate={mutate} close={() => setEditor(null)} /> : null}
       {statusAction ? (
         <EditDialog
-          title={statusAction.status === 'completed' ? 'Підтвердити проведення уроку' : 'Підтвердити: учень пішов'}
-          description={statusAction.status === 'completed' ? 'Урок буде зараховано як одне відвідування. Запис на урок і відвідування рахуються окремо.' : 'Відвідування не буде зараховано. Результат залишиться в історії цього уроку.'}
+          title={STATUS_DIALOG[statusAction.status].title}
+          description={STATUS_DIALOG[statusAction.status].description}
           close={() => setStatusAction(null)}
         >
           <SaveForm
-            label={statusAction.status === 'completed' ? 'Так, урок проведено' : 'Так, учень пішов'}
+            label={STATUS_DIALOG[statusAction.status].confirm}
             cancel={() => setStatusAction(null)}
             save={async (form) => {
               const status = statusAction.status;
-              const reason = status === 'no-show' ? textValue(form, 'reason') || 'Учень пішов' : '';
+              const reason = status === 'completed' ? '' : textValue(form, 'reason') || (status === 'no-show' ? 'Учень пішов' : '');
               await mutate('lesson_status', { status, reason }, statusAction.id);
               setStatusAction(null);
             }}
           >
-            {statusAction.status === 'no-show' ? <Field label="Коментар (необов’язково)" name="reason" /> : <p className="m-0 text-sm text-ink-2">Після підтвердження цей урок збільшить показник відвідувань на 1.</p>}
+            {statusAction.status === 'completed'
+              ? <p className="m-0 text-sm text-ink-2">Після підтвердження цей урок збільшить показник відвідувань на 1.</p>
+              : <Field label={statusAction.status === 'cancelled' ? 'Причина відмови' : 'Коментар (необов’язково)'} name="reason" required={statusAction.status === 'cancelled'} />}
           </SaveForm>
         </EditDialog>
       ) : null}

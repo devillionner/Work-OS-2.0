@@ -1,6 +1,6 @@
 import { foldedName } from './search.ts';
 import { leadWriteGuards } from '../../../db/schema.ts';
-import { and, asc, desc, eq, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
 import type { BatchItem } from 'drizzle-orm/batch';
@@ -36,6 +36,19 @@ const leadSourceChats = sqliteTable('chats', {
 });
 
 export type LeadsDb = DrizzleD1Database<typeof schema>;
+
+/**
+ * Колонки первинного ключа не потрапляють у SET: SQLite перевіряє зовнішні ключі дочірніх таблиць щоразу, коли колонка
+ * батьківського ключа є в SET (навіть із тим самим значенням), а в дітей `lead_id` не перша колонка індексу, тож один
+ * UPDATE ліда сканував students, lessons, lead_messages, lead_commands і activity_events цілком (≈95 000 прочитаних
+ * рядків за виклик на базі зі 30 000 подій; на staging 7 144 у середньому, за тиждень 478 000 рядків).
+ */
+function withoutKeys<T extends object, K extends keyof T>(value: T, ...keys: K[]): Omit<T, K> {
+  const copy = { ...value };
+  for (const key of keys) delete copy[key];
+  return copy;
+}
+
 export class D1LeadRepository implements LeadRepository {
   db: LeadsDb;
   constructor(db: LeadsDb) {
@@ -347,7 +360,7 @@ export class D1LeadRepository implements LeadRepository {
     commands.push(
       this.db
         .update(leads)
-        .set(c.lead)
+        .set(withoutKeys(c.lead, 'id', 'userId'))
         .where(and(eq(leads.id, c.lead.id), eq(leads.userId, c.lead.userId))),
     );
     for (const student of c.students)
@@ -355,14 +368,14 @@ export class D1LeadRepository implements LeadRepository {
         this.db
           .insert(students)
           .values(student)
-          .onConflictDoUpdate({ target: students.id, set: student }),
+          .onConflictDoUpdate({ target: students.id, set: withoutKeys(student, 'id') }),
       );
     for (const lesson of c.lessons)
       commands.push(
         this.db
           .insert(lessons)
           .values(lesson)
-          .onConflictDoUpdate({ target: lessons.id, set: lesson }),
+          .onConflictDoUpdate({ target: lessons.id, set: withoutKeys(lesson, 'id') }),
       );
     for (const reminder of c.reminders)
       commands.push(
@@ -379,7 +392,7 @@ export class D1LeadRepository implements LeadRepository {
         this.db
           .insert(leadMessages)
           .values(message)
-          .onConflictDoUpdate({ target: leadMessages.id, set: message }),
+          .onConflictDoUpdate({ target: leadMessages.id, set: withoutKeys(message, 'id') }),
       );
     for (const event of c.events)
       commands.push(this.db.insert(activityEvents).values(event));
@@ -393,6 +406,19 @@ export class D1LeadRepository implements LeadRepository {
           ),
         ),
       );
+    if (c.bookingCancelledLessonIds?.length) {
+      commands.push(
+        this.db.update(activityEvents).set({ cancelledAt: receipt.createdAt }).where(
+          and(
+            eq(activityEvents.userId, c.lead.userId),
+            eq(activityEvents.leadId, c.lead.id),
+            eq(activityEvents.eventType, 'lesson_booked'),
+            inArray(activityEvents.lessonId, c.bookingCancelledLessonIds),
+            isNull(activityEvents.cancelledAt),
+          ),
+        ),
+      );
+    }
     if (c.resolvedCuratorRequest) {
       const resolved = c.resolvedCuratorRequest;
       commands.push(

@@ -43,6 +43,8 @@ export type Changes = {
   events: Event[];
   createdCuratorRequest?: CuratorRequest;
   responseEventCancelledAt?: number | null;
+  /** Уроки (ланцюг переносів), чий запис `lesson_booked` гасне, бо урок скасовано. */
+  bookingCancelledLessonIds?: string[];
   eventDateCorrections?: Array<{
     type: 'lead_created' | 'lesson_booked';
     date: string;

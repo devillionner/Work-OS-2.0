@@ -43,12 +43,15 @@ export async function readTelegramSchedule(db:D1Database,input:{userId:string;ac
   await db.prepare(`DELETE FROM telegram_schedule_slots WHERE user_id=?1 AND telegram_account_id=?2 AND status='pending' AND scheduled_at<?3`)
     .bind(input.userId,input.accountId,dayStart).run();
 
-  await healAndReflowPendingSlots(db,input);
+  // Придатні чати читаються один раз: той самий список йде у відповідь і в перевірку слотів. Раніше їх читали двічі
+  // (до 500 рядків кожне читання) на кожне відкриття розкладу. З пошуком у відповіді лише збіги, тож для перевірки слотів
+  // `healAndReflowPendingSlots` сам читає повний список.
+  const eligibleChats=await eligibleTelegramChats(db,{...input,excludePending:false});
+  await healAndReflowPendingSlots(db,input,{eligible:(input.search||'').trim()?undefined:eligibleChats});
 
   const row=await db.prepare(`SELECT interval_minutes,base_at,selection_mode,manual_chat_ids_json,version
     FROM telegram_schedule_settings WHERE user_id=?1 AND telegram_account_id=?2`).bind(input.userId,input.accountId).first<Record<string,unknown>>();
   const settings=parseSettings(row,input.now,input.date);
-  const eligibleChats=await eligibleTelegramChats(db,{...input,excludePending:false});
   const slotResult=await db.prepare(`SELECT s.id,s.sequence,s.scheduled_at,s.chat_id,s.status,s.completed_at,s.version,c.name chat_name,c.link chat_link,
       CASE WHEN c.id IS NULL THEN NULL ELSE ${chatStateTokenSql()} END chat_state_token
     FROM telegram_schedule_slots s LEFT JOIN chats c ON c.id=s.chat_id AND c.user_id=s.user_id
@@ -258,7 +261,7 @@ export async function unlinkTelegramScheduleSlot(db:D1Database,input:{
 
 export async function healAndReflowPendingSlots(db:D1Database,input:{
   userId:string;accountId:string;now:number;date:string;
-},options?:{force?:boolean}) {
+},options?:{force?:boolean;eligible?:TelegramScheduleChat[]}) {
   const dayStart=businessDayStart(input.date);
   const nextDayStart=businessDayStart(shiftBusinessDate(input.date,1));
 
@@ -272,7 +275,7 @@ export async function healAndReflowPendingSlots(db:D1Database,input:{
   const slots=pendingSlots.results;
   if(slots.length===0) return;
 
-  const eligible=await eligibleTelegramChats(db,{
+  const eligible=options?.eligible??await eligibleTelegramChats(db,{
     userId:input.userId,
     accountId:input.accountId,
     now:input.now,

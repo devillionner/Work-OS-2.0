@@ -45,6 +45,16 @@ export function applyLessonAction({
     if (accountingDate && accountingDate > businessDate(now))
       throw new v.LeadError('Дата обліку не може бути в майбутньому.');
     changes.lessons.push({ ...old!, status, statusReason, updatedAt: now });
+    if (status === 'cancelled') {
+      // Запис живе в події `lesson_booked` першого уроку ланцюга переносів: гасимо її, щоб скасований запис не рахувався.
+      const chain: string[] = [];
+      for (let lesson: Lesson | undefined = old; lesson && !chain.includes(lesson.id); ) {
+        chain.push(lesson.id);
+        const parent: string | null = lesson.rescheduledFromId;
+        lesson = parent ? aggregate.lessons.find((l) => l.id === parent) : undefined;
+      }
+      changes.bookingCancelledLessonIds = chain;
+    }
     lead.funnelStage = status === 'completed' ? 'result' : 'clarification';
     const defaultEventDate = status === 'completed' || status === 'no-show'
       ? legacyLessonDate(old!.lessonDate)
