@@ -299,12 +299,16 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
 
   // Налаштування WhatsApp-автопоста завантажуються один раз при вході на платформу.
   useEffect(() => {
-    if (!active || platform !== 'whatsapp') return;
+    if (!active || (platform !== 'whatsapp' && platform !== 'viber')) return;
     let cancelled = false;
     void fetch('/api/messenger-automation', { cache: 'no-store' })
       .then(async (response) => {
         const body = await response.json() as { whatsappAutopostImage?: WhatsAppAutopostImage | null; whatsappAutopostCaption?: string; whatsappAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[] };
-        if (!cancelled && response.ok) { setAutopostAttention(body.autopostAttention || []); setWhatsappImage(body.whatsappAutopostImage || null); setWhatsappCaption(typeof body.whatsappAutopostCaption === 'string' ? body.whatsappAutopostCaption : ''); setWhatsappProgress(body.whatsappAutopostProgress || null); }
+        if (!cancelled && response.ok) {
+          setWhatsappImage(body.whatsappAutopostImage || null);
+          // Фото спільне для обох платформ; решту (підпис, прогрес, чати «Потребують рішення») тут читає лише WhatsApp.
+          if (platform === 'whatsapp') { setAutopostAttention(body.autopostAttention || []); setWhatsappCaption(typeof body.whatsappAutopostCaption === 'string' ? body.whatsappAutopostCaption : ''); setWhatsappProgress(body.whatsappAutopostProgress || null); }
+        }
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) { setWhatsappImageLoaded(true); setWhatsappCaptionLoaded(true); } });

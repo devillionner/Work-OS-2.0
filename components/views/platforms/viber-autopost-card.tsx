@@ -11,13 +11,15 @@ import { autopostReasonText } from '@/components/views/platforms/autopost-reason
 /** Стан Viber на ПК оператора, який runner передає через live-канал (процес, доступність, вікно). */
 export type ViberRunnerStatus = { state: 'ready' | 'blocked'; reason: string | null; text: string };
 
-/** Автопублікація у Viber: пересилання нотаток із «Мої нотатки», статус runner і Viber, прогрес партії, старт / стоп / скидання. */
-export function ViberAutopostCard({ progress, attention, batchNote, status, runnerConnected, busy, queueSize, onDecide, onStart, onStop, onReset }: {
+/** Автопублікація у Viber через Android у Waydroid: статус runner і Viber, прогрес партії, старт / стоп / скидання. */
+export function ViberAutopostCard({ progress, attention, batchNote, status, runnerConnected, imageReady, busy, queueSize, onDecide, onStart, onStop, onReset }: {
   progress: WhatsAppAutopostProgress | null;
   attention: AutopostAttentionItem[];
   batchNote: string | null;
   status: ViberRunnerStatus | null;
   runnerConnected: boolean | null;
+  /** Фото для автопосту (одне на WhatsApp і Viber) уже додане на вкладці автопоста WhatsApp. */
+  imageReady: boolean;
   busy: boolean;
   queueSize: number;
   onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
@@ -35,14 +37,14 @@ export function ViberAutopostCard({ progress, attention, batchNote, status, runn
     : blocked
       ? { tone: 'warn', text: autopostReasonText(status?.reason) }
       : status?.state === 'ready'
-        ? { tone: 'ok', text: 'Runner підключений, Viber готовий.' }
+        ? { tone: 'ok', text: 'Runner підключений, Waydroid і Viber готові.' }
         : { tone: 'idle', text: 'Стан Viber з’явиться, щойно runner на ПК повідомить про нього.' };
 
   return (
     <Surface variant="glass" radius="card" className="flex flex-col gap-6 p-5 sm:p-6" aria-labelledby="viber-autopost-title">
       <div>
         <h2 id="viber-autopost-title" className="m-0 text-[17px] font-medium">Автопублікація у Viber</h2>
-        <p className="m-0 mt-1 max-w-[62ch] text-sm text-ink-2">Усі придатні чати з черги «Для публікації» (до 100 за запуск) по черзі: Work OS пересилає в кожен чат нотатку з «Мої нотатки» й перевіряє, що вона з’явилась.</p>
+        <p className="m-0 mt-1 max-w-[62ch] text-sm text-ink-2">Усі придатні чати з черги «Для публікації» (до 100 за запуск) по черзі: Work OS відкриває кожен чат за посиланням у Viber на Android (Waydroid), надсилає фото з підписом із Бібліотеки й перевіряє, що повідомлення з’явилось.</p>
       </div>
 
       <output className="m-0 flex items-start gap-2 text-sm">
@@ -66,7 +68,7 @@ export function ViberAutopostCard({ progress, attention, batchNote, status, runn
               {progress.cancelled > 0 ? <span>Скасовано <b className="font-mono font-normal text-ink">{progress.cancelled}</b></span> : null}
             </p>
             <div className="mt-1.5"><AutopostOutcomeSummary progress={progress} /></div>
-            {running ? <p className="m-0 mt-1.5 text-xs text-ink-2">Під час відправки Viber виходить на передній план: не користуйся мишею й клавіатурою на ПК, доки йде автопост.</p> : <p className="m-0 mt-1.5 text-xs text-ink-2">{progress.failed > 0 ? 'Автопост завершено. Чати без відправки розібрано за правилами, решту можна вирішити нижче.' : 'Усі чати в черзі опрацьовано й підтверджено.'}</p>}
+            {running ? <p className="m-0 mt-1.5 text-xs text-ink-2">Відправка йде у фоні в Waydroid: ПК можна використовувати як зазвичай.</p> : <p className="m-0 mt-1.5 text-xs text-ink-2">{progress.failed > 0 ? 'Автопост завершено. Чати без відправки розібрано за правилами, решту можна вирішити нижче.' : 'Усі чати в черзі опрацьовано й підтверджено.'}</p>}
           </div>
         </section>
       ) : null}
@@ -77,9 +79,9 @@ export function ViberAutopostCard({ progress, attention, batchNote, status, runn
       <section className="flex flex-col gap-2 rounded-inner border border-line p-4" aria-label="Як підготувати автопост">
         <h3 className="m-0 text-sm font-medium">Перед стартом</h3>
         <ol className="m-0 flex flex-col gap-1.5 pl-5 text-sm text-ink-2">
-          <li>З телефона надішли собі в «Мої нотатки» повідомлення «фото + підпис» для кожного варіанта оголошення.</li>
-          <li>Підпис має збігатися з текстом оголошення в Бібліотеці (UA чи RU), без правок.</li>
-          <li>На ПК має бути запущений Viber з англійським інтерфейсом, а «Мої нотатки» стоять першою плиткою в «Обраних чатах».</li>
+          <li>На ПК запущений Waydroid (waydroid session start), Viber у ньому активований як додатковий пристрій, мова Android англійська.</li>
+          <li>Автозаморожування Waydroid вимкнене (waydroid prop set persist.waydroid.suspend false), щоб відправка йшла й зі схованим вікном.</li>
+          <li>Фото одне на WhatsApp і Viber: його додають на вкладці «Автопост» у WhatsApp. Підпис береться з оголошення в Бібліотеці (UA чи RU), без правок.</li>
         </ol>
       </section>
 
@@ -88,7 +90,7 @@ export function ViberAutopostCard({ progress, attention, batchNote, status, runn
         {running ? (
           <Button variant="outline" tone="danger" disabled={busy} onClick={onStop}><Square aria-hidden="true" strokeWidth={1.5} />Зупинити автопост</Button>
         ) : (
-          <Button variant="action" busy={busy} disabled={runnerOffline || queueSize === 0} onClick={onStart}><Send aria-hidden="true" strokeWidth={1.5} />{busy ? 'Ставимо в чергу…' : queueSize ? `Автопост черги (${queueSize})` : 'Черга порожня'}</Button>
+          <Button variant="action" busy={busy} disabled={runnerOffline || queueSize === 0 || !imageReady} title={imageReady ? undefined : 'Спершу додай фото на вкладці «Автопост» у WhatsApp'} onClick={onStart}><Send aria-hidden="true" strokeWidth={1.5} />{busy ? 'Ставимо в чергу…' : !imageReady ? 'Додай фото в WhatsApp' : queueSize ? `Автопост черги (${queueSize})` : 'Черга порожня'}</Button>
         )}
       </div>
     </Surface>

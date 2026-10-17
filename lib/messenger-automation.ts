@@ -205,7 +205,7 @@ export async function releaseViberSafeJobsForDevice(db:D1Database,userId:string,
 }
 
 
-/** Платформи, які автопостять через ту саму чергу задач: WhatsApp — через браузер, Viber — пересиланням нотатки на ПК. */
+/** Платформи, які автопостять через ту саму чергу задач: WhatsApp — через браузер, Viber — через Android у Waydroid. */
 export type AutopostPlatform='whatsapp'|'viber';
 function cleanAutopostPlatform(value:unknown):AutopostPlatform{
   return value==='viber'?'viber':'whatsapp';
@@ -220,8 +220,8 @@ export type WhatsAppAutopostJob={
 };
 
 export type WhatsAppAutopostTask={
-  /** `viber_forward`: помічник на ПК пересилає нотатку з «Мої нотатки» (фото вже в ній), тож медіа немає. */
-  kind:'whatsapp_autopost'|'viber_forward';
+  /** `viber_android`: runner надсилає фото з підписом у Viber на Android у Waydroid через adb. */
+  kind:'whatsapp_autopost'|'viber_android';
   jobId:string;
   /** Where this job sits in today's batch, so the runner tray can show «3 / 30» like Discovery does. */
   progress?:WhatsAppAutopostProgress;
@@ -272,8 +272,7 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
   if(!selection)throw new MessengerAutomationError('Не вдалося перевірити правила публікації для цього чату.',409,'rules_unavailable');
   if(!selection.publicationAllowed)throw new MessengerAutomationError(selection.publicationReason||'Публікація зараз заборонена правилами профілю.',409,'profile_rule');
 
-  // Власний текст автопоста — річ WhatsApp (фото й підпис вантажить сайт). У Viber підпис завжди з Бібліотеки:
-  // він має збігатися з нотаткою в «Мої нотатки», яку оператор створив із телефона.
+  // Власний текст автопоста — річ WhatsApp (його оператор задає на вкладці автопоста). У Viber підпис завжди з Бібліотеки.
   let captionOverride='';
   if(platform==='whatsapp'){
     if(input.caption!==undefined){
@@ -364,6 +363,9 @@ export async function createWhatsAppAutopostBatch(
   date:string,
 ):Promise<AutopostBatchResult>{
   const platform=cleanAutopostPlatform(input.platform);
+  // Фото для обох платформ одне, його додають на вкладці автопоста WhatsApp: без нього Viber нічого не відправить.
+  if(platform==='viber'&&!await readWhatsAppAutopostImage(db,userId))
+    throw new MessengerAutomationError('Для автопосту Viber спершу додай фото на вкладці «Автопост» у WhatsApp.',409,'image_missing');
   const rawLimit=Number(input.limit);
   const limit=Number.isSafeInteger(rawLimit)?Math.max(1,Math.min(AUTOPOST_BATCH_MAX,rawLimit)):AUTOPOST_BATCH_DEFAULT;
   let caption='';
@@ -551,11 +553,11 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
       SET status='claimed',updated_at=?1 WHERE id=?2 AND user_id=?3 AND status='pending'`)
       .bind(now,row.id,userId).run();
     if(Number(claimed.meta.changes||0)!==1)continue;
-    // Фото для Viber не потрібне: воно вже лежить у нотатці «Мої нотатки», яку пересилає помічник на ПК.
-    const image=platform==='whatsapp'?await readWhatsAppAutopostImage(db,userId,true):null;
+    // Фото одне на обидві платформи (його оператор додає на вкладці автопоста WhatsApp); підпис Viber бере з Бібліотеки.
+    const image=await readWhatsAppAutopostImage(db,userId,true);
     const progress=await readWhatsAppAutopostProgress(db,userId,row.published_on,platform||'whatsapp');
     return {
-      kind:platform==='viber'?'viber_forward':'whatsapp_autopost',
+      kind:platform==='viber'?'viber_android':'whatsapp_autopost',
       jobId:row.id,
       progress,
       target:{chatId:row.chat_id,expectedName:row.expected_name,expectedLink:row.expected_link},

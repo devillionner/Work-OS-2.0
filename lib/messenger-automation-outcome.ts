@@ -31,10 +31,10 @@ const RETRY = new Set([
   'media_attach_failed', 'media_preview_not_ready', 'media_caption_not_found', 'media_caption_mismatch',
   'autopost_budget_exhausted', 'composer_not_found', 'composer_content_mismatch', 'expected_control_disappeared',
   'membership_not_confirmed', 'joined_target_not_verified', 'media_send_control_not_found',
-  'viber_transient_error', 'forward_unavailable', 'input_not_set', 'my_notes_unavailable',
+  'send_ui_unavailable', 'android_error',
 ]);
-// Чат змінився до відправки або немає джерела для пересилання: чіпати нічого, пропускаємо на сьогодні.
-const SKIP = new Set(['stale_precondition', 'source_missing']);
+// Чат змінився до відправки або немає фото для відправки: чіпати нічого, пропускаємо на сьогодні.
+const SKIP = new Set(['stale_precondition', 'image_missing']);
 
 /**
  * Що робити з чатом після невдалої автопублікації. Незнайомий код і будь-який збій після натискання «Надіслати»
