@@ -193,6 +193,9 @@ class Android {
     }
   }
 
+  /** Екранна клавіатура на екрані: стискає стрічку розмови, і нове повідомлення не видно в dump. */
+  async keyboardShown() { return /mInputShown=true/.test(await this.sh('dumpsys input_method | grep -m1 mInputShown')); }
+
   tap(node) { return this.sh(`input tap ${node.x} ${node.y}`); }
   key(code) { return this.sh(`input keyevent ${code}`); }
   /** Довший дотик: перший короткий інколи губиться, поки екран ще оновлюється. */
@@ -258,7 +261,7 @@ async function clearPromos(android, nodes) {
       const wait = nodes.find((node) => node.text === 'Wait');
       if (wait) { await android.tap(wait); await sleep(1800); nodes = await android.dump(); continue; }
     }
-    const promo = byId(nodes, 'bottom_sheet_title') && byId(nodes, 'touch_outside');
+    const promo = byId(nodes, 'bottom_sheet_title') && byId(nodes, 'touch_outside') && !joinButton(nodes);
     if (!promo) return nodes;
     await android.key(4);
     await sleep(700);
@@ -302,7 +305,68 @@ function classifyBlockedScreen(text) {
   return '';
 }
 
-async function openTarget(android, payload) {
+/** Кнопка вступу на сторінці запрошення («Join Community», «Join», «Join Group»): найнижча з тих, чий текст починається з Join. */
+const joinButton = (nodes) => nodes.filter((node) => /^join\b/i.test(node.text.trim()) && node.bottom > node.top).sort((a, b) => b.top - a.top)[0];
+
+/** Список чатів на екрані: пошук і хоч один рядок розмови. */
+const looksLikeChatList = (nodes) => Boolean(byId(nodes, 'menu_search') && (byId(nodes, 'from') || byId(nodes, 'subject')));
+
+/**
+ * Що показує екран після відкриття інвайту: розмова з полем повідомлення, сторінка вступу з кнопкою «Join…», діалог
+ * з відмовою (бан, неактивне посилання, лише адміни) або щось інше. Текст описів спільнот і списку чатів як відмова не
+ * читається: у правилах спільнот трапляються слова «not allowed» і «blocked», а в прев'ю чатів будь-які слова.
+ */
+export function inviteScreen(nodes, expected) {
+  const state = conversationState(nodes, expected);
+  if (state.title && state.input) return { kind: 'conversation', state };
+  const join = joinButton(nodes);
+  if (join) return { kind: 'join', join };
+  if (looksLikeChatList(nodes)) return { kind: 'list' };
+  const reason = classifyBlockedScreen(screenText(nodes));
+  if (reason) return { kind: 'blocked', reason };
+  return { kind: state.title ? 'no_input' : 'other', state };
+}
+
+/** Сторінка вступу належить саме тому чату, який у черзі: назва спільноти збігається, інакше не приєднуємось нікуди. */
+const joinPageNamesChat = (nodes, expected) => {
+  const wanted = looseName(expected);
+  return Boolean(wanted) && nodes.some((node) => node.text && looseName(node.text) === wanted);
+};
+
+/**
+ * Приєднання до чату зі сторінки запрошення. Результат читається повним dump: розмова з полем повідомлення — вступ
+ * вдався; діалог «Unable to join… blocked» — бан; розмова без поля — лише адміни. Кнопка, що не подіяла, натискається
+ * ще раз; далі `viber_not_joined`. Нічого не надсилається, тож усі збої тут `before`.
+ */
+async function joinChat(android, nodes, expected, guard) {
+  for (let tap = 0; tap < 2; tap += 1) {
+    const button = joinButton(nodes);
+    if (!button) break;
+    guard();
+    await android.press(button);
+    const end = Date.now() + 14_000;
+    let withoutInput = 0;
+    while (Date.now() < end) {
+      await sleep(900);
+      const candidate = await clearPromos(android, await android.dump());
+      const screen = inviteScreen(candidate, expected);
+      if (screen.kind === 'conversation') return candidate;
+      if (screen.kind === 'blocked') throw new ViberStop(screen.reason, 'before', screenText(candidate).slice(0, 160));
+      if (screen.kind === 'no_input') {
+        withoutInput += 1;
+        if (withoutInput >= 3) throw new ViberStop('viber_read_only', 'before', screenText(candidate).slice(0, 160));
+      }
+      if (screen.kind === 'join') {
+        nodes = candidate;
+        // Кнопка ще на місці: вступ іде повільно або дотик загубився; повторний дотик лише через кілька секунд.
+        if (Date.now() > end - 8000) break;
+      }
+    }
+  }
+  throw new ViberStop('viber_not_joined', 'before', screenText(nodes).slice(0, 160));
+}
+
+async function openTarget(android, payload, guard = () => {}) {
   const expected = String(payload.expectedName || '').trim();
   if (!expected) throw new ViberStop('target_name_missing', 'before');
   if (payload.testTarget === 'my_notes') {
@@ -322,24 +386,36 @@ async function openTarget(android, payload) {
   // читається повним dump з текстом, щоб його розпізнати.
   const startedAt = Date.now();
   let lastDump = 0;
+  let withoutInput = 0;
   let nodes = null;
-  while (!nodes && Date.now() - startedAt < 30_000) {
+  let screen = null;
+  while (!screen && Date.now() - startedAt < 30_000) {
     const ready = conversationReady(await android.view());
     if (ready || (Date.now() - startedAt > 3000 && Date.now() - lastDump > 4000)) {
       // Рекламна підказка поверх розмови ховає її з dump: спершу закриваємо, потім оцінюємо екран.
       const candidate = await clearPromos(android, await android.dump());
       lastDump = Date.now();
-      const state = conversationState(candidate, expected);
-      if ((state.title && (state.input || candidate.some((node) => node.click && /^join/i.test(node.text)))) || classifyBlockedScreen(screenText(candidate))) nodes = candidate;
+      const found = inviteScreen(candidate, expected);
+      if (found.kind === 'conversation' || found.kind === 'join' || found.kind === 'blocked') { nodes = candidate; screen = found; }
+      else if (found.kind === 'no_input') {
+        // Розмова без поля повідомлення: або ще вантажиться, або писати можуть лише адміни.
+        withoutInput += 1;
+        if (withoutInput >= 2) throw new ViberStop('viber_read_only', 'before', screenText(candidate).slice(0, 160));
+      }
     }
-    if (!nodes) await sleep(250);
+    if (!screen) await sleep(250);
   }
-  if (!nodes) throw new ViberStop('blocking_dialog', 'before', screenText(await android.dump()).slice(0, 160));
+  if (!screen) throw new ViberStop('blocking_dialog', 'before', screenText(await android.dump()).slice(0, 160));
+  if (screen.kind === 'join') {
+    if (!joinPageNamesChat(nodes, expected)) throw new ViberStop('target_unconfirmed', 'before', `join page: ${screenText(nodes).slice(0, 100)}`);
+    nodes = await joinChat(android, nodes, expected, guard);
+    screen = inviteScreen(nodes, expected);
+  }
+  if (screen.kind === 'blocked') throw new ViberStop(screen.reason, 'before', screenText(nodes).slice(0, 160));
   const state = conversationState(nodes, expected);
   if (state.title && state.input && state.matches) return state.title.text;
   if (state.title && !state.matches && state.input) throw new ViberStop('target_unconfirmed', 'before', `${state.title.text}`.slice(0, 80));
-  const reason = classifyBlockedScreen(screenText(nodes)) || (state.title && !state.input ? 'viber_read_only' : 'blocking_dialog');
-  throw new ViberStop(reason, 'before', screenText(nodes).slice(0, 160));
+  throw new ViberStop('blocking_dialog', 'before', screenText(nodes).slice(0, 160));
 }
 
 // ---------------------------------------------------------------- Фото
@@ -402,7 +478,8 @@ async function statusLooksFailed(android, node) {
   return red >= 8;
 }
 
-const minuteLabels = ({ hours, minutes }) => [0, 1].map((back) => {
+// Повідомлення могло зʼявитись у стрічці з запізненням (завантаження фото), тож його мітка часу може бути на пару хвилин давнішою.
+const minuteLabels = ({ hours, minutes }) => [0, 1, 2].map((back) => {
   const total = (hours * 60 + minutes - back + 1440) % 1440;
   const h = Math.floor(total / 60); const m = total % 60;
   return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
@@ -555,14 +632,27 @@ async function confirmSent(android, caption, targetName) {
   const conversation = await android.until(conversationReady, { timeout: 25_000, step: 250 });
   if (!conversation) throw new ViberStop('send_not_confirmed', 'after', 'conversation not shown');
   const prefix = looseName(caption).slice(0, 24);
-  // Повідомлення з'являється в стрічці не миттєво: кілька читань повним dump, перш ніж визнати, що його немає.
+  // Повідомлення з'являється в стрічці не миттєво (Viber спершу обробляє фото): читаємо повним dump, поки воно не зʼявиться,
+  // до 30 с. Після «Send» іншої безпечної дії немає, а хибне «не підтверджено» віддало б власнику вже надісланий чат.
   let nodes = [];
   let last = null;
   let stampText = '';
   let textOk = false;
   let labels = [];
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (attempt) await sleep(1200);
+  const deadline = Date.now() + 30_000;
+  for (let attempt = 0; attempt === 0 || Date.now() < deadline; attempt += 1) {
+    if (attempt) await sleep(1000);
+    // Після відправки меню «+» іноді лишається відкритим, а повернена стара клавіатура інколи вискакує: обоє стискають
+    // стрічку, і нове повідомлення не видно в dump. «Назад» закриває клавіатуру, поки вона на екрані (розмову не покидає).
+    if (await android.keyboardShown()) { await android.key(4); await sleep(600); }
+    const view = await android.view();
+    const plus = viewById(view, 'options_menu_open_more');
+    if (plus && viewById(view, 'options_more_menu_gallery')) {
+      await android.press(plus);
+      await android.until((next) => !viewById(next, 'options_more_menu_gallery'), { timeout: 2500, step: 200 });
+    }
+    // Стрічка могла лишитись прокрученою вище нового повідомлення: з другої спроби підсуваємо її до низу.
+    if (attempt >= 2 && !(last && textOk)) await android.sh('input swipe 850 760 850 380 250');
     labels = minuteLabels(await android.clock());
     nodes = await android.dump();
     const opened = conversationState(nodes, targetName);
@@ -570,7 +660,7 @@ async function confirmSent(android, caption, targetName) {
     if (!opened.matches) throw new ViberStop('target_unconfirmed', 'after', opened.title.text.slice(0, 80));
     last = nodes.filter((node) => node.id === 'textMessageView').sort((a, b) => b.bottom - a.bottom)[0];
     const stamp = last && nodes.filter((node) => node.id === 'timestampView' && node.top >= last.top - 10).sort((a, b) => a.top - b.top)[0];
-    stampText = stamp ? stamp.text.replace(/[\s  ]+/g, ' ').trim() : '';
+    stampText = stamp ? stamp.text.replace(/[\s\u00a0\u202f]+/g, ' ').trim() : '';
     textOk = !prefix || Boolean(last && looseName(last.text).startsWith(prefix));
     if (last && textOk && labels.includes(stampText)) break;
   }
@@ -612,7 +702,7 @@ async function post(payload, guard) {
     // Фото кладеться паралельно з відкриттям чату: до галереї воно вже буде в індексі.
     const image = freshImage(android, payload.media);
     image.catch(() => {});
-    const targetName = await openTarget(android, payload);
+    const targetName = await openTarget(android, payload, guard);
     laps.lap('чат');
     guard();
     await image;
