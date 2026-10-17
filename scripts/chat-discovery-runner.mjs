@@ -892,12 +892,9 @@ async function handleWaitingCheckTask(ws,task){
 // чергу (воно нічого не надсилало), помилка самого завдання стає «пропущено» без повтору, а будь-який збій після
 // натискання «Forward» ніколи не повторюється: дубль у чужій групі гірший за пропуск.
 let lastViberFinishedAt=0;
-let lastViberStatusKey='';
 
 function reportViberStatus(ws,state,reason,detail){
-  const key=`${state}|${reason||''}`;
-  if(key===lastViberStatusKey&&state==='ready')return;
-  lastViberStatusKey=key;
+  // Стан шлеться щоразу (це лише повідомлення в браузер, без D1): сторінка, відкрита пізніше, теж побачить «готовий».
   sendLive(ws,{type:'progress',process:'viber_status',state,reason:reason||null,text:reason?(VIBER_ENV_REASON_TEXT[reason]||detail||reason):'Viber готовий',at:Date.now()});
 }
 
@@ -1160,7 +1157,6 @@ function connectLiveChannel(){
     wsReconnectDelayMs=WS_RECONNECT_MIN_MS;
     console.log('Connected to the Work OS live channel.');
     setStatus('ready','Готовий: підключено до Work OS');
-    lastViberStatusKey='';
     setTimeout(()=>{void checkViberStatus();},1500);
     keepalive=setInterval(()=>{
       // A ping still unanswered a whole interval later means a half-open socket (sleep, network

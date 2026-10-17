@@ -6,6 +6,7 @@ import { telegramAccountAction, useTelegramAccounts, loadTelegramAccounts, type 
 import type { PlatformLinkItem as LinkItem, PublicationPace } from '@/components/views/platforms/overview';
 import type { WhatsAppAutopostImage, WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import type { AutopostAttentionItem, AutopostDecision } from '@/components/views/platforms/autopost-attention';
+import type { ViberRunnerStatus } from '@/components/views/platforms/viber-autopost-card';
 import { batchSkipText } from '@/components/views/platforms/autopost-reasons';
 import type { WaitingCheckAction, WaitingCheckProblemAction } from '@/components/views/platforms/waiting-check-card';
 import { announceDataChange } from '@/lib/client-sync';
@@ -183,6 +184,9 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   const [whatsappCaptionLoaded, setWhatsappCaptionLoaded] = useState(false);
   const [whatsappProgress, setWhatsappProgress] = useState<WhatsAppAutopostProgress | null>(null);
   const [autopostAttention, setAutopostAttention] = useState<AutopostAttentionItem[]>([]);
+  const [viberProgress, setViberProgress] = useState<WhatsAppAutopostProgress | null>(null);
+  const [viberStatus, setViberStatus] = useState<ViberRunnerStatus | null>(null);
+  const [viberBatchNote, setViberBatchNote] = useState<string | null>(null);
   const [whatsappBatchNote, setWhatsappBatchNote] = useState<string | null>(null);
   const selected = useSelectedLists({ enabled: active && platform === 'telegram', viewing: queue === 'selected' });
 
@@ -269,6 +273,29 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   useEffect(() => {
     void refreshExpiredBreak.current(clock, document.visibilityState === 'visible' && navigator.onLine && activeBreakExpired(accounts, accountId, clock), () => loadTelegramAccounts(true)).catch(() => {});
   }, [accounts, accountId, clock]);
+
+  // Viber-автопост: лічильники партії й чати, що чекають рішення, читаються при вході на платформу й після подій каналу;
+  // стан самого Viber на ПК приходить від runner подіями progress (таймера опитування немає).
+  const applyViberAutopost = useCallback((body: { viberAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[] }) => { setViberProgress(body.viberAutopostProgress || null); setAutopostAttention(body.autopostAttention || []); }, []);
+  const readViberAutopost = useCallback(async () => {
+    const response = await fetch('/api/messenger-automation?viber=1', { cache: 'no-store' });
+    const body = await response.json() as { viberAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[] };
+    return response.ok ? body : null;
+  }, []);
+  useEffect(() => {
+    if (!active || platform !== 'viber') return;
+    let cancelled = false;
+    const load = () => { void readViberAutopost().then((body) => { if (body && !cancelled) applyViberAutopost(body); }).catch(() => { /* наступна подія оновить */ }); };
+    load();
+    const unsubscribe = subscribeLiveMessages((message) => {
+      if (message.type === 'process_state' && message.process === 'autopost') load();
+      if (message.type === 'progress' && message.process === 'viber_status') {
+        const state = message.state === 'ready' ? 'ready' : 'blocked';
+        setViberStatus({ state, reason: typeof message.reason === 'string' ? message.reason : null, text: typeof message.text === 'string' ? message.text : '' });
+      }
+    });
+    return () => { cancelled = true; unsubscribe(); };
+  }, [active, platform, readViberAutopost, applyViberAutopost]);
 
   // Налаштування WhatsApp-автопоста завантажуються один раз при вході на платформу.
   useEffect(() => {
@@ -659,11 +686,42 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     toast.push({ message: created ? `Поставлено в автопост: ${created} чатів. Відправка йде по одному, з підтвердженням.` : 'Нових чатів для автопосту зараз немає.' });
   }); };
 
+  const viberAction = async (action: string) => {
+    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
+    const body = await response.json() as { created?: number; skipped?: number; reasons?: Array<{ code: string; count: number }>; more?: boolean; cancelled?: number; removed?: number; progress?: WhatsAppAutopostProgress; error?: string };
+    if (!response.ok) throw new Error(body.error || 'Не вдалося виконати дію автопосту Viber.');
+    return body;
+  };
+  const startViberAutopostBatch = () => { if (platform !== 'viber') return Promise.resolve(); return wa('viber-autopost-batch', async () => {
+    setQuickPublishMode(false); setQuickAdvertisementId(null);
+    const body = await viberAction('viber-autopost-batch');
+    invalidateQueueCache('viber'); announceDataChange('platforms'); await reloadChats.current(true);
+    const fresh = await readViberAutopost(); if (fresh) applyViberAutopost(fresh);
+    const created = Number(body.created || 0); const skipped = Number(body.skipped || 0);
+    const why = (body.reasons || []).map((item) => `${batchSkipText(item.code)}: ${item.count}`).join(', ');
+    setViberBatchNote(created
+      ? `Остання партія: поставлено ${created} чатів${skipped ? `, пропущено ${skipped} (${why})` : ''}${body.more ? '. Придатних чатів лишилось ще: запусти автопост повторно, коли партія завершиться' : ''}.`
+      : `Остання партія: нових чатів для автопосту немає${skipped ? `, пропущено ${skipped} (${why})` : ''}.`);
+    toast.push({ message: created ? `Поставлено в автопост Viber: ${created} чатів. Відправка йде по одному, з підтвердженням.` : 'Нових чатів для автопосту Viber зараз немає.' });
+  }); };
+  const stopViberAutopostBatch = () => { if (platform !== 'viber') return Promise.resolve(); return wa('viber-autopost-stop', async () => {
+    const body = await viberAction('cancel-viber-autopost-batch');
+    setViberProgress(body.progress || null); invalidateQueueCache('viber'); announceDataChange('platforms'); await reloadChats.current(true);
+    const cancelled = Number(body.cancelled || 0);
+    toast.push({ message: cancelled ? `Автопост Viber зупинено, скасовано ${cancelled} чатів у черзі.` : 'Активних задач автопосту Viber вже не було.' });
+  }); };
+  const resetViberAutopostQueue = () => { if (platform !== 'viber') return Promise.resolve(); return wa('viber-autopost-reset', async () => {
+    const body = await viberAction('reset-viber-autopost');
+    setViberProgress(body.progress || null); setViberBatchNote(null); invalidateQueueCache('viber'); announceDataChange('platforms'); await reloadChats.current(true);
+    toast.push({ message: `Чергу автопосту Viber скинуто (прибрано ${Number(body.removed || 0)}). Наступний запуск почнеться з початку.` });
+  }); };
+
   const decideAutopost = (item: AutopostAttentionItem, decision: AutopostDecision) => wa('autopost-decision', async () => {
     const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'resolve-autopost-decision', jobId: item.jobId, decision, platform }) });
     const body = await response.json() as { progress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[]; error?: string };
     if (!response.ok) throw new Error(body.error || 'Не вдалося застосувати рішення.');
-    setWhatsappProgress(body.progress || null); setAutopostAttention(body.autopostAttention || []);
+    if (platform === 'viber') setViberProgress(body.progress || null); else setWhatsappProgress(body.progress || null);
+    setAutopostAttention(body.autopostAttention || []);
     invalidateQueueCache(platform); announceDataChange('platforms'); await reloadChats.current(true);
     toast.push({ message: decision === 'archive' ? 'Чат переміщено в архів.' : decision === 'snooze' ? 'Чат відкладено до завтра.' : 'Чат знову поставлено в чергу автопосту.' });
   });
@@ -693,6 +751,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     waitingCheckView, changeWaitingCheck, connectWaitingCheckRunner, resolveWaitingProblem, liveStatus,
     quickPublishMode, setQuickPublishMode, quickAdvertisementId, setQuickAdvertisementId,
     whatsappImage, whatsappImageLoaded, whatsappCaption, setWhatsappCaption, whatsappCaptionLoaded, whatsappProgress, autopostAttention, whatsappBatchNote, decideAutopost,
+    viberProgress, viberStatus, viberBatchNote, startViberAutopostBatch, stopViberAutopostBatch, resetViberAutopostQueue,
     uploadWhatsAppAutopostImage, removeWhatsAppAutopostImage, saveWhatsAppAutopostCaption, clearWhatsAppAutopostCaption, resetWhatsAppAutopostQueue, stopWhatsAppAutopostBatch, startWhatsAppAutopostBatch,
   };
 }

@@ -19,6 +19,7 @@ import { useToast } from '@/components/ui/toast';
 import { AccountsCard } from '@/components/views/platforms/accounts-card';
 import { ArchiveReasonDialog, JOIN_FAILED_REASON } from '@/components/views/platforms/archive-reason-dialog';
 import { AutopostCard } from '@/components/views/platforms/autopost-card';
+import { ViberAutopostCard } from '@/components/views/platforms/viber-autopost-card';
 import { BulkPanel } from '@/components/views/platforms/bulk-panel';
 import { ChatHistoryPanel } from '@/components/views/platforms/chat-history-panel';
 import { ChatRow } from '@/components/views/platforms/chat-row';
@@ -73,7 +74,7 @@ export default function PlatformsView() {
     const list: Array<{ value: Zone; label: string }> = [{ value: 'overview', label: 'Огляд' }];
     if (platform === 'telegram') list.push({ value: 'schedule', label: 'Розклад' });
     if (platform === 'whatsapp') list.push({ value: 'autopost', label: 'Автопост' });
-    if (platform === 'viber') list.push({ value: 'quick', label: 'Швидкий режим' });
+    if (platform === 'viber') list.push({ value: 'autopost', label: 'Автопост' }, { value: 'quick', label: 'Швидкий режим' });
     return list;
   }, [platform]);
   const currentZone: Zone = zones.some((item) => item.value === zone) ? zone : 'overview';
@@ -124,6 +125,7 @@ export default function PlatformsView() {
     if (queue === 'selected' && platform === 'telegram' && value === 'overview') return null;
     if (value === 'schedule' && p.accountId) return <ScheduleTab key={p.accountId} accountId={p.accountId} />;
     if (value === 'schedule') return <EmptyState text="Додай або увімкни Telegram-акаунт, щоб побачити розклад." />;
+    if (value === 'autopost' && platform === 'viber') return <ViberAutopostCard progress={p.viberProgress} attention={p.autopostAttention} batchNote={p.viberBatchNote} status={p.viberStatus} runnerConnected={p.liveStatus.connected ? p.liveStatus.runnerConnected : null} busy={p.busy !== null} queueSize={data?.counts.ready || 0} onDecide={p.decideAutopost} onStart={() => void p.startViberAutopostBatch()} onStop={() => void p.stopViberAutopostBatch()} onReset={() => void p.resetViberAutopostQueue()} />;
     if (value === 'autopost') return <AutopostCard image={p.whatsappImage} imageLoaded={p.whatsappImageLoaded} caption={p.whatsappCaption} captionLoaded={p.whatsappCaptionLoaded} busy={p.busy !== null} queueSize={data?.counts.ready || 0} progress={p.whatsappProgress} attention={p.autopostAttention} batchNote={p.whatsappBatchNote} onDecide={p.decideAutopost} onCaptionChange={p.setWhatsappCaption} onUploadImage={(file) => void p.uploadWhatsAppAutopostImage(file)} onRemoveImage={() => void p.removeWhatsAppAutopostImage()} onSaveCaption={() => void p.saveWhatsAppAutopostCaption()} onClearCaption={() => void p.clearWhatsAppAutopostCaption()} onStart={() => void p.startWhatsAppAutopostBatch()} onStop={() => void p.stopWhatsAppAutopostBatch()} onReset={() => void p.resetWhatsAppAutopostQueue()} />;
     if (value === 'quick') return quick;
     return overview;
