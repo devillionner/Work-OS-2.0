@@ -35,12 +35,14 @@ export type Chat = {
   candidateAt?: number | null;
 };
 type ProfileCounts = { confirmed: number; draft: number; empty: number; needsReview: number };
-type PublicationState = { chatId: string; chatPublishedToday: boolean; publishedToday: LinkItem[]; availableToday: LinkItem[]; publicationPace: PublicationPace };
+type PublicationState = { chatId: string; chatPublishedToday: boolean; publishedToday: LinkItem[]; publicationPace: PublicationPace };
 /** Розділи Telegram «Для приєднання»: черга вибраного акаунта (candidates) і «Нові чати» (chats зі сторінкою `limit`). */
 export type JoinSections = { queue: number; pool: number };
 export type ResponseData = {
+  /** Ревізія синхронізації, за якою сервер зібрав відповідь: подію live-каналу з такою чи меншою ревізією перечитувати не треба. */
+  revision?: number;
   chats: Chat[]; candidates?: Chat[]; sections?: JoinSections; total: number; offset: number; counts: Record<string, number>; profileCounts: Record<string, ProfileCounts>; accountId: string | null;
-  joinedToday: LinkItem[]; publishedToday: LinkItem[]; availableToday: LinkItem[]; publicationPace: PublicationPace; requestKey?: string;
+  joinedToday: LinkItem[]; publishedToday: LinkItem[]; publicationPace: PublicationPace; requestKey?: string;
 };
 export type UndoSpec = { action: 'restore' | 'unsnooze' | 'undo_published' | 'return_to_join' | 'shortlist' | 'unshortlist'; label: string; /** Додаткові поля для скасування, наприклад `toPool` для відновлення з «Нових чатів». */ extra?: Record<string, unknown> };
 export type ChatActionResult = { ok: true } | { ok: false; error: string; refresh: boolean };
@@ -212,6 +214,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   const reloadChats = useRef<(silent?: boolean) => Promise<void>>(async () => {});
   const hasLoadedData = useRef(false);
   const lastSyncKey = useRef(`${syncRevision}:${businessDate}`);
+  const loadedRevision = useRef(0);
   const previousFilter = useRef('');
   const restoredView = useRef(false);
   const restoreScroll = useRef<number | null>(null);
@@ -219,6 +222,25 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
 
   const requestAccountId = platform === 'telegram' ? accountId : null;
   const requestKey = `${platform}:${queue}:${search}:${profileFilter}:${offset}:${requestAccountId || ''}`;
+  // «Доступні для публікації» — окремий запит: у списку чатів їх немає (сотні читань на кожне перечитування). Вантажаться, коли
+  // відкрито чергу «Для публікації», і ще раз перед копіюванням; свої дії оновлюють їх локально чи скидають.
+  const [availableState, setAvailableState] = useState<{ key: string; items: LinkItem[] } | null>(null);
+  const availableKey = `${platform}:${requestAccountId || ''}:${businessDate}`;
+  const loadAvailable = useCallback(async (): Promise<LinkItem[]> => {
+    const params = new URLSearchParams({ platform, status: 'ready', section: 'available' });
+    if (requestAccountId) params.set('account', requestAccountId);
+    const response = await fetch(`/api/chats?${params}`, { cache: 'no-store' });
+    const body = await response.json() as { availableToday?: LinkItem[]; error?: string };
+    if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити доступні чати.');
+    const items = body.availableToday || [];
+    setAvailableState({ key: availableKey, items });
+    return items;
+  }, [platform, requestAccountId, availableKey]);
+  useEffect(() => {
+    if (!active || queue !== 'ready' || availableState?.key === availableKey) return;
+    queueMicrotask(() => void loadAvailable().catch(() => { /* картка лишиться без числа; копіювання спробує ще раз */ }));
+  }, [active, queue, availableKey, availableState, loadAvailable]);
+  const availableToday = availableState?.key === availableKey ? availableState.items : undefined;
   const cachedData = cacheState[requestKey] || null;
   const data = loadedData?.requestKey === requestKey ? loadedData : cachedData;
   const switchingList = data === null && loadedData !== null && loadedData.requestKey !== requestKey;
@@ -343,7 +365,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       .catch(() => {})
       .finally(() => { if (!cancelled) { setWhatsappImageLoaded(true); setWhatsappCaptionLoaded(true); } });
     return () => { cancelled = true; };
-  }, [active, platform, syncRevision]);
+  }, [active, platform]);
 
   const invalidateQueueCache = useCallback((target?: Platform) => {
     if (!target) { viewCache.current.clear(); setCacheState({}); return; }
@@ -386,6 +408,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити чати.');
       const next = { ...body, requestKey };
       viewCache.current.set(requestKey, next); setCacheState((current) => ({ ...current, [requestKey]: next })); setData(next); hasLoadedData.current = true;
+      if (typeof body.revision === 'number') loadedRevision.current = Math.max(loadedRevision.current, body.revision);
       setCountsByScope((current) => ({ ...current, [`${platform}:${requestAccountId || ''}`]: body.counts }));
     } catch (reason) { if (!controller.signal.aborted && requestNumber === loadNumber.current) setError(humanError(reason, 'Не вдалося завантажити чати.')); }
     finally { if (!silent && !controller.signal.aborted && requestNumber === loadNumber.current) setLoading(false); }
@@ -404,7 +427,9 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     lastSyncKey.current = next;
     if (previous === next || !hasLoadedData.current || !active) return;
     invalidateQueueCache();
-    queueMicrotask(() => void reloadChats.current(true));
+    // Ревізія, яку вже бачить список (наприклад, після власної дії, яка щойно перечитала його), вдруге не перечитується.
+    const seenAlready = previous.endsWith(`:${businessDate}`) && syncRevision <= loadedRevision.current;
+    if (!seenAlready) queueMicrotask(() => void reloadChats.current(true));
     if (platform === 'telegram') void loadTelegramAccounts(true);
   }, [syncRevision, businessDate, platform, invalidateQueueCache, active]);
 
@@ -582,10 +607,12 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
             if (!current || current.requestKey !== requestKey) return current;
             const chats = current.chats.map((item) => (item.id === state.chatId ? { ...item, publishedToday: state.chatPublishedToday, stateToken: body.stateToken || item.stateToken } : item));
             if (queue === 'ready') chats.sort((left, right) => Number(left.publishedToday) - Number(right.publishedToday));
-            return { ...current, chats, publishedToday: state.publishedToday, availableToday: state.availableToday, publicationPace: state.publicationPace };
+            return { ...current, chats, publishedToday: state.publishedToday, publicationPace: state.publicationPace };
           });
+          if (action === 'published') setAvailableState((current) => (current ? { ...current, items: current.items.filter((item) => item.id !== state.chatId) } : current));
         }
         invalidateQueueCache(chat.platform); announceDataChange('platforms');
+        if (action !== 'published') setAvailableState(null);
         if (action === 'published' || action === 'undo_published') void reloadChats.current(true); else await reloadChats.current(true);
         if (undoable && undoSpec) {
           const undoChat = { ...chat, stateToken: body.stateToken as string, snoozedUntil: body.snoozedUntil ?? chat.snoozedUntil };
@@ -773,7 +800,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   return {
     // навігація й дані
     platform, queue, search, setSearch, profileFilter, setProfileFilter, offset, setOffset, availablePlatforms, selectedPlatform,
-    data, loading, switchingList, error, setError, busy, tabCounts, selectPlatform, selectQueue, reload: () => reloadChats.current(),
+    data, availableToday, loadAvailable, loading, switchingList, error, setError, busy, tabCounts, selectPlatform, selectQueue, reload: () => reloadChats.current(),
     // чат
     openChat, act, shortlistChat, unshortlistChat, returnToQueue, showMoreNewChats, poolLimit, clock, lastOpenedByPlatform, toggleWhatsAppAutopost, assignAccount, confirmation, setConfirmation, confirmPlatformAction, deleteChat, setDeleteChat, archiveChat, setArchiveChat,
     // callbacks панелей

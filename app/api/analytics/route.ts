@@ -2,12 +2,13 @@ import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { activitySummaryStatement } from '@/lib/activity-summary';
 import { completedOperatorLessonsStatement } from '@/lib/analytics-attribution';
-import { readAnalyticsCohort } from '@/lib/analytics-cohort';
+import { cachedAnalytics, readAnalyticsRangeVersion } from '@/lib/analytics-cache';
+import { readAnalyticsCohortCached } from '@/lib/analytics-cohort';
 import { analyticsCsv, type AnalyticsExportData } from '@/lib/analytics-export';
 import { buildAnalyticsRecommendation } from '@/lib/analytics-insights';
 import { resolveAnalyticsRange } from '@/lib/analytics-range';
 import { readAnalyticsTrends } from '@/lib/analytics-trends';
-import { chatActivityStatement } from '@/lib/analytics-chats';
+import { readChatActivity } from '@/lib/analytics-chats';
 import { businessDayStart, shiftBusinessDate } from '@/lib/business-time';
 import { readSubjectAnalyticsRange } from '@/lib/reports/subjects';
 import { revisionCacheRequest, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
@@ -68,14 +69,17 @@ export async function GET(request: Request): Promise<Response> {
   const archiveFrom = businessDayStart(from);
   const archiveTo = businessDayStart(shiftBusinessDate(to, 1));
 
-  const [cohort, trends, subjects, batch] = await Promise.all([
-    skipCohort ? Promise.resolve(null) : readAnalyticsCohort(env.DB, user.id, from, to),
+  // Важкі розрахунки (рейтинг чатів, когорти, предмети) беруться з кешу за версією подій періоду: запис, що не зачепив подій,
+  // їх не скидає (на відміну від глобальної ревізії, яку б'є кожна дія в застосунку).
+  const version = await readAnalyticsRangeVersion(env.DB, user.id, from, to, kyivDate());
+  const [cohort, trends, subjects, chatRows, batch] = await Promise.all([
+    skipCohort ? Promise.resolve(null) : readAnalyticsCohortCached(env.DB, user.id, from, to, version),
     readAnalyticsTrends(env.DB, user.id, from, to),
-    readSubjectAnalyticsRange(env.DB, user.id, from, to),
+    cachedAnalytics({ userId: user.id, namespace: 'subjects', key: `${from}:${to}`, version, ttlSeconds: 300, compute: () => readSubjectAnalyticsRange(env.DB, user.id, from, to) }),
+    readChatActivity(env.DB, user.id, from, to, version),
     env.DB.batch([
       activitySummaryStatement(env.DB, user.id, from, to),
       completedOperatorLessonsStatement(env.DB, user.id, from, to),
-      chatActivityStatement(env.DB, user.id, from, to),
       env.DB.prepare(`SELECT COALESCE(NULLIF(TRIM(archive_reason),''),'Без причини') AS reason,COUNT(*) AS count
         FROM chats WHERE user_id=?1 AND workflow_status='archived' AND archived_at>=?2 AND archived_at<?3
         GROUP BY COALESCE(NULLIF(TRIM(archive_reason),''),'Без причини')
@@ -83,7 +87,7 @@ export async function GET(request: Request): Promise<Response> {
       env.DB.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('target_publication_rate','target_response_rate','target_booking_rate','target_completion_rate')`).bind(user.id),
     ]),
   ]);
-  const [eventsResult, lessonsResult, chatResult, archiveReasonResult, targetResult] = batch;
+  const [eventsResult, lessonsResult, archiveReasonResult, targetResult] = batch;
 
   const eventRows = eventsResult.results as EventAggregate[];
   const completedRows = lessonsResult.results as Array<{ platform: string; count: number }>;
@@ -97,11 +101,7 @@ export async function GET(request: Request): Promise<Response> {
   };
   const platforms = platformRows(eventRows, completedRows);
 
-  const chats = (chatResult.results as Array<{
-    chat_id: string; name: string | null; platform: string | null; workflow_status: string | null;
-    language: string | null; directions_json: string | null;
-    joined: number; publications: number; responses: number; bookings: number;
-  }>).map((row) => ({
+  const chats = chatRows.map((row) => ({
     id: row.chat_id,
     name: row.name || 'Без назви',
     platform: row.platform || 'unknown',

@@ -30,16 +30,16 @@ CREATE TABLE IF NOT EXISTS dev_items (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS dev_items_user_status_idx ON dev_items(user_id,archived_at,status,position);
-CREATE TRIGGER IF NOT EXISTS backup_revision_dev_items_insert AFTER INSERT ON dev_items
+CREATE TRIGGER backup_revision_dev_items_insert AFTER INSERT ON dev_items
 BEGIN
  INSERT INTO backup_revisions(user_id,revision) SELECT NEW.user_id,1 WHERE NEW.user_id IS NOT NULL ON CONFLICT(user_id) DO UPDATE SET revision=revision+1;
 END;
-CREATE TRIGGER IF NOT EXISTS backup_revision_dev_items_update AFTER UPDATE ON dev_items
+CREATE TRIGGER backup_revision_dev_items_update AFTER UPDATE ON dev_items
 BEGIN
  INSERT INTO backup_revisions(user_id,revision) SELECT OLD.user_id,1 WHERE OLD.user_id IS NOT NULL ON CONFLICT(user_id) DO UPDATE SET revision=revision+1;
  INSERT INTO backup_revisions(user_id,revision) SELECT NEW.user_id,1 WHERE NEW.user_id IS NOT NULL ON CONFLICT(user_id) DO UPDATE SET revision=revision+1;
 END;
-CREATE TRIGGER IF NOT EXISTS backup_revision_dev_items_delete AFTER DELETE ON dev_items
+CREATE TRIGGER backup_revision_dev_items_delete AFTER DELETE ON dev_items
 BEGIN
  INSERT INTO backup_revisions(user_id,revision) SELECT OLD.user_id,1 WHERE OLD.user_id IS NOT NULL ON CONFLICT(user_id) DO UPDATE SET revision=revision+1;
 END;

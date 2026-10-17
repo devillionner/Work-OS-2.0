@@ -1,8 +1,9 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
+import { readAnalyticsRangeVersion } from '@/lib/analytics-cache';
 import { readAnalyticsCohort } from '@/lib/analytics-cohort';
 import { resolveAnalyticsRange } from '@/lib/analytics-range';
-import { revisionCacheRequest, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
+import { keyedCacheRequest, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
 
 const PLATFORM_NAMES: Record<string, string> = { telegram: 'Telegram', whatsapp: 'WhatsApp', viber: 'Viber', facebook: 'Facebook', threads: 'Threads' };
 
@@ -18,7 +19,9 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: error instanceof Error ? error.message : 'Некоректний період аналітики.' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
   }
   const { from, to } = range;
-  const cacheRequest = await revisionCacheRequest(env.DB, user.id, 'analytics-cohort', `${from}:${to}`);
+  // Ключ — версія подій періоду, а не глобальна ревізія: запис, що не зачепив подій (автопост, стан чатів), не скидає когорти.
+  const version = await readAnalyticsRangeVersion(env.DB, user.id, from, to, kyivDate());
+  const cacheRequest = await keyedCacheRequest(user.id, 'analytics-cohort', `${from}:${to}:${version}`);
   const cached = await matchRevisionJson(cacheRequest);
   if (cached) return cached;
 
@@ -47,7 +50,7 @@ export async function GET(request: Request): Promise<Response> {
       noShowRate: rate(row.noShow, row.bookings),
     })),
   };
-  await putRevisionJson(cacheRequest, payload, 600);
+  await putRevisionJson(cacheRequest, payload, 300);
   return Response.json(payload, { headers: { 'Cache-Control': 'no-store', 'X-Work-OS-Cache': 'MISS' } });
 }
 

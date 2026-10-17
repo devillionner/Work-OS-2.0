@@ -1,3 +1,5 @@
+import { cachedAnalytics } from './analytics-cache.ts';
+
 // Per-chat activity breakdown for the Analytics page (top 100 chats of a date range).
 //
 // Events are grouped per chat first and only the resulting groups are joined to chats/chat_profiles.
@@ -25,4 +27,21 @@ export function chatActivityStatement(db: D1Database, userId: string, from: stri
     LEFT JOIN chats c ON c.id=totals.chat_key AND c.user_id=?1
     LEFT JOIN chat_profiles pr ON pr.chat_id=c.id
     ORDER BY totals.publications DESC,totals.responses DESC,totals.bookings DESC,totals.joined DESC,c.name ASC LIMIT 100`).bind(userId, from, to);
+}
+
+export type ChatActivityRow = {
+  chat_id: string; name: string | null; platform: string | null; workflow_status: string | null;
+  language: string | null; directions_json: string | null;
+  joined: number; publications: number; responses: number; bookings: number;
+};
+
+/**
+ * Рейтинг чатів періоду для екрана й для «Що важливо зараз»: один розрахунок на обох. Результат лежить у кеші, поки не змінилась
+ * версія подій періоду (analytics-cache.ts); назва, статус і профіль чату оновлюються з ним найпізніше за п'ять хвилин.
+ */
+export function readChatActivity(db: D1Database, userId: string, from: string, to: string, version: string): Promise<ChatActivityRow[]> {
+  return cachedAnalytics({
+    userId, namespace: 'chats', key: `${from}:${to}`, version, ttlSeconds: 300,
+    compute: async () => (await chatActivityStatement(db, userId, from, to).all<ChatActivityRow>()).results,
+  });
 }

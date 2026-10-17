@@ -4,10 +4,9 @@ import { businessDate } from '@/lib/business-time';
 import { changeChatLeave } from '@/lib/chats/leave';
 import { publicationAvailability, recordManualPublication, undoManualPublication } from '@/lib/chats/publication';
 import { changeChatSnooze } from '@/lib/chats/snooze';
-import { chatSnoozeCountSql } from '@/lib/chats/snooze-history';
-import { chatLeftAtSql, chatStateTokenSql, readChatState } from '@/lib/chats/state';
+import { readChatState } from '@/lib/chats/state';
 import { transitionChat } from '@/lib/chats/transitions';
-import { chatListPageStatement, chatRowColumns, telegramJoinQueueStatement, telegramJoinSectionCountsStatement, telegramNewChatsStatement } from '@/lib/chats/list-query';
+import { CHAT_ROW_JOINS, chatListPageStatement, chatRowColumns, telegramJoinQueueStatement, telegramJoinSectionCountsStatement, telegramNewChatsStatement } from '@/lib/chats/list-query';
 import { resolveTelegramAccount } from '@/lib/chats/telegram-account';
 import { availableTodayStatement, joinedTodayStatement, publishedTodayStatement } from '@/lib/chats/daily-links';
 import { PROFILE_CADENCES, saveChatProfile } from '@/lib/chats/profile';
@@ -16,7 +15,7 @@ import { permanentlyDeleteChat } from '@/lib/chats/permanent-delete';
 import { chatMatchesSearch, normalizeChatSearchText } from '@/lib/chats/search';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { resolveDailyPublicationGoal } from '@/lib/publication-goal';
-import { revisionCacheRequest, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
+import { revisionCacheEntry, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
 
 const PLATFORMS = new Set(['telegram', 'whatsapp', 'viber', 'facebook']);
 const STATUSES = new Set(['to_join', 'waiting', 'ready', 'profile_review', 'archived']);
@@ -52,10 +51,22 @@ export async function GET(request: Request): Promise<Response> {
 
   const now = unixNow();
   const today = businessDate(now);
+  // «Доступні для публікації» (до 200 посилань) коштують сотні читань, тож список їх не несе: клієнт просить їх окремо,
+  // коли відкрито чергу «Для публікації», і ще раз при копіюванні.
+  if (url.searchParams.get('section') === 'available') {
+    const { request: availableCache, revision: availableRevision } = await revisionCacheEntry(env.DB, user.id, 'chats-available',
+      `${platform}:${accountId || ''}:${today}:${Math.floor(now/30)}`);
+    const availableCached = await matchRevisionJson(availableCache);
+    if (availableCached) return availableCached;
+    const availableRows = await availableTodayStatement(env.DB, { userId: user.id, platform, date: today, accountId, now }).all();
+    const availablePayload = { revision: availableRevision, availableToday: availableRows.results };
+    await putRevisionJson(availableCache, availablePayload, 45);
+    return Response.json(availablePayload, { headers: { 'Cache-Control': 'no-store', 'X-Work-OS-Cache': 'MISS' } });
+  }
   // Telegram «Для приєднання» віддає два розділи: «Нові чати» (chats, зі сторінкою `limit`) і чергу вибраного акаунта (candidates).
   const joinAccount = platform === 'telegram' && status === 'to_join' ? accountId : null;
   const limit = joinAccount ? Math.min(POOL_LIMIT_MAX, Math.max(1, Math.floor(Number(url.searchParams.get('limit'))) || 50)) : 50;
-  const cacheRequest = await revisionCacheRequest(env.DB, user.id, 'chats',
+  const { request: cacheRequest, revision } = await revisionCacheEntry(env.DB, user.id, 'chats',
     `unicode-v2:${platform}:${status}:${profile}:${search}:${offset}:${joinAccount ? limit : ''}:${accountId || ''}:${today}:${Math.floor(now/30)}`);
   const cached = await matchRevisionJson(cacheRequest);
   if (cached) return cached;
@@ -108,11 +119,11 @@ export async function GET(request: Request): Promise<Response> {
   const searchRowStatement=search
     ? searchPageIds&&searchPageIds.length
       ? joinAccount
-        ? env.DB.prepare(`SELECT ${chatRowColumns('?3')} FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 AND c.id IN (SELECT value FROM json_each(?4)) ORDER BY c.updated_at DESC,c.id`)
+        ? env.DB.prepare(`SELECT ${chatRowColumns('?3')} FROM chats c ${CHAT_ROW_JOINS} WHERE c.user_id=?1 AND c.platform=?2 AND c.id IN (SELECT value FROM json_each(?4)) ORDER BY c.updated_at DESC,c.id`)
           .bind(user.id,platform,today,JSON.stringify(searchPageIds))
-        : env.DB.prepare(`SELECT ${chatRowColumns('?3')} FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 AND c.id IN (${searchPageIds.map((_,index)=>`?${index+4}`).join(',')}) ORDER BY c.updated_at DESC,c.id`)
+        : env.DB.prepare(`SELECT ${chatRowColumns('?3')} FROM chats c ${CHAT_ROW_JOINS} WHERE c.user_id=?1 AND c.platform=?2 AND c.id IN (${searchPageIds.map((_,index)=>`?${index+4}`).join(',')}) ORDER BY c.updated_at DESC,c.id`)
           .bind(user.id,platform,today,...searchPageIds)
-      : env.DB.prepare(`SELECT ${chatRowColumns('?3')} FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?2 AND 0`).bind(user.id,platform,today)
+      : env.DB.prepare(`SELECT ${chatRowColumns('?3')} FROM chats c ${CHAT_ROW_JOINS} WHERE c.user_id=?1 AND c.platform=?2 AND 0`).bind(user.id,platform,today)
     : null;
   const statements = [
     searchRowStatement||(joinAccount?telegramNewChatsStatement(env.DB,{userId:user.id,today,offset,limit}):chatListPageStatement(env.DB,{userId:user.id,platform,status,needsReview:profile==='needs_review',today,now,offset,accountId})),
@@ -123,7 +134,6 @@ export async function GET(request: Request): Promise<Response> {
     env.DB.prepare(`SELECT value_json FROM user_settings WHERE user_id=?1 AND setting_key='analytics-daily-goal-schedule-v1' LIMIT 1`).bind(user.id),
     env.DB.prepare(`SELECT COUNT(*) AS count FROM activity_events WHERE user_id=?1 AND event_type='publication' AND event_date=?2 AND cancelled_at IS NULL`).bind(user.id,today),
   ];
-  if(status==='ready') statements.push(availableTodayStatement(env.DB,{userId:user.id,platform,date:today,accountId,now}));
   const joinIndex = statements.length;
   if(joinAccount){
     statements.push(telegramJoinSectionCountsStatement(env.DB,{userId:user.id,accountId:joinAccount}));
@@ -131,7 +141,6 @@ export async function GET(request: Request): Promise<Response> {
   }
   const results = await env.DB.batch(statements);
   const [rowsResult, totalResult, countsResult, joinedResult, publishedResult, goalResult, publicationCountResult] = results;
-  const availableResult = status==='ready' ? results[7] : { results: [] };
   const toChat = (row: ChatRow) => ({
     id: row.id, name: row.name, link: row.link, platform: row.platform,
     status: row.workflow_status, archiveReason: row.archive_reason, archivedAt: row.archived_at,
@@ -170,7 +179,7 @@ export async function GET(request: Request): Promise<Response> {
   counts.profile_review=profileCounts.profile_review.needsReview;
   const goalValue = (goalResult.results[0] as {value_json?:string}|undefined)?.value_json;
   const completedPublications = Number((publicationCountResult.results[0] as {count?:number}|undefined)?.count || 0);
-  const payload = { chats, ...(candidates ? { candidates, sections } : {}), total: sections ? (search ? searchTotal : sections.pool) : Number((totalResult.results[0] as {count?:number})?.count || 0), offset, counts, profileCounts, accountId, joinedToday: joinedResult.results, publishedToday: publishedResult.results, availableToday: availableResult.results, publicationPace: { ratePerHour: 7, completed: completedPublications, target: resolveDailyPublicationGoal(goalValue,today) } };
+  const payload = { revision, chats, ...(candidates ? { candidates, sections } : {}), total: sections ? (search ? searchTotal : sections.pool) : Number((totalResult.results[0] as {count?:number})?.count || 0), offset, counts, profileCounts, accountId, joinedToday: joinedResult.results, publishedToday: publishedResult.results, publicationPace: { ratePerHour: 7, completed: completedPublications, target: resolveDailyPublicationGoal(goalValue,today) } };
   await putRevisionJson(cacheRequest, payload, 45);
   return Response.json(payload, { headers: { 'Cache-Control':'no-store', 'X-Work-OS-Cache':'MISS' } });
 }
@@ -216,7 +225,7 @@ export async function POST(request: Request): Promise<Response> {
     if (!result.ok) return Response.json(result, { status: 409 });
     const next = await readChatState(env.DB,user.id,id);
     if (!next) return Response.json({ error: 'Не вдалося підтвердити новий стан. Оновіть список.' }, { status: 409 });
-    const publicationState = await readPublicationState(user.id,next,accountId,businessDate(now),now);
+    const publicationState = await readPublicationState(user.id,next,accountId,businessDate(now));
     return Response.json({ ...result, stateToken: next.state_token, publicationState });
   }
 
@@ -225,7 +234,7 @@ export async function POST(request: Request): Promise<Response> {
     if (!result.ok) return Response.json(result,{status:409});
     const next = await readChatState(env.DB,user.id,id);
     if (!next) return Response.json({ error: 'Не вдалося підтвердити новий стан. Оновіть список.' }, { status: 409 });
-    const publicationState = await readPublicationState(user.id,next,accountId,businessDate(now),now);
+    const publicationState = await readPublicationState(user.id,next,accountId,businessDate(now));
     return Response.json({ ...result, stateToken: next.state_token, publicationState });
   }
 
@@ -267,13 +276,12 @@ export async function POST(request: Request): Promise<Response> {
 function unixNow() { return Math.floor(Date.now() / 1000); }
 function parseNumberList(value:string|null) { try { const parsed=JSON.parse(value||'[]'); return Array.isArray(parsed)?parsed.filter((item):item is number=>Number.isInteger(item)&&item>=1&&item<=7):[]; } catch { return []; } }
 function parseStringList(value:string|null) { try { const parsed=JSON.parse(value||'[]'); return Array.isArray(parsed)?parsed.filter((item):item is string=>typeof item==='string'):[]; } catch { return []; } }
-async function readPublicationState(userId:string, chat:{id:string;platform:string}, accountId:string|null, date:string, now:number) {
+async function readPublicationState(userId:string, chat:{id:string;platform:string}, accountId:string|null, date:string) {
   const publishedStatement = publishedTodayStatement(env.DB,{userId,platform:chat.platform,date,accountId});
-  const [chatPublishedResult,publishedResult,availableResult,goalResult,publicationCountResult] = await env.DB.batch([
+  const [chatPublishedResult,publishedResult,goalResult,publicationCountResult] = await env.DB.batch([
     env.DB.prepare(`SELECT EXISTS(SELECT 1 FROM chat_publications
       WHERE user_id=?1 AND chat_id=?2 AND published_on=?3) AS published`).bind(userId,chat.id,date),
     publishedStatement,
-    availableTodayStatement(env.DB,{userId,platform:chat.platform,date,accountId,now}),
     env.DB.prepare(`SELECT value_json FROM user_settings WHERE user_id=?1 AND setting_key='analytics-daily-goal-schedule-v1' LIMIT 1`).bind(userId),
     env.DB.prepare(`SELECT COUNT(*) AS count FROM activity_events
       WHERE user_id=?1 AND event_type='publication' AND event_date=?2 AND cancelled_at IS NULL`).bind(userId,date),
@@ -283,7 +291,6 @@ async function readPublicationState(userId:string, chat:{id:string;platform:stri
     chatId:chat.id,
     chatPublishedToday:Boolean((chatPublishedResult.results[0] as {published?:number}|undefined)?.published),
     publishedToday:publishedResult.results,
-    availableToday:availableResult.results,
     publicationPace:{
       ratePerHour:7,
       completed:Number((publicationCountResult.results[0] as {count?:number}|undefined)?.count||0),

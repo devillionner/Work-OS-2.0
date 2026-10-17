@@ -74,7 +74,7 @@ type RankedAdvertisement = PublicationAdvertisement & { updatedAt: number };
 
 export async function readPublicationAdvertisementSelection(
   db: D1Database,
-  input: { userId: string; chatId: string; date: string; excludeAutomationJobId?: string },
+  input: { userId: string; chatId: string; date: string; excludeAutomationJobId?: string; /** false — лише правила профілю: без списку матеріалів, використаних сьогодні й плану фокусу (автопост із власним текстом). */ withItems?: boolean },
 ): Promise<PublicationAdvertisementSelection | null> {
   const chat = await db.prepare(`SELECT c.platform,p.language,p.directions_json,p.review_status,p.cadence,p.weekdays_json,p.custom_interval_days,p.next_allowed_on
     FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id
@@ -97,7 +97,8 @@ export async function readPublicationAdvertisementSelection(
         FROM chat_publications p
         WHERE p.user_id=?1 AND p.platform=?2 AND p.published_on=?3 AND p.advertisement_id IS NOT NULL`)
       .bind(input.userId,chat.platform,input.date);
-  const [advertisementsResult, usedResult, focusResult, workdayResult] = await db.batch([
+  const withItems = input.withItems !== false;
+  const [advertisementsResult, usedResult, focusResult, workdayResult] = !withItems ? emptyItemsBatch() : await db.batch([
     db.prepare(`SELECT id,title,uk_text,ru_text,notes,tags_json,platforms_json,updated_at
       FROM library_items
       WHERE user_id=?1 AND kind='advertisement' AND archived_at IS NULL
@@ -350,4 +351,9 @@ function relatedDirection(left: string, right: string) {
 
 function directionScore(value: PublicationAdvertisement['directionMatch']) {
   return value === 'matched' ? 2 : value === 'generic' ? 1 : 0;
+}
+
+function emptyItemsBatch() {
+  const none = { results: [] };
+  return [none, none, none, none] as unknown as [D1Result<unknown>, D1Result<unknown>, D1Result<unknown>, D1Result<unknown>];
 }

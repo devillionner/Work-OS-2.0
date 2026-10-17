@@ -1,4 +1,6 @@
 import { activitySummaryStatement, activityTotals, type ActivitySummaryRow } from './activity-summary.ts';
+import { cachedAnalytics, readAnalyticsRangeVersion } from './analytics-cache.ts';
+import { businessDate } from './business-time.ts';
 
 export type GoalPlanFact = {
   dailyTarget: number;
@@ -11,13 +13,25 @@ type GoalRow = { value:number };
 
 export const GOAL_RESTORE_VERSION_BASE = 1_000_000;
 
+/**
+ * Підсумок подій за період (як у аналітиці) з кешу за версією подій періоду: місячний підсумок читають і «Звіти», і «Аналітика»,
+ * а події місяця змінюються рідше, ніж будь-який запис у застосунку (див. analytics-cache.ts).
+ */
+async function periodSummary(db:D1Database,userId:string,from:string,to:string):Promise<ActivitySummaryRow[]> {
+  const version=await readAnalyticsRangeVersion(db,userId,from,to,businessDate(Math.floor(Date.now()/1000)));
+  return cachedAnalytics({
+    userId,namespace:'period-summary',key:`${from}:${to}`,version,ttlSeconds:300,
+    compute:async()=>(await activitySummaryStatement(db,userId,from,to).all<ActivitySummaryRow>()).results,
+  });
+}
+
 export async function readMonthlyGoalProgress(db:D1Database,userId:string,date:string):Promise<{target:number;actual:number}> {
   const monthStart=`${date.slice(0,7)}-01`;
   const [target,events]=await Promise.all([
     readGoal(db,userId,'monthly_booking_goal',monthStart),
-    activitySummaryStatement(db,userId,monthStart,date).all<ActivitySummaryRow>(),
+    periodSummary(db,userId,monthStart,date),
   ]);
-  return {target,actual:activityTotals(events.results).bookings};
+  return {target,actual:activityTotals(events).bookings};
 }
 
 export async function readGoalPlanFact(db:D1Database,userId:string,date:string):Promise<GoalPlanFact> {
@@ -27,13 +41,13 @@ export async function readGoalPlanFact(db:D1Database,userId:string,date:string):
     readGoal(db,userId,'daily_booking_goal',date),
     readGoal(db,userId,'monthly_booking_goal',monthStart),
     activitySummaryStatement(db,userId,date,date).all<ActivitySummaryRow>(),
-    activitySummaryStatement(db,userId,monthStart,monthEnd).all<ActivitySummaryRow>(),
+    periodSummary(db,userId,monthStart,monthEnd),
   ]);
   return {
     dailyTarget:dailyGoal,
     dailyActual:activityTotals(dailyEvents.results).bookings,
     monthlyTarget:monthlyGoal,
-    monthlyActual:activityTotals(monthlyEvents.results).bookings,
+    monthlyActual:activityTotals(monthlyEvents).bookings,
   };
 }
 

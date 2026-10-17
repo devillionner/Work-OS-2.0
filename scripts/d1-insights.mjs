@@ -6,6 +6,8 @@ import { spawnSync } from 'node:child_process';
 const DATABASE = 'work-os-2-staging-db';
 const timePeriod = process.argv.includes('--time-period') ? process.argv[process.argv.indexOf('--time-period') + 1] : '1d';
 const limit = process.argv.includes('--limit') ? process.argv[process.argv.indexOf('--limit') + 1] : '30';
+// --full друкує запит повністю (без обрізання першого рядка): так видно, який саме варіант SQL читає найбільше.
+const full = process.argv.includes('--full');
 
 const result = spawnSync('npx', ['wrangler', 'd1', 'insights', DATABASE, '--sort-by', 'reads', '--time-period', timePeriod, '--limit', limit, '--json'], {
   encoding: 'utf8',
@@ -30,8 +32,9 @@ const totalCalls = rows.reduce((sum, row) => sum + (Number(row.numberOfTimesRun)
 
 console.log(`D1 insights — ${DATABASE}, last ${timePeriod}, top ${rows.length} by rows read\n`);
 for (const row of rows) {
-  const firstLine = String(row.query || '').trim().split('\n')[0].slice(0, 100);
-  console.log(`${String(row.totalRowsRead).padStart(8)} rows  (${String(row.numberOfTimesRun).padStart(5)} calls, avg ${Math.round(row.avgRowsRead)})  ${firstLine}`);
+  const text = String(row.query || '').trim();
+  const shown = full ? text.replace(/\s+/g, ' ') : text.split('\n')[0].slice(0, 100);
+  console.log(`${String(row.totalRowsRead).padStart(8)} rows  (${String(row.numberOfTimesRun).padStart(5)} calls, avg ${Math.round(row.avgRowsRead)})  ${shown}`);
 }
 console.log(`\nTotal in this top-${rows.length}: ${totalRead} rows read over ${totalCalls} calls.`);
 console.log('This is only the reported top slice, not the database-wide daily total.');

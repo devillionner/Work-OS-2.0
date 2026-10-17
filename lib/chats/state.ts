@@ -6,27 +6,31 @@ export type ChatState = {
   snoozed_until: number | null; telegram_account_id: string | null; left_at: number | null; state_token: string;
 };
 
+// Підсумок подій по чату (chat_event_summary, міграція 0048) веде тригер на activity_events: рядок списку читає одну
+// первинну пару замість обходу всієї історії подій чату. Значення ті самі, що давали колишні підзапити за rowid DESC.
 export function chatLeftAtSql(alias: 'c' | 'chats' = 'c') {
-  return `(SELECT CASE WHEN json_extract(le.metadata_json,'$.action')='confirm_leave' THEN le.occurred_at ELSE NULL END
-    FROM activity_events le WHERE le.chat_id=${alias}.id AND le.user_id=${alias}.user_id
-      AND le.event_type='chat_state_changed'
-      AND json_extract(le.metadata_json,'$.action') IN ('confirm_leave','undo_leave','joined','approved')
-    ORDER BY le.rowid DESC LIMIT 1)`;
+  return `(SELECT s.left_at FROM chat_event_summary s WHERE s.chat_id=${alias}.id)`;
 }
 
 // The latest transition ID distinguishes archive/restore cycles within one second.
-// The existing (chat_id,event_type) index also orders matching entries by rowid.
 export function chatStateTokenSql(alias: 'c' | 'chats' = 'c') {
   return `json_array(${alias}.platform,${alias}.workflow_status,${alias}.joined_at,
     ${alias}.processed_at,${alias}.snoozed_until,${alias}.archive_reason,
     ${alias}.archived_at,${alias}.telegram_account_id,${alias}.updated_at,
     (SELECT p.updated_at FROM chat_profiles p WHERE p.chat_id=${alias}.id),
-    (SELECT e.id FROM activity_events e WHERE e.chat_id=${alias}.id
-      AND e.user_id=${alias}.user_id AND e.event_type='chat_state_changed'
-      ORDER BY e.rowid DESC LIMIT 1),
-    (SELECT p.id FROM activity_events p WHERE p.chat_id=${alias}.id
-      AND p.user_id=${alias}.user_id AND p.event_type='publication'
-      ORDER BY p.rowid DESC LIMIT 1))`;
+    (SELECT s.last_state_event_id FROM chat_event_summary s WHERE s.chat_id=${alias}.id),
+    (SELECT s.last_publication_event_id FROM chat_event_summary s WHERE s.chat_id=${alias}.id))`;
+}
+
+/**
+ * Той самий токен для запиту, де профіль і підсумок чату вже приєднані (`LEFT JOIN chat_profiles p`, `LEFT JOIN
+ * chat_event_summary s`): значення збігається з chatStateTokenSql, а читань на рядок немає.
+ */
+export function chatJoinedStateTokenSql(chat = 'c', profile = 'p', summary = 's') {
+  return `json_array(${chat}.platform,${chat}.workflow_status,${chat}.joined_at,
+    ${chat}.processed_at,${chat}.snoozed_until,${chat}.archive_reason,
+    ${chat}.archived_at,${chat}.telegram_account_id,${chat}.updated_at,
+    ${profile}.updated_at,${summary}.last_state_event_id,${summary}.last_publication_event_id)`;
 }
 
 export function readChatState(db: D1Database, userId: string, id: string) {

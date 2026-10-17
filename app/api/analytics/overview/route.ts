@@ -1,6 +1,8 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
 import { activitySummaryStatement, activityTotals, type ActivitySummaryRow } from '@/lib/activity-summary';
+import { readAnalyticsRangeVersion } from '@/lib/analytics-cache';
+import { readChatActivity } from '@/lib/analytics-chats';
 import { buildAnalyticsOverview } from '@/lib/analytics-overview';
 import { buildAnalyticsRecommendation } from '@/lib/analytics-insights';
 import { resolveAnalyticsRange } from '@/lib/analytics-range';
@@ -27,18 +29,14 @@ export async function GET(request:Request):Promise<Response> {
   const previousEnd=shiftBusinessDate(from,-1);
   const previousStart=shiftBusinessDate(previousEnd,-(days-1));
 
-  const [monthlyGoal,currentEvents,previousEvents,targetResult,chatResult]=await Promise.all([
+  // Рейтинг чатів для поради бере той самий кешований розрахунок, що й екран аналітики (версія подій періоду, не глобальна ревізія).
+  const version=await readAnalyticsRangeVersion(env.DB,user.id,from,to,today);
+  const [monthlyGoal,currentEvents,previousEvents,targetResult,chatRows]=await Promise.all([
     readMonthlyGoalProgress(env.DB,user.id,to),
     activitySummaryStatement(env.DB,user.id,from,to).all<ActivitySummaryRow>(),
     withPrevious?activitySummaryStatement(env.DB,user.id,previousStart,previousEnd).all<ActivitySummaryRow>():Promise.resolve({results:[] as ActivitySummaryRow[]}),
     env.DB.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('target_publication_rate','target_response_rate','target_booking_rate','target_completion_rate')`).bind(user.id).all<{setting_key:string;value_json:string}>(),
-    env.DB.prepare(`SELECT COALESCE(e.chat_id,l.source_chat_id) AS id,COALESCE(c.name,'Без назви') AS name,COALESCE(c.platform,'unknown') AS platform,COALESCE(c.workflow_status,'unknown') AS status,
-      SUM(CASE WHEN e.event_type='publication' THEN 1 ELSE 0 END) AS publications,
-      SUM(CASE WHEN e.event_type='lead_created' THEN 1 ELSE 0 END) AS responses
-      FROM activity_events e LEFT JOIN leads l ON l.id=e.lead_id AND l.user_id=e.user_id
-      LEFT JOIN chats c ON c.id=COALESCE(e.chat_id,l.source_chat_id) AND c.user_id=e.user_id
-      WHERE e.user_id=?1 AND e.event_date>=?2 AND e.event_date<=?3 AND e.cancelled_at IS NULL AND COALESCE(e.chat_id,l.source_chat_id) IS NOT NULL
-      GROUP BY COALESCE(e.chat_id,l.source_chat_id),c.name,c.platform,c.workflow_status HAVING publications>0 OR responses>0 LIMIT 100`).bind(user.id,from,to).all<{id:string;name:string;platform:string;status:string;publications:number;responses:number}>(),
+    readChatActivity(env.DB,user.id,from,to,version),
   ]);
   const current=activityTotals(currentEvents.results);
   const previous=activityTotals(previousEvents.results);
@@ -49,7 +47,7 @@ export async function GET(request:Request):Promise<Response> {
   };
   const targetMap=new Map(targetResult.results.map(row=>[row.setting_key,settingPercent(row.value_json)]));
   const targets={publicationRate:targetMap.get('target_publication_rate')||0,responseRate:targetMap.get('target_response_rate')||0,bookingRate:targetMap.get('target_booking_rate')||0,completionRate:targetMap.get('target_completion_rate')||0};
-  const chats=chatResult.results.map(row=>({...row,publications:Number(row.publications||0),responses:Number(row.responses||0),responseRate:rate(Number(row.responses||0),Number(row.publications||0))}));
+  const chats=chatRows.map(row=>({id:row.chat_id,name:row.name||'Без назви',platform:row.platform||'unknown',status:row.workflow_status||'unknown',publications:Number(row.publications||0),responses:Number(row.responses||0),responseRate:rate(Number(row.responses||0),Number(row.publications||0))}));
   const recommendation=buildAnalyticsRecommendation(chats,days);
   const payload=buildAnalyticsOverview({range:{from,to,days},totals,targets,monthlyGoal,previousBookings:previous.bookings,recommendation});
   // The key carries the owner revision and the date range, so any write or a new day already yields a

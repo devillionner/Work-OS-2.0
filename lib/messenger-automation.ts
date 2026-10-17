@@ -268,10 +268,6 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
     WHERE user_id=?1 AND chat_id=?2 AND published_on=?3 LIMIT 1`).bind(userId,chatId,date).first<{id:string}>();
   if(published)throw new MessengerAutomationError('У цьому чаті сьогодні вже є підтверджена публікація.',409,'already_published');
 
-  const selection=await readPublicationAdvertisementSelection(db,{userId,chatId,date});
-  if(!selection)throw new MessengerAutomationError('Не вдалося перевірити правила публікації для цього чату.',409,'rules_unavailable');
-  if(!selection.publicationAllowed)throw new MessengerAutomationError(selection.publicationReason||'Публікація зараз заборонена правилами профілю.',409,'profile_rule');
-
   // Власний текст автопоста оператор задає на вкладці автопоста WhatsApp разом із фото: він спільний для WhatsApp і Viber.
   // Без нього підпис береться з оголошення в Бібліотеці.
   let captionOverride='';
@@ -279,6 +275,12 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
     try{captionOverride=cleanWhatsAppAutopostCaption(input.caption);}
     catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
   }else captionOverride=(await readWhatsAppAutopostCaption(db,userId))?.text||'';
+
+  // З власним текстом оголошення не вибираються, тож список матеріалів і «використане сьогодні» не читаємо (в партії це
+  // давало O(n²) читань: кожна нова задача перечитувала всі вже створені).
+  const selection=await readPublicationAdvertisementSelection(db,{userId,chatId,date,withItems:!captionOverride});
+  if(!selection)throw new MessengerAutomationError('Не вдалося перевірити правила публікації для цього чату.',409,'rules_unavailable');
+  if(!selection.publicationAllowed)throw new MessengerAutomationError(selection.publicationReason||'Публікація зараз заборонена правилами профілю.',409,'profile_rule');
 
   const requestedLanguage=input.language==='uk'||input.language==='ru'?input.language:null;
   let materialId='';
@@ -452,17 +454,16 @@ export type WhatsAppAutopostSettled = { archived:number; waiting:number; snoozed
 export type WhatsAppAutopostProgress = { total:number; done:number; pending:number; claimed:number; sent:number; failed:number; cancelled:number; running:boolean; settled:WhatsAppAutopostSettled };
 
 /**
- * How far today's autopost batch has got. One grouped count over a single day's jobs (at most the batch
- * limit of rows), so it is safe to read on every live-channel autopost event — the operator asked to see
+ * How far today's autopost batch has got. A dozen day counters (autopost_day_counts) whatever the batch size,
+ * so it is safe to read on every live-channel autopost event — the operator asked to see
  * «10 з 30», and the runner tray shows the same numbers (operator request 2026-10-06).
  */
 export async function readWhatsAppAutopostProgress(db:D1Database,userId:string,date:string,platform:AutopostPlatform='whatsapp'):Promise<WhatsAppAutopostProgress>{
-  // Платформу задачі дає її чат (колонки platform у таблиці немає): один grouped count по задачах одного дня.
+  // Лічильники дня ведуть тригери на whatsapp_autopost_jobs (міграція 0050): кілька рядків замість підрахунку всіх задач дня.
   // Закриті рішенням власника («resolved») не рахуються: чат або заархівовано, або він має нову задачу.
-  const rows=await db.prepare(`SELECT j.status AS status,j.outcome AS outcome,COUNT(*) AS count FROM whatsapp_autopost_jobs j
-    JOIN chats c ON c.id=j.chat_id AND c.user_id=j.user_id
-    WHERE j.user_id=?1 AND j.published_on=?2 AND c.platform=?3 AND (j.outcome IS NULL OR j.outcome!='resolved')
-    GROUP BY j.status,j.outcome`).bind(userId,date,platform).all<{status:string;outcome:string|null;count:number}>();
+  const rows=await db.prepare(`SELECT status,outcome,SUM(job_count) AS count FROM autopost_day_counts
+    WHERE user_id=?1 AND published_on=?2 AND platform=?3 AND outcome!='resolved'
+    GROUP BY status,outcome HAVING SUM(job_count)>0`).bind(userId,date,platform).all<{status:string;outcome:string|null;count:number}>();
   const counts:Record<string,number>={};
   const settled:WhatsAppAutopostSettled={archived:0,waiting:0,snoozed:0,skipped:0,decision:0};
   for(const row of rows.results||[]){
@@ -530,9 +531,9 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
     const discovery=await db.prepare(`SELECT decision FROM chat_discovery_candidates
       WHERE user_id=?1 AND imported_chat_id=?2 AND id NOT LIKE 'waiting-%' ORDER BY updated_at DESC,id LIMIT 1`)
       .bind(userId,row.chat_id).first<{decision:string}>();
-    const selection=chat ? await readPublicationAdvertisementSelection(db,{userId,chatId:row.chat_id,date:row.published_on,excludeAutomationJobId:row.id}) : null;
-    const selected=selection?.items.find(item=>item.id===row.advertisement_id);
     const customMaterial=row.advertisement_id===customWhatsAppAutopostMaterialId(userId);
+    const selection=chat ? await readPublicationAdvertisementSelection(db,{userId,chatId:row.chat_id,date:row.published_on,excludeAutomationJobId:row.id,withItems:!customMaterial}) : null;
+    const selected=selection?.items.find(item=>item.id===row.advertisement_id);
     const platform:AutopostPlatform|null=chat&&(chat.platform==='whatsapp'||chat.platform==='viber')?chat.platform:null;
     const valid=Boolean(
       chat&&platform&&chat.workflow_status==='ready'&&chat.state_token===row.chat_state_token

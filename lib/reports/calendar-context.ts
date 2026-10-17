@@ -1,3 +1,4 @@
+import { cachedAnalytics, readAnalyticsRangeVersion } from '../analytics-cache.ts';
 import { businessDate, businessDayStart } from '../business-time.ts';
 import type { CalendarDayContext } from './calendar-labels.ts';
 
@@ -28,11 +29,15 @@ export async function readCalendarContext(
       WHERE user_id=?1 AND archived_at IS NULL AND next_contact_at IS NOT NULL
         AND next_contact_at>=?2 AND next_contact_at<?3`)
       .bind(userId, startAt, endAt).all<FollowUpRow>(),
-    db.prepare(`SELECT event_date AS date,COUNT(*) AS count FROM activity_events
-      WHERE user_id=?1 AND event_date>=?2 AND event_date<?3
-        AND lead_id IS NOT NULL AND cancelled_at IS NULL AND event_type<>'script_used'
-      GROUP BY event_date ORDER BY event_date`)
-      .bind(userId, start, end).all<CountRow>(),
+    // Події лідів місяця читаються з кешу за версією подій місяця: календар перечитується від кожного запису, а лічильники днів ні.
+    readAnalyticsRangeVersion(db, userId, start, end, businessDate(Math.floor(Date.now() / 1000))).then((version) => cachedAnalytics({
+      userId, namespace: 'calendar-lead-events', key: `${start}:${end}`, version, ttlSeconds: 300,
+      compute: async () => (await db.prepare(`SELECT event_date AS date,COUNT(*) AS count FROM activity_events
+        WHERE user_id=?1 AND event_date>=?2 AND event_date<?3
+          AND lead_id IS NOT NULL AND cancelled_at IS NULL AND event_type<>'script_used'
+        GROUP BY event_date ORDER BY event_date`)
+        .bind(userId, start, end).all<CountRow>()).results,
+    })),
   ]);
 
   const days = new Map<string, CalendarDayContext>();
@@ -60,7 +65,7 @@ export async function readCalendarContext(
     if (row.status === 'no-show') day.lessonsNoShow += count;
   }
   for (const row of followUps.results) get(businessDate(Number(row.next_contact_at))).followUps += 1;
-  for (const row of leadEvents.results) get(row.date).leadEvents = Number(row.count || 0);
+  for (const row of leadEvents) get(row.date).leadEvents = Number(row.count || 0);
 
   return Array.from(days.values()).sort((a, b) => a.date.localeCompare(b.date));
 }

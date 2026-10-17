@@ -1,3 +1,5 @@
+import { cachedAnalytics } from './analytics-cache.ts';
+
 export type AnalyticsCohortTotals = {
   leads: number;
   bookedLeads: number;
@@ -106,4 +108,12 @@ export async function readAnalyticsCohort(
     platforms: [...byPlatform.values()].sort((a, b) => b.leads - a.leads || b.bookings - a.bookings || a.platform.localeCompare(b.platform)),
     chats: chats.sort((a, b) => b.leads - a.leads || b.bookings - a.bookings || a.name.localeCompare(b.name, 'uk')),
   };
+}
+
+/** Когорти періоду з кешу за версією подій періоду (див. analytics-cache.ts): запит важкий, а відгуки рідко змінюються. */
+export function readAnalyticsCohortCached(db: D1Database, userId: string, from: string, to: string, version: string) {
+  return cachedAnalytics({
+    userId, namespace: 'cohort', key: `${from}:${to}`, version, ttlSeconds: 300,
+    compute: () => readAnalyticsCohort(db, userId, from, to),
+  });
 }

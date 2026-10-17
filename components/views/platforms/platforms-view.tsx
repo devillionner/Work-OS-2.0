@@ -104,7 +104,7 @@ export default function PlatformsView() {
 
   const overview = (
     <div className="flex flex-col gap-4">
-      {data ? <PlatformOverview pace={data.publicationPace} available={queue === 'ready' ? data.availableToday : undefined} joined={data.joinedToday} published={data.publishedToday} /> : p.error ? <EmptyState text="Не вдалося завантажити огляд платформи." action={<Button variant="outline" size="sm" onClick={() => void p.reload()}>Спробувати ще раз</Button>} /> : <div className="grid gap-3 @xl:grid-cols-2 @4xl:grid-cols-3">{[0, 1, 2].map((item) => <Ghost key={item} className="h-32 rounded-card" />)}</div>}
+      {data ? <PlatformOverview pace={data.publicationPace} available={queue === 'ready' ? p.availableToday ?? null : undefined} loadAvailable={p.loadAvailable} joined={data.joinedToday} published={data.publishedToday} /> : p.error ? <EmptyState text="Не вдалося завантажити огляд платформи." action={<Button variant="outline" size="sm" onClick={() => void p.reload()}>Спробувати ще раз</Button>} /> : <div className="grid gap-3 @xl:grid-cols-2 @4xl:grid-cols-3">{[0, 1, 2].map((item) => <Ghost key={item} className="h-32 rounded-card" />)}</div>}
       {platform === 'telegram' ? <AccountsCard accounts={p.accounts} accountId={p.accountId} activeAccount={p.activeAccount} breakSeconds={p.breakSeconds} busy={p.busy !== null} onAction={p.accountAction} /> : null}
       {platform === 'whatsapp' ? <WaitingCheckCard view={p.waitingCheckView} nowSeconds={Math.floor(p.clock / 1000)} busy={p.busy !== null} onAction={(action) => void p.changeWaitingCheck(action)} onConnect={() => void p.connectWaitingCheckRunner()} onProblemAction={(problem, action) => void p.resolveWaitingProblem(problem, action)} /> : null}
     </div>
