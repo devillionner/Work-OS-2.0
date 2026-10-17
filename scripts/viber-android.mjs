@@ -77,8 +77,14 @@ export function parseUiDump(xml) {
   return nodes;
 }
 
-/** Порівняння назв без регістру, емодзі й розділових знаків: Viber і Work OS можуть відрізнятися дрібницями. */
-export const looseName = (value) => String(value || '').normalize('NFC').toLocaleLowerCase('uk-UA').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+/**
+ * Порівняння назв без регістру, емодзі й розділових знаків: Viber і Work OS можуть відрізнятися дрібницями. У Work OS до
+ * назви чату часто дописано платформу в кінці («… в Viber», «… у Viber», «(Viber)»), у самому Viber її немає, тож такий
+ * хвіст відкидається (лише в кінці й лише слово Viber, саму назву не чіпаємо).
+ */
+export const looseName = (value) => String(value || '').normalize('NFC')
+  .replace(/[\s\-–—(\[]*(?:(?<![\p{L}\p{N}])(?:в|у|in|на|для|for)\s+)?(?<![\p{L}\p{N}])viber[)\]]*\s*$/iu, '')
+  .toLocaleLowerCase('uk-UA').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 // ---------------------------------------------------------------- Waydroid і adb
 
