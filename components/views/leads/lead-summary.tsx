@@ -67,8 +67,11 @@ export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onRe
       <div className="flex flex-wrap gap-2">
         {lead.phone ? chip('Телефон', lead.phone, Phone) : null}
         {lead.telegramUsername ? chip('Telegram', lead.telegramUsername, Send) : null}
-        {safeUrl(lead.sourceChatLink) ? (
-          <a href={lead.sourceChatLink} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-2 rounded-full border border-line px-3 text-[13px] transition-colors hover:bg-raised"><ExternalLink aria-hidden="true" strokeWidth={1.5} className="size-3.5 text-ink-2" />Джерело відгуку</a>
+        {lead.contactUnknown === 1 && !lead.phone && !lead.telegramUsername ? (
+          <span className="inline-flex h-8 items-center rounded-full border border-dashed border-line px-3 text-[13px] text-ink-2">Контакт невідомий</span>
+        ) : null}
+        {safeUrl(lead.sourceChatLink) || detail.sourceChat ? (
+          <a href={safeUrl(lead.sourceChatLink) ? lead.sourceChatLink : detail.sourceChat?.link} target="_blank" rel="noreferrer" className="inline-flex h-8 max-w-full items-center gap-2 rounded-full border border-line px-3 text-[13px] transition-colors hover:bg-raised"><ExternalLink aria-hidden="true" strokeWidth={1.5} className="size-3.5 shrink-0 text-ink-2" /><span className="truncate">{detail.sourceChat ? `${detail.sourceChat.name} · ${labels[detail.sourceChat.platform] ?? detail.sourceChat.platform}` : 'Джерело відгуку'}</span></a>
         ) : null}
       </div>
 

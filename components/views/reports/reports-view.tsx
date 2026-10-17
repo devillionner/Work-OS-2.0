@@ -9,14 +9,13 @@ import { Ghost } from '@/components/ui/ghost';
 import { Surface } from '@/components/ui/surface';
 import { useToast } from '@/components/ui/toast';
 import { createBrowserCommandClient } from '@/components/views/leads/client';
-import { LeadEditor } from '@/components/views/leads/lead-editor';
 import { useRemote } from '@/components/views/shared/use-remote';
 import { ADMIN_REPORT_FORM_URL, MANAGER_SCHEDULE_URL } from '@/lib/reports/form';
-import { CorrectionsPanel, type CorrectionTab } from './corrections-panel';
+import { DayCorrectionPanel, type CorrectionTab } from './day-correction-panel';
 import { DayStrip } from './day-strip';
 import { EventDetails, EventSummary, PlanFact } from './day-facts';
 import { HistoryPanel } from './history-panel';
-import { ManualDiffPanel } from './manual-diff-panel';
+import { replaceGoalLines } from './goal-lines';
 import { ReportEditor } from './report-editor';
 import { currentDate, formatDate, shiftDay, shiftMonthDate, type DayFilter, type ReportData } from './types';
 import { humanError } from '@/components/ui/human-error';
@@ -24,9 +23,9 @@ import { humanError } from '@/components/ui/human-error';
 const Checkpoints = lazy(() => import('./checkpoints'));
 const SubjectsCard = lazy(() => import('./subjects-card'));
 
-type PanelKey = 'history' | 'diff' | 'corrections' | null;
+type PanelKey = 'history' | 'correction' | null;
 
-/** «Звіти»: стрічка днів зі scroll-snap, звіт дня, проміжні звіти шкалою; корекції, версії й факт — в Inspector. */
+/** «Звіти»: стрічка днів зі scroll-snap, звіт дня, проміжні звіти шкалою; версії й «Корекція дня» — в Inspector. */
 export default function ReportsView() {
   const { syncRevision, openLead } = useShell();
   const active = useViewActive();
@@ -39,8 +38,9 @@ export default function ReportsView() {
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState<string | null>(null);
   const [panel, setPanel] = useState<PanelKey>(null);
-  const [correctionTab, setCorrectionTab] = useState<CorrectionTab>('publication');
-  const [backdatedLead, setBackdatedLead] = useState(false);
+  const [correctionTab, setCorrectionTab] = useState<CorrectionTab>('publications');
+  // Після збереження корекції рядки цілей у тексті звіту оновлюються, щойно звіт перечитається.
+  const goalRefresh = useRef<{ before: ReportData | null } | null>(null);
   const seenRevision = useRef(syncRevision);
   const month = selectedDate.slice(0, 7);
   // Статуси звітів у «Сьогодні» відкривають потрібний день (вчора чи сьогодні).
@@ -84,9 +84,9 @@ export default function ReportsView() {
     return () => window.removeEventListener('keydown', onKey);
   }, [active, selectedDate, selectDate]);
 
-  const save = async (submitted: boolean) => {
-    if (!ready || saving || hasConflict) return;
-    if (!text.trim()) { toast.push({ message: 'Додай текст звіту.', tone: 'hot' }); return; }
+  const save = async (submitted: boolean): Promise<boolean> => {
+    if (!ready || saving || hasConflict) return false;
+    if (!text.trim()) { toast.push({ message: 'Додай текст звіту.', tone: 'hot' }); return false; }
     setSaving(true);
     try {
       const response = await fetch('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: selectedDate, text, submitted, expectedRevision: ready.selected?.revisionCount ?? 0 }) });
@@ -98,8 +98,10 @@ export default function ReportsView() {
       toast.push({ message: submitted ? 'Фінальний звіт здано.' : 'Чернетку звіту збережено.', tone: 'ok' });
       setDraft(null);
       reload();
+      return true;
     } catch (reason) {
       toast.push({ message: humanError(reason, 'Не вдалося зберегти звіт.'), tone: 'hot', duration: 7000 });
+      return false;
     } finally {
       setSaving(false);
     }
@@ -113,11 +115,22 @@ export default function ReportsView() {
 
   const createBackdatedLead = async (values: Record<string, unknown>) => {
     if (!leadCommand) throw new Error('Не вдалося визначити власника CRM. Онови звіт.');
-    const id = await leadCommand('create', values);
-    setBackdatedLead(false);
+    await leadCommand('create', values);
     toast.push({ message: `Ліда додано до ${formatDate(selectedDate)}.`, tone: 'ok' });
-    openLead(id);
+    reload();
   };
+
+  const afterCorrection = () => {
+    goalRefresh.current = { before: ready };
+    reload();
+  };
+  useEffect(() => {
+    const pending = goalRefresh.current;
+    if (!pending || !ready || ready === pending.before) return;
+    goalRefresh.current = null;
+    const { selected, goalLines } = ready;
+    if (selected && goalLines.length) queueMicrotask(() => setDraft({ date: selectedDate, text: replaceGoalLines(selected.text, goalLines) }));
+  }, [ready, selectedDate]);
 
   const context = ready?.calendarContext.find((item) => item.date === selectedDate);
   const reminder = monthData?.previousReportReminder;
@@ -185,9 +198,7 @@ export default function ReportsView() {
               onSave={(submitted) => void save(submitted)}
               onCopy={() => void copy()}
               onHistory={() => setPanel('history')}
-              onDiff={() => setPanel('diff')}
-              onCorrections={() => setPanel('corrections')}
-              onBackdatedLead={() => setBackdatedLead(true)}
+              onCorrection={() => setPanel('correction')}
             />
           </div>
           <div className="flex min-w-0 flex-col gap-3 @4xl:col-span-4 @4xl:gap-4">
@@ -201,9 +212,17 @@ export default function ReportsView() {
       )}
 
       <HistoryPanel open={panel === 'history'} onOpenChange={(open) => setPanel(open ? 'history' : null)} date={selectedDate} currentRevision={ready?.selected?.revisionCount ?? 0} onRestored={() => { setDraft(null); reload(); }} />
-      <ManualDiffPanel open={panel === 'diff'} onOpenChange={(open) => setPanel(open ? 'diff' : null)} date={selectedDate} />
-      <CorrectionsPanel open={panel === 'corrections'} onOpenChange={(open) => setPanel(open ? 'corrections' : null)} date={selectedDate} tab={correctionTab} onTabChange={setCorrectionTab} />
-      {backdatedLead ? <LeadEditor defaultResponseDate={selectedDate} close={() => setBackdatedLead(false)} save={createBackdatedLead} /> : null}
+      <DayCorrectionPanel
+        key={selectedDate}
+        open={panel === 'correction'}
+        onOpenChange={(open) => setPanel(open ? 'correction' : null)}
+        date={selectedDate}
+        tab={correctionTab}
+        onTabChange={setCorrectionTab}
+        onEnsureDraft={() => save(false)}
+        onSaved={afterCorrection}
+        onCreateLead={createBackdatedLead}
+      />
     </div>
   );
 }

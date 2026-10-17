@@ -17,6 +17,7 @@ const LEAD_LIST_VIEWS: readonly LeadListView[] = [
   'curator',
   'needs-details',
   'overdue',
+  'no-contact',
   'archived',
 ];
 
@@ -43,7 +44,8 @@ export async function GET(request: Request): Promise<Response> {
     if (id) {
       const aggregate = await repo.load(user.id, id, { messageLimit: 30 });
       if (!aggregate) throw new LeadError('Ліда не знайдено.', 404);
-      return json(leadDetail(aggregate, now));
+      const sourceChat = aggregate.lead.sourceChatId ? await repo.sourceById(user.id, aggregate.lead.sourceChatId) : null;
+      return json(leadDetail(aggregate, now, sourceChat));
     }
     const offset = Number(params.get('offset') ?? 0);
     if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1000000)

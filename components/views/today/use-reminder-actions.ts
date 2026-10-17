@@ -85,6 +85,9 @@ function undo(id: string) {
 /** Ключ нагадування уроку збігається з `taskKey` задачі зі знімка «Сьогодні». */
 export const reminderKey = (leadId: string, reminderId: string) => `reminder:${leadId}:${reminderId}`;
 
+/** Ключ ручного нагадування збігається з `taskKey` задачі `custom`. */
+export const customReminderKey = (leadId: string, reminderId: string) => `custom:${leadId}:${reminderId}`;
+
 const detailVersion = async (leadId: string) => (await getJson<LeadDetail>(`/api/leads?id=${encodeURIComponent(leadId)}`)).lead.version;
 
 /**
@@ -112,7 +115,19 @@ export function useReminderActions() {
     });
   };
 
+  /** Своє нагадування ліда виконано: те саме приховування й 8 с на «Скасувати», запит іде після цього часу. */
+  const doneCustom = (target: { leadId: string; reminderId: string }) => {
+    schedule(customReminderKey(target.leadId, target.reminderId), 'Нагадування виконано.', async () => {
+      const response = await fetch('/api/leads/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadId: target.leadId, op: 'done', reminderId: target.reminderId }) });
+      if (!response.ok) throw new Error(((await response.json().catch(() => ({}))) as { error?: string }).error || 'Не вдалося виконати нагадування.');
+    });
+  };
+
   const done = (task: LeadTask) => {
+    if (task.kind === 'custom') {
+      if (task.reminderId) doneCustom({ leadId: task.leadId, reminderId: task.reminderId });
+      return;
+    }
     if (task.kind === 'reminder') {
       if (!task.reminderId) return;
       markSent({ leadId: task.leadId, reminderId: task.reminderId, leadVersion: task.leadVersion });
@@ -127,8 +142,10 @@ export function useReminderActions() {
     tasks: snapshot.leadTasks.filter((task) => !hiddenKeys.has(taskKey(task))),
     done,
     markSent,
+    doneCustom,
     undo,
     /** Нагадування вже позначено, але ще можна скасувати (ті самі 8 с, що й у «Сьогодні»). */
     isPending: (leadId: string, reminderId: string) => hiddenKeys.has(reminderKey(leadId, reminderId)),
+    isCustomPending: (leadId: string, reminderId: string) => hiddenKeys.has(customReminderKey(leadId, reminderId)),
   };
 }

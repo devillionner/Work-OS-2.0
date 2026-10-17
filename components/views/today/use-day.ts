@@ -111,7 +111,7 @@ export function useDay(): Day {
   const actionOf = (event: DayEvent): EventAction | null => {
     if (event.kind === 'reminder' && event.task) {
       const task = event.task;
-      if (task.kind === 'follow_up' || task.reminderText) return { label: 'Готово', round: false, busy: false, run: () => reminders.done(task) };
+      if (task.kind === 'follow_up' || task.kind === 'custom' || task.reminderText) return { label: 'Готово', round: false, busy: false, run: () => reminders.done(task) };
       return { label: 'Уточнити', round: false, busy: false, run: () => openLead(task.leadId) };
     }
     if (event.kind === 'slot' && event.slot && accountId && event.slot.chatId && event.slot.chatStateToken && event.slot.status === 'pending' && (event.attention || event.next || event.state === 'missed')) {

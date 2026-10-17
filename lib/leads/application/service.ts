@@ -101,6 +101,8 @@ export async function executeLeadCommand(
         legacyId: null,
         ...leadFields(data, null, now),
         sourceChatId: null,
+        customRemindersJson: null,
+        nextCustomReminderAt: null,
         needsDetails: 0,
         teacherName: '',
         lessonPlatform: null,
@@ -194,8 +196,25 @@ export async function executeLeadCommand(
       changes.eventDateCorrections = [
         { type: 'lead_created', date: lead.responseDate },
       ];
-    source = await repo.source(userId, lead.sourceChatLink, lead.platform);
-    lead.sourceChatId = source?.id ?? null;
+    // Зв'язок із чатом: явно вибраний чат (за id) важливіший за посилання, бо в одного чату бувають різні посилання.
+    // Без явного вибору id перераховується з посилання лише коли посилання змінилось; інакше лишається як є.
+    const chosenId = typeof data.sourceChatId === 'string' ? data.sourceChatId.trim() : data.sourceChatId;
+    if (chosenId) {
+      const chat = await repo.sourceById(userId, String(chosenId));
+      if (!chat) throw new v.LeadError('Чат не знайдено в Work OS. Оновіть список і виберіть знову.', 404);
+      if (chat.id !== aggregate?.lead.sourceChatId || !lead.sourceChatLink) lead.sourceChatLink = chat.link;
+      if (v.PLATFORMS.includes(chat.platform as (typeof v.PLATFORMS)[number])) lead.platform = chat.platform;
+      lead.sourceChatId = chat.id;
+      source = chat;
+    } else if (chosenId === null) {
+      lead.sourceChatId = null;
+      source = null;
+    } else if (!aggregate || lead.sourceChatLink !== aggregate.lead.sourceChatLink) {
+      source = await repo.source(userId, lead.sourceChatLink, lead.platform);
+      lead.sourceChatId = source?.id ?? null;
+    } else if (lead.sourceChatId) {
+      source = await repo.sourceById(userId, lead.sourceChatId);
+    }
     event(
       action === 'create' ? 'lead_created' : 'lead_updated',
       action === 'create' ? lead.responseDate! : businessDate(now),

@@ -1,6 +1,7 @@
-import { businessDate } from './business-time.ts';
+import { businessDate, businessDayStart } from './business-time.ts';
 import { canonicalDirections } from './directions.ts';
 import { reminderView } from './leads/domain/reminders.ts';
+import { parseCustomReminders } from './leads/domain/custom-reminders.ts';
 import { readWorkdaySnapshot, type WorkdaySnapshot } from './workday.ts';
 import { activitySummaryStatement, activityTotals, type ActivitySummaryRow } from './activity-summary.ts';
 import { resolveDailyGoalField, resolveDailyPublicationGoal } from './publication-goal.ts';
@@ -24,7 +25,7 @@ export type DashboardSnapshot = {
   enabledPlatforms: string[];
   platforms: Array<{ key: string; name: string; color: string; publications: number; joined: number; responses: number; bookings: number }>;
   leadTaskCount: number;
-  leadTasks: Array<{ kind: 'follow_up' | 'reminder'; leadId: string; leadName: string; title: string; dueAt: number; lessonId: string | null; lessonDate: string | null; reminderId: string | null; reminderText: string | null; leadVersion: number | null }>;
+  leadTasks: Array<{ kind: 'follow_up' | 'reminder' | 'custom'; leadId: string; leadName: string; title: string; dueAt: number; lessonId: string | null; lessonDate: string | null; reminderId: string | null; reminderText: string | null; leadVersion: number | null }>;
 };
 
 const PLATFORM_META: Record<string, { name: string; color: string }> = {
@@ -46,7 +47,9 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
   const submittedActivityRevision = report?.submitted_activity_revision ?? null;
   const reminderHorizon = businessDate(now + 43200 * 60);
   const tomorrow = shiftBusinessDate(today, 1);
-  const [chatResult, leadResult, migrationResult, eventResult, settingsResult, followUpResult, reminderResult, dayRevisionResult] = await db.batch([
+  // Свої нагадування ліда показуємо до кінця завтрашнього дня: прострочені, сьогоднішні й завтрашні (група «Завтра»).
+  const customHorizon = businessDayStart(shiftBusinessDate(today, 2));
+  const [chatResult, leadResult, migrationResult, eventResult, settingsResult, followUpResult, reminderResult, dayRevisionResult, customResult] = await db.batch([
     // Trigger-maintained queue counters: COUNT(*) over chats read every chat of the owner (≈3 300 rows per dashboard open).
     db.prepare(`SELECT COALESCE(SUM(chat_count),0) AS count FROM chat_queue_counts WHERE user_id=?1 AND workflow_status!='archived'`).bind(userId),
     db.prepare(`SELECT COUNT(*) AS count FROM leads WHERE user_id=?1 AND archived_at IS NULL`).bind(userId),
@@ -66,6 +69,9 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
         AND l.status IN ('booked','scheduled') AND l.lesson_date>=?2 AND l.lesson_date<=?3
       ORDER BY l.lesson_date,l.lesson_time,r.slot LIMIT 200`).bind(userId, today, reminderHorizon),
     db.prepare(`SELECT revision FROM activity_day_revisions WHERE user_id=?1 AND event_date=?2 LIMIT 1`).bind(userId,today),
+    db.prepare(`SELECT id,name,custom_reminders_json,version FROM leads
+      WHERE user_id=?1 AND archived_at IS NULL AND next_custom_reminder_at IS NOT NULL AND next_custom_reminder_at<?2
+      ORDER BY next_custom_reminder_at,id LIMIT 50`).bind(userId, customHorizon),
   ]);
   const chatCount = chatResult.results[0] as { count?: number } | undefined;
   const leadCount = leadResult.results[0] as { count?: number } | undefined;
@@ -98,6 +104,15 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
       dueAt: view.dueAt ?? now, lessonId: row.lesson_id, lessonDate: row.lesson_date, reminderId: row.id,
       reminderText: view.state === 'needs-data' ? null : view.text, leadVersion: Number(row.lead_version),
     });
+  }
+  for (const row of customResult.results as Array<{ id: string; name: string; custom_reminders_json: string | null; version: number }>) {
+    for (const item of parseCustomReminders(row.custom_reminders_json)) {
+      if (item.doneAt !== null || item.at >= customHorizon) continue;
+      leadTasks.push({
+        kind: 'custom', leadId: row.id, leadName: row.name, title: item.text, dueAt: item.at,
+        lessonId: null, lessonDate: null, reminderId: item.id, reminderText: item.text, leadVersion: Number(row.version),
+      });
+    }
   }
   leadTasks.sort((a, b) => a.dueAt - b.dueAt || a.leadId.localeCompare(b.leadId));
   const leadTaskCount = leadTasks.length;

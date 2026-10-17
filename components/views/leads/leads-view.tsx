@@ -30,6 +30,7 @@ const FILTERS = [
   ['curator', 'У куратора'],
   ['needs-details', 'Потрібно уточнити'],
   ['overdue', 'Прострочені'],
+  ['no-contact', 'Без контакту'],
   ['archived', 'Архів'],
 ] as const;
 const MODE_KEY = 'work-os:leads-mode';

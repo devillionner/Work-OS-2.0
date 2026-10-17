@@ -41,7 +41,7 @@ export function LessonsTab({ detail, mutate, mode }: { detail: LeadDetail; mutat
           </section>
         ))}
       </div>
-    ) : <EmptyState text="Нагадування з’являться, коли буде записано урок." />;
+    ) : <EmptyState text="Нагадування уроків з’являться, коли буде записано урок." />;
   }
 
   return (

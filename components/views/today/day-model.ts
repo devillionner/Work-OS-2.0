@@ -151,7 +151,7 @@ export function buildDayModel({ now, today, workday, tasks, slots, accountLabel,
 
   for (const task of tasks) {
     const parsed = task.kind === 'reminder' ? parseReminder(task.title) : null;
-    const essence = task.kind === 'follow_up' ? 'повторний контакт' : (parsed?.action ?? 'нагадування');
+    const essence = task.kind === 'follow_up' ? 'повторний контакт' : task.kind === 'custom' ? task.title : (parsed?.action ?? 'нагадування');
     const late = task.dueAt < now;
     const event: DayEvent = {
       id: `task:${taskKey(task)}`,

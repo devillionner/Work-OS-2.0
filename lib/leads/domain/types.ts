@@ -64,6 +64,14 @@ export type Receipt = {
   requestJson: string;
   createdAt: number;
 };
+/** Чат Work OS, з якого прийшов лід: потрібен для зв'язку за id, подій і підпису в картці. */
+export type SourceChat = {
+  id: string;
+  telegramAccountId: string | null;
+  platform: string;
+  link: string;
+  name: string;
+};
 export interface LeadRepository {
   load(
     userId: string,
@@ -88,6 +96,7 @@ export interface LeadRepository {
     userId: string,
     link: string,
     platform: string,
-  ): Promise<{ id: string; telegramAccountId: string | null } | null>;
+  ): Promise<SourceChat | null>;
+  sourceById(userId: string, id: string): Promise<SourceChat | null>;
   commit(changes: Changes, receipt: Receipt): Promise<void>;
 }

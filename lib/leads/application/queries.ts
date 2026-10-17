@@ -1,8 +1,9 @@
-import type { Aggregate } from '../domain/types.ts';
+import type { Aggregate, SourceChat } from '../domain/types.ts';
+import { parseCustomReminders } from '../domain/custom-reminders.ts';
 import { attachmentView } from '../attachments.ts';
 import { overdue, waitingSeconds, legacyLessonDate } from '../domain/time.ts';
 import { reminderView } from '../domain/reminders.ts';
-export function leadDetail(a: Aggregate, now: number) {
+export function leadDetail(a: Aggregate, now: number, sourceChat: Pick<SourceChat, 'id' | 'name' | 'platform' | 'link'> | null = null) {
   const reminders = new Map<string, Aggregate['reminders']>();
   const attachments = new Map<string, ReturnType<typeof attachmentView>[]>();
   for (const attachment of a.attachments) {
@@ -24,6 +25,8 @@ export function leadDetail(a: Aggregate, now: number) {
     legacyPayloadJson: _raw,
     sourceImportId: _import,
     userId: _owner,
+    customRemindersJson,
+    nextCustomReminderAt: _nextCustom,
     ...lead
   } = a.lead;
   return {
@@ -32,6 +35,8 @@ export function leadDetail(a: Aggregate, now: number) {
       overdue: overdue(lead, now),
       waitingSeconds: waitingSeconds(lead.responseAt, lead.firstReplyAt, now),
     },
+    sourceChat: sourceChat && { id: sourceChat.id, name: sourceChat.name, platform: sourceChat.platform, link: sourceChat.link },
+    customReminders: parseCustomReminders(customRemindersJson).sort((x, y) => Number(x.doneAt !== null) - Number(y.doneAt !== null) || x.at - y.at),
     curatorRequests: a.curatorRequests
       .filter((r) => r.status === 'pending')
       .map(({ id, submittedDate }) => ({ id, submittedDate })),

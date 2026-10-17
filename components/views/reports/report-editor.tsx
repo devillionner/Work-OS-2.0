@@ -19,7 +19,7 @@ function Status({ report }: { report: ReportData['selected'] }) {
 }
 
 /** Звіт дня: текст, статус, дії (зберегти, здати, копіювати) і підказки про те, чому здача недоступна. */
-export function ReportEditor({ date, data, context, text, onText, saving, conflict, onSave, onCopy, onHistory, onDiff, onCorrections, onBackdatedLead }: {
+export function ReportEditor({ date, data, context, text, onText, saving, conflict, onSave, onCopy, onHistory, onCorrection }: {
   date: string;
   data: ReportData;
   context: CalendarDayContext | undefined;
@@ -30,9 +30,7 @@ export function ReportEditor({ date, data, context, text, onText, saving, confli
   onSave: (submitted: boolean) => void;
   onCopy: () => void;
   onHistory: () => void;
-  onDiff: () => void;
-  onCorrections: () => void;
-  onBackdatedLead: () => void;
+  onCorrection: () => void;
 }) {
   const report = data.selected;
   const labels = calendarContextLabels(date, context);
@@ -52,9 +50,7 @@ export function ReportEditor({ date, data, context, text, onText, saving, confli
 
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" disabled={saving} onClick={onHistory}>Версії</Button>
-        <Button variant="outline" size="sm" disabled={saving} onClick={onDiff}>Факт і корекція</Button>
-        <Button variant="outline" size="sm" disabled={saving} onClick={onCorrections}>Додати за датою</Button>
-        <Button variant="outline" size="sm" disabled={saving} onClick={onBackdatedLead}>Новий лід за дату</Button>
+        <Button variant="outline" size="sm" disabled={saving} onClick={onCorrection}>Корекція дня</Button>
       </div>
 
       <Textarea aria-label="Текст щоденного звіту" disabled={saving} value={text} onChange={(event) => onText(event.target.value)} placeholder="Встав текст щоденного звіту або внеси коригування" rows={14} className="min-h-72 font-mono text-[13px] leading-relaxed" />

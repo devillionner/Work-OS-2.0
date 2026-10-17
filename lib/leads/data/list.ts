@@ -7,6 +7,7 @@ export type LeadListView =
   | 'curator'
   | 'needs-details'
   | 'overdue'
+  | 'no-contact'
   | 'archived';
 
 export type LeadListOptions = { view: LeadListView; search: string; offset: number };
@@ -14,7 +15,7 @@ export type LeadListOptions = { view: LeadListView; search: string; offset: numb
 type LeadListRow = {
   id: string; name: string; platform: string; subject: string; status: string; funnel_stage: string;
   qualification: string | null; duplicate_state: string; response_date: string | null; next_action: string;
-  next_contact_at: number | null; archived_at: number | null;
+  next_contact_at: number | null; archived_at: number | null; contact_unknown: number;
 };
 type CountRow = { count: number };
 type BindValue = string | number;
@@ -24,7 +25,7 @@ export async function listLeads(db: D1Database, userId: string, options: LeadLis
   const orderSql = options.view === 'overdue' ? 'l.next_contact_at ASC, l.id ASC' : 'l.updated_at DESC, l.id ASC';
   const [rowsResult, countResult] = await db.batch([
     db.prepare(`SELECT l.id,l.name,l.platform,l.subject,l.status,l.funnel_stage,l.qualification,
-        l.duplicate_state,l.response_date,l.next_action,l.next_contact_at,l.archived_at
+        l.duplicate_state,l.response_date,l.next_action,l.next_contact_at,l.archived_at,l.contact_unknown
       FROM leads l WHERE ${whereSql} ORDER BY ${orderSql} LIMIT 50 OFFSET ?`).bind(...binds, options.offset),
     db.prepare(`SELECT COUNT(*) AS count FROM leads l WHERE ${whereSql}`).bind(...binds),
   ]);
@@ -37,6 +38,7 @@ export async function listLeads(db: D1Database, userId: string, options: LeadLis
       responseDate: row.response_date, nextAction: row.next_action,
       nextContactAt: row.next_contact_at === null ? null : Number(row.next_contact_at),
       archivedAt: row.archived_at === null ? null : Number(row.archived_at),
+      contactUnknown: Number(row.contact_unknown) === 1,
     })),
     total: Number(count?.count ?? 0), offset: options.offset,
   };
@@ -50,6 +52,7 @@ function buildWhere(userId: string, options: LeadListOptions, now: number) {
   if (options.view === 'overdue') {
     where.push("l.next_contact_at IS NOT NULL AND l.next_contact_at<? AND trim(l.next_action)<>''"); binds.push(now);
   }
+  if (options.view === 'no-contact') where.push('l.contact_unknown=1');
   if (options.view === 'responses') where.push(responseExistsSql());
   if (options.view === 'curator') where.push(curatorExistsSql());
   if (options.view === 'needs-details') where.push("(l.needs_details=1 OR l.funnel_stage='clarification')");

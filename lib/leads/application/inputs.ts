@@ -13,6 +13,9 @@ export function leadFields(
     'telegramUsername',
     'platform',
     'sourceChatLink',
+    // Зв'язок із чатом Work OS за id перевіряє й застосовує сервіс (leadFields його не повертає).
+    'sourceChatId',
+    'contactUnknown',
     'subject',
     'note',
     'responseDate',
@@ -44,6 +47,7 @@ export function leadFields(
     nextAction: '',
     nextContactAt: null,
     isStudent: 1,
+    contactUnknown: 0,
     ...current,
     ...input,
   };
@@ -111,6 +115,11 @@ export function leadFields(
     nextContactAt: v.nullableEpoch(merged.nextContactAt, 'Наступний контакт'),
     isStudent: v.integer(merged.isStudent, 'Контакт навчається', 0, 1),
   };
+  // Контакт можна лишити порожнім лише з явною позначкою «контакт невідомий»; з номером чи ніком позначка знімається.
+  const hasContact = Boolean(result.phone || result.telegramUsername);
+  const contactUnknown = hasContact ? 0 : v.integer(merged.contactUnknown, 'Контакт невідомий', 0, 1);
+  if (!hasContact && !contactUnknown && (!current || current.phone || current.telegramUsername))
+    throw new v.LeadError('Вкажіть телефон чи Telegram або позначте «Контакт невідомий».');
   if (result.nextContactAt !== null && !result.nextAction)
     throw new v.LeadError('Додайте наступну дію або приберіть дату контакту.');
   if (
@@ -129,6 +138,7 @@ export function leadFields(
     throw new v.LeadError('Відгук не може бути пізніше першої відповіді.');
   return {
     ...result,
+    contactUnknown,
     normalizedPhone: v.normalizePhone(result.phone),
     normalizedTelegram: v.normalizeTelegram(result.telegramUsername),
   };

@@ -16,6 +16,7 @@ import { APP_VERSION } from '@/lib/app-meta';
 import { BackupButton } from './backup-button';
 import { ExecutorCard } from './executor-card';
 import { GoalHistoryPanel } from './goal-history-panel';
+import { LeadToolsPanel } from './lead-tools-panel';
 import { RestorePanel } from './restore-panel';
 import { UpdatePreview } from './update-preview';
 import { Group, Row } from './ui';
@@ -92,7 +93,7 @@ export function PlatformsGroup() {
   );
 }
 
-type ServicePanel = 'names' | 'duplicates' | 'csv' | 'executor' | null;
+type ServicePanel = 'names' | 'duplicates' | 'leads' | 'csv' | 'executor' | null;
 
 export function ServiceGroup() {
   const { refreshSnapshot, openRelease } = useShell();
@@ -108,6 +109,9 @@ export function ServiceGroup() {
       <Row label="Дублікати" description="Точні URL і потенційні повтори за назвою.">
         <Button variant="outline" size="sm" onClick={() => setPanel('duplicates')}>Відкрити</Button>
       </Row>
+      <Row label="Ліди і чати" description="Підтягує чат-джерело наявним лідам і позначає ліди із заглушкою NoUserName* як «контакт невідомий»; кожну зміну підтверджуєте ви.">
+        <Button variant="outline" size="sm" onClick={() => setPanel('leads')}>Відкрити</Button>
+      </Row>
       <Row label="Перенесення чатів" description="CSV переносить поточний стан чатів; повна історія зберігається у резервній копії.">
         <Button variant="outline" size="sm" onClick={() => setPanel('csv')}>CSV</Button>
       </Row>
@@ -122,6 +126,7 @@ export function ServiceGroup() {
       </Row>
       <NamesPanel open={panel === 'names'} onClose={close} onChanged={refreshSnapshot} />
       <DuplicatesPanel open={panel === 'duplicates'} onClose={close} />
+      <LeadToolsPanel open={panel === 'leads'} onClose={close} />
       <CsvPanel open={panel === 'csv'} onClose={close} onImported={refreshSnapshot} />
       <Panel open={panel === 'executor'} onOpenChange={(open) => { if (!open) close(); }} title="Executor пошуку чатів" subtitle="Підключення runner до WhatsApp Web">
         <ExecutorCard />

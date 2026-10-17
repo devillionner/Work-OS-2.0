@@ -23,8 +23,10 @@ import type {
   MessageCursor,
   MessagePage,
   Receipt,
+  SourceChat,
 } from '../domain/types.ts';
 import { defaultReminders } from '../domain/reminders.ts';
+import { normalizeGroupLink } from '../../chats/bulk-input.ts';
 import { LeadError } from '../domain/validation.ts';
 // Read-only attribution projection; all columns used here already exist.
 const leadSourceChats = sqliteTable('chats', {
@@ -33,7 +35,17 @@ const leadSourceChats = sqliteTable('chats', {
   platform: text('platform').notNull(),
   normalizedLink: text('normalized_link').notNull(),
   telegramAccountId: text('telegram_account_id'),
+  link: text('link').notNull(),
+  name: text('name').notNull(),
 });
+
+const sourceColumns = {
+  id: leadSourceChats.id,
+  telegramAccountId: leadSourceChats.telegramAccountId,
+  platform: leadSourceChats.platform,
+  link: leadSourceChats.link,
+  name: leadSourceChats.name,
+};
 
 export type LeadsDb = DrizzleD1Database<typeof schema>;
 
@@ -313,32 +325,42 @@ export class D1LeadRepository implements LeadRepository {
         ),
       );
   }
-  async source(userId: string, link: string, platform: string) {
+  async source(userId: string, link: string, platform: string): Promise<SourceChat | null> {
     if (!link) return null;
-    let normalized = link.trim();
+    const candidates = new Set<string>();
+    // Канонічне посилання чату (joinchat → +код, без query й слеша), як у `chats.normalized_link`.
+    const canonical = normalizeGroupLink(link);
+    if (canonical) candidates.add(canonical.link);
     try {
-      const url = new URL(normalized);
+      const url = new URL(link.trim());
       url.hostname = url.hostname.toLowerCase().replace(/^www\./, '');
       url.hash = '';
       url.pathname = url.pathname.replace(/\/+$/, '') || '/';
-      normalized = url.toString();
+      candidates.add(url.toString());
     } catch {
-      return null;
+      /* не URL: лишається лише канонічне посилання, якщо воно є */
     }
+    if (!candidates.size) return null;
     return (
       (await this.db
-        .select({
-          id: leadSourceChats.id,
-          telegramAccountId: leadSourceChats.telegramAccountId,
-        })
+        .select(sourceColumns)
         .from(leadSourceChats)
         .where(
           and(
             eq(leadSourceChats.userId, userId),
             eq(leadSourceChats.platform, platform),
-            eq(leadSourceChats.normalizedLink, normalized),
+            inArray(leadSourceChats.normalizedLink, [...candidates]),
           ),
         )
+        .get()) ?? null
+    );
+  }
+  async sourceById(userId: string, id: string): Promise<SourceChat | null> {
+    return (
+      (await this.db
+        .select(sourceColumns)
+        .from(leadSourceChats)
+        .where(and(eq(leadSourceChats.userId, userId), eq(leadSourceChats.id, id)))
         .get()) ?? null
     );
   }
@@ -360,7 +382,7 @@ export class D1LeadRepository implements LeadRepository {
     commands.push(
       this.db
         .update(leads)
-        .set(withoutKeys(c.lead, 'id', 'userId'))
+        .set(withoutKeys(c.lead, 'id', 'userId', 'customRemindersJson', 'nextCustomReminderAt'))
         .where(and(eq(leads.id, c.lead.id), eq(leads.userId, c.lead.userId))),
     );
     for (const student of c.students)

@@ -10,6 +10,7 @@ import { Confirmation } from './form';
 import { HistoryList } from './history-events';
 import { LeadEditor } from './lead-editor';
 import { LeadSummary, StageEditor } from './lead-summary';
+import { CustomReminders } from './custom-reminders';
 import { ConversationTab } from './tab-conversation';
 import { LessonsTab } from './tab-lessons';
 import { ScriptsTab } from './tab-scripts';
@@ -60,13 +61,18 @@ export function LeadInspector({ open, onClose, name, detail, error, mutate, relo
         <div key={lead.id} className="flex flex-col gap-6">
           {tab === 'overview' ? <LeadSummary detail={detail} mutate={mutate} onEdit={() => setEditing(true)} onHistory={() => setTab('history')} onArchive={() => setArchive(true)} onResponse={() => setResponse(true)} /> : null}
           {tab === 'conversation' ? <ConversationTab detail={detail} mutate={mutate} onChanged={onChanged} /> : null}
-          {tab === 'reminders' ? <LessonsTab detail={detail} mutate={mutate} mode="reminders" /> : null}
+          {tab === 'reminders' ? (
+            <>
+              <CustomReminders detail={detail} reload={reload} />
+              <LessonsTab detail={detail} mutate={mutate} mode="reminders" />
+            </>
+          ) : null}
           {tab === 'lessons' ? <LessonsTab detail={detail} mutate={mutate} mode="lessons" /> : null}
           {tab === 'students' ? <StudentsTab detail={detail} mutate={mutate} /> : null}
           {tab === 'history' ? <HistoryList leadId={lead.id} /> : null}
           {tab === 'scripts' ? <ScriptsTab lead={lead} /> : null}
           {stage ? <StageEditor lead={lead} mutate={mutate} close={() => setStage(false)} /> : null}
-          {editing ? <LeadEditor lead={lead} close={() => setEditing(false)} save={(data) => mutate('update', data)} /> : null}
+          {editing ? <LeadEditor lead={lead} sourceChat={detail.sourceChat} close={() => setEditing(false)} save={(data) => mutate('update', data)} /> : null}
           {archive ? (
             <Confirmation
               title={lead.archivedAt !== null ? 'Відновити ліда?' : 'Архівувати ліда?'}
