@@ -44,7 +44,7 @@ export function ViberAutopostCard({ progress, attention, batchNote, status, runn
     <Surface variant="glass" radius="card" className="flex flex-col gap-6 p-5 sm:p-6" aria-labelledby="viber-autopost-title">
       <div>
         <h2 id="viber-autopost-title" className="m-0 text-[17px] font-medium">Автопублікація у Viber</h2>
-        <p className="m-0 mt-1 max-w-[62ch] text-sm text-ink-2">Усі придатні чати з черги «Для публікації» (до 100 за запуск) по черзі: Work OS відкриває кожен чат за посиланням у Viber на Android (Waydroid), надсилає фото з підписом із Бібліотеки й перевіряє, що повідомлення з’явилось.</p>
+        <p className="m-0 mt-1 max-w-[62ch] text-sm text-ink-2">Усі придатні чати з черги «Для публікації» (до 100 за запуск) по черзі: Work OS відкриває кожен чат за посиланням у Viber на Android (Waydroid), надсилає фото з текстом із вкладки «Автопост» у WhatsApp й перевіряє, що повідомлення з’явилось.</p>
       </div>
 
       <output className="m-0 flex items-start gap-2 text-sm">
@@ -81,7 +81,7 @@ export function ViberAutopostCard({ progress, attention, batchNote, status, runn
         <ol className="m-0 flex flex-col gap-1.5 pl-5 text-sm text-ink-2">
           <li>На ПК запущений Waydroid (waydroid session start), Viber у ньому активований як додатковий пристрій, мова Android англійська.</li>
           <li>Автозаморожування Waydroid вимкнене (waydroid prop set persist.waydroid.suspend false), щоб відправка йшла й зі схованим вікном.</li>
-          <li>Фото одне на WhatsApp і Viber: його додають на вкладці «Автопост» у WhatsApp. Підпис береться з оголошення в Бібліотеці (UA чи RU), без правок.</li>
+          <li>Фото й текст спільні для WhatsApp і Viber: їх задають на вкладці «Автопост» у WhatsApp (береться збережений текст; якщо його немає, підпис дає оголошення з Бібліотеки).</li>
         </ol>
       </section>
 

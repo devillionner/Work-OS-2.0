@@ -272,14 +272,13 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
   if(!selection)throw new MessengerAutomationError('Не вдалося перевірити правила публікації для цього чату.',409,'rules_unavailable');
   if(!selection.publicationAllowed)throw new MessengerAutomationError(selection.publicationReason||'Публікація зараз заборонена правилами профілю.',409,'profile_rule');
 
-  // Власний текст автопоста — річ WhatsApp (його оператор задає на вкладці автопоста). У Viber підпис завжди з Бібліотеки.
+  // Власний текст автопоста оператор задає на вкладці автопоста WhatsApp разом із фото: він спільний для WhatsApp і Viber.
+  // Без нього підпис береться з оголошення в Бібліотеці.
   let captionOverride='';
-  if(platform==='whatsapp'){
-    if(input.caption!==undefined){
-      try{captionOverride=cleanWhatsAppAutopostCaption(input.caption);}
-      catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
-    }else captionOverride=(await readWhatsAppAutopostCaption(db,userId))?.text||'';
-  }
+  if(input.caption!==undefined){
+    try{captionOverride=cleanWhatsAppAutopostCaption(input.caption);}
+    catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
+  }else captionOverride=(await readWhatsAppAutopostCaption(db,userId))?.text||'';
 
   const requestedLanguage=input.language==='uk'||input.language==='ru'?input.language:null;
   let materialId='';
@@ -369,12 +368,10 @@ export async function createWhatsAppAutopostBatch(
   const rawLimit=Number(input.limit);
   const limit=Number.isSafeInteger(rawLimit)?Math.max(1,Math.min(AUTOPOST_BATCH_MAX,rawLimit)):AUTOPOST_BATCH_DEFAULT;
   let caption='';
-  if(platform==='whatsapp'){
-    if(input.caption!==undefined){
-      try{caption=cleanWhatsAppAutopostCaption(input.caption);}
-      catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
-    }else caption=(await readWhatsAppAutopostCaption(db,userId))?.text||'';
-  }
+  if(input.caption!==undefined){
+    try{caption=cleanWhatsAppAutopostCaption(input.caption);}
+    catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
+  }else caption=(await readWhatsAppAutopostCaption(db,userId))?.text||'';
   const weekday=isoWeekday(date);
   const candidates=(size:number,offset:number)=>db.prepare(`SELECT c.id
     FROM chats c
