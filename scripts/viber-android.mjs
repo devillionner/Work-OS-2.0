@@ -375,7 +375,19 @@ async function attachAndSend(android, caption, guard) {
   const gallery = await pressUntil(android, (nodes) => byId(nodes, 'options_more_menu_gallery'), (nodes) => (firstTile(nodes) ? nodes : null), { timeout: 9000 });
   if (!gallery) throw new ViberStop('send_ui_unavailable', 'before', 'gallery');
   guard();
-  const opened = await pressUntil(android, firstTile, (nodes) => (byId(nodes, 'btn_send') && byId(nodes, 'custom_cam_preview_media_description') ? nodes : null), { timeout: 9000 });
+  // У груповому чаті дотик по плитці лише ВИБИРАЄ фото (з'являється нижня панель з «Edit» і кнопкою відправки), а в «Мої
+  // нотатки» одразу відкривається перегляд. Повторний дотик по вибраній плитці знімає вибір, тож по вибраному не тиснемо.
+  const previewReady = (nodes) => (byId(nodes, 'btn_send') && byId(nodes, CAPTION_FIELD) ? nodes : null);
+  const selectionBar = (nodes) => (byId(nodes, 'galleryBottomBarEditGroup') ? nodes : null);
+  const afterTile = await pressUntil(android, (nodes) => (selectionBar(nodes) ? undefined : firstTile(nodes)), (nodes) => previewReady(nodes) || selectionBar(nodes), { timeout: 9000 });
+  if (!afterTile) throw new ViberStop('send_ui_unavailable', 'before', 'gallery selection');
+  let opened = previewReady(afterTile);
+  if (!opened) {
+    const count = byId(afterTile, 'badge_selected_media');
+    if (count && count.text.trim() !== '1') throw new ViberStop('send_ui_unavailable', 'before', 'selected count');
+    guard();
+    opened = await pressUntil(android, (nodes) => byId(nodes, 'galleryBottomBarEditGroup'), previewReady, { timeout: 9000 });
+  }
   if (!opened) throw new ViberStop('send_ui_unavailable', 'before', 'preview');
   const previousIme = caption.trim() ? (await android.sh('settings get secure default_input_method')).trim() : '';
   try {
