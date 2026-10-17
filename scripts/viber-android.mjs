@@ -12,6 +12,10 @@ const VIBER_LAUNCH = 'com.viber.voip/.WelcomeActivity';
 const MEDIA_PERMISSION = 'android.permission.READ_MEDIA_IMAGES';
 const REMOTE_UI_DUMP = '/sdcard/workos-ui.xml';
 const POST_TIMEOUT_MS = 4 * 60 * 1000;
+// Фото для відправки лежить у Pictures Android лише на час партії: через 3 хв без відправок воно видаляється.
+const IMAGE_PREFIX = 'workos-autopost-';
+const IMAGE_KEEP_MS = 3 * 60 * 1000;
+let lastPostAt = 0;
 
 /** Короткі пояснення для журналу й значка в треї; повні тексти для оператора живуть на сайті. */
 export const VIBER_ENV_REASON_TEXT = {
@@ -252,6 +256,18 @@ async function ensureImage(android, media) {
   return id;
 }
 
+/** Прибирає фото автопосту з Pictures і з MediaStore (галерея не накопичує їх). */
+async function removeImages(android) {
+  await android.sh(`rm -f /sdcard/Pictures/${IMAGE_PREFIX}*`);
+  await android.sh(`content delete --uri content://media/external/images/media --where ${shQuote(`_display_name LIKE '${IMAGE_PREFIX}%'`)}`, { timeout: 20_000 });
+}
+
+async function cleanupIdleImages(android) {
+  if (Date.now() - lastPostAt < IMAGE_KEEP_MS) return;
+  const left = await android.sh(`ls /sdcard/Pictures/${IMAGE_PREFIX}* 2>/dev/null`);
+  if (left.includes(IMAGE_PREFIX)) await removeImages(android);
+}
+
 // ---------------------------------------------------------------- Відправка
 
 /** Статус повідомлення в Viber лише іконка без підпису; червоний значок означає «не відправлено». */
@@ -411,11 +427,13 @@ async function confirmSent(android, caption, targetName) {
 async function status() {
   const android = await connect();
   await checkEnvironment(android);
+  await cleanupIdleImages(android);
   return { ok: true, status: 'ready', reason: null, severity: 'env', detail: '' };
 }
 
 async function post(payload, guard) {
   guard();
+  lastPostAt = Date.now();
   const android = await connect();
   await checkEnvironment(android);
   guard();
@@ -425,6 +443,7 @@ async function post(payload, guard) {
   guard();
   await share(android, payload, imageId, targetName, guard);
   await confirmSent(android, String(payload.message || ''), targetName);
+  lastPostAt = Date.now();
   return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: targetName };
 }
 
