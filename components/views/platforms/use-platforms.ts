@@ -61,6 +61,11 @@ async function readWaitingCheckResponse(response: Response): Promise<WaitingChec
 }
 
 type SavedPlatformView = { queue: Queue; search: string; offset: number; scrollY: number; lastChatId: string | null };
+/**
+ * Вигляд платформ відновлюється лише після перезавантаження чи автооновлення (хвилини), а не днями: вкладка Work OS живе
+ * довго, і застарілий пошук чи платформа відкривалися щоразу. Так само скидається вигляд, коли від розділу були далеко.
+ */
+const RESTORE_TTL_MS = 10 * 60 * 1000;
 const PLATFORM_VIEW_PREFIX = 'work-os:platform-view:';
 const LAST_PLATFORM_KEY = 'work-os:last-platform';
 function readPlatformView(platform: Platform): SavedPlatformView | null {
@@ -68,13 +73,22 @@ function readPlatformView(platform: Platform): SavedPlatformView | null {
   try {
     const value = JSON.parse(window.sessionStorage.getItem(`${PLATFORM_VIEW_PREFIX}${platform}`) || 'null') as Partial<SavedPlatformView> | null;
     const offset = value?.offset; const scrollY = value?.scrollY;
+    const savedAt = (value as { savedAt?: unknown } | null)?.savedAt;
+    if (typeof savedAt !== 'number' || Date.now() - savedAt > RESTORE_TTL_MS) return null;
     if (!value || !QUEUES.some((item) => item.key === value.queue) && value.queue !== 'selected' || typeof value.search !== 'string' || typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0 || typeof scrollY !== 'number' || !Number.isFinite(scrollY) || scrollY < 0) return null;
     return { queue: value.queue as Queue, search: value.search.slice(0, 150), offset: Math.min(offset, 1_000_000), scrollY: Math.min(scrollY, 10_000_000), lastChatId: typeof value.lastChatId === 'string' ? value.lastChatId.slice(0, 100) : null };
   } catch { return null; }
 }
-function writePlatformView(platform: Platform, value: SavedPlatformView) { try { window.sessionStorage.setItem(`${PLATFORM_VIEW_PREFIX}${platform}`, JSON.stringify(value)); } catch { /* стан розділу діє до перезавантаження */ } }
-function readLastPlatform(): string | null { try { const value = window.sessionStorage.getItem(LAST_PLATFORM_KEY); return PLATFORMS.some((item) => item.key === value) ? value : null; } catch { return null; } }
-function writeLastPlatform(platform: Platform) { try { window.sessionStorage.setItem(LAST_PLATFORM_KEY, platform); } catch { /* ігноруємо */ } }
+function writePlatformView(platform: Platform, value: SavedPlatformView) { try { window.sessionStorage.setItem(`${PLATFORM_VIEW_PREFIX}${platform}`, JSON.stringify({ ...value, savedAt: Date.now() })); } catch { /* стан розділу діє до перезавантаження */ } }
+function readLastPlatform(): string | null {
+  try {
+    const [value, stamp] = (window.sessionStorage.getItem(LAST_PLATFORM_KEY) ?? '').split(':');
+    if (!Number.isFinite(Number(stamp)) || Date.now() - Number(stamp) > RESTORE_TTL_MS) return null;
+    return PLATFORMS.some((item) => item.key === value) ? value : null;
+  } catch { return null; }
+}
+function clearPlatformViews() { try { for (const item of PLATFORMS) window.sessionStorage.removeItem(`${PLATFORM_VIEW_PREFIX}${item.key}`); window.sessionStorage.removeItem(LAST_PLATFORM_KEY); } catch { /* ігноруємо */ } }
+function writeLastPlatform(platform: Platform) { try { window.sessionStorage.setItem(LAST_PLATFORM_KEY, `${platform}:${Date.now()}`); } catch { /* ігноруємо */ } }
 
 export function activeBreakExpired(accounts: TelegramAccount[], accountId: string | null, clock: number) {
   const account = accounts.find((item) => item.id === accountId);
@@ -258,6 +272,22 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       if (saved) { setQueue(saved.queue); setSearch(saved.search); setProfileFilter('all'); setOffset(saved.offset); previousFilter.current = `${target}:${saved.queue}:${saved.search}:all`; restoreScroll.current = saved.scrollY; setLastOpenedByPlatform((current) => ({ ...current, [target]: saved.lastChatId })); }
     });
   }, [availablePlatforms, platform]);
+
+  // Повернення до розділу після довгої відсутності починається з чистого вигляду: перша платформа, «Для приєднання», без пошуку.
+  const leftAt = useRef<number | null>(null);
+  const firstPlatform = availablePlatforms[0]?.key ?? 'telegram';
+  useEffect(() => {
+    if (!active) { leftAt.current = Date.now(); return; }
+    const away = leftAt.current === null ? 0 : Date.now() - leftAt.current;
+    leftAt.current = null;
+    if (away <= RESTORE_TTL_MS) return;
+    clearPlatformViews();
+    previousFilter.current = `${firstPlatform}:to_join::all`;
+    queueMicrotask(() => {
+      setPlatform(firstPlatform); setQueue('to_join'); setSearch(''); setProfileFilter('all'); setOffset(0);
+      setQuickPublishMode(false); setQuickAdvertisementId(null); setLastOpenedByPlatform({});
+    });
+  }, [active, firstPlatform]);
 
   useEffect(() => {
     if (loading || !data || restoreScroll.current === null) return;
