@@ -1064,7 +1064,7 @@ async function clickWhatsappMediaSend(client){
 
 export async function sendWhatsappAutopostViaCdp(
   task,
-  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS } = {},
+  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS, shouldAbort = () => false } = {},
 ) {
   if (task?.kind !== 'whatsapp_autopost') return { kind:'blocked', reason:'unsupported_runtime' };
   const targetUrl = toWhatsAppWebInviteUrl(task.target?.expectedLink);
@@ -1141,6 +1141,8 @@ export async function sendWhatsappAutopostViaCdp(
         return {kind:'blocked',reason:'media_caption_not_found'};
       }
       if(Date.now()>=operationDeadline)return {kind:'blocked',reason:'autopost_budget_exhausted'};
+      // Оператор натиснув «Зупинити»: до кнопки відправки ще можна відмовитись, після неї ні.
+      if(shouldAbort())return {kind:'blocked',reason:'cancelled'};
       if(!await clickWhatsappMediaSend(client))return {kind:'blocked',reason:'media_send_control_not_found'};
       const deadline=Date.now()+confirmWindowMs;
       while(Date.now()<deadline){
@@ -1174,6 +1176,7 @@ export async function sendWhatsappAutopostViaCdp(
     const prepared = await waitForComposerText(client, text, Math.min(remainingBudget(), 5_000));
     if (!prepared) return { kind:'blocked', reason:'composer_content_mismatch' };
     if (Date.now() >= operationDeadline) return { kind:'blocked', reason:'autopost_budget_exhausted' };
+    if (shouldAbort()) return { kind:'blocked', reason:'cancelled' };
 
     await client.send('Input.dispatchKeyEvent', { type:'keyDown', key:'Enter', code:'Enter', windowsVirtualKeyCode:13, nativeVirtualKeyCode:13 });
     await client.send('Input.dispatchKeyEvent', { type:'keyUp', key:'Enter', code:'Enter', windowsVirtualKeyCode:13, nativeVirtualKeyCode:13 });

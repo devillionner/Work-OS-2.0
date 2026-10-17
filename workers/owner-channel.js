@@ -113,6 +113,12 @@ export class OwnerChannel {
       // Called after a create/batch/cancel on one device: other open tabs/devices reload their queue
       // (new "Автопост у черзі" badge, or a cancelled one gone) instead of finding out on next focus.
       this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: null, status: 'queue_changed' });
+      // «Зупинити» скасовує задачі в D1, але runner уже може виконувати одну з них: кажемо йому припинити до відправки.
+      if (state.autopostCurrentJobId) {
+        const current = await this.env.DB.prepare('SELECT status FROM whatsapp_autopost_jobs WHERE id=?1 AND user_id=?2 LIMIT 1')
+          .bind(state.autopostCurrentJobId, userId).first();
+        if (!current || current.status !== 'claimed') this.broadcast('runner', { type: 'cancel', process: 'autopost', jobId: state.autopostCurrentJobId });
+      }
       await this.dispatchNextAutopostJob(state);
       await this.writeState(state);
       return new Response(null, { status: 204 });

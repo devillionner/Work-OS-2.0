@@ -83,6 +83,8 @@ const VIBER_PACE_MIN_MS=8000;
 const VIBER_PACE_MAX_MS=16000;
 const VIBER_ENV_COOLDOWN_MS=60000;
 const VIBER_STATUS_EVERY_MS=60000;
+// Задачі автопосту, які оператор скасував («Зупинити»), поки runner їх виконує: перед відправкою runner їх облишає.
+const cancelledAutopostJobs=new Set();
 // An inspect/leave sometimes has to wait out a WhatsApp message sync (30–60 s after opening an
 // invite on a large account); this just bounds how long one candidate holds up the next.
 const DISCOVERY_WHATSAPP_TIMEOUT_MS=80000;
@@ -905,15 +907,25 @@ async function checkViberStatus(){
   reportViberStatus(liveWs,result.status==='ready'?'ready':'blocked',result.reason,result.detail);
 }
 
+// Задачу скасовано, поки вона чекала в runner: нічого не надсилаємо, DO просто йде до наступної (скасовані D1 не віддає).
+function abandonCancelledAutopost(ws,job){
+  cancelledAutopostJobs.delete(job.jobId);
+  console.log(`Autopost job for ${job.target?.expectedName||'chat'} was cancelled before it started.`);
+  sendLive(ws,{type:'result',process:'autopost',jobId:job.jobId,status:'failed',
+    observedTarget:job.target?.expectedName,targetVerified:false,sendConfirmed:false,errorCode:'cancelled'});
+}
+
 async function handleViberAutopostTask(ws,job){
   const progress=job.progress&&Number(job.progress.total)>0
     ? `${Math.min(Number(job.progress.done)+1,Number(job.progress.total))}/${Number(job.progress.total)} · `
     : '';
   const wait=lastViberFinishedAt+VIBER_PACE_MIN_MS+Math.random()*(VIBER_PACE_MAX_MS-VIBER_PACE_MIN_MS)-Date.now();
   if(lastViberFinishedAt>0&&wait>0)await sleep(wait);
+  if(cancelledAutopostJobs.has(job.jobId)){abandonCancelledAutopost(ws,job);return;}
   setStatus('working',`Viber автопост: ${progress}${job.target?.expectedName||'чат'}`);
   const overrides=process.env.WORK_OS_VIBER_TEST_TARGET==='my_notes'?{testTarget:'my_notes'}:{};
-  const result=await runViberAndroid('post',viberPayloadFromTask(job,overrides));
+  const result=await runViberAndroid('post',viberPayloadFromTask(job,overrides),{shouldAbort:()=>cancelledAutopostJobs.has(job.jobId)});
+  cancelledAutopostJobs.delete(job.jobId);
   lastViberFinishedAt=Date.now();
   const reason=String(result.reason||'');
   if(result.status==='sent'){
@@ -937,6 +949,7 @@ async function handleViberAutopostTask(ws,job){
 }
 
 async function handleAutopostTask(ws,job){
+  if(cancelledAutopostJobs.has(job.jobId)){abandonCancelledAutopost(ws,job);return;}
   if(job.kind==='viber_android')return handleViberAutopostTask(ws,job);
   if(!whatsappCdp){
     console.warn('WhatsApp autopost requires WORK_OS_WHATSAPP_CDP; releasing until the browser adapter is available.');
@@ -962,13 +975,14 @@ async function handleAutopostTask(ws,job){
     : '';
   setStatus('working',`WhatsApp автопост: ${progress}${job.target?.expectedName||'чат'}`);
   let automated;
-  try{automated=await sendWhatsappAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp});}
+  try{automated=await sendWhatsappAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp,shouldAbort:()=>cancelledAutopostJobs.has(job.jobId)});}
   catch(error){
     markWhatsappRuntimeBlocked('cdp_unavailable');
     console.warn(`WhatsApp autopost CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
     releaseTask(ws,'autopost',job);
     return;
   }
+  cancelledAutopostJobs.delete(job.jobId);
   if(automated.kind==='result'&&automated.result.sendConfirmed===true){
     clearWhatsappRuntimeBlock();
     const observedTarget=automated.result.observedTarget||job.target?.expectedName;
@@ -1087,6 +1101,11 @@ function onLiveMessage(ws,raw){
   }
   if(message.type==='cancel'&&message.process==='waiting_check'){
     cancelWaitingCheck(message.batchId);
+    return;
+  }
+  if(message.type==='cancel'&&message.process==='autopost'){
+    cancelledAutopostJobs.add(String(message.jobId||''));
+    console.log('Autopost job cancelled by the operator; the runner will stop before sending.');
     return;
   }
   if(message.process==='discovery_run'){

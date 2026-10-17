@@ -91,9 +91,15 @@ class Android {
   async adb(args, options) { return run('adb', ['-s', this.serial, ...args], options); }
   async sh(command, options) { return (await this.adb(['shell', command], options)).stdout; }
 
+  /** uiautomator відмовляється знімати дерево, поки екран анімується (прокрутка): тоді коротко чекаємо й пробуємо знову. */
   async dump() {
-    const out = await this.sh(`rm -f ${REMOTE_UI_DUMP}; uiautomator dump ${REMOTE_UI_DUMP} >/dev/null 2>&1; cat ${REMOTE_UI_DUMP}`, { timeout: 25_000 });
-    return parseUiDump(out);
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const out = await this.sh(`rm -f ${REMOTE_UI_DUMP}; uiautomator dump ${REMOTE_UI_DUMP} >/dev/null 2>&1; cat ${REMOTE_UI_DUMP}`, { timeout: 25_000 });
+      const nodes = parseUiDump(out);
+      if (nodes.length) return nodes;
+      await sleep(800);
+    }
+    return [];
   }
 
   /** Ждёмо, поки предикат знайде щось у дереві; повертає { nodes, hit } або null. */
@@ -272,7 +278,62 @@ const minuteLabels = ({ hours, minutes }) => [0, 1].map((back) => {
   return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
 });
 
-async function share(android, payload, imageId, targetName) {
+/**
+ * Прокручує список «Share with», доки не знайде рядок із назвою `wanted`. Дві однакові назви на одному екрані — це
+ * неоднозначність (пропуск); кінець списку без збігу — `target_not_found`. Прокрутка повільна (без інерції), а
+ * перекриття сторінок перевіряється, щоб не проскочити рядок.
+ */
+async function scrollToRow(android, firstNodes, wanted, guard) {
+  let nodes = firstNodes;
+  let previous = [];
+  let stale = 0;
+  let empty = 0;
+  for (let page = 0; page < 120; page += 1) {
+    guard();
+    const rows = nodes.filter((node) => node.id === 'name');
+    const hits = rows.filter((node) => looseName(node.text) === wanted);
+    if (hits.length > 1) throw new ViberStop('target_ambiguous', 'before');
+    if (hits.length === 1) return hits[0];
+    const names = rows.map((node) => node.text);
+    if (page > 0 && names.join('|') === previous.join('|')) { stale += 1; if (stale >= 4) break; } else stale = 0;
+    const list = byId(nodes, 'items_list');
+    if (!list) {
+      // Порожнє дерево: екран ще анімується. Кілька повторів, далі зупинка без відправки.
+      empty += 1;
+      if (empty >= 10) throw new ViberStop('send_ui_unavailable', 'before', 'list');
+      await sleep(1200);
+      nodes = await android.dump();
+      continue;
+    }
+    const height = list.bottom - list.top;
+    const x = Math.round((list.left + list.right) / 2);
+    const from = list.bottom - 30;
+    await android.sh(`input swipe ${x} ${from} ${x} ${from - Math.round(height * 0.6)} 650`);
+    await sleep(700);
+    previous = names;
+    nodes = await android.dump();
+    const next = nodes.filter((node) => node.id === 'name').map((node) => node.text);
+    // Жоден із попередніх рядків не видно: сторінка проскочила, повертаємось на пів кроку назад.
+    if (previous.length && next.length && !next.some((name) => previous.includes(name))) {
+      await android.sh(`input swipe ${x} ${list.top + 60} ${x} ${list.top + 60 + Math.round(height * 0.3)} 650`);
+      await sleep(700);
+      nodes = await android.dump();
+    }
+  }
+  throw new ViberStop('target_not_found', 'before', 'not in the share list');
+}
+
+/** Виконує дію й чекає зміни стану; якщо стану немає, повторює дію (до `attempts` разів). */
+async function actUntil(android, act, predicate, { attempts = 3, timeout = 8000 } = {}) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await act();
+    const result = await android.waitFor(predicate, timeout);
+    if (result) return result;
+  }
+  return null;
+}
+
+async function share(android, payload, imageId, targetName, guard) {
   const caption = String(payload.message || '');
   await android.key(3);
   await sleep(600);
@@ -280,34 +341,47 @@ async function share(android, payload, imageId, targetName) {
   await android.sh(`am start -f 0x10008000 -a android.intent.action.SEND -t image/jpeg --eu android.intent.extra.STREAM content://media/external/images/media/${imageId} -e android.intent.extra.TEXT ${shQuote(caption)} -p ${VIBER_PACKAGE} --grant-read-uri-permission`);
   const picker = await android.waitFor((nodes) => (byId(nodes, 'items_list') && nodes.some((node) => node.id === 'name') ? nodes : null), 25_000);
   if (!picker) throw new ViberStop('send_ui_unavailable', 'before', 'picker');
-  // Ціль: рівно один рядок із назвою чату серед перших трьох (щойно відкритий чат Viber піднімає нагору), не за порядком.
-  const rows = picker.nodes.filter((node) => node.id === 'name');
+  // Viber не піднімає щойно відкритий чат у «RECENT» (порядок за активністю), а ввести кирилицю без буфера обміну
+  // неможливо, тож шукаємо рядок із точною назвою прокруткою списку й беремо перший збіг.
   const wanted = looseName(targetName);
-  const matches = rows.map((node, index) => ({ node, index })).filter((item) => looseName(item.node.text) === wanted);
-  if (!matches.length) throw new ViberStop('target_not_found', 'before', rows.slice(0, 3).map((row) => row.text).join(' / ').slice(0, 100));
-  if (matches.length > 1) throw new ViberStop('target_ambiguous', 'before');
-  if (matches[0].index > 2) throw new ViberStop('target_not_found', 'before', 'not among recent chats');
-  await android.tap(matches[0].node);
-  const selected = await android.waitFor((nodes) => {
+  guard();
+  const found = await scrollToRow(android, picker.nodes, wanted, guard);
+  const rowFor = (nodes) => nodes.find((node) => node.id === 'name' && looseName(node.text) === wanted);
+  const isSelected = (nodes, row) => nodes.some((node) => node.id === 'check' && node.checked && Math.abs(node.y - row.y) < 40);
+  // Дотики в списку й на кнопках інколи губляться, поки екран оновлюється: довгий дотик і повтор, поки стан не зміниться.
+  const selected = await actUntil(android, async () => {
+    const nodes = await android.dump();
+    const row = rowFor(nodes) || found;
+    if (!isSelected(nodes, row)) await android.press(row);
+  }, (nodes) => {
     const checked = nodes.filter((node) => node.id === 'check' && node.checked);
     return checked.length === 1 && nodes.some((node) => node.id === 'add_recipients_counter' && node.text.startsWith('1/')) && byId(nodes, 'fab_send') ? nodes : null;
-  }, 12_000);
+  });
   if (!selected) throw new ViberStop('target_unconfirmed', 'before', 'selection');
   const checkedBox = selected.nodes.find((node) => node.id === 'check' && node.checked);
   const checkedName = selected.nodes.filter((node) => node.id === 'name').find((node) => Math.abs(node.y - checkedBox.y) < 40);
   if (!checkedName || looseName(checkedName.text) !== wanted) throw new ViberStop('target_unconfirmed', 'before', 'wrong row selected');
-  await android.tap(byId(selected.nodes, 'fab_send'));
-  const preview = await android.waitFor((nodes) => (byId(nodes, 'btn_send') && byId(nodes, 'custom_cam_preview_media_description') ? nodes : null), 20_000);
+  guard();
+  const preview = await actUntil(android, async () => {
+    guard();
+    const fab = byId(await android.dump(), 'fab_send');
+    if (fab) await android.press(fab);
+  }, (nodes) => (byId(nodes, 'btn_send') && byId(nodes, 'custom_cam_preview_media_description') ? nodes : null), { timeout: 10_000 });
   if (!preview) throw new ViberStop('send_ui_unavailable', 'before', 'preview');
   if (caption.trim() && !byId(preview.nodes, 'custom_cam_preview_media_description').text.trim()) throw new ViberStop('send_ui_unavailable', 'before', 'caption empty');
-  // Із цього моменту повідомлення може піти: ніяких повторів відправки.
+  // Остання точка, де «Зупинити» ще діє: далі повідомлення може піти.
+  guard();
+  // Із цього моменту повідомлення може піти. Повторний дотик лише якщо вікно перегляду не закрилось за 8 с: так
+  // надіслане повідомлення не задвоїться, а загублений дотик не залишить чат без відправки.
+  const inPreview = async () => (await android.focusLine()).includes('MediaPreviewActivity');
   let sent = false;
-  for (let attempt = 0; attempt < 3 && !sent; attempt += 1) {
+  for (let attempt = 0; attempt < 2 && !sent; attempt += 1) {
     const send = byId(await android.dump(), 'btn_send');
-    if (!send) { sent = true; break; }
-    await android.press(send);
-    await sleep(2500);
-    sent = !(await android.focusLine()).includes('MediaPreviewActivity');
+    if (send) await android.press(send);
+    for (let wait = 0; wait < 8 && !sent; wait += 1) {
+      await sleep(1000);
+      sent = !(await inPreview());
+    }
   }
   if (!sent) throw new ViberStop('send_not_confirmed', 'after', 'send button did not respond');
   return caption;
@@ -340,12 +414,16 @@ async function status() {
   return { ok: true, status: 'ready', reason: null, severity: 'env', detail: '' };
 }
 
-async function post(payload) {
+async function post(payload, guard) {
+  guard();
   const android = await connect();
   await checkEnvironment(android);
+  guard();
   const imageId = await ensureImage(android, payload.media);
+  guard();
   const targetName = await openTarget(android, payload);
-  await share(android, payload, imageId, targetName);
+  guard();
+  await share(android, payload, imageId, targetName, guard);
   await confirmSent(android, String(payload.message || ''), targetName);
   return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: targetName };
 }
@@ -355,11 +433,13 @@ async function post(payload) {
  * @param {Record<string, unknown>} [payload]
  * @returns {Promise<{ok:boolean,status:string,reason?:string|null,severity?:string,detail?:string,[key:string]:unknown}>}
  */
-export async function runViberAndroid(action, payload = {}) {
+export async function runViberAndroid(action, payload = {}, { shouldAbort = () => false } = {}) {
   if (process.platform !== 'linux') return { ok: true, status: 'skipped', reason: 'viber_unsupported_platform', severity: 'env' };
   let timer;
   try {
-    const work = action === 'status' ? status() : post(payload);
+    // Скасування оператором («Зупинити») діє до відправки: після нього жодного нового кроку.
+    const guard = () => { if (shouldAbort()) throw new ViberStop('cancelled', 'before'); };
+    const work = action === 'status' ? status() : post(payload, guard);
     const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new ViberStop('helper_timeout', 'after', 'timeout')), POST_TIMEOUT_MS); });
     return await Promise.race([work, limit]);
   } catch (error) {
