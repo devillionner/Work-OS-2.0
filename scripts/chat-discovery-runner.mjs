@@ -932,7 +932,7 @@ async function handleViberAutopostTask(ws,job){
     reportViberStatus(ws,'ready');
     sendLive(ws,{type:'result',process:'autopost',jobId:job.jobId,status:'sent',
       observedTarget:result.observedTarget||job.target?.expectedName,targetVerified:true,sendConfirmed:true});
-    console.log(`Confirmed Viber autopost accepted by Work OS for ${job.target?.expectedName}.`);
+    console.log(`Confirmed Viber autopost accepted by Work OS for ${job.target?.expectedName}${result.timings?` (${result.timings})`:''}.`);
     return;
   }
   console.warn(`Viber autopost ${result.status}: ${reason}${result.detail?` (${result.detail})`:''}`);
