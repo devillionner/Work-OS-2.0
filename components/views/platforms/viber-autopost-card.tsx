@@ -1,8 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { CheckCircle2, RotateCcw, Send, Square, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Ring } from '@/components/ui/ring';
+import { Segmented } from '@/components/ui/segmented';
 import { Surface } from '@/components/ui/surface';
 import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import { AutopostAttentionList, AutopostOutcomeSummary, type AutopostAttentionItem, type AutopostDecision } from '@/components/views/platforms/autopost-attention';
@@ -23,10 +25,12 @@ export function ViberAutopostCard({ progress, attention, batchNote, status, runn
   busy: boolean;
   queueSize: number;
   onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
-  onStart: () => void;
+  /** Скільки чатів поставити в партію; null означає всі придатні. */
+  onStart: (limit: number | null) => void;
   onStop: () => void;
   onReset: () => void;
 }) {
+  const [size, setSize] = useState<'1' | '5' | '20' | 'all'>('all');
   const running = progress?.running === true;
   const hasQueue = Boolean(progress && (progress.total > 0 || progress.cancelled > 0));
   const ratio = progress && progress.total > 0 ? Math.min(1, progress.done / progress.total) : 0;
@@ -90,7 +94,10 @@ export function ViberAutopostCard({ progress, attention, batchNote, status, runn
         {running ? (
           <Button variant="outline" tone="danger" disabled={busy} onClick={onStop}><Square aria-hidden="true" strokeWidth={1.5} />Зупинити автопост</Button>
         ) : (
-          <Button variant="action" busy={busy} disabled={runnerOffline || queueSize === 0 || !imageReady} title={imageReady ? undefined : 'Спершу додай фото на вкладці «Автопост» у WhatsApp'} onClick={onStart}><Send aria-hidden="true" strokeWidth={1.5} />{busy ? 'Ставимо в чергу…' : !imageReady ? 'Додай фото в WhatsApp' : queueSize ? `Автопост черги (${queueSize})` : 'Черга порожня'}</Button>
+          <>
+            <Segmented<'1' | '5' | '20' | 'all'> label="Скільки чатів у партії" size="sm" value={size} onValueChange={setSize} items={[{ value: '1', label: '1 чат' }, { value: '5', label: '5' }, { value: '20', label: '20' }, { value: 'all', label: 'Усі' }]} />
+            <Button variant="action" busy={busy} disabled={runnerOffline || queueSize === 0 || !imageReady} title={imageReady ? undefined : 'Спершу додай фото на вкладці «Автопост» у WhatsApp'} onClick={() => onStart(size === 'all' ? null : Number(size))}><Send aria-hidden="true" strokeWidth={1.5} />{busy ? 'Ставимо в чергу…' : !imageReady ? 'Додай фото в WhatsApp' : queueSize ? `Автопост черги (${size === 'all' ? queueSize : Math.min(Number(size), queueSize)})` : 'Черга порожня'}</Button>
+          </>
         )}
       </div>
     </Surface>

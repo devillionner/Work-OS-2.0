@@ -690,15 +690,15 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     toast.push({ message: created ? `Поставлено в автопост: ${created} чатів. Відправка йде по одному, з підтвердженням.` : 'Нових чатів для автопосту зараз немає.' });
   }); };
 
-  const viberAction = async (action: string) => {
-    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
+  const viberAction = async (action: string, extra: Record<string, unknown> = {}) => {
+    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...extra }) });
     const body = await response.json() as { created?: number; skipped?: number; reasons?: Array<{ code: string; count: number }>; more?: boolean; cancelled?: number; removed?: number; progress?: WhatsAppAutopostProgress; error?: string };
     if (!response.ok) throw new Error(body.error || 'Не вдалося виконати дію автопосту Viber.');
     return body;
   };
-  const startViberAutopostBatch = () => { if (platform !== 'viber') return Promise.resolve(); return wa('viber-autopost-batch', async () => {
+  const startViberAutopostBatch = (limit: number | null) => { if (platform !== 'viber') return Promise.resolve(); return wa('viber-autopost-batch', async () => {
     setQuickPublishMode(false); setQuickAdvertisementId(null);
-    const body = await viberAction('viber-autopost-batch');
+    const body = await viberAction('viber-autopost-batch', limit ? { limit } : {});
     invalidateQueueCache('viber'); announceDataChange('platforms'); await reloadChats.current(true);
     const fresh = await readViberAutopost(); if (fresh) applyViberAutopost(fresh);
     const created = Number(body.created || 0); const skipped = Number(body.skipped || 0);
