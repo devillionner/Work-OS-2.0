@@ -21,6 +21,9 @@
       "migrations_dir": "migrations"
     }
   ],
+  "r2_buckets": [
+    { "binding": "FILES", "bucket_name": "work-os-staging-files" }
+  ],
   "durable_objects": {
     "bindings": [
       { "name": "OWNER_CHANNEL", "class_name": "OwnerChannel" }
