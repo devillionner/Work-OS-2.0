@@ -57,11 +57,18 @@ export function useDragSort({ root, enabled, itemSelector = '[data-sort-id]', si
     const items = gsap.utils.toArray<HTMLElement>(itemSelector, container);
     const clearOver = () => container.querySelectorAll('[data-over]').forEach((node) => node.removeAttribute('data-over'));
 
-    /** Куди вставити: картка під вказівником (перед нею чи після) або кінець групи під вказівником. */
+    /**
+     * Куди вставити: картка під вказівником (перед нею чи після) або кінець групи під вказівником. Тягнута картка сама лежить
+     * під вказівником і сама несе `data-sort-group`, тож ні вона, ні її вміст не враховуються: інакше порожня колонка
+     * завжди «відповідала» б групою тягнутої картки, і перенос на інший етап повертався назад.
+     */
     const targetAt = (dragged: HTMLElement, x: number, y: number): { group: string; beforeId: string | null; over: HTMLElement | null } | null => {
-      const nodes = document.elementsFromPoint(x, y).filter((node): node is HTMLElement => node instanceof HTMLElement);
-      const overItem = nodes.find((node) => node !== dragged && node.matches(itemSelector) && container.contains(node));
-      const groupNode = overItem?.closest<HTMLElement>('[data-sort-group]') ?? nodes.find((node) => node.dataset.sortGroup !== undefined && container.contains(node));
+      const nodes = document.elementsFromPoint(x, y).filter((node): node is HTMLElement => node instanceof HTMLElement && node !== dragged && !dragged.contains(node) && container.contains(node));
+      const overItem = nodes.find((node) => node.matches(itemSelector));
+      // Група — контейнер колонки чи сітки (елемент із `data-sort-group`, що не є карткою).
+      const groupNode = overItem
+        ? overItem.parentElement?.closest<HTMLElement>('[data-sort-group]') ?? null
+        : nodes.find((node) => node.dataset.sortGroup !== undefined && !node.matches(itemSelector)) ?? null;
       if (!groupNode) return null;
       const group = groupNode.dataset.sortGroup ?? '';
       if (!overItem) return { group, beforeId: null, over: null };
@@ -75,6 +82,16 @@ export function useDragSort({ root, enabled, itemSelector = '[data-sort-id]', si
       return { group, beforeId: next?.dataset.sortId ?? null, over: overItem };
     };
 
+    /** Точка вказівника в координатах вікна (для elementsFromPoint), незалежно від прокрутки сторінки. */
+    const pointOf = (self: unknown) => {
+      const drag = self as { pointerEvent?: Event; pointerX: number; pointerY: number };
+      const event = drag.pointerEvent as (MouseEvent | TouchEvent | undefined);
+      if (event && 'clientX' in event) return { x: event.clientX, y: event.clientY };
+      const touch = event && 'changedTouches' in event ? event.changedTouches[0] : undefined;
+      if (touch) return { x: touch.clientX, y: touch.clientY };
+      return { x: drag.pointerX - window.scrollX, y: drag.pointerY - window.scrollY };
+    };
+
     const instances = items.map((item) => {
       const press = { x: 0, y: 0, timer: 0 };
       const settle = () => gsap.to(item, { x: 0, y: 0, scale: 1, duration: prefersReducedMotion() ? 0.01 : 0.24, ease: 'expo.out' });
@@ -86,12 +103,14 @@ export function useDragSort({ root, enabled, itemSelector = '[data-sort-id]', si
         onPress: () => { gsap.to(item, { scale: prefersReducedMotion() ? 1 : 1.02, duration: 0.16 }); item.classList.add('shadow-float'); },
         onDrag: function () {
           clearOver();
-          targetAt(item, this.pointerX, this.pointerY)?.over?.setAttribute('data-over', 'true');
+          const point = pointOf(this);
+          targetAt(item, point.x, point.y)?.over?.setAttribute('data-over', 'true');
         },
         onRelease: () => { gsap.to(item, { scale: 1, duration: 0.16 }); item.classList.remove('shadow-float'); },
         onClick: () => latestClick.current?.(item.dataset.sortId ?? ''),
         onDragEnd: function () {
-          const target = targetAt(item, this.pointerX, this.pointerY);
+          const point = pointOf(this);
+          const target = targetAt(item, point.x, point.y);
           clearOver();
           if (coarse) instance.disable();
           const id = item.dataset.sortId ?? '';

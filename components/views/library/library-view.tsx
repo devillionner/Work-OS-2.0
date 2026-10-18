@@ -204,7 +204,7 @@ export default function LibraryView() {
                   action={filtered ? <Button variant="outline" size="sm" onClick={() => { setArchived(false); setPlatform('all'); setSearch(''); setQuery(''); }}>Скинути фільтри</Button> : undefined}
                 />
               ) : null}
-              <ul ref={grid} aria-label={collectionLabel(collection)} className="m-0 grid list-none grid-cols-1 gap-x-3 gap-y-1 p-0 @xl:grid-cols-2 @4xl:grid-cols-3 @6xl:grid-cols-4 @4xl:gap-x-4">
+              <ul ref={grid} data-sort-group="grid" aria-label={collectionLabel(collection)} className="m-0 grid list-none grid-cols-1 gap-x-3 gap-y-1 p-0 @xl:grid-cols-2 @4xl:grid-cols-3 @6xl:grid-cols-4 @4xl:gap-x-4">
                 {displayed.map((item) => <FolderCard key={item.id} item={item} sortable={sortable} onOpen={() => setEditing({ item, nonce: 0 })} onCopy={(language) => void copy(item, language)} />)}
                 {archived ? null : <AddCard onClick={openNew} />}
               </ul>
