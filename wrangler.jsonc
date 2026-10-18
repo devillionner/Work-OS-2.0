@@ -5,6 +5,10 @@
   "compatibility_date": "2026-09-02",
   "compatibility_flags": ["nodejs_compat"],
   "main": "vinext/server/fetch-handler",
+  "observability": {
+    "logs": { "enabled": true, "head_sampling_rate": 1, "invocation_logs": true, "persist": true },
+    "traces": { "enabled": false }
+  },
   "assets": {
     "directory": "dist/client",
     "not_found_handling": "none",
