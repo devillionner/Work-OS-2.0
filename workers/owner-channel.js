@@ -72,6 +72,8 @@ const RUNNER_STALE_MS = 75_000;
 // While a runner is believed connected, an alarm re-checks those ping times (no D1) so a PC that loses
 // power or network shows as offline everywhere within about two minutes, not only on a clean close.
 const RUNNER_WATCH_MS = 90_000;
+/** Задача автопосту «в роботі» довше за це вважається покинутою (один чат — 15–30 с, тайм-аути runner — до кількох хвилин). */
+const AUTOPOST_LEASE_SECONDS = 600;
 const PING = JSON.stringify({ type: 'ping' });
 const PONG = JSON.stringify({ type: 'pong' });
 
@@ -392,12 +394,36 @@ export class OwnerChannel {
    * @param {OwnerChannelState} state
    */
   async dispatchNextAutopostJob(state) {
-    if (state.autopostCurrentJobId || !state.userId) return;
+    if (!state.userId) return;
+    if (state.autopostCurrentJobId && !(await this.forgetStaleAutopostJob(state))) return;
     const task = await claimWhatsAppAutopostJob(this.env.DB, state.userId, nowSeconds());
     if (!task) return;
     state.autopostCurrentJobId = task.jobId;
     this.broadcast('runner', { type: 'task', process: 'autopost', task });
     this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: task.jobId, status: 'running' });
+  }
+
+  /**
+   * Чи можна забути задачу, яку DO вважає «в роботі». Розгортання обриває з'єднання з runner без
+   * webSocketClose, runner перепідключається чистим, а поле лишається — і видача стоїть назавжди
+   * (2026-10-18: Viber і WhatsApp не стартували кілька годин). Задачу, що вже не `claimed`, просто
+   * забуваємо; `claimed` довше за AUTOPOST_LEASE_SECONDS (один чат — 15–30 с) повертаємо в чергу.
+   * @param {OwnerChannelState} state
+   * @returns {Promise<boolean>} true — поле очищено, можна видавати наступну
+   */
+  async forgetStaleAutopostJob(state) {
+    const jobId = state.autopostCurrentJobId;
+    if (!jobId || !state.userId) return true;
+    const row = await this.env.DB.prepare('SELECT status,updated_at FROM whatsapp_autopost_jobs WHERE id=?1 AND user_id=?2 LIMIT 1')
+      .bind(jobId, state.userId).first();
+    if (row && row.status === 'claimed') {
+      if (nowSeconds() - Number(row.updated_at || 0) < AUTOPOST_LEASE_SECONDS) return false;
+      await releaseWhatsAppAutopostJob(this.env.DB, state.userId, jobId, nowSeconds());
+      this.broadcast('runner', { type: 'cancel', process: 'autopost', jobId });
+      this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId, status: 'released' });
+    }
+    state.autopostCurrentJobId = null;
+    return true;
   }
 
   /** @param {{jobId:string; status:string; observedTarget?:string; targetVerified?:boolean; sendConfirmed?:boolean; errorCode?:string}} message */
