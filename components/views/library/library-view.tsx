@@ -24,6 +24,7 @@ import { collectionLabel, COLLECTIONS, matchesPlatform, platformLabel, type Coll
 
 const DevelopmentSection = lazy(() => import('./development-section'));
 const ConvertFieldsPanel = lazy(() => import('./convert-fields-panel'));
+const ImportScripts = lazy(() => import('./import-scripts'));
 
 const NO_ORDER: string[] = [];
 type Editing = { item: Item | null; nonce: number } | null;
@@ -44,6 +45,7 @@ export default function LibraryView() {
   const [editing, setEditing] = useState<Editing>(null);
   const [orderOverride, setOrderOverride] = useState<{ collection: Collection; ids: string[] } | null>(null);
   const [converting, setConverting] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [pendingOpen, setPendingOpen] = useState<string | null>(null);
   const grid = useRef<HTMLUListElement>(null);
   const seenRevision = useRef(syncRevision);
@@ -164,11 +166,16 @@ export default function LibraryView() {
         </div>
         {developing ? null : <Chip pressed={archived} onClick={() => { setArchived((value) => !value); setPlatform('all'); setEditing(null); }}>{archived ? 'Показати активні' : 'Архів'}</Chip>}
         {script ? <Button variant="outline" size="sm" onClick={() => setConverting(true)}>Поля в скриптах</Button> : null}
+        {collection === 'official_script' && !importing ? <Button variant="outline" size="sm" onClick={() => { setEditing(null); setImporting(true); }}>Імпорт з таблиці</Button> : null}
         {missingTemplates ? <Button variant="outline" size="sm" onClick={() => void seedTemplates()}>Стандартні шаблони</Button> : null}
         {showing && !developing ? <span className="ml-auto text-sm text-ink-2">Матеріалів: <span className="font-mono text-ink">{showing.length}</span></span> : null}
       </div>
 
-      {developing ? (
+      {importing && collection === 'official_script' ? (
+        <Suspense fallback={<Ghost className="h-48 rounded-card" />}>
+          <ImportScripts onClose={() => setImporting(false)} onChanged={reload} />
+        </Suspense>
+      ) : developing ? (
         <Suspense fallback={<div aria-busy="true" className="grid grid-cols-1 gap-3 @4xl:grid-cols-4">{[0, 1, 2, 3].map((item) => <Ghost key={item} className="h-[320px] rounded-card" />)}</div>}>
           <DevelopmentSection active={active} query={query} />
         </Suspense>

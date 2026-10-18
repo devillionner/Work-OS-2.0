@@ -11,11 +11,13 @@ import { Segmented } from '@/components/ui/segmented';
 import { Select } from '@/components/ui/select';
 import { useToast } from '@/components/ui/toast';
 import { ScriptText } from '@/components/views/library/script-editor';
+import { useShell } from '@/components/shell/shell-context';
 import { useRemote } from '@/components/views/shared/use-remote';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import { businessDate } from '@/lib/business-time';
 import { bookedLessons, defaultLesson, reminderKind, scriptValues, type ScriptAudience } from '@/lib/leads/domain/script-context';
-import { rankLeadScripts, type LeadScriptItem, type RankedLeadScript } from '@/lib/leads/domain/script-match';
+import { learnerOf, rankLeadScripts, type LeadScriptItem, type RankedLeadScript } from '@/lib/leads/domain/script-match';
+import { splitClarifier } from '@/lib/script-notes';
 import { fieldLabel, fillScript, type ScriptFieldKey, type ScriptValues } from '@/lib/script-fields';
 import { cn } from '@/lib/utils';
 import { displayTime, labels, type Mutation } from './client';
@@ -43,13 +45,14 @@ function fillNode(values: ScriptValues, manual: ScriptValues, setManual: (key: S
   };
 }
 
-function Script({ script, language, values, manual, setManual, onCopy, onPersonal, lastUsed }: {
+function Script({ script, language, values, manual, setManual, onCopy, onCopyQuestion, onPersonal, lastUsed }: {
   script: RankedLeadScript;
   language: Language;
   values: ScriptValues;
   manual: ScriptValues;
   setManual: (key: ScriptFieldKey, value: string) => void;
   onCopy: (script: RankedLeadScript, text: string, missing: ScriptFieldKey[]) => void;
+  onCopyQuestion: (script: RankedLeadScript, text: string) => void;
   onPersonal: (script: RankedLeadScript) => void;
   lastUsed: { at: number; count: number } | undefined;
 }) {
@@ -57,6 +60,8 @@ function Script({ script, language, values, manual, setManual, onCopy, onPersona
   const merged = useMemo(() => ({ ...manual, ...Object.fromEntries(Object.entries(values).filter(([, value]) => value?.trim())) } as ScriptValues), [values, manual]);
   const filled = useMemo(() => fillScript(text, merged), [text, merged]);
   const kind = script.templateKey ? 'Шаблон' : script.audience === 'personal' ? 'Особистий' : 'Офіційний';
+  const clarifier = useMemo(() => splitClarifier(script.notes), [script.notes]);
+  const question = useMemo(() => fillScript(clarifier.question, merged).text, [clarifier.question, merged]);
   return (
     <li className={cn('rounded-inner border bg-sunken', script.recommended ? 'border-line-strong' : 'border-line')}>
       <details className="group" open={script.recommended || undefined}>
@@ -68,7 +73,14 @@ function Script({ script, language, values, manual, setManual, onCopy, onPersona
           </span>
         </summary>
         <div className="flex flex-col gap-3 px-4 pb-4">
-          {script.notes ? <p className="m-0 text-xs text-ink-2">{script.notes}</p> : null}
+          {clarifier.question ? (
+            <div className="flex flex-col gap-2 rounded-inner border border-dashed border-line p-3">
+              <span className="text-xs font-medium text-ink-2">Спочатку напишіть питання, а скрипт нижче — після відповіді ліда</span>
+              <ScriptText text={clarifier.question} className="text-sm leading-relaxed" fill={fillNode(values, manual, setManual)} />
+              <div><Button variant="outline" size="sm" onClick={() => onCopyQuestion(script, question)}><Copy aria-hidden="true" strokeWidth={1.5} />Копіювати питання</Button></div>
+            </div>
+          ) : null}
+          {clarifier.rest ? <p className="m-0 whitespace-pre-line text-xs text-ink-2">{clarifier.rest}</p> : null}
           {text.trim() ? (
             <ScriptText text={text} className="text-sm leading-relaxed" fill={fillNode(values, manual, setManual)} />
           ) : <p className="m-0 text-sm text-ink-2">Для цієї мови тексту немає.</p>}
@@ -89,6 +101,7 @@ function Script({ script, language, values, manual, setManual, onCopy, onPersona
  */
 export function ScriptsTab({ detail, mutate }: { detail: LeadDetail; mutate: Mutation }) {
   const toast = useToast();
+  const { user } = useShell();
   const lead = detail.lead;
   const [language, setLanguage] = useState<Language>('uk');
   const [audience, setAudience] = useState<ScriptAudience>(lead.isStudent === 1 && detail.students.length === 0 ? 'student' : 'adult');
@@ -101,12 +114,13 @@ export function ScriptsTab({ detail, mutate }: { detail: LeadDetail; mutate: Mut
   const [today] = useState(() => businessDate(Math.floor(Date.now() / 1000)));
   const lessons = useMemo(() => bookedLessons(detail.lessons), [detail.lessons]);
   const lesson = useMemo(() => lessons.find((entry) => entry.id === lessonId) ?? defaultLesson(detail.lessons, today), [lessons, lessonId, detail.lessons, today]);
-  const values = useMemo(() => scriptValues({ name: lead.name, subject: lead.subject, isStudent: lead.isStudent }, lesson, detail.students, audience), [lead.name, lead.subject, lead.isStudent, lesson, detail.students, audience]);
+  const values = useMemo(() => scriptValues({ name: lead.name, subject: lead.subject, isStudent: lead.isStudent }, lesson, detail.students, audience, user.displayName), [lead.name, lead.subject, lead.isStudent, lesson, detail.students, audience, user.displayName]);
   const usedMap = useMemo(() => new Map((usedRemote.data?.used ?? []).map((entry) => [entry.itemId, entry])), [usedRemote.data]);
   const scripts = useMemo(() => rankLeadScripts(scriptsRemote.data?.items ?? [], {
     platform: lead.platform, subject: lead.subject, funnelStage: lead.funnelStage, qualification: lead.qualification, interest: lead.interest,
+    learner: learnerOf(lead.isStudent, detail.students.length),
     reminder: reminderKind(lesson, detail.serverNow), used: new Set(usedMap.keys()),
-  }), [scriptsRemote.data, lead.platform, lead.subject, lead.funnelStage, lead.qualification, lead.interest, lesson, detail.serverNow, usedMap]);
+  }, 120), [scriptsRemote.data, lead.platform, lead.subject, lead.funnelStage, lead.qualification, lead.interest, lead.isStudent, detail.students.length, lesson, detail.serverNow, usedMap]);
   const recommended = scripts.filter((script) => script.recommended).slice(0, 5);
   const rest = scripts.filter((script) => !recommended.includes(script));
   const archived = lead.archivedAt !== null;
@@ -132,6 +146,17 @@ export function ScriptsTab({ detail, mutate }: { detail: LeadDetail; mutate: Mut
       .catch(() => { /* відмітка не критична: копіювання вже відбулось */ });
   };
 
+  const copyQuestion = async (script: RankedLeadScript, text: string) => {
+    if (!text.trim()) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      toast.push({ message: 'Браузер не дозволив автоматичне копіювання.', tone: 'hot' });
+      return;
+    }
+    toast.push({ message: `${script.title}: питання скопійовано. Скрипт пишіть після відповіді ліда.` });
+  };
+
   const makePersonal = async (script: RankedLeadScript) => {
     try {
       const response = await fetch('/api/library', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'copy_personal', id: script.id }) });
@@ -155,7 +180,7 @@ export function ScriptsTab({ detail, mutate }: { detail: LeadDetail; mutate: Mut
 
   const list = (items: RankedLeadScript[]) => (
     <ul className="m-0 flex list-none flex-col gap-2 p-0">
-      {items.map((script) => <Script key={script.id} script={script} language={language} values={values} manual={manual} setManual={setField} onCopy={(item, text, missing) => void copy(item, text, missing)} onPersonal={(item) => void makePersonal(item)} lastUsed={usedMap.get(script.id)} />)}
+      {items.map((script) => <Script key={script.id} script={script} language={language} values={values} manual={manual} setManual={setField} onCopy={(item, text, missing) => void copy(item, text, missing)} onCopyQuestion={(item, text) => void copyQuestion(item, text)} onPersonal={(item) => void makePersonal(item)} lastUsed={usedMap.get(script.id)} />)}
     </ul>
   );
 

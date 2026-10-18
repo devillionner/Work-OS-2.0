@@ -44,7 +44,9 @@ export async function GET(request: Request): Promise<Response> {
   const cacheRequest=await revisionCacheRequest(env.DB,user.id,'library',`unicode-v2:${kind}:${collection}:${archived ? 1 : 0}:${search}:${today}`);
   const cached=await matchRevisionJson(cacheRequest);
   if(cached)return cached;
-  const libraryLimit=normalizedSearch?'':' LIMIT 200';
+  // Скриптів багато (після імпорту таблиці їх сотні), а підбір для ліда й сітка колекції потребують усіх: для них стеля вища.
+  const rowLimit=kind==='script'||collection==='official_script'||collection==='personal_script'||collection==='knowledge'?600:200;
+  const libraryLimit=normalizedSearch?'':` LIMIT ${rowLimit}`;
   const [itemsResult,usageResult,orderResult] = await env.DB.batch([
     env.DB.prepare(`SELECT id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,stage,branch,origin_id,template_key,archived_at,created_at,updated_at
       FROM library_items WHERE user_id=?1
@@ -71,7 +73,7 @@ export async function GET(request: Request): Promise<Response> {
     .filter(row=>!normalizedSearch
       ||unicodeSearchMatchesAny([row.title,row.uk_text,row.ru_text,row.notes,row.tags_json],normalizedSearch)
       ||subjectTerms.some(term=>unicodeSearchMatchesAny([row.tags_json],term)))
-    .slice(0,200);
+    .slice(0,rowLimit);
   const payload={ items: libraryRows.map(row=>publicItem(row,usageByAdvertisement.get(row.id)||[])), order, businessDate:today };
   await putRevisionJson(cacheRequest,payload,120);
   return Response.json(payload,{headers:{'Cache-Control':'no-store','X-Work-OS-Cache':'MISS'}});

@@ -37,13 +37,14 @@ export function reminderKind(lesson: ScriptLesson | null, now: number): 'day' | 
 }
 
 /** Значення полів скрипту з даних ліда й уроку; порожнє поле лишається порожнім (його можна дописати перед копіюванням). */
-export function scriptValues(lead: ScriptLead, lesson: ScriptLesson | null, students: readonly ScriptStudent[], audience: ScriptAudience): ScriptValues {
+export function scriptValues(lead: ScriptLead, lesson: ScriptLesson | null, students: readonly ScriptStudent[], audience: ScriptAudience, operator = ''): ScriptValues {
   const byId = lesson?.studentId ? students.find((student) => student.id === lesson.studentId)?.name : '';
   const student = (lesson?.studentName?.trim() || byId || (students.length === 1 ? students[0].name : '') || (lead.isStudent === 1 ? lead.name : '')).trim();
   const adult = lead.name.trim();
   const addressee = audience === 'student' ? student || adult : adult || student;
   return {
     addressee, student, adult,
+    administrator: operator.trim(),
     subject: lesson?.subject?.trim() || lead.subject.trim(),
     lessonDate: lessonDateLabel(lesson?.lessonDate),
     lessonTime: lesson?.lessonTime ?? '',

@@ -17,6 +17,15 @@ export type LeadScriptItem = {
   templateKey?: string | null;
 };
 
+/** Мітки аудиторії скрипту — звичайні теги: хто вчиться, дитина чи дорослий. */
+export const AUDIENCE_TAGS = { child: 'Дитина', adult: 'Дорослий' } as const;
+export type Learner = 'child' | 'adult';
+
+/** Хто вчиться: є учні при ліді — дитина; лід сам учень і учнів немає — дорослий; інакше невідомо. */
+export function learnerOf(isStudent: number, studentCount: number): Learner | null {
+  return studentCount > 0 ? 'child' : isStudent === 1 ? 'adult' : null;
+}
+
 export type LeadScriptContext = {
   platform: string;
   subject: string;
@@ -24,6 +33,8 @@ export type LeadScriptContext = {
   qualification: string | null;
   /** Інтерес ліда (гілка розмови). */
   interest?: string;
+  /** Хто вчиться (див. learnerOf): скрипт для іншої аудиторії не рекомендується. */
+  learner?: Learner | null;
   /** Найближчий урок ліда: за добу (`day`), за годину (`hour`) чи далі (`null`): обирає шаблон нагадування. */
   reminder?: 'day' | 'hour' | null;
   used?: ReadonlySet<string>;
@@ -38,6 +49,21 @@ export type RankedLeadScript = LeadScriptItem & {
 };
 
 const normalize = (value: string) => value.trim().toLocaleLowerCase('uk-UA');
+
+// Напрями скриптів, яких немає серед стандартних предметів Work OS (їх не додаємо до списку предметів ліда й оголошень):
+// ставляться тегом скрипту й порівнюються з предметом ліда за назвою чи псевдонімом.
+const SCRIPT_DIRECTIONS: ReadonlyArray<{ name: string; aliases: readonly string[] }> = [
+  { name: 'Дошкільна підготовка', aliases: ['дошкільна', 'підготовка до школи', 'дошкільна підготовка'] },
+  { name: 'Soft Skills', aliases: ['soft skills', 'soft skill', 'софт скілс', 'софт скіл', 'софт скілл', 'софт-скіл', 'мʼякі навички'] },
+];
+
+/** Напрям за назвою: стандартний предмет Work OS або один із додаткових напрямів скриптів; інакше `null`. */
+function directionOf(value: string): string | null {
+  const known = canonicalKnownSubject(value);
+  if (known) return known;
+  const key = normalize(value);
+  return SCRIPT_DIRECTIONS.find((direction) => normalize(direction.name) === key || direction.aliases.includes(key))?.name ?? null;
+}
 const tokens = (value: string) => normalize(value).split(/[^\p{L}\p{N}]+/u).filter((token) => token.length > 1);
 const containsAny = (haystack: Set<string>, needles: string[]) => needles.some((needle) => haystack.has(needle));
 
@@ -48,7 +74,7 @@ const containsAny = (haystack: Set<string>, needles: string[]) => needles.some((
 export function rankLeadScripts(items: LeadScriptItem[], context: LeadScriptContext, limit = 40): RankedLeadScript[] {
   const platform = normalize(context.platform);
   const subjectTokens = tokens(context.subject);
-  const leadSubject = canonicalKnownSubject(context.subject);
+  const leadSubject = directionOf(context.subject);
   const qualification = normalize(context.qualification ?? '');
   const interest = normalize(context.interest ?? '');
   const hasPersonalCopy = new Set(items.flatMap((item) => (item.originId ? [item.originId] : [])));
@@ -67,9 +93,10 @@ export function rankLeadScripts(items: LeadScriptItem[], context: LeadScriptCont
         if (item.stage === context.funnelStage) { score += 12; match = true; } else score -= 6;
       }
 
-      const directions = item.tags.map((tag) => canonicalKnownSubject(tag)).filter((tag): tag is NonNullable<typeof tag> => tag !== null);
+      const directions = item.tags.map((tag) => directionOf(tag)).filter((tag): tag is string => tag !== null);
+      let subjectMismatch = false;
       if (directions.length && leadSubject) {
-        if (directions.includes(leadSubject)) { score += 10; match = true; } else score -= 6;
+        if (directions.includes(leadSubject)) { score += 10; match = true; } else { score -= 6; subjectMismatch = true; }
       } else if (subjectTokens.length && containsAny(searchable, subjectTokens)) score += 6;
       if (qualification && searchable.has(qualification)) score += 3;
 
@@ -82,6 +109,12 @@ export function rankLeadScripts(items: LeadScriptItem[], context: LeadScriptCont
         const wanted = item.templateKey === 'reminder_day' ? 'day' : 'hour';
         if (context.reminder === wanted) { score += 10; match = true; } else score -= context.reminder ? 8 : 6;
       }
+      let audienceMismatch = false;
+      const itemTags = new Set(item.tags.map(normalize));
+      const scriptLearner: Learner | null = itemTags.has(normalize(AUDIENCE_TAGS.child)) ? 'child' : itemTags.has(normalize(AUDIENCE_TAGS.adult)) ? 'adult' : null;
+      if (scriptLearner && context.learner) {
+        if (scriptLearner === context.learner) score += 4; else { score -= 10; audienceMismatch = true; }
+      }
       if (hasPersonalCopy.has(item.id)) score -= 3;
       const used = context.used?.has(item.id) ?? false;
       if (used) score -= 4;
@@ -90,7 +123,7 @@ export function rankLeadScripts(items: LeadScriptItem[], context: LeadScriptCont
       const audience = item.collection
         ? item.collection === 'personal_script' ? 'personal' : 'work'
         : item.tags.some((tag) => personalTags.has(normalize(tag))) ? 'personal' : 'work';
-      return { ...item, score, audience, recommended: match && score >= 10, used };
+      return { ...item, score, audience, recommended: match && score >= 10 && !audienceMismatch && !subjectMismatch, used };
     })
     .filter((item): item is RankedLeadScript => item !== null)
     .sort((a, b) => b.score - a.score || b.updatedAt - a.updatedAt || a.title.localeCompare(b.title, 'uk'))
