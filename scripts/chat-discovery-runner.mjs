@@ -825,6 +825,24 @@ function sendLive(ws,message){
   if(ws&&ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(message));
 }
 
+// Результат автопосту не можна губити: публікація вже могла відбутись. Тому він іде через актуальне з'єднання (те, що було
+// під час отримання задачі, могло обірватись), а коли зв'язку немає, чекає на перепідключення. Останні результати
+// пам'ятаємо, щоб задачу, яку DO видав удруге, не виконувати знову, а лише повторити її результат.
+const AUTOPOST_RESULT_KEEP_MS=30*60_000;
+const pendingLive=[];
+const autopostResults=new Map();
+const autopostActive=new Set();
+function sendReliable(message){
+  if(liveWs&&liveWs.readyState===WebSocket.OPEN){liveWs.send(JSON.stringify(message));return;}
+  pendingLive.push(message);
+  console.warn(`Work OS live channel недоступний: результат ${message.jobId||''} чекає на перепідключення.`);
+}
+function sendAutopostResult(message){
+  for(const [jobId,item] of autopostResults)if(Date.now()-item.at>AUTOPOST_RESULT_KEEP_MS)autopostResults.delete(jobId);
+  autopostResults.set(message.jobId,{message,at:Date.now()});
+  sendReliable(message);
+}
+
 // The per-process backoff before asking the DO for the next task after a release: at least as long as
 // any global WhatsApp-runtime cooldown just set, and at least as long as a given candidate's own local
 // cooldown (Discovery only) — otherwise the DO would immediately redispatch the same blocked item.
@@ -836,7 +854,7 @@ function scheduleReady(taskProcess,candidateUntilMs=0){
 // errorCode (лише autopost): тимчасова помилка самої задачі, сервер рахує спробу. Без коду це проблема середовища, не задачі.
 function releaseTask(ws,taskProcess,task,candidateUntilMs=0,errorCode=''){
   if(taskProcess==='waiting_check')sendLive(ws,{type:'release',process:taskProcess,batchId:task.batchId,chatId:task.chatId});
-  else if(taskProcess==='autopost')sendLive(ws,{type:'release',process:taskProcess,jobId:task.jobId,...(errorCode?{errorCode}:{})});
+  else if(taskProcess==='autopost')sendLive(liveWs,{type:'release',process:taskProcess,jobId:task.jobId,...(errorCode?{errorCode}:{})});
   else if(taskProcess==='discovery')sendLive(ws,{type:'release',process:taskProcess,candidateId:task.candidateId});
   scheduleReady(taskProcess,candidateUntilMs);
 }
@@ -911,7 +929,7 @@ async function checkViberStatus(){
 function abandonCancelledAutopost(ws,job){
   cancelledAutopostJobs.delete(job.jobId);
   console.log(`Autopost job for ${job.target?.expectedName||'chat'} was cancelled before it started.`);
-  sendLive(ws,{type:'result',process:'autopost',jobId:job.jobId,status:'failed',
+  sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',
     observedTarget:job.target?.expectedName,targetVerified:false,sendConfirmed:false,errorCode:'cancelled'});
 }
 
@@ -930,7 +948,7 @@ async function handleViberAutopostTask(ws,job){
   const reason=String(result.reason||'');
   if(result.status==='sent'){
     reportViberStatus(ws,'ready');
-    sendLive(ws,{type:'result',process:'autopost',jobId:job.jobId,status:'sent',
+    sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'sent',
       observedTarget:result.observedTarget||job.target?.expectedName,targetVerified:true,sendConfirmed:true});
     console.log(`Confirmed Viber autopost accepted by Work OS for ${job.target?.expectedName}${result.timings?` (${result.timings})`:''}.`);
     return;
@@ -944,11 +962,17 @@ async function handleViberAutopostTask(ws,job){
     return;
   }
   reportViberStatus(ws,'ready');
-  sendLive(ws,{type:'result',process:'autopost',jobId:job.jobId,status:'failed',
+  sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',
     observedTarget:job.target?.expectedName,targetVerified:result.severity==='after',sendConfirmed:false,errorCode:reason||'adapter_failed'});
 }
 
 async function handleAutopostTask(ws,job){
+  autopostActive.add(job.jobId);
+  try{await handleAutopostTaskNow(ws,job);}
+  finally{autopostActive.delete(job.jobId);}
+}
+
+async function handleAutopostTaskNow(ws,job){
   if(cancelledAutopostJobs.has(job.jobId)){abandonCancelledAutopost(ws,job);return;}
   if(job.kind==='viber_android')return handleViberAutopostTask(ws,job);
   if(!whatsappCdp){
@@ -986,7 +1010,7 @@ async function handleAutopostTask(ws,job){
   if(automated.kind==='result'&&automated.result.sendConfirmed===true){
     clearWhatsappRuntimeBlock();
     const observedTarget=automated.result.observedTarget||job.target?.expectedName;
-    sendLive(ws,{type:'result',process:'autopost',jobId:job.jobId,status:'sent',
+    sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'sent',
       observedTarget,targetVerified:true,sendConfirmed:true});
     console.log(`Confirmed WhatsApp autopost accepted by Work OS for ${observedTarget}.`);
     return;
@@ -1004,7 +1028,7 @@ async function handleAutopostTask(ws,job){
     releaseTask(ws,'autopost',job,Date.now()+WHATSAPP_AUTOPOST_RETRY_COOLDOWN_MS,automated.reason);
     return;
   }
-  sendLive(ws,{type:'result',process:'autopost',jobId:job.jobId,status:'failed',
+  sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',
     observedTarget:job.target?.expectedName,targetVerified:false,sendConfirmed:false,errorCode:automated.reason});
 }
 
@@ -1102,6 +1126,19 @@ function onLiveMessage(ws,raw){
   }
   if(message.type==='task'&&['waiting_check','autopost','discovery'].includes(message.process)){
     const task=message.task||{};
+    if(message.process==='autopost'&&task.jobId){
+      const jobId=String(task.jobId);
+      const finished=autopostResults.get(jobId);
+      if(autopostActive.has(jobId)||incomingTaskQueue.some((item)=>item.taskProcess==='autopost'&&item.task?.jobId===jobId)){
+        console.log(`Задача ${jobId} уже виконується або чекає в черзі: дубль проігноровано.`);
+        return;
+      }
+      if(finished){
+        console.log(`Задача ${jobId} уже виконана (${finished.message.status}): повторюю результат, а не виконую знову.`);
+        sendReliable(finished.message);
+        return;
+      }
+    }
     console.log(`Отримано задачу ${message.process}${task.kind?` (${task.kind})`:''} ${task.jobId||task.batchId||task.candidateId||''}; у черзі ${incomingTaskQueue.length}, зайнятий: ${processingTask?'так':'ні'}.`);
     enqueueTask(ws,message.process,message.task);
     return;
@@ -1184,6 +1221,7 @@ function connectLiveChannel(){
     wsReconnectDelayMs=WS_RECONNECT_MIN_MS;
     console.log('Connected to the Work OS live channel.');
     setStatus('ready','Готовий: підключено до Work OS');
+    while(pendingLive.length)ws.send(JSON.stringify(pendingLive.shift()));
     setTimeout(()=>{void checkViberStatus();},1500);
     keepalive=setInterval(()=>{
       // A ping still unanswered a whole interval later means a half-open socket (sleep, network

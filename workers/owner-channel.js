@@ -31,6 +31,7 @@ import {
 import {
   claimWhatsAppAutopostJob,
   completeWhatsAppAutopostJob,
+  releaseClaimedAutopostJobs,
   releaseWhatsAppAutopostJob,
 } from '../lib/messenger-automation.ts';
 import { readDiscoveryExecutorQueue, completeDiscoveryExternalLeave } from '../lib/chat-discovery/executor.ts';
@@ -77,6 +78,8 @@ const AUTOPOST_LEASE_SECONDS = 600;
 /** Скільки останніх рішень про видачу автопосту DO пам'ятає й показує runner після підключення. */
 const AUTOPOST_TRACE_LIMIT = 40;
 const AUTOPOST_TRACE_REPLAY = 15;
+/** Подія, що тримає чергу обробників довше за це, не блокує наступні (D1 міг не відповісти). */
+const SERIAL_MAX_WAIT_MS = 60_000;
 const PING = JSON.stringify({ type: 'ping' });
 const PONG = JSON.stringify({ type: 'pong' });
 
@@ -92,6 +95,8 @@ export class OwnerChannel {
   constructor(ctx, env) {
     this.ctx = ctx;
     this.env = env;
+    /** Черга обробників подій: кожен читає стан, чекає D1 і пише його назад (див. serial). */
+    this.chain = Promise.resolve();
     // Hibernation-safe auto-response: a bare ping/pong never wakes the DO or runs JS.
     // WebSocketRequestResponsePair only exists in the real Workers runtime; tests exercise the
     // message-routing methods directly with a mock ctx that doesn't need it.
@@ -100,8 +105,30 @@ export class OwnerChannel {
     }
   }
 
+  /**
+   * Усі події (HTTP, повідомлення, закриття, будильник) виконуються по черзі. Кожен обробник читає стан DO, чекає
+   * D1 і пише стан назад; без черги події, що перетинались у часі, затирали одна одній зміни (2026-10-18: задача
+   * автопосту лишилась `claimed` у D1, а DO «забув» про неї — Viber не стартував). Подія, що завислa довше за
+   * SERIAL_MAX_WAIT_MS, наступні не блокує.
+   * @template T
+   * @param {() => Promise<T>} work
+   * @returns {Promise<T>}
+   */
+  serial(work) {
+    const run = this.chain.then(work);
+    let timer;
+    const cap = new Promise((resolve) => { timer = setTimeout(resolve, SERIAL_MAX_WAIT_MS); timer?.unref?.(); });
+    this.chain = Promise.race([run.then(() => {}, () => {}), cap]).then(() => clearTimeout(timer));
+    return run;
+  }
+
   /** @param {Request} request */
-  async fetch(request) {
+  fetch(request) {
+    return this.serial(() => this.handleFetch(request));
+  }
+
+  /** @param {Request} request */
+  async handleFetch(request) {
     const url = new URL(request.url);
     const userId = url.searchParams.get('userId') || '';
 
@@ -306,7 +333,15 @@ export class OwnerChannel {
    * @param {WebSocket} ws
    * @param {string|ArrayBuffer} raw
    */
-  async webSocketMessage(ws, raw) {
+  webSocketMessage(ws, raw) {
+    return this.serial(() => this.handleSocketMessage(ws, raw));
+  }
+
+  /**
+   * @param {WebSocket} ws
+   * @param {string|ArrayBuffer} raw
+   */
+  async handleSocketMessage(ws, raw) {
     if (typeof raw !== 'string') return;
     let message;
     try { message = JSON.parse(raw); } catch { return; }
@@ -422,6 +457,16 @@ export class OwnerChannel {
     /** @type {string[]} */
     const notes = [];
     const flush = () => { for (const note of notes) this.autopostTrace(state, note); };
+    if (!state.autopostCurrentJobId) {
+      // Стан DO міг загубитись, а рядок `claimed` у D1 лишився: така задача не повинна ні блокувати чергу мовчки, ні видаватись удруге.
+      const claimed = await this.env.DB.prepare(`SELECT id,updated_at FROM whatsapp_autopost_jobs WHERE user_id=?1 AND status='claimed' ORDER BY updated_at LIMIT 1`)
+        .bind(state.userId).first();
+      if (claimed) {
+        state.autopostCurrentJobId = String(claimed.id);
+        state.autopostClaimedAt = Number(claimed.updated_at) * 1000;
+        this.autopostTrace(state, `видача: у D1 є задача ${claimed.id} у роботі, якої DO не пам'ятав`, false);
+      }
+    }
     if (state.autopostCurrentJobId && !(await this.forgetStaleAutopostJob(state))) {
       this.autopostTrace(state, `видача: задача ${state.autopostCurrentJobId} ще в роботі (runner: ${runners})`);
       return;
@@ -484,11 +529,24 @@ export class OwnerChannel {
     return true;
   }
 
+  /**
+   * Чи задача досі `claimed` у D1. Результат і повернення від runner приймаємо за цим, а не за полем DO: після обриву зв'язку
+   * runner звітує вже з нового з'єднання, а поле могло бути очищене.
+   * @param {string} userId
+   * @param {string} jobId
+   */
+  async isClaimedAutopostJob(userId, jobId) {
+    if (typeof jobId !== 'string' || !jobId) return false;
+    const row = await this.env.DB.prepare('SELECT status FROM whatsapp_autopost_jobs WHERE id=?1 AND user_id=?2 LIMIT 1').bind(jobId, userId).first();
+    return Boolean(row && row.status === 'claimed');
+  }
+
   /** @param {{jobId:string; status:string; observedTarget?:string; targetVerified?:boolean; sendConfirmed?:boolean; errorCode?:string}} message */
   async handleAutopostResult(message) {
     const state = await this.readState();
-    if (!state.userId || state.autopostCurrentJobId !== message.jobId) {
-      // Результат без відповідної видачі нічого не змінює; лишається слід, бо «sent» тут означав би публікацію без запису.
+    if (!state.userId) return;
+    if (state.autopostCurrentJobId !== message.jobId && !(await this.isClaimedAutopostJob(state.userId, message.jobId))) {
+      // Результат для задачі, якої вже немає в роботі, нічого не змінює; лишається слід, бо «sent» тут означав би публікацію без запису.
       this.autopostTrace(state, `результат: ${message.status}${message.errorCode ? ` (${message.errorCode})` : ''} для ${message.jobId} проігноровано, у роботі ${state.autopostCurrentJobId ?? 'нічого'}`, false);
       await this.writeState(state);
       return;
@@ -513,7 +571,8 @@ export class OwnerChannel {
   /** @param {{jobId:string; errorCode?:string}} message */
   async handleAutopostRelease(message) {
     const state = await this.readState();
-    if (!state.userId || state.autopostCurrentJobId !== message.jobId) {
+    if (!state.userId) return;
+    if (state.autopostCurrentJobId !== message.jobId && !(await this.isClaimedAutopostJob(state.userId, message.jobId))) {
       this.autopostTrace(state, `повернення: ${message.jobId} проігноровано, у роботі ${state.autopostCurrentJobId ?? 'нічого'}`, false);
       await this.writeState(state);
       return;
@@ -607,7 +666,12 @@ export class OwnerChannel {
    * @param {string} _reason
    * @param {boolean} _wasClean
    */
-  async webSocketClose(ws, _code, _reason, _wasClean) {
+  webSocketClose(ws, _code, _reason, _wasClean) {
+    return this.serial(() => this.handleSocketClose(ws));
+  }
+
+  /** @param {WebSocket} ws */
+  async handleSocketClose(ws) {
     // Complete the close handshake from our side too (harmless if it is already closed).
     try { ws.close(1000, 'closed'); } catch { /* already closed */ }
     if (this.tagsOf(ws).includes('runner') && this.openRunnerCount(ws) === 0) {
@@ -618,7 +682,11 @@ export class OwnerChannel {
   }
 
   // Alarm: re-check runner liveness by ping times while a runner is believed connected.
-  async alarm() {
+  alarm() {
+    return this.serial(() => this.handleAlarm());
+  }
+
+  async handleAlarm() {
     const state = await this.readState();
     if (state.runnerOnline && this.openRunnerCount() === 0) await this.markRunnerOffline(state);
     if (state.discoveryRunWakeAt && state.discoveryRunWakeAt <= Date.now()) {
@@ -914,11 +982,15 @@ export class OwnerChannel {
   async releaseOrphanedTasks(state) {
     // The runner's connection is the only ownership proof an autopost claim has — losing it
     // means whatever job was in flight must go back to 'pending' instead of waiting on a timeout.
-    if (state.autopostCurrentJobId && state.userId) {
-      await releaseWhatsAppAutopostJob(this.env.DB, state.userId, state.autopostCurrentJobId, nowSeconds());
-      this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: state.autopostCurrentJobId, status: 'released' });
+    if (state.userId) {
+      // Не лише задача, яку DO пам'ятає: рядок `claimed` у D1 без відкритого runner нікому не належить, хоч би що лежало в стані.
+      const released = await releaseClaimedAutopostJobs(this.env.DB, state.userId, nowSeconds());
+      if (state.autopostCurrentJobId && !released.includes(state.autopostCurrentJobId)) released.push(state.autopostCurrentJobId);
+      for (const jobId of released) this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId, status: 'released' });
+      if (released.length) this.autopostTrace(state, `runner відсутній: повернено в чергу ${released.length} задач (${released.join(', ')})`, false);
     }
     state.autopostCurrentJobId = null;
+    state.autopostClaimedAt = undefined;
     // Discovery's task was never written to D1, so losing the connection just means forgetting it
     // here — the next dispatch reads D1 fresh and finds it again.
     state.discoveryCurrentTask = null;
@@ -937,8 +1009,8 @@ export class OwnerChannel {
    * @param {WebSocket} ws
    * @param {unknown} _error
    */
-  async webSocketError(ws, _error) {
-    await this.webSocketClose(ws, 1011, 'error', false);
+  webSocketError(ws, _error) {
+    return this.serial(() => this.handleSocketClose(ws));
   }
 
   /**

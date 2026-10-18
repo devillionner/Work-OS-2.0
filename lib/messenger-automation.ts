@@ -595,6 +595,13 @@ export async function releaseWhatsAppAutopostJob(db:D1Database,userId:string,job
   return settled.outcome==='retry';
 }
 
+// Усі задачі власника, що висять `claimed`: runner, який їх узяв, зник (обрив, перезапуск), і результату вже не буде.
+export async function releaseClaimedAutopostJobs(db:D1Database,userId:string,now:number):Promise<string[]>{
+  const result=await db.prepare(`UPDATE whatsapp_autopost_jobs SET status='pending',updated_at=?1
+    WHERE user_id=?2 AND status='claimed' RETURNING id`).bind(now,userId).all<{id:string}>();
+  return result.results.map((row)=>row.id);
+}
+
 export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,input:{
   jobId:unknown;status:unknown;observedTarget:unknown;targetVerified:unknown;sendConfirmed:unknown;errorCode?:unknown;
 },now:number){
