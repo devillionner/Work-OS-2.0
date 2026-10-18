@@ -1,8 +1,8 @@
 // Автопост у Viber через Android у Waydroid: runner керує застосунком Viber за допомогою `adb` (uiautomator, input, am).
-// Waydroid і Viber запускає оператор; runner лише перевіряє, що вони готові. Контракт відповіді той самий, що був у
+// Waydroid піднімається сам, коли сесія не запущена або Android завис (`connect`); Viber запускається на початку кожної відправки. Контракт відповіді той самий, що був у
 // Linux-помічника: { status: 'ready'|'sent'|'skipped'|'failed', reason, severity: 'env'|'before'|'after', detail }.
 // Принцип: усе, що неоднозначне, закінчується без відправки; після натискання «Send» ніщо не повторюється.
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -206,21 +206,88 @@ class Android {
   }
 }
 
-async function connect() {
-  if ((await run('adb', ['version'], { timeout: 8000 })).error?.code === 'ENOENT') throw new ViberStop('adb_missing', 'env');
-  const state = await waydroidState();
-  if (state.session !== 'RUNNING') throw new ViberStop('waydroid_not_running', 'env');
-  if (state.container !== 'RUNNING') throw new ViberStop(state.container === 'FROZEN' ? 'waydroid_frozen' : 'waydroid_not_running', 'env', state.container);
-  if (!state.ip) throw new ViberStop('android_unreachable', 'env', 'no ip');
+const WAYDROID_BOOT_MS = 120_000;
+const WAYDROID_RESTART_GAP_MS = 5 * 60 * 1000;
+let lastWaydroidRestartAt = 0;
+let connecting = null;
+
+/** `waydroid session start` живе, поки живе сесія, тому запускається окремим процесом, який не залежить від runner. */
+function startWaydroidSession() {
+  const child = spawn('waydroid', ['session', 'start'], { detached: true, stdio: 'ignore' });
+  child.on('error', () => {});
+  child.unref();
+}
+
+async function waitWaydroidRunning(timeout) {
+  const end = Date.now() + timeout;
+  for (;;) {
+    const state = await waydroidState();
+    if (state.session === 'RUNNING' && state.container === 'RUNNING' && state.ip) return state;
+    if (Date.now() >= end) return null;
+    await sleep(2000);
+  }
+}
+
+/** Зупиняє (якщо сесія ще є) і запускає сесію Waydroid; повертає її стан, коли контейнер знову RUNNING. */
+async function restartWaydroid(stopFirst) {
+  lastWaydroidRestartAt = Date.now();
+  cachedAndroid = null;
+  environmentOkAt = 0;
+  if (stopFirst) {
+    await run('waydroid', ['session', 'stop'], { timeout: 60_000 });
+    await sleep(2000);
+  }
+  startWaydroidSession();
+  return waitWaydroidRunning(WAYDROID_BOOT_MS);
+}
+
+/** adb до Android за адресою контейнера; null — Android не відповідає (сесія RUNNING, але гість завис або ще вантажиться). */
+async function reachAndroid(state, timeout) {
   const serial = `${state.ip}:5555`;
-  await run('adb', ['connect', serial], { timeout: 12_000 });
-  const devices = await run('adb', ['devices'], { timeout: 8000 });
-  const line = String(devices.stdout).split('\n').find((row) => row.startsWith(serial)) || '';
-  if (/unauthorized/.test(line)) throw new ViberStop('android_unauthorized', 'env');
-  if (!/\bdevice\b/.test(line)) throw new ViberStop('android_unreachable', 'env', line.trim());
-  cachedAndroid = new Android(serial);
+  const end = Date.now() + timeout;
+  for (;;) {
+    await run('adb', ['connect', serial], { timeout: 12_000 });
+    const devices = await run('adb', ['devices'], { timeout: 8000 });
+    const line = String(devices.stdout).split('\n').find((row) => row.startsWith(serial)) || '';
+    if (/unauthorized/.test(line)) throw new ViberStop('android_unauthorized', 'env');
+    if (/\bdevice\b/.test(line)) {
+      const android = new Android(serial);
+      const booted = (await android.sh('getprop sys.boot_completed', { timeout: 8000 })).trim();
+      if (booted === '1') return android;
+    }
+    if (Date.now() >= end) return null;
+    await sleep(3000);
+  }
+}
+
+async function connectNow() {
+  if ((await run('adb', ['version'], { timeout: 8000 })).error?.code === 'ENOENT') throw new ViberStop('adb_missing', 'env');
+  let state = await waydroidState();
+  const healthy = (value) => value.session === 'RUNNING' && value.container === 'RUNNING' && value.ip;
+  if (!healthy(state)) {
+    // Сесії немає (після перезавантаження ПК) або контейнер заморожений: піднімаємо самі, але не частіше за раз на кілька хвилин.
+    if (Date.now() - lastWaydroidRestartAt < WAYDROID_RESTART_GAP_MS) throw new ViberStop(state.container === 'FROZEN' ? 'waydroid_frozen' : 'waydroid_not_running', 'env', state.container);
+    state = await restartWaydroid(state.session === 'RUNNING' || state.container === 'FROZEN');
+    if (!state) throw new ViberStop('waydroid_not_running', 'env', 'не вдалося запустити сесію');
+  }
+  let android = await reachAndroid(state, lastWaydroidRestartAt && Date.now() - lastWaydroidRestartAt < WAYDROID_BOOT_MS ? 90_000 : 15_000);
+  if (!android) {
+    // Сесія RUNNING, а Android не відповідає (2026-10-18: «No route to host», ARP не відповідав): один перезапуск сесії.
+    if (Date.now() - lastWaydroidRestartAt < WAYDROID_RESTART_GAP_MS) throw new ViberStop('android_unreachable', 'env', 'Android не відповідає');
+    state = await restartWaydroid(true);
+    if (!state) throw new ViberStop('waydroid_not_running', 'env', 'не вдалося запустити сесію');
+    android = await reachAndroid(state, 90_000);
+    if (!android) throw new ViberStop('android_unreachable', 'env', 'Android не відповідає після перезапуску');
+  }
+  cachedAndroid = android;
   cachedAt = Date.now();
   return cachedAndroid;
+}
+
+/** Одночасні перевірки (щохвилинний статус і відправка) ділять одне підключення, щоб не запускати Waydroid двічі. */
+function connect() {
+  connecting ??= connectNow().finally(() => { connecting = null; });
+  return connecting;
 }
 
 /** Між відправками партії те саме з'єднання живе ≈1,5 хв: достатньо коротко перевірити, що воно відповідає. */

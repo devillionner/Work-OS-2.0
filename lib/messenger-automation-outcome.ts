@@ -138,9 +138,9 @@ export async function resolveAutopostDecision(
   } else if (input.decision === 'snooze') {
     if (!await snoozeUntilTomorrow(db, userId, job.chat_id, now)) return { ok: false, error: 'Чат уже не в черзі публікації. Оновіть список.' };
   }
-  const updated = await db.prepare(`UPDATE whatsapp_autopost_jobs SET outcome='resolved',updated_at=?1 WHERE id=?2 AND user_id=?3 AND outcome='needs_decision'`)
-    .bind(now, job.id, userId).run();
-  if (Number(updated.meta.changes || 0) !== 1) return { ok: false, error: 'Це рішення вже прийнято. Оновіть список.' };
+  const updated = await db.prepare(`UPDATE whatsapp_autopost_jobs SET outcome='resolved',updated_at=?1 WHERE id=?2 AND user_id=?3 AND outcome='needs_decision' RETURNING id`)
+    .bind(now, job.id, userId).all<{ id: string }>();
+  if (updated.results.length !== 1) return { ok: false, error: 'Це рішення вже прийнято. Оновіть список.' };
   return { ok: true, chatId: job.chat_id };
 }
 

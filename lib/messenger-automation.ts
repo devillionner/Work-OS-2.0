@@ -445,8 +445,8 @@ export async function readActiveWhatsAppAutopostJob(db:D1Database,userId:string,
 export async function cancelWhatsAppAutopostJob(db:D1Database,userId:string,jobId:string,now:number){
   const result=await db.prepare(`UPDATE whatsapp_autopost_jobs
     SET status='cancelled',active_key=NULL,updated_at=?1,completed_at=?1
-    WHERE id=?2 AND user_id=?3 AND status IN ('pending','claimed')`).bind(now,jobId,userId).run();
-  if(Number(result.meta.changes||0)!==1)throw new MessengerAutomationError('Autopost уже завершено.',409);
+    WHERE id=?2 AND user_id=?3 AND status IN ('pending','claimed') RETURNING id`).bind(now,jobId,userId).all<{id:string}>();
+  if(result.results.length!==1)throw new MessengerAutomationError('Autopost уже завершено.',409);
   return {ok:true};
 }
 
@@ -496,8 +496,8 @@ export async function readWhatsAppAutopostProgress(db:D1Database,userId:string,d
 export async function resetWhatsAppAutopostQueue(db:D1Database,userId:string,date:string,platform:AutopostPlatform='whatsapp'){
   const result=await db.prepare(`DELETE FROM whatsapp_autopost_jobs
     WHERE user_id=?1 AND published_on=?2 AND status!='sent'
-      AND chat_id IN (SELECT id FROM chats WHERE user_id=?1 AND platform=?3)`).bind(userId,date,platform).run();
-  return {removed:Number(result.meta.changes||0)};
+      AND chat_id IN (SELECT id FROM chats WHERE user_id=?1 AND platform=?3) RETURNING id`).bind(userId,date,platform).all<{id:string}>();
+  return {removed:result.results.length};
 }
 
 /** Operator pressed «Зупинити»: every job of today's batch that has not been sent yet is cancelled. */
@@ -505,8 +505,8 @@ export async function cancelWhatsAppAutopostBatch(db:D1Database,userId:string,da
   const result=await db.prepare(`UPDATE whatsapp_autopost_jobs
     SET status='cancelled',active_key=NULL,updated_at=?1,completed_at=?1
     WHERE user_id=?2 AND published_on=?3 AND status IN ('pending','claimed')
-      AND chat_id IN (SELECT id FROM chats WHERE user_id=?2 AND platform=?4)`).bind(now,userId,date,platform).run();
-  return {cancelled:Number(result.meta.changes||0)};
+      AND chat_id IN (SELECT id FROM chats WHERE user_id=?2 AND platform=?4) RETURNING id`).bind(now,userId,date,platform).all<{id:string}>();
+  return {cancelled:result.results.length};
 }
 
 export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:number,onSkip?:(row:WhatsAppAutopostRow,reason:string)=>void):Promise<WhatsAppAutopostTask|null>{
@@ -552,10 +552,11 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
       await failWhatsAppAutopostJob(db,userId,row,'stale_precondition',now);
       continue;
     }
+    // Рахуємо повернені рядки, а не `meta.changes`: D1 додає до нього рядки, які пишуть тригери лічильників (0050), і «1» ніколи не виходило.
     const claimed=await db.prepare(`UPDATE whatsapp_autopost_jobs
-      SET status='claimed',updated_at=?1 WHERE id=?2 AND user_id=?3 AND status='pending'`)
-      .bind(now,row.id,userId).run();
-    if(Number(claimed.meta.changes||0)!==1)continue;
+      SET status='claimed',updated_at=?1 WHERE id=?2 AND user_id=?3 AND status='pending' RETURNING id`)
+      .bind(now,row.id,userId).all<{id:string}>();
+    if(claimed.results.length!==1)continue;
     // Фото одне на обидві платформи (його оператор додає на вкладці автопоста WhatsApp); підпис Viber бере з Бібліотеки.
     const image=await readWhatsAppAutopostImage(db,userId,true);
     const progress=await readWhatsAppAutopostProgress(db,userId,row.published_on,platform||'whatsapp');
@@ -583,9 +584,9 @@ export async function releaseWhatsAppAutopostJob(db:D1Database,userId:string,job
   // Без коду: проблема середовища, а не задачі (runner не готовий, зв'язок обірвався), спроба не рахується.
   if(!errorCode){
     const result=await db.prepare(`UPDATE whatsapp_autopost_jobs
-      SET status='pending',updated_at=?1 WHERE id=?2 AND user_id=?3 AND status='claimed'`)
-      .bind(now,jobId,userId).run();
-    return Number(result.meta.changes||0)===1;
+      SET status='pending',updated_at=?1 WHERE id=?2 AND user_id=?3 AND status='claimed' RETURNING id`)
+      .bind(now,jobId,userId).all<{id:string}>();
+    return result.results.length===1;
   }
   // З кодом: тимчасова помилка саме цієї задачі, до MAX_AUTOPOST_ATTEMPTS спроб, далі пропуск на сьогодні.
   const row=await readWhatsAppAutopostRow(db,userId,jobId);
@@ -652,9 +653,9 @@ export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,in
   const result={requestedStatus:'sent',observedTarget,targetVerified:true,sendConfirmed:true,errorCode:null,publicationId:publication.publicationId};
   const update=await db.prepare(`UPDATE whatsapp_autopost_jobs
     SET status='sent',active_key=NULL,publication_id=?1,result_json=?2,updated_at=?3,completed_at=?3
-    WHERE id=?4 AND user_id=?5 AND status='claimed'`)
-    .bind(publication.publicationId,JSON.stringify(result),now,jobId,userId).run();
-  if(Number(update.meta.changes||0)!==1){
+    WHERE id=?4 AND user_id=?5 AND status='claimed' RETURNING id`)
+    .bind(publication.publicationId,JSON.stringify(result),now,jobId,userId).all<{id:string}>();
+  if(update.results.length!==1){
     const latest=await readWhatsAppAutopostRow(db,userId,jobId);
     if(latest?.status==='sent'&&latest.publication_id===publication.publicationId)
       return {ok:true,status:'sent',publicationId:publication.publicationId,result:parseObject(latest.result_json)||result};
