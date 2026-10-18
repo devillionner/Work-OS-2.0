@@ -13,7 +13,9 @@ import { Rail } from '@/components/shell/rail';
 import { ReleasePanel } from '@/components/shell/release-panel';
 import { useScrollActivity } from '@/components/shell/scroll-activity';
 import { ShellProvider, type ShellContextValue } from '@/components/shell/shell-context';
+import { DemoBar, DemoNotice } from '@/components/shell/demo-bar';
 import { Topbar } from '@/components/shell/topbar';
+import { isDemoEmail } from '@/lib/demo';
 import { useQueryParam } from '@/components/shell/url-state';
 import { DESKTOP, PHONE, WIDE, useMediaQuery } from '@/components/shell/use-media';
 import { ViewPane, TopbarSlotProvider } from '@/components/shell/view-pane';
@@ -149,6 +151,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
     ];
   }, [snapshot.platforms, snapshot.publicationGoal.target, snapshot.chatGoal.target, snapshot.bookingGoal.target]);
 
+  const demo = isDemoEmail(user.email);
   const topbar = (
     <Topbar
       title={viewLabel(activeView)}
@@ -163,6 +166,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
       slotRef={setTopbarSlot}
     />
   );
+  const header = demo ? <>{topbar}<DemoBar /></> : topbar;
 
   const panes = (
     <>
@@ -188,9 +192,10 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
       <TopbarSlotProvider element={topbarSlot}>
         <PanelSlotProvider element={asideElement}>
           <span hidden data-work-os-revision={syncRevision} />
+          {demo ? <DemoNotice /> : null}
           {phone ? (
             <div className="relative min-h-dvh pb-[calc(168px+env(safe-area-inset-bottom))]">
-              {topbar}
+              {header}
               <main className="flex flex-col gap-3 px-3 pt-2">{panes}</main>
               <PulseRail rings={rings} onOpenSettings={() => setQuickOpen(true)} />
               <div className="fixed right-3 z-30" style={{ bottom: 'calc(12px + 64px + 12px + env(safe-area-inset-bottom))' }}>
@@ -207,7 +212,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
                 <Rail active={activeView} leadCount={snapshot.leads} canExpand={desktop} onNavigate={navigate} onPrefetch={prefetchView} onOpenRelease={openRelease} />
                 <div className="glass frost relative flex min-w-0 flex-1 overflow-hidden rounded-panel">
                   <div className="flex min-w-0 flex-1 flex-col">
-                    {topbar}
+                    {header}
                     <main ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-8 pt-1">{panes}</main>
                   </div>
                   {wide ? <InspectorColumn onElement={setAsideElement} /> : null}

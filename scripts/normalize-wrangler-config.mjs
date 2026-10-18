@@ -28,7 +28,25 @@ export async function bundleLiveGateway() {
   return bundleWorkerModule(liveGatewaySourcePath);
 }
 
-async function bundleWorkerModule(entryPoint) {
+// Публічна демо-версія: шлюз і сид підключаються лише збіркою з CLOUDFLARE_ENV=demo (див. workers/demo-gate.js).
+// Сид рахується під час збірки й вшивається в модуль як звичайні дані, тож нічний cron лише виконує готові рядки.
+const DEMO_GATE_FILENAME = 'demo-gate.js';
+const demoGateSourcePath = fileURLToPath(new URL('../workers/demo-gate.js', import.meta.url));
+
+export async function bundleDemoGate() {
+  const { demoSeedStatements, WIPE_FIRST } = await import('./demo-seed.mjs');
+  const seedData = `export default ${JSON.stringify({ statements: demoSeedStatements(), wipeFirst: WIPE_FIRST })};`;
+  const seedPlugin = {
+    name: 'demo-seed-data',
+    setup(build) {
+      build.onResolve({ filter: /^demo-seed-data$/ }, (args) => ({ path: args.path, namespace: 'demo-seed' }));
+      build.onLoad({ filter: /.*/, namespace: 'demo-seed' }, () => ({ contents: seedData, loader: 'js' }));
+    },
+  };
+  return bundleWorkerModule(demoGateSourcePath, [seedPlugin]);
+}
+
+async function bundleWorkerModule(entryPoint, plugins = []) {
   const result = await esbuild.build({
     entryPoints: [entryPoint],
     bundle: true,
@@ -36,6 +54,7 @@ async function bundleWorkerModule(entryPoint) {
     platform: 'neutral',
     target: 'es2022',
     write: false,
+    plugins,
   });
   return result.outputFiles[0].text;
 }
@@ -54,7 +73,30 @@ export function normalizeGeneratedWranglerConfig(config) {
 // /api/live is answered before vinext: vinext rebuilds every route Response and a 101 WebSocket
 // upgrade cannot be reconstructed, so through a vinext route the client always got a 500 (see
 // workers/live-gateway.js). Everything else goes to vinext unchanged.
-export function workerEntryWrapperSource() {
+export function workerEntryWrapperSource({ demo = false } = {}) {
+  if (demo) {
+    // Те саме, що й нижче, але кожен запит спершу проходить демо-шлюз; cron `scheduled` робить нічне скидання.
+    return [
+      `import app from './index.js';`,
+      `import { handleLiveRequest } from './${LIVE_GATEWAY_FILENAME}';`,
+      `import { demoFetch, demoScheduled } from './${DEMO_GATE_FILENAME}';`,
+      `export { OwnerChannel } from './${OWNER_CHANNEL_FILENAME}';`,
+      `export { DemoGuard } from './${DEMO_GATE_FILENAME}';`,
+      `export default {`,
+      `  ...app,`,
+      `  fetch(request, env, ctx) {`,
+      `    return demoFetch(request, env, (next) => {`,
+      `      if (new URL(next.url).pathname === '/api/live') return handleLiveRequest(next, env);`,
+      `      return app.fetch(next, env, ctx);`,
+      `    });`,
+      `  },`,
+      `  scheduled(event, env, ctx) {`,
+      `    ctx.waitUntil(demoScheduled(env));`,
+      `  },`,
+      `};`,
+      ``,
+    ].join('\n');
+  }
   return [
     `import app from './index.js';`,
     `import { handleLiveRequest } from './${LIVE_GATEWAY_FILENAME}';`,
@@ -70,10 +112,11 @@ export function workerEntryWrapperSource() {
   ].join('\n');
 }
 
-export async function writeWorkerEntryWrapper(serverDir) {
-  await writeFile(path.join(serverDir, WORKER_ENTRY_FILENAME), workerEntryWrapperSource(), 'utf8');
+export async function writeWorkerEntryWrapper(serverDir, { demo = process.env.CLOUDFLARE_ENV === 'demo' } = {}) {
+  await writeFile(path.join(serverDir, WORKER_ENTRY_FILENAME), workerEntryWrapperSource({ demo }), 'utf8');
   await writeFile(path.join(serverDir, OWNER_CHANNEL_FILENAME), await bundleOwnerChannel(), 'utf8');
   await writeFile(path.join(serverDir, LIVE_GATEWAY_FILENAME), await bundleLiveGateway(), 'utf8');
+  if (demo) await writeFile(path.join(serverDir, DEMO_GATE_FILENAME), await bundleDemoGate(), 'utf8');
 }
 
 export async function normalizeGeneratedWranglerFile(

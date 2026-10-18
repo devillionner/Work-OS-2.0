@@ -1,5 +1,6 @@
 'use client';
 
+import { DEMO_BLOCKED_EVENT } from '@/lib/demo';
 import { useEffect, useRef, useState } from 'react';
 import { Command, LogOut } from 'lucide-react';
 import { CreateMenu } from '@/components/shell/create-menu';
@@ -97,6 +98,11 @@ export function Topbar({ title, phone, user, signOutPath, enabledPlatforms, view
 }
 
 export function signOut(path: string) {
+  // У демо-версії виходу немає: сторінка лишається, а Toast пояснює чому.
+  if (document.documentElement.dataset.demo === '1') {
+    window.dispatchEvent(new CustomEvent(DEMO_BLOCKED_EVENT, { detail: 'unavailable' }));
+    return;
+  }
   const form = document.createElement('form');
   form.method = 'post';
   form.action = path;

@@ -1,6 +1,6 @@
 {
   "name": "work-os-2",
-  "version": "3.2.25",
+  "version": "3.2.26",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -11,6 +11,8 @@
     "start": "wrangler dev --config dist/server/wrangler.json",
     "deploy": "npm run build && wrangler deploy --config dist/server/wrangler.json",
     "deploy:staging": "node scripts/deploy-staging.mjs",
+    "build:demo": "CLOUDFLARE_ENV=demo npm run build",
+    "deploy:demo": "node scripts/deploy-demo.mjs",
     "lint": "oxlint --threads=1 app components db lib scripts tests",
     "typecheck": "tsc -p tsconfig.chat-discovery.json --pretty false && tsc -p tsconfig.frontend.json --pretty false",
     "verify": "npm run build",

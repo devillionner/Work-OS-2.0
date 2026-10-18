@@ -55,6 +55,32 @@
           { "name": "OWNER_CHANNEL", "class_name": "OwnerChannel" }
         ]
       }
+    },
+    // Публічна демо-версія з вигаданими даними: окремий воркер і окрема база, без R2, Google і секретів.
+    // Нульовий database_id — заглушка для збірки й локального запуску; `npm run deploy:demo` підставляє справжній id бази
+    // `work-os-demo-db` (створює її, якщо немає) і відмовляється розгортати із заглушкою.
+    "demo": {
+      "name": "work-os-demo",
+      "vars": { "DEMO_MODE": "1" },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "work-os-demo-db",
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "OWNER_CHANNEL", "class_name": "OwnerChannel" },
+          { "name": "DEMO_GUARD", "class_name": "DemoGuard" }
+        ]
+      },
+      "migrations": [
+        { "tag": "v1", "new_sqlite_classes": ["OwnerChannel", "DemoGuard"] }
+      ],
+      "triggers": { "crons": ["0 0 * * *"] },
+      "observability": { "enabled": false }
     }
   }
 }
