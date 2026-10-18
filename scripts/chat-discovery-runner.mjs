@@ -1095,7 +1095,14 @@ async function pumpTaskQueue(){
 function onLiveMessage(ws,raw){
   let message;
   try{message=JSON.parse(raw);}catch{return;}
+  // Рішення Durable Object про видачу автопосту: без цього журналу не видно, чи задача взагалі дійшла до runner.
+  if(message.type==='trace'){
+    console.log(`[Work OS ${new Date(Number(message.at)||Date.now()).toLocaleTimeString('uk-UA')}${message.replay?' · раніше':''}] ${String(message.text||'')}`);
+    return;
+  }
   if(message.type==='task'&&['waiting_check','autopost','discovery'].includes(message.process)){
+    const task=message.task||{};
+    console.log(`Отримано задачу ${message.process}${task.kind?` (${task.kind})`:''} ${task.jobId||task.batchId||task.candidateId||''}; у черзі ${incomingTaskQueue.length}, зайнятий: ${processingTask?'так':'ні'}.`);
     enqueueTask(ws,message.process,message.task);
     return;
   }

@@ -63,7 +63,7 @@ import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFee
 /** @typedef {'browser'|'runner'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, autopostClaimedAt?: number, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 // The runner pings every 30 s and the runtime records each auto-answered ping per socket. A runner socket
@@ -74,6 +74,9 @@ const RUNNER_STALE_MS = 75_000;
 const RUNNER_WATCH_MS = 90_000;
 /** Задача автопосту «в роботі» довше за це вважається покинутою (один чат — 15–30 с, тайм-аути runner — до кількох хвилин). */
 const AUTOPOST_LEASE_SECONDS = 600;
+/** Скільки останніх рішень про видачу автопосту DO пам'ятає й показує runner після підключення. */
+const AUTOPOST_TRACE_LIMIT = 40;
+const AUTOPOST_TRACE_REPLAY = 15;
 const PING = JSON.stringify({ type: 'ping' });
 const PONG = JSON.stringify({ type: 'pong' });
 
@@ -121,6 +124,7 @@ export class OwnerChannel {
           .bind(state.autopostCurrentJobId, userId).first();
         if (!current || current.status !== 'claimed') this.broadcast('runner', { type: 'cancel', process: 'autopost', jobId: state.autopostCurrentJobId });
       }
+      this.autopostTrace(state, 'wake: з браузера', false);
       await this.dispatchNextAutopostJob(state);
       await this.writeState(state);
       return new Response(null, { status: 204 });
@@ -191,6 +195,8 @@ export class OwnerChannel {
     // left such claims stuck and blocked all further dispatch), so release it before dispatching.
     if (this.openRunnerCount(server) === 0) await this.releaseOrphanedTasks(state);
     server.send(JSON.stringify({ type: 'hello', processes: state.processes }));
+    for (const entry of (state.autopostTrace ?? []).slice(-AUTOPOST_TRACE_REPLAY)) server.send(JSON.stringify({ type: 'trace', at: entry.at, text: entry.text, replay: true }));
+    this.autopostTrace(state, `runner підключено (відкритих: ${this.openRunnerCount()}), у роботі ${state.autopostCurrentJobId ?? 'нічого'}`, false);
     this.broadcast('browser', { type: 'runner_status', connected: true });
     // A runner that reconnects (sleep/network blip, not an explicit stop) must resume whatever
     // was running without the operator doing anything — the command itself never left D1/DO.
@@ -387,6 +393,22 @@ export class OwnerChannel {
   }
 
   /**
+   * Запис у короткий журнал рішень про видачу автопосту: лишається в стані DO, іде в журнал воркера й
+   * (якщо runner підключений) у журнал runner, а новий runner отримує хвіст журналу одразу після підключення.
+   * Інакше, коли задача «зависла», не видно, що саме DO вирішив і кому відправив.
+   * @param {OwnerChannelState} state
+   * @param {string} text
+   * @param {boolean} [live] false — лише запам'ятати (до видачі задачі runner нічого зайвого не шлемо)
+   */
+  autopostTrace(state, text, live = true) {
+    const trace = state.autopostTrace ?? [];
+    trace.push({ at: Date.now(), text });
+    state.autopostTrace = trace.slice(-AUTOPOST_TRACE_LIMIT);
+    console.log(`[autopost] ${text}`);
+    if (live) this.broadcast('runner', { type: 'trace', at: Date.now(), text });
+  }
+
+  /**
    * Claims the next pending WhatsApp autopost job and pushes it to the runner, unless one is
    * already in flight. Called after a browser create/cancel wakes the DO, after a runner connects,
    * and after a result/ready — the same "one task in flight, advance on completion" shape as
@@ -395,12 +417,43 @@ export class OwnerChannel {
    */
   async dispatchNextAutopostJob(state) {
     if (!state.userId) return;
-    if (state.autopostCurrentJobId && !(await this.forgetStaleAutopostJob(state))) return;
-    const task = await claimWhatsAppAutopostJob(this.env.DB, state.userId, nowSeconds());
-    if (!task) return;
+    const runners = this.openRunnerCount();
+    // Рядки журналу до видачі йдуть у runner уже після самої задачі, щоб вона лишалась першим повідомленням.
+    /** @type {string[]} */
+    const notes = [];
+    const flush = () => { for (const note of notes) this.autopostTrace(state, note); };
+    if (state.autopostCurrentJobId && !(await this.forgetStaleAutopostJob(state))) {
+      this.autopostTrace(state, `видача: задача ${state.autopostCurrentJobId} ще в роботі (runner: ${runners})`);
+      return;
+    }
+    if (runners === 0) {
+      this.autopostTrace(state, 'видача: runner не підключений, задачі лишаються в черзі', false);
+      return;
+    }
+    const task = await claimWhatsAppAutopostJob(this.env.DB, state.userId, nowSeconds(), (row, reason) => {
+      notes.push(`видача: задачу ${row.id} (${row.expected_name}) знято, причина ${reason}`);
+    });
+    if (!task) {
+      notes.push(`видача: у черзі на сьогодні нічого не лишилось (runner: ${runners})`);
+      flush();
+      return;
+    }
     state.autopostCurrentJobId = task.jobId;
-    this.broadcast('runner', { type: 'task', process: 'autopost', task });
+    state.autopostClaimedAt = Date.now();
+    const delivered = this.broadcast('runner', { type: 'task', process: 'autopost', task });
+    notes.push(`видача: ${task.kind} ${task.jobId} «${task.target.expectedName}» → runner: відкритих ${runners}, доставлено ${delivered}`);
+    flush();
     this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: task.jobId, status: 'running' });
+    // Ніхто не прийняв задачу: не тримаємо її за DO до кінця оренди, а повертаємо в чергу для runner, який підключиться.
+    if (delivered === 0) {
+      await releaseWhatsAppAutopostJob(this.env.DB, state.userId, task.jobId, nowSeconds());
+      state.autopostCurrentJobId = null;
+      state.autopostClaimedAt = undefined;
+      this.autopostTrace(state, `видача: runner не отримав задачу ${task.jobId}, повернуто в чергу`);
+      this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: task.jobId, status: 'released' });
+      return;
+    }
+    await this.scheduleAlarm(state);
   }
 
   /**
@@ -417,20 +470,31 @@ export class OwnerChannel {
     const row = await this.env.DB.prepare('SELECT status,updated_at FROM whatsapp_autopost_jobs WHERE id=?1 AND user_id=?2 LIMIT 1')
       .bind(jobId, state.userId).first();
     if (row && row.status === 'claimed') {
-      if (nowSeconds() - Number(row.updated_at || 0) < AUTOPOST_LEASE_SECONDS) return false;
+      const age = nowSeconds() - Number(row.updated_at || 0);
+      if (age < AUTOPOST_LEASE_SECONDS) return false;
       await releaseWhatsAppAutopostJob(this.env.DB, state.userId, jobId, nowSeconds());
+      this.autopostTrace(state, `оренда: задачу ${jobId} повернуто в чергу після ${age} с без відповіді`);
       this.broadcast('runner', { type: 'cancel', process: 'autopost', jobId });
       this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId, status: 'released' });
+    } else {
+      this.autopostTrace(state, `оренда: задача ${jobId} вже ${row ? row.status : 'видалена'}, забуто`);
     }
     state.autopostCurrentJobId = null;
+    state.autopostClaimedAt = undefined;
     return true;
   }
 
   /** @param {{jobId:string; status:string; observedTarget?:string; targetVerified?:boolean; sendConfirmed?:boolean; errorCode?:string}} message */
   async handleAutopostResult(message) {
     const state = await this.readState();
-    if (!state.userId || state.autopostCurrentJobId !== message.jobId) return; // stale/mismatched — ignore
+    if (!state.userId || state.autopostCurrentJobId !== message.jobId) {
+      // Результат без відповідної видачі нічого не змінює; лишається слід, бо «sent» тут означав би публікацію без запису.
+      this.autopostTrace(state, `результат: ${message.status}${message.errorCode ? ` (${message.errorCode})` : ''} для ${message.jobId} проігноровано, у роботі ${state.autopostCurrentJobId ?? 'нічого'}`, false);
+      await this.writeState(state);
+      return;
+    }
     state.autopostCurrentJobId = null;
+    state.autopostClaimedAt = undefined;
     let status = 'failed';
     try {
       const outcome = await completeWhatsAppAutopostJob(this.env.DB, state.userId, message, nowSeconds());
@@ -438,6 +502,7 @@ export class OwnerChannel {
     } catch {
       // job already resolved another way (e.g. operator cancel) — nothing left to apply
     }
+    this.autopostTrace(state, `результат: ${message.status}${message.errorCode ? ` (${message.errorCode})` : ''} для ${message.jobId} → ${status}`, false);
     // Sent before the next dispatch so a browser sees this job finish before the next one starts;
     // either way it reloads its queue, which is where the authoritative job status lives.
     this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: message.jobId, status });
@@ -448,11 +513,17 @@ export class OwnerChannel {
   /** @param {{jobId:string; errorCode?:string}} message */
   async handleAutopostRelease(message) {
     const state = await this.readState();
-    if (!state.userId || state.autopostCurrentJobId !== message.jobId) return;
+    if (!state.userId || state.autopostCurrentJobId !== message.jobId) {
+      this.autopostTrace(state, `повернення: ${message.jobId} проігноровано, у роботі ${state.autopostCurrentJobId ?? 'нічого'}`, false);
+      await this.writeState(state);
+      return;
+    }
     // Код приходить лише від тимчасової помилки самої задачі: сервер рахує спробу й після третьої пропускає чат на сьогодні.
     await releaseWhatsAppAutopostJob(this.env.DB, state.userId, message.jobId, nowSeconds(),
       typeof message.errorCode === 'string' ? message.errorCode : undefined);
     state.autopostCurrentJobId = null;
+    state.autopostClaimedAt = undefined;
+    this.autopostTrace(state, `повернення: ${message.jobId} назад у чергу${message.errorCode ? ` (${message.errorCode})` : ' (середовище не готове)'}`, false);
     await this.writeState(state);
     this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: message.jobId, status: 'released' });
   }
@@ -460,6 +531,7 @@ export class OwnerChannel {
   /** @param {WebSocket} _ws */
   async handleAutopostReady(_ws) {
     const state = await this.readState();
+    this.autopostTrace(state, 'runner просить наступну задачу', false);
     await this.dispatchNextAutopostJob(state);
     await this.writeState(state);
   }
@@ -553,6 +625,10 @@ export class OwnerChannel {
       state.discoveryRunWakeAt = null;
       await this.dispatchRun(state);
     }
+    if (state.autopostCurrentJobId && Date.now() >= (state.autopostClaimedAt ?? 0) + AUTOPOST_LEASE_SECONDS * 1000) {
+      this.autopostTrace(state, `будильник: оренда задачі ${state.autopostCurrentJobId} спливла, перевіряю чергу`);
+      await this.dispatchNextAutopostJob(state);
+    }
     await this.scheduleAlarm(state);
     await this.writeState(state);
   }
@@ -566,6 +642,8 @@ export class OwnerChannel {
     const times = [];
     if (state.runnerOnline) times.push(Date.now() + RUNNER_WATCH_MS);
     if (state.discoveryRunWakeAt && state.discoveryRunWakeAt > Date.now()) times.push(state.discoveryRunWakeAt);
+    // Задача автопосту «в роботі» не чекає чужої події: коли оренда спливає, DO сам прокидається й видає наступну. Один будильник на задачу, не опитування.
+    if (state.autopostCurrentJobId) times.push((state.autopostClaimedAt ?? Date.now()) + AUTOPOST_LEASE_SECONDS * 1000 + 2000);
     if (times.length) await this.ctx.storage.setAlarm(Math.min(...times));
   }
 
@@ -906,12 +984,15 @@ export class OwnerChannel {
   /**
    * @param {ChannelKind} kind
    * @param {unknown} message
+   * @returns {number} скільки сокетів прийняли повідомлення
    */
   broadcast(kind, message) {
     const payload = JSON.stringify(message);
+    let delivered = 0;
     for (const socket of this.ctx.getWebSockets(kind)) {
-      try { socket.send(payload); } catch { /* socket closing concurrently; next close event cleans up */ }
+      try { socket.send(payload); delivered += 1; } catch { /* socket closing concurrently; next close event cleans up */ }
     }
+    return delivered;
   }
 
   /** @returns {Promise<OwnerChannelState>} */

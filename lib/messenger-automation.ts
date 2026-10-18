@@ -509,7 +509,7 @@ export async function cancelWhatsAppAutopostBatch(db:D1Database,userId:string,da
   return {cancelled:Number(result.meta.changes||0)};
 }
 
-export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:number):Promise<WhatsAppAutopostTask|null>{
+export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:number,onSkip?:(row:WhatsAppAutopostRow,reason:string)=>void):Promise<WhatsAppAutopostTask|null>{
   const today=businessDate(now);
   // Задачі за минулі дні не виконуються: публікація записалась би вчорашньою датою. Їх закриває перший же запит.
   await db.prepare(`UPDATE whatsapp_autopost_jobs
@@ -544,6 +544,11 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
       &&row.payload_text.trim().length>0
     );
     if(!valid){
+      onSkip?.(row,!chat?'chat_missing':!platform?'platform_unsupported':chat.workflow_status!=='ready'?`chat_${chat.workflow_status}`
+        :chat.state_token!==row.chat_state_token?'chat_changed':publication?'already_published'
+        :discovery&&discovery.decision!=='target'?'discovery_decision':!material?'material_missing'
+        :!customMaterial&&material.archived_at?'material_archived':!customMaterial&&Number(material.version)!==Number(row.advertisement_version)?'material_version'
+        :!selection?.publicationAllowed?'publication_not_allowed':!customMaterial&&!selected?.selectable?'material_not_selectable':'empty_text');
       await failWhatsAppAutopostJob(db,userId,row,'stale_precondition',now);
       continue;
     }
