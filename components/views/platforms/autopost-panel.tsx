@@ -29,7 +29,8 @@ export type AutopostMaterialProps = {
   onCaptionChange: (value: string) => void; onUploadImage: (file: File) => void; onRemoveImage: () => void; onSaveCaption: () => void; onClearCaption: () => void;
 };
 
-const BATCH_CAP = 100;
+/** Стеля партії на сервері (`AUTOPOST_BATCH_MAX`): «Усі» ставить рівно стільки чатів, скільки готових, але не більше цього. */
+const BATCH_CAP = 200;
 
 /** «чат», «чати», «чатів» за числом: «в 21 чат», «в 2 чати», «в 5 чатів». */
 export function chatWord(count: number): string {
@@ -263,7 +264,7 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
               <div className="flex flex-wrap items-center justify-end gap-3">
                 <Segmented<'1' | '5' | '20' | 'all'> label="Скільки чатів у партії" size="sm" value={size} onValueChange={setSize} items={[{ value: '1', label: '1' }, { value: '5', label: '5' }, { value: '20', label: '20' }, { value: 'all', label: `Усі (${cap})` }]} />
                 <div className="flex flex-col items-end gap-1">
-                  <Button variant="action" busy={busy} disabled={runnerBlocked || !ready || chosen === 0} title={ready ? undefined : 'Спершу додай фото'} onClick={() => onStart(size === 'all' ? null : Number(size), removedNow)}>
+                  <Button variant="action" busy={busy} disabled={runnerBlocked || !ready || chosen === 0} title={ready ? undefined : 'Спершу додай фото'} onClick={() => onStart(chosen, removedNow)}>
                     <Send aria-hidden="true" strokeWidth={1.5} />{busy ? 'Ставимо в чергу…' : `Опублікувати в ${chosen} ${chatWord(chosen)}`}
                   </Button>
                   <span className="text-xs text-ink-2">{chosen ? `${etaText(chosen * secondsPerChat)}, по одному чату з підтвердженням` : ''}</span>
