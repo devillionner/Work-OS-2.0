@@ -5,7 +5,7 @@ import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { autopostReasonGroup, autopostReasonText } from '@/components/views/platforms/autopost-reasons';
-import { isSimilarName } from '@/lib/name-similarity';
+import { isSameName, isSimilarName } from '@/lib/name-similarity';
 
 export type AutopostAttentionItem = { jobId: string; chatId: string; name: string; errorCode: string; updatedAt: number; /** Назва чату, яку бачив месенджер (для «Не той чат»). */ observed: string | null };
 export type AutopostDecision = 'archive' | 'snooze' | 'retry' | 'check' | 'rename';
@@ -37,7 +37,9 @@ export function AutopostAttentionList({ items, busy, canVerify, onDecide, onDeci
     groups.set(group.key, entry);
   }
   const retry = (item: AutopostAttentionItem) => (autopostReasonGroup(item.errorCode).risky ? setPending({ kind: 'retry', item }) : onDecide(item, 'retry'));
-  const similar = (list: AutopostAttentionItem[]) => list.filter((item) => item.observed && isSimilarName(item.name, item.observed));
+  // Назва з месенджера відома, лише коли вона відрізняється від нашої: збіг означає, що runner її не зчитав (старий запис).
+  const knownObserved = (item: AutopostAttentionItem) => (item.observed && !isSameName(item.name, item.observed) ? item.observed : null);
+  const similar = (list: AutopostAttentionItem[]) => list.filter((item) => { const observed = knownObserved(item); return observed && isSimilarName(item.name, observed); });
 
   return (
     <section className="flex flex-col gap-2 pb-24 sm:pb-0" aria-label="Чати, що потребують рішення">
@@ -63,14 +65,14 @@ export function AutopostAttentionList({ items, busy, canVerify, onDecide, onDeci
                 <li key={item.jobId} className="flex flex-col gap-2 rounded-inner border border-line px-3 py-2.5">
                   <div className="min-w-0">
                     <p className="m-0 truncate text-sm font-medium" title={item.name}>{item.name}</p>
-                    {group.renameable && item.observed ? (
-                      <p className="m-0 mt-0.5 text-xs text-ink-2">У Work OS: {item.name} · у месенджері: <span className="text-ink">{item.observed}</span></p>
+                    {group.renameable && knownObserved(item) ? (
+                      <p className="m-0 mt-0.5 text-xs text-ink-2">У Work OS: {item.name} · у месенджері: <span className="text-ink">{knownObserved(item)}</span></p>
                     ) : <p className="m-0 mt-0.5 text-xs text-ink-2">{autopostReasonText(item.errorCode)}</p>}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {group.renameable && item.observed ? <Button variant="outline" size="sm" disabled={busy} onClick={() => onDecide(item, 'rename')}>Це той самий чат: оновити назву й опублікувати</Button> : null}
+                    {group.renameable && knownObserved(item) ? <Button variant="outline" size="sm" disabled={busy} onClick={() => onDecide(item, 'rename')}>Це той самий чат: оновити назву й опублікувати</Button> : null}
                     {group.checkable ? <Button variant="outline" size="sm" disabled={busy} onClick={() => onDecide(item, 'check')}>{group.missing ? 'Перевірити ще раз' : 'Перевірити'}</Button> : null}
-                    {group.renameable ? null : <Button variant="outline" size="sm" disabled={busy} onClick={() => retry(item)}>{group.missing ? 'Опублікувати ще раз' : 'Спробувати ще'}</Button>}
+                    {group.renameable && knownObserved(item) ? null : <Button variant="outline" size="sm" disabled={busy} onClick={() => retry(item)}>{group.missing ? 'Опублікувати ще раз' : 'Спробувати ще'}</Button>}
                     <Button variant="outline" size="sm" disabled={busy} title="Чат повернеться в чергу завтра" onClick={() => onDecide(item, 'snooze')}>Відкласти</Button>
                     <Button variant="ghost" size="sm" tone="danger" disabled={busy} onClick={() => setPending({ kind: 'archive', items: [item] })}>В архів</Button>
                   </div>

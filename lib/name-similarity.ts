@@ -20,3 +20,10 @@ export function nameSimilarity(left: string, right: string): number {
 }
 
 export const isSimilarName = (left: string, right: string) => nameSimilarity(left, right) >= SIMILAR_NAME_THRESHOLD;
+
+/** Назви однакові з точністю до регістру, хвоста «в Viber» і розділових знаків: тоді месенджер показав саме цей чат. */
+export const isSameName = (left: string, right: string) => {
+  const a = tokens(left);
+  const b = tokens(right);
+  return a.size > 0 && a.size === b.size && [...a].every((word) => b.has(word));
+};

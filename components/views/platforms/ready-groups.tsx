@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { isSnoozed, type Chat } from '@/components/views/platforms/use-platforms';
 import { noReadyText, type AutopostBucket, type AutopostPlan } from '@/components/views/platforms/autopost-panel';
 import { autopostReasonGroup, autopostReasonText, dayLabel } from '@/components/views/platforms/autopost-reasons';
+import { isSameName } from '@/lib/name-similarity';
 
 /** Що додатково показує рядок у групі: пояснення, чому чат тут, і чи публікація вручну лишається другорядною дією. */
 export type RowExtra = { note?: string; manual?: boolean };
@@ -22,12 +23,12 @@ const GROUPS: Array<{ key: AutopostBucket; label: string; open?: boolean }> = [
 ];
 
 /** Пояснення в рядку за групою: чому чат не готовий і що з ним буде. */
-function noteFor(bucket: AutopostBucket, reason: AutopostPlan['reasons'][string] | undefined): string | undefined {
+function noteFor(bucket: AutopostBucket, reason: AutopostPlan['reasons'][string] | undefined, name: string): string | undefined {
   if (bucket === 'decision') {
     const group = autopostReasonGroup(reason?.code);
-    return group.renameable && reason?.observed ? `${group.label}: у месенджері «${reason.observed}»` : `${group.label}. ${autopostReasonText(reason?.code)}`;
+    return group.renameable && reason?.observed && !isSameName(name, reason.observed) ? `${group.label}: у месенджері «${reason.observed}»` : autopostReasonText(reason?.code);
   }
-  if (bucket === 'tried') return reason?.code ? `Автопост не відправив: ${autopostReasonText(reason.code).toLowerCase()} Повтор завтра.` : 'Автопост пробував сьогодні, відправки не було. Повтор завтра.';
+  if (bucket === 'tried') return reason?.code ? `Автопост не відправив: ${autopostReasonText(reason.code)} Повтор завтра.` : 'Автопост пробував сьогодні, відправки не було. Повтор завтра.';
   if (bucket === 'rules') return reason?.next ? `Стане доступним ${dayLabel(reason.next)}` : undefined;
   return undefined;
 }
@@ -57,7 +58,7 @@ export function ReadyGroups({ chats, clock, plan, complete, renderRow, onOpenDec
   const countOf = (key: AutopostBucket) => (plan && complete ? plan[key === 'published' ? 'publishedToday' : key] ?? 0 : grouped.get(key)?.length ?? 0) as number;
   const list = (key: AutopostBucket, items: Chat[]) => (
     <ul className="m-0 flex list-none flex-col gap-2 p-0">
-      {items.map((chat) => renderRow(chat, { note: plan ? noteFor(key, plan.reasons[chat.id]) : undefined, manual: key !== 'ready' }))}
+      {items.map((chat) => renderRow(chat, { note: plan ? noteFor(key, plan.reasons[chat.id], chat.name) : undefined, manual: key !== 'ready' }))}
     </ul>
   );
 
