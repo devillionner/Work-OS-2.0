@@ -32,7 +32,7 @@ export function AutopostAttentionList({ items, busy, canVerify, onDecide, onDeci
     entry.items.push(item);
     groups.set(group.key, entry);
   }
-  const retry = (item: AutopostAttentionItem) => (autopostReasonGroup(item.errorCode).checkable ? setPending({ kind: 'retry', item }) : onDecide(item, 'retry'));
+  const retry = (item: AutopostAttentionItem) => (autopostReasonGroup(item.errorCode).risky ? setPending({ kind: 'retry', item }) : onDecide(item, 'retry'));
 
   return (
     <section className="flex flex-col gap-2 pb-24 sm:pb-0" aria-label="Чати, що потребують рішення">

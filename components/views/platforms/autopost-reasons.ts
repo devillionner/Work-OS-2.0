@@ -31,7 +31,7 @@ const REASONS: Record<string, string> = {
   target_not_verified: 'Ціль не підтверджено. Пропущено без відправки.',
   adapter_failed: 'Автопост не зміг виконати відправку. Перевір чат вручну.',
   waydroid_suspend: 'У Waydroid увімкнене автозаморожування. Вимкни його: waydroid prop set persist.waydroid.suspend false.',
-  message_not_found: 'Перевірено: повідомлення в чаті немає. Можна спробувати ще раз, дубля не буде.',
+  message_not_found: 'Серед останніх повідомлень чату нашого немає. У дуже жвавому чаті воно могло піти вище за видиму частину: перевір чат вручну, перш ніж повторювати.',
   verify_unsupported: 'Перевірка наявного повідомлення поки працює лише у Viber.',
   // WhatsApp: ці коди приходять із браузерного адаптера.
   whatsapp_chat_missing: 'Група WhatsApp більше недоступна.',
@@ -76,10 +76,10 @@ const BATCH_SKIP: Record<string, string> = {
 export function batchSkipText(code: string): string { return BATCH_SKIP[code] || 'не пройшов перевірку'; }
 
 /** Група причин для «Потребують рішення»: підпис, чи можна замість повтору «перевірити» (повідомлення могло піти). */
-export type AutopostReasonGroup = { key: string; label: string; checkable: boolean };
+export type AutopostReasonGroup = { key: string; label: string; checkable: boolean; /** Повтор може дати дубль: потрібне підтвердження. */ risky?: boolean };
 const GROUPS: Array<[string[], AutopostReasonGroup]> = [
-  [['send_not_confirmed', 'helper_timeout', 'media_send_not_confirmed'], { key: 'unconfirmed', label: 'Не вдалося підтвердити', checkable: true }],
-  [['message_not_found'], { key: 'missing', label: 'Повідомлення не знайдено', checkable: false }],
+  [['send_not_confirmed', 'helper_timeout', 'media_send_not_confirmed'], { key: 'unconfirmed', label: 'Не вдалося підтвердити', checkable: true, risky: true }],
+  [['message_not_found'], { key: 'missing', label: 'Повідомлення не знайдено', checkable: false, risky: true }],
   [['viber_banned', 'whatsapp_removed_from_group', 'membership_left'], { key: 'blocked', label: 'Заблоковано в групі', checkable: false }],
   [['target_unconfirmed', 'target_not_found', 'target_ambiguous', 'joined_target_not_verified', 'target_not_verified'], { key: 'target', label: 'Не той чат', checkable: false }],
   [['viber_not_joined', 'membership_not_confirmed', 'approval_required', 'whatsapp_join_retry_later'], { key: 'join', label: 'Не вдалося приєднатися', checkable: false }],

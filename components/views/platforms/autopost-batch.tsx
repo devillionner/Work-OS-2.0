@@ -55,10 +55,25 @@ function entryLabel(entry: AutopostBatchEntry): { icon: 'ok' | 'bad' | 'skip'; t
  * Хід партії автопосту, однаково для Viber і WhatsApp: кільце й лічильники поточної партії, що робиться зараз (крок, час на чаті,
  * орієнтовний час до кінця) і згортуваний журнал партії. Оновлюється подіями live-каналу.
  */
+/** Що робиться просто зараз: назва чату, крок і час на ньому. */
+function NowBlock({ name, step, now }: { name: string; step: LiveStep | null; now: number }) {
+  return (
+    <output className="flex flex-col gap-1 rounded-inner border border-line px-4 py-3">
+      <p className="m-0 text-xs text-ink-2">Зараз</p>
+      <p className="m-0 truncate text-sm font-medium" title={name}>{name || 'Чекаю на runner'}</p>
+      <p className="m-0 flex items-center gap-2 text-xs text-ink-2">
+        <span>{step ? (step.verify ? `перевірка: ${step.text}` : step.text) : 'runner ще не повідомив крок'}</span>
+        {step && now > 0 ? <span className="ml-auto font-mono tabular-nums">{Math.max(0, Math.round((now - step.startedAt) / 1000))} с</span> : null}
+      </p>
+    </output>
+  );
+}
+
 export function AutopostBatchPanel({ batch, running, platform }: { batch: AutopostBatch | null | undefined; running: boolean; platform: 'whatsapp' | 'viber' }) {
   const now = useSecondClock(running);
   const step = useAutopostStep(platform, running, now);
-  if (!batch || batch.total === 0) return null;
+  // Перевірка чату з «Потребують рішення» не належить партії, але крок її теж видно.
+  if (!batch || batch.total === 0) return running && step ? <NowBlock name={step.name} step={step} now={now} /> : null;
   const done = batch.total - batch.remaining;
   const ratio = Math.min(1, done / batch.total);
   const secondsLeft = batch.averageSeconds ? batch.remaining * batch.averageSeconds : null;
@@ -87,16 +102,7 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
         </div>
       </div>
 
-      {running ? (
-        <output className="flex flex-col gap-1 rounded-inner border border-line px-4 py-3">
-          <p className="m-0 text-xs text-ink-2">Зараз</p>
-          <p className="m-0 truncate text-sm font-medium" title={currentName}>{currentName || 'Чекаю на runner'}</p>
-          <p className="m-0 flex items-center gap-2 text-xs text-ink-2">
-            <span>{step ? (step.verify ? `перевірка: ${step.text}` : step.text) : 'runner ще не повідомив крок'}</span>
-            {step && now > 0 ? <span className="ml-auto font-mono tabular-nums">{Math.max(0, Math.round((now - step.startedAt) / 1000))} с</span> : null}
-          </p>
-        </output>
-      ) : null}
+      {running ? <NowBlock name={currentName} step={step} now={now} /> : null}
 
       {finishedEntries.length > 0 ? (
         <details className="group">
