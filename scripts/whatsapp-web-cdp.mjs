@@ -1122,6 +1122,7 @@ export async function sendWhatsappAutopostViaCdp(
       });
       const hit = (before.messageRows || []).find((row) => row.fromMe && matchesCaptionOrText(row.text, text) && labels.some((label) => String(row.text || '').includes(label)));
       if (hit) return { kind:'result', result:{ status:'sent', observedTarget, targetVerified:true, sendConfirmed:true, mediaConfirmed:true } };
+      console.warn('WhatsApp verify diagnostic: ' + JSON.stringify({ labels: labels.slice(0, 4), rows: (before.messageRows || []).slice(-6).map((row) => ({ fromMe: row.fromMe, media: row.hasMedia, len: String(row.text || '').length, tail: String(row.text || '').slice(-36) })) }));
       return { kind:'blocked', reason:'message_not_found' };
     }
     const beforeKeys = new Set((before.messageRows || []).map((row) => row.key).filter(Boolean));
