@@ -1064,7 +1064,7 @@ async function clickWhatsappMediaSend(client){
 
 export async function sendWhatsappAutopostViaCdp(
   task,
-  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS, shouldAbort = () => false } = {},
+  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS, shouldAbort = () => false, onStep = () => {} } = {},
 ) {
   if (task?.kind !== 'whatsapp_autopost') return { kind:'blocked', reason:'unsupported_runtime' };
   const targetUrl = toWhatsAppWebInviteUrl(task.target?.expectedLink);
@@ -1091,6 +1091,7 @@ export async function sendWhatsappAutopostViaCdp(
     const operationDeadline = Date.now() + timeoutMs;
     const remainingBudget = () => Math.max(POLL_MS, operationDeadline - Date.now());
     const confirmWindowMs = Math.min(timeoutMs, AUTOPOST_SEND_CONFIRM_MS);
+    onStep('open', 'відкриваю чат');
     const navigation = await openWhatsappInviteWhenSynced(client, page, targetUrl, operationDeadline);
     if (navigation.kind === 'blocked') return { kind:'blocked', reason:navigation.reason };
     let classified = await waitForClassification(client, inspectTask, remainingBudget(), null, navigatedInviteCode, true);
@@ -1116,6 +1117,7 @@ export async function sendWhatsappAutopostViaCdp(
       // the composer holds into the media preview as the caption. The preview's own caption field does not
       // exist at all on the operator's build — the diagnostic found only the sidebar search and the composer
       // while the editor was open, and clicking the strip under the photo mounted nothing (2026-10-07).
+      onStep('photo','додаю фото');
       if(!await focusAndClearComposer(client))return {kind:'blocked',reason:'composer_not_found'};
       await markWhatsappEditorsBeforeMedia(client);
       // Paste first (the Prototype Checker's route, which yields a preview WITH a caption box); the hidden
@@ -1131,6 +1133,7 @@ export async function sendWhatsappAutopostViaCdp(
       // The preview that the paste opens has its own caption box; type the text into it. A build that showed no
       // caption box at all (the file-input editor) still sends — the text then has to be in the composer, which
       // is the fallback path's own problem, not this one's.
+      onStep('text','вводжу текст');
       if(await openWhatsappMediaCaption(client,Math.min(remainingBudget(),6_000))){
         if(!await focusAndClearWhatsappMediaCaption(client))return {kind:'blocked',reason:'media_caption_not_found'};
         await client.send('Input.insertText',{text});
@@ -1143,7 +1146,9 @@ export async function sendWhatsappAutopostViaCdp(
       if(Date.now()>=operationDeadline)return {kind:'blocked',reason:'autopost_budget_exhausted'};
       // Оператор натиснув «Зупинити»: до кнопки відправки ще можна відмовитись, після неї ні.
       if(shouldAbort())return {kind:'blocked',reason:'cancelled'};
+      onStep('send','надсилаю');
       if(!await clickWhatsappMediaSend(client))return {kind:'blocked',reason:'media_send_control_not_found'};
+      onStep('confirm','перевіряю, що повідомлення в чаті');
       const deadline=Date.now()+confirmWindowMs;
       while(Date.now()<deadline){
         const snapshot=await readSnapshot(client);

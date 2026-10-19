@@ -223,8 +223,12 @@ export type WhatsAppAutopostTask={
   /** `viber_android`: runner надсилає фото з підписом у Viber на Android у Waydroid через adb. */
   kind:'whatsapp_autopost'|'viber_android';
   jobId:string;
-  /** Where this job sits in today's batch, so the runner tray can show «3 / 30» like Discovery does. */
-  progress?:WhatsAppAutopostProgress;
+  /** Де ця задача в поточній партії, щоб трей runner показав «3/30». */
+  progress?:{done:number;total:number};
+  /** `verify` — лише перевірити, чи повідомлення вже є в чаті, нічого не надсилаючи (дія «Перевірити»). */
+  mode?:'send'|'verify';
+  /** Для `verify`: коли приблизно відправлялось (секунди Unix), щоб відрізнити сьогоднішнє повідомлення від учорашнього. */
+  verify?:{sinceEpoch:number};
   target:{chatId:string;expectedName:string;expectedLink:string};
   material:{
     advertisementId:string;advertisementVersion:number;language:'uk'|'ru';text:string;
@@ -332,6 +336,36 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
   return publicWhatsAppAutopostJob(created);
 }
 
+/**
+ * Дія «Перевірити» зі списку «Потребують рішення»: нова задача того ж чату з тим самим текстом, яка нічого не надсилає, а лише
+ * відкриває чат і шукає в ньому повідомлення. Знайшла — публікація записується як після звичайної відправки.
+ */
+export async function createAutopostVerifyJob(db:D1Database,userId:string,originalJobId:string,now:number,date:string):Promise<WhatsAppAutopostJob>{
+  const original=await readWhatsAppAutopostRow(db,userId,originalJobId);
+  if(!original||original.published_on!==date)throw new MessengerAutomationError('Перевірити можна лише чат із сьогоднішньої партії.',409,'not_today');
+  const chat=await readChatState(db,userId,original.chat_id);
+  const platform=chat?cleanAutopostPlatform(chat.platform):null;
+  if(!chat||!platform)throw new MessengerAutomationError('Чат не знайдено.',404,'chat_not_found');
+  if(platform!=='viber')throw new MessengerAutomationError('Перевірка наявного повідомлення поки працює лише у Viber.',409,'verify_unsupported');
+  const id=crypto.randomUUID();
+  const activeKey=`${userId}:${platform}:autopost:${original.chat_id}:${date}`;
+  const sinceEpoch=Number(original.completed_at??original.updated_at);
+  try{
+    await db.prepare(`INSERT INTO whatsapp_autopost_jobs
+      (id,user_id,request_key,chat_id,expected_name,expected_link,chat_state_token,
+       advertisement_id,advertisement_version,language,payload_text,published_on,status,active_key,result_json,created_at,updated_at)
+      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,'pending',?13,?14,?15,?15)`)
+      .bind(id,userId,`verify_${id}`,original.chat_id,chat.name,chat.link,chat.state_token,original.advertisement_id,original.advertisement_version,
+        original.language,original.payload_text,date,activeKey,JSON.stringify({verifyOf:originalJobId,sinceEpoch}),now).run();
+  }catch(error){
+    if(await readActiveWhatsAppAutopostJob(db,userId,original.chat_id,date))throw new MessengerAutomationError('Для цього чату вже є активна задача.',409,'already_queued');
+    throw error;
+  }
+  const created=await readWhatsAppAutopostRow(db,userId,id);
+  if(!created)throw new MessengerAutomationError('Не вдалося створити задачу перевірки.',409);
+  return publicWhatsAppAutopostJob(created);
+}
+
 export type AutopostBatchResult={
   created:number;
   /** Чати, які пройшли відбір, але не стали задачею (див. reasons). */
@@ -341,6 +375,7 @@ export type AutopostBatchResult={
   /** Партію обмежено розміром, а придатні чати ще лишились: запуск повторюється. */
   more:boolean;
   jobs:WhatsAppAutopostJob[];
+  batchId:string;
 };
 
 const AUTOPOST_BATCH_DEFAULT=100;
@@ -392,6 +427,7 @@ export async function createWhatsAppAutopostBatch(
     ORDER BY COALESCE((SELECT MAX(p2.published_on) FROM chat_publications p2 WHERE p2.user_id=c.user_id AND p2.chat_id=c.id),''),c.id
     LIMIT ?4 OFFSET ?7`).bind(userId,now,date,size,platform,weekday,offset).all<{id:string}>();
 
+  const batchId=crypto.randomUUID();
   const jobs:WhatsAppAutopostJob[]=[];
   const reasons=new Map<string,number>();
   let skipped=0;
@@ -405,7 +441,7 @@ export async function createWhatsAppAutopostBatch(
       scanned+=1;
       try{
         jobs.push(await createWhatsAppAutopostJob(db,userId,{
-          requestKey:`batch_${crypto.randomUUID()}`,
+          requestKey:`${batchKeyPrefix(platform,batchId)}${crypto.randomUUID()}`,
           chatId:row.id,
           caption,
           platform,
@@ -421,7 +457,7 @@ export async function createWhatsAppAutopostBatch(
     }
   }
   const more=jobs.length>=limit&&(await candidates(1,skipped)).results.length>0;
-  return {created:jobs.length,skipped,reasons:[...reasons].map(([code,count])=>({code,count})),more,jobs};
+  return {created:jobs.length,skipped,reasons:[...reasons].map(([code,count])=>({code,count})),more,jobs,batchId};
 }
 
 export async function readLatestWhatsAppAutopostJob(db:D1Database,userId:string):Promise<WhatsAppAutopostJob|null>{
@@ -451,7 +487,51 @@ export async function cancelWhatsAppAutopostJob(db:D1Database,userId:string,jobI
 }
 
 export type WhatsAppAutopostSettled = { archived:number; waiting:number; snoozed:number; skipped:number; decision:number };
-export type WhatsAppAutopostProgress = { total:number; done:number; pending:number; claimed:number; sent:number; failed:number; cancelled:number; running:boolean; settled:WhatsAppAutopostSettled };
+export type AutopostBatchEntry = { jobId:string; name:string; status:'claimed'|'sent'|'failed'; outcome:string|null; code:string|null; at:number };
+/** Поточна партія платформи (остання за сьогодні): лічильники лише її задач, без скасованих задач старих партій. */
+export type AutopostBatch = { id:string; startedAt:number; total:number; sent:number; remaining:number; failed:number; skipped:number; cancelled:number; averageSeconds:number|null; entries:AutopostBatchEntry[] };
+export type WhatsAppAutopostProgress = { total:number; done:number; pending:number; claimed:number; sent:number; failed:number; cancelled:number; running:boolean; settled:WhatsAppAutopostSettled; batch:AutopostBatch|null };
+
+const BATCH_KEY=/^batch_(whatsapp|viber)_([0-9a-f-]{36})_/;
+/** Ключ задачі партії: платформа й id партії всередині ключа дають змогу читати партію діапазоном по унікальному індексу, без нової міграції. */
+const batchKeyPrefix=(platform:AutopostPlatform,batchId:string)=>`batch_${platform}_${batchId}_`;
+
+export async function readAutopostBatch(db:D1Database,userId:string,platform:AutopostPlatform,date:string,knownBatchId?:string):Promise<AutopostBatch|null>{
+  let batchId=knownBatchId||'';
+  if(!batchId){
+    // Індекс (user_id, created_at DESC) віддає найновіші задачі першими, тож пошук зупиняється на першому збігу.
+    const latest=await db.prepare(`SELECT request_key,published_on FROM whatsapp_autopost_jobs WHERE user_id=?1 AND request_key LIKE ?2 ESCAPE '\\'
+      ORDER BY created_at DESC,id DESC LIMIT 1`).bind(userId,`batch\\_${platform}\\_%`).first<{request_key:string;published_on:string}>();
+    const match=latest?.request_key.match(BATCH_KEY);
+    if(!latest||!match||latest.published_on!==date)return null;
+    batchId=match[2];
+  }
+  const prefix=batchKeyPrefix(platform,batchId);
+  const rows=await db.prepare(`SELECT id,expected_name,status,outcome,json_extract(result_json,'$.errorCode') AS code,created_at,updated_at,completed_at
+    FROM whatsapp_autopost_jobs WHERE user_id=?1 AND request_key>=?2 AND request_key<?3`)
+    .bind(userId,prefix,`${prefix.slice(0,-1)}\``).all<{id:string;expected_name:string;status:string;outcome:string|null;code:string|null;created_at:number;updated_at:number;completed_at:number|null}>();
+  if(!rows.results.length)return null;
+  const batch:AutopostBatch={id:batchId,startedAt:Number.MAX_SAFE_INTEGER,total:0,sent:0,remaining:0,failed:0,skipped:0,cancelled:0,averageSeconds:null,entries:[]};
+  let lastFinished=0;
+  let finished=0;
+  for(const row of rows.results){
+    batch.startedAt=Math.min(batch.startedAt,Number(row.created_at));
+    if(row.status==='cancelled'){batch.cancelled+=1;continue;}
+    batch.total+=1;
+    const at=Number(row.completed_at??row.updated_at);
+    if(row.status==='pending'){batch.remaining+=1;continue;}
+    if(row.status==='claimed'){batch.remaining+=1;batch.entries.push({jobId:row.id,name:row.expected_name,status:'claimed',outcome:null,code:null,at});continue;}
+    finished+=1;lastFinished=Math.max(lastFinished,at);
+    if(row.status==='sent')batch.sent+=1;
+    else if(!row.outcome||row.outcome==='needs_decision')batch.failed+=1;
+    else batch.skipped+=1;
+    batch.entries.push({jobId:row.id,name:row.expected_name,status:row.status as 'sent'|'failed',outcome:row.outcome,code:row.code,at});
+  }
+  if(finished>0)batch.averageSeconds=Math.max(1,Math.round((lastFinished-batch.startedAt)/finished));
+  batch.entries.sort((a,b)=>b.at-a.at);
+  batch.entries=batch.entries.slice(0,60);
+  return batch;
+}
 
 /**
  * How far today's autopost batch has got. A dozen day counters (autopost_day_counts) whatever the batch size,
@@ -485,7 +565,8 @@ export async function readWhatsAppAutopostProgress(db:D1Database,userId:string,d
   // Cancelled jobs are out of the count: pressing «Автопост черги» again re-queues the chats whose earlier
   // job failed or was stopped, so counting every row of the day showed «11 з 90» for 30 chats (operator
   // report 2026-10-07). The total is the live attempt — queued plus finished — and nothing else.
-  return {total:pending+claimed+sent+failed,done:sent+failed,pending,claimed,sent,failed,cancelled,running:pending+claimed>0,settled};
+  const batch=await readAutopostBatch(db,userId,platform,date);
+  return {total:pending+claimed+sent+failed,done:sent+failed,pending,claimed,sent,failed,cancelled,running:pending+claimed>0,settled,batch};
 }
 
 /**
@@ -558,12 +639,20 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
       .bind(now,row.id,userId).all<{id:string}>();
     if(claimed.results.length!==1)continue;
     // Фото одне на обидві платформи (його оператор додає на вкладці автопоста WhatsApp); підпис Viber бере з Бібліотеки.
-    const image=await readWhatsAppAutopostImage(db,userId,true);
-    const progress=await readWhatsAppAutopostProgress(db,userId,row.published_on,platform||'whatsapp');
+    const verifyMode=row.request_key.startsWith('verify_');
+    const image=verifyMode?null:await readWhatsAppAutopostImage(db,userId,true);
+    const batchMatch=row.request_key.match(BATCH_KEY);
+    const batch=batchMatch?await readAutopostBatch(db,userId,platform||'whatsapp',row.published_on,batchMatch[2]):null;
+    let sinceEpoch=Number(row.created_at);
+    if(verifyMode){
+      try{const parsed:unknown=row.result_json?JSON.parse(row.result_json):null;const value=Number((parsed as {sinceEpoch?:unknown}|null)?.sinceEpoch);if(Number.isFinite(value)&&value>0)sinceEpoch=value;}catch{/* лишається час створення */}
+    }
     return {
       kind:platform==='viber'?'viber_android':'whatsapp_autopost',
       jobId:row.id,
-      progress,
+      progress:batch?{done:batch.sent+batch.failed+batch.skipped,total:batch.total}:undefined,
+      mode:verifyMode?'verify':'send',
+      verify:verifyMode?{sinceEpoch}:undefined,
       target:{chatId:row.chat_id,expectedName:row.expected_name,expectedLink:row.expected_link},
       material:{
         advertisementId:row.advertisement_id,advertisementVersion:Number(row.advertisement_version),

@@ -933,6 +933,18 @@ function abandonCancelledAutopost(ws,job){
     observedTarget:job.target?.expectedName,targetVerified:false,sendConfirmed:false,errorCode:'cancelled'});
 }
 
+// Крок поточної задачі автопосту: подія live-каналу (картка партії на сайті показує «Зараз») і рядок у треї.
+function createStepReporter(job,platformLabel){
+  const startedAt=Date.now();
+  const progress=job.progress&&Number(job.progress.total)>0?`${Math.min(Number(job.progress.done)+1,Number(job.progress.total))}/${Number(job.progress.total)} · `:'';
+  const name=job.target?.expectedName||'чат';
+  return (step,text)=>{
+    sendLive(liveWs,{type:'progress',process:'autopost_step',platform:platformLabel==='Viber'?'viber':'whatsapp',jobId:job.jobId,name,step,text,startedAt,at:Date.now(),
+      done:Number(job.progress?.done)||0,total:Number(job.progress?.total)||0,verify:job.mode==='verify'});
+    setStatus('working',`${platformLabel}: ${progress}${name} · ${text}`);
+  };
+}
+
 async function handleViberAutopostTask(ws,job){
   const progress=job.progress&&Number(job.progress.total)>0
     ? `${Math.min(Number(job.progress.done)+1,Number(job.progress.total))}/${Number(job.progress.total)} · `
@@ -940,9 +952,11 @@ async function handleViberAutopostTask(ws,job){
   const wait=lastViberFinishedAt+VIBER_PACE_MIN_MS+Math.random()*(VIBER_PACE_MAX_MS-VIBER_PACE_MIN_MS)-Date.now();
   if(lastViberFinishedAt>0&&wait>0)await sleep(wait);
   if(cancelledAutopostJobs.has(job.jobId)){abandonCancelledAutopost(ws,job);return;}
-  setStatus('working',`Viber автопост: ${progress}${job.target?.expectedName||'чат'}`);
+  setStatus('working',`Viber: ${progress}${job.target?.expectedName||'чат'}`);
   const overrides=process.env.WORK_OS_VIBER_TEST_TARGET==='my_notes'?{testTarget:'my_notes'}:{};
-  const result=await runViberAndroid('post',viberPayloadFromTask(job,overrides),{shouldAbort:()=>cancelledAutopostJobs.has(job.jobId)});
+  const onStep=createStepReporter(job,'Viber');
+  onStep('start',job.mode==='verify'?'починаю перевірку':'починаю');
+  const result=await runViberAndroid(job.mode==='verify'?'verify':'post',{...viberPayloadFromTask(job,overrides),sinceEpoch:job.verify?.sinceEpoch},{shouldAbort:()=>cancelledAutopostJobs.has(job.jobId),onStep});
   cancelledAutopostJobs.delete(job.jobId);
   lastViberFinishedAt=Date.now();
   const reason=String(result.reason||'');
@@ -975,6 +989,11 @@ async function handleAutopostTask(ws,job){
 async function handleAutopostTaskNow(ws,job){
   if(cancelledAutopostJobs.has(job.jobId)){abandonCancelledAutopost(ws,job);return;}
   if(job.kind==='viber_android')return handleViberAutopostTask(ws,job);
+  if(job.mode==='verify'){
+    // Перевірка наявного повідомлення працює лише у Viber; для WhatsApp задача ніколи не повинна дійти до відправки.
+    sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',observedTarget:job.target?.expectedName,targetVerified:false,sendConfirmed:false,errorCode:'verify_unsupported'});
+    return;
+  }
   if(!whatsappCdp){
     console.warn('WhatsApp autopost requires WORK_OS_WHATSAPP_CDP; releasing until the browser adapter is available.');
     releaseTask(ws,'autopost',job,Date.now()+WHATSAPP_RUNTIME_COOLDOWN_MS);
@@ -997,9 +1016,11 @@ async function handleAutopostTaskNow(ws,job){
   const progress=job.progress&&Number(job.progress.total)>0
     ? `${Math.min(Number(job.progress.done)+1,Number(job.progress.total))}/${Number(job.progress.total)} · `
     : '';
-  setStatus('working',`WhatsApp автопост: ${progress}${job.target?.expectedName||'чат'}`);
+  setStatus('working',`WhatsApp: ${progress}${job.target?.expectedName||'чат'}`);
   let automated;
-  try{automated=await sendWhatsappAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp,shouldAbort:()=>cancelledAutopostJobs.has(job.jobId)});}
+  const onWhatsappStep=createStepReporter(job,'WhatsApp');
+  onWhatsappStep('start','починаю');
+  try{automated=await sendWhatsappAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp,shouldAbort:()=>cancelledAutopostJobs.has(job.jobId),onStep:onWhatsappStep});}
   catch(error){
     markWhatsappRuntimeBlocked('cdp_unavailable');
     console.warn(`WhatsApp autopost CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
@@ -1092,10 +1113,20 @@ function enqueueTask(ws,taskProcess,task){
   incomingTaskQueue.push({ws,taskProcess,task});
   pumpTaskQueue();
 }
+// Процеси чергуються: після задачі перевірки заявок WhatsApp першою йде задача автопосту (якщо вона вже чекає), і навпаки.
+// Інакше довга перевірка тримає автопост, поки не закінчиться вся.
+let lastPumpedProcess='';
+function takeNextTask(){
+  if(!incomingTaskQueue.length)return null;
+  const other=lastPumpedProcess==='waiting_check'?'autopost':lastPumpedProcess==='autopost'?'waiting_check':'';
+  const index=other?incomingTaskQueue.findIndex((item)=>item.taskProcess===other):-1;
+  return incomingTaskQueue.splice(index>=0?index:0,1)[0];
+}
 async function pumpTaskQueue(){
   if(processingTask)return;
-  const next=incomingTaskQueue.shift();
+  const next=takeNextTask();
   if(!next)return;
+  lastPumpedProcess=next.taskProcess;
   processingTask=true;
   try{
     await withCdpLock(()=>{

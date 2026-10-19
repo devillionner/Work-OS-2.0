@@ -6,7 +6,7 @@ import { transitionChat } from './chats/transitions.ts';
 export const MAX_AUTOPOST_ATTEMPTS = 3;
 
 export type AutopostOutcome = 'archived' | 'waiting' | 'snoozed' | 'skipped' | 'needs_decision' | 'resolved';
-export type AutopostDecision = 'archive' | 'snooze' | 'retry';
+export type AutopostDecision = 'archive' | 'snooze' | 'retry' | 'check';
 
 type Policy =
   | { kind: 'archive'; reason: string }
@@ -144,14 +144,34 @@ export async function resolveAutopostDecision(
   return { ok: true, chatId: job.chat_id };
 }
 
+/** Те саме рішення для кількох чатів (група в «Потребують рішення»). Повертає тих, кого вдалося закрити, і скільки пропущено. */
+export async function resolveAutopostDecisions(
+  db: D1Database,
+  userId: string,
+  input: { jobIds: string[]; decision: AutopostDecision },
+  now: number,
+): Promise<{ resolved: Array<{ jobId: string; chatId: string }>; skipped: number }> {
+  const resolved: Array<{ jobId: string; chatId: string }> = [];
+  let skipped = 0;
+  for (const jobId of input.jobIds.slice(0, 100)) {
+    const result = await resolveAutopostDecision(db, userId, { jobId, decision: input.decision }, now);
+    if (result.ok) resolved.push({ jobId, chatId: result.chatId });
+    else skipped += 1;
+  }
+  return { resolved, skipped };
+}
+
 export type AutopostAttentionItem = { jobId: string; chatId: string; name: string; errorCode: string; updatedAt: number };
 
-/** Чати платформи, які автопост не чіпав і чекає рішення власника (за будь-який день). */
-export async function readAutopostAttention(db: D1Database, userId: string, platform: 'whatsapp' | 'viber'): Promise<AutopostAttentionItem[]> {
+/**
+ * Чати платформи, які автопост не чіпав і чекає рішення власника, лише з партій сьогодні. З новим днем учорашні зникають зі
+ * списку самі: чат не архівується й не змінюється, лишається в «Для публікації», а та сама помилка завтра з'явиться знову.
+ */
+export async function readAutopostAttention(db: D1Database, userId: string, platform: 'whatsapp' | 'viber', date: string): Promise<AutopostAttentionItem[]> {
   const rows = await db.prepare(`SELECT j.id AS id,j.chat_id AS chat_id,j.expected_name AS name,j.result_json AS result_json,j.updated_at AS updated_at
     FROM whatsapp_autopost_jobs j JOIN chats c ON c.id=j.chat_id AND c.user_id=j.user_id
-    WHERE j.user_id=?1 AND j.outcome='needs_decision' AND c.platform=?2
-    ORDER BY j.updated_at DESC,j.id LIMIT 50`).bind(userId, platform)
+    WHERE j.user_id=?1 AND j.outcome='needs_decision' AND c.platform=?2 AND j.published_on=?3
+    ORDER BY j.updated_at DESC,j.id LIMIT 100`).bind(userId, platform, date)
     .all<{ id: string; chat_id: string; name: string; result_json: string | null; updated_at: number }>();
   return (rows.results || []).map((row) => {
     let code = 'adapter_failed';

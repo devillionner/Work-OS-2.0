@@ -64,7 +64,7 @@ import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFee
 /** @typedef {'browser'|'runner'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, autopostClaimedAt?: number, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, autopostClaimedAt?: number, autopostWatchAt?: number, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 // The runner pings every 30 s and the runtime records each auto-answered ping per socket. A runner socket
@@ -78,6 +78,8 @@ const AUTOPOST_LEASE_SECONDS = 600;
 /** Скільки останніх рішень про видачу автопосту DO пам'ятає й показує runner після підключення. */
 const AUTOPOST_TRACE_LIMIT = 40;
 const AUTOPOST_TRACE_REPLAY = 15;
+/** Після повернення задачі в чергу DO сам перевіряє чергу через стільки, якщо runner не попросив наступну (спільний ready міг загубитись). */
+const AUTOPOST_WATCH_MS = 180_000;
 /** Подія, що тримає чергу обробників довше за це, не блокує наступні (D1 міг не відповісти). */
 const SERIAL_MAX_WAIT_MS = 60_000;
 const PING = JSON.stringify({ type: 'ping' });
@@ -479,10 +481,12 @@ export class OwnerChannel {
       notes.push(`видача: задачу ${row.id} (${row.expected_name}) знято, причина ${reason}`);
     });
     if (!task) {
+      state.autopostWatchAt = undefined;
       notes.push(`видача: у черзі на сьогодні нічого не лишилось (runner: ${runners})`);
       flush();
       return;
     }
+    state.autopostWatchAt = undefined;
     state.autopostCurrentJobId = task.jobId;
     state.autopostClaimedAt = Date.now();
     const delivered = this.broadcast('runner', { type: 'task', process: 'autopost', task });
@@ -583,6 +587,8 @@ export class OwnerChannel {
     state.autopostCurrentJobId = null;
     state.autopostClaimedAt = undefined;
     this.autopostTrace(state, `повернення: ${message.jobId} назад у чергу${message.errorCode ? ` (${message.errorCode})` : ' (середовище не готове)'}`, false);
+    state.autopostWatchAt = Date.now() + AUTOPOST_WATCH_MS;
+    await this.scheduleAlarm(state);
     await this.writeState(state);
     this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: message.jobId, status: 'released' });
   }
@@ -693,6 +699,11 @@ export class OwnerChannel {
       state.discoveryRunWakeAt = null;
       await this.dispatchRun(state);
     }
+    if (state.autopostWatchAt && Date.now() >= state.autopostWatchAt) {
+      state.autopostWatchAt = undefined;
+      this.autopostTrace(state, 'будильник: перевіряю чергу автопосту після повернення задачі');
+      await this.dispatchNextAutopostJob(state);
+    }
     if (state.autopostCurrentJobId && Date.now() >= (state.autopostClaimedAt ?? 0) + AUTOPOST_LEASE_SECONDS * 1000) {
       this.autopostTrace(state, `будильник: оренда задачі ${state.autopostCurrentJobId} спливла, перевіряю чергу`);
       await this.dispatchNextAutopostJob(state);
@@ -712,6 +723,7 @@ export class OwnerChannel {
     if (state.discoveryRunWakeAt && state.discoveryRunWakeAt > Date.now()) times.push(state.discoveryRunWakeAt);
     // Задача автопосту «в роботі» не чекає чужої події: коли оренда спливає, DO сам прокидається й видає наступну. Один будильник на задачу, не опитування.
     if (state.autopostCurrentJobId) times.push((state.autopostClaimedAt ?? Date.now()) + AUTOPOST_LEASE_SECONDS * 1000 + 2000);
+    if (state.autopostWatchAt) times.push(Math.max(state.autopostWatchAt, Date.now() + 1000));
     if (times.length) await this.ctx.storage.setAlarm(Math.min(...times));
   }
 

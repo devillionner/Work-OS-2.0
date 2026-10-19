@@ -8,6 +8,7 @@ import {
   cancelWhatsAppAutopostBatch,
   cancelWhatsAppAutopostJob,
   createViberSafeNoteJob,
+  createAutopostVerifyJob,
   createWhatsAppAutopostBatch,
   createWhatsAppAutopostJob,
   readLatestViberSafeNoteJob,
@@ -16,7 +17,7 @@ import {
   readWhatsAppAutopostProgress,
   resetWhatsAppAutopostQueue,
 } from '@/lib/messenger-automation';
-import { readAutopostAttention, resolveAutopostDecision, type AutopostDecision } from '@/lib/messenger-automation-outcome';
+import { readAutopostAttention, resolveAutopostDecision, resolveAutopostDecisions, type AutopostDecision } from '@/lib/messenger-automation-outcome';
 import { publicWhatsAppAutopostImage, readWhatsAppAutopostImage } from '@/lib/whatsapp-autopost-media';
 import {
   cleanWhatsAppAutopostCaption,
@@ -58,7 +59,7 @@ export async function GET(request:Request):Promise<Response>{
       const date=businessDate(Math.floor(Date.now()/1000));
       const [progress,attention]=await Promise.all([
         readWhatsAppAutopostProgress(env.DB,user.id,date),
-        readAutopostAttention(env.DB,user.id,'whatsapp'),
+        readAutopostAttention(env.DB,user.id,'whatsapp',date),
       ]);
       return json({whatsappAutopostProgress:progress,autopostAttention:attention});
     }
@@ -67,7 +68,7 @@ export async function GET(request:Request):Promise<Response>{
       const date=businessDate(Math.floor(Date.now()/1000));
       const [progress,attention]=await Promise.all([
         readWhatsAppAutopostProgress(env.DB,user.id,date,'viber'),
-        readAutopostAttention(env.DB,user.id,'viber'),
+        readAutopostAttention(env.DB,user.id,'viber',date),
       ]);
       return json({viberAutopostProgress:progress,autopostAttention:attention});
     }
@@ -77,7 +78,7 @@ export async function GET(request:Request):Promise<Response>{
       readWhatsAppAutopostImage(env.DB,user.id),
       readWhatsAppAutopostCaption(env.DB,user.id),
       readWhatsAppAutopostProgress(env.DB,user.id,businessDate(Math.floor(Date.now()/1000))),
-      readAutopostAttention(env.DB,user.id,'whatsapp'),
+      readAutopostAttention(env.DB,user.id,'whatsapp',businessDate(Math.floor(Date.now()/1000))),
     ]);
     return json({
       job,
@@ -162,24 +163,44 @@ export async function POST(request:Request):Promise<Response>{
       await wakeOwnerChannelAutopost(user.id);
       return json({...result,progress:await readWhatsAppAutopostProgress(env.DB,user.id,businessDate(now),'viber')});
     }
-    // Рішення власника зі списку «Потребують рішення»: в архів, відкласти на завтра або спробувати ще раз.
-    if(body.action==='resolve-autopost-decision'){
-      const decision=body.decision==='archive'||body.decision==='snooze'||body.decision==='retry'?body.decision as AutopostDecision:null;
-      if(typeof body.jobId!=='string'||!body.jobId||!decision)throw new MessengerAutomationError('Не вказано чат або рішення.');
-      const resolved=await resolveAutopostDecision(env.DB,user.id,{jobId:body.jobId,decision},now);
-      if(!resolved.ok)throw new MessengerAutomationError(resolved.error,409);
-      if(decision==='retry'){
-        const platformRow=await env.DB.prepare(`SELECT platform FROM chats WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(resolved.chatId,user.id).first<{platform:string}>();
-        await createWhatsAppAutopostJob(env.DB,user.id,{requestKey:`retry_${crypto.randomUUID()}`,chatId:resolved.chatId,platform:platformRow?.platform},now,businessDate(now));
-        await wakeOwnerChannelAutopost(user.id);
-      }
-      const platform=body.platform==='viber'?'viber':'whatsapp';
+    // Рішення власника зі списку «Потребують рішення»: в архів, відкласти на завтра, спробувати ще раз або «перевірити» (лише
+    // відкрити чат і подивитись, чи повідомлення вже є). Те саме для групи чатів одним запитом (`jobIds`).
+    if(body.action==='resolve-autopost-decision'||body.action==='resolve-autopost-decisions'){
+      const decision=['archive','snooze','retry','check'].includes(String(body.decision))?body.decision as AutopostDecision:null;
+      const bulk=body.action==='resolve-autopost-decisions';
+      const jobIds=bulk?(Array.isArray(body.jobIds)?body.jobIds.filter((id):id is string=>typeof id==='string'&&id.length>0):[]):(typeof body.jobId==='string'&&body.jobId?[body.jobId]:[]);
+      if(!jobIds.length||!decision)throw new MessengerAutomationError('Не вказано чат або рішення.');
+      if(decision==='retry'&&bulk)throw new MessengerAutomationError('Повторну відправку для групи не виконуємо: можливі дублі.');
       const date=businessDate(now);
+      if(decision==='check'){
+        // Перевірка лише для Viber: рішення не закриваємо, поки не ясно, що задачу перевірки можна створити.
+        const rows=await env.DB.prepare(`SELECT c.platform AS platform FROM whatsapp_autopost_jobs j JOIN chats c ON c.id=j.chat_id AND c.user_id=j.user_id
+          WHERE j.user_id=?1 AND j.id IN (SELECT value FROM json_each(?2))`).bind(user.id,JSON.stringify(jobIds)).all<{platform:string}>();
+        if(rows.results.some((row)=>row.platform!=='viber'))throw new MessengerAutomationError('Перевірка наявного повідомлення поки працює лише у Viber.',409);
+      }
+      let resolved:Array<{jobId:string;chatId:string}>;
+      if(bulk)resolved=(await resolveAutopostDecisions(env.DB,user.id,{jobIds,decision},now)).resolved;
+      else{
+        const single=await resolveAutopostDecision(env.DB,user.id,{jobId:jobIds[0],decision},now);
+        if(!single.ok)throw new MessengerAutomationError(single.error,409);
+        resolved=[{jobId:jobIds[0],chatId:single.chatId}];
+      }
+      if(decision==='retry'){
+        for(const item of resolved){
+          const platformRow=await env.DB.prepare(`SELECT platform FROM chats WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(item.chatId,user.id).first<{platform:string}>();
+          await createWhatsAppAutopostJob(env.DB,user.id,{requestKey:`retry_${crypto.randomUUID()}`,chatId:item.chatId,platform:platformRow?.platform},now,date);
+        }
+      }
+      if(decision==='check'){
+        for(const item of resolved)await createAutopostVerifyJob(env.DB,user.id,item.jobId,now,date);
+      }
+      if(decision==='retry'||decision==='check')await wakeOwnerChannelAutopost(user.id);
+      const platform=body.platform==='viber'?'viber':'whatsapp';
       const [progress,attention]=await Promise.all([
         readWhatsAppAutopostProgress(env.DB,user.id,date,platform),
-        readAutopostAttention(env.DB,user.id,platform),
+        readAutopostAttention(env.DB,user.id,platform,date),
       ]);
-      return json({ok:true,progress,autopostAttention:attention});
+      return json({ok:true,resolved:resolved.length,progress,autopostAttention:attention});
     }
     if(body.action==='cancel-whatsapp-autopost'){
       if(typeof body.jobId!=='string'||!body.jobId)throw new MessengerAutomationError('WhatsApp autopost задача не вказана.');

@@ -1,16 +1,16 @@
 'use client';
 
 import { useRef } from 'react';
-import { CheckCircle2, ImagePlus, RotateCcw, Send, Square, Trash2, UploadCloud, XCircle } from 'lucide-react';
+import { ImagePlus, RotateCcw, Send, Square, Trash2, UploadCloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Ring } from '@/components/ui/ring';
 import { Textarea } from '@/components/ui/input';
 import { Surface } from '@/components/ui/surface';
-import { AutopostAttentionList, AutopostOutcomeSummary, type AutopostAttentionItem, type AutopostDecision } from '@/components/views/platforms/autopost-attention';
+import { AutopostAttentionList, type AutopostAttentionItem, type AutopostDecision } from '@/components/views/platforms/autopost-attention';
+import { AutopostBatchPanel, type AutopostBatch } from '@/components/views/platforms/autopost-batch';
 
 export type WhatsAppAutopostImage = { fileName: string; contentType: string; sizeBytes: number; sha256: string; updatedAt: number };
 export type WhatsAppAutopostSettled = { archived: number; waiting: number; snoozed: number; skipped: number; decision: number };
-export type WhatsAppAutopostProgress = { total: number; done: number; pending: number; claimed: number; sent: number; failed: number; cancelled: number; running: boolean; settled?: WhatsAppAutopostSettled };
+export type WhatsAppAutopostProgress = { total: number; done: number; pending: number; claimed: number; sent: number; failed: number; cancelled: number; running: boolean; settled?: WhatsAppAutopostSettled; batch?: AutopostBatch | null };
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} Б`;
@@ -19,7 +19,7 @@ function formatBytes(bytes: number) {
 }
 
 /** Картка-редактор WhatsApp-автопоста: фото й підпис, статус черги кільцем, старт / стоп / скидання черги. */
-export function AutopostCard({ image, imageLoaded, caption, captionLoaded, busy, queueSize, progress, attention, batchNote, onDecide, onCaptionChange, onUploadImage, onRemoveImage, onSaveCaption, onClearCaption, onStart, onStop, onReset }: {
+export function AutopostCard({ image, imageLoaded, caption, captionLoaded, busy, queueSize, progress, attention, batchNote, onDecide, onDecideMany, onCaptionChange, onUploadImage, onRemoveImage, onSaveCaption, onClearCaption, onStart, onStop, onReset }: {
   image: WhatsAppAutopostImage | null;
   imageLoaded: boolean;
   caption: string;
@@ -31,6 +31,7 @@ export function AutopostCard({ image, imageLoaded, caption, captionLoaded, busy,
   /** Підсумок останнього запуску партії: скільки чатів поставлено й чому решту пропущено. */
   batchNote: string | null;
   onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
+  onDecideMany: (items: AutopostAttentionItem[], decision: Exclude<AutopostDecision, 'retry'>) => void;
   onCaptionChange: (value: string) => void;
   onUploadImage: (file: File) => void;
   onRemoveImage: () => void;
@@ -44,7 +45,6 @@ export function AutopostCard({ image, imageLoaded, caption, captionLoaded, busy,
   const ready = imageLoaded && Boolean(image) && captionLoaded;
   const running = progress?.running === true;
   const hasQueue = Boolean(progress && (progress.total > 0 || progress.cancelled > 0));
-  const ratio = progress && progress.total > 0 ? Math.min(1, progress.done / progress.total) : 0;
 
   return (
     <Surface variant="glass" radius="card" className="flex flex-col gap-6 p-5 sm:p-6" aria-labelledby="autopost-title">
@@ -53,29 +53,10 @@ export function AutopostCard({ image, imageLoaded, caption, captionLoaded, busy,
         <p className="m-0 mt-1 max-w-[62ch] text-sm text-ink-2">Усі придатні чати з черги «Для публікації» (до 100 за запуск) по черзі, з підтвердженням кожної відправки. Кожен чат потрапляє в партію один раз на день.</p>
       </div>
 
-      {progress && progress.total > 0 ? (
-        <section className="flex items-center gap-5 rounded-inner border border-line bg-sunken p-4" aria-label="Прогрес автопоста">
-          <Ring value={ratio} tone={progress.failed > 0 ? 'warn' : ratio >= 1 ? 'ok' : 'ink'} size={72} stroke={5} label={`Автопост: ${progress.done} з ${progress.total}`}>{Math.round(ratio * 100)}%</Ring>
-          <div className="min-w-0 flex-1">
-            <p className="m-0 flex items-center gap-2 text-sm font-medium">
-              {running ? <i aria-hidden="true" className="size-2 rounded-full bg-ok" /> : <CheckCircle2 aria-hidden="true" strokeWidth={1.5} className="size-4 text-ok" />}
-              {running ? 'Автопост виконується' : 'Автопост завершено'}
-              <span className="ml-auto font-mono text-sm font-normal">{progress.done} з {progress.total}</span>
-            </p>
-            <p className="m-0 mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
-              <span>Відправлено <b className="font-mono font-normal text-ink">{progress.sent}</b></span>
-              {progress.failed > 0 ? <span className="inline-flex items-center gap-1 text-hot"><XCircle aria-hidden="true" strokeWidth={1.5} className="size-3.5" />Без відправки <b className="font-mono font-normal">{progress.failed}</b></span> : null}
-              {progress.pending + progress.claimed > 0 ? <span>Лишилось <b className="font-mono font-normal text-ink">{progress.pending + progress.claimed}</b></span> : null}
-              {progress.cancelled > 0 ? <span>Скасовано <b className="font-mono font-normal text-ink">{progress.cancelled}</b></span> : null}
-            </p>
-            <div className="mt-1.5"><AutopostOutcomeSummary progress={progress} /></div>
-            {running ? null : <p className="m-0 mt-1.5 text-xs text-ink-2">{progress.failed > 0 ? 'Автопост завершено. Чати без відправки розібрано за правилами, решту можна вирішити нижче.' : 'Усі чати в черзі опрацьовано й підтверджено.'}</p>}
-          </div>
-        </section>
-      ) : null}
+      <AutopostBatchPanel batch={progress?.batch} running={running} platform="whatsapp" />
 
       {batchNote ? <p className="m-0 text-xs text-ink-2">{batchNote}</p> : null}
-      <AutopostAttentionList items={attention} busy={busy} onDecide={onDecide} />
+      <AutopostAttentionList items={attention} busy={busy} canVerify={false} onDecide={onDecide} onDecideMany={onDecideMany} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="flex flex-col gap-3" aria-label="Зображення для публікації">

@@ -30,6 +30,9 @@ const REASONS: Record<string, string> = {
   stale_precondition: 'Чат змінився до відправки (інша черга, публікація чи правила). Пропущено.',
   target_not_verified: 'Ціль не підтверджено. Пропущено без відправки.',
   adapter_failed: 'Автопост не зміг виконати відправку. Перевір чат вручну.',
+  waydroid_suspend: 'У Waydroid увімкнене автозаморожування. Вимкни його: waydroid prop set persist.waydroid.suspend false.',
+  message_not_found: 'Перевірено: повідомлення в чаті немає. Можна спробувати ще раз, дубля не буде.',
+  verify_unsupported: 'Перевірка наявного повідомлення поки працює лише у Viber.',
   // WhatsApp: ці коди приходять із браузерного адаптера.
   whatsapp_chat_missing: 'Група WhatsApp більше недоступна.',
   whatsapp_removed_from_group: 'Тебе вилучено з групи WhatsApp.',
@@ -71,3 +74,18 @@ const BATCH_SKIP: Record<string, string> = {
 };
 
 export function batchSkipText(code: string): string { return BATCH_SKIP[code] || 'не пройшов перевірку'; }
+
+/** Група причин для «Потребують рішення»: підпис, чи можна замість повтору «перевірити» (повідомлення могло піти). */
+export type AutopostReasonGroup = { key: string; label: string; checkable: boolean };
+const GROUPS: Array<[string[], AutopostReasonGroup]> = [
+  [['send_not_confirmed', 'helper_timeout', 'media_send_not_confirmed'], { key: 'unconfirmed', label: 'Не вдалося підтвердити', checkable: true }],
+  [['message_not_found'], { key: 'missing', label: 'Повідомлення не знайдено', checkable: false }],
+  [['viber_banned', 'whatsapp_removed_from_group', 'membership_left'], { key: 'blocked', label: 'Заблоковано в групі', checkable: false }],
+  [['target_unconfirmed', 'target_not_found', 'target_ambiguous', 'joined_target_not_verified', 'target_not_verified'], { key: 'target', label: 'Не той чат', checkable: false }],
+  [['viber_not_joined', 'membership_not_confirmed', 'approval_required', 'whatsapp_join_retry_later'], { key: 'join', label: 'Не вдалося приєднатися', checkable: false }],
+  [['send_ui_unavailable', 'blocking_dialog', 'android_error', 'media_attach_failed', 'media_preview_not_ready', 'media_caption_not_found', 'media_caption_mismatch', 'media_send_failed', 'send_failed'], { key: 'screen', label: 'Збій екрана відправки', checkable: false }],
+];
+const OTHER_GROUP: AutopostReasonGroup = { key: 'other', label: 'Інше', checkable: false };
+export function autopostReasonGroup(code: string | null | undefined): AutopostReasonGroup {
+  return GROUPS.find(([codes]) => codes.includes(String(code)))?.[1] ?? OTHER_GROUP;
+}
