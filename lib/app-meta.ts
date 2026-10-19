@@ -1,8 +1,9 @@
-export const APP_VERSION = '3.2.27';
-export const APP_RELEASE_DATE = '2026-10-18';
+export const APP_VERSION = '3.2.28';
+export const APP_RELEASE_DATE = '2026-10-19';
 
 // User-facing copy only. Keep each note short and plain; technical details belong in docs and commits.
 export const APP_CHANGES = [
+  'У чатах Viber у меню «⋯» з’явився «Профіль і правила»: частота публікацій, дозволені дні й напрямки, як у Telegram і WhatsApp.',
   'Автопост у Viber і WhatsApp показує хід партії: «3 з 20», що робиться зараз (відкриваю чат, додаю фото, надсилаю), орієнтовний час до кінця і журнал чатів партії.',
   '«Потребують рішення» показує лише сьогоднішні чати й групує їх за причиною; є масові дії та кнопка «Перевірити» для чатів, де повідомлення могло дійти.',
   'У великих Viber-чатах автопост знаходить своє повідомлення серед чужих, тож хибних «Не вдалося підтвердити» стало значно менше.',

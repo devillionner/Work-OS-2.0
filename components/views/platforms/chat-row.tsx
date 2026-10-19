@@ -79,7 +79,7 @@ export function ChatRow({ chat, queue, section, clock, busy, lastOpened, account
         <Menu>
           <MenuTrigger render={<Button variant="icon" size="sm" aria-label={`Ще дії для «${chat.name}»`} disabled={busy} />}><Ellipsis aria-hidden="true" strokeWidth={1.5} /></MenuTrigger>
           <MenuContent align="end">
-            {chat.platform !== 'viber' && (queue === 'waiting' || queue === 'ready' || queue === 'profile_review' || telegramJoin) ? <MenuItem onClick={() => onProfile(chat)}><UserRoundCheck aria-hidden="true" strokeWidth={1.5} />Профіль і правила</MenuItem> : null}
+            {(queue === 'waiting' || queue === 'ready' || queue === 'profile_review' || telegramJoin) ? <MenuItem onClick={() => onProfile(chat)}><UserRoundCheck aria-hidden="true" strokeWidth={1.5} />Профіль і правила</MenuItem> : null}
             {(queue === 'waiting' || queue === 'ready') ? <MenuItem disabled={chat.publishedToday} onClick={() => onAct(chat, snoozed ? 'unsnooze' : 'snooze', {}, snoozed ? undefined : undo8('Відкладення можна скасувати протягом 8 секунд.', 'unsnooze'))}><Clock3 aria-hidden="true" strokeWidth={1.5} />{snoozed ? 'Повернути зараз' : 'Відкласти на 3 дні'}</MenuItem> : null}
             {telegramJoin && section === 'queue' ? <MenuItem onClick={() => onUnshortlist(chat)}><ListMinus aria-hidden="true" strokeWidth={1.5} />Прибрати з черги</MenuItem> : null}
             {queue === 'ready' && chat.platform === 'whatsapp' ? <MenuItem disabled={Boolean(chat.autopostJobId)} onClick={() => onReturn(chat)}><Undo2 aria-hidden="true" strokeWidth={1.5} />Повернути для приєднання</MenuItem> : null}
