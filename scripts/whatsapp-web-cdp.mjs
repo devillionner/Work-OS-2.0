@@ -1120,7 +1120,8 @@ export async function sendWhatsappAutopostViaCdp(
         const h12 = ((at.getHours() + 11) % 12) + 1;
         return [`${hh}:${mm}`, `${h12}:${mm}`];
       });
-      const hit = (before.messageRows || []).find((row) => row.fromMe && matchesCaptionOrText(row.text, text) && labels.some((label) => String(row.text || '').includes(label)));
+      // fromMe не вимагаємо: у деяких збірках WhatsApp Web ознака вихідного повідомлення не читається, а збіг підпису з міткою часу й так однозначний.
+      const hit = (before.messageRows || []).find((row) => matchesCaptionOrText(row.text, text) && labels.some((label) => String(row.text || '').includes(label)));
       if (hit) return { kind:'result', result:{ status:'sent', observedTarget, targetVerified:true, sendConfirmed:true, mediaConfirmed:true } };
       console.warn('WhatsApp verify diagnostic: ' + JSON.stringify({ labels: labels.slice(0, 4), rows: (before.messageRows || []).slice(-6).map((row) => ({ fromMe: row.fromMe, media: row.hasMedia, len: String(row.text || '').length, tail: String(row.text || '').slice(-36) })) }));
       return { kind:'blocked', reason:'message_not_found' };

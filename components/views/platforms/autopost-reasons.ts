@@ -78,7 +78,7 @@ export function batchSkipText(code: string): string { return BATCH_SKIP[code] ||
 export type AutopostReasonGroup = { key: string; label: string; checkable: boolean; /** Повтор може дати дубль: потрібне підтвердження. */ risky?: boolean };
 const GROUPS: Array<[string[], AutopostReasonGroup]> = [
   [['send_not_confirmed', 'helper_timeout', 'media_send_not_confirmed'], { key: 'unconfirmed', label: 'Не вдалося підтвердити', checkable: true, risky: true }],
-  [['message_not_found'], { key: 'missing', label: 'Повідомлення не знайдено', checkable: false, risky: true }],
+  [['message_not_found'], { key: 'missing', label: 'Повідомлення не знайдено', checkable: true, risky: true }],
   [['viber_banned', 'whatsapp_removed_from_group', 'membership_left'], { key: 'blocked', label: 'Заблоковано в групі', checkable: false }],
   [['target_unconfirmed', 'target_not_found', 'target_ambiguous', 'joined_target_not_verified', 'target_not_verified'], { key: 'target', label: 'Не той чат', checkable: false }],
   [['viber_not_joined', 'membership_not_confirmed', 'approval_required', 'whatsapp_join_retry_later'], { key: 'join', label: 'Не вдалося приєднатися', checkable: false }],
