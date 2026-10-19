@@ -128,12 +128,13 @@ export async function settleAutopostFailure(
 export async function resolveAutopostDecision(
   db: D1Database,
   userId: string,
-  input: { jobId: string; decision: AutopostDecision; requireSimilar?: boolean },
+  input: { jobId: string; decision: AutopostDecision; requireSimilar?: boolean; /** Дія лише для задач із цим кодом помилки (масова повторна відправка: тільки «повідомлення не знайдено»). */ requireCode?: string },
   now: number,
 ): Promise<{ ok: true; chatId: string } | { ok: false; error: string }> {
   const job = await db.prepare(`SELECT id,chat_id,outcome,result_json FROM whatsapp_autopost_jobs WHERE id=?1 AND user_id=?2 LIMIT 1`)
     .bind(input.jobId, userId).first<{ id: string; chat_id: string; outcome: string | null; result_json: string | null }>();
   if (!job || job.outcome !== 'needs_decision') return { ok: false, error: 'Це рішення вже прийнято. Оновіть список.' };
+  if (input.requireCode && errorCodeOf(job.result_json) !== input.requireCode) return { ok: false, error: 'Для масової дії потрібна перевірена відсутність повідомлення.' };
   if (input.decision === 'archive') {
     if (!await archiveChat(db, userId, job.chat_id, ARCHIVE_DECIDED, now)) return { ok: false, error: 'Стан чату вже змінився. Оновіть список.' };
   } else if (input.decision === 'snooze') {
@@ -154,6 +155,14 @@ export async function resolveAutopostDecision(
   return { ok: true, chatId: job.chat_id };
 }
 
+function errorCodeOf(resultJson: string | null): string {
+  try {
+    const parsed: unknown = resultJson ? JSON.parse(resultJson) : null;
+    const value = parsed && typeof parsed === 'object' ? (parsed as { errorCode?: unknown }).errorCode : '';
+    return typeof value === 'string' ? value : '';
+  } catch { return ''; }
+}
+
 function observedName(resultJson: string | null): string {
   try {
     const parsed: unknown = resultJson ? JSON.parse(resultJson) : null;
@@ -168,13 +177,13 @@ const cleanChatName = (value: string) => value.replace(/[\u0000-\u001f\u007f]/g,
 export async function resolveAutopostDecisions(
   db: D1Database,
   userId: string,
-  input: { jobIds: string[]; decision: AutopostDecision; requireSimilar?: boolean },
+  input: { jobIds: string[]; decision: AutopostDecision; requireSimilar?: boolean; requireCode?: string },
   now: number,
 ): Promise<{ resolved: Array<{ jobId: string; chatId: string }>; skipped: number }> {
   const resolved: Array<{ jobId: string; chatId: string }> = [];
   let skipped = 0;
   for (const jobId of input.jobIds.slice(0, 100)) {
-    const result = await resolveAutopostDecision(db, userId, { jobId, decision: input.decision, requireSimilar: input.requireSimilar }, now);
+    const result = await resolveAutopostDecision(db, userId, { jobId, decision: input.decision, requireSimilar: input.requireSimilar, requireCode: input.requireCode }, now);
     if (result.ok) resolved.push({ jobId, chatId: result.chatId });
     else skipped += 1;
   }

@@ -24,7 +24,7 @@ export function AutopostCard({ material, busy, plan, onLoadPlan, runnerConnected
   /** Підсумок останнього запуску партії: скільки чатів поставлено й чому решту пропущено. */
   batchNote: string | null;
   onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
-  onDecideMany: (items: AutopostAttentionItem[], decision: Exclude<AutopostDecision, 'retry'>) => void;
+  onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision) => void;
   onStart: (limit: number | null, exclude: string[]) => void;
   onStop: () => void;
   onReset: () => void;

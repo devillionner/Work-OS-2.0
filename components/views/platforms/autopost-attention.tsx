@@ -25,7 +25,7 @@ export function AutopostAttentionList({ items, busy, canVerify, onDecide, onDeci
   /** Чи вміє адаптер платформи лише перевірити наявне повідомлення (Viber і WhatsApp вміють). */
   canVerify: boolean;
   onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
-  onDecideMany: (items: AutopostAttentionItem[], decision: Exclude<AutopostDecision, 'retry'>) => void;
+  onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision) => void;
 }) {
   const [pending, setPending] = useState<Pending | null>(null);
   if (!items.length) return null;
@@ -57,6 +57,7 @@ export function AutopostAttentionList({ items, busy, canVerify, onDecide, onDeci
             <div className="flex flex-wrap gap-2 border-t border-line px-4 py-3">
               {group.checkable ? <Button variant="outline" size="sm" disabled={busy} title="Відкриє кожен чат і лише перевірить, чи є в ньому повідомлення" onClick={() => onDecideMany(group.items, 'check')}>{group.missing ? 'Перевірити ще раз усі' : 'Перевірити всі'}</Button> : null}
               {group.renameable && renameable.length ? <Button variant="outline" size="sm" disabled={busy} title="Лише чати, де назви схожі" onClick={() => onDecideMany(renameable, 'rename')}>Оновити назви й опублікувати ({renameable.length})</Button> : null}
+              {group.missing ? <Button variant="outline" size="sm" disabled={busy} title="Перевірка показала, що повідомлення в цих чатах немає, тож дубля не буде" onClick={() => onDecideMany(group.items, 'retry')}>Опублікувати ще раз усі</Button> : null}
               <Button variant="outline" size="sm" disabled={busy} title="Чати повернуться в чергу завтра" onClick={() => onDecideMany(group.items, 'snooze')}>Відкласти всі</Button>
               <Button variant="ghost" size="sm" tone="danger" disabled={busy} onClick={() => setPending({ kind: 'archive', items: group.items })}>В архів усі</Button>
             </div>

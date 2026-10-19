@@ -87,6 +87,8 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
   const done = batch.total - batch.remaining;
   // Кільце показує частку відправлених, а не оброблених: інакше партія, де чверть чатів не вдалась, виглядає «100 %».
   const ratio = Math.min(1, batch.sent / batch.total);
+  // «Не вдалося» — усе, що закінчилось без відправки: помилка, пропуск за політикою чи рішення власника.
+  const notSent = batch.failed + batch.skipped;
   const secondsLeft = batch.averageSeconds ? batch.remaining * batch.averageSeconds : null;
   const finishedEntries = batch.entries.filter((entry) => entry.status !== 'claimed');
   const claimed = running ? batch.entries.find((entry) => entry.status === 'claimed') : undefined;
@@ -95,7 +97,7 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
   return (
     <section className="flex flex-col gap-4 rounded-inner border border-line bg-sunken p-4" aria-label="Хід партії автопосту">
       <div className="flex items-center gap-5">
-        <Ring value={ratio} tone={ratio >= 1 && batch.failed === 0 && batch.skipped === 0 ? 'ok' : 'ink'} size={72} stroke={5} label={`Відправлено ${batch.sent} з ${batch.total}`}>{Math.round(ratio * 100)}%</Ring>
+        <Ring value={ratio} tone={ratio >= 1 ? 'ok' : 'ink'} size={72} stroke={5} label={`Відправлено ${batch.sent} з ${batch.total}`}>{Math.round(ratio * 100)}%</Ring>
         <div className="min-w-0 flex-1">
           <p className="m-0 flex items-center gap-2 text-sm font-medium">
             {running ? <i aria-hidden="true" className="size-2 rounded-full bg-ok" /> : <Check aria-hidden="true" strokeWidth={1.5} className="size-4 text-ok" />}
@@ -105,8 +107,7 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
           <p className="m-0 mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
             <span>Відправлено <b className="font-mono font-normal tabular-nums text-ink">{batch.sent}</b></span>
             <span>Лишилось <b className="font-mono font-normal tabular-nums text-ink">{batch.remaining}</b></span>
-            {batch.failed > 0 ? <span className="text-hot">Не вдалося <b className="font-mono font-normal tabular-nums">{batch.failed}</b></span> : null}
-            {batch.skipped > 0 ? <span>Пропущено <b className="font-mono font-normal tabular-nums text-ink">{batch.skipped}</b></span> : null}
+            {notSent > 0 ? <span className="text-hot" title="Помилка, пропуск за політикою або рішення, що чекає тебе">Не вдалося <b className="font-mono font-normal tabular-nums">{notSent}</b></span> : null}
             {batch.cancelled > 0 ? <span>Скасовано <b className="font-mono font-normal tabular-nums text-ink">{batch.cancelled}</b></span> : null}
           </p>
           {running && secondsLeft ? <p className="m-0 mt-1.5 text-xs text-ink-2">До кінця: {eta(secondsLeft)}</p> : null}

@@ -834,14 +834,14 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     await reloadChats.current(true);
     toast.push({ message: decision === 'archive' ? 'Чат переміщено в архів.' : decision === 'snooze' ? 'Чат відкладено до завтра.' : decision === 'check' ? 'Перевіряю чат: runner відкриє його й подивиться, чи є повідомлення.' : decision === 'rename' ? 'Назву чату оновлено, він піде в наступну партію.' : 'Чат знову поставлено в чергу автопосту.' });
   });
-  const decideAutopostMany = (items: AutopostAttentionItem[], decision: Exclude<AutopostDecision, 'retry'>) => wa('autopost-decision', async () => {
+  const decideAutopostMany = (items: AutopostAttentionItem[], decision: AutopostDecision) => wa('autopost-decision', async () => {
     const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'resolve-autopost-decisions', jobIds: items.map((item) => item.jobId), decision, platform }) });
     const body = await response.json() as { resolved?: number; progress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[]; error?: string };
     if (!response.ok) throw new Error(body.error || 'Не вдалося застосувати рішення.');
     applyDecisionResult(body);
     await reloadChats.current(true);
     const count = body.resolved ?? items.length;
-    toast.push({ message: decision === 'archive' ? `В архів переміщено чатів: ${count}.` : decision === 'snooze' ? `Відкладено до завтра чатів: ${count}.` : decision === 'rename' ? `Назви оновлено, у наступну партію піде чатів: ${count}.` : `Перевіряю чати: ${count}.` });
+    toast.push({ message: decision === 'archive' ? `В архів переміщено чатів: ${count}.` : decision === 'snooze' ? `Відкладено до завтра чатів: ${count}.` : decision === 'rename' ? `Назви оновлено, у наступну партію піде чатів: ${count}.` : decision === 'retry' ? `Знову поставлено в чергу автопосту чатів: ${count}.` : `Перевіряю чати: ${count}.` });
   });
 
   async function accountAction(action: string, id?: string, extra: Record<string, unknown> = {}) {

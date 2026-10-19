@@ -26,7 +26,7 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
   runnerConnected: boolean | null;
   busy: boolean;
   onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
-  onDecideMany: (items: AutopostAttentionItem[], decision: Exclude<AutopostDecision, 'retry'>) => void;
+  onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision) => void;
   /** Скільки чатів поставити в партію (null — усі придатні) і які чати прибрано з цього запуску. */
   onStart: (limit: number | null, exclude: string[]) => void;
   onStop: () => void;

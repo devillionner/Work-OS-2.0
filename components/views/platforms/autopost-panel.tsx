@@ -152,7 +152,7 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
   /** Runner недоступний: запуск неможливий. */
   runnerBlocked: boolean;
   onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
-  onDecideMany: (items: AutopostAttentionItem[], decision: Exclude<AutopostDecision, 'retry'>) => void;
+  onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision) => void;
   /** Скільки чатів поставити в партію (null — усі) і які чати прибрано з цього запуску. */
   onStart: (limit: number | null, exclude: string[]) => void;
   onStop: () => void;

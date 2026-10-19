@@ -177,10 +177,10 @@ export async function POST(request:Request):Promise<Response>{
       const bulk=body.action==='resolve-autopost-decisions';
       const jobIds=bulk?(Array.isArray(body.jobIds)?body.jobIds.filter((id):id is string=>typeof id==='string'&&id.length>0):[]):(typeof body.jobId==='string'&&body.jobId?[body.jobId]:[]);
       if(!jobIds.length||!decision)throw new MessengerAutomationError('Не вказано чат або рішення.');
-      if(decision==='retry'&&bulk)throw new MessengerAutomationError('Повторну відправку для групи не виконуємо: можливі дублі.');
       const date=businessDate(now);
       let resolved:Array<{jobId:string;chatId:string}>;
-      if(bulk)resolved=(await resolveAutopostDecisions(env.DB,user.id,{jobIds,decision,requireSimilar:decision==='rename'},now)).resolved;
+      if(bulk)// Повторна відправка для групи лише там, де перевірка вже показала, що повідомлення в чаті немає (дубля не буде).
+        resolved=(await resolveAutopostDecisions(env.DB,user.id,{jobIds,decision,requireSimilar:decision==='rename',requireCode:decision==='retry'?'message_not_found':undefined},now)).resolved;
       else{
         const single=await resolveAutopostDecision(env.DB,user.id,{jobId:jobIds[0],decision},now);
         if(!single.ok)throw new MessengerAutomationError(single.error,409);
