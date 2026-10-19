@@ -989,11 +989,6 @@ async function handleAutopostTask(ws,job){
 async function handleAutopostTaskNow(ws,job){
   if(cancelledAutopostJobs.has(job.jobId)){abandonCancelledAutopost(ws,job);return;}
   if(job.kind==='viber_android')return handleViberAutopostTask(ws,job);
-  if(job.mode==='verify'){
-    // Перевірка наявного повідомлення працює лише у Viber; для WhatsApp задача ніколи не повинна дійти до відправки.
-    sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',observedTarget:job.target?.expectedName,targetVerified:false,sendConfirmed:false,errorCode:'verify_unsupported'});
-    return;
-  }
   if(!whatsappCdp){
     console.warn('WhatsApp autopost requires WORK_OS_WHATSAPP_CDP; releasing until the browser adapter is available.');
     releaseTask(ws,'autopost',job,Date.now()+WHATSAPP_RUNTIME_COOLDOWN_MS);
@@ -1020,7 +1015,7 @@ async function handleAutopostTaskNow(ws,job){
   let automated;
   const onWhatsappStep=createStepReporter(job,'WhatsApp');
   onWhatsappStep('start','починаю');
-  try{automated=await sendWhatsappAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp,shouldAbort:()=>cancelledAutopostJobs.has(job.jobId),onStep:onWhatsappStep});}
+  try{automated=await sendWhatsappAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp,shouldAbort:()=>cancelledAutopostJobs.has(job.jobId),onStep:onWhatsappStep,verifyOnly:job.mode==='verify',sinceEpoch:job.verify?.sinceEpoch});}
   catch(error){
     markWhatsappRuntimeBlocked('cdp_unavailable');
     console.warn(`WhatsApp autopost CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);

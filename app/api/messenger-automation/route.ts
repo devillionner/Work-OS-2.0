@@ -172,12 +172,6 @@ export async function POST(request:Request):Promise<Response>{
       if(!jobIds.length||!decision)throw new MessengerAutomationError('Не вказано чат або рішення.');
       if(decision==='retry'&&bulk)throw new MessengerAutomationError('Повторну відправку для групи не виконуємо: можливі дублі.');
       const date=businessDate(now);
-      if(decision==='check'){
-        // Перевірка лише для Viber: рішення не закриваємо, поки не ясно, що задачу перевірки можна створити.
-        const rows=await env.DB.prepare(`SELECT c.platform AS platform FROM whatsapp_autopost_jobs j JOIN chats c ON c.id=j.chat_id AND c.user_id=j.user_id
-          WHERE j.user_id=?1 AND j.id IN (SELECT value FROM json_each(?2))`).bind(user.id,JSON.stringify(jobIds)).all<{platform:string}>();
-        if(rows.results.some((row)=>row.platform!=='viber'))throw new MessengerAutomationError('Перевірка наявного повідомлення поки працює лише у Viber.',409);
-      }
       let resolved:Array<{jobId:string;chatId:string}>;
       if(bulk)resolved=(await resolveAutopostDecisions(env.DB,user.id,{jobIds,decision},now)).resolved;
       else{

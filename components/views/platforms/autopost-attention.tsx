@@ -18,7 +18,7 @@ type Pending = { kind: 'retry'; item: AutopostAttentionItem } | { kind: 'archive
 export function AutopostAttentionList({ items, busy, canVerify, onDecide, onDecideMany }: {
   items: AutopostAttentionItem[];
   busy: boolean;
-  /** Перевірку наявного повідомлення вміє лише адаптер Viber. */
+  /** Чи вміє адаптер платформи лише перевірити наявне повідомлення (Viber і WhatsApp вміють). */
   canVerify: boolean;
   onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
   onDecideMany: (items: AutopostAttentionItem[], decision: Exclude<AutopostDecision, 'retry'>) => void;

@@ -1064,7 +1064,7 @@ async function clickWhatsappMediaSend(client){
 
 export async function sendWhatsappAutopostViaCdp(
   task,
-  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS, shouldAbort = () => false, onStep = () => {} } = {},
+  { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS, shouldAbort = () => false, onStep = () => {}, verifyOnly = false, sinceEpoch = 0 } = {},
 ) {
   if (task?.kind !== 'whatsapp_autopost') return { kind:'blocked', reason:'unsupported_runtime' };
   const targetUrl = toWhatsAppWebInviteUrl(task.target?.expectedLink);
@@ -1109,6 +1109,21 @@ export async function sendWhatsappAutopostViaCdp(
     const observedTarget = classified.result.observedName || task.target.expectedName;
     const before = await readSnapshot(client);
     if (!before.composer) return { kind:'blocked', reason:before.adminOnly ? 'admin_only' : 'read_only' };
+    // Дія «Перевірити»: нічого не надсилаємо, лише шукаємо в чаті своє повідомлення з цим підписом і міткою часу навколо моменту
+    // відправки (учорашнє оголошення з тим самим текстом не зараховується).
+    if (verifyOnly) {
+      onStep('confirm', 'шукаю повідомлення в чаті');
+      const sent = sinceEpoch > 0 ? sinceEpoch * 1000 : Date.now();
+      const labels = [-4, -3, -2, -1, 0, 1, 2].flatMap((shift) => {
+        const at = new Date(sent + shift * 60_000);
+        const hh = String(at.getHours()).padStart(2, '0'); const mm = String(at.getMinutes()).padStart(2, '0');
+        const h12 = ((at.getHours() + 11) % 12) + 1;
+        return [`${hh}:${mm}`, `${h12}:${mm}`];
+      });
+      const hit = (before.messageRows || []).find((row) => row.fromMe && matchesCaptionOrText(row.text, text) && labels.some((label) => String(row.text || '').includes(label)));
+      if (hit) return { kind:'result', result:{ status:'sent', observedTarget, targetVerified:true, sendConfirmed:true, mediaConfirmed:true } };
+      return { kind:'blocked', reason:'message_not_found' };
+    }
     const beforeKeys = new Set((before.messageRows || []).map((row) => row.key).filter(Boolean));
     const media=task.material?.media;
     if(media?.base64){

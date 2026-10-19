@@ -346,7 +346,6 @@ export async function createAutopostVerifyJob(db:D1Database,userId:string,origin
   const chat=await readChatState(db,userId,original.chat_id);
   const platform=chat?cleanAutopostPlatform(chat.platform):null;
   if(!chat||!platform)throw new MessengerAutomationError('Чат не знайдено.',404,'chat_not_found');
-  if(platform!=='viber')throw new MessengerAutomationError('Перевірка наявного повідомлення поки працює лише у Viber.',409,'verify_unsupported');
   const id=crypto.randomUUID();
   const activeKey=`${userId}:${platform}:autopost:${original.chat_id}:${date}`;
   const sinceEpoch=Number(original.completed_at??original.updated_at);

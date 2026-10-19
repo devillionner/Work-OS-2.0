@@ -32,7 +32,6 @@ const REASONS: Record<string, string> = {
   adapter_failed: 'Автопост не зміг виконати відправку. Перевір чат вручну.',
   waydroid_suspend: 'У Waydroid увімкнене автозаморожування. Вимкни його: waydroid prop set persist.waydroid.suspend false.',
   message_not_found: 'Серед останніх повідомлень чату нашого немає. У дуже жвавому чаті воно могло піти вище за видиму частину: перевір чат вручну, перш ніж повторювати.',
-  verify_unsupported: 'Перевірка наявного повідомлення поки працює лише у Viber.',
   // WhatsApp: ці коди приходять із браузерного адаптера.
   whatsapp_chat_missing: 'Група WhatsApp більше недоступна.',
   whatsapp_removed_from_group: 'Тебе вилучено з групи WhatsApp.',

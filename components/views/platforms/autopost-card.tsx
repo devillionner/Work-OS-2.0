@@ -56,7 +56,7 @@ export function AutopostCard({ image, imageLoaded, caption, captionLoaded, busy,
       <AutopostBatchPanel batch={progress?.batch} running={running} platform="whatsapp" />
 
       {batchNote ? <p className="m-0 text-xs text-ink-2">{batchNote}</p> : null}
-      <AutopostAttentionList items={attention} busy={busy} canVerify={false} onDecide={onDecide} onDecideMany={onDecideMany} />
+      <AutopostAttentionList items={attention} busy={busy} canVerify onDecide={onDecide} onDecideMany={onDecideMany} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="flex flex-col gap-3" aria-label="Зображення для публікації">
