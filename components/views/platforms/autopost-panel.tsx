@@ -168,7 +168,6 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
   const going = (plan?.chats ?? []).filter((chat) => !removedNow.includes(chat.id)).slice(0, chosen);
   const hasQueue = Boolean(progress && progress.total + progress.cancelled > 0);
   const ready = material.imageLoaded && Boolean(material.image) && material.captionLoaded;
-  const notReady = readiness.tone === 'hot' || readiness.tone === 'warn';
 
   const breakdown: Array<[string, number, string?]> = plan ? [
     ['опубліковано сьогодні', plan.publishedToday],
@@ -203,7 +202,7 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
           <i aria-hidden="true" className={`mt-1.5 size-2 shrink-0 rounded-full ${readiness.tone === 'ok' ? 'bg-ok' : readiness.tone === 'hot' ? 'bg-hot' : readiness.tone === 'warn' ? 'bg-warn' : 'bg-ink-3'}`} />
           <span className={readiness.tone === 'hot' ? 'text-hot' : 'text-ink-2'}>{readiness.text}</span>
         </output>
-        <details className="group" open={notReady}>
+        <details className="group" open={readiness.tone === 'warn'}>
           <summary className="cursor-pointer list-none text-xs text-ink-2 [&::-webkit-details-marker]:hidden"><span className="underline decoration-line-strong underline-offset-4">{settingsTitle}</span></summary>
           <div className="mt-2 text-sm text-ink-2">{settingsHelp}</div>
         </details>
