@@ -1113,6 +1113,9 @@ export async function sendWhatsappAutopostViaCdp(
     // відправки (учорашнє оголошення з тим самим текстом не зараховується).
     if (verifyOnly) {
       onStep('confirm', 'шукаю повідомлення в чаті');
+      // Рядки чату підтягуються не миттєво: чекаємо до 8 с, поки вони з'являться.
+      let snapshot = before;
+      for (let attempt = 0; attempt < 8 && !(snapshot.messageRows || []).length; attempt += 1) { await sleep(1000); snapshot = await readSnapshot(client); }
       const sent = sinceEpoch > 0 ? sinceEpoch * 1000 : Date.now();
       const labels = [-4, -3, -2, -1, 0, 1, 2].flatMap((shift) => {
         const at = new Date(sent + shift * 60_000);
@@ -1120,10 +1123,11 @@ export async function sendWhatsappAutopostViaCdp(
         const h12 = ((at.getHours() + 11) % 12) + 1;
         return [`${hh}:${mm}`, `${h12}:${mm}`];
       });
-      // fromMe не вимагаємо: у деяких збірках WhatsApp Web ознака вихідного повідомлення не читається, а збіг підпису з міткою часу й так однозначний.
-      const hit = (before.messageRows || []).find((row) => matchesCaptionOrText(row.text, text) && labels.some((label) => String(row.text || '').includes(label)));
+      // Момент відправки невідомий (давня перевірка без нього): мітку часу не звіряємо, шукаємо лише за підписом.
+      // fromMe не вимагаємо: у деяких збірках WhatsApp Web ознака вихідного повідомлення не читається.
+      const hit = (snapshot.messageRows || []).find((row) => matchesCaptionOrText(row.text, text) && (sinceEpoch <= 0 || labels.some((label) => String(row.text || '').includes(label))));
       if (hit) return { kind:'result', result:{ status:'sent', observedTarget, targetVerified:true, sendConfirmed:true, mediaConfirmed:true } };
-      console.warn('WhatsApp verify diagnostic: ' + JSON.stringify({ labels: labels.slice(0, 4), rows: (before.messageRows || []).slice(-6).map((row) => ({ fromMe: row.fromMe, media: row.hasMedia, len: String(row.text || '').length, tail: String(row.text || '').slice(-36) })) }));
+      console.warn('WhatsApp verify diagnostic: ' + JSON.stringify({ labels: labels.slice(0, 4), rows: (snapshot.messageRows || []).slice(-6).map((row) => ({ fromMe: row.fromMe, media: row.hasMedia, len: String(row.text || '').length, tail: String(row.text || '').slice(-36) })) }));
       return { kind:'blocked', reason:'message_not_found' };
     }
     const beforeKeys = new Set((before.messageRows || []).map((row) => row.key).filter(Boolean));

@@ -777,8 +777,9 @@ async function verify(payload, guard) {
   const caption = String(payload.message || '');
   const prefix = looseName(caption).slice(0, 24);
   if (!prefix) throw new ViberStop('message_not_found', 'before', 'empty caption');
-  const sinceEpoch = Number(payload.sinceEpoch) || Math.floor(Date.now() / 1000);
-  const ageMinutes = Math.max(0, Math.round((Date.now() / 1000 - sinceEpoch) / 60));
+  // Момент відправки невідомий (давня перевірка без нього): мітку часу не звіряємо, шукаємо лише за підписом.
+  const sinceEpoch = Number(payload.sinceEpoch) || 0;
+  const ageMinutes = sinceEpoch ? Math.max(0, Math.round((Date.now() / 1000 - sinceEpoch) / 60)) : 0;
   if (ageMinutes > 600) throw new ViberStop('message_not_found', 'before', 'sent too long ago');
   const { hours, minutes } = await android.clock();
   const center = hours * 60 + minutes - ageMinutes;
@@ -796,7 +797,7 @@ async function verify(payload, guard) {
     if (!opened.title) continue;
     if (!opened.matches) throw new ViberStop('target_unconfirmed', 'before', opened.title.text.slice(0, 80));
     const mine = findOwnMessage(nodes, prefix);
-    if (mine && labels.includes(stampOf(nodes, mine))) return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: targetName, timings: `перевірено, спроб ${attempt + 1}` };
+    if (mine && (!sinceEpoch || labels.includes(stampOf(nodes, mine)))) return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: targetName, timings: `перевірено, спроб ${attempt + 1}` };
   }
   throw new ViberStop('message_not_found', 'before', 'message not in chat');
 }

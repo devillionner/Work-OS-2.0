@@ -348,14 +348,16 @@ export async function createAutopostVerifyJob(db:D1Database,userId:string,origin
   if(!chat||!platform)throw new MessengerAutomationError('Чат не знайдено.',404,'chat_not_found');
   const id=crypto.randomUUID();
   const activeKey=`${userId}:${platform}:autopost:${original.chat_id}:${date}`;
-  const sinceEpoch=Number(original.completed_at??original.updated_at);
+  // Момент справжньої відправки (першої невизначеної спроби) береться з колонки lease_expires_at, яку для автопосту інакше не використовують,
+  // і переходить по ланцюжку повторних перевірок; для давніх перевірок без неї 0 означає «час невідомий».
+  const sinceEpoch=original.lease_expires_at!==null&&original.lease_expires_at>0?Number(original.lease_expires_at):original.request_key.startsWith('verify_')?0:Number(original.completed_at??original.updated_at);
   try{
     await db.prepare(`INSERT INTO whatsapp_autopost_jobs
       (id,user_id,request_key,chat_id,expected_name,expected_link,chat_state_token,
-       advertisement_id,advertisement_version,language,payload_text,published_on,status,active_key,result_json,created_at,updated_at)
-      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,'pending',?13,?14,?15,?15)`)
+       advertisement_id,advertisement_version,language,payload_text,published_on,status,active_key,result_json,lease_expires_at,created_at,updated_at)
+      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,'pending',?13,?14,?15,?16,?16)`)
       .bind(id,userId,`verify_${id}`,original.chat_id,chat.name,chat.link,chat.state_token,original.advertisement_id,original.advertisement_version,
-        original.language,original.payload_text,date,activeKey,JSON.stringify({verifyOf:originalJobId,sinceEpoch}),now).run();
+        original.language,original.payload_text,date,activeKey,JSON.stringify({verifyOf:originalJobId,sinceEpoch}),sinceEpoch||null,now).run();
   }catch(error){
     if(await readActiveWhatsAppAutopostJob(db,userId,original.chat_id,date))throw new MessengerAutomationError('Для цього чату вже є активна задача.',409,'already_queued');
     throw error;
@@ -642,10 +644,7 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
     const image=verifyMode?null:await readWhatsAppAutopostImage(db,userId,true);
     const batchMatch=row.request_key.match(BATCH_KEY);
     const batch=batchMatch?await readAutopostBatch(db,userId,platform||'whatsapp',row.published_on,batchMatch[2]):null;
-    let sinceEpoch=Number(row.created_at);
-    if(verifyMode){
-      try{const parsed:unknown=row.result_json?JSON.parse(row.result_json):null;const value=Number((parsed as {sinceEpoch?:unknown}|null)?.sinceEpoch);if(Number.isFinite(value)&&value>0)sinceEpoch=value;}catch{/* лишається час створення */}
-    }
+    const sinceEpoch=verifyMode&&row.lease_expires_at!==null&&Number(row.lease_expires_at)>0?Number(row.lease_expires_at):0;
     return {
       kind:platform==='viber'?'viber_android':'whatsapp_autopost',
       jobId:row.id,
