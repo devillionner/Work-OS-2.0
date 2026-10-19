@@ -5,10 +5,23 @@ import { sameOrigin } from '@/lib/http-json';
 import {
   MAX_WHATSAPP_AUTOPOST_IMAGE_BYTES,
   deleteWhatsAppAutopostImage,
+  readWhatsAppAutopostImage,
   saveWhatsAppAutopostImage,
 } from '@/lib/whatsapp-autopost-media';
 
 const MAX_MULTIPART_BYTES=MAX_WHATSAPP_AUTOPOST_IMAGE_BYTES+512*1024;
+
+// Мініатюра фото автопосту в картці: байти з налаштувань; браузер кешує за параметром `v` (початок sha256), тож повторних читань D1 немає.
+export async function GET():Promise<Response>{
+  const user=await getCurrentUser();
+  if(!user)return Response.json({error:'Потрібна авторизація.'},{status:401});
+  const image=await readWhatsAppAutopostImage(env.DB,user.id,true);
+  if(!image)return new Response(null,{status:404});
+  const binary=atob(image.base64);
+  const bytes=new Uint8Array(binary.length);
+  for(let index=0;index<binary.length;index+=1)bytes[index]=binary.charCodeAt(index);
+  return new Response(bytes,{headers:{'Content-Type':image.contentType,'Cache-Control':'private, max-age=86400','X-Content-Type-Options':'nosniff'}});
+}
 
 export async function POST(request:Request):Promise<Response>{
   const user=await getCurrentUser();

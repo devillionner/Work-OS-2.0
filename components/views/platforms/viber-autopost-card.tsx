@@ -1,87 +1,86 @@
 'use client';
 
-import { useState } from 'react';
-import { RotateCcw, Send, Square } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Segmented } from '@/components/ui/segmented';
-import { Surface } from '@/components/ui/surface';
+import { useEffect, useState } from 'react';
+import { AutopostPanel, type AutopostMaterialProps, type AutopostPlan, type AutopostReadiness } from '@/components/views/platforms/autopost-panel';
+import type { AutopostAttentionItem, AutopostDecision } from '@/components/views/platforms/autopost-attention';
 import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
-import { AutopostAttentionList, type AutopostAttentionItem, type AutopostDecision } from '@/components/views/platforms/autopost-attention';
-import { AutopostBatchPanel } from '@/components/views/platforms/autopost-batch';
 import { autopostReasonText } from '@/components/views/platforms/autopost-reasons';
 
 /** Стан Viber на ПК оператора, який runner передає через live-канал (процес, доступність, вікно). */
 export type ViberRunnerStatus = { state: 'ready' | 'blocked'; reason: string | null; text: string };
 
-/** Автопублікація у Viber через Android у Waydroid: статус runner і Viber, прогрес партії, старт / стоп / скидання. */
-export function ViberAutopostCard({ progress, attention, batchNote, status, runnerConnected, imageReady, busy, queueSize, onDecide, onDecideMany, onStart, onStop, onReset }: {
+/** Орієнтовний час одного чату Viber: за вимірами партій ≈ 20 с. */
+const VIBER_SECONDS_PER_CHAT = 20;
+/** Скільки чекаємо першого повідомлення runner про стан, перш ніж казати, що щось не так. */
+const STATUS_GRACE_MS = 15_000;
+
+/** Автопублікація у Viber через Android у Waydroid: спільна картка автопосту (`AutopostPanel`) зі станом runner і Viber. */
+export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attention, batchNote, status, runnerConnected, busy, onDecide, onDecideMany, onStart, onStop, onReset }: {
+  material: AutopostMaterialProps;
+  plan: AutopostPlan | null;
+  onLoadPlan: () => void;
   progress: WhatsAppAutopostProgress | null;
   attention: AutopostAttentionItem[];
   batchNote: string | null;
   status: ViberRunnerStatus | null;
   runnerConnected: boolean | null;
-  /** Фото для автопосту (одне на WhatsApp і Viber) уже додане на вкладці автопоста WhatsApp. */
-  imageReady: boolean;
   busy: boolean;
-  queueSize: number;
   onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
   onDecideMany: (items: AutopostAttentionItem[], decision: Exclude<AutopostDecision, 'retry'>) => void;
-  /** Скільки чатів поставити в партію; null означає всі придатні. */
-  onStart: (limit: number | null) => void;
+  /** Скільки чатів поставити в партію (null — усі придатні) і які чати прибрано з цього запуску. */
+  onStart: (limit: number | null, exclude: string[]) => void;
   onStop: () => void;
   onReset: () => void;
 }) {
-  const [size, setSize] = useState<'1' | '5' | '20' | 'all'>('all');
-  const running = progress?.running === true;
-  const hasQueue = Boolean(progress && (progress.total > 0 || progress.cancelled > 0));
+  // «Стан з’явиться» лише перші секунди: далі це вже привід перевірити Waydroid, а не чекати.
+  const [waitedLong, setWaitedLong] = useState(false);
+  useEffect(() => {
+    if (status || runnerConnected !== true) return;
+    const timer = window.setTimeout(() => setWaitedLong(true), STATUS_GRACE_MS);
+    return () => window.clearTimeout(timer);
+  }, [status, runnerConnected]);
+
   const runnerOffline = runnerConnected === false;
   const blocked = status?.state === 'blocked';
-  const readiness = runnerOffline
-    ? { tone: 'hot', text: 'Runner на ПК не підключений. Запусти його, щоб розпочати автопост.' }
+  const readiness: AutopostReadiness = runnerOffline
+    ? { tone: 'hot', text: 'Runner не відповідає. У треї Work OS обери «Перезапустити runner».' }
     : blocked
       ? { tone: 'warn', text: autopostReasonText(status?.reason) }
       : status?.state === 'ready'
-        ? { tone: 'ok', text: 'Runner підключений, Waydroid і Viber готові.' }
-        : { tone: 'idle', text: 'Стан Viber з’явиться, щойно runner на ПК повідомить про нього.' };
+        ? { tone: 'ok', text: 'Runner, Waydroid і Viber готові.' }
+        : runnerConnected === true && waitedLong
+          ? { tone: 'warn', text: 'Runner підключений, але Viber не відповів. Відкрий Waydroid на ПК (він може запускатися до хвилини) або обери «Перезапустити runner» у треї.' }
+          : { tone: 'idle', text: 'Перевіряю Waydroid і Viber…' };
 
   return (
-    <Surface variant="glass" radius="card" className="flex flex-col gap-6 p-5 sm:p-6" aria-labelledby="viber-autopost-title">
-      <div>
-        <h2 id="viber-autopost-title" className="m-0 text-[17px] font-medium">Автопублікація у Viber</h2>
-        <p className="m-0 mt-1 max-w-[62ch] text-sm text-ink-2">Усі придатні чати з черги «Для публікації» (до 100 за запуск) по черзі: Work OS відкриває кожен чат за посиланням у Viber на Android (Waydroid), додає фото з галереї, вводить текст із вкладки «Автопост» у WhatsApp, надсилає й перевіряє, що повідомлення з’явилось у цьому чаті.</p>
-      </div>
-
-      <output className="m-0 flex items-start gap-2 text-sm">
-        <i aria-hidden="true" className={`mt-1.5 size-2 shrink-0 rounded-full ${readiness.tone === 'ok' ? 'bg-ok' : readiness.tone === 'hot' ? 'bg-hot' : readiness.tone === 'warn' ? 'bg-warn' : 'bg-ink-3'}`} />
-        <span className={readiness.tone === 'hot' ? 'text-hot' : 'text-ink-2'}>{readiness.text}</span>
-      </output>
-
-      <AutopostBatchPanel batch={progress?.batch} running={running} platform="viber" />
-
-      {batchNote ? <p className="m-0 text-xs text-ink-2">{batchNote}</p> : null}
-      <AutopostAttentionList items={attention} busy={busy} canVerify onDecide={onDecide} onDecideMany={onDecideMany} />
-
-      <section className="flex flex-col gap-2 rounded-inner border border-line p-4" aria-label="Як підготувати автопост">
-        <h3 className="m-0 text-sm font-medium">Перед стартом</h3>
-        <ol className="m-0 flex flex-col gap-1.5 pl-5 text-sm text-ink-2">
-          <li>На ПК запущений Waydroid (waydroid session start), Viber у ньому активований як додатковий пристрій, мова Android англійська.</li>
+    <AutopostPanel
+      platform="viber"
+      title="Автопублікація у Viber"
+      description="Чати з черги «Для публікації» по одному: Work OS відкриває чат за посиланням у Viber на Android (Waydroid), додає фото з галереї, вводить текст, надсилає й перевіряє, що повідомлення з’явилось у цьому чаті."
+      plan={plan}
+      onLoadPlan={onLoadPlan}
+      secondsPerChat={VIBER_SECONDS_PER_CHAT}
+      readiness={readiness}
+      settingsTitle="Налаштування Viber на ПК"
+      settingsHelp={(
+        <ol className="m-0 flex flex-col gap-1.5 pl-5">
+          <li>Waydroid на ПК запускається сам; Viber у ньому активований як додатковий пристрій, мова Android англійська.</li>
           <li>У Waydroid встановлена клавіатура ADBKeyBoard (adb install ADBKeyboard.apk): через неї вводиться текст, потім звичайна клавіатура повертається.</li>
           <li>Автозаморожування Waydroid вимкнене (waydroid prop set persist.waydroid.suspend false), щоб відправка йшла й зі схованим вікном.</li>
-          <li>Фото й текст спільні для WhatsApp і Viber: їх задають на вкладці «Автопост» у WhatsApp (береться збережений текст; якщо його немає, підпис дає оголошення з Бібліотеки).</li>
+          <li>Фото й текст спільні з WhatsApp: їх можна змінити тут, у блоці «Що піде в чати».</li>
         </ol>
-      </section>
-
-      <div className="flex flex-wrap justify-end gap-2">
-        {hasQueue && !running ? <Button variant="outline" disabled={busy} title="Почати спочатку: сьогоднішня черга очиститься, уже відправлені чати лишаться" onClick={onReset}><RotateCcw aria-hidden="true" strokeWidth={1.5} />Скинути чергу</Button> : null}
-        {running ? (
-          <Button variant="outline" tone="danger" disabled={busy} onClick={onStop}><Square aria-hidden="true" strokeWidth={1.5} />Зупинити автопост</Button>
-        ) : (
-          <>
-            <Segmented<'1' | '5' | '20' | 'all'> label="Скільки чатів у партії" size="sm" value={size} onValueChange={setSize} items={[{ value: '1', label: '1 чат' }, { value: '5', label: '5' }, { value: '20', label: '20' }, { value: 'all', label: 'Усі' }]} />
-            <Button variant="action" busy={busy} disabled={runnerOffline || queueSize === 0 || !imageReady} title={imageReady ? undefined : 'Спершу додай фото на вкладці «Автопост» у WhatsApp'} onClick={() => onStart(size === 'all' ? null : Number(size))}><Send aria-hidden="true" strokeWidth={1.5} />{busy ? 'Ставимо в чергу…' : !imageReady ? 'Додай фото в WhatsApp' : queueSize ? `Автопост черги (${size === 'all' ? queueSize : Math.min(Number(size), queueSize)})` : 'Черга порожня'}</Button>
-          </>
-        )}
-      </div>
-    </Surface>
+      )}
+      material={material}
+      progress={progress}
+      attention={attention}
+      batchNote={batchNote}
+      busy={busy}
+      runnerBlocked={runnerOffline}
+      onDecide={onDecide}
+      onDecideMany={onDecideMany}
+      onStart={onStart}
+      onStop={onStop}
+      onReset={onReset}
+    />
   );
 }

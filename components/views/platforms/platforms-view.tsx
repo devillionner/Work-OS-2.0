@@ -23,6 +23,7 @@ import { ViberAutopostCard } from '@/components/views/platforms/viber-autopost-c
 import { BulkPanel } from '@/components/views/platforms/bulk-panel';
 import { ChatHistoryPanel } from '@/components/views/platforms/chat-history-panel';
 import { ChatRow } from '@/components/views/platforms/chat-row';
+import { ReadyGroups } from '@/components/views/platforms/ready-groups';
 import { DiscoveryPanel } from '@/components/views/platforms/discovery-panel';
 import { JoinSections } from '@/components/views/platforms/join-sections';
 import { DuplicatesPanel } from '@/components/views/platforms/duplicates-panel';
@@ -70,6 +71,7 @@ export default function PlatformsView() {
   useCommand('platforms:telegram-schedule', () => { p.selectPlatform('telegram'); setZone('schedule'); setPhoneSection('schedule'); });
 
   const { platform, queue, data } = p;
+  const readyPlan = platform === 'viber' ? p.autopostPlans.viber : platform === 'whatsapp' ? p.autopostPlans.whatsapp : null;
   const zones = useMemo<Array<{ value: Zone; label: string }>>(() => {
     const list: Array<{ value: Zone; label: string }> = [{ value: 'overview', label: 'Огляд' }];
     if (platform === 'telegram') list.push({ value: 'schedule', label: 'Розклад' });
@@ -125,8 +127,10 @@ export default function PlatformsView() {
     if (queue === 'selected' && platform === 'telegram' && value === 'overview') return null;
     if (value === 'schedule' && p.accountId) return <ScheduleTab key={p.accountId} accountId={p.accountId} />;
     if (value === 'schedule') return <EmptyState text="Додай або увімкни Telegram-акаунт, щоб побачити розклад." />;
-    if (value === 'autopost' && platform === 'viber') return <ViberAutopostCard progress={p.viberProgress} attention={p.autopostAttention} batchNote={p.viberBatchNote} status={p.viberStatus} runnerConnected={p.liveStatus.connected ? p.liveStatus.runnerConnected : null} imageReady={p.whatsappImageLoaded && Boolean(p.whatsappImage)} busy={p.busy !== null} queueSize={data?.counts.ready || 0} onDecide={p.decideAutopost} onDecideMany={p.decideAutopostMany} onStart={(limit) => void p.startViberAutopostBatch(limit)} onStop={() => void p.stopViberAutopostBatch()} onReset={() => void p.resetViberAutopostQueue()} />;
-    if (value === 'autopost') return <AutopostCard image={p.whatsappImage} imageLoaded={p.whatsappImageLoaded} caption={p.whatsappCaption} captionLoaded={p.whatsappCaptionLoaded} busy={p.busy !== null} queueSize={data?.counts.ready || 0} progress={p.whatsappProgress} attention={p.autopostAttention} batchNote={p.whatsappBatchNote} onDecide={p.decideAutopost} onDecideMany={p.decideAutopostMany} onCaptionChange={p.setWhatsappCaption} onUploadImage={(file) => void p.uploadWhatsAppAutopostImage(file)} onRemoveImage={() => void p.removeWhatsAppAutopostImage()} onSaveCaption={() => void p.saveWhatsAppAutopostCaption()} onClearCaption={() => void p.clearWhatsAppAutopostCaption()} onStart={() => void p.startWhatsAppAutopostBatch()} onStop={() => void p.stopWhatsAppAutopostBatch()} onReset={() => void p.resetWhatsAppAutopostQueue()} />;
+    const material = { image: p.whatsappImage, imageLoaded: p.whatsappImageLoaded, caption: p.whatsappCaption, captionLoaded: p.whatsappCaptionLoaded, onCaptionChange: p.setWhatsappCaption, onUploadImage: (file: File) => void p.uploadWhatsAppAutopostImage(file), onRemoveImage: () => void p.removeWhatsAppAutopostImage(), onSaveCaption: () => void p.saveWhatsAppAutopostCaption(), onClearCaption: () => void p.clearWhatsAppAutopostCaption() };
+    const runnerConnected = p.liveStatus.connected ? p.liveStatus.runnerConnected : null;
+    if (value === 'autopost' && platform === 'viber') return <ViberAutopostCard material={material} plan={p.autopostPlans.viber} onLoadPlan={p.loadAutopostPlan} progress={p.viberProgress} attention={p.autopostAttention} batchNote={p.viberBatchNote} status={p.viberStatus} runnerConnected={runnerConnected} busy={p.busy !== null} onDecide={p.decideAutopost} onDecideMany={p.decideAutopostMany} onStart={(limit, exclude) => void p.startViberAutopostBatch(limit, exclude)} onStop={() => void p.stopViberAutopostBatch()} onReset={() => void p.resetViberAutopostQueue()} />;
+    if (value === 'autopost') return <AutopostCard material={material} busy={p.busy !== null} plan={p.autopostPlans.whatsapp} onLoadPlan={p.loadAutopostPlan} runnerConnected={runnerConnected} progress={p.whatsappProgress} attention={p.autopostAttention} batchNote={p.whatsappBatchNote} onDecide={p.decideAutopost} onDecideMany={p.decideAutopostMany} onStart={(limit, exclude) => void p.startWhatsAppAutopostBatch(limit, exclude)} onStop={() => void p.stopWhatsAppAutopostBatch()} onReset={() => void p.resetWhatsAppAutopostQueue()} />;
     if (value === 'quick') return quick;
     return overview;
   };
@@ -200,7 +204,7 @@ export default function PlatformsView() {
       </div>
       <fieldset className="m-0 flex flex-wrap gap-1.5 border-0 p-0">
         <legend className="sr-only">Черга чатів</legend>
-        {QUEUES.filter((item) => platform !== 'viber' || item.key !== 'profile_review').map((item) => <Chip key={item.key} pressed={queue === item.key} count={p.tabCounts ? (p.tabCounts[item.key] || 0) : '–'} onClick={() => p.selectQueue(item.key)}>{item.label}</Chip>)}
+        {QUEUES.filter((item) => platform !== 'viber' || item.key !== 'profile_review').map((item) => <Chip key={item.key} pressed={queue === item.key} count={p.tabCounts ? (item.key === 'ready' && readyPlan ? `${p.tabCounts[item.key] || 0} · ${readyPlan.ready}` : (p.tabCounts[item.key] || 0)) : '–'} title={item.key === 'ready' && readyPlan ? `У черзі ${p.tabCounts?.[item.key] || 0}, доступно зараз ${readyPlan.ready}` : undefined} onClick={() => p.selectQueue(item.key)}>{item.label}</Chip>)}
         {platform === 'telegram' ? <Chip pressed={queue === 'selected'} count={selectedList ? selectedList.count : '–'} onClick={() => p.selectQueue('selected')}>Відібрані</Chip> : null}
       </fieldset>
 
@@ -234,9 +238,11 @@ export default function PlatformsView() {
         <JoinSections candidates={data.candidates ?? []} pool={data.chats} counts={data.sections ?? { queue: 0, pool: 0 }} poolTotal={data.total} searching={p.search.trim() !== ''} renderRow={renderRow} onShowMore={p.showMoreNewChats} />
       ) : data?.chats.length ? (
         <>
-          <ul className="m-0 flex list-none flex-col gap-2 p-0">
-            {data.chats.map((chat) => renderRow(chat))}
-          </ul>
+          {queue === 'ready' ? <ReadyGroups chats={data.chats} clock={p.clock} renderRow={renderRow} /> : (
+            <ul className="m-0 flex list-none flex-col gap-2 p-0">
+              {data.chats.map((chat) => renderRow(chat))}
+            </ul>
+          )}
           {data.total > PAGE ? (
             <div className="flex items-center justify-between gap-3">
               <Button variant="outline" size="sm" disabled={p.offset === 0} onClick={() => p.setOffset(Math.max(0, p.offset - PAGE))}>Назад</Button>

@@ -11,6 +11,7 @@ import {
   createAutopostVerifyJob,
   createWhatsAppAutopostBatch,
   createWhatsAppAutopostJob,
+  readAutopostPlan,
   readLatestViberSafeNoteJob,
   readLatestWhatsAppAutopostJob,
   readViberSafeNoteJob,
@@ -62,6 +63,12 @@ export async function GET(request:Request):Promise<Response>{
         readAutopostAttention(env.DB,user.id,'whatsapp',date),
       ]);
       return json({whatsappAutopostProgress:progress,autopostAttention:attention});
+    }
+    // План запуску: скільки чатів справді піде в партію й чому решта черги не йде (за запитом, без таймера).
+    const planPlatform=url.searchParams.get('plan');
+    if(planPlatform==='viber'||planPlatform==='whatsapp'){
+      const now=Math.floor(Date.now()/1000);
+      return json({plan:await readAutopostPlan(env.DB,user.id,planPlatform,now,businessDate(now))});
     }
     // Viber-автопост: лічильники сьогоднішньої партії й чати, що чекають рішення (одна згрупована вибірка й один короткий список).
     if(url.searchParams.get('viber')==='1'){
@@ -142,14 +149,14 @@ export async function POST(request:Request):Promise<Response>{
         else await deleteWhatsAppAutopostCaption(env.DB,user.id);
         caption=cleaned;
       }
-      const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,caption},now,businessDate(now));
+      const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,caption,exclude:body.exclude},now,businessDate(now));
       if(batch.created>0)await wakeOwnerChannelAutopost(user.id);
       return json(batch);
     }
     // Viber-автопост: та сама черга задач, що й у WhatsApp, але чати Viber, без власного тексту й фото (їх дає нотатка
     // в «Мої нотатки»), виконує помічник на ПК оператора через runner.
     if(body.action==='viber-autopost-batch'){
-      const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,platform:'viber'},now,businessDate(now));
+      const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,platform:'viber',exclude:body.exclude},now,businessDate(now));
       if(batch.created>0)await wakeOwnerChannelAutopost(user.id);
       return json(batch);
     }

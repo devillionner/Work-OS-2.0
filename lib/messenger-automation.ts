@@ -367,6 +367,59 @@ export async function createAutopostVerifyJob(db:D1Database,userId:string,origin
   return publicWhatsAppAutopostJob(created);
 }
 
+/**
+ * Що буде, якщо натиснути «Опублікувати» просто зараз: скільки чатів платформи справді піде в партію (за тими самими правилами,
+ * що й `createWhatsAppAutopostBatch`) і чому решта «Для публікації» не йде. Один запит по чатах платформи; рахується при відкритті
+ * вкладки й після дій, а не за таймером.
+ */
+export type AutopostPlan={
+  total:number;ready:number;publishedToday:number;queued:number;decision:number;tried:number;snoozed:number;
+  rules:number;rulesNextDate:string|null;other:number;
+  /** Чати, що підуть у партію, у порядку відправки (до 100). */
+  chats:Array<{id:string;name:string}>;
+};
+export async function readAutopostPlan(db:D1Database,userId:string,platformInput:unknown,now:number,date:string):Promise<AutopostPlan>{
+  const platform=cleanAutopostPlatform(platformInput);
+  const rows=await db.prepare(`SELECT c.id AS id,c.name AS name,
+      CASE
+        WHEN EXISTS(SELECT 1 FROM chat_publications p WHERE p.user_id=c.user_id AND p.chat_id=c.id AND p.published_on=?3) THEN 'published'
+        WHEN EXISTS(SELECT 1 FROM whatsapp_autopost_jobs j WHERE j.user_id=c.user_id AND j.chat_id=c.id AND j.published_on=?3 AND j.status IN ('pending','claimed')) THEN 'queued'
+        WHEN EXISTS(SELECT 1 FROM whatsapp_autopost_jobs d WHERE d.user_id=c.user_id AND d.chat_id=c.id AND d.published_on=?3 AND d.outcome='needs_decision') THEN 'decision'
+        WHEN EXISTS(SELECT 1 FROM whatsapp_autopost_jobs t WHERE t.user_id=c.user_id AND t.chat_id=c.id AND t.published_on=?3 AND t.status IN ('sent','failed')) THEN 'tried'
+        WHEN c.snoozed_until IS NOT NULL AND c.snoozed_until>?2 THEN 'snoozed'
+        WHEN EXISTS(SELECT 1 FROM chat_discovery_candidates dc WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.decision!='target' AND dc.id NOT LIKE 'waiting-%') THEN 'other'
+        WHEN NOT (${profilePublicationEligibilitySql('?3','?5')}
+          OR NOT EXISTS(SELECT 1 FROM chat_profiles pu WHERE pu.chat_id=c.id AND pu.review_status='confirmed')) THEN 'rules'
+        ELSE 'ready'
+      END AS bucket,
+      (SELECT pr.next_allowed_on FROM chat_profiles pr WHERE pr.chat_id=c.id) AS next_allowed_on,
+      COALESCE((SELECT MAX(p2.published_on) FROM chat_publications p2 WHERE p2.user_id=c.user_id AND p2.chat_id=c.id),'') AS last_published
+    FROM chats c WHERE c.user_id=?1 AND c.platform=?4 AND c.workflow_status='ready'`)
+    .bind(userId,now,date,platform,isoWeekday(date)).all<{id:string;name:string;bucket:string;next_allowed_on:string|null;last_published:string}>();
+  const plan:AutopostPlan={total:0,ready:0,publishedToday:0,queued:0,decision:0,tried:0,snoozed:0,rules:0,rulesNextDate:null,other:0,chats:[]};
+  const ready:Array<{id:string;name:string;last:string}>=[];
+  for(const row of rows.results){
+    plan.total+=1;
+    switch(row.bucket){
+      case 'published':plan.publishedToday+=1;break;
+      case 'queued':plan.queued+=1;break;
+      case 'decision':plan.decision+=1;break;
+      case 'tried':plan.tried+=1;break;
+      case 'snoozed':plan.snoozed+=1;break;
+      case 'rules':
+        plan.rules+=1;
+        if(row.next_allowed_on&&row.next_allowed_on>date&&(!plan.rulesNextDate||row.next_allowed_on<plan.rulesNextDate))plan.rulesNextDate=row.next_allowed_on;
+        break;
+      case 'ready':ready.push({id:row.id,name:row.name,last:row.last_published});break;
+      default:plan.other+=1;
+    }
+  }
+  ready.sort((a,b)=>a.last<b.last?-1:a.last>b.last?1:a.id<b.id?-1:a.id>b.id?1:0);
+  plan.ready=ready.length;
+  plan.chats=ready.slice(0,AUTOPOST_BATCH_MAX).map(({id,name})=>({id,name}));
+  return plan;
+}
+
 export type AutopostBatchResult={
   created:number;
   /** Чати, які пройшли відбір, але не стали задачею (див. reasons). */
@@ -395,7 +448,7 @@ const AUTOPOST_BATCH_SCAN_MAX=400;
 export async function createWhatsAppAutopostBatch(
   db:D1Database,
   userId:string,
-  input:{limit?:unknown;caption?:unknown;platform?:unknown},
+  input:{limit?:unknown;caption?:unknown;platform?:unknown;exclude?:unknown},
   now:number,
   date:string,
 ):Promise<AutopostBatchResult>{
@@ -410,6 +463,8 @@ export async function createWhatsAppAutopostBatch(
     try{caption=cleanWhatsAppAutopostCaption(input.caption);}
     catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
   }else caption=(await readWhatsAppAutopostCaption(db,userId))?.text||'';
+  // Чати, які оператор прибрав зі списку партії «лише на цей запуск».
+  const excluded=JSON.stringify(Array.isArray(input.exclude)?input.exclude.filter((id):id is string=>typeof id==='string'&&id.length>0&&id.length<=100).slice(0,200):[]);
   const weekday=isoWeekday(date);
   const candidates=(size:number,offset:number)=>db.prepare(`SELECT c.id
     FROM chats c
@@ -424,9 +479,10 @@ export async function createWhatsAppAutopostBatch(
       AND NOT EXISTS(SELECT 1 FROM whatsapp_autopost_jobs j
         WHERE j.user_id=c.user_id AND j.chat_id=c.id AND j.published_on=?3 AND j.status IN ('pending','claimed','sent','failed'))
       AND NOT EXISTS(SELECT 1 FROM whatsapp_autopost_jobs d
-        WHERE d.user_id=c.user_id AND d.chat_id=c.id AND d.outcome='needs_decision')
+        WHERE d.user_id=c.user_id AND d.chat_id=c.id AND d.published_on=?3 AND d.outcome='needs_decision')
+      AND c.id NOT IN (SELECT value FROM json_each(?8))
     ORDER BY COALESCE((SELECT MAX(p2.published_on) FROM chat_publications p2 WHERE p2.user_id=c.user_id AND p2.chat_id=c.id),''),c.id
-    LIMIT ?4 OFFSET ?7`).bind(userId,now,date,size,platform,weekday,offset).all<{id:string}>();
+    LIMIT ?4 OFFSET ?7`).bind(userId,now,date,size,platform,weekday,offset,excluded).all<{id:string}>();
 
   const batchId=crypto.randomUUID();
   const jobs:WhatsAppAutopostJob[]=[];
