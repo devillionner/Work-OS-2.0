@@ -372,11 +372,16 @@ export async function createAutopostVerifyJob(db:D1Database,userId:string,origin
  * що й `createWhatsAppAutopostBatch`) і чому решта «Для публікації» не йде. Один запит по чатах платформи; рахується при відкритті
  * вкладки й після дій, а не за таймером.
  */
+export type AutopostBucket='ready'|'decision'|'tried'|'published'|'rules'|'snoozed'|'queued'|'other';
 export type AutopostPlan={
   total:number;ready:number;publishedToday:number;queued:number;decision:number;tried:number;snoozed:number;
   rules:number;rulesNextDate:string|null;other:number;
   /** Чати, що підуть у партію, у порядку відправки (до 100). */
   chats:Array<{id:string;name:string}>;
+  /** Кожен чат черги «Для публікації» рівно в одній групі: за цим розкладом групується список зліва й лічаться чіпи, «Огляд» і картка. */
+  buckets:Record<string,AutopostBucket>;
+  /** Для «потребують рішення» й «пробували»: код причини й назва, яку бачив месенджер; для «правил» — найближча дата. */
+  reasons:Record<string,{code:string|null;observed:string|null;next:string|null}>;
 };
 export async function readAutopostPlan(db:D1Database,userId:string,platformInput:unknown,now:number,date:string):Promise<AutopostPlan>{
   const platform=cleanAutopostPlatform(platformInput);
@@ -393,13 +398,18 @@ export async function readAutopostPlan(db:D1Database,userId:string,platformInput
         ELSE 'ready'
       END AS bucket,
       (SELECT pr.next_allowed_on FROM chat_profiles pr WHERE pr.chat_id=c.id) AS next_allowed_on,
+      (SELECT json_extract(j.result_json,'$.errorCode') FROM whatsapp_autopost_jobs j WHERE j.user_id=c.user_id AND j.chat_id=c.id AND j.published_on=?3 AND j.status='failed' ORDER BY j.updated_at DESC LIMIT 1) AS code,
+      (SELECT json_extract(j.result_json,'$.observedTarget') FROM whatsapp_autopost_jobs j WHERE j.user_id=c.user_id AND j.chat_id=c.id AND j.published_on=?3 AND j.status='failed' ORDER BY j.updated_at DESC LIMIT 1) AS observed,
       COALESCE((SELECT MAX(p2.published_on) FROM chat_publications p2 WHERE p2.user_id=c.user_id AND p2.chat_id=c.id),'') AS last_published
     FROM chats c WHERE c.user_id=?1 AND c.platform=?4 AND c.workflow_status='ready'`)
-    .bind(userId,now,date,platform,isoWeekday(date)).all<{id:string;name:string;bucket:string;next_allowed_on:string|null;last_published:string}>();
-  const plan:AutopostPlan={total:0,ready:0,publishedToday:0,queued:0,decision:0,tried:0,snoozed:0,rules:0,rulesNextDate:null,other:0,chats:[]};
+    .bind(userId,now,date,platform,isoWeekday(date)).all<{id:string;name:string;bucket:string;next_allowed_on:string|null;code:string|null;observed:string|null;last_published:string}>();
+  const plan:AutopostPlan={total:0,ready:0,publishedToday:0,queued:0,decision:0,tried:0,snoozed:0,rules:0,rulesNextDate:null,other:0,chats:[],buckets:{},reasons:{}};
   const ready:Array<{id:string;name:string;last:string}>=[];
   for(const row of rows.results){
     plan.total+=1;
+    plan.buckets[row.id]=(['ready','decision','tried','published','rules','snoozed','queued'].includes(row.bucket)?row.bucket:'other') as AutopostBucket;
+    if(row.bucket==='decision'||row.bucket==='tried')plan.reasons[row.id]={code:row.code,observed:row.observed,next:null};
+    else if(row.bucket==='rules')plan.reasons[row.id]={code:null,observed:null,next:row.next_allowed_on&&row.next_allowed_on>date?row.next_allowed_on:null};
     switch(row.bucket){
       case 'published':plan.publishedToday+=1;break;
       case 'queued':plan.queued+=1;break;

@@ -31,7 +31,7 @@ const REASONS: Record<string, string> = {
   target_not_verified: 'Ціль не підтверджено. Пропущено без відправки.',
   adapter_failed: 'Автопост не зміг виконати відправку. Перевір чат вручну.',
   waydroid_suspend: 'У Waydroid увімкнене автозаморожування. Вимкни його: waydroid prop set persist.waydroid.suspend false.',
-  message_not_found: 'Серед останніх повідомлень чату нашого немає. У дуже жвавому чаті воно могло піти вище за видиму частину: перевір чат вручну, перш ніж повторювати.',
+  message_not_found: 'Перевірено: до моменту відправки нашого повідомлення в чаті немає, тож дубля не буде.',
   // WhatsApp: ці коди приходять із браузерного адаптера.
   whatsapp_chat_missing: 'Група WhatsApp більше недоступна.',
   whatsapp_removed_from_group: 'Тебе вилучено з групи WhatsApp.',
@@ -75,16 +75,23 @@ const BATCH_SKIP: Record<string, string> = {
 export function batchSkipText(code: string): string { return BATCH_SKIP[code] || 'не пройшов перевірку'; }
 
 /** Група причин для «Потребують рішення»: підпис, чи можна замість повтору «перевірити» (повідомлення могло піти). */
-export type AutopostReasonGroup = { key: string; label: string; checkable: boolean; /** Повтор може дати дубль: потрібне підтвердження. */ risky?: boolean };
+export type AutopostReasonGroup = { key: string; label: string; checkable: boolean; /** Повтор може дати дубль: потрібне підтвердження. */ risky?: boolean; /** Назву чату в Work OS можна оновити за назвою з месенджера. */ renameable?: boolean };
 const GROUPS: Array<[string[], AutopostReasonGroup]> = [
   [['send_not_confirmed', 'helper_timeout', 'media_send_not_confirmed'], { key: 'unconfirmed', label: 'Не вдалося підтвердити', checkable: true, risky: true }],
-  [['message_not_found'], { key: 'missing', label: 'Повідомлення не знайдено', checkable: true, risky: true }],
+  [['message_not_found'], { key: 'missing', label: 'Повідомлення не знайдено', checkable: true }],
   [['viber_banned', 'whatsapp_removed_from_group', 'membership_left'], { key: 'blocked', label: 'Заблоковано в групі', checkable: false }],
-  [['target_unconfirmed', 'target_not_found', 'target_ambiguous', 'joined_target_not_verified', 'target_not_verified'], { key: 'target', label: 'Не той чат', checkable: false }],
+  [['target_unconfirmed', 'target_not_found', 'target_ambiguous', 'joined_target_not_verified', 'target_not_verified'], { key: 'target', label: 'Не той чат', checkable: false, renameable: true }],
   [['viber_not_joined', 'membership_not_confirmed', 'approval_required', 'whatsapp_join_retry_later'], { key: 'join', label: 'Не вдалося приєднатися', checkable: false }],
   [['send_ui_unavailable', 'blocking_dialog', 'android_error', 'media_attach_failed', 'media_preview_not_ready', 'media_caption_not_found', 'media_caption_mismatch', 'media_send_failed', 'send_failed'], { key: 'screen', label: 'Збій екрана відправки', checkable: false }],
 ];
 const OTHER_GROUP: AutopostReasonGroup = { key: 'other', label: 'Інше', checkable: false };
 export function autopostReasonGroup(code: string | null | undefined): AutopostReasonGroup {
   return GROUPS.find(([codes]) => codes.includes(String(code)))?.[1] ?? OTHER_GROUP;
+}
+
+const MONTHS = ['січня', 'лютого', 'березня', 'квітня', 'травня', 'червня', 'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня'];
+/** «2026-10-21» → «21 жовтня». */
+export function dayLabel(iso: string): string {
+  const [, month, day] = iso.split('-').map(Number);
+  return month >= 1 && month <= 12 ? `${day} ${MONTHS[month - 1]}` : iso;
 }

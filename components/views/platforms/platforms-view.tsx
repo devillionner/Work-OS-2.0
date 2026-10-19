@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Plus, Search, UserRoundCheck } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { useCommand } from '@/components/shell/command-bus';
 import { useSearchIndex, type SearchItem } from '@/components/shell/search-index';
 import { useShell } from '@/components/shell/shell-context';
@@ -12,6 +12,7 @@ import { Chip } from '@/components/ui/chip';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Ghost } from '@/components/ui/ghost';
+import { Hint } from '@/components/ui/hint';
 import { SearchField } from '@/components/ui/search-field';
 import { Segmented } from '@/components/ui/segmented';
 import { Surface } from '@/components/ui/surface';
@@ -23,7 +24,7 @@ import { ViberAutopostCard } from '@/components/views/platforms/viber-autopost-c
 import { BulkPanel } from '@/components/views/platforms/bulk-panel';
 import { ChatHistoryPanel } from '@/components/views/platforms/chat-history-panel';
 import { ChatRow } from '@/components/views/platforms/chat-row';
-import { ReadyGroups } from '@/components/views/platforms/ready-groups';
+import { ReadyGroups, type RowExtra } from '@/components/views/platforms/ready-groups';
 import { DiscoveryPanel } from '@/components/views/platforms/discovery-panel';
 import { JoinSections } from '@/components/views/platforms/join-sections';
 import { DuplicatesPanel } from '@/components/views/platforms/duplicates-panel';
@@ -33,7 +34,7 @@ import { PublishPanel } from '@/components/views/platforms/publish-panel';
 import { ScheduleTab } from '@/components/views/platforms/schedule-tab';
 import { SelectedChats } from '@/components/views/platforms/selected-chats';
 import { SelectedListPicker } from '@/components/views/platforms/selected-list-picker';
-import { usePlatforms, QUEUES, type Chat } from '@/components/views/platforms/use-platforms';
+import { usePlatforms, PLATFORMS, QUEUES, type Chat } from '@/components/views/platforms/use-platforms';
 import { WaitingCheckCard } from '@/components/views/platforms/waiting-check-card';
 
 type Zone = 'overview' | 'schedule' | 'autopost' | 'quick';
@@ -72,6 +73,11 @@ export default function PlatformsView() {
 
   const { platform, queue, data } = p;
   const readyPlan = platform === 'viber' ? p.autopostPlans.viber : platform === 'whatsapp' ? p.autopostPlans.whatsapp : null;
+  // Групи з плану — коли в списку всі чати черги без пошуку; у пошуку чи Telegram групи складаються з показаних рядків.
+  const groupedComplete = Boolean(readyPlan) && queue === 'ready' && p.search.trim() === '' && Boolean(data) && (data?.chats.length ?? 0) >= (data?.total ?? 0);
+  const groupedPlan = readyPlan && p.search.trim() === '' ? readyPlan : null;
+  // «Готові» з плану автопосту: ті самі чати, що в групі «Готові» списку й у партії; решта доступних лишається в списку вручну.
+  const readyOnly = <T extends { id?: string }>(items: T[] | null): T[] | null => (items && readyPlan ? items.filter((item) => item.id && readyPlan.buckets[item.id] === 'ready') : items);
   const zones = useMemo<Array<{ value: Zone; label: string }>>(() => {
     const list: Array<{ value: Zone; label: string }> = [{ value: 'overview', label: 'Огляд' }];
     if (platform === 'telegram') list.push({ value: 'schedule', label: 'Розклад' });
@@ -106,7 +112,7 @@ export default function PlatformsView() {
 
   const overview = (
     <div className="flex flex-col gap-4">
-      {data ? <PlatformOverview pace={data.publicationPace} available={queue === 'ready' ? p.availableToday ?? null : undefined} loadAvailable={p.loadAvailable} joined={data.joinedToday} published={data.publishedToday} /> : p.error ? <EmptyState text="Не вдалося завантажити огляд платформи." action={<Button variant="outline" size="sm" onClick={() => void p.reload()}>Спробувати ще раз</Button>} /> : <div className="grid gap-3 @xl:grid-cols-2 @4xl:grid-cols-3">{[0, 1, 2].map((item) => <Ghost key={item} className="h-32 rounded-card" />)}</div>}
+      {data ? <PlatformOverview pace={data.publicationPace} platformLabel={PLATFORMS.find((item) => item.key === platform)?.label} available={queue === 'ready' ? readyOnly(p.availableToday ?? null) : undefined} availableLabel={readyPlan ? 'Готові для публікації' : undefined} availableCount={readyPlan ? readyPlan.ready : undefined} loadAvailable={readyPlan ? async () => readyOnly(await p.loadAvailable()) ?? [] : p.loadAvailable} joined={data.joinedToday} published={data.publishedToday} /> : p.error ? <EmptyState text="Не вдалося завантажити огляд платформи." action={<Button variant="outline" size="sm" onClick={() => void p.reload()}>Спробувати ще раз</Button>} /> : <div className="grid gap-3 @xl:grid-cols-2 @4xl:grid-cols-3">{[0, 1, 2].map((item) => <Ghost key={item} className="h-32 rounded-card" />)}</div>}
       {platform === 'telegram' ? <AccountsCard accounts={p.accounts} accountId={p.accountId} activeAccount={p.activeAccount} breakSeconds={p.breakSeconds} busy={p.busy !== null} onAction={p.accountAction} /> : null}
       {platform === 'whatsapp' ? <WaitingCheckCard view={p.waitingCheckView} nowSeconds={Math.floor(p.clock / 1000)} busy={p.busy !== null} onAction={(action) => void p.changeWaitingCheck(action)} onConnect={() => void p.connectWaitingCheckRunner()} onProblemAction={(problem, action) => void p.resolveWaitingProblem(problem, action)} /> : null}
     </div>
@@ -168,7 +174,7 @@ export default function PlatformsView() {
     </Surface>
   ) : null;
 
-  const renderRow = (chat: Chat, section?: 'queue' | 'pool') => (
+  const renderRow = (chat: Chat, section?: 'queue' | 'pool', extra?: RowExtra) => (
     <ChatRow
       key={chat.id}
       chat={chat}
@@ -191,6 +197,8 @@ export default function PlatformsView() {
       onDelete={p.setDeleteChat}
       onAssign={p.assignAccount}
       onAutopost={(target) => void p.toggleWhatsAppAutopost(target)}
+      note={extra?.note}
+      manual={extra?.manual}
     />
   );
   const joinSplit = platform === 'telegram' && queue === 'to_join' && data?.candidates !== undefined;
@@ -204,21 +212,21 @@ export default function PlatformsView() {
       </div>
       <fieldset className="m-0 flex flex-wrap gap-1.5 border-0 p-0">
         <legend className="sr-only">Черга чатів</legend>
-        {QUEUES.filter((item) => platform !== 'viber' || item.key !== 'profile_review').map((item) => <Chip key={item.key} pressed={queue === item.key} count={p.tabCounts ? (item.key === 'ready' && readyPlan ? `${p.tabCounts[item.key] || 0} · ${readyPlan.ready}` : (p.tabCounts[item.key] || 0)) : '–'} title={item.key === 'ready' && readyPlan ? `У черзі ${p.tabCounts?.[item.key] || 0}, доступно зараз ${readyPlan.ready}` : undefined} onClick={() => p.selectQueue(item.key)}>{item.label}</Chip>)}
+        {QUEUES.filter((item) => platform !== 'viber' || item.key !== 'profile_review').map((item) => <Chip key={item.key} pressed={queue === item.key} count={p.tabCounts ? (item.key === 'ready' && readyPlan ? `${p.tabCounts[item.key] || 0} · готові ${readyPlan.ready}` : (p.tabCounts[item.key] || 0)) : '–'} title={item.key === 'ready' && readyPlan ? `У черзі ${p.tabCounts?.[item.key] || 0}, готових до публікації ${readyPlan.ready}` : undefined} onClick={() => p.selectQueue(item.key)}>{item.label}</Chip>)}
         {platform === 'telegram' ? <Chip pressed={queue === 'selected'} count={selectedList ? selectedList.count : '–'} onClick={() => p.selectQueue('selected')}>Відібрані</Chip> : null}
       </fieldset>
 
       {queue !== 'selected' ? (
         <div className="flex flex-wrap items-center gap-2">
           <SearchField value={p.search} onValueChange={p.setSearch} placeholder="Назва або посилання" hotkey={active} wrapperClassName="min-w-[200px] flex-1" />
-          {(queue === 'waiting' || queue === 'ready') && platform !== 'viber' ? (
-            <Chip pressed={p.profileFilter === 'needs_review'} onClick={() => { p.setProfileFilter(p.profileFilter === 'all' ? 'needs_review' : 'all'); p.setOffset(0); }} title={profileSummary ? `Підтверджені: ${profileSummary.confirmed}; чернетки: ${profileSummary.draft}; без профілю: ${profileSummary.empty}` : 'Фільтр профілів'}>
-              <UserRoundCheck aria-hidden="true" strokeWidth={1.5} className="size-3.5" />{p.profileFilter === 'needs_review' ? `Усі профілі (${data?.counts[queue] || 0})` : `Потребують правил (${profileSummary?.needsReview || 0})`}
-            </Chip>
-          ) : null}
         </div>
       ) : null}
-      {queue === 'profile_review' && profileSummary ? <p className="m-0 text-xs text-ink-2">Чернетки {profileSummary.draft} · без профілю {profileSummary.empty}</p> : null}
+      {queue === 'profile_review' && profileSummary ? (
+        <p className="m-0 flex items-center gap-1 text-xs text-ink-2">
+          Чернетки {profileSummary.draft} · без профілю {profileSummary.empty}
+          <Hint label="Як профіль впливає на автопост">Профіль обмежує публікацію, лише коли підтверджений; чат без профілю автопост бере за звичайними правилами.</Hint>
+        </p>
+      ) : null}
 
       {p.error ? <div className="flex flex-wrap items-center gap-3"><p role="alert" className="m-0 text-sm text-hot">{p.error}</p><Button variant="outline" size="sm" disabled={p.loading || p.busy !== null} onClick={() => void p.reload()}>Оновити список</Button></div> : null}
 
@@ -238,12 +246,12 @@ export default function PlatformsView() {
         <JoinSections candidates={data.candidates ?? []} pool={data.chats} counts={data.sections ?? { queue: 0, pool: 0 }} poolTotal={data.total} searching={p.search.trim() !== ''} renderRow={renderRow} onShowMore={p.showMoreNewChats} />
       ) : data?.chats.length ? (
         <>
-          {queue === 'ready' ? <ReadyGroups chats={data.chats} clock={p.clock} renderRow={renderRow} /> : (
+          {queue === 'ready' ? <ReadyGroups chats={data.chats} clock={p.clock} plan={groupedPlan} complete={groupedComplete} renderRow={(chat, extra) => renderRow(chat, undefined, extra)} onOpenDecisions={groupedPlan ? () => { setZone('autopost'); setPhoneSection('autopost'); } : undefined} /> : (
             <ul className="m-0 flex list-none flex-col gap-2 p-0">
               {data.chats.map((chat) => renderRow(chat))}
             </ul>
           )}
-          {data.total > PAGE ? (
+          {data.total > PAGE && !groupedComplete ? (
             <div className="flex items-center justify-between gap-3">
               <Button variant="outline" size="sm" disabled={p.offset === 0} onClick={() => p.setOffset(Math.max(0, p.offset - PAGE))}>Назад</Button>
               <span className="font-mono text-xs text-ink-2">{p.offset + 1}–{Math.min(p.offset + PAGE, data.total)} із {data.total}</span>

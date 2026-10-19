@@ -85,7 +85,8 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
   // Перевірка чату з «Потребують рішення» не належить партії, але крок її теж видно.
   if (!batch || batch.total === 0) return running && step ? <NowBlock name={step.name} step={step} now={now} /> : null;
   const done = batch.total - batch.remaining;
-  const ratio = Math.min(1, done / batch.total);
+  // Кільце показує частку відправлених, а не оброблених: інакше партія, де чверть чатів не вдалась, виглядає «100 %».
+  const ratio = Math.min(1, batch.sent / batch.total);
   const secondsLeft = batch.averageSeconds ? batch.remaining * batch.averageSeconds : null;
   const finishedEntries = batch.entries.filter((entry) => entry.status !== 'claimed');
   const claimed = running ? batch.entries.find((entry) => entry.status === 'claimed') : undefined;
@@ -94,12 +95,12 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
   return (
     <section className="flex flex-col gap-4 rounded-inner border border-line bg-sunken p-4" aria-label="Хід партії автопосту">
       <div className="flex items-center gap-5">
-        <Ring value={ratio} tone={batch.failed > 0 ? 'warn' : ratio >= 1 ? 'ok' : 'ink'} size={72} stroke={5} label={`Партія: ${done} з ${batch.total}`}>{Math.round(ratio * 100)}%</Ring>
+        <Ring value={ratio} tone={ratio >= 1 && batch.failed === 0 && batch.skipped === 0 ? 'ok' : 'ink'} size={72} stroke={5} label={`Відправлено ${batch.sent} з ${batch.total}`}>{Math.round(ratio * 100)}%</Ring>
         <div className="min-w-0 flex-1">
           <p className="m-0 flex items-center gap-2 text-sm font-medium">
             {running ? <i aria-hidden="true" className="size-2 rounded-full bg-ok" /> : <Check aria-hidden="true" strokeWidth={1.5} className="size-4 text-ok" />}
             {running ? 'Партія виконується' : batch.cancelled > 0 && batch.remaining === 0 ? 'Партію зупинено' : 'Партію завершено'}
-            <span className="ml-auto font-mono text-sm font-normal tabular-nums">{done} з {batch.total}</span>
+            <span className="ml-auto text-sm font-normal text-ink-2">оброблено <span className="font-mono tabular-nums text-ink">{done} з {batch.total}</span></span>
           </p>
           <p className="m-0 mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
             <span>Відправлено <b className="font-mono font-normal tabular-nums text-ink">{batch.sent}</b></span>

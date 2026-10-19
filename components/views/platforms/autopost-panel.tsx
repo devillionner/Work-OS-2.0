@@ -11,13 +11,18 @@ import { Surface } from '@/components/ui/surface';
 import { AutopostAttentionList, type AutopostAttentionItem, type AutopostDecision } from '@/components/views/platforms/autopost-attention';
 import { AutopostBatchPanel } from '@/components/views/platforms/autopost-batch';
 import type { WhatsAppAutopostImage, WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
+import { dayLabel } from '@/components/views/platforms/autopost-reasons';
 
 /** План запуску з сервера: скільки чатів справді піде в партію й чому решта черги «Для публікації» не йде. */
 export type AutopostPlan = {
   total: number; ready: number; publishedToday: number; queued: number; decision: number; tried: number; snoozed: number;
   rules: number; rulesNextDate: string | null; other: number;
   chats: Array<{ id: string; name: string }>;
+  /** Кожен чат черги «Для публікації» рівно в одній групі (за цим розкладом лічаться чіпи, список зліва, «Огляд» і картка). */
+  buckets: Record<string, AutopostBucket>;
+  reasons: Record<string, { code: string | null; observed: string | null; next: string | null }>;
 };
+export type AutopostBucket = 'ready' | 'decision' | 'tried' | 'published' | 'rules' | 'snoozed' | 'queued' | 'other';
 export type AutopostReadiness = { tone: 'ok' | 'warn' | 'hot' | 'idle'; text: string };
 export type AutopostMaterialProps = {
   image: WhatsAppAutopostImage | null; imageLoaded: boolean; caption: string; captionLoaded: boolean;
@@ -34,12 +39,6 @@ export function chatWord(count: number): string {
   return last === 1 ? 'чат' : last >= 2 && last <= 4 ? 'чати' : 'чатів';
 }
 
-const MONTHS = ['січня', 'лютого', 'березня', 'квітня', 'травня', 'червня', 'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня'];
-function dayLabel(iso: string): string {
-  const [, month, day] = iso.split('-').map(Number);
-  return month >= 1 && month <= 12 ? `${day} ${MONTHS[month - 1]}` : iso;
-}
-
 function etaText(seconds: number): string {
   const minutes = Math.round(seconds / 60);
   if (minutes < 1) return 'менше хвилини';
@@ -53,6 +52,19 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} Б`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+}
+
+/** Чому немає що публікувати: правдиве пояснення за станом черги, а не завжди «все опубліковано». Той самий текст у картці автопосту й у списку чатів. */
+export function noReadyText(plan: AutopostPlan): string {
+  if (plan.total === 0) return 'У черзі немає чатів цієї платформи.';
+  if (plan.decision > 0) return `Готових немає. ${plan.decision} ${chatWord(plan.decision)} ${plan.decision % 10 === 1 && plan.decision % 100 !== 11 ? 'чекає' : 'чекають'} твого рішення нижче.`;
+  if (plan.queued > 0) return `Готових немає: ${plan.queued} ${chatWord(plan.queued)} уже в черзі автопосту.`;
+  if (plan.tried > 0) return `Готових немає. ${plan.tried} ${chatWord(plan.tried)} автопост сьогодні вже пробував без відправки, повтор завтра.`;
+  if (plan.rules > 0 && plan.publishedToday + plan.snoozed === 0) return plan.rulesNextDate ? `Готових немає: чати чекають за правилами частоти. Найближчий стане доступним ${dayLabel(plan.rulesNextDate)}.` : 'Готових немає: чати чекають за правилами частоти.';
+  if (plan.snoozed > 0 && plan.publishedToday === 0 && plan.rules === 0) return 'Готових немає: решта чатів відкладена.';
+  return plan.rules > 0 || plan.snoozed > 0
+    ? `Сьогодні все, що можна, опубліковано. Решта чекає${plan.rules > 0 ? ' за правилами частоти' : ' (відкладено)'}${plan.rulesNextDate ? `, найближчий чат стане доступним ${dayLabel(plan.rulesNextDate)}` : ''}.`
+    : 'Сьогодні все опубліковано. Наступні чати стануть доступні завтра.';
 }
 
 /** Що саме піде: мініатюра фото, перші рядки підпису й редактор (той самий для Viber і WhatsApp: фото й текст спільні). */
@@ -170,10 +182,10 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
   const ready = material.imageLoaded && Boolean(material.image) && material.captionLoaded;
 
   const breakdown: Array<[string, number, string?]> = plan ? [
-    ['опубліковано сьогодні', plan.publishedToday],
-    ['чекають за правилами частоти', plan.rules, plan.rulesNextDate ? `найближча — ${dayLabel(plan.rulesNextDate)}` : undefined],
     ['потребують рішення', plan.decision],
     ['уже пробували сьогодні без відправки', plan.tried],
+    ['опубліковано сьогодні', plan.publishedToday],
+    ['чекають за правилами частоти', plan.rules, plan.rulesNextDate ? `найближча — ${dayLabel(plan.rulesNextDate)}` : undefined],
     ['відкладено', plan.snoozed],
     ['уже в черзі автопосту', plan.queued],
     ['інше', plan.other],
@@ -229,9 +241,7 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
         <section className="flex flex-col gap-4" aria-label="Запуск партії">
           <MaterialRow material={material} editing={editing} onToggle={() => setEditing((value) => !value)} busy={busy} />
           {plan.ready === 0 ? (
-            <p className="m-0 rounded-inner border border-line px-4 py-3 text-sm text-ink-2">
-              {plan.total === 0 ? 'У черзі немає чатів цієї платформи.' : plan.rulesNextDate && plan.publishedToday + plan.tried + plan.decision === 0 ? `Сьогодні чекають правила частоти. Найближчий чат стане доступним ${dayLabel(plan.rulesNextDate)}.` : 'Сьогодні все опубліковано. Наступні чати стануть доступні завтра.'}
-            </p>
+            <p className="m-0 rounded-inner border border-line px-4 py-3 text-sm text-ink-2">{noReadyText(plan)}</p>
           ) : (
             <>
               {going.length ? (

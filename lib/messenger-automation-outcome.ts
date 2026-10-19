@@ -1,12 +1,13 @@
 import { businessDate, businessDayStart, shiftBusinessDate } from './business-time.ts';
 import { chatStateEvent, chatStateTokenSql, readChatState } from './chats/state.ts';
 import { transitionChat } from './chats/transitions.ts';
+import { isSimilarName } from './name-similarity.ts';
 
 /** Скільки разів задачу пробують, перш ніж пропустити на сьогодні: перша спроба і ще дві. */
 export const MAX_AUTOPOST_ATTEMPTS = 3;
 
 export type AutopostOutcome = 'archived' | 'waiting' | 'snoozed' | 'skipped' | 'needs_decision' | 'resolved';
-export type AutopostDecision = 'archive' | 'snooze' | 'retry' | 'check';
+export type AutopostDecision = 'archive' | 'snooze' | 'retry' | 'check' | 'rename';
 
 type Policy =
   | { kind: 'archive'; reason: string }
@@ -127,16 +128,25 @@ export async function settleAutopostFailure(
 export async function resolveAutopostDecision(
   db: D1Database,
   userId: string,
-  input: { jobId: string; decision: AutopostDecision },
+  input: { jobId: string; decision: AutopostDecision; requireSimilar?: boolean },
   now: number,
 ): Promise<{ ok: true; chatId: string } | { ok: false; error: string }> {
-  const job = await db.prepare(`SELECT id,chat_id,outcome FROM whatsapp_autopost_jobs WHERE id=?1 AND user_id=?2 LIMIT 1`)
-    .bind(input.jobId, userId).first<{ id: string; chat_id: string; outcome: string | null }>();
+  const job = await db.prepare(`SELECT id,chat_id,outcome,result_json FROM whatsapp_autopost_jobs WHERE id=?1 AND user_id=?2 LIMIT 1`)
+    .bind(input.jobId, userId).first<{ id: string; chat_id: string; outcome: string | null; result_json: string | null }>();
   if (!job || job.outcome !== 'needs_decision') return { ok: false, error: 'Це рішення вже прийнято. Оновіть список.' };
   if (input.decision === 'archive') {
     if (!await archiveChat(db, userId, job.chat_id, ARCHIVE_DECIDED, now)) return { ok: false, error: 'Стан чату вже змінився. Оновіть список.' };
   } else if (input.decision === 'snooze') {
     if (!await snoozeUntilTomorrow(db, userId, job.chat_id, now)) return { ok: false, error: 'Чат уже не в черзі публікації. Оновіть список.' };
+  } else if (input.decision === 'rename') {
+    // «Це той самий чат»: назва в Work OS стає такою, як її показує месенджер; нову задачу створює викликач.
+    const observed = cleanChatName(observedName(job.result_json));
+    if (!observed) return { ok: false, error: 'Месенджер не повернув назву чату. Оновіть назву вручну.' };
+    const chat = await readChatState(db, userId, job.chat_id);
+    if (!chat || chat.workflow_status !== 'ready') return { ok: false, error: 'Чат уже не в черзі публікації. Оновіть список.' };
+    if (input.requireSimilar && !isSimilarName(chat.name, observed)) return { ok: false, error: 'Назви надто різні для масової дії.' };
+    const renamed = await db.prepare(`UPDATE chats SET name=?1,updated_at=?2 WHERE id=?3 AND user_id=?4 RETURNING id`).bind(observed, now, job.chat_id, userId).all<{ id: string }>();
+    if (renamed.results.length !== 1) return { ok: false, error: 'Не вдалося оновити назву чату.' };
   }
   const updated = await db.prepare(`UPDATE whatsapp_autopost_jobs SET outcome='resolved',updated_at=?1 WHERE id=?2 AND user_id=?3 AND outcome='needs_decision' RETURNING id`)
     .bind(now, job.id, userId).all<{ id: string }>();
@@ -144,24 +154,34 @@ export async function resolveAutopostDecision(
   return { ok: true, chatId: job.chat_id };
 }
 
+function observedName(resultJson: string | null): string {
+  try {
+    const parsed: unknown = resultJson ? JSON.parse(resultJson) : null;
+    const value = parsed && typeof parsed === 'object' ? (parsed as { observedTarget?: unknown }).observedTarget : '';
+    return typeof value === 'string' ? value : '';
+  } catch { return ''; }
+}
+
+const cleanChatName = (value: string) => value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
+
 /** Те саме рішення для кількох чатів (група в «Потребують рішення»). Повертає тих, кого вдалося закрити, і скільки пропущено. */
 export async function resolveAutopostDecisions(
   db: D1Database,
   userId: string,
-  input: { jobIds: string[]; decision: AutopostDecision },
+  input: { jobIds: string[]; decision: AutopostDecision; requireSimilar?: boolean },
   now: number,
 ): Promise<{ resolved: Array<{ jobId: string; chatId: string }>; skipped: number }> {
   const resolved: Array<{ jobId: string; chatId: string }> = [];
   let skipped = 0;
   for (const jobId of input.jobIds.slice(0, 100)) {
-    const result = await resolveAutopostDecision(db, userId, { jobId, decision: input.decision }, now);
+    const result = await resolveAutopostDecision(db, userId, { jobId, decision: input.decision, requireSimilar: input.requireSimilar }, now);
     if (result.ok) resolved.push({ jobId, chatId: result.chatId });
     else skipped += 1;
   }
   return { resolved, skipped };
 }
 
-export type AutopostAttentionItem = { jobId: string; chatId: string; name: string; errorCode: string; updatedAt: number };
+export type AutopostAttentionItem = { jobId: string; chatId: string; name: string; errorCode: string; updatedAt: number; /** Назва чату, яку бачив месенджер (для «Не той чат»). */ observed: string | null };
 
 /**
  * Чати платформи, які автопост не чіпав і чекає рішення власника, лише з партій сьогодні. З новим днем учорашні зникають зі
@@ -179,6 +199,6 @@ export async function readAutopostAttention(db: D1Database, userId: string, plat
       const parsed: unknown = row.result_json ? JSON.parse(row.result_json) : null;
       if (parsed && typeof parsed === 'object' && typeof (parsed as { errorCode?: unknown }).errorCode === 'string') code = (parsed as { errorCode: string }).errorCode;
     } catch { /* лишається код за замовчуванням */ }
-    return { jobId: row.id, chatId: row.chat_id, name: row.name, errorCode: code, updatedAt: Number(row.updated_at) };
+    return { jobId: row.id, chatId: row.chat_id, name: row.name, errorCode: code, updatedAt: Number(row.updated_at), observed: observedName(row.result_json).trim() || null };
   });
 }

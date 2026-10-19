@@ -490,7 +490,7 @@ async function openTarget(android, payload, guard = () => {}) {
   if (screen.kind === 'blocked') throw new ViberStop(screen.reason, 'before', screenText(nodes).slice(0, 160));
   const state = conversationState(nodes, expected);
   if (state.title && state.input && state.matches) return state.title.text;
-  if (state.title && !state.matches && state.input) throw new ViberStop('target_unconfirmed', 'before', `${state.title.text}`.slice(0, 80));
+  if (state.title && !state.matches && state.input) throw new ViberStop('target_unconfirmed', 'before', `${state.title.text}`.slice(0, 180));
   throw new ViberStop('blocking_dialog', 'before', screenText(nodes).slice(0, 160));
 }
 

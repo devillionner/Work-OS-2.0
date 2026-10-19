@@ -173,20 +173,20 @@ export async function POST(request:Request):Promise<Response>{
     // Рішення власника зі списку «Потребують рішення»: в архів, відкласти на завтра, спробувати ще раз або «перевірити» (лише
     // відкрити чат і подивитись, чи повідомлення вже є). Те саме для групи чатів одним запитом (`jobIds`).
     if(body.action==='resolve-autopost-decision'||body.action==='resolve-autopost-decisions'){
-      const decision=['archive','snooze','retry','check'].includes(String(body.decision))?body.decision as AutopostDecision:null;
+      const decision=['archive','snooze','retry','check','rename'].includes(String(body.decision))?body.decision as AutopostDecision:null;
       const bulk=body.action==='resolve-autopost-decisions';
       const jobIds=bulk?(Array.isArray(body.jobIds)?body.jobIds.filter((id):id is string=>typeof id==='string'&&id.length>0):[]):(typeof body.jobId==='string'&&body.jobId?[body.jobId]:[]);
       if(!jobIds.length||!decision)throw new MessengerAutomationError('Не вказано чат або рішення.');
       if(decision==='retry'&&bulk)throw new MessengerAutomationError('Повторну відправку для групи не виконуємо: можливі дублі.');
       const date=businessDate(now);
       let resolved:Array<{jobId:string;chatId:string}>;
-      if(bulk)resolved=(await resolveAutopostDecisions(env.DB,user.id,{jobIds,decision},now)).resolved;
+      if(bulk)resolved=(await resolveAutopostDecisions(env.DB,user.id,{jobIds,decision,requireSimilar:decision==='rename'},now)).resolved;
       else{
         const single=await resolveAutopostDecision(env.DB,user.id,{jobId:jobIds[0],decision},now);
         if(!single.ok)throw new MessengerAutomationError(single.error,409);
         resolved=[{jobId:jobIds[0],chatId:single.chatId}];
       }
-      if(decision==='retry'){
+      if(decision==='retry'||decision==='rename'){
         for(const item of resolved){
           const platformRow=await env.DB.prepare(`SELECT platform FROM chats WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(item.chatId,user.id).first<{platform:string}>();
           await createWhatsAppAutopostJob(env.DB,user.id,{requestKey:`retry_${crypto.randomUUID()}`,chatId:item.chatId,platform:platformRow?.platform},now,date);
@@ -195,7 +195,7 @@ export async function POST(request:Request):Promise<Response>{
       if(decision==='check'){
         for(const item of resolved)await createAutopostVerifyJob(env.DB,user.id,item.jobId,now,date);
       }
-      if(decision==='retry'||decision==='check')await wakeOwnerChannelAutopost(user.id);
+      if(decision==='retry'||decision==='check'||decision==='rename')await wakeOwnerChannelAutopost(user.id);
       const platform=body.platform==='viber'?'viber':'whatsapp';
       const [progress,attention]=await Promise.all([
         readWhatsAppAutopostProgress(env.DB,user.id,date,platform),

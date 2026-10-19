@@ -1062,6 +1062,29 @@ async function clickWhatsappMediaSend(client){
   return response?.result?.value===true;
 }
 
+// Для дії «Перевірити»: усі рядки повідомлень відкритого чату (без обмеження «останні 50») і прокрутка стрічки вгору на сторінку.
+const READ_ALL_ROWS_JS = `(() => {
+  const seen = new Set();
+  return [...document.querySelectorAll('#main [data-id]')].map((node) => {
+    const key = node.getAttribute('data-id') || '';
+    if (!key || seen.has(key)) return null;
+    seen.add(key);
+    const row = node.closest('div[role="row"]') || node;
+    return { key, text: String(row.innerText || '').slice(0, 4000), hasMedia: Boolean(row.querySelector('img, video, canvas')) };
+  }).filter(Boolean);
+})()`;
+const SCROLL_CHAT_UP_JS = `(() => {
+  let el = document.querySelector('#main [data-id]');
+  while (el && el !== document.body) {
+    if (el.scrollHeight > el.clientHeight + 40 && /(auto|scroll)/.test(getComputedStyle(el).overflowY)) break;
+    el = el.parentElement;
+  }
+  if (!el || el === document.body) return { ok: false, atTop: true };
+  const before = el.scrollTop;
+  el.scrollTop = Math.max(0, el.scrollTop - Math.round(el.clientHeight * 0.85));
+  return { ok: true, atTop: before <= 0 };
+})()`;
+
 export async function sendWhatsappAutopostViaCdp(
   task,
   { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS, shouldAbort = () => false, onStep = () => {}, verifyOnly = false, sinceEpoch = 0 } = {},
@@ -1113,9 +1136,12 @@ export async function sendWhatsappAutopostViaCdp(
     // відправки (учорашнє оголошення з тим самим текстом не зараховується).
     if (verifyOnly) {
       onStep('confirm', 'шукаю повідомлення в чаті');
-      // Рядки чату підтягуються не миттєво: чекаємо до 8 с, поки вони з'являться.
-      let snapshot = before;
-      for (let attempt = 0; attempt < 8 && !(snapshot.messageRows || []).length; attempt += 1) { await sleep(1000); snapshot = await readSnapshot(client); }
+      // Рядки чату підтягуються не миттєво: чекаємо до 8 с, поки вони з'являться. Далі гортаємо чат вгору сторінка за сторінкою, поки
+      // не знайдемо повідомлення, не дійдемо до початку чату або не вичерпаємо ліміт: у жвавій групі за годину свого повідомлення
+      // нижче вже немає (раніше дивились лише останні 50 рядків і давали хибне «не знайдено»).
+      const readRows = async () => (await client.send('Runtime.evaluate', { expression:READ_ALL_ROWS_JS, returnByValue:true }))?.result?.value || [];
+      let rows = await readRows();
+      for (let attempt = 0; attempt < 8 && !rows.length; attempt += 1) { await sleep(1000); rows = await readRows(); }
       const sent = sinceEpoch > 0 ? sinceEpoch * 1000 : Date.now();
       const labels = [-4, -3, -2, -1, 0, 1, 2].flatMap((shift) => {
         const at = new Date(sent + shift * 60_000);
@@ -1125,9 +1151,18 @@ export async function sendWhatsappAutopostViaCdp(
       });
       // Момент відправки невідомий (давня перевірка без нього): мітку часу не звіряємо, шукаємо лише за підписом.
       // fromMe не вимагаємо: у деяких збірках WhatsApp Web ознака вихідного повідомлення не читається.
-      const hit = (snapshot.messageRows || []).find((row) => matchesCaptionOrText(row.text, text) && (sinceEpoch <= 0 || labels.some((label) => String(row.text || '').includes(label))));
+      const findHit = (list) => list.find((row) => matchesCaptionOrText(row.text, text) && (sinceEpoch <= 0 || labels.some((label) => String(row.text || '').includes(label))));
+      let hit = findHit(rows);
+      let pages = 0;
+      for (; !hit && pages < 16; pages += 1) {
+        const moved = (await client.send('Runtime.evaluate', { expression:SCROLL_CHAT_UP_JS, returnByValue:true }))?.result?.value;
+        await sleep(800);
+        rows = await readRows();
+        hit = findHit(rows);
+        if (!moved?.ok || moved.atTop) break;
+      }
       if (hit) return { kind:'result', result:{ status:'sent', observedTarget, targetVerified:true, sendConfirmed:true, mediaConfirmed:true } };
-      console.warn('WhatsApp verify diagnostic: ' + JSON.stringify({ labels: labels.slice(0, 4), rows: (snapshot.messageRows || []).slice(-6).map((row) => ({ fromMe: row.fromMe, media: row.hasMedia, len: String(row.text || '').length, tail: String(row.text || '').slice(-36) })) }));
+      console.warn('WhatsApp verify diagnostic: ' + JSON.stringify({ pages, rows: rows.length, labels: labels.slice(0, 4), tail: rows.slice(-2).map((row) => String(row.text || '').slice(-36)) }));
       return { kind:'blocked', reason:'message_not_found' };
     }
     const beforeKeys = new Set((before.messageRows || []).map((row) => row.key).filter(Boolean));

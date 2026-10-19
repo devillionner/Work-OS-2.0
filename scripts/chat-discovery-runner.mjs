@@ -976,8 +976,10 @@ async function handleViberAutopostTask(ws,job){
     return;
   }
   reportViberStatus(ws,'ready');
+  // «Не той чат»: Viber показав чат з іншою назвою; її (до « | screen:») зберігаємо, щоб власник міг оновити назву в Work OS.
+  const observedTitle=reason==='target_unconfirmed'&&!String(result.detail||'').startsWith('join page:')?String(result.detail||'').split(' | screen:')[0].trim():'';
   sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',
-    observedTarget:job.target?.expectedName,targetVerified:result.severity==='after',sendConfirmed:false,errorCode:reason||'adapter_failed'});
+    observedTarget:observedTitle||job.target?.expectedName,targetVerified:result.severity==='after',sendConfirmed:false,errorCode:reason||'adapter_failed'});
 }
 
 async function handleAutopostTask(ws,job){

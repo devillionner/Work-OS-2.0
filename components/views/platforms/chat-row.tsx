@@ -44,10 +44,13 @@ export type ChatRowProps = {
   onDelete: (chat: Chat) => void;
   onAssign: (chat: Chat, accountId: string) => void;
   onAutopost: (chat: Chat) => void;
+  /** Пояснення групи («чому чат тут»); у групах, окрім «Готові», публікація вручну лишається, але не головна дія. */
+  note?: string;
+  manual?: boolean;
 };
 
 /** Рядок чату: ім'я, сигнали стану, головна дія черги й меню решти дій. Без blur, із content-visibility для довгих списків. */
-export function ChatRow({ chat, queue, section, clock, busy, lastOpened, accounts, whatsappAutopostReady, onAct, onShortlist, onUnshortlist, onPublish, onProfile, onHistory, onArchive, onOpen, onReturn, onDelete, onAssign, onAutopost }: ChatRowProps) {
+export function ChatRow({ chat, queue, section, clock, busy, lastOpened, accounts, whatsappAutopostReady, onAct, onShortlist, onUnshortlist, onPublish, onProfile, onHistory, onArchive, onOpen, onReturn, onDelete, onAssign, onAutopost, note, manual }: ChatRowProps) {
   const toast = useToast();
   const [copied, setCopied] = useState(false);
   const snoozed = isSnoozed(chat, clock);
@@ -58,7 +61,7 @@ export function ChatRow({ chat, queue, section, clock, busy, lastOpened, account
 
   const signals: Array<{ key: string; text: string; tone?: 'ok' | 'warn' }> = [];
   if (lastOpened) signals.push({ key: 'last', text: 'Останній відкритий' });
-  if (chat.platform !== 'viber' && !chat.profileConfirmed && (queue === 'ready' || queue === 'profile_review')) signals.push({ key: 'profile', text: 'Профіль пізніше', tone: 'warn' });
+  if (chat.platform !== 'viber' && !chat.profileConfirmed && (queue === 'ready' || queue === 'profile_review')) signals.push({ key: 'profile', text: 'Профіль не заповнено' });
   if (queue === 'profile_review') signals.push({ key: 'which', text: chat.status === 'waiting' ? 'Очікування' : 'Для публікації' });
   if (queue === 'ready' && blockedByQualification) signals.push({ key: 'qual', text: 'Потрібна кваліфікація', tone: 'warn' });
   if (chat.autopostJobId) signals.push({ key: 'auto', text: 'Автопост у черзі' });
@@ -112,6 +115,8 @@ export function ChatRow({ chat, queue, section, clock, busy, lastOpened, account
         </p>
       ) : null}
 
+      {note ? <p className="m-0 text-xs text-ink-2">{note}</p> : null}
+
       {(queue === 'waiting' || queue === 'ready') && shouldSuggestChatArchive(chat.snoozeCount) ? (
         <div className="flex items-center justify-between gap-3 rounded-field border border-warn/40 px-3 py-2 text-xs"><span>Відкладали {chat.snoozeCount} рази. Якщо чат неактуальний, краще в архів.</span><Button variant="outline" size="sm" disabled={busy} onClick={() => onArchive(chat)}><Archive aria-hidden="true" strokeWidth={1.5} />Архівувати</Button></div>
       ) : null}
@@ -130,11 +135,11 @@ export function ChatRow({ chat, queue, section, clock, busy, lastOpened, account
         {queue === 'waiting' ? <Button variant="action" size="sm" disabled={busy} onClick={() => onAct(chat, 'approved')}><UserRoundCheck aria-hidden="true" strokeWidth={1.5} />Прийняли</Button> : null}
         {queue === 'ready' ? (
           <>
-            {!chat.publishedToday ? <Button variant="action" size="sm" disabled={busy || Boolean(chat.autopostJobId) || blockedByQualification || !publishable} onClick={() => onPublish(chat)}><Send aria-hidden="true" strokeWidth={1.5} />{readyLabel(chat, clock)}</Button> : null}
+            {!chat.publishedToday ? <Button variant={manual ? 'outline' : 'action'} size="sm" disabled={busy || Boolean(chat.autopostJobId) || blockedByQualification || !publishable} onClick={() => onPublish(chat)}><Send aria-hidden="true" strokeWidth={1.5} />{readyLabel(chat, clock)}</Button> : null}
             {chat.platform === 'whatsapp' && !chat.publishedToday ? <Button variant={chat.autopostJobId ? 'outline' : 'ghost'} size="sm" disabled={busy || blockedByQualification || (!chat.autopostJobId && (!whatsappAutopostReady || !publishable))} onClick={() => onAutopost(chat)}>{chat.autopostJobId ? 'Скасувати автопост' : 'Автопост'}</Button> : null}
           </>
         ) : null}
-        {queue === 'profile_review' ? <Button variant="action" size="sm" disabled={busy} onClick={() => onProfile(chat)}><UserRoundCheck aria-hidden="true" strokeWidth={1.5} />Уточнити профіль</Button> : null}
+        {queue === 'profile_review' ? <Button variant="action" size="sm" disabled={busy} onClick={() => onProfile(chat)}><UserRoundCheck aria-hidden="true" strokeWidth={1.5} />Заповнити профіль</Button> : null}
         {queue === 'archived' ? <Button variant="outline" size="sm" disabled={busy} onClick={() => onAct(chat, 'restore')}><RotateCcw aria-hidden="true" strokeWidth={1.5} />Відновити</Button> : null}
       </div>
     </li>

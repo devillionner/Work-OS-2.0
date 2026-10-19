@@ -12,7 +12,7 @@ export type PlatformLinkItem = { id?: string; name?: string; link?: string };
 export type PublicationPace = { completed: number; target: number };
 
 /** Огляд платформи: ціль публікацій, приєднані й опубліковані сьогодні (з копіюванням посилань). */
-export function PlatformOverview({ pace, available, loadAvailable, joined, published }: { pace?: PublicationPace; /** undefined — картку не показуємо; null — список ще вантажиться. */ available?: PlatformLinkItem[] | null; /** Свіжий список доступних перед копіюванням: у відповіді списку чатів їх немає. */ loadAvailable?: () => Promise<PlatformLinkItem[]>; joined?: PlatformLinkItem[]; published?: PlatformLinkItem[] }) {
+export function PlatformOverview({ pace, platformLabel, available, availableLabel = 'Доступні для публікації', availableCount, loadAvailable, joined, published }: { pace?: PublicationPace; /** Назва платформи для рядка цілі: ціль спільна для всіх платформ, а внесок платформи видно окремо. */ platformLabel?: string; /** undefined — картку не показуємо; null — список ще вантажиться. */ available?: PlatformLinkItem[] | null; availableLabel?: string; /** Число готових із плану автопосту: показується одразу, ще до завантаження списку для копіювання. */ availableCount?: number; /** Свіжий список доступних перед копіюванням: у відповіді списку чатів їх немає. */ loadAvailable?: () => Promise<PlatformLinkItem[]>; joined?: PlatformLinkItem[]; published?: PlatformLinkItem[] }) {
   const safe = pace ?? { completed: 0, target: 0 };
   const ratio = safe.target > 0 ? safe.completed / safe.target : 0;
   return (
@@ -22,16 +22,17 @@ export function PlatformOverview({ pace, available, loadAvailable, joined, publi
         <div className="min-w-0">
           <p className="m-0 text-[13px] text-ink-2">Ціль публікацій</p>
           <p className="m-0 font-mono text-[28px] leading-tight">{safe.completed} <span className="text-base text-ink-2">/ {safe.target}</span></p>
+          {platformLabel ? <p className="m-0 text-xs text-ink-2">усі платформи · {platformLabel} <span className="font-mono tabular-nums text-ink">{published?.length ?? 0}</span></p> : null}
         </div>
       </Surface>
-      {available !== undefined ? <LinkStat label="Доступні для публікації" items={available} fresh={loadAvailable} /> : null}
+      {available !== undefined ? <LinkStat label={availableLabel} items={available} count={availableCount} fresh={loadAvailable} /> : null}
       <LinkStat label="Приєднано сьогодні" items={joined ?? []} />
       <LinkStat label="Опубліковано сьогодні" items={published ?? []} />
     </section>
   );
 }
 
-function LinkStat({ label, items, fresh }: { label: string; items: PlatformLinkItem[] | null; fresh?: () => Promise<PlatformLinkItem[]> }) {
+function LinkStat({ label, items, count, fresh }: { label: string; items: PlatformLinkItem[] | null; count?: number; fresh?: () => Promise<PlatformLinkItem[]> }) {
   const [copied, setCopied] = useState<'links' | 'names' | null>(null);
   async function copy(names: boolean) {
     if (!items?.length) return;
@@ -45,7 +46,7 @@ function LinkStat({ label, items, fresh }: { label: string; items: PlatformLinkI
   }
   return (
     <Surface variant="glass" radius="card" className="flex flex-col justify-between gap-3 p-4">
-      <div><p className="m-0 text-[13px] text-ink-2">{label}</p><p className="m-0 font-mono text-[28px] leading-tight">{items ? items.length : '…'}</p></div>
+      <div><p className="m-0 text-[13px] text-ink-2">{label}</p><p className="m-0 font-mono text-[28px] leading-tight">{count ?? (items ? items.length : '…')}</p></div>
       <div className="flex gap-1.5">
         <Button variant="outline" size="sm" disabled={!items?.length} aria-label={`Копіювати посилання · ${label}`} onClick={() => void copy(false)}>{copied === 'links' ? <><Check aria-hidden="true" strokeWidth={1.5} />Скопійовано</> : <><Copy aria-hidden="true" strokeWidth={1.5} />Посилання</>}</Button>
         <Button variant="ghost" size="sm" disabled={!items?.length} title={`Копіювати назви й посилання · ${label}`} onClick={() => void copy(true)}>{copied === 'names' ? 'Скопійовано' : 'З назвами'}</Button>

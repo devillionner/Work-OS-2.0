@@ -53,8 +53,10 @@ type WaitingCheckResponse = Record<string, unknown> & { error?: string };
 export const PLATFORMS: Array<{ key: Platform; label: string }> = [
   { key: 'telegram', label: 'Telegram' }, { key: 'whatsapp', label: 'WhatsApp' }, { key: 'viber', label: 'Viber' }, { key: 'facebook', label: 'Facebook' },
 ];
+/** Скільки чатів черги «Для публікації» дочитуємо для груп; довша черга лишається сторінками. */
+const GROUPED_QUEUE_MAX = 400;
 export const QUEUES: Array<{ key: Queue; label: string }> = [
-  { key: 'to_join', label: 'Для приєднання' }, { key: 'waiting', label: 'Очікування' }, { key: 'ready', label: 'Для публікації' }, { key: 'profile_review', label: 'Уточнити профіль' }, { key: 'archived', label: 'Архів' },
+  { key: 'to_join', label: 'Для приєднання' }, { key: 'waiting', label: 'Очікування' }, { key: 'ready', label: 'Для публікації' }, { key: 'profile_review', label: 'Профіль не заповнено' }, { key: 'archived', label: 'Архів' },
 ];
 
 async function readWaitingCheckResponse(response: Response): Promise<WaitingCheckResponse> {
@@ -385,6 +387,13 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       .catch(() => { /* наступне відкриття вкладки перерахує */ });
   }, [platform]);
 
+  // Чіп черги й «Огляд» показують числа з плану, тож він потрібен одразу після відкриття платформи, а не лише на вкладці «Автопост».
+  // На черзі «Для публікації» його читає сам список, тож тут лише інші черги й лише поки плану ще немає.
+  useEffect(() => {
+    if (!active || (platform !== 'whatsapp' && platform !== 'viber') || queue === 'ready' || autopostPlans[platform]) return;
+    loadAutopostPlan();
+  }, [active, platform, queue, autopostPlans, loadAutopostPlan]);
+
   const invalidateQueueCache = useCallback((target?: Platform) => {
     if (!target) { viewCache.current.clear(); setCacheState({}); return; }
     const prefix = `${target}:`;
@@ -424,13 +433,25 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       const body = await response.json() as ResponseData & { error?: string };
       if (controller.signal.aborted || requestNumber !== loadNumber.current) return;
       if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити чати.');
+      if (queue === 'ready' && offset === 0 && !search && profileFilter === 'all' && (platform === 'viber' || platform === 'whatsapp')) {
+        // Групи «Для публікації» (готові, рішення, правила…) складаються з усіх чатів черги, тож решту сторінок дочитуємо одразу.
+        const pageSize = body.chats.length;
+        for (let from = pageSize; pageSize > 0 && from < body.total && from < GROUPED_QUEUE_MAX; from += pageSize) {
+          const pageResponse = await fetch(`/api/chats?${new URLSearchParams({ ...Object.fromEntries(params), offset: String(from) })}`, { cache: 'no-store', signal: controller.signal });
+          const page = await pageResponse.json() as ResponseData;
+          if (!pageResponse.ok || !page.chats?.length) break;
+          body.chats = [...body.chats, ...page.chats];
+        }
+        if (controller.signal.aborted || requestNumber !== loadNumber.current) return;
+        loadAutopostPlan();
+      }
       const next = { ...body, requestKey };
       viewCache.current.set(requestKey, next); setCacheState((current) => ({ ...current, [requestKey]: next })); setData(next); hasLoadedData.current = true;
       if (typeof body.revision === 'number') loadedRevision.current = Math.max(loadedRevision.current, body.revision);
       setCountsByScope((current) => ({ ...current, [`${platform}:${requestAccountId || ''}`]: body.counts }));
     } catch (reason) { if (!controller.signal.aborted && requestNumber === loadNumber.current) setError(humanError(reason, 'Не вдалося завантажити чати.')); }
     finally { if (!silent && !controller.signal.aborted && requestNumber === loadNumber.current) setLoading(false); }
-  }, [platform, queue, search, profileFilter, offset, requestAccountId, requestKey, poolLimit]);
+  }, [platform, queue, search, profileFilter, offset, requestAccountId, requestKey, poolLimit, loadAutopostPlan]);
 
   useEffect(() => {
     reloadChats.current = load;
@@ -811,7 +832,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     if (!response.ok) throw new Error(body.error || 'Не вдалося застосувати рішення.');
     applyDecisionResult(body);
     await reloadChats.current(true);
-    toast.push({ message: decision === 'archive' ? 'Чат переміщено в архів.' : decision === 'snooze' ? 'Чат відкладено до завтра.' : decision === 'check' ? 'Перевіряю чат: runner відкриє його й подивиться, чи є повідомлення.' : 'Чат знову поставлено в чергу автопосту.' });
+    toast.push({ message: decision === 'archive' ? 'Чат переміщено в архів.' : decision === 'snooze' ? 'Чат відкладено до завтра.' : decision === 'check' ? 'Перевіряю чат: runner відкриє його й подивиться, чи є повідомлення.' : decision === 'rename' ? 'Назву чату оновлено, він піде в наступну партію.' : 'Чат знову поставлено в чергу автопосту.' });
   });
   const decideAutopostMany = (items: AutopostAttentionItem[], decision: Exclude<AutopostDecision, 'retry'>) => wa('autopost-decision', async () => {
     const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'resolve-autopost-decisions', jobIds: items.map((item) => item.jobId), decision, platform }) });
@@ -820,7 +841,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     applyDecisionResult(body);
     await reloadChats.current(true);
     const count = body.resolved ?? items.length;
-    toast.push({ message: decision === 'archive' ? `В архів переміщено чатів: ${count}.` : decision === 'snooze' ? `Відкладено до завтра чатів: ${count}.` : `Перевіряю чати: ${count}.` });
+    toast.push({ message: decision === 'archive' ? `В архів переміщено чатів: ${count}.` : decision === 'snooze' ? `Відкладено до завтра чатів: ${count}.` : decision === 'rename' ? `Назви оновлено, у наступну партію піде чатів: ${count}.` : `Перевіряю чати: ${count}.` });
   });
 
   async function accountAction(action: string, id?: string, extra: Record<string, unknown> = {}) {
