@@ -480,9 +480,14 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       if (message.type === 'process_state' && message.process === 'waiting_check') applyWaitingCheckView(parseWaitingCheckView(message));
       else if (message.type === 'runner_status') void refreshWaitingCheck();
     });
-    const offStatus = subscribeLiveStatus(setLiveStatus);
-    return () => { offMessages(); offStatus(); };
+    return () => { offMessages(); };
   }, [active, platform, queue, applyWaitingCheckView, refreshWaitingCheck]);
+
+  // Стан зв'язку з runner потрібен і картці автопосту (WhatsApp, Viber), а не лише перевірці заявок.
+  useEffect(() => {
+    if (!active || (platform !== 'whatsapp' && platform !== 'viber')) return;
+    return subscribeLiveStatus(setLiveStatus);
+  }, [active, platform]);
 
   // Прогрес автопоста оновлюється подіями каналу, а не таймером.
   useEffect(() => {
