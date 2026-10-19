@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Check, ChevronDown, Minus, X } from 'lucide-react';
 import { Ring } from '@/components/ui/ring';
 import { subscribeLiveMessages } from '@/lib/live-channel';
@@ -15,13 +15,23 @@ type LiveStep = { jobId: string; name: string; text: string; startedAt: number; 
 const STALE_STEP_MS = 5 * 60_000;
 const OUTCOME_LABEL: Record<string, string> = { archived: 'в архів', waiting: 'в «Очікування»', snoozed: 'на завтра', skipped: 'пропущено', resolved: 'вирішено вручну' };
 
+// Останній крок кожної платформи тримається поза компонентом: повідомлення приходять і тоді, коли вкладка «Автопост» закрита, а
+// відкрита пізніше картка одразу показує поточний крок, не чекаючи наступного.
+const latestStep: Record<'whatsapp' | 'viber', LiveStep | null> = { whatsapp: null, viber: null };
+const stepListeners = new Set<() => void>();
+if (typeof window !== 'undefined') {
+  subscribeLiveMessages((message) => {
+    if (message.type !== 'progress' || message.process !== 'autopost_step') return;
+    const platform = message.platform === 'viber' ? 'viber' : 'whatsapp';
+    latestStep[platform] = { jobId: String(message.jobId || ''), name: String(message.name || ''), text: String(message.text || ''), startedAt: Number(message.startedAt) || Date.now(), at: Number(message.at) || Date.now(), verify: message.verify === true };
+    for (const listener of stepListeners) listener();
+  });
+}
+const subscribeStep = (listener: () => void) => { stepListeners.add(listener); return () => { stepListeners.delete(listener); }; };
+
 /** Крок поточної задачі з live-каналу: runner шле «відкриваю чат», «додаю фото» і далі; опитувань бази тут немає. */
 function useAutopostStep(platform: 'whatsapp' | 'viber', active: boolean, now: number): LiveStep | null {
-  const [step, setStep] = useState<LiveStep | null>(null);
-  useEffect(() => subscribeLiveMessages((message) => {
-    if (message.type !== 'progress' || message.process !== 'autopost_step' || message.platform !== platform) return;
-    setStep({ jobId: String(message.jobId || ''), name: String(message.name || ''), text: String(message.text || ''), startedAt: Number(message.startedAt) || Date.now(), at: Number(message.at) || Date.now(), verify: message.verify === true });
-  }), [platform]);
+  const step = useSyncExternalStore(subscribeStep, () => latestStep[platform], () => null);
   return active && step && (now === 0 || now - step.at < STALE_STEP_MS) ? step : null;
 }
 
