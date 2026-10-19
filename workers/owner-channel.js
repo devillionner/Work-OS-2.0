@@ -64,7 +64,7 @@ import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFee
 /** @typedef {'browser'|'runner'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, autopostClaimedAt?: number, autopostWatchAt?: number, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, autopostClaimedAt?: number, autopostWatchAt?: number, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 // The runner pings every 30 s and the runtime records each auto-answered ping per socket. A runner socket
@@ -206,7 +206,7 @@ export class OwnerChannel {
   async onBrowserConnected(server, userId) {
     const state = await this.readState();
     if (userId && state.userId !== userId) { state.userId = userId; await this.writeState(state); }
-    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0 }));
+    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0, ...(state.viberStatus ? { viberStatus: state.viberStatus } : {}) }));
   }
 
   /**
@@ -389,6 +389,12 @@ export class OwnerChannel {
       if (message.type === 'ready') return this.handleDiscoveryReady(ws);
     }
 
+    if (message.type === 'progress' && message.process === 'viber_status') {
+      // Стан Viber від runner приходить раз на хвилину; DO запам'ятовує його, щоб сторінка, відкрита між повідомленнями, показала його одразу.
+      const state = await this.readState();
+      state.viberStatus = { state: message.state === 'ready' ? 'ready' : 'blocked', reason: typeof message.reason === 'string' ? message.reason : null, text: typeof message.text === 'string' ? message.text : '' };
+      await this.writeState(state);
+    }
     if (message.type === 'progress' || message.type === 'result') {
       this.broadcast('browser', message);
     }
@@ -1003,6 +1009,7 @@ export class OwnerChannel {
     }
     state.autopostCurrentJobId = null;
     state.autopostClaimedAt = undefined;
+    state.viberStatus = undefined;
     // Discovery's task was never written to D1, so losing the connection just means forgetting it
     // here — the next dispatch reads D1 fresh and finds it again.
     state.discoveryCurrentTask = null;

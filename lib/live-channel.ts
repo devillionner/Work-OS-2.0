@@ -30,6 +30,9 @@ let keepaliveTimer: ReturnType<typeof setTimeout> | null = null;
 let pongTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelay = RECONNECT_MIN_MS;
 let windowListenersAttached = false;
+// Останній стан Viber від runner: приходить у hello і щохвилини; сторінка, відкрита між повідомленнями, бере його звідси, а не чекає наступного.
+let latestViberStatus: LiveMessage | null = null;
+export function getLatestViberStatus(): LiveMessage | null { return latestViberStatus; }
 
 export function subscribeLiveMessages(listener: MessageListener): () => void {
   messageListeners.add(listener);
@@ -103,7 +106,9 @@ function connect() {
       return;
     }
     if (message.type === 'hello' && typeof message.runnerConnected === 'boolean') setStatus({ runnerConnected: message.runnerConnected });
-    if (message.type === 'runner_status' && typeof message.connected === 'boolean') setStatus({ runnerConnected: message.connected });
+    if (message.type === 'hello' && message.viberStatus && typeof message.viberStatus === 'object') latestViberStatus = { type: 'progress', process: 'viber_status', ...(message.viberStatus as Record<string, unknown>) };
+    if (message.type === 'progress' && message.process === 'viber_status') latestViberStatus = message;
+    if (message.type === 'runner_status' && typeof message.connected === 'boolean') { setStatus({ runnerConnected: message.connected }); if (!message.connected) latestViberStatus = null; }
     for (const listener of messageListeners) listener(message);
   });
   ws.addEventListener('close', onDown);

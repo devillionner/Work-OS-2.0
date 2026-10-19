@@ -13,7 +13,7 @@ import type { WaitingCheckAction, WaitingCheckProblemAction } from '@/components
 import { announceDataChange } from '@/lib/client-sync';
 import { createActionGate } from '@/lib/action-gate';
 import { createRefreshGate } from '@/lib/refresh-gate';
-import { subscribeLiveMessages, subscribeLiveStatus, type LiveStatus } from '@/lib/live-channel';
+import { getLatestViberStatus, subscribeLiveMessages, subscribeLiveStatus, type LiveStatus } from '@/lib/live-channel';
 import { pairThisBrowserExecutor } from '@/lib/chat-discovery/executor-storage';
 import { CHAT_PLATFORM_NAMES, type ChatPlatform } from '@/lib/chats/bulk-input';
 import type { BulkResult } from '@/lib/chats/bulk';
@@ -203,7 +203,10 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   const [autopostAttention, setAutopostAttention] = useState<AutopostAttentionItem[]>([]);
   const [viberProgress, setViberProgress] = useState<WhatsAppAutopostProgress | null>(null);
   const [autopostPlans, setAutopostPlans] = useState<{ whatsapp: AutopostPlan | null; viber: AutopostPlan | null }>({ whatsapp: null, viber: null });
-  const [viberStatus, setViberStatus] = useState<ViberRunnerStatus | null>(null);
+  const [viberStatus, setViberStatus] = useState<ViberRunnerStatus | null>(() => {
+    const known = getLatestViberStatus();
+    return known ? { state: known.state === 'ready' ? 'ready' : 'blocked', reason: typeof known.reason === 'string' ? known.reason : null, text: typeof known.text === 'string' ? known.text : '' } : null;
+  });
   const [viberBatchNote, setViberBatchNote] = useState<string | null>(null);
   const [whatsappBatchNote, setWhatsappBatchNote] = useState<string | null>(null);
   const selected = useSelectedLists({ enabled: active && platform === 'telegram', viewing: queue === 'selected' });
