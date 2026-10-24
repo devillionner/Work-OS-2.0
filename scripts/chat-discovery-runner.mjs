@@ -1013,7 +1013,8 @@ async function handleViberAutopostTask(ws,job){
 // самого чату стає рішенням політики за кодом, а після натискання «Надіслати» нічого не повторюється.
 const TELEGRAM_ENV_REASONS=new Set(['cdp_not_configured','cdp_unavailable','cdp_websocket_not_local','telegram_not_authenticated','telegram_account_unbound','telegram_account_mismatch','telegram_identity_unknown']);
 const TELEGRAM_ADAPTER_RETRY_REASONS=new Set(['telegram_page_not_ready','telegram_chat_not_opened','telegram_composer_not_found','telegram_text_mismatch','telegram_thread_not_opened','telegram_attachment_not_opened','telegram_send_not_clicked']);
-const TELEGRAM_SYSTEMIC_AFTER=2;
+// Три різні чати підряд: Telegram Web інколи не відкриває окремий чат із першого разу, це ще не системний збій.
+const TELEGRAM_SYSTEMIC_AFTER=3;
 const TELEGRAM_SYSTEMIC_PAUSE_MS=10*60_000;
 const TELEGRAM_ENV_PAUSE_MS=3*60_000;
 const TELEGRAM_REASON_TEXT={

@@ -156,7 +156,8 @@ export const READ_STATE_JS = `(() => {
     // Ознаки форуму, окрім списку гілок: панель форуму зліва й гілка в адресі. Якщо вони є, а список гілок не прочитався, у чат не пишемо.
     // Живий розбір форуму 2026-10-24: у режимі «як повідомлення» стрічка містить .topic-group з пігулкою .topic-pill (назва гілки), а
     // знизу замість поля стоїть «You can reply to messages in topics»; у режимі гілок зліва .Topic.
-    forumUi: Boolean(document.querySelector('#MiddleColumn .topic-pill, #MiddleColumn .topic-group, #LeftColumn .ForumPanel, #LeftColumn .Topic'))
+    // Найнадійніша ознака форуму — аватар у шапці з класом forum (перевірено наживо на трьох форумах і звичайному чаті).
+    forumUi: Boolean(document.querySelector('#MiddleColumn .MiddleHeader .Avatar.forum, #MiddleColumn .topic-pill, #MiddleColumn .topic-group, #LeftColumn .ForumPanel, #LeftColumn .Topic'))
       || /reply to messages in topics|відповідати на повідомлення в темах|відповісти на повідомлення в темах|отвечать на сообщения в темах/i.test(footer)
       || /^#-?\\d+_\\d+/.test(location.hash),
     composer: Boolean(composer && visible(composer)),
@@ -306,9 +307,9 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     await openFresh(client, url);
     let opened = await waitForOpenChat(page, shouldAbort, Math.min(deadlineAt, Date.now() + OPEN_CHAT_TIMEOUT_MS), 7_000);
     // Telegram Web іноді з'їдає глибоке посилання відразу після завантаження: одна повторна спроба замість 25 с очікування.
-    if (opened.stalled) {
+    for (let again = 0; again < 2 && opened.stalled; again += 1) {
       await openFresh(client, url);
-      opened = await waitForOpenChat(page, shouldAbort, Math.min(deadlineAt, Date.now() + OPEN_CHAT_TIMEOUT_MS), 0);
+      opened = await waitForOpenChat(page, shouldAbort, Math.min(deadlineAt, Date.now() + OPEN_CHAT_TIMEOUT_MS), again === 0 ? 7_000 : 0);
     }
     if (opened.aborted) return { kind: 'blocked', reason: 'cancelled' };
     const state = opened.state || {};
@@ -366,7 +367,9 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     if (verifyOnly) return await verifyOwnMessage(page, text, sinceEpoch, withScan, shouldAbort, deadlineAt);
 
     // 4. Чи можна тут писати.
-    const writable = await page.evaluate(READ_STATE_JS);
+    // Поле повідомлення монтується не одразу після шапки: чекаємо до 5 с, перш ніж вирішувати, що писати не можна.
+    let writable = await page.evaluate(READ_STATE_JS);
+    for (let attempt = 0; attempt < 12 && !writable.composer; attempt += 1) { await sleep(400); writable = await page.evaluate(READ_STATE_JS); }
     const blockedText = `${writable.footer || ''} ${writable.notices || ''}`;
     if (!writable.composer) {
       if (bannedPattern.test(blockedText)) return withScan({ kind: 'blocked', reason: 'telegram_banned', detail: blockedText });
