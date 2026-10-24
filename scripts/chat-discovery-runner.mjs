@@ -1059,20 +1059,27 @@ async function handleTelegramAutopostTask(ws,job){
     : '';
   setStatus('working',`Telegram: ${progress}${job.target?.expectedName||'чат'}`);
   const onStep=createStepReporter(job,'Telegram');
-  onStep('start',job.mode==='verify'?'починаю перевірку':'починаю');
+  onStep('start',job.mode==='verify'?'починаю перевірку':job.mode==='scan'?'шукаю гілки':'починаю');
   let automated;
-  try{automated=await sendTelegramAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp,shouldAbort:()=>cancelledAutopostJobs.has(job.jobId),onStep,verifyOnly:job.mode==='verify',sinceEpoch:job.verify?.sinceEpoch});}
+  try{automated=await sendTelegramAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp,shouldAbort:()=>cancelledAutopostJobs.has(job.jobId),onStep,verifyOnly:job.mode==='verify',scanOnly:job.mode==='scan',sinceEpoch:job.verify?.sinceEpoch});}
   catch(error){
     console.warn(`Telegram autopost CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
     pauseTelegramAutopost(ws,job,Date.now()+TELEGRAM_ENV_PAUSE_MS,'cdp_unavailable');
     return;
   }
   cancelledAutopostJobs.delete(job.jobId);
+  // Прохід «знайти гілки»: нічого не публікується, у D1 йде лише що побачили в чаті (форум чи ні, гілки). Вікно інтервалу він не займає.
+  if(job.mode==='scan'&&automated.kind==='blocked'&&automated.reason==='scan_only'){
+    telegramAdapterFailures=[];
+    sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'scanned',observedTarget:automated.observedTarget||job.target?.expectedName,targetVerified:true,sendConfirmed:false,sendAttempted:false,scan:automated.scan});
+    console.log(`Telegram scan: ${automated.observedTarget||job.target?.expectedName} — ${automated.scan?.forum?`форум, гілок ${automated.scan.topics.length}`:'без гілок'}.`);
+    return;
+  }
   if(automated.kind==='result'&&automated.result.sendConfirmed===true){
     telegramAdapterFailures=[];
     reportAutopostStatus('telegram','ready',null,'Telegram Web готовий.');
     sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'sent',
-      observedTarget:automated.result.observedTarget||job.target?.expectedName,targetVerified:true,sendConfirmed:true,scan:automated.result.scan});
+      observedTarget:automated.result.observedTarget||job.target?.expectedName,targetVerified:true,sendConfirmed:true,sendAttempted:automated.result.sendAttempted===true,scan:automated.result.scan});
     console.log(`Confirmed Telegram autopost accepted by Work OS for ${automated.result.observedTarget||job.target?.expectedName}.`);
     return;
   }
@@ -1089,7 +1096,7 @@ async function handleTelegramAutopostTask(ws,job){
     telegramFloodUntil=Math.max(telegramFloodUntil,until);
     reportAutopostStatus('telegram','blocked',reason,`${TELEGRAM_REASON_TEXT[reason]} Наступна спроба о ${clockText(telegramFloodUntil)}.`,telegramFloodUntil);
     if(automated.afterSend){
-      sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',observedTarget:automated.observedTarget||job.target?.expectedName,targetVerified:true,sendConfirmed:false,errorCode:'send_not_confirmed',scan:automated.scan});
+      sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',observedTarget:automated.observedTarget||job.target?.expectedName,targetVerified:true,sendConfirmed:false,sendAttempted:true,errorCode:'send_not_confirmed',scan:automated.scan});
       return;
     }
     releaseTask(ws,'autopost',job,telegramFloodUntil,'',telegramFloodUntil);
@@ -1108,7 +1115,7 @@ async function handleTelegramAutopostTask(ws,job){
     return;
   }
   sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',
-    observedTarget:automated.observedTarget||job.target?.expectedName,targetVerified:reason!=='target_unconfirmed'&&reason!=='telegram_chat_missing',sendConfirmed:false,errorCode:reason,scan:automated.scan});
+    observedTarget:automated.observedTarget||job.target?.expectedName,targetVerified:reason!=='target_unconfirmed'&&reason!=='telegram_chat_missing',sendConfirmed:false,sendAttempted:automated.sendAttempted===true,errorCode:reason,scan:automated.scan});
 }
 
 // Проблема середовища чи системний збій WhatsApp Web: задача лишається в черзі без витраченої спроби, DO не видає нічого до `untilMs`,

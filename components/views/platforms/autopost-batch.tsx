@@ -9,7 +9,7 @@ import { autopostReasonGroup } from '@/components/views/platforms/autopost-reaso
 /** Один чат поточної партії: результат або те, що робиться просто зараз. */
 export type AutopostBatchEntry = { jobId: string; name: string; status: 'claimed' | 'sent' | 'failed'; outcome: string | null; code: string | null; at: number };
 /** Поточна партія платформи: лічильники лише її задач (скасовані задачі старих партій сюди не потрапляють). */
-export type AutopostBatch = { id: string; startedAt: number; total: number; sent: number; remaining: number; failed: number; skipped: number; cancelled: number; averageSeconds: number | null; entries: AutopostBatchEntry[] };
+export type AutopostBatch = { id: string; startedAt: number; total: number; sent: number; remaining: number; failed: number; skipped: number; cancelled: number; /** Чати партії, що чекають вибору гілки: не «Не вдалося». */ thread?: number; averageSeconds: number | null; entries: AutopostBatchEntry[] };
 
 type LiveStep = { jobId: string; name: string; text: string; startedAt: number; at: number; verify: boolean };
 const STALE_STEP_MS = 5 * 60_000;
@@ -108,6 +108,7 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
             <span>Відправлено <b className="font-mono font-normal tabular-nums text-ink">{batch.sent}</b></span>
             <span>Лишилось <b className="font-mono font-normal tabular-nums text-ink">{batch.remaining}</b></span>
             {notSent > 0 ? <span className="text-hot" title="Помилка, пропуск за політикою або рішення, що чекає тебе">Не вдалося <b className="font-mono font-normal tabular-nums">{notSent}</b></span> : null}
+            {(batch.thread ?? 0) > 0 ? <span title="У цих чатах є гілки: вибери, куди публікувати">Чекають вибору гілки <b className="font-mono font-normal tabular-nums text-ink">{batch.thread}</b></span> : null}
             {batch.cancelled > 0 ? <span>Скасовано <b className="font-mono font-normal tabular-nums text-ink">{batch.cancelled}</b></span> : null}
           </p>
           {running && secondsLeft ? <p className="m-0 mt-1.5 text-xs text-ink-2">До кінця: {eta(secondsLeft)}</p> : null}

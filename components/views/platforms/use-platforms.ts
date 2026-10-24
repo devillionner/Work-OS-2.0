@@ -215,12 +215,16 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   const [whatsappAutopostStatus, setWhatsappAutopostStatus] = useState<AutopostPlatformStatus | null>(() => getLatestAutopostStatus('whatsapp'));
   const [telegramAutopostStatus, setTelegramAutopostStatus] = useState<AutopostPlatformStatus | null>(() => getLatestAutopostStatus('telegram'));
   const [telegramPace, setTelegramPace] = useState<TelegramPace | null>(() => getLatestTelegramPace());
+  // Runner живий, якщо від нього приходять події (кроки, стан, темп), навіть коли прапорець зв'язку ще не оновився.
+  const [telegramRunnerSeen, setTelegramRunnerSeen] = useState(false);
   useEffect(() => {
     if (!active) return;
     return subscribeLiveMessages((message) => {
       if (message.type === 'progress' && message.process === 'autopost_status' && message.platform === 'whatsapp') setWhatsappAutopostStatus(getLatestAutopostStatus('whatsapp'));
-      if (message.type === 'progress' && message.process === 'autopost_status' && message.platform === 'telegram') setTelegramAutopostStatus(getLatestAutopostStatus('telegram'));
+      if (message.type === 'progress' && message.process === 'autopost_status' && message.platform === 'telegram') { setTelegramAutopostStatus(getLatestAutopostStatus('telegram')); setTelegramRunnerSeen(true); }
+      if (message.type === 'progress' && message.process === 'autopost_step' && message.platform === 'telegram') setTelegramRunnerSeen(true);
       if (message.type === 'progress' && message.process === 'autopost_pace' && message.platform === 'telegram') setTelegramPace(getLatestTelegramPace());
+      if (message.type === 'runner_status') setTelegramRunnerSeen(message.connected === true);
       if (message.type === 'runner_status' && message.connected === false) { setWhatsappAutopostStatus(null); setTelegramAutopostStatus(null); }
     });
   }, [active]);
@@ -379,6 +383,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
 
   // Telegram-автопост: лічильники партії, чати, що чекають рішення, і прив'язка акаунта до браузера читаються при вході на платформу
   // й після подій каналу. Темп і стан браузера приходять подіями (таймера опитування немає).
+  const planReloader = useRef<() => void>(() => {});
   const readTelegramAutopost = useCallback(async () => {
     if (!accountId) return null;
     const response = await fetch(`/api/messenger-automation?telegram=1&account=${encodeURIComponent(accountId)}`, { cache: 'no-store' });
@@ -393,12 +398,17 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   useEffect(() => {
     if (!active || platform !== 'telegram' || !accountId) return;
     let cancelled = false;
+    let scanTimer: ReturnType<typeof setTimeout> | null = null;
     const load = () => { void readTelegramAutopost().then((body) => { if (body && !cancelled) applyTelegramAutopost(body); }).catch(() => { /* наступна подія оновить */ }); };
     load();
     const unsubscribe = subscribeLiveMessages((message) => {
-      if (message.type === 'process_state' && message.process === 'autopost') load();
+      if (message.type === 'process_state' && message.process === 'autopost') {
+        load();
+        // Закінчився прохід гілок: план (групи «Вибрати гілку», «Готові») перераховуємо раз після серії проходів, а не на кожен чат.
+        if (message.status === 'scanned') { if (scanTimer) clearTimeout(scanTimer); scanTimer = setTimeout(() => planReloader.current(), 4_000); }
+      }
     });
-    return () => { cancelled = true; unsubscribe(); };
+    return () => { cancelled = true; if (scanTimer) clearTimeout(scanTimer); unsubscribe(); };
   }, [active, platform, accountId, readTelegramAutopost, applyTelegramAutopost]);
 
   // Налаштування WhatsApp-автопоста завантажуються один раз при вході на платформу.
@@ -441,6 +451,8 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     if (!active || (platform !== 'whatsapp' && platform !== 'viber' && platform !== 'telegram') || queue === 'ready' || (platform === 'telegram' ? autopostPlans.telegram?.accountId === accountId : autopostPlans[platform])) return;
     loadAutopostPlan();
   }, [active, platform, queue, autopostPlans, accountId, loadAutopostPlan]);
+
+  useEffect(() => { planReloader.current = loadAutopostPlan; }, [loadAutopostPlan]);
 
   const invalidateQueueCache = useCallback((target?: Platform) => {
     if (!target) { viewCache.current.clear(); setCacheState({}); return; }
@@ -872,7 +884,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   // Telegram: та сама черга, але лише чати вибраного акаунта; публікації розставляє DO рівномірно (5, 10 чи 20 на годину).
   const telegramAction = async (action: string, extra: Record<string, unknown> = {}) => {
     const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, accountId, ...extra }) });
-    const body = await response.json() as { created?: number; skipped?: number; reasons?: Array<{ code: string; count: number }>; more?: boolean; cancelled?: number; removed?: number; progress?: WhatsAppAutopostProgress; queued?: boolean; error?: string };
+    const body = await response.json() as { created?: number; scanning?: number; skipped?: number; reasons?: Array<{ code: string; count: number }>; more?: boolean; cancelled?: number; removed?: number; progress?: WhatsAppAutopostProgress; queued?: boolean; error?: string };
     if (!response.ok) throw new Error(body.error || 'Не вдалося виконати дію автопосту Telegram.');
     return body;
   };
@@ -885,7 +897,8 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     setTelegramBatchNote(created
       ? `Остання партія: поставлено ${created} чатів${skipped ? `, пропущено ${skipped} (${why})` : ''}${body.more ? '. Придатних чатів лишилось ще: запусти автопост повторно, коли партія завершиться' : ''}.`
       : `Остання партія: нових чатів для автопосту немає${skipped ? `, пропущено ${skipped} (${why})` : ''}.`);
-    toast.push({ message: created ? `Поставлено в автопост Telegram: ${created} чатів, ${perHour} на годину. Відправка йде по одному, з підтвердженням.` : 'Нових чатів для автопосту Telegram зараз немає.' });
+    const scanning = Number(body.scanning || 0);
+    toast.push({ message: created ? `Поставлено в автопост Telegram: ${created} чатів, ${perHour} на годину${scanning ? `. ${scanning} із них спершу перевірю на гілки, це не займає місць «на годину»` : ''}. Відправка йде по одному, з підтвердженням.` : 'Нових чатів для автопосту Telegram зараз немає.' });
   }); };
   const stopTelegramAutopostBatch = () => { if (platform !== 'telegram') return Promise.resolve(); return wa('telegram-autopost-stop', async () => {
     const body = await telegramAction('cancel-telegram-autopost-batch');
@@ -934,6 +947,13 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     setTelegramImage(body.image || null); setTelegramCaption(body.caption || ''); loadAutopostPlan();
     toast.push({ message: 'Фото й текст WhatsApp і Viber скопійовано в Telegram. Далі вони окремі: зміни в одному місці не чіпають інше.' });
   });
+  /** «Знайти гілки»: швидкий прохід по чатах, про які невідомо, чи є в них гілки, і по чатах, що чекають вибору гілки. */
+  const scanTelegramThreads = () => { if (platform !== 'telegram' || !accountId) return Promise.resolve(); return wa('telegram-scan', async () => {
+    const body = await telegramAction('telegram-scan-threads') as { created?: number; skipped?: number };
+    const created = Number(body.created || 0);
+    const fresh = await readTelegramAutopost(); if (fresh) applyTelegramAutopost(fresh);
+    toast.push({ message: created ? `Шукаю гілки в ${created} чатах. Це не займає місць «на годину»; результат з'явиться в групі «Вибрати гілку».` : 'Усі чати вже перевірено на гілки.' });
+  }); };
   /** Власник вибрав гілку чату з форумом (null — прибрати вибір). Чат, що чекав саме гілки, одразу стає в чергу автопосту. */
   const chooseTelegramThread = (chatId: string, threadId: string | null) => wa('telegram-thread', async () => {
     const body = await telegramAction('telegram-choose-thread', { chatId, threadId });
@@ -997,6 +1017,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     quickPublishMode, setQuickPublishMode, quickAdvertisementId, setQuickAdvertisementId,
     autopostPlans, loadAutopostPlan, whatsappImage, whatsappImageLoaded, whatsappCaption, setWhatsappCaption, whatsappCaptionLoaded, whatsappProgress, autopostAttention, whatsappBatchNote, decideAutopost, decideAutopostMany,
     telegramImage, telegramCaption, telegramMaterialLoaded, setTelegramCaption, uploadTelegramImage, removeTelegramImage, saveTelegramCaption, clearTelegramCaption, copyTelegramMaterialFromShared,
+    telegramRunnerSeen, scanTelegramThreads,
     telegramProgress, telegramBatchNote, telegramAutopostStatus, telegramPace, telegramAccountBinding, startTelegramAutopostBatch, stopTelegramAutopostBatch, resetTelegramAutopostQueue, chooseTelegramThread, bindTelegramAccount,
     viberProgress, viberStatus, viberBatchNote, whatsappAutopostStatus, startViberAutopostBatch, stopViberAutopostBatch, resetViberAutopostQueue,
     uploadWhatsAppAutopostImage, removeWhatsAppAutopostImage, saveWhatsAppAutopostCaption, clearWhatsAppAutopostCaption, resetWhatsAppAutopostQueue, stopWhatsAppAutopostBatch, startWhatsAppAutopostBatch,

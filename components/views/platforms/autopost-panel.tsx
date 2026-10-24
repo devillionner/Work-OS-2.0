@@ -21,6 +21,8 @@ export type AutopostPlan = {
   thread?: number; schedule?: number; threadChoices?: TelegramThreadChoice[];
   /** Telegram з фото: чати, чий текст із Бібліотеки довший за 1024 символи; у партію не входять. */
   tooLong?: number; tooLongChats?: Array<{ id: string; name: string; length: number }>;
+  /** Telegram: готові чати, про які ще невідомо, чи є в них гілки. */
+  unscanned?: number;
   chats: Array<{ id: string; name: string }>;
   /** Кожен чат черги «Для публікації» рівно в одній групі (за цим розкладом лічаться чіпи, список зліва, «Огляд» і картка). */
   buckets: Record<string, AutopostBucket>;

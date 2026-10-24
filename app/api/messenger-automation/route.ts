@@ -10,6 +10,7 @@ import {
   cancelWhatsAppAutopostJob,
   createViberSafeNoteJob,
   createAutopostVerifyJob,
+  createTelegramScanBatch,
   createWhatsAppAutopostBatch,
   createWhatsAppAutopostJob,
   readAutopostPlan,
@@ -238,6 +239,15 @@ export async function POST(request:Request):Promise<Response>{
       else await deleteWhatsAppAutopostCaption(env.DB,user.id,'telegram');
       return json({image:savedImage,caption:text});
     }
+    // Кнопка «Знайти гілки»: прохід по чатах, про які невідомо, чи є в них гілки, і по чатах, що чекають вибору гілки (оновити список).
+    // Проходи не займають вікон «N на годину» й не рахуються спробами.
+    if(body.action==='telegram-scan-threads'){
+      const accountId=await resolveTelegramAccount(env.DB,user.id,typeof body.accountId==='string'?body.accountId:null,now);
+      if(!accountId)throw new MessengerAutomationError('Додай або увімкни Telegram-акаунт.',409,'account_missing');
+      const result=await createTelegramScanBatch(env.DB,user.id,accountId,now,businessDate(now));
+      if(result.created>0)await wakeOwnerChannelAutopost(user.id);
+      return json(result);
+    }
     // Власник вибрав гілку форуму (або прибрав вибір). Якщо чат сьогодні чекав саме гілки, він одразу стає в чергу.
     if(body.action==='telegram-choose-thread'){
       const chatId=typeof body.chatId==='string'?body.chatId:'';
@@ -247,7 +257,7 @@ export async function POST(request:Request):Promise<Response>{
       if(state.thread){
         const date=businessDate(now);
         const waiting=await env.DB.prepare(`SELECT id,json_extract(result_json,'$.errorCode') AS code FROM whatsapp_autopost_jobs
-          WHERE user_id=?1 AND chat_id=?2 AND outcome='needs_decision' AND published_on=?3`).bind(user.id,chatId,date).all<{id:string;code:string|null}>();
+          WHERE user_id=?1 AND chat_id=?2 AND outcome IN ('needs_decision','needs_thread') AND published_on=?3`).bind(user.id,chatId,date).all<{id:string;code:string|null}>();
         for(const job of waiting.results||[]){
           if(job.code!=='thread_required'&&job.code!=='thread_closed')continue;
           const resolved=await resolveAutopostDecision(env.DB,user.id,{jobId:job.id,decision:'retry'},now);

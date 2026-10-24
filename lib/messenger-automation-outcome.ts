@@ -6,7 +6,8 @@ import { isSimilarName } from './name-similarity.ts';
 /** Скільки разів задачу пробують, перш ніж пропустити на сьогодні: перша спроба і ще дві. */
 export const MAX_AUTOPOST_ATTEMPTS = 3;
 
-export type AutopostOutcome = 'archived' | 'waiting' | 'snoozed' | 'skipped' | 'needs_decision' | 'resolved';
+/** `needs_thread` — Telegram: чат із гілками чекає вибору гілки. Це не збій і не рішення про помилку: у «Не вдалося» не рахується. */
+export type AutopostOutcome = 'archived' | 'waiting' | 'snoozed' | 'skipped' | 'needs_decision' | 'needs_thread' | 'resolved';
 export type AutopostDecision = 'archive' | 'snooze' | 'retry' | 'check' | 'rename';
 
 type Policy =
@@ -15,6 +16,7 @@ type Policy =
   | { kind: 'postpone' }
   | { kind: 'retry' }
   | { kind: 'skip' }
+  | { kind: 'thread' }
   | { kind: 'decision' };
 
 const ARCHIVE_ADMINS = 'Пишуть лише адміни';
@@ -50,6 +52,7 @@ export function classifyAutopostFailure(code: string, platform: string): Policy 
   // «Очікування» є лише у WhatsApp і Telegram; у Viber невдалий вступ вирішує власник.
   if (code === 'approval_required' && platform === 'whatsapp') return { kind: 'waiting' };
   if (POSTPONE.has(code)) return { kind: 'postpone' };
+  if (THREAD_CODES.has(code)) return { kind: 'thread' };
   if (RETRY.has(code)) return { kind: 'retry' };
   if (SKIP.has(code)) return { kind: 'skip' };
   return { kind: 'decision' };
@@ -120,6 +123,7 @@ export async function settleAutopostFailure(
   if (policy.kind === 'archive') outcome = await archiveChat(db, userId, job.chat_id, policy.reason, now) ? 'archived' : 'needs_decision';
   else if (policy.kind === 'waiting') outcome = await moveToWaiting(db, userId, job.chat_id, now) ? 'waiting' : 'needs_decision';
   else if (policy.kind === 'postpone') outcome = await snoozeUntilTomorrow(db, userId, job.chat_id, now) ? 'snoozed' : 'skipped';
+  else if (policy.kind === 'thread') outcome = 'needs_thread';
   else if (policy.kind === 'retry' || policy.kind === 'skip') outcome = 'skipped';
   else outcome = 'needs_decision';
   await closeJob(db, userId, job.id, outcome, attempts, result, now);
@@ -135,7 +139,7 @@ export async function resolveAutopostDecision(
 ): Promise<{ ok: true; chatId: string } | { ok: false; error: string }> {
   const job = await db.prepare(`SELECT id,chat_id,outcome,result_json FROM whatsapp_autopost_jobs WHERE id=?1 AND user_id=?2 LIMIT 1`)
     .bind(input.jobId, userId).first<{ id: string; chat_id: string; outcome: string | null; result_json: string | null }>();
-  if (!job || job.outcome !== 'needs_decision') return { ok: false, error: 'Це рішення вже прийнято. Оновіть список.' };
+  if (!job || (job.outcome !== 'needs_decision' && job.outcome !== 'needs_thread')) return { ok: false, error: 'Це рішення вже прийнято. Оновіть список.' };
   if (input.requireCode && errorCodeOf(job.result_json) !== input.requireCode) return { ok: false, error: 'Для масової дії потрібна перевірена відсутність повідомлення.' };
   if (input.decision === 'archive') {
     if (!await archiveChat(db, userId, job.chat_id, ARCHIVE_DECIDED, now)) return { ok: false, error: 'Стан чату вже змінився. Оновіть список.' };
@@ -151,7 +155,7 @@ export async function resolveAutopostDecision(
     const renamed = await db.prepare(`UPDATE chats SET name=?1,updated_at=?2 WHERE id=?3 AND user_id=?4 RETURNING id`).bind(observed, now, job.chat_id, userId).all<{ id: string }>();
     if (renamed.results.length !== 1) return { ok: false, error: 'Не вдалося оновити назву чату.' };
   }
-  const updated = await db.prepare(`UPDATE whatsapp_autopost_jobs SET outcome='resolved',updated_at=?1 WHERE id=?2 AND user_id=?3 AND outcome='needs_decision' RETURNING id`)
+  const updated = await db.prepare(`UPDATE whatsapp_autopost_jobs SET outcome='resolved',updated_at=?1 WHERE id=?2 AND user_id=?3 AND outcome IN ('needs_decision','needs_thread') RETURNING id`)
     .bind(now, job.id, userId).all<{ id: string }>();
   if (updated.results.length !== 1) return { ok: false, error: 'Це рішення вже прийнято. Оновіть список.' };
   return { ok: true, chatId: job.chat_id };

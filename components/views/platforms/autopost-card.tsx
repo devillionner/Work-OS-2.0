@@ -6,7 +6,7 @@ import type { AutopostBatch } from '@/components/views/platforms/autopost-batch'
 import type { AutopostPlatformStatus } from '@/lib/live-channel';
 
 export type WhatsAppAutopostImage = { fileName: string; contentType: string; sizeBytes: number; sha256: string; updatedAt: number };
-export type WhatsAppAutopostSettled = { archived: number; waiting: number; snoozed: number; skipped: number; decision: number };
+export type WhatsAppAutopostSettled = { archived: number; waiting: number; snoozed: number; skipped: number; decision: number; thread?: number };
 export type WhatsAppAutopostProgress = { total: number; done: number; pending: number; claimed: number; sent: number; failed: number; cancelled: number; running: boolean; settled?: WhatsAppAutopostSettled; batch?: AutopostBatch | null };
 
 /** Орієнтовний час одного чату WhatsApp (відкриття, фото, підпис, відправка, підтвердження): за вимірами партій ≈ 40 с. */

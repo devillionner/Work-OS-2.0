@@ -72,17 +72,24 @@ export async function readTelegramThreadState(db: D1Database, userId: string, ch
  */
 export async function applyTelegramScan(db: D1Database, userId: string, chatId: string, scan: TelegramScan, now: number) {
   const current = await readTelegramThreadState(db, userId, chatId);
+  // Прохід гілок має бюджет часу й часто бачить лише частину списку: нове доповнює збережене (за id), а не затирає його.
+  const merged = new Map<string, TelegramTopic>();
+  if (scan.forum) {
+    for (const topic of current.topics) merged.set(topic.id, topic);
+    for (const topic of scan.topics) merged.set(topic.id, topic);
+  }
+  const topics = [...merged.values()];
   let threadId = current.thread?.id ?? null;
   let threadTitle = current.thread?.title ?? null;
   if (!scan.forum) { threadId = null; threadTitle = null; }
   else if (threadId) {
-    const topic = scan.topics.find((item) => item.id === threadId);
-    if (!topic || topic.closed) { threadId = null; threadTitle = null; }
-    else threadTitle = topic.title;
+    const topic = merged.get(threadId);
+    if (topic?.closed) { threadId = null; threadTitle = null; }
+    else if (topic) threadTitle = topic.title;
   }
   await db.prepare(`UPDATE chats SET telegram_forum=?1,telegram_thread_id=?2,telegram_thread_title=?3,telegram_topics_json=?4,telegram_topics_at=?5
     WHERE id=?6 AND user_id=?7 AND platform='telegram'`)
-    .bind(scan.forum ? 1 : 0, threadId, threadTitle, scan.forum ? JSON.stringify(scan.topics) : null, now, chatId, userId).run();
+    .bind(scan.forum ? 1 : 0, threadId, threadTitle, scan.forum ? JSON.stringify(topics) : null, now, chatId, userId).run();
   return { threadLost: Boolean(current.thread && !threadId) };
 }
 

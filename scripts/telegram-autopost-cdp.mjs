@@ -14,6 +14,8 @@ const SEND_CONFIRM_TIMEOUT_MS = 30_000;
 const PHOTO_CONFIRM_TIMEOUT_MS = 90_000;
 // Ліміт Telegram на підпис до фото.
 const MAX_CAPTION_CHARS = 1024;
+// Бюджет проходу «знайти гілки» на один чат, від початку задачі.
+const SCAN_BUDGET_MS = 12_000;
 const POLL_MS = 400;
 const MAX_MESSAGE_CHARS = 4096;
 
@@ -203,24 +205,30 @@ async function openFresh(client, url) {
   await client.send('Page.navigate', { url: 'about:blank' });
   await sleep(300);
   await client.send('Page.navigate', { url });
-  await sleep(2_500);
+  await sleep(1_000);
 }
 
-async function waitForOpenChat(page, shouldAbort, deadlineAt) {
+async function waitForOpenChat(page, shouldAbort, deadlineAt, stallMs = 0) {
   let last = null;
+  const startedWaiting = Date.now();
   while (Date.now() < deadlineAt) {
     if (shouldAbort()) return { aborted: true, state: last };
-    const state = await page.evaluate(READ_STATE_JS);
+    // Під час переходу сторінка на мить без контексту: це не збій, просто чекаємо.
+    let state = null;
+    try { state = await page.evaluate(READ_STATE_JS); } catch { await sleep(POLL_MS); continue; }
     last = state;
     if (state.auth) return { state };
-    if (state.title && (state.composer || state.footer || state.notices)) return { state };
+    // Застосунок обробив посилання, але чат не відкрив (адреса порожня): далі чекати марно, нехай викликач почне заново.
+    if (stallMs && Date.now() - startedWaiting > stallMs && !/tgaddr|#-?\d/.test(state.url || '') && !state.notices) return { state, stalled: true };
     if (state.notices && (missingPattern.test(state.notices) || privatePattern.test(state.notices))) return { state };
+    // Поки застосунок не обробив глибоке посилання (tgaddr), в адресі воно ще стоїть, а на екрані може бути чат із попереднього сеансу.
+    if (/tgaddr/.test(state.url || '')) { await sleep(POLL_MS); continue; }
+    if (state.title && (state.composer || state.footer || state.notices)) return { state };
     await sleep(POLL_MS);
   }
   return { state: last, timedOut: true };
 }
 
-// Поле повідомлення складається з абзаців `<p>` (кожен Shift+Enter — новий), тож innerText дає подвійні переноси: текст збираємо по абзацах.
 function composerText(page, selector = '#editable-message-text') {
   return page.evaluate(`(() => { const node = document.querySelector(${JSON.stringify(selector)}); if (!node) return '';
     const clone = node.cloneNode(true);
@@ -255,7 +263,7 @@ export async function readTelegramIdentityViaCdp({ cdpBaseUrl } = {}) {
  * Повертає { kind:'result', result } після підтвердженої відправки або { kind:'blocked', reason, ... }; `scan` (форум чи ні й список
  * гілок із позначкою «закрита») повертається в обох випадках, коли чат вдалося відкрити.
  */
-export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort = () => false, onStep = () => {}, verifyOnly = false, scanOnly = false, sinceEpoch = 0 } = {}) {
+export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort = () => false, onStep = () => {}, verifyOnly = false, scanOnly = false, anyTitle = false, sinceEpoch = 0 } = {}) {
   const base = cdpBaseUrl ? normalizeLocalCdpBaseUrl(cdpBaseUrl) : null;
   if (!base) return { kind: 'blocked', reason: 'cdp_not_configured' };
   const text = normalizeText(task?.material?.text);
@@ -295,7 +303,12 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     onStep('open', 'відкриваю чат');
     const url = telegramWebUrl(target);
     await openFresh(client, url);
-    const opened = await waitForOpenChat(page, shouldAbort, Math.min(deadlineAt, Date.now() + OPEN_CHAT_TIMEOUT_MS));
+    let opened = await waitForOpenChat(page, shouldAbort, Math.min(deadlineAt, Date.now() + OPEN_CHAT_TIMEOUT_MS), 7_000);
+    // Telegram Web іноді з'їдає глибоке посилання відразу після завантаження: одна повторна спроба замість 25 с очікування.
+    if (opened.stalled) {
+      await openFresh(client, url);
+      opened = await waitForOpenChat(page, shouldAbort, Math.min(deadlineAt, Date.now() + OPEN_CHAT_TIMEOUT_MS), 0);
+    }
     if (opened.aborted) return { kind: 'blocked', reason: 'cancelled' };
     const state = opened.state || {};
     if (state.auth) return { kind: 'blocked', reason: 'telegram_not_authenticated' };
@@ -303,7 +316,7 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     if (state.notices && privatePattern.test(state.notices)) return { kind: 'blocked', reason: 'telegram_no_access', detail: state.notices };
     if (state.notices && floodPattern.test(state.notices)) return { kind: 'blocked', reason: 'telegram_flood_wait', floodSeconds: parseTelegramFloodSeconds(state.notices) || 300, detail: state.notices };
     if (opened.timedOut || !state.title) return { kind: 'blocked', reason: 'telegram_chat_not_opened', detail: `${state.url || ''} | ${state.notices || ''}` };
-    if (!scanOnly && !similarTelegramTitle(task.target.expectedName, state.title)) {
+    if (!anyTitle && !similarTelegramTitle(task.target.expectedName, state.title)) {
       return { kind: 'blocked', reason: 'target_unconfirmed', observedTarget: state.title, detail: `У Work OS: ${task.target.expectedName}` };
     }
     const observedTarget = state.title;
@@ -311,7 +324,7 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
 
     // 3. Форум чи ні й гілки (закриті позначені). Форум без вибраної гілки в чат не пишемо: публікація в «Загальну» замість потрібної гілки
     // гірша за пропуск, тож і форум, чий список гілок не прочитався, іде на вибір гілки.
-    await sleep(1_200);
+    await sleep(600);
     const rootUrl = peerId ? `${TELEGRAM_WEB}#${peerId}` : url;
     const panelTopics = await page.evaluate(READ_TOPICS_JS);
     const forum = (Array.isArray(panelTopics) && panelTopics.length > 0) || Boolean((await page.evaluate(READ_STATE_JS)).forumUi);
@@ -321,10 +334,13 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     let topics = [];
     if (forum) {
       onStep('topics', 'збираю гілки чату');
-      topics = !chosen || scanOnly ? await collectTopics(page, client, rootUrl, shouldAbort, deadlineAt) : knownTopics;
+      // Список гілок збирає лише окремий прохід (scanOnly) у межах бюджету часу; задача публікації без вибраної гілки його не збирає.
+      topics = scanOnly ? await collectTopics(page, client, rootUrl, shouldAbort, Math.min(deadlineAt, startedAt + SCAN_BUDGET_MS), knownTopics) : knownTopics;
     }
     let scan = { forum, topics };
-    const withScan = (extra) => ({ ...extra, observedTarget, scan });
+    // sendAttempted: кнопку «Надіслати» вже натиснуто. Лише тоді задача займає вікно інтервалу «N на годину»; збій до натискання його не витрачає.
+    let sendAttempted = false;
+    const withScan = (extra) => ({ ...extra, observedTarget, scan, sendAttempted });
     if (forum && !scanOnly) {
       if (!chosen) return withScan({ kind: 'blocked', reason: 'thread_required' });
       const known = topics.find((item) => item.id === chosen.id);
@@ -402,6 +418,7 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
       ? `[...document.querySelectorAll('.Modal button.primary')].filter((el) => !el.disabled && el.getBoundingClientRect().width > 0).pop() || null`
       : `(() => { const buttons = [...document.querySelectorAll('#MiddleColumn button, #MiddleColumn .Button')];
         return buttons.find((el) => el.classList.contains('send') && !el.disabled) || buttons.find((el) => /^(send message|надіслати повідомлення|отправить сообщение)$/iu.test(el.getAttribute('aria-label') || el.title || '')) || null; })()`);
+    sendAttempted = true;
     if (!clicked) {
       await page.key('Enter', 'Enter', 13);
     } else if (media) {
@@ -424,7 +441,7 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
       const mine = messages.find((item) => !beforeIds.has(item.id) && item.own && squash(item.text).startsWith(wanted));
       if (mine) {
         if (mine.failed) return withScan({ kind: 'blocked', reason: media ? 'telegram_attachment_failed' : 'telegram_send_failed' });
-        if (!mine.pending) return { kind: 'result', result: { status: 'sent', observedTarget, targetVerified: true, sendConfirmed: true, mediaConfirmed: media ? mine.hasMedia : undefined, scan } };
+        if (!mine.pending) return { kind: 'result', result: { status: 'sent', observedTarget, targetVerified: true, sendConfirmed: true, mediaConfirmed: media ? mine.hasMedia : undefined, sendAttempted: true, scan } };
         continue;
       }
       const notice = (await page.evaluate(READ_STATE_JS)).notices || '';
@@ -446,6 +463,7 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     // Вікно фото ще відкрите: повідомлення не відправлялось, тож закриваємо його (без чернетки в чаті) і повертаємо задачу в чергу.
     if (media && diagnostic?.modalOpen) {
       await discardAttachment(page);
+      sendAttempted = false;
       return withScan({ kind: 'blocked', reason: 'telegram_send_not_clicked', detail: JSON.stringify({ clicked, ...diagnostic }) });
     }
     return withScan({ kind: 'blocked', reason: 'send_not_confirmed', detail: JSON.stringify({ clicked, ...diagnostic }) });
@@ -470,24 +488,45 @@ async function discardAttachment(page) {
 // Список гілок форуму. У режимі гілок їх дає ліва панель (`.Topic`); у режимі «як повідомлення» у стрічці видно лише пігулки гілок з
 // недавніми повідомленнями (`.topic-pill`), тож id гілки беремо з адреси після відкриття кожної, а «закрита» — це гілка без поля
 // повідомлення (закрита чи лише для адмінів: писати туди однаково не можна). Повний список гілок без недавніх повідомлень так не побачити.
-async function collectTopics(page, client, rootUrl, shouldAbort, deadlineAt) {
+async function collectTopics(page, client, rootUrl, shouldAbort, budgetUntil, known = []) {
   const panel = await page.evaluate(READ_TOPICS_JS);
   if (Array.isArray(panel) && panel.length) return panel;
   const titles = await page.evaluate(`[...new Set([...document.querySelectorAll('#MiddleColumn .topic-pill-title')].map((node) => (node.innerText || '').trim()).filter(Boolean))].slice(0, 10)`);
+  const knownByTitle = new Map(known.map((item) => [item.title, item]));
   const topics = [];
+  if (process.env.TG_DEBUG) console.error('topics: pills', JSON.stringify(titles), 'budget left', budgetUntil - Date.now());
   for (const title of Array.isArray(titles) ? titles : []) {
-    if (shouldAbort() || Date.now() > deadlineAt) break;
-    if (topics.length) await openFresh(client, rootUrl);
-    const clicked = await page.click(`[...document.querySelectorAll('#MiddleColumn .topic-pill')].find((node) => ((node.querySelector('.topic-pill-title') || node).innerText || '').trim() === ${JSON.stringify(title)})`);
-    if (!clicked) continue;
+    if (shouldAbort() || Date.now() > budgetUntil) break;
+    // Гілку, яку вже збирали, повторно не відкриваємо: це найдорожчий крок (≈3 с на гілку).
+    const seen = knownByTitle.get(title.slice(0, 120));
+    if (seen) { topics.push(seen); continue; }
+    // Пігулка бува поза екраном або під липкою шапкою: до трьох спроб (справжній клік, потім програмний), щоразу заново знаходимо її.
+    const find = `[...document.querySelectorAll('#MiddleColumn .topic-pill')].find((node) => ((node.querySelector('.topic-pill-title') || node).innerText || '').trim() === ${JSON.stringify(title)})`;
     let id = '';
-    for (let attempt = 0; attempt < 20 && !id; attempt += 1) {
-      await sleep(400);
-      id = String((await page.evaluate('location.hash')).match(/_(\d{1,18})/u)?.[1] || '');
+    for (let attempt = 0; attempt < 3 && !id && Date.now() < budgetUntil; attempt += 1) {
+      const clicked = attempt < 2 ? await page.click(find) : Boolean(await page.evaluate(`(() => { const el = ${find}; if (!el) return false; el.click(); return true; })()`));
+      if (process.env.TG_DEBUG) console.error('topics: click', title, attempt, clicked, 'left', budgetUntil - Date.now());
+      if (!clicked) { await sleep(300); continue; }
+      for (let poll = 0; poll < 10 && !id; poll += 1) {
+        await sleep(250);
+        id = String((await page.evaluate('location.hash')).match(/_(\d{1,18})/u)?.[1] || '');
+      }
+      if (Date.now() > budgetUntil) break;
     }
-    if (!id || topics.some((item) => item.id === id)) continue;
-    await sleep(800);
-    topics.push({ id, title: title.slice(0, 120), closed: !(await page.evaluate(READ_STATE_JS)).composer });
+    if (id && !topics.some((item) => item.id === id)) {
+      // Поле повідомлення зʼявляється не одразу: чекаємо до 2,5 с, інакше гілка помилково вважалась би закритою.
+      let state = await page.evaluate(READ_STATE_JS);
+      for (let attempt = 0; attempt < 10 && !state.composer && !state.footer; attempt += 1) { await sleep(250); state = await page.evaluate(READ_STATE_JS); }
+      topics.push({ id, title: title.slice(0, 120), closed: !state.composer });
+    }
+    // Назад у стрічку без перезавантаження застосунку (повний openFresh коштував ≈6 с на гілку).
+    await page.evaluate('history.back()');
+    let back = false;
+    for (let attempt = 0; attempt < 16 && !back; attempt += 1) {
+      await sleep(250);
+      back = Boolean(await page.evaluate(`!/_\\d/.test(location.hash) && document.querySelectorAll('#MiddleColumn .topic-pill').length > 0`));
+    }
+    if (!back) await openFresh(client, rootUrl);
   }
   return topics;
 }
