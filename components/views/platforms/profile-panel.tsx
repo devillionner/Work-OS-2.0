@@ -13,6 +13,7 @@ import type { ChatProfile, ProfileCadence } from '@/lib/chats/profile';
 import { PROFILE_CADENCES } from '@/lib/chats/profile';
 import { createActionGate } from '@/lib/action-gate';
 import { humanError } from '@/components/ui/human-error';
+import { TelegramThreadField } from '@/components/views/platforms/telegram-thread-field';
 
 export type ChatWithProfile = { id: string; name: string; link?: string; platform: string; stateToken: string; profile: ChatProfile };
 
@@ -94,6 +95,7 @@ function ProfileForm({ chat, onClose, onSaved, onOpenChat }: { chat: ChatWithPro
         {cadence === 'custom' ? <Field label="Інтервал, днів" htmlFor="chat-profile-custom-interval"><Input id="chat-profile-custom-interval" type="number" min={1} max={3650} value={customIntervalDays} disabled={busy} placeholder="Наприклад, 14" onChange={(event) => setCustomIntervalDays(event.target.value)} /></Field> : null}
         <Field label="Наступна дозволена дата" htmlFor="chat-profile-next-allowed"><Input id="chat-profile-next-allowed" type="date" value={nextAllowedOn} disabled={busy} onChange={(event) => setNextAllowedOn(event.target.value)} /></Field>
       </div>
+      {chat.platform === 'telegram' ? <TelegramThreadField chatId={chat.id} disabled={busy} /> : null}
       <fieldset disabled={busy} className="m-0 flex flex-col gap-2 border-0 p-0">
         <legend className="mb-2 p-0 text-xs font-medium text-ink-2">Дозволені дні тижня</legend>
         <div className="flex flex-wrap gap-2">{WEEKDAYS.map((day, index) => <Chip key={day} pressed={weekdays.includes(index + 1)} onClick={() => toggleDay(index + 1)}>{day}</Chip>)}</div>

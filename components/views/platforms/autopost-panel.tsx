@@ -17,12 +17,15 @@ import { dayLabel } from '@/components/views/platforms/autopost-reasons';
 export type AutopostPlan = {
   total: number; ready: number; publishedToday: number; queued: number; decision: number; tried: number; snoozed: number;
   rules: number; rulesNextDate: string | null; other: number;
+  /** Лише Telegram: чати, що чекають вибору гілки, і чати в розкладі на сьогодні. */
+  thread?: number; schedule?: number; threadChoices?: TelegramThreadChoice[];
   chats: Array<{ id: string; name: string }>;
   /** Кожен чат черги «Для публікації» рівно в одній групі (за цим розкладом лічаться чіпи, список зліва, «Огляд» і картка). */
   buckets: Record<string, AutopostBucket>;
   reasons: Record<string, { code: string | null; observed: string | null; next: string | null }>;
 };
-export type AutopostBucket = 'ready' | 'decision' | 'tried' | 'published' | 'rules' | 'snoozed' | 'queued' | 'other';
+export type AutopostBucket = 'ready' | 'decision' | 'tried' | 'published' | 'rules' | 'snoozed' | 'queued' | 'other' | 'thread' | 'schedule';
+export type TelegramThreadChoice = { chatId: string; name: string; topics: Array<{ id: string; title: string; closed: boolean }> };
 export type AutopostReadiness = { tone: 'ok' | 'warn' | 'hot' | 'idle'; text: string };
 export type AutopostMaterialProps = {
   image: WhatsAppAutopostImage | null; imageLoaded: boolean; caption: string; captionLoaded: boolean;
@@ -134,8 +137,8 @@ function MaterialRow({ material, editing, onToggle, busy }: { material: Autopost
  * далі розмір партії й кнопка, що говорять числами, оцінка часу, список чатів партії (кожен можна прибрати лише на цей запуск),
  * що саме піде (фото й підпис), стан готовності одним рядком і хід партії. Рідкісне («Скинути чергу») сховане в меню «⋯».
  */
-export function AutopostPanel({ platform, title, description, plan, onLoadPlan, secondsPerChat, readiness, settingsHelp, settingsTitle, material, progress, attention, batchNote, busy, runnerBlocked, onDecide, onDecideMany, onStart, onStop, onReset }: {
-  platform: 'whatsapp' | 'viber';
+export function AutopostPanel({ platform, title, description, plan, onLoadPlan, secondsPerChat, readiness, settingsHelp, settingsTitle, material, progress, attention, batchNote, busy, runnerBlocked, topSlot, startSlot, midSlot, startNote, onDecide, onDecideMany, onStart, onStop, onReset }: {
+  platform: 'whatsapp' | 'viber' | 'telegram';
   title: string;
   description: string;
   plan: AutopostPlan | null;
@@ -145,13 +148,22 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
   readiness: AutopostReadiness;
   settingsHelp: ReactNode;
   settingsTitle: string;
-  material: AutopostMaterialProps;
+  /** Фото й текст, що йдуть у чати (WhatsApp, Viber); null — матеріал береться з Бібліотеки для кожного чату (Telegram). */
+  material: AutopostMaterialProps | null;
   progress: WhatsAppAutopostProgress | null;
   attention: AutopostAttentionItem[];
   batchNote: string | null;
   busy: boolean;
   /** Runner недоступний: запуск неможливий. */
   runnerBlocked: boolean;
+  /** Над ходом партії (темп і час наступної публікації Telegram). */
+  topSlot?: ReactNode;
+  /** У блоці запуску перед кнопкою (вибір «на годину»). */
+  startSlot?: ReactNode;
+  /** Між запуском і «Потребують рішення» (група «Вибрати гілку»). */
+  midSlot?: ReactNode;
+  /** Підпис під кнопкою замість оцінки часу. */
+  startNote?: string;
   onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
   onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision) => void;
   /** Скільки чатів поставити в партію (null — усі) і які чати прибрано з цього запуску. */
@@ -180,9 +192,11 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
   const chosen = size === 'all' ? cap : Math.min(Number(size), readyCount);
   const going = (plan?.chats ?? []).filter((chat) => !removedNow.includes(chat.id)).slice(0, chosen);
   const hasQueue = Boolean(progress && progress.total + progress.cancelled > 0);
-  const ready = material.imageLoaded && Boolean(material.image) && material.captionLoaded;
+  const ready = material === null || (material.imageLoaded && Boolean(material.image) && material.captionLoaded);
 
   const breakdown: Array<[string, number, string?]> = plan ? [
+    ['потребують вибору гілки', plan.thread ?? 0],
+    ['у розкладі Telegram', plan.schedule ?? 0],
     ['потребують рішення', plan.decision],
     ['уже пробували сьогодні без відправки', plan.tried],
     ['опубліковано сьогодні', plan.publishedToday],
@@ -235,12 +249,13 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
         ) : <p className="m-0 text-sm text-ink-2">Рахую, скільки чатів готові до публікації…</p>}
       </section>
 
+      {topSlot}
       <AutopostBatchPanel batch={progress?.batch} running={running} platform={platform} />
       {batchNote ? <p className="m-0 text-xs text-ink-2">{batchNote}</p> : null}
 
       {!running && plan ? (
         <section className="flex flex-col gap-4" aria-label="Запуск партії">
-          <MaterialRow material={material} editing={editing} onToggle={() => setEditing((value) => !value)} busy={busy} />
+          {material ? <MaterialRow material={material} editing={editing} onToggle={() => setEditing((value) => !value)} busy={busy} /> : null}
           {plan.ready === 0 ? (
             <p className="m-0 rounded-inner border border-line px-4 py-3 text-sm text-ink-2">{noReadyText(plan)}</p>
           ) : (
@@ -261,13 +276,14 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
                   </ol>
                 </details>
               ) : null}
+              {startSlot}
               <div className="flex flex-wrap items-center justify-end gap-3">
                 <Segmented<'1' | '5' | '20' | 'all'> label="Скільки чатів у партії" size="sm" value={size} onValueChange={setSize} items={[{ value: '1', label: '1' }, { value: '5', label: '5' }, { value: '20', label: '20' }, { value: 'all', label: `Усі (${cap})` }]} />
                 <div className="flex flex-col items-end gap-1">
                   <Button variant="action" busy={busy} disabled={runnerBlocked || !ready || chosen === 0} title={ready ? undefined : 'Спершу додай фото'} onClick={() => onStart(chosen, removedNow)}>
                     <Send aria-hidden="true" strokeWidth={1.5} />{busy ? 'Ставимо в чергу…' : `Опублікувати в ${chosen} ${chatWord(chosen)}`}
                   </Button>
-                  <span className="text-xs text-ink-2">{chosen ? `${etaText(chosen * secondsPerChat)}, по одному чату з підтвердженням` : ''}</span>
+                  <span className="text-xs text-ink-2">{chosen ? (startNote ?? `${etaText(chosen * secondsPerChat)}, по одному чату з підтвердженням`) : ''}</span>
                 </div>
               </div>
             </>
@@ -280,6 +296,8 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
           <Button variant="outline" tone="danger" disabled={busy} onClick={onStop}><Square aria-hidden="true" strokeWidth={1.5} />Зупинити автопост</Button>
         </div>
       ) : null}
+
+      {midSlot}
 
       <AutopostAttentionList items={attention} busy={busy} canVerify onDecide={onDecide} onDecideMany={onDecideMany} />
 

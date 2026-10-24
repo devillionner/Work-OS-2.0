@@ -51,6 +51,21 @@ const REASONS: Record<string, string> = {
   media_caption_mismatch: 'Підпис до фото вставився не повністю.',
   autopost_budget_exhausted: 'Не вистачило часу на відправку в цей чат.',
   publication_reconcile_failed: 'Повідомлення відправлено, але Work OS не записала публікацію. Перевір чат і додай публікацію вручну.',
+  // Telegram: ці коди приходять із браузерного адаптера Telegram Web.
+  thread_required: 'У чаті є гілки, а гілку для публікації ще не вибрано.',
+  thread_closed: 'Вибрана гілка закрита або зникла. Вибери іншу.',
+  telegram_chat_missing: 'Чат Telegram не існує, або посилання недійсне.',
+  telegram_banned: 'Telegram не пускає в цей чат: акаунт заблоковано в ньому.',
+  telegram_read_only: 'У цьому чаті Telegram писати можуть лише адміни.',
+  telegram_slow_mode: 'У чаті Telegram увімкнений повільний режим, чат відкладено до завтра.',
+  telegram_flood_wait: 'Telegram просить зачекати. Усю чергу Telegram поставлено на паузу.',
+  telegram_send_failed: 'Telegram показав помилку відправки. Перевір чат вручну.',
+  telegram_text_too_long: 'Текст оголошення довший за ліміт Telegram (4096 символів).',
+  telegram_page_not_ready: 'Telegram Web не завантажився.',
+  telegram_chat_not_opened: 'Telegram Web не відкрив чат.',
+  telegram_composer_not_found: 'Telegram Web не показав поле повідомлення.',
+  telegram_text_mismatch: 'Текст у полі повідомлення Telegram не збігся з оголошенням.',
+  telegram_thread_not_opened: 'Telegram Web не відкрив гілку чату.',
 };
 
 export function autopostReasonText(code: string | null | undefined): string {
@@ -70,6 +85,11 @@ const BATCH_SKIP: Record<string, string> = {
   already_queued: 'уже в черзі',
   rules_unavailable: 'не вдалося перевірити правила',
   chat_not_found: 'чат не знайдено',
+  thread_required: 'не вибрано гілку',
+  in_schedule: 'чат стоїть у розкладі',
+  wrong_account: 'чат іншого акаунта',
+  account_disabled: 'акаунт вимкнено',
+  account_missing: 'не вибрано акаунт',
 };
 
 export function batchSkipText(code: string): string { return BATCH_SKIP[code] || 'не пройшов перевірку'; }
@@ -79,10 +99,10 @@ export type AutopostReasonGroup = { key: string; label: string; checkable: boole
 const GROUPS: Array<[string[], AutopostReasonGroup]> = [
   [['send_not_confirmed', 'helper_timeout', 'media_send_not_confirmed'], { key: 'unconfirmed', label: 'Не вдалося підтвердити', checkable: true, risky: true }],
   [['message_not_found'], { key: 'missing', label: 'Повідомлення не знайдено', checkable: true }],
-  [['viber_banned', 'whatsapp_removed_from_group', 'membership_left'], { key: 'blocked', label: 'Заблоковано в групі', checkable: false }],
+  [['viber_banned', 'whatsapp_removed_from_group', 'membership_left', 'telegram_banned'], { key: 'blocked', label: 'Заблоковано в групі', checkable: false }],
   [['target_unconfirmed', 'target_not_found', 'target_ambiguous', 'joined_target_not_verified', 'target_not_verified'], { key: 'target', label: 'Не той чат', checkable: false, renameable: true }],
   [['viber_not_joined', 'membership_not_confirmed', 'approval_required', 'whatsapp_join_retry_later'], { key: 'join', label: 'Не вдалося приєднатися', checkable: false }],
-  [['send_ui_unavailable', 'blocking_dialog', 'android_error', 'media_attach_failed', 'media_preview_not_ready', 'media_caption_not_found', 'media_caption_mismatch', 'media_send_failed', 'send_failed'], { key: 'screen', label: 'Збій екрана відправки', checkable: false }],
+  [['send_ui_unavailable', 'blocking_dialog', 'android_error', 'media_attach_failed', 'media_preview_not_ready', 'media_caption_not_found', 'media_caption_mismatch', 'media_send_failed', 'send_failed', 'telegram_send_failed', 'telegram_page_not_ready', 'telegram_chat_not_opened', 'telegram_composer_not_found', 'telegram_text_mismatch', 'telegram_thread_not_opened'], { key: 'screen', label: 'Збій екрана відправки', checkable: false }],
 ];
 const OTHER_GROUP: AutopostReasonGroup = { key: 'other', label: 'Інше', checkable: false };
 export function autopostReasonGroup(code: string | null | undefined): AutopostReasonGroup {

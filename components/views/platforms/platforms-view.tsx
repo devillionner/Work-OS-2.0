@@ -21,6 +21,7 @@ import { AccountsCard } from '@/components/views/platforms/accounts-card';
 import { ArchiveReasonDialog, JOIN_FAILED_REASON } from '@/components/views/platforms/archive-reason-dialog';
 import { AutopostCard } from '@/components/views/platforms/autopost-card';
 import { ViberAutopostCard } from '@/components/views/platforms/viber-autopost-card';
+import { TelegramAutopostCard } from '@/components/views/platforms/telegram-autopost-card';
 import { BulkPanel } from '@/components/views/platforms/bulk-panel';
 import { ChatHistoryPanel } from '@/components/views/platforms/chat-history-panel';
 import { ChatRow } from '@/components/views/platforms/chat-row';
@@ -74,13 +75,16 @@ export default function PlatformsView() {
   const { platform, queue, data } = p;
   const readyPlan = platform === 'viber' ? p.autopostPlans.viber : platform === 'whatsapp' ? p.autopostPlans.whatsapp : null;
   // Групи з плану — коли в списку всі чати черги без пошуку; у пошуку чи Telegram групи складаються з показаних рядків.
-  const groupedComplete = Boolean(readyPlan) && queue === 'ready' && p.search.trim() === '' && Boolean(data) && (data?.chats.length ?? 0) >= (data?.total ?? 0);
-  const groupedPlan = readyPlan && p.search.trim() === '' ? readyPlan : null;
+  // Telegram: план по вибраному акаунту дає групи «Вибрати гілку» і «У розкладі»; «Огляд» лишається на власних числах Telegram.
+  const telegramPlan = platform === 'telegram' && p.autopostPlans.telegram?.accountId === p.accountId ? p.autopostPlans.telegram : null;
+  const groupSource = readyPlan ?? telegramPlan;
+  const groupedComplete = Boolean(groupSource) && queue === 'ready' && p.search.trim() === '' && Boolean(data) && (data?.chats.length ?? 0) >= (data?.total ?? 0);
+  const groupedPlan = groupSource && p.search.trim() === '' ? groupSource : null;
   // «Готові» з плану автопосту: ті самі чати, що в групі «Готові» списку й у партії; решта доступних лишається в списку вручну.
   const readyOnly = <T extends { id?: string }>(items: T[] | null): T[] | null => (items && readyPlan ? items.filter((item) => item.id && readyPlan.buckets[item.id] === 'ready') : items);
   const zones = useMemo<Array<{ value: Zone; label: string }>>(() => {
     const list: Array<{ value: Zone; label: string }> = [{ value: 'overview', label: 'Огляд' }];
-    if (platform === 'telegram') list.push({ value: 'schedule', label: 'Розклад' });
+    if (platform === 'telegram') list.push({ value: 'schedule', label: 'Розклад' }, { value: 'autopost', label: 'Автопост' });
     if (platform === 'whatsapp') list.push({ value: 'autopost', label: 'Автопост' });
     if (platform === 'viber') list.push({ value: 'autopost', label: 'Автопост' }, { value: 'quick', label: 'Швидкий режим' });
     return list;
@@ -131,6 +135,7 @@ export default function PlatformsView() {
 
   const zoneContent = (value: Zone) => {
     if (queue === 'selected' && platform === 'telegram' && value === 'overview') return null;
+    if (value === 'autopost' && platform === 'telegram') return <TelegramAutopostCard plan={telegramPlan} onLoadPlan={p.loadAutopostPlan} runnerConnected={p.liveStatus.connected ? p.liveStatus.runnerConnected : null} status={p.telegramAutopostStatus} pace={p.telegramPace} progress={p.telegramProgress} attention={p.autopostAttention} batchNote={p.telegramBatchNote} binding={p.telegramAccountBinding} busy={p.busy !== null} onDecide={p.decideAutopost} onDecideMany={p.decideAutopostMany} onStart={(limit, exclude, perHour) => void p.startTelegramAutopostBatch(limit, exclude, perHour)} onStop={() => void p.stopTelegramAutopostBatch()} onReset={() => void p.resetTelegramAutopostQueue()} onChooseThread={(chatId, threadId) => void p.chooseTelegramThread(chatId, threadId)} onBind={(webUserId) => void p.bindTelegramAccount(webUserId)} />;
     if (value === 'schedule' && p.accountId) return <ScheduleTab key={p.accountId} accountId={p.accountId} />;
     if (value === 'schedule') return <EmptyState text="Додай або увімкни Telegram-акаунт, щоб побачити розклад." />;
     const material = { image: p.whatsappImage, imageLoaded: p.whatsappImageLoaded, caption: p.whatsappCaption, captionLoaded: p.whatsappCaptionLoaded, onCaptionChange: p.setWhatsappCaption, onUploadImage: (file: File) => void p.uploadWhatsAppAutopostImage(file), onRemoveImage: () => void p.removeWhatsAppAutopostImage(), onSaveCaption: () => void p.saveWhatsAppAutopostCaption(), onClearCaption: () => void p.clearWhatsAppAutopostCaption() };

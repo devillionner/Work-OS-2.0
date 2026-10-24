@@ -1,0 +1,202 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu';
+import { Segmented } from '@/components/ui/segmented';
+import { AutopostPanel, type AutopostPlan, type AutopostReadiness, type TelegramThreadChoice } from '@/components/views/platforms/autopost-panel';
+import type { AutopostAttentionItem, AutopostDecision } from '@/components/views/platforms/autopost-attention';
+import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
+import type { AutopostPlatformStatus, TelegramPace } from '@/lib/live-channel';
+
+export type PerHour = 5 | 10 | 20;
+const PER_HOUR_KEY = 'work-os:telegram-autopost-per-hour';
+const PER_HOUR_VALUES: PerHour[] = [5, 10, 20];
+
+function readPerHour(): PerHour {
+  try { const value = Number(window.localStorage.getItem(PER_HOUR_KEY)); return PER_HOUR_VALUES.includes(value as PerHour) ? value as PerHour : 10; } catch { return 10; }
+}
+function writePerHour(value: PerHour) {
+  try { window.localStorage.setItem(PER_HOUR_KEY, String(value)); } catch { /* вибір діє до перезавантаження */ }
+}
+
+const clock = (ms: number) => new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+
+/** Секундний годинник лише поки партія йде; 0 — ще не стартував (час під час рендеру не читаємо). */
+function useClock(enabled: boolean): number {
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    const tick = () => setNow(Date.now());
+    const first = window.setTimeout(tick, 0);
+    const timer = window.setInterval(tick, 15_000);
+    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+  }, [enabled]);
+  return enabled ? now : 0;
+}
+
+/** «Наступна публікація о 14:36 · залишилось 12 · орієнтовно до 16:00»: час з DO, число з лічильників партії, кінець — за інтервалом. */
+function PaceLine({ pace, progress, running, status }: { pace: TelegramPace | null; progress: WhatsAppAutopostProgress | null; running: boolean; status: AutopostPlatformStatus | null }) {
+  const now = useClock(running);
+  if (!running || !progress) return null;
+  const left = progress.pending + progress.claimed;
+  const paused = status?.state === 'blocked' && status.until !== null && (now === 0 || status.until > now);
+  const intervalMs = (pace?.intervalSeconds ?? 0) * 1000;
+  const next = pace && pace.nextAt > 0 ? Math.max(pace.nextAt, status?.until ?? 0) : null;
+  const nextText = next === null ? 'зараз' : now > 0 && next <= now ? 'зараз' : `о ${clock(next)}`;
+  const end = next !== null && intervalMs > 0 && left > 0 ? Math.max(next, now) + (left - 1) * intervalMs : null;
+  return (
+    <p className="m-0 text-sm text-ink-2" aria-live="polite">
+      {paused ? <>Черга Telegram на паузі до {clock(status?.until ?? 0)}. </> : null}
+      Наступна публікація {nextText} · залишилось <b className="font-mono font-normal tabular-nums text-ink">{left}</b>{end ? <> · орієнтовно до {clock(end)}</> : null}
+    </p>
+  );
+}
+
+/** Прив'язка Telegram-акаунта Work OS до акаунта, залогіненого в браузері runner: автопост публікує лише з нього. */
+function AccountBinding({ binding, status, busy, onBind }: { binding: { bound: boolean; webUserId: string | null } | null; status: AutopostPlatformStatus | null; busy: boolean; onBind: (webUserId: string | null) => void }) {
+  const identity = status?.identity ?? null;
+  if (!binding) return null;
+  if (!binding.bound) {
+    return (
+      <div className="flex flex-col gap-2 rounded-inner border border-line p-4">
+        <p className="m-0 text-sm font-medium">Акаунт Telegram у браузері ще не прив’язано</p>
+        <p className="m-0 text-sm text-ink-2">Автопост перевіряє, що в Telegram Web відкрито саме цей акаунт Work OS. Увійди в нього у вкладці браузера runner і прив’яжи.</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="outline" size="sm" disabled={busy || !identity} onClick={() => onBind(identity)}>Прив’язати цей акаунт</Button>
+          {identity ? <span className="font-mono text-xs tabular-nums text-ink-2">id {identity}</span> : <span className="text-xs text-ink-2">Telegram Web у браузері runner не відповів: відкрий web.telegram.org і зачекай хвилину.</span>}
+        </div>
+      </div>
+    );
+  }
+  const other = identity !== null && identity !== binding.webUserId;
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-sm">
+      <span className={other ? 'text-hot' : 'text-ink-2'}>{other ? 'У браузері відкрито інший акаунт Telegram, не той, що прив’язано.' : 'Акаунт прив’язано до браузера runner.'}</span>
+      <Button variant="ghost" size="sm" disabled={busy} onClick={() => onBind(null)}>Прибрати прив’язку</Button>
+    </div>
+  );
+}
+
+/** Чати з гілками, для яких гілку ще не вибрано: зі списком гілок (закриті сірі, вибрати їх не можна). Вибір зберігається. */
+function ThreadChoices({ choices, busy, onChoose }: { choices: TelegramThreadChoice[]; busy: boolean; onChoose: (chatId: string, threadId: string | null) => void }) {
+  if (!choices.length) return null;
+  return (
+    <section className="flex flex-col gap-2" aria-label="Чати, для яких треба вибрати гілку">
+      <h3 className="m-0 text-sm font-medium">Вибрати гілку <span className="font-mono font-normal tabular-nums text-ink-2">{choices.length}</span></h3>
+      <p className="m-0 text-xs text-ink-2">У цих чатах є гілки. Решта партії не чекає; чат піде в чергу, щойно ти вибереш гілку, і наступного разу питати не буду.</p>
+      <ul className="m-0 flex list-none flex-col gap-2 p-0">
+        {choices.map((choice) => {
+          const open = choice.topics.filter((topic) => !topic.closed);
+          return (
+            <li key={choice.chatId} className="flex flex-wrap items-center gap-3 rounded-inner border border-line px-3 py-2.5">
+              <span className="min-w-0 flex-1 truncate text-sm font-medium" title={choice.name}>{choice.name}</span>
+              {choice.topics.length ? (
+                <Menu>
+                  <MenuTrigger render={<button type="button" disabled={busy} aria-label={`Вибрати гілку для чату ${choice.name}`} className="inline-flex min-h-9 items-center gap-2 rounded-full border border-line px-4 text-sm hover:bg-raised disabled:opacity-45" />}>
+                    {open.length ? 'Вибрати гілку' : 'Усі гілки закриті'}<ChevronDown aria-hidden="true" strokeWidth={1.5} className="size-4" />
+                  </MenuTrigger>
+                  <MenuContent align="end">
+                    {choice.topics.map((topic) => (
+                      <MenuItem key={topic.id} disabled={topic.closed} onClick={() => onChoose(choice.chatId, topic.id)}>
+                        <span className={topic.closed ? 'text-ink-3' : undefined}>{topic.title}</span>
+                        {topic.closed ? <span className="ml-auto text-xs text-ink-3">закрита</span> : null}
+                      </MenuItem>
+                    ))}
+                  </MenuContent>
+                </Menu>
+              ) : <span className="text-xs text-ink-2">Список гілок ще не зібрано</span>}
+              {choice.topics.length && !open.length ? <span className="basis-full text-xs text-ink-2">Писати нікуди: усі гілки закриті. Відклади чат або відкрий гілку в Telegram.</span> : null}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * Автопублікація у Telegram через браузер: спільна картка автопосту, текст оголошення з Бібліотеки для кожного чату (як при ручній
+ * публікації), темп «5 · 10 · 20 на годину», прив'язка акаунта до браузера й вибір гілок форумів.
+ */
+export function TelegramAutopostCard({ plan, onLoadPlan, runnerConnected, status, pace, progress, attention, batchNote, binding, busy, onDecide, onDecideMany, onStart, onStop, onReset, onChooseThread, onBind }: {
+  plan: AutopostPlan | null;
+  onLoadPlan: () => void;
+  runnerConnected: boolean | null;
+  status: AutopostPlatformStatus | null;
+  pace: TelegramPace | null;
+  progress: WhatsAppAutopostProgress | null;
+  attention: AutopostAttentionItem[];
+  batchNote: string | null;
+  binding: { bound: boolean; webUserId: string | null } | null;
+  busy: boolean;
+  onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
+  onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision) => void;
+  onStart: (limit: number | null, exclude: string[], perHour: number) => void;
+  onStop: () => void;
+  onReset: () => void;
+  onChooseThread: (chatId: string, threadId: string | null) => void;
+  onBind: (webUserId: string | null) => void;
+}) {
+  const [perHour, setPerHour] = useState<PerHour>(readPerHour);
+  const running = progress?.running === true;
+  const unbound = binding !== null && !binding.bound;
+  const readiness: AutopostReadiness = runnerConnected === false
+    ? { tone: 'hot', text: 'Runner на ПК не підключений. У треї Work OS обери «Запустити runner» або «Перезапустити runner».' }
+    : runnerConnected && status?.state === 'blocked'
+      ? { tone: 'warn', text: status.text || 'Автопост Telegram на паузі.' }
+      : unbound
+        ? { tone: 'warn', text: 'Прив’яжи акаунт Telegram до браузера runner, щоб запустити автопост.' }
+        : runnerConnected
+          ? { tone: 'ok', text: 'Runner підключений. Вкладка Telegram Web у його браузері має бути відкрита й залогінена в акаунт Work OS.' }
+          : { tone: 'idle', text: 'Чекаю на зв’язок із runner на ПК…' };
+  const minutes = Math.round(60 / perHour);
+
+  return (
+    <AutopostPanel
+      platform="telegram"
+      title="Автопублікація у Telegram"
+      description="Чати з черги «Для публікації» вибраного акаунта по одному: Work OS відкриває чат у Telegram Web (у чаті з гілками — вибрану гілку), вставляє текст оголошення з Бібліотеки, надсилає й перевіряє, що повідомлення з’явилось."
+      plan={plan}
+      onLoadPlan={onLoadPlan}
+      secondsPerChat={minutes * 60}
+      startNote={`${perHour} на годину: один чат кожні ${minutes} хв, з підтвердженням`}
+      readiness={readiness}
+      settingsTitle="Як підготувати автопост Telegram"
+      settingsHelp={(
+        <ol className="m-0 flex flex-col gap-1.5 pl-5">
+          <li>У браузері runner відкрий web.telegram.org/a і залогінься в акаунт, який вибрано вгорі в Work OS.</li>
+          <li>Прив’яжи акаунт кнопкою вище: перед кожним чатом автопост перевіряє, що відкрито саме його.</li>
+          <li>Текст бере оголошення з Бібліотеки за мовою й напрямками профілю чату, як при ручній публікації. Фото в Telegram не додається.</li>
+          <li>Чат у розкладі на сьогодні автопост не бере. Якщо Telegram просить зачекати, вся черга Telegram стає на паузу на вказаний час.</li>
+        </ol>
+      )}
+      material={null}
+      progress={progress}
+      attention={attention}
+      batchNote={batchNote}
+      busy={busy}
+      runnerBlocked={runnerConnected === false || unbound || status?.state === 'blocked' && status.reason === 'telegram_account_mismatch'}
+      topSlot={(
+        <div className="flex flex-col gap-3">
+          <AccountBinding binding={binding} status={status} busy={busy} onBind={onBind} />
+          <PaceLine pace={pace} progress={progress} running={running} status={status} />
+        </div>
+      )}
+      startSlot={(
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <span className="text-sm text-ink-2">Темп</span>
+          <Segmented<'5' | '10' | '20'> label="Скільки публікацій на годину" size="sm" value={String(perHour) as '5' | '10' | '20'} onValueChange={(value) => { const next = Number(value) as PerHour; setPerHour(next); writePerHour(next); }} items={[{ value: '5', label: '5 на годину' }, { value: '10', label: '10 на годину' }, { value: '20', label: '20 на годину' }]} />
+        </div>
+      )}
+      midSlot={<ThreadChoices choices={plan?.threadChoices ?? []} busy={busy} onChoose={onChooseThread} />}
+      onDecide={onDecide}
+      onDecideMany={onDecideMany}
+      onStart={(limit, exclude) => onStart(limit, exclude, perHour)}
+      onStop={onStop}
+      onReset={onReset}
+    />
+  );
+}
+

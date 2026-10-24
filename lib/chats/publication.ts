@@ -119,14 +119,15 @@ export async function recordConfirmedWhatsappAutopostPublication(
   db: D1Database,
   input: {
     userId:string; chatId:string; advertisementId:string; language:'uk'|'ru';
-    now:number; date:string; sourceKey:string; automationJobId:string; platform?:'whatsapp'|'viber';
+    now:number; date:string; sourceKey:string; automationJobId:string; platform?:'whatsapp'|'viber'|'telegram';
   },
 ): Promise<{ok:true;publicationId:string;existing:boolean}|{ok:false;error:string}> {
   // Спільний запис підтвердженої автопублікації: WhatsApp (браузер) і Viber (пересилання нотатки на ПК).
-  const platform = input.platform === 'viber' ? 'viber' : 'whatsapp';
+  const platform = input.platform === 'viber' ? 'viber' : input.platform === 'telegram' ? 'telegram' : 'whatsapp';
+  const platformName = platform === 'viber' ? 'Viber' : platform === 'telegram' ? 'Telegram' : 'WhatsApp';
   const chat = await db.prepare(`SELECT id,platform,workflow_status,joined_at,snoozed_until
     FROM chats WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(input.chatId,input.userId).first<PublicationChat>();
-  if(!chat||chat.platform!==platform) return {ok:false,error:`${platform==='viber'?'Viber':'WhatsApp'}-чат для автопублікації не знайдено.`};
+  if(!chat||chat.platform!==platform) return {ok:false,error:`${platformName}-чат для автопублікації не знайдено.`};
 
   const existing = await db.prepare(`SELECT id,source_key FROM chat_publications
     WHERE user_id=?1 AND chat_id=?2 AND published_on=?3 LIMIT 1`)
@@ -153,7 +154,7 @@ export async function recordConfirmedWhatsappAutopostPublication(
   const statements=[
     db.prepare(`INSERT INTO chat_publications
       (id,user_id,chat_id,published_on,published_at,advertisement_id,source,source_key,created_at,telegram_account_id,platform)
-      SELECT ?1,c.user_id,c.id,?2,?3,?4,?8,?5,?3,NULL,c.platform
+      SELECT ?1,c.user_id,c.id,?2,?3,?4,?8,?5,?3,CASE WHEN c.platform='telegram' THEN c.telegram_account_id END,c.platform
       FROM chats c
       WHERE c.id=?6 AND c.user_id=?7 AND c.platform=?9
         AND NOT EXISTS(SELECT 1 FROM chat_publications p
@@ -165,7 +166,7 @@ export async function recordConfirmedWhatsappAutopostPublication(
     db.prepare(`INSERT INTO activity_events
       (id,user_id,event_type,platform,chat_id,lead_id,lesson_id,occurred_at,event_date,metadata_json,source_key,telegram_account_id)
       SELECT ?1,p.user_id,'publication',?5,p.chat_id,NULL,NULL,p.published_at,p.published_on,
-        ?4,p.source_key,NULL
+        ?4,p.source_key,p.telegram_account_id
       FROM chat_publications p
       WHERE p.id=?2 AND p.user_id=?3`)
       .bind(crypto.randomUUID(),publicationId,input.userId,metadata,platform),

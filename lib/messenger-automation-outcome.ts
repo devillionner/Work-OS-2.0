@@ -22,10 +22,10 @@ const ARCHIVE_BANNED = 'Забанено';
 const ARCHIVE_MISSING = 'Чат не існує';
 const ARCHIVE_DECIDED = 'Не вдалося опублікувати';
 
-const ADMIN_ONLY = new Set(['admin_only', 'read_only', 'viber_read_only']);
-const BANNED = new Set(['whatsapp_removed_from_group', 'viber_banned', 'membership_left']);
-const MISSING = new Set(['invalid_whatsapp_link', 'invalid_viber_link', 'whatsapp_chat_missing', 'viber_chat_missing']);
-const POSTPONE = new Set(['whatsapp_join_retry_later', 'slow_mode', 'rate_limited', 'viber_slow_mode']);
+const ADMIN_ONLY = new Set(['admin_only', 'read_only', 'viber_read_only', 'telegram_read_only']);
+const BANNED = new Set(['whatsapp_removed_from_group', 'viber_banned', 'membership_left', 'telegram_banned']);
+const MISSING = new Set(['invalid_whatsapp_link', 'invalid_viber_link', 'whatsapp_chat_missing', 'viber_chat_missing', 'telegram_chat_missing']);
+const POSTPONE = new Set(['whatsapp_join_retry_later', 'slow_mode', 'rate_limited', 'viber_slow_mode', 'telegram_slow_mode']);
 // Усе, що точно сталося до натискання «Надіслати»: повтор не може дати дубль.
 const RETRY = new Set([
   'page_not_ready', 'whatsapp_messages_loading', 'whatsapp_not_authenticated', 'cdp_unavailable',
@@ -33,6 +33,8 @@ const RETRY = new Set([
   'autopost_budget_exhausted', 'composer_not_found', 'composer_content_mismatch', 'expected_control_disappeared',
   'membership_not_confirmed', 'joined_target_not_verified', 'media_send_control_not_found',
   'send_ui_unavailable', 'android_error',
+  // Telegram Web: усе до натискання «Надіслати» (вкладка не готова, чат чи поле повідомлення не відкрились).
+  'telegram_page_not_ready', 'telegram_chat_not_opened', 'telegram_composer_not_found', 'telegram_text_mismatch', 'telegram_thread_not_opened',
 ]);
 // Чат змінився до відправки або немає фото для відправки: чіпати нічого, пропускаємо на сьогодні.
 const SKIP = new Set(['stale_precondition', 'image_missing']);
@@ -171,6 +173,9 @@ function observedName(resultJson: string | null): string {
   } catch { return ''; }
 }
 
+/** Гілка потрібна: ці чати показуються окремою групою «Вибрати гілку», а не в «Потребують рішення». */
+const THREAD_CODES = new Set(['thread_required', 'thread_closed']);
+
 const cleanChatName = (value: string) => value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
 
 /** Те саме рішення для кількох чатів (група в «Потребують рішення»). Повертає тих, кого вдалося закрити, і скільки пропущено. */
@@ -196,13 +201,13 @@ export type AutopostAttentionItem = { jobId: string; chatId: string; name: strin
  * Чати платформи, які автопост не чіпав і чекає рішення власника, лише з партій сьогодні. З новим днем учорашні зникають зі
  * списку самі: чат не архівується й не змінюється, лишається в «Для публікації», а та сама помилка завтра з'явиться знову.
  */
-export async function readAutopostAttention(db: D1Database, userId: string, platform: 'whatsapp' | 'viber', date: string): Promise<AutopostAttentionItem[]> {
+export async function readAutopostAttention(db: D1Database, userId: string, platform: 'whatsapp' | 'viber' | 'telegram', date: string): Promise<AutopostAttentionItem[]> {
   const rows = await db.prepare(`SELECT j.id AS id,j.chat_id AS chat_id,j.expected_name AS name,j.result_json AS result_json,j.updated_at AS updated_at
     FROM whatsapp_autopost_jobs j JOIN chats c ON c.id=j.chat_id AND c.user_id=j.user_id
     WHERE j.user_id=?1 AND j.outcome='needs_decision' AND c.platform=?2 AND j.published_on=?3
     ORDER BY j.updated_at DESC,j.id LIMIT 100`).bind(userId, platform, date)
     .all<{ id: string; chat_id: string; name: string; result_json: string | null; updated_at: number }>();
-  return (rows.results || []).map((row) => {
+  return (rows.results || []).filter((row) => !(platform === 'telegram' && THREAD_CODES.has(errorCodeOf(row.result_json)))).map((row) => {
     let code = 'adapter_failed';
     try {
       const parsed: unknown = row.result_json ? JSON.parse(row.result_json) : null;

@@ -34,13 +34,22 @@ let windowListenersAttached = false;
 let latestViberStatus: LiveMessage | null = null;
 export function getLatestViberStatus(): LiveMessage | null { return latestViberStatus; }
 /** Стан автопосту WhatsApp і Telegram від runner (пауза з причиною): приходить у hello і при кожній зміні. */
-export type AutopostPlatformStatus = { state: 'ready' | 'blocked'; reason: string | null; text: string; until: number | null };
+export type AutopostPlatformStatus = { state: 'ready' | 'blocked'; reason: string | null; text: string; until: number | null; /** Telegram: id акаунта, залогіненого в браузері runner. */ identity: string | null };
 let latestAutopostStatus: Record<string, AutopostPlatformStatus> = {};
+/** Коли DO видасть наступну публікацію Telegram і з яким інтервалом: приходить у hello і щоразу, як змінюється. */
+export type TelegramPace = { nextAt: number; intervalSeconds: number };
+let latestTelegramPace: TelegramPace | null = null;
+export function getLatestTelegramPace(): TelegramPace | null { return latestTelegramPace; }
+function cleanTelegramPace(value: unknown): TelegramPace | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Record<string, unknown>;
+  return typeof item.nextAt === 'number' && typeof item.intervalSeconds === 'number' && item.intervalSeconds > 0 ? { nextAt: item.nextAt, intervalSeconds: item.intervalSeconds } : null;
+}
 export function getLatestAutopostStatus(platform: string): AutopostPlatformStatus | null { return latestAutopostStatus[platform] || null; }
 function cleanAutopostStatus(value: unknown): AutopostPlatformStatus | null {
   if (!value || typeof value !== 'object') return null;
   const item = value as Record<string, unknown>;
-  return { state: item.state === 'ready' ? 'ready' : 'blocked', reason: typeof item.reason === 'string' ? item.reason : null, text: typeof item.text === 'string' ? item.text : '', until: typeof item.until === 'number' && item.until > 0 ? item.until : null };
+  return { state: item.state === 'ready' ? 'ready' : 'blocked', reason: typeof item.reason === 'string' ? item.reason : null, text: typeof item.text === 'string' ? item.text : '', until: typeof item.until === 'number' && item.until > 0 ? item.until : null, identity: typeof item.identity === 'string' && /^[0-9]{3,20}$/.test(item.identity) ? item.identity : null };
 }
 
 export function subscribeLiveMessages(listener: MessageListener): () => void {
@@ -121,6 +130,8 @@ function connect() {
       latestAutopostStatus = {};
       for (const [platform, value] of Object.entries(message.autopostStatus as Record<string, unknown>)) { const clean = cleanAutopostStatus(value); if (clean) latestAutopostStatus[platform] = clean; }
     }
+    if (message.type === 'hello') latestTelegramPace = cleanTelegramPace(message.telegramPace);
+    if (message.type === 'progress' && message.process === 'autopost_pace' && message.platform === 'telegram') latestTelegramPace = cleanTelegramPace(message);
     if (message.type === 'progress' && message.process === 'autopost_status' && typeof message.platform === 'string') {
       const clean = cleanAutopostStatus(message);
       if (clean) latestAutopostStatus = { ...latestAutopostStatus, [message.platform]: clean };

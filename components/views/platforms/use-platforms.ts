@@ -13,7 +13,7 @@ import type { WaitingCheckAction, WaitingCheckProblemAction } from '@/components
 import { announceDataChange } from '@/lib/client-sync';
 import { createActionGate } from '@/lib/action-gate';
 import { createRefreshGate } from '@/lib/refresh-gate';
-import { getLatestAutopostStatus, getLatestViberStatus, subscribeLiveMessages, subscribeLiveStatus, type AutopostPlatformStatus, type LiveStatus } from '@/lib/live-channel';
+import { getLatestAutopostStatus, getLatestTelegramPace, getLatestViberStatus, subscribeLiveMessages, subscribeLiveStatus, type AutopostPlatformStatus, type LiveStatus, type TelegramPace } from '@/lib/live-channel';
 import { pairThisBrowserExecutor } from '@/lib/chat-discovery/executor-storage';
 import { CHAT_PLATFORM_NAMES, type ChatPlatform } from '@/lib/chats/bulk-input';
 import type { BulkResult } from '@/lib/chats/bulk';
@@ -204,21 +204,29 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   const [whatsappProgress, setWhatsappProgress] = useState<WhatsAppAutopostProgress | null>(null);
   const [autopostAttention, setAutopostAttention] = useState<AutopostAttentionItem[]>([]);
   const [viberProgress, setViberProgress] = useState<WhatsAppAutopostProgress | null>(null);
-  const [autopostPlans, setAutopostPlans] = useState<{ whatsapp: AutopostPlan | null; viber: AutopostPlan | null }>({ whatsapp: null, viber: null });
+  const [autopostPlans, setAutopostPlans] = useState<{ whatsapp: AutopostPlan | null; viber: AutopostPlan | null; telegram: (AutopostPlan & { accountId: string }) | null }>({ whatsapp: null, viber: null, telegram: null });
   const [viberStatus, setViberStatus] = useState<ViberRunnerStatus | null>(() => {
     const known = getLatestViberStatus();
     return known ? { state: known.state === 'ready' ? 'ready' : 'blocked', reason: typeof known.reason === 'string' ? known.reason : null, text: typeof known.text === 'string' ? known.text : '' } : null;
   });
   const [viberBatchNote, setViberBatchNote] = useState<string | null>(null);
-  // Пауза автопосту WhatsApp (середовище не готове, системний збій) із причиною: приходить від runner подією каналу.
+  // Пауза автопосту WhatsApp і Telegram (середовище не готове, системний збій, FloodWait) із причиною, і темп Telegram: приходять від
+  // runner і DO подіями каналу.
   const [whatsappAutopostStatus, setWhatsappAutopostStatus] = useState<AutopostPlatformStatus | null>(() => getLatestAutopostStatus('whatsapp'));
+  const [telegramAutopostStatus, setTelegramAutopostStatus] = useState<AutopostPlatformStatus | null>(() => getLatestAutopostStatus('telegram'));
+  const [telegramPace, setTelegramPace] = useState<TelegramPace | null>(() => getLatestTelegramPace());
   useEffect(() => {
     if (!active) return;
     return subscribeLiveMessages((message) => {
       if (message.type === 'progress' && message.process === 'autopost_status' && message.platform === 'whatsapp') setWhatsappAutopostStatus(getLatestAutopostStatus('whatsapp'));
-      if (message.type === 'runner_status' && message.connected === false) setWhatsappAutopostStatus(null);
+      if (message.type === 'progress' && message.process === 'autopost_status' && message.platform === 'telegram') setTelegramAutopostStatus(getLatestAutopostStatus('telegram'));
+      if (message.type === 'progress' && message.process === 'autopost_pace' && message.platform === 'telegram') setTelegramPace(getLatestTelegramPace());
+      if (message.type === 'runner_status' && message.connected === false) { setWhatsappAutopostStatus(null); setTelegramAutopostStatus(null); }
     });
   }, [active]);
+  const [telegramProgress, setTelegramProgress] = useState<WhatsAppAutopostProgress | null>(null);
+  const [telegramBatchNote, setTelegramBatchNote] = useState<string | null>(null);
+  const [telegramAccountBinding, setTelegramAccountBinding] = useState<{ bound: boolean; webUserId: string | null } | null>(null);
   const [whatsappBatchNote, setWhatsappBatchNote] = useState<string | null>(null);
   const selected = useSelectedLists({ enabled: active && platform === 'telegram', viewing: queue === 'selected' });
 
@@ -365,6 +373,29 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     return () => { cancelled = true; unsubscribe(); };
   }, [active, platform, readViberAutopost, applyViberAutopost]);
 
+  // Telegram-автопост: лічильники партії, чати, що чекають рішення, і прив'язка акаунта до браузера читаються при вході на платформу
+  // й після подій каналу. Темп і стан браузера приходять подіями (таймера опитування немає).
+  const readTelegramAutopost = useCallback(async () => {
+    if (!accountId) return null;
+    const response = await fetch(`/api/messenger-automation?telegram=1&account=${encodeURIComponent(accountId)}`, { cache: 'no-store' });
+    const body = await response.json() as { telegramAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[]; telegramAccount?: { bound: boolean; webUserId: string | null } | null };
+    return response.ok ? body : null;
+  }, [accountId]);
+  const applyTelegramAutopost = useCallback((body: { telegramAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[]; telegramAccount?: { bound: boolean; webUserId: string | null } | null }) => {
+    setTelegramProgress(body.telegramAutopostProgress || null); setAutopostAttention(body.autopostAttention || []);
+    setTelegramAccountBinding(body.telegramAccount ? { bound: body.telegramAccount.bound, webUserId: body.telegramAccount.webUserId } : null);
+  }, []);
+  useEffect(() => {
+    if (!active || platform !== 'telegram' || !accountId) return;
+    let cancelled = false;
+    const load = () => { void readTelegramAutopost().then((body) => { if (body && !cancelled) applyTelegramAutopost(body); }).catch(() => { /* наступна подія оновить */ }); };
+    load();
+    const unsubscribe = subscribeLiveMessages((message) => {
+      if (message.type === 'process_state' && message.process === 'autopost') load();
+    });
+    return () => { cancelled = true; unsubscribe(); };
+  }, [active, platform, accountId, readTelegramAutopost, applyTelegramAutopost]);
+
   // Налаштування WhatsApp-автопоста завантажуються один раз при вході на платформу.
   useEffect(() => {
     if (!active || (platform !== 'whatsapp' && platform !== 'viber')) return;
@@ -385,23 +416,26 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   }, [active, platform]);
 
   // План запуску автопосту (скільки чатів справді піде в партію) читається при відкритті вкладки й після дій, без таймера.
+  // Telegram: план по вибраному акаунту; він несе й чати з гілками, з яких власник вибирає.
   const loadAutopostPlan = useCallback(() => {
-    if (platform !== 'whatsapp' && platform !== 'viber') return;
+    if (platform !== 'whatsapp' && platform !== 'viber' && platform !== 'telegram') return;
     const target = platform;
-    void fetch(`/api/messenger-automation?plan=${target}`, { cache: 'no-store' })
+    if (target === 'telegram' && !accountId) return;
+    const account = target === 'telegram' ? accountId : null;
+    void fetch(`/api/messenger-automation?plan=${target}${account ? `&account=${encodeURIComponent(account)}` : ''}`, { cache: 'no-store' })
       .then(async (response) => {
         const body = await response.json() as { plan?: AutopostPlan };
-        if (response.ok && body.plan) setAutopostPlans((current) => ({ ...current, [target]: body.plan as AutopostPlan }));
+        if (response.ok && body.plan) setAutopostPlans((current) => ({ ...current, [target]: target === 'telegram' ? { ...(body.plan as AutopostPlan), accountId: account as string } : body.plan as AutopostPlan }));
       })
       .catch(() => { /* наступне відкриття вкладки перерахує */ });
-  }, [platform]);
+  }, [platform, accountId]);
 
   // Чіп черги й «Огляд» показують числа з плану, тож він потрібен одразу після відкриття платформи, а не лише на вкладці «Автопост».
   // На черзі «Для публікації» його читає сам список, тож тут лише інші черги й лише поки плану ще немає.
   useEffect(() => {
-    if (!active || (platform !== 'whatsapp' && platform !== 'viber') || queue === 'ready' || autopostPlans[platform]) return;
+    if (!active || (platform !== 'whatsapp' && platform !== 'viber' && platform !== 'telegram') || queue === 'ready' || (platform === 'telegram' ? autopostPlans.telegram?.accountId === accountId : autopostPlans[platform])) return;
     loadAutopostPlan();
-  }, [active, platform, queue, autopostPlans, loadAutopostPlan]);
+  }, [active, platform, queue, autopostPlans, accountId, loadAutopostPlan]);
 
   const invalidateQueueCache = useCallback((target?: Platform) => {
     if (!target) { viewCache.current.clear(); setCacheState({}); return; }
@@ -442,7 +476,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       const body = await response.json() as ResponseData & { error?: string };
       if (controller.signal.aborted || requestNumber !== loadNumber.current) return;
       if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити чати.');
-      if (queue === 'ready' && offset === 0 && !search && profileFilter === 'all' && (platform === 'viber' || platform === 'whatsapp')) {
+      if (queue === 'ready' && offset === 0 && !search && profileFilter === 'all' && (platform === 'viber' || platform === 'whatsapp' || platform === 'telegram')) {
         // Групи «Для публікації» (готові, рішення, правила…) складаються з усіх чатів черги, тож решту сторінок дочитуємо одразу.
         const pageSize = body.chats.length;
         for (let from = pageSize; pageSize > 0 && from < body.total && from < GROUPED_QUEUE_MAX; from += pageSize) {
@@ -830,8 +864,51 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     toast.push({ message: `Чергу автопосту Viber скинуто (прибрано ${Number(body.removed || 0)}). Наступний запуск почнеться з початку.` });
   }); };
 
+  // Telegram: та сама черга, але лише чати вибраного акаунта; публікації розставляє DO рівномірно (5, 10 чи 20 на годину).
+  const telegramAction = async (action: string, extra: Record<string, unknown> = {}) => {
+    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, accountId, ...extra }) });
+    const body = await response.json() as { created?: number; skipped?: number; reasons?: Array<{ code: string; count: number }>; more?: boolean; cancelled?: number; removed?: number; progress?: WhatsAppAutopostProgress; queued?: boolean; error?: string };
+    if (!response.ok) throw new Error(body.error || 'Не вдалося виконати дію автопосту Telegram.');
+    return body;
+  };
+  const startTelegramAutopostBatch = (limit: number | null, exclude: string[], perHour: number) => { if (platform !== 'telegram' || !accountId) return Promise.resolve(); return wa('telegram-autopost-batch', async () => {
+    const body = await telegramAction('telegram-autopost-batch', { ...(limit ? { limit } : {}), exclude, perHour });
+    invalidateQueueCache('telegram'); announceDataChange('platforms'); await reloadChats.current(true); loadAutopostPlan();
+    const fresh = await readTelegramAutopost(); if (fresh) applyTelegramAutopost(fresh);
+    const created = Number(body.created || 0); const skipped = Number(body.skipped || 0);
+    const why = (body.reasons || []).map((item) => `${batchSkipText(item.code)}: ${item.count}`).join(', ');
+    setTelegramBatchNote(created
+      ? `Остання партія: поставлено ${created} чатів${skipped ? `, пропущено ${skipped} (${why})` : ''}${body.more ? '. Придатних чатів лишилось ще: запусти автопост повторно, коли партія завершиться' : ''}.`
+      : `Остання партія: нових чатів для автопосту немає${skipped ? `, пропущено ${skipped} (${why})` : ''}.`);
+    toast.push({ message: created ? `Поставлено в автопост Telegram: ${created} чатів, ${perHour} на годину. Відправка йде по одному, з підтвердженням.` : 'Нових чатів для автопосту Telegram зараз немає.' });
+  }); };
+  const stopTelegramAutopostBatch = () => { if (platform !== 'telegram') return Promise.resolve(); return wa('telegram-autopost-stop', async () => {
+    const body = await telegramAction('cancel-telegram-autopost-batch');
+    setTelegramProgress(body.progress || null); invalidateQueueCache('telegram'); announceDataChange('platforms'); await reloadChats.current(true); loadAutopostPlan();
+    const cancelled = Number(body.cancelled || 0);
+    toast.push({ message: cancelled ? `Автопост Telegram зупинено, скасовано ${cancelled} чатів у черзі.` : 'Активних задач автопосту Telegram вже не було.' });
+  }); };
+  const resetTelegramAutopostQueue = () => { if (platform !== 'telegram') return Promise.resolve(); return wa('telegram-autopost-reset', async () => {
+    const body = await telegramAction('reset-telegram-autopost');
+    setTelegramProgress(body.progress || null); setTelegramBatchNote(null); invalidateQueueCache('telegram'); announceDataChange('platforms'); await reloadChats.current(true); loadAutopostPlan();
+    toast.push({ message: `Чергу автопосту Telegram скинуто (прибрано ${Number(body.removed || 0)}). Наступний запуск почнеться з початку.` });
+  }); };
+  /** Власник вибрав гілку чату з форумом (null — прибрати вибір). Чат, що чекав саме гілки, одразу стає в чергу автопосту. */
+  const chooseTelegramThread = (chatId: string, threadId: string | null) => wa('telegram-thread', async () => {
+    const body = await telegramAction('telegram-choose-thread', { chatId, threadId });
+    invalidateQueueCache('telegram'); announceDataChange('platforms'); await reloadChats.current(true); loadAutopostPlan();
+    const fresh = await readTelegramAutopost(); if (fresh) applyTelegramAutopost(fresh);
+    toast.push({ message: threadId ? (body.queued ? 'Гілку вибрано, чат поставлено в чергу автопосту.' : 'Гілку вибрано. Наступного разу питати не буду.') : 'Вибір гілки прибрано.' });
+  });
+  /** Прив'язка вибраного акаунта до того, що залогінений у Telegram Web runner (`webUserId` — зі стану runner). */
+  const bindTelegramAccount = (webUserId: string | null) => wa('telegram-bind', async () => {
+    await telegramAction('telegram-bind-account', webUserId ? { webUserId } : { unbind: true });
+    const fresh = await readTelegramAutopost(); if (fresh) applyTelegramAutopost(fresh);
+    toast.push({ message: webUserId ? 'Акаунт прив’язано до браузера runner.' : 'Прив’язку акаунта до браузера прибрано.' });
+  });
+
   const applyDecisionResult = (body: { progress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[] }) => {
-    if (platform === 'viber') setViberProgress(body.progress || null); else setWhatsappProgress(body.progress || null);
+    if (platform === 'viber') setViberProgress(body.progress || null); else if (platform === 'telegram') setTelegramProgress(body.progress || null); else setWhatsappProgress(body.progress || null);
     setAutopostAttention(body.autopostAttention || []);
     invalidateQueueCache(platform); announceDataChange('platforms'); loadAutopostPlan();
   };
@@ -878,6 +955,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     waitingCheckView, changeWaitingCheck, connectWaitingCheckRunner, resolveWaitingProblem, liveStatus,
     quickPublishMode, setQuickPublishMode, quickAdvertisementId, setQuickAdvertisementId,
     autopostPlans, loadAutopostPlan, whatsappImage, whatsappImageLoaded, whatsappCaption, setWhatsappCaption, whatsappCaptionLoaded, whatsappProgress, autopostAttention, whatsappBatchNote, decideAutopost, decideAutopostMany,
+    telegramProgress, telegramBatchNote, telegramAutopostStatus, telegramPace, telegramAccountBinding, startTelegramAutopostBatch, stopTelegramAutopostBatch, resetTelegramAutopostQueue, chooseTelegramThread, bindTelegramAccount,
     viberProgress, viberStatus, viberBatchNote, whatsappAutopostStatus, startViberAutopostBatch, stopViberAutopostBatch, resetViberAutopostQueue,
     uploadWhatsAppAutopostImage, removeWhatsAppAutopostImage, saveWhatsAppAutopostCaption, clearWhatsAppAutopostCaption, resetWhatsAppAutopostQueue, stopWhatsAppAutopostBatch, startWhatsAppAutopostBatch,
   };

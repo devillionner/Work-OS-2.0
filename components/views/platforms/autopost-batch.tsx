@@ -17,12 +17,12 @@ const OUTCOME_LABEL: Record<string, string> = { archived: 'в архів', waiti
 
 // Останній крок кожної платформи тримається поза компонентом: повідомлення приходять і тоді, коли вкладка «Автопост» закрита, а
 // відкрита пізніше картка одразу показує поточний крок, не чекаючи наступного.
-const latestStep: Record<'whatsapp' | 'viber', LiveStep | null> = { whatsapp: null, viber: null };
+const latestStep: Record<'whatsapp' | 'viber' | 'telegram', LiveStep | null> = { whatsapp: null, viber: null, telegram: null };
 const stepListeners = new Set<() => void>();
 if (typeof window !== 'undefined') {
   subscribeLiveMessages((message) => {
     if (message.type !== 'progress' || message.process !== 'autopost_step') return;
-    const platform = message.platform === 'viber' ? 'viber' : 'whatsapp';
+    const platform = message.platform === 'viber' ? 'viber' : message.platform === 'telegram' ? 'telegram' : 'whatsapp';
     latestStep[platform] = { jobId: String(message.jobId || ''), name: String(message.name || ''), text: String(message.text || ''), startedAt: Number(message.startedAt) || Date.now(), at: Number(message.at) || Date.now(), verify: message.verify === true };
     for (const listener of stepListeners) listener();
   });
@@ -30,7 +30,7 @@ if (typeof window !== 'undefined') {
 const subscribeStep = (listener: () => void) => { stepListeners.add(listener); return () => { stepListeners.delete(listener); }; };
 
 /** Крок поточної задачі з live-каналу: runner шле «відкриваю чат», «додаю фото» і далі; опитувань бази тут немає. */
-function useAutopostStep(platform: 'whatsapp' | 'viber', active: boolean, now: number): LiveStep | null {
+function useAutopostStep(platform: 'whatsapp' | 'viber' | 'telegram', active: boolean, now: number): LiveStep | null {
   const step = useSyncExternalStore(subscribeStep, () => latestStep[platform], () => null);
   return active && step && (now === 0 || now - step.at < STALE_STEP_MS) ? step : null;
 }
@@ -79,7 +79,7 @@ function NowBlock({ name, step, now }: { name: string; step: LiveStep | null; no
   );
 }
 
-export function AutopostBatchPanel({ batch, running, platform }: { batch: AutopostBatch | null | undefined; running: boolean; platform: 'whatsapp' | 'viber' }) {
+export function AutopostBatchPanel({ batch, running, platform }: { batch: AutopostBatch | null | undefined; running: boolean; platform: 'whatsapp' | 'viber' | 'telegram' }) {
   const now = useSecondClock(running);
   const step = useAutopostStep(platform, running, now);
   // Перевірка чату з «Потребують рішення» не належить партії, але крок її теж видно.

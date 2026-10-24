@@ -5,6 +5,7 @@ import { businessDate } from '@/lib/business-time';
 import {
   MessengerAutomationError,
   cancelViberSafeNoteJob,
+  cleanAutopostPlatform,
   cancelWhatsAppAutopostBatch,
   cancelWhatsAppAutopostJob,
   createViberSafeNoteJob,
@@ -19,6 +20,8 @@ import {
   resetWhatsAppAutopostQueue,
 } from '@/lib/messenger-automation';
 import { readAutopostAttention, resolveAutopostDecision, resolveAutopostDecisions, type AutopostDecision } from '@/lib/messenger-automation-outcome';
+import { TelegramAutopostError, bindTelegramWebAccount, chooseTelegramThread, readTelegramThreadState, unbindTelegramWebAccount } from '@/lib/telegram-autopost';
+import { resolveTelegramAccount } from '@/lib/chats/telegram-account';
 import { publicWhatsAppAutopostImage, readWhatsAppAutopostImage } from '@/lib/whatsapp-autopost-media';
 import {
   cleanWhatsAppAutopostCaption,
@@ -36,11 +39,13 @@ function json(value:unknown,status=200){
 // 'pending' row exists so it can push it to a connected runner instead of the runner polling for
 // it. A failed wake is non-fatal — the job already exists in D1 and the next natural trigger (a
 // runner reconnect) picks it up — so this never fails the request that created/cancelled the job.
-async function wakeOwnerChannelAutopost(userId:string){
+async function wakeOwnerChannelAutopost(userId:string,telegramPerHour?:number){
   try{
     const stub=env.OWNER_CHANNEL.get(env.OWNER_CHANNEL.idFromName(userId));
     const url=new URL('https://owner-channel/autopost-wake');
     url.searchParams.set('userId',userId);
+    // Скільки публікацій Telegram на годину: DO розставляє їх рівномірно (інтервал = 3600 / це число).
+    if(telegramPerHour)url.searchParams.set('telegramPerHour',String(telegramPerHour));
     await stub.fetch(new Request(url,{method:'POST'}));
   }catch(error){
     console.error('Autopost wake failed',error instanceof Error?error.name:'unknown');
@@ -69,6 +74,23 @@ export async function GET(request:Request):Promise<Response>{
     if(planPlatform==='viber'||planPlatform==='whatsapp'){
       const now=Math.floor(Date.now()/1000);
       return json({plan:await readAutopostPlan(env.DB,user.id,planPlatform,now,businessDate(now))});
+    }
+    // Гілка одного чату Telegram: форум чи ні, вибрана гілка й список (закриті позначені), для «Профіль і правила».
+    const threadChat=url.searchParams.get('telegramThread')?.trim()||'';
+    if(threadChat)return json({thread:await readTelegramThreadState(env.DB,user.id,threadChat)});
+    // Telegram: усе по вибраному акаунту (чати, гілки, прив'язка до браузера).
+    if(planPlatform==='telegram'||url.searchParams.get('telegram')==='1'){
+      const now=Math.floor(Date.now()/1000);
+      const accountId=await resolveTelegramAccount(env.DB,user.id,url.searchParams.get('account'),now);
+      if(!accountId)return json({error:'Додай або увімкни Telegram-акаунт.'},409);
+      const date=businessDate(now);
+      if(planPlatform==='telegram')return json({plan:await readAutopostPlan(env.DB,user.id,'telegram',now,date,accountId)});
+      const [progress,attention,account]=await Promise.all([
+        readWhatsAppAutopostProgress(env.DB,user.id,date,'telegram'),
+        readAutopostAttention(env.DB,user.id,'telegram',date),
+        env.DB.prepare(`SELECT id,name,web_user_id FROM telegram_accounts WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(accountId,user.id).first<{id:string;name:string;web_user_id:string|null}>(),
+      ]);
+      return json({telegramAutopostProgress:progress,autopostAttention:attention,telegramAccount:account?{id:account.id,name:account.name,bound:Boolean(account.web_user_id),webUserId:account.web_user_id}:null});
     }
     // Viber-автопост: лічильники сьогоднішньої партії й чати, що чекають рішення (одна згрупована вибірка й один короткий список).
     if(url.searchParams.get('viber')==='1'){
@@ -160,6 +182,55 @@ export async function POST(request:Request):Promise<Response>{
       if(batch.created>0)await wakeOwnerChannelAutopost(user.id);
       return json(batch);
     }
+    // Telegram-автопост: та сама черга, але лише чати вибраного акаунта, публікації розставляє DO рівномірно (5, 10 чи 20 на годину).
+    if(body.action==='telegram-autopost-batch'){
+      const accountId=await resolveTelegramAccount(env.DB,user.id,typeof body.accountId==='string'?body.accountId:null,now);
+      if(!accountId)throw new MessengerAutomationError('Додай або увімкни Telegram-акаунт.',409,'account_missing');
+      const perHour=[5,10,20].includes(Number(body.perHour))?Number(body.perHour):10;
+      const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,platform:'telegram',exclude:body.exclude,telegramAccountId:accountId},now,businessDate(now));
+      if(batch.created>0)await wakeOwnerChannelAutopost(user.id,perHour);
+      return json(batch);
+    }
+    if(body.action==='cancel-telegram-autopost-batch'){
+      const result=await cancelWhatsAppAutopostBatch(env.DB,user.id,businessDate(now),now,'telegram');
+      await wakeOwnerChannelAutopost(user.id);
+      return json({...result,progress:await readWhatsAppAutopostProgress(env.DB,user.id,businessDate(now),'telegram')});
+    }
+    if(body.action==='reset-telegram-autopost'){
+      const result=await resetWhatsAppAutopostQueue(env.DB,user.id,businessDate(now),'telegram');
+      await wakeOwnerChannelAutopost(user.id);
+      return json({...result,progress:await readWhatsAppAutopostProgress(env.DB,user.id,businessDate(now),'telegram')});
+    }
+    // Власник вибрав гілку форуму (або прибрав вибір). Якщо чат сьогодні чекав саме гілки, він одразу стає в чергу.
+    if(body.action==='telegram-choose-thread'){
+      const chatId=typeof body.chatId==='string'?body.chatId:'';
+      if(!chatId)throw new MessengerAutomationError('Чат не вказано.');
+      const state=await chooseTelegramThread(env.DB,user.id,chatId,body.threadId);
+      let queued=false;
+      if(state.thread){
+        const date=businessDate(now);
+        const waiting=await env.DB.prepare(`SELECT id,json_extract(result_json,'$.errorCode') AS code FROM whatsapp_autopost_jobs
+          WHERE user_id=?1 AND chat_id=?2 AND outcome='needs_decision' AND published_on=?3`).bind(user.id,chatId,date).all<{id:string;code:string|null}>();
+        for(const job of waiting.results||[]){
+          if(job.code!=='thread_required'&&job.code!=='thread_closed')continue;
+          const resolved=await resolveAutopostDecision(env.DB,user.id,{jobId:job.id,decision:'retry'},now);
+          if(!resolved.ok)continue;
+          await createWhatsAppAutopostJob(env.DB,user.id,{requestKey:`retry_${crypto.randomUUID()}`,chatId,platform:'telegram'},now,date);
+          queued=true;
+        }
+        if(queued)await wakeOwnerChannelAutopost(user.id);
+      }
+      return json({ok:true,thread:state.thread,queued});
+    }
+    // Прив'язка акаунта Work OS до акаунта, залогіненого в Telegram Web runner: id приходить зі стану runner, оператор підтверджує кнопкою.
+    if(body.action==='telegram-bind-account'){
+      const accountId=await resolveTelegramAccount(env.DB,user.id,typeof body.accountId==='string'?body.accountId:null,now);
+      if(!accountId)throw new MessengerAutomationError('Додай або увімкни Telegram-акаунт.',409,'account_missing');
+      if(body.unbind===true){await unbindTelegramWebAccount(env.DB,user.id,accountId,now);await wakeOwnerChannelAutopost(user.id);return json({ok:true,bound:false});}
+      await bindTelegramWebAccount(env.DB,user.id,accountId,body.webUserId,now);
+      await wakeOwnerChannelAutopost(user.id);
+      return json({ok:true,bound:true});
+    }
     if(body.action==='cancel-viber-autopost-batch'){
       const result=await cancelWhatsAppAutopostBatch(env.DB,user.id,businessDate(now),now,'viber');
       await wakeOwnerChannelAutopost(user.id);
@@ -196,7 +267,7 @@ export async function POST(request:Request):Promise<Response>{
         for(const item of resolved)await createAutopostVerifyJob(env.DB,user.id,item.jobId,now,date);
       }
       if(decision==='retry'||decision==='check'||decision==='rename')await wakeOwnerChannelAutopost(user.id);
-      const platform=body.platform==='viber'?'viber':'whatsapp';
+      const platform=cleanAutopostPlatform(body.platform);
       const [progress,attention]=await Promise.all([
         readWhatsAppAutopostProgress(env.DB,user.id,date,platform),
         readAutopostAttention(env.DB,user.id,platform,date),
@@ -225,7 +296,7 @@ export async function POST(request:Request):Promise<Response>{
     }
     throw new MessengerAutomationError('Невідома messenger automation дія.');
   }catch(error){
-    if(error instanceof MessengerAutomationError)return json({error:error.message},error.status);
+    if(error instanceof MessengerAutomationError||error instanceof TelegramAutopostError)return json({error:error.message},error.status);
     console.error('Messenger automation action failed',error instanceof Error?error.name:'unknown');
     return json({error:'Messenger automation операцію не завершено.'},500);
   }

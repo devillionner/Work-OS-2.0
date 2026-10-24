@@ -81,8 +81,8 @@ export async function readPublicationAdvertisementSelection(
     WHERE c.id=?1 AND c.user_id=?2 AND c.workflow_status='ready' LIMIT 1`).bind(input.chatId, input.userId).first<SelectionChatRow>();
   if (!chat) return null;
 
-  // WhatsApp і Viber автопостять через спільну чергу задач: використаними вважаються й матеріали задач у роботі, але лише тієї самої платформи.
-  const usedStatement = chat.platform === 'whatsapp' || chat.platform === 'viber'
+  // WhatsApp, Viber і Telegram автопостять через спільну чергу задач: використаними вважаються й матеріали задач у роботі, але лише тієї самої платформи.
+  const usedStatement = chat.platform === 'whatsapp' || chat.platform === 'viber' || chat.platform === 'telegram'
     ? db.prepare(`SELECT DISTINCT advertisement_id FROM (
         SELECT p.advertisement_id AS advertisement_id
         FROM chat_publications p

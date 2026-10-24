@@ -13,9 +13,11 @@ export type RowExtra = { note?: string; manual?: boolean };
 
 const GROUPS: Array<{ key: AutopostBucket; label: string; open?: boolean }> = [
   { key: 'ready', label: 'Готові', open: true },
+  { key: 'thread', label: 'Вибрати гілку' },
   { key: 'decision', label: 'Потребують рішення' },
   { key: 'tried', label: 'Уже пробували сьогодні без відправки' },
   { key: 'queued', label: 'В черзі автопосту' },
+  { key: 'schedule', label: 'У розкладі Telegram на сьогодні' },
   { key: 'published', label: 'Опубліковано сьогодні' },
   { key: 'rules', label: 'Чекають за правилами частоти' },
   { key: 'snoozed', label: 'Відкладені' },
@@ -28,6 +30,8 @@ function noteFor(bucket: AutopostBucket, reason: AutopostPlan['reasons'][string]
     const group = autopostReasonGroup(reason?.code);
     return group.renameable && reason?.observed && !isSameName(name, reason.observed) ? `${group.label}: у месенджері «${reason.observed}»` : autopostReasonText(reason?.code);
   }
+  if (bucket === 'thread') return 'У чаті є гілки: вибери, куди публікувати, на вкладці «Автопост».';
+  if (bucket === 'schedule') return 'Чат стоїть у розкладі, автопост його не бере.';
   if (bucket === 'tried') return reason?.code ? `Автопост не відправив: ${autopostReasonText(reason.code)} Повтор завтра.` : 'Автопост пробував сьогодні, відправки не було. Повтор завтра.';
   if (bucket === 'rules') return reason?.next ? `Стане доступним ${dayLabel(reason.next)}` : undefined;
   return undefined;
@@ -55,7 +59,7 @@ export function ReadyGroups({ chats, clock, plan, complete, renderRow, onOpenDec
     items.push(chat);
     grouped.set(bucket, items);
   }
-  const countOf = (key: AutopostBucket) => (plan && complete ? plan[key === 'published' ? 'publishedToday' : key] ?? 0 : grouped.get(key)?.length ?? 0) as number;
+  const countOf = (key: AutopostBucket) => (plan && complete ? (key === 'published' ? plan.publishedToday : key === 'thread' || key === 'schedule' ? plan[key] ?? 0 : plan[key]) ?? 0 : grouped.get(key)?.length ?? 0) as number;
   const list = (key: AutopostBucket, items: Chat[]) => (
     <ul className="m-0 flex list-none flex-col gap-2 p-0">
       {items.map((chat) => renderRow(chat, { note: plan ? noteFor(key, plan.reasons[chat.id], chat.name) : undefined, manual: key !== 'ready' }))}
@@ -79,7 +83,7 @@ export function ReadyGroups({ chats, clock, plan, complete, renderRow, onOpenDec
               {group.key === 'rules' && plan?.rulesNextDate ? <span className="text-xs text-ink-3">найближча — {dayLabel(plan.rulesNextDate)}</span> : null}
               <span className="ml-auto text-xs text-ink-3 group-open:hidden">розгорнути</span>
             </summary>
-            {group.key === 'decision' && onOpenDecisions ? <div className="mt-1"><Button variant="outline" size="sm" onClick={onOpenDecisions}>Розібрати на вкладці «Автопост»</Button></div> : null}
+            {(group.key === 'decision' || group.key === 'thread') && onOpenDecisions ? <div className="mt-1"><Button variant="outline" size="sm" onClick={onOpenDecisions}>Розібрати на вкладці «Автопост»</Button></div> : null}
             <div className="mt-2">{list(group.key, items)}</div>
           </details>
         );

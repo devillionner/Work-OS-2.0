@@ -22,6 +22,7 @@ import { JOINED_GROUPS_PER_STEP, recordDiscoverySourceOutcome, hydrateDiscoveryS
 import { TELEGRAM_PARALLEL_TABS, openTelegramWebSessions, scanTelegramGroupForInvites, searchTelegramPublicGroups } from './telegram-web-cdp.mjs';
 import { MAX_REVISIT_GROUPS, isGroupScanDue, parseScanMemory, productiveGroupsDue, rememberScannedGroups } from './telegram-group-memory.mjs';
 import { VIBER_ENV_REASON_TEXT, runViberAndroid, viberPayloadFromTask } from './viber-android.mjs';
+import { readTelegramIdentityViaCdp, sendTelegramAutopostViaCdp } from './telegram-autopost-cdp.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
@@ -872,7 +873,7 @@ function scheduleReady(taskProcess,candidateUntilMs=0){
 // щоразу брав би задачу, а runner повертав її, кожні кілька хвилин, і кожне коло було читанням D1).
 function releaseTask(ws,taskProcess,task,candidateUntilMs=0,errorCode='',pauseUntilMs=0){
   if(taskProcess==='waiting_check')sendLive(ws,{type:'release',process:taskProcess,batchId:task.batchId,chatId:task.chatId});
-  else if(taskProcess==='autopost')sendLive(liveWs,{type:'release',process:taskProcess,jobId:task.jobId,...(errorCode?{errorCode}:{}),...(pauseUntilMs>Date.now()?{until:pauseUntilMs}:{})});
+  else if(taskProcess==='autopost')sendLive(liveWs,{type:'release',process:taskProcess,jobId:task.jobId,platform:task.kind==='viber_android'?'viber':task.kind==='telegram_autopost'?'telegram':'whatsapp',...(errorCode?{errorCode}:{}),...(pauseUntilMs>Date.now()?{until:pauseUntilMs}:{})});
   else if(taskProcess==='discovery')sendLive(ws,{type:'release',process:taskProcess,candidateId:task.candidateId});
   scheduleReady(taskProcess,candidateUntilMs);
 }
@@ -935,8 +936,8 @@ let lastViberFinishedAt=0;
 function clockText(ms){return new Date(ms).toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'});}
 // Стан автопосту платформи (WhatsApp, Telegram) для картки: сайт показує причину паузи й час наступної спроби. Лише повідомлення в
 // live-канал, без D1.
-function reportAutopostStatus(platform,state,reason,text,untilMs=0){
-  sendLive(liveWs,{type:'progress',process:'autopost_status',platform,state,reason:reason||null,text:text||(state==='ready'?'':'Автопост на паузі'),until:untilMs>Date.now()?untilMs:null,at:Date.now()});
+function reportAutopostStatus(platform,state,reason,text,untilMs=0,extra={}){
+  sendLive(liveWs,{type:'progress',process:'autopost_status',platform,state,reason:reason||null,text:text||(state==='ready'?'':'Автопост на паузі'),until:untilMs>Date.now()?untilMs:null,at:Date.now(),...extra});
 }
 
 function reportViberStatus(ws,state,reason,detail){
@@ -964,7 +965,7 @@ function createStepReporter(job,platformLabel){
   const progress=job.progress&&Number(job.progress.total)>0?`${Math.min(Number(job.progress.done)+1,Number(job.progress.total))}/${Number(job.progress.total)} · `:'';
   const name=job.target?.expectedName||'чат';
   return (step,text)=>{
-    sendLive(liveWs,{type:'progress',process:'autopost_step',platform:platformLabel==='Viber'?'viber':'whatsapp',jobId:job.jobId,name,step,text,startedAt,at:Date.now(),
+    sendLive(liveWs,{type:'progress',process:'autopost_step',platform:platformLabel==='Viber'?'viber':platformLabel==='Telegram'?'telegram':'whatsapp',jobId:job.jobId,name,step,text,startedAt,at:Date.now(),
       done:Number(job.progress?.done)||0,total:Number(job.progress?.total)||0,verify:job.mode==='verify'});
     setStatus('working',`${platformLabel}: ${progress}${name} · ${text}`);
   };
@@ -1007,6 +1008,107 @@ async function handleViberAutopostTask(ws,job){
     observedTarget:observedTitle||job.target?.expectedName,targetVerified:result.severity==='after',sendConfirmed:false,errorCode:reason||'adapter_failed'});
 }
 
+// --- Telegram-автопост через Telegram Web (та сама вкладка браузера, що й автопошук). Інтервал між публікаціями, паузи й гілки
+// веде Durable Object; runner відповідає за те, що відбувається в браузері. Збій до «Надіслати» повертає задачу в чергу, помилка
+// самого чату стає рішенням політики за кодом, а після натискання «Надіслати» нічого не повторюється.
+const TELEGRAM_ENV_REASONS=new Set(['cdp_not_configured','cdp_unavailable','cdp_websocket_not_local','telegram_not_authenticated','telegram_account_unbound','telegram_account_mismatch','telegram_identity_unknown']);
+const TELEGRAM_ADAPTER_RETRY_REASONS=new Set(['telegram_page_not_ready','telegram_chat_not_opened','telegram_composer_not_found','telegram_text_mismatch','telegram_thread_not_opened']);
+const TELEGRAM_SYSTEMIC_AFTER=2;
+const TELEGRAM_SYSTEMIC_PAUSE_MS=10*60_000;
+const TELEGRAM_ENV_PAUSE_MS=3*60_000;
+const TELEGRAM_REASON_TEXT={
+  cdp_not_configured:'Браузер runner не підключений.',
+  cdp_unavailable:'Браузер runner не відповідає на порту 127.0.0.1:9222. Запусти його з відкритим портом налагодження.',
+  telegram_not_authenticated:'Telegram Web не залогінений. Увійди в акаунт у вкладці браузера runner.',
+  telegram_account_unbound:'Акаунт Telegram ще не прив’язано до браузера. Натисни «Прив’язати цей акаунт» у картці автопосту.',
+  telegram_account_mismatch:'У браузері відкрито інший акаунт Telegram, не той, що вибрано у Work OS.',
+  telegram_identity_unknown:'Не вдалося визначити, який акаунт відкрито в Telegram Web.',
+  telegram_page_not_ready:'Telegram Web не завантажився. Автопост на паузі.',
+  telegram_chat_not_opened:'Telegram Web не відкрив чат. Автопост на паузі.',
+  telegram_composer_not_found:'Telegram Web не показав поле повідомлення. Автопост на паузі.',
+  telegram_text_mismatch:'Текст у полі повідомлення Telegram не збігся з оголошенням. Автопост на паузі.',
+  telegram_thread_not_opened:'Telegram Web не відкрив гілку чату. Автопост на паузі.',
+  telegram_flood_wait:'Telegram просить зачекати (забагато запитів).',
+};
+let telegramFloodUntil=0;
+let telegramAdapterFailures=[];
+
+function pauseTelegramAutopost(ws,job,untilMs,reason,extra={}){
+  const until=Math.max(untilMs,Date.now()+20_000);
+  const text=`${TELEGRAM_REASON_TEXT[reason]||`Telegram Web не готовий (${reason}).`} Наступна спроба о ${clockText(until)}.`;
+  reportAutopostStatus('telegram','blocked',reason,text,until,extra);
+  setStatus('working',`Telegram автопост на паузі до ${clockText(until)}: ${TELEGRAM_REASON_TEXT[reason]||reason}`);
+  releaseTask(ws,'autopost',job,until,'',until);
+}
+
+async function checkTelegramStatus(){
+  if(!liveWs||liveWs.readyState!==WebSocket.OPEN||processingTask||!whatsappCdp)return;
+  let result;
+  try{result=await readTelegramIdentityViaCdp({cdpBaseUrl:whatsappCdp});}catch{return;}
+  if(result.kind==='result')reportAutopostStatus('telegram','ready',null,'Telegram Web готовий.',0,{identity:result.identity});
+  else if(result.reason!=='telegram_tab_missing')reportAutopostStatus('telegram','blocked',result.reason,TELEGRAM_REASON_TEXT[result.reason]||'Telegram Web не готовий.');
+}
+
+async function handleTelegramAutopostTask(ws,job){
+  if(!whatsappCdp){pauseTelegramAutopost(ws,job,Date.now()+WHATSAPP_RUNTIME_COOLDOWN_MS,'cdp_not_configured');return;}
+  if(Date.now()<telegramFloodUntil){pauseTelegramAutopost(ws,job,telegramFloodUntil,'telegram_flood_wait');return;}
+  const progress=job.progress&&Number(job.progress.total)>0
+    ? `${Math.min(Number(job.progress.done)+1,Number(job.progress.total))}/${Number(job.progress.total)} · `
+    : '';
+  setStatus('working',`Telegram: ${progress}${job.target?.expectedName||'чат'}`);
+  const onStep=createStepReporter(job,'Telegram');
+  onStep('start',job.mode==='verify'?'починаю перевірку':'починаю');
+  let automated;
+  try{automated=await sendTelegramAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp,shouldAbort:()=>cancelledAutopostJobs.has(job.jobId),onStep,verifyOnly:job.mode==='verify',sinceEpoch:job.verify?.sinceEpoch});}
+  catch(error){
+    console.warn(`Telegram autopost CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
+    pauseTelegramAutopost(ws,job,Date.now()+TELEGRAM_ENV_PAUSE_MS,'cdp_unavailable');
+    return;
+  }
+  cancelledAutopostJobs.delete(job.jobId);
+  if(automated.kind==='result'&&automated.result.sendConfirmed===true){
+    telegramAdapterFailures=[];
+    reportAutopostStatus('telegram','ready',null,'Telegram Web готовий.');
+    sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'sent',
+      observedTarget:automated.result.observedTarget||job.target?.expectedName,targetVerified:true,sendConfirmed:true,scan:automated.result.scan});
+    console.log(`Confirmed Telegram autopost accepted by Work OS for ${automated.result.observedTarget||job.target?.expectedName}.`);
+    return;
+  }
+  const reason=String(automated.reason||'adapter_failed');
+  console.warn(`Telegram autopost stopped fail-closed: ${reason}${automated.detail?` (${String(automated.detail).slice(0,300)})`:''}`);
+  // Проблема середовища чи акаунта: черга стоїть, задача лишається, спроба чату не рахується.
+  if(TELEGRAM_ENV_REASONS.has(reason)){
+    pauseTelegramAutopost(ws,job,Date.now()+TELEGRAM_ENV_PAUSE_MS,reason,automated.identity?{identity:automated.identity}:{});
+    return;
+  }
+  // FloodWait: пауза всієї черги Telegram на вказаний час. До відправки це не спроба чату; після натискання — чат іде на рішення власника.
+  if(reason==='telegram_flood_wait'){
+    const until=Date.now()+(Math.max(30,Number(automated.floodSeconds)||300)+30)*1000;
+    telegramFloodUntil=Math.max(telegramFloodUntil,until);
+    reportAutopostStatus('telegram','blocked',reason,`${TELEGRAM_REASON_TEXT[reason]} Наступна спроба о ${clockText(telegramFloodUntil)}.`,telegramFloodUntil);
+    if(automated.afterSend){
+      sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',observedTarget:automated.observedTarget||job.target?.expectedName,targetVerified:true,sendConfirmed:false,errorCode:'send_not_confirmed',scan:automated.scan});
+      return;
+    }
+    releaseTask(ws,'autopost',job,telegramFloodUntil,'',telegramFloodUntil);
+    return;
+  }
+  // Збій до «Надіслати», що повторюється на різних чатах, — це браузер чи Telegram Web, а не чат: пауза з поясненням.
+  if(TELEGRAM_ADAPTER_RETRY_REASONS.has(reason)){
+    const now=Date.now();
+    telegramAdapterFailures=telegramAdapterFailures.filter(item=>now-item.at<TELEGRAM_SYSTEMIC_PAUSE_MS*2);
+    telegramAdapterFailures.push({at:now,chatId:job.target?.chatId||job.jobId,reason});
+    if(new Set(telegramAdapterFailures.map(item=>item.chatId)).size>=TELEGRAM_SYSTEMIC_AFTER){
+      pauseTelegramAutopost(ws,job,now+TELEGRAM_SYSTEMIC_PAUSE_MS,reason);
+      return;
+    }
+    releaseTask(ws,'autopost',job,0,reason);
+    return;
+  }
+  sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',
+    observedTarget:automated.observedTarget||job.target?.expectedName,targetVerified:reason!=='target_unconfirmed'&&reason!=='telegram_chat_missing',sendConfirmed:false,errorCode:reason,scan:automated.scan});
+}
+
 // Проблема середовища чи системний збій WhatsApp Web: задача лишається в черзі без витраченої спроби, DO не видає нічого до `untilMs`,
 // у картці автопосту видно причину й час наступної спроби.
 function pauseWhatsappAutopost(ws,job,untilMs,reason){
@@ -1026,6 +1128,7 @@ async function handleAutopostTask(ws,job){
 async function handleAutopostTaskNow(ws,job){
   if(cancelledAutopostJobs.has(job.jobId)){abandonCancelledAutopost(ws,job);return;}
   if(job.kind==='viber_android')return handleViberAutopostTask(ws,job);
+  if(job.kind==='telegram_autopost')return handleTelegramAutopostTask(ws,job);
   if(!whatsappCdp){
     console.warn('WhatsApp autopost requires WORK_OS_WHATSAPP_CDP; releasing until the browser adapter is available.');
     pauseWhatsappAutopost(ws,job,Date.now()+WHATSAPP_RUNTIME_COOLDOWN_MS,'cdp_not_configured');
@@ -1296,7 +1399,7 @@ function connectLiveChannel(){
     console.log('Connected to the Work OS live channel.');
     setStatus('ready','Готовий: підключено до Work OS');
     while(pendingLive.length)ws.send(JSON.stringify(pendingLive.shift()));
-    setTimeout(()=>{void checkViberStatus();},1500);
+    setTimeout(()=>{void checkViberStatus();void checkTelegramStatus();},1500);
     keepalive=setInterval(()=>{
       // A ping still unanswered a whole interval later means a half-open socket (sleep, network
       // switch) that would otherwise look connected forever while no task can arrive.
@@ -1329,7 +1432,7 @@ function withCdpLock(fn){
 
 console.log('Work OS Discovery runner started. Ctrl+C to stop.');
 // Місцева перевірка Viber (процес, доступність, вікно): ніякої мережі й D1, лише `pgrep` і шина доступності.
-setInterval(()=>{void checkViberStatus();},VIBER_STATUS_EVERY_MS);
+setInterval(()=>{void checkViberStatus();void checkTelegramStatus();},VIBER_STATUS_EVERY_MS);
 setStatus('starting','Запускається…');
 for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{setStatus('stopped','Runner зупинено');process.exit(0);});
 connectLiveChannel();
