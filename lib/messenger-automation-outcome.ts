@@ -62,7 +62,7 @@ type JobRef = { id: string; chat_id: string; attempts: number };
 
 async function closeJob(db: D1Database, userId: string, jobId: string, outcome: AutopostOutcome, attempts: number, result: Record<string, unknown>, now: number) {
   await db.prepare(`UPDATE whatsapp_autopost_jobs
-    SET status='failed',active_key=NULL,outcome=?1,attempts=?2,result_json=?3,updated_at=?4,completed_at=?4
+    SET status=CASE WHEN request_key LIKE 'scan\\_%' ESCAPE '\\' THEN 'cancelled' ELSE 'failed' END,active_key=NULL,outcome=?1,attempts=?2,result_json=?3,updated_at=?4,completed_at=?4
     WHERE id=?5 AND user_id=?6 AND status IN ('pending','claimed')`)
     .bind(outcome, attempts, JSON.stringify({ ...result, outcome }), now, jobId, userId).run();
 }

@@ -267,7 +267,8 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
   const base = cdpBaseUrl ? normalizeLocalCdpBaseUrl(cdpBaseUrl) : null;
   if (!base) return { kind: 'blocked', reason: 'cdp_not_configured' };
   const text = normalizeText(task?.material?.text);
-  if (!text) return { kind: 'blocked', reason: 'stale_precondition' };
+  // Прохід «знайти гілки» тексту не має: він лише дивиться на чат.
+  if (!text && !scanOnly) return { kind: 'blocked', reason: 'stale_precondition' };
   const media = task?.material?.media?.base64 ? task.material.media : null;
   if (!verifyOnly && Array.from(text).length > MAX_MESSAGE_CHARS) return { kind: 'blocked', reason: 'telegram_text_too_long' };
   // Підпис до фото в Telegram — до 1024 символів: довший не обрізаємо, а не надсилаємо.
