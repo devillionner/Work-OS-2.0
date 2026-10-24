@@ -54,7 +54,8 @@ const REASONS: Record<string, string> = {
   // Telegram: ці коди приходять із браузерного адаптера Telegram Web.
   thread_required: 'У чаті є гілки, а гілку для публікації ще не вибрано.',
   thread_closed: 'Вибрана гілка закрита або зникла. Вибери іншу.',
-  telegram_chat_missing: 'Чат Telegram не існує, або посилання недійсне.',
+  telegram_chat_missing: 'Чат Telegram не існує, або посилання недійсне чи прострочене.',
+  telegram_no_access: 'Акаунт Telegram не бачить цей чат (не учасник, вийшов або вилучений). Перевір чат вручну.',
   telegram_banned: 'Telegram не пускає в цей чат: акаунт заблоковано в ньому.',
   telegram_read_only: 'У цьому чаті Telegram писати можуть лише адміни.',
   telegram_slow_mode: 'У чаті Telegram увімкнений повільний режим, чат відкладено до завтра.',

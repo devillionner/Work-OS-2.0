@@ -1173,7 +1173,7 @@ async function handleAutopostTaskNow(ws,job){
     console.log(`Confirmed WhatsApp autopost accepted by Work OS for ${observedTarget}.`);
     return;
   }
-  console.warn(`WhatsApp autopost stopped fail-closed: ${automated.reason}`);
+  console.warn(`WhatsApp autopost stopped fail-closed: ${automated.reason}${automated.detail?` (${String(automated.detail).slice(0,300)})`:''}`);
   if(WHATSAPP_RUNTIME_TRANSIENT_REASONS.has(automated.reason)){
     markWhatsappRuntimeBlocked(automated.reason);
     pauseWhatsappAutopost(ws,job,whatsappRuntimeBlockedUntil,automated.reason);

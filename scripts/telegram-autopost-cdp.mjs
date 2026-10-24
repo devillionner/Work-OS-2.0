@@ -1,6 +1,9 @@
 // Автопост Telegram через Telegram Web A (web.telegram.org/a) у браузері runner: текст оголошення в чат або в гілку форуму.
 // Правила ті самі, що в адаптерів WhatsApp і Viber: до натискання «Надіслати» будь-яка двозначність закінчується без відправки
 // (код причини), а після натискання нічого не повторюється. Підтвердження відправки — власне повідомлення в стрічці тієї ж гілки.
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { createCdpClient, isLocalCdpWebSocketUrl, normalizeLocalCdpBaseUrl } from './whatsapp-web-cdp.mjs';
 
 const TELEGRAM_WEB = 'https://web.telegram.org/a/';
@@ -17,7 +20,9 @@ const floodPattern = /(?:flood[_ ]?wait|too many (?:requests|attempts)|заба�
 const slowModePattern = /(?:slow ?mode|повільн\p{L}* режим|медленн\p{L}* режим)/iu;
 const readOnlyPattern = /(?:only admins can (?:post|send|write)|you can['’]?t (?:post|send|write)|you are not allowed to (?:post|send|write)|тільки адміністратори можуть|лише адміністратори можуть|ви не можете (?:писати|надсилати|публікувати)|только администраторы могут|вы не можете (?:писать|отправлять)|writing (?:in this chat )?is (?:restricted|disabled)|надсилати повідомлення (?:тут )?заборонено)/iu;
 const bannedPattern = /(?:you (?:were|have been) (?:banned|removed|kicked)|you are banned|вас (?:було )?(?:заблоковано|видалено|вилучено|забанено)|вы (?:были )?(?:заблокированы|удалены|исключены)|you can['’]?t (?:view|access) this (?:chat|group))/iu;
-const missingPattern = /(?:no user has the username|username (?:is )?(?:invalid|not occupied)|(?:chat|group|channel) (?:does not exist|doesn['’]?t exist|not found|is unavailable|is private)|не знайдено|не існує|не існує або|не найден|не существует|invite link (?:is )?(?:invalid|expired)|посилання[^.]*(?:недійсне|прострочене)|ссылка[^.]*(?:недействительна|просрочена))/iu;
+const missingPattern = /(?:no user has the username|username (?:is )?(?:invalid|not occupied)|(?:chat|group|channel) (?:does not exist|doesn['’]?t exist|not found|is unavailable)|не знайдено|не існує|не найден|не существует|invite link (?:is |has )?(?:invalid|expired|been revoked)|посилання[^.]*(?:недійсне|прострочене|скасовано)|ссылка[^.]*(?:недействительна|просрочена|отозвана))/iu;
+// «This channel is private»: акаунт не бачить чат (не учасник, вийшов чи вилучений) — не те саме, що «чату не існує».
+const privatePattern = /(?:(?:chat|group|channel) is private|(?:чат|група|канал) (?:є )?приватн|(?:чат|группа|канал) (?:является )?приватн)/iu;
 const authPattern = /(?:log in to telegram|sign in to telegram|увійти в telegram|войти в telegram|scan from mobile|відскануйте|your phone number)/iu;
 
 /** Як відкрити чат за посиланням Work OS: username, запрошення чи приватний канал (t.me/c/…). */
@@ -29,6 +34,9 @@ export function telegramOpenTarget(link) {
   if (match) return { kind: 'private', peerId: `-100${match[1]}`, topicHint: match[2] || null };
   match = raw.match(/^(?:https?:\/\/)?(?:www\.)?(?:t|telegram)\.(?:me|dog)\/([A-Za-z][A-Za-z0-9_]{3,31})(?:[/?#]|$)/iu);
   if (match && !/^(?:joinchat|addstickers|share|proxy|socks|login|setlanguage)$/iu.test(match[1])) return { kind: 'username', name: match[1] };
+  // Прямий номер чата в адресі Telegram Web (так відкривається «Збережене» і так перевіряється адаптер без чужих чатів).
+  match = raw.match(/^https:\/\/web\.telegram\.org\/a\/#(-?\d{5,20})$/iu);
+  if (match) return { kind: 'private', peerId: match[1], topicHint: null };
   match = raw.match(/^tg:\/\/resolve\?domain=([A-Za-z][A-Za-z0-9_]{3,31})/iu);
   if (match) return { kind: 'username', name: match[1] };
   return null;
@@ -37,7 +45,8 @@ export function telegramOpenTarget(link) {
 /** Адреса Telegram Web для відкриття цілі; `thread` — гілка форуму, яку відкриваємо в уже відомому чаті. */
 export function telegramWebUrl(target, thread = null) {
   if (!target) return null;
-  if (target.kind === 'username') return `${TELEGRAM_WEB}#@${target.name}`;
+  // `#@name` Telegram Web A відкидає під час запуску (перевірено наживо 2026-10-24); діє лише глибоке посилання tgaddr.
+  if (target.kind === 'username') return `${TELEGRAM_WEB}#?tgaddr=${encodeURIComponent(`tg://resolve?domain=${target.name}`)}`;
   if (target.kind === 'invite') return `${TELEGRAM_WEB}#?tgaddr=${encodeURIComponent(`tg://join?invite=${target.hash}`)}`;
   return `${TELEGRAM_WEB}#${target.peerId}${thread ? `_${thread}` : ''}`;
 }
@@ -64,6 +73,9 @@ export function parseTelegramFloodSeconds(text) {
   return seconds;
 }
 
+// Порівняння без пробілів і переносів: у повідомленні Telegram переноси, нерозривні пробіли й емодзі-картинки відображаються інакше, ніж у полі.
+function squash(value) { return String(value || '').normalize('NFC').replace(/[\s\u00a0\u200b\u200e\u200f]+/gu, ''); }
+
 function normalizeText(value) {
   return String(value || '').normalize('NFC').replace(/ /gu, ' ').replace(/[​‎‏]/gu, '').replace(/[ \t]+/gu, ' ').replace(/\s*\n\s*/gu, '\n').trim();
 }
@@ -86,7 +98,13 @@ async function findTelegramPage(base, { create = true } = {}) {
 }
 
 class TelegramPage {
-  constructor(client) { this.client = client; }
+  constructor(client) {
+    // Команда, що ще чекає відповіді, коли з'єднання закривається, відхиляється у `close()`; без обробника це «unhandled rejection»,
+    // яка вбила б runner. Кожній команді додаємо порожній обробник (той, хто її чекає, і далі отримує помилку).
+    const rawSend = client.send.bind(client);
+    client.send = (method, params) => { const promise = rawSend(method, params); promise.catch(() => {}); return promise; };
+    this.client = client;
+  }
   async evaluate(expression) {
     const response = await this.client.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
     if (response?.exceptionDetails) throw new Error('telegram_page_script_failed');
@@ -114,7 +132,7 @@ const READ_IDENTITY_JS = `(() => {
 })()`;
 
 // Що зараз на екрані: чи залогінений, відкритий чат (заголовок, id), поле повідомлення, сповіщення й діалоги.
-const READ_STATE_JS = `(() => {
+export const READ_STATE_JS = `(() => {
   const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const middle = document.querySelector('#MiddleColumn');
   const header = middle && middle.querySelector('.MiddleHeader');
@@ -130,7 +148,11 @@ const READ_STATE_JS = `(() => {
     status: header ? ((header.querySelector('.status, .group-status') || {}).innerText || '').trim().slice(0, 120) : '',
     peerId: (peer && peer.getAttribute('data-peer-id')) || (location.hash.match(/^#(-?\\d+)/) || [])[1] || '',
     // Ознаки форуму, окрім списку гілок: панель форуму зліва й гілка в адресі. Якщо вони є, а список гілок не прочитався, у чат не пишемо.
-    forumUi: Boolean(document.querySelector('#LeftColumn .ForumPanel, #LeftColumn .TopicList, #LeftColumn [class*="ForumPanel"], #LeftColumn [class*="Forum"]')) || /^#-?\\d+_\\d+/.test(location.hash),
+    // Живий розбір форуму 2026-10-24: у режимі «як повідомлення» стрічка містить .topic-group з пігулкою .topic-pill (назва гілки), а
+    // знизу замість поля стоїть «You can reply to messages in topics»; у режимі гілок зліва .Topic.
+    forumUi: Boolean(document.querySelector('#MiddleColumn .topic-pill, #MiddleColumn .topic-group, #LeftColumn .ForumPanel, #LeftColumn .Topic'))
+      || /reply to messages in topics|відповідати на повідомлення в темах|відповісти на повідомлення в темах|отвечать на сообщения в темах/i.test(footer)
+      || /^#-?\\d+_\\d+/.test(location.hash),
     composer: Boolean(composer && visible(composer)),
     footer, notices,
   };
@@ -138,7 +160,7 @@ const READ_STATE_JS = `(() => {
 
 // Гілки форуму. Telegram Web A показує список гілок у лівій колонці, поки відкритий форум (рядки `.Topic`). Закрита гілка має
 // значок замка. Структуру перевіряє живий запуск; якщо вона інша, список порожній і чат іде в «Вибрати гілку» з поясненням.
-const READ_TOPICS_JS = `(() => {
+export const READ_TOPICS_JS = `(() => {
   const nodes = [...document.querySelectorAll('#LeftColumn .Topic, #LeftColumn .ForumPanel .ListItem, #LeftColumn [class*="Topic"].ListItem')];
   const seen = new Set();
   const topics = [];
@@ -156,11 +178,14 @@ const READ_TOPICS_JS = `(() => {
   return topics;
 })()`;
 
-const READ_MESSAGES_JS = `(() => [...document.querySelectorAll('#MiddleColumn .Message')].map((node) => {
+export const READ_MESSAGES_JS = `(() => [...document.querySelectorAll('#MiddleColumn .Message')].map((node) => {
   const id = node.getAttribute('data-message-id') || '';
   const content = node.querySelector('.text-content');
   const clone = content ? content.cloneNode(true) : null;
-  if (clone) clone.querySelectorAll('img[alt]').forEach((img) => { const alt = img.getAttribute('alt'); if (alt) img.replaceWith(document.createTextNode(alt)); });
+  if (clone) {
+    clone.querySelectorAll('img[alt]').forEach((img) => { const alt = img.getAttribute('alt'); if (alt) img.replaceWith(document.createTextNode(alt)); });
+    clone.querySelectorAll('br').forEach((br) => br.replaceWith(document.createTextNode('\\n')));
+  }
   const own = node.classList.contains('own') || Boolean(node.closest('.own'));
   const pending = Boolean(node.querySelector('.icon-message-pending, [class*="message-pending"]'));
   const failed = Boolean(node.querySelector('.icon-message-failed, [class*="message-failed"]'));
@@ -184,16 +209,20 @@ async function waitForOpenChat(page, shouldAbort, deadlineAt) {
     last = state;
     if (state.auth) return { state };
     if (state.title && (state.composer || state.footer || state.notices)) return { state };
-    if (state.notices && missingPattern.test(state.notices)) return { state };
+    if (state.notices && (missingPattern.test(state.notices) || privatePattern.test(state.notices))) return { state };
     await sleep(POLL_MS);
   }
   return { state: last, timedOut: true };
 }
 
+// Поле повідомлення складається з абзаців `<p>` (кожен Shift+Enter — новий), тож innerText дає подвійні переноси: текст збираємо по абзацах.
 function composerText(page) {
-  return page.evaluate(`(() => { const node = document.querySelector('#editable-message-text'); if (!node) return ''; const clone = node.cloneNode(true);
+  return page.evaluate(`(() => { const node = document.querySelector('#editable-message-text'); if (!node) return '';
+    const clone = node.cloneNode(true);
     clone.querySelectorAll('img[alt]').forEach((img) => { const alt = img.getAttribute('alt'); if (alt) img.replaceWith(document.createTextNode(alt)); });
-    return String(clone.innerText || clone.textContent || ''); })()`);
+    const blocks = [...clone.children].filter((child) => child.tagName === 'P' || child.tagName === 'DIV');
+    if (!blocks.length) return String(clone.innerText || clone.textContent || '');
+    return blocks.map((block) => String(block.textContent || '')).join('\\n'); })()`);
 }
 
 /** Id користувача, залогіненого в Telegram Web runner: за ним Work OS перевіряє, що це потрібний акаунт. */
@@ -221,7 +250,7 @@ export async function readTelegramIdentityViaCdp({ cdpBaseUrl } = {}) {
  * Повертає { kind:'result', result } після підтвердженої відправки або { kind:'blocked', reason, ... }; `scan` (форум чи ні й список
  * гілок із позначкою «закрита») повертається в обох випадках, коли чат вдалося відкрити.
  */
-export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort = () => false, onStep = () => {}, verifyOnly = false, sinceEpoch = 0 } = {}) {
+export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort = () => false, onStep = () => {}, verifyOnly = false, scanOnly = false, sinceEpoch = 0 } = {}) {
   const base = cdpBaseUrl ? normalizeLocalCdpBaseUrl(cdpBaseUrl) : null;
   if (!base) return { kind: 'blocked', reason: 'cdp_not_configured' };
   const text = normalizeText(task?.material?.text);
@@ -263,40 +292,53 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     const state = opened.state || {};
     if (state.auth) return { kind: 'blocked', reason: 'telegram_not_authenticated' };
     if (state.notices && missingPattern.test(state.notices)) return { kind: 'blocked', reason: 'telegram_chat_missing', detail: state.notices };
+    if (state.notices && privatePattern.test(state.notices)) return { kind: 'blocked', reason: 'telegram_no_access', detail: state.notices };
     if (state.notices && floodPattern.test(state.notices)) return { kind: 'blocked', reason: 'telegram_flood_wait', floodSeconds: parseTelegramFloodSeconds(state.notices) || 300, detail: state.notices };
     if (opened.timedOut || !state.title) return { kind: 'blocked', reason: 'telegram_chat_not_opened', detail: `${state.url || ''} | ${state.notices || ''}` };
-    if (!similarTelegramTitle(task.target.expectedName, state.title)) {
+    if (!scanOnly && !similarTelegramTitle(task.target.expectedName, state.title)) {
       return { kind: 'blocked', reason: 'target_unconfirmed', observedTarget: state.title, detail: `У Work OS: ${task.target.expectedName}` };
     }
     const observedTarget = state.title;
     const peerId = state.peerId || (target.kind === 'private' ? target.peerId : '');
 
-    // 3. Форум чи ні, список гілок (закриті позначені). Сторінка гілок дає список у лівій колонці, поки відкритий форум.
+    // 3. Форум чи ні й гілки (закриті позначені). Форум без вибраної гілки в чат не пишемо: публікація в «Загальну» замість потрібної гілки
+    // гірша за пропуск, тож і форум, чий список гілок не прочитався, іде на вибір гілки.
     await sleep(1_200);
-    const topics = await page.evaluate(READ_TOPICS_JS);
-    const topicsRead = Array.isArray(topics) && topics.length > 0;
-    const forumSigns = Boolean((await page.evaluate(READ_STATE_JS)).forumUi);
-    // Форум, чий список гілок не прочитався: публікація в «Загальну» замість потрібної гілки гірша за пропуск, тож чат іде на вибір гілки.
-    const forum = topicsRead || forumSigns;
-    const scan = { forum, topics: topicsRead ? topics : [] };
-    const withScan = (extra) => ({ ...extra, observedTarget, scan });
+    const rootUrl = peerId ? `${TELEGRAM_WEB}#${peerId}` : url;
+    const panelTopics = await page.evaluate(READ_TOPICS_JS);
+    const forum = (Array.isArray(panelTopics) && panelTopics.length > 0) || Boolean((await page.evaluate(READ_STATE_JS)).forumUi);
     const chosen = task?.telegram?.thread || null;
-    let threadTitle = '';
+    const knownTopics = Array.isArray(task?.telegram?.topics) ? task.telegram.topics : [];
+    // Список гілок збираємо, лише коли гілку ще не вибрано (або для діагностики): для вибраної він уже збережений.
+    let topics = [];
     if (forum) {
+      onStep('topics', 'збираю гілки чату');
+      topics = !chosen || scanOnly ? await collectTopics(page, client, rootUrl, shouldAbort, deadlineAt) : knownTopics;
+    }
+    let scan = { forum, topics };
+    const withScan = (extra) => ({ ...extra, observedTarget, scan });
+    if (forum && !scanOnly) {
       if (!chosen) return withScan({ kind: 'blocked', reason: 'thread_required' });
-      const topic = topics.find((item) => item.id === chosen.id);
-      if (!topic || topic.closed) return withScan({ kind: 'blocked', reason: 'thread_closed', detail: topic ? 'closed' : 'missing' });
-      threadTitle = topic.title;
+      const known = topics.find((item) => item.id === chosen.id);
+      if (known?.closed) return withScan({ kind: 'blocked', reason: 'thread_closed', detail: 'closed' });
       if (!peerId) return withScan({ kind: 'blocked', reason: 'telegram_thread_not_opened', detail: 'peer_id_unknown' });
-      onStep('thread', `відкриваю гілку «${threadTitle}»`);
+      onStep('thread', `відкриваю гілку «${chosen.title || chosen.id}»`);
       await openFresh(client, telegramWebUrl({ kind: 'private', peerId }, chosen.id));
       const inTopic = await waitForOpenChat(page, shouldAbort, Math.min(deadlineAt, Date.now() + OPEN_CHAT_TIMEOUT_MS));
       if (inTopic.aborted) return withScan({ kind: 'blocked', reason: 'cancelled' });
       const topicState = inTopic.state || {};
       if (inTopic.timedOut || !(topicState.url || '').includes(`_${chosen.id}`)) return withScan({ kind: 'blocked', reason: 'telegram_thread_not_opened', detail: topicState.url || '' });
+      // Гілка відкрилась, а поля повідомлення немає: вона закрита (або лише для адмінів), писати туди не можна.
+      if (!verifyOnly && !(await page.evaluate(READ_STATE_JS)).composer) {
+        scan = { forum, topics: topics.some((item) => item.id === chosen.id) ? topics.map((item) => (item.id === chosen.id ? { ...item, closed: true } : item)) : [...topics, { id: chosen.id, title: chosen.title || chosen.id, closed: true }] };
+        return withScan({ kind: 'blocked', reason: 'thread_closed', detail: 'composer_missing' });
+      }
     }
 
-    if (verifyOnly) return verifyOwnMessage(page, text, sinceEpoch, withScan, shouldAbort, deadlineAt);
+    // Лише зібрати відомості про чат (форум чи ні, гілки), нічого не читаючи далі й не пишучи: для діагностики.
+    if (scanOnly) return withScan({ kind: 'blocked', reason: 'scan_only' });
+    // `await` обов'язковий: без нього `finally` закрив би з'єднання, поки перевірка ще гортає стрічку.
+    if (verifyOnly) return await verifyOwnMessage(page, text, sinceEpoch, withScan, shouldAbort, deadlineAt);
 
     // 4. Чи можна тут писати.
     const writable = await page.evaluate(READ_STATE_JS);
@@ -304,7 +346,9 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     if (!writable.composer) {
       if (bannedPattern.test(blockedText)) return withScan({ kind: 'blocked', reason: 'telegram_banned', detail: blockedText });
       if (slowModePattern.test(blockedText)) return withScan({ kind: 'blocked', reason: 'telegram_slow_mode', detail: blockedText });
-      if (readOnlyPattern.test(blockedText) || /join|приєднатися|присоединиться/iu.test(writable.footer || '')) return withScan({ kind: 'blocked', reason: 'telegram_read_only', detail: blockedText });
+      // Кнопка вступу замість поля: акаунт не в чаті. Це не «пишуть лише адміни», тож чат не архівуємо, а віддаємо власнику.
+      if (/^\s*(?:join|приєднатися|присоединиться)/iu.test(writable.footer || '')) return withScan({ kind: 'blocked', reason: 'telegram_no_access', detail: blockedText });
+      if (readOnlyPattern.test(blockedText)) return withScan({ kind: 'blocked', reason: 'telegram_read_only', detail: blockedText });
       return withScan({ kind: 'blocked', reason: 'telegram_composer_not_found', detail: blockedText });
     }
     if (shouldAbort()) return withScan({ kind: 'blocked', reason: 'cancelled' });
@@ -337,12 +381,12 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
 
     // 7. Підтвердження: своє повідомлення з цим текстом у стрічці цієї гілки, вже не «годинник».
     onStep('confirm', 'перевіряю, що повідомлення в чаті');
-    const wanted = text.slice(0, 60);
+    const wanted = squash(text).slice(0, 40);
     const confirmDeadline = Date.now() + SEND_CONFIRM_TIMEOUT_MS;
     while (Date.now() < confirmDeadline) {
       await sleep(POLL_MS);
       const messages = await page.evaluate(READ_MESSAGES_JS);
-      const mine = messages.find((item) => !beforeIds.has(item.id) && item.own && normalizeText(item.text).startsWith(wanted));
+      const mine = messages.find((item) => !beforeIds.has(item.id) && item.own && squash(item.text).startsWith(wanted));
       if (mine) {
         if (mine.failed) return withScan({ kind: 'blocked', reason: 'telegram_send_failed' });
         if (!mine.pending) return { kind: 'result', result: { status: 'sent', observedTarget, targetVerified: true, sendConfirmed: true, scan } };
@@ -352,7 +396,18 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
       if (notice && floodPattern.test(notice)) return withScan({ kind: 'blocked', reason: 'telegram_flood_wait', floodSeconds: parseTelegramFloodSeconds(notice) || 300, detail: notice, afterSend: true });
       if (notice && slowModePattern.test(notice)) return withScan({ kind: 'blocked', reason: 'telegram_slow_mode', detail: notice, afterSend: true });
     }
-    return withScan({ kind: 'blocked', reason: 'send_not_confirmed' });
+    // Не вдалось підтвердити: зберігаємо, що саме було на екрані (знімок поруч із журналом runner) і стан поля, кнопки й сповіщень.
+    const diagnostic = await page.evaluate(`(() => { const composer = document.querySelector('#editable-message-text');
+      return { composerChars: composer ? (composer.innerText || '').length : -1, own: document.querySelectorAll('#MiddleColumn .Message.own').length, messages: document.querySelectorAll('#MiddleColumn .Message').length,
+        sendButtons: [...document.querySelectorAll('#MiddleColumn button.send')].map((b) => String(b.className).slice(0, 60) + (b.disabled ? ' disabled' : '')),
+        notices: [...document.querySelectorAll('.Notification, .modal-dialog')].map((n) => (n.innerText || '').replace(/\\s+/g, ' ').slice(0, 120)) }; })()`).catch(() => null);
+    try {
+      const shot = await client.send('Page.captureScreenshot', { format: 'jpeg', quality: 60 });
+      const dir = join(process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state'), 'work-os');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'telegram-last-failure.jpg'), Buffer.from(shot.data, 'base64'));
+    } catch { /* знімок необов'язковий */ }
+    return withScan({ kind: 'blocked', reason: 'send_not_confirmed', detail: JSON.stringify({ clicked, ...diagnostic }) });
   } catch (error) {
     return { kind: 'blocked', reason: 'telegram_page_not_ready', detail: error instanceof Error ? error.message : String(error) };
   } finally {
@@ -361,10 +416,38 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
   }
 }
 
+// Список гілок форуму. У режимі гілок їх дає ліва панель (`.Topic`); у режимі «як повідомлення» у стрічці видно лише пігулки гілок з
+// недавніми повідомленнями (`.topic-pill`), тож id гілки беремо з адреси після відкриття кожної, а «закрита» — це гілка без поля
+// повідомлення (закрита чи лише для адмінів: писати туди однаково не можна). Повний список гілок без недавніх повідомлень так не побачити.
+async function collectTopics(page, client, rootUrl, shouldAbort, deadlineAt) {
+  const panel = await page.evaluate(READ_TOPICS_JS);
+  if (Array.isArray(panel) && panel.length) return panel;
+  const titles = await page.evaluate(`[...new Set([...document.querySelectorAll('#MiddleColumn .topic-pill-title')].map((node) => (node.innerText || '').trim()).filter(Boolean))].slice(0, 10)`);
+  const topics = [];
+  for (const title of Array.isArray(titles) ? titles : []) {
+    if (shouldAbort() || Date.now() > deadlineAt) break;
+    if (topics.length) await openFresh(client, rootUrl);
+    const clicked = await page.click(`[...document.querySelectorAll('#MiddleColumn .topic-pill')].find((node) => ((node.querySelector('.topic-pill-title') || node).innerText || '').trim() === ${JSON.stringify(title)})`);
+    if (!clicked) continue;
+    let id = '';
+    for (let attempt = 0; attempt < 20 && !id; attempt += 1) {
+      await sleep(400);
+      id = String((await page.evaluate('location.hash')).match(/_(\d{1,18})/u)?.[1] || '');
+    }
+    if (!id || topics.some((item) => item.id === id)) continue;
+    await sleep(800);
+    topics.push({ id, title: title.slice(0, 120), closed: !(await page.evaluate(READ_STATE_JS)).composer });
+  }
+  return topics;
+}
+
 // «Перевірити»: нічого не надсилаємо, лише шукаємо своє повідомлення з цим текстом, гортаючи стрічку вгору.
 async function verifyOwnMessage(page, text, _sinceEpoch, withScan, shouldAbort, deadlineAt) {
-  const wanted = text.slice(0, 60);
-  const hit = (messages) => messages.find((item) => item.own && normalizeText(item.text).startsWith(wanted));
+  const wanted = squash(text).slice(0, 40);
+  const hit = (messages) => messages.find((item) => item.own && squash(item.text).startsWith(wanted));
+  // Стрічка підвантажується не миттєво: чекаємо до 10 с, поки зʼявляться повідомлення (інакше порожній список виглядає як «початок чату»).
+  for (let attempt = 0; attempt < 25 && !(await page.evaluate(READ_MESSAGES_JS)).length; attempt += 1) await sleep(400);
+  await sleep(600);
   for (let pageNumber = 0; pageNumber < 16 && Date.now() < deadlineAt; pageNumber += 1) {
     if (shouldAbort()) return withScan({ kind: 'blocked', reason: 'cancelled' });
     const found = hit(await page.evaluate(READ_MESSAGES_JS));

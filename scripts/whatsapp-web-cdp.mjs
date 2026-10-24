@@ -1,9 +1,16 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
 // Real WhatsApp invite resolution can exceed 20s before the factual join/retry modal appears.
 const DEFAULT_TIMEOUT_MS = 45_000;
 // WhatsApp autopost lease is 90 s (lib/messenger-automation.ts). Target verification and
 // payload preparation share one 45 s budget and confirmation gets at most 30 s, so a send can
 // never happen or be confirmed after the lease has passed to another claim.
 const AUTOPOST_SEND_CONFIRM_MS = 30_000;
+// Фото з підписом WhatsApp Web вантажить довше за текст: живий запуск 2026-10-24 показав повідомлення в чаті лише через ≈60 с після кліку,
+// тож 30 с давали хибне «не підтверджено» при вже відправленому фото. Після кліку час уже ні на що інше не потрібен.
+const AUTOPOST_MEDIA_CONFIRM_MS = 90_000;
 // The attached photo's preview overlay. Eight seconds was arbitrary and too tight on a WhatsApp Web that is
 // still waking up, which burned a whole queue of jobs at once (live report 2026-10-06).
 const AUTOPOST_MEDIA_PREVIEW_MS = 20_000;
@@ -965,7 +972,10 @@ const SEND_CONTROL_JS = `(() => {
   const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
   ${SEND_MATCH_JS}
   const buttons=[...document.querySelectorAll('button, [role="button"]')].filter(visible);
-  const byLabel=buttons.find((node)=>!node.closest('footer')&&isSend(node))||buttons.find(isSend);
+  // Живий збір 2026-10-24: кнопка у вікні фото має підпис «Надіслати 1 вибраний файл» (значок ic-send-filled), поруч у меню прикріплення
+  // є й інші «Надіслати …» («Надіслати документ»), тож спершу кнопка з числом вибраних файлів.
+  const byLabel=buttons.find((node)=>isSend(node)&&/\\d+\\s+(вибран|selected|выбран)/iu.test(String(node.getAttribute('aria-label')||node.title||'')))
+    ||buttons.find((node)=>!node.closest('footer')&&isSend(node))||buttons.find(isSend);
   if(byLabel)return byLabel;
   const caption=${CAPTION_NODE_JS};
   if(!caption||caption.closest('footer'))return null;
@@ -1063,6 +1073,25 @@ async function waitForWhatsappMediaCaption(client,expectedText,timeoutMs){
     await sleep(POLL_MS);
   }
   return false;
+}
+
+async function waitForNoInviteCheckDialog(client,timeoutMs){
+  const deadline=Date.now()+timeoutMs;
+  while(Date.now()<deadline){
+    const busy=(await client.send('Runtime.evaluate',{expression:`[...document.querySelectorAll('[role="dialog"]')].some((n)=>/Перевірка запрошення|Checking invitation|Проверка приглашения/i.test(n.innerText||''))`,returnByValue:true}))?.result?.value===true;
+    if(!busy)return true;
+    await sleep(POLL_MS);
+  }
+  return false;
+}
+
+async function saveFailureShot(client){
+  try{
+    const shot=await client.send('Page.captureScreenshot',{format:'jpeg',quality:55});
+    const dir=join(process.env.XDG_STATE_HOME||join(homedir(),'.local','state'),'work-os');
+    mkdirSync(dir,{recursive:true});
+    writeFileSync(join(dir,'whatsapp-last-failure.jpg'),Buffer.from(shot.data,'base64'));
+  }catch{/* знімок необов'язковий */}
 }
 
 async function clickWhatsappMediaSend(client){
@@ -1194,6 +1223,8 @@ export async function sendWhatsappAutopostViaCdp(
       // exist at all on the operator's build — the diagnostic found only the sidebar search and the composer
       // while the editor was open, and clicking the strip under the photo mounted nothing (2026-10-07).
       onStep('photo','додаю фото');
+      // Після відкриття за запрошенням WhatsApp ще показує «Перевірка запрошення»: поки це вікно висить, чат не готовий і кнопка «Надіслати» не діє.
+      if(!await waitForNoInviteCheckDialog(client,20_000))return {kind:'blocked',reason:'page_not_ready'};
       if(!await focusAndClearComposer(client))return {kind:'blocked',reason:'composer_not_found'};
       await markWhatsappEditorsBeforeMedia(client);
       // Paste first (the Prototype Checker's route, which yields a preview WITH a caption box); the hidden
@@ -1225,7 +1256,7 @@ export async function sendWhatsappAutopostViaCdp(
       onStep('send','надсилаю');
       if(!await clickWhatsappMediaSend(client))return {kind:'blocked',reason:'media_send_control_not_found'};
       onStep('confirm','перевіряю, що повідомлення в чаті');
-      const deadline=Date.now()+confirmWindowMs;
+      const deadline=Date.now()+Math.max(confirmWindowMs,AUTOPOST_MEDIA_CONFIRM_MS);
       while(Date.now()<deadline){
         const snapshot=await readSnapshot(client);
         const candidate=(snapshot.messageRows||[]).find((row)=>
@@ -1250,7 +1281,10 @@ export async function sendWhatsappAutopostViaCdp(
         }
         await sleep(POLL_MS);
       }
-      return {kind:'blocked',reason:'media_send_not_confirmed'};
+      // Живий збір 2026-10-24: після кліку повідомлення не з'явилось. Зберігаємо знімок і стан екрана, щоб бачити, що саме лишилось.
+      const afterSend=await client.send('Runtime.evaluate',{expression:`JSON.stringify({previewOpen:[...document.querySelectorAll('button,[role="button"]')].some((n)=>/вибраний файл|selected file/i.test(n.getAttribute('aria-label')||'')),rows:document.querySelectorAll('#main [data-id]').length,outRows:[...document.querySelectorAll('#main [data-id]')].filter((n)=>/^true_/.test(n.getAttribute('data-id')||'')).length,dialogs:[...document.querySelectorAll('[role="dialog"]')].map((n)=>(n.innerText||'').replace(/\\s+/g,' ').slice(0,100))})`,returnByValue:true}).catch(()=>null);
+      await saveFailureShot(client);
+      return {kind:'blocked',reason:'media_send_not_confirmed',detail:String(afterSend?.result?.value||'')};
     }
     if (!await focusAndClearComposer(client)) return { kind:'blocked', reason:'composer_not_found' };
     await client.send('Input.insertText', { text });
