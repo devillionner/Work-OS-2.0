@@ -14,6 +14,7 @@ export type RowExtra = { note?: string; manual?: boolean };
 const GROUPS: Array<{ key: AutopostBucket; label: string; open?: boolean }> = [
   { key: 'ready', label: 'Готові', open: true },
   { key: 'thread', label: 'Вибрати гілку' },
+  { key: 'toolong', label: 'Текст задовгий для підпису до фото' },
   { key: 'decision', label: 'Потребують рішення' },
   { key: 'tried', label: 'Уже пробували сьогодні без відправки' },
   { key: 'queued', label: 'В черзі автопосту' },
@@ -31,6 +32,7 @@ function noteFor(bucket: AutopostBucket, reason: AutopostPlan['reasons'][string]
     return group.renameable && reason?.observed && !isSameName(name, reason.observed) ? `${group.label}: у месенджері «${reason.observed}»` : autopostReasonText(reason?.code);
   }
   if (bucket === 'thread') return 'У чаті є гілки: вибери, куди публікувати, на вкладці «Автопост».';
+  if (bucket === 'toolong') return 'Текст із Бібліотеки довший за 1024 символи: з фото він не влізе в підпис. Скороти текст або прибери фото.';
   if (bucket === 'schedule') return 'Чат стоїть у розкладі, автопост його не бере.';
   if (bucket === 'tried') return reason?.code ? `Автопост не відправив: ${autopostReasonText(reason.code)} Повтор завтра.` : 'Автопост пробував сьогодні, відправки не було. Повтор завтра.';
   if (bucket === 'rules') return reason?.next ? `Стане доступним ${dayLabel(reason.next)}` : undefined;
@@ -59,7 +61,7 @@ export function ReadyGroups({ chats, clock, plan, complete, renderRow, onOpenDec
     items.push(chat);
     grouped.set(bucket, items);
   }
-  const countOf = (key: AutopostBucket) => (plan && complete ? (key === 'published' ? plan.publishedToday : key === 'thread' || key === 'schedule' ? plan[key] ?? 0 : plan[key]) ?? 0 : grouped.get(key)?.length ?? 0) as number;
+  const countOf = (key: AutopostBucket) => (plan && complete ? (key === 'published' ? plan.publishedToday : key === 'thread' || key === 'schedule' ? plan[key] ?? 0 : key === 'toolong' ? plan.tooLong ?? 0 : plan[key]) ?? 0 : grouped.get(key)?.length ?? 0) as number;
   const list = (key: AutopostBucket, items: Chat[]) => (
     <ul className="m-0 flex list-none flex-col gap-2 p-0">
       {items.map((chat) => renderRow(chat, { note: plan ? noteFor(key, plan.reasons[chat.id], chat.name) : undefined, manual: key !== 'ready' }))}

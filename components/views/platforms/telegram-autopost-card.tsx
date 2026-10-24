@@ -5,7 +5,7 @@ import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu';
 import { Segmented } from '@/components/ui/segmented';
-import { AutopostPanel, type AutopostPlan, type AutopostReadiness, type TelegramThreadChoice } from '@/components/views/platforms/autopost-panel';
+import { AutopostPanel, type AutopostMaterialProps, type AutopostPlan, type AutopostReadiness, type TelegramThreadChoice } from '@/components/views/platforms/autopost-panel';
 import type { AutopostAttentionItem, AutopostDecision } from '@/components/views/platforms/autopost-attention';
 import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import type { AutopostPlatformStatus, TelegramPace } from '@/lib/live-channel';
@@ -79,6 +79,25 @@ function AccountBinding({ binding, status, busy, onBind }: { binding: { bound: b
   );
 }
 
+/** Чати, чий текст із Бібліотеки не влізе в підпис до фото (понад 1024 символи): вони не входять у партію, нічого не надсилається обрізаним. */
+function TooLongChats({ chats, total }: { chats: Array<{ id: string; name: string; length: number }>; total: number }) {
+  if (!total) return null;
+  return (
+    <details className="group rounded-inner border border-line">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
+        <span>{total} {total % 10 === 1 && total % 100 !== 11 ? 'чат' : total % 10 >= 2 && total % 10 <= 4 && (total % 100 < 12 || total % 100 > 14) ? 'чати' : 'чатів'}: текст задовгий для підпису до фото</span>
+        <span className="text-xs text-ink-3 group-open:hidden">розгорнути</span>
+      </summary>
+      <div className="flex flex-col gap-2 px-4 pb-3">
+        <p className="m-0 text-xs text-ink-2">Текст із Бібліотеки для цих чатів довший за 1024 символи. З фото вони не підуть, а без фото підуть; можна скоротити оголошення або прибрати фото.</p>
+        <ul className="m-0 flex list-none flex-col gap-1 p-0">
+          {chats.map((chat) => <li key={chat.id} className="flex items-center gap-2 text-sm"><span className="min-w-0 flex-1 truncate" title={chat.name}>{chat.name}</span><span className="font-mono text-xs tabular-nums text-ink-2">{chat.length}</span></li>)}
+        </ul>
+      </div>
+    </details>
+  );
+}
+
 /** Чати з гілками, для яких гілку ще не вибрано: зі списком гілок (закриті сірі, вибрати їх не можна). Вибір зберігається. */
 function ThreadChoices({ choices, busy, onChoose }: { choices: TelegramThreadChoice[]; busy: boolean; onChoose: (chatId: string, threadId: string | null) => void }) {
   if (!choices.length) return null;
@@ -120,7 +139,9 @@ function ThreadChoices({ choices, busy, onChoose }: { choices: TelegramThreadCho
  * Автопублікація у Telegram через браузер: спільна картка автопосту, текст оголошення з Бібліотеки для кожного чату (як при ручній
  * публікації), темп «5 · 10 · 20 на годину», прив'язка акаунта до браузера й вибір гілок форумів.
  */
-export function TelegramAutopostCard({ plan, onLoadPlan, runnerConnected, status, pace, progress, attention, batchNote, binding, busy, onDecide, onDecideMany, onStart, onStop, onReset, onChooseThread, onBind }: {
+export function TelegramAutopostCard({ material, plan, onLoadPlan, runnerConnected, status, pace, progress, attention, batchNote, binding, busy, onDecide, onDecideMany, onStart, onStop, onReset, onChooseThread, onBind }: {
+  /** Власні фото й текст Telegram (не спільні з WhatsApp і Viber). */
+  material: AutopostMaterialProps;
   plan: AutopostPlan | null;
   onLoadPlan: () => void;
   runnerConnected: boolean | null;
@@ -168,11 +189,11 @@ export function TelegramAutopostCard({ plan, onLoadPlan, runnerConnected, status
         <ol className="m-0 flex flex-col gap-1.5 pl-5">
           <li>У браузері runner відкрий web.telegram.org/a і залогінься в акаунт, який вибрано вгорі в Work OS.</li>
           <li>Прив’яжи акаунт кнопкою вище: перед кожним чатом автопост перевіряє, що відкрито саме його.</li>
-          <li>Текст бере оголошення з Бібліотеки за мовою й напрямками профілю чату, як при ручній публікації. Фото в Telegram не додається.</li>
+          <li>Фото й текст у Telegram власні, окремі від WhatsApp і Viber (кнопка «Взяти з WhatsApp/Viber» копіює їх). Без свого тексту береться оголошення з Бібліотеки за мовою й напрямками профілю чату. Фото необов’язкове: підпис до фото — до 1024 символів, текст без фото — до 4096.</li>
           <li>Чат у розкладі на сьогодні автопост не бере. Якщо Telegram просить зачекати, вся черга Telegram стає на паузу на вказаний час.</li>
         </ol>
       )}
-      material={null}
+      material={material}
       progress={progress}
       attention={attention}
       batchNote={batchNote}
@@ -190,7 +211,12 @@ export function TelegramAutopostCard({ plan, onLoadPlan, runnerConnected, status
           <Segmented<'5' | '10' | '20'> label="Скільки публікацій на годину" size="sm" value={String(perHour) as '5' | '10' | '20'} onValueChange={(value) => { const next = Number(value) as PerHour; setPerHour(next); writePerHour(next); }} items={[{ value: '5', label: '5 на годину' }, { value: '10', label: '10 на годину' }, { value: '20', label: '20 на годину' }]} />
         </div>
       )}
-      midSlot={<ThreadChoices choices={plan?.threadChoices ?? []} busy={busy} onChoose={onChooseThread} />}
+      midSlot={(
+        <>
+          <TooLongChats chats={plan?.tooLongChats ?? []} total={plan?.tooLong ?? 0} />
+          <ThreadChoices choices={plan?.threadChoices ?? []} busy={busy} onChoose={onChooseThread} />
+        </>
+      )}
       onDecide={onDecide}
       onDecideMany={onDecideMany}
       onStart={(limit, exclude) => onStart(limit, exclude, perHour)}

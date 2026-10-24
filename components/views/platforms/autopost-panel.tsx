@@ -19,18 +19,27 @@ export type AutopostPlan = {
   rules: number; rulesNextDate: string | null; other: number;
   /** Лише Telegram: чати, що чекають вибору гілки, і чати в розкладі на сьогодні. */
   thread?: number; schedule?: number; threadChoices?: TelegramThreadChoice[];
+  /** Telegram з фото: чати, чий текст із Бібліотеки довший за 1024 символи; у партію не входять. */
+  tooLong?: number; tooLongChats?: Array<{ id: string; name: string; length: number }>;
   chats: Array<{ id: string; name: string }>;
   /** Кожен чат черги «Для публікації» рівно в одній групі (за цим розкладом лічаться чіпи, список зліва, «Огляд» і картка). */
   buckets: Record<string, AutopostBucket>;
   reasons: Record<string, { code: string | null; observed: string | null; next: string | null }>;
 };
-export type AutopostBucket = 'ready' | 'decision' | 'tried' | 'published' | 'rules' | 'snoozed' | 'queued' | 'other' | 'thread' | 'schedule';
+export type AutopostBucket = 'ready' | 'decision' | 'tried' | 'published' | 'rules' | 'snoozed' | 'queued' | 'other' | 'thread' | 'schedule' | 'toolong';
 export type TelegramThreadChoice = { chatId: string; name: string; topics: Array<{ id: string; title: string; closed: boolean }> };
 export type AutopostReadiness = { tone: 'ok' | 'warn' | 'hot' | 'idle'; text: string };
 export type AutopostMaterialProps = {
   image: WhatsAppAutopostImage | null; imageLoaded: boolean; caption: string; captionLoaded: boolean;
   onCaptionChange: (value: string) => void; onUploadImage: (file: File) => void; onRemoveImage: () => void; onSaveCaption: () => void; onClearCaption: () => void;
+  /** `telegram` — власні фото й текст Telegram: фото необов'язкове, ліміти підпису, «Взяти з WhatsApp/Viber». */
+  scope?: 'shared' | 'telegram';
+  onCopyFromShared?: () => void;
 };
+
+/** Ліміти Telegram: підпис до фото 1024 символи, текст без фото 4096. */
+const TELEGRAM_PHOTO_CAPTION_LIMIT = 1024;
+const TELEGRAM_TEXT_LIMIT = 4096;
 
 /** Стеля партії на сервері (`AUTOPOST_BATCH_MAX`): «Усі» ставить рівно стільки чатів, скільки готових, але не більше цього. */
 const BATCH_CAP = 200;
@@ -62,6 +71,7 @@ function formatBytes(bytes: number) {
 export function noReadyText(plan: AutopostPlan): string {
   if (plan.total === 0) return 'У черзі немає чатів цієї платформи.';
   if (plan.decision > 0) return `Готових немає. ${plan.decision} ${chatWord(plan.decision)} ${plan.decision % 10 === 1 && plan.decision % 100 !== 11 ? 'чекає' : 'чекають'} твого рішення нижче.`;
+  if ((plan.tooLong ?? 0) > 0) return `Готових немає: ${plan.tooLong} ${chatWord(plan.tooLong ?? 0)} — текст із Бібліотеки задовгий для підпису до фото (понад 1024 символи). Скороти оголошення або прибери фото.`;
   if (plan.queued > 0) return `Готових немає: ${plan.queued} ${chatWord(plan.queued)} уже в черзі автопосту.`;
   if (plan.tried > 0) return `Готових немає. ${plan.tried} ${chatWord(plan.tried)} автопост сьогодні вже пробував без відправки, повтор завтра.`;
   if (plan.rules > 0 && plan.publishedToday + plan.snoozed === 0) return plan.rulesNextDate ? `Готових немає: чати чекають за правилами частоти. Найближчий стане доступним ${dayLabel(plan.rulesNextDate)}.` : 'Готових немає: чати чекають за правилами частоти.';
@@ -75,19 +85,27 @@ export function noReadyText(plan: AutopostPlan): string {
 function MaterialRow({ material, editing, onToggle, busy }: { material: AutopostMaterialProps; editing: boolean; onToggle: () => void; busy: boolean }) {
   const fileInput = useRef<HTMLInputElement | null>(null);
   const { image, caption } = material;
+  const telegram = material.scope === 'telegram';
   const lines = caption.trim().split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 2);
+  const length = Array.from(caption).length;
+  const limit = telegram ? (image ? TELEGRAM_PHOTO_CAPTION_LIMIT : TELEGRAM_TEXT_LIMIT) : 4000;
+  const over = telegram && length > limit;
+  const thumb = `/api/messenger-automation/media?${telegram ? 'scope=telegram&' : ''}v=${image?.sha256.slice(0, 16) ?? ''}`;
+  const summary = telegram
+    ? (image ? (lines.length ? `Фото + власний текст: ${lines.join(' · ')}` : 'Фото + текст із Бібліотеки для кожного чату') : (lines.length ? `Без фото · власний текст: ${lines.join(' · ')}` : 'Без фото · текст із Бібліотеки для кожного чату'))
+    : (lines.length ? lines.join(' · ') : 'Підпис із Бібліотеки для кожного чату');
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3 rounded-inner border border-line p-3">
         {image ? (
-          <span aria-hidden="true" style={{ backgroundImage: `url(/api/messenger-automation/media?v=${image.sha256.slice(0, 16)})` }} className="size-14 shrink-0 rounded-field border border-line bg-cover bg-center" />
+          <span aria-hidden="true" style={{ backgroundImage: `url(${thumb})` }} className="size-14 shrink-0 rounded-field border border-line bg-cover bg-center" />
         ) : (
           <span aria-hidden="true" className="flex size-14 shrink-0 items-center justify-center rounded-field border border-dashed border-line-strong text-ink-3"><ImagePlus strokeWidth={1.5} className="size-5" /></span>
         )}
         <div className="min-w-0 flex-1">
           <p className="m-0 text-xs text-ink-2">Що піде в чати</p>
-          {image ? (
-            <p className="m-0 mt-0.5 line-clamp-2 text-sm">{lines.length ? lines.join(' · ') : 'Підпис із Бібліотеки для кожного чату'}</p>
+          {image || telegram ? (
+            <p className="m-0 mt-0.5 line-clamp-2 text-sm">{summary}</p>
           ) : (
             <p className="m-0 mt-0.5 text-sm text-hot">Немає фото: додай його, щоб запустити партію</p>
           )}
@@ -97,7 +115,7 @@ function MaterialRow({ material, editing, onToggle, busy }: { material: Autopost
       {editing ? (
         <div className="grid gap-5 lg:grid-cols-2">
           <section className="flex flex-col gap-3" aria-label="Зображення для публікації">
-            <h3 className="m-0 text-sm font-medium">Зображення</h3>
+            <h3 className="m-0 text-sm font-medium">Зображення{telegram ? ' (необов’язково)' : ''}</h3>
             <input ref={fileInput} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) material.onUploadImage(file); }} />
             {image ? (
               <div className="flex flex-col gap-3 rounded-inner border border-line bg-sunken p-4">
@@ -114,14 +132,17 @@ function MaterialRow({ material, editing, onToggle, busy }: { material: Autopost
                 <span className="text-xs text-ink-2">JPG, PNG або WebP</span>
               </button>
             )}
+            {telegram && material.onCopyFromShared ? <Button variant="outline" size="sm" className="self-start" disabled={busy} onClick={material.onCopyFromShared}>Взяти з WhatsApp/Viber</Button> : null}
           </section>
           <section className="flex flex-col gap-3" aria-label="Текст автопоста">
-            <div className="flex items-center justify-between"><label htmlFor="autopost-caption" className="text-sm font-medium">Текст автопоста</label><span className="font-mono text-[11px] tabular-nums text-ink-2">{caption.length} / 4000</span></div>
-            <Textarea id="autopost-caption" rows={6} maxLength={4000} disabled={busy || !material.captionLoaded} value={caption} onChange={(event) => material.onCaptionChange(event.target.value)} placeholder="Встав текст, який піде під фото. Залиш порожнім, щоб Work OS підставила текст із Бібліотеки для кожного чату." />
+            <div className="flex items-center justify-between"><label htmlFor="autopost-caption" className="text-sm font-medium">Текст автопоста</label><span className={`font-mono text-[11px] tabular-nums ${over ? 'text-hot' : 'text-ink-2'}`}>{telegram ? `${length} / ${limit}${image ? ' з фото' : ''}` : `${length} / 4000`}</span></div>
+            <Textarea id="autopost-caption" rows={6} maxLength={telegram ? TELEGRAM_TEXT_LIMIT : 4000} disabled={busy || !material.captionLoaded} value={caption} onChange={(event) => material.onCaptionChange(event.target.value)} placeholder={telegram ? 'Свій текст для Telegram. Залиш порожнім, щоб Work OS підставила текст із Бібліотеки для кожного чату (за мовою й напрямками профілю).' : 'Встав текст, який піде під фото. Залиш порожнім, щоб Work OS підставила текст із Бібліотеки для кожного чату.'} />
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <small className="text-xs text-ink-2">{caption.trim() ? 'Власний текст іде як підпис до фото' : 'Текст із Бібліотеки підставляється окремо для кожного напрямку чату'}</small>
+              <small className={`text-xs ${over ? 'text-hot' : 'text-ink-2'}`}>{over
+                ? (image ? `Підпис до фото в Telegram — до ${limit} символів, тут ${length}. Такий текст не збережеться: скороти його або прибери фото.` : `Текст у Telegram — до ${limit} символів, тут ${length}. Такий текст не збережеться.`)
+                : caption.trim() ? (telegram && image ? 'Власний текст піде підписом до фото' : telegram ? 'Власний текст піде повідомленням' : 'Власний текст іде як підпис до фото') : (telegram && image ? 'Підпис до фото візьму з Бібліотеки для кожного чату; задовгий (понад 1024) чат до партії не потрапить' : 'Текст із Бібліотеки підставляється окремо для кожного напрямку чату')}</small>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={busy || !material.captionLoaded} onClick={material.onSaveCaption}>Зберегти текст</Button>
+                <Button variant="outline" size="sm" disabled={busy || !material.captionLoaded || over} onClick={material.onSaveCaption}>Зберегти текст</Button>
                 {caption ? <Button variant="ghost" size="sm" disabled={busy} onClick={material.onClearCaption}>Очистити</Button> : null}
               </div>
             </div>
@@ -192,9 +213,10 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
   const chosen = size === 'all' ? cap : Math.min(Number(size), readyCount);
   const going = (plan?.chats ?? []).filter((chat) => !removedNow.includes(chat.id)).slice(0, chosen);
   const hasQueue = Boolean(progress && progress.total + progress.cancelled > 0);
-  const ready = material === null || (material.imageLoaded && Boolean(material.image) && material.captionLoaded);
+  const ready = material === null || (material.scope === 'telegram' ? material.captionLoaded : material.imageLoaded && Boolean(material.image) && material.captionLoaded);
 
   const breakdown: Array<[string, number, string?]> = plan ? [
+    ['текст задовгий для підпису до фото', plan.tooLong ?? 0],
     ['потребують вибору гілки', plan.thread ?? 0],
     ['у розкладі Telegram', plan.schedule ?? 0],
     ['потребують рішення', plan.decision],

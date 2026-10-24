@@ -22,8 +22,11 @@ import {
 import { readAutopostAttention, resolveAutopostDecision, resolveAutopostDecisions, type AutopostDecision } from '@/lib/messenger-automation-outcome';
 import { TelegramAutopostError, bindTelegramWebAccount, chooseTelegramThread, readTelegramThreadState, unbindTelegramWebAccount } from '@/lib/telegram-autopost';
 import { resolveTelegramAccount } from '@/lib/chats/telegram-account';
-import { publicWhatsAppAutopostImage, readWhatsAppAutopostImage } from '@/lib/whatsapp-autopost-media';
+import { deleteWhatsAppAutopostImage, publicWhatsAppAutopostImage, readWhatsAppAutopostImage, saveWhatsAppAutopostImage } from '@/lib/whatsapp-autopost-media';
 import {
+  TELEGRAM_PHOTO_CAPTION_LIMIT,
+  TELEGRAM_TEXT_LIMIT,
+  textLength,
   cleanWhatsAppAutopostCaption,
   deleteWhatsAppAutopostCaption,
   readWhatsAppAutopostCaption,
@@ -85,12 +88,13 @@ export async function GET(request:Request):Promise<Response>{
       if(!accountId)return json({error:'Додай або увімкни Telegram-акаунт.'},409);
       const date=businessDate(now);
       if(planPlatform==='telegram')return json({plan:await readAutopostPlan(env.DB,user.id,'telegram',now,date,accountId)});
+      const [telegramImage,telegramCaption]=await Promise.all([readWhatsAppAutopostImage(env.DB,user.id,false,'telegram'),readWhatsAppAutopostCaption(env.DB,user.id,'telegram')]);
       const [progress,attention,account]=await Promise.all([
         readWhatsAppAutopostProgress(env.DB,user.id,date,'telegram'),
         readAutopostAttention(env.DB,user.id,'telegram',date),
         env.DB.prepare(`SELECT id,name,web_user_id FROM telegram_accounts WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(accountId,user.id).first<{id:string;name:string;web_user_id:string|null}>(),
       ]);
-      return json({telegramAutopostProgress:progress,autopostAttention:attention,telegramAccount:account?{id:account.id,name:account.name,bound:Boolean(account.web_user_id),webUserId:account.web_user_id}:null});
+      return json({telegramMaterial:{image:telegramImage?publicWhatsAppAutopostImage(telegramImage):null,caption:telegramCaption?.text||''},telegramAutopostProgress:progress,autopostAttention:attention,telegramAccount:account?{id:account.id,name:account.name,bound:Boolean(account.web_user_id),webUserId:account.web_user_id}:null});
     }
     // Viber-автопост: лічильники сьогоднішньої партії й чати, що чекають рішення (одна згрупована вибірка й один короткий список).
     if(url.searchParams.get('viber')==='1'){
@@ -200,6 +204,39 @@ export async function POST(request:Request):Promise<Response>{
       const result=await resetWhatsAppAutopostQueue(env.DB,user.id,businessDate(now),'telegram');
       await wakeOwnerChannelAutopost(user.id);
       return json({...result,progress:await readWhatsAppAutopostProgress(env.DB,user.id,businessDate(now),'telegram')});
+    }
+    // Власні фото й текст Telegram (окремі від WhatsApp і Viber). З фото підпис до 1024 символів, без фото текст до 4096; довший не зберігається.
+    if(body.action==='save-telegram-autopost-caption'){
+      let text:string;
+      try{text=cleanWhatsAppAutopostCaption(body.text);}
+      catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
+      const hasPhoto=Boolean(await readWhatsAppAutopostImage(env.DB,user.id,false,'telegram'));
+      const limit=hasPhoto?TELEGRAM_PHOTO_CAPTION_LIMIT:TELEGRAM_TEXT_LIMIT;
+      if(textLength(text)>limit)throw new MessengerAutomationError(hasPhoto?`Підпис до фото в Telegram — до ${limit} символів, а в тексті ${textLength(text)}. Скороти текст або прибери фото.`:`Текст у Telegram — до ${limit} символів, а в тексті ${textLength(text)}.`,409,'too_long');
+      const caption=text?await saveWhatsAppAutopostCaption(env.DB,user.id,text,now,'telegram'):(await deleteWhatsAppAutopostCaption(env.DB,user.id,'telegram'),null);
+      return json({caption:caption?.text||''});
+    }
+    if(body.action==='clear-telegram-autopost-caption'){
+      await deleteWhatsAppAutopostCaption(env.DB,user.id,'telegram');
+      return json({caption:''});
+    }
+    // «Взяти з WhatsApp/Viber»: копія їхніх фото й тексту в Telegram. Вихід за ліміт підпису до фото не обрізаємо, а пояснюємо.
+    if(body.action==='copy-telegram-material-from-shared'){
+      const [image,caption]=await Promise.all([readWhatsAppAutopostImage(env.DB,user.id,true,'shared'),readWhatsAppAutopostCaption(env.DB,user.id,'shared')]);
+      if(!image&&!caption)throw new MessengerAutomationError('У WhatsApp і Viber ще немає ні фото, ні власного тексту.',409,'nothing_to_copy');
+      const text=caption?.text||'';
+      if(image&&textLength(text)>TELEGRAM_PHOTO_CAPTION_LIMIT)throw new MessengerAutomationError(`Текст WhatsApp і Viber (${textLength(text)} символів) задовгий для підпису до фото в Telegram (до ${TELEGRAM_PHOTO_CAPTION_LIMIT}). Скороти його там або напиши окремий текст тут.`,409,'too_long');
+      if(!image&&textLength(text)>TELEGRAM_TEXT_LIMIT)throw new MessengerAutomationError(`Текст довший за ліміт Telegram (${TELEGRAM_TEXT_LIMIT}).`,409,'too_long');
+      let savedImage=null;
+      if(image){
+        const binary=atob(image.base64);
+        const bytes=new Uint8Array(binary.length);
+        for(let index=0;index<binary.length;index+=1)bytes[index]=binary.charCodeAt(index);
+        savedImage=await saveWhatsAppAutopostImage(env.DB,user.id,{fileName:image.fileName,contentType:image.contentType,bytes},now,'telegram');
+      }else await deleteWhatsAppAutopostImage(env.DB,user.id,'telegram');
+      if(text)await saveWhatsAppAutopostCaption(env.DB,user.id,text,now,'telegram');
+      else await deleteWhatsAppAutopostCaption(env.DB,user.id,'telegram');
+      return json({image:savedImage,caption:text});
     }
     // Власник вибрав гілку форуму (або прибрав вибір). Якщо чат сьогодні чекав саме гілки, він одразу стає в чергу.
     if(body.action==='telegram-choose-thread'){

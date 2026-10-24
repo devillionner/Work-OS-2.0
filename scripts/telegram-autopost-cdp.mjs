@@ -10,6 +10,10 @@ const TELEGRAM_WEB = 'https://web.telegram.org/a/';
 const WIDE_VIEWPORT = { width: 1400, height: 1000, deviceScaleFactor: 1, mobile: false };
 const OPEN_CHAT_TIMEOUT_MS = 25_000;
 const SEND_CONFIRM_TIMEOUT_MS = 30_000;
+// Фото вантажиться довше за текст.
+const PHOTO_CONFIRM_TIMEOUT_MS = 90_000;
+// Ліміт Telegram на підпис до фото.
+const MAX_CAPTION_CHARS = 1024;
 const POLL_MS = 400;
 const MAX_MESSAGE_CHARS = 4096;
 
@@ -189,7 +193,8 @@ export const READ_MESSAGES_JS = `(() => [...document.querySelectorAll('#MiddleCo
   const own = node.classList.contains('own') || Boolean(node.closest('.own'));
   const pending = Boolean(node.querySelector('.icon-message-pending, [class*="message-pending"]'));
   const failed = Boolean(node.querySelector('.icon-message-failed, [class*="message-failed"]'));
-  return { id, own, pending, failed, text: clone ? String(clone.innerText || clone.textContent || '').slice(0, 4200) : '' };
+  const hasMedia = Boolean(node.querySelector('.media-inner, .Photo, .full-media, .thumbnail, video'));
+  return { id, own, pending, failed, hasMedia, text: clone ? String(clone.innerText || clone.textContent || '').slice(0, 4200) : '' };
 }).filter((item) => item.id))()`;
 
 // Telegram Web A читає адресу з посилання лише під час запуску застосунку: зміна одного фрагмента (#…) у відкритій вкладці
@@ -216,8 +221,8 @@ async function waitForOpenChat(page, shouldAbort, deadlineAt) {
 }
 
 // Поле повідомлення складається з абзаців `<p>` (кожен Shift+Enter — новий), тож innerText дає подвійні переноси: текст збираємо по абзацах.
-function composerText(page) {
-  return page.evaluate(`(() => { const node = document.querySelector('#editable-message-text'); if (!node) return '';
+function composerText(page, selector = '#editable-message-text') {
+  return page.evaluate(`(() => { const node = document.querySelector(${JSON.stringify(selector)}); if (!node) return '';
     const clone = node.cloneNode(true);
     clone.querySelectorAll('img[alt]').forEach((img) => { const alt = img.getAttribute('alt'); if (alt) img.replaceWith(document.createTextNode(alt)); });
     const blocks = [...clone.children].filter((child) => child.tagName === 'P' || child.tagName === 'DIV');
@@ -255,7 +260,10 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
   if (!base) return { kind: 'blocked', reason: 'cdp_not_configured' };
   const text = normalizeText(task?.material?.text);
   if (!text) return { kind: 'blocked', reason: 'stale_precondition' };
+  const media = task?.material?.media?.base64 ? task.material.media : null;
   if (!verifyOnly && Array.from(text).length > MAX_MESSAGE_CHARS) return { kind: 'blocked', reason: 'telegram_text_too_long' };
+  // Підпис до фото в Telegram — до 1024 символів: довший не обрізаємо, а не надсилаємо.
+  if (!verifyOnly && media && Array.from(text).length > MAX_CAPTION_CHARS) return { kind: 'blocked', reason: 'telegram_caption_too_long' };
   const target = telegramOpenTarget(task?.target?.expectedLink);
   if (!target) return { kind: 'blocked', reason: 'telegram_chat_missing', detail: 'link_not_recognised' };
   const found = await findTelegramPage(base);
@@ -353,12 +361,29 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     }
     if (shouldAbort()) return withScan({ kind: 'blocked', reason: 'cancelled' });
 
-    // 5. Текст у поле повідомлення (рядки через Shift+Enter) і звірка з оригіналом.
-    onStep('text', 'вводжу текст');
+    // 5. Фото (якщо є): вставка в поле відкриває вікно «Send Photo» з власним полем підпису. Далі текст (рядки через Shift+Enter) і звірка.
     const before = await page.evaluate(READ_MESSAGES_JS);
     const beforeIds = new Set(before.map((item) => item.id));
-    if (!await page.click(`document.querySelector('#editable-message-text')`)) return withScan({ kind: 'blocked', reason: 'telegram_composer_not_found' });
-    await page.evaluate(`(() => { const node = document.querySelector('#editable-message-text'); node.focus(); const range = document.createRange(); range.selectNodeContents(node);
+    let field = '#editable-message-text';
+    if (media) {
+      onStep('photo', 'додаю фото');
+      const pasted = await page.evaluate(`(() => { const node = document.querySelector('#editable-message-text'); if (!node || typeof DataTransfer === 'undefined') return false;
+        try { const raw = atob(${JSON.stringify(String(media.base64))}); const bytes = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+          const file = new File([bytes], ${JSON.stringify(String(media.fileName || 'work-os.jpg'))}, { type: ${JSON.stringify(String(media.contentType || 'image/jpeg'))} });
+          const transfer = new DataTransfer(); transfer.items.add(file); node.focus();
+          node.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true })); return true; } catch { return false; } })()`);
+      let opened = false;
+      for (let attempt = 0; pasted && attempt < 40 && !opened; attempt += 1) {
+        opened = Boolean(await page.evaluate(`Boolean(document.querySelector('.Modal #editable-message-text-modal'))`));
+        if (!opened) await sleep(400);
+      }
+      if (!opened) { await discardAttachment(page); return withScan({ kind: 'blocked', reason: 'telegram_attachment_not_opened' }); }
+      await sleep(600);
+      field = '#editable-message-text-modal';
+    }
+    onStep('text', 'вводжу текст');
+    if (!await page.click(`document.querySelector(${JSON.stringify(field)})`)) { if (media) await discardAttachment(page); return withScan({ kind: 'blocked', reason: 'telegram_composer_not_found' }); }
+    await page.evaluate(`(() => { const node = document.querySelector(${JSON.stringify(field)}); node.focus(); const range = document.createRange(); range.selectNodeContents(node);
       const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range); document.execCommand('delete'); return true; })()`);
     const lines = text.split('\n');
     for (let index = 0; index < lines.length; index += 1) {
@@ -366,30 +391,32 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
       if (lines[index]) await client.send('Input.insertText', { text: lines[index] });
     }
     await sleep(400);
-    if (normalizeText(await composerText(page)) !== text) return withScan({ kind: 'blocked', reason: 'telegram_text_mismatch' });
-    if (Date.now() >= deadlineAt) return withScan({ kind: 'blocked', reason: 'autopost_budget_exhausted' });
+    if (normalizeText(await composerText(page, field)) !== text) { if (media) await discardAttachment(page); return withScan({ kind: 'blocked', reason: 'telegram_text_mismatch' }); }
+    if (Date.now() >= deadlineAt) { if (media) await discardAttachment(page); return withScan({ kind: 'blocked', reason: 'autopost_budget_exhausted' }); }
     // До кнопки відправки ще можна відмовитись, після неї ні.
-    if (shouldAbort()) return withScan({ kind: 'blocked', reason: 'cancelled' });
+    if (shouldAbort()) { if (media) await discardAttachment(page); return withScan({ kind: 'blocked', reason: 'cancelled' }); }
 
-    // 6. Надіслати.
+    // 6. Надіслати: у вікні фото — головна кнопка вікна, без нього — кнопка поля повідомлення.
     onStep('send', 'надсилаю');
-    const clicked = await page.click(`(() => { const buttons = [...document.querySelectorAll('#MiddleColumn button, #MiddleColumn .Button')];
-      return buttons.find((el) => el.classList.contains('send') && !el.disabled) || buttons.find((el) => /^(send message|надіслати повідомлення|отправить сообщение)$/iu.test(el.getAttribute('aria-label') || el.title || '')) || null; })()`);
+    const clicked = await page.click(media
+      ? `[...document.querySelectorAll('.Modal button.primary')].filter((el) => !el.disabled && el.getBoundingClientRect().width > 0).pop() || null`
+      : `(() => { const buttons = [...document.querySelectorAll('#MiddleColumn button, #MiddleColumn .Button')];
+        return buttons.find((el) => el.classList.contains('send') && !el.disabled) || buttons.find((el) => /^(send message|надіслати повідомлення|отправить сообщение)$/iu.test(el.getAttribute('aria-label') || el.title || '')) || null; })()`);
     if (!clicked) {
       await page.key('Enter', 'Enter', 13);
     }
 
-    // 7. Підтвердження: своє повідомлення з цим текстом у стрічці цієї гілки, вже не «годинник».
+    // 7. Підтвердження: своє повідомлення з цим текстом у стрічці цієї гілки, вже не «годинник». З фото чекаємо довше: воно вантажиться.
     onStep('confirm', 'перевіряю, що повідомлення в чаті');
     const wanted = squash(text).slice(0, 40);
-    const confirmDeadline = Date.now() + SEND_CONFIRM_TIMEOUT_MS;
+    const confirmDeadline = Date.now() + (media ? PHOTO_CONFIRM_TIMEOUT_MS : SEND_CONFIRM_TIMEOUT_MS);
     while (Date.now() < confirmDeadline) {
       await sleep(POLL_MS);
       const messages = await page.evaluate(READ_MESSAGES_JS);
       const mine = messages.find((item) => !beforeIds.has(item.id) && item.own && squash(item.text).startsWith(wanted));
       if (mine) {
-        if (mine.failed) return withScan({ kind: 'blocked', reason: 'telegram_send_failed' });
-        if (!mine.pending) return { kind: 'result', result: { status: 'sent', observedTarget, targetVerified: true, sendConfirmed: true, scan } };
+        if (mine.failed) return withScan({ kind: 'blocked', reason: media ? 'telegram_attachment_failed' : 'telegram_send_failed' });
+        if (!mine.pending) return { kind: 'result', result: { status: 'sent', observedTarget, targetVerified: true, sendConfirmed: true, mediaConfirmed: media ? mine.hasMedia : undefined, scan } };
         continue;
       }
       const notice = (await page.evaluate(READ_STATE_JS)).notices || '';
@@ -399,6 +426,7 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     // Не вдалось підтвердити: зберігаємо, що саме було на екрані (знімок поруч із журналом runner) і стан поля, кнопки й сповіщень.
     const diagnostic = await page.evaluate(`(() => { const composer = document.querySelector('#editable-message-text');
       return { composerChars: composer ? (composer.innerText || '').length : -1, own: document.querySelectorAll('#MiddleColumn .Message.own').length, messages: document.querySelectorAll('#MiddleColumn .Message').length,
+        modalOpen: Boolean(document.querySelector('.Modal #editable-message-text-modal')),
         sendButtons: [...document.querySelectorAll('#MiddleColumn button.send')].map((b) => String(b.className).slice(0, 60) + (b.disabled ? ' disabled' : '')),
         notices: [...document.querySelectorAll('.Notification, .modal-dialog')].map((n) => (n.innerText || '').replace(/\\s+/g, ' ').slice(0, 120)) }; })()`).catch(() => null);
     try {
@@ -414,6 +442,16 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     try { await client.send('Emulation.clearDeviceMetricsOverride'); } catch { /* вкладка вже закрита */ }
     page.close();
   }
+}
+
+// Закрити вікно вкладення без відправки (кнопка «Discard attachments» або Escape): фото не мусить лишитись у полі до наступної задачі.
+async function discardAttachment(page) {
+  try {
+    const clicked = await page.click(`[...document.querySelectorAll('.Modal button')].find((el) => /discard attachments|скасувати вкладення|відхилити вкладення|отменить вложения/iu.test(el.getAttribute('aria-label') || el.title || ''))`);
+    if (!clicked) await page.key('Escape', 'Escape', 27);
+    await sleep(500);
+    if (await page.evaluate(`Boolean(document.querySelector('.Modal #editable-message-text-modal'))`)) await page.key('Escape', 'Escape', 27);
+  } catch { /* вкладка вже закрита */ }
 }
 
 // Список гілок форуму. У режимі гілок їх дає ліва панель (`.Topic`); у режимі «як повідомлення» у стрічці видно лише пігулки гілок з

@@ -1,38 +1,51 @@
 import { cleanLibraryPlatforms } from './library.ts';
-import { readPublicationAdvertisementSelection } from './chats/advertisement-selection.ts';
+import { rankPublicationAdvertisements, readPublicationAdvertisementSelection, type PublicationAdvertisementRow } from './chats/advertisement-selection.ts';
+import { canonicalDirections } from './directions.ts';
 import { publicationAvailability, recordConfirmedWhatsappAutopostPublication } from './chats/publication.ts';
 import { businessDate } from './business-time.ts';
 import { readChatState } from './chats/state.ts';
 import { isoWeekday, profilePublicationEligibilitySql } from './chats/profile.ts';
 import { settleAutopostFailure } from './messenger-automation-outcome.ts';
-import { readWhatsAppAutopostImage } from './whatsapp-autopost-media.ts';
-import { cleanWhatsAppAutopostCaption, readWhatsAppAutopostCaption } from './whatsapp-autopost-caption.ts';
+import { hasWhatsAppAutopostImage, readWhatsAppAutopostImage, type AutopostMaterialScope } from './whatsapp-autopost-media.ts';
+import { TELEGRAM_PHOTO_CAPTION_LIMIT, TELEGRAM_TEXT_LIMIT, cleanWhatsAppAutopostCaption, readWhatsAppAutopostCaption, textLength } from './whatsapp-autopost-caption.ts';
 import { applyTelegramScan, parseTelegramScan, readTelegramAutopostAccount, readTelegramThreadChoices, readTelegramThreadState, type TelegramThreadChoice, type TelegramTopic } from './telegram-autopost.ts';
 
 const VIBER_SAFE_LEASE_SECONDS=90;
-const WHATSAPP_CUSTOM_AUTOPOST_TITLE='[Системний] WhatsApp автопост · власний текст';
+const CUSTOM_AUTOPOST_TITLE:Record<AutopostMaterialScope,string>={
+  shared:'[Системний] WhatsApp автопост · власний текст',
+  telegram:'[Системний] Telegram автопост · власний текст',
+};
+const CUSTOM_AUTOPOST_PLATFORMS:Record<AutopostMaterialScope,string>={shared:'["whatsapp"]',telegram:'["telegram"]'};
 
-function customWhatsAppAutopostMaterialId(userId:string){
-  return 'wa_autopost_custom_'+userId;
+function customAutopostMaterialId(userId:string,scope:AutopostMaterialScope='shared'){
+  return (scope==='telegram'?'tg_autopost_custom_':'wa_autopost_custom_')+userId;
+}
+/** Чи це системний матеріал із власним текстом автопосту (спільний WhatsApp/Viber або власний Telegram). */
+function isCustomAutopostMaterial(userId:string,id:string){
+  return id===customAutopostMaterialId(userId,'shared')||id===customAutopostMaterialId(userId,'telegram');
 }
 
-async function ensureCustomWhatsAppAutopostMaterial(db:D1Database,userId:string,text:string,now:number){
-  const id=customWhatsAppAutopostMaterialId(userId);
+async function ensureCustomAutopostMaterial(db:D1Database,userId:string,text:string,now:number,scope:AutopostMaterialScope='shared'){
+  const id=customAutopostMaterialId(userId,scope);
+  const title=CUSTOM_AUTOPOST_TITLE[scope];
+  const tags=scope==='telegram'?'["system","telegram-autopost"]':'["system","whatsapp-autopost"]';
+  const note=scope==='telegram'?'Системний material для власного Telegram autopost caption.':'Системний material для власного WhatsApp autopost caption.';
+  const platforms=CUSTOM_AUTOPOST_PLATFORMS[scope];
   const existing=await db.prepare(`SELECT version,uk_text FROM library_items WHERE id=?1 AND user_id=?2 LIMIT 1`)
     .bind(id,userId).first<{version:number;uk_text:string}>();
   if(!existing){
     await db.prepare(`INSERT INTO library_items
       (id,user_id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,archived_at,created_at,updated_at)
-      VALUES (?1,?2,'advertisement','advertisement',1,?3,?4,'','Системний material для власного WhatsApp autopost caption.','["system","whatsapp-autopost"]','["whatsapp"]',?5,?5,?5)`)
-      .bind(id,userId,WHATSAPP_CUSTOM_AUTOPOST_TITLE,text,now).run();
+      VALUES (?1,?2,'advertisement','advertisement',1,?3,?4,'',?5,?6,?7,?8,?8,?8)`)
+      .bind(id,userId,title,text,note,tags,platforms,now).run();
     return {id,version:1};
   }
   if(existing.uk_text!==text){
     await db.prepare(`UPDATE library_items
-      SET uk_text=?1,ru_text='',title=?2,notes='Системний material для власного WhatsApp autopost caption.',
-        tags_json='["system","whatsapp-autopost"]',platforms_json='["whatsapp"]',archived_at=?3,
-        version=version+1,updated_at=?3
-      WHERE id=?4 AND user_id=?5`).bind(text,WHATSAPP_CUSTOM_AUTOPOST_TITLE,now,id,userId).run();
+      SET uk_text=?1,ru_text='',title=?2,notes=?3,
+        tags_json=?4,platforms_json=?5,archived_at=?6,
+        version=version+1,updated_at=?6
+      WHERE id=?7 AND user_id=?8`).bind(text,title,note,tags,platforms,now,id,userId).run();
     return {id,version:Number(existing.version)+1};
   }
   await db.prepare(`UPDATE library_items SET archived_at=?1,updated_at=?1 WHERE id=?2 AND user_id=?3`)
@@ -267,7 +280,7 @@ async function assertTelegramJobAllowed(db:D1Database,userId:string,chatId:strin
 }
 
 export async function createWhatsAppAutopostJob(db:D1Database,userId:string,input:{
-  requestKey:unknown;chatId:unknown;advertisementId?:unknown;language?:unknown;caption?:unknown;platform?:unknown;telegramAccountId?:unknown;
+  requestKey:unknown;chatId:unknown;advertisementId?:unknown;language?:unknown;caption?:unknown;platform?:unknown;telegramAccountId?:unknown;telegramHasPhoto?:boolean;
 },now:number,date:string):Promise<WhatsAppAutopostJob>{
   const requestKey=cleanRequestKey(input.requestKey);
   const chatId=typeof input.chatId==='string'?input.chatId.trim():'';
@@ -295,13 +308,13 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
 
   // Власний текст автопоста оператор задає на вкладці автопоста WhatsApp разом із фото: він спільний для WhatsApp і Viber.
   // Без нього підпис береться з оголошення в Бібліотеці.
-  // Telegram публікує текст оголошення з Бібліотеки, як при ручній публікації: спільного фото й власного тексту в нього немає.
+  // Telegram має власні фото й текст (вкладка «Автопост» Telegram), не спільні з WhatsApp і Viber; без власного тексту — оголошення з Бібліотеки.
+  const scope:AutopostMaterialScope=platform==='telegram'?'telegram':'shared';
   let captionOverride='';
-  if(platform==='telegram'){/* без власного тексту */}
-  else if(input.caption!==undefined){
+  if(input.caption!==undefined){
     try{captionOverride=cleanWhatsAppAutopostCaption(input.caption);}
     catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
-  }else captionOverride=(await readWhatsAppAutopostCaption(db,userId))?.text||'';
+  }else captionOverride=(await readWhatsAppAutopostCaption(db,userId,scope))?.text||'';
 
   // З власним текстом оголошення не вибираються, тож список матеріалів і «використане сьогодні» не читаємо (в партії це
   // давало O(n²) читань: кожна нова задача перечитувала всі вже створені).
@@ -316,7 +329,7 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
   let payload='';
 
   if(captionOverride){
-    const custom=await ensureCustomWhatsAppAutopostMaterial(db,userId,captionOverride,now);
+    const custom=await ensureCustomAutopostMaterial(db,userId,captionOverride,now,scope);
     materialId=custom.id;
     materialVersion=custom.version;
     language=requestedLanguage||selection.profileLanguage||'uk';
@@ -341,6 +354,13 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
     payload=libraryPayload;
   }
 
+  // Telegram: підпис до фото не довший за 1024 символи, текст без фото за 4096. Довший не обрізаємо, а не ставимо в чергу.
+  if(platform==='telegram'){
+    const hasPhoto=typeof input.telegramHasPhoto==='boolean'?input.telegramHasPhoto:await hasWhatsAppAutopostImage(db,userId,'telegram');
+    const length=textLength(payload);
+    if(hasPhoto&&length>TELEGRAM_PHOTO_CAPTION_LIMIT)throw new MessengerAutomationError(`Текст задовгий для підпису до фото: ${length} із ${TELEGRAM_PHOTO_CAPTION_LIMIT}.`,409,'caption_too_long');
+    if(length>TELEGRAM_TEXT_LIMIT)throw new MessengerAutomationError(`Текст довший за ліміт Telegram: ${length} із ${TELEGRAM_TEXT_LIMIT}.`,409,'text_too_long');
+  }
   const id=crypto.randomUUID();
   const activeKey=`${userId}:${platform}:autopost:${chatId}:${date}`;
   try{
@@ -395,7 +415,7 @@ export async function createAutopostVerifyJob(db:D1Database,userId:string,origin
  * що й `createWhatsAppAutopostBatch`) і чому решта «Для публікації» не йде. Один запит по чатах платформи; рахується при відкритті
  * вкладки й після дій, а не за таймером.
  */
-export type AutopostBucket='ready'|'decision'|'tried'|'published'|'rules'|'snoozed'|'queued'|'other'|'thread'|'schedule';
+export type AutopostBucket='ready'|'decision'|'tried'|'published'|'rules'|'snoozed'|'queued'|'other'|'thread'|'schedule'|'toolong';
 export type AutopostPlan={
   total:number;ready:number;publishedToday:number;queued:number;decision:number;tried:number;snoozed:number;
   rules:number;rulesNextDate:string|null;other:number;
@@ -407,6 +427,8 @@ export type AutopostPlan={
   reasons:Record<string,{code:string|null;observed:string|null;next:string|null}>;
   /** Лише Telegram: скільки чатів чекають вибору гілки й у розкладі, і самі чати з гілками, з яких власник вибирає. */
   thread?:number;schedule?:number;threadChoices?:TelegramThreadChoice[];
+  /** Лише Telegram: чати, чий текст із Бібліотеки задовгий для підпису до фото (з фото вони в партію не йдуть). */
+  tooLong?:number;tooLongChats?:Array<{id:string;name:string;length:number}>;
 };
 export async function readAutopostPlan(db:D1Database,userId:string,platformInput:unknown,now:number,date:string,telegramAccountId:string|null=null):Promise<AutopostPlan>{
   const platform=cleanAutopostPlatform(platformInput);
@@ -439,7 +461,7 @@ export async function readAutopostPlan(db:D1Database,userId:string,platformInput
   const ready:Array<{id:string;name:string;last:string}>=[];
   for(const row of rows.results){
     plan.total+=1;
-    plan.buckets[row.id]=(['ready','decision','tried','published','rules','snoozed','queued','thread','schedule'].includes(row.bucket)?row.bucket:'other') as AutopostBucket;
+    plan.buckets[row.id]=(['ready','decision','tried','published','rules','snoozed','queued','thread','schedule','toolong'].includes(row.bucket)?row.bucket:'other') as AutopostBucket;
     if(row.bucket==='decision'||row.bucket==='tried')plan.reasons[row.id]={code:row.code,observed:row.observed,next:null};
     else if(row.bucket==='rules')plan.reasons[row.id]={code:null,observed:null,next:row.next_allowed_on&&row.next_allowed_on>date?row.next_allowed_on:null};
     switch(row.bucket){
@@ -457,6 +479,37 @@ export async function readAutopostPlan(db:D1Database,userId:string,platformInput
       case 'ready':ready.push({id:row.id,name:row.name,last:row.last_published});break;
       default:plan.other+=1;
     }
+  }
+  // Telegram із фото: текст Бібліотеки довший за 1024 символи не влізе в підпис, такі чати до запуску виходять із «Готових».
+  if(telegram&&ready.length&&await hasWhatsAppAutopostImage(db,userId,'telegram')&&!(await readWhatsAppAutopostCaption(db,userId,'telegram'))?.text){
+    const [ads,profiles]=await Promise.all([
+      db.prepare(`SELECT id,title,uk_text,ru_text,notes,tags_json,platforms_json,updated_at FROM library_items
+        WHERE user_id=?1 AND kind='advertisement' AND archived_at IS NULL ORDER BY updated_at DESC,title LIMIT 500`).bind(userId).all<PublicationAdvertisementRow>(),
+      db.prepare(`SELECT c.id AS id,p.language AS language,p.directions_json AS directions_json,p.review_status AS review_status
+        FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id
+        WHERE c.user_id=?1 AND c.platform='telegram' AND c.telegram_account_id=?2 AND c.workflow_status='ready'`).bind(userId,telegramAccountId).all<{id:string;language:string|null;directions_json:string|null;review_status:string|null}>(),
+    ]);
+    const profileById=new Map(profiles.results.map(row=>[row.id,row]));
+    const tooLong:Array<{id:string;name:string;length:number}>=[];
+    for(const chat of ready.slice()){
+      const profile=profileById.get(chat.id);
+      const profileLanguage=profile?.language==='uk'||profile?.language==='ru'?profile.language:null;
+      const items=rankPublicationAdvertisements(ads.results,{
+        platform:'telegram',profileLanguage,profileDirections:canonicalDirections(parseList(profile?.directions_json||'[]')),
+        profileConfirmed:profile?.review_status==='confirmed',usedToday:new Set(),
+      });
+      const item=items.find(candidate=>candidate.recommended&&candidate.selectable)||items.find(candidate=>candidate.selectable&&candidate.directionMatch!=='other')||items.find(candidate=>candidate.selectable);
+      const language=item?(profileLanguage&&(profileLanguage==='uk'?item.ukText:item.ruText).trim()?profileLanguage:item.suggestedLanguage):null;
+      const text=item&&language?(language==='uk'?item.ukText:item.ruText).trim():'';
+      const length=textLength(text);
+      if(length>TELEGRAM_PHOTO_CAPTION_LIMIT){
+        tooLong.push({id:chat.id,name:chat.name,length});
+        plan.buckets[chat.id]='toolong';
+        ready.splice(ready.findIndex(entry=>entry.id===chat.id),1);
+      }
+    }
+    plan.tooLong=tooLong.length;
+    plan.tooLongChats=tooLong.slice(0,100);
   }
   ready.sort((a,b)=>a.last<b.last?-1:a.last>b.last?1:a.id<b.id?-1:a.id>b.id?1:0);
   plan.ready=ready.length;
@@ -506,11 +559,13 @@ export async function createWhatsAppAutopostBatch(
   const rawLimit=Number(input.limit);
   const limit=Number.isSafeInteger(rawLimit)?Math.max(1,Math.min(AUTOPOST_BATCH_MAX,rawLimit)):AUTOPOST_BATCH_DEFAULT;
   let caption='';
-  if(platform==='telegram'){/* текст оголошення береться з Бібліотеки для кожного чату */}
-  else if(input.caption!==undefined){
+  // Telegram: власні фото й текст (окремі від WhatsApp і Viber); без тексту — оголошення з Бібліотеки для кожного чату.
+  const materialScope:AutopostMaterialScope=platform==='telegram'?'telegram':'shared';
+  const telegramHasPhoto=platform==='telegram'?await hasWhatsAppAutopostImage(db,userId,'telegram'):false;
+  if(input.caption!==undefined){
     try{caption=cleanWhatsAppAutopostCaption(input.caption);}
     catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
-  }else caption=(await readWhatsAppAutopostCaption(db,userId))?.text||'';
+  }else caption=(await readWhatsAppAutopostCaption(db,userId,materialScope))?.text||'';
   // Чати, які оператор прибрав зі списку партії «лише на цей запуск».
   const excluded=JSON.stringify(Array.isArray(input.exclude)?input.exclude.filter((id):id is string=>typeof id==='string'&&id.length>0&&id.length<=100).slice(0,200):[]);
   const weekday=isoWeekday(date);
@@ -558,6 +613,7 @@ export async function createWhatsAppAutopostBatch(
           caption,
           platform,
           telegramAccountId,
+          telegramHasPhoto,
         },now,date));
       }catch(error){
         if(error instanceof MessengerAutomationError&&[404,409].includes(error.status)){
@@ -738,7 +794,7 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
     const discovery=await db.prepare(`SELECT decision FROM chat_discovery_candidates
       WHERE user_id=?1 AND imported_chat_id=?2 AND id NOT LIKE 'waiting-%' ORDER BY updated_at DESC,id LIMIT 1`)
       .bind(userId,row.chat_id).first<{decision:string}>();
-    const customMaterial=row.advertisement_id===customWhatsAppAutopostMaterialId(userId);
+    const customMaterial=isCustomAutopostMaterial(userId,row.advertisement_id);
     const selection=chat ? await readPublicationAdvertisementSelection(db,{userId,chatId:row.chat_id,date:row.published_on,excludeAutomationJobId:row.id,withItems:!customMaterial}) : null;
     const selected=selection?.items.find(item=>item.id===row.advertisement_id);
     const platform:AutopostPlatform|null=chat&&(chat.platform==='whatsapp'||chat.platform==='viber'||chat.platform==='telegram')?chat.platform:null;
@@ -749,6 +805,12 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
         if(!(error instanceof MessengerAutomationError))throw error;
         telegramProblem=error.code;
       }
+    }
+    // Telegram: фото могли додати після створення задачі, а підпис до фото не довший за 1024 символи.
+    if(platform==='telegram'&&row.payload_text.trim()&&textLength(row.payload_text)>TELEGRAM_PHOTO_CAPTION_LIMIT&&!row.request_key.startsWith('verify_')&&await hasWhatsAppAutopostImage(db,userId,'telegram')){
+      onSkip?.(row,'caption_too_long');
+      await failWhatsAppAutopostJob(db,userId,row,'caption_too_long',now);
+      continue;
     }
     // Гілку чату з форумом ще не вибрано (або її скинуло: вона зникла чи закрилась): це рішення власника, а не збій чату.
     if(telegramProblem==='thread_required'){
@@ -780,7 +842,7 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
     if(claimed.results.length!==1)continue;
     // Фото одне на обидві платформи (його оператор додає на вкладці автопоста WhatsApp); підпис Viber бере з Бібліотеки.
     const verifyMode=row.request_key.startsWith('verify_');
-    const image=verifyMode||platform==='telegram'?null:await readWhatsAppAutopostImage(db,userId,true);
+    const image=verifyMode?null:await readWhatsAppAutopostImage(db,userId,true,platform==='telegram'?'telegram':'shared');
     let telegram:WhatsAppAutopostTask['telegram']|undefined;
     if(platform==='telegram'&&chat?.telegram_account_id){
       const [account,thread]=await Promise.all([readTelegramAutopostAccount(db,userId,chat.telegram_account_id),readTelegramThreadState(db,userId,row.chat_id)]);
