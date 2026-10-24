@@ -13,7 +13,9 @@ export type AutopostBatch = { id: string; startedAt: number; total: number; sent
 
 type LiveStep = { jobId: string; name: string; text: string; startedAt: number; at: number; verify: boolean };
 const STALE_STEP_MS = 5 * 60_000;
-const OUTCOME_LABEL: Record<string, string> = { archived: 'в архів', waiting: 'в «Очікування»', snoozed: 'на завтра', skipped: 'пропущено', resolved: 'вирішено вручну' };
+/** Чому чат відкладено (не збій і не архів). */
+const POSTPONE_REASON: Record<string, string> = { telegram_chat_restricted: 'зараз писати не можна', telegram_slow_mode: 'повільний режим', slow_mode: 'повільний режим', viber_slow_mode: 'повільний режим', rate_limited: 'ліміт частоти' };
+const OUTCOME_LABEL: Record<string, string> = { archived: 'в архів', waiting: 'в «Очікування»', snoozed: 'відкладено', skipped: 'пропущено', resolved: 'вирішено вручну' };
 
 // Останній крок кожної платформи тримається поза компонентом: повідомлення приходять і тоді, коли вкладка «Автопост» закрита, а
 // відкрита пізніше картка одразу показує поточний крок, не чекаючи наступного.
@@ -57,6 +59,7 @@ function eta(seconds: number): string {
 function entryLabel(entry: AutopostBatchEntry): { icon: 'ok' | 'bad' | 'skip'; text: string } {
   if (entry.status === 'sent') return { icon: 'ok', text: `відправлено о ${clock(entry.at)}` };
   const group = autopostReasonGroup(entry.code).label;
+  if (entry.outcome === 'snoozed' && entry.code && POSTPONE_REASON[entry.code]) return { icon: 'skip', text: `відкладено · ${POSTPONE_REASON[entry.code]}` };
   if (entry.outcome && entry.outcome !== 'needs_decision') return { icon: 'skip', text: `${OUTCOME_LABEL[entry.outcome] || 'пропущено'}${entry.code ? ` · ${group.toLowerCase()}` : ''}` };
   return { icon: 'bad', text: group.toLowerCase() };
 }

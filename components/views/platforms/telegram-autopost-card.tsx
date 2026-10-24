@@ -113,13 +113,13 @@ function TooLongChats({ chats, total }: { chats: Array<{ id: string; name: strin
 }
 
 /** Чати з гілками, для яких гілку ще не вибрано: зі списком гілок (закриті сірі, вибрати їх не можна). Вибір зберігається. */
-function ThreadChoices({ choices, busy, onChoose, onScan }: { choices: TelegramThreadChoice[]; busy: boolean; onChoose: (chatId: string, threadId: string | null) => void; onScan: () => void }) {
+function ThreadChoices({ choices, busy, onChoose, onScan }: { choices: TelegramThreadChoice[]; busy: boolean; onChoose: (chatId: string, threadId: string | null) => void; onScan: (chatId?: string) => void }) {
   if (!choices.length) return null;
   return (
     <section className="flex flex-col gap-2" aria-label="Чати, для яких треба вибрати гілку">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="m-0 text-sm font-medium">Вибрати гілку <span className="font-mono font-normal tabular-nums text-ink-2">{choices.length}</span></h3>
-        <Button variant="outline" size="sm" disabled={busy} title="Швидко відкриє ці чати й доповнить списки гілок; місць «на годину» не займає" onClick={onScan}>Знайти гілки</Button>
+        <Button variant="outline" size="sm" disabled={busy} title="Швидко відкриє ці чати й доповнить списки гілок; місць «на годину» не займає" onClick={() => onScan()}>Знайти гілки</Button>
       </div>
       <p className="m-0 text-xs text-ink-2">У цих чатах є гілки. Такі чати в партію не входять і місць «на годину» не займають; чат піде в чергу, щойно ти вибереш гілку, і наступного разу питати не буду. Список гілок може бути неповним: «Знайти гілки» доповнює його.</p>
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
@@ -143,7 +143,9 @@ function ThreadChoices({ choices, busy, onChoose, onScan }: { choices: TelegramT
                   </MenuContent>
                 </Menu>
               ) : <span className="text-xs text-ink-2">Список гілок ще не зібрано</span>}
-              {choice.topics.length && !open.length ? <span className="basis-full text-xs text-ink-2">Писати нікуди: усі гілки закриті. Відклади чат або відкрий гілку в Telegram.</span> : null}
+              <button type="button" disabled={busy} title="Відкриє чат і заново прочитає повний список гілок; місць «на годину» не займає" onClick={() => onScan(choice.chatId)} className="inline-flex min-h-9 items-center rounded-full px-3 text-xs text-ink-2 hover:bg-raised disabled:opacity-45">Перевірити гілки ще раз</button>
+              {choice.restrictedAt ? <span className="basis-full text-xs text-ink-2">Зараз писати не можна (обмеження чату). Гілки відкриті, чат відкладається автоматично.</span> : null}
+              {choice.topics.length && !open.length ? <span className="basis-full text-xs text-ink-2">Усі гілки позначені закритими (значок замка в Telegram). Якщо це не так, перевір гілки ще раз.</span> : null}
             </li>
           );
         })}
@@ -159,7 +161,7 @@ function ThreadChoices({ choices, busy, onChoose, onScan }: { choices: TelegramT
 export function TelegramAutopostCard({ runnerSeen, onScanThreads, material, plan, onLoadPlan, runnerConnected, status, pace, progress, attention, batchNote, binding, busy, onDecide, onDecideMany, onStart, onStop, onReset, onChooseThread, onBind }: {
   /** Від runner приходять події (кроки, стан): він на зв'язку, навіть коли прапорець каналу ще не оновився. */
   runnerSeen: boolean;
-  onScanThreads: () => void;
+  onScanThreads: (chatId?: string) => void;
   /** Власні фото й текст Telegram (не спільні з WhatsApp і Viber). */
   material: AutopostMaterialProps;
   plan: AutopostPlan | null;

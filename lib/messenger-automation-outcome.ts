@@ -1,4 +1,5 @@
 import { businessDate, businessDayStart, shiftBusinessDate } from './business-time.ts';
+import { lessonEpoch } from './leads/domain/time.ts';
 import { chatStateEvent, chatStateTokenSql, readChatState } from './chats/state.ts';
 import { transitionChat } from './chats/transitions.ts';
 import { isSimilarName } from './name-similarity.ts';
@@ -27,7 +28,9 @@ const ARCHIVE_DECIDED = 'Не вдалося опублікувати';
 const ADMIN_ONLY = new Set(['admin_only', 'read_only', 'viber_read_only', 'telegram_read_only']);
 const BANNED = new Set(['whatsapp_removed_from_group', 'viber_banned', 'membership_left', 'telegram_banned']);
 const MISSING = new Set(['invalid_whatsapp_link', 'invalid_viber_link', 'whatsapp_chat_missing', 'viber_chat_missing', 'telegram_chat_missing']);
-const POSTPONE = new Set(['whatsapp_join_retry_later', 'slow_mode', 'rate_limited', 'viber_slow_mode', 'telegram_slow_mode']);
+const POSTPONE = new Set(['whatsapp_join_retry_later', 'slow_mode', 'rate_limited', 'viber_slow_mode', 'telegram_slow_mode',
+  // Telegram: у чаті зараз не можна писати (нічний режим бота, права чату, «лише адміни» на весь чат) — це не закрита гілка і не архів.
+  'telegram_chat_restricted']);
 // Усе, що точно сталося до натискання «Надіслати»: повтор не може дати дубль.
 const RETRY = new Set([
   'page_not_ready', 'whatsapp_messages_loading', 'whatsapp_not_authenticated', 'cdp_unavailable',
@@ -72,17 +75,34 @@ export function tomorrowStart(now: number) {
   return businessDayStart(shiftBusinessDate(businessDate(now), 1));
 }
 
-async function snoozeUntilTomorrow(db: D1Database, userId: string, chatId: string, now: number) {
+/**
+ * Коли чат знову можна пробувати, якщо бот-модератор написав «до 7:00»: найближчий такий час за київським часом, але не пізніше ніж
+ * через добу. Без часу (або з хибним) — початок наступної доби.
+ */
+export function quietResumeAt(now: number, hour: unknown, minute: unknown) {
+  const h = Number(hour);
+  const m = Number(minute ?? 0);
+  if (!Number.isInteger(h) || h < 0 || h > 23 || !Number.isInteger(m) || m < 0 || m > 59) return tomorrowStart(now);
+  const clock = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  const today = businessDate(now);
+  let at = lessonEpoch(today, clock);
+  if (at !== null && at <= now + 300) at = lessonEpoch(shiftBusinessDate(today, 1), clock);
+  return at === null || at - now > 86400 ? tomorrowStart(now) : at;
+}
+
+async function snoozeUntil(db: D1Database, userId: string, chatId: string, until: number, now: number) {
   const chat = await readChatState(db, userId, chatId);
   if (!chat || chat.workflow_status !== 'ready') return false;
   const result = await db.batch([
     db.prepare(`UPDATE chats SET snoozed_until=?1,updated_at=?2
       WHERE id=?3 AND user_id=?4 AND workflow_status='ready' AND ${chatStateTokenSql('chats')}=?5`)
-      .bind(tomorrowStart(now), now, chatId, userId, chat.state_token),
+      .bind(until, now, chatId, userId, chat.state_token),
     chatStateEvent(db, { id: crypto.randomUUID(), userId, chatId, action: 'snooze', now, previous: chat.state_token }),
   ]);
   return Boolean(result[0].meta.changes);
 }
+
+const snoozeUntilTomorrow = (db: D1Database, userId: string, chatId: string, now: number) => snoozeUntil(db, userId, chatId, tomorrowStart(now), now);
 
 async function archiveChat(db: D1Database, userId: string, chatId: string, reason: string, now: number) {
   const chat = await readChatState(db, userId, chatId);
@@ -105,7 +125,7 @@ export async function settleAutopostFailure(
   db: D1Database,
   userId: string,
   job: JobRef,
-  input: { errorCode: string; result: Record<string, unknown>; now: number },
+  input: { errorCode: string; result: Record<string, unknown>; now: number; resume?: { hour: unknown; minute: unknown } | null },
 ): Promise<{ outcome: AutopostOutcome | 'retry'; attempts: number }> {
   const { errorCode, now } = input;
   const result = { ...input.result, errorCode };
@@ -122,7 +142,10 @@ export async function settleAutopostFailure(
   }
   if (policy.kind === 'archive') outcome = await archiveChat(db, userId, job.chat_id, policy.reason, now) ? 'archived' : 'needs_decision';
   else if (policy.kind === 'waiting') outcome = await moveToWaiting(db, userId, job.chat_id, now) ? 'waiting' : 'needs_decision';
-  else if (policy.kind === 'postpone') outcome = await snoozeUntilTomorrow(db, userId, job.chat_id, now) ? 'snoozed' : 'skipped';
+  else if (policy.kind === 'postpone') {
+    const until = input.resume ? quietResumeAt(now, input.resume.hour, input.resume.minute) : tomorrowStart(now);
+    outcome = await snoozeUntil(db, userId, job.chat_id, until, now) ? 'snoozed' : 'skipped';
+  }
   else if (policy.kind === 'thread') outcome = 'needs_thread';
   else if (policy.kind === 'retry' || policy.kind === 'skip') outcome = 'skipped';
   else outcome = 'needs_decision';

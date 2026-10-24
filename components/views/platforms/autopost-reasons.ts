@@ -59,6 +59,7 @@ const REASONS: Record<string, string> = {
   telegram_banned: 'Telegram не пускає в цей чат: акаунт заблоковано в ньому.',
   telegram_read_only: 'У цьому чаті Telegram писати можуть лише адміни.',
   telegram_slow_mode: 'У чаті Telegram увімкнений повільний режим, чат відкладено до завтра.',
+  telegram_chat_restricted: 'Зараз у чаті Telegram писати не можна (нічний режим, повільний режим або права чату). Чат відкладено, не заархівовано; гілки лишаються відкритими.',
   telegram_flood_wait: 'Telegram просить зачекати. Усю чергу Telegram поставлено на паузу.',
   telegram_send_failed: 'Telegram показав помилку відправки. Перевір чат вручну.',
   telegram_text_too_long: 'Текст оголошення довший за ліміт Telegram (4096 символів).',

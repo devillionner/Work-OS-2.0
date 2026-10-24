@@ -1116,7 +1116,7 @@ async function handleTelegramAutopostTask(ws,job){
     return;
   }
   sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',
-    observedTarget:automated.observedTarget||job.target?.expectedName,targetVerified:reason!=='target_unconfirmed'&&reason!=='telegram_chat_missing',sendConfirmed:false,sendAttempted:automated.sendAttempted===true,errorCode:reason,scan:automated.scan});
+    observedTarget:automated.observedTarget||job.target?.expectedName,targetVerified:reason!=='target_unconfirmed'&&reason!=='telegram_chat_missing',sendConfirmed:false,sendAttempted:automated.sendAttempted===true,errorCode:reason,scan:automated.scan,...(Number.isInteger(automated.resumeHour)?{resumeHour:automated.resumeHour,resumeMinute:automated.resumeMinute}:{})});
 }
 
 // Проблема середовища чи системний збій WhatsApp Web: задача лишається в черзі без витраченої спроби, DO не видає нічого до `untilMs`,

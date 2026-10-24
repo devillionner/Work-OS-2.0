@@ -948,11 +948,11 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     toast.push({ message: 'Фото й текст WhatsApp і Viber скопійовано в Telegram. Далі вони окремі: зміни в одному місці не чіпають інше.' });
   });
   /** «Знайти гілки»: швидкий прохід по чатах, про які невідомо, чи є в них гілки, і по чатах, що чекають вибору гілки. */
-  const scanTelegramThreads = () => { if (platform !== 'telegram' || !accountId) return Promise.resolve(); return wa('telegram-scan', async () => {
-    const body = await telegramAction('telegram-scan-threads') as { created?: number; skipped?: number };
+  const scanTelegramThreads = (chatId?: string) => { if (platform !== 'telegram' || !accountId) return Promise.resolve(); return wa('telegram-scan', async () => {
+    const body = await telegramAction('telegram-scan-threads', chatId ? { chatId } : undefined) as { created?: number; skipped?: number };
     const created = Number(body.created || 0);
     const fresh = await readTelegramAutopost(); if (fresh) applyTelegramAutopost(fresh);
-    toast.push({ message: created ? `Шукаю гілки в ${created} чатах. Це не займає місць «на годину»; результат з'явиться в групі «Вибрати гілку».` : 'Усі чати вже перевірено на гілки.' });
+    toast.push({ message: created ? (chatId ? 'Перечитую гілки чату. Це не займає місць «на годину»; результат з\'явиться в групі «Вибрати гілку».' : `Шукаю гілки в ${created} чатах. Це не займає місць «на годину»; результат з'явиться в групі «Вибрати гілку».`) : chatId ? 'Для цього чату вже є активна задача.' : 'Усі чати вже перевірено на гілки.' });
   }); };
   /** Власник вибрав гілку чату з форумом (null — прибрати вибір). Чат, що чекав саме гілки, одразу стає в чергу автопосту. */
   const chooseTelegramThread = (chatId: string, threadId: string | null) => wa('telegram-thread', async () => {

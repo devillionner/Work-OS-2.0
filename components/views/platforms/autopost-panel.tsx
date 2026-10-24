@@ -29,7 +29,7 @@ export type AutopostPlan = {
   reasons: Record<string, { code: string | null; observed: string | null; next: string | null }>;
 };
 export type AutopostBucket = 'ready' | 'decision' | 'tried' | 'published' | 'rules' | 'snoozed' | 'queued' | 'other' | 'thread' | 'schedule' | 'toolong';
-export type TelegramThreadChoice = { chatId: string; name: string; topics: Array<{ id: string; title: string; closed: boolean }> };
+export type TelegramThreadChoice = { chatId: string; name: string; topics: Array<{ id: string; title: string; closed: boolean }>; /** Коли runner востаннє бачив, що в чаті зараз не можна писати (нічний режим, права чату); null — можна. */ restrictedAt?: number | null };
 export type AutopostReadiness = { tone: 'ok' | 'warn' | 'hot' | 'idle'; text: string };
 export type AutopostMaterialProps = {
   image: WhatsAppAutopostImage | null; imageLoaded: boolean; caption: string; captionLoaded: boolean;

@@ -11,6 +11,7 @@ import {
   createViberSafeNoteJob,
   createAutopostVerifyJob,
   createTelegramScanBatch,
+  createTelegramScanJob,
   createWhatsAppAutopostBatch,
   createWhatsAppAutopostJob,
   readAutopostPlan,
@@ -244,7 +245,16 @@ export async function POST(request:Request):Promise<Response>{
     if(body.action==='telegram-scan-threads'){
       const accountId=await resolveTelegramAccount(env.DB,user.id,typeof body.accountId==='string'?body.accountId:null,now);
       if(!accountId)throw new MessengerAutomationError('Додай або увімкни Telegram-акаунт.',409,'account_missing');
-      const result=await createTelegramScanBatch(env.DB,user.id,accountId,now,businessDate(now));
+      // «Перевірити гілки ще раз» у рядку чату: прохід лише для цього чату (разом із форумами, де вибрано гілку).
+      const oneChat=typeof body.chatId==='string'?body.chatId.trim():'';
+      let result:{created:number;skipped:number};
+      if(oneChat){
+        try{await createTelegramScanJob(env.DB,user.id,oneChat,accountId,now,businessDate(now),null);result={created:1,skipped:0};}
+        catch(error){
+          if(!(error instanceof MessengerAutomationError&&[404,409].includes(error.status)))throw error;
+          result={created:0,skipped:1};
+        }
+      }else result=await createTelegramScanBatch(env.DB,user.id,accountId,now,businessDate(now));
       if(result.created>0)await wakeOwnerChannelAutopost(user.id);
       return json(result);
     }

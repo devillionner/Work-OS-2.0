@@ -990,6 +990,8 @@ export async function releaseClaimedAutopostJobs(db:D1Database,userId:string,now
 
 export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,input:{
   jobId:unknown;status:unknown;observedTarget:unknown;targetVerified:unknown;sendConfirmed:unknown;errorCode?:unknown;scan?:unknown;
+  /** Telegram: бот-модератор написав, до котрої години чат закритий («до 7:00»). */
+  resumeHour?:unknown;resumeMinute?:unknown;
 },now:number){
   const jobId=typeof input.jobId==='string'?input.jobId.trim():'';
   if(!jobId)throw new MessengerAutomationError('WhatsApp autopost задача не вказана.');
@@ -1049,7 +1051,8 @@ export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,in
     );
     const result={requestedStatus:requestedSent?'sent':'failed',observedTarget,targetVerified,sendConfirmed,errorCode};
     // Що далі з чатом (архів, «Очікування», повтор, відкласти, рішення власника), визначає політика за кодом помилки.
-    const settled=await settleAutopostFailure(db,userId,{id:row.id,chat_id:row.chat_id,attempts:Number(row.attempts)||0},{errorCode,result,now});
+    const resume=input.resumeHour===undefined||input.resumeHour===null?null:{hour:input.resumeHour,minute:input.resumeMinute};
+    const settled=await settleAutopostFailure(db,userId,{id:row.id,chat_id:row.chat_id,attempts:Number(row.attempts)||0},{errorCode,result,now,resume});
     return {ok:true,status:settled.outcome==='retry'?'pending':'failed',publicationId:null,result:{...result,outcome:settled.outcome}};
   }
 

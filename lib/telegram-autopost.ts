@@ -3,8 +3,11 @@
 
 export type TelegramTopic = { id: string; title: string; closed: boolean };
 export type TelegramThread = { id: string; title: string };
-/** Що runner бачив у чаті: чи це форум і які в ньому гілки (закриті позначені, писати в них не можна). */
-export type TelegramScan = { forum: boolean; topics: TelegramTopic[] };
+/**
+ * Що runner бачив у чаті: чи це форум і які в ньому гілки (закриті позначені, писати в них не можна). `restricted` — тимчасова заборона писати
+ * в чат узагалі (нічний режим бота, повільний режим, права чату): true ставить позначку, false знімає, відсутнє не чіпає.
+ */
+export type TelegramScan = { forum: boolean; topics: TelegramTopic[]; restricted?: boolean };
 
 export class TelegramAutopostError extends Error {
   status: number;
@@ -41,9 +44,9 @@ export function parseTelegramTopics(value: unknown): TelegramTopic[] {
 
 export function parseTelegramScan(value: unknown): TelegramScan | null {
   if (!value || typeof value !== 'object') return null;
-  const raw = value as { forum?: unknown; topics?: unknown };
+  const raw = value as { forum?: unknown; topics?: unknown; restricted?: unknown };
   if (typeof raw.forum !== 'boolean') return null;
-  return { forum: raw.forum, topics: raw.forum ? parseTelegramTopics(raw.topics) : [] };
+  return { forum: raw.forum, topics: raw.forum ? parseTelegramTopics(raw.topics) : [], ...(typeof raw.restricted === 'boolean' ? { restricted: raw.restricted } : {}) };
 }
 
 type ThreadRow = { telegram_forum: number | null; telegram_thread_id: string | null; telegram_thread_title: string | null; telegram_topics_json: string | null; telegram_topics_at: number | null };
@@ -87,9 +90,12 @@ export async function applyTelegramScan(db: D1Database, userId: string, chatId: 
     if (topic?.closed) { threadId = null; threadTitle = null; }
     else if (topic) threadTitle = topic.title;
   }
-  await db.prepare(`UPDATE chats SET telegram_forum=?1,telegram_thread_id=?2,telegram_thread_title=?3,telegram_topics_json=?4,telegram_topics_at=?5
+  // Позначка «зараз писати не можна»: true — ставимо час, false — знімаємо, не передано — лишаємо як є.
+  const restricted = scan.restricted === undefined ? -1 : scan.restricted ? 1 : 0;
+  await db.prepare(`UPDATE chats SET telegram_forum=?1,telegram_thread_id=?2,telegram_thread_title=?3,telegram_topics_json=?4,telegram_topics_at=?5,
+      telegram_restricted_at=CASE ?8 WHEN 1 THEN ?5 WHEN 0 THEN NULL ELSE telegram_restricted_at END
     WHERE id=?6 AND user_id=?7 AND platform='telegram'`)
-    .bind(scan.forum ? 1 : 0, threadId, threadTitle, scan.forum ? JSON.stringify(topics) : null, now, chatId, userId).run();
+    .bind(scan.forum ? 1 : 0, threadId, threadTitle, scan.forum ? JSON.stringify(topics) : null, now, chatId, userId, restricted).run();
   return { threadLost: Boolean(current.thread && !threadId) };
 }
 
@@ -114,10 +120,10 @@ export async function chooseTelegramThread(db: D1Database, userId: string, chatI
 /** Чати з гілками, для яких гілку ще не вибрано (частковий індекс): група «Вибрати гілку». */
 export async function readTelegramThreadChoices(db: D1Database, userId: string, accountId: string | null) {
   if (!accountId) return [];
-  const rows = await db.prepare(`SELECT id,name,telegram_topics_json FROM chats
+  const rows = await db.prepare(`SELECT id,name,telegram_topics_json,telegram_restricted_at FROM chats
     WHERE user_id=?1 AND platform='telegram' AND telegram_account_id=?2 AND telegram_forum=1 AND telegram_thread_id IS NULL AND workflow_status='ready'
-    ORDER BY name LIMIT 200`).bind(userId, accountId).all<{ id: string; name: string; telegram_topics_json: string | null }>();
-  return (rows.results || []).map((row) => ({ chatId: row.id, name: row.name, topics: parseTelegramTopics(row.telegram_topics_json) }));
+    ORDER BY name LIMIT 200`).bind(userId, accountId).all<{ id: string; name: string; telegram_topics_json: string | null; telegram_restricted_at: number | null }>();
+  return (rows.results || []).map((row) => ({ chatId: row.id, name: row.name, topics: parseTelegramTopics(row.telegram_topics_json), restrictedAt: row.telegram_restricted_at === null ? null : Number(row.telegram_restricted_at) }));
 }
 export type TelegramThreadChoice = Awaited<ReturnType<typeof readTelegramThreadChoices>>[number];
 

@@ -29,6 +29,27 @@ const bannedPattern = /(?:you (?:were|have been) (?:banned|removed|kicked)|you a
 const missingPattern = /(?:no user has the username|username (?:is )?(?:invalid|not occupied)|(?:chat|group|channel) (?:does not exist|doesn['’]?t exist|not found|is unavailable)|не знайдено|не існує|не найден|не существует|invite link (?:is |has )?(?:invalid|expired|been revoked)|посилання[^.]*(?:недійсне|прострочене|скасовано)|ссылка[^.]*(?:недействительна|просрочена|отозвана))/iu;
 // «This channel is private»: акаунт не бачить чат (не учасник, вийшов чи вилучений) — не те саме, що «чату не існує».
 const privatePattern = /(?:(?:chat|group|channel) is private|(?:чат|група|канал) (?:є )?приватн|(?:чат|группа|канал) (?:является )?приватн)/iu;
+// Підвал закритої гілки (живий текст 2026-10-25: «The topic is closed»). Це друга ознака після значка замка в списку гілок.
+const topicClosedPattern = /(?:topic is closed|тему закрито|тема закрита|тема закрыта|тема закрита адміністратор|закрыта админ)/iu;
+// Підвал чату, де поля немає з інших причин (нічний режим бота, повільний режим, права чату): не закрита гілка і не привід для архіву.
+const forumHintPattern = /(?:reply to messages in topics|відповідати на повідомлення в темах|відповісти на повідомлення в темах|отвечать на сообщения в темах)/iu;
+// Бот-модератор пише, до котрої години чат закритий: «до 7:00», «until 7». Шукаємо лише в повідомленнях про режим тиші.
+const quietKeywordPattern = /(?:нічн|ночн|night|тиш[аіу]|тихий|silent|режим|mode|заборон|закрит|запрещ)/iu;
+const quietUntilPattern = /(?<!\p{L})(?:до|until|till|по)\s+(\d{1,2})(?:[:.](\d{2}))?(?!\d)(?!\s*(?:хв|мин|min|сек|sec))/iu;
+
+/** Година й хвилина «до …» з тексту бота-модератора; null, якщо не видно. Час вважаємо київським: точніше з повідомлення не дізнатись. */
+export function parseQuietUntil(texts) {
+  for (const raw of [...texts].reverse()) {
+    const text = String(raw || '');
+    if (!quietKeywordPattern.test(text)) continue;
+    const match = text.match(quietUntilPattern);
+    if (!match) continue;
+    const hour = Number(match[1]);
+    const minute = match[2] ? Number(match[2]) : 0;
+    if (hour <= 23 && minute <= 59) return { hour, minute };
+  }
+  return null;
+}
 const authPattern = /(?:log in to telegram|sign in to telegram|увійти в telegram|войти в telegram|scan from mobile|відскануйте|your phone number)/iu;
 
 /** Як відкрити чат за посиланням Work OS: username, запрошення чи приватний канал (t.me/c/…). */
@@ -146,7 +167,20 @@ export const READ_STATE_JS = `(() => {
   const notices = [...document.querySelectorAll('.Notification, .Notification-container, .modal-dialog, .Modal .modal-content')].filter(visible).map((el) => (el.innerText || '').replace(/\\s+/g, ' ').trim()).filter(Boolean).join(' | ').slice(0, 600);
   const footer = middle ? [...middle.querySelectorAll('.Composer, .messaging-disabled, .middle-column-footer, .MiddleColumn .footer')].filter(visible).map((el) => (el.innerText || '').replace(/\\s+/g, ' ').trim()).filter(Boolean).join(' | ').slice(0, 300) : '';
   const peer = header && header.querySelector('[data-peer-id]');
+  // Підвал «писати не можна» (\`.messaging-disabled\`): закрита гілка, нічний чи повільний режим, права чату. Живий розбір 2026-10-25:
+  // у закритій гілці це \`.messaging-disabled.shown > .messaging-disabled-inner > span\` з текстом «The topic is closed».
+  const disabledNode = middle ? [...middle.querySelectorAll('.messaging-disabled')].find(visible) : null;
+  const disabled = disabledNode ? (disabledNode.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 200) : '';
+  // Гілка, відкрита зараз, і її рядок у списку гілок зліва: значок замка в рядку — головна ознака закритої гілки (без залежності від мови).
+  const threadId = (location.hash.match(/^#-?\\d+_(\\d+)/) || [])[1] || '';
+  let topicLocked = false;
+  if (threadId) {
+    const link = [...document.querySelectorAll('#LeftColumn a.ListItem-button[href*="_"]')].find((a) => ((a.getAttribute('href') || '').match(/_(\\d+)$/) || [])[1] === threadId);
+    const row = link && link.closest('.ListItem');
+    topicLocked = Boolean(row && row.querySelector('.icon-lock-filled, [class*="icon-lock"]'));
+  }
   return {
+    disabled, threadId, topicLocked,
     url: location.href,
     auth: Boolean(document.querySelector('#auth-qr-form, #auth-phone-number-form, .auth-form')),
     ready: Boolean(document.getElementById('telegram-search-input')),
@@ -165,24 +199,42 @@ export const READ_STATE_JS = `(() => {
   };
 })()`;
 
-// Гілки форуму. Telegram Web A показує список гілок у лівій колонці, поки відкритий форум (рядки `.Topic`). Закрита гілка має
-// значок замка. Структуру перевіряє живий запуск; якщо вона інша, список порожній і чат іде в «Вибрати гілку» з поясненням.
-export const READ_TOPICS_JS = `(() => {
-  const nodes = [...document.querySelectorAll('#LeftColumn .Topic, #LeftColumn .ForumPanel .ListItem, #LeftColumn [class*="Topic"].ListItem')];
+// Гілки форуму. Telegram Web A показує повний список гілок у лівій колонці, поки відкритий форум (живий розбір 2026-10-25, два форуми):
+// рядок `#LeftColumn .ListItem.Chat > a.ListItem-button[href="#<чат>_<гілка>"]`, назва в `h3.fullName`, загальна гілка має href `…_1` і
+// значок `general-forum-icon`. Список віртуальний (рядки з `style="top:…"`, 65 px на рядок) і лежить у `.chat-list.custom-scroll`.
+// «Закрита» гілка — лише з явною ознакою: значок замка `icon-lock-filled` у рядку (перевірено на реальній закритій гілці «Правила
+// размещения объявлений»: у відкритому вигляді в підвалі `.messaging-disabled` текст «The topic is closed»). Відсутність поля
+// повідомлення закритістю не вважається: нічний і повільний режими, права чату дають таке саме порожнє місце.
+export const readTopicsJs = (peerId) => `(() => {
+  const peer = ${JSON.stringify(String(peerId || ''))};
+  const rows = [...document.querySelectorAll('#LeftColumn a.ListItem-button[href*="_"]')];
   const seen = new Set();
   const topics = [];
-  for (const node of nodes) {
-    const link = node.querySelector('a[href*="_"], [data-topic-id]');
-    const idAttr = node.getAttribute('data-topic-id') || (link && link.getAttribute('data-topic-id')) || '';
-    const hrefId = link && (link.getAttribute('href') || '').match(/_(\\d+)(?:\\D|$)/);
-    const id = String(idAttr || (hrefId && hrefId[1]) || '').trim();
-    const title = ((node.querySelector('.title, .fullName, h3, .info .title') || node).innerText || '').split('\\n').map((line) => line.trim()).filter(Boolean)[0] || '';
-    if (!/^\\d{1,18}$/.test(id) || !title || seen.has(id)) continue;
-    seen.add(id);
-    const closed = Boolean(node.querySelector('.icon-lock, [class*="icon-lock"], .closed, [class*="closed"]')) || node.classList.contains('closed');
-    topics.push({ id, title: title.slice(0, 120), closed });
+  for (const link of rows) {
+    const match = (link.getAttribute('href') || '').match(/^#(-?\\d+)_(\\d{1,18})$/);
+    if (!match || (peer && match[1] !== peer) || seen.has(match[2])) continue;
+    const node = link.closest('.ListItem');
+    const nameNode = node && node.querySelector('h3.fullName');
+    if (!nameNode) continue;
+    const clone = nameNode.cloneNode(true);
+    clone.querySelectorAll('img[alt]').forEach((img) => { const alt = img.getAttribute('alt'); if (alt) img.replaceWith(document.createTextNode(alt)); });
+    const title = (clone.textContent || '').replace(/\\s+/g, ' ').trim();
+    if (!title) continue;
+    seen.add(match[2]);
+    topics.push({ id: match[2], title: title.slice(0, 120), closed: Boolean(node.querySelector('.icon-lock-filled, [class*="icon-lock"]')) });
   }
   return topics;
+})()`;
+
+// Прокрутка віртуального списку гілок: до кінця, щоб підвантажились усі рядки. Повертає, чи довелось гортати далі.
+const SCROLL_TOPICS_JS = `(() => {
+  const link = document.querySelector('#LeftColumn a.ListItem-button[href*="_"]');
+  let el = link && link.closest('.ListItem');
+  while (el && el.id !== 'LeftColumn' && !(el.scrollHeight > el.clientHeight + 5 && !['visible', 'hidden'].includes(getComputedStyle(el).overflowY))) el = el.parentElement;
+  if (!el || el.id === 'LeftColumn') return { ok: false, atEnd: true };
+  const before = el.scrollTop;
+  el.scrollTop = el.scrollHeight;
+  return { ok: true, atEnd: el.scrollTop <= before + 2 };
 })()`;
 
 export const READ_MESSAGES_JS = `(() => [...document.querySelectorAll('#MiddleColumn .Message')].map((node) => {
@@ -264,7 +316,7 @@ export async function readTelegramIdentityViaCdp({ cdpBaseUrl } = {}) {
  * Повертає { kind:'result', result } після підтвердженої відправки або { kind:'blocked', reason, ... }; `scan` (форум чи ні й список
  * гілок із позначкою «закрита») повертається в обох випадках, коли чат вдалося відкрити.
  */
-export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort = () => false, onStep = () => {}, verifyOnly = false, scanOnly = false, anyTitle = false, sinceEpoch = 0 } = {}) {
+export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort = () => false, onStep = () => {}, verifyOnly = false, scanOnly = false, checkOnly = false, anyTitle = false, sinceEpoch = 0 } = {}) {
   const base = cdpBaseUrl ? normalizeLocalCdpBaseUrl(cdpBaseUrl) : null;
   if (!base) return { kind: 'blocked', reason: 'cdp_not_configured' };
   const text = normalizeText(task?.material?.text);
@@ -330,8 +382,11 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     for (let attempt = 0; attempt < 12 && !(await page.evaluate(`Boolean(document.querySelector('#MiddleColumn .MiddleHeader .Avatar'))`)); attempt += 1) await sleep(350);
     await sleep(300);
     const rootUrl = peerId ? `${TELEGRAM_WEB}#${peerId}` : url;
-    const panelTopics = await page.evaluate(READ_TOPICS_JS);
-    const forum = (Array.isArray(panelTopics) && panelTopics.length > 0) || Boolean((await page.evaluate(READ_STATE_JS)).forumUi);
+    // Список гілок у лівій колонці з'являється трохи пізніше за шапку: до 2,5 с, поки це форум і рядків ще немає.
+    let panelTopics = await page.evaluate(readTopicsJs(peerId));
+    const headerForum = Boolean((await page.evaluate(READ_STATE_JS)).forumUi);
+    for (let attempt = 0; attempt < 8 && headerForum && !panelTopics.length; attempt += 1) { await sleep(300); panelTopics = await page.evaluate(readTopicsJs(peerId)); }
+    const forum = (Array.isArray(panelTopics) && panelTopics.length > 0) || headerForum;
     const chosen = task?.telegram?.thread || null;
     const knownTopics = Array.isArray(task?.telegram?.topics) ? task.telegram.topics : [];
     // Список гілок збираємо, лише коли гілку ще не вибрано (або для діагностики): для вибраної він уже збережений.
@@ -339,7 +394,7 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     if (forum) {
       onStep('topics', 'збираю гілки чату');
       // Список гілок збирає лише окремий прохід (scanOnly) у межах бюджету часу; задача публікації без вибраної гілки його не збирає.
-      topics = scanOnly ? await collectTopics(page, client, rootUrl, shouldAbort, Math.min(deadlineAt, startedAt + SCAN_BUDGET_MS), knownTopics) : knownTopics;
+      topics = scanOnly ? await collectTopics(page, client, peerId, rootUrl, shouldAbort, Math.min(deadlineAt, startedAt + SCAN_BUDGET_MS), knownTopics) : knownTopics;
     }
     let scan = { forum, topics };
     // sendAttempted: кнопку «Надіслати» вже натиснуто. Лише тоді задача займає вікно інтервалу «N на годину»; збій до натискання його не витрачає.
@@ -351,36 +406,66 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
       if (known?.closed) return withScan({ kind: 'blocked', reason: 'thread_closed', detail: 'closed' });
       if (!peerId) return withScan({ kind: 'blocked', reason: 'telegram_thread_not_opened', detail: 'peer_id_unknown' });
       onStep('thread', `відкриваю гілку «${chosen.title || chosen.id}»`);
-      await openFresh(client, telegramWebUrl({ kind: 'private', peerId }, chosen.id));
-      const inTopic = await waitForOpenChat(page, shouldAbort, Math.min(deadlineAt, Date.now() + OPEN_CHAT_TIMEOUT_MS));
-      if (inTopic.aborted) return withScan({ kind: 'blocked', reason: 'cancelled' });
-      const topicState = inTopic.state || {};
-      if (inTopic.timedOut || !(topicState.url || '').includes(`_${chosen.id}`)) return withScan({ kind: 'blocked', reason: 'telegram_thread_not_opened', detail: topicState.url || '' });
-      // Гілка відкрилась, а поля повідомлення немає: вона закрита (або лише для адмінів), писати туди не можна.
-      if (!verifyOnly && !(await page.evaluate(READ_STATE_JS)).composer) {
-        scan = { forum, topics: topics.some((item) => item.id === chosen.id) ? topics.map((item) => (item.id === chosen.id ? { ...item, closed: true } : item)) : [...topics, { id: chosen.id, title: chosen.title || chosen.id, closed: true }] };
-        return withScan({ kind: 'blocked', reason: 'thread_closed', detail: 'composer_missing' });
+      // Telegram Web інколи «з'їдає» глибоке посилання на гілку (адреса лишається порожньою): до трьох спроб, як і для самого чату.
+      let topicState = {};
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await openFresh(client, telegramWebUrl({ kind: 'private', peerId }, chosen.id));
+        const inTopic = await waitForOpenChat(page, shouldAbort, Math.min(deadlineAt, Date.now() + OPEN_CHAT_TIMEOUT_MS), 7_000);
+        if (inTopic.aborted) return withScan({ kind: 'blocked', reason: 'cancelled' });
+        topicState = inTopic.state || {};
+        // Під час запуску застосунок на мить скидає адресу до порожньої (чат уже намальовано, а `_<гілка>` ще не повернулась): чекаємо до 4 с.
+        for (let poll = 0; poll < 10 && !inTopic.timedOut && !(topicState.url || '').includes(`_${chosen.id}`); poll += 1) { await sleep(400); topicState = await page.evaluate(READ_STATE_JS); }
+        if (!inTopic.timedOut && (topicState.url || '').includes(`_${chosen.id}`)) break;
       }
+      if (!(topicState.url || '').includes(`_${chosen.id}`)) return withScan({ kind: 'blocked', reason: 'telegram_thread_not_opened', detail: topicState.url || '' });
     }
 
     // Лише зібрати відомості про чат (форум чи ні, гілки), нічого не читаючи далі й не пишучи: для діагностики.
-    if (scanOnly) return withScan({ kind: 'blocked', reason: 'scan_only' });
+    if (scanOnly) {
+      // Чи можна зараз писати в чат узагалі: корінь без поля й з підвалом «писати не можна» (нічний режим, права) — тимчасова заборона.
+      const root = await page.evaluate(READ_STATE_JS);
+      scan = { ...scan, restricted: !root.composer && Boolean(root.disabled) && !topicClosedPattern.test(root.disabled) && !forumHintPattern.test(root.disabled) && !/^\s*(?:join|приєднатися|присоединиться)/iu.test(root.disabled) };
+      return withScan({ kind: 'blocked', reason: 'scan_only' });
+    }
     // `await` обов'язковий: без нього `finally` закрив би з'єднання, поки перевірка ще гортає стрічку.
     if (verifyOnly) return await verifyOwnMessage(page, text, sinceEpoch, withScan, shouldAbort, deadlineAt);
 
     // 4. Чи можна тут писати.
-    // Поле повідомлення монтується не одразу після шапки: чекаємо до 5 с, перш ніж вирішувати, що писати не можна.
+    // Поле повідомлення монтується не одразу (у гілці — після переходу): чекаємо до 6 с, і лише коли сторінка справді в потрібній гілці
+    // (в адресі `_<id>`), а не на перехідному екрані, перш ніж вирішувати, що писати не можна.
+    const inWantedThread = (state) => !(forum && chosen) || state.threadId === chosen.id;
     let writable = await page.evaluate(READ_STATE_JS);
-    for (let attempt = 0; attempt < 12 && !writable.composer; attempt += 1) { await sleep(400); writable = await page.evaluate(READ_STATE_JS); }
+    for (let attempt = 0; attempt < 15 && !(writable.composer && inWantedThread(writable)); attempt += 1) {
+      // Підвал «писати не можна» вже видно у правильній гілці: далі чекати нічого.
+      if (!writable.composer && inWantedThread(writable) && writable.disabled && attempt >= 3) break;
+      await sleep(400); writable = await page.evaluate(READ_STATE_JS);
+    }
+    if (forum && chosen && writable.threadId !== chosen.id) return withScan({ kind: 'blocked', reason: 'telegram_thread_not_opened', detail: writable.url || '' });
     const blockedText = `${writable.footer || ''} ${writable.notices || ''}`;
     if (!writable.composer) {
+      // Закрита гілка — лише за явною ознакою: значок замка в списку гілок або текст «топік закрито» в підвалі.
+      if (forum && chosen && (writable.topicLocked || topicClosedPattern.test(writable.disabled || ''))) {
+        scan = { forum, topics: topics.some((item) => item.id === chosen.id) ? topics.map((item) => (item.id === chosen.id ? { ...item, closed: true } : item)) : [...topics, { id: chosen.id, title: chosen.title || chosen.id, closed: true }] };
+        return withScan({ kind: 'blocked', reason: 'thread_closed', detail: writable.topicLocked ? 'lock' : 'footer' });
+      }
       if (bannedPattern.test(blockedText)) return withScan({ kind: 'blocked', reason: 'telegram_banned', detail: blockedText });
       if (slowModePattern.test(blockedText)) return withScan({ kind: 'blocked', reason: 'telegram_slow_mode', detail: blockedText });
       // Кнопка вступу замість поля: акаунт не в чаті. Це не «пишуть лише адміни», тож чат не архівуємо, а віддаємо власнику.
       if (/^\s*(?:join|приєднатися|присоединиться)/iu.test(writable.footer || '')) return withScan({ kind: 'blocked', reason: 'telegram_no_access', detail: blockedText });
-      if (readOnlyPattern.test(blockedText)) return withScan({ kind: 'blocked', reason: 'telegram_read_only', detail: blockedText });
+      // Є підвал «писати не можна», але це не закрита гілка: нічний режим бота, права чату, «лише адміни» на весь чат. Тимчасова заборона:
+      // чат відкладається (без архіву й без «Не вдалося»), а гілки лишаються відкритими.
+      if (writable.disabled || readOnlyPattern.test(blockedText)) {
+        const messages = await page.evaluate(READ_MESSAGES_JS).catch(() => []);
+        const resume = parseQuietUntil((Array.isArray(messages) ? messages : []).filter((item) => !item.own).slice(-6).map((item) => item.text));
+        scan = { ...scan, restricted: true };
+        return withScan({ kind: 'blocked', reason: 'telegram_chat_restricted', detail: blockedText.trim() || writable.disabled, ...(resume ? { resumeHour: resume.hour, resumeMinute: resume.minute } : {}) });
+      }
       return withScan({ kind: 'blocked', reason: 'telegram_composer_not_found', detail: blockedText });
     }
+    // Поле є: тимчасова заборона чату знята (позначка в Work OS очищається разом з будь-яким результатом цього чату).
+    scan = { ...scan, restricted: false };
+    // Лише перевірити, що в чат (гілку) можна писати: текст не вводиться й нічого не надсилається (діагностика на живих чатах).
+    if (checkOnly) return withScan({ kind: 'blocked', reason: 'check_only_writable' });
     if (shouldAbort()) return withScan({ kind: 'blocked', reason: 'cancelled' });
 
     // 5. Фото (якщо є): вставка в поле відкриває вікно «Send Photo» з власним полем підпису. Далі текст (рядки через Shift+Enter) і звірка.
@@ -491,12 +576,27 @@ async function discardAttachment(page) {
   } catch { /* вкладка вже закрита */ }
 }
 
-// Список гілок форуму. У режимі гілок їх дає ліва панель (`.Topic`); у режимі «як повідомлення» у стрічці видно лише пігулки гілок з
-// недавніми повідомленнями (`.topic-pill`), тож id гілки беремо з адреси після відкриття кожної, а «закрита» — це гілка без поля
-// повідомлення (закрита чи лише для адмінів: писати туди однаково не можна). Повний список гілок без недавніх повідомлень так не побачити.
-async function collectTopics(page, client, rootUrl, shouldAbort, budgetUntil, known = []) {
-  const panel = await page.evaluate(READ_TOPICS_JS);
-  if (Array.isArray(panel) && panel.length) return panel;
+// Список гілок форуму: повний, з лівої колонки (рядки віртуальні, тож гортаємо до кінця, поки кількість росте), без кліків по кожній гілці.
+// Запасний шлях, коли лівої панелі немає, — пігулки гілок у стрічці (`.topic-pill`, лише гілки з недавніми повідомленнями): id беремо з
+// адреси після кліку. «Закрита» тут — лише явна ознака: значок замка в списку або підвал «топік закрито»; порожнє місце поля не рахується.
+async function collectTopics(page, client, peerId, rootUrl, shouldAbort, budgetUntil, known = []) {
+  let panel = await page.evaluate(readTopicsJs(peerId));
+  if (Array.isArray(panel) && panel.length) {
+    // Telegram підвантажує гілки порціями: гортаємо вниз, поки з'являються нові рядки (у межах бюджету часу).
+    let stable = 0;
+    for (let round = 0; round < 40 && stable < 2 && Date.now() < budgetUntil && !shouldAbort(); round += 1) {
+      const scrolled = await page.evaluate(SCROLL_TOPICS_JS);
+      await sleep(350);
+      const next = await page.evaluate(readTopicsJs(peerId));
+      const grew = next.length > panel.length;
+      if (next.length >= panel.length) panel = next;
+      stable = !grew && scrolled?.atEnd ? stable + 1 : 0;
+    }
+    // Повертаємо список на початок: далі чат відкривається заново, але вручну відкритий форум лишиться охайним.
+    await page.evaluate(`(() => { const link = document.querySelector('#LeftColumn a.ListItem-button[href*="_"]'); let el = link && link.closest('.ListItem');
+      while (el && el.id !== 'LeftColumn' && !(el.scrollHeight > el.clientHeight + 5)) el = el.parentElement; if (el && el.id !== 'LeftColumn') el.scrollTop = 0; })()`).catch(() => {});
+    return panel;
+  }
   const titles = await page.evaluate(`[...new Set([...document.querySelectorAll('#MiddleColumn .topic-pill-title')].map((node) => (node.innerText || '').trim()).filter(Boolean))].slice(0, 10)`);
   const knownByTitle = new Map(known.map((item) => [item.title, item]));
   const topics = [];
@@ -520,10 +620,10 @@ async function collectTopics(page, client, rootUrl, shouldAbort, budgetUntil, kn
       if (Date.now() > budgetUntil) break;
     }
     if (id && !topics.some((item) => item.id === id)) {
-      // Поле повідомлення зʼявляється не одразу: чекаємо до 2,5 с, інакше гілка помилково вважалась би закритою.
+      // Поле повідомлення чи підвал зʼявляється не одразу, а гілка закрита лише за явною ознакою: замок у списку або текст «топік закрито».
       let state = await page.evaluate(READ_STATE_JS);
-      for (let attempt = 0; attempt < 10 && !state.composer && !state.footer; attempt += 1) { await sleep(250); state = await page.evaluate(READ_STATE_JS); }
-      topics.push({ id, title: title.slice(0, 120), closed: !state.composer });
+      for (let attempt = 0; attempt < 24 && !state.composer && !state.disabled && !state.topicLocked; attempt += 1) { await sleep(250); state = await page.evaluate(READ_STATE_JS); }
+      topics.push({ id, title: title.slice(0, 120), closed: Boolean(!state.composer && (state.topicLocked || topicClosedPattern.test(state.disabled || ''))) });
     }
     // Назад у стрічку без перезавантаження застосунку (повний openFresh коштував ≈6 с на гілку).
     await page.evaluate('history.back()');
