@@ -847,7 +847,11 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
   }
   for(let attempt=0;attempt<3;attempt+=1){
     // Спершу задачі без невдалих спроб: та, що вже спотикалась, стає в кінець і не блокує решту партії.
-    const row=await db.prepare(`SELECT * FROM whatsapp_autopost_jobs
+    // Проходи «знайти гілки» йдуть першими: від них залежить, які чати взагалі потраплять у публікацію. Окремий пошук по частковому індексу.
+    const scanFirst=excluded.includes('telegram')?null:await db.prepare(`SELECT * FROM whatsapp_autopost_jobs
+      WHERE user_id=?1 AND status='pending' AND published_on=?2 AND substr(request_key,1,5)='scan_' ORDER BY created_at LIMIT 1`)
+      .bind(userId,today).first<WhatsAppAutopostRow>();
+    const row=scanFirst||await db.prepare(`SELECT * FROM whatsapp_autopost_jobs
       WHERE user_id=?1 AND status='pending' AND published_on=?2${excluded.length?` AND COALESCE(platform,'') NOT IN (${excluded.map((_,index)=>`?${index+3}`).join(',')})`:''}${options.skipTelegramSends?` AND NOT (COALESCE(platform,'')='telegram' AND request_key NOT LIKE 'scan\\_%' ESCAPE '\\')`:''}
       ORDER BY attempts,created_at,id LIMIT 1`).bind(userId,today,...excluded).first<WhatsAppAutopostRow>();
     if(!row)return null;

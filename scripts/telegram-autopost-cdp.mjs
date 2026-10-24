@@ -326,7 +326,9 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
 
     // 3. Форум чи ні й гілки (закриті позначені). Форум без вибраної гілки в чат не пишемо: публікація в «Загальну» замість потрібної гілки
     // гірша за пропуск, тож і форум, чий список гілок не прочитався, іде на вибір гілки.
-    await sleep(600);
+    // Шапка з аватаром малюється трохи пізніше за назву: без неї ознака форуму ще не видна, і форум помилково вважався б звичайним чатом.
+    for (let attempt = 0; attempt < 12 && !(await page.evaluate(`Boolean(document.querySelector('#MiddleColumn .MiddleHeader .Avatar'))`)); attempt += 1) await sleep(350);
+    await sleep(300);
     const rootUrl = peerId ? `${TELEGRAM_WEB}#${peerId}` : url;
     const panelTopics = await page.evaluate(READ_TOPICS_JS);
     const forum = (Array.isArray(panelTopics) && panelTopics.length > 0) || Boolean((await page.evaluate(READ_STATE_JS)).forumUi);
