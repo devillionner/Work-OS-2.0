@@ -66,6 +66,7 @@ const REASONS: Record<string, string> = {
   text_too_long: 'Текст довший за ліміт Telegram (4096 символів).',
   telegram_caption_too_long: 'Текст задовгий для підпису до фото в Telegram (до 1024 символів).',
   telegram_attachment_not_opened: 'Telegram Web не відкрив вікно вкладення з фото.',
+  telegram_send_not_clicked: 'Telegram Web не прийняв відправку фото: вікно лишилось відкритим, нічого не надіслано.',
   telegram_attachment_failed: 'Telegram Web показав помилку відправки фото. Перевір чат вручну.',
   telegram_page_not_ready: 'Telegram Web не завантажився.',
   telegram_chat_not_opened: 'Telegram Web не відкрив чат.',
@@ -110,7 +111,7 @@ const GROUPS: Array<[string[], AutopostReasonGroup]> = [
   [['viber_banned', 'whatsapp_removed_from_group', 'membership_left', 'telegram_banned'], { key: 'blocked', label: 'Заблоковано в групі', checkable: false }],
   [['target_unconfirmed', 'target_not_found', 'target_ambiguous', 'joined_target_not_verified', 'target_not_verified'], { key: 'target', label: 'Не той чат', checkable: false, renameable: true }],
   [['viber_not_joined', 'membership_not_confirmed', 'approval_required', 'whatsapp_join_retry_later'], { key: 'join', label: 'Не вдалося приєднатися', checkable: false }],
-  [['send_ui_unavailable', 'blocking_dialog', 'android_error', 'media_attach_failed', 'media_preview_not_ready', 'media_caption_not_found', 'media_caption_mismatch', 'media_send_failed', 'send_failed', 'telegram_send_failed', 'telegram_attachment_not_opened', 'telegram_attachment_failed', 'telegram_page_not_ready', 'telegram_chat_not_opened', 'telegram_composer_not_found', 'telegram_text_mismatch', 'telegram_thread_not_opened'], { key: 'screen', label: 'Збій екрана відправки', checkable: false }],
+  [['send_ui_unavailable', 'blocking_dialog', 'android_error', 'media_attach_failed', 'media_preview_not_ready', 'media_caption_not_found', 'media_caption_mismatch', 'media_send_failed', 'send_failed', 'telegram_send_failed', 'telegram_attachment_not_opened', 'telegram_send_not_clicked', 'telegram_attachment_failed', 'telegram_page_not_ready', 'telegram_chat_not_opened', 'telegram_composer_not_found', 'telegram_text_mismatch', 'telegram_thread_not_opened'], { key: 'screen', label: 'Збій екрана відправки', checkable: false }],
 ];
 const OTHER_GROUP: AutopostReasonGroup = { key: 'other', label: 'Інше', checkable: false };
 export function autopostReasonGroup(code: string | null | undefined): AutopostReasonGroup {

@@ -404,6 +404,14 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
         return buttons.find((el) => el.classList.contains('send') && !el.disabled) || buttons.find((el) => /^(send message|надіслати повідомлення|отправить сообщение)$/iu.test(el.getAttribute('aria-label') || el.title || '')) || null; })()`);
     if (!clicked) {
       await page.key('Enter', 'Enter', 13);
+    } else if (media) {
+      // Вікно фото закривається, щойно Telegram прийняв відправку. Якщо воно ще відкрите через кілька секунд, клік не подіяв (фото ще
+      // обробляється): тиснемо ще раз, до трьох разів. Поки вікно відкрите, нічого не надіслано, тож дубля не буде.
+      for (let again = 0; again < 2; again += 1) {
+        await sleep(3_000);
+        if (!await page.evaluate(`Boolean(document.querySelector('.Modal #editable-message-text-modal'))`)) break;
+        await page.click(`[...document.querySelectorAll('.Modal button.primary')].filter((el) => !el.disabled && el.getBoundingClientRect().width > 0).pop() || null`);
+      }
     }
 
     // 7. Підтвердження: своє повідомлення з цим текстом у стрічці цієї гілки, вже не «годинник». З фото чекаємо довше: воно вантажиться.
@@ -435,6 +443,11 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, 'telegram-last-failure.jpg'), Buffer.from(shot.data, 'base64'));
     } catch { /* знімок необов'язковий */ }
+    // Вікно фото ще відкрите: повідомлення не відправлялось, тож закриваємо його (без чернетки в чаті) і повертаємо задачу в чергу.
+    if (media && diagnostic?.modalOpen) {
+      await discardAttachment(page);
+      return withScan({ kind: 'blocked', reason: 'telegram_send_not_clicked', detail: JSON.stringify({ clicked, ...diagnostic }) });
+    }
     return withScan({ kind: 'blocked', reason: 'send_not_confirmed', detail: JSON.stringify({ clicked, ...diagnostic }) });
   } catch (error) {
     return { kind: 'blocked', reason: 'telegram_page_not_ready', detail: error instanceof Error ? error.message : String(error) };

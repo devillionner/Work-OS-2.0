@@ -1012,7 +1012,7 @@ async function handleViberAutopostTask(ws,job){
 // веде Durable Object; runner відповідає за те, що відбувається в браузері. Збій до «Надіслати» повертає задачу в чергу, помилка
 // самого чату стає рішенням політики за кодом, а після натискання «Надіслати» нічого не повторюється.
 const TELEGRAM_ENV_REASONS=new Set(['cdp_not_configured','cdp_unavailable','cdp_websocket_not_local','telegram_not_authenticated','telegram_account_unbound','telegram_account_mismatch','telegram_identity_unknown']);
-const TELEGRAM_ADAPTER_RETRY_REASONS=new Set(['telegram_page_not_ready','telegram_chat_not_opened','telegram_composer_not_found','telegram_text_mismatch','telegram_thread_not_opened','telegram_attachment_not_opened']);
+const TELEGRAM_ADAPTER_RETRY_REASONS=new Set(['telegram_page_not_ready','telegram_chat_not_opened','telegram_composer_not_found','telegram_text_mismatch','telegram_thread_not_opened','telegram_attachment_not_opened','telegram_send_not_clicked']);
 const TELEGRAM_SYSTEMIC_AFTER=2;
 const TELEGRAM_SYSTEMIC_PAUSE_MS=10*60_000;
 const TELEGRAM_ENV_PAUSE_MS=3*60_000;
@@ -1029,6 +1029,7 @@ const TELEGRAM_REASON_TEXT={
   telegram_text_mismatch:'Текст у полі повідомлення Telegram не збігся з оголошенням. Автопост на паузі.',
   telegram_thread_not_opened:'Telegram Web не відкрив гілку чату. Автопост на паузі.',
   telegram_attachment_not_opened:'Telegram Web не відкрив вікно вкладення з фото. Автопост на паузі.',
+  telegram_send_not_clicked:'Telegram Web не прийняв відправку фото (вікно лишилось відкритим). Автопост на паузі.',
   telegram_flood_wait:'Telegram просить зачекати (забагато запитів).',
 };
 let telegramFloodUntil=0;
