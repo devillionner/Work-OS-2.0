@@ -650,19 +650,30 @@ export async function resetWhatsAppAutopostQueue(db:D1Database,userId:string,dat
 
 /** Operator pressed «Зупинити»: every job of today's batch that has not been sent yet is cancelled. */
 export async function cancelWhatsAppAutopostBatch(db:D1Database,userId:string,date:string,now:number,platform:AutopostPlatform='whatsapp'){
+  // Вибірка задач у роботі йде через частковий індекс (лише pending/claimed), платформа перевіряється вже по цих рядках.
   const result=await db.prepare(`UPDATE whatsapp_autopost_jobs
     SET status='cancelled',active_key=NULL,updated_at=?1,completed_at=?1
-    WHERE user_id=?2 AND published_on=?3 AND status IN ('pending','claimed')
-      AND chat_id IN (SELECT id FROM chats WHERE user_id=?2 AND platform=?4) RETURNING id`).bind(now,userId,date,platform).all<{id:string}>();
+    WHERE id IN (SELECT j.id FROM whatsapp_autopost_jobs j JOIN chats c ON c.id=j.chat_id AND c.user_id=j.user_id
+      WHERE j.user_id=?2 AND j.status IN ('pending','claimed') AND j.published_on=?3 AND c.platform=?4) RETURNING id`).bind(now,userId,date,platform).all<{id:string}>();
   return {cancelled:result.results.length};
 }
 
+/** Доба, за яку вже закрито задачі минулих днів (на isolate): повторювати це на кожен claim нема потреби. */
+const closedPastDays=new Map<string,string>();
+
 export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:number,onSkip?:(row:WhatsAppAutopostRow,reason:string)=>void):Promise<WhatsAppAutopostTask|null>{
   const today=businessDate(now);
-  // Задачі за минулі дні не виконуються: публікація записалась би вчорашньою датою. Їх закриває перший же запит.
-  await db.prepare(`UPDATE whatsapp_autopost_jobs
-    SET status='cancelled',active_key=NULL,updated_at=?1,completed_at=?1
-    WHERE user_id=?2 AND status IN ('pending','claimed') AND published_on<?3`).bind(now,userId,today).run();
+  // Задачі за минулі дні не виконуються: публікація записалась би вчорашньою датою. Їх закриває перший claim доби, а не кожен:
+  // нові задачі завжди створюються на сьогодні, тож далі в цій добі закривати нічого. Підзапит потрібен, щоб SQLite вибрав
+  // частковий індекс задач у роботі: пряме `UPDATE … WHERE status IN (…)` брало покривний індекс дня й читало всі минулі задачі
+  // (≈1260 рядків на виклик, 2026-10-24).
+  if(closedPastDays.get(userId)!==today){
+    await db.prepare(`UPDATE whatsapp_autopost_jobs
+      SET status='cancelled',active_key=NULL,updated_at=?1,completed_at=?1
+      WHERE id IN (SELECT id FROM whatsapp_autopost_jobs WHERE user_id=?2 AND status IN ('pending','claimed') AND published_on<?3)`)
+      .bind(now,userId,today).run();
+    closedPastDays.set(userId,today);
+  }
   for(let attempt=0;attempt<3;attempt+=1){
     // Спершу задачі без невдалих спроб: та, що вже спотикалась, стає в кінець і не блокує решту партії.
     const row=await db.prepare(`SELECT * FROM whatsapp_autopost_jobs

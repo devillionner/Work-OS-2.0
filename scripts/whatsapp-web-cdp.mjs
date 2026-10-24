@@ -950,14 +950,33 @@ const CAPTION_NODE_JS = `(() => {
     ||editors.find((node)=>!node.closest('footer'))
     ||null;
 })()`;
+// Is this control "send"? A label match without the word-boundary escape: in JavaScript it is ASCII-only, so «\b + надісла» never matched a Cyrillic label
+// («Надіслати»), and the check lived on the data-icon alone until WhatsApp dropped data-icon from its buttons — after which every
+// media preview looked "not ready" and the whole queue failed with media_preview_not_ready (2026-10-18..24, no icons in the diagnostic).
+const SEND_MATCH_JS = `const isSend=(node)=>{
+    const label=String(node.getAttribute('aria-label')||node.getAttribute('title')||node.textContent||'').trim();
+    return /(^|[^\\p{L}])(send|надісла|відправ|отправ)/iu.test(label)
+      ||Boolean(node.querySelector('[data-icon*="send"], [data-testid*="send"], [data-icon*="wds-ic-send"]'));
+  };`;
+// The media preview's own send control. Besides the label, the shape is checked: a button in the same band as the preview's caption
+// editor (not the chat footer), to the right of it, the right-most one — the round send button. A wrong guess cannot post by itself:
+// the send is confirmed by the message appearing in the chat, otherwise the job stops as media_send_not_confirmed.
 const SEND_CONTROL_JS = `(() => {
   const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
-  return [...document.querySelectorAll('button, [role="button"]')].filter(visible).find((node)=>{
-    const label=String(node.getAttribute('aria-label')||node.getAttribute('title')||node.textContent||'').trim();
-    // Substring, not an exact label: WhatsApp renames these controls between builds (wds-ic-send-filled and
-    // «Надіслати (Enter)» both have to count as the send control).
-    return /\\b(send|надісла|відправ|отправ)/i.test(label)||Boolean(node.querySelector('[data-icon*="send"], [data-testid*="send"]'));
-  })||null;
+  ${SEND_MATCH_JS}
+  const buttons=[...document.querySelectorAll('button, [role="button"]')].filter(visible);
+  const byLabel=buttons.find((node)=>!node.closest('footer')&&isSend(node))||buttons.find(isSend);
+  if(byLabel)return byLabel;
+  const caption=${CAPTION_NODE_JS};
+  if(!caption||caption.closest('footer'))return null;
+  const box=caption.getBoundingClientRect();
+  const row=buttons.filter((node)=>{
+    if(node.closest('footer')||node.contains(caption)||caption.contains(node))return false;
+    const r=node.getBoundingClientRect();
+    const middle=r.top+r.height/2;
+    return middle>=box.top-40&&middle<=box.bottom+40&&r.left>=box.right-4&&r.width<=96&&r.height<=96;
+  }).sort((a,b)=>b.getBoundingClientRect().left-a.getBoundingClientRect().left);
+  return row[0]||null;
 })()`;
 
 async function markWhatsappEditorsBeforeMedia(client){
@@ -1048,18 +1067,19 @@ async function waitForWhatsappMediaCaption(client,expectedText,timeoutMs){
 
 async function clickWhatsappMediaSend(client){
   const expression=`(() => {
-    const visible=(node)=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0;};
-    const controls=[...document.querySelectorAll('button, [role="button"]')].filter(visible);
-    const matches=(node)=>{
-      const label=String(node.getAttribute('aria-label')||node.getAttribute('title')||node.textContent||'').trim();
-      return /\\b(send|надісла|відправ|отправ)/i.test(label)||Boolean(node.querySelector('[data-icon*="send"], [data-testid*="send"]'));
-    };
-    const button=controls.find((node)=>!node.closest('footer')&&matches(node))||controls.find(matches);
+    const button=${SEND_CONTROL_JS};
     if(!button||button.hasAttribute('disabled'))return false;
     button.click();return true;
   })()`;
   const response=await client.send('Runtime.evaluate',{expression,returnByValue:true});
-  return response?.result?.value===true;
+  if(response?.result?.value===true)return true;
+  // No send button recognised: Enter in the preview's caption field sends the media in WhatsApp Web. Same safety as the click — the
+  // result is confirmed by the message in the chat, not by this call.
+  const focused=await client.send('Runtime.evaluate',{expression:`(() => { const node=${CAPTION_NODE_JS}; if(!node||node.closest('footer'))return false; node.focus(); return true; })()`,returnByValue:true});
+  if(focused?.result?.value!==true)return false;
+  await client.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13});
+  await client.send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13});
+  return true;
 }
 
 // Для дії «Перевірити»: усі рядки повідомлень відкритого чату (без обмеження «останні 50») і прокрутка стрічки вгору на сторінку.

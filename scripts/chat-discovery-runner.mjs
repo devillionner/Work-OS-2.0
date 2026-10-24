@@ -78,6 +78,22 @@ const WHATSAPP_RUNTIME_TRANSIENT_REASONS=new Set(['cdp_not_configured','cdp_not_
 // Autopost stages that run strictly before the send control is clicked — see handleAutopostTask.
 const WHATSAPP_AUTOPOST_RETRY_REASONS=new Set(['media_attach_failed','media_preview_not_ready','media_caption_not_found','media_caption_mismatch','autopost_budget_exhausted']);
 const WHATSAPP_AUTOPOST_RETRY_COOLDOWN_MS=60000;
+// Два збої підряд на різних чатах до натискання «Надіслати» (фото не додалось, превʼю не відкрилось) — це не чат, а WhatsApp Web
+// чи браузер: черга стає на паузу з поясненням у картці, а не мотає всі чати по колу (кожне коло — читання D1).
+const WHATSAPP_AUTOPOST_SYSTEMIC_AFTER=2;
+const WHATSAPP_AUTOPOST_SYSTEMIC_PAUSE_MS=10*60_000;
+const WHATSAPP_REASON_TEXT={
+  whatsapp_not_authenticated:'WhatsApp Web не залогінений. Відскануй QR-код у вкладці браузера runner.',
+  page_not_ready:'Вкладка WhatsApp Web не готова. Відкрий web.whatsapp.com у браузері runner.',
+  whatsapp_messages_loading:'WhatsApp Web ще завантажує повідомлення.',
+  cdp_unavailable:'Браузер runner не відповідає на порту 127.0.0.1:9222. Запусти його з відкритим портом налагодження.',
+  cdp_not_configured:'Браузер runner не підключений.',
+  media_attach_failed:'WhatsApp Web не прийняв фото. Автопост на паузі.',
+  media_preview_not_ready:'WhatsApp Web не показав вікно фото з кнопкою «Надіслати». Автопост на паузі.',
+  media_caption_not_found:'WhatsApp Web не показав поле підпису під фото. Автопост на паузі.',
+  media_caption_mismatch:'Підпис під фото в WhatsApp Web не збігся з текстом. Автопост на паузі.',
+};
+let whatsappAdapterFailures=[];
 // Viber-автопост (Android у Waydroid, керування через adb): пауза між відправками й очікування, коли середовище не готове.
 const VIBER_PACE_MIN_MS=8000;
 const VIBER_PACE_MAX_MS=16000;
@@ -852,9 +868,11 @@ function scheduleReady(taskProcess,candidateUntilMs=0){
 }
 
 // errorCode (лише autopost): тимчасова помилка самої задачі, сервер рахує спробу. Без коду це проблема середовища, не задачі.
-function releaseTask(ws,taskProcess,task,candidateUntilMs=0,errorCode=''){
+// pauseUntilMs (лише autopost): черга автопосту стоїть до цього моменту, DO не видає задач і не будить себе раніше (без цього він
+// щоразу брав би задачу, а runner повертав її, кожні кілька хвилин, і кожне коло було читанням D1).
+function releaseTask(ws,taskProcess,task,candidateUntilMs=0,errorCode='',pauseUntilMs=0){
   if(taskProcess==='waiting_check')sendLive(ws,{type:'release',process:taskProcess,batchId:task.batchId,chatId:task.chatId});
-  else if(taskProcess==='autopost')sendLive(liveWs,{type:'release',process:taskProcess,jobId:task.jobId,...(errorCode?{errorCode}:{})});
+  else if(taskProcess==='autopost')sendLive(liveWs,{type:'release',process:taskProcess,jobId:task.jobId,...(errorCode?{errorCode}:{}),...(pauseUntilMs>Date.now()?{until:pauseUntilMs}:{})});
   else if(taskProcess==='discovery')sendLive(ws,{type:'release',process:taskProcess,candidateId:task.candidateId});
   scheduleReady(taskProcess,candidateUntilMs);
 }
@@ -914,6 +932,13 @@ async function handleWaitingCheckTask(ws,task){
 // не повторюється: дубль у чужій групі гірший за пропуск.
 let lastViberFinishedAt=0;
 
+function clockText(ms){return new Date(ms).toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'});}
+// Стан автопосту платформи (WhatsApp, Telegram) для картки: сайт показує причину паузи й час наступної спроби. Лише повідомлення в
+// live-канал, без D1.
+function reportAutopostStatus(platform,state,reason,text,untilMs=0){
+  sendLive(liveWs,{type:'progress',process:'autopost_status',platform,state,reason:reason||null,text:text||(state==='ready'?'':'Автопост на паузі'),until:untilMs>Date.now()?untilMs:null,at:Date.now()});
+}
+
 function reportViberStatus(ws,state,reason,detail){
   // Стан шлеться щоразу (це лише повідомлення в браузер, без D1): сторінка, відкрита пізніше, теж побачить «готовий».
   sendLive(ws,{type:'progress',process:'viber_status',state,reason:reason||null,text:reason?(VIBER_ENV_REASON_TEXT[reason]||detail||reason):'Viber готовий',at:Date.now()});
@@ -972,7 +997,7 @@ async function handleViberAutopostTask(ws,job){
     // Нічого не надсилалось: завдання лишається в черзі, runner чекає й пробує знову, оператор бачить причину на сайті.
     reportViberStatus(ws,'blocked',reason,result.detail);
     setStatus('working',`Viber автопост на паузі: ${VIBER_ENV_REASON_TEXT[reason]||reason}`);
-    releaseTask(ws,'autopost',job,Date.now()+VIBER_ENV_COOLDOWN_MS);
+    releaseTask(ws,'autopost',job,Date.now()+VIBER_ENV_COOLDOWN_MS,'',Date.now()+VIBER_ENV_COOLDOWN_MS);
     return;
   }
   reportViberStatus(ws,'ready');
@@ -980,6 +1005,16 @@ async function handleViberAutopostTask(ws,job){
   const observedTitle=reason==='target_unconfirmed'&&!String(result.detail||'').startsWith('join page:')?String(result.detail||'').split(' | screen:')[0].trim():'';
   sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',
     observedTarget:observedTitle||job.target?.expectedName,targetVerified:result.severity==='after',sendConfirmed:false,errorCode:reason||'adapter_failed'});
+}
+
+// Проблема середовища чи системний збій WhatsApp Web: задача лишається в черзі без витраченої спроби, DO не видає нічого до `untilMs`,
+// у картці автопосту видно причину й час наступної спроби.
+function pauseWhatsappAutopost(ws,job,untilMs,reason){
+  const until=Math.max(untilMs,Date.now()+WHATSAPP_HOME_NOT_READY_MS);
+  const text=`${WHATSAPP_REASON_TEXT[reason]||`WhatsApp Web не готовий (${reason}).`} Наступна спроба о ${clockText(until)}.`;
+  reportAutopostStatus('whatsapp','blocked',reason,text,until);
+  setStatus('working',`WhatsApp автопост на паузі до ${clockText(until)}: ${WHATSAPP_REASON_TEXT[reason]||reason}`);
+  releaseTask(ws,'autopost',job,until,'',until);
 }
 
 async function handleAutopostTask(ws,job){
@@ -993,10 +1028,10 @@ async function handleAutopostTaskNow(ws,job){
   if(job.kind==='viber_android')return handleViberAutopostTask(ws,job);
   if(!whatsappCdp){
     console.warn('WhatsApp autopost requires WORK_OS_WHATSAPP_CDP; releasing until the browser adapter is available.');
-    releaseTask(ws,'autopost',job,Date.now()+WHATSAPP_RUNTIME_COOLDOWN_MS);
+    pauseWhatsappAutopost(ws,job,Date.now()+WHATSAPP_RUNTIME_COOLDOWN_MS,'cdp_not_configured');
     return;
   }
-  if(Date.now()<whatsappRuntimeBlockedUntil){releaseTask(ws,'autopost',job);return;}
+  if(Date.now()<whatsappRuntimeBlockedUntil){pauseWhatsappAutopost(ws,job,whatsappRuntimeBlockedUntil,'page_not_ready');return;}
   // Live report 2026-10-06: a queue started right after the runner reconnected burned eight jobs in seconds —
   // every one of them hit a WhatsApp Web that was still on its loading screen, and a fail-closed autopost
   // marks the job failed for good. The Discovery candidate handler already waits for a healthy home; autopost
@@ -1004,7 +1039,7 @@ async function handleAutopostTaskNow(ws,job){
   if(!await whatsappHomeReady()){
     const until=Math.max(whatsappRuntimeBlockedUntil,Date.now()+WHATSAPP_HOME_NOT_READY_MS);
     console.warn('WhatsApp autopost postponed: WhatsApp Web is not ready yet.');
-    releaseTask(ws,'autopost',job,until);
+    pauseWhatsappAutopost(ws,job,until,'page_not_ready');
     return;
   }
   // The tray showed nothing at all while autopost drove the browser, so WhatsApp chats opened on their own
@@ -1021,12 +1056,14 @@ async function handleAutopostTaskNow(ws,job){
   catch(error){
     markWhatsappRuntimeBlocked('cdp_unavailable');
     console.warn(`WhatsApp autopost CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
-    releaseTask(ws,'autopost',job);
+    pauseWhatsappAutopost(ws,job,whatsappRuntimeBlockedUntil,'cdp_unavailable');
     return;
   }
   cancelledAutopostJobs.delete(job.jobId);
   if(automated.kind==='result'&&automated.result.sendConfirmed===true){
     clearWhatsappRuntimeBlock();
+    whatsappAdapterFailures=[];
+    reportAutopostStatus('whatsapp','ready');
     const observedTarget=automated.result.observedTarget||job.target?.expectedName;
     sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'sent',
       observedTarget,targetVerified:true,sendConfirmed:true});
@@ -1036,14 +1073,23 @@ async function handleAutopostTaskNow(ws,job){
   console.warn(`WhatsApp autopost stopped fail-closed: ${automated.reason}`);
   if(WHATSAPP_RUNTIME_TRANSIENT_REASONS.has(automated.reason)){
     markWhatsappRuntimeBlocked(automated.reason);
-    releaseTask(ws,'autopost',job);
+    pauseWhatsappAutopost(ws,job,whatsappRuntimeBlockedUntil,automated.reason);
     return;
   }
   // Everything up to and including the attached photo's preview happens BEFORE the send control is clicked,
   // so a timeout there cannot have sent anything: the job goes back to the queue instead of being marked
   // failed. Only a failure at or after the send click stays fail-closed, where a retry could double-post.
   if(WHATSAPP_AUTOPOST_RETRY_REASONS.has(automated.reason)){
-    releaseTask(ws,'autopost',job,Date.now()+WHATSAPP_AUTOPOST_RETRY_COOLDOWN_MS,automated.reason);
+    const now=Date.now();
+    whatsappAdapterFailures=whatsappAdapterFailures.filter(item=>now-item.at<WHATSAPP_AUTOPOST_SYSTEMIC_PAUSE_MS*2);
+    whatsappAdapterFailures.push({at:now,chatId:job.target?.chatId||job.jobId,reason:automated.reason});
+    const chats=new Set(whatsappAdapterFailures.map(item=>item.chatId));
+    if(chats.size>=WHATSAPP_AUTOPOST_SYSTEMIC_AFTER){
+      // Системний збій: не чат, а WhatsApp Web. Спроба чату не рахується (release без коду), черга чекає.
+      pauseWhatsappAutopost(ws,job,now+WHATSAPP_AUTOPOST_SYSTEMIC_PAUSE_MS,automated.reason);
+      return;
+    }
+    releaseTask(ws,'autopost',job,now+WHATSAPP_AUTOPOST_RETRY_COOLDOWN_MS,automated.reason,now+WHATSAPP_AUTOPOST_RETRY_COOLDOWN_MS);
     return;
   }
   sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',

@@ -33,6 +33,15 @@ let windowListenersAttached = false;
 // Останній стан Viber від runner: приходить у hello і щохвилини; сторінка, відкрита між повідомленнями, бере його звідси, а не чекає наступного.
 let latestViberStatus: LiveMessage | null = null;
 export function getLatestViberStatus(): LiveMessage | null { return latestViberStatus; }
+/** Стан автопосту WhatsApp і Telegram від runner (пауза з причиною): приходить у hello і при кожній зміні. */
+export type AutopostPlatformStatus = { state: 'ready' | 'blocked'; reason: string | null; text: string; until: number | null };
+let latestAutopostStatus: Record<string, AutopostPlatformStatus> = {};
+export function getLatestAutopostStatus(platform: string): AutopostPlatformStatus | null { return latestAutopostStatus[platform] || null; }
+function cleanAutopostStatus(value: unknown): AutopostPlatformStatus | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Record<string, unknown>;
+  return { state: item.state === 'ready' ? 'ready' : 'blocked', reason: typeof item.reason === 'string' ? item.reason : null, text: typeof item.text === 'string' ? item.text : '', until: typeof item.until === 'number' && item.until > 0 ? item.until : null };
+}
 
 export function subscribeLiveMessages(listener: MessageListener): () => void {
   messageListeners.add(listener);
@@ -108,7 +117,15 @@ function connect() {
     if (message.type === 'hello' && typeof message.runnerConnected === 'boolean') setStatus({ runnerConnected: message.runnerConnected });
     if (message.type === 'hello' && message.viberStatus && typeof message.viberStatus === 'object') latestViberStatus = { type: 'progress', process: 'viber_status', ...(message.viberStatus as Record<string, unknown>) };
     if (message.type === 'progress' && message.process === 'viber_status') latestViberStatus = message;
-    if (message.type === 'runner_status' && typeof message.connected === 'boolean') { setStatus({ runnerConnected: message.connected }); if (!message.connected) latestViberStatus = null; }
+    if (message.type === 'hello' && message.autopostStatus && typeof message.autopostStatus === 'object') {
+      latestAutopostStatus = {};
+      for (const [platform, value] of Object.entries(message.autopostStatus as Record<string, unknown>)) { const clean = cleanAutopostStatus(value); if (clean) latestAutopostStatus[platform] = clean; }
+    }
+    if (message.type === 'progress' && message.process === 'autopost_status' && typeof message.platform === 'string') {
+      const clean = cleanAutopostStatus(message);
+      if (clean) latestAutopostStatus = { ...latestAutopostStatus, [message.platform]: clean };
+    }
+    if (message.type === 'runner_status' && typeof message.connected === 'boolean') { setStatus({ runnerConnected: message.connected }); if (!message.connected) { latestViberStatus = null; latestAutopostStatus = {}; } }
     for (const listener of messageListeners) listener(message);
   });
   ws.addEventListener('close', onDown);

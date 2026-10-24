@@ -3,6 +3,7 @@
 import { AutopostPanel, type AutopostMaterialProps, type AutopostPlan, type AutopostReadiness } from '@/components/views/platforms/autopost-panel';
 import type { AutopostAttentionItem, AutopostDecision } from '@/components/views/platforms/autopost-attention';
 import type { AutopostBatch } from '@/components/views/platforms/autopost-batch';
+import type { AutopostPlatformStatus } from '@/lib/live-channel';
 
 export type WhatsAppAutopostImage = { fileName: string; contentType: string; sizeBytes: number; sha256: string; updatedAt: number };
 export type WhatsAppAutopostSettled = { archived: number; waiting: number; snoozed: number; skipped: number; decision: number };
@@ -12,8 +13,10 @@ export type WhatsAppAutopostProgress = { total: number; done: number; pending: n
 const WHATSAPP_SECONDS_PER_CHAT = 40;
 
 /** Автопублікація у WhatsApp: спільна картка автопосту (`AutopostPanel`) зі станом runner і підказкою про вкладку WhatsApp Web. */
-export function AutopostCard({ material, busy, plan, onLoadPlan, runnerConnected, progress, attention, batchNote, onDecide, onDecideMany, onStart, onStop, onReset }: {
+export function AutopostCard({ material, status, busy, plan, onLoadPlan, runnerConnected, progress, attention, batchNote, onDecide, onDecideMany, onStart, onStop, onReset }: {
   material: AutopostMaterialProps;
+  /** Пауза автопосту від runner з причиною (WhatsApp Web не готовий); null — паузи немає. */
+  status: AutopostPlatformStatus | null;
   busy: boolean;
   plan: AutopostPlan | null;
   onLoadPlan: () => void;
@@ -31,7 +34,9 @@ export function AutopostCard({ material, busy, plan, onLoadPlan, runnerConnected
 }) {
   const readiness: AutopostReadiness = runnerConnected === false
     ? { tone: 'hot', text: 'Runner на ПК не підключений. У треї Work OS обери «Запустити runner» або «Перезапустити runner».' }
-    : runnerConnected
+    : runnerConnected && status?.state === 'blocked'
+      ? { tone: 'warn', text: status.text || 'Автопост WhatsApp на паузі.' }
+      : runnerConnected
       ? { tone: 'ok', text: 'Runner підключений. Вкладка WhatsApp Web у його браузері має бути відкрита й залогінена.' }
       : { tone: 'idle', text: 'Чекаю на зв’язок із runner на ПК…' };
   return (

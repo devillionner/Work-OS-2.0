@@ -13,7 +13,7 @@ import type { WaitingCheckAction, WaitingCheckProblemAction } from '@/components
 import { announceDataChange } from '@/lib/client-sync';
 import { createActionGate } from '@/lib/action-gate';
 import { createRefreshGate } from '@/lib/refresh-gate';
-import { getLatestViberStatus, subscribeLiveMessages, subscribeLiveStatus, type LiveStatus } from '@/lib/live-channel';
+import { getLatestAutopostStatus, getLatestViberStatus, subscribeLiveMessages, subscribeLiveStatus, type AutopostPlatformStatus, type LiveStatus } from '@/lib/live-channel';
 import { pairThisBrowserExecutor } from '@/lib/chat-discovery/executor-storage';
 import { CHAT_PLATFORM_NAMES, type ChatPlatform } from '@/lib/chats/bulk-input';
 import type { BulkResult } from '@/lib/chats/bulk';
@@ -210,6 +210,15 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     return known ? { state: known.state === 'ready' ? 'ready' : 'blocked', reason: typeof known.reason === 'string' ? known.reason : null, text: typeof known.text === 'string' ? known.text : '' } : null;
   });
   const [viberBatchNote, setViberBatchNote] = useState<string | null>(null);
+  // Пауза автопосту WhatsApp (середовище не готове, системний збій) із причиною: приходить від runner подією каналу.
+  const [whatsappAutopostStatus, setWhatsappAutopostStatus] = useState<AutopostPlatformStatus | null>(() => getLatestAutopostStatus('whatsapp'));
+  useEffect(() => {
+    if (!active) return;
+    return subscribeLiveMessages((message) => {
+      if (message.type === 'progress' && message.process === 'autopost_status' && message.platform === 'whatsapp') setWhatsappAutopostStatus(getLatestAutopostStatus('whatsapp'));
+      if (message.type === 'runner_status' && message.connected === false) setWhatsappAutopostStatus(null);
+    });
+  }, [active]);
   const [whatsappBatchNote, setWhatsappBatchNote] = useState<string | null>(null);
   const selected = useSelectedLists({ enabled: active && platform === 'telegram', viewing: queue === 'selected' });
 
@@ -869,7 +878,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     waitingCheckView, changeWaitingCheck, connectWaitingCheckRunner, resolveWaitingProblem, liveStatus,
     quickPublishMode, setQuickPublishMode, quickAdvertisementId, setQuickAdvertisementId,
     autopostPlans, loadAutopostPlan, whatsappImage, whatsappImageLoaded, whatsappCaption, setWhatsappCaption, whatsappCaptionLoaded, whatsappProgress, autopostAttention, whatsappBatchNote, decideAutopost, decideAutopostMany,
-    viberProgress, viberStatus, viberBatchNote, startViberAutopostBatch, stopViberAutopostBatch, resetViberAutopostQueue,
+    viberProgress, viberStatus, viberBatchNote, whatsappAutopostStatus, startViberAutopostBatch, stopViberAutopostBatch, resetViberAutopostQueue,
     uploadWhatsAppAutopostImage, removeWhatsAppAutopostImage, saveWhatsAppAutopostCaption, clearWhatsAppAutopostCaption, resetWhatsAppAutopostQueue, stopWhatsAppAutopostBatch, startWhatsAppAutopostBatch,
   };
 }

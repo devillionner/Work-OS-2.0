@@ -64,7 +64,7 @@ import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFee
 /** @typedef {'browser'|'runner'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, autopostClaimedAt?: number, autopostWatchAt?: number, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, autopostClaimedAt?: number, autopostWatchAt?: number, autopostPausedUntil?: number, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 // The runner pings every 30 s and the runtime records each auto-answered ping per socket. A runner socket
@@ -153,6 +153,8 @@ export class OwnerChannel {
           .bind(state.autopostCurrentJobId, userId).first();
         if (!current || current.status !== 'claimed') this.broadcast('runner', { type: 'cancel', process: 'autopost', jobId: state.autopostCurrentJobId });
       }
+      // Дія оператора (старт, зупинка, рішення) знімає паузу: він міг якраз виправити причину.
+      state.autopostPausedUntil = undefined;
       this.autopostTrace(state, 'wake: з браузера', false);
       await this.dispatchNextAutopostJob(state);
       await this.writeState(state);
@@ -206,7 +208,7 @@ export class OwnerChannel {
   async onBrowserConnected(server, userId) {
     const state = await this.readState();
     if (userId && state.userId !== userId) { state.userId = userId; await this.writeState(state); }
-    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0, ...(state.viberStatus ? { viberStatus: state.viberStatus } : {}) }));
+    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0, ...(state.viberStatus ? { viberStatus: state.viberStatus } : {}), ...(state.autopostStatus ? { autopostStatus: state.autopostStatus } : {}) }));
   }
 
   /**
@@ -240,6 +242,8 @@ export class OwnerChannel {
       state.waitingCheckBatch = batch;
       if (task) server.send(JSON.stringify({ type: 'task', process: 'waiting_check', task }));
     }
+    // Новий runner (перезапуск після виправлення) починає без паузи попереднього.
+    state.autopostPausedUntil = undefined;
     // Unlike waiting_check's in-memory batch, an autopost job row lives in D1: a disconnect already
     // released any in-flight job back to 'pending' (see webSocketClose), so reconnect just looks for
     // new work instead of resuming anything specific.
@@ -389,6 +393,13 @@ export class OwnerChannel {
       if (message.type === 'ready') return this.handleDiscoveryReady(ws);
     }
 
+    if (message.type === 'progress' && message.process === 'autopost_status' && (message.platform === 'whatsapp' || message.platform === 'telegram')) {
+      // Стан автопосту WhatsApp/Telegram від runner (пауза з причиною): запам'ятовуємо для сторінки, відкритої пізніше.
+      const state = await this.readState();
+      const status = { state: message.state === 'ready' ? 'ready' : 'blocked', reason: typeof message.reason === 'string' ? message.reason : null, text: typeof message.text === 'string' ? message.text.slice(0, 300) : '', until: Number.isFinite(Number(message.until)) && Number(message.until) > 0 ? Number(message.until) : null };
+      state.autopostStatus = { ...(state.autopostStatus || {}), [message.platform]: status };
+      await this.writeState(state);
+    }
     if (message.type === 'progress' && message.process === 'viber_status') {
       // Стан Viber від runner приходить раз на хвилину; DO запам'ятовує його, щоб сторінка, відкрита між повідомленнями, показала його одразу.
       const state = await this.readState();
@@ -460,6 +471,14 @@ export class OwnerChannel {
    */
   async dispatchNextAutopostJob(state) {
     if (!state.userId) return;
+    // Пауза, яку попросив runner (середовище не готове): нічого не читаємо з D1, доки вона не мине.
+    if (state.autopostPausedUntil && Date.now() < state.autopostPausedUntil) {
+      this.autopostTrace(state, `видача: черга на паузі до ${new Date(state.autopostPausedUntil).toISOString()}`, false);
+      state.autopostWatchAt = state.autopostPausedUntil + 1000;
+      await this.scheduleAlarm(state);
+      return;
+    }
+    state.autopostPausedUntil = undefined;
     const runners = this.openRunnerCount();
     // Рядки журналу до видачі йдуть у runner уже після самої задачі, щоб вона лишалась першим повідомленням.
     /** @type {string[]} */
@@ -578,7 +597,7 @@ export class OwnerChannel {
     await this.writeState(state);
   }
 
-  /** @param {{jobId:string; errorCode?:string}} message */
+  /** @param {{jobId:string; errorCode?:string; until?:number}} message */
   async handleAutopostRelease(message) {
     const state = await this.readState();
     if (!state.userId) return;
@@ -593,7 +612,10 @@ export class OwnerChannel {
     state.autopostCurrentJobId = null;
     state.autopostClaimedAt = undefined;
     this.autopostTrace(state, `повернення: ${message.jobId} назад у чергу${message.errorCode ? ` (${message.errorCode})` : ' (середовище не готове)'}`, false);
-    state.autopostWatchAt = Date.now() + AUTOPOST_WATCH_MS;
+    // Runner просить паузу до певного часу: до нього не видаємо задач і не будимо себе раніше (не довше за годину).
+    const until = Number(message.until);
+    if (Number.isFinite(until) && until > Date.now()) state.autopostPausedUntil = Math.min(until, Date.now() + 3_600_000);
+    state.autopostWatchAt = state.autopostPausedUntil ? state.autopostPausedUntil + 1000 : Date.now() + AUTOPOST_WATCH_MS;
     await this.scheduleAlarm(state);
     await this.writeState(state);
     this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: message.jobId, status: 'released' });
@@ -1010,6 +1032,8 @@ export class OwnerChannel {
     state.autopostCurrentJobId = null;
     state.autopostClaimedAt = undefined;
     state.viberStatus = undefined;
+    state.autopostStatus = undefined;
+    state.autopostPausedUntil = undefined;
     // Discovery's task was never written to D1, so losing the connection just means forgetting it
     // here — the next dispatch reads D1 fresh and finds it again.
     state.discoveryCurrentTask = null;
