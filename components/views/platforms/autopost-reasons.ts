@@ -52,6 +52,7 @@ const REASONS: Record<string, string> = {
   media_caption_mismatch: 'Підпис до фото вставився не повністю.',
   autopost_budget_exhausted: 'Не вистачило часу на відправку в цей чат.',
   publication_reconcile_failed: 'Повідомлення відправлено, але Work OS не записала публікацію. Перевір чат і додай публікацію вручну.',
+  verify_inconclusive: 'Не вдалося визначити, чи є повідомлення в чаті. Перевір чат вручну.',
   viber_step_timeout: 'Крок у Viber завис, чат не зачеплено. Повторю пізніше.',
   viber_task_timeout: 'Відправка у Viber не вклалась у ліміт часу, чат не зачеплено. Повторю пізніше.',
   // Telegram: ці коди приходять із браузерного адаптера Telegram Web.

@@ -5,7 +5,7 @@ import { publicationAvailability, recordConfirmedWhatsappAutopostPublication } f
 import { businessDate } from './business-time.ts';
 import { readChatState } from './chats/state.ts';
 import { isoWeekday, profilePublicationEligibilitySql } from './chats/profile.ts';
-import { settleAutopostFailure } from './messenger-automation-outcome.ts';
+import { followOf, settleAutopostFailure, verifyFromOf } from './messenger-automation-outcome.ts';
 import { hasWhatsAppAutopostImage, readWhatsAppAutopostImage, type AutopostMaterialScope } from './whatsapp-autopost-media.ts';
 import { TELEGRAM_PHOTO_CAPTION_LIMIT, TELEGRAM_TEXT_LIMIT, cleanWhatsAppAutopostCaption, readWhatsAppAutopostCaption, textLength } from './whatsapp-autopost-caption.ts';
 import { applyTelegramScan, parseTelegramScan, readTelegramAutopostAccount, readTelegramThreadChoices, readTelegramThreadState, type TelegramThreadChoice, type TelegramTopic } from './telegram-autopost.ts';
@@ -841,7 +841,7 @@ export async function cancelWhatsAppAutopostBatch(db:D1Database,userId:string,da
 /** Доба, за яку вже закрито задачі минулих днів (на isolate): повторювати це на кожен claim нема потреби. */
 const closedPastDays=new Map<string,string>();
 
-export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:number,onSkip?:(row:WhatsAppAutopostRow,reason:string)=>void,options:{excludePlatforms?:AutopostPlatform[];/** Telegram чекає свого інтервалу: публікації не видаються, а проходи «знайти гілки» так. */skipTelegramSends?:boolean}={}):Promise<WhatsAppAutopostTask|null>{
+export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:number,onSkip?:(row:WhatsAppAutopostRow,reason:string)=>void,options:{excludePlatforms?:AutopostPlatform[];/** Платформи, чий інтервал між відправками ще не минув: їхні відправки не видаються, а проходи «знайти гілки» (Telegram) так. */skipPacedSends?:AutopostPlatform[]}={}):Promise<WhatsAppAutopostTask|null>{
   // Платформи, чия черга зараз на паузі чи чекає свого інтервалу (Telegram), пропускаються: інші платформи не стоять за ними.
   const excluded=(options.excludePlatforms||[]).map(cleanAutopostPlatform);
   const today=businessDate(now);
@@ -862,9 +862,10 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
     const scanFirst=excluded.includes('telegram')?null:await db.prepare(`SELECT * FROM whatsapp_autopost_jobs
       WHERE user_id=?1 AND status='pending' AND published_on=?2 AND substr(request_key,1,5)='scan_' ORDER BY created_at LIMIT 1`)
       .bind(userId,today).first<WhatsAppAutopostRow>();
+    const paced=(options.skipPacedSends||[]).map(cleanAutopostPlatform).filter(platform=>!excluded.includes(platform));
     const row=scanFirst||await db.prepare(`SELECT * FROM whatsapp_autopost_jobs
-      WHERE user_id=?1 AND status='pending' AND published_on=?2${excluded.length?` AND COALESCE(platform,'') NOT IN (${excluded.map((_,index)=>`?${index+3}`).join(',')})`:''}${options.skipTelegramSends?` AND NOT (COALESCE(platform,'')='telegram' AND request_key NOT LIKE 'scan\\_%' ESCAPE '\\')`:''}
-      ORDER BY attempts,created_at,id LIMIT 1`).bind(userId,today,...excluded).first<WhatsAppAutopostRow>();
+      WHERE user_id=?1 AND status='pending' AND published_on=?2${excluded.length?` AND COALESCE(platform,'') NOT IN (${excluded.map((_,index)=>`?${index+3}`).join(',')})`:''}${paced.length?` AND NOT (COALESCE(platform,'') IN (${paced.map((_,index)=>`?${index+3+excluded.length}`).join(',')}) AND request_key NOT LIKE 'scan\\_%' ESCAPE '\\')`:''}
+      ORDER BY attempts,created_at,id LIMIT 1`).bind(userId,today,...excluded,...paced).first<WhatsAppAutopostRow>();
     if(!row)return null;
 
     const chat=await readChatState(db,userId,row.chat_id);
@@ -943,7 +944,9 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
       .bind(now,row.id,userId).all<{id:string}>();
     if(claimed.results.length!==1)continue;
     // Фото одне на обидві платформи (його оператор додає на вкладці автопоста WhatsApp); підпис Viber бере з Бібліотеки.
-    const verifyMode=row.request_key.startsWith('verify_');
+    // Задача після відправки без підтвердження спершу проходить перевірку (`follow`): runner шукає повідомлення в чаті й нічого не надсилає.
+    const follow=followOf(row.result_json);
+    const verifyMode=row.request_key.startsWith('verify_')||follow==='verify'||follow==='verify2';
     const image=verifyMode?null:await readWhatsAppAutopostImage(db,userId,true,platform==='telegram'?'telegram':'shared');
     let telegram:WhatsAppAutopostTask['telegram']|undefined;
     if(platform==='telegram'&&chat?.telegram_account_id){
@@ -952,7 +955,7 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
     }
     const batchMatch=row.request_key.match(BATCH_KEY);
     const batch=batchMatch?await readAutopostBatch(db,userId,platform||'whatsapp',row.published_on,batchMatch[2]):null;
-    const sinceEpoch=verifyMode&&row.lease_expires_at!==null&&Number(row.lease_expires_at)>0?Number(row.lease_expires_at):0;
+    const sinceEpoch=verifyMode?(follow?verifyFromOf(row.result_json):(row.lease_expires_at!==null&&Number(row.lease_expires_at)>0?Number(row.lease_expires_at):0)):0;
     return {
       kind:platform==='viber'?'viber_android':platform==='telegram'?'telegram_autopost':'whatsapp_autopost',
       jobId:row.id,
@@ -987,7 +990,7 @@ export async function releaseWhatsAppAutopostJob(db:D1Database,userId:string,job
   // З кодом: тимчасова помилка саме цієї задачі, до MAX_AUTOPOST_ATTEMPTS спроб, далі пропуск на сьогодні.
   const row=await readWhatsAppAutopostRow(db,userId,jobId);
   if(!row||row.status!=='claimed')return false;
-  const settled=await settleAutopostFailure(db,userId,{id:row.id,chat_id:row.chat_id,attempts:Number(row.attempts)||0},
+  const settled=await settleAutopostFailure(db,userId,{id:row.id,chat_id:row.chat_id,attempts:Number(row.attempts)||0,result_json:row.result_json},
     {errorCode:cleanErrorCode(errorCode)||'adapter_failed',result:{requestedStatus:'released',targetVerified:false,sendConfirmed:false},now});
   return settled.outcome==='retry';
 }
@@ -1003,6 +1006,8 @@ export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,in
   jobId:unknown;status:unknown;observedTarget:unknown;targetVerified:unknown;sendConfirmed:unknown;errorCode?:unknown;scan?:unknown;
   /** Telegram: бот-модератор написав, до котрої години чат закритий («до 7:00»). */
   resumeHour?:unknown;resumeMinute?:unknown;
+  /** Коли runner натиснув «Надіслати» (epoch, с). */
+  sentAt?:unknown;
 },now:number){
   const jobId=typeof input.jobId==='string'?input.jobId.trim():'';
   if(!jobId)throw new MessengerAutomationError('WhatsApp autopost задача не вказана.');
@@ -1063,7 +1068,7 @@ export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,in
     const result={requestedStatus:requestedSent?'sent':'failed',observedTarget,targetVerified,sendConfirmed,errorCode};
     // Що далі з чатом (архів, «Очікування», повтор, відкласти, рішення власника), визначає політика за кодом помилки.
     const resume=input.resumeHour===undefined||input.resumeHour===null?null:{hour:input.resumeHour,minute:input.resumeMinute};
-    const settled=await settleAutopostFailure(db,userId,{id:row.id,chat_id:row.chat_id,attempts:Number(row.attempts)||0},{errorCode,result,now,resume});
+    const settled=await settleAutopostFailure(db,userId,{id:row.id,chat_id:row.chat_id,attempts:Number(row.attempts)||0,result_json:row.result_json},{errorCode,result,now,resume,sentAt:Number(input.sentAt)||null});
     return {ok:true,status:settled.outcome==='retry'?'pending':'failed',publicationId:null,result:{...result,outcome:settled.outcome}};
   }
 
@@ -1075,7 +1080,7 @@ export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,in
   if(!publication.ok){
     const result={requestedStatus:'sent',observedTarget,targetVerified,sendConfirmed,errorCode:'publication_reconcile_failed',publicationError:publication.error};
     // Повідомлення вже пішло, а облік не записався: власник вирішує, не повторюємо.
-    const settled=await settleAutopostFailure(db,userId,{id:row.id,chat_id:row.chat_id,attempts:Number(row.attempts)||0},{errorCode:'publication_reconcile_failed',result,now});
+    const settled=await settleAutopostFailure(db,userId,{id:row.id,chat_id:row.chat_id,attempts:Number(row.attempts)||0,result_json:row.result_json},{errorCode:'publication_reconcile_failed',result,now});
     return {ok:false,status:'failed',publicationId:null,result:{...result,outcome:settled.outcome}};
   }
 
@@ -1100,7 +1105,7 @@ export async function releaseMessengerAutomationJobsForDevice(db:D1Database,user
 }
 
 async function failWhatsAppAutopostJob(db:D1Database,userId:string,row:WhatsAppAutopostRow,errorCode:string,now:number){
-  await settleAutopostFailure(db,userId,{id:row.id,chat_id:row.chat_id,attempts:Number(row.attempts)||0},
+  await settleAutopostFailure(db,userId,{id:row.id,chat_id:row.chat_id,attempts:Number(row.attempts)||0,result_json:row.result_json},
     {errorCode,result:{requestedStatus:'failed',targetVerified:false,sendConfirmed:false},now});
 }
 

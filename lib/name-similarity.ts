@@ -1,10 +1,14 @@
 // Подібність двох назв чату (Work OS і те, що показує месенджер): для дії «Це той самий чат — оновити назву». Спільна для сервера
 // (масове оновлення назв лише для схожих) і екрана (скільки чатів піде в масову дію).
 export const SIMILAR_NAME_THRESHOLD = 0.5;
+/** Автоматичне перейменування без питання власнику: назви майже однакові (емодзі, регістр, хвости «в Viber», «[чат]», одне слово). */
+export const AUTO_RENAME_THRESHOLD = 0.7;
 
 function tokens(value: string): Set<string> {
   const loose = String(value || '').normalize('NFC').toLocaleLowerCase('uk-UA')
     .replace(/[\s\-–—([]*(?:(?<![\p{L}\p{N}])(?:в|у|in|на|для|for)\s+)?(?<![\p{L}\p{N}])viber[)\]]*\s*$/iu, '')
+    // «Допомога у Лодзі [чат]» у Work OS і «Допомога у Лодзі» у месенджері — той самий чат.
+    .replace(/[\s\-–—]*[([]\s*чат\s*[)\]]\s*$/iu, '')
     .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   return new Set(loose.split(' ').filter((word) => word.length > 1));
 }

@@ -2,7 +2,7 @@ import { businessDate, businessDayStart, shiftBusinessDate } from './business-ti
 import { lessonEpoch } from './leads/domain/time.ts';
 import { chatStateEvent, chatStateTokenSql, readChatState } from './chats/state.ts';
 import { transitionChat } from './chats/transitions.ts';
-import { isSimilarName } from './name-similarity.ts';
+import { AUTO_RENAME_THRESHOLD, isSimilarName, nameSimilarity } from './name-similarity.ts';
 
 /** Скільки разів задачу пробують, перш ніж пропустити на сьогодні: перша спроба і ще дві. */
 export const MAX_AUTOPOST_ATTEMPTS = 3;
@@ -63,7 +63,7 @@ export function classifyAutopostFailure(code: string, platform: string): Policy 
   return { kind: 'decision' };
 }
 
-type JobRef = { id: string; chat_id: string; attempts: number };
+type JobRef = { id: string; chat_id: string; attempts: number; result_json?: string | null };
 
 async function closeJob(db: D1Database, userId: string, jobId: string, outcome: AutopostOutcome, attempts: number, result: Record<string, unknown>, now: number) {
   await db.prepare(`UPDATE whatsapp_autopost_jobs
@@ -120,6 +120,35 @@ async function moveToWaiting(db: D1Database, userId: string, chatId: string, now
 }
 
 /**
+ * Відправка без підтвердження (повідомлення могло піти) більше не віддається власнику одразу. Та сама задача проходить сама:
+ * `verify` (runner відкриває чат і гортає стрічку до моменту відправки: знайшов — «відправлено»), за потреби ще раз `verify2`
+ * (не вдалось визначити), а коли повідомлення точно немає, — один `resend` (повторна відправка). Лише після цього — «Потребують рішення».
+ * Стан живе в `result_json.follow`; момент відправки — `result_json.verifyFrom`.
+ */
+export type AutopostFollow = '' | 'verify' | 'verify2' | 'resend';
+const UNCONFIRMED = new Set(['send_not_confirmed', 'helper_timeout', 'media_send_not_confirmed']);
+function renamedBefore(resultJson: string | null | undefined): boolean {
+  try {
+    const parsed: unknown = resultJson ? JSON.parse(resultJson) : null;
+    return Boolean(parsed && typeof parsed === 'object' && (parsed as { renamed?: unknown }).renamed === true);
+  } catch { return false; }
+}
+export function followOf(resultJson: string | null | undefined): AutopostFollow {
+  try {
+    const parsed: unknown = resultJson ? JSON.parse(resultJson) : null;
+    const value = parsed && typeof parsed === 'object' ? (parsed as { follow?: unknown }).follow : '';
+    return value === 'verify' || value === 'verify2' || value === 'resend' ? value : '';
+  } catch { return ''; }
+}
+export function verifyFromOf(resultJson: string | null | undefined): number {
+  try {
+    const parsed: unknown = resultJson ? JSON.parse(resultJson) : null;
+    const value = parsed && typeof parsed === 'object' ? Number((parsed as { verifyFrom?: unknown }).verifyFrom) : 0;
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  } catch { return 0; }
+}
+
+/**
  * Закриває невдалу спробу за політикою власника: архів із причиною, «Очікування», відкласти на завтра, повтор
  * (до MAX_AUTOPOST_ATTEMPTS) або «потребує рішення». Повертає 'retry', коли задача знову стала в чергу.
  */
@@ -127,7 +156,7 @@ export async function settleAutopostFailure(
   db: D1Database,
   userId: string,
   job: JobRef,
-  input: { errorCode: string; result: Record<string, unknown>; now: number; resume?: { hour: unknown; minute: unknown } | null },
+  input: { errorCode: string; result: Record<string, unknown>; now: number; resume?: { hour: unknown; minute: unknown } | null; /** Коли runner натиснув «Надіслати» (epoch, с): від цього моменту шукається повідомлення. */ sentAt?: number | null },
 ): Promise<{ outcome: AutopostOutcome | 'retry'; attempts: number }> {
   const { errorCode, now } = input;
   const result = { ...input.result, errorCode };
@@ -135,11 +164,39 @@ export async function settleAutopostFailure(
   const policy = chat ? classifyAutopostFailure(errorCode, chat.platform) : ({ kind: 'skip' } as const);
   const attempts = Number(job.attempts) + 1;
   let outcome: AutopostOutcome | 'retry';
+  // «Не той чат» із майже тією самою назвою (емодзі, регістр, «в Viber», «[чат]»): месенджер показав саме цей чат, тож назва в Work OS
+  // оновлюється сама, а задача повертається в чергу (один раз). Лише зовсім інша назва йде до власника.
+  const observedTitle = cleanChatName(typeof input.result.observedTarget === 'string' ? input.result.observedTarget : '');
+  if (errorCode === 'target_unconfirmed' && chat && observedTitle && !renamedBefore(job.result_json)
+    && observedTitle !== chat.name && nameSimilarity(chat.name, observedTitle) >= AUTO_RENAME_THRESHOLD && chat.workflow_status === 'ready') {
+    const renamed = await db.prepare(`UPDATE chats SET name=?1,updated_at=?2 WHERE id=?3 AND user_id=?4 AND workflow_status='ready' RETURNING id`)
+      .bind(observedTitle, now, job.chat_id, userId).all<{ id: string }>();
+    const fresh = renamed.results.length === 1 ? await readChatState(db, userId, job.chat_id) : null;
+    if (fresh) {
+      await db.prepare(`UPDATE whatsapp_autopost_jobs SET status='pending',attempts=?1,expected_name=?2,chat_state_token=?3,result_json=?4,updated_at=?5
+        WHERE id=?6 AND user_id=?7 AND status IN ('pending','claimed')`)
+        .bind(attempts, observedTitle, fresh.state_token, JSON.stringify({ ...result, renamed: true, renamedFrom: chat.name }), now, job.id, userId).run();
+      return { outcome: 'retry', attempts };
+    }
+  }
+  // Автоматичне «перевірити, а потім один раз повторити» для відправки без підтвердження.
+  const follow = followOf(job.result_json);
+  let nextFollow: AutopostFollow | null = null;
+  if (UNCONFIRMED.has(errorCode) && follow === '') nextFollow = 'verify';
+  else if (errorCode === 'message_not_found' && (follow === 'verify' || follow === 'verify2')) nextFollow = 'resend';
+  else if (errorCode === 'verify_inconclusive' && follow === 'verify') nextFollow = 'verify2';
+  if (nextFollow) {
+    const sentAt = verifyFromOf(job.result_json) || (Number(input.sentAt) > 0 ? Number(input.sentAt) : now - 60);
+    await db.prepare(`UPDATE whatsapp_autopost_jobs SET status='pending',attempts=?1,result_json=?2,updated_at=?3
+      WHERE id=?4 AND user_id=?5 AND status IN ('pending','claimed')`)
+      .bind(attempts, JSON.stringify({ ...result, follow: nextFollow, verifyFrom: sentAt }), now, job.id, userId).run();
+    return { outcome: 'retry', attempts };
+  }
   if (policy.kind === 'retry' && attempts < MAX_AUTOPOST_ATTEMPTS) {
     // Назад у чергу, але за всіма, хто ще не пробував: одна «вперта» задача не блокує решту.
     await db.prepare(`UPDATE whatsapp_autopost_jobs SET status='pending',attempts=?1,result_json=?2,updated_at=?3
       WHERE id=?4 AND user_id=?5 AND status IN ('pending','claimed')`)
-      .bind(attempts, JSON.stringify(result), now, job.id, userId).run();
+      .bind(attempts, JSON.stringify(follow ? { ...result, follow, verifyFrom: verifyFromOf(job.result_json) } : result), now, job.id, userId).run();
     return { outcome: 'retry', attempts };
   }
   if (policy.kind === 'archive') outcome = await archiveChat(db, userId, job.chat_id, policy.reason, now) ? 'archived' : 'needs_decision';

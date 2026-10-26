@@ -45,13 +45,20 @@ function json(value:unknown,status=200){
 // 'pending' row exists so it can push it to a connected runner instead of the runner polling for
 // it. A failed wake is non-fatal — the job already exists in D1 and the next natural trigger (a
 // runner reconnect) picks it up — so this never fails the request that created/cancelled the job.
-async function wakeOwnerChannelAutopost(userId:string,telegramPerHour?:number){
+/** Темп із запиту: 5, 10, 20 чи 30 на годину; 0 («без пауз») лише там, де це дозволено (Viber і WhatsApp). */
+function cleanPerHour(value:unknown,allowNoPause:boolean):number{
+  const perHour=Number(value);
+  if([5,10,20,30].includes(perHour))return perHour;
+  return allowNoPause&&perHour===0?0:allowNoPause?0:10;
+}
+
+async function wakeOwnerChannelAutopost(userId:string,pace?:{platform:'whatsapp'|'viber'|'telegram';perHour:number}){
   try{
     const stub=env.OWNER_CHANNEL.get(env.OWNER_CHANNEL.idFromName(userId));
     const url=new URL('https://owner-channel/autopost-wake');
     url.searchParams.set('userId',userId);
-    // Скільки публікацій Telegram на годину: DO розставляє їх рівномірно (інтервал = 3600 / це число).
-    if(telegramPerHour)url.searchParams.set('telegramPerHour',String(telegramPerHour));
+    // Темп платформи (відправок на годину, 0 — без пауз): DO розставляє їх рівномірно (інтервал = 3600 / це число).
+    if(pace)url.searchParams.set('pace',`${pace.platform}:${pace.perHour}`);
     await stub.fetch(new Request(url,{method:'POST'}));
   }catch(error){
     console.error('Autopost wake failed',error instanceof Error?error.name:'unknown');
@@ -180,23 +187,23 @@ export async function POST(request:Request):Promise<Response>{
         caption=cleaned;
       }
       const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,caption,exclude:body.exclude},now,businessDate(now));
-      if(batch.created>0)await wakeOwnerChannelAutopost(user.id);
+      if(batch.created>0)await wakeOwnerChannelAutopost(user.id,{platform:'whatsapp',perHour:cleanPerHour(body.perHour,true)});
       return json(batch);
     }
     // Viber-автопост: та сама черга задач, що й у WhatsApp, але чати Viber, без власного тексту й фото (їх дає нотатка
     // в «Мої нотатки»), виконує помічник на ПК оператора через runner.
     if(body.action==='viber-autopost-batch'){
       const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,platform:'viber',exclude:body.exclude},now,businessDate(now));
-      if(batch.created>0)await wakeOwnerChannelAutopost(user.id);
+      if(batch.created>0)await wakeOwnerChannelAutopost(user.id,{platform:'viber',perHour:cleanPerHour(body.perHour,true)});
       return json(batch);
     }
     // Telegram-автопост: та сама черга, але лише чати вибраного акаунта, публікації розставляє DO рівномірно (5, 10 чи 20 на годину).
     if(body.action==='telegram-autopost-batch'){
       const accountId=await resolveTelegramAccount(env.DB,user.id,typeof body.accountId==='string'?body.accountId:null,now);
       if(!accountId)throw new MessengerAutomationError('Додай або увімкни Telegram-акаунт.',409,'account_missing');
-      const perHour=[5,10,20].includes(Number(body.perHour))?Number(body.perHour):10;
+      const perHour=cleanPerHour(body.perHour,false);
       const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,platform:'telegram',exclude:body.exclude,telegramAccountId:accountId},now,businessDate(now));
-      if(batch.created>0)await wakeOwnerChannelAutopost(user.id,perHour);
+      if(batch.created>0)await wakeOwnerChannelAutopost(user.id,{platform:'telegram',perHour});
       return json(batch);
     }
     if(body.action==='cancel-telegram-autopost-batch'){

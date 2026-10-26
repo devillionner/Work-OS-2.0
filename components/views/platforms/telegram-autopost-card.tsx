@@ -1,72 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu';
-import { Segmented } from '@/components/ui/segmented';
+import { PaceEstimate, PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
 import { AutopostPanel, chatWord, type AutopostMaterialProps, type AutopostPlan, type AutopostReadiness, type TelegramThreadChoice } from '@/components/views/platforms/autopost-panel';
 import type { AutopostAttentionItem, AutopostDecision } from '@/components/views/platforms/autopost-attention';
 import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import type { AutopostPlatformStatus, TelegramPace } from '@/lib/live-channel';
-
-export type PerHour = 5 | 10 | 20;
-const PER_HOUR_KEY = 'work-os:telegram-autopost-per-hour';
-const PER_HOUR_VALUES: PerHour[] = [5, 10, 20];
-
-function readPerHour(): PerHour {
-  try { const value = Number(window.localStorage.getItem(PER_HOUR_KEY)); return PER_HOUR_VALUES.includes(value as PerHour) ? value as PerHour : 10; } catch { return 10; }
-}
-function writePerHour(value: PerHour) {
-  try { window.localStorage.setItem(PER_HOUR_KEY, String(value)); } catch { /* вибір діє до перезавантаження */ }
-}
-
-const clock = (ms: number) => new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
-
-/** Секундний годинник лише поки партія йде; 0 — ще не стартував (час під час рендеру не читаємо). */
-function useClock(enabled: boolean): number {
-  const [now, setNow] = useState(0);
-  useEffect(() => {
-    if (!enabled) return;
-    const tick = () => setNow(Date.now());
-    const first = window.setTimeout(tick, 0);
-    const timer = window.setInterval(tick, 15_000);
-    return () => { window.clearTimeout(first); window.clearInterval(timer); };
-  }, [enabled]);
-  return enabled ? now : 0;
-}
-
-/** «Наступна публікація о 14:36 · залишилось 12 · орієнтовно до 16:00»: час з DO, число з лічильників партії, кінець — за інтервалом. */
-function PaceLine({ pace, progress, running, status }: { pace: TelegramPace | null; progress: WhatsAppAutopostProgress | null; running: boolean; status: AutopostPlatformStatus | null }) {
-  const now = useClock(running);
-  if (!running || !progress) return null;
-  const left = progress.pending + progress.claimed;
-  const paused = status?.state === 'blocked' && status.until !== null && (now === 0 || status.until > now);
-  const intervalMs = (pace?.intervalSeconds ?? 0) * 1000;
-  const next = pace && pace.nextAt > 0 ? Math.max(pace.nextAt, status?.until ?? 0) : null;
-  const nextText = next === null ? 'зараз' : now > 0 && next <= now ? 'зараз' : `о ${clock(next)}`;
-  const end = next !== null && intervalMs > 0 && left > 0 ? Math.max(next, now) + (left - 1) * intervalMs : null;
-  return (
-    <p className="m-0 text-sm text-ink-2" aria-live="polite">
-      {paused ? <>Черга Telegram на паузі до {clock(status?.until ?? 0)}. </> : null}
-      Наступна публікація {nextText} · залишилось <b className="font-mono font-normal tabular-nums text-ink">{left}</b>{end ? <> · орієнтовно до {clock(end)}</> : null}
-    </p>
-  );
-}
-
-function durationText(totalMinutes: number): string {
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${hours ? `${hours} год` : ''}${hours && minutes ? ' ' : ''}${minutes || !hours ? `${minutes} хв` : ''}`;
-}
-
-/** «Оцінка: 63 чати × 3 хв ≈ 3 год 9 хв при 20 на годину»: довге очікування не виглядає як зависання. */
-function Estimate({ count, perHour, running }: { count: number; perHour: PerHour; running: boolean }) {
-  if (running || count <= 0) return null;
-  const minutes = Math.round(60 / perHour);
-  const word = count % 10 === 1 && count % 100 !== 11 ? 'чат' : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14) ? 'чати' : 'чатів';
-  return <p className="m-0 text-sm text-ink-2">Оцінка: <span className="tabular-nums">{count}</span> {word} × {minutes} хв ≈ {durationText(count * minutes)} при {perHour} на годину</p>;
-}
 
 /** Прив'язка Telegram-акаунта Work OS до акаунта, залогіненого в браузері runner: автопост публікує лише з нього. */
 function AccountBinding({ binding, status, busy, onBind }: { binding: { bound: boolean; webUserId: string | null } | null; status: AutopostPlatformStatus | null; busy: boolean; onBind: (webUserId: string | null) => void }) {
@@ -182,7 +123,7 @@ export function TelegramAutopostCard({ runnerSeen, onScanThreads, material, plan
   onChooseThread: (chatId: string, threadId: string | null) => void;
   onBind: (webUserId: string | null) => void;
 }) {
-  const [perHour, setPerHour] = useState<PerHour>(readPerHour);
+  const [perHour, setPerHour] = usePerHour('telegram');
   const running = progress?.running === true;
   const unbound = binding !== null && !binding.bound;
   const online = runnerConnected === true || runnerSeen;
@@ -204,7 +145,7 @@ export function TelegramAutopostCard({ runnerSeen, onScanThreads, material, plan
       description="Чати з черги «Для публікації» вибраного акаунта по одному: Work OS відкриває чат у Telegram Web (у чаті з гілками — вибрану гілку), вставляє текст оголошення з Бібліотеки, надсилає й перевіряє, що повідомлення з’явилось."
       plan={plan}
       onLoadPlan={onLoadPlan}
-      secondsPerChat={minutes * 60}
+      secondsPerChat={secondsPerChat('telegram', perHour)}
       startNote={`${perHour} на годину: один чат кожні ${minutes} хв, з підтвердженням`}
       readiness={readiness}
       settingsTitle="Як підготувати автопост Telegram"
@@ -225,17 +166,12 @@ export function TelegramAutopostCard({ runnerSeen, onScanThreads, material, plan
       topSlot={(
         <div className="flex flex-col gap-3">
           <AccountBinding binding={binding} status={status} busy={busy} onBind={onBind} />
-          <Estimate count={plan?.ready ?? 0} perHour={perHour} running={running} />
+          <PaceEstimate platform="telegram" count={plan?.ready ?? 0} perHour={perHour} running={running} />
           {(plan?.unscanned ?? 0) > 0 && !running ? <p className="m-0 text-xs text-ink-2">{plan?.unscanned} {chatWord(plan?.unscanned ?? 0)} ще не перевірено на гілки: перед публікацією їх швидко відкриє прохід, він не займає місць «на годину». Можна зробити це наперед кнопкою «Знайти гілки» нижче.</p> : null}
-          <PaceLine pace={pace} progress={progress} running={running} status={status} />
+          <PaceLine pace={pace} progress={progress} running={running} status={status} noun="публікація" />
         </div>
       )}
-      startSlot={(
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          <span className="text-sm text-ink-2">Темп</span>
-          <Segmented<'5' | '10' | '20'> label="Скільки публікацій на годину" size="sm" value={String(perHour) as '5' | '10' | '20'} onValueChange={(value) => { const next = Number(value) as PerHour; setPerHour(next); writePerHour(next); }} items={[{ value: '5', label: '5 на годину' }, { value: '10', label: '10 на годину' }, { value: '20', label: '20 на годину' }]} />
-        </div>
-      )}
+      startSlot={<PaceSegment platform="telegram" value={perHour} onChange={setPerHour} />}
       midSlot={(
         <>
           <TooLongChats chats={plan?.tooLongChats ?? []} total={plan?.tooLong ?? 0} />

@@ -17,7 +17,9 @@ const REMOTE_UI_DUMP = '/sdcard/workos-ui.xml';
 // Сторожовий тайм-аут на всю задачу й ліміти окремих кроків: жоден крок не висить довше, ніж йому відведено. Тривалий крок обриває
 // всі `adb`-процеси задачі (AbortController), тож завислий `uiautomator dump` чи `adb connect` не тримає чергу.
 const POST_TIMEOUT_MS = 3 * 60 * 1000;
-const STEP_LIMITS_MS = { env: 150_000, open: 40_000, photo: 30_000, send: 75_000, confirm: 70_000, verify: 70_000 };
+// Перевірка гортає стрічку й за свіжої відправки чекає до 100 с: їй потрібен ширший сторож.
+const VERIFY_TIMEOUT_MS = 5 * 60 * 1000;
+const STEP_LIMITS_MS = { env: 150_000, open: 40_000, photo: 30_000, send: 75_000, confirm: 70_000, verify: 150_000 };
 // Viber відповідає на початку партії: якщо ні, force-stop і запуск заново.
 const PREFLIGHT_KEEP_MS = 3 * 60 * 1000;
 // Фото для відправки лежить у Pictures Android лише на час партії: через 3 хв без відправок воно видаляється.
@@ -38,6 +40,7 @@ let emitStep = () => {};
 let taskController = null;
 let activeTask = null;
 let sendPressed = false;
+let sendPressedAt = 0;
 let preflightOkAt = 0;
 const abortTask = (stop) => { if (taskController && !taskController.signal.aborted) taskController.abort(stop); };
 /** «Зупинити» від оператора: обриває поточний крок одразу, але лише до натискання «Send». */
@@ -145,6 +148,7 @@ export function parseUiDump(xml) {
  */
 export const looseName = (value) => String(value || '').normalize('NFC')
   .replace(/[\s\-–—([]*(?:(?<![\p{L}\p{N}])(?:в|у|in|на|для|for)\s+)?(?<![\p{L}\p{N}])viber[)\]]*\s*$/iu, '')
+  .replace(/[\s\-–—]*[([]\s*чат\s*[)\]]\s*$/iu, '')
   .toLocaleLowerCase('uk-UA').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 /**
@@ -666,13 +670,6 @@ async function statusLooksFailed(android, node) {
   return red >= 8;
 }
 
-// Повідомлення могло зʼявитись у стрічці з запізненням (завантаження фото), тож його мітка часу може бути на пару хвилин давнішою.
-const minuteLabels = ({ hours, minutes }) => [0, 1, 2].map((back) => {
-  const total = (hours * 60 + minutes - back + 1440) % 1440;
-  const h = Math.floor(total / 60); const m = total % 60;
-  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
-});
-
 const CAPTION_FIELD = 'custom_cam_preview_media_description';
 
 /**
@@ -807,6 +804,7 @@ async function attachAndSend(android, caption, guard, ime) {
     guard();
     // Від цього моменту повідомлення може піти: обрив більше не діє, а тайм-аут веде не в повтор, а в «потребує рішення».
     sendPressed = true;
+    sendPressedAt = Date.now();
     const left = (view) => !view.activity.includes('MediaPreviewActivity');
     let sent = false;
     for (let attempt = 0; attempt < 2 && !sent; attempt += 1) {
@@ -821,6 +819,22 @@ async function attachAndSend(android, caption, guard, ime) {
   }
 }
 
+// ---------------------------------------------------------------- Пошук нашого повідомлення в стрічці
+//
+// Правда з живих даних 2026-10-26 (11 чатів «send_not_confirmed» / «message_not_found»): вікно Viber у Waydroid плаває й має довільний
+// розмір (там ≈465×640 px), а повідомлення з фото й довгим підписом вище за нього, тож (1) час під повідомленням не видно, коли воно
+// впирається в низ вікна, і (2) жести прокрутки з фіксованими координатами (x=850) падали повз вікно й стрічка не гортилась. Тепер жести
+// рахуються від меж `conversation_recycler_view`, а час повідомлення читається після невеликої прокрутки, якщо його закриває край вікна.
+
+const stampMinutes = (text) => {
+  const match = String(text || '').replace(/[\s  ]+/g, ' ').trim().match(/^(\d{1,2}):(\d{2}) (AM|PM)$/i);
+  if (!match) return null;
+  return ((Number(match[1]) % 12) + (match[3].toUpperCase() === 'PM' ? 12 : 0)) * 60 + Number(match[2]);
+};
+/** Скільки хвилин тому було `stamp` відносно `reference` (за добу з урахуванням півночі): додатне — раніше. */
+const minutesBefore = (reference, stamp) => ((reference - stamp) % 1440 + 1440) % 1440;
+const clockMinutes = ({ hours, minutes }) => hours * 60 + minutes;
+
 /** Повідомлення з підписом серед усіх текстових вузлів стрічки: у жвавому чаті чужі повідомлення вже лежать нижче за наше. */
 function findOwnMessage(nodes, prefix) {
   const texts = nodes.filter((node) => node.id === 'textMessageView').sort((a, b) => b.bottom - a.bottom);
@@ -828,55 +842,134 @@ function findOwnMessage(nodes, prefix) {
   return texts.find((node) => looseName(node.text).startsWith(prefix)) ?? null;
 }
 
-const stampOf = (nodes, message) => {
-  const stamp = message && nodes.filter((node) => node.id === 'timestampView' && node.top >= message.top - 10).sort((a, b) => a.top - b.top)[0];
-  return stamp ? stamp.text.replace(/[\s\u00a0\u202f]+/g, ' ').trim() : '';
-};
+/** Час під повідомленням: перший `timestampView` одразу під текстом (у межах повідомлення); null — час не видно. */
+function stampBelow(nodes, message) {
+  const next = nodes.filter((node) => node.id === 'textMessageView' && node.top > message.top + 5).sort((a, b) => a.top - b.top)[0];
+  const limit = next ? next.top : Infinity;
+  const stamp = nodes.filter((node) => node.id === 'timestampView' && node.top >= message.top && node.top < limit && node.top - message.bottom < 90).sort((a, b) => a.top - b.top)[0];
+  return stamp ? stampMinutes(stamp.text) : null;
+}
+
+async function conversationFrame(android) {
+  const frame = viewById(await android.view(), 'conversation_recycler_view');
+  if (!frame) throw new ViberStop('send_ui_unavailable', 'before', 'conversation list');
+  return frame;
+}
+
+/** Гортає стрічку всередині її вікна: 'older' — до давніших повідомлень, 'newer' — до новіших; `fraction` — частка висоти вікна. */
+async function scrollConversation(android, direction, fraction = 0.7) {
+  const frame = await conversationFrame(android);
+  const x = Math.round((frame.left + frame.right) / 2);
+  const height = frame.bottom - frame.top;
+  const span = Math.max(60, Math.round(height * fraction));
+  const mid = Math.round((frame.top + frame.bottom) / 2);
+  const from = direction === 'older' ? mid - Math.round(span / 2) : mid + Math.round(span / 2);
+  const to = direction === 'older' ? mid + Math.round(span / 2) : mid - Math.round(span / 2);
+  await android.sh(`input swipe ${x} ${from} ${x} ${to} 260`);
+  await sleep(700);
+}
+
+/** Кнопка «униз» у стрічці (є, коли нижче лишились непрочитані): повертає до найновіших повідомлень. */
+async function jumpToBottom(android) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const jump = viewById(await android.view(), 'btn_jump_to_bottom');
+    if (!jump) return;
+    await android.press(jump);
+    await sleep(900);
+  }
+}
+
+/**
+ * Шукає наше повідомлення (за початком підпису) від найновіших до давніших, поки не знайде або не пройде час відправки.
+ * `sentAt` — хвилина доби, коли повідомлення відправлялось; допустиме вікно часу [sentAt-4, sentAt+2] хв.
+ * Повертає { state: 'found' } або { state: 'absent' } (прогорнули повз момент відправки, нашого немає) або { state: 'unknown', why }
+ * (час не вдалося визначити, стрічка не гортається, ліміт сторінок).
+ */
+async function locateOwnMessage(android, prefix, { sentAt, maxPages = 10, guard = () => {} }) {
+  if (!prefix) return { state: 'absent' };
+  const inWindow = (minute) => { const delta = minutesBefore(sentAt, minute); return delta <= 4 || delta >= 1440 - 2; };
+  const olderThanWindow = (minute) => { const delta = minutesBefore(sentAt, minute); return delta > 4 && delta < 720; };
+  await jumpToBottom(android);
+  let lastSignature = '';
+  for (let page = 0; page < maxPages; page += 1) {
+    guard();
+    if (await android.keyboardShown()) { await android.key(4); await sleep(500); }
+    let nodes = await android.dump();
+    const state = conversationStateOf(nodes);
+    if (!state) return { state: 'unknown', why: 'conversation not shown' };
+    const own = nodes.filter((node) => node.id === 'textMessageView' && looseName(node.text).startsWith(prefix)).sort((a, b) => b.bottom - a.bottom);
+    for (const message of own) {
+      let minute = stampBelow(nodes, message);
+      if (minute === null) {
+        // Нижній край повідомлення за вікном: підсуваємо стрічку вниз, щоб показався час.
+        await scrollConversation(android, 'newer', 0.35);
+        nodes = await android.dump();
+        const moved = nodes.filter((node) => node.id === 'textMessageView' && looseName(node.text).startsWith(prefix)).sort((a, b) => b.bottom - a.bottom);
+        const same = moved.find((node) => node.text === message.text) || moved[0];
+        minute = same ? stampBelow(nodes, same) : null;
+        if (minute === null) return { state: 'unknown', why: 'timestamp hidden' };
+      }
+      if (inWindow(minute)) return { state: 'found', minute };
+      // Копія з іншим часом (учорашня чи давніша): не наша, шукаємо далі.
+    }
+    const stamps = nodes.filter((node) => node.id === 'timestampView').map((node) => stampMinutes(node.text)).filter((value) => value !== null);
+    // Усе видиме вже давніше за момент відправки: далі лише давніші повідомлення, нашого немає.
+    if (stamps.length && stamps.every(olderThanWindow)) return { state: 'absent' };
+    if (process.env.WORK_OS_VIBER_DEBUG) console.error(`locate page ${page} sentAt=${sentAt} own=${own.length} stamps=${stamps.join(',')} texts=${nodes.filter((n) => n.id === 'textMessageView').map((n) => `${n.top}-${n.bottom}:${n.text.slice(0, 12)}`).join(' | ')}`);
+    // Підпис екрана: усі вузли повідомлень (текст, час, фото, відправник): одна велика картинка без тексту теж змінюється при прокрутці.
+    const signature = nodes.filter((node) => ['textMessageView', 'timestampView', 'imageView', 'nameView', 'avatarView'].includes(node.id)).map((node) => `${node.id}:${node.top}:${(node.text || '').slice(0, 12)}`).join('|');
+    if (page > 0 && signature === lastSignature) return stamps.length && stamps.some(olderThanWindow) ? { state: 'absent' } : { state: 'unknown', why: 'start of chat or list stuck' };
+    lastSignature = signature;
+    await scrollConversation(android, 'older', 0.85);
+  }
+  return { state: 'unknown', why: 'page limit' };
+}
+
+/** Назва розмови з дерева (без перевірки збігу): null, якщо розмови немає на екрані. */
+function conversationStateOf(nodes) {
+  const title = nodes.find((node) => node.id === 'title' && node.top < 260);
+  return title ? { title } : null;
+}
 
 async function confirmSent(android, caption, targetName) {
   step('confirm', 'перевіряю, що повідомлення в чаті');
   const conversation = await android.until(conversationReady, { timeout: 25_000, step: 250 });
   if (!conversation) throw new ViberStop('send_not_confirmed', 'after', 'conversation not shown');
   const prefix = looseName(caption).slice(0, 24);
-  // Повідомлення з'являється в стрічці не миттєво (Viber спершу обробляє фото): читаємо повним dump, поки воно не зʼявиться, до 40 с.
-  // Після «Send» іншої безпечної дії немає, а хибне «не підтверджено» віддало б власнику вже надісланий чат. Своє повідомлення шукаємо
-  // серед усіх видимих: у великому чаті воно швидко опиняється вище за чужі, тож стрічку то підсуваємо донизу, то гортаємо вгору.
-  let nodes = [];
-  let mine = null;
-  let stampText = '';
-  let labels = [];
+  // Повідомлення з'являється в стрічці не миттєво (Viber спершу обробляє фото): шукаємо, поки воно не зʼявиться, до 40 с.
+  // Після «Send» іншої безпечної дії немає, а хибне «не підтверджено» віддало б власнику вже надісланий чат.
   const deadline = Date.now() + 40_000;
+  let last = { state: 'unknown', why: 'not searched' };
   for (let attempt = 0; attempt === 0 || Date.now() < deadline; attempt += 1) {
-    if (attempt) await sleep(1000);
-    // Після відправки меню «+» іноді лишається відкритим, а повернена стара клавіатура інколи вискакує: обоє стискають
-    // стрічку, і нове повідомлення не видно в dump. «Назад» закриває клавіатуру, поки вона на екрані (розмову не покидає).
-    if (await android.keyboardShown()) { await android.key(4); await sleep(600); }
+    if (attempt) await sleep(1200);
+    // Після відправки меню «+» іноді лишається відкритим: воно стискає стрічку.
     const view = await android.view();
     const plus = viewById(view, 'options_menu_open_more');
     if (plus && viewById(view, 'options_more_menu_gallery')) {
       await android.press(plus);
       await android.until((next) => !viewById(next, 'options_more_menu_gallery'), { timeout: 2500, step: 200 });
     }
-    if (attempt >= 2 && !mine) await android.sh(attempt < 5 ? 'input swipe 850 760 850 380 250' : 'input swipe 850 380 850 760 250');
-    labels = minuteLabels(await android.clock());
-    nodes = await android.dump();
+    const nodes = await android.dump();
     const opened = conversationState(nodes, targetName);
     if (!opened.title) continue;
     if (!opened.matches) throw new ViberStop('target_unconfirmed', 'after', opened.title.text.slice(0, 80));
-    mine = findOwnMessage(nodes, prefix);
-    stampText = stampOf(nodes, mine);
-    if (mine && labels.includes(stampText)) break;
-    mine = null;
+    const sentAt = clockMinutes(await android.clock());
+    last = await locateOwnMessage(android, prefix, { sentAt, maxPages: 3 });
+    if (last.state === 'found') break;
   }
-  if (!mine) throw new ViberStop('send_not_confirmed', 'after', 'new message not found');
-  const status = nodes.find((node) => node.id === 'statusView' && node.top >= mine.top - 10 && node.top <= mine.bottom + 40);
+  if (last.state !== 'found') throw new ViberStop('send_not_confirmed', 'after', `new message not found (${last.state}${last.why ? `: ${last.why}` : ''})`);
+  // Червоний значок статусу під нашим повідомленням означає «не відправлено».
+  const nodes = await android.dump();
+  const mine = findOwnMessage(nodes, prefix);
+  const status = mine && nodes.find((node) => node.id === 'statusView' && node.top >= mine.top - 10 && node.top <= mine.bottom + 40);
   if (status && await statusLooksFailed(android, status)) throw new ViberStop('send_not_confirmed', 'after', 'message marked as not sent');
 }
 
 /**
  * Дія «Перевірити»: відкриває чат і лише дивиться, чи є в ньому повідомлення з цим підписом, надісланe приблизно тоді, коли
- * відправка закінчилась невизначено. Нічого не надсилає. Мітка часу має збігатися з хвилинами навколо моменту відправки,
- * тож учорашнє оголошення з тим самим текстом не зараховується.
+ * відправка закінчилась невизначено. Нічого не надсилає. Стрічка гортається від найновіших до моменту відправки: знайшли — «є»;
+ * прогорнули повз момент відправки й нашого немає — `message_not_found` (дозволяє один автоматичний повтор); не вдалось визначити —
+ * `verify_inconclusive` (не «немає»: повтор міг би дати дубль).
  */
 async function verify(payload, guard) {
   guard();
@@ -892,34 +985,29 @@ async function verify(payload, guard) {
   step('open', 'відкриваю чат');
   const targetName = await withStep('відкриття чату', STEP_LIMITS_MS.open, () => openTarget(android, payload, guard));
   step('confirm', 'шукаю повідомлення в чаті');
-  const caption = String(payload.message || '');
-  const prefix = looseName(caption).slice(0, 24);
+  const prefix = looseName(String(payload.message || '')).slice(0, 24);
   if (!prefix) throw new ViberStop('message_not_found', 'before', 'empty caption');
-  // Момент відправки невідомий (давня перевірка без нього): мітку часу не звіряємо, шукаємо лише за підписом.
   const sinceEpoch = Number(payload.sinceEpoch) || 0;
-  const ageMinutes = sinceEpoch ? Math.max(0, Math.round((Date.now() / 1000 - sinceEpoch) / 60)) : 0;
-  if (ageMinutes > 600) throw new ViberStop('message_not_found', 'before', 'sent too long ago');
-  const { hours, minutes } = await android.clock();
-  const center = hours * 60 + minutes - ageMinutes;
-  const labels = [-4, -3, -2, -1, 0, 1, 2].map((shift) => {
-    const total = (center + shift + 1440) % 1440;
-    const h = Math.floor(total / 60); const m = total % 60;
-    return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+  const ageSeconds = sinceEpoch ? Math.max(0, Math.round(Date.now() / 1000 - sinceEpoch)) : 0;
+  if (ageSeconds > 600 * 60) throw new ViberStop('message_not_found', 'before', 'sent too long ago');
+  const startedVerifyAt = Date.now();
+  const found = await withStep('пошук повідомлення', STEP_LIMITS_MS.verify, async () => {
+    // Свіжа відправка: Viber міг ще вантажити фото, тож «немає» підтверджуємо повторним проходом не раніше ніж за 100 с після відправки.
+    for (let round = 0; round < 3; round += 1) {
+      guard();
+      const sentAt = clockMinutes(await android.clock()) - Math.round((ageSeconds + round * 30) / 60);
+      const result = await locateOwnMessage(android, prefix, { sentAt, maxPages: 26, guard });
+      if (result.state === 'found') return result;
+      const youngSeconds = ageSeconds + (Date.now() - startedVerifyAt);
+      if (result.state === 'unknown') throw new ViberStop('verify_inconclusive', 'before', result.why || '');
+      if (youngSeconds >= 100) return result;
+      await sleep(Math.min(30_000, (100 - youngSeconds) * 1000));
+    }
+    return { state: 'absent' };
   });
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    guard();
-    if (attempt === 1) await android.sh('input swipe 850 380 850 760 250');
-    else if (attempt > 1) await android.sh('input swipe 850 380 850 760 250');
-    const nodes = await android.dump();
-    const opened = conversationState(nodes, targetName);
-    if (!opened.title) continue;
-    if (!opened.matches) throw new ViberStop('target_unconfirmed', 'before', opened.title.text.slice(0, 80));
-    const mine = findOwnMessage(nodes, prefix);
-    if (mine && (!sinceEpoch || labels.includes(stampOf(nodes, mine)))) return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: targetName, timings: `перевірено, спроб ${attempt + 1}` };
-  }
+  if (found.state === 'found') return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: targetName, timings: 'перевірено, повідомлення є в чаті' };
   throw new ViberStop('message_not_found', 'before', 'message not in chat');
 }
-
 // ---------------------------------------------------------------- Дії для runner
 
 async function status() {
@@ -1002,6 +1090,7 @@ export async function runViberAndroid(action, payload = {}, { shouldAbort = () =
   taskController = new AbortController();
   activeTask = { name: String(payload.expectedName || 'чат'), step: 'початок', startedAt };
   sendPressed = false;
+  sendPressedAt = 0;
   try {
     // Скасування оператором («Зупинити») діє до відправки: після нього жодного нового кроку.
     const guard = () => { if (shouldAbort()) throw new ViberStop('cancelled', 'before'); };
@@ -1017,7 +1106,7 @@ export async function runViberAndroid(action, payload = {}, { shouldAbort = () =
           : new ViberStop('viber_task_timeout', 'before', `задача не вклалась у ${Math.round(POST_TIMEOUT_MS / 1000)} с, крок «${activeTask?.step}»`);
         abortTask(stop);
         reject(stop);
-      }, POST_TIMEOUT_MS);
+      }, action === 'verify' ? VERIFY_TIMEOUT_MS : POST_TIMEOUT_MS);
     });
     return await Promise.race([work, limit]);
   } catch (error) {
@@ -1044,7 +1133,7 @@ export async function runViberAndroid(action, payload = {}, { shouldAbort = () =
     }
     if (error instanceof ViberStop) {
       const detail = `${error.detail}${error.reason === 'cancelled' ? '' : ` | пройшло ${spent} с`}`.trim();
-      return { ok: false, status: error.severity === 'env' ? 'blocked' : error.severity === 'after' ? 'failed' : 'skipped', reason: error.reason, severity: error.severity, detail };
+      return { ok: false, status: error.severity === 'env' ? 'blocked' : error.severity === 'after' ? 'failed' : 'skipped', reason: error.reason, severity: error.severity, detail, ...(sendPressedAt ? { sentAt: Math.floor(sendPressedAt / 1000) } : {}) };
     }
     return { ok: false, status: 'failed', reason: 'helper_error', severity: 'after', detail: String(error?.message || error).slice(0, 160) };
   } finally { clearTimeout(timer); emitStep = () => {}; activeTask = null; taskController = null; sendPressed = false; }

@@ -5,17 +5,17 @@ import { AutopostPanel, type AutopostMaterialProps, type AutopostPlan, type Auto
 import type { AutopostAttentionItem, AutopostDecision } from '@/components/views/platforms/autopost-attention';
 import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import { autopostReasonText } from '@/components/views/platforms/autopost-reasons';
+import { PaceEstimate, PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
+import type { AutopostPace } from '@/lib/live-channel';
 
 /** Стан Viber на ПК оператора, який runner передає через live-канал (процес, доступність, вікно). */
 export type ViberRunnerStatus = { state: 'ready' | 'blocked' | 'busy'; reason: string | null; text: string };
 
-/** Орієнтовний час одного чату Viber: за вимірами партій ≈ 20 с. */
-const VIBER_SECONDS_PER_CHAT = 20;
 /** Скільки чекаємо першого повідомлення runner про стан, перш ніж казати, що щось не так. */
 const STATUS_GRACE_MS = 15_000;
 
 /** Автопублікація у Viber через Android у Waydroid: спільна картка автопосту (`AutopostPanel`) зі станом runner і Viber. */
-export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attention, batchNote, status, runnerConnected, busy, onDecide, onDecideMany, onStart, onStop, onReset }: {
+export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attention, batchNote, status, runnerConnected, pace, busy, onDecide, onDecideMany, onStart, onStop, onReset }: {
   material: AutopostMaterialProps;
   plan: AutopostPlan | null;
   onLoadPlan: () => void;
@@ -24,11 +24,12 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
   batchNote: string | null;
   status: ViberRunnerStatus | null;
   runnerConnected: boolean | null;
+  pace: AutopostPace | null;
   busy: boolean;
   onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
   onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision) => void;
   /** Скільки чатів поставити в партію (null — усі придатні) і які чати прибрано з цього запуску. */
-  onStart: (limit: number | null, exclude: string[]) => void;
+  onStart: (limit: number | null, exclude: string[], perHour: number) => void;
   onStop: () => void;
   onReset: () => void;
 }) {
@@ -40,6 +41,7 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
     return () => window.clearTimeout(timer);
   }, [status, runnerConnected]);
 
+  const [perHour, setPerHour] = usePerHour('viber');
   const runnerOffline = runnerConnected === false;
   const blocked = status?.state === 'blocked';
   // Іде партія: runner зайнятий відправкою і про стан Viber окремо не звітує, тож «Viber не відповів» тут було б хибним.
@@ -63,7 +65,15 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
       description="Чати з черги «Для публікації» по одному: Work OS відкриває чат за посиланням у Viber на Android (Waydroid), додає фото з галереї, вводить текст, надсилає й перевіряє, що повідомлення з’явилось у цьому чаті."
       plan={plan}
       onLoadPlan={onLoadPlan}
-      secondsPerChat={VIBER_SECONDS_PER_CHAT}
+      secondsPerChat={secondsPerChat('viber', perHour)}
+      startNote={perHour > 0 ? `${perHour} на годину: один чат кожні ${Math.round(60 / perHour)} хв, з підтвердженням` : undefined}
+      topSlot={(
+        <div className="flex flex-col gap-3">
+          <PaceEstimate platform="viber" count={plan?.ready ?? 0} perHour={perHour} running={progress?.running === true} />
+          <PaceLine pace={pace} progress={progress} running={progress?.running === true} status={null} noun="відправка" />
+        </div>
+      )}
+      startSlot={<PaceSegment platform="viber" value={perHour} onChange={setPerHour} />}
       readiness={readiness}
       settingsTitle="Налаштування Viber на ПК"
       settingsHelp={(
@@ -82,7 +92,7 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
       runnerBlocked={runnerOffline}
       onDecide={onDecide}
       onDecideMany={onDecideMany}
-      onStart={onStart}
+      onStart={(limit, exclude) => onStart(limit, exclude, perHour)}
       onStop={onStop}
       onReset={onReset}
     />

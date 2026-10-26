@@ -13,7 +13,7 @@ import type { WaitingCheckAction, WaitingCheckProblemAction } from '@/components
 import { announceDataChange } from '@/lib/client-sync';
 import { createActionGate } from '@/lib/action-gate';
 import { createRefreshGate } from '@/lib/refresh-gate';
-import { getLatestAutopostStatus, getLatestTelegramPace, getLatestViberStatus, subscribeLiveMessages, subscribeLiveStatus, type AutopostPlatformStatus, type LiveStatus, type TelegramPace } from '@/lib/live-channel';
+import { getLatestAutopostStatus, getLatestPace, getLatestTelegramPace, getLatestViberStatus, subscribeLiveMessages, subscribeLiveStatus, type AutopostPlatformStatus, type LiveStatus, type TelegramPace } from '@/lib/live-channel';
 import { pairThisBrowserExecutor } from '@/lib/chat-discovery/executor-storage';
 import { CHAT_PLATFORM_NAMES, type ChatPlatform } from '@/lib/chats/bulk-input';
 import type { BulkResult } from '@/lib/chats/bulk';
@@ -227,6 +227,8 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   const [whatsappAutopostStatus, setWhatsappAutopostStatus] = useState<AutopostPlatformStatus | null>(() => getLatestAutopostStatus('whatsapp'));
   const [telegramAutopostStatus, setTelegramAutopostStatus] = useState<AutopostPlatformStatus | null>(() => getLatestAutopostStatus('telegram'));
   const [telegramPace, setTelegramPace] = useState<TelegramPace | null>(() => getLatestTelegramPace());
+  const [viberPace, setViberPace] = useState<TelegramPace | null>(() => getLatestPace('viber'));
+  const [whatsappPace, setWhatsappPace] = useState<TelegramPace | null>(() => getLatestPace('whatsapp'));
   // Runner живий, якщо від нього приходять події (кроки, стан, темп), навіть коли прапорець зв'язку ще не оновився.
   const [telegramRunnerSeen, setTelegramRunnerSeen] = useState(false);
   useEffect(() => {
@@ -235,7 +237,11 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       if (message.type === 'progress' && message.process === 'autopost_status' && message.platform === 'whatsapp') setWhatsappAutopostStatus(getLatestAutopostStatus('whatsapp'));
       if (message.type === 'progress' && message.process === 'autopost_status' && message.platform === 'telegram') { setTelegramAutopostStatus(getLatestAutopostStatus('telegram')); setTelegramRunnerSeen(true); }
       if (message.type === 'progress' && message.process === 'autopost_step' && message.platform === 'telegram') setTelegramRunnerSeen(true);
-      if (message.type === 'progress' && message.process === 'autopost_pace' && message.platform === 'telegram') setTelegramPace(getLatestTelegramPace());
+      if (message.type === 'progress' && message.process === 'autopost_pace') {
+        if (message.platform === 'telegram') setTelegramPace(getLatestTelegramPace());
+        else if (message.platform === 'viber') setViberPace(getLatestPace('viber'));
+        else if (message.platform === 'whatsapp') setWhatsappPace(getLatestPace('whatsapp'));
+      }
       if (message.type === 'runner_status') setTelegramRunnerSeen(message.connected === true);
       if (message.type === 'runner_status' && message.connected === false) { setWhatsappAutopostStatus(null); setTelegramAutopostStatus(null); }
     });
@@ -864,9 +870,9 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     const cancelled = Number(body.cancelled || 0);
     toast.push({ message: cancelled ? `Автопост зупинено, скасовано ${cancelled} чатів у черзі.` : 'Активних задач автопоста вже не було.' });
   }); };
-  const startWhatsAppAutopostBatch = (limit: number | null, exclude: string[]) => { if (platform !== 'whatsapp' || !whatsappImage || !whatsappCaptionLoaded) return Promise.resolve(); return wa('whatsapp-autopost-batch', async () => {
+  const startWhatsAppAutopostBatch = (limit: number | null, exclude: string[], perHour = 0) => { if (platform !== 'whatsapp' || !whatsappImage || !whatsappCaptionLoaded) return Promise.resolve(); return wa('whatsapp-autopost-batch', async () => {
     setQuickPublishMode(false); setQuickAdvertisementId(null);
-    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'whatsapp-autopost-batch', caption: whatsappCaption, ...(limit ? { limit } : {}), exclude }) });
+    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'whatsapp-autopost-batch', caption: whatsappCaption, ...(limit ? { limit } : {}), exclude, perHour }) });
     const body = await response.json() as { created?: number; skipped?: number; reasons?: Array<{ code: string; count: number }>; more?: boolean; error?: string };
     if (!response.ok) throw new Error(body.error || 'Не вдалося запустити автопост черги.');
     invalidateQueueCache('whatsapp'); announceDataChange('platforms'); await reloadChats.current(true); loadAutopostPlan();
@@ -890,9 +896,9 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     if (!response.ok) throw new Error(body.error || 'Не вдалося виконати дію автопосту Viber.');
     return body;
   };
-  const startViberAutopostBatch = (limit: number | null, exclude: string[]) => { if (platform !== 'viber') return Promise.resolve(); return wa('viber-autopost-batch', async () => {
+  const startViberAutopostBatch = (limit: number | null, exclude: string[], perHour = 0) => { if (platform !== 'viber') return Promise.resolve(); return wa('viber-autopost-batch', async () => {
     setQuickPublishMode(false); setQuickAdvertisementId(null);
-    const body = await viberAction('viber-autopost-batch', { ...(limit ? { limit } : {}), exclude });
+    const body = await viberAction('viber-autopost-batch', { ...(limit ? { limit } : {}), exclude, perHour });
     invalidateQueueCache('viber'); announceDataChange('platforms'); await reloadChats.current(true); loadAutopostPlan();
     const fresh = await readViberAutopost(); if (fresh) applyViberAutopost(fresh);
     const created = Number(body.created || 0); const skipped = Number(body.skipped || 0);
@@ -1050,7 +1056,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     quickPublishMode, setQuickPublishMode, quickAdvertisementId, setQuickAdvertisementId,
     autopostPlans, loadAutopostPlan, whatsappImage, whatsappImageLoaded, whatsappCaption, setWhatsappCaption, whatsappCaptionLoaded, whatsappProgress, autopostAttention, whatsappBatchNote, decideAutopost, decideAutopostMany,
     telegramImage, telegramCaption, telegramMaterialLoaded, setTelegramCaption, uploadTelegramImage, removeTelegramImage, saveTelegramCaption, clearTelegramCaption, copyTelegramMaterialFromShared,
-    telegramRunnerSeen, scanTelegramThreads,
+    telegramRunnerSeen, scanTelegramThreads, viberPace, whatsappPace,
     telegramProgress, telegramBatchNote, telegramAutopostStatus, telegramPace, telegramAccountBinding, startTelegramAutopostBatch, stopTelegramAutopostBatch, resetTelegramAutopostQueue, chooseTelegramThread, bindTelegramAccount,
     viberProgress, viberStatus, viberBatchNote, whatsappAutopostStatus, startViberAutopostBatch, stopViberAutopostBatch, resetViberAutopostQueue,
     uploadWhatsAppAutopostImage, removeWhatsAppAutopostImage, saveWhatsAppAutopostCaption, clearWhatsAppAutopostCaption, resetWhatsAppAutopostQueue, stopWhatsAppAutopostBatch, startWhatsAppAutopostBatch,

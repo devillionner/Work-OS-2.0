@@ -36,10 +36,12 @@ export function getLatestViberStatus(): LiveMessage | null { return latestViberS
 /** Стан автопосту WhatsApp і Telegram від runner (пауза з причиною): приходить у hello і при кожній зміні. */
 export type AutopostPlatformStatus = { state: 'ready' | 'blocked'; reason: string | null; text: string; until: number | null; /** Telegram: id акаунта, залогіненого в браузері runner. */ identity: string | null };
 let latestAutopostStatus: Record<string, AutopostPlatformStatus> = {};
-/** Коли DO видасть наступну публікацію Telegram і з яким інтервалом: приходить у hello і щоразу, як змінюється. */
-export type TelegramPace = { nextAt: number; intervalSeconds: number };
-let latestTelegramPace: TelegramPace | null = null;
-export function getLatestTelegramPace(): TelegramPace | null { return latestTelegramPace; }
+/** Коли DO видасть наступну відправку платформи і з яким інтервалом: приходить у hello і щоразу, як змінюється. */
+export type AutopostPace = { nextAt: number; intervalSeconds: number };
+export type TelegramPace = AutopostPace;
+let latestPace: Record<string, AutopostPace> = {};
+export function getLatestPace(platform: string): AutopostPace | null { return latestPace[platform] || null; }
+export function getLatestTelegramPace(): AutopostPace | null { return getLatestPace('telegram'); }
 function cleanTelegramPace(value: unknown): TelegramPace | null {
   if (!value || typeof value !== 'object') return null;
   const item = value as Record<string, unknown>;
@@ -130,8 +132,15 @@ function connect() {
       latestAutopostStatus = {};
       for (const [platform, value] of Object.entries(message.autopostStatus as Record<string, unknown>)) { const clean = cleanAutopostStatus(value); if (clean) latestAutopostStatus[platform] = clean; }
     }
-    if (message.type === 'hello') latestTelegramPace = cleanTelegramPace(message.telegramPace);
-    if (message.type === 'progress' && message.process === 'autopost_pace' && message.platform === 'telegram') latestTelegramPace = cleanTelegramPace(message);
+    if (message.type === 'hello') {
+      latestPace = {};
+      const all = message.autopostPace && typeof message.autopostPace === 'object' ? message.autopostPace as Record<string, unknown> : {};
+      for (const [platform, value] of Object.entries(all)) { const clean = cleanTelegramPace(value); if (clean) latestPace[platform] = clean; }
+    }
+    if (message.type === 'progress' && message.process === 'autopost_pace' && typeof message.platform === 'string') {
+      const clean = cleanTelegramPace(message);
+      latestPace = clean ? { ...latestPace, [message.platform]: clean } : Object.fromEntries(Object.entries(latestPace).filter(([key]) => key !== message.platform));
+    }
     if (message.type === 'progress' && message.process === 'autopost_status' && typeof message.platform === 'string') {
       const clean = cleanAutopostStatus(message);
       if (clean) latestAutopostStatus = { ...latestAutopostStatus, [message.platform]: clean };

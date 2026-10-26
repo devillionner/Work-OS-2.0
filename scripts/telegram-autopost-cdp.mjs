@@ -292,6 +292,21 @@ function composerText(page, selector = '#editable-message-text') {
 }
 
 /** Id користувача, залогіненого в Telegram Web runner: за ним Work OS перевіряє, що це потрібний акаунт. */
+/** Самолікування: перезавантажує вкладку Telegram Web (створює, якщо її немає) і чекає, поки застосунок стартує. */
+export async function reloadTelegramTabViaCdp({ cdpBaseUrl } = {}) {
+  const base = cdpBaseUrl ? normalizeLocalCdpBaseUrl(cdpBaseUrl) : null;
+  if (!base) return { kind: 'blocked', reason: 'cdp_not_configured' };
+  const found = await findTelegramPage(base, { create: true });
+  if (found.kind !== 'result') return found;
+  const client = await createCdpClient(found.page.webSocketDebuggerUrl);
+  try {
+    await client.send('Page.enable');
+    await client.send('Page.navigate', { url: TELEGRAM_WEB });
+    await sleep(10_000);
+    return { kind: 'result' };
+  } finally { try { client.close(); } catch { /* вкладка вже закрита */ } }
+}
+
 export async function readTelegramIdentityViaCdp({ cdpBaseUrl } = {}) {
   const base = cdpBaseUrl ? normalizeLocalCdpBaseUrl(cdpBaseUrl) : null;
   if (!base) return { kind: 'blocked', reason: 'cdp_not_configured' };

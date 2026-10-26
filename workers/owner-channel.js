@@ -64,7 +64,7 @@ import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFee
 /** @typedef {'browser'|'runner'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, autopostClaimedAt?: number, autopostWatchAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId?: string|null, autopostClaimedAt?: number, autopostLanes?: Record<string, {jobId: string, claimedAt: number, current: {send: boolean, startedAt: number, platform: string}}|undefined>, autopostWatchAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostPace?: Record<string, {intervalSeconds:number, nextAt:number}>, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 // The runner pings every 30 s and the runtime records each auto-answered ping per socket. A runner socket
@@ -85,6 +85,15 @@ const AUTOPOST_WATCH_MS = 180_000;
 /** Інтервал між публікаціями Telegram, якщо оператор ще не вибирав «на годину»: 5 на годину. */
 const TELEGRAM_DEFAULT_INTERVAL_SECONDS = 720;
 const AUTOPOST_PLATFORMS = ['whatsapp', 'viber', 'telegram'];
+/**
+ * Два канали видачі, що працюють паралельно: Viber керує Android через adb, а WhatsApp і Telegram ділять одну вкладку браузера
+ * (їх у runner усе одно виконує по черзі). Платформи в різних каналах не чекають одна одну.
+ */
+const AUTOPOST_LANES = ['browser', 'viber'];
+const laneOfPlatform = (/** @type {string} */ platform) => (platform === 'viber' ? 'viber' : 'browser');
+const platformsOfLane = (/** @type {string} */ lane) => AUTOPOST_PLATFORMS.filter((platform) => laneOfPlatform(platform) === lane);
+/** Інтервал між відправками платформи, якщо оператор не вибирав: Telegram — 5 на годину, решта — без пауз. */
+const defaultIntervalSeconds = (/** @type {string} */ platform) => (platform === 'telegram' ? TELEGRAM_DEFAULT_INTERVAL_SECONDS : 0);
 /** Подія, що тримає чергу обробників довше за це, не блокує наступні (D1 міг не відповісти). */
 const SERIAL_MAX_WAIT_MS = 60_000;
 const PING = JSON.stringify({ type: 'ping' });
@@ -153,17 +162,25 @@ export class OwnerChannel {
       // (new "Автопост у черзі" badge, or a cancelled one gone) instead of finding out on next focus.
       this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: null, status: 'queue_changed' });
       // «Зупинити» скасовує задачі в D1, але runner уже може виконувати одну з них: кажемо йому припинити до відправки.
-      if (state.autopostCurrentJobId) {
+      for (const lane of AUTOPOST_LANES) {
+        const slot = state.autopostLanes?.[lane];
+        if (!slot?.jobId) continue;
         const current = await this.env.DB.prepare('SELECT status FROM whatsapp_autopost_jobs WHERE id=?1 AND user_id=?2 LIMIT 1')
-          .bind(state.autopostCurrentJobId, userId).first();
-        if (!current || current.status !== 'claimed') this.broadcast('runner', { type: 'cancel', process: 'autopost', jobId: state.autopostCurrentJobId });
+          .bind(slot.jobId, userId).first();
+        if (!current || current.status !== 'claimed') this.broadcast('runner', { type: 'cancel', process: 'autopost', jobId: slot.jobId });
       }
       // Дія оператора (старт, зупинка, рішення) знімає паузу: він міг якраз виправити причину.
       state.autopostPaused = undefined;
-      const perHour = Number(url.searchParams.get('telegramPerHour'));
-      if (perHour >= 1 && perHour <= 60) {
-        state.telegramPace = { intervalSeconds: Math.round(3600 / perHour), nextAt: state.telegramPace?.nextAt ?? 0 };
-        this.broadcastTelegramPace(state);
+      // Темп платформ: `pace=viber:0,telegram:20` (0 — без пауз); старий параметр `telegramPerHour` лишається для сумісності.
+      const paceParam = url.searchParams.get('pace') || '';
+      const legacyPerHour = Number(url.searchParams.get('telegramPerHour'));
+      const requested = paceParam.split(',').map((item) => item.split(':')).filter((pair) => AUTOPOST_PLATFORMS.includes(pair[0]));
+      if (legacyPerHour >= 1 && legacyPerHour <= 60) requested.push(['telegram', String(legacyPerHour)]);
+      for (const [platform, value] of requested) {
+        const perHour = Number(value);
+        if (!Number.isInteger(perHour) || perHour < 0 || perHour > 60) continue;
+        state.autopostPace = { ...(state.autopostPace || {}), [platform]: { intervalSeconds: perHour ? Math.round(3600 / perHour) : 0, nextAt: state.autopostPace?.[platform]?.nextAt ?? 0 } };
+        this.broadcastPace(state, platform);
       }
       this.autopostTrace(state, 'wake: з браузера', false);
       await this.dispatchNextAutopostJob(state);
@@ -218,7 +235,7 @@ export class OwnerChannel {
   async onBrowserConnected(server, userId) {
     const state = await this.readState();
     if (userId && state.userId !== userId) { state.userId = userId; await this.writeState(state); }
-    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0, ...(state.viberStatus ? { viberStatus: state.viberStatus } : {}), ...(state.autopostStatus ? { autopostStatus: state.autopostStatus } : {}), ...(state.telegramPace ? { telegramPace: state.telegramPace } : {}) }));
+    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0, ...(state.viberStatus ? { viberStatus: state.viberStatus } : {}), ...(state.autopostStatus ? { autopostStatus: state.autopostStatus } : {}), ...(state.autopostPace ? { autopostPace: state.autopostPace } : {}), ...(state.autopostPace?.telegram ? { telegramPace: state.autopostPace.telegram } : {}) }));
   }
 
   /**
@@ -237,7 +254,7 @@ export class OwnerChannel {
     if (this.openRunnerCount(server) === 0) await this.releaseOrphanedTasks(state);
     server.send(JSON.stringify({ type: 'hello', processes: state.processes }));
     for (const entry of (state.autopostTrace ?? []).slice(-AUTOPOST_TRACE_REPLAY)) server.send(JSON.stringify({ type: 'trace', at: entry.at, text: entry.text, replay: true }));
-    this.autopostTrace(state, `runner підключено (відкритих: ${this.openRunnerCount()}), у роботі ${state.autopostCurrentJobId ?? 'нічого'}`, false);
+    this.autopostTrace(state, `runner підключено (відкритих: ${this.openRunnerCount()}), у роботі ${this.lanesText(state)}`, false);
     this.broadcast('browser', { type: 'runner_status', connected: true });
     // A runner that reconnects (sleep/network blip, not an explicit stop) must resume whatever
     // was running without the operator doing anything — the command itself never left D1/DO.
@@ -481,8 +498,8 @@ export class OwnerChannel {
    */
   async dispatchNextAutopostJob(state) {
     if (!state.userId) return;
-    // Платформи, що зараз не видаються: пауза, яку попросив runner (середовище не готове, FloodWait), і Telegram до свого інтервалу
-    // між публікаціями. Для них нічого не читаємо з D1, а будильник ставимо на кінець найближчого очікування.
+    // Платформи, що зараз не видаються: пауза, яку попросив runner (середовище не готове, FloodWait), і ті, чий інтервал між відправками ще
+    // не минув (там видаються лише проходи й перевірки). Для них нічого не читаємо з D1, а будильник ставимо на кінець очікування.
     const gates = this.autopostGates(state, Date.now());
     if (gates.platforms.length >= AUTOPOST_PLATFORMS.length) {
       this.autopostTrace(state, `видача: усі платформи чекають до ${new Date(gates.until).toISOString()}`, false);
@@ -494,57 +511,68 @@ export class OwnerChannel {
     // Рядки журналу до видачі йдуть у runner уже після самої задачі, щоб вона лишалась першим повідомленням.
     /** @type {string[]} */
     const notes = [];
-    const flush = () => { for (const note of notes) this.autopostTrace(state, note); };
-    if (!state.autopostCurrentJobId) {
-      // Стан DO міг загубитись, а рядок `claimed` у D1 лишився: така задача не повинна ні блокувати чергу мовчки, ні видаватись удруге.
-      const claimed = await this.env.DB.prepare(`SELECT id,updated_at FROM whatsapp_autopost_jobs WHERE user_id=?1 AND status='claimed' ORDER BY updated_at LIMIT 1`)
-        .bind(state.userId).first();
-      if (claimed) {
-        state.autopostCurrentJobId = String(claimed.id);
-        state.autopostClaimedAt = Number(claimed.updated_at) * 1000;
-        this.autopostTrace(state, `видача: у D1 є задача ${claimed.id} у роботі, якої DO не пам'ятав`, false);
+    const flush = () => { for (const note of notes) this.autopostTrace(state, note); notes.length = 0; };
+    state.autopostLanes ??= {};
+    // Стан DO міг загубитись, а рядки `claimed` у D1 лишились: такі задачі не повинні ні блокувати чергу мовчки, ні видаватись удруге.
+    const knownJobs = new Set(AUTOPOST_LANES.map((lane) => state.autopostLanes?.[lane]?.jobId).filter(Boolean));
+    if (knownJobs.size < AUTOPOST_LANES.length) {
+      const orphans = await this.env.DB.prepare(`SELECT id,updated_at,platform FROM whatsapp_autopost_jobs WHERE user_id=?1 AND status='claimed' ORDER BY updated_at LIMIT 4`)
+        .bind(state.userId).all();
+      for (const row of orphans.results || []) {
+        const lane = laneOfPlatform(String(row.platform || 'whatsapp'));
+        if (knownJobs.has(String(row.id)) || state.autopostLanes[lane]?.jobId) continue;
+        state.autopostLanes[lane] = { jobId: String(row.id), claimedAt: Number(row.updated_at) * 1000, current: { send: true, startedAt: Number(row.updated_at) * 1000, platform: String(row.platform || 'whatsapp') } };
+        knownJobs.add(String(row.id));
+        notes.push(`видача: у D1 є задача ${row.id} у роботі, якої DO не пам'ятав`);
       }
     }
-    if (state.autopostCurrentJobId && !(await this.forgetStaleAutopostJob(state))) {
-      this.autopostTrace(state, `видача: задача ${state.autopostCurrentJobId} ще в роботі (runner: ${runners})`);
-      return;
-    }
-    if (runners === 0) {
-      this.autopostTrace(state, 'видача: runner не підключений, задачі лишаються в черзі', false);
-      return;
-    }
-    const task = await claimWhatsAppAutopostJob(this.env.DB, state.userId, nowSeconds(), (row, reason) => {
-      notes.push(`видача: задачу ${row.id} (${row.expected_name}) знято, причина ${reason}`);
-    }, { excludePlatforms: gates.platforms, skipTelegramSends: gates.paceTelegram });
-    if (!task) {
-      // Якщо якась платформа чекає, повертаємось до черги, щойно очікування мине (один будильник, без опитування D1).
-      const waiting = gates.platforms.length > 0 || gates.paceTelegram;
-      state.autopostWatchAt = waiting ? gates.until + 1000 : undefined;
-      notes.push(waiting
-        ? `видача: решту черги стримують ${[...gates.platforms, ...(gates.paceTelegram ? ['telegram (інтервал)'] : [])].join(', ')} до ${new Date(gates.until).toISOString()} (runner: ${runners})`
-        : `видача: у черзі на сьогодні нічого не лишилось (runner: ${runners})`);
+    let delivered = 0;
+    let busy = 0;
+    for (const lane of AUTOPOST_LANES) {
+      const slot = state.autopostLanes[lane];
+      if (slot?.jobId && !(await this.forgetStaleAutopostJob(state, lane))) {
+        busy += 1;
+        notes.push(`видача: задача ${slot.jobId} ще в роботі (канал ${lane}, runner: ${runners})`);
+        continue;
+      }
+      if (runners === 0) continue;
+      const lanePlatforms = platformsOfLane(lane);
+      const excluded = [...AUTOPOST_PLATFORMS.filter((platform) => !lanePlatforms.includes(platform)), ...gates.platforms.filter((platform) => lanePlatforms.includes(platform))];
+      const task = await claimWhatsAppAutopostJob(this.env.DB, state.userId, nowSeconds(), (row, reason) => {
+        notes.push(`видача: задачу ${row.id} (${row.expected_name}) знято, причина ${reason}`);
+      }, { excludePlatforms: excluded, skipPacedSends: gates.paced.filter((platform) => lanePlatforms.includes(platform)) });
+      if (!task) continue;
+      const platform = autopostPlatformOfKind(task.kind);
+      state.autopostLanes[lane] = {
+        jobId: task.jobId,
+        claimedAt: Date.now(),
+        // Вікно інтервалу займає лише справжня відправка (кнопку «Надіслати» натиснуто); це видно з результату, а не з видачі.
+        current: { send: task.mode !== 'scan' && task.mode !== 'verify', startedAt: Date.now(), platform },
+      };
+      const sent = this.broadcast('runner', { type: 'task', process: 'autopost', task });
+      notes.push(`видача: ${task.kind} ${task.jobId} «${task.target.expectedName}» → runner: відкритих ${runners}, доставлено ${sent}`);
       flush();
-      if (waiting) await this.scheduleAlarm(state);
-      return;
+      this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: task.jobId, status: 'running', platform });
+      // Ніхто не прийняв задачу: не тримаємо її за DO до кінця оренди, а повертаємо в чергу для runner, який підключиться.
+      if (sent === 0) {
+        await releaseWhatsAppAutopostJob(this.env.DB, state.userId, task.jobId, nowSeconds());
+        state.autopostLanes[lane] = undefined;
+        this.autopostTrace(state, `видача: runner не отримав задачу ${task.jobId}, повернуто в чергу`);
+        this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: task.jobId, status: 'released', platform });
+        continue;
+      }
+      delivered += 1;
     }
-    state.autopostWatchAt = gates.platforms.length || gates.paceTelegram ? gates.until + 1000 : undefined;
-    state.autopostCurrentJobId = task.jobId;
-    state.autopostClaimedAt = Date.now();
-    const delivered = this.broadcast('runner', { type: 'task', process: 'autopost', task });
-    notes.push(`видача: ${task.kind} ${task.jobId} «${task.target.expectedName}» → runner: відкритих ${runners}, доставлено ${delivered}`);
+    if (runners === 0) this.autopostTrace(state, 'видача: runner не підключений, задачі лишаються в черзі', false);
+    else if (!delivered && !busy) {
+      // Якщо якась платформа чекає, повертаємось до черги, щойно очікування мине (один будильник, без опитування D1).
+      const waiting = gates.platforms.length > 0 || gates.paced.length > 0;
+      notes.push(waiting
+        ? `видача: решту черги стримують ${[...gates.platforms, ...gates.paced.map((platform) => `${platform} (інтервал)`)].join(', ')} до ${new Date(gates.until).toISOString()} (runner: ${runners})`
+        : `видача: у черзі на сьогодні нічого не лишилось (runner: ${runners})`);
+    }
     flush();
-    this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: task.jobId, status: 'running', platform: autopostPlatformOfKind(task.kind) });
-    // Ніхто не прийняв задачу: не тримаємо її за DO до кінця оренди, а повертаємо в чергу для runner, який підключиться.
-    if (delivered === 0) {
-      await releaseWhatsAppAutopostJob(this.env.DB, state.userId, task.jobId, nowSeconds());
-      state.autopostCurrentJobId = null;
-      state.autopostClaimedAt = undefined;
-      this.autopostTrace(state, `видача: runner не отримав задачу ${task.jobId}, повернуто в чергу`);
-      this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: task.jobId, status: 'released', platform: autopostPlatformOfKind(task.kind) });
-      return;
-    }
-    // Вікно інтервалу Telegram займає лише справжня відправка (кнопку «Надіслати» натиснуто); це видно з результату, а не з видачі.
-    state.autopostCurrent = { telegramSend: task.kind === 'telegram_autopost' && task.mode !== 'scan' && task.mode !== 'verify', startedAt: Date.now(), platform: autopostPlatformOfKind(task.kind) };
+    state.autopostWatchAt = gates.platforms.length || gates.paced.length ? gates.until + 1000 : undefined;
     await this.scheduleAlarm(state);
   }
 
@@ -558,22 +586,42 @@ export class OwnerChannel {
   autopostGates(state, now) {
     /** @type {string[]} */
     const platforms = [];
+    /** @type {string[]} */
+    const paced = [];
     let until = Infinity;
-    let paceTelegram = false;
     for (const platform of AUTOPOST_PLATFORMS) {
       let end = state.autopostPaused?.[platform] ?? 0;
       if (end && end <= now) { delete state.autopostPaused?.[platform]; end = 0; }
       if (end > now) { platforms.push(platform); until = Math.min(until, end); }
-      // Інтервал «N на годину» стримує лише публікації Telegram: проходи «знайти гілки» під час нього видаються.
-      if (platform === 'telegram' && (state.telegramPace?.nextAt ?? 0) > now) { paceTelegram = true; until = Math.min(until, state.telegramPace?.nextAt ?? Infinity); }
+      // Інтервал «N на годину» стримує лише відправки платформи: проходи «знайти гілки» й перевірки під час нього видаються.
+      const nextAt = state.autopostPace?.[platform]?.nextAt ?? 0;
+      if (nextAt > now && !platforms.includes(platform)) { paced.push(platform); until = Math.min(until, nextAt); }
     }
-    return { platforms, until, paceTelegram };
+    return { platforms, until, paced };
   }
 
-  /** @param {OwnerChannelState} state */
-  broadcastTelegramPace(state) {
-    if (!state.telegramPace) return;
-    this.broadcast('browser', { type: 'progress', process: 'autopost_pace', platform: 'telegram', nextAt: state.telegramPace.nextAt, intervalSeconds: state.telegramPace.intervalSeconds });
+  /** Інтервал між відправками платформи (с): 0 — без пауз. */
+  paceInterval(state, platform) {
+    return state.autopostPace?.[platform]?.intervalSeconds ?? defaultIntervalSeconds(platform);
+  }
+
+  /** Короткий опис задач у роботі для журналу. */
+  lanesText(state) {
+    const jobs = AUTOPOST_LANES.map((lane) => state.autopostLanes?.[lane]?.jobId).filter(Boolean);
+    return jobs.length ? jobs.join(', ') : 'нічого';
+  }
+
+  /** Канал, у якому зараз виконується задача (або null). */
+  laneOfJob(state, jobId) {
+    for (const lane of AUTOPOST_LANES) if (state.autopostLanes?.[lane]?.jobId === jobId) return lane;
+    return null;
+  }
+
+  /** @param {OwnerChannelState} state @param {string} platform */
+  broadcastPace(state, platform) {
+    const pace = state.autopostPace?.[platform];
+    if (!pace) return;
+    this.broadcast('browser', { type: 'progress', process: 'autopost_pace', platform, nextAt: pace.nextAt, intervalSeconds: pace.intervalSeconds });
   }
 
   /**
@@ -582,10 +630,11 @@ export class OwnerChannel {
    * (2026-10-18: Viber і WhatsApp не стартували кілька годин). Задачу, що вже не `claimed`, просто
    * забуваємо; `claimed` довше за AUTOPOST_LEASE_SECONDS (один чат — 15–30 с) повертаємо в чергу.
    * @param {OwnerChannelState} state
+   * @param {string} lane канал видачі
    * @returns {Promise<boolean>} true — поле очищено, можна видавати наступну
    */
-  async forgetStaleAutopostJob(state) {
-    const jobId = state.autopostCurrentJobId;
+  async forgetStaleAutopostJob(state, lane) {
+    const jobId = state.autopostLanes?.[lane]?.jobId;
     if (!jobId || !state.userId) return true;
     const row = await this.env.DB.prepare('SELECT status,updated_at FROM whatsapp_autopost_jobs WHERE id=?1 AND user_id=?2 LIMIT 1')
       .bind(jobId, state.userId).first();
@@ -599,8 +648,7 @@ export class OwnerChannel {
     } else {
       this.autopostTrace(state, `оренда: задача ${jobId} вже ${row ? row.status : 'видалена'}, забуто`);
     }
-    state.autopostCurrentJobId = null;
-    state.autopostClaimedAt = undefined;
+    if (state.autopostLanes) state.autopostLanes[lane] = undefined;
     return true;
   }
 
@@ -620,23 +668,23 @@ export class OwnerChannel {
   async handleAutopostResult(message) {
     const state = await this.readState();
     if (!state.userId) return;
-    if (state.autopostCurrentJobId !== message.jobId && !(await this.isClaimedAutopostJob(state.userId, message.jobId))) {
+    const lane = this.laneOfJob(state, message.jobId);
+    if (!lane && !(await this.isClaimedAutopostJob(state.userId, message.jobId))) {
       // Результат для задачі, якої вже немає в роботі, нічого не змінює; лишається слід, бо «sent» тут означав би публікацію без запису.
-      this.autopostTrace(state, `результат: ${message.status}${message.errorCode ? ` (${message.errorCode})` : ''} для ${message.jobId} проігноровано, у роботі ${state.autopostCurrentJobId ?? 'нічого'}`, false);
+      this.autopostTrace(state, `результат: ${message.status}${message.errorCode ? ` (${message.errorCode})` : ''} для ${message.jobId} проігноровано, у роботі ${this.lanesText(state)}`, false);
       await this.writeState(state);
       return;
     }
-    state.autopostCurrentJobId = null;
-    state.autopostClaimedAt = undefined;
-    // Наступна публікація Telegram не раніше, ніж через інтервал від початку цієї: рівномірно, без пачок навіть після затримки. Задача, що
-    // завершилась до натискання «Надіслати» (збій, пошук гілок), вікна не займає: наступна видається одразу.
-    if (state.autopostCurrent?.telegramSend && message.sendAttempted === true) {
-      const interval = (state.telegramPace?.intervalSeconds ?? TELEGRAM_DEFAULT_INTERVAL_SECONDS) * 1000;
-      state.telegramPace = { intervalSeconds: interval / 1000, nextAt: Math.max(state.autopostCurrent.startedAt + interval, Date.now()) };
-      this.broadcastTelegramPace(state);
+    const slot = lane ? state.autopostLanes?.[lane] : undefined;
+    if (lane && state.autopostLanes) state.autopostLanes[lane] = undefined;
+    // Наступна відправка платформи не раніше, ніж через її інтервал від початку цієї: рівномірно, без пачок навіть після затримки. Задача,
+    // що завершилась до натискання «Надіслати» (збій, проходи, перевірки), вікна не займає: наступна видається одразу.
+    const eventPlatform = slot?.current.platform;
+    const interval = eventPlatform ? this.paceInterval(state, eventPlatform) * 1000 : 0;
+    if (slot?.current.send && interval > 0 && (message.sendAttempted === true || message.status === 'sent')) {
+      state.autopostPace = { ...(state.autopostPace || {}), [eventPlatform]: { intervalSeconds: interval / 1000, nextAt: Math.max(slot.current.startedAt + interval, Date.now()) } };
+      this.broadcastPace(state, eventPlatform);
     }
-    const eventPlatform = state.autopostCurrent?.platform;
-    state.autopostCurrent = undefined;
     let status = 'failed';
     try {
       const outcome = await completeWhatsAppAutopostJob(this.env.DB, state.userId, message, nowSeconds());
@@ -656,18 +704,17 @@ export class OwnerChannel {
   async handleAutopostRelease(message) {
     const state = await this.readState();
     if (!state.userId) return;
-    if (state.autopostCurrentJobId !== message.jobId && !(await this.isClaimedAutopostJob(state.userId, message.jobId))) {
-      this.autopostTrace(state, `повернення: ${message.jobId} проігноровано, у роботі ${state.autopostCurrentJobId ?? 'нічого'}`, false);
+    const releasedLane = this.laneOfJob(state, message.jobId);
+    if (!releasedLane && !(await this.isClaimedAutopostJob(state.userId, message.jobId))) {
+      this.autopostTrace(state, `повернення: ${message.jobId} проігноровано, у роботі ${this.lanesText(state)}`, false);
       await this.writeState(state);
       return;
     }
     // Код приходить лише від тимчасової помилки самої задачі: сервер рахує спробу й після третьої пропускає чат на сьогодні.
     await releaseWhatsAppAutopostJob(this.env.DB, state.userId, message.jobId, nowSeconds(),
       typeof message.errorCode === 'string' ? message.errorCode : undefined);
-    const releasedPlatform = state.autopostCurrent?.platform;
-    state.autopostCurrentJobId = null;
-    state.autopostClaimedAt = undefined;
-    state.autopostCurrent = undefined;
+    const releasedPlatform = releasedLane ? state.autopostLanes?.[releasedLane]?.current.platform : undefined;
+    if (releasedLane && state.autopostLanes) state.autopostLanes[releasedLane] = undefined;
     this.autopostTrace(state, `повернення: ${message.jobId} назад у чергу${message.errorCode ? ` (${message.errorCode})` : ' (середовище не готове)'}`, false);
     // Runner просить паузу до певного часу: до нього не видаємо задач і не будимо себе раніше (не довше за годину).
     const until = Number(message.until);
@@ -676,7 +723,9 @@ export class OwnerChannel {
       // FloodWait у Telegram може бути на години; решті платформ вистачає години.
       const capped = Math.min(until, Date.now() + (platform === 'telegram' ? 24 : 1) * 3_600_000);
       state.autopostPaused = { ...(state.autopostPaused || {}), [platform]: capped };
-      if (platform === 'telegram' && state.telegramPace) { state.telegramPace.nextAt = Math.max(state.telegramPace.nextAt, capped); this.broadcastTelegramPace(state); }
+      // Пауза платформи зсуває й її вікно інтервалу: після FloodWait наступна відправка не раніше кінця паузи.
+      const pace = state.autopostPace?.[platform];
+      if (platform === 'telegram' && pace) { pace.nextAt = Math.max(pace.nextAt, capped); this.broadcastPace(state, platform); }
     }
     const gate = this.autopostGates(state, Date.now());
     state.autopostWatchAt = gate.platforms.length ? gate.until + 1000 : Date.now() + AUTOPOST_WATCH_MS;
@@ -796,8 +845,8 @@ export class OwnerChannel {
       this.autopostTrace(state, 'будильник: перевіряю чергу автопосту після повернення задачі');
       await this.dispatchNextAutopostJob(state);
     }
-    if (state.autopostCurrentJobId && Date.now() >= (state.autopostClaimedAt ?? 0) + AUTOPOST_LEASE_SECONDS * 1000) {
-      this.autopostTrace(state, `будильник: оренда задачі ${state.autopostCurrentJobId} спливла, перевіряю чергу`);
+    if (AUTOPOST_LANES.some((lane) => { const slot = state.autopostLanes?.[lane]; return slot?.jobId && Date.now() >= slot.claimedAt + AUTOPOST_LEASE_SECONDS * 1000; })) {
+      this.autopostTrace(state, `будильник: оренда задачі ${this.lanesText(state)} спливла, перевіряю чергу`);
       await this.dispatchNextAutopostJob(state);
     }
     await this.scheduleAlarm(state);
@@ -814,7 +863,7 @@ export class OwnerChannel {
     if (state.runnerOnline) times.push(Date.now() + RUNNER_WATCH_MS);
     if (state.discoveryRunWakeAt && state.discoveryRunWakeAt > Date.now()) times.push(state.discoveryRunWakeAt);
     // Задача автопосту «в роботі» не чекає чужої події: коли оренда спливає, DO сам прокидається й видає наступну. Один будильник на задачу, не опитування.
-    if (state.autopostCurrentJobId) times.push((state.autopostClaimedAt ?? Date.now()) + AUTOPOST_LEASE_SECONDS * 1000 + 2000);
+    for (const lane of AUTOPOST_LANES) { const slot = state.autopostLanes?.[lane]; if (slot?.jobId) times.push(slot.claimedAt + AUTOPOST_LEASE_SECONDS * 1000 + 2000); }
     if (state.autopostWatchAt) times.push(Math.max(state.autopostWatchAt, Date.now() + 1000));
     if (times.length) await this.ctx.storage.setAlarm(Math.min(...times));
   }
@@ -1089,13 +1138,11 @@ export class OwnerChannel {
     if (state.userId) {
       // Не лише задача, яку DO пам'ятає: рядок `claimed` у D1 без відкритого runner нікому не належить, хоч би що лежало в стані.
       const released = await releaseClaimedAutopostJobs(this.env.DB, state.userId, nowSeconds());
-      if (state.autopostCurrentJobId && !released.includes(state.autopostCurrentJobId)) released.push(state.autopostCurrentJobId);
+      for (const lane of AUTOPOST_LANES) { const known = state.autopostLanes?.[lane]?.jobId; if (known && !released.includes(known)) released.push(known); }
       for (const jobId of released) this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId, status: 'released' });
       if (released.length) this.autopostTrace(state, `runner відсутній: повернено в чергу ${released.length} задач (${released.join(', ')})`, false);
     }
-    state.autopostCurrentJobId = null;
-    state.autopostClaimedAt = undefined;
-    state.autopostCurrent = undefined;
+    state.autopostLanes = {};
     state.viberStatus = undefined;
     state.autopostStatus = undefined;
     state.autopostPaused = undefined;
@@ -1178,7 +1225,17 @@ export class OwnerChannel {
   /** @returns {Promise<OwnerChannelState>} */
   async readState() {
     const stored = await this.ctx.storage.get(STORAGE_KEY);
-    return stored ?? { userId: null, processes: {}, waitingCheckBatch: null, autopostCurrentJobId: null, discoveryCurrentTask: null, runnerLastSeenAt: null, runnerOnline: false };
+    const state = stored ?? { userId: null, processes: {}, waitingCheckBatch: null, autopostLanes: {}, discoveryCurrentTask: null, runnerLastSeenAt: null, runnerOnline: false };
+    // Стан, записаний до каналів видачі (одна задача в роботі): переносимо в канал браузера, Telegram-інтервал — у спільну мапу.
+    if (state.autopostCurrentJobId) {
+      state.autopostLanes = { ...(state.autopostLanes || {}), browser: { jobId: state.autopostCurrentJobId, claimedAt: state.autopostClaimedAt ?? Date.now(), current: { send: Boolean(state.autopostCurrent?.telegramSend), startedAt: state.autopostCurrent?.startedAt ?? Date.now(), platform: state.autopostCurrent?.platform ?? 'whatsapp' } } };
+    }
+    state.autopostCurrentJobId = null;
+    state.autopostClaimedAt = undefined;
+    state.autopostCurrent = undefined;
+    if (state.telegramPace && !state.autopostPace?.telegram) state.autopostPace = { ...(state.autopostPace || {}), telegram: state.telegramPace };
+    state.telegramPace = undefined;
+    return state;
   }
 
   /** @param {OwnerChannelState} state */

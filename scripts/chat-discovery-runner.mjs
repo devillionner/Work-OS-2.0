@@ -22,7 +22,7 @@ import { JOINED_GROUPS_PER_STEP, recordDiscoverySourceOutcome, hydrateDiscoveryS
 import { TELEGRAM_PARALLEL_TABS, openTelegramWebSessions, scanTelegramGroupForInvites, searchTelegramPublicGroups } from './telegram-web-cdp.mjs';
 import { MAX_REVISIT_GROUPS, isGroupScanDue, parseScanMemory, productiveGroupsDue, rememberScannedGroups } from './telegram-group-memory.mjs';
 import { VIBER_ENV_REASON_TEXT, cancelViberTask, runViberAndroid, viberActiveTask, viberPayloadFromTask } from './viber-android.mjs';
-import { readTelegramIdentityViaCdp, sendTelegramAutopostViaCdp } from './telegram-autopost-cdp.mjs';
+import { readTelegramIdentityViaCdp, reloadTelegramTabViaCdp, sendTelegramAutopostViaCdp } from './telegram-autopost-cdp.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
@@ -957,7 +957,7 @@ async function checkViberStatus(){
   // Поки Viber виконує задачу, `adb` для перевірки не запускаємо: картка показує «зайнятий», а не хибне «Viber не відповів».
   const busy=viberActiveTask();
   if(busy){reportViberStatus(liveWs,'busy',null,`надсилаю в «${busy.name}»: ${busy.step}`);return;}
-  if(processingTask)return;
+  if(processingViberTask)return;
   const result=await runViberAndroid('status');
   reportViberStatus(liveWs,result.status==='ready'?'ready':result.status==='busy'?'busy':'blocked',result.reason,result.detail);
 }
@@ -1033,7 +1033,7 @@ async function handleViberAutopostTask(ws,job){
   // «Не той чат»: Viber показав чат з іншою назвою; її (до « | screen:») зберігаємо, щоб власник міг оновити назву в Work OS.
   const observedTitle=reason==='target_unconfirmed'&&!String(result.detail||'').startsWith('join page:')?String(result.detail||'').split(' | screen:')[0].trim():'';
   sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',
-    observedTarget:observedTitle||job.target?.expectedName,targetVerified:result.severity==='after',sendConfirmed:false,errorCode:reason||'adapter_failed'});
+    observedTarget:observedTitle||job.target?.expectedName,targetVerified:result.severity==='after',sendConfirmed:false,errorCode:reason||'adapter_failed',...(result.sentAt?{sentAt:result.sentAt}:{})});
 }
 
 // --- Telegram-автопост через Telegram Web (та сама вкладка браузера, що й автопошук). Інтервал між публікаціями, паузи й гілки
@@ -1078,6 +1078,21 @@ async function checkTelegramStatus(){
   try{result=await readTelegramIdentityViaCdp({cdpBaseUrl:whatsappCdp});}catch{return;}
   if(result.kind==='result')reportAutopostStatus('telegram','ready',null,'Telegram Web готовий.',0,{identity:result.identity});
   else if(result.reason!=='telegram_tab_missing')reportAutopostStatus('telegram','blocked',result.reason,TELEGRAM_REASON_TEXT[result.reason]||'Telegram Web не готовий.');
+}
+
+// Самолікування вкладок: Telegram Web чи WhatsApp Web, що не готові, спершу перезавантажуються (не частіше за раз на 3 хв на сайт), і лише
+// потім черга стає на паузу з одним рядком пояснення.
+const lastTabHealAt={telegram:0,whatsapp:0};
+const TAB_HEAL_GAP_MS=3*60_000;
+async function healBrowserTab(site){
+  if(Date.now()-lastTabHealAt[site]<TAB_HEAL_GAP_MS)return false;
+  lastTabHealAt[site]=Date.now();
+  try{
+    const result=site==='telegram'?await reloadTelegramTabViaCdp({cdpBaseUrl:whatsappCdp}):await resetWhatsappPageViaCdp({cdpBaseUrl:whatsappCdp});
+    if(site==='whatsapp')await sleep(15_000);
+    console.log(`Вкладку ${site==='telegram'?'Telegram':'WhatsApp'} Web перезавантажено для самолікування (${result.kind}).`);
+    return result.kind==='result';
+  }catch(error){console.warn(`Самолікування вкладки ${site} не вдалось: ${error instanceof Error?error.message:String(error)}`);return false;}
 }
 
 async function handleTelegramAutopostTask(ws,job){
@@ -1133,6 +1148,8 @@ async function handleTelegramAutopostTask(ws,job){
   }
   // Збій до «Надіслати», що повторюється на різних чатах, — це браузер чи Telegram Web, а не чат: пауза з поясненням.
   if(TELEGRAM_ADAPTER_RETRY_REASONS.has(reason)){
+    // Вкладка не готова: один раз перезавантажуємо її й повторюємо через кілька секунд, а не рахуємо це збоєм чату.
+    if((reason==='telegram_page_not_ready'||reason==='telegram_chat_not_opened')&&await healBrowserTab('telegram')){releaseTask(ws,'autopost',job,Date.now()+8_000,'',Date.now()+8_000);return;}
     const now=Date.now();
     telegramAdapterFailures=telegramAdapterFailures.filter(item=>now-item.at<TELEGRAM_SYSTEMIC_PAUSE_MS*2);
     telegramAdapterFailures.push({at:now,chatId:job.target?.chatId||job.jobId,reason});
@@ -1213,6 +1230,8 @@ async function handleAutopostTaskNow(ws,job){
   }
   console.warn(`WhatsApp autopost stopped fail-closed: ${automated.reason}${automated.detail?` (${String(automated.detail).slice(0,300)})`:''}`);
   if(WHATSAPP_RUNTIME_TRANSIENT_REASONS.has(automated.reason)){
+    // WhatsApp Web не готовий: один раз перезавантажуємо вкладку й повторюємо за кілька секунд, і лише потім довга пауза.
+    if((automated.reason==='page_not_ready'||automated.reason==='whatsapp_messages_loading')&&await healBrowserTab('whatsapp')){pauseWhatsappAutopost(ws,job,Date.now()+10_000,automated.reason);return;}
     markWhatsappRuntimeBlocked(automated.reason);
     pauseWhatsappAutopost(ws,job,whatsappRuntimeBlockedUntil,automated.reason);
     return;
@@ -1293,9 +1312,30 @@ async function handleDiscoveryTask(ws,task){
 // every one of them so two never run at once just because the DO happened to push more than one task.
 const incomingTaskQueue=[];
 let processingTask=false;
+// Viber керує Android через adb і не торкається вкладки браузера, тож його задачі йдуть власною чергою паралельно з WhatsApp і Telegram
+// (їх і далі виконує по черзі `withCdpLock`): поки браузерна платформа чекає свого інтервалу, Viber працює, і навпаки.
+const viberTaskQueue=[];
+let processingViberTask=false;
 function enqueueTask(ws,taskProcess,task){
+  if(taskProcess==='autopost'&&task?.kind==='viber_android'){
+    viberTaskQueue.push({ws,taskProcess,task});
+    void pumpViberQueue();
+    return;
+  }
   incomingTaskQueue.push({ws,taskProcess,task});
   pumpTaskQueue();
+}
+async function pumpViberQueue(){
+  if(processingViberTask)return;
+  const next=viberTaskQueue.shift();
+  if(!next)return;
+  processingViberTask=true;
+  try{await handleAutopostTask(next.ws,next.task);}
+  catch(error){console.error(`Viber task handler failed: ${error instanceof Error?error.message:String(error)}`);}
+  finally{
+    processingViberTask=false;
+    void pumpViberQueue();
+  }
 }
 // Процеси чергуються: після задачі перевірки заявок WhatsApp першою йде задача автопосту (якщо вона вже чекає), і навпаки.
 // Інакше довга перевірка тримає автопост, поки не закінчиться вся.
@@ -1344,7 +1384,7 @@ function onLiveMessage(ws,raw){
     if(message.process==='autopost'&&task.jobId){
       const jobId=String(task.jobId);
       const finished=autopostResults.get(jobId);
-      if(autopostActive.has(jobId)||incomingTaskQueue.some((item)=>item.taskProcess==='autopost'&&item.task?.jobId===jobId)){
+      if(autopostActive.has(jobId)||incomingTaskQueue.some((item)=>item.taskProcess==='autopost'&&item.task?.jobId===jobId)||viberTaskQueue.some((item)=>item.task?.jobId===jobId)){
         console.log(`Задача ${jobId} уже виконується або чекає в черзі: дубль проігноровано.`);
         return;
       }
