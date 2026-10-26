@@ -11,6 +11,14 @@ const AUTOPOST_SEND_CONFIRM_MS = 30_000;
 // Фото з підписом WhatsApp Web вантажить довше за текст: живий запуск 2026-10-24 показав повідомлення в чаті лише через ≈60 с після кліку,
 // тож 30 с давали хибне «не підтверджено» при вже відправленому фото. Після кліку час уже ні на що інше не потрібен.
 const AUTOPOST_MEDIA_CONFIRM_MS = 90_000;
+// Після кожного натискання «Надіслати» вкладка лишається в чаті ще стільки: страховка поверх очікування галочки, а не замість нього.
+const AFTER_SEND_SETTLE_MS = 30_000;
+const AUTOPOST_TEXT_PENDING_WAIT_MS = 90_000;
+// Фото, що вже «в дорозі» (годинник біля нашого повідомлення), чекаємо до галочки довше: перехід у наступний чат чи перезавантаження вкладки
+// вбивають повідомлення, яке ще вантажиться (2026-10-26: у Work OS «відправлено», а в чаті годинник назавжди).
+const AUTOPOST_PENDING_WAIT_MS = 180_000;
+// Власне невідправлене шукаємо лише після нашої недавньої відправки: старі «застряглі» годинники з минулих збоїв перехід не блокують.
+const RECENT_SEND_MS = 10 * 60_000;
 // The attached photo's preview overlay. Eight seconds was arbitrary and too tight on a WhatsApp Web that is
 // still waking up, which burned a whole queue of jobs at once (live report 2026-10-06).
 const AUTOPOST_MEDIA_PREVIEW_MS = 20_000;
@@ -1112,14 +1120,40 @@ async function clickWhatsappMediaSend(client){
 }
 
 // Для дії «Перевірити»: усі рядки повідомлень відкритого чату (без обмеження «останні 50») і прокрутка стрічки вгору на сторінку.
-const READ_ALL_ROWS_JS = `(() => {
+// Стан повідомлення в рядку чату. WhatsApp Web 2026-10 прибрав `data-icon` і `true_` у data-id; знято наживо (2026-10-26, вкладка runner):
+//  · вихідне повідомлення: svg `<title>tail-out</title>`, aria-label «Ви:» (ru «Вы:», en «You:»); data-id тепер на кшталт `3EB01E19…`;
+//  · годинник (ще не пішло): svg `<title>ic-schedule</title>`;
+//  · галочки: svg `<title>wds-ic-delivered</title>` (так само `wds-ic-sent`, `wds-ic-read`), у списку чатів ті самі назви;
+//  · помилка: svg `<title>ic-error</title>`, `data-testid="fail-container"`, aria-label «Сталася помилка. Натисніть, щоб дізнатися більше».
+// «Відправлено» — лише коли галочка видна; відсутність годинника нічого не доводить. Назви шукаємо за закінченням, щоб пережити префікси `wds-`.
+const ROW_STATE_FN = `const rowState = (row, node) => {
+  const lower = (value) => String(value || '').toLowerCase();
+  const titles = [...row.querySelectorAll('svg title')].map((item) => lower(item.textContent));
+  const labels = [...row.querySelectorAll('[aria-label]')].map((item) => lower(item.getAttribute('aria-label')));
+  const testIds = [...row.querySelectorAll('[data-testid]')].map((item) => lower(item.getAttribute('data-testid')));
+  const any = (list, pattern) => list.some((value) => pattern.test(value));
+  const fromMe = Boolean(
+    (node.getAttribute('data-id') || '').startsWith('true_') || row.classList?.contains('message-out') || row.querySelector('.message-out')
+    || any(titles, /^(?:tail-out|(?:wds-)?ic-.*-out)$/) || any(labels, /^(?:ви|you|вы)\\s*:/) || any(testIds, /^(?:tail-out|fail-container)$/)
+  );
+  const error = any(titles, /(?:^|-)error$/) || any(testIds, /^(?:fail-container|msg-error)$/) || any(labels, /сталася помилка|не вдалося надіслати|ошибка|не удалось отправить|something went wrong|failed to send/)
+    || Boolean(row.querySelector('[data-icon="msg-error"], [data-icon="status-error"]'));
+  const pending = any(titles, /(?:^|-)(?:schedule|msg-time|status-time|clock)$/) || any(testIds, /^(?:msg-time|spinner)$/) || any(labels, /^(?:очікування|pending|ожидание|надсилається|sending)/)
+    || Boolean(row.querySelector('[data-icon="msg-time"], [data-icon="status-time"], progress'));
+  const ack = any(titles, /(?:^|-)(?:sent|delivered|read|check|dblcheck|done|done-all|msg-check|msg-dblcheck)$/) || any(labels, /^(?:надіслано|доставлено|прочитано|sent|delivered|read|отправлено)/)
+    || Boolean(row.querySelector('[data-icon="msg-check"], [data-icon="msg-dblcheck"], [data-icon="msg-dblcheck-ack"]'));
+  return { fromMe, pending, error, ack: ack && !pending && !error };
+};`;
+
+export const READ_ALL_ROWS_JS = `(() => {
+  ${ROW_STATE_FN}
   const seen = new Set();
   return [...document.querySelectorAll('#main [data-id]')].map((node) => {
     const key = node.getAttribute('data-id') || '';
     if (!key || seen.has(key)) return null;
     seen.add(key);
     const row = node.closest('div[role="row"]') || node;
-    return { key, text: String(row.innerText || '').slice(0, 4000), hasMedia: Boolean(row.querySelector('img, video, canvas')) };
+    return { key, text: String(row.innerText || '').slice(0, 4000), hasMedia: Boolean(row.querySelector('img, video, canvas')), ...rowState(row, node) };
   }).filter(Boolean);
 })()`;
 const SCROLL_CHAT_UP_JS = `(() => {
@@ -1160,25 +1194,40 @@ export async function sendWhatsappAutopostViaCdp(
       expectedTarget:{name:task.target.expectedName,link:task.target.expectedLink},
     };
     const navigatedInviteCode = whatsappInviteCode(task.target?.expectedLink);
-    const operationDeadline = Date.now() + timeoutMs;
+    let operationDeadline = Date.now() + timeoutMs;
     const remainingBudget = () => Math.max(POLL_MS, operationDeadline - Date.now());
     const confirmWindowMs = Math.min(timeoutMs, AUTOPOST_SEND_CONFIRM_MS);
     onStep('open', 'відкриваю чат');
-    const navigation = await openWhatsappInviteWhenSynced(client, page, targetUrl, operationDeadline);
-    if (navigation.kind === 'blocked') return { kind:'blocked', reason:navigation.reason };
-    let classified = await waitForClassification(client, inspectTask, remainingBudget(), null, navigatedInviteCode, true);
-    if (classified.kind === 'action' && classified.action === 'view') {
-      const clicked = await clickExactButton(client, classified.buttonText, classified.observedName || task.target.expectedName);
-      if (!clicked) return { kind:'blocked', reason:'expected_control_disappeared' };
-      const observedTask = classified.observedName
-        ? { ...inspectTask, name:classified.observedName, expectedTarget:{...inspectTask.expectedTarget,name:classified.observedName} }
-        : inspectTask;
-      classified = await waitForClassification(client, observedTask, remainingBudget(), 'view', navigatedInviteCode);
+    // Не йдемо з чату, поки там є наше невідправлене (годинник): переходи всередині застосунку теж чекають галочку.
+    if (!await waitForOwnPendingToClear(client, AUTOPOST_PENDING_WAIT_MS)) return { kind:'blocked', reason:'whatsapp_pending_outgoing' };
+    operationDeadline = Date.now() + timeoutMs;
+    // Приєднаний чат відкриваємо всередині WhatsApp Web (пошук у списку й клік), без перезавантаження вкладки; посилання-запрошення
+    // лишається для чатів, яких у списку немає (не приєднані, інша назва).
+    let observedTarget = '';
+    if (task.target.expectedName && await openChatInApp(client, task.target.expectedName).catch(() => false)) {
+      const opened = await readSnapshot(client);
+      await sleep(1_200);
+      const header = (opened.headerNames || []).map((value) => String(value || '').trim()).find(Boolean) || '';
+      if (header && !await openChatMatchesTarget(client, task.target.expectedName, header)) { observedTarget = ''; }
+      else if (header && !leftPattern.test(String(opened.bodyText || '')) && !opened.hasQr) observedTarget = header;
     }
-    if (classified.kind !== 'result' || classified.result.targetVerified !== true || classified.result.membershipState !== 'joined') {
-      return { kind:'blocked', reason:classified.reason || 'joined_target_not_verified' };
+    if (!observedTarget) {
+      const navigation = await openWhatsappInviteWhenSynced(client, page, targetUrl, operationDeadline);
+      if (navigation.kind === 'blocked') return { kind:'blocked', reason:navigation.reason };
+      let classified = await waitForClassification(client, inspectTask, remainingBudget(), null, navigatedInviteCode, true);
+      if (classified.kind === 'action' && classified.action === 'view') {
+        const clicked = await clickExactButton(client, classified.buttonText, classified.observedName || task.target.expectedName);
+        if (!clicked) return { kind:'blocked', reason:'expected_control_disappeared' };
+        const observedTask = classified.observedName
+          ? { ...inspectTask, name:classified.observedName, expectedTarget:{...inspectTask.expectedTarget,name:classified.observedName} }
+          : inspectTask;
+        classified = await waitForClassification(client, observedTask, remainingBudget(), 'view', navigatedInviteCode);
+      }
+      if (classified.kind !== 'result' || classified.result.targetVerified !== true || classified.result.membershipState !== 'joined') {
+        return { kind:'blocked', reason:classified.reason || 'joined_target_not_verified' };
+      }
+      observedTarget = classified.result.observedName || task.target.expectedName;
     }
-    const observedTarget = classified.result.observedName || task.target.expectedName;
     const before = await readSnapshot(client);
     if (!before.composer) return { kind:'blocked', reason:before.adminOnly ? 'admin_only' : 'read_only' };
     // Дія «Перевірити»: нічого не надсилаємо, лише шукаємо в чаті своє повідомлення з цим підписом і міткою часу навколо моменту
@@ -1225,6 +1274,7 @@ export async function sendWhatsappAutopostViaCdp(
       onStep('photo','додаю фото');
       // Після відкриття за запрошенням WhatsApp ще показує «Перевірка запрошення»: поки це вікно висить, чат не готовий і кнопка «Надіслати» не діє.
       if(!await waitForNoInviteCheckDialog(client,20_000))return {kind:'blocked',reason:'page_not_ready'};
+      if(!await discardOpenMediaEditor(client))return {kind:'blocked',reason:'page_not_ready'};
       if(!await focusAndClearComposer(client))return {kind:'blocked',reason:'composer_not_found'};
       await markWhatsappEditorsBeforeMedia(client);
       // Paste first (the Prototype Checker's route, which yields a preview WITH a caption box); the hidden
@@ -1253,38 +1303,26 @@ export async function sendWhatsappAutopostViaCdp(
       if(Date.now()>=operationDeadline)return {kind:'blocked',reason:'autopost_budget_exhausted'};
       // Оператор натиснув «Зупинити»: до кнопки відправки ще можна відмовитись, після неї ні.
       if(shouldAbort())return {kind:'blocked',reason:'cancelled'};
+      // Остання перевірка перед кнопкою: відкритий чат має бути саме цим.
+      if(!await openChatMatchesTarget(client,task.target.expectedName,observedTarget)){
+        const wrong=await readOpenChatHeader(client);
+        await discardOpenMediaEditor(client);
+        return {kind:'blocked',reason:'target_unconfirmed',observedTarget:wrong};
+      }
       onStep('send','надсилаю');
       if(!await clickWhatsappMediaSend(client))return {kind:'blocked',reason:'media_send_control_not_found'};
-      onStep('confirm','перевіряю, що повідомлення в чаті');
-      const deadline=Date.now()+Math.max(confirmWindowMs,AUTOPOST_MEDIA_CONFIRM_MS);
-      while(Date.now()<deadline){
-        const snapshot=await readSnapshot(client);
-        const candidate=(snapshot.messageRows||[]).find((row)=>
-          row.key&&!beforeKeys.has(row.key)&&(
-            row.hasMedia===true ||
-            matchesCaptionOrText(row.text, text) ||
-            row.fromMe
-          )
-        );
-        if(candidate){
-          if(candidate.error===true){
-            return {kind:'blocked',reason:'media_send_failed'};
-          }
-          if(candidate.pending===true&&candidate.ack!==true){
-            // Image is still actively uploading to WhatsApp servers. Keep waiting!
-            await sleep(POLL_MS);
-            continue;
-          }
-          // Upload and send confirmed by WhatsApp. Pause briefly so local state settles cleanly.
-          await sleep(1000);
-          return {kind:'result',result:{status:'sent',observedTarget,targetVerified:true,sendConfirmed:true,mediaConfirmed:true}};
-        }
-        await sleep(POLL_MS);
+      recentSend.at=Date.now();
+      onStep('confirm','чекаю галочку біля повідомлення');
+      // «Відправлено» лише коли наш новий рядок (з нашим підписом) має галочку; годинник, що висить довше за вікно, — не підтвердження.
+      const ackState=await waitForOwnAck(client,{beforeKeys,text,maxMs:Math.max(confirmWindowMs,AUTOPOST_PENDING_WAIT_MS),requireText:true});
+      if(ackState.state==='sent'){
+        return settleAfterSend(onStep,{kind:'result',result:{status:'sent',observedTarget,targetVerified:true,sendConfirmed:true,mediaConfirmed:true}});
       }
+      if(ackState.state==='failed')return settleAfterSend(onStep,{kind:'blocked',reason:'media_send_failed'});
       // Живий збір 2026-10-24: після кліку повідомлення не з'явилось. Зберігаємо знімок і стан екрана, щоб бачити, що саме лишилось.
       const afterSend=await client.send('Runtime.evaluate',{expression:`JSON.stringify({previewOpen:[...document.querySelectorAll('button,[role="button"]')].some((n)=>/вибраний файл|selected file/i.test(n.getAttribute('aria-label')||'')),rows:document.querySelectorAll('#main [data-id]').length,outRows:[...document.querySelectorAll('#main [data-id]')].filter((n)=>/^true_/.test(n.getAttribute('data-id')||'')).length,dialogs:[...document.querySelectorAll('[role="dialog"]')].map((n)=>(n.innerText||'').replace(/\\s+/g,' ').slice(0,100))})`,returnByValue:true}).catch(()=>null);
       await saveFailureShot(client);
-      return {kind:'blocked',reason:'media_send_not_confirmed',detail:String(afterSend?.result?.value||'')};
+      return settleAfterSend(onStep,{kind:'blocked',reason:'media_send_not_confirmed',detail:`${ackState.state};${String(afterSend?.result?.value||'')}`});
     }
     if (!await focusAndClearComposer(client)) return { kind:'blocked', reason:'composer_not_found' };
     await client.send('Input.insertText', { text });
@@ -1293,27 +1331,18 @@ export async function sendWhatsappAutopostViaCdp(
     if (Date.now() >= operationDeadline) return { kind:'blocked', reason:'autopost_budget_exhausted' };
     if (shouldAbort()) return { kind:'blocked', reason:'cancelled' };
 
+    if (!await openChatMatchesTarget(client, task.target.expectedName, observedTarget)) {
+      return { kind:'blocked', reason:'target_unconfirmed', observedTarget:await readOpenChatHeader(client) };
+    }
     await client.send('Input.dispatchKeyEvent', { type:'keyDown', key:'Enter', code:'Enter', windowsVirtualKeyCode:13, nativeVirtualKeyCode:13 });
     await client.send('Input.dispatchKeyEvent', { type:'keyUp', key:'Enter', code:'Enter', windowsVirtualKeyCode:13, nativeVirtualKeyCode:13 });
 
-    const deadline = Date.now() + confirmWindowMs;
-    while (Date.now() < deadline) {
-      const snapshot = await readSnapshot(client);
-      const candidate = (snapshot.messageRows || []).find((row) =>
-        row.key && !beforeKeys.has(row.key) && (matchesCaptionOrText(row.text, text) || row.fromMe)
-      );
-      if (candidate && !normalizeMessageText(snapshot.composerText || '')) {
-        if (candidate.error === true) return { kind:'blocked', reason:'send_failed' };
-        if (candidate.pending === true && candidate.ack !== true) {
-          await sleep(POLL_MS);
-          continue;
-        }
-        await sleep(600);
-        return { kind:'result', result:{ status:'sent', observedTarget, targetVerified:true, sendConfirmed:true } };
-      }
-      await sleep(POLL_MS);
-    }
-    return { kind:'blocked', reason:'send_not_confirmed' };
+    recentSend.at = Date.now();
+    onStep('confirm', 'чекаю галочку біля повідомлення');
+    const ackState = await waitForOwnAck(client, { beforeKeys, text, maxMs:Math.max(confirmWindowMs, AUTOPOST_TEXT_PENDING_WAIT_MS), requireText:true });
+    if (ackState.state === 'sent') return settleAfterSend(onStep, { kind:'result', result:{ status:'sent', observedTarget, targetVerified:true, sendConfirmed:true } });
+    if (ackState.state === 'failed') return settleAfterSend(onStep, { kind:'blocked', reason:'send_failed' });
+    return settleAfterSend(onStep, { kind:'blocked', reason:'send_not_confirmed' });
   } finally {
     client.close();
   }
@@ -1347,9 +1376,182 @@ export async function resetWhatsappPageViaCdp({cdpBaseUrl}={}) {
   const client=await createCdpClient(page.webSocketDebuggerUrl);
   try{
     await client.send('Page.enable');
+    await client.send('Runtime.enable');
+    if(!await waitForOwnPendingToClear(client,AUTOPOST_PENDING_WAIT_MS))return {kind:'blocked',reason:'whatsapp_pending_outgoing'};
     await client.send('Page.navigate',{url:'https://web.whatsapp.com/'});
     return {kind:'result'};
   }finally{client.close();}
+}
+
+/** Назва відкритого чату з шапки (перший рядок). */
+async function readOpenChatHeader(client) {
+  const response = await client.send('Runtime.evaluate', { expression:`String((document.querySelector('#main header') || {}).innerText || '').split('\\n')[0] || ''`, returnByValue:true }).catch(() => null);
+  return String(response?.result?.value || '');
+}
+
+/**
+ * Живі дані 2026-10-26: фото з підписом може лишитись непереданим у вікні перегляду (редактор висить відкритим годинами), а наступний
+ * запуск тоді працює поверх нього. Відкрите вікно фото перед новою відправкою закриваємо: Escape й «Відхилити» (непереслане фото нікуди
+ * не йде). true — вікна немає (було закрите чи його не було).
+ */
+const MEDIA_EDITOR_OPEN_JS = `(() => [...document.querySelectorAll('button, [role="button"]')].some((node) => {
+  const r = node.getBoundingClientRect();
+  return r.width > 0 && r.height > 0 && /\\d+\\s+(вибран|selected|выбран)/iu.test(String(node.getAttribute('aria-label') || node.title || ''));
+}))()`;
+async function discardOpenMediaEditor(client) {
+  const open = async () => (await client.send('Runtime.evaluate', { expression:MEDIA_EDITOR_OPEN_JS, returnByValue:true }).catch(() => null))?.result?.value === true;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (!await open()) return true;
+    await client.send('Input.dispatchKeyEvent', { type:'keyDown', key:'Escape', code:'Escape', windowsVirtualKeyCode:27, nativeVirtualKeyCode:27 });
+    await client.send('Input.dispatchKeyEvent', { type:'keyUp', key:'Escape', code:'Escape', windowsVirtualKeyCode:27, nativeVirtualKeyCode:27 });
+    await sleep(800);
+    const point = (await client.send('Runtime.evaluate', { expression:`(() => {
+      const button = [...document.querySelectorAll('button, [role="button"]')].find((node) => /^(відхилити|discard|отклонить)$/iu.test(String(node.innerText || '').trim()));
+      if (!button) return null;
+      const r = button.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    })()`, returnByValue:true }).catch(() => null))?.result?.value;
+    if (point) for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await client.send('Input.dispatchMouseEvent', { type, x:point.x, y:point.y, button:'left', clickCount:1 });
+    await sleep(800);
+  }
+  return !await open();
+}
+
+/** Перед самою відправкою шапка відкритого чату має збігатися з ціллю: інакше повідомлення пішло б не туди. */
+async function openChatMatchesTarget(client, ...names) {
+  const header = looseTargetLabel(await readOpenChatHeader(client));
+  return Boolean(header) && names.some((name) => looseTargetLabel(name) === header);
+}
+
+// Остання наша відправка в цій вкладці: після неї вкладку не можна перезавантажувати, поки повідомлення не отримало галочку.
+const recentSend = { at: 0 };
+
+/** Пауза в чаті після «Надіслати» (і при sent, і при непідтвердженні): наступний чат відкривається лише після неї. */
+async function settleAfterSend(onStep, outcome) {
+  recentSend.at = Date.now();
+  onStep('settle', 'чекаю 30 с, щоб повідомлення точно пішло');
+  await sleep(AFTER_SEND_SETTLE_MS);
+  recentSend.at = Date.now();
+  return outcome;
+}
+
+/**
+ * Чекає, поки наш новий рядок (не було до відправки; наше, з нашим підписом) отримає галочку. Годинник — чекаємо; помилка — `failed`;
+ * рядка немає або годинник/порожній стан пережили вікно — `missing`/`pending`, і це не «відправлено».
+ */
+async function waitForOwnAck(client, { beforeKeys, text, maxMs, requireText = true }) {
+  const deadline = Date.now() + maxMs;
+  let last = 'missing';
+  while (Date.now() < deadline) {
+    const snapshot = await readSnapshot(client);
+    const rows = (snapshot.messageRows || []).filter((row) => row.key && !beforeKeys.has(row.key) && row.fromMe
+      && (!requireText || matchesCaptionOrText(row.text, text) || row.hasMedia === true));
+    const own = rows.find((row) => row.error === true) || rows.find((row) => row.ack === true) || rows[0];
+    if (!own) last = 'missing';
+    else if (own.error === true) return { state:'failed' };
+    else if (own.ack === true) return { state:'sent' };
+    else last = 'pending';
+    await sleep(POLL_MS);
+  }
+  return { state:last };
+}
+
+/** Власні рядки відкритого чату: скільки з годинником, скільки з помилкою. */
+async function readOwnRowStates(client) {
+  const rows = (await client.send('Runtime.evaluate', { expression:READ_ALL_ROWS_JS, returnByValue:true }).catch(() => null))?.result?.value || [];
+  const own = rows.filter((row) => row.fromMe);
+  return { own: own.length, pending: own.filter((row) => row.pending).length, error: own.filter((row) => row.error).length };
+}
+
+/**
+ * Не йдемо з чату, поки там є наше невідправлене: годинник біля власного повідомлення означає, що воно ще вантажиться, а перехід
+ * (особливо `Page.navigate`) його вбиває. Чекаємо до галочки, не довше за `maxMs`. true — можна йти; false — повідомлення так і не пішло.
+ */
+export async function waitForOwnPendingToClear(client, maxMs, signal = null) {
+  if (Date.now() - recentSend.at > RECENT_SEND_MS) return true;
+  const deadline = Date.now() + maxMs;
+  for (;;) {
+    const state = await readOwnRowStates(client);
+    if (state.pending === 0) return true;
+    if (signal?.aborted || Date.now() >= deadline) return false;
+    await sleep(1_000);
+  }
+}
+
+/**
+ * Відкриває вже приєднаний чат усередині WhatsApp Web (пошук у списку чатів і клік), без `Page.navigate`: перезавантаження вкладки
+ * зайве для чату, де акаунт уже учасник, і воно вбиває невідправлені повідомлення. Клік по найвищому рядку з цією назвою; якщо такого немає,
+ * повертає false, і виклик іде через посилання-запрошення. Ціль підтверджує далі звірка назви в шапці.
+ */
+export async function openChatInApp(client, expectedName, timeoutMs = 12_000) {
+  const wanted = looseTargetLabel(expectedName);
+  if (!wanted) return false;
+  const deadline = Date.now() + timeoutMs;
+  const evaluate = async (expression) => (await client.send('Runtime.evaluate', { expression, returnByValue:true, awaitPromise:true }).catch(() => null))?.result?.value;
+  // Вкладка у фоні (`visibilityState: hidden`): список результатів пошуку не домальовується, рядки лишаються порожніми. Емуляція фокусу
+  // тримає вкладку «видимою» без перемикання вікна оператора; `bringToFront` лише запасний шлях.
+  try { await client.send('Emulation.setFocusEmulationEnabled', { enabled:true }); } catch { await client.send('Page.bringToFront').catch(() => {}); }
+  const press = async (type, key, code, vk, modifiers = 0) => client.send('Input.dispatchKeyEvent', { type, key, code, windowsVirtualKeyCode:vk, nativeVirtualKeyCode:vk, modifiers });
+  // Пошук: поле зліва над списком чатів (contenteditable або input), у ньому ще може лишитись попередній запит.
+  const searchBox = await evaluate(`(() => {
+    const node = document.querySelector('#side [contenteditable="true"], #side input[type="text"], [data-testid="chat-list-search"]');
+    if (!node) return null;
+    node.focus();
+    const b = node.getBoundingClientRect();
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  })()`);
+  if (!searchBox) return false;
+  for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await client.send('Input.dispatchMouseEvent', { type, x:searchBox.x, y:searchBox.y, button:'left', clickCount:1 });
+  await press('keyDown', 'a', 'KeyA', 65, 2); await press('keyUp', 'a', 'KeyA', 65, 2);
+  await press('keyDown', 'Backspace', 'Backspace', 8); await press('keyUp', 'Backspace', 'Backspace', 8);
+  await client.send('Input.insertText', { text:String(expectedName).slice(0, 60) });
+  // Назва чату — у першому елементі з атрибутом title: перший рядок innerText у чатів із непрочитаними — це «N непрочитане повідомлення».
+  const readResultRows = async () => await evaluate(`(() => [...document.querySelectorAll('#pane-side [role="row"], #pane-side [role="listitem"]')].map((row) => {
+    const b = row.getBoundingClientRect();
+    const titled = row.querySelector('span[title]');
+    const first = (titled && titled.getAttribute('title')) || String(row.innerText || '').split('\\n').map((line) => line.trim()).filter(Boolean)[0] || '';
+    return { first, x: b.x + b.width / 2, y: b.y + b.height / 2, visible: b.width > 0 && b.height > 0 && b.y >= 0 && b.y + b.height <= window.innerHeight };
+  }).filter((row) => row.visible))()`) || [];
+  // Поки пошук не відфільтрував список, у ньому лежить весь список чатів (потрібний рядок за межами екрана або ще їде): чекаємо, коли
+  // збіг стоїть у видимій частині й не зсувається між двома зчитуваннями.
+  let clickAt = null;
+  while (Date.now() < deadline) {
+    await sleep(400);
+    const rows = await readResultRows();
+    // Рядки без тексту — список не домальований (вкладка у фоні): знімок найменшого розміру змушує браузер намалювати кадр.
+    if (rows.length > 1 && rows.filter((row) => !row.first).length > 1) {
+      await client.send('Page.captureScreenshot', { format:'jpeg', quality:1, clip:{ x:0, y:0, width:8, height:8, scale:0.1 } }).catch(() => {});
+    }
+    const first = rows.find((row) => looseTargetLabel(row.first) === wanted);
+    if (!first) continue;
+    await sleep(500);
+    const again = (await readResultRows()).find((row) => looseTargetLabel(row.first) === wanted);
+    if (again && Math.abs(again.y - first.y) < 2) { clickAt = again; break; }
+  }
+  // Запит із пошуку прибираємо виділенням і Backspace у самому полі: Escape поза полем закрив би відкритий чат.
+  const finish = async () => {
+    for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await client.send('Input.dispatchMouseEvent', { type, x:searchBox.x, y:searchBox.y, button:'left', clickCount:1 });
+    await press('keyDown', 'a', 'KeyA', 65, 2); await press('keyUp', 'a', 'KeyA', 65, 2);
+    await press('keyDown', 'Backspace', 'Backspace', 8); await press('keyUp', 'Backspace', 'Backspace', 8);
+    await sleep(300);
+  };
+  if (!clickAt) { await finish(); return false; }
+  // Клік могли «з'їсти» під час перемальовування списку: друга спроба бере свіжі координати рядка.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) {
+      clickAt = (await readResultRows()).find((row) => looseTargetLabel(row.first) === wanted) || clickAt;
+    }
+    for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await client.send('Input.dispatchMouseEvent', { type, x:clickAt.x, y:clickAt.y, button:'left', clickCount:1 });
+    // Шапка відкритого чату має показати саме цю назву.
+    const until = Date.now() + 3_000;
+    while (Date.now() < until) {
+      await sleep(400);
+      const header = await evaluate(`String((document.querySelector('#main header') || {}).innerText || '').split('\\n')[0] || ''`);
+      if (looseTargetLabel(header) === wanted) { await finish(); return true; }
+    }
+  }
+  await finish();
+  return false;
 }
 
 // Opening an invite reloads WhatsApp Web, and on a large account the reload re-syncs messages for
@@ -1375,6 +1577,9 @@ async function openWhatsappInviteWhenSynced(client, page, targetUrl, deadline, s
     if (Date.now() + POLL_MS >= deadline) return { kind:'blocked', reason:'whatsapp_messages_loading' };
     await sleep(POLL_MS);
   }
+  // Перезавантаження вбиває повідомлення, яке ще вантажиться (годинник біля нашого рядка): чекаємо галочку, а `onbeforeunload` (захист самого
+  // WhatsApp від виходу з невідправленим) не чіпаємо, поки таке є.
+  if (!await waitForOwnPendingToClear(client, AUTOPOST_PENDING_WAIT_MS, signal)) return { kind:'blocked', reason:'whatsapp_pending_outgoing' };
   try {
     await client.send('Runtime.evaluate', { expression: `window.onbeforeunload = null;` });
   } catch {}
@@ -1584,6 +1789,7 @@ async function waitForClassification(client, task, timeoutMs, afterAction = null
 
 async function readSnapshot(client) {
   const expression = `(() => {
+    ${ROW_STATE_FN}
     const clean = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
     const unique = (values) => [...new Set(values.map(clean).filter(Boolean))];
     const read = (root, selectors) => unique(selectors.flatMap((selector) =>
@@ -1666,20 +1872,7 @@ async function readSnapshot(client) {
       .slice(-50)
       .map((node) => {
         const row = node.closest('div[role="row"]') || node;
-        const fromMe = Boolean(
-          node.getAttribute('data-id')?.startsWith('true_') ||
-          row.classList?.contains('message-out') ||
-          row.querySelector?.('.message-out')
-        );
-        const pending = Boolean(
-          row.querySelector?.('[data-icon="msg-time"], [data-icon="status-time"], [data-testid="msg-time"], [aria-label*="Pending" i], [aria-label*="Очікування" i], [aria-label*="Часы" i], circle, progress, [data-testid="spinner"]')
-        );
-        const error = Boolean(
-          row.querySelector?.('[data-icon="msg-error"], [data-icon="status-error"], [data-testid="msg-error"], [aria-label*="Error" i], [aria-label*="Помилка" i], [aria-label*="не вдалося" i], [aria-label*="Не удалось" i]')
-        );
-        const ack = Boolean(
-          row.querySelector?.('[data-icon="msg-check"], [data-icon="msg-dblcheck"], [data-icon="msg-dblcheck-ack"], [data-testid="msg-check"], [data-testid="msg-dblcheck"], [aria-label*="Sent" i], [aria-label*="Надіслано" i], [aria-label*="Отправлено" i], [aria-label*="Delivered" i], [aria-label*="Доставлено" i], [aria-label*="Read" i], [aria-label*="Прочитано" i]')
-        );
+        const { fromMe, pending, error, ack } = rowState(row, node);
         return {
           key: node.getAttribute('data-id') || '',
           text: extractNodeText(row),

@@ -87,6 +87,7 @@ const WHATSAPP_REASON_TEXT={
   whatsapp_not_authenticated:'WhatsApp Web не залогінений. Відскануй QR-код у вкладці браузера runner.',
   page_not_ready:'Вкладка WhatsApp Web не готова. Відкрий web.whatsapp.com у браузері runner.',
   whatsapp_messages_loading:'WhatsApp Web ще завантажує повідомлення.',
+  whatsapp_pending_outgoing:'У чаті WhatsApp ще є наше повідомлення без галочки (годинник). Чекаю, поки воно піде, і не залишаю чат.',
   cdp_unavailable:'Браузер runner не відповідає на порту 127.0.0.1:9222. Запусти його з відкритим портом налагодження.',
   cdp_not_configured:'Браузер runner не підключений.',
   media_attach_failed:'WhatsApp Web не прийняв фото. Автопост на паузі.',
@@ -1232,6 +1233,8 @@ async function handleAutopostTaskNow(ws,job){
     return;
   }
   console.warn(`WhatsApp autopost stopped fail-closed: ${automated.reason}${automated.detail?` (${String(automated.detail).slice(0,300)})`:''}`);
+  // Попереднє повідомлення ще з годинником: у чаті нічого не чіпаємо (ні перезавантаження, ні переходу), коротка пауза й знову.
+  if(automated.reason==='whatsapp_pending_outgoing'){pauseWhatsappAutopost(ws,job,Date.now()+60_000,automated.reason);return;}
   if(WHATSAPP_RUNTIME_TRANSIENT_REASONS.has(automated.reason)){
     // WhatsApp Web не готовий: один раз перезавантажуємо вкладку й повторюємо за кілька секунд, і лише потім довга пауза.
     if((automated.reason==='page_not_ready'||automated.reason==='whatsapp_messages_loading')&&await healBrowserTab('whatsapp')){pauseWhatsappAutopost(ws,job,Date.now()+10_000,automated.reason);return;}
