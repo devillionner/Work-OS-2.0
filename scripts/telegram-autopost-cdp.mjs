@@ -103,6 +103,13 @@ export function parseTelegramFloodSeconds(text) {
 // Порівняння без пробілів і переносів: у повідомленні Telegram переноси, нерозривні пробіли й емодзі-картинки відображаються інакше, ніж у полі.
 function squash(value) { return String(value || '').normalize('NFC').replace(/[\s\u00a0\u200b\u200e\u200f]+/gu, ''); }
 
+// Текст для введення: як у Бібліотеці, з порожніми рядками між абзацами (normalizeText їх склеює, і пост у Telegram виходив
+// суцільним блоком, 2026-10-26). Зайві пробіли в кінці рядків і понад один порожній рядок поспіль прибираються.
+function typingText(value) {
+  return String(value || '').normalize('NFC').replace(/\r\n?/gu, '\n').replace(/\u00a0/gu, ' ').replace(/[\u200b\u200e\u200f]/gu, '')
+    .split('\n').map((line) => line.replace(/[ \t]+$/u, '')).join('\n').replace(/\n{3,}/gu, '\n\n').trim();
+}
+
 function normalizeText(value) {
   return String(value || '').normalize('NFC').replace(/ /gu, ' ').replace(/[​‎‏]/gu, '').replace(/[ \t]+/gu, ' ').replace(/\s*\n\s*/gu, '\n').trim();
 }
@@ -336,12 +343,13 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
   const base = cdpBaseUrl ? normalizeLocalCdpBaseUrl(cdpBaseUrl) : null;
   if (!base) return { kind: 'blocked', reason: 'cdp_not_configured' };
   const text = normalizeText(task?.material?.text);
+  const typed = typingText(task?.material?.text);
   // Прохід «знайти гілки» тексту не має: він лише дивиться на чат.
   if (!text && !scanOnly) return { kind: 'blocked', reason: 'stale_precondition' };
   let media = task?.material?.media?.base64 ? task.material.media : null;
-  if (!verifyOnly && Array.from(text).length > MAX_MESSAGE_CHARS) return { kind: 'blocked', reason: 'telegram_text_too_long' };
+  if (!verifyOnly && Array.from(typed).length > MAX_MESSAGE_CHARS) return { kind: 'blocked', reason: 'telegram_text_too_long' };
   // Підпис до фото в Telegram — до 1024 символів: довший не обрізаємо, а не надсилаємо.
-  if (!verifyOnly && media && Array.from(text).length > MAX_CAPTION_CHARS) return { kind: 'blocked', reason: 'telegram_caption_too_long' };
+  if (!verifyOnly && media && Array.from(typed).length > MAX_CAPTION_CHARS) return { kind: 'blocked', reason: 'telegram_caption_too_long' };
   const target = telegramOpenTarget(task?.target?.expectedLink);
   if (!target) return { kind: 'blocked', reason: 'telegram_chat_missing', detail: 'link_not_recognised' };
   const found = await findTelegramPage(base);
@@ -514,7 +522,7 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     if (!await page.click(`document.querySelector(${JSON.stringify(field)})`)) { if (media) await discardAttachment(page); return withScan({ kind: 'blocked', reason: 'telegram_composer_not_found' }); }
     await page.evaluate(`(() => { const node = document.querySelector(${JSON.stringify(field)}); node.focus(); const range = document.createRange(); range.selectNodeContents(node);
       const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range); document.execCommand('delete'); return true; })()`);
-    const lines = text.split('\n');
+    const lines = typed.split('\n');
     for (let index = 0; index < lines.length; index += 1) {
       if (index > 0) await page.key('Enter', 'Enter', 13, 8);
       if (lines[index]) await client.send('Input.insertText', { text: lines[index] });
