@@ -857,14 +857,18 @@ async function conversationFrame(android) {
 }
 
 /** Гортає стрічку всередині її вікна: 'older' — до давніших повідомлень, 'newer' — до новіших; `fraction` — частка висоти вікна. */
-async function scrollConversation(android, direction, fraction = 0.7) {
+async function scrollConversation(android, direction, fraction = 0.7, xRatio = 0.5) {
   const frame = await conversationFrame(android);
-  const x = Math.round((frame.left + frame.right) / 2);
+  // Жест по самому повідомленню (відео, опитування, «відповісти свайпом») стрічку не гортає: x можна зсунути до краю вікна.
+  const x = Math.round(frame.left + (frame.right - frame.left) * xRatio);
   const height = frame.bottom - frame.top;
-  const span = Math.max(60, Math.round(height * fraction));
-  const mid = Math.round((frame.top + frame.bottom) / 2);
-  const from = direction === 'older' ? mid - Math.round(span / 2) : mid + Math.round(span / 2);
-  const to = direction === 'older' ? mid + Math.round(span / 2) : mid - Math.round(span / 2);
+  // Угорі вікна може лежати закріплене повідомлення («Pinned by…», ≈60 px): жест, що почався на ньому, стрічку не гортає, тож і початок, і кінець
+  // жесту беремо всередині від країв: від 18 % висоти зверху до 4 % знизу.
+  const upper = Math.round(frame.top + height * 0.18);
+  const lower = Math.round(frame.bottom - height * 0.04);
+  const span = Math.max(60, Math.round((lower - upper) * (fraction / 0.85)));
+  const from = direction === 'older' ? upper : Math.min(lower, upper + span);
+  const to = direction === 'older' ? Math.min(lower, upper + span) : upper;
   await android.sh(`input swipe ${x} ${from} ${x} ${to} 260`);
   await sleep(700);
 }
@@ -880,6 +884,22 @@ async function jumpToBottom(android) {
 }
 
 /**
+ * До найновіших повідомлень: кнопка «униз» (якщо є) і далі жести до самого низу, поки екран перестає змінюватись. Після відправки
+ * довгого повідомлення з фото Viber не завжди сам прокручує стрічку до нього.
+ */
+async function scrollToBottom(android) {
+  await jumpToBottom(android);
+  let previous = '';
+  for (let attempt = 0; attempt < 14; attempt += 1) {
+    const nodes = await android.dump();
+    const signature = nodes.filter((node) => ['textMessageView', 'timestampView', 'imageView', 'nameView'].includes(node.id)).map((node) => `${node.id}:${node.top}:${(node.text || '').slice(0, 10)}`).join('|');
+    if (signature && signature === previous) return;
+    previous = signature;
+    await scrollConversation(android, 'newer', 0.85);
+  }
+}
+
+/**
  * Шукає наше повідомлення (за початком підпису) від найновіших до давніших, поки не знайде або не пройде час відправки.
  * `sentAt` — хвилина доби, коли повідомлення відправлялось; допустиме вікно часу [sentAt-4, sentAt+2] хв.
  * Повертає { state: 'found' } або { state: 'absent' } (прогорнули повз момент відправки, нашого немає) або { state: 'unknown', why }
@@ -887,17 +907,31 @@ async function jumpToBottom(android) {
  */
 async function locateOwnMessage(android, prefix, { sentAt, maxPages = 10, guard = () => {} }) {
   if (!prefix) return { state: 'absent' };
-  const inWindow = (minute) => { const delta = minutesBefore(sentAt, minute); return delta <= 4 || delta >= 1440 - 2; };
-  const olderThanWindow = (minute) => { const delta = minutesBefore(sentAt, minute); return delta > 4 && delta < 720; };
-  await jumpToBottom(android);
+  // `sentAt` null — час відправки невідомий: підходить будь-яке повідомлення з цим початком за сьогодні (до межі доби).
+  const known = sentAt !== null && sentAt !== undefined;
+  const reference = known ? sentAt : clockMinutes(await android.clock());
+  const inWindow = (minute) => { const delta = minutesBefore(reference, minute); return known ? delta <= 4 || delta >= 1440 - 2 : true; };
+  const olderThanWindow = (minute) => known && (() => { const delta = minutesBefore(reference, minute); return delta > 4 && delta < 720; })();
+  await scrollToBottom(android);
   let lastSignature = '';
+  let stuckTries = 0;
+  let previousTopStamp = null;
   for (let page = 0; page < maxPages; page += 1) {
     guard();
     if (await android.keyboardShown()) { await android.key(4); await sleep(500); }
     let nodes = await android.dump();
     const state = conversationStateOf(nodes);
     if (!state) return { state: 'unknown', why: 'conversation not shown' };
-    const own = nodes.filter((node) => node.id === 'textMessageView' && looseName(node.text).startsWith(prefix)).sort((a, b) => b.bottom - a.bottom);
+    // Межа доби: угору час має спадати, а різкий стрибок угору означає, що вище вже вчорашні повідомлення.
+    const stampNodes = nodes.filter((node) => node.id === 'timestampView').map((node) => ({ top: node.top, minute: stampMinutes(node.text) })).filter((item) => item.minute !== null).sort((a, b) => a.top - b.top);
+    // Між сторінками теж можна перетнути північ: найдавніший час на новій сторінці різко більший за найдавніший на попередній.
+    if (previousTopStamp !== null && stampNodes.length && stampNodes[0].minute > previousTopStamp + 30) return { state: 'absent' };
+    if (stampNodes.length) previousTopStamp = stampNodes[0].minute;
+    let dayBoundaryTop = null;
+    for (let index = 0; index < stampNodes.length - 1; index += 1) {
+      if (stampNodes[index].minute > stampNodes[index + 1].minute + 30) { dayBoundaryTop = stampNodes[index + 1].top; break; }
+    }
+    const own = nodes.filter((node) => node.id === 'textMessageView' && looseName(node.text).startsWith(prefix) && (dayBoundaryTop === null || node.top >= dayBoundaryTop - 4)).sort((a, b) => b.bottom - a.bottom);
     for (const message of own) {
       let minute = stampBelow(nodes, message);
       if (minute === null) {
@@ -912,15 +946,20 @@ async function locateOwnMessage(android, prefix, { sentAt, maxPages = 10, guard 
       if (inWindow(minute)) return { state: 'found', minute };
       // Копія з іншим часом (учорашня чи давніша): не наша, шукаємо далі.
     }
-    const stamps = nodes.filter((node) => node.id === 'timestampView').map((node) => stampMinutes(node.text)).filter((value) => value !== null);
+    const stamps = stampNodes.map((item) => item.minute);
     // Усе видиме вже давніше за момент відправки: далі лише давніші повідомлення, нашого немає.
-    if (stamps.length && stamps.every(olderThanWindow)) return { state: 'absent' };
     if (process.env.WORK_OS_VIBER_DEBUG) console.error(`locate page ${page} sentAt=${sentAt} own=${own.length} stamps=${stamps.join(',')} texts=${nodes.filter((n) => n.id === 'textMessageView').map((n) => `${n.top}-${n.bottom}:${n.text.slice(0, 12)}`).join(' | ')}`);
+    if (dayBoundaryTop !== null) return { state: 'absent' };
+    if (stamps.length && stamps.every(olderThanWindow)) return { state: 'absent' };
     // Підпис екрана: усі вузли повідомлень (текст, час, фото, відправник): одна велика картинка без тексту теж змінюється при прокрутці.
     const signature = nodes.filter((node) => ['textMessageView', 'timestampView', 'imageView', 'nameView', 'avatarView'].includes(node.id)).map((node) => `${node.id}:${node.top}:${(node.text || '').slice(0, 12)}`).join('|');
-    if (page > 0 && signature === lastSignature) return stamps.length && stamps.some(olderThanWindow) ? { state: 'absent' } : { state: 'unknown', why: 'start of chat or list stuck' };
+    if (page > 0 && signature === lastSignature) {
+      // Стрічка не зсунулась: жест міг потрапити на повідомлення, яке його поглинає. Пробуємо край вікна, потім інший край.
+      stuckTries += 1;
+      if (stuckTries >= 3) return stamps.length && stamps.some(olderThanWindow) ? { state: 'absent' } : { state: 'unknown', why: 'start of chat or list stuck' };
+    } else stuckTries = 0;
     lastSignature = signature;
-    await scrollConversation(android, 'older', 0.85);
+    await scrollConversation(android, 'older', 0.85, stuckTries === 0 ? 0.5 : stuckTries === 1 ? 0.04 : 0.96);
   }
   return { state: 'unknown', why: 'page limit' };
 }
@@ -995,7 +1034,7 @@ async function verify(payload, guard) {
     // Свіжа відправка: Viber міг ще вантажити фото, тож «немає» підтверджуємо повторним проходом не раніше ніж за 100 с після відправки.
     for (let round = 0; round < 3; round += 1) {
       guard();
-      const sentAt = clockMinutes(await android.clock()) - Math.round((ageSeconds + round * 30) / 60);
+      const sentAt = sinceEpoch ? clockMinutes(await android.clock()) - Math.round((ageSeconds + round * 30) / 60) : null;
       const result = await locateOwnMessage(android, prefix, { sentAt, maxPages: 26, guard });
       if (result.state === 'found') return result;
       const youngSeconds = ageSeconds + (Date.now() - startedVerifyAt);
