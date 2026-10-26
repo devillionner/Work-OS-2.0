@@ -21,7 +21,7 @@ import {
 import { JOINED_GROUPS_PER_STEP, recordDiscoverySourceOutcome, hydrateDiscoverySourceFeedback, telegramGroupDiscoveryPlan, telegramGroupSource } from './chat-discovery-source-crawl.mjs';
 import { TELEGRAM_PARALLEL_TABS, openTelegramWebSessions, scanTelegramGroupForInvites, searchTelegramPublicGroups } from './telegram-web-cdp.mjs';
 import { MAX_REVISIT_GROUPS, isGroupScanDue, parseScanMemory, productiveGroupsDue, rememberScannedGroups } from './telegram-group-memory.mjs';
-import { VIBER_ENV_REASON_TEXT, runViberAndroid, viberPayloadFromTask } from './viber-android.mjs';
+import { VIBER_ENV_REASON_TEXT, cancelViberTask, runViberAndroid, viberActiveTask, viberPayloadFromTask } from './viber-android.mjs';
 import { readTelegramIdentityViaCdp, sendTelegramAutopostViaCdp } from './telegram-autopost-cdp.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
@@ -99,6 +99,13 @@ let whatsappAdapterFailures=[];
 const VIBER_PACE_MIN_MS=8000;
 const VIBER_PACE_MAX_MS=16000;
 const VIBER_ENV_COOLDOWN_MS=60000;
+// Дозвіл adb чи Viber, що не відповідає, за хвилину не зникнуть: одна довша пауза замість щохвилинних спроб.
+const VIBER_ENV_LONG_COOLDOWN_MS=5*60000;
+const VIBER_LONG_COOLDOWN_REASONS=new Set(['android_unauthorized','viber_not_responding','android_unreachable','waydroid_not_running','waydroid_frozen']);
+// Скільки задач підряд обірвав сторож кроку, перш ніж це вважається проблемою Viber, а не одного чату.
+const VIBER_STALL_AFTER=3;
+let viberStalls=0;
+let viberCurrentJobId='';
 const VIBER_STATUS_EVERY_MS=60000;
 // Задачі автопосту, які оператор скасував («Зупинити»), поки runner їх виконує: перед відправкою runner їх облишає.
 const cancelledAutopostJobs=new Set();
@@ -942,13 +949,17 @@ function reportAutopostStatus(platform,state,reason,text,untilMs=0,extra={}){
 
 function reportViberStatus(ws,state,reason,detail){
   // Стан шлеться щоразу (це лише повідомлення в браузер, без D1): сторінка, відкрита пізніше, теж побачить «готовий».
-  sendLive(ws,{type:'progress',process:'viber_status',state,reason:reason||null,text:reason?(VIBER_ENV_REASON_TEXT[reason]||detail||reason):'Viber готовий',at:Date.now()});
+  sendLive(ws,{type:'progress',process:'viber_status',state,reason:reason||null,text:state==='busy'?`Зайнятий: ${detail||'надсилаю'}`:reason?(VIBER_ENV_REASON_TEXT[reason]||detail||reason):'Viber готовий',at:Date.now()});
 }
 
 async function checkViberStatus(){
-  if(!liveWs||liveWs.readyState!==WebSocket.OPEN||processingTask)return;
+  if(!liveWs||liveWs.readyState!==WebSocket.OPEN)return;
+  // Поки Viber виконує задачу, `adb` для перевірки не запускаємо: картка показує «зайнятий», а не хибне «Viber не відповів».
+  const busy=viberActiveTask();
+  if(busy){reportViberStatus(liveWs,'busy',null,`надсилаю в «${busy.name}»: ${busy.step}`);return;}
+  if(processingTask)return;
   const result=await runViberAndroid('status');
-  reportViberStatus(liveWs,result.status==='ready'?'ready':'blocked',result.reason,result.detail);
+  reportViberStatus(liveWs,result.status==='ready'?'ready':result.status==='busy'?'busy':'blocked',result.reason,result.detail);
 }
 
 // Задачу скасовано, поки вона чекала в runner: нічого не надсилаємо, DO просто йде до наступної (скасовані D1 не віддає).
@@ -982,11 +993,15 @@ async function handleViberAutopostTask(ws,job){
   const overrides=process.env.WORK_OS_VIBER_TEST_TARGET==='my_notes'?{testTarget:'my_notes'}:{};
   const onStep=createStepReporter(job,'Viber');
   onStep('start',job.mode==='verify'?'починаю перевірку':'починаю');
-  const result=await runViberAndroid(job.mode==='verify'?'verify':'post',{...viberPayloadFromTask(job,overrides),sinceEpoch:job.verify?.sinceEpoch},{shouldAbort:()=>cancelledAutopostJobs.has(job.jobId),onStep});
+  viberCurrentJobId=job.jobId;
+  let result;
+  try{result=await runViberAndroid(job.mode==='verify'?'verify':'post',{...viberPayloadFromTask(job,overrides),sinceEpoch:job.verify?.sinceEpoch},{shouldAbort:()=>cancelledAutopostJobs.has(job.jobId),onStep});}
+  finally{viberCurrentJobId='';}
   cancelledAutopostJobs.delete(job.jobId);
   lastViberFinishedAt=Date.now();
   const reason=String(result.reason||'');
   if(result.status==='sent'){
+    viberStalls=0;
     reportViberStatus(ws,'ready');
     sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'sent',
       observedTarget:result.observedTarget||job.target?.expectedName,targetVerified:true,sendConfirmed:true});
@@ -994,11 +1009,24 @@ async function handleViberAutopostTask(ws,job){
     return;
   }
   console.warn(`Viber autopost ${result.status}: ${reason}${result.detail?` (${result.detail})`:''}`);
+  // Сторож кроку (до «Send» чат не зачеплено): задача йде на повтор пізніше, а наступний чат береться одразу. Три такі збої підряд —
+  // це вже Viber, а не чат: одна пауза черги з поясненням.
+  if(reason==='viber_step_timeout'||reason==='viber_task_timeout'){
+    viberStalls+=1;
+    if(viberStalls>=VIBER_STALL_AFTER){
+      viberStalls=0;
+      reportViberStatus(ws,'blocked','viber_not_responding',result.detail);
+      setStatus('working',`Viber автопост на паузі: ${VIBER_ENV_REASON_TEXT.viber_not_responding}`);
+      releaseTask(ws,'autopost',job,Date.now()+VIBER_ENV_LONG_COOLDOWN_MS,'',Date.now()+VIBER_ENV_LONG_COOLDOWN_MS);
+      return;
+    }
+  }else if(result.status!=='blocked')viberStalls=0;
   if(result.severity==='env'){
     // Нічого не надсилалось: завдання лишається в черзі, runner чекає й пробує знову, оператор бачить причину на сайті.
+    const cooldown=VIBER_LONG_COOLDOWN_REASONS.has(reason)?VIBER_ENV_LONG_COOLDOWN_MS:VIBER_ENV_COOLDOWN_MS;
     reportViberStatus(ws,'blocked',reason,result.detail);
     setStatus('working',`Viber автопост на паузі: ${VIBER_ENV_REASON_TEXT[reason]||reason}`);
-    releaseTask(ws,'autopost',job,Date.now()+VIBER_ENV_COOLDOWN_MS,'',Date.now()+VIBER_ENV_COOLDOWN_MS);
+    releaseTask(ws,'autopost',job,Date.now()+cooldown,'',Date.now()+cooldown);
     return;
   }
   reportViberStatus(ws,'ready');
@@ -1336,6 +1364,8 @@ function onLiveMessage(ws,raw){
   }
   if(message.type==='cancel'&&message.process==='autopost'){
     cancelledAutopostJobs.add(String(message.jobId||''));
+    // Viber: крок, що виконується зараз, обривається одразу (до «Send»), а не після завислого `adb`.
+    if(viberCurrentJobId===String(message.jobId||''))cancelViberTask();
     console.log('Autopost job cancelled by the operator; the runner will stop before sending.');
     return;
   }

@@ -3,9 +3,9 @@
 // Linux-помічника: { status: 'ready'|'sent'|'skipped'|'failed', reason, severity: 'env'|'before'|'after', detail }.
 // Принцип: усе, що неоднозначне, закінчується без відправки; після натискання «Send» ніщо не повторюється.
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const VIBER_PACKAGE = 'com.viber.voip';
 const VIBER_LAUNCH = 'com.viber.voip/.WelcomeActivity';
@@ -14,7 +14,12 @@ const MEDIA_PERMISSION = 'android.permission.READ_MEDIA_IMAGES';
 const ADB_KEYBOARD_PACKAGE = 'com.android.adbkeyboard';
 const ADB_KEYBOARD = `${ADB_KEYBOARD_PACKAGE}/.AdbIME`;
 const REMOTE_UI_DUMP = '/sdcard/workos-ui.xml';
-const POST_TIMEOUT_MS = 4 * 60 * 1000;
+// Сторожовий тайм-аут на всю задачу й ліміти окремих кроків: жоден крок не висить довше, ніж йому відведено. Тривалий крок обриває
+// всі `adb`-процеси задачі (AbortController), тож завислий `uiautomator dump` чи `adb connect` не тримає чергу.
+const POST_TIMEOUT_MS = 3 * 60 * 1000;
+const STEP_LIMITS_MS = { env: 150_000, open: 40_000, photo: 30_000, send: 75_000, confirm: 70_000, verify: 70_000 };
+// Viber відповідає на початку партії: якщо ні, force-stop і запуск заново.
+const PREFLIGHT_KEEP_MS = 3 * 60 * 1000;
 // Фото для відправки лежить у Pictures Android лише на час партії: через 3 хв без відправок воно видаляється.
 const IMAGE_PREFIX = 'workos-autopost-';
 const IMAGE_KEEP_MS = 3 * 60 * 1000;
@@ -29,7 +34,17 @@ let cachedAt = 0;
 let environmentOkAt = 0;
 // Крок поточної відправки для runner (тре́й і картка партії на сайті): викликається з будь-якого місця без передачі параметрів.
 let emitStep = () => {};
-const step = (key, text) => { try { emitStep(key, text); } catch { /* діагностика не має ламати відправку */ } };
+// Поточна задача: її AbortController (обриває всі `adb`-виклики), назва, крок і чи вже натиснуто «Send» (після цього обрив не діє).
+let taskController = null;
+let activeTask = null;
+let sendPressed = false;
+let preflightOkAt = 0;
+const abortTask = (stop) => { if (taskController && !taskController.signal.aborted) taskController.abort(stop); };
+/** «Зупинити» від оператора: обриває поточний крок одразу, але лише до натискання «Send». */
+export function cancelViberTask() { if (!sendPressed) abortTask(new ViberStop('cancelled', 'before')); }
+/** Що робить адаптер зараз (для рядка стану runner): null, якщо вільний. */
+export const viberActiveTask = () => (activeTask ? { ...activeTask } : null);
+const step = (key, text) => { if (activeTask) activeTask.step = text; try { emitStep(key, text); } catch { /* діагностика не має ламати відправку */ } };
 // Скільки тривав кожен етап поточної відправки: у відповіді й журналі видно, де саме йде час.
 let currentLaps = null;
 
@@ -42,6 +57,7 @@ export const VIBER_ENV_REASON_TEXT = {
   waydroid_frozen: 'Контейнер Waydroid заморожений',
   android_unreachable: 'Android у Waydroid недоступний для adb',
   android_unauthorized: 'adb не авторизований в Android',
+  viber_not_responding: 'Viber у Waydroid не відповідає',
   waydroid_suspend: 'Увімкнене автозаморожування Waydroid',
   viber_not_installed: 'У Waydroid не встановлений Viber',
   viber_not_activated: 'Viber у Waydroid не активований',
@@ -57,12 +73,39 @@ class ViberStop extends Error {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function run(file, args, { timeout = 30_000, buffer = false, input } = {}) {
-  return new Promise((resolve) => {
-    const child = execFile(file, args, { timeout, maxBuffer: 64 << 20, encoding: buffer ? 'buffer' : 'utf8', killSignal: 'SIGKILL' }, (error, stdout, stderr) => {
+  // Виклики поточної задачі підпорядковані її AbortController: обрив убиває дочірній процес і одразу відхиляє промис причиною обриву.
+  const signal = taskController?.signal;
+  if (signal?.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const child = execFile(file, args, { timeout, maxBuffer: 64 << 20, encoding: buffer ? 'buffer' : 'utf8', killSignal: 'SIGKILL', ...(signal ? { signal } : {}) }, (error, stdout, stderr) => {
+      if (signal?.aborted) { reject(signal.reason); return; }
       resolve({ code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout, stderr: String(stderr || ''), error });
     });
     if (input !== undefined) child.stdin.end(input);
   });
+}
+
+/**
+ * Крок задачі з власним лімітом часу. Не вклався: обриваємо всі `adb`-виклики задачі й віддаємо код `viber_step_timeout`
+ * (до «Send» чат не зачеплено, задача піде на повтор), а після «Send» — `send_not_confirmed` (потребує рішення, без повтору).
+ */
+async function withStep(label, limitMs, fn) {
+  const startedAt = Date.now();
+  if (activeTask) activeTask.step = label;
+  let timer;
+  const stalled = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const stop = sendPressed
+        ? new ViberStop('send_not_confirmed', 'after', `крок «${label}» не вклався в ${Math.round(limitMs / 1000)} с`)
+        : new ViberStop('viber_step_timeout', 'before', `крок «${label}» висів ${Math.round((Date.now() - startedAt) / 1000)} с (ліміт ${Math.round(limitMs / 1000)} с)`);
+      abortTask(stop);
+      reject(stop);
+    }, limitMs);
+  });
+  // Імітація зависання для перевірки сторожів: WORK_OS_VIBER_STALL=«назва кроку» замінює його довгим процесом, який обрив теж убиває.
+  const work = process.env.WORK_OS_VIBER_STALL === label ? run('sleep', ['600'], { timeout: 600_000 }) : fn();
+  work.catch(() => {});
+  try { return await Promise.race([work, stalled]); } finally { clearTimeout(timer); }
 }
 
 /** Аргумент для `adb shell`: одинарні лапки зберігають кирилицю, емодзі й переноси рядків. */
@@ -245,15 +288,61 @@ async function restartWaydroid(stopFirst) {
   return waitWaydroidRunning(WAYDROID_BOOT_MS);
 }
 
+// Дозвіл adb не має залежати від вікна «Allow USB debugging». Android читає ключі з /data/misc/adb/adb_keys, а ця тека Waydroid
+// належить користувачеві хоста (~/.local/share/waydroid/data), тож відкритий ключ з ~/.android/adbkey.pub дописується туди без root.
+// Перевірено наживо 2026-10-26: новий ключ, дописаний у цей файл з хоста, одразу дає статус `device` без запиту в Android.
+const ADB_PUBLIC_KEY = () => join(process.env.ANDROID_USER_HOME || join(homedir(), '.android'), 'adbkey.pub');
+const WAYDROID_DATA = () => process.env.WORK_OS_WAYDROID_DATA || join(homedir(), '.local', 'share', 'waydroid', 'data');
+
+/** Дописує ключ adb хоста в adb_keys Waydroid, якщо його там немає. true — файл змінено (потрібне нове підключення). */
+export async function ensureAdbKeyAuthorized() {
+  let pub = '';
+  try { pub = (await readFile(ADB_PUBLIC_KEY(), 'utf8')).trim(); } catch { return false; }
+  const token = pub.split(/\s+/)[0];
+  if (!token) return false;
+  const keyFile = join(WAYDROID_DATA(), 'misc', 'adb', 'adb_keys');
+  let current = '';
+  try { current = await readFile(keyFile, 'utf8'); } catch { /* файла ще немає: Android створить теку при завантаженні, а ми дозаписуємо */ }
+  if (current.split('\n').some((line) => line.trim().split(/\s+/)[0] === token)) return false;
+  try {
+    await mkdir(dirname(keyFile), { recursive: true });
+    await appendFile(keyFile, `${current && !current.endsWith('\n') ? '\n' : ''}${pub}\n`);
+    return true;
+  } catch { return false; }
+}
+
+// Якщо запис ключа не допоміг, показуємо вікно Waydroid, щоб оператор побачив запит; не частіше за раз на 10 хв.
+let lastFullUiAt = 0;
+function showWaydroidWindow() {
+  if (Date.now() - lastFullUiAt < 10 * 60 * 1000) return;
+  lastFullUiAt = Date.now();
+  const child = spawn('waydroid', ['show-full-ui'], { detached: true, stdio: 'ignore' });
+  child.on('error', () => {});
+  child.unref();
+}
+
 /** adb до Android за адресою контейнера; null — Android не відповідає (сесія RUNNING, але гість завис або ще вантажиться). */
 async function reachAndroid(state, timeout) {
   const serial = `${state.ip}:5555`;
   const end = Date.now() + timeout;
+  let keyRetried = false;
+  let waitingForAllow = 0;
   for (;;) {
     await run('adb', ['connect', serial], { timeout: 12_000 });
     const devices = await run('adb', ['devices'], { timeout: 8000 });
     const line = String(devices.stdout).split('\n').find((row) => row.startsWith(serial)) || '';
-    if (/unauthorized/.test(line)) throw new ViberStop('android_unauthorized', 'env');
+    if (/unauthorized/.test(line)) {
+      if (!keyRetried) {
+        // Перша спроба: ключ могли втратити (перезавантаження, оновлення Waydroid): дописуємо його й підключаємось заново.
+        keyRetried = true;
+        if (await ensureAdbKeyAuthorized()) { await run('adb', ['disconnect', serial], { timeout: 8000 }); await sleep(800); continue; }
+      }
+      // Ключ уже в adb_keys, а Android усе одно питає: показуємо вікно й чекаємо на «Allow» до хвилини, а не крутимо спроби.
+      if (!waitingForAllow) { waitingForAllow = Date.now(); showWaydroidWindow(); step('env', 'чекаю на Allow у вікні Android'); }
+      if (Date.now() - waitingForAllow > 60_000) throw new ViberStop('android_unauthorized', 'env', 'ключ записано, вікно Waydroid показано');
+      await sleep(2000);
+      continue;
+    }
     if (/\bdevice\b/.test(line)) {
       const android = new Android(serial);
       const booted = (await android.sh('getprop sys.boot_completed', { timeout: 8000 })).trim();
@@ -266,6 +355,8 @@ async function reachAndroid(state, timeout) {
 
 async function connectNow() {
   if ((await run('adb', ['version'], { timeout: 8000 })).error?.code === 'ENOENT') throw new ViberStop('adb_missing', 'env');
+  // Ключ дописуємо заздалегідь, щоб перший же `adb connect` після перезавантаження ПК пройшов без запиту.
+  await ensureAdbKeyAuthorized();
   let state = await waydroidState();
   const healthy = (value) => value.session === 'RUNNING' && value.container === 'RUNNING' && value.ip;
   if (!healthy(state)) {
@@ -325,6 +416,27 @@ async function ensureEnvironment(android) {
   await checkEnvironment(android);
 }
 
+/**
+ * Самовідновлення перед партією: adb уже підключений (connect), тепер Viber має відкрити список чатів. Не відповів: force-stop і
+ * запуск заново; не відповів і вдруге — одна пауза черги з пояснювальним кодом, а не потік невдалих спроб по чатах.
+ */
+async function preflight(android) {
+  if (Date.now() - preflightOkAt < PREFLIGHT_KEEP_MS) return;
+  step('env', 'перевіряю, що Viber відповідає');
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await openChatList(android, 25_000);
+      preflightOkAt = Date.now();
+      return;
+    } catch (error) {
+      if (error instanceof ViberStop && (error.reason === 'viber_not_activated' || error.reason === 'cancelled')) throw error;
+      await android.sh(`am force-stop ${VIBER_PACKAGE}`, { timeout: 10_000 });
+      await sleep(1500);
+    }
+  }
+  throw new ViberStop('viber_not_responding', 'env', 'Viber не відкрив список чатів після перезапуску');
+}
+
 // ---------------------------------------------------------------- Екрани Viber
 
 const screenText = (nodes) => nodes.map((node) => `${node.text} ${node.desc}`.trim()).filter(Boolean).join(' | ');
@@ -349,13 +461,13 @@ async function clearPromos(android, nodes) {
 /** Список чатів готовий: у дереві є пошук і хоч один рядок розмови. */
 const chatListReady = (view) => Boolean(viewById(view, 'menu_search') && (viewById(view, 'from') || viewById(view, 'subject')));
 
-async function openChatList(android) {
+async function openChatList(android, timeout = 40_000) {
   await android.key(3);
   // CLEAR_TASK: залишок попередньої задачі (відкритий перегляд фото, розмова) не заважає, Viber починає зі списку чатів.
   await android.sh(`am start -f 0x10008000 -n ${VIBER_LAUNCH}`);
   // Дерево ще кілька сотень мс може показувати стару задачу, яку саме закривають.
   await sleep(500);
-  const found = await android.until(chatListReady, { timeout: 40_000, step: 250 });
+  const found = await android.until(chatListReady, { timeout, step: 250 });
   if (found) return;
   const nodes = await android.dump();
   const text = screenText(nodes);
@@ -693,6 +805,8 @@ async function attachAndSend(android, caption, guard, ime) {
     // Підпис щойно звірений повним dump у typeCaption, тож між набором і дотиком проходить лише кілька сотень мс.
     step('send', 'надсилаю');
     guard();
+    // Від цього моменту повідомлення може піти: обрив більше не діє, а тайм-аут веде не в повтор, а в «потребує рішення».
+    sendPressed = true;
     const left = (view) => !view.activity.includes('MediaPreviewActivity');
     let sent = false;
     for (let attempt = 0; attempt < 2 && !sent; attempt += 1) {
@@ -767,12 +881,16 @@ async function confirmSent(android, caption, targetName) {
 async function verify(payload, guard) {
   guard();
   step('env', 'перевіряю Waydroid і Viber');
-  const android = await connectQuick();
-  currentAndroid = android;
-  await ensureEnvironment(android);
+  const android = await withStep('перевірка середовища', STEP_LIMITS_MS.env, async () => {
+    const connected = await connectQuick();
+    currentAndroid = connected;
+    await ensureEnvironment(connected);
+    await preflight(connected);
+    return connected;
+  });
   guard();
   step('open', 'відкриваю чат');
-  const targetName = await openTarget(android, payload, guard);
+  const targetName = await withStep('відкриття чату', STEP_LIMITS_MS.open, () => openTarget(android, payload, guard));
   step('confirm', 'шукаю повідомлення в чаті');
   const caption = String(payload.message || '');
   const prefix = looseName(caption).slice(0, 24);
@@ -805,6 +923,8 @@ async function verify(payload, guard) {
 // ---------------------------------------------------------------- Дії для runner
 
 async function status() {
+  // Поки задача виконується, `adb` паралельно не запускаємо: це лише заважає відправці й давало хибне «Viber не відповів».
+  if (activeTask) return { ok: true, status: 'busy', reason: null, severity: 'env', detail: `надсилаю в «${activeTask.name}»: ${activeTask.step}` };
   const android = await connect();
   await checkEnvironment(android);
   await cleanupIdleImages(android);
@@ -825,9 +945,13 @@ async function post(payload, guard) {
   const laps = startLaps();
   currentLaps = laps;
   step('env', 'перевіряю Waydroid і Viber');
-  const android = await connectQuick();
-  currentAndroid = android;
-  await ensureEnvironment(android);
+  const android = await withStep('перевірка середовища', STEP_LIMITS_MS.env, async () => {
+    const connected = await connectQuick();
+    currentAndroid = connected;
+    await ensureEnvironment(connected);
+    await preflight(connected);
+    return connected;
+  });
   laps.lap('adb');
   guard();
   const caption = String(payload.message || '');
@@ -837,20 +961,24 @@ async function post(payload, guard) {
     const image = freshImage(android, payload.media);
     image.catch(() => {});
     step('open', 'відкриваю чат');
-    const targetName = await openTarget(android, payload, guard);
+    const targetName = await withStep('відкриття чату', STEP_LIMITS_MS.open, () => openTarget(android, payload, guard));
     laps.lap('чат');
     guard();
-    await image;
+    await withStep('фото', STEP_LIMITS_MS.photo, () => image);
     laps.lap('фото');
     guard();
-    await attachAndSend(android, caption, guard, ime);
+    await withStep('фото, підпис і відправка', STEP_LIMITS_MS.send, () => attachAndSend(android, caption, guard, ime));
     laps.lap('відправка');
-    await confirmSent(android, caption, targetName);
+    await withStep('підтвердження', STEP_LIMITS_MS.confirm, () => confirmSent(android, caption, targetName));
     laps.lap('підтвердження');
     lastPostAt = Date.now();
     return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: targetName, timings: laps.text() };
+  } catch (error) {
+    // Крок обірвано сторожем: свіжий контролер, щоб відновлення (клавіатура, force-stop) не підхопило той самий обрив.
+    if (error instanceof ViberStop) taskController = new AbortController();
+    throw error;
   } finally {
-    await ime.restore();
+    await ime.restore().catch(() => {});
   }
 }
 
@@ -861,30 +989,65 @@ async function post(payload, guard) {
  */
 export async function runViberAndroid(action, payload = {}, { shouldAbort = () => false, onStep = () => {} } = {}) {
   if (process.platform !== 'linux') return { ok: true, status: 'skipped', reason: 'viber_unsupported_platform', severity: 'env' };
+  // Перевірка стану під час відправки не чіпає ні adb, ні контролер задачі: вона лише повідомляє, що адаптер зайнятий.
+  if (action === 'status') {
+    try { return await status(); } catch (error) {
+      if (error instanceof ViberStop) return { ok: false, status: 'blocked', reason: error.reason, severity: 'env', detail: error.detail };
+      return { ok: false, status: 'failed', reason: 'helper_error', severity: 'after', detail: String(error?.message || error).slice(0, 160) };
+    }
+  }
+  if (activeTask) return { ok: false, status: 'blocked', reason: 'helper_busy', severity: 'env', detail: `адаптер зайнятий: ${activeTask.name}` };
   let timer;
+  const startedAt = Date.now();
+  taskController = new AbortController();
+  activeTask = { name: String(payload.expectedName || 'чат'), step: 'початок', startedAt };
+  sendPressed = false;
   try {
     // Скасування оператором («Зупинити») діє до відправки: після нього жодного нового кроку.
     const guard = () => { if (shouldAbort()) throw new ViberStop('cancelled', 'before'); };
     currentLaps = null;
     emitStep = onStep;
-    const work = action === 'status' ? status() : action === 'verify' ? verify(payload, guard) : post(payload, guard);
-    const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new ViberStop('helper_timeout', 'after', 'timeout')), POST_TIMEOUT_MS); });
+    const work = action === 'verify' ? verify(payload, guard) : post(payload, guard);
+    work.catch(() => {});
+    // Спільний сторож на задачу: перебиває будь-який крок, що пережив власний ліміт (наприклад, довгий `sleep` чи процес поза `run`).
+    const limit = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const stop = sendPressed
+          ? new ViberStop('helper_timeout', 'after', `задача не вклалась у ${Math.round(POST_TIMEOUT_MS / 1000)} с, крок «${activeTask?.step}»`)
+          : new ViberStop('viber_task_timeout', 'before', `задача не вклалась у ${Math.round(POST_TIMEOUT_MS / 1000)} с, крок «${activeTask?.step}»`);
+        abortTask(stop);
+        reject(stop);
+      }, POST_TIMEOUT_MS);
+    });
     return await Promise.race([work, limit]);
   } catch (error) {
+    // Обрив міг лишити відхилений контролер: далі працюємо зі свіжим (знімок екрана, force-stop).
+    if (taskController?.signal.aborted) taskController = new AbortController();
+    const spent = Math.round((Date.now() - startedAt) / 1000);
     if (error instanceof ViberStop && error.severity !== 'env' && error.reason !== 'cancelled' && currentAndroid) {
-      // Що було на екрані в момент збою: текст у деталі журналу й знімок поруч із журналом runner.
+      // Що було на екрані в момент збою: текст у деталі журналу й знімок поруч із журналом runner (з власним лімітом, щоб не повісити відповідь).
       try {
-        const nodes = await currentAndroid.dump();
-        error.detail = `${error.detail} | screen: ${screenText(nodes).slice(0, 160)}${currentLaps ? ` | ${currentLaps.text()}` : ''}`.trim();
-        const shot = await currentAndroid.adb(['exec-out', 'screencap', '-p'], { timeout: 20_000, buffer: true });
-        const dir = join(homedir(), '.local', 'state', 'work-os');
-        await mkdir(dir, { recursive: true });
-        if (Buffer.isBuffer(shot.stdout) && shot.stdout.length > 1000) await writeFile(join(dir, 'viber-last-failure.png'), shot.stdout);
+        await Promise.race([(async () => {
+          const nodes = await currentAndroid.dump();
+          error.detail = `${error.detail} | screen: ${screenText(nodes).slice(0, 160)}${currentLaps ? ` | ${currentLaps.text()}` : ''}`.trim();
+          const shot = await currentAndroid.adb(['exec-out', 'screencap', '-p'], { timeout: 15_000, buffer: true });
+          const dir = join(homedir(), '.local', 'state', 'work-os');
+          await mkdir(dir, { recursive: true });
+          if (Buffer.isBuffer(shot.stdout) && shot.stdout.length > 1000) await writeFile(join(dir, 'viber-last-failure.png'), shot.stdout);
+        })(), sleep(20_000)]);
       } catch { /* діагностика не має ламати відповідь */ }
     }
-    if (error instanceof ViberStop) return { ok: false, status: error.severity === 'env' ? 'blocked' : error.severity === 'after' ? 'failed' : 'skipped', reason: error.reason, severity: error.severity, detail: error.detail };
+    // Крок завис до «Send»: Viber, найімовірніше, у глухому стані. Зупиняємо його, щоб наступний чат почав із чистого запуску; після
+    // «Send» нічого не чіпаємо: фото може ще вантажитись.
+    if (error instanceof ViberStop && (error.reason === 'viber_step_timeout' || error.reason === 'viber_task_timeout') && currentAndroid) {
+      try { await currentAndroid.sh(`am force-stop ${VIBER_PACKAGE}`, { timeout: 10_000 }); preflightOkAt = 0; } catch { /* лишається для наступного preflight */ }
+    }
+    if (error instanceof ViberStop) {
+      const detail = `${error.detail}${error.reason === 'cancelled' ? '' : ` | пройшло ${spent} с`}`.trim();
+      return { ok: false, status: error.severity === 'env' ? 'blocked' : error.severity === 'after' ? 'failed' : 'skipped', reason: error.reason, severity: error.severity, detail };
+    }
     return { ok: false, status: 'failed', reason: 'helper_error', severity: 'after', detail: String(error?.message || error).slice(0, 160) };
-  } finally { clearTimeout(timer); emitStep = () => {}; }
+  } finally { clearTimeout(timer); emitStep = () => {}; activeTask = null; taskController = null; sendPressed = false; }
 }
 
 /** Дані завдання черги → вхід адаптера. */

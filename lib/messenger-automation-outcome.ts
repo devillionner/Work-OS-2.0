@@ -39,6 +39,8 @@ const RETRY = new Set([
   'membership_not_confirmed', 'joined_target_not_verified', 'media_send_control_not_found',
   'send_ui_unavailable', 'android_error',
   // Telegram Web: усе до натискання «Надіслати» (вкладка не готова, чат чи поле повідомлення не відкрились).
+  // Viber: крок завис до «Send» і його обірвав сторож; чат не зачеплено, повтор не дасть дубля.
+  'viber_step_timeout', 'viber_task_timeout',
   'telegram_page_not_ready', 'telegram_chat_not_opened', 'telegram_attachment_not_opened', 'telegram_send_not_clicked', 'telegram_composer_not_found', 'telegram_text_mismatch', 'telegram_thread_not_opened',
 ]);
 // Чат змінився до відправки або немає фото для відправки: чіпати нічого, пропускаємо на сьогодні.

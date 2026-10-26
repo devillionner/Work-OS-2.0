@@ -7,7 +7,7 @@ import type { WhatsAppAutopostProgress } from '@/components/views/platforms/auto
 import { autopostReasonText } from '@/components/views/platforms/autopost-reasons';
 
 /** Стан Viber на ПК оператора, який runner передає через live-канал (процес, доступність, вікно). */
-export type ViberRunnerStatus = { state: 'ready' | 'blocked'; reason: string | null; text: string };
+export type ViberRunnerStatus = { state: 'ready' | 'blocked' | 'busy'; reason: string | null; text: string };
 
 /** Орієнтовний час одного чату Viber: за вимірами партій ≈ 20 с. */
 const VIBER_SECONDS_PER_CHAT = 20;
@@ -42,15 +42,19 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
 
   const runnerOffline = runnerConnected === false;
   const blocked = status?.state === 'blocked';
+  // Іде партія: runner зайнятий відправкою і про стан Viber окремо не звітує, тож «Viber не відповів» тут було б хибним.
+  const running = progress?.running === true;
   const readiness: AutopostReadiness = runnerOffline
     ? { tone: 'hot', text: 'Runner не відповідає. У треї Work OS обери «Перезапустити runner».' }
     : blocked
       ? { tone: 'warn', text: autopostReasonText(status?.reason) }
-      : status?.state === 'ready'
-        ? { tone: 'ok', text: 'Runner, Waydroid і Viber готові.' }
-        : runnerConnected === true && waitedLong
-          ? { tone: 'warn', text: 'Runner підключений, але Viber не відповів. Відкрий Waydroid на ПК (він може запускатися до хвилини) або обери «Перезапустити runner» у треї.' }
-          : { tone: 'idle', text: 'Перевіряю Waydroid і Viber…' };
+      : status?.state === 'busy' || (running && status?.state !== 'ready')
+        ? { tone: 'ok', text: status?.state === 'busy' && status.text ? status.text : 'Партія виконується: runner надсилає в чати.' }
+        : status?.state === 'ready'
+          ? { tone: 'ok', text: 'Runner, Waydroid і Viber готові.' }
+          : runnerConnected === true && waitedLong
+            ? { tone: 'warn', text: 'Runner підключений, але Viber не відповів. Відкрий Waydroid на ПК (він може запускатися до хвилини) або обери «Перезапустити runner» у треї.' }
+            : { tone: 'idle', text: 'Перевіряю Waydroid і Viber…' };
 
   return (
     <AutopostPanel

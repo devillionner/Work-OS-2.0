@@ -132,7 +132,8 @@ export async function GET(request: Request): Promise<Response> {
     joinedTodayStatement(env.DB,{userId:user.id,platform,date:today,accountId}),
     publishedTodayStatement(env.DB,{userId:user.id,platform,date:today,accountId}),
     env.DB.prepare(`SELECT value_json FROM user_settings WHERE user_id=?1 AND setting_key='analytics-daily-goal-schedule-v1' LIMIT 1`).bind(user.id),
-    env.DB.prepare(`SELECT COUNT(*) AS count FROM activity_events WHERE user_id=?1 AND event_type='publication' AND event_date=?2 AND cancelled_at IS NULL`).bind(user.id,today),
+    // Лічильник дня (тригери на activity_events) замість COUNT(*) по всіх публікаціях дня: кілька рядків замість ≈60.
+    env.DB.prepare(`SELECT COALESCE(SUM(active_count),0) AS count FROM activity_daily_counts WHERE user_id=?1 AND event_date=?2 AND event_type='publication'`).bind(user.id,today),
   ];
   const joinIndex = statements.length;
   if(joinAccount){
@@ -283,8 +284,8 @@ async function readPublicationState(userId:string, chat:{id:string;platform:stri
       WHERE user_id=?1 AND chat_id=?2 AND published_on=?3) AS published`).bind(userId,chat.id,date),
     publishedStatement,
     env.DB.prepare(`SELECT value_json FROM user_settings WHERE user_id=?1 AND setting_key='analytics-daily-goal-schedule-v1' LIMIT 1`).bind(userId),
-    env.DB.prepare(`SELECT COUNT(*) AS count FROM activity_events
-      WHERE user_id=?1 AND event_type='publication' AND event_date=?2 AND cancelled_at IS NULL`).bind(userId,date),
+    env.DB.prepare(`SELECT COALESCE(SUM(active_count),0) AS count FROM activity_daily_counts
+      WHERE user_id=?1 AND event_date=?2 AND event_type='publication'`).bind(userId,date),
   ]);
   const goalValue=(goalResult.results[0] as {value_json?:string}|undefined)?.value_json;
   return {

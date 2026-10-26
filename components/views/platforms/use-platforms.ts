@@ -100,6 +100,18 @@ export function activeBreakExpired(accounts: TelegramAccount[], accountId: strin
   return Boolean(account?.breakUntil && account.breakUntil * 1000 <= clock);
 }
 export function canPublish(chat: Chat, clock: number) { return chat.status === 'ready' && (!chat.discoveryDecision || chat.discoveryDecision === 'target') && (chat.availableAt === null || chat.availableAt <= clock / 1000); }
+/**
+ * Подія live-каналу, після якої варто перечитати стан автопосту платформи: результат (або скасування) задачі саме цієї платформи.
+ * Початок задачі, її повернення в чергу, кроки й темп стан не змінюють: кожне зайве перечитування коштує сотні рядків D1.
+ */
+function isAutopostResultFor(message: { type?: unknown; process?: unknown; status?: unknown; platform?: unknown }, target: string) {
+  if (message.type !== 'process_state' || message.process !== 'autopost') return false;
+  if (typeof message.platform === 'string' && message.platform !== target) return false;
+  return message.status !== 'running' && message.status !== 'released';
+}
+/** Серія подій (кілька задач підряд) дає одне перечитування. */
+const AUTOPOST_REFRESH_DEBOUNCE_MS = 2_000;
+
 export function isSnoozed(chat: Chat, clock: number) { return chat.snoozedUntil !== null && chat.snoozedUntil > clock / 1000; }
 
 const WHATSAPP_AUTOPOST_IMAGE_MAX_BYTES = 640 * 1024;
@@ -229,6 +241,11 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     });
   }, [active]);
   const [telegramProgress, setTelegramProgress] = useState<WhatsAppAutopostProgress | null>(null);
+  // Партія, яку цей екран уже бачив: сервер не шукає найновішу партію заново на кожну подію (економить запит).
+  const knownBatches = useRef<Record<string, string | undefined>>({});
+  useEffect(() => {
+    knownBatches.current = { whatsapp: whatsappProgress?.batch?.id, viber: viberProgress?.batch?.id, telegram: telegramProgress?.batch?.id };
+  }, [whatsappProgress, viberProgress, telegramProgress]);
   const [telegramBatchNote, setTelegramBatchNote] = useState<string | null>(null);
   // Власні фото й текст Telegram: окремі від WhatsApp і Viber.
   const [telegramImage, setTelegramImage] = useState<WhatsAppAutopostImage | null>(null);
@@ -361,32 +378,36 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   // Viber-автопост: лічильники партії й чати, що чекають рішення, читаються при вході на платформу й після подій каналу;
   // стан самого Viber на ПК приходить від runner подіями progress (таймера опитування немає).
   const applyViberAutopost = useCallback((body: { viberAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[] }) => { setViberProgress(body.viberAutopostProgress || null); setAutopostAttention(body.autopostAttention || []); }, []);
-  const readViberAutopost = useCallback(async () => {
-    const response = await fetch('/api/messenger-automation?viber=1', { cache: 'no-store' });
+  const readViberAutopost = useCallback(async (fromEvent = false) => {
+    const batch = fromEvent ? knownBatches.current.viber : undefined;
+    const response = await fetch(`/api/messenger-automation?viber=1${batch ? `&batch=${batch}` : ''}`, { cache: 'no-store' });
     const body = await response.json() as { viberAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[] };
     return response.ok ? body : null;
   }, []);
   useEffect(() => {
     if (!active || platform !== 'viber') return;
     let cancelled = false;
-    const load = () => { void readViberAutopost().then((body) => { if (body && !cancelled) applyViberAutopost(body); }).catch(() => { /* наступна подія оновить */ }); };
-    load();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const load = (fromEvent: boolean) => { void readViberAutopost(fromEvent).then((body) => { if (body && !cancelled) applyViberAutopost(body); }).catch(() => { /* наступна подія оновить */ }); };
+    load(false);
     const unsubscribe = subscribeLiveMessages((message) => {
-      if (message.type === 'process_state' && message.process === 'autopost') load();
+      if (isAutopostResultFor(message, 'viber')) { if (timer) clearTimeout(timer); timer = setTimeout(() => load(true), AUTOPOST_REFRESH_DEBOUNCE_MS); }
       if (message.type === 'progress' && message.process === 'viber_status') {
-        const state = message.state === 'ready' ? 'ready' : 'blocked';
+        const state = message.state === 'ready' ? 'ready' : message.state === 'busy' ? 'busy' : 'blocked';
         setViberStatus({ state, reason: typeof message.reason === 'string' ? message.reason : null, text: typeof message.text === 'string' ? message.text : '' });
       }
     });
-    return () => { cancelled = true; unsubscribe(); };
+    return () => { cancelled = true; if (timer) clearTimeout(timer); unsubscribe(); };
   }, [active, platform, readViberAutopost, applyViberAutopost]);
 
   // Telegram-автопост: лічильники партії, чати, що чекають рішення, і прив'язка акаунта до браузера читаються при вході на платформу
   // й після подій каналу. Темп і стан браузера приходять подіями (таймера опитування немає).
   const planReloader = useRef<() => void>(() => {});
-  const readTelegramAutopost = useCallback(async () => {
+  const readTelegramAutopost = useCallback(async (fromEvent = false) => {
     if (!accountId) return null;
-    const response = await fetch(`/api/messenger-automation?telegram=1&account=${encodeURIComponent(accountId)}`, { cache: 'no-store' });
+    // Після події фото й текст не перечитуються (їх змінює лише власник), а відома партія не шукається заново.
+    const batch = fromEvent ? knownBatches.current.telegram : undefined;
+    const response = await fetch(`/api/messenger-automation?telegram=1&account=${encodeURIComponent(accountId)}${fromEvent ? '&light=1' : ''}${batch ? `&batch=${batch}` : ''}`, { cache: 'no-store' });
     const body = await response.json() as { telegramAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[]; telegramAccount?: { bound: boolean; webUserId: string | null } | null; telegramMaterial?: { image: WhatsAppAutopostImage | null; caption: string } };
     return response.ok ? body : null;
   }, [accountId]);
@@ -399,16 +420,18 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     if (!active || platform !== 'telegram' || !accountId) return;
     let cancelled = false;
     let scanTimer: ReturnType<typeof setTimeout> | null = null;
-    const load = () => { void readTelegramAutopost().then((body) => { if (body && !cancelled) applyTelegramAutopost(body); }).catch(() => { /* наступна подія оновить */ }); };
-    load();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const load = (fromEvent: boolean) => { void readTelegramAutopost(fromEvent).then((body) => { if (body && !cancelled) applyTelegramAutopost(body); }).catch(() => { /* наступна подія оновить */ }); };
+    load(false);
     const unsubscribe = subscribeLiveMessages((message) => {
-      if (message.type === 'process_state' && message.process === 'autopost') {
-        load();
+      if (isAutopostResultFor(message, 'telegram')) {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => load(true), AUTOPOST_REFRESH_DEBOUNCE_MS);
         // Закінчився прохід гілок: план (групи «Вибрати гілку», «Готові») перераховуємо раз після серії проходів, а не на кожен чат.
         if (message.status === 'scanned') { if (scanTimer) clearTimeout(scanTimer); scanTimer = setTimeout(() => planReloader.current(), 4_000); }
       }
     });
-    return () => { cancelled = true; if (scanTimer) clearTimeout(scanTimer); unsubscribe(); };
+    return () => { cancelled = true; if (scanTimer) clearTimeout(scanTimer); if (timer) clearTimeout(timer); unsubscribe(); };
   }, [active, platform, accountId, readTelegramAutopost, applyTelegramAutopost]);
 
   // Налаштування WhatsApp-автопоста завантажуються один раз при вході на платформу.
@@ -573,14 +596,21 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   // Прогрес автопоста оновлюється подіями каналу, а не таймером.
   useEffect(() => {
     if (!active || platform !== 'whatsapp') return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const refresh = async () => {
       try {
-        const response = await fetch('/api/messenger-automation?progress=1', { cache: 'no-store' });
+        const batch = knownBatches.current.whatsapp;
+        const response = await fetch(`/api/messenger-automation?progress=1${batch ? `&batch=${batch}` : ''}`, { cache: 'no-store' });
         const body = await response.json() as { whatsappAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[] };
         if (response.ok) { setWhatsappProgress(body.whatsappAutopostProgress || null); setAutopostAttention(body.autopostAttention || []); }
       } catch { /* наступна подія оновить */ }
     };
-    return subscribeLiveMessages((message) => { if (message.type === 'process_state' && message.process === 'autopost') void refresh(); });
+    const offMessages = subscribeLiveMessages((message) => {
+      if (!isAutopostResultFor(message, 'whatsapp')) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void refresh(), AUTOPOST_REFRESH_DEBOUNCE_MS);
+    });
+    return () => { if (timer) clearTimeout(timer); offMessages(); };
   }, [active, platform]);
 
   // Фолбек: поки канал недоступний, стан runner оновлюється старим способом.
@@ -593,12 +623,15 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   // Автопост-завдання, що завершились, скасувались або створились на іншому пристрої, змінюють бейджі «в черзі».
   useEffect(() => {
     if (!active || platform !== 'whatsapp') return;
-    return subscribeLiveMessages((message) => {
-      if (message.type !== 'process_state' || message.process !== 'autopost') return;
-      if (message.status === 'running' || message.status === 'released') return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const off = subscribeLiveMessages((message) => {
+      if (!isAutopostResultFor(message, 'whatsapp')) return;
       invalidateQueueCache('whatsapp');
-      void reloadChats.current(true);
+      // Список разом із планом перечитується раз на серію подій (кожна такса задач — це сотні рядків D1).
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void reloadChats.current(true), AUTOPOST_REFRESH_DEBOUNCE_MS);
     });
+    return () => { if (timer) clearTimeout(timer); off(); };
   }, [active, platform, invalidateQueueCache]);
 
   const waitingCheckView = liveStatus.connected && liveStatus.runnerConnected === true ? { ...waitingCheck, runnerSeenAt: Math.floor(clock / 1000) } : waitingCheck;

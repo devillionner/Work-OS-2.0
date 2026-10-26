@@ -64,7 +64,7 @@ import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFee
 /** @typedef {'browser'|'runner'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, autopostClaimedAt?: number, autopostWatchAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId: string|null, autopostClaimedAt?: number, autopostWatchAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 // The runner pings every 30 s and the runtime records each auto-answered ping per socket. A runner socket
@@ -75,6 +75,8 @@ const RUNNER_STALE_MS = 75_000;
 const RUNNER_WATCH_MS = 90_000;
 /** Задача автопосту «в роботі» довше за це вважається покинутою (один чат — 15–30 с, тайм-аути runner — до кількох хвилин). */
 const AUTOPOST_LEASE_SECONDS = 600;
+/** Платформа задачі автопосту за її видом: браузер перечитує лише ту платформу, якої стосується подія. */
+const autopostPlatformOfKind = (/** @type {string} */ kind) => (kind === 'viber_android' ? 'viber' : kind === 'telegram_autopost' ? 'telegram' : 'whatsapp');
 /** Скільки останніх рішень про видачу автопосту DO пам'ятає й показує runner після підключення. */
 const AUTOPOST_TRACE_LIMIT = 40;
 const AUTOPOST_TRACE_REPLAY = 15;
@@ -411,7 +413,7 @@ export class OwnerChannel {
     if (message.type === 'progress' && message.process === 'viber_status') {
       // Стан Viber від runner приходить раз на хвилину; DO запам'ятовує його, щоб сторінка, відкрита між повідомленнями, показала його одразу.
       const state = await this.readState();
-      state.viberStatus = { state: message.state === 'ready' ? 'ready' : 'blocked', reason: typeof message.reason === 'string' ? message.reason : null, text: typeof message.text === 'string' ? message.text : '' };
+      state.viberStatus = { state: message.state === 'ready' ? 'ready' : message.state === 'busy' ? 'busy' : 'blocked', reason: typeof message.reason === 'string' ? message.reason : null, text: typeof message.text === 'string' ? message.text : '' };
       await this.writeState(state);
     }
     if (message.type === 'progress' || message.type === 'result') {
@@ -531,18 +533,18 @@ export class OwnerChannel {
     const delivered = this.broadcast('runner', { type: 'task', process: 'autopost', task });
     notes.push(`видача: ${task.kind} ${task.jobId} «${task.target.expectedName}» → runner: відкритих ${runners}, доставлено ${delivered}`);
     flush();
-    this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: task.jobId, status: 'running' });
+    this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: task.jobId, status: 'running', platform: autopostPlatformOfKind(task.kind) });
     // Ніхто не прийняв задачу: не тримаємо її за DO до кінця оренди, а повертаємо в чергу для runner, який підключиться.
     if (delivered === 0) {
       await releaseWhatsAppAutopostJob(this.env.DB, state.userId, task.jobId, nowSeconds());
       state.autopostCurrentJobId = null;
       state.autopostClaimedAt = undefined;
       this.autopostTrace(state, `видача: runner не отримав задачу ${task.jobId}, повернуто в чергу`);
-      this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: task.jobId, status: 'released' });
+      this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: task.jobId, status: 'released', platform: autopostPlatformOfKind(task.kind) });
       return;
     }
     // Вікно інтервалу Telegram займає лише справжня відправка (кнопку «Надіслати» натиснуто); це видно з результату, а не з видачі.
-    state.autopostCurrent = { telegramSend: task.kind === 'telegram_autopost' && task.mode !== 'scan' && task.mode !== 'verify', startedAt: Date.now() };
+    state.autopostCurrent = { telegramSend: task.kind === 'telegram_autopost' && task.mode !== 'scan' && task.mode !== 'verify', startedAt: Date.now(), platform: autopostPlatformOfKind(task.kind) };
     await this.scheduleAlarm(state);
   }
 
@@ -633,6 +635,7 @@ export class OwnerChannel {
       state.telegramPace = { intervalSeconds: interval / 1000, nextAt: Math.max(state.autopostCurrent.startedAt + interval, Date.now()) };
       this.broadcastTelegramPace(state);
     }
+    const eventPlatform = state.autopostCurrent?.platform;
     state.autopostCurrent = undefined;
     let status = 'failed';
     try {
@@ -644,7 +647,7 @@ export class OwnerChannel {
     this.autopostTrace(state, `результат: ${message.status}${message.errorCode ? ` (${message.errorCode})` : ''} для ${message.jobId} → ${status}`, false);
     // Sent before the next dispatch so a browser sees this job finish before the next one starts;
     // either way it reloads its queue, which is where the authoritative job status lives.
-    this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: message.jobId, status });
+    this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: message.jobId, status, ...(eventPlatform ? { platform: eventPlatform } : {}) });
     await this.dispatchNextAutopostJob(state);
     await this.writeState(state);
   }
@@ -661,6 +664,7 @@ export class OwnerChannel {
     // Код приходить лише від тимчасової помилки самої задачі: сервер рахує спробу й після третьої пропускає чат на сьогодні.
     await releaseWhatsAppAutopostJob(this.env.DB, state.userId, message.jobId, nowSeconds(),
       typeof message.errorCode === 'string' ? message.errorCode : undefined);
+    const releasedPlatform = state.autopostCurrent?.platform;
     state.autopostCurrentJobId = null;
     state.autopostClaimedAt = undefined;
     state.autopostCurrent = undefined;
@@ -678,7 +682,7 @@ export class OwnerChannel {
     state.autopostWatchAt = gate.platforms.length ? gate.until + 1000 : Date.now() + AUTOPOST_WATCH_MS;
     await this.scheduleAlarm(state);
     await this.writeState(state);
-    this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: message.jobId, status: 'released' });
+    this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: message.jobId, status: 'released', ...(releasedPlatform ? { platform: releasedPlatform } : {}) });
   }
 
   /** @param {WebSocket} _ws */

@@ -10,6 +10,7 @@ import {
   cancelWhatsAppAutopostJob,
   createViberSafeNoteJob,
   createAutopostVerifyJob,
+  cleanKnownBatchId,
   createTelegramScanBatch,
   createTelegramScanJob,
   createWhatsAppAutopostBatch,
@@ -62,17 +63,19 @@ export async function GET(request:Request):Promise<Response>{
   if(!user)return json({error:'Потрібна авторизація.'},401);
   try{
     const url=new URL(request.url);
+    // Партія, яку клієнт уже бачив: так пошук найновішої партії пропускається (економія читань на кожну подію).
+    const knownBatch=cleanKnownBatchId(url.searchParams.get('batch'));
+    // Чати «Потребують рішення» читаються, лише коли лічильники дня кажуть, що вони є: порожній список не коштує запиту.
+    const attentionFor=(progress:{settled?:{decision:number}},platform:'whatsapp'|'viber'|'telegram',date:string)=>
+      (progress.settled?.decision||0)>0?readAutopostAttention(env.DB,user.id,platform,date):Promise.resolve([]);
     const viberJobId=url.searchParams.get('viberJobId')?.trim()||'';
     if(viberJobId)return json({job:await readViberSafeNoteJob(env.DB,user.id,viberJobId)});
     // The autopost dialog refreshes on every live-channel autopost event, so that path reads one grouped
     // count instead of the image row and the rest of the settings.
     if(url.searchParams.get('progress')==='1'){
       const date=businessDate(Math.floor(Date.now()/1000));
-      const [progress,attention]=await Promise.all([
-        readWhatsAppAutopostProgress(env.DB,user.id,date),
-        readAutopostAttention(env.DB,user.id,'whatsapp',date),
-      ]);
-      return json({whatsappAutopostProgress:progress,autopostAttention:attention});
+      const progress=await readWhatsAppAutopostProgress(env.DB,user.id,date,'whatsapp',knownBatch);
+      return json({whatsappAutopostProgress:progress,autopostAttention:await attentionFor(progress,'whatsapp',date)});
     }
     // План запуску: скільки чатів справді піде в партію й чому решта черги не йде (за запитом, без таймера).
     const planPlatform=url.searchParams.get('plan');
@@ -90,31 +93,30 @@ export async function GET(request:Request):Promise<Response>{
       if(!accountId)return json({error:'Додай або увімкни Telegram-акаунт.'},409);
       const date=businessDate(now);
       if(planPlatform==='telegram')return json({plan:await readAutopostPlan(env.DB,user.id,'telegram',now,date,accountId)});
-      const [telegramImage,telegramCaption]=await Promise.all([readWhatsAppAutopostImage(env.DB,user.id,false,'telegram'),readWhatsAppAutopostCaption(env.DB,user.id,'telegram')]);
-      const [progress,attention,account]=await Promise.all([
-        readWhatsAppAutopostProgress(env.DB,user.id,date,'telegram'),
-        readAutopostAttention(env.DB,user.id,'telegram',date),
+      // `light=1` — перечитування після події: власні фото й текст змінює лише власник, їх не читаємо.
+      const light=url.searchParams.get('light')==='1';
+      const [telegramImage,telegramCaption]=light?[null,null]:await Promise.all([readWhatsAppAutopostImage(env.DB,user.id,false,'telegram'),readWhatsAppAutopostCaption(env.DB,user.id,'telegram')]);
+      const [progress,account]=await Promise.all([
+        readWhatsAppAutopostProgress(env.DB,user.id,date,'telegram',knownBatch),
         env.DB.prepare(`SELECT id,name,web_user_id FROM telegram_accounts WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(accountId,user.id).first<{id:string;name:string;web_user_id:string|null}>(),
       ]);
-      return json({telegramMaterial:{image:telegramImage?publicWhatsAppAutopostImage(telegramImage):null,caption:telegramCaption?.text||''},telegramAutopostProgress:progress,autopostAttention:attention,telegramAccount:account?{id:account.id,name:account.name,bound:Boolean(account.web_user_id),webUserId:account.web_user_id}:null});
+      return json({...(light?{}:{telegramMaterial:{image:telegramImage?publicWhatsAppAutopostImage(telegramImage):null,caption:telegramCaption?.text||''}}),telegramAutopostProgress:progress,autopostAttention:await attentionFor(progress,'telegram',date),telegramAccount:account?{id:account.id,name:account.name,bound:Boolean(account.web_user_id),webUserId:account.web_user_id}:null});
     }
     // Viber-автопост: лічильники сьогоднішньої партії й чати, що чекають рішення (одна згрупована вибірка й один короткий список).
     if(url.searchParams.get('viber')==='1'){
       const date=businessDate(Math.floor(Date.now()/1000));
-      const [progress,attention]=await Promise.all([
-        readWhatsAppAutopostProgress(env.DB,user.id,date,'viber'),
-        readAutopostAttention(env.DB,user.id,'viber',date),
-      ]);
-      return json({viberAutopostProgress:progress,autopostAttention:attention});
+      const progress=await readWhatsAppAutopostProgress(env.DB,user.id,date,'viber',knownBatch);
+      return json({viberAutopostProgress:progress,autopostAttention:await attentionFor(progress,'viber',date)});
     }
-    const [job,whatsappAutopost,image,caption,progress,attention]=await Promise.all([
+    const today=businessDate(Math.floor(Date.now()/1000));
+    const [job,whatsappAutopost,image,caption,progress]=await Promise.all([
       readLatestViberSafeNoteJob(env.DB,user.id),
       readLatestWhatsAppAutopostJob(env.DB,user.id),
       readWhatsAppAutopostImage(env.DB,user.id),
       readWhatsAppAutopostCaption(env.DB,user.id),
-      readWhatsAppAutopostProgress(env.DB,user.id,businessDate(Math.floor(Date.now()/1000))),
-      readAutopostAttention(env.DB,user.id,'whatsapp',businessDate(Math.floor(Date.now()/1000))),
+      readWhatsAppAutopostProgress(env.DB,user.id,today,'whatsapp',knownBatch),
     ]);
+    const attention=await attentionFor(progress,'whatsapp',today);
     return json({
       job,
       whatsappAutopost,

@@ -36,6 +36,16 @@ const PLATFORM_META: Record<string, { name: string; color: string }> = {
   threads: { name: 'Threads', color: '#17191e' },
 };
 
+const LEAD_COUNT_TTL_SECONDS = 300;
+const leadCountCache = new Map<string, { count: number; at: number }>();
+function cachedLeadCount(userId: string, now: number): number | null {
+  const hit = leadCountCache.get(userId);
+  return hit && now - hit.at < LEAD_COUNT_TTL_SECONDS ? hit.count : null;
+}
+function rememberLeadCount(userId: string, count: number, now: number) {
+  if (cachedLeadCount(userId, now) === null) leadCountCache.set(userId, { count, at: now });
+}
+
 export async function readDashboardSnapshot(db: D1Database, userId: string, now: number): Promise<DashboardSnapshot> {
   const today = businessDate(now);
   const [report, workday] = await Promise.all([
@@ -52,7 +62,10 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
   const [chatResult, leadResult, migrationResult, eventResult, settingsResult, followUpResult, reminderResult, dayRevisionResult, customResult] = await db.batch([
     // Trigger-maintained queue counters: COUNT(*) over chats read every chat of the owner (≈3 300 rows per dashboard open).
     db.prepare(`SELECT COALESCE(SUM(chat_count),0) AS count FROM chat_queue_counts WHERE user_id=?1 AND workflow_status!='archived'`).bind(userId),
-    db.prepare(`SELECT COUNT(*) AS count FROM leads WHERE user_id=?1 AND archived_at IS NULL`).bind(userId),
+    // Число активних лідів показує лише підпис «Ліди» в розгорнутій Rail: на isolate воно живе кілька хвилин, а не рахується (≈60 рядків) на кожне відкриття.
+    cachedLeadCount(userId, now) !== null
+      ? db.prepare(`SELECT ?1 AS count`).bind(cachedLeadCount(userId, now))
+      : db.prepare(`SELECT COUNT(*) AS count FROM leads WHERE user_id=?1 AND archived_at IS NULL`).bind(userId),
     db.prepare(`SELECT j.completed_at,i.original_filename FROM migration_jobs j JOIN legacy_imports i ON i.id=j.import_id AND i.user_id=j.user_id WHERE j.user_id=?1 AND j.status='completed' ORDER BY j.completed_at DESC LIMIT 1`).bind(userId),
     activitySummaryStatement(db, userId, today, today, submittedActivityRevision === null ? afterReport : null),
     db.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('focus_directions','daily_booking_goal','monthly_booking_goal','enabled_platforms','target_publication_rate','target_response_rate','target_booking_rate','target_completion_rate','analytics-daily-goal-schedule-v1')`).bind(userId),
@@ -75,6 +88,7 @@ export async function readDashboardSnapshot(db: D1Database, userId: string, now:
   ]);
   const chatCount = chatResult.results[0] as { count?: number } | undefined;
   const leadCount = leadResult.results[0] as { count?: number } | undefined;
+  rememberLeadCount(userId, Number(leadCount?.count || 0), now);
   const lastSync = migrationResult.results[0] as { completed_at?: number; original_filename?: string } | undefined;
   const eventRows = eventResult.results as ActivitySummaryRow[];
   const settingRows = settingsResult.results as Array<{ setting_key: string; value_json: string }>;

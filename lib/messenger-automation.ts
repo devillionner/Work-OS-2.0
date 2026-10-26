@@ -588,7 +588,6 @@ export type AutopostBatchResult={
 
 const AUTOPOST_BATCH_DEFAULT=100;
 const AUTOPOST_BATCH_MAX=200;
-const AUTOPOST_BATCH_PAGE=40;
 const AUTOPOST_BATCH_SCAN_MAX=400;
 
 /**
@@ -632,9 +631,13 @@ export async function createWhatsAppAutopostBatch(
       AND (c.telegram_forum IS NOT 1 OR c.telegram_thread_id IS NOT NULL)
       AND (c.joined_at IS NULL OR c.joined_at+21600<=?2)
       AND NOT EXISTS(SELECT 1 FROM telegram_schedule_slots sl WHERE sl.user_id=c.user_id AND sl.telegram_account_id=c.telegram_account_id AND sl.chat_id=c.id AND sl.status='pending')`:'';
-  const candidates=(size:number,offset:number)=>db.prepare(`SELECT c.id,c.telegram_forum AS forum
+  // Telegram: `+c.platform` не дає планувальнику взяти індекс платформи з готовими чатами всіх акаунтів (сотні зайвих рядків): іде індекс акаунта
+  // `chats_user_telegram_account_status_idx` (перевірено EXPLAIN). Усі кандидати в порядку відправки — одним запитом, а не сторінками з OFFSET,
+  // де підзапити порядку щоразу рахувались заново для всіх попередніх рядків.
+  const platformColumn=platform==='telegram'?'+c.platform':'c.platform';
+  const candidateRows=await db.prepare(`SELECT c.id,c.telegram_forum AS forum
     FROM chats c
-    WHERE c.user_id=?1 AND c.platform=?5 AND c.workflow_status='ready'
+    WHERE c.user_id=?1 AND ${platformColumn}=?5 AND c.workflow_status='ready'
       AND (c.snoozed_until IS NULL OR c.snoozed_until<=?2)
       AND NOT EXISTS(SELECT 1 FROM chat_discovery_candidates dc
         WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.decision!='target' AND dc.id NOT LIKE 'waiting-%')
@@ -648,48 +651,45 @@ export async function createWhatsAppAutopostBatch(
         WHERE d.user_id=c.user_id AND d.chat_id=c.id AND d.published_on=?3 AND d.outcome='needs_decision')
       AND c.id NOT IN (SELECT value FROM json_each(?8))${telegramFilter}
     ORDER BY COALESCE((SELECT MAX(p2.published_on) FROM chat_publications p2 WHERE p2.user_id=c.user_id AND p2.chat_id=c.id),''),c.id
-    LIMIT ?4 OFFSET ?7`).bind(userId,now,date,size,platform,weekday,offset,excluded,...(telegramAccountId?[telegramAccountId]:[])).all<{id:string;forum:number|null}>();
+    LIMIT ?4`).bind(userId,now,date,AUTOPOST_BATCH_SCAN_MAX+1,platform,weekday,0,excluded,...(telegramAccountId?[telegramAccountId]:[])).all<{id:string;forum:number|null}>();
+  const candidateList=candidateRows.results||[];
 
   const batchId=crypto.randomUUID();
   const jobs:WhatsAppAutopostJob[]=[];
   let scanning=0;
   const reasons=new Map<string,number>();
   let skipped=0;
-  let scanned=0;
-  while(jobs.length<limit&&scanned<AUTOPOST_BATCH_SCAN_MAX){
-    // Створені задачі виходять із вибірки, пропущені лишаються: зсув дорівнює кількості пропущених.
-    const page=await candidates(AUTOPOST_BATCH_PAGE,skipped);
-    if(!page.results.length)break;
-    for(const row of page.results){
-      if(jobs.length>=limit)break;
-      scanned+=1;
-      try{
-        // Telegram: чат, про який ще невідомо, чи є в ньому гілки, спершу проходить швидкий прохід (він не займає вікон інтервалу),
-        // а чат без гілок уже тоді стає в чергу цієї партії. Так форум без гілки не витрачає місце в черзі «N на годину».
-        if(platform==='telegram'&&telegramAccountId&&row.forum===null){
-          jobs.push(await createTelegramScanJob(db,userId,row.id,telegramAccountId,now,date,batchId));
-          scanning+=1;
-          continue;
-        }
-        jobs.push(await createWhatsAppAutopostJob(db,userId,{
-          requestKey:`${batchKeyPrefix(platform,batchId)}${crypto.randomUUID()}`,
-          chatId:row.id,
-          caption,
-          platform,
-          telegramAccountId,
-          telegramHasPhoto,
-        },now,date));
-      }catch(error){
-        if(error instanceof MessengerAutomationError&&[404,409].includes(error.status)){
-          skipped+=1;
-          reasons.set(error.code,(reasons.get(error.code)||0)+1);
-          continue;
-        }
-        throw error;
+  let consumed=0;
+  for(const row of candidateList.slice(0,AUTOPOST_BATCH_SCAN_MAX)){
+    if(jobs.length>=limit)break;
+    consumed+=1;
+    try{
+      // Telegram: чат, про який ще невідомо, чи є в ньому гілки, спершу проходить швидкий прохід (він не займає вікон інтервалу),
+      // а чат без гілок уже тоді стає в чергу цієї партії. Так форум без гілки не витрачає місце в черзі «N на годину».
+      if(platform==='telegram'&&telegramAccountId&&row.forum===null){
+        jobs.push(await createTelegramScanJob(db,userId,row.id,telegramAccountId,now,date,batchId));
+        scanning+=1;
+        continue;
       }
+      jobs.push(await createWhatsAppAutopostJob(db,userId,{
+        requestKey:`${batchKeyPrefix(platform,batchId)}${crypto.randomUUID()}`,
+        chatId:row.id,
+        caption,
+        platform,
+        telegramAccountId,
+        telegramHasPhoto,
+      },now,date));
+    }catch(error){
+      if(error instanceof MessengerAutomationError&&[404,409].includes(error.status)){
+        skipped+=1;
+        reasons.set(error.code,(reasons.get(error.code)||0)+1);
+        continue;
+      }
+      throw error;
     }
   }
-  const more=jobs.length>=limit&&(await candidates(1,skipped)).results.length>0;
+  // «Ще є чати» — без окремого запиту: у списку лишились кандидати, яких партія не взяла.
+  const more=jobs.length>=limit&&candidateList.length>consumed;
   return {created:jobs.length,scanning,skipped,reasons:[...reasons].map(([code,count])=>({code,count})),more,jobs,batchId};
 }
 
@@ -729,20 +729,30 @@ const BATCH_KEY=/^batch_(whatsapp|viber|telegram)_([0-9a-f-]{36})_/;
 /** Ключ задачі партії: платформа й id партії всередині ключа дають змогу читати партію діапазоном по унікальному індексу, без нової міграції. */
 const batchKeyPrefix=(platform:AutopostPlatform,batchId:string)=>`batch_${platform}_${batchId}_`;
 
+/** Ідентифікатор партії, який клієнт уже знає (так пошук найновішої партії пропускається): лише безпечний формат ключа. */
+export const cleanKnownBatchId=(value:unknown):string=>typeof value==='string'&&/^[0-9a-f-]{36}$/.test(value)?value:'';
+
 export async function readAutopostBatch(db:D1Database,userId:string,platform:AutopostPlatform,date:string,knownBatchId?:string):Promise<AutopostBatch|null>{
+  type BatchRow={id:string;expected_name:string;status:string;outcome:string|null;code:string|null;created_at:number;updated_at:number;completed_at:number|null};
+  const readRows=async(id:string)=>{
+    const prefix=batchKeyPrefix(platform,id);
+    return db.prepare(`SELECT id,expected_name,status,outcome,json_extract(result_json,'$.errorCode') AS code,created_at,updated_at,completed_at
+      FROM whatsapp_autopost_jobs WHERE user_id=?1 AND request_key>=?2 AND request_key<?3 AND published_on=?4`)
+      .bind(userId,prefix,`${prefix.slice(0,-1)}\``,date).all<BatchRow>();
+  };
   let batchId=knownBatchId||'';
-  if(!batchId){
+  let rows=batchId?await readRows(batchId):null;
+  // Відомої партії вже немає (нова доба, скидання) або її не передали: шукаємо найновішу.
+  if(!rows||!rows.results.length){
     // Індекс (user_id, created_at DESC) віддає найновіші задачі першими, тож пошук зупиняється на першому збігу.
     const latest=await db.prepare(`SELECT request_key,published_on FROM whatsapp_autopost_jobs WHERE user_id=?1 AND request_key LIKE ?2 ESCAPE '\\'
       ORDER BY created_at DESC,id DESC LIMIT 1`).bind(userId,`batch\\_${platform}\\_%`).first<{request_key:string;published_on:string}>();
     const match=latest?.request_key.match(BATCH_KEY);
     if(!latest||!match||latest.published_on!==date)return null;
+    if(match[2]===batchId)return null;
     batchId=match[2];
+    rows=await readRows(batchId);
   }
-  const prefix=batchKeyPrefix(platform,batchId);
-  const rows=await db.prepare(`SELECT id,expected_name,status,outcome,json_extract(result_json,'$.errorCode') AS code,created_at,updated_at,completed_at
-    FROM whatsapp_autopost_jobs WHERE user_id=?1 AND request_key>=?2 AND request_key<?3`)
-    .bind(userId,prefix,`${prefix.slice(0,-1)}\``).all<{id:string;expected_name:string;status:string;outcome:string|null;code:string|null;created_at:number;updated_at:number;completed_at:number|null}>();
   if(!rows.results.length)return null;
   const batch:AutopostBatch={id:batchId,startedAt:Number.MAX_SAFE_INTEGER,total:0,sent:0,remaining:0,failed:0,skipped:0,cancelled:0,thread:0,averageSeconds:null,entries:[]};
   let lastFinished=0;
@@ -772,7 +782,7 @@ export async function readAutopostBatch(db:D1Database,userId:string,platform:Aut
  * so it is safe to read on every live-channel autopost event — the operator asked to see
  * «10 з 30», and the runner tray shows the same numbers (operator request 2026-10-06).
  */
-export async function readWhatsAppAutopostProgress(db:D1Database,userId:string,date:string,platform:AutopostPlatform='whatsapp'):Promise<WhatsAppAutopostProgress>{
+export async function readWhatsAppAutopostProgress(db:D1Database,userId:string,date:string,platform:AutopostPlatform='whatsapp',knownBatchId?:string):Promise<WhatsAppAutopostProgress>{
   // Лічильники дня ведуть тригери на whatsapp_autopost_jobs (міграція 0050): кілька рядків замість підрахунку всіх задач дня.
   // Закриті рішенням власника («resolved») не рахуються: чат або заархівовано, або він має нову задачу.
   const rows=await db.prepare(`SELECT status,outcome,SUM(job_count) AS count FROM autopost_day_counts
@@ -801,7 +811,8 @@ export async function readWhatsAppAutopostProgress(db:D1Database,userId:string,d
   // Cancelled jobs are out of the count: pressing «Автопост черги» again re-queues the chats whose earlier
   // job failed or was stopped, so counting every row of the day showed «11 з 90» for 30 chats (operator
   // report 2026-10-07). The total is the live attempt — queued plus finished — and nothing else.
-  const batch=await readAutopostBatch(db,userId,platform,date);
+  // Лічильники дня порожні: задач платформи сьогодні не було, партію шукати нема де (економить запит пошуку найновішої партії).
+  const batch=(rows.results||[]).length?await readAutopostBatch(db,userId,platform,date,knownBatchId):null;
   return {total:pending+claimed+sent+failed,done:sent+failed,pending,claimed,sent,failed,cancelled,running:pending+claimed>0,settled,batch};
 }
 

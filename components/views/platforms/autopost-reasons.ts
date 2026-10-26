@@ -6,7 +6,8 @@ const REASONS: Record<string, string> = {
   waydroid_not_running: 'Waydroid не запущений. Запусти його на ПК: waydroid session start.',
   waydroid_frozen: 'Контейнер Waydroid заморожений. Вимкни це: waydroid prop set persist.waydroid.suspend false і перезапусти сесію.',
   android_unreachable: 'Android у Waydroid недоступний для adb. Перезапусти сесію Waydroid.',
-  android_unauthorized: 'Android не дозволив adb. У вікні Waydroid підтвердь «Allow USB debugging».',
+  android_unauthorized: 'У вікні Android натисни Allow і постав галочку Always allow.',
+  viber_not_responding: 'Viber у Waydroid не відповідає навіть після перезапуску. Відкрий вікно Waydroid і перевір Viber.',
   viber_not_installed: 'У Waydroid не встановлений Viber. Встанови його з Google Play.',
   viber_not_activated: 'Viber у Waydroid не активований. Відкрий його й активуй як додатковий пристрій.',
   viber_language: 'Мова Android у Waydroid має бути англійською.',
@@ -51,6 +52,8 @@ const REASONS: Record<string, string> = {
   media_caption_mismatch: 'Підпис до фото вставився не повністю.',
   autopost_budget_exhausted: 'Не вистачило часу на відправку в цей чат.',
   publication_reconcile_failed: 'Повідомлення відправлено, але Work OS не записала публікацію. Перевір чат і додай публікацію вручну.',
+  viber_step_timeout: 'Крок у Viber завис, чат не зачеплено. Повторю пізніше.',
+  viber_task_timeout: 'Відправка у Viber не вклалась у ліміт часу, чат не зачеплено. Повторю пізніше.',
   // Telegram: ці коди приходять із браузерного адаптера Telegram Web.
   thread_required: 'У чаті є гілки, а гілку для публікації ще не вибрано.',
   thread_closed: 'Вибрана гілка закрита або зникла. Вибери іншу.',
