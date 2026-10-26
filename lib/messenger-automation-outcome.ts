@@ -23,6 +23,7 @@ type Policy =
 const ARCHIVE_ADMINS = 'Пишуть лише адміни';
 const ARCHIVE_BANNED = 'Забанено';
 const ARCHIVE_MISSING = 'Чат не існує';
+const ARCHIVE_NO_ACCESS = 'Немає доступу';
 const ARCHIVE_DECIDED = 'Не вдалося опублікувати';
 
 const ADMIN_ONLY = new Set(['admin_only', 'read_only', 'viber_read_only', 'telegram_read_only']);
@@ -54,6 +55,8 @@ export function classifyAutopostFailure(code: string, platform: string): Policy 
   if (ADMIN_ONLY.has(code)) return { kind: 'archive', reason: ARCHIVE_ADMINS };
   if (BANNED.has(code)) return { kind: 'archive', reason: ARCHIVE_BANNED };
   if (MISSING.has(code)) return { kind: 'archive', reason: ARCHIVE_MISSING };
+  // Telegram: акаунт не бачить чат (не учасник, вийшов чи вилучений) — власнику нема що вирішувати, чат іде в архів із причиною.
+  if (code === 'telegram_no_access') return { kind: 'archive', reason: ARCHIVE_NO_ACCESS };
   // «Очікування» є лише у WhatsApp і Telegram; у Viber невдалий вступ вирішує власник.
   if (code === 'approval_required' && platform === 'whatsapp') return { kind: 'waiting' };
   if (POSTPONE.has(code)) return { kind: 'postpone' };

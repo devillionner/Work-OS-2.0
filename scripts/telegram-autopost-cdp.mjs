@@ -184,7 +184,8 @@ export const READ_STATE_JS = `(() => {
     url: location.href,
     auth: Boolean(document.querySelector('#auth-qr-form, #auth-phone-number-form, .auth-form')),
     ready: Boolean(document.getElementById('telegram-search-input')),
-    title: header ? ((header.querySelector('.fullName, h3, .title') || {}).innerText || '').trim().slice(0, 200) : '',
+    // Емодзі в назві — картинки з alt: без їх підстановки слова склеюються («Украинцыв NRWКуплю…») і назва не збігається з Work OS.
+    title: (() => { const node = header && header.querySelector('.fullName, h3, .title'); if (!node) return ''; const clone = node.cloneNode(true); clone.querySelectorAll('img[alt]').forEach((img) => { const alt = img.getAttribute('alt'); if (alt) img.replaceWith(document.createTextNode(alt)); }); return (clone.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 200); })(),
     status: header ? ((header.querySelector('.status, .group-status') || {}).innerText || '').trim().slice(0, 120) : '',
     peerId: (peer && peer.getAttribute('data-peer-id')) || (location.hash.match(/^#(-?\\d+)/) || [])[1] || '',
     // Ознаки форуму, окрім списку гілок: панель форуму зліва й гілка в адресі. Якщо вони є, а список гілок не прочитався, у чат не пишемо.
