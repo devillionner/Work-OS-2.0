@@ -338,7 +338,7 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
   const text = normalizeText(task?.material?.text);
   // Прохід «знайти гілки» тексту не має: він лише дивиться на чат.
   if (!text && !scanOnly) return { kind: 'blocked', reason: 'stale_precondition' };
-  const media = task?.material?.media?.base64 ? task.material.media : null;
+  let media = task?.material?.media?.base64 ? task.material.media : null;
   if (!verifyOnly && Array.from(text).length > MAX_MESSAGE_CHARS) return { kind: 'blocked', reason: 'telegram_text_too_long' };
   // Підпис до фото в Telegram — до 1024 символів: довший не обрізаємо, а не надсилаємо.
   if (!verifyOnly && media && Array.from(text).length > MAX_CAPTION_CHARS) return { kind: 'blocked', reason: 'telegram_caption_too_long' };
@@ -488,6 +488,12 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     const before = await page.evaluate(READ_MESSAGES_JS);
     const beforeIds = new Set(before.map((item) => item.id));
     let field = '#editable-message-text';
+    // У групі, де адміни заборонили медіа, у полі стоїть кнопка «Sending media isn't allowed in this group» і вставка фото нічого не відкриває
+    // (перевірено наживо 2026-10-26, «Чат Мандарин Медіа»). Оголошення тоді йде лише текстом: це кращий результат, ніж вічний повтор.
+    if (media && await page.evaluate(`[...document.querySelectorAll('#MiddleColumn .Composer button, #MiddleColumn .Composer .Button')].some((node) => /(?:media|photos?|photo and video).{0,20}(?:isn.?t|not|n.?t) allowed|медіа.{0,30}заборон|медиа.{0,30}запрещ/i.test(node.getAttribute('aria-label') || node.getAttribute('title') || ''))`)) {
+      media = null;
+      onStep('photo', 'у цій групі медіа заборонені: публікую лише текст');
+    }
     if (media) {
       onStep('photo', 'додаю фото');
       const pasted = await page.evaluate(`(() => { const node = document.querySelector('#editable-message-text'); if (!node || typeof DataTransfer === 'undefined') return false;

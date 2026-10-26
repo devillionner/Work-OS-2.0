@@ -45,7 +45,8 @@ const RETRY = new Set([
   'telegram_page_not_ready', 'telegram_chat_not_opened', 'telegram_attachment_not_opened', 'telegram_send_not_clicked', 'telegram_composer_not_found', 'telegram_text_mismatch', 'telegram_thread_not_opened',
 ]);
 // Чат змінився до відправки або немає фото для відправки: чіпати нічого, пропускаємо на сьогодні.
-const SKIP = new Set(['stale_precondition', 'image_missing']);
+// `cancelled`: оператор зупинив партію, поки задача ще виконувалась (до відправки): власнику нема що вирішувати.
+const SKIP = new Set(['stale_precondition', 'image_missing', 'cancelled']);
 
 /**
  * Що робити з чатом після невдалої автопублікації. Незнайомий код і будь-який збій після натискання «Надіслати»

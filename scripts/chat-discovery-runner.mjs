@@ -1148,6 +1148,9 @@ async function handleTelegramAutopostTask(ws,job){
   }
   // Збій до «Надіслати», що повторюється на різних чатах, — це браузер чи Telegram Web, а не чат: пауза з поясненням.
   if(TELEGRAM_ADAPTER_RETRY_REASONS.has(reason)){
+    // Вікно фото не відкрилось чи кнопка не подіяла — властивість саме цього чату (права, ліміти), а не браузера: рахуємо спробу чату (до трьох,
+    // далі пропуск), без системної паузи всієї черги.
+    if(reason==='telegram_attachment_not_opened'||reason==='telegram_send_not_clicked'){releaseTask(ws,'autopost',job,0,reason);return;}
     // Вкладка не готова: один раз перезавантажуємо її й повторюємо через кілька секунд, а не рахуємо це збоєм чату.
     if((reason==='telegram_page_not_ready'||reason==='telegram_chat_not_opened')&&await healBrowserTab('telegram')){releaseTask(ws,'autopost',job,Date.now()+8_000,'',Date.now()+8_000);return;}
     const now=Date.now();
