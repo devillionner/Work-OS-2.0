@@ -1479,6 +1479,8 @@ function connectLiveChannel(){
     console.log('Connected to the Work OS live channel.');
     setStatus('ready','Готовий: підключено до Work OS');
     while(pendingLive.length)ws.send(JSON.stringify(pendingLive.shift()));
+    // Які задачі автопосту в цього runner справді в роботі: DO повертає в чергу видані раніше й невідомі нам (пішли в мертвий сокет).
+    ws.send(JSON.stringify({type:'runner_state',active:[...autopostActive,...incomingTaskQueue.filter((item)=>item.taskProcess==='autopost').map((item)=>String(item.task?.jobId||'')),...viberTaskQueue.map((item)=>String(item.task?.jobId||'')),...autopostResults.keys()]}));
     setTimeout(()=>{void checkViberStatus();void checkTelegramStatus();},1500);
     keepalive=setInterval(()=>{
       // A ping still unanswered a whole interval later means a half-open socket (sleep, network

@@ -64,7 +64,7 @@ import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFee
 /** @typedef {'browser'|'runner'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId?: string|null, autopostClaimedAt?: number, autopostLanes?: Record<string, {jobId: string, claimedAt: number, current: {send: boolean, startedAt: number, platform: string}}|undefined>, autopostWatchAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostPace?: Record<string, {intervalSeconds:number, nextAt:number}>, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId?: string|null, autopostClaimedAt?: number, autopostLanes?: Record<string, {jobId: string, claimedAt: number, current: {send: boolean, startedAt: number, platform: string}}|undefined>, autopostWatchAt?: number, runnerConnectedAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostPace?: Record<string, {intervalSeconds:number, nextAt:number}>, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 // The runner pings every 30 s and the runtime records each auto-answered ping per socket. A runner socket
@@ -247,6 +247,7 @@ export class OwnerChannel {
     if (userId && state.userId !== userId) state.userId = userId;
     state.runnerLastSeenAt = nowSeconds();
     state.runnerOnline = true;
+    state.runnerConnectedAt = Date.now();
     await this.scheduleRunnerWatch();
     // The only runner now connected cannot be working on anything yet: any in-flight task still
     // recorded belongs to a connection whose close was never processed (staging, before 2026-10-04,
@@ -379,6 +380,9 @@ export class OwnerChannel {
     let message;
     try { message = JSON.parse(raw); } catch { return; }
     if (message.type === 'ping') { ws.send(PONG); return; }
+    // Після підключення runner каже, які задачі автопосту в нього справді в роботі: те, що DO видав раніше й чого runner не знає (завдання
+    // пішло в мертвий сокет під час розриву зв'язку), повертається в чергу, а не чекає кінця оренди.
+    if (message.type === 'runner_state' && Array.isArray(message.active)) return this.handleRunnerState(message.active.map(String));
 
     if (message.type === 'command') {
       const state = await this.readState();
@@ -697,6 +701,28 @@ export class OwnerChannel {
     // either way it reloads its queue, which is where the authoritative job status lives.
     this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: message.jobId, status, ...(eventPlatform ? { platform: eventPlatform } : {}) });
     await this.dispatchNextAutopostJob(state);
+    await this.writeState(state);
+  }
+
+  /**
+   * Runner щойно підключився й назвав задачі автопосту, які в нього в роботі. Задачі каналів, видані ДО цього підключення й невідомі runner,
+   * до нього не дійшли (сокет був мертвий): повертаємо їх у чергу й видаємо знову.
+   * @param {string[]} active
+   */
+  async handleRunnerState(active) {
+    const state = await this.readState();
+    if (!state.userId) return;
+    let released = 0;
+    for (const lane of AUTOPOST_LANES) {
+      const slot = state.autopostLanes?.[lane];
+      if (!slot?.jobId || active.includes(slot.jobId) || slot.claimedAt >= (state.runnerConnectedAt ?? 0)) continue;
+      await releaseWhatsAppAutopostJob(this.env.DB, state.userId, slot.jobId, nowSeconds());
+      this.autopostTrace(state, `runner не знає задачу ${slot.jobId} (канал ${lane}): повернено в чергу`);
+      this.broadcast('browser', { type: 'process_state', process: 'autopost', jobId: slot.jobId, status: 'released', platform: slot.current.platform });
+      state.autopostLanes[lane] = undefined;
+      released += 1;
+    }
+    if (released) await this.dispatchNextAutopostJob(state);
     await this.writeState(state);
   }
 

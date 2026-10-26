@@ -782,7 +782,7 @@ export async function readAutopostBatch(db:D1Database,userId:string,platform:Aut
  * so it is safe to read on every live-channel autopost event — the operator asked to see
  * «10 з 30», and the runner tray shows the same numbers (operator request 2026-10-06).
  */
-export async function readWhatsAppAutopostProgress(db:D1Database,userId:string,date:string,platform:AutopostPlatform='whatsapp',knownBatchId?:string):Promise<WhatsAppAutopostProgress>{
+export async function readWhatsAppAutopostProgress(db:D1Database,userId:string,date:string,platform:AutopostPlatform='whatsapp',knownBatchId?:string|null):Promise<WhatsAppAutopostProgress>{
   // Лічильники дня ведуть тригери на whatsapp_autopost_jobs (міграція 0050): кілька рядків замість підрахунку всіх задач дня.
   // Закриті рішенням власника («resolved») не рахуються: чат або заархівовано, або він має нову задачу.
   const rows=await db.prepare(`SELECT status,outcome,SUM(job_count) AS count FROM autopost_day_counts
@@ -812,7 +812,8 @@ export async function readWhatsAppAutopostProgress(db:D1Database,userId:string,d
   // job failed or was stopped, so counting every row of the day showed «11 з 90» for 30 chats (operator
   // report 2026-10-07). The total is the live attempt — queued plus finished — and nothing else.
   // Лічильники дня порожні: задач платформи сьогодні не було, партію шукати нема де (економить запит пошуку найновішої партії).
-  const batch=(rows.results||[]).length?await readAutopostBatch(db,userId,platform,date,knownBatchId):null;
+  // `knownBatchId === null` — партію не читати (лише лічильники дня): так робить видача задачі, їй потрібне лише «N з M».
+  const batch=knownBatchId!==null&&(rows.results||[]).length?await readAutopostBatch(db,userId,platform,date,knownBatchId):null;
   return {total:pending+claimed+sent+failed,done:sent+failed,pending,claimed,sent,failed,cancelled,running:pending+claimed>0,settled,batch};
 }
 
@@ -954,12 +955,13 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
       telegram={accountId:chat.telegram_account_id,accountName:account?.name||'',webUserId:account?.web_user_id||null,forum:thread.forum,thread:thread.thread,topics:thread.topics};
     }
     const batchMatch=row.request_key.match(BATCH_KEY);
-    const batch=batchMatch?await readAutopostBatch(db,userId,platform||'whatsapp',row.published_on,batchMatch[2]):null;
+    // «N з M» для рядка в треї: за лічильниками дня (кілька рядків), а не за повним читанням партії на кожну задачу.
+    const batch=batchMatch?await readWhatsAppAutopostProgress(db,userId,row.published_on,platform||'whatsapp',null):null;
     const sinceEpoch=verifyMode?(follow?verifyFromOf(row.result_json):(row.lease_expires_at!==null&&Number(row.lease_expires_at)>0?Number(row.lease_expires_at):0)):0;
     return {
       kind:platform==='viber'?'viber_android':platform==='telegram'?'telegram_autopost':'whatsapp_autopost',
       jobId:row.id,
-      progress:batch?{done:batch.sent+batch.failed+batch.skipped,total:batch.total}:undefined,
+      progress:batch?{done:batch.done,total:batch.total}:undefined,
       mode:verifyMode?'verify':'send',
       verify:verifyMode?{sinceEpoch}:undefined,
       target:{chatId:row.chat_id,expectedName:row.expected_name,expectedLink:row.expected_link},
