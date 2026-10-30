@@ -196,19 +196,37 @@ export function buildDayModel({ now, today, workday, tasks, slots, accountLabel,
   if (todayWorkday) {
     const endEpoch = todayWorkday.endedAt ?? now;
     const paused = todayWorkday.status === 'paused' && todayWorkday.pausedAt !== null;
+    // Журнал пауз (міграція 0059): кожна пауза стоїть на своєму місці. Для днів до журналу паузи невідомі, тож лишається сума «пауз раніше».
+    const journal = [...(todayWorkday.pauses ?? [])].sort((x, y) => x.startedAt - y.startedAt);
+    const known = journal.reduce((sum, pause) => sum + Math.max(0, Math.min(pause.endedAt ?? endEpoch, endEpoch) - pause.startedAt), 0);
     const activeSeconds = todayWorkday.activeSeconds + (todayWorkday.status === 'active' ? Math.max(0, now - todayWorkday.asOf) : 0);
     const totalPause = Math.max(0, endEpoch - todayWorkday.startedAt - activeSeconds);
     const currentPause = paused ? Math.max(0, now - (todayWorkday.pausedAt as number)) : 0;
-    const earlier = Math.floor(Math.max(0, totalPause - currentPause) / 60);
+    const unexplained = journal.length ? Math.max(0, totalPause - known) : Math.max(0, totalPause - currentPause);
+    const earlier = Math.floor(unexplained / 60);
     earlierPauseMinutes = earlier >= MIN_EARLIER_PAUSE ? earlier : 0;
-    if (paused) {
+    if (journal.length) {
+      let cursor = todayWorkday.startedAt;
+      for (const pause of journal) {
+        const end = Math.min(pause.endedAt ?? endEpoch, endEpoch);
+        if (pause.startedAt > cursor) segments.push({ from: minutes(cursor), to: minutes(pause.startedAt), kind: 'work' });
+        if (end > pause.startedAt) segments.push({ from: minutes(pause.startedAt), to: minutes(end), kind: 'pause' });
+        cursor = Math.max(cursor, end);
+      }
+      if (endEpoch > cursor) segments.push({ from: minutes(cursor), to: minutes(endEpoch), kind: 'work' });
+    } else if (paused) {
       segments.push({ from: minutes(todayWorkday.startedAt), to: minutes(todayWorkday.pausedAt as number), kind: 'work' });
       segments.push({ from: minutes(todayWorkday.pausedAt as number), to: minutes(endEpoch), kind: 'pause' });
     } else {
       segments.push({ from: minutes(todayWorkday.startedAt), to: minutes(endEpoch), kind: 'work' });
     }
     events.push({ id: 'workday:start', kind: 'start', at: todayWorkday.startedAt, state: 'done', title: 'Початок дня', sub: 'відлік активного часу', next: false, attention: false, dim: true });
-    if (paused) events.push({ id: 'workday:pause', kind: 'pause', at: todayWorkday.pausedAt as number, state: 'done', title: 'Пауза', sub: `триває ${span(currentPause / 60)}`, next: false, attention: false, dim: true });
+    if (journal.length) {
+      for (const pause of journal) {
+        const length = Math.max(0, (pause.endedAt ?? endEpoch) - pause.startedAt);
+        events.push({ id: `workday:pause:${pause.startedAt}`, kind: 'pause', at: pause.startedAt, state: 'done', title: 'Пауза', sub: pause.endedAt === null && paused ? `триває ${span(length / 60)}` : span(length / 60), next: false, attention: false, dim: true });
+      }
+    } else if (paused) events.push({ id: 'workday:pause', kind: 'pause', at: todayWorkday.pausedAt as number, state: 'done', title: 'Пауза', sub: `триває ${span(currentPause / 60)}`, next: false, attention: false, dim: true });
     if (todayWorkday.endedAt !== null) events.push({ id: 'workday:end', kind: 'end', at: todayWorkday.endedAt, state: 'done', title: 'Кінець дня', sub: `відпрацьовано ${durationLabel(todayWorkday.activeSeconds)}`, next: false, attention: false, dim: true });
   }
 

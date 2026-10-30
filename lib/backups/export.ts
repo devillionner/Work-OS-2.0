@@ -6,6 +6,7 @@ export const BACKUP_TABLES = [
   'telegram_accounts',
   'work_timers',
   'workdays',
+  'workday_pauses',
   'chats',
   'chat_profiles',
   'chat_publications',

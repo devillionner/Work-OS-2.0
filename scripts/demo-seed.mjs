@@ -14,7 +14,7 @@ export const WIPE_FIRST = [
   'activity_events', 'chat_publications', 'telegram_schedule_slots', 'telegram_schedule_settings', 'lead_message_attachment_chunks',
   'lead_message_attachments', 'lead_messages', 'lesson_reminders', 'curator_requests', 'lessons', 'student_subjects', 'students', 'lead_commands',
   'leads', 'chat_profiles', 'chats', 'library_item_versions', 'library_items', 'dev_items', 'daily_reports', 'report_checkpoints',
-  'workdays', 'work_timers', 'goal_versions', 'user_settings', 'telegram_accounts', 'sessions', 'backup_revisions',
+  'workday_pauses', 'workdays', 'work_timers', 'goal_versions', 'user_settings', 'telegram_accounts', 'sessions', 'backup_revisions',
 ];
 
 // ---------------------------------------------------------------- допоміжне
@@ -482,6 +482,9 @@ for (let day = -14; day <= -1; day += 1) {
     active_seconds: 27000 + between(-3000, 2400), created_at: ts(day, 32400), updated_at: ts(day, 64800), version: 1 });
 }
 insert('workdays', ['id', 'user_id', 'work_date', 'status', 'started_at', 'active_since', 'paused_at', 'ended_at', 'active_seconds', 'created_at', 'updated_at', 'version'], workdays);
+// Журнал пауз: у кожного завершеного дня обідня пауза.
+insert('workday_pauses', ['id', 'workday_id', 'user_id', 'started_at', 'ended_at'],
+  workdays.map((day) => { const offset = -Number(day.id.replace('demo-wd-', '')); return { id: `demo-wp-${-offset}`, workday_id: day.id, user_id: U, started_at: ts(offset, 46800), ended_at: ts(offset, 49200) }; }));
 
 const PLATFORM_ORDER = ['telegram', 'threads', 'whatsapp', 'facebook', 'viber'];
 const PLATFORM_LABELS = { telegram: 'Telegram', threads: 'Threads', whatsapp: 'WhatsApp', facebook: 'Facebook', viber: 'Viber' };

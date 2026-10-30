@@ -2,7 +2,7 @@ import { cloudBackupSha256 } from './inspect.ts';
 import type { BackupTable } from './export.ts';
 
 export const RESTORE_TABLES: BackupTable[] = [
-  'legacy_imports', 'legacy_import_chunks', 'telegram_accounts', 'work_timers', 'workdays',
+  'legacy_imports', 'legacy_import_chunks', 'telegram_accounts', 'work_timers', 'workdays', 'workday_pauses',
   'chats', 'chat_profiles', 'chat_publications', 'telegram_schedule_settings', 'telegram_schedule_slots',
   'leads', 'students', 'student_subjects', 'lessons',
   'curator_requests', 'lesson_reminders', 'lead_messages', 'lead_message_attachments', 'lead_message_attachment_chunks', 'lead_commands',
@@ -11,7 +11,7 @@ export const RESTORE_TABLES: BackupTable[] = [
 
 const CONFLICT_COLUMNS: Record<BackupTable, string[]> = {
   legacy_imports: ['id'], legacy_import_chunks: ['import_id', 'chunk_index'],
-  telegram_accounts: ['id'], work_timers: ['id'], workdays: ['id'], chats: ['id'],
+  telegram_accounts: ['id'], work_timers: ['id'], workdays: ['id'], workday_pauses: ['id'], chats: ['id'],
   chat_profiles: ['chat_id'], chat_publications: ['id'],
   telegram_schedule_settings: ['user_id', 'telegram_account_id'], telegram_schedule_slots: ['id'], leads: ['id'],
   students: ['id'], student_subjects: ['id'], lessons: ['id'], curator_requests: ['id'],

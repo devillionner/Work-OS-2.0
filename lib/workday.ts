@@ -21,6 +21,8 @@ export type WorkdaySnapshot = {
   asOf: number;
   version: number;
   plan: WorkdayPlan | null;
+  /** Журнал пауз (міграція 0059): початок і кінець, кінець порожній, поки пауза триває. Для днів до журналу порожній. */
+  pauses: Array<{ startedAt: number; endedAt: number | null }>;
 };
 
 type WorkdayRow = {
@@ -60,7 +62,13 @@ export async function readWorkdaySnapshot(
     WHERE w.user_id=?1 AND (w.status!='ended' OR w.work_date=?2)
     ORDER BY CASE WHEN w.status!='ended' THEN 0 ELSE 1 END, w.started_at DESC LIMIT 1`)
     .bind(userId, today).first<WorkdayRow>();
-  return row ? project(row, now) : null;
+  return row ? project(row, now, await readPauses(db, row.id)) : null;
+}
+
+async function readPauses(db: D1Database, workdayId: string): Promise<WorkdaySnapshot['pauses']> {
+  const rows = await db.prepare(`SELECT started_at,ended_at FROM workday_pauses WHERE workday_id=?1 ORDER BY started_at,id`)
+    .bind(workdayId).all<{ started_at: number; ended_at: number | null }>();
+  return (rows.results ?? []).map((row) => ({ startedAt: Number(row.started_at), endedAt: nullableNumber(row.ended_at) }));
 }
 
 export async function startWorkday(
@@ -103,8 +111,12 @@ export async function pauseWorkday(db: D1Database, args: MutationArgs) {
     active_seconds=active_seconds+CASE WHEN ?5>active_since THEN ?5-active_since ELSE 0 END,
     status='paused',active_since=NULL,paused_at=?5,updated_at=?5,version=version+1
     WHERE id=?1 AND user_id=?2 AND work_date=?3 AND version=?4 AND status='active'`;
-  const result = await db.prepare(sql)
-    .bind(args.id, args.userId, args.workDate, args.expectedVersion, args.now).run();
+  // Пауза пишеться в журнал тим самим batch: рядок з'являється лише коли UPDATE справді змінив робочий день.
+  const [result] = await db.batch([
+    db.prepare(sql).bind(args.id, args.userId, args.workDate, args.expectedVersion, args.now),
+    db.prepare(`INSERT INTO workday_pauses(id,workday_id,user_id,started_at,ended_at) SELECT ?1,?2,?3,?4,NULL WHERE changes()=1`)
+      .bind(crypto.randomUUID(), args.id, args.userId, args.now),
+  ]);
   changed(result, 'Робочий день уже змінився. Оновіть стан і повторіть дію.');
   return required(await readById(db, args.userId, args.id, args.now));
 }
@@ -113,8 +125,10 @@ export async function resumeWorkday(db: D1Database, args: MutationArgs) {
   const sql = 'UP' + `DATE workdays SET
     status='active',active_since=?5,paused_at=NULL,updated_at=?5,version=version+1
     WHERE id=?1 AND user_id=?2 AND work_date=?3 AND version=?4 AND status='paused'`;
-  const result = await db.prepare(sql)
-    .bind(args.id, args.userId, args.workDate, args.expectedVersion, args.now).run();
+  const [result] = await db.batch([
+    db.prepare(sql).bind(args.id, args.userId, args.workDate, args.expectedVersion, args.now),
+    db.prepare(`UPDATE workday_pauses SET ended_at=?2 WHERE workday_id=?1 AND ended_at IS NULL AND changes()=1`).bind(args.id, args.now),
+  ]);
   changed(result, 'Робочий день уже змінився. Оновіть стан і повторіть дію.');
   return required(await readById(db, args.userId, args.id, args.now));
 }
@@ -159,8 +173,11 @@ export async function endWorkday(db: D1Database, args: MutationArgs) {
       WHEN status='active' AND ?5>active_since THEN ?5-active_since ELSE 0 END,
     status='ended',active_since=NULL,paused_at=NULL,ended_at=?5,updated_at=?5,version=version+1
     WHERE id=?1 AND user_id=?2 AND work_date=?3 AND version=?4 AND status IN ('active','paused')`;
-  const result = await db.prepare(sql)
-    .bind(args.id, args.userId, args.workDate, args.expectedVersion, args.now).run();
+  // День завершили на паузі: відкрита пауза закривається моментом завершення.
+  const [result] = await db.batch([
+    db.prepare(sql).bind(args.id, args.userId, args.workDate, args.expectedVersion, args.now),
+    db.prepare(`UPDATE workday_pauses SET ended_at=?2 WHERE workday_id=?1 AND ended_at IS NULL AND changes()=1`).bind(args.id, args.now),
+  ]);
   changed(result, 'Робочий день уже завершено або він змінився.');
   return required(await readById(db, args.userId, args.id, args.now));
 }
@@ -202,10 +219,10 @@ async function readById(db: D1Database, userId: string, id: string, now: number)
     LEFT JOIN user_settings p ON p.user_id=w.user_id AND p.setting_key=('workday_plan:' || w.id)
     WHERE w.id=?1 AND w.user_id=?2 LIMIT 1`)
     .bind(id, userId).first<WorkdayRow>();
-  return row ? project(row, now) : null;
+  return row ? project(row, now, await readPauses(db, row.id)) : null;
 }
 
-function project(row: WorkdayRow, now: number): WorkdaySnapshot {
+function project(row: WorkdayRow, now: number, pauses: WorkdaySnapshot['pauses']): WorkdaySnapshot {
   const live = row.status === 'active' && row.active_since !== null
     ? Math.max(0, now - Number(row.active_since)) : 0;
   return {
@@ -214,6 +231,7 @@ function project(row: WorkdayRow, now: number): WorkdaySnapshot {
     pausedAt: nullableNumber(row.paused_at), endedAt: nullableNumber(row.ended_at),
     activeSeconds: Number(row.active_seconds) + live, asOf: now, version: Number(row.version),
     plan: parsePlan(row.plan_json),
+    pauses,
   };
 }
 
