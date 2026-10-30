@@ -84,6 +84,17 @@ export async function GET(request:Request):Promise<Response>{
       const progress=await readWhatsAppAutopostProgress(env.DB,user.id,date,'whatsapp',knownBatch);
       return json({whatsappAutopostProgress:progress,autopostAttention:await attentionFor(progress,'whatsapp',date)});
     }
+    // Підсумок дня для картки «Автопост сьогодні»: лічильники дня трьох платформ (кілька рядків autopost_day_counts на платформу) і межі останньої партії.
+    if(url.searchParams.get('summary')==='1'){
+      const date=businessDate(Math.floor(Date.now()/1000));
+      const platforms=['whatsapp','viber','telegram'] as const;
+      const progress=await Promise.all(platforms.map(platform=>readWhatsAppAutopostProgress(env.DB,user.id,date,platform)));
+      return json({summary:{date,platforms:platforms.map((platform,index)=>{
+        const p=progress[index];
+        return {platform,total:p.total,sent:p.sent,failed:p.failed,pending:p.pending,claimed:p.claimed,running:p.running,settled:p.settled,
+          startedAt:p.batch?.startedAt??null,lastAt:p.batch?.entries[0]?.at??null};
+      })}});
+    }
     // План запуску: скільки чатів справді піде в партію й чому решта черги не йде (за запитом, без таймера).
     const planPlatform=url.searchParams.get('plan');
     if(planPlatform==='viber'||planPlatform==='whatsapp'){

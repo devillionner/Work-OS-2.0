@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { RunnerOfflineCard } from '@/components/shell/runner-offline';
 import { DESKTOP, useMediaQuery } from '@/components/shell/use-media';
 import { GoalsPanel } from '@/components/views/shared/goals-panel';
+import { AutopostDayCard } from '@/components/views/today/autopost-day-card';
 import { CenteredTimeline } from '@/components/views/today/centered-timeline';
 import { DayCard } from '@/components/views/today/day-card';
 import { HatchDefs } from '@/components/views/today/event-parts';
@@ -34,6 +35,7 @@ export default function TodayView() {
       <DayCard state={day.workday} size={size} earlierPauseMinutes={day.model.earlierPauseMinutes} onOpenGoals={() => setGoalsOpen(true)} />
       <GoalsCard goals={day.goals} size={size} onBreakdown={() => setMetric('publications')} />
       <StatusCard statuses={day.statuses} size={size} />
+      <AutopostDayCard size={size} />
     </>
   );
 
