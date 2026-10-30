@@ -128,7 +128,7 @@ export function TelegramAutopostCard({ runnerSeen, onScanThreads, material, plan
   const unbound = binding !== null && !binding.bound;
   const online = runnerConnected === true || runnerSeen;
   const readiness: AutopostReadiness = runnerConnected === false && !runnerSeen
-    ? { tone: 'hot', text: 'Runner на ПК не підключений. У треї Work OS обери «Запустити runner» або «Перезапустити runner».' }
+    ? { tone: 'hot', text: 'Runner вимкнений. Автопост не працює, поки його не запущено.' }
     : online && status?.state === 'blocked'
       ? { tone: 'warn', text: status.text || 'Автопост Telegram на паузі.' }
       : unbound

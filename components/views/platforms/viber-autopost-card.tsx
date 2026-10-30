@@ -47,7 +47,7 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
   // Іде партія: runner зайнятий відправкою і про стан Viber окремо не звітує, тож «Viber не відповів» тут було б хибним.
   const running = progress?.running === true;
   const readiness: AutopostReadiness = runnerOffline
-    ? { tone: 'hot', text: 'Runner не відповідає. У треї Work OS обери «Перезапустити runner».' }
+    ? { tone: 'hot', text: 'Runner вимкнений. Автопост не працює, поки його не запущено.' }
     : blocked
       ? { tone: 'warn', text: autopostReasonText(status?.reason) }
       : status?.state === 'busy' || (running && status?.state !== 'ready')

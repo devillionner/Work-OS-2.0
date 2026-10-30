@@ -1,5 +1,6 @@
 'use client';
 
+import { RunnerNotice } from '@/components/shell/runner-offline';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CommandPalette } from '@/components/shell/command-palette';
 import { useCommand } from '@/components/shell/command-bus';
@@ -192,6 +193,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
       <TopbarSlotProvider element={topbarSlot}>
         <PanelSlotProvider element={asideElement}>
           <span hidden data-work-os-revision={syncRevision} />
+          <RunnerNotice />
           {demo ? <DemoNotice /> : null}
           {phone ? (
             <div className="relative min-h-dvh pb-[calc(168px+env(safe-area-inset-bottom))]">

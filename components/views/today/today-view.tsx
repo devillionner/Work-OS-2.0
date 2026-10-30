@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { RunnerOfflineCard } from '@/components/shell/runner-offline';
 import { DESKTOP, useMediaQuery } from '@/components/shell/use-media';
 import { GoalsPanel } from '@/components/views/shared/goals-panel';
 import { CenteredTimeline } from '@/components/views/today/centered-timeline';
@@ -29,6 +30,7 @@ export default function TodayView() {
   const size = desktop ? 'desktop' : 'phone';
   const cards = (
     <>
+      <RunnerOfflineCard />
       <DayCard state={day.workday} size={size} earlierPauseMinutes={day.model.earlierPauseMinutes} onOpenGoals={() => setGoalsOpen(true)} />
       <GoalsCard goals={day.goals} size={size} onBreakdown={() => setMetric('publications')} />
       <StatusCard statuses={day.statuses} size={size} />

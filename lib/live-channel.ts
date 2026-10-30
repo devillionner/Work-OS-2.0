@@ -8,7 +8,7 @@
 // changed, check once" and keep their own fallback for everything else.
 
 export type LiveMessage = { type: string; [key: string]: unknown };
-export type LiveStatus = { connected: boolean; runnerConnected: boolean | null };
+export type LiveStatus = { connected: boolean; runnerConnected: boolean | null; runnerVersion?: string };
 
 type MessageListener = (message: LiveMessage) => void;
 type StatusListener = (status: LiveStatus) => void;
@@ -74,7 +74,7 @@ function hasSubscribers() {
 
 function setStatus(next: Partial<LiveStatus>) {
   const merged = { ...status, ...next };
-  if (merged.connected === status.connected && merged.runnerConnected === status.runnerConnected) return;
+  if (merged.connected === status.connected && merged.runnerConnected === status.runnerConnected && merged.runnerVersion === status.runnerVersion) return;
   status = merged;
   for (const listener of statusListeners) listener(status);
 }
@@ -125,7 +125,7 @@ function connect() {
       if (pongTimer !== null) { clearTimeout(pongTimer); pongTimer = null; }
       return;
     }
-    if (message.type === 'hello' && typeof message.runnerConnected === 'boolean') setStatus({ runnerConnected: message.runnerConnected });
+    if (message.type === 'hello' && typeof message.runnerConnected === 'boolean') setStatus({ runnerConnected: message.runnerConnected, ...(typeof message.runnerVersion === 'string' ? { runnerVersion: message.runnerVersion } : {}) });
     if (message.type === 'hello' && message.viberStatus && typeof message.viberStatus === 'object') latestViberStatus = { type: 'progress', process: 'viber_status', ...(message.viberStatus as Record<string, unknown>) };
     if (message.type === 'progress' && message.process === 'viber_status') latestViberStatus = message;
     if (message.type === 'hello' && message.autopostStatus && typeof message.autopostStatus === 'object') {
@@ -145,7 +145,7 @@ function connect() {
       const clean = cleanAutopostStatus(message);
       if (clean) latestAutopostStatus = { ...latestAutopostStatus, [message.platform]: clean };
     }
-    if (message.type === 'runner_status' && typeof message.connected === 'boolean') { setStatus({ runnerConnected: message.connected }); if (!message.connected) { latestViberStatus = null; latestAutopostStatus = {}; } }
+    if (message.type === 'runner_status' && typeof message.connected === 'boolean') { setStatus({ runnerConnected: message.connected, ...(typeof message.version === 'string' ? { runnerVersion: message.version } : {}) }); if (!message.connected) { latestViberStatus = null; latestAutopostStatus = {}; } }
     for (const listener of messageListeners) listener(message);
   });
   ws.addEventListener('close', onDown);

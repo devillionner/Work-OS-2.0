@@ -81,6 +81,11 @@ const WHATSAPP_AUTOPOST_RETRY_REASONS=new Set(['media_attach_failed','media_prev
 const WHATSAPP_AUTOPOST_RETRY_COOLDOWN_MS=60000;
 // Два збої підряд на різних чатах до натискання «Надіслати» (фото не додалось, превʼю не відкрилось) — це не чат, а WhatsApp Web
 // чи браузер: черга стає на паузу з поясненням у картці, а не мотає всі чати по колу (кожне коло — читання D1).
+let runnerInfoSent=false;
+function runnerVersion(){
+  try{return /APP_VERSION\s*=\s*'([^']+)'/.exec(readFileSync(join(dirname(new URL(import.meta.url).pathname),'..','lib','app-meta.ts'),'utf8'))?.[1]||'';}
+  catch{return '';}
+}
 const WHATSAPP_AUTOPOST_SYSTEMIC_AFTER=2;
 const WHATSAPP_AUTOPOST_SYSTEMIC_PAUSE_MS=10*60_000;
 const WHATSAPP_REASON_TEXT={
@@ -1485,6 +1490,9 @@ function connectLiveChannel(){
     console.log('Connected to the Work OS live channel.');
     setStatus('ready','Готовий: підключено до Work OS');
     while(pendingLive.length)ws.send(JSON.stringify(pendingLive.shift()));
+    // Версія застосунку, з якою запущено runner; `updated` — його щойно перезапустила іконка в треї після зміни коду (раз на процес).
+    ws.send(JSON.stringify({type:'runner_info',version:runnerVersion(),updated:!runnerInfoSent&&process.env.WORK_OS_RUNNER_UPDATED==='1'}));
+    runnerInfoSent=true;
     // Які задачі автопосту в цього runner справді в роботі: DO повертає в чергу видані раніше й невідомі нам (пішли в мертвий сокет).
     ws.send(JSON.stringify({type:'runner_state',active:[...autopostActive,...incomingTaskQueue.filter((item)=>item.taskProcess==='autopost').map((item)=>String(item.task?.jobId||'')),...viberTaskQueue.map((item)=>String(item.task?.jobId||'')),...autopostResults.keys()]}));
     setTimeout(()=>{void checkViberStatus();void checkTelegramStatus();},1500);

@@ -142,8 +142,11 @@ export async function readChatDuplicateGroups(db:D1Database,input:{
     const publications=Object.fromEntries(group.chats.map(chat=>[chat.id,(byChat.get(chat.id)||[]).length]));
     const days=new Map<string,number>();
     for(const chat of group.chats) for(const day of new Set(byChat.get(chat.id)||[])) days.set(day,(days.get(day)||0)+1);
-    const rank=(chat:DuplicateChat)=>[publications[chat.id]>0?0:1,mainStatusRank(chat.status),created.get(chat.id)??0] as const;
-    const keep=[...group.chats].sort((a,b)=>{const x=rank(a),y=rank(b);return x[0]-y[0]||x[1]-y[1]||x[2]-y[2]||a.id.localeCompare(b.id);})[0];
+    // Архів із справжньою причиною (нецільовий, забанено, чат не існує) лишається основним, щоб блокування не загубилось;
+    // архів «Дублікат» від старого менеджера — найнижчий пріоритет.
+    const blocked=(chat:DuplicateChat)=>chat.status==='archived'&&Boolean(chat.archiveReason)&&chat.archiveReason!=='Дублікат';
+    const rank=(chat:DuplicateChat)=>[blocked(chat)?0:1,publications[chat.id]>0?0:1,chat.status==='archived'&&!blocked(chat)?5:mainStatusRank(chat.status),created.get(chat.id)??0] as const;
+    const keep=[...group.chats].sort((a,b)=>{const x=rank(a),y=rank(b);return x[0]-y[0]||x[1]-y[1]||x[2]-y[2]||x[3]-y[3]||a.id.localeCompare(b.id);})[0];
     return {...group,keepId:keep.id,publications,collisionDays:[...days.values()].filter(count=>count>1).length};
   });
   return {groups,indexing:false};

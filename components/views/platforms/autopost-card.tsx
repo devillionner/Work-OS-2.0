@@ -33,7 +33,7 @@ export function AutopostCard({ material, status, pace, busy, plan, onLoadPlan, r
 }) {
   const [perHour, setPerHour] = usePerHour('whatsapp');
   const readiness: AutopostReadiness = runnerConnected === false
-    ? { tone: 'hot', text: 'Runner на ПК не підключений. У треї Work OS обери «Запустити runner» або «Перезапустити runner».' }
+    ? { tone: 'hot', text: 'Runner вимкнений. Автопост не працює, поки його не запущено.' }
     : runnerConnected && status?.state === 'blocked'
       ? { tone: 'warn', text: status.text || 'Автопост WhatsApp на паузі.' }
       : runnerConnected
