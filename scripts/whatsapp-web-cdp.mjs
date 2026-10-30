@@ -1205,7 +1205,12 @@ export async function sendWhatsappAutopostViaCdp(
     // Приєднаний чат відкриваємо всередині WhatsApp Web (пошук у списку й клік), без перезавантаження вкладки; посилання-запрошення
     // лишається для чатів, яких у списку немає (не приєднані, інша назва).
     let observedTarget = '';
-    if (task.target.expectedName && await openChatInApp(client, task.target.expectedName).catch(() => false)) {
+    // Пошук у фоновій вкладці інколи не відфільтровує список з першого разу: дві спроби, і лише потім посилання-запрошення.
+    let openedInApp = false;
+    if (task.target.expectedName) {
+      for (let attempt = 0; attempt < 2 && !openedInApp; attempt += 1) openedInApp = await openChatInApp(client, task.target.expectedName, 10_000).catch(() => false);
+    }
+    if (openedInApp) {
       const opened = await readSnapshot(client);
       await sleep(1_200);
       const header = (opened.headerNames || []).map((value) => String(value || '').trim()).find(Boolean) || '';
@@ -1225,7 +1230,11 @@ export async function sendWhatsappAutopostViaCdp(
         classified = await waitForClassification(client, observedTask, remainingBudget(), 'view', navigatedInviteCode);
       }
       if (classified.kind !== 'result' || classified.result.targetVerified !== true || classified.result.membershipState !== 'joined') {
-        return { kind:'blocked', reason:classified.reason || 'joined_target_not_verified' };
+        // Справжній стан членства замість загального «не підтверджено»: вилучено/вийшли, заявка без відповіді, посилання недійсне. Інакше чат
+        // безкінечно «пропускався» й не архівувався.
+        const result = classified.kind === 'result' ? classified.result : null;
+        const real = result?.reason || (result?.membershipState === 'pending' ? 'approval_required' : '') || classified.reason;
+        return { kind:'blocked', reason:real || 'joined_target_not_verified' };
       }
       observedTarget = classified.result.observedName || task.target.expectedName;
     }

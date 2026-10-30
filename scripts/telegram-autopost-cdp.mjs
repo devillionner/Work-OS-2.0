@@ -122,6 +122,8 @@ async function createTelegramPageClient(page) {
   return client;
 }
 
+const permanentRestrictionPattern = /(?:admins? of this group have restricted your ability to send messages|sending messages is not allowed in this group|you can(?:no|')t send messages in this (?:group|chat)|only admins can send messages|адміністратори групи обмежили|администраторы группы ограничили|надсилати повідомлення в цій групі заборонено|отправлять сообщения в этой группе запрещено)/iu;
+
 async function findTelegramPage(base, { create = true } = {}) {
   let pages;
   try {
@@ -486,6 +488,9 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
       if (writable.disabled || readOnlyPattern.test(blockedText)) {
         const messages = await page.evaluate(READ_MESSAGES_JS).catch(() => []);
         const resume = parseQuietUntil((Array.isArray(messages) ? messages : []).filter((item) => !item.own).slice(-6).map((item) => item.text));
+        // Без підказки бота «до 7:00» і з прямим текстом «адміни обмежили / писати не можна» це не тимчасова заборона, а постійне обмеження
+        // акаунта в чаті: чат іде в архів «Пишуть лише адміни», а не відкладається щодня.
+        if (!resume && permanentRestrictionPattern.test(blockedText)) return withScan({ kind: 'blocked', reason: 'telegram_read_only', detail: blockedText.trim() || writable.disabled });
         scan = { ...scan, restricted: true };
         return withScan({ kind: 'blocked', reason: 'telegram_chat_restricted', detail: blockedText.trim() || writable.disabled, ...(resume ? { resumeHour: resume.hour, resumeMinute: resume.minute } : {}) });
       }

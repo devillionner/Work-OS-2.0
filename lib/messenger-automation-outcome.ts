@@ -210,7 +210,9 @@ export async function settleAutopostFailure(
     outcome = await snoozeUntil(db, userId, job.chat_id, until, now) ? 'snoozed' : 'skipped';
   }
   else if (policy.kind === 'thread') outcome = 'needs_thread';
-  else if (policy.kind === 'retry' || policy.kind === 'skip') outcome = 'skipped';
+  // Повтори вичерпано, а стан чату так і не визначився: чат не зникає тихо на день, а стає «потребує рішення» (спробувати ще, відкласти, в архів).
+  else if (policy.kind === 'retry') outcome = 'needs_decision';
+  else if (policy.kind === 'skip') outcome = 'skipped';
   else outcome = 'needs_decision';
   await closeJob(db, userId, job.id, outcome, attempts, result, now);
   return { outcome, attempts };
