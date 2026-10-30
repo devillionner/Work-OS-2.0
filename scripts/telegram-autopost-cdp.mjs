@@ -514,17 +514,25 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     }
     if (media) {
       onStep('photo', 'додаю фото');
-      const pasted = await page.evaluate(`(() => { const node = document.querySelector('#editable-message-text'); if (!node || typeof DataTransfer === 'undefined') return false;
+      const pasteScript = `(() => { const node = document.querySelector('#editable-message-text'); if (!node || typeof DataTransfer === 'undefined') return false;
         try { const raw = atob(${JSON.stringify(String(media.base64))}); const bytes = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
           const file = new File([bytes], ${JSON.stringify(String(media.fileName || 'work-os.jpg'))}, { type: ${JSON.stringify(String(media.contentType || 'image/jpeg'))} });
           const transfer = new DataTransfer(); transfer.items.add(file); node.focus();
-          node.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true })); return true; } catch { return false; } })()`);
+          node.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true })); return true; } catch { return false; } })()`;
+      const pasted = await page.evaluate(pasteScript);
       let opened = false;
-      for (let attempt = 0; pasted && attempt < 40 && !opened; attempt += 1) {
+      // Вікно фото інколи відкривається повільно (Telegram Web у фоні): чекаємо до ≈30 с і один раз вставляємо фото ще раз, якщо за 12 с вікна немає.
+      for (let attempt = 0; pasted && attempt < 75 && !opened; attempt += 1) {
         opened = Boolean(await page.evaluate(`Boolean(document.querySelector('.Modal #editable-message-text-modal'))`));
+        if (!opened && attempt === 30) await page.evaluate(pasteScript);
         if (!opened) await sleep(400);
       }
-      if (!opened) { await discardAttachment(page); return withScan({ kind: 'blocked', reason: 'telegram_attachment_not_opened' }); }
+      if (!opened) {
+        // Діагностика: що саме стоїть у полі, коли вікно фото не відкрилось (заборона медіа, інша мова підпису кнопки, довгий запуск вікна).
+        const state = await page.evaluate(`JSON.stringify({pasted:${pasted ? 'true' : 'false'},modal:Boolean(document.querySelector('.Modal')),composer:(document.querySelector('#MiddleColumn .Composer')||{}).innerText||'',buttons:[...document.querySelectorAll('#MiddleColumn .Composer button, #MiddleColumn .Composer .Button')].map((n)=>(n.getAttribute('aria-label')||n.innerText||'').trim()).filter(Boolean).slice(0,10),footer:(document.querySelector('.messaging-disabled')||{}).innerText||''})`).catch(() => '');
+        await discardAttachment(page);
+        return withScan({ kind: 'blocked', reason: 'telegram_attachment_not_opened', detail: String(state).slice(0, 500) });
+      }
       await sleep(600);
       field = '#editable-message-text-modal';
     }

@@ -1,6 +1,6 @@
 {
   "name": "work-os-2",
-  "version": "3.7.2",
+  "version": "3.7.3",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
