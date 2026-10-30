@@ -1,3 +1,4 @@
+import { ensureChatDuplicateIndex } from './duplicates.ts';
 import { businessDate } from '../business-time.ts';
 import { cleanChatName, normalizeGroupLink } from './bulk-input.ts';
 
@@ -162,11 +163,12 @@ export async function readSelectedChats(db: D1Database, userId: string, listIdIn
   const listId = resolveListId(meta, listIdInput);
   const stored = await readStored(db, userId, listId);
   if (!stored) return { importedAt: null, skipped: 0, dismissed: [], items: [] };
-  // CROSS JOIN pins json_each as the outer loop, so every link is one lookup in the
-  // (user_id,platform,normalized_link) unique index. A plain JOIN let SQLite scan all of the owner's
-  // Telegram chats once per link: millions of D1 rows read per call on real data.
-  const statuses = await db.prepare(`SELECT c.normalized_link AS link,c.workflow_status AS status,c.telegram_account_id AS account_id
-    FROM json_each(?2) j CROSS JOIN chats c ON c.user_id=?1 AND c.platform='telegram' AND c.normalized_link=j.value`)
+  // Ключ збігу (канонічне посилання) шукається за первинним ключем chat_dup_keys: так видно й чат, збережений у застарілій формі
+  // (регістр username, посилання на повідомлення), і чат будь-якого акаунта. CROSS JOIN ставить json_each зовнішнім циклом.
+  await ensureChatDuplicateIndex(db, userId);
+  const statuses = await db.prepare(`SELECT substr(k.key,10) AS link,c.workflow_status AS status,c.telegram_account_id AS account_id
+    FROM json_each(?2) j CROSS JOIN chat_dup_keys k ON k.user_id=?1 AND k.kind='link' AND k.key='telegram|'||j.value
+    JOIN chats c ON c.id=k.chat_id`)
     .bind(userId, JSON.stringify(stored.items.map(item => item.link))).all<{ link: string; status: string; account_id: string | null }>();
   const statusByLink = new Map(statuses.results.map(item => [item.link, item]));
   const items = stored.items
@@ -203,6 +205,11 @@ export async function addSelectedChatToJoin(db: D1Database, userId: string, link
   if (!item) throw new SelectedChatsError('Цього чату немає серед відібраних. Оновіть сторінку.', 404);
   const normalized = normalizeGroupLink(item.link);
   if (!normalized || normalized.platform !== 'telegram') throw new SelectedChatsError('Некоректне посилання чату.');
+  // Той самий чат у будь-якого акаунта (і в застарілій формі посилання) копії не створює.
+  await ensureChatDuplicateIndex(db, userId);
+  const present = await db.prepare(`SELECT c.workflow_status,c.telegram_account_id FROM chat_dup_keys k JOIN chats c ON c.id=k.chat_id
+    WHERE k.user_id=?1 AND k.kind='link' AND k.key=?2 LIMIT 1`).bind(userId, `telegram|${normalized.link}`).first<{ workflow_status: string; telegram_account_id: string | null }>();
+  if (present) return { added: false, status: present.workflow_status, accountId: present.telegram_account_id };
   const id = crypto.randomUUID();
   const inserted = await db.prepare(`INSERT INTO chats(id,user_id,platform,name,link,normalized_link,workflow_status,is_private,telegram_account_id,join_candidate_at,created_at,updated_at)
     VALUES (?1,?2,'telegram',?3,?4,?4,'to_join',?5,?7,?6,?6,?6)

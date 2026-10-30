@@ -1,4 +1,5 @@
 import { businessDate } from '../business-time.ts';
+import { ensureChatDuplicateIndex } from './duplicates.ts';
 import { BulkChatError, normalizeGroupLink, suggestedChatName, validateBulkItems, type BulkInput, type ChatPlatform } from './bulk-input.ts';
 
 export type BulkPreviewItem = BulkInput & {
@@ -8,29 +9,25 @@ export type BulkPreviewItem = BulkInput & {
 export type BulkPreview = { revision: number; items: BulkPreviewItem[] };
 export type BulkResult = { added: number; counts: Partial<Record<ChatPlatform,number>> };
 type ExistingChat = { id: string; platform: string; name: string; link: string; normalized_link: string; workflow_status: string };
-const SCAN_LIMIT=10_000;
 
 export async function previewBulkChats(db: D1Database, userId: string, rawItems: unknown): Promise<BulkPreview> {
   const input=validateBulkItems(rawItems);
   const normalized=input.map(item=>normalizeGroupLink(item.link));
-  const platforms=[...new Set(normalized.flatMap(chat=>chat?[chat.platform]:[]))];
-  // One owner/platform-scoped scan handles legacy URLs with aliases, different
-  // casing and tracking queries without rewriting existing rows. No per-link SQL.
-  // Keep memory bounded until canonical keys can be backfilled in a reviewed migration.
+  // Збіг із чатами, що вже є в Work OS (у будь-якого акаунта й будь-якому статусі): пошук за канонічним ключем по первинному ключу
+  // chat_dup_keys, а не скан усіх чатів власника. Спершу розбирається черга змінених чатів (лише нове).
+  await ensureChatDuplicateIndex(db,userId);
+  const wanted=[...new Set(normalized.flatMap(chat=>chat?[`${chat.platform}|${chat.link}`]:[]))];
+  // CROSS JOIN: json_each — зовнішній цикл, кожне посилання — одне пошукове читання за ключем.
   const [revisionResult,chatsResult]=await db.batch([
     db.prepare('SELECT COALESCE((SELECT revision FROM backup_revisions WHERE user_id=?1),0) AS revision').bind(userId),
-    db.prepare(`SELECT id,platform,name,link,normalized_link,workflow_status FROM chats
-      WHERE user_id=?1 AND platform IN (SELECT value FROM json_each(?2)) LIMIT ?3`)
-      .bind(userId,JSON.stringify(platforms),SCAN_LIMIT+1),
+    db.prepare(`SELECT c.id,c.platform,c.name,c.link,c.normalized_link,c.workflow_status,k.key AS key
+      FROM json_each(?2) j CROSS JOIN chat_dup_keys k ON k.user_id=?1 AND k.kind='link' AND k.key=j.value
+      JOIN chats c ON c.id=k.chat_id`).bind(userId,JSON.stringify(wanted)),
   ]);
-  const existing=chatsResult.results as ExistingChat[];
-  if(existing.length>SCAN_LIMIT) throw new BulkChatError('У вибраних платформах понад 10 000 чатів. Потрібна перевірка бази перед масовим додаванням.',409);
   const known=new Map<string,ExistingChat>();
-  for(const row of existing) for(const link of new Set([row.link,row.normalized_link])) {
-    const parsed=normalizeGroupLink(link);
-    if(!parsed||parsed.platform!==row.platform) continue;
-    const previous=known.get(parsed.link);
-    if(!previous||previous.workflow_status==='archived') known.set(parsed.link,row);
+  for(const row of chatsResult.results as Array<ExistingChat&{key:string}>) {
+    const previous=known.get(row.key);
+    if(!previous||previous.workflow_status==='archived') known.set(row.key,row);
   }
   const seen=new Set<string>();
   const items=input.map((item,index):BulkPreviewItem=>{
@@ -39,7 +36,7 @@ export async function previewBulkChats(db: D1Database, userId: string, rawItems:
     const result={index,link:parsed.link,name:item.name||suggestedChatName(parsed),platform:parsed.platform};
     if(seen.has(parsed.link)) return {...result,status:'duplicate'};
     seen.add(parsed.link);
-    const match=known.get(parsed.link);
+    const match=known.get(`${parsed.platform}|${parsed.link}`);
     return match?{...result,status:match.workflow_status==='archived'?'archived':'existing',existingName:match.name}:{...result,status:'new'};
   });
   return {revision:Number((revisionResult.results[0] as {revision:number}).revision),items};
