@@ -87,12 +87,11 @@ export async function sweepChatDuplicateIndex(db:D1Database,userId:string,chunks
     // Один одразу кілька чатів із тим самим канонічним посиланням — це дублікати, їх зливає менеджер, а не цей прохід.
     const updates=[...canon.entries()].filter(([,owners])=>owners.length===1).map(([link,owners])=>({id:owners[0],canon:link}));
     if(updates.length) {
+      // Один оператор на чат: NOT EXISTS іде по унікальному індексу (user_id,platform,normalized_link). Спільний `UPDATE … FROM json_each`
+      // планувальник виконував скануванням усіх чатів на кожен елемент (1,4 млн прочитаних рядків за два виклики на staging 2026-10-30).
       try {
-        await db.prepare(`UPDATE chats SET normalized_link=u.canon
-          FROM (SELECT json_extract(value,'$.id') AS id,json_extract(value,'$.canon') AS canon FROM json_each(?1)) u
-          WHERE chats.id=u.id AND chats.user_id=?2 AND NOT EXISTS(
-            SELECT 1 FROM chats o WHERE o.user_id=chats.user_id AND o.platform=chats.platform AND o.normalized_link=u.canon)`)
-          .bind(JSON.stringify(updates),userId).run();
+        await db.batch(updates.map(update=>db.prepare(`UPDATE chats SET normalized_link=?3 WHERE id=?1 AND user_id=?2 AND NOT EXISTS(
+          SELECT 1 FROM chats o WHERE o.user_id=?2 AND o.platform=chats.platform AND o.normalized_link=?3)`).bind(update.id,userId,update.canon)));
       } catch(error) { console.error('chat duplicate canonical link update failed',error); }
     }
     const pairs=await db.prepare(`SELECT k1.chat_id AS a,k2.chat_id AS b FROM json_each(?2) j
