@@ -8,11 +8,13 @@ import { DictionariesGroup } from './dictionaries-group';
 import { DangerGroup, GoalsGroup, PlatformsGroup, ProfileGroup, ServiceGroup } from './groups';
 import { scrollToNode } from '@/components/views/shared/scroll';
 import { PaymentsGroup } from './payments-group';
+import { PushGroup } from './push-group';
 
 const SECTIONS = [
   ['profile', 'Профіль'],
   ['goals', 'Цілі дня'],
   ['platforms', 'Платформи'],
+  ['push', 'Сповіщення'],
   ['payments', 'Оплати'],
   ['appearance', 'Вигляд'],
   ['dictionaries', 'Довідники'],
@@ -36,6 +38,7 @@ export default function SettingsView() {
       <ProfileGroup />
       <GoalsGroup />
       <PlatformsGroup />
+      <PushGroup />
       <PaymentsGroup />
       <AppearanceGroup />
       <DictionariesGroup />

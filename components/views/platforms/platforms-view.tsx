@@ -70,6 +70,12 @@ export default function PlatformsView() {
     if (platformKey) p.selectPlatform(platformKey);
     if (queueKey) p.selectQueue(queueKey);
   });
+  useCommand('platforms:autopost', (payload) => {
+    const target = payload as { platform?: string } | undefined;
+    const platformKey = p.availablePlatforms.find((item) => item.key === target?.platform)?.key;
+    if (platformKey) p.selectPlatform(platformKey);
+    setZone('autopost'); setPhoneSection('autopost');
+  });
   useCommand('platforms:telegram-schedule', () => { p.selectPlatform('telegram'); setZone('schedule'); setPhoneSection('schedule'); });
 
   const { platform, queue, data } = p;

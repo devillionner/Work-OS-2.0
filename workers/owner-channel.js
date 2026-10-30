@@ -28,10 +28,13 @@ import {
   stopWaitingCheckBatch,
   waitingCheckStatusFromBatch,
 } from '../lib/chats/whatsapp-waiting-check.ts';
+import { businessDate } from '../lib/business-time.ts';
+import { pushToOwner } from '../lib/push-store.ts';
 import {
   claimWhatsAppAutopostJob,
   completeWhatsAppAutopostJob,
   releaseClaimedAutopostJobs,
+  readWhatsAppAutopostProgress,
   releaseWhatsAppAutopostJob,
 } from '../lib/messenger-automation.ts';
 import { readDiscoveryExecutorQueue, completeDiscoveryExternalLeave } from '../lib/chat-discovery/executor.ts';
@@ -64,7 +67,7 @@ import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFee
 /** @typedef {'browser'|'runner'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId?: string|null, autopostClaimedAt?: number, autopostLanes?: Record<string, {jobId: string, claimedAt: number, current: {send: boolean, startedAt: number, platform: string}}|undefined>, autopostWatchAt?: number, runnerConnectedAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostPace?: Record<string, {intervalSeconds:number, nextAt:number}>, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, runnerVersion?: string, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId?: string|null, autopostClaimedAt?: number, autopostLanes?: Record<string, {jobId: string, claimedAt: number, current: {send: boolean, startedAt: number, platform: string}}|undefined>, autopostWatchAt?: number, runnerConnectedAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostPace?: Record<string, {intervalSeconds:number, nextAt:number}>, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, runnerVersion?: string, runnerOfflineAt?: number, pushSentAt?: Record<string, number>, autopostBatchOpen?: Record<string, number>, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 // The runner pings every 30 s and the runtime records each auto-answered ping per socket. A runner socket
@@ -82,6 +85,16 @@ const AUTOPOST_TRACE_LIMIT = 40;
 const AUTOPOST_TRACE_REPLAY = 15;
 /** Після повернення задачі в чергу DO сам перевіряє чергу через стільки, якщо runner не попросив наступну (спільний ready міг загубитись). */
 const AUTOPOST_WATCH_MS = 180_000;
+// Сповіщення на телефон: одну причину не частіше за раз на 30 хв, тиха година 22:00-08:00 за Києвом.
+const PUSH_REASON_GAP_MS = 30 * 60_000;
+const PUSH_RUNNER_OFFLINE_MS = 10 * 60_000;
+const PUSH_AUTOPOST_STALL_MS = 15 * 60_000;
+const PUSH_PLATFORM_NAMES = { whatsapp: 'WhatsApp', viber: 'Viber', telegram: 'Telegram' };
+const PUSH_LOGIN_REASONS = { whatsapp_not_authenticated: 'WhatsApp', telegram_not_authenticated: 'Telegram' };
+/** @param {number} ms */
+function kyivHour(ms) {
+  return Number(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hourCycle: 'h23', timeZone: 'Europe/Kyiv' }).format(ms));
+}
 /** Інтервал між публікаціями Telegram, якщо оператор ще не вибирав «на годину»: 5 на годину. */
 const TELEGRAM_DEFAULT_INTERVAL_SECONDS = 720;
 const AUTOPOST_PLATFORMS = ['whatsapp', 'viber', 'telegram'];
@@ -247,6 +260,7 @@ export class OwnerChannel {
     if (userId && state.userId !== userId) state.userId = userId;
     state.runnerLastSeenAt = nowSeconds();
     state.runnerOnline = true;
+    state.runnerOfflineAt = undefined;
     state.runnerConnectedAt = Date.now();
     await this.scheduleRunnerWatch();
     // The only runner now connected cannot be working on anything yet: any in-flight task still
@@ -438,6 +452,8 @@ export class OwnerChannel {
       const state = await this.readState();
       const status = { state: message.state === 'ready' ? 'ready' : 'blocked', reason: typeof message.reason === 'string' ? message.reason : null, text: typeof message.text === 'string' ? message.text.slice(0, 300) : '', identity: typeof message.identity === 'string' && /^[0-9]{3,20}$/.test(message.identity) ? message.identity : null, until: Number.isFinite(Number(message.until)) && Number(message.until) > 0 ? Number(message.until) : null };
       state.autopostStatus = { ...(state.autopostStatus || {}), [message.platform]: status };
+      const loginName = status.state === 'blocked' && status.reason ? PUSH_LOGIN_REASONS[status.reason] : null;
+      if (loginName) await this.notifyOwner(state, `login:${message.platform}`, { title: `${loginName} Web вийшов із сесії`, body: 'Потрібен вхід у браузері runner, автопост цієї платформи стоїть.', url: `/?go=platforms:${message.platform}:autopost`, tag: `login-${message.platform}` });
       await this.writeState(state);
     }
     if (message.type === 'progress' && message.process === 'viber_status') {
@@ -445,6 +461,11 @@ export class OwnerChannel {
       const state = await this.readState();
       state.viberStatus = { state: message.state === 'ready' ? 'ready' : message.state === 'busy' ? 'busy' : 'blocked', reason: typeof message.reason === 'string' ? message.reason : null, text: typeof message.text === 'string' ? message.text : '' };
       await this.writeState(state);
+    }
+    if (message.type === 'progress' && message.process === 'autopost_step' && typeof message.platform === 'string') {
+      /** @type {Record<string, number>} */
+      const steps = (this.stepAt ??= {});
+      steps[message.platform] = Date.now();
     }
     if (message.type === 'progress' || message.type === 'result') {
       this.broadcast('browser', message);
@@ -562,6 +583,7 @@ export class OwnerChannel {
         // Вікно інтервалу займає лише справжня відправка (кнопку «Надіслати» натиснуто); це видно з результату, а не з видачі.
         current: { send: task.mode !== 'scan' && task.mode !== 'verify', startedAt: Date.now(), platform },
       };
+      if (task.mode !== 'scan' && task.mode !== 'verify') (state.autopostBatchOpen ??= {})[platform] = Date.now();
       const sent = this.broadcast('runner', { type: 'task', process: 'autopost', task });
       notes.push(`видача: ${task.kind} ${task.jobId} «${task.target.expectedName}» → runner: відкритих ${runners}, доставлено ${sent}`);
       flush();
@@ -583,6 +605,7 @@ export class OwnerChannel {
       notes.push(waiting
         ? `видача: решту черги стримують ${[...gates.platforms, ...gates.paced.map((platform) => `${platform} (інтервал)`)].join(', ')} до ${new Date(gates.until).toISOString()} (runner: ${runners})`
         : `видача: у черзі на сьогодні нічого не лишилось (runner: ${runners})`);
+      if (!waiting) await this.finishAutopostBatches(state);
     }
     flush();
     state.autopostWatchAt = gates.platforms.length || gates.paced.length ? gates.until + 1000 : undefined;
@@ -884,8 +907,81 @@ export class OwnerChannel {
       this.autopostTrace(state, `будильник: оренда задачі ${this.lanesText(state)} спливла, перевіряю чергу`);
       await this.dispatchNextAutopostJob(state);
     }
+    await this.checkPushWatches(state);
     await this.scheduleAlarm(state);
     await this.writeState(state);
+  }
+
+  /**
+   * Сповіщення на телефон власнику. Тиха година й ліміт «одна причина раз на 30 хв» тут, щоб жоден виклик їх не обійшов.
+   * @param {OwnerChannelState} state
+   * @param {string} reason
+   * @param {{title: string, body: string, url: string, tag?: string}} payload
+   */
+  async notifyOwner(state, reason, payload) {
+    const privateKey = this.env.VAPID_PRIVATE_KEY;
+    if (!state.userId || !privateKey) return false;
+    const now = Date.now();
+    const hour = kyivHour(now);
+    if (hour >= 22 || hour < 8) return false;
+    state.pushSentAt ??= {};
+    if (now - (state.pushSentAt[reason] ?? 0) < PUSH_REASON_GAP_MS) return false;
+    state.pushSentAt[reason] = now;
+    try {
+      const delivered = await pushToOwner(this.env.DB, privateKey, state.userId, payload, nowSeconds());
+      this.autopostTrace(state, `сповіщення «${payload.title}»: доставлено на ${delivered} пристроїв`, false);
+    } catch (error) {
+      this.autopostTrace(state, `сповіщення «${payload.title}» не надіслано: ${error instanceof Error ? error.message : String(error)}`, false);
+    }
+    return true;
+  }
+
+  /**
+   * Остання ознака життя партії платформи: відкриття задачі, крок із runner або кінець очікування інтервалу (очікування між публікаціями
+   * не є збоєм).
+   * @param {OwnerChannelState} state
+   * @param {string} platform
+   */
+  autopostLastActivity(state, platform) {
+    /** @type {Record<string, number>} */
+    const steps = (this.stepAt ??= {});
+    return Math.max(state.autopostBatchOpen?.[platform] ?? 0, steps[platform] ?? 0, state.autopostPace?.[platform]?.nextAt ?? 0);
+  }
+
+  /** @param {OwnerChannelState} state */
+  async checkPushWatches(state) {
+    const now = Date.now();
+    if (state.runnerOfflineAt && !state.runnerOnline && this.openRunnerCount() === 0 && now >= state.runnerOfflineAt + PUSH_RUNNER_OFFLINE_MS) {
+      await this.notifyOwner(state, 'runner_offline', { title: 'Runner вимкнений', body: 'ПК не підключений уже понад 10 хв, автопост не працює.', url: '/?go=today', tag: 'runner-offline' });
+    }
+    for (const platform of Object.keys(state.autopostBatchOpen ?? {})) {
+      if (now - this.autopostLastActivity(state, platform) < PUSH_AUTOPOST_STALL_MS) continue;
+      await this.notifyOwner(state, `stall:${platform}`, { title: `${PUSH_PLATFORM_NAMES[platform] ?? platform}: партія стоїть`, body: 'Понад 15 хв без жодного кроку.', url: `/?go=platforms:${platform}:autopost`, tag: `stall-${platform}` });
+    }
+  }
+
+  /**
+   * Черга на сьогодні спорожніла: для кожної платформи з відкритою партією один підсумок («Viber: 74 з 79, 5 потребують рішення»).
+   * @param {OwnerChannelState} state
+   */
+  async finishAutopostBatches(state) {
+    const open = Object.keys(state.autopostBatchOpen ?? {});
+    state.autopostBatchOpen = undefined;
+    if (!state.userId) return;
+    for (const platform of open) {
+      try {
+        const progress = await readWhatsAppAutopostProgress(this.env.DB, state.userId, businessDate(nowSeconds()), platform, null);
+        const batch = progress.batch;
+        if (!batch?.total) continue;
+        const decision = progress.settled?.decision || 0;
+        await this.notifyOwner(state, `batch:${platform}`, {
+          title: `${PUSH_PLATFORM_NAMES[platform] ?? platform}: ${batch.sent} з ${batch.total}${decision ? `, ${decision} потребують рішення` : ''}`,
+          body: 'Партія автопосту завершена.', url: `/?go=platforms:${platform}:autopost`, tag: `batch-${platform}`,
+        });
+      } catch (error) {
+        this.autopostTrace(state, `підсумок партії ${platform} не прочитано: ${error instanceof Error ? error.message : String(error)}`, false);
+      }
+    }
   }
 
   /**
@@ -900,6 +996,9 @@ export class OwnerChannel {
     // Задача автопосту «в роботі» не чекає чужої події: коли оренда спливає, DO сам прокидається й видає наступну. Один будильник на задачу, не опитування.
     for (const lane of AUTOPOST_LANES) { const slot = state.autopostLanes?.[lane]; if (slot?.jobId) times.push(slot.claimedAt + AUTOPOST_LEASE_SECONDS * 1000 + 2000); }
     if (state.autopostWatchAt) times.push(Math.max(state.autopostWatchAt, Date.now() + 1000));
+    // Сповіщення: runner офлайн понад 10 хв і партія без кроків понад 15 хв (одні будильники, без опитувань).
+    if (state.runnerOfflineAt && !state.runnerOnline) times.push(Math.max(state.runnerOfflineAt + PUSH_RUNNER_OFFLINE_MS, Date.now() + 1000));
+    for (const platform of Object.keys(state.autopostBatchOpen ?? {})) times.push(Math.max(this.autopostLastActivity(state, platform) + PUSH_AUTOPOST_STALL_MS + 1000, Date.now() + 1000));
     if (times.length) await this.ctx.storage.setAlarm(Math.min(...times));
   }
 
@@ -917,6 +1016,7 @@ export class OwnerChannel {
     const lastActivity = Math.max(0, ...this.ctx.getWebSockets('runner').map((socket) => this.lastActivityMs(socket)));
     state.runnerLastSeenAt = seenAt ?? (lastActivity ? Math.floor(lastActivity / 1000) : (state.runnerLastSeenAt ?? null));
     state.runnerOnline = false;
+    state.runnerOfflineAt ??= Date.now();
     await this.releaseOrphanedTasks(state);
     this.broadcast('browser', { type: 'runner_status', connected: false });
   }

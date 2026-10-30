@@ -3,7 +3,7 @@
 import { RunnerNotice } from '@/components/shell/runner-offline';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CommandPalette } from '@/components/shell/command-palette';
-import { useCommand } from '@/components/shell/command-bus';
+import { emitCommand, useCommand } from '@/components/shell/command-bus';
 import { CreateMenu } from '@/components/shell/create-menu';
 import { Dock } from '@/components/shell/dock';
 import { MoreSheet } from '@/components/shell/more-sheet';
@@ -119,6 +119,22 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
     if (leadId) setLeadParam(leadId, leadParam ? 'replace' : 'push');
     navigate('leads');
   }, [navigate, leadParam, setLeadParam]);
+
+  // Перехід зі сповіщення: `?go=<розділ>[:<платформа>[:autopost]]` (нова вкладка) або повідомлення від service worker (відкрита вкладка).
+  useEffect(() => {
+    const open = (go: string) => {
+      const [view, platform, zone] = go.split(':');
+      if (!VIEW_KEYS.includes(view as ViewKey)) return;
+      navigate(view as ViewKey);
+      if (view === 'platforms' && platform) emitCommand(zone === 'autopost' ? 'platforms:autopost' : 'platforms:queue', { platform, queue: undefined });
+    };
+    const url = new URL(window.location.href);
+    const go = url.searchParams.get('go');
+    if (go) { url.searchParams.delete('go'); window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`); open(go); }
+    const onMessage = (event: MessageEvent) => { if (event.data?.type === 'work-os:go' && typeof event.data.go === 'string') open(event.data.go); };
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
+  }, [navigate]);
 
   const refreshSnapshot = useCallback(() => announceDataChange('dashboard'), []);
   const openRelease = useCallback(() => setReleaseOpen(true), []);
