@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Select } from '@/components/ui/select';
 import type { LeadDetail } from '@/lib/leads/application/queries';
 import { businessDate } from '@/lib/leads/domain/time';
 import { lessonDateRecommendations } from '@/lib/leads/domain/lesson-recommendations';
@@ -19,6 +20,11 @@ export function LessonEditor({ detail, lesson, mode, mutate, close }: {
 }) {
   const [now] = useState(() => Math.floor(Date.now() / 1000));
   const [lessonDate, setLessonDate] = useState(lesson?.lessonDate ?? '');
+  // Учень уроку: для нового запису перший учень ліда; предмет підказується з предметів цього учня.
+  const [studentId, setStudentId] = useState(lesson ? (lesson.studentId ?? '') : (detail.students[0]?.id ?? ''));
+  const student = detail.students.find((entry) => entry.id === studentId);
+  const subjectDefault = lesson && (lesson.studentId ?? '') === studentId ? lesson.subject : (student?.subjects[0]?.subject ?? lesson?.subject ?? detail.lead.subject);
+  const subjectChoices = [...new Set([...(student?.subjects.map((item) => item.subject) ?? []), ...SUBJECT_OPTIONS])];
   const recommendations = lessonDateRecommendations(now);
   return (
     <EditDialog
@@ -48,16 +54,14 @@ export function LessonEditor({ detail, lesson, mode, mutate, close }: {
         {mode === 'book' && detail.curatorRequests.length > 0 ? (
           <SelectField label="Підтвердити запит куратору" name="curatorRequestId" value={detail.curatorRequests[0].id} options={detail.curatorRequests.map((request) => ({ value: request.id, label: `Запит від ${request.submittedDate}` }))} />
         ) : null}
-        <Field label="Предмет *" name="subject" value={lesson?.subject ?? detail.lead.subject} required suggestions={SUBJECT_OPTIONS} />
-        <SelectField
-          label="Учень"
-          name="studentId"
-          value={lesson?.studentId ?? ''}
-          options={[
-            ...(mode !== 'book' || detail.lead.isStudent === 1 ? [{ value: '', label: `${detail.lead.name} (сам контакт)` }] : []),
-            ...detail.students.map((student) => ({ value: student.id, label: `${student.name} ${student.surname}`.trim() })),
-          ]}
-        />
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <label htmlFor="lesson-student" className="text-xs font-medium text-ink-2">Учень *</label>
+          <Select id="lesson-student" name="studentId" value={studentId} onChange={(event) => setStudentId(event.target.value)}>
+            {mode !== 'book' || detail.students.length === 0 ? <option value="">{`${detail.lead.name} (сам контакт)`}</option> : null}
+            {detail.students.map((entry) => <option key={entry.id} value={entry.id}>{entry.kind === 'self' ? `${detail.lead.name} (сам контакт)` : `${entry.name} ${entry.surname}`.trim()}</option>)}
+          </Select>
+        </div>
+        <Field key={`subject-${studentId}`} label="Предмет *" name="subject" value={subjectDefault} required suggestions={subjectChoices} />
         <Field label="Викладач" name="teacherName" value={lesson?.teacherName} />
         {mode === 'book' ? (
           <div className="flex flex-col gap-2">

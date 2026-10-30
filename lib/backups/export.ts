@@ -13,6 +13,7 @@ export const BACKUP_TABLES = [
   'telegram_schedule_slots',
   'leads',
   'students',
+  'student_subjects',
   'lessons',
   'curator_requests',
   'lesson_reminders',

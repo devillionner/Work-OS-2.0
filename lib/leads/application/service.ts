@@ -9,7 +9,7 @@ import type {
 import * as v from '../domain/validation.ts';
 import { businessDate } from '../domain/time.ts';
 
-import { leadFields, studentFields } from './inputs.ts';
+import { learnerInputs, leadFields, studentFields, subjectList, subjectName } from './inputs.ts';
 
 export async function executeLeadCommand(
   repo: LeadRepository,
@@ -50,6 +50,9 @@ export async function executeLeadCommand(
       'curator_cancel',
       'student_create',
       'student_update',
+      'student_delete',
+      'student_subject_add',
+      'student_subject_remove',
       'lesson_book',
       'lesson_update',
       'lesson_status',
@@ -63,6 +66,9 @@ export async function executeLeadCommand(
     'Дія',
   );
   const data = v.record(command.data ?? {});
+  // «Хто навчається» нового ліда не належить полям ліда: розбираємо окремо й прибираємо з data.
+  const learners = action === 'create' ? learnerInputs(data.learners) : null;
+  if (action === 'create') delete data.learners;
   const id =
     action === 'create'
       ? crypto.randomUUID()
@@ -125,6 +131,9 @@ export async function executeLeadCommand(
     lead,
     create: action === 'create',
     students: [],
+    studentSubjects: [],
+    deletedStudentIds: [],
+    deletedSubjectIds: [],
     lessons: [],
     reminders: [],
     messages: [],
@@ -214,6 +223,21 @@ export async function executeLeadCommand(
       lead.sourceChatId = source?.id ?? null;
     } else if (lead.sourceChatId) {
       source = await repo.sourceById(userId, lead.sourceChatId);
+    }
+    if (learners) {
+      const addStudent = (student: { name: string; kind: 'self' | 'child'; grade: number | null; ageGroup: string; subjects: string[] }, index: number) => {
+        const studentId = crypto.randomUUID();
+        changes.students.push({
+          id: studentId, userId, leadId: id, legacyId: null, name: student.name, surname: '', ageGroup: student.ageGroup,
+          grade: student.grade, note: '', kind: student.kind, createdAt: now + index, updatedAt: now + index,
+        });
+        for (const subject of student.subjects)
+          changes.studentSubjects.push({ id: crypto.randomUUID(), userId, leadId: id, studentId, subject, createdAt: now + index });
+      };
+      let index = 0;
+      if (learners.self) addStudent({ name: lead.name, kind: 'self', grade: null, ageGroup: '', subjects: learners.self }, index++);
+      for (const child of learners.children) addStudent({ ...child, kind: 'child' }, index++);
+      lead.isStudent = learners.self ? 1 : 0;
     }
     event(
       action === 'create' ? 'lead_created' : 'lead_updated',
@@ -306,22 +330,49 @@ export async function executeLeadCommand(
       reason,
     });
   } else if (action.startsWith('student_')) {
-    const current =
-      action === 'student_update'
-        ? aggregate!.students.find((s) => s.id === command.entityId)
-        : undefined;
-    if (action === 'student_update' && !current)
-      throw new v.LeadError('Учня не знайдено.', 404);
-    changes.students.push({
-      id: current?.id ?? crypto.randomUUID(),
-      userId,
-      leadId: id,
-      legacyId: current?.legacyId ?? null,
-      surname: current?.surname ?? '',
-      createdAt: current?.createdAt ?? now,
-      updatedAt: now,
-      ...studentFields(data, current),
-    });
+    const students = aggregate!.students;
+    const usedBy = (student: (typeof students)[number], subject?: string) =>
+      aggregate!.lessons.some((lesson) => (lesson.studentId === student.id || (lesson.studentId === null && student.kind === 'self')) && (subject === undefined || lesson.subject === subject));
+    if (action === 'student_delete') {
+      v.only(data, []);
+      const student = students.find((s) => s.id === command.entityId);
+      if (!student) throw new v.LeadError('Учня не знайдено.', 404);
+      if (usedBy(student)) throw new v.LeadError('Учня з уроками прибрати не можна.', 409);
+      changes.deletedStudentIds.push(student.id);
+      if (student.kind === 'self') lead.isStudent = 0;
+    } else if (action === 'student_subject_add') {
+      v.only(data, ['subject']);
+      const student = students.find((s) => s.id === command.entityId);
+      if (!student) throw new v.LeadError('Учня не знайдено.', 404);
+      const subject = subjectName(data.subject);
+      const existing = aggregate!.studentSubjects.filter((row) => row.studentId === student.id);
+      if (existing.some((row) => row.subject === subject)) throw new v.LeadError('Такий предмет в учня вже є.', 409);
+      if (existing.length >= 12) throw new v.LeadError('Забагато предметів в одного учня.', 409);
+      changes.studentSubjects.push({ id: crypto.randomUUID(), userId, leadId: id, studentId: student.id, subject, createdAt: now });
+    } else if (action === 'student_subject_remove') {
+      v.only(data, []);
+      const row = aggregate!.studentSubjects.find((item) => item.id === command.entityId);
+      const student = row ? students.find((s) => s.id === row.studentId) : undefined;
+      if (!row || !student) throw new v.LeadError('Предмет не знайдено.', 404);
+      if (usedBy(student, row.subject)) throw new v.LeadError('Предмет з уроками прибрати не можна.', 409);
+      changes.deletedSubjectIds.push(row.id);
+    } else {
+      const { subjects: rawSubjects, kind: rawKind, ...studentData } = data;
+      const current = action === 'student_update' ? students.find((s) => s.id === command.entityId) : undefined;
+      if (action === 'student_update' && !current) throw new v.LeadError('Учня не знайдено.', 404);
+      const kind = current?.kind ?? (rawKind === 'self' ? 'self' : 'child');
+      if (!current && kind === 'self' && students.some((s) => s.kind === 'self')) throw new v.LeadError('Сам лід уже доданий як учень.', 409);
+      const fields = kind === 'self' && !current ? { ...studentFields({ name: lead.name, grade: studentData.grade ?? null, ageGroup: studentData.ageGroup ?? '', note: studentData.note ?? '' }) } : studentFields(studentData, current);
+      const studentId = current?.id ?? crypto.randomUUID();
+      changes.students.push({
+        id: studentId, userId, leadId: id, legacyId: current?.legacyId ?? null, surname: current?.surname ?? '',
+        kind, createdAt: current?.createdAt ?? now, updatedAt: now, ...fields,
+      });
+      if (!current) {
+        for (const subject of subjectList(rawSubjects)) changes.studentSubjects.push({ id: crypto.randomUUID(), userId, leadId: id, studentId, subject, createdAt: now });
+        if (kind === 'self') lead.isStudent = 1;
+      }
+    }
   } else if (action.startsWith('lesson_')) {
     applyLessonAction({
       action,

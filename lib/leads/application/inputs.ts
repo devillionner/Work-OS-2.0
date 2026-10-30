@@ -221,3 +221,36 @@ export function lessonFields(
     throw new v.LeadError('Невірний або неоднозначний час уроку за Києвом.');
   return result;
 }
+
+export const MAX_STUDENT_SUBJECTS = 12;
+export const MAX_NEW_CHILDREN = 8;
+
+/** Назва предмета учня: стандартні предмети зводяться до канонічної форми, як і предмет відгуку. */
+export function subjectName(value: unknown): string {
+  const subject = canonicalSubjectValue(v.string(value, 'Предмет', 200, true));
+  if (!subject) throw new v.LeadError('Вкажіть предмет.');
+  return subject;
+}
+export function subjectList(value: unknown): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > MAX_STUDENT_SUBJECTS) throw new v.LeadError('Некоректний список предметів.');
+  return [...new Set(value.map(subjectName))];
+}
+
+export type NewChild = { name: string; grade: number | null; ageGroup: string; subjects: string[] };
+/** «Хто навчається» у формі нового ліда: сам лід (з предметами) і/або діти (з предметами). */
+export function learnerInputs(value: unknown): { self: string[] | null; children: NewChild[] } {
+  if (value === undefined || value === null) return { self: null, children: [] };
+  const input = v.record(value);
+  v.only(input, ['self', 'children']);
+  const self = input.self === undefined || input.self === null || input.self === false ? null : subjectList(v.record(input.self).subjects);
+  const rawChildren = input.children === undefined || input.children === null ? [] : input.children;
+  if (!Array.isArray(rawChildren) || rawChildren.length > MAX_NEW_CHILDREN) throw new v.LeadError('Некоректний список учнів.');
+  const children = rawChildren.map((raw) => {
+    const child = v.record(raw);
+    v.only(child, ['name', 'grade', 'ageGroup', 'subjects']);
+    const fields = studentFields({ name: child.name, grade: child.grade ?? null, ageGroup: child.ageGroup ?? '' });
+    return { name: fields.name, grade: fields.grade, ageGroup: fields.ageGroup, subjects: subjectList(child.subjects) };
+  });
+  return { self, children };
+}

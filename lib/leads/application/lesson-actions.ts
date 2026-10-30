@@ -157,6 +157,13 @@ export function applyLessonAction({
       updatedAt: now,
     };
     changes.lessons.push(lesson);
+    // Предмет уроку належить учневі: якщо його ще немає серед предметів учня, додаємо (предмет запису = предмет уроку).
+    if (
+      student &&
+      !aggregate.studentSubjects.some((row) => row.studentId === student.id && row.subject === lesson.subject) &&
+      !changes.studentSubjects.some((row) => row.studentId === student.id && row.subject === lesson.subject)
+    )
+      changes.studentSubjects.push({ id: crypto.randomUUID(), userId, leadId: id, studentId: student.id, subject: lesson.subject, createdAt: now });
     if (action === 'lesson_book') {
       if (curatorRequestId)
         changes.resolvedCuratorRequest = {

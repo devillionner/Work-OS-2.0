@@ -79,8 +79,23 @@ export const students = sqliteTable('students', {
   ageGroup: text('age_group').notNull().default(''),
   grade: integer('grade'),
   note: text('note').notNull().default(''),
+  /** 'self' — сам лід навчається, 'child' — дитина (міграція 0058). */
+  kind: text('kind').notNull().default('child'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
+});
+/** Предмети учня; рівня поки немає. Предмет запису = предмет уроку, предмет відгуку = leads.subject (міграція 0058). */
+export const studentSubjects = sqliteTable('student_subjects', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  leadId: text('lead_id')
+    .notNull()
+    .references(() => leads.id),
+  studentId: text('student_id')
+    .notNull()
+    .references(() => students.id),
+  subject: text('subject').notNull(),
+  createdAt: integer('created_at').notNull(),
 });
 export const lessons = sqliteTable(
   'lessons',

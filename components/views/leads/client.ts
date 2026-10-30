@@ -1,4 +1,5 @@
 import type { LeadDetail } from '@/lib/leads/application/queries';
+import type { Learner } from '@/lib/leads/data/list';
 export type Mutation = (
   action: string,
   data?: Record<string, unknown>,
@@ -21,7 +22,7 @@ export type LeadList = {
       | 'nextContactAt'
       | 'archivedAt'
       | 'overdue'
-    >
+    > & { learners: Learner[] }
   >;
   total: number;
   offset: number;

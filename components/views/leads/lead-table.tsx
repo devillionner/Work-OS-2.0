@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { labels } from './client';
 import { agoLabel, type LeadRow } from './lead-board';
 import { sortByRecency, type LeadOrder } from './lead-order';
+import { LearnerChips } from './learners';
 
 export type ColumnSortKey = 'name' | 'funnelStage' | 'nextContactAt';
 export type ColumnSort = { key: ColumnSortKey; dir: 1 | -1 };
@@ -54,7 +55,7 @@ export function LeadTable({ leads, order, columnSort, onToggleOrder, onColumnSor
         <thead>
           <tr>
             {header('name', 'Ім’я')}
-            <th scope="col" className="sticky top-0 z-10 bg-glass-strong px-3 py-2.5 text-left text-xs font-medium text-ink-2">Предмет</th>
+            <th scope="col" className="sticky top-0 z-10 bg-glass-strong px-3 py-2.5 text-left text-xs font-medium text-ink-2">Звернувся з предмета</th>
             {header('funnelStage', 'Етап')}
             <th scope="col" className="sticky top-0 z-10 bg-glass-strong px-3 py-2.5 text-left text-xs font-medium text-ink-2">Наступна дія</th>
             {header('nextContactAt', 'Термін')}
@@ -78,7 +79,7 @@ export function LeadTable({ leads, order, columnSort, onToggleOrder, onColumnSor
                   </span>
                 </button>
               </td>
-              <td className="max-w-[180px] truncate px-3 py-2.5 text-ink-2">{lead.subject || '—'}</td>
+              <td className="max-w-[260px] px-3 py-2.5 text-ink-2">{lead.learners.length ? <LearnerChips learners={lead.learners} leadName={lead.name} max={2} /> : (lead.subject || '—')}</td>
               <td className="px-3 py-2.5"><span className="inline-flex rounded-full border border-line px-2.5 py-0.5 text-xs">{labels[lead.funnelStage]}{lead.qualification ? ` · ${lead.qualification}` : ''}</span></td>
               <td className="max-w-[220px] truncate px-3 py-2.5 text-ink-2">{lead.nextAction || '—'}</td>
               <td className="whitespace-nowrap px-3 py-2.5 font-mono text-xs">

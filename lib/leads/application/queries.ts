@@ -40,7 +40,10 @@ export function leadDetail(a: Aggregate, now: number, sourceChat: Pick<SourceCha
     curatorRequests: a.curatorRequests
       .filter((r) => r.status === 'pending')
       .map(({ id, submittedDate }) => ({ id, submittedDate })),
-    students: a.students.map(({ userId: _user, ...s }) => s),
+    students: a.students.map(({ userId: _user, ...s }) => ({
+      ...s,
+      subjects: a.studentSubjects.filter((row) => row.studentId === s.id).map(({ id, subject }) => ({ id, subject })),
+    })),
     lessons: a.lessons.map(({ userId: _user, ...l }) => ({
       ...l,
       lessonDate: legacyLessonDate(l.lessonDate),

@@ -18,6 +18,8 @@ type LeadListRow = {
   next_contact_at: number | null; archived_at: number | null; contact_unknown: number;
 };
 type CountRow = { count: number };
+type LearnerRow = { lead_id: string; id: string; name: string; kind: string; subject: string | null };
+export type Learner = { id: string; name: string; kind: 'self' | 'child'; subjects: string[] };
 type BindValue = string | number;
 
 export async function listLeads(db: D1Database, userId: string, options: LeadListOptions, now: number) {
@@ -31,8 +33,24 @@ export async function listLeads(db: D1Database, userId: string, options: LeadLis
   ]);
   const rows = (rowsResult.results ?? []) as LeadListRow[];
   const count = (countResult.results?.[0] ?? null) as CountRow | null;
+  // Учні сторінки з предметами: одна вибірка за ключем (user_id,lead_id), без читання решти лідів.
+  const learners = new Map<string, Learner[]>();
+  if (rows.length) {
+    const learnerRows = await db.prepare(`SELECT s.lead_id,s.id,s.name,s.kind,ss.subject
+      FROM json_each(?2) j CROSS JOIN students s ON s.user_id=?1 AND s.lead_id=j.value
+      LEFT JOIN student_subjects ss ON ss.student_id=s.id
+      ORDER BY s.created_at,s.id,ss.created_at,ss.id`).bind(userId, JSON.stringify(rows.map((row) => row.id))).all<LearnerRow>();
+    for (const row of learnerRows.results ?? []) {
+      const list = learners.get(row.lead_id) ?? [];
+      let learner = list.find((item) => item.id === row.id);
+      if (!learner) { learner = { id: row.id, name: row.name, kind: row.kind === 'self' ? 'self' : 'child', subjects: [] }; list.push(learner); }
+      if (row.subject) learner.subjects.push(row.subject);
+      learners.set(row.lead_id, list);
+    }
+  }
   return {
     leads: rows.map((row) => ({
+      learners: learners.get(row.id) ?? [],
       id: row.id, name: row.name, platform: row.platform, subject: row.subject, status: row.status,
       funnelStage: row.funnel_stage, qualification: row.qualification, duplicateState: row.duplicate_state,
       responseDate: row.response_date, nextAction: row.next_action,
@@ -82,6 +100,9 @@ function buildWhere(userId: string, options: LeadListOptions, now: number) {
     searchBinds.push(...variants);
     const studentVariantSql = variants.map(() => `instr(s.name || ' ' || s.surname || ' ' || s.note,?)>0`).join(' OR ');
     searchSql.push(`EXISTS (SELECT 1 FROM students s WHERE s.user_id=l.user_id AND s.lead_id=l.id AND (${studentVariantSql}))`);
+    searchBinds.push(...variants);
+    const subjectVariantSql = variants.map(() => 'instr(ss.subject,?)>0').join(' OR ');
+    searchSql.push(`EXISTS (SELECT 1 FROM student_subjects ss WHERE ss.user_id=l.user_id AND ss.lead_id=l.id AND (${subjectVariantSql}))`);
     searchBinds.push(...variants);
 
     const phoneSearch = rawSearch.replace(/\D/g, '');

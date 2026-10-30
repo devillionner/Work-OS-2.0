@@ -12,6 +12,7 @@ import { FUNNEL_STAGES } from '@/lib/leads/domain/validation';
 import { cn } from '@/lib/utils';
 import { labels, type LeadList } from './client';
 import { sortByRecency, type LeadOrder } from './lead-order';
+import { LearnerChips } from './learners';
 import { humanError } from '@/components/ui/human-error';
 
 export type LeadRow = LeadList['leads'][number];
@@ -143,9 +144,10 @@ export function LeadBoard({ leads, order, captureRef, selectedId, canDrag, onOpe
                         <span className="min-w-0 truncate text-sm font-medium">{lead.name}</span>
                         {lead.overdue ? <i aria-label="Прострочено" className="size-1.5 shrink-0 rounded-full bg-hot" /> : null}
                       </span>
-                      <span className="block truncate text-xs text-ink-2">{lead.subject || 'Предмет не вказано'}</span>
+                      {lead.learners.length ? null : <span className="block truncate text-xs text-ink-2">{lead.subject || 'Предмет не вказано'}</span>}
                     </span>
                   </button>
+                  {lead.learners.length ? <LearnerChips learners={lead.learners} leadName={lead.name} /> : null}
                   {lead.nextAction ? <p className="m-0 line-clamp-1 text-xs text-ink-2">{lead.nextAction}</p> : null}
                   <div className="flex items-center justify-between gap-2 text-[11px] text-ink-2">
                     <span>{labels[lead.platform] ?? lead.platform}{lead.qualification ? ` · ${lead.qualification}` : ''}</span>

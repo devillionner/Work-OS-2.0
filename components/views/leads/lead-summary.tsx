@@ -11,6 +11,7 @@ import { businessDate } from '@/lib/leads/domain/time';
 import { cn } from '@/lib/utils';
 import { EditDialog, Field, SaveForm, SelectField, textValue, epochValue, datetimeValue } from './form';
 import { displayTime, labels, type Mutation } from './client';
+import { StudentsBlock } from './learners';
 
 /** Вкладка «Огляд»: контакти, воронка, наступна дія, факти й швидкі дії над лідом. */
 export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onResponse }: {
@@ -55,9 +56,11 @@ export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onRe
   };
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="@container">
+    <div className="grid grid-cols-1 gap-5 @[640px]:grid-cols-[minmax(0,1fr)_minmax(0,300px)]">
+    <div className="flex min-w-0 flex-col gap-5 @[640px]:col-start-1 @[640px]:row-start-1">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-2">
-        <span>{lead.subject || 'Предмет не вказано'}</span>
+        <span>Звернувся з предмета: <span className="text-ink">{lead.subject || 'не вказано'}</span></span>
         <span aria-hidden="true">·</span>
         <span>Відгук: <span className="font-mono">{lead.responseDate || 'не вказано'}</span></span>
         <span aria-hidden="true">·</span>
@@ -75,6 +78,13 @@ export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onRe
         ) : null}
       </div>
 
+    </div>
+
+    <div className="min-w-0 @[640px]:col-start-2 @[640px]:row-span-2 @[640px]:row-start-1">
+      <StudentsBlock detail={detail} mutate={mutate} />
+    </div>
+
+    <div className="flex min-w-0 flex-col gap-5 @[640px]:col-start-1 @[640px]:row-start-2">
       {lead.note ? (
         <div className="flex items-start justify-between gap-3 rounded-inner border border-line bg-sunken px-4 py-3">
           <p className="m-0 whitespace-pre-wrap text-sm">{lead.note}</p>
@@ -135,6 +145,8 @@ export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onRe
           </SaveForm>
         </EditDialog>
       ) : null}
+    </div>
+    </div>
     </div>
   );
 }

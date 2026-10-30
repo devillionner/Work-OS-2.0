@@ -12,7 +12,7 @@ const U = DEMO_USER_ID;
 export const WIPE_FIRST = [
   'activity_daily_counts', 'activity_day_revisions', 'chat_queue_counts', 'chat_event_summary', 'autopost_day_counts',
   'activity_events', 'chat_publications', 'telegram_schedule_slots', 'telegram_schedule_settings', 'lead_message_attachment_chunks',
-  'lead_message_attachments', 'lead_messages', 'lesson_reminders', 'curator_requests', 'lessons', 'students', 'lead_commands',
+  'lead_message_attachments', 'lead_messages', 'lesson_reminders', 'curator_requests', 'lessons', 'student_subjects', 'students', 'lead_commands',
   'leads', 'chat_profiles', 'chats', 'library_item_versions', 'library_items', 'dev_items', 'daily_reports', 'report_checkpoints',
   'workdays', 'work_timers', 'goal_versions', 'user_settings', 'telegram_accounts', 'sessions', 'backup_revisions',
 ];
@@ -386,8 +386,15 @@ for (const row of leadRows) {
   }
 }
 insert('leads', LEAD_COLUMNS, leadRows, { chunk: 25 });
-insert('students', ['id', 'user_id', 'lead_id', 'legacy_id', 'name', 'surname', 'age_group', 'note', 'created_at', 'updated_at', 'grade'],
-  students.map((kid) => ({ id: kid.id, user_id: U, lead_id: kid.lead.id, legacy_id: null, name: kid.name, surname: kid.lead.name.split(' ')[1] ?? '', age_group: '', note: '', created_at: ts(kid.lead.responseDay, kid.lead.responseSec), updated_at: ts(kid.lead.responseDay, kid.lead.responseSec), grade: kid.grade })));
+insert('students', ['id', 'user_id', 'lead_id', 'legacy_id', 'name', 'surname', 'age_group', 'note', 'created_at', 'updated_at', 'grade', 'kind'],
+  students.map((kid) => ({ id: kid.id, user_id: U, lead_id: kid.lead.id, legacy_id: null, name: kid.name, surname: kid.lead.name.split(' ')[1] ?? '', age_group: '', note: '', created_at: ts(kid.lead.responseDay, kid.lead.responseSec), updated_at: ts(kid.lead.responseDay, kid.lead.responseSec), grade: kid.grade, kind: 'child' })));
+// Дорослий лід навчається сам: учень kind='self' (як після міграції 0058), предмет відгуку лежить у предметах учня.
+const selfStudents = leads.filter((lead) => !lead.student).map((lead) => ({ id: `demo-self-${lead.id}`, lead }));
+insert('students', ['id', 'user_id', 'lead_id', 'legacy_id', 'name', 'surname', 'age_group', 'note', 'created_at', 'updated_at', 'grade', 'kind'],
+  selfStudents.map(({ id, lead }) => ({ id, user_id: U, lead_id: lead.id, legacy_id: null, name: lead.name, surname: '', age_group: '', note: '', created_at: ts(lead.responseDay, lead.responseSec), updated_at: ts(lead.responseDay, lead.responseSec), grade: null, kind: 'self' })));
+insert('student_subjects', ['id', 'user_id', 'lead_id', 'student_id', 'subject', 'created_at'],
+  [...students.map((kid) => ({ studentId: kid.id, lead: kid.lead })), ...selfStudents.map(({ id, lead }) => ({ studentId: id, lead }))]
+    .map(({ studentId, lead }) => ({ id: `ss-${studentId}`, user_id: U, lead_id: lead.id, student_id: studentId, subject: lead.subject, created_at: ts(lead.responseDay, lead.responseSec) })));
 
 const lessonRows = [];
 for (const lead of leads) {

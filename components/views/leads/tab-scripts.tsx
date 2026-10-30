@@ -105,6 +105,7 @@ export function ScriptsTab({ detail, mutate }: { detail: LeadDetail; mutate: Mut
   const lead = detail.lead;
   const [language, setLanguage] = useState<Language>('uk');
   const [audience, setAudience] = useState<ScriptAudience>(lead.isStudent === 1 && detail.students.length === 0 ? 'student' : 'adult');
+  const [pickedStudentId, setPickedStudentId] = useState<string | null>(null);
   const [lessonId, setLessonId] = useState<string | null>(null);
   const [manual, setManual] = useState<ScriptValues>({});
   const [refresh, setRefresh] = useState(0);
@@ -114,13 +115,17 @@ export function ScriptsTab({ detail, mutate }: { detail: LeadDetail; mutate: Mut
   const [today] = useState(() => businessDate(Math.floor(Date.now() / 1000)));
   const lessons = useMemo(() => bookedLessons(detail.lessons), [detail.lessons]);
   const lesson = useMemo(() => lessons.find((entry) => entry.id === lessonId) ?? defaultLesson(detail.lessons, today), [lessons, lessonId, detail.lessons, today]);
-  const values = useMemo(() => scriptValues({ name: lead.name, subject: lead.subject, isStudent: lead.isStudent }, lesson, detail.students, audience, user.displayName), [lead.name, lead.subject, lead.isStudent, lesson, detail.students, audience, user.displayName]);
+  // Аудиторія й підстановки йдуть від учня: вибраного, учня урока або єдиного (кілька учнів: перемикач угорі).
+  const student = useMemo(() => detail.students.find((entry) => entry.id === pickedStudentId) ?? detail.students.find((entry) => entry.id === lesson?.studentId) ?? detail.students[0] ?? null, [detail.students, pickedStudentId, lesson]);
+  const learner = student ? (student.kind === 'self' ? 'adult' as const : 'child' as const) : learnerOf(lead.isStudent, 0);
+  const scriptStudents = useMemo(() => (student ? [student] : []), [student]);
+  const values = useMemo(() => scriptValues({ name: lead.name, subject: student?.subjects[0]?.subject || lead.subject, isStudent: lead.isStudent }, lesson, scriptStudents, audience, user.displayName), [lead.name, lead.subject, lead.isStudent, lesson, scriptStudents, student, audience, user.displayName]);
   const usedMap = useMemo(() => new Map((usedRemote.data?.used ?? []).map((entry) => [entry.itemId, entry])), [usedRemote.data]);
   const scripts = useMemo(() => rankLeadScripts(scriptsRemote.data?.items ?? [], {
     platform: lead.platform, subject: lead.subject, funnelStage: lead.funnelStage, qualification: lead.qualification, interest: lead.interest,
-    learner: learnerOf(lead.isStudent, detail.students.length),
+    learner,
     reminder: reminderKind(lesson, detail.serverNow), used: new Set(usedMap.keys()),
-  }, 120), [scriptsRemote.data, lead.platform, lead.subject, lead.funnelStage, lead.qualification, lead.interest, lead.isStudent, detail.students.length, lesson, detail.serverNow, usedMap]);
+  }, 120), [scriptsRemote.data, lead.platform, lead.subject, lead.funnelStage, lead.qualification, lead.interest, learner, lesson, detail.serverNow, usedMap]);
   const recommended = scripts.filter((script) => script.recommended).slice(0, 5);
   const rest = scripts.filter((script) => !recommended.includes(script));
   const archived = lead.archivedAt !== null;
@@ -191,6 +196,11 @@ export function ScriptsTab({ detail, mutate }: { detail: LeadDetail; mutate: Mut
           <Segmented<ScriptAudience> label="Кому пишемо" size="sm" value={audience} onValueChange={setAudience} items={[{ value: 'student', label: 'Учню' }, { value: 'adult', label: 'Дорослому' }]} />
           <Segmented<Language> label="Мова скрипту" size="sm" value={language} onValueChange={setLanguage} items={[{ value: 'uk', label: 'UA' }, { value: 'ru', label: 'RU' }]} />
         </div>
+        {detail.students.length > 1 ? (
+          <Select aria-label="Учень для скрипту" value={student?.id ?? ''} onChange={(event) => setPickedStudentId(event.target.value)}>
+            {detail.students.map((entry) => <option key={entry.id} value={entry.id}>{entry.kind === 'self' ? lead.name : entry.name}{entry.subjects.length ? ` · ${entry.subjects.map((item) => item.subject).join(', ')}` : ''}</option>)}
+          </Select>
+        ) : null}
         {lessons.length > 1 ? (
           <Select aria-label="Урок для полів скрипту" value={lesson?.id ?? ''} onChange={(event) => setLessonId(event.target.value)}>
             {lessons.map((entry) => <option key={entry.id} value={entry.id}>{entry.subject} · {entry.lessonDate} {entry.lessonTime}</option>)}

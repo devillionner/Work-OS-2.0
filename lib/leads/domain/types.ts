@@ -1,6 +1,7 @@
 import type {
   leads,
   students,
+  studentSubjects,
   lessons,
   lessonReminders,
   leadMessages,
@@ -10,6 +11,7 @@ import type {
 } from '../../../db/schema.ts';
 export type Lead = typeof leads.$inferSelect;
 export type Student = typeof students.$inferSelect;
+export type StudentSubject = typeof studentSubjects.$inferSelect;
 export type Lesson = typeof lessons.$inferSelect;
 export type Reminder = typeof lessonReminders.$inferSelect;
 export type Message = typeof leadMessages.$inferSelect;
@@ -27,6 +29,7 @@ export type Aggregate = {
   curatorRequests: CuratorRequest[];
   lead: Lead;
   students: Student[];
+  studentSubjects: StudentSubject[];
   lessons: Lesson[];
   reminders: Reminder[];
   messages: Message[];
@@ -37,6 +40,10 @@ export type Changes = {
   lead: Lead;
   create: boolean;
   students: Student[];
+  studentSubjects: StudentSubject[];
+  /** Учні й предмети, яких більше немає (прибрати можна лише без уроків). */
+  deletedStudentIds: string[];
+  deletedSubjectIds: string[];
   lessons: Lesson[];
   reminders: Reminder[];
   messages: Message[];

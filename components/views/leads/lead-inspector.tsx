@@ -14,20 +14,18 @@ import { CustomReminders } from './custom-reminders';
 import { ConversationTab } from './tab-conversation';
 import { LessonsTab } from './tab-lessons';
 import { ScriptsTab } from './tab-scripts';
-import { StudentsTab } from './tab-students';
 
-export type LeadTab = 'overview' | 'conversation' | 'reminders' | 'lessons' | 'students' | 'history' | 'scripts';
+export type LeadTab = 'overview' | 'conversation' | 'reminders' | 'lessons' | 'history' | 'scripts';
 const TABS = [
   { value: 'overview', label: 'Огляд' },
   { value: 'conversation', label: 'Розмова' },
   { value: 'reminders', label: 'Нагадування' },
   { value: 'lessons', label: 'Заняття' },
-  { value: 'students', label: 'Учні' },
   { value: 'history', label: 'Історія' },
   { value: 'scripts', label: 'Скрипти' },
 ] as const;
 
-/** Inspector ліда: компактна шапка (ім'я, етап, головна дія) і вкладки Огляд · Розмова · Нагадування · Заняття · Учні · Історія · Скрипти. */
+/** Inspector ліда: компактна шапка (ім'я, етап, головна дія) і вкладки Огляд · Розмова · Нагадування · Заняття · Історія · Скрипти. */
 export function LeadInspector({ open, onClose, name, detail, error, mutate, reload, onChanged }: {
   open: boolean;
   onClose: () => void;
@@ -68,7 +66,6 @@ export function LeadInspector({ open, onClose, name, detail, error, mutate, relo
             </>
           ) : null}
           {tab === 'lessons' ? <LessonsTab detail={detail} mutate={mutate} mode="lessons" /> : null}
-          {tab === 'students' ? <StudentsTab detail={detail} mutate={mutate} /> : null}
           {tab === 'history' ? <HistoryList leadId={lead.id} /> : null}
           {tab === 'scripts' ? <ScriptsTab detail={detail} mutate={mutate} /> : null}
           {stage ? <StageEditor lead={lead} mutate={mutate} close={() => setStage(false)} /> : null}

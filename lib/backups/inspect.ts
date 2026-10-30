@@ -1,7 +1,7 @@
 import { BACKUP_TABLES, type BackupTable } from './export.ts';
 
 export const CLOUD_BACKUP_APP = 'work-os-cloud-backup';
-export const CLOUD_BACKUP_SCHEMA_VERSION = 14;
+export const CLOUD_BACKUP_SCHEMA_VERSION = 15;
 export const CLOUD_BACKUP_MIN_SCHEMA_VERSION = 5;
 export const CLOUD_BACKUP_MAX_BYTES = 25 * 1024 * 1024;
 
@@ -80,6 +80,7 @@ export function inspectCloudBackup(raw: string): CloudBackupInspection {
         : table === 'library_item_versions' ? 11
         : (table === 'lead_message_attachments' || table === 'lead_message_attachment_chunks') ? 13
         : table === 'dev_items' ? 14
+        : table === 'student_subjects' ? 15
         : 1;
       if (schemaVersion !== null && schemaVersion < introduced && tableRows === undefined && declared === null) continue;
       if (!Array.isArray(tableRows)) {

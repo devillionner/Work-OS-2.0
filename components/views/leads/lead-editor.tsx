@@ -13,6 +13,7 @@ import { Checkbox } from '@/components/ui/toggle';
 import { EditDialog, Field, NoteField, SaveForm, SelectField, textValue, epochValue, datetimeValue } from './form';
 import { labels } from './client';
 import { loadChatOptions, type ChatOptionRow } from './chat-options';
+import { LearnersFields, withDefaultSubject } from './learners';
 
 const NO_CHAT = '__none';
 const STATUS_ORDER: Record<string, number> = { ready: 0, waiting: 1, to_join: 2, failed: 3, archived: 4 };
@@ -70,7 +71,7 @@ export function LeadEditor({ lead, sourceChat, defaultResponseDate, save, close 
   };
 
   return (
-    <EditDialog title={lead ? 'Редагувати ліда' : 'Новий лід'} close={close} description="Один контакт може мати кількох учнів і багато уроків.">
+    <EditDialog title={lead ? 'Редагувати ліда' : 'Новий лід'} close={close} description="Один відгук: предмет, з якого звернувся контакт. Хто навчається й з яких предметів, вказуй нижче.">
       <SaveForm
         cancel={close}
         save={async (f) => {
@@ -84,12 +85,13 @@ export function LeadEditor({ lead, sourceChat, defaultResponseDate, save, close 
             // Вибраний чат зв'язується за id; посилання вручну — лише коли чату немає в Work OS (тоді id визначається за посиланням).
             ...(textValue(f, 'manual') === '1' ? { sourceChatLink: textValue(f, 'sourceChatLink') } : { sourceChatId: textValue(f, 'sourceChatId') || null }),
             subject: textValue(f, 'subject'),
+            // Хто навчається: лише при створенні (далі учнів і предмети змінює блок «Учні»); порожні предмети отримують предмет відгуку.
+            ...(lead ? {} : { learners: withDefaultSubject(textValue(f, 'learners'), textValue(f, 'subject')) }),
             note: textValue(f, 'note'),
             ...(lead?.responseDate === null && !textValue(f, 'responseDate') ? {} : { responseDate: textValue(f, 'responseDate') }),
             responseAt: epochValue(f, 'responseAt', lead?.responseAt),
             status: textValue(f, 'status'),
             duplicateState: textValue(f, 'duplicateState'),
-            isStudent: textValue(f, 'isStudent') === '1' ? 1 : 0,
           });
           close();
         }}
@@ -134,11 +136,11 @@ export function LeadEditor({ lead, sourceChat, defaultResponseDate, save, close 
           <Checkbox checked={contactUnknown} onCheckedChange={(checked) => setContactUnknown(checked === true)} aria-label="Контакт невідомий" />
           Контакт невідомий: номера чи Telegram ще немає
         </label>
-        <Field label="Предмет *" name="subject" value={lead?.subject} required suggestions={SUBJECT_OPTIONS} />
+        <Field label="Звернувся з предмета *" name="subject" value={lead?.subject} required suggestions={SUBJECT_OPTIONS} />
+        {lead ? null : <LearnersFields defaultSubject="" />}
         <Field label="Дата відгуку *" name="responseDate" type="date" value={lead ? (lead.responseDate ?? '') : (defaultResponseDate ?? businessDate(now))} required={!lead || lead.responseDate !== null} />
         <Field label="Час відгуку (Київ, якщо відомий)" name="responseAt" type="datetime-local" value={datetimeValue(lead?.responseAt)} />
         <SelectField label="Статус" name="status" value={lead?.status ?? 'new'} options={lead && !LEAD_STATUSES.includes(lead.status as (typeof LEAD_STATUSES)[number]) ? [...LEAD_STATUSES, lead.status] : LEAD_STATUSES} />
-        <SelectField label="Контакт навчається" name="isStudent" value={String(lead?.isStudent ?? 1)} options={[{ value: '1', label: 'Так' }, { value: '0', label: 'Ні, навчається лише доданий учень' }]} />
         <SelectField label="Дублікат контакту" name="duplicateState" value={lead?.duplicateState ?? 'none'} options={['none', 'possible', 'confirmed']} />
         <NoteField label="Нотатка" name="note" value={lead?.note} />
       </SaveForm>

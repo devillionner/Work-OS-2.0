@@ -8,6 +8,7 @@ import * as schema from '../../../db/schema.ts';
 import {
   leads,
   students,
+  studentSubjects,
   lessons,
   lessonReminders,
   leadMessages,
@@ -120,6 +121,7 @@ export class D1LeadRepository implements LeadRepository {
     const [
       leadRows,
       studentRows,
+      subjectRows,
       lessonRows,
       reminderRows,
       messageRows,
@@ -135,6 +137,11 @@ export class D1LeadRepository implements LeadRepository {
         .from(students)
         .where(and(eq(students.leadId, id), eq(students.userId, userId)))
         .orderBy(asc(students.createdAt), asc(students.id)),
+      this.db
+        .select()
+        .from(studentSubjects)
+        .where(and(eq(studentSubjects.leadId, id), eq(studentSubjects.userId, userId)))
+        .orderBy(asc(studentSubjects.createdAt), asc(studentSubjects.id)),
       this.db
         .select()
         .from(lessons)
@@ -214,6 +221,7 @@ export class D1LeadRepository implements LeadRepository {
       lead: leadRows[0],
       curatorRequests: curatorRows,
       students: studentRows,
+      studentSubjects: subjectRows,
       lessons: lessonRows,
       reminders,
       messages: pagedMessages,
@@ -391,6 +399,25 @@ export class D1LeadRepository implements LeadRepository {
           .insert(students)
           .values(student)
           .onConflictDoUpdate({ target: students.id, set: withoutKeys(student, 'id') }),
+      );
+    for (const subject of c.studentSubjects)
+      commands.push(
+        this.db
+          .insert(studentSubjects)
+          .values(subject)
+          .onConflictDoNothing(),
+      );
+    if (c.deletedSubjectIds.length)
+      commands.push(
+        this.db
+          .delete(studentSubjects)
+          .where(and(eq(studentSubjects.userId, c.lead.userId), eq(studentSubjects.leadId, c.lead.id), inArray(studentSubjects.id, c.deletedSubjectIds))),
+      );
+    if (c.deletedStudentIds.length)
+      commands.push(
+        this.db
+          .delete(students)
+          .where(and(eq(students.userId, c.lead.userId), eq(students.leadId, c.lead.id), inArray(students.id, c.deletedStudentIds))),
       );
     for (const lesson of c.lessons)
       commands.push(
