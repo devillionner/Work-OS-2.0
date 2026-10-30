@@ -1,6 +1,7 @@
 // Telegram Web A automation for Discovery sources (operator decision 2026-10-02): search public Telegram
 // GROUPS (never channels) for WhatsApp invites through the operator's own logged-in web.telegram.org/a tab.
 // Read-only: never joins a Telegram group, never sends a message. Groups that need a join request are skipped.
+import { enterBackgroundMode } from './cdp-background.mjs';
 import { createCdpClient, isLocalCdpWebSocketUrl, normalizeLocalCdpBaseUrl } from './whatsapp-web-cdp.mjs';
 
 const TELEGRAM_WEB_PREFIX = 'https://web.telegram.org/a';
@@ -89,17 +90,12 @@ async function listTelegramPages(base) {
 
 async function attachTelegramSession(page, { pauseMs, shouldStop, reserveSlot, label }) {
   const client = await createCdpClient(page.webSocketDebuggerUrl);
-  let focusEmulated = false;
+  // Page.bringToFront не викликається ніде: вкладка у фоні вважає, що вона у фокусі (емуляція), і німа; без емуляції — збій середовища.
+  const focusEmulated = true;
   try {
-    // No Page.bringToFront here: four tabs fighting for the foreground would make the operator's browser
-    // unusable. A background tab that believes it is focused keeps Telegram's search input working instead.
-    try {
-      await client.send('Emulation.setFocusEmulationEnabled', { enabled: true });
-      focusEmulated = true;
-    } catch { focusEmulated = false; }
+    await enterBackgroundMode(client);
     await client.send('Emulation.setDeviceMetricsOverride', WIDE_VIEWPORT);
     const session = new TelegramWebSession(client, pauseMs, shouldStop, { reserveSlot, focusEmulated, label });
-    if (!focusEmulated) await client.send('Page.bringToFront');
     await sleep(800);
     const ready = await session.evaluate(`Boolean(document.getElementById('telegram-search-input'))`);
     if (!ready) { client.close(); return { kind: 'blocked', reason: 'telegram_not_authenticated' }; }
@@ -213,7 +209,6 @@ export class TelegramWebSession {
 
   async typeGlobalSearch(query) {
     // Only the degraded single-tab fallback needs the foreground; an emulated-focus tab searches in place.
-    if (!this.focusEmulated) await this.client.send('Page.bringToFront');
     // Opening a forum group replaces the global search with its topic list; close that panel first.
     for (let attempt = 0; attempt < 3; attempt++) {
       const hidden = await this.evaluate(`Boolean(document.getElementById('telegram-search-input')?.closest('.SearchInput--hidden'))`);

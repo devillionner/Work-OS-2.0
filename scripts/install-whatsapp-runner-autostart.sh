@@ -14,11 +14,12 @@ UNIT="$UNIT_DIR/work-os-runner-tray.service"
 OLD_AUTOSTART="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/work-os-whatsapp-runner.desktop"
 APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 HANDLER="$APPS/work-os-runner.desktop"
+WAYDROID_HANDLER="$APPS/work-os-waydroid.desktop"
 LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/work-os"
 
 if [ "${1:-}" = "--remove" ]; then
   systemctl --user disable --now work-os-runner-tray.service 2>/dev/null || true
-  rm -f "$UNIT" "$HANDLER" "$OLD_AUTOSTART"
+  rm -f "$UNIT" "$HANDLER" "$WAYDROID_HANDLER" "$OLD_AUTOSTART"
   systemctl --user daemon-reload || true
   update-desktop-database "$APPS" 2>/dev/null || true
   echo "Автозапуск і обробник посилання вимкнено."
@@ -55,9 +56,22 @@ NoDisplay=true
 MimeType=x-scheme-handler/workos-runner;
 HANDLER_EOF
 
+# Вікно Waydroid відкривається лише за дією власника (кнопка «Відкрити вікно» в картці Viber): обробник workos-waydroid:// без параметрів.
+cat > "$WAYDROID_HANDLER" <<WAYDROID_EOF
+[Desktop Entry]
+Type=Application
+Name=Work OS: вікно Android
+Comment=Показує вікно Waydroid, коли Android просить дозвіл
+Exec="$ROOT/scripts/work-os-waydroid-show.sh"
+Terminal=false
+NoDisplay=true
+MimeType=x-scheme-handler/workos-waydroid;
+WAYDROID_EOF
+
 rm -f "$OLD_AUTOSTART"
 update-desktop-database "$APPS" 2>/dev/null || true
 xdg-mime default work-os-runner.desktop x-scheme-handler/workos-runner
+xdg-mime default work-os-waydroid.desktop x-scheme-handler/workos-waydroid
 systemctl --user daemon-reload
 systemctl --user enable work-os-runner-tray.service
 

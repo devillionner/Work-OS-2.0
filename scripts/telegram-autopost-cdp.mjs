@@ -1,6 +1,7 @@
 // Автопост Telegram через Telegram Web A (web.telegram.org/a) у браузері runner: текст оголошення в чат або в гілку форуму.
 // Правила ті самі, що в адаптерів WhatsApp і Viber: до натискання «Надіслати» будь-яка двозначність закінчується без відправки
 // (код причини), а після натискання нічого не повторюється. Підтвердження відправки — власне повідомлення в стрічці тієї ж гілки.
+import { enterBackgroundMode, openBackgroundTab } from './cdp-background.mjs';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -114,6 +115,13 @@ function normalizeText(value) {
   return String(value || '').normalize('NFC').replace(/ /gu, ' ').replace(/[​‎‏]/gu, '').replace(/[ \t]+/gu, ' ').replace(/\s*\n\s*/gu, '\n').trim();
 }
 
+/** Клієнт вкладки Telegram Web: у фоні, без фокусу, без звуку (див. cdp-background.mjs). */
+async function createTelegramPageClient(page) {
+  const client = await createCdpClient(page.webSocketDebuggerUrl);
+  try { await enterBackgroundMode(client); } catch (error) { client.close(); throw error; }
+  return client;
+}
+
 async function findTelegramPage(base, { create = true } = {}) {
   let pages;
   try {
@@ -124,8 +132,8 @@ async function findTelegramPage(base, { create = true } = {}) {
   if (page) return isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl) ? { kind: 'result', page } : { kind: 'blocked', reason: 'cdp_websocket_not_local' };
   if (!create) return { kind: 'blocked', reason: 'telegram_tab_missing' };
   try {
-    const created = await fetch(`${base}/json/new?${encodeURIComponent(TELEGRAM_WEB)}`, { method: 'PUT', signal: AbortSignal.timeout(6_000) });
-    const next = await created.json();
+    // Нова вкладка у фоні: активна вкладка власника не змінюється.
+    const next = await openBackgroundTab(base, TELEGRAM_WEB);
     if (next?.webSocketDebuggerUrl && isLocalCdpWebSocketUrl(next.webSocketDebuggerUrl)) return { kind: 'result', page: next };
   } catch { /* вкладку створити не вдалося */ }
   return { kind: 'blocked', reason: 'telegram_page_not_ready' };
@@ -306,7 +314,7 @@ export async function reloadTelegramTabViaCdp({ cdpBaseUrl } = {}) {
   if (!base) return { kind: 'blocked', reason: 'cdp_not_configured' };
   const found = await findTelegramPage(base, { create: true });
   if (found.kind !== 'result') return found;
-  const client = await createCdpClient(found.page.webSocketDebuggerUrl);
+  const client = await createTelegramPageClient(found.page);
   try {
     await client.send('Page.enable');
     await client.send('Page.navigate', { url: TELEGRAM_WEB });
@@ -321,7 +329,7 @@ export async function readTelegramIdentityViaCdp({ cdpBaseUrl } = {}) {
   // Лише дивимось на вже відкриту вкладку: вкладку для статусу не створюємо.
   const found = await findTelegramPage(base, { create: false });
   if (found.kind !== 'result') return found;
-  const client = await createCdpClient(found.page.webSocketDebuggerUrl);
+  const client = await createTelegramPageClient(found.page);
   const page = new TelegramPage(client);
   try {
     await client.send('Runtime.enable');
@@ -354,18 +362,15 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
   if (!target) return { kind: 'blocked', reason: 'telegram_chat_missing', detail: 'link_not_recognised' };
   const found = await findTelegramPage(base);
   if (found.kind !== 'result') return found;
-  const client = await createCdpClient(found.page.webSocketDebuggerUrl);
+  const client = await createTelegramPageClient(found.page);
   const page = new TelegramPage(client);
   const startedAt = Date.now();
   const deadlineAt = startedAt + 120_000;
-  let focusEmulated = false;
   try {
     await client.send('Runtime.enable');
     await client.send('Page.enable').catch(() => {});
-    // Вкладка у фоні: без емуляції фокусу поле повідомлення не отримує текст. Широкий екран потрібен, щоб лівий список (гілки) був видимий.
-    try { await client.send('Emulation.setFocusEmulationEnabled', { enabled: true }); focusEmulated = true; } catch { focusEmulated = false; }
+    // Вкладка у фоні: фокус емулюється при створенні клієнта (createTelegramPageClient), вікно не піднімається. Широкий екран потрібен, щоб лівий список (гілки) був видимий.
     await client.send('Emulation.setDeviceMetricsOverride', WIDE_VIEWPORT);
-    if (!focusEmulated) await client.send('Page.bringToFront');
 
     // 1. Той самий акаунт, що в Work OS.
     const initial = await page.evaluate(READ_STATE_JS);

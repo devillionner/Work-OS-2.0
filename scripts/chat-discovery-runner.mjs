@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { missingThrottleFlags } from './cdp-background.mjs';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -82,6 +83,17 @@ const WHATSAPP_AUTOPOST_RETRY_COOLDOWN_MS=60000;
 // Два збої підряд на різних чатах до натискання «Надіслати» (фото не додалось, превʼю не відкрилось) — це не чат, а WhatsApp Web
 // чи браузер: черга стає на паузу з поясненням у картці, а не мотає всі чати по колу (кожне коло — читання D1).
 let runnerInfoSent=false;
+let browserFlagsTimer=null;
+const BROWSER_FLAGS_CHECK_MS=10*60_000;
+// Opera, запущена без прапорців проти гальмування прихованих вікон, стишує таймери вкладок runner: власнику лишається один раз перезапустити її
+// (сам браузер без попередження не перезапускаємо). Командний рядок читається з /proc, мережі й D1 це не чіпає.
+function reportBrowserFlags(){
+  const port=Number((/:(\d+)$/.exec(whatsappCdp)||[])[1])||9222;
+  const missing=whatsappCdp?missingThrottleFlags(port):null;
+  if(missing===null)return;
+  sendLive(liveWs,{type:'progress',process:'runner_notice',code:'browser_throttling',active:missing.length>0,
+    text:missing.length?'Перезапусти Opera, щоб автопост не гальмував за іншими вікнами.':''});
+}
 function runnerVersion(){
   try{return /APP_VERSION\s*=\s*'([^']+)'/.exec(readFileSync(join(dirname(new URL(import.meta.url).pathname),'..','lib','app-meta.ts'),'utf8'))?.[1]||'';}
   catch{return '';}
@@ -94,6 +106,7 @@ const WHATSAPP_REASON_TEXT={
   whatsapp_messages_loading:'WhatsApp Web ще завантажує повідомлення.',
   whatsapp_pending_outgoing:'У чаті WhatsApp ще є наше повідомлення без галочки (годинник). Чекаю, поки воно піде, і не залишаю чат.',
   cdp_unavailable:'Браузер runner не відповідає на порту 127.0.0.1:9222. Запусти його з відкритим портом налагодження.',
+  focus_emulation_unavailable:'Браузер не дозволив режим без фокусу, а піднімати вікно автопост не буде. Онови або перезапусти Opera.',
   cdp_not_configured:'Браузер runner не підключений.',
   media_attach_failed:'WhatsApp Web не прийняв фото. Автопост на паузі.',
   media_preview_not_ready:'WhatsApp Web не показав вікно фото з кнопкою «Надіслати». Автопост на паузі.',
@@ -1054,6 +1067,7 @@ const TELEGRAM_ENV_PAUSE_MS=3*60_000;
 const TELEGRAM_REASON_TEXT={
   cdp_not_configured:'Браузер runner не підключений.',
   cdp_unavailable:'Браузер runner не відповідає на порту 127.0.0.1:9222. Запусти його з відкритим портом налагодження.',
+  focus_emulation_unavailable:'Браузер не дозволив режим без фокусу, а піднімати вікно автопост не буде. Онови або перезапусти Opera.',
   telegram_not_authenticated:'Telegram Web не залогінений. Увійди в акаунт у вкладці браузера runner.',
   telegram_account_unbound:'Акаунт Telegram ще не прив’язано до браузера. Натисни «Прив’язати цей акаунт» у картці автопосту.',
   telegram_account_mismatch:'У браузері відкрито інший акаунт Telegram, не той, що вибрано у Work OS.',
@@ -1114,7 +1128,7 @@ async function handleTelegramAutopostTask(ws,job){
   try{automated=await sendTelegramAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp,shouldAbort:()=>cancelledAutopostJobs.has(job.jobId),onStep,verifyOnly:job.mode==='verify',scanOnly:job.mode==='scan',sinceEpoch:job.verify?.sinceEpoch});}
   catch(error){
     console.warn(`Telegram autopost CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
-    pauseTelegramAutopost(ws,job,Date.now()+TELEGRAM_ENV_PAUSE_MS,'cdp_unavailable');
+    pauseTelegramAutopost(ws,job,Date.now()+TELEGRAM_ENV_PAUSE_MS,error?.code==='focus_emulation_unavailable'?'focus_emulation_unavailable':'cdp_unavailable');
     return;
   }
   cancelledAutopostJobs.delete(job.jobId);
@@ -1221,9 +1235,11 @@ async function handleAutopostTaskNow(ws,job){
   onWhatsappStep('start','починаю');
   try{automated=await sendWhatsappAutopostViaCdp(job,{cdpBaseUrl:whatsappCdp,shouldAbort:()=>cancelledAutopostJobs.has(job.jobId),onStep:onWhatsappStep,verifyOnly:job.mode==='verify',sinceEpoch:job.verify?.sinceEpoch});}
   catch(error){
-    markWhatsappRuntimeBlocked('cdp_unavailable');
+    // Браузер не дав режим без фокусу: вікно не піднімаємо, чергу ставимо на паузу з поясненням.
+    const reason=error?.code==='focus_emulation_unavailable'?'focus_emulation_unavailable':'cdp_unavailable';
+    markWhatsappRuntimeBlocked(reason);
     console.warn(`WhatsApp autopost CDP unavailable; no callback sent: ${error instanceof Error?error.message:String(error)}`);
-    pauseWhatsappAutopost(ws,job,whatsappRuntimeBlockedUntil,'cdp_unavailable');
+    pauseWhatsappAutopost(ws,job,whatsappRuntimeBlockedUntil,reason);
     return;
   }
   cancelledAutopostJobs.delete(job.jobId);
@@ -1493,6 +1509,9 @@ function connectLiveChannel(){
     // Версія застосунку, з якою запущено runner; `updated` — його щойно перезапустила іконка в треї після зміни коду (раз на процес).
     ws.send(JSON.stringify({type:'runner_info',version:runnerVersion(),updated:!runnerInfoSent&&process.env.WORK_OS_RUNNER_UPDATED==='1'}));
     runnerInfoSent=true;
+    reportBrowserFlags();
+    if(browserFlagsTimer)clearInterval(browserFlagsTimer);
+    browserFlagsTimer=setInterval(reportBrowserFlags,BROWSER_FLAGS_CHECK_MS);
     // Які задачі автопосту в цього runner справді в роботі: DO повертає в чергу видані раніше й невідомі нам (пішли в мертвий сокет).
     ws.send(JSON.stringify({type:'runner_state',active:[...autopostActive,...incomingTaskQueue.filter((item)=>item.taskProcess==='autopost').map((item)=>String(item.task?.jobId||'')),...viberTaskQueue.map((item)=>String(item.task?.jobId||'')),...autopostResults.keys()]}));
     setTimeout(()=>{void checkViberStatus();void checkTelegramStatus();},1500);

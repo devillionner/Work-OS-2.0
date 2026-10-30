@@ -67,7 +67,7 @@ import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFee
 /** @typedef {'browser'|'runner'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId?: string|null, autopostClaimedAt?: number, autopostLanes?: Record<string, {jobId: string, claimedAt: number, current: {send: boolean, startedAt: number, platform: string}}|undefined>, autopostWatchAt?: number, runnerConnectedAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostPace?: Record<string, {intervalSeconds:number, nextAt:number}>, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, runnerVersion?: string, runnerOfflineAt?: number, pushSentAt?: Record<string, number>, autopostBatchOpen?: Record<string, number>, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId?: string|null, autopostClaimedAt?: number, autopostLanes?: Record<string, {jobId: string, claimedAt: number, current: {send: boolean, startedAt: number, platform: string}}|undefined>, autopostWatchAt?: number, runnerConnectedAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostPace?: Record<string, {intervalSeconds:number, nextAt:number}>, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, runnerVersion?: string, runnerNotices?: Record<string, string>, runnerOfflineAt?: number, pushSentAt?: Record<string, number>, autopostBatchOpen?: Record<string, number>, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 // The runner pings every 30 s and the runtime records each auto-answered ping per socket. A runner socket
@@ -248,7 +248,7 @@ export class OwnerChannel {
   async onBrowserConnected(server, userId) {
     const state = await this.readState();
     if (userId && state.userId !== userId) { state.userId = userId; await this.writeState(state); }
-    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0, ...(state.runnerVersion ? { runnerVersion: state.runnerVersion } : {}), ...(state.viberStatus ? { viberStatus: state.viberStatus } : {}), ...(state.autopostStatus ? { autopostStatus: state.autopostStatus } : {}), ...(state.autopostPace ? { autopostPace: state.autopostPace } : {}), ...(state.autopostPace?.telegram ? { telegramPace: state.autopostPace.telegram } : {}) }));
+    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0, ...(state.runnerVersion ? { runnerVersion: state.runnerVersion } : {}), ...(state.runnerNotices ? { runnerNotices: state.runnerNotices } : {}), ...(state.viberStatus ? { viberStatus: state.viberStatus } : {}), ...(state.autopostStatus ? { autopostStatus: state.autopostStatus } : {}), ...(state.autopostPace ? { autopostPace: state.autopostPace } : {}), ...(state.autopostPace?.telegram ? { telegramPace: state.autopostPace.telegram } : {}) }));
   }
 
   /**
@@ -456,10 +456,22 @@ export class OwnerChannel {
       if (loginName) await this.notifyOwner(state, `login:${message.platform}`, { title: `${loginName} Web вийшов із сесії`, body: 'Потрібен вхід у браузері runner, автопост цієї платформи стоїть.', url: `/?go=platforms:${message.platform}:autopost`, tag: `login-${message.platform}` });
       await this.writeState(state);
     }
+    if (message.type === 'progress' && message.process === 'runner_notice' && typeof message.code === 'string') {
+      // Несрочне повідомлення runner для картки (наприклад «Перезапусти Opera»): зберігається, поки активне, і повторюється новим сторінкам у hello.
+      const state = await this.readState();
+      const notices = { ...(state.runnerNotices ?? {}) };
+      if (message.active === true && typeof message.text === 'string' && message.text) notices[message.code] = message.text.slice(0, 200);
+      else delete notices[message.code];
+      state.runnerNotices = Object.keys(notices).length ? notices : undefined;
+      await this.writeState(state);
+    }
     if (message.type === 'progress' && message.process === 'viber_status') {
       // Стан Viber від runner приходить раз на хвилину; DO запам'ятовує його, щоб сторінка, відкрита між повідомленнями, показала його одразу.
       const state = await this.readState();
       state.viberStatus = { state: message.state === 'ready' ? 'ready' : message.state === 'busy' ? 'busy' : 'blocked', reason: typeof message.reason === 'string' ? message.reason : null, text: typeof message.text === 'string' ? message.text : '' };
+      if (state.viberStatus.state === 'blocked' && state.viberStatus.reason === 'android_unauthorized') {
+        await this.notifyOwner(state, 'viber:android_unauthorized', { title: 'Android просить Allow', body: 'Натисни «Відкрити вікно» в картці Viber: автопост вікно сам не відкриває.', url: '/?go=platforms:viber:autopost', tag: 'viber-allow' });
+      }
       await this.writeState(state);
     }
     if (message.type === 'progress' && message.process === 'autopost_step' && typeof message.platform === 'string') {

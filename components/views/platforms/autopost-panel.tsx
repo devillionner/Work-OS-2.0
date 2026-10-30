@@ -1,6 +1,6 @@
 'use client';
 
-import { RunnerLaunchLink } from '@/components/shell/runner-offline';
+import { RunnerLaunchLink, WaydroidWindowLink, useRunnerNotice } from '@/components/shell/runner-offline';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ImagePlus, MoreHorizontal, Send, Square, Trash2, UploadCloud, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -195,6 +195,7 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
   onStop: () => void;
   onReset: () => void;
 }) {
+  const browserNotice = useRunnerNotice('browser_throttling');
   const [size, setSize] = useState<'1' | '5' | '20' | 'all'>('all');
   const [removed, setRemoved] = useState<string[]>([]);
   const [editing, setEditing] = useState(false);
@@ -255,6 +256,8 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
           <span className={readiness.tone === 'hot' ? 'text-hot' : 'text-ink-2'}>{readiness.text}</span>
         </output>
         {runnerBlocked && readiness.tone === 'hot' && readiness.text.startsWith('Runner вимкнений') ? <RunnerLaunchLink className="self-start" /> : null}
+        {platform === 'viber' && /Allow/.test(readiness.text) ? <div className="flex flex-col items-start gap-1.5"><span className="text-[13px] text-ink-2">Потрібно натиснути Allow в Android.</span><WaydroidWindowLink /></div> : null}
+        {browserNotice && platform !== 'viber' ? <p className="m-0 flex items-start gap-2 text-[13px] text-warn" role="note"><i aria-hidden="true" className="mt-1.5 size-2 shrink-0 rounded-full bg-warn" />{browserNotice}</p> : null}
         <details className="group" open={readiness.tone === 'warn'}>
           <summary className="cursor-pointer list-none text-xs text-ink-2 [&::-webkit-details-marker]:hidden"><span className="underline decoration-line-strong underline-offset-4">{settingsTitle}</span></summary>
           <div className="mt-2 text-sm text-ink-2">{settingsHelp}</div>

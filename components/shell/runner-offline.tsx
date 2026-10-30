@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Surface } from '@/components/ui/surface';
 import { buttonVariants } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
-import { subscribeLiveMessages } from '@/lib/live-channel';
+import { getRunnerNotice, subscribeLiveMessages } from '@/lib/live-channel';
 import { useLiveStatus } from '@/components/shell/use-live';
 import { cn } from '@/lib/utils';
 
@@ -44,4 +44,25 @@ export function RunnerNotice() {
     }
   }), [toast]);
   return null;
+}
+
+/** Несрочне повідомлення runner за кодом (живе, поки runner його підтримує). */
+export function useRunnerNotice(code: string): string | null {
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    const read = () => setText(getRunnerNotice(code));
+    const first = window.setTimeout(read, 0);
+    const off = subscribeLiveMessages((message) => { if (message.type === 'hello' || message.type === 'runner_status' || (message.type === 'progress' && message.process === 'runner_notice')) read(); });
+    return () => { window.clearTimeout(first); off(); };
+  }, [code]);
+  return text;
+}
+
+/** Посилання «Відкрити вікно» Android: обробник workos-waydroid://show відкриває вікно лише за дією власника. */
+export function WaydroidWindowLink({ className }: { className?: string }) {
+  return (
+    <a href="workos-waydroid://show" className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), className)}>
+      Відкрити вікно
+    </a>
+  );
 }

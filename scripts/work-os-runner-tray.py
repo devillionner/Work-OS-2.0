@@ -58,6 +58,8 @@ LABELS = {
     'no_token': 'Не підключений', 'no_browser': 'Немає браузера', 'attention': 'Потрібна увага', 'stopped': 'Зупинений',
     'reconnecting': 'Перепідключення',
 }
+THROTTLE_FLAGS = ('--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling')
+BROWSER_FLAGS_CHECK_SECONDS = 60
 IMPORT_RE = re.compile(r"""(?:from|import)\s*\(?\s*['"](\.{1,2}/[^'"]+)['"]""")
 
 
@@ -126,6 +128,20 @@ def signature():
     return tuple(items)
 
 
+def missing_throttle_flags(port=9222):
+    """Прапорці браузера на порту налагодження, яких бракує (None — браузер не знайдено)."""
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            args = (entry / 'cmdline').read_bytes().decode(errors='ignore').replace('\0', ' ').split()
+        except OSError:
+            continue
+        if f'--remote-debugging-port={port}' in args and not any(a.startswith('--type=') for a in args):
+            return [flag for flag in THROTTLE_FLAGS if flag not in args]
+    return None
+
+
 def app_version():
     try:
         match = re.search(r"APP_VERSION\s*=\s*'([^']+)'", APP_META.read_text(encoding='utf-8'))
@@ -145,6 +161,8 @@ class Tray:
         self.changed_at = None
         self.update_note = ''
         self.update_note_until = 0.0
+        self.flags_checked_at = 0.0
+        self.flags_missing = False
         write_icons()
         self.indicator = AppIndicator.Indicator.new(
             'work-os-runner', str(ICON_DIR / 'work-os-starting.svg'), AppIndicator.IndicatorCategory.APPLICATION_STATUS)
@@ -159,6 +177,9 @@ class Tray:
         menu.append(self.state_item)
         menu.append(self.detail_item)
         menu.append(Gtk.SeparatorMenuItem())
+        self.opera_item = Gtk.MenuItem(label='Перезапусти Opera: без прапорців автопост гальмує за іншими вікнами')
+        self.opera_item.set_sensitive(False)
+        menu.append(self.opera_item)
         restart = Gtk.MenuItem(label='Перезапустити runner')
         restart.connect('activate', lambda _: self.restart_runner())
         menu.append(restart)
@@ -170,6 +191,7 @@ class Tray:
         off_item.connect('activate', lambda _: self.confirm_disable())
         menu.append(off_item)
         menu.show_all()
+        self.opera_item.hide()
         self.indicator.set_menu(menu)
 
         self.start_runner()
@@ -295,7 +317,20 @@ class Tray:
         self.indicator.set_title(f'Work OS runner — {LABELS.get(state, state)}')
         self.state_item.set_label(f'Work OS runner: {LABELS.get(state, state)}')
         self.detail_item.set_label(detail[:90])
+        self.check_browser_flags()
         return True
+
+    def check_browser_flags(self):
+        """Opera без прапорців проти гальмування: один рядок у меню; сам браузер власника не чіпаємо."""
+        now = time.time()
+        if now - self.flags_checked_at < BROWSER_FLAGS_CHECK_SECONDS:
+            return
+        self.flags_checked_at = now
+        missing = missing_throttle_flags()
+        want = bool(missing)
+        if want != self.flags_missing:
+            self.flags_missing = want
+            (self.opera_item.show if want else self.opera_item.hide)()
 
     # ── the only way out ──────────────────────────────────────────────────────────────────────────────────
     def confirm_disable(self):

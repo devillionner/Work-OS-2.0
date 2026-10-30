@@ -40,6 +40,9 @@ let latestAutopostStatus: Record<string, AutopostPlatformStatus> = {};
 export type AutopostPace = { nextAt: number; intervalSeconds: number };
 export type TelegramPace = AutopostPace;
 let latestPace: Record<string, AutopostPace> = {};
+/** Несрочні повідомлення runner для карток (код → текст), наприклад «Перезапусти Opera». */
+let runnerNotices: Record<string, string> = {};
+export function getRunnerNotice(code: string): string | null { return runnerNotices[code] || null; }
 export function getLatestPace(platform: string): AutopostPace | null { return latestPace[platform] || null; }
 export function getLatestTelegramPace(): AutopostPace | null { return getLatestPace('telegram'); }
 function cleanTelegramPace(value: unknown): TelegramPace | null {
@@ -145,7 +148,15 @@ function connect() {
       const clean = cleanAutopostStatus(message);
       if (clean) latestAutopostStatus = { ...latestAutopostStatus, [message.platform]: clean };
     }
-    if (message.type === 'runner_status' && typeof message.connected === 'boolean') { setStatus({ runnerConnected: message.connected, ...(typeof message.version === 'string' ? { runnerVersion: message.version } : {}) }); if (!message.connected) { latestViberStatus = null; latestAutopostStatus = {}; } }
+    if (message.type === 'hello') {
+      const raw = message.runnerNotices;
+      runnerNotices = raw && typeof raw === 'object' ? Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) : {};
+    }
+    if (message.type === 'progress' && message.process === 'runner_notice' && typeof message.code === 'string') {
+      const { [message.code]: _gone, ...rest } = runnerNotices;
+      runnerNotices = message.active === true && typeof message.text === 'string' && message.text ? { ...rest, [message.code]: message.text } : rest;
+    }
+    if (message.type === 'runner_status' && typeof message.connected === 'boolean') { setStatus({ runnerConnected: message.connected, ...(typeof message.version === 'string' ? { runnerVersion: message.version } : {}) }); if (!message.connected) { latestViberStatus = null; latestAutopostStatus = {}; runnerNotices = {}; } }
     for (const listener of messageListeners) listener(message);
   });
   ws.addEventListener('close', onDown);

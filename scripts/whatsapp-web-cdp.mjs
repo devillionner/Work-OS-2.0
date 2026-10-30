@@ -1,3 +1,4 @@
+import { enterBackgroundMode, openBackgroundTab } from './cdp-background.mjs';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -117,7 +118,7 @@ export async function queryWhatsappInviteViaCdp(
   if(!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl)){
     return { kind:'blocked', reason:'cdp_websocket_not_local' };
   }
-  const client=await createCdpClient(page.webSocketDebuggerUrl);
+  const client=await createWhatsappPageClient(page);
   try{
     await client.send('Page.enable');
     await client.send('Runtime.enable');
@@ -204,7 +205,7 @@ export async function joinWhatsappInviteViaRuntime(
   if(!base)return {kind:'blocked',reason:cdpBaseUrl?'cdp_not_local':'cdp_not_configured'};
   const page=await findOrCreateWhatsappPage(base);
   if(!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl))return {kind:'blocked',reason:'cdp_websocket_not_local'};
-  const client=await createCdpClient(page.webSocketDebuggerUrl);
+  const client=await createWhatsappPageClient(page);
   try{
     await client.send('Runtime.enable');
     const response=await client.send('Runtime.evaluate',{
@@ -414,7 +415,7 @@ export async function leaveWhatsappGroupViaRuntime(
   if(!base)return {kind:'blocked',reason:cdpBaseUrl?'cdp_not_local':'cdp_not_configured'};
   const page=await findOrCreateWhatsappPage(base);
   if(!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl))return {kind:'blocked',reason:'cdp_websocket_not_local'};
-  const client=await createCdpClient(page.webSocketDebuggerUrl);
+  const client=await createWhatsappPageClient(page);
   try{
     await client.send('Runtime.enable');
     const response=await client.send('Runtime.evaluate',{
@@ -769,7 +770,7 @@ export async function leaveWhatsappTaskViaCdp(
   if (!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl)) {
     return { kind: 'blocked', reason: 'cdp_websocket_not_local' };
   }
-  const client = await createCdpClient(page.webSocketDebuggerUrl);
+  const client = await createWhatsappPageClient(page);
   try {
     await client.send('Page.enable');
     await client.send('Runtime.enable');
@@ -1183,7 +1184,7 @@ export async function sendWhatsappAutopostViaCdp(
 
   const page = await findOrCreateWhatsappPage(base);
   if (!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl)) return { kind:'blocked', reason:'cdp_websocket_not_local' };
-  const client = await createCdpClient(page.webSocketDebuggerUrl);
+  const client = await createWhatsappPageClient(page);
   try {
     await client.send('Page.enable');
     await client.send('Runtime.enable');
@@ -1354,7 +1355,7 @@ export async function readWhatsappHomeHealthViaCdp({cdpBaseUrl}={}) {
   if(!base)return {kind:'blocked',reason:'cdp_not_local'};
   const page=await findOrCreateWhatsappPage(base);
   if(!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl))return {kind:'blocked',reason:'cdp_websocket_not_local'};
-  const client=await createCdpClient(page.webSocketDebuggerUrl);
+  const client=await createWhatsappPageClient(page);
   try{
     await client.send('Runtime.enable');
     const snapshot=await readSnapshot(client);
@@ -1373,7 +1374,7 @@ export async function resetWhatsappPageViaCdp({cdpBaseUrl}={}) {
   if(!base)return {kind:'blocked',reason:'cdp_not_local'};
   const page=await findOrCreateWhatsappPage(base);
   if(!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl))return {kind:'blocked',reason:'cdp_websocket_not_local'};
-  const client=await createCdpClient(page.webSocketDebuggerUrl);
+  const client=await createWhatsappPageClient(page);
   try{
     await client.send('Page.enable');
     await client.send('Runtime.enable');
@@ -1489,8 +1490,8 @@ export async function openChatInApp(client, expectedName, timeoutMs = 12_000) {
   const deadline = Date.now() + timeoutMs;
   const evaluate = async (expression) => (await client.send('Runtime.evaluate', { expression, returnByValue:true, awaitPromise:true }).catch(() => null))?.result?.value;
   // Вкладка у фоні (`visibilityState: hidden`): список результатів пошуку не домальовується, рядки лишаються порожніми. Емуляція фокусу
-  // тримає вкладку «видимою» без перемикання вікна оператора; `bringToFront` лише запасний шлях.
-  try { await client.send('Emulation.setFocusEmulationEnabled', { enabled:true }); } catch { await client.send('Page.bringToFront').catch(() => {}); }
+  // (enterBackgroundMode при створенні клієнта) тримає вкладку «видимою» без перемикання вікна оператора; `bringToFront` ніде не викликається.
+  await enterBackgroundMode(client);
   const press = async (type, key, code, vk, modifiers = 0) => client.send('Input.dispatchKeyEvent', { type, key, code, windowsVirtualKeyCode:vk, nativeVirtualKeyCode:vk, modifiers });
   // Пошук: поле зліва над списком чатів (contenteditable або input), у ньому ще може лишитись попередній запит.
   const searchBox = await evaluate(`(() => {
@@ -1610,7 +1611,7 @@ export async function inspectWhatsappTaskViaCdp(
   if (!isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl)) {
     return { kind: 'blocked', reason: 'cdp_websocket_not_local' };
   }
-  const client = await createCdpClient(page.webSocketDebuggerUrl);
+  const client = await createWhatsappPageClient(page);
   try {
     await client.send('Page.enable');
     await client.send('Runtime.enable');
@@ -1710,12 +1711,7 @@ async function findOrCreateWhatsappPage(base) {
     return existing;
   }
 
-  const created = await fetch(
-    `${base}/json/new?${encodeURIComponent('https://web.whatsapp.com/')}`,
-    { method: 'PUT', signal: AbortSignal.timeout(4_000) },
-  );
-  if (!created.ok) throw new Error(`CDP new page HTTP ${created.status}`);
-  const page = await created.json();
+  const page = await openBackgroundTab(base, 'https://web.whatsapp.com/');
   if (!page?.webSocketDebuggerUrl) throw new Error('CDP did not return a page websocket.');
   return page;
 }
@@ -2275,6 +2271,13 @@ async function clickExactButton(client, label, expectedName) {
     returnByValue: true,
   });
   return response?.result?.value === true;
+}
+
+/** Клієнт вкладки WhatsApp Web: у фоні, без фокусу, без звуку (див. cdp-background.mjs). */
+async function createWhatsappPageClient(page) {
+  const client = await createCdpClient(page.webSocketDebuggerUrl);
+  try { await enterBackgroundMode(client); } catch (error) { client.close(); throw error; }
+  return client;
 }
 
 export async function createCdpClient(url) {

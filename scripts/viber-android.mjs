@@ -315,15 +315,8 @@ export async function ensureAdbKeyAuthorized() {
   } catch { return false; }
 }
 
-// Якщо запис ключа не допоміг, показуємо вікно Waydroid, щоб оператор побачив запит; не частіше за раз на 10 хв.
-let lastFullUiAt = 0;
-function showWaydroidWindow() {
-  if (Date.now() - lastFullUiAt < 10 * 60 * 1000) return;
-  lastFullUiAt = Date.now();
-  const child = spawn('waydroid', ['show-full-ui'], { detached: true, stdio: 'ignore' });
-  child.on('error', () => {});
-  child.unref();
-}
+// Вікно Waydroid автоматично не відкривається (воно забрало б фокус і зірвало б повноекранне відео власника): запит «Allow» чекає, поки власник
+// сам натисне «Відкрити вікно» в картці (обробник workos-waydroid://show) або отримає сповіщення.
 
 /** adb до Android за адресою контейнера; null — Android не відповідає (сесія RUNNING, але гість завис або ще вантажиться). */
 async function reachAndroid(state, timeout) {
@@ -341,9 +334,9 @@ async function reachAndroid(state, timeout) {
         keyRetried = true;
         if (await ensureAdbKeyAuthorized()) { await run('adb', ['disconnect', serial], { timeout: 8000 }); await sleep(800); continue; }
       }
-      // Ключ уже в adb_keys, а Android усе одно питає: показуємо вікно й чекаємо на «Allow» до хвилини, а не крутимо спроби.
-      if (!waitingForAllow) { waitingForAllow = Date.now(); showWaydroidWindow(); step('env', 'чекаю на Allow у вікні Android'); }
-      if (Date.now() - waitingForAllow > 60_000) throw new ViberStop('android_unauthorized', 'env', 'ключ записано, вікно Waydroid показано');
+      // Ключ уже в adb_keys, а Android усе одно питає: чекаємо на «Allow» до хвилини (вікно не відкриваємо), а не крутимо спроби.
+      if (!waitingForAllow) { waitingForAllow = Date.now(); step('env', 'потрібно натиснути Allow в Android'); }
+      if (Date.now() - waitingForAllow > 60_000) throw new ViberStop('android_unauthorized', 'env', 'ключ записано, Android чекає на Allow');
       await sleep(2000);
       continue;
     }

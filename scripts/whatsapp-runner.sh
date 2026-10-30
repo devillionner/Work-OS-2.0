@@ -52,7 +52,9 @@ if ! cdp_ready; then
   for _ in $(seq 1 60); do curl -fsS --max-time 3 -o /dev/null "$WORK_OS_URL" && break; sleep 1; done
   mkdir -p "$PROFILE"
   echo "Відкриваю $BROWSER (окремий профіль: $PROFILE)…"
+  # Прапорці проти гальмування прихованих вікон: автопост працює, поки власник дивиться відео на весь екран в іншому вікні.
   setsid "$BROWSER" --remote-debugging-port="$PORT" --user-data-dir="$PROFILE" \
+    --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling \
     --no-first-run --no-default-browser-check \
     "$WORK_OS_URL" "https://web.whatsapp.com/" >/dev/null 2>&1 < /dev/null 9>&- &
   for _ in $(seq 1 30); do cdp_ready && break; sleep 1; done
