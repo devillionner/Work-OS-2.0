@@ -90,10 +90,11 @@ export async function applyTelegramScan(db: D1Database, userId: string, chatId: 
     if (topic?.closed) { threadId = null; threadTitle = null; }
     else if (topic) threadTitle = topic.title;
   }
-  // Позначка «зараз писати не можна»: true — ставимо час, false — знімаємо, не передано — лишаємо як є.
+  // Позначка «зараз писати не можна»: true — ставимо час першого виявлення (не перезаписуємо: за ним рахується тиждень до архіву «Забанено»),
+  // false — знімаємо, не передано — лишаємо як є.
   const restricted = scan.restricted === undefined ? -1 : scan.restricted ? 1 : 0;
   await db.prepare(`UPDATE chats SET telegram_forum=?1,telegram_thread_id=?2,telegram_thread_title=?3,telegram_topics_json=?4,telegram_topics_at=?5,
-      telegram_restricted_at=CASE ?8 WHEN 1 THEN ?5 WHEN 0 THEN NULL ELSE telegram_restricted_at END
+      telegram_restricted_at=CASE ?8 WHEN 1 THEN COALESCE(telegram_restricted_at,?5) WHEN 0 THEN NULL ELSE telegram_restricted_at END
     WHERE id=?6 AND user_id=?7 AND platform='telegram'`)
     .bind(scan.forum ? 1 : 0, threadId, threadTitle, scan.forum ? JSON.stringify(topics) : null, now, chatId, userId, restricted).run();
   return { threadLost: Boolean(current.thread && !threadId) };

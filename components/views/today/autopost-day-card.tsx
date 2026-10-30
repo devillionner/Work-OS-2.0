@@ -14,7 +14,7 @@ const NAMES = { whatsapp: 'WhatsApp', viber: 'Viber', telegram: 'Telegram' } as 
 const ORDER: ReadonlyArray<AutopostDayPlatform['platform']> = ['viber', 'whatsapp', 'telegram'];
 const REASONS: ReadonlyArray<{ key: keyof AutopostDayPlatform['settled']; label: string }> = [
   { key: 'decision', label: 'Потребують рішення' },
-  { key: 'archived', label: 'В архів: немає доступу чи писати не можна' },
+  { key: 'archived', label: 'В архів: бан, заборона писати, чату немає' },
   { key: 'snoozed', label: 'Відкладено на завтра' },
   { key: 'waiting', label: 'Очікують вступу' },
   { key: 'skipped', label: 'Пропущено на сьогодні' },
@@ -36,6 +36,11 @@ export function AutopostDayCard({ size }: { size: 'phone' | 'desktop' }) {
   const open = (platform?: AutopostDayPlatform['platform']) => {
     navigate('platforms');
     emitCommand('platforms:autopost', { platform: platform ?? 'viber' });
+  };
+  // Заархівовані (бан, заборона писати, чат не існує) відкриваються в черзі «Архів» платформи: там у кожному рядку причина й посилання на чат.
+  const openArchive = (platform?: AutopostDayPlatform['platform']) => {
+    navigate('platforms');
+    emitCommand('platforms:queue', { platform: platform ?? 'telegram', queue: 'archived' });
   };
   const pad = size === 'phone' ? 'p-4' : 'p-5';
   if (!day) return null;
@@ -89,7 +94,7 @@ export function AutopostDayCard({ size }: { size: 'phone' | 'desktop' }) {
           <ul className="m-0 flex list-none flex-col p-0">
             {reasons.map((reason) => (
               <li key={reason.key} className="border-t border-line first:border-t-0">
-                <button type="button" onClick={() => open(reason.per[0]?.platform)} className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl px-1 py-2 text-left outline-offset-2 transition-colors hover:bg-raised">
+                <button type="button" onClick={() => (reason.key === 'archived' ? openArchive(reason.per[0]?.platform) : open(reason.per[0]?.platform))} className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl px-1 py-2 text-left outline-offset-2 transition-colors hover:bg-raised">
                   <span className="flex min-w-0 flex-col"><span className="text-sm">{reason.label}</span><span className="text-xs text-ink-3">{reason.per.map((item) => `${NAMES[item.platform]} ${item.settled[reason.key]}`).join(' · ')}</span></span>
                   <span className="font-mono text-sm font-medium">{reason.total}</span>
                 </button>

@@ -489,8 +489,8 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
         const messages = await page.evaluate(READ_MESSAGES_JS).catch(() => []);
         const resume = parseQuietUntil((Array.isArray(messages) ? messages : []).filter((item) => !item.own).slice(-6).map((item) => item.text));
         // Без підказки бота «до 7:00» і з прямим текстом «адміни обмежили / писати не можна» це не тимчасова заборона, а постійне обмеження
-        // акаунта в чаті: чат іде в архів «Пишуть лише адміни», а не відкладається щодня.
-        if (!resume && permanentRestrictionPattern.test(blockedText)) return withScan({ kind: 'blocked', reason: 'telegram_read_only', detail: blockedText.trim() || writable.disabled });
+        // акаунта в чаті (бан писати, без дати закінчення): чат іде в архів «Забанено», а не відкладається щодня.
+        if (!resume && permanentRestrictionPattern.test(blockedText) && !/\b(?:until|до)\s+\S/iu.test(blockedText)) return withScan({ kind: 'blocked', reason: 'telegram_write_banned', detail: blockedText.trim() || writable.disabled });
         scan = { ...scan, restricted: true };
         return withScan({ kind: 'blocked', reason: 'telegram_chat_restricted', detail: blockedText.trim() || writable.disabled, ...(resume ? { resumeHour: resume.hour, resumeMinute: resume.minute } : {}) });
       }

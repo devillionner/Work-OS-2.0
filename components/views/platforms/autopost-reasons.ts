@@ -61,6 +61,7 @@ const REASONS: Record<string, string> = {
   telegram_chat_missing: 'Чат Telegram не існує, або посилання недійсне чи прострочене.',
   telegram_no_access: 'Акаунт Telegram не бачить цей чат (не учасник, вийшов або вилучений). Перевір чат вручну.',
   telegram_banned: 'Telegram не пускає в цей чат: акаунт заблоковано в ньому.',
+  telegram_write_banned: 'Адміни чату заборонили цьому акаунту писати (без дати закінчення або понад тиждень). Чат в архіві як бан: відкрий його в Telegram і переконайся.',
   telegram_read_only: 'У цьому чаті Telegram писати можуть лише адміни.',
   telegram_slow_mode: 'У чаті Telegram увімкнений повільний режим, чат відкладено до завтра.',
   telegram_chat_restricted: 'Зараз у чаті Telegram писати не можна (нічний режим, повільний режим або права чату). Чат відкладено, не заархівовано; гілки лишаються відкритими.',
@@ -113,7 +114,7 @@ export type AutopostReasonGroup = { key: string; label: string; checkable: boole
 const GROUPS: Array<[string[], AutopostReasonGroup]> = [
   [['send_not_confirmed', 'helper_timeout', 'media_send_not_confirmed'], { key: 'unconfirmed', label: 'Не вдалося підтвердити', checkable: true, risky: true }],
   [['message_not_found'], { key: 'missing', label: 'Повідомлення не знайдено', checkable: true }],
-  [['viber_banned', 'whatsapp_removed_from_group', 'membership_left', 'telegram_banned'], { key: 'blocked', label: 'Заблоковано в групі', checkable: false }],
+  [['viber_banned', 'whatsapp_removed_from_group', 'membership_left', 'telegram_banned', 'telegram_write_banned'], { key: 'blocked', label: 'Заблоковано в групі', checkable: false }],
   [['target_unconfirmed', 'target_not_found', 'target_ambiguous', 'joined_target_not_verified', 'target_not_verified'], { key: 'target', label: 'Не той чат', checkable: false, renameable: true }],
   [['viber_not_joined', 'membership_not_confirmed', 'approval_required', 'whatsapp_join_retry_later'], { key: 'join', label: 'Не вдалося приєднатися', checkable: false }],
   [['send_ui_unavailable', 'blocking_dialog', 'android_error', 'media_attach_failed', 'media_preview_not_ready', 'media_caption_not_found', 'media_caption_mismatch', 'media_send_failed', 'send_failed', 'telegram_send_failed', 'telegram_attachment_not_opened', 'telegram_send_not_clicked', 'telegram_attachment_failed', 'telegram_page_not_ready', 'telegram_chat_not_opened', 'telegram_composer_not_found', 'telegram_text_mismatch', 'telegram_thread_not_opened'], { key: 'screen', label: 'Збій екрана відправки', checkable: false }],

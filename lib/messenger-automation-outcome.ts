@@ -27,7 +27,10 @@ const ARCHIVE_NO_ACCESS = 'Немає доступу';
 const ARCHIVE_DECIDED = 'Не вдалося опублікувати';
 
 const ADMIN_ONLY = new Set(['admin_only', 'read_only', 'viber_read_only', 'telegram_read_only']);
-const BANNED = new Set(['whatsapp_removed_from_group', 'viber_banned', 'membership_left', 'telegram_banned']);
+// `telegram_write_banned`: адміни назавжди заборонили цьому акаунту писати в чаті (чи обмеження без дати) — для власника це бан.
+const BANNED = new Set(['whatsapp_removed_from_group', 'viber_banned', 'membership_left', 'telegram_banned', 'telegram_write_banned']);
+// Тимчасова заборона писати триваліша за цей строк вважається баном.
+export const RESTRICTION_BAN_AFTER_SECONDS = 7 * 86400;
 const MISSING = new Set(['invalid_whatsapp_link', 'invalid_viber_link', 'whatsapp_chat_missing', 'viber_chat_missing', 'telegram_chat_missing']);
 const POSTPONE = new Set(['whatsapp_join_retry_later', 'slow_mode', 'rate_limited', 'viber_slow_mode', 'telegram_slow_mode',
   // Telegram: у чаті зараз не можна писати (нічний режим бота, права чату, «лише адміни» на весь чат) — це не закрита гілка і не архів.
@@ -162,9 +165,15 @@ export async function settleAutopostFailure(
   job: JobRef,
   input: { errorCode: string; result: Record<string, unknown>; now: number; resume?: { hour: unknown; minute: unknown } | null; /** Коли runner натиснув «Надіслати» (epoch, с): від цього моменту шукається повідомлення. */ sentAt?: number | null },
 ): Promise<{ outcome: AutopostOutcome | 'retry'; attempts: number }> {
-  const { errorCode, now } = input;
-  const result = { ...input.result, errorCode };
+  const { now } = input;
+  let errorCode = input.errorCode;
   const chat = await readChatState(db, userId, job.chat_id);
+  // Заборона писати в Telegram, що триває понад тиждень (за часом першого виявлення), — це бан: архів «Забанено», власник може відкрити чат і перевірити.
+  if (errorCode === 'telegram_chat_restricted' && chat?.platform === 'telegram') {
+    const row = await db.prepare(`SELECT telegram_restricted_at FROM chats WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(job.chat_id, userId).first<{ telegram_restricted_at: number | null }>();
+    if (row?.telegram_restricted_at && now - Number(row.telegram_restricted_at) >= RESTRICTION_BAN_AFTER_SECONDS) errorCode = 'telegram_write_banned';
+  }
+  const result = { ...input.result, errorCode, ...(errorCode !== input.errorCode ? { originalCode: input.errorCode } : {}) };
   const policy = chat ? classifyAutopostFailure(errorCode, chat.platform) : ({ kind: 'skip' } as const);
   const attempts = Number(job.attempts) + 1;
   let outcome: AutopostOutcome | 'retry';
