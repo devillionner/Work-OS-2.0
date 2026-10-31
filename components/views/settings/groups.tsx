@@ -14,6 +14,7 @@ import { GoalsPanel } from '@/components/views/shared/goals-panel';
 import { Panel } from '@/components/shell/panel';
 import { APP_VERSION } from '@/lib/app-meta';
 import { BackupButton } from './backup-button';
+import { D1UsageRow } from './d1-usage-row';
 import { ExecutorCard } from './executor-card';
 import { GoalHistoryPanel } from './goal-history-panel';
 import { LeadToolsPanel } from './lead-tools-panel';
@@ -118,6 +119,7 @@ export function ServiceGroup() {
       <Row label="Executor пошуку чатів" description="Підключення runner до авторизованого WhatsApp Web.">
         <Button variant="outline" size="sm" onClick={() => setPanel('executor')}>Налаштувати</Button>
       </Row>
+      <D1UsageRow />
       <Row label="Версія" description={`Work OS ${APP_VERSION}`}>
         <Button variant="outline" size="sm" onClick={openRelease}>Що змінилося</Button>
       </Row>

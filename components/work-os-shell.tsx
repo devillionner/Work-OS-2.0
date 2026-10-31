@@ -14,9 +14,7 @@ import { Rail } from '@/components/shell/rail';
 import { ReleasePanel } from '@/components/shell/release-panel';
 import { useScrollActivity } from '@/components/shell/scroll-activity';
 import { ShellProvider, type ShellContextValue } from '@/components/shell/shell-context';
-import { DemoBar, DemoNotice } from '@/components/shell/demo-bar';
 import { Topbar } from '@/components/shell/topbar';
-import { isDemoEmail } from '@/lib/demo';
 import { useQueryParam } from '@/components/shell/url-state';
 import { DESKTOP, PHONE, WIDE, useMediaQuery } from '@/components/shell/use-media';
 import { ViewPane, TopbarSlotProvider } from '@/components/shell/view-pane';
@@ -168,8 +166,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
     ];
   }, [snapshot.platforms, snapshot.publicationGoal.target, snapshot.chatGoal.target, snapshot.bookingGoal.target]);
 
-  const demo = isDemoEmail(user.email);
-  const topbar = (
+  const header = (
     <Topbar
       title={viewLabel(activeView)}
       phone={phone}
@@ -183,7 +180,6 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
       slotRef={setTopbarSlot}
     />
   );
-  const header = demo ? <>{topbar}<DemoBar /></> : topbar;
 
   const panes = (
     <>
@@ -210,7 +206,6 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
         <PanelSlotProvider element={asideElement}>
           <span hidden data-work-os-revision={syncRevision} />
           <RunnerNotice />
-          {demo ? <DemoNotice /> : null}
           {phone ? (
             <div className="relative min-h-dvh pb-[calc(168px+env(safe-area-inset-bottom))]">
               {header}

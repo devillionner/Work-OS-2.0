@@ -30,6 +30,7 @@ import {
 } from '../lib/chats/whatsapp-waiting-check.ts';
 import { businessDate } from '../lib/business-time.ts';
 import { pushToOwner } from '../lib/push-store.ts';
+import { addToMeter, formatRows, meterStatus, topRoutes, unmetered, D1_WARN_ROWS } from '../lib/d1-meter-state.ts';
 import {
   claimWhatsAppAutopostJob,
   completeWhatsAppAutopostJob,
@@ -153,7 +154,53 @@ export class OwnerChannel {
 
   /** @param {Request} request */
   fetch(request) {
+    // Лічильник прочитаних рядків D1 живе в окремому екземплярі `d1-meter` і не стає в чергу подій каналу власника.
+    if (new URL(request.url).pathname.startsWith('/meter/')) return this.handleMeter(request);
     return this.serial(() => this.handleFetch(request));
+  }
+
+  /**
+   * Денний підсумок прочитаних рядків D1 (3.8.0): `/meter/add` (внесок ізоляту воркера) і `/meter/read`. Доба за UTC.
+   * Від D1_WARN_ROWS власнику йде одне сповіщення з трьома найважчими маршрутами (поза тихою годиною).
+   * @param {Request} request
+   */
+  async handleMeter(request) {
+    const now = Date.now();
+    let data = (await this.ctx.storage.get('meter')) ?? null;
+    let changed = false;
+    if (new URL(request.url).pathname === '/meter/add' && request.method === 'POST') {
+      const body = await request.json().catch(() => null);
+      if (body && typeof body === 'object') { data = addToMeter(data, body, now); changed = true; }
+    } else {
+      const fresh = addToMeter(data, { total: 0, routes: {} }, now);
+      if (!data || data.day !== fresh.day) { data = fresh; changed = true; }
+    }
+    data ??= addToMeter(null, { total: 0, routes: {} }, now);
+    if (data.total >= D1_WARN_ROWS && !data.warned && await this.warnRowsRead(data, now)) { data.warned = true; changed = true; }
+    if (changed) await this.ctx.storage.put('meter', data);
+    return Response.json(meterStatus(data), { headers: { 'Cache-Control': 'no-store' } });
+  }
+
+  /**
+   * @param {{total: number, routes: Record<string, number>}} data
+   * @param {number} now
+   */
+  async warnRowsRead(data, now) {
+    const privateKey = this.env.VAPID_PRIVATE_KEY;
+    if (!privateKey) return false;
+    const hour = kyivHour(now);
+    if (hour >= 22 || hour < 8) return false;
+    try {
+      return await unmetered(async () => {
+        const owner = await this.env.DB.prepare('SELECT id FROM users ORDER BY created_at LIMIT 1').first();
+        if (!owner?.id) return false;
+        const top = topRoutes(data, 3).map((item) => `${item.route.replace(/^GET /, '')} ${formatRows(item.rows)}`).join(', ');
+        await pushToOwner(this.env.DB, privateKey, String(owner.id), { title: `Сьогодні прочитано вже ${formatRows(data.total)} рядків бази`, body: top ? `Найбільше: ${top}.` : 'Ліміт акаунта — 5 млн за добу.', url: '/?go=settings', tag: 'd1-rows' }, nowSeconds());
+        return true;
+      });
+    } catch {
+      return false;
+    }
   }
 
   /** @param {Request} request */
