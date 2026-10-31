@@ -67,7 +67,7 @@ import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFee
 /** @typedef {'browser'|'runner'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId?: string|null, autopostClaimedAt?: number, autopostLanes?: Record<string, {jobId: string, claimedAt: number, current: {send: boolean, startedAt: number, platform: string}}|undefined>, autopostWatchAt?: number, runnerConnectedAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostPace?: Record<string, {intervalSeconds:number, nextAt:number}>, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, runnerVersion?: string, runnerNotices?: Record<string, string>, runnerOfflineAt?: number, pushSentAt?: Record<string, number>, autopostBatchOpen?: Record<string, number>, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId?: string|null, autopostClaimedAt?: number, autopostLanes?: Record<string, {jobId: string, claimedAt: number, current: {send: boolean, startedAt: number, platform: string}}|undefined>, autopostWatchAt?: number, runnerConnectedAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostPace?: Record<string, {intervalSeconds:number, nextAt:number}>, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, runnerVersion?: string, runnerNotices?: Record<string, string>, runnerOfflineAt?: number, runnerOfflineNotified?: boolean, pushSentAt?: Record<string, number>, autopostBatchOpen?: Record<string, number>, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 // The runner pings every 30 s and the runtime records each auto-answered ping per socket. A runner socket
@@ -261,6 +261,7 @@ export class OwnerChannel {
     state.runnerLastSeenAt = nowSeconds();
     state.runnerOnline = true;
     state.runnerOfflineAt = undefined;
+    state.runnerOfflineNotified = undefined;
     state.runnerConnectedAt = Date.now();
     await this.scheduleRunnerWatch();
     // The only runner now connected cannot be working on anything yet: any in-flight task still
@@ -963,8 +964,9 @@ export class OwnerChannel {
   /** @param {OwnerChannelState} state */
   async checkPushWatches(state) {
     const now = Date.now();
-    if (state.runnerOfflineAt && !state.runnerOnline && this.openRunnerCount() === 0 && now >= state.runnerOfflineAt + PUSH_RUNNER_OFFLINE_MS) {
-      await this.notifyOwner(state, 'runner_offline', { title: 'Runner вимкнений', body: 'ПК не підключений уже понад 10 хв, автопост не працює.', url: '/?go=today', tag: 'runner-offline' });
+    // Одне сповіщення на кожне вимкнення: наступне лише після того, як runner під'єднався й зник знову (власник, 2026-10-31).
+    if (state.runnerOfflineAt && !state.runnerOnline && !state.runnerOfflineNotified && this.openRunnerCount() === 0 && now >= state.runnerOfflineAt + PUSH_RUNNER_OFFLINE_MS) {
+      state.runnerOfflineNotified = await this.notifyOwner(state, 'runner_offline', { title: 'Runner вимкнений', body: 'ПК не підключений уже понад 10 хв, автопост не працює.', url: '/?go=today', tag: 'runner-offline' });
     }
     for (const platform of Object.keys(state.autopostBatchOpen ?? {})) {
       if (now - this.autopostLastActivity(state, platform) < PUSH_AUTOPOST_STALL_MS) continue;
@@ -1009,7 +1011,8 @@ export class OwnerChannel {
     for (const lane of AUTOPOST_LANES) { const slot = state.autopostLanes?.[lane]; if (slot?.jobId) times.push(slot.claimedAt + AUTOPOST_LEASE_SECONDS * 1000 + 2000); }
     if (state.autopostWatchAt) times.push(Math.max(state.autopostWatchAt, Date.now() + 1000));
     // Сповіщення: runner офлайн понад 10 хв і партія без кроків понад 15 хв (одні будильники, без опитувань).
-    if (state.runnerOfflineAt && !state.runnerOnline) times.push(Math.max(state.runnerOfflineAt + PUSH_RUNNER_OFFLINE_MS, Date.now() + 1000));
+    // Не частіше за хвилину: у тиху годину сповіщення не йде, і будильник «за секунду» будив би DO щосекунди всю ніч.
+    if (state.runnerOfflineAt && !state.runnerOnline && !state.runnerOfflineNotified) times.push(Math.max(state.runnerOfflineAt + PUSH_RUNNER_OFFLINE_MS, Date.now() + 60_000));
     for (const platform of Object.keys(state.autopostBatchOpen ?? {})) times.push(Math.max(this.autopostLastActivity(state, platform) + PUSH_AUTOPOST_STALL_MS + 1000, Date.now() + 1000));
     if (times.length) await this.ctx.storage.setAlarm(Math.min(...times));
   }
