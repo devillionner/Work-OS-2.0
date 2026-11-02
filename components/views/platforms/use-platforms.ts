@@ -164,7 +164,13 @@ export function openNativeChat(platform: Platform, link: string) {
     }
     return;
   }
-  if (platform === 'telegram') { window.open(link, '_blank', 'noopener,noreferrer'); return; }
+  if (platform === 'telegram') {
+    // На телефоні (PWA на iPhone) нова вкладка з t.me лишала порожнє біле вікно після переходу в Telegram: там одразу
+    // відкриваємо застосунок за tg://. На ПК — як раніше, сторінка t.me у новій вкладці.
+    const native = window.matchMedia('(pointer: coarse)').matches ? nativeChatLink(platform, link) : '';
+    if (native) window.location.assign(native); else window.open(link, '_blank', 'noopener,noreferrer');
+    return;
+  }
   const native = nativeChatLink(platform, link);
   if (native) window.location.assign(native); else window.open(link, '_blank', 'noopener,noreferrer');
 }
