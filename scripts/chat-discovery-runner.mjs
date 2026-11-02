@@ -1361,6 +1361,9 @@ async function pumpViberQueue(){
   catch(error){console.error(`Viber task handler failed: ${error instanceof Error?error.message:String(error)}`);}
   finally{
     processingViberTask=false;
+    // Черга Viber спорожніла (наприклад, оператор натиснув «Зупинити» і DO більше нічого не шле): трей не повинен лишати останню
+    // задачу як таку, що ще виконується.
+    if(!viberTaskQueue.length&&!processingTask&&!incomingTaskQueue.length&&liveWs&&liveWs.readyState===WebSocket.OPEN)setStatus('ready','Готовий: підключено до Work OS');
     void pumpViberQueue();
   }
 }
@@ -1393,7 +1396,7 @@ async function pumpTaskQueue(){
     processingTask=false;
     // Once the pushed queue is drained (e.g. the operator pressed Stop and the DO sends nothing more),
     // the tray must not keep showing the last task as if it were still running.
-    if(!incomingTaskQueue.length&&liveWs&&liveWs.readyState===WebSocket.OPEN)setStatus('ready','Готовий: підключено до Work OS');
+    if(!incomingTaskQueue.length&&!processingViberTask&&!viberTaskQueue.length&&liveWs&&liveWs.readyState===WebSocket.OPEN)setStatus('ready','Готовий: підключено до Work OS');
     pumpTaskQueue();
   }
 }
