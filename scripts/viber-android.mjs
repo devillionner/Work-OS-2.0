@@ -6,6 +6,7 @@ import { execFile, spawn } from 'node:child_process';
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { hideAndroidWindows } from './hyprland-android-windows.mjs';
 
 const VIBER_PACKAGE = 'com.viber.voip';
 const VIBER_LAUNCH = 'com.viber.voip/.WelcomeActivity';
@@ -1109,6 +1110,8 @@ async function post(payload, guard) {
  */
 export async function runViberAndroid(action, payload = {}, { shouldAbort = () => false, onStep = () => {} } = {}) {
   if (process.platform !== 'linux') return { ok: true, status: 'skipped', reason: 'viber_unsupported_platform', severity: 'env' };
+  // Вікна Android (multi_windows у Waydroid) ховаються правилом Hyprland до того, як Viber відкриє перше з них.
+  await hideAndroidWindows().catch(() => {});
   // Перевірка стану під час відправки не чіпає ні adb, ні контролер задачі: вона лише повідомляє, що адаптер зайнятий.
   if (action === 'status') {
     try { return await status(); } catch (error) {
