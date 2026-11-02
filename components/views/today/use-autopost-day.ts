@@ -42,7 +42,7 @@ export function useAutopostDay(): { day: AutopostDay | null; loading: boolean } 
       timer.current = window.setTimeout(() => { timer.current = null; void load(); }, REFRESH_DELAY_MS);
     };
     const off = subscribeLiveMessages((message) => {
-      if ((message.type === 'process_state' && message.process === 'autopost') || (message.type === 'result' && message.process === 'autopost')) schedule();
+      if ((message.type === 'process_state' && message.process === 'autopost') || (message.type === 'result' && message.process === 'autopost') || (message.type === 'hello' && message.resync === true)) schedule();
     });
     return () => { window.clearTimeout(first); off(); if (timer.current !== null) { window.clearTimeout(timer.current); timer.current = null; } };
   }, [active, load]);

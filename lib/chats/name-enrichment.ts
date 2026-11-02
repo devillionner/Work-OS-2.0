@@ -35,7 +35,7 @@ export async function scanChatNames(
   let rows: Row[];
   let hasMore = false;
   if (ids.length) {
-    const result = await db.prepare(`SELECT id,platform,name,link,updated_at FROM chats
+    const result = await db.prepare(`SELECT id,platform,name,link,updated_at FROM chats INDEXED BY sqlite_autoindex_chats_1
       WHERE user_id=?1 AND platform IN ('telegram','whatsapp','viber','facebook')
         AND id IN (SELECT value FROM json_each(?2))
       ORDER BY id LIMIT ?3`).bind(userId, JSON.stringify(ids), MAX_BATCH).all<Row>();

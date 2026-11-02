@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Segmented } from '@/components/ui/segmented';
 import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
+import { useLiveSynced } from '@/components/views/platforms/use-live-synced';
 import type { AutopostPace, AutopostPlatformStatus } from '@/lib/live-channel';
 
 /** Відправок на годину; 0 — без пауз (лише Viber і WhatsApp: у Telegram найвищий темп 30 на годину). */
@@ -83,12 +84,14 @@ function useClock(enabled: boolean): number {
 /** «Наступна публікація о 14:36 · залишилось 12 · орієнтовно до 16:00»: час з DO, число з лічильників партії, кінець — за інтервалом. */
 export function PaceLine({ pace, progress, running, status, noun }: { pace: AutopostPace | null; progress: WhatsAppAutopostProgress | null; running: boolean; status: AutopostPlatformStatus | null; noun: string }) {
   const now = useClock(running);
+  const synced = useLiveSynced();
   if (!running || !progress) return null;
   const left = progress.pending + progress.claimed;
   const paused = status?.state === 'blocked' && status.until !== null && (now === 0 || status.until > now);
   const intervalMs = (pace?.intervalSeconds ?? 0) * 1000;
   const next = pace && pace.nextAt > 0 ? Math.max(pace.nextAt, status?.until ?? 0) : null;
-  const nextText = next === null ? 'зараз' : now > 0 && next <= now ? 'зараз' : `о ${clock(next)}`;
+  // Час зі знімка DO вважаємо дійсним, лише коли канал синхронізований: після сну вкладки він міг застаріти.
+  const nextText = !synced ? 'оновлюю…' : next === null ? 'зараз' : now > 0 && next <= now ? 'зараз' : `о ${clock(next)}`;
   const end = next !== null && intervalMs > 0 && left > 0 ? Math.max(next, now) + (left - 1) * intervalMs : null;
   return (
     <p className="m-0 text-sm text-ink-2" aria-live="polite">

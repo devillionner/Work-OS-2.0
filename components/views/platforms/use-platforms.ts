@@ -109,6 +109,8 @@ function isAutopostResultFor(message: { type?: unknown; process?: unknown; statu
   if (typeof message.platform === 'string' && message.platform !== target) return false;
   return message.status !== 'running' && message.status !== 'released';
 }
+/** hello після перепідключення (телефон приспав вкладку, мережа зникла): подій за цей час могли не дійти, тож прогрес читається один раз. */
+function isResync(message: { type?: unknown; resync?: unknown }) { return message.type === 'hello' && message.resync === true; }
 /** Серія подій (кілька задач підряд) дає одне перечитування. */
 const AUTOPOST_REFRESH_DEBOUNCE_MS = 2_000;
 
@@ -403,7 +405,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     const load = (fromEvent: boolean) => { void readViberAutopost(fromEvent).then((body) => { if (body && !cancelled) applyViberAutopost(body); }).catch(() => { /* наступна подія оновить */ }); };
     load(false);
     const unsubscribe = subscribeLiveMessages((message) => {
-      if (isAutopostResultFor(message, 'viber')) { if (timer) clearTimeout(timer); timer = setTimeout(() => load(true), AUTOPOST_REFRESH_DEBOUNCE_MS); }
+      if (isAutopostResultFor(message, 'viber') || isResync(message)) { if (timer) clearTimeout(timer); timer = setTimeout(() => load(true), AUTOPOST_REFRESH_DEBOUNCE_MS); }
       if (message.type === 'progress' && message.process === 'viber_status') {
         const state = message.state === 'ready' ? 'ready' : message.state === 'busy' ? 'busy' : 'blocked';
         setViberStatus({ state, reason: typeof message.reason === 'string' ? message.reason : null, text: typeof message.text === 'string' ? message.text : '' });
@@ -436,7 +438,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     const load = (fromEvent: boolean) => { void readTelegramAutopost(fromEvent).then((body) => { if (body && !cancelled) applyTelegramAutopost(body); }).catch(() => { /* наступна подія оновить */ }); };
     load(false);
     const unsubscribe = subscribeLiveMessages((message) => {
-      if (isAutopostResultFor(message, 'telegram')) {
+      if (isAutopostResultFor(message, 'telegram') || isResync(message)) {
         if (timer) clearTimeout(timer);
         timer = setTimeout(() => load(true), AUTOPOST_REFRESH_DEBOUNCE_MS);
         // Закінчився прохід гілок: план (групи «Вибрати гілку», «Готові») перераховуємо раз після серії проходів, а не на кожен чат.
@@ -524,10 +526,15 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       const params = new URLSearchParams({ platform, status: queue, search, offset: String(offset), profile: profileFilter });
       if (requestAccountId) params.set('account', requestAccountId);
       if (platform === 'telegram' && queue === 'to_join') params.set('limit', String(poolLimit));
+      // «Показати ще» в «Нових чатах»: читається лише наступний шматок пулу, а вже показані рядки й черга акаунта беруться з кешу.
+      const loadedPool = platform === 'telegram' && queue === 'to_join' && !search && !silent && cached ? cached.chats.length : 0;
+      const sliceFrom = loadedPool > 0 && loadedPool < Math.min(poolLimit, Number(cached?.total) || 0) ? loadedPool : 0;
+      if (sliceFrom > 0) { params.set('offset', String(sliceFrom)); params.set('limit', String(poolLimit - sliceFrom)); params.set('more', '1'); }
       const response = await fetch(`/api/chats?${params}`, { cache: 'no-store', signal: controller.signal });
       const body = await response.json() as ResponseData & { error?: string };
       if (controller.signal.aborted || requestNumber !== loadNumber.current) return;
       if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити чати.');
+      if (sliceFrom > 0 && cached) { body.chats = [...cached.chats, ...body.chats]; body.candidates = cached.candidates; body.offset = cached.offset; }
       if (queue === 'ready' && offset === 0 && !search && profileFilter === 'all' && (platform === 'viber' || platform === 'whatsapp' || platform === 'telegram')) {
         // Групи «Для публікації» (готові, рішення, правила…) складаються з усіх чатів черги, тож решту сторінок дочитуємо одразу.
         const pageSize = body.chats.length;
@@ -618,9 +625,9 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       } catch { /* наступна подія оновить */ }
     };
     const offMessages = subscribeLiveMessages((message) => {
-      if (!isAutopostResultFor(message, 'whatsapp')) return;
+      if (!isAutopostResultFor(message, 'whatsapp') && !isResync(message)) return;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => void refresh(), AUTOPOST_REFRESH_DEBOUNCE_MS);
+      timer = setTimeout(() => void refresh(), isResync(message) ? 0 : AUTOPOST_REFRESH_DEBOUNCE_MS);
     });
     return () => { if (timer) clearTimeout(timer); offMessages(); };
   }, [active, platform]);

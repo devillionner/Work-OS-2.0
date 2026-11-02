@@ -13,6 +13,7 @@ import { PROFILE_CADENCES, saveChatProfile } from '@/lib/chats/profile';
 import type { ChatProfileInput } from '@/lib/chats/profile';
 import { permanentlyDeleteChat } from '@/lib/chats/permanent-delete';
 import { chatMatchesSearch, normalizeChatSearchText } from '@/lib/chats/search';
+import { readSearchIndex, searchIndexKey, storeSearchIndex, type SearchIndexRow } from '@/lib/chats/search-index-cache';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { resolveDailyPublicationGoal } from '@/lib/publication-goal';
 import { revisionCacheEntry, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
@@ -66,8 +67,10 @@ export async function GET(request: Request): Promise<Response> {
   // Telegram «Для приєднання» віддає два розділи: «Нові чати» (chats, зі сторінкою `limit`) і чергу вибраного акаунта (candidates).
   const joinAccount = platform === 'telegram' && status === 'to_join' ? accountId : null;
   const limit = joinAccount ? Math.min(POOL_LIMIT_MAX, Math.max(1, Math.floor(Number(url.searchParams.get('limit'))) || 50)) : 50;
+  // «Показати ще» у «Нових чатах» просить лише наступний шматок пулу (`more=1`): черга акаунта вже в клієнта, її не перечитуємо.
+  const poolMore = Boolean(joinAccount) && !search && url.searchParams.get('more') === '1';
   const { request: cacheRequest, revision } = await revisionCacheEntry(env.DB, user.id, 'chats',
-    `unicode-v2:${platform}:${status}:${profile}:${search}:${offset}:${joinAccount ? limit : ''}:${accountId || ''}:${today}:${Math.floor(now/30)}`);
+    `unicode-v2:${platform}:${status}:${profile}:${search}:${offset}:${joinAccount ? limit : ''}:${poolMore ? 'more' : ''}:${accountId || ''}:${today}:${Math.floor(now/30)}`);
   const cached = await matchRevisionJson(cacheRequest);
   if (cached) return cached;
   const normalizedSearch = normalizeChatSearchText(search);
@@ -89,12 +92,19 @@ export async function GET(request: Request): Promise<Response> {
     const searchAccountFilter=platform==='telegram'
       ? ` AND (c.telegram_account_id=?4 OR (c.telegram_account_id IS NULL AND c.workflow_status='to_join'))`
       : '';
-    const searchIndex=await env.DB.prepare(`SELECT c.id,c.name,c.link,c.telegram_account_id AS account_id ${searchSource}
+    // Індекс (id, назва, посилання) черги береться з пам'яті ізоляту, поки ревізія даних та сама: набір слова по літерах не перечитує чергу.
+    const indexKey=searchIndexKey([user.id,revision,platform,status,profileFilter,accountId]);
+    let indexRows=readSearchIndex(indexKey);
+    if(!indexRows){
+      const searchIndex=await env.DB.prepare(`SELECT c.id,c.name,c.link,c.telegram_account_id AS account_id ${searchSource}
       WHERE c.user_id=?1 AND c.platform=?2 AND ${workflowFilter}${profileFilter}${searchAccountFilter}
       ORDER BY c.updated_at DESC,c.id`)
-      .bind(user.id,platform,status,...(accountId?[accountId]:[]))
-      .all<{id:string;name:string;link:string;account_id:string|null}>();
-    const matched=searchIndex.results.filter(row=>chatMatchesSearch(row.name,row.link,normalizedSearch));
+        .bind(user.id,platform,status,...(accountId?[accountId]:[]))
+        .all<SearchIndexRow>();
+      indexRows=searchIndex.results;
+      storeSearchIndex(indexKey,indexRows);
+    }
+    const matched=indexRows.filter(row=>chatMatchesSearch(row.name,row.link,normalizedSearch));
     if(joinAccount){
       // Пошук діє на обидва розділи: уся черга акаунта й сторінка «Нових чатів».
       const queueMatched=matched.filter(row=>row.account_id!==null);
@@ -119,9 +129,9 @@ export async function GET(request: Request): Promise<Response> {
   const searchRowStatement=search
     ? searchPageIds&&searchPageIds.length
       ? joinAccount
-        ? env.DB.prepare(`SELECT ${chatRowColumns('?3')} FROM chats c ${CHAT_ROW_JOINS} WHERE c.user_id=?1 AND c.platform=?2 AND c.id IN (SELECT value FROM json_each(?4)) ORDER BY c.updated_at DESC,c.id`)
+        ? env.DB.prepare(`SELECT ${chatRowColumns('?3')} FROM chats c INDEXED BY sqlite_autoindex_chats_1 ${CHAT_ROW_JOINS} WHERE c.user_id=?1 AND c.platform=?2 AND c.id IN (SELECT value FROM json_each(?4)) ORDER BY c.updated_at DESC,c.id`)
           .bind(user.id,platform,today,JSON.stringify(searchPageIds))
-        : env.DB.prepare(`SELECT ${chatRowColumns('?3')} FROM chats c ${CHAT_ROW_JOINS} WHERE c.user_id=?1 AND c.platform=?2 AND c.id IN (${searchPageIds.map((_,index)=>`?${index+4}`).join(',')}) ORDER BY c.updated_at DESC,c.id`)
+        : env.DB.prepare(`SELECT ${chatRowColumns('?3')} FROM chats c INDEXED BY sqlite_autoindex_chats_1 ${CHAT_ROW_JOINS} WHERE c.user_id=?1 AND c.platform=?2 AND c.id IN (${searchPageIds.map((_,index)=>`?${index+4}`).join(',')}) ORDER BY c.updated_at DESC,c.id`)
           .bind(user.id,platform,today,...searchPageIds)
       : env.DB.prepare(`SELECT ${chatRowColumns('?3')} FROM chats c ${CHAT_ROW_JOINS} WHERE c.user_id=?1 AND c.platform=?2 AND 0`).bind(user.id,platform,today)
     : null;
@@ -138,7 +148,7 @@ export async function GET(request: Request): Promise<Response> {
   const joinIndex = statements.length;
   if(joinAccount){
     statements.push(telegramJoinSectionCountsStatement(env.DB,{userId:user.id,accountId:joinAccount}));
-    if(!search) statements.push(telegramJoinQueueStatement(env.DB,{userId:user.id,accountId:joinAccount,today,limit:JOIN_QUEUE_MAX}));
+    if(!search&&!poolMore) statements.push(telegramJoinQueueStatement(env.DB,{userId:user.id,accountId:joinAccount,today,limit:JOIN_QUEUE_MAX}));
   }
   const results = await env.DB.batch(statements);
   const [rowsResult, totalResult, countsResult, joinedResult, publishedResult, goalResult, publicationCountResult] = results;
@@ -166,9 +176,9 @@ export async function GET(request: Request): Promise<Response> {
   const listedRows = rowsResult.results as ChatRow[];
   const queueRows = !joinAccount ? [] : search
     ? listedRows.filter((row) => row.telegram_account_id !== null).sort((a, b) => Number(a.join_candidate_at || 0) - Number(b.join_candidate_at || 0) || (a.id < b.id ? -1 : 1))
-    : (results[joinIndex + 1].results as ChatRow[]);
+    : poolMore ? [] : (results[joinIndex + 1].results as ChatRow[]);
   const chats = (joinAccount && search ? listedRows.filter((row) => row.telegram_account_id === null) : listedRows).map(toChat);
-  const candidates = joinAccount ? queueRows.map(toChat) : undefined;
+  const candidates = joinAccount && !poolMore ? queueRows.map(toChat) : undefined;
   chats.sort((a,b) => Number(a.publishedToday)-Number(b.publishedToday)
     || Number(Boolean(a.snoozedUntil && a.snoozedUntil>now))-Number(Boolean(b.snoozedUntil && b.snoozedUntil>now)));
   const countRows = countsResult.results as Array<{workflow_status:string;count:number;confirmed_count:number;draft_count:number;empty_count:number}>;
@@ -180,7 +190,7 @@ export async function GET(request: Request): Promise<Response> {
   counts.profile_review=profileCounts.profile_review.needsReview;
   const goalValue = (goalResult.results[0] as {value_json?:string}|undefined)?.value_json;
   const completedPublications = Number((publicationCountResult.results[0] as {count?:number}|undefined)?.count || 0);
-  const payload = { revision, chats, ...(candidates ? { candidates, sections } : {}), total: sections ? (search ? searchTotal : sections.pool) : Number((totalResult.results[0] as {count?:number})?.count || 0), offset, counts, profileCounts, accountId, joinedToday: joinedResult.results, publishedToday: publishedResult.results, publicationPace: { ratePerHour: 7, completed: completedPublications, target: resolveDailyPublicationGoal(goalValue,today) } };
+  const payload = { revision, chats, ...(joinAccount ? { ...(candidates ? { candidates } : {}), sections } : {}), total: sections ? (search ? searchTotal : sections.pool) : Number((totalResult.results[0] as {count?:number})?.count || 0), offset, counts, profileCounts, accountId, joinedToday: joinedResult.results, publishedToday: publishedResult.results, publicationPace: { ratePerHour: 7, completed: completedPublications, target: resolveDailyPublicationGoal(goalValue,today) } };
   await putRevisionJson(cacheRequest, payload, 45);
   return Response.json(payload, { headers: { 'Cache-Control':'no-store', 'X-Work-OS-Cache':'MISS' } });
 }

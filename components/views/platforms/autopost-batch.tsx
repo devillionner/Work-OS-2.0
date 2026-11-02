@@ -3,7 +3,8 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Check, ChevronDown, Minus, X } from 'lucide-react';
 import { Ring } from '@/components/ui/ring';
-import { subscribeLiveMessages } from '@/lib/live-channel';
+import { getLatestStep, subscribeLiveMessages, type AutopostStep } from '@/lib/live-channel';
+import { useLiveSynced } from '@/components/views/platforms/use-live-synced';
 import { autopostReasonGroup } from '@/components/views/platforms/autopost-reasons';
 
 /** Один чат поточної партії: результат або те, що робиться просто зараз. */
@@ -11,29 +12,25 @@ export type AutopostBatchEntry = { jobId: string; name: string; status: 'claimed
 /** Поточна партія платформи: лічильники лише її задач (скасовані задачі старих партій сюди не потрапляють). */
 export type AutopostBatch = { id: string; startedAt: number; total: number; sent: number; remaining: number; failed: number; skipped: number; cancelled: number; /** Чати партії, що чекають вибору гілки: не «Не вдалося». */ thread?: number; averageSeconds: number | null; entries: AutopostBatchEntry[] };
 
-type LiveStep = { jobId: string; name: string; text: string; startedAt: number; at: number; verify: boolean };
+type LiveStep = AutopostStep;
 const STALE_STEP_MS = 5 * 60_000;
 /** Чому чат відкладено (не збій і не архів). */
 const POSTPONE_REASON: Record<string, string> = { telegram_chat_restricted: 'зараз писати не можна', telegram_slow_mode: 'повільний режим', slow_mode: 'повільний режим', viber_slow_mode: 'повільний режим', rate_limited: 'ліміт частоти' };
 const OUTCOME_LABEL: Record<string, string> = { archived: 'в архів', waiting: 'в «Очікування»', snoozed: 'відкладено', skipped: 'пропущено', resolved: 'вирішено вручну' };
 
-// Останній крок кожної платформи тримається поза компонентом: повідомлення приходять і тоді, коли вкладка «Автопост» закрита, а
-// відкрита пізніше картка одразу показує поточний крок, не чекаючи наступного.
-const latestStep: Record<'whatsapp' | 'viber' | 'telegram', LiveStep | null> = { whatsapp: null, viber: null, telegram: null };
+// Останній крок кожної платформи тримає live-канал (lib/live-channel.ts): він приходить подіями й у hello, тож картка, відкрита посеред
+// партії чи після того, як телефон приспав вкладку, одразу показує поточний крок.
 const stepListeners = new Set<() => void>();
 if (typeof window !== 'undefined') {
   subscribeLiveMessages((message) => {
-    if (message.type !== 'progress' || message.process !== 'autopost_step') return;
-    const platform = message.platform === 'viber' ? 'viber' : message.platform === 'telegram' ? 'telegram' : 'whatsapp';
-    latestStep[platform] = { jobId: String(message.jobId || ''), name: String(message.name || ''), text: String(message.text || ''), startedAt: Number(message.startedAt) || Date.now(), at: Number(message.at) || Date.now(), verify: message.verify === true };
-    for (const listener of stepListeners) listener();
+    if (message.type === 'hello' || (message.type === 'progress' && message.process === 'autopost_step') || (message.type === 'runner_status' && message.connected === false)) for (const listener of stepListeners) listener();
   });
 }
 const subscribeStep = (listener: () => void) => { stepListeners.add(listener); return () => { stepListeners.delete(listener); }; };
 
 /** Крок поточної задачі з live-каналу: runner шле «відкриваю чат», «додаю фото» і далі; опитувань бази тут немає. */
 function useAutopostStep(platform: 'whatsapp' | 'viber' | 'telegram', active: boolean, now: number): LiveStep | null {
-  const step = useSyncExternalStore(subscribeStep, () => latestStep[platform], () => null);
+  const step = useSyncExternalStore(subscribeStep, () => getLatestStep(platform), () => null);
   return active && step && (now === 0 || now - step.at < STALE_STEP_MS) ? step : null;
 }
 
@@ -70,12 +67,13 @@ function entryLabel(entry: AutopostBatchEntry): { icon: 'ok' | 'bad' | 'skip'; t
  */
 /** Що робиться просто зараз: назва чату, крок і час на ньому. */
 function NowBlock({ name, step, now }: { name: string; step: LiveStep | null; now: number }) {
+  const synced = useLiveSynced();
   return (
     <output className="flex flex-col gap-1 rounded-inner border border-line px-4 py-3">
       <p className="m-0 text-xs text-ink-2">Зараз</p>
       <p className="m-0 truncate text-sm font-medium" title={name}>{name || 'Чекаю на runner'}</p>
       <p className="m-0 flex items-center gap-2 text-xs text-ink-2">
-        <span>{step ? (step.verify ? `перевірка: ${step.text}` : step.text) : 'runner ще не повідомив крок'}</span>
+        <span>{step ? (step.verify ? `перевірка: ${step.text}` : step.text) : synced ? 'runner ще не повідомив крок' : 'Оновлюю…'}</span>
         {step && now > 0 ? <span className="ml-auto font-mono tabular-nums">{Math.max(0, Math.round((now - step.startedAt) / 1000))} с</span> : null}
       </p>
     </output>

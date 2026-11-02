@@ -71,6 +71,9 @@ import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFee
 /** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId?: string|null, autopostClaimedAt?: number, autopostLanes?: Record<string, {jobId: string, claimedAt: number, current: {send: boolean, startedAt: number, platform: string}}|undefined>, autopostWatchAt?: number, runnerConnectedAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostPace?: Record<string, {intervalSeconds:number, nextAt:number}>, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, runnerVersion?: string, runnerNotices?: Record<string, string>, runnerOfflineAt?: number, runnerOfflineNotified?: boolean, pushSentAt?: Record<string, number>, autopostBatchOpen?: Record<string, number>, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
+// Останній крок автопосту за платформами (лише для hello нових сторінок) і скільки він лишається актуальним.
+const AUTOPOST_STEPS_KEY = 'autopost_steps';
+const AUTOPOST_STEP_FRESH_MS = 5 * 60_000;
 // The runner pings every 30 s and the runtime records each auto-answered ping per socket. A runner socket
 // with no ping (or connect) for this long is dead even if its close never reached this object.
 const RUNNER_STALE_MS = 75_000;
@@ -179,6 +182,31 @@ export class OwnerChannel {
     if (data.total >= D1_WARN_ROWS && !data.warned && await this.warnRowsRead(data, now)) { data.warned = true; changed = true; }
     if (changed) await this.ctx.storage.put('meter', data);
     return Response.json(meterStatus(data), { headers: { 'Cache-Control': 'no-store' } });
+  }
+
+  /**
+   * Останній крок кожної платформи (чат, що робиться, час початку): лише в ctx.storage, без D1. Нова сторінка (відкрили посеред
+   * партії чи iPhone приспав вкладку) отримує його в hello і одразу бачить, що робиться, а не чекає наступного кроку runner.
+   * @param {{platform: string, jobId?: unknown, name?: unknown, text?: unknown, startedAt?: unknown, at?: unknown, verify?: unknown}} message
+   */
+  async rememberAutopostStep(message) {
+    const steps = (await this.ctx.storage.get(AUTOPOST_STEPS_KEY)) ?? {};
+    steps[message.platform] = {
+      jobId: String(message.jobId ?? '').slice(0, 80),
+      name: String(message.name ?? '').slice(0, 200),
+      text: String(message.text ?? '').slice(0, 200),
+      startedAt: Number(message.startedAt) || Date.now(),
+      at: Number(message.at) || Date.now(),
+      verify: message.verify === true,
+    };
+    await this.ctx.storage.put(AUTOPOST_STEPS_KEY, steps);
+  }
+
+  /** Кроки, не старші за AUTOPOST_STEP_FRESH_MS: старіший крок уже нічого не означає. */
+  async freshAutopostSteps() {
+    const steps = (await this.ctx.storage.get(AUTOPOST_STEPS_KEY)) ?? {};
+    const now = Date.now();
+    return Object.fromEntries(Object.entries(steps).filter(([, step]) => now - Number(step?.at || 0) < AUTOPOST_STEP_FRESH_MS));
   }
 
   /**
@@ -295,7 +323,7 @@ export class OwnerChannel {
   async onBrowserConnected(server, userId) {
     const state = await this.readState();
     if (userId && state.userId !== userId) { state.userId = userId; await this.writeState(state); }
-    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0, ...(state.runnerVersion ? { runnerVersion: state.runnerVersion } : {}), ...(state.runnerNotices ? { runnerNotices: state.runnerNotices } : {}), ...(state.viberStatus ? { viberStatus: state.viberStatus } : {}), ...(state.autopostStatus ? { autopostStatus: state.autopostStatus } : {}), ...(state.autopostPace ? { autopostPace: state.autopostPace } : {}), ...(state.autopostPace?.telegram ? { telegramPace: state.autopostPace.telegram } : {}) }));
+    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0, ...(state.runnerVersion ? { runnerVersion: state.runnerVersion } : {}), ...(state.runnerNotices ? { runnerNotices: state.runnerNotices } : {}), ...(state.viberStatus ? { viberStatus: state.viberStatus } : {}), ...(state.autopostStatus ? { autopostStatus: state.autopostStatus } : {}), ...(state.autopostPace ? { autopostPace: state.autopostPace } : {}), ...(state.autopostPace?.telegram ? { telegramPace: state.autopostPace.telegram } : {}), autopostSteps: await this.freshAutopostSteps() }));
   }
 
   /**
@@ -526,6 +554,7 @@ export class OwnerChannel {
       /** @type {Record<string, number>} */
       const steps = (this.stepAt ??= {});
       steps[message.platform] = Date.now();
+      await this.rememberAutopostStep(message);
     }
     if (message.type === 'progress' || message.type === 'result') {
       this.broadcast('browser', message);
@@ -1080,6 +1109,7 @@ export class OwnerChannel {
     state.runnerOnline = false;
     state.runnerOfflineAt ??= Date.now();
     await this.releaseOrphanedTasks(state);
+    await this.ctx.storage.delete(AUTOPOST_STEPS_KEY);
     this.broadcast('browser', { type: 'runner_status', connected: false });
   }
 

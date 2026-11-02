@@ -233,7 +233,7 @@ export async function mergeDuplicateChats(db:D1Database,input:{
   if(!input.keepId||!removeIds.length) throw new ChatDuplicateError('Оберіть основний чат і дублікати.');
   if(removeIds.length>20) throw new ChatDuplicateError('За раз можна злити до 20 копій.');
   const ids=[input.keepId,...removeIds];
-  const found=await db.prepare(`SELECT c.id,c.name,c.link,c.normalized_link,c.platform,c.workflow_status FROM chats c
+  const found=await db.prepare(`SELECT c.id,c.name,c.link,c.normalized_link,c.platform,c.workflow_status FROM chats c INDEXED BY sqlite_autoindex_chats_1
     WHERE c.user_id=?1 AND c.id IN (SELECT value FROM json_each(?2))`).bind(input.userId,JSON.stringify(ids)).all<{id:string;name:string;link:string;normalized_link:string;platform:string;workflow_status:string}>();
   if(found.results.length!==ids.length) throw new ChatDuplicateError('Чат уже змінено або видалено. Оновіть список.',409);
   const keep=found.results.find(row=>row.id===input.keepId)!;
@@ -282,7 +282,7 @@ export async function mergeDuplicateChats(db:D1Database,input:{
         AND json_extract(le.metadata_json,'$.action') IN ('confirm_leave','undo_leave','joined','approved') ORDER BY le.rowid DESC LIMIT 1),
       (SELECT e.id FROM activity_events e WHERE e.chat_id=?2 AND e.event_type='chat_state_changed' ORDER BY e.rowid DESC LIMIT 1),
       (SELECT p.id FROM activity_events p WHERE p.chat_id=?2 AND p.event_type='publication' ORDER BY p.rowid DESC LIMIT 1)`,input.userId,input.keepId);
-  q(`DELETE FROM chats WHERE user_id=?1 AND id IN (SELECT value FROM json_each(?2))`,input.userId,JSON.stringify(removeIds));
+  q(`DELETE FROM chats INDEXED BY sqlite_autoindex_chats_1 WHERE user_id=?1 AND id IN (SELECT value FROM json_each(?2))`,input.userId,JSON.stringify(removeIds));
   if(canonical&&canonical!==keep.normalized_link) {
     q(`UPDATE chats SET normalized_link=?3,updated_at=?4 WHERE id=?2 AND user_id=?1 AND NOT EXISTS(
       SELECT 1 FROM chats o WHERE o.user_id=?1 AND o.platform=chats.platform AND o.normalized_link=?3 AND o.id<>?2)`,input.userId,input.keepId,canonical,input.now);
