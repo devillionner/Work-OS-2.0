@@ -1,9 +1,8 @@
 'use client';
 
-import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu';
 import { PaceEstimate, PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
+import { ThreadPicker } from '@/components/views/platforms/thread-picker';
 import { AutopostPanel, chatWord, type AutopostMaterialProps, type AutopostPlan, type AutopostReadiness, type TelegramThreadChoice } from '@/components/views/platforms/autopost-panel';
 import type { AutopostAttentionItem, AutopostDecision } from '@/components/views/platforms/autopost-attention';
 import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
@@ -70,19 +69,7 @@ function ThreadChoices({ choices, busy, onChoose, onScan }: { choices: TelegramT
             <li key={choice.chatId} className="flex flex-wrap items-center gap-3 rounded-inner border border-line px-3 py-2.5">
               <span className="min-w-0 flex-1 truncate text-sm font-medium" title={choice.name}>{choice.name}</span>
               {choice.topics.length ? (
-                <Menu>
-                  <MenuTrigger render={<button type="button" disabled={busy} aria-label={`Вибрати гілку для чату ${choice.name}`} className="inline-flex min-h-9 items-center gap-2 rounded-full border border-line px-4 text-sm hover:bg-raised disabled:opacity-45" />}>
-                    {open.length ? 'Вибрати гілку' : 'Усі гілки закриті'}<ChevronDown aria-hidden="true" strokeWidth={1.5} className="size-4" />
-                  </MenuTrigger>
-                  <MenuContent align="end">
-                    {choice.topics.map((topic) => (
-                      <MenuItem key={topic.id} disabled={topic.closed} onClick={() => onChoose(choice.chatId, topic.id)}>
-                        <span className={topic.closed ? 'text-ink-3' : undefined}>{topic.title}</span>
-                        {topic.closed ? <span className="ml-auto text-xs text-ink-3">закрита</span> : null}
-                      </MenuItem>
-                    ))}
-                  </MenuContent>
-                </Menu>
+                <ThreadPicker choice={choice} busy={busy} onChoose={onChoose} />
               ) : <span className="text-xs text-ink-2">Список гілок ще не зібрано</span>}
               <button type="button" disabled={busy} title="Відкриє чат і заново прочитає повний список гілок; місць «на годину» не займає" onClick={() => onScan(choice.chatId)} className="inline-flex min-h-9 items-center rounded-full px-3 text-xs text-ink-2 hover:bg-raised disabled:opacity-45">Перевірити гілки ще раз</button>
               {choice.restrictedAt ? <span className="basis-full text-xs text-ink-2">Зараз писати не можна (обмеження чату). Гілки відкриті, чат відкладається автоматично.</span> : null}

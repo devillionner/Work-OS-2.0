@@ -11,7 +11,7 @@ export function MenuContent({ children, className, align = 'end', side = 'bottom
   return (
     <MenuPrimitive.Portal>
       <MenuPrimitive.Positioner align={align} side={side} sideOffset={8} className="z-[70] outline-none">
-        <MenuPrimitive.Popup className={cn('glass-strong frost shadow-float min-w-48 origin-[var(--transform-origin)] rounded-inner p-1.5 outline-none transition-[opacity,scale] duration-150 data-[ending-style]:scale-95 data-[starting-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0', className)}>
+        <MenuPrimitive.Popup className={cn('glass-strong frost shadow-float scroll-soft max-h-[min(24rem,var(--available-height))] min-w-48 origin-[var(--transform-origin)] touch-pan-y overflow-y-auto overscroll-contain rounded-inner p-1.5 outline-none transition-[opacity,scale] duration-150 data-[ending-style]:scale-95 data-[starting-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0', className)}>
           {children}
         </MenuPrimitive.Popup>
       </MenuPrimitive.Positioner>
