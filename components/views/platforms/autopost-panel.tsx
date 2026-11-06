@@ -12,7 +12,7 @@ import { Surface } from '@/components/ui/surface';
 import { AutopostAttentionList, type AutopostAttentionItem, type AutopostDecision } from '@/components/views/platforms/autopost-attention';
 import { AutopostBatchPanel } from '@/components/views/platforms/autopost-batch';
 import type { WhatsAppAutopostImage, WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
-import { dayLabel } from '@/components/views/platforms/autopost-reasons';
+import { dayLabel, snoozeSummary } from '@/components/views/platforms/autopost-reasons';
 
 /** План запуску з сервера: скільки чатів справді піде в партію й чому решта черги «Для публікації» не йде. */
 export type AutopostPlan = {
@@ -27,8 +27,10 @@ export type AutopostPlan = {
   chats: Array<{ id: string; name: string }>;
   /** Кожен чат черги «Для публікації» рівно в одній групі (за цим розкладом лічаться чіпи, список зліва, «Огляд» і картка). */
   buckets: Record<string, AutopostBucket>;
-  reasons: Record<string, { code: string | null; observed: string | null; next: string | null }>;
+  reasons: Record<string, { code: string | null; observed: string | null; next: string | null; /** Для відкладених: чому й до коли. */ snooze?: SnoozeReason }>;
 };
+/** Чому чат відкладено (бере сервер за останньою відкладеною задачею чату). */
+export type SnoozeReason = { kind: 'restricted_until' | 'restricted' | 'quiet' | 'slow' | 'rate' | 'fresh' | 'manual'; until: number | null };
 export type AutopostBucket = 'ready' | 'decision' | 'tried' | 'published' | 'rules' | 'snoozed' | 'queued' | 'other' | 'thread' | 'schedule' | 'toolong';
 export type TelegramThreadChoice = { chatId: string; name: string; topics: Array<{ id: string; title: string; closed: boolean }>; /** Коли runner востаннє бачив, що в чаті зараз не можна писати (нічний режим, права чату); null — можна. */ restrictedAt?: number | null };
 export type AutopostReadiness = { tone: 'ok' | 'warn' | 'hot' | 'idle'; text: string };
@@ -227,7 +229,7 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
     ['уже пробували сьогодні без відправки', plan.tried],
     ['опубліковано сьогодні', plan.publishedToday],
     ['чекають за правилами частоти', plan.rules, plan.rulesNextDate ? `найближча — ${dayLabel(plan.rulesNextDate)}` : undefined],
-    ['відкладено', plan.snoozed],
+    ['відкладено', plan.snoozed, snoozeSummary(plan)],
     ['уже в черзі автопосту', plan.queued],
     ['інше', plan.other],
   ] : [];

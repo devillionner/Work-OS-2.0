@@ -5,7 +5,7 @@ import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { isSnoozed, type Chat } from '@/components/views/platforms/use-platforms';
 import { noReadyText, type AutopostBucket, type AutopostPlan } from '@/components/views/platforms/autopost-panel';
-import { autopostReasonGroup, autopostReasonText, dayLabel } from '@/components/views/platforms/autopost-reasons';
+import { autopostReasonGroup, autopostReasonText, dayLabel, snoozeText } from '@/components/views/platforms/autopost-reasons';
 import { isSameName } from '@/lib/name-similarity';
 
 /** Що додатково показує рядок у групі: пояснення, чому чат тут, і чи публікація вручну лишається другорядною дією. */
@@ -35,6 +35,7 @@ function noteFor(bucket: AutopostBucket, reason: AutopostPlan['reasons'][string]
   if (bucket === 'toolong') return 'Текст із Бібліотеки довший за 1024 символи: з фото він не влізе в підпис. Скороти текст або прибери фото.';
   if (bucket === 'schedule') return 'Чат стоїть у розкладі, автопост його не бере.';
   if (bucket === 'tried') return reason?.code ? `Автопост не відправив: ${autopostReasonText(reason.code)} Повтор завтра.` : 'Автопост пробував сьогодні, відправки не було. Повтор завтра.';
+  if (bucket === 'snoozed') return snoozeText(reason?.snooze);
   if (bucket === 'rules') return reason?.next ? `Стане доступним ${dayLabel(reason.next)}` : undefined;
   return undefined;
 }

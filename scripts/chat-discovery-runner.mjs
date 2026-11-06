@@ -874,6 +874,11 @@ function sendLive(ws,message){
 const AUTOPOST_RESULT_KEEP_MS=30*60_000;
 const pendingLive=[];
 const autopostResults=new Map();
+// Підпис виконання задачі: режим, момент відправки для перевірки й номер спроби. Та сама задача, повернена в чергу (повтор, перевірка після
+// відправки без підтвердження, повторна відправка), має інший підпис і виконується заново; лише точний повтор тієї самої видачі (DO повторив
+// її після обриву зв'язку) отримує збережений результат. Без цього повтор «verify» віддавав кешований збій, не виконуючись.
+const autopostTaskSig=new Map();
+const taskSignature=(task)=>`${task?.mode||''}|${task?.verify?.sinceEpoch||''}|${task?.attempt??''}`;
 const autopostActive=new Set();
 function sendReliable(message){
   if(liveWs&&liveWs.readyState===WebSocket.OPEN){liveWs.send(JSON.stringify(message));return;}
@@ -882,7 +887,7 @@ function sendReliable(message){
 }
 function sendAutopostResult(message){
   for(const [jobId,item] of autopostResults)if(Date.now()-item.at>AUTOPOST_RESULT_KEEP_MS)autopostResults.delete(jobId);
-  autopostResults.set(message.jobId,{message,at:Date.now()});
+  autopostResults.set(message.jobId,{message,at:Date.now(),sig:autopostTaskSig.get(message.jobId)||''});
   sendReliable(message);
 }
 
@@ -1184,7 +1189,7 @@ async function handleTelegramAutopostTask(ws,job){
     return;
   }
   sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',
-    observedTarget:automated.observedTarget||job.target?.expectedName,targetVerified:reason!=='target_unconfirmed'&&reason!=='telegram_chat_missing',sendConfirmed:false,sendAttempted:automated.sendAttempted===true,errorCode:reason,scan:automated.scan,...(Number.isInteger(automated.resumeHour)?{resumeHour:automated.resumeHour,resumeMinute:automated.resumeMinute}:{})});
+    observedTarget:automated.observedTarget||job.target?.expectedName,targetVerified:reason!=='target_unconfirmed'&&reason!=='telegram_chat_missing',sendConfirmed:false,sendAttempted:automated.sendAttempted===true,errorCode:reason,scan:automated.scan,...(Number.isInteger(automated.restrictedUntil)?{restrictedUntil:automated.restrictedUntil}:{}),...(Number.isInteger(automated.resumeHour)?{resumeHour:automated.resumeHour,resumeMinute:automated.resumeMinute}:{})});
 }
 
 // Проблема середовища чи системний збій WhatsApp Web: задача лишається в черзі без витраченої спроби, DO не видає нічого до `untilMs`,
@@ -1413,7 +1418,10 @@ function onLiveMessage(ws,raw){
     const task=message.task||{};
     if(message.process==='autopost'&&task.jobId){
       const jobId=String(task.jobId);
-      const finished=autopostResults.get(jobId);
+      const sig=taskSignature(task);
+      let finished=autopostResults.get(jobId);
+      if(finished&&finished.sig!==sig){autopostResults.delete(jobId);finished=undefined;}
+      autopostTaskSig.set(jobId,sig);
       if(autopostActive.has(jobId)||incomingTaskQueue.some((item)=>item.taskProcess==='autopost'&&item.task?.jobId===jobId)||viberTaskQueue.some((item)=>item.task?.jobId===jobId)){
         console.log(`Задача ${jobId} уже виконується або чекає в черзі: дубль проігноровано.`);
         return;

@@ -163,7 +163,7 @@ export async function settleAutopostFailure(
   db: D1Database,
   userId: string,
   job: JobRef,
-  input: { errorCode: string; result: Record<string, unknown>; now: number; resume?: { hour: unknown; minute: unknown } | null; /** Коли runner натиснув «Надіслати» (epoch, с): від цього моменту шукається повідомлення. */ sentAt?: number | null },
+  input: { errorCode: string; result: Record<string, unknown>; now: number; resume?: { hour: unknown; minute: unknown } | null; /** Telegram: заборона писати діє до цієї миті (epoch, с). */ restrictedUntil?: number | null; /** Коли runner натиснув «Надіслати» (epoch, с): від цього моменту шукається повідомлення. */ sentAt?: number | null },
 ): Promise<{ outcome: AutopostOutcome | 'retry'; attempts: number }> {
   const { now } = input;
   let errorCode = input.errorCode;
@@ -173,7 +173,10 @@ export async function settleAutopostFailure(
     const row = await db.prepare(`SELECT telegram_restricted_at FROM chats WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(job.chat_id, userId).first<{ telegram_restricted_at: number | null }>();
     if (row?.telegram_restricted_at && now - Number(row.telegram_restricted_at) >= RESTRICTION_BAN_AFTER_SECONDS) errorCode = 'telegram_write_banned';
   }
-  const result = { ...input.result, errorCode, ...(errorCode !== input.errorCode ? { originalCode: input.errorCode } : {}) };
+  // Адміни заборонили писати до дати (підвал «restricted you from messaging until …»): понад тиждень — бан, до тижня — відкласти рівно до цієї миті.
+  const restrictedUntil = errorCode === 'telegram_chat_restricted' && Number(input.restrictedUntil) > now && Number(input.restrictedUntil) < now + 400 * 86400 ? Math.floor(Number(input.restrictedUntil)) : null;
+  if (restrictedUntil && restrictedUntil - now > RESTRICTION_BAN_AFTER_SECONDS) errorCode = 'telegram_write_banned';
+  const result = { ...input.result, errorCode, ...(errorCode !== input.errorCode ? { originalCode: input.errorCode } : {}), ...(restrictedUntil ? { restrictedUntil } : {}), ...(input.resume && !restrictedUntil ? { resumeHour: Number(input.resume.hour), resumeMinute: Number(input.resume.minute) || 0 } : {}) };
   const policy = chat ? classifyAutopostFailure(errorCode, chat.platform) : ({ kind: 'skip' } as const);
   const attempts = Number(job.attempts) + 1;
   let outcome: AutopostOutcome | 'retry';
@@ -215,7 +218,7 @@ export async function settleAutopostFailure(
   if (policy.kind === 'archive') outcome = await archiveChat(db, userId, job.chat_id, policy.reason, now) ? 'archived' : 'needs_decision';
   else if (policy.kind === 'waiting') outcome = await moveToWaiting(db, userId, job.chat_id, now) ? 'waiting' : 'needs_decision';
   else if (policy.kind === 'postpone') {
-    const until = input.resume ? quietResumeAt(now, input.resume.hour, input.resume.minute) : tomorrowStart(now);
+    const until = restrictedUntil && errorCode === 'telegram_chat_restricted' ? restrictedUntil + 60 : input.resume ? quietResumeAt(now, input.resume.hour, input.resume.minute) : tomorrowStart(now);
     outcome = await snoozeUntil(db, userId, job.chat_id, until, now) ? 'snoozed' : 'skipped';
   }
   else if (policy.kind === 'thread') outcome = 'needs_thread';

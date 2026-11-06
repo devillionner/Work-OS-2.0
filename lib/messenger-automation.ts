@@ -239,6 +239,8 @@ export type WhatsAppAutopostTask={
   jobId:string;
   /** Де ця задача в поточній партії, щоб трей runner показав «3/30». */
   progress?:{done:number;total:number};
+  /** Номер спроби цієї задачі: runner відрізняє повтор видачі після обриву зв'язку (той самий номер) від нової спроби. */
+  attempt?:number;
   /** `verify` — лише перевірити, чи повідомлення вже є в чаті, нічого не надсилаючи (дія «Перевірити»). */
   /** `scan` — Telegram: лише подивитись, чи є в чаті гілки й які; нічого не публікується. */
   mode?:'send'|'verify'|'scan';
@@ -468,6 +470,25 @@ export async function createAutopostVerifyJob(db:D1Database,userId:string,origin
  * вкладки й після дій, а не за таймером.
  */
 export type AutopostBucket='ready'|'decision'|'tried'|'published'|'rules'|'snoozed'|'queued'|'other'|'thread'|'schedule'|'toolong';
+/** Чому чат відкладено: заборона писати до дати, нічний режим бота, повільний режим, щойно вступили, відкладено вручну. */
+export type SnoozeReason={kind:'restricted_until'|'restricted'|'quiet'|'slow'|'rate'|'fresh'|'manual';until:number|null};
+const SLOW_CODES=new Set(['slow_mode','telegram_slow_mode','viber_slow_mode']);
+function snoozeReason(row:{snoozed_until:number|null;joined_at:number|null;snooze_result:string|null},now:number):SnoozeReason{
+  const until=row.snoozed_until&&row.snoozed_until>now?row.snoozed_until:null;
+  let result:Record<string,unknown>={};
+  try{const parsed=row.snooze_result?JSON.parse(row.snooze_result):null;if(parsed&&typeof parsed==='object')result=parsed as Record<string,unknown>;}catch{/* без деталей: покажемо «відкладено вручну» */}
+  const code=typeof result.errorCode==='string'?result.errorCode:'';
+  if(code==='telegram_chat_restricted'||code==='telegram_write_banned'){
+    if(Number(result.restrictedUntil)>now)return{kind:'restricted_until',until:Number(result.restrictedUntil)};
+    if(Number.isInteger(result.resumeHour))return{kind:'quiet',until};
+    return{kind:'restricted',until};
+  }
+  if(SLOW_CODES.has(code))return{kind:'slow',until};
+  if(code==='rate_limited')return{kind:'rate',until};
+  if(!until&&row.joined_at&&row.joined_at+21600>now)return{kind:'fresh',until:row.joined_at+21600};
+  return code?{kind:'manual',until}:(row.joined_at&&row.joined_at+21600>now&&!until?{kind:'fresh',until:row.joined_at+21600}:{kind:'manual',until});
+}
+
 export type AutopostPlan={
   total:number;ready:number;publishedToday:number;queued:number;decision:number;tried:number;snoozed:number;
   rules:number;rulesNextDate:string|null;other:number;
@@ -476,7 +497,7 @@ export type AutopostPlan={
   /** Кожен чат черги «Для публікації» рівно в одній групі: за цим розкладом групується список зліва й лічаться чіпи, «Огляд» і картка. */
   buckets:Record<string,AutopostBucket>;
   /** Для «потребують рішення» й «пробували»: код причини й назва, яку бачив месенджер; для «правил» — найближча дата. */
-  reasons:Record<string,{code:string|null;observed:string|null;next:string|null}>;
+  reasons:Record<string,{code:string|null;observed:string|null;next:string|null;/** Для «відкладених»: чому й до коли. */ snooze?:SnoozeReason}>;
   /** Лише Telegram: скільки чатів чекають вибору гілки й у розкладі, і самі чати з гілками, з яких власник вибирає. */
   thread?:number;schedule?:number;threadChoices?:TelegramThreadChoice[];
   /** Лише Telegram: чати, чий текст із Бібліотеки задовгий для підпису до фото (з фото вони в партію не йдуть). */
@@ -508,9 +529,11 @@ export async function readAutopostPlan(db:D1Database,userId:string,platformInput
       (SELECT pr.next_allowed_on FROM chat_profiles pr WHERE pr.chat_id=c.id) AS next_allowed_on,
       (SELECT json_extract(j.result_json,'$.errorCode') FROM whatsapp_autopost_jobs j WHERE j.user_id=c.user_id AND j.chat_id=c.id AND j.published_on=?3 AND j.status='failed' ORDER BY j.updated_at DESC LIMIT 1) AS code,
       (SELECT json_extract(j.result_json,'$.observedTarget') FROM whatsapp_autopost_jobs j WHERE j.user_id=c.user_id AND j.chat_id=c.id AND j.published_on=?3 AND j.status='failed' ORDER BY j.updated_at DESC LIMIT 1) AS observed,
-      COALESCE((SELECT MAX(p2.published_on) FROM chat_publications p2 WHERE p2.user_id=c.user_id AND p2.chat_id=c.id),'') AS last_published
+      COALESCE((SELECT MAX(p2.published_on) FROM chat_publications p2 WHERE p2.user_id=c.user_id AND p2.chat_id=c.id),'') AS last_published,
+      c.snoozed_until AS snoozed_until,c.joined_at AS joined_at,
+      CASE WHEN c.snoozed_until IS NOT NULL AND c.snoozed_until>?2 THEN (SELECT j.result_json FROM whatsapp_autopost_jobs j WHERE j.user_id=c.user_id AND j.chat_id=c.id AND j.status='failed' AND j.outcome='snoozed' ORDER BY j.published_on DESC LIMIT 1) END AS snooze_result
     FROM chats c WHERE c.user_id=?1 AND c.platform=?4 AND c.workflow_status='ready'${telegram?' AND c.telegram_account_id=?6':''}`)
-    .bind(userId,now,date,platform,isoWeekday(date),...(telegram?[telegramAccountId]:[])).all<{id:string;name:string;forum:number|null;bucket:string;next_allowed_on:string|null;code:string|null;observed:string|null;last_published:string}>();
+    .bind(userId,now,date,platform,isoWeekday(date),...(telegram?[telegramAccountId]:[])).all<{id:string;name:string;forum:number|null;bucket:string;next_allowed_on:string|null;code:string|null;observed:string|null;last_published:string;snoozed_until:number|null;joined_at:number|null;snooze_result:string|null}>();
   const plan:AutopostPlan={total:0,ready:0,publishedToday:0,queued:0,decision:0,tried:0,snoozed:0,rules:0,rulesNextDate:null,other:0,chats:[],buckets:{},reasons:{}};
   const ready:Array<{id:string;name:string;last:string}>=[];
   for(const row of rows.results){
@@ -518,6 +541,7 @@ export async function readAutopostPlan(db:D1Database,userId:string,platformInput
     plan.buckets[row.id]=(['ready','decision','tried','published','rules','snoozed','queued','thread','schedule','toolong'].includes(row.bucket)?row.bucket:'other') as AutopostBucket;
     if(row.bucket==='decision'||row.bucket==='tried')plan.reasons[row.id]={code:row.code,observed:row.observed,next:null};
     else if(row.bucket==='rules')plan.reasons[row.id]={code:null,observed:null,next:row.next_allowed_on&&row.next_allowed_on>date?row.next_allowed_on:null};
+    else if(row.bucket==='snoozed')plan.reasons[row.id]={code:null,observed:null,next:null,snooze:snoozeReason(row,now)};
     switch(row.bucket){
       case 'published':plan.publishedToday+=1;break;
       case 'queued':plan.queued+=1;break;
@@ -964,6 +988,7 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
       progress:batch?{done:batch.done,total:batch.total}:undefined,
       mode:verifyMode?'verify':'send',
       verify:verifyMode?{sinceEpoch}:undefined,
+      attempt:Number(row.attempts)||0,
       target:{chatId:row.chat_id,expectedName:row.expected_name,expectedLink:row.expected_link},
       material:{
         advertisementId:row.advertisement_id,advertisementVersion:Number(row.advertisement_version),
@@ -1008,6 +1033,8 @@ export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,in
   jobId:unknown;status:unknown;observedTarget:unknown;targetVerified:unknown;sendConfirmed:unknown;errorCode?:unknown;scan?:unknown;
   /** Telegram: бот-модератор написав, до котрої години чат закритий («до 7:00»). */
   resumeHour?:unknown;resumeMinute?:unknown;
+  /** Telegram: адміни заборонили писати до цієї миті (epoch, с), розібрано з підвалу чату. */
+  restrictedUntil?:unknown;
   /** Коли runner натиснув «Надіслати» (epoch, с). */
   sentAt?:unknown;
 },now:number){
@@ -1070,7 +1097,7 @@ export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,in
     const result={requestedStatus:requestedSent?'sent':'failed',observedTarget,targetVerified,sendConfirmed,errorCode};
     // Що далі з чатом (архів, «Очікування», повтор, відкласти, рішення власника), визначає політика за кодом помилки.
     const resume=input.resumeHour===undefined||input.resumeHour===null?null:{hour:input.resumeHour,minute:input.resumeMinute};
-    const settled=await settleAutopostFailure(db,userId,{id:row.id,chat_id:row.chat_id,attempts:Number(row.attempts)||0,result_json:row.result_json},{errorCode,result,now,resume,sentAt:Number(input.sentAt)||null});
+    const settled=await settleAutopostFailure(db,userId,{id:row.id,chat_id:row.chat_id,attempts:Number(row.attempts)||0,result_json:row.result_json},{errorCode,result,now,resume,restrictedUntil:Number(input.restrictedUntil)||null,sentAt:Number(input.sentAt)||null});
     return {ok:true,status:settled.outcome==='retry'?'pending':'failed',publicationId:null,result:{...result,outcome:settled.outcome}};
   }
 

@@ -130,3 +130,35 @@ export function dayLabel(iso: string): string {
   const [, month, day] = iso.split('-').map(Number);
   return month >= 1 && month <= 12 ? `${day} ${MONTHS[month - 1]}` : iso;
 }
+
+const kyivDay = new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'long', timeZone: 'Europe/Kyiv' });
+const kyivClock = new Intl.DateTimeFormat('uk-UA', { hour: 'numeric', minute: '2-digit', timeZone: 'Europe/Kyiv' });
+
+/** Причина відкладення людською мовою: «Адміни заборонили писати до 14 листопада», «Нічний режим до 7:00», «Повільний режим» тощо. */
+export function snoozeText(reason: { kind: string; until: number | null } | undefined): string {
+  if (!reason) return 'Відкладено вручну';
+  const until = reason.until;
+  switch (reason.kind) {
+    case 'restricted_until': return until ? `Адміни заборонили писати до ${kyivDay.format(new Date(until * 1000))}` : 'Адміни заборонили писати';
+    case 'restricted': return 'Зараз писати не можна (обмеження чату)';
+    case 'quiet': return until ? `Нічний режим до ${kyivClock.format(new Date(until * 1000))}` : 'Нічний режим';
+    case 'slow': return 'Повільний режим';
+    case 'rate': return 'Ліміт частоти';
+    case 'fresh': return 'Вступили менш як 6 год тому';
+    default: return 'Відкладено вручну';
+  }
+}
+
+const SNOOZE_SHORT: Record<string, string> = { restricted_until: 'заборона писати до дати', restricted: 'обмеження чату', quiet: 'нічний режим', slow: 'повільний режим', rate: 'ліміт частоти', fresh: 'щойно вступили', manual: 'вручну' };
+
+/** Зведення «відкладено» для картки автопосту: «заборона писати до дати 3, нічний режим 2». */
+export function snoozeSummary(plan: { buckets: Record<string, string>; reasons: Record<string, { snooze?: { kind: string } }> }): string | undefined {
+  const counts = new Map<string, number>();
+  for (const [id, bucket] of Object.entries(plan.buckets)) {
+    if (bucket !== 'snoozed') continue;
+    const kind = plan.reasons[id]?.snooze?.kind ?? 'manual';
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  if (!counts.size) return undefined;
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([kind, count]) => `${SNOOZE_SHORT[kind] ?? kind} ${count}`).join(', ');
+}

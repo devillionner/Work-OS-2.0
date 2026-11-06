@@ -124,6 +124,47 @@ async function createTelegramPageClient(page) {
 
 const permanentRestrictionPattern = /(?:admins? of this group have restricted your ability to send messages|sending messages is not allowed in this group|you can(?:no|')t send messages in this (?:group|chat)|only admins can send messages|адміністратори групи обмежили|администраторы группы ограничили|надсилати повідомлення в цій групі заборонено|отправлять сообщения в этой группе запрещено)/iu;
 
+
+const MONTHS = new Map(Object.entries({
+  jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3, may: 4, jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7,
+  sep: 8, sept: 8, september: 8, oct: 9, october: 9, nov: 10, november: 10, dec: 11, december: 11,
+  січня: 0, лютого: 1, березня: 2, квітня: 3, травня: 4, червня: 5, липня: 6, серпня: 7, вересня: 8, жовтня: 9, листопада: 10, грудня: 11,
+  января: 0, февраля: 1, марта: 2, апреля: 3, мая: 4, июня: 5, июля: 6, августа: 7, сентября: 8, октября: 9, ноября: 10, декабря: 11,
+}));
+
+/**
+ * Дата, до якої адміни заборонили писати, з підвалу чату: «restricted you from messaging until Nov 14, 2026, 16:09» (en), «до 14 листопада
+ * 2026 р., 16:09» (uk), «до 14 ноября 2026 г., 16:09» (ru), також «до 14.11.2026, 16:09». Час за часовим поясом браузера runner (так його показує
+ * Telegram). Повертає epoch у секундах або null, якщо дату не вдалось розібрати. Рік не вказано — найближчий майбутній.
+ */
+export function parseRestrictionUntil(text, nowMs = Date.now()) {
+  const source = String(text || '').replace(/\s+/g, ' ');
+  let day; let month; let year = null; let hour; let minute; let meridiem = '';
+  let match = source.match(/\buntil\s+([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:,?\s+(\d{4}))?,?\s+(?:at\s+)?(\d{1,2}):(\d{2})\s*([AaPp][Mm])?/u);
+  if (match) { month = MONTHS.get(match[1].toLowerCase()); day = Number(match[2]); year = match[3] ? Number(match[3]) : null; hour = Number(match[4]); minute = Number(match[5]); meridiem = (match[6] || '').toLowerCase(); }
+  if (!match) {
+    match = source.match(/(?:^|[^а-яіїєґ])до\s+(\d{1,2})\s+([а-яіїєґ]{3,10})\.?(?:\s+(\d{4})(?:\s*(?:р|г)\.?)?)?,?\s+(?:о\s+|в\s+)?(\d{1,2}):(\d{2})/iu);
+    if (match) { day = Number(match[1]); month = MONTHS.get(match[2].toLowerCase()); year = match[3] ? Number(match[3]) : null; hour = Number(match[4]); minute = Number(match[5]); }
+  }
+  if (!match) {
+    match = source.match(/(?:^|[^а-яіїєґ])до\s+(\d{1,2})\.(\d{2})\.(\d{4}),?\s+(\d{1,2}):(\d{2})/u);
+    if (match) { day = Number(match[1]); month = Number(match[2]) - 1; year = Number(match[3]); hour = Number(match[4]); minute = Number(match[5]); }
+  }
+  if (!match || month === undefined || !(day >= 1 && day <= 31) || !(hour >= 0 && hour <= 23) || !(minute >= 0 && minute <= 59)) return null;
+  if (meridiem === 'pm' && hour < 12) hour += 12;
+  if (meridiem === 'am' && hour === 12) hour = 0;
+  const now = new Date(nowMs);
+  let at = new Date(year ?? now.getFullYear(), month, day, hour, minute, 0, 0);
+  if (year === null && at.getTime() <= nowMs) at = new Date(now.getFullYear() + 1, month, day, hour, minute, 0, 0);
+  const seconds = Math.floor(at.getTime() / 1000);
+  return Number.isFinite(seconds) && at.getMonth() === month ? seconds : null;
+}
+
+// Помилкове вікно Telegram Web після вставки фото («Something went wrong — This channel is private»): акаунт у каналі вже не має доступу.
+const privateChannelPattern = /(?:channel|chat|group) is private|private (?:channel|chat|group)|канал приватний|чат приватний|канал приватный|чат приватный/iu;
+// Медіа в чаті заборонені: це кнопка в полі, пункт меню вкладень («Posting media content is not allowed in this group») або текст помилки.
+export const mediaForbiddenPattern = /(?:media|photos?|photo and video|вкладен|медіа|медиа).{0,40}(?:isn.?t|is not|not|n.?t) allowed|(?:posting|sending) media|медіа.{0,40}заборон|медиа.{0,40}запрещ|forbidden|не дозволено/iu;
+
 async function findTelegramPage(base, { create = true } = {}) {
   let pages;
   try {
@@ -490,9 +531,11 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
         const resume = parseQuietUntil((Array.isArray(messages) ? messages : []).filter((item) => !item.own).slice(-6).map((item) => item.text));
         // Без підказки бота «до 7:00» і з прямим текстом «адміни обмежили / писати не можна» це не тимчасова заборона, а постійне обмеження
         // акаунта в чаті (бан писати, без дати закінчення): чат іде в архів «Забанено», а не відкладається щодня.
-        if (!resume && permanentRestrictionPattern.test(blockedText) && !/\b(?:until|до)\s+\S/iu.test(blockedText)) return withScan({ kind: 'blocked', reason: 'telegram_write_banned', detail: blockedText.trim() || writable.disabled });
+        // Адміни заборонили писати «до дати» (restricted you from messaging until Nov 14, 2026, 16:09): дату віддаємо серверу, він вирішує за правилом 7 днів.
+        const restrictedUntil = parseRestrictionUntil(blockedText);
+        if (!resume && !restrictedUntil && permanentRestrictionPattern.test(blockedText) && !/\b(?:until|до)\s+\S/iu.test(blockedText)) return withScan({ kind: 'blocked', reason: 'telegram_write_banned', detail: blockedText.trim() || writable.disabled });
         scan = { ...scan, restricted: true };
-        return withScan({ kind: 'blocked', reason: 'telegram_chat_restricted', detail: blockedText.trim() || writable.disabled, ...(resume ? { resumeHour: resume.hour, resumeMinute: resume.minute } : {}) });
+        return withScan({ kind: 'blocked', reason: 'telegram_chat_restricted', detail: blockedText.trim() || writable.disabled, ...(restrictedUntil ? { restrictedUntil } : {}), ...(resume ? { resumeHour: resume.hour, resumeMinute: resume.minute } : {}) });
       }
       return withScan({ kind: 'blocked', reason: 'telegram_composer_not_found', detail: blockedText });
     }
@@ -521,20 +564,34 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
           node.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true })); return true; } catch { return false; } })()`;
       const pasted = await page.evaluate(pasteScript);
       let opened = false;
+      let menuChecked = false;
       // Вікно фото інколи відкривається повільно (Telegram Web у фоні): чекаємо до ≈30 с і один раз вставляємо фото ще раз, якщо за 12 с вікна немає.
+      // Раніше, ніж чекати далі, перевіряємо дві відомі причини, чому воно не відкриється (наживо 2026-11-06, 118 збоїв у журналі):
+      // помилкове вікно «This channel is private» (акаунт без доступу) і заборонені медіа, про які каже лише меню вкладень.
       for (let attempt = 0; pasted && attempt < 75 && !opened; attempt += 1) {
         opened = Boolean(await page.evaluate(`Boolean(document.querySelector('.Modal #editable-message-text-modal'))`));
-        if (!opened && attempt === 30) await page.evaluate(pasteScript);
-        if (!opened) await sleep(400);
+        if (opened) break;
+        const errorText = String(await page.evaluate(`(() => { const modal = [...document.querySelectorAll('.Modal')].find((node) => !node.querySelector('#editable-message-text-modal')); return modal ? (modal.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 200) : ''; })()`) || '');
+        if (errorText) {
+          await closeErrorModal(page);
+          if (privateChannelPattern.test(errorText)) return withScan({ kind: 'blocked', reason: 'telegram_no_access', detail: errorText });
+          if (mediaForbiddenPattern.test(errorText)) { media = null; onStep('photo', 'у цій групі медіа заборонені: публікую лише текст'); break; }
+          return withScan({ kind: 'blocked', reason: 'telegram_attachment_not_opened', detail: JSON.stringify({ modalText: errorText }) });
+        }
+        if (!menuChecked && attempt >= 6) {
+          menuChecked = true;
+          if (await attachMenuForbidsMedia(page)) { media = null; onStep('photo', 'у цій групі медіа заборонені: публікую лише текст'); break; }
+        }
+        if (attempt === 30) await page.evaluate(pasteScript);
+        await sleep(400);
       }
-      if (!opened) {
+      if (media && !opened) {
         // Діагностика: що саме стоїть у полі, коли вікно фото не відкрилось (заборона медіа, інша мова підпису кнопки, довгий запуск вікна).
         const state = await page.evaluate(`JSON.stringify({pasted:${pasted ? 'true' : 'false'},modal:Boolean(document.querySelector('.Modal')),composer:(document.querySelector('#MiddleColumn .Composer')||{}).innerText||'',buttons:[...document.querySelectorAll('#MiddleColumn .Composer button, #MiddleColumn .Composer .Button')].map((n)=>(n.getAttribute('aria-label')||n.innerText||'').trim()).filter(Boolean).slice(0,10),footer:(document.querySelector('.messaging-disabled')||{}).innerText||''})`).catch(() => '');
         await discardAttachment(page);
         return withScan({ kind: 'blocked', reason: 'telegram_attachment_not_opened', detail: String(state).slice(0, 500) });
       }
-      await sleep(600);
-      field = '#editable-message-text-modal';
+      if (media) { await sleep(600); field = '#editable-message-text-modal'; }
     }
     onStep('text', 'вводжу текст');
     if (!await page.click(`document.querySelector(${JSON.stringify(field)})`)) { if (media) await discardAttachment(page); return withScan({ kind: 'blocked', reason: 'telegram_composer_not_found' }); }
@@ -612,6 +669,29 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     try { await client.send('Emulation.clearDeviceMetricsOverride'); } catch { /* вкладка вже закрита */ }
     page.close();
   }
+}
+
+// Помилкове вікно Telegram Web («Something went wrong»): закриваємо кнопкою «OK», інакше Escape.
+async function closeErrorModal(page) {
+  try {
+    const clicked = await page.click(`[...document.querySelectorAll('.Modal button')].find((el) => /^(?:ok|ок|закрити|закрыть|close)$/iu.test((el.innerText || '').trim()))`);
+    if (!clicked) await page.key('Escape', 'Escape', 27);
+    await sleep(400);
+    if (await page.evaluate(`Boolean(document.querySelector('.Modal'))`)) await page.key('Escape', 'Escape', 27);
+  } catch { /* вкладка вже закрита */ }
+}
+
+// Меню «Add attachment» у чаті, де медіа заборонені, містить пункт «Posting media content is not allowed in this group» замість «Photo or Video»
+// (наживо 2026-11-06, «Новини Львова»): вставка фото там мовчки нічого не відкриває. Меню відкривається справжнім кліком і закривається Escape.
+async function attachMenuForbidsMedia(page) {
+  try {
+    if (!await page.click(`document.querySelector('#MiddleColumn .Composer button[aria-label="Add attachment"], #MiddleColumn .Composer button[aria-label="Attach"]')`)) return false;
+    await sleep(700);
+    const items = String(await page.evaluate(`[...document.querySelectorAll('.Composer .MenuItem, .bubble .MenuItem, .Menu .MenuItem')].map((el) => (el.innerText || '').trim()).join(' | ')`) || '');
+    await page.key('Escape', 'Escape', 27);
+    await sleep(300);
+    return /photo or video|фото або відео|фото или видео/iu.test(items) ? false : mediaForbiddenPattern.test(items);
+  } catch { return false; }
 }
 
 // Закрити вікно вкладення без відправки (кнопка «Discard attachments» або Escape): фото не мусить лишитись у полі до наступної задачі.
