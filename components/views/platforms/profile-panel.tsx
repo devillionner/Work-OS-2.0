@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, ExternalLink } from 'lucide-react';
 import { Panel } from '@/components/shell/panel';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,7 @@ import type { ChatProfile, ProfileCadence } from '@/lib/chats/profile';
 import { PROFILE_CADENCES } from '@/lib/chats/profile';
 import { createActionGate } from '@/lib/action-gate';
 import { humanError } from '@/components/ui/human-error';
+import { DirectionsField } from '@/components/views/platforms/directions-field';
 import { TelegramThreadField } from '@/components/views/platforms/telegram-thread-field';
 
 export type ChatWithProfile = { id: string; name: string; link?: string; platform: string; stateToken: string; profile: ChatProfile };
@@ -22,21 +24,23 @@ const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд'];
 
 /** Профіль і правила чату: частота, дозволені дні, напрямки. Відкривається з рядка чату. */
 export function ProfilePanel({ open, chat, onClose, onSaved, onOpenChat }: { open: boolean; chat: ChatWithProfile | null; onClose: () => void; onSaved: (chatId: string, profile: ChatProfile) => void; onOpenChat?: () => void }) {
+  // Кнопки живуть у липкому низі панелі (Sheet/Inspector), а стан форми — у ProfileForm: він малює їх у цей елемент порталом.
+  const [footerEl, setFooterEl] = useState<HTMLElement | null>(null);
   return (
-    <Panel open={open && chat !== null} onOpenChange={(next) => { if (!next) onClose(); }} title="Профіль і правила чату" subtitle="Правила публікації, частота, дозволені дні та напрямки для точного підбору оголошень.">
-      {chat ? <ProfileForm key={chat.id} chat={chat} onClose={onClose} onSaved={onSaved} onOpenChat={onOpenChat} /> : null}
+    <Panel open={open && chat !== null} onOpenChange={(next) => { if (!next) onClose(); }} footer={chat ? <div ref={setFooterEl} /> : null} title="Профіль і правила чату" subtitle="Правила публікації, частота, дозволені дні та напрямки для точного підбору оголошень.">
+      {chat ? <ProfileForm key={chat.id} footerEl={footerEl} chat={chat} onClose={onClose} onSaved={onSaved} onOpenChat={onOpenChat} /> : null}
     </Panel>
   );
 }
 
-function ProfileForm({ chat, onClose, onSaved, onOpenChat }: { chat: ChatWithProfile; onClose: () => void; onSaved: (chatId: string, profile: ChatProfile) => void; onOpenChat?: () => void }) {
+function ProfileForm({ footerEl, chat, onClose, onSaved, onOpenChat }: { footerEl: HTMLElement | null; chat: ChatWithProfile; onClose: () => void; onSaved: (chatId: string, profile: ChatProfile) => void; onOpenChat?: () => void }) {
   const [name, setName] = useState(chat.name);
   const [language, setLanguage] = useState<'uk' | 'ru' | ''>(chat.profile.language || '');
   const [cadence, setCadence] = useState<ProfileCadence>(chat.profile.cadence || 'any');
   const [weekdays, setWeekdays] = useState<number[]>(chat.profile.weekdays || []);
   const [customIntervalDays, setCustomIntervalDays] = useState(chat.profile.customIntervalDays ? String(chat.profile.customIntervalDays) : '');
   const [nextAllowedOn, setNextAllowedOn] = useState(chat.profile.nextAllowedOn || '');
-  const [directions, setDirections] = useState(chat.profile.directions.join('\n'));
+  const [directions, setDirections] = useState<string[]>(chat.profile.directions);
   const [note, setNote] = useState(chat.profile.note || '');
   const [reviewStatus, setReviewStatus] = useState<'draft' | 'confirmed'>(chat.profile.reviewStatus || 'draft');
   const [busy, setBusy] = useState(false);
@@ -53,7 +57,7 @@ function ProfileForm({ chat, onClose, onSaved, onOpenChat }: { chat: ChatWithPro
           method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
           body: JSON.stringify({
             id: chat.id, action: 'profile', stateToken: chat.stateToken,
-            profile: { name, language: language || null, cadence, weekdays, customIntervalDays: cadence === 'custom' ? Number(customIntervalDays) : null, nextAllowedOn: nextAllowedOn || null, directions: directions.split(/\r?\n|,/).map((value) => value.trim()).filter(Boolean), note, reviewStatus },
+            profile: { name, language: language || null, cadence, weekdays, customIntervalDays: cadence === 'custom' ? Number(customIntervalDays) : null, nextAllowedOn: nextAllowedOn || null, directions, note, reviewStatus },
           }),
         });
         const value: unknown = await response.json();
@@ -100,16 +104,19 @@ function ProfileForm({ chat, onClose, onSaved, onOpenChat }: { chat: ChatWithPro
         <legend className="mb-2 p-0 text-xs font-medium text-ink-2">Дозволені дні тижня</legend>
         <div className="flex flex-wrap gap-2">{WEEKDAYS.map((day, index) => <Chip key={day} pressed={weekdays.includes(index + 1)} onClick={() => toggleDay(index + 1)}>{day}</Chip>)}</div>
       </fieldset>
-      <Field label="Цільові напрямки — по одному в рядку" htmlFor="chat-profile-directions"><Textarea id="chat-profile-directions" rows={2} maxLength={1000} value={directions} disabled={busy} placeholder={'Математика\nАнглійська мова'} onChange={(event) => setDirections(event.target.value)} /></Field>
+      <Field label="Цільові напрямки" htmlFor="chat-profile-directions"><DirectionsField id="chat-profile-directions" values={directions} onChange={setDirections} disabled={busy} /></Field>
       <Field label="Нотатка про правила" htmlFor="chat-profile-note"><Textarea id="chat-profile-note" rows={3} maxLength={1000} value={note} disabled={busy} placeholder="Коли краще публікувати, суворість адмінів, додаткові вимоги…" onChange={(event) => setNote(event.target.value)} /></Field>
       <label className="flex items-start gap-3 rounded-inner border border-line px-4 py-3">
         <Checkbox checked={reviewStatus === 'confirmed'} disabled={busy} onCheckedChange={(checked) => setReviewStatus(checked ? 'confirmed' : 'draft')} aria-label="Правила чату перевірені" />
         <span className="min-w-0"><strong className="block text-sm font-medium">Правила чату перевірені</strong><span className="block text-xs text-ink-2">Чат перейде з «Уточнити профіль» у повноцінний робочий статус.</span></span>
       </label>
-      <div className="flex justify-end gap-2">
-        <Button variant="ghost" disabled={busy} onClick={onClose}>Скасувати</Button>
-        <Button variant="action" busy={busy} disabled={!name.trim()} onClick={() => void save()}><Check aria-hidden="true" strokeWidth={1.5} />{busy ? 'Зберігаємо…' : 'Зберегти профіль'}</Button>
-      </div>
+      {footerEl ? createPortal(
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="ghost" className="w-full" disabled={busy} onClick={onClose}>Скасувати</Button>
+          <Button variant="action" className="w-full" busy={busy} disabled={!name.trim()} onClick={() => void save()}><Check aria-hidden="true" strokeWidth={1.5} />{busy ? 'Зберігаємо…' : 'Зберегти профіль'}</Button>
+        </div>,
+        footerEl,
+      ) : null}
     </div>
   );
 }

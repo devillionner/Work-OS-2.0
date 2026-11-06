@@ -153,7 +153,7 @@ function AsidePanel({ title, subtitle, actions, tabs, contentKey, footer, overla
   return (
     <aside ref={root} tabIndex={-1} aria-label={title} className="relative flex h-full min-h-0 flex-col outline-none">
       <Inspector title={title} subtitle={subtitle} actions={actions} tabs={tabs} contentKey={contentKey} onClose={onClose} className="min-h-0 flex-1">{children}</Inspector>
-      {footer ? <div className="shrink-0 border-t border-line px-5 py-3">{footer}</div> : null}
+      {footer ? <div className="shrink-0 border-t border-line px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">{footer}</div> : null}
       <div ref={overlayRef} className="absolute inset-0 z-20 flex flex-col overflow-hidden bg-solid empty:hidden" />
     </aside>
   );
