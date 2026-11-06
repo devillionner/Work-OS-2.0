@@ -13,6 +13,7 @@ import { PROFILE_CADENCES, saveChatProfile } from '@/lib/chats/profile';
 import type { ChatProfileInput } from '@/lib/chats/profile';
 import { permanentlyDeleteChat } from '@/lib/chats/permanent-delete';
 import { chatMatchesSearch, normalizeChatSearchText } from '@/lib/chats/search';
+import { readChatDupInfo, sweepChatDuplicateIndex, type ChatDupInfo } from '@/lib/chats/duplicates';
 import { readSearchIndex, searchIndexKey, storeSearchIndex, type SearchIndexRow } from '@/lib/chats/search-index-cache';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { resolveDailyPublicationGoal } from '@/lib/publication-goal';
@@ -26,7 +27,7 @@ const REQUEST_MAX_BYTES = 64 * 1024;
 type ChatRow = {
   id: string; name: string; link: string; platform: string; workflow_status: string;
   joined_at: number | null; snoozed_until: number | null; archive_reason: string | null; archived_at: number | null; snooze_count: number; left_at: number | null;
-  profile_status: string | null; published_today: number;
+  profile_status: string | null; published_today: number; dup_flag?: number;
   profile_language: string | null; profile_cadence: string | null; profile_weekdays: string | null;
   profile_custom_interval_days: number | null; profile_next_allowed_on: string | null;
   profile_directions: string | null; profile_note: string | null;
@@ -150,8 +151,14 @@ export async function GET(request: Request): Promise<Response> {
     statements.push(telegramJoinSectionCountsStatement(env.DB,{userId:user.id,accountId:joinAccount}));
     if(!search&&!poolMore) statements.push(telegramJoinQueueStatement(env.DB,{userId:user.id,accountId:joinAccount,today,limit:JOIN_QUEUE_MAX}));
   }
+  // Черга перерахунку позначок дублікатів не порожня: розбираємо одну порцію (читає лише змінені чати), позначки з'являться в наступній відповіді.
+  statements.push(env.DB.prepare('SELECT 1 AS pending FROM chat_dup_pending WHERE user_id=?1 LIMIT 1').bind(user.id));
   const results = await env.DB.batch(statements);
+  if (results[results.length - 1].results.length) await sweepChatDuplicateIndex(env.DB, user.id, 1).catch(() => false);
   const [rowsResult, totalResult, countsResult, joinedResult, publishedResult, goalResult, publicationCountResult] = results;
+  // Дублікати лише для позначених чатів цієї сторінки: пари за ключами, групи за первинним ключем.
+  const flaggedIds = [...(rowsResult.results as ChatRow[]), ...(joinAccount && !search && !poolMore ? (results[joinIndex + 1].results as ChatRow[]) : [])].filter((row) => Number(row.dup_flag)).map((row) => row.id);
+  const dupInfo = await readChatDupInfo(env.DB, user.id, [...new Set(flaggedIds)]).catch(() => new Map<string, ChatDupInfo>());
   const toChat = (row: ChatRow) => ({
     id: row.id, name: row.name, link: row.link, platform: row.platform,
     status: row.workflow_status, archiveReason: row.archive_reason, archivedAt: row.archived_at,
@@ -170,6 +177,7 @@ export async function GET(request: Request): Promise<Response> {
     ...publicationAvailability(row, now),
     inSchedule: Boolean(row.in_schedule),
     candidateAt: row.join_candidate_at === null || row.join_candidate_at === undefined ? null : Number(row.join_candidate_at),
+    dup: dupInfo.get(row.id) ?? null,
   });
   const sectionRows = joinAccount ? (results[joinIndex].results as Array<{ account_key: string; count: number }>) : [];
   const sections = joinAccount ? { queue: Number(sectionRows.find((row) => row.account_key === joinAccount)?.count || 0), pool: Number(sectionRows.find((row) => row.account_key === '')?.count || 0) } : null;

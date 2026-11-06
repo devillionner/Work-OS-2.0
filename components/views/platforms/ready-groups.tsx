@@ -7,6 +7,7 @@ import { isSnoozed, type Chat } from '@/components/views/platforms/use-platforms
 import { noReadyText, type AutopostBucket, type AutopostPlan } from '@/components/views/platforms/autopost-panel';
 import { autopostReasonGroup, autopostReasonText, dayLabel, snoozeText } from '@/components/views/platforms/autopost-reasons';
 import { isSameName } from '@/lib/name-similarity';
+import { DuplicateRows } from '@/components/views/platforms/duplicate-frame';
 
 /** Що додатково показує рядок у групі: пояснення, чому чат тут, і чи публікація вручну лишається другорядною дією. */
 export type RowExtra = { note?: string; manual?: boolean };
@@ -65,7 +66,13 @@ export function ReadyGroups({ chats, clock, plan, complete, renderRow, onOpenDec
   const countOf = (key: AutopostBucket) => (plan && complete ? (key === 'published' ? plan.publishedToday : key === 'thread' || key === 'schedule' ? plan[key] ?? 0 : key === 'toolong' ? plan.tooLong ?? 0 : plan[key]) ?? 0 : grouped.get(key)?.length ?? 0) as number;
   const list = (key: AutopostBucket, items: Chat[]) => (
     <ul className="m-0 flex list-none flex-col gap-2 p-0">
-      {items.map((chat) => renderRow(chat, { note: plan ? noteFor(key, plan.reasons[chat.id], chat.name) : undefined, manual: key !== 'ready' }))}
+      <DuplicateRows
+        items={items.map((chat) => ({ value: chat, id: chat.id, dup: chat.dup }))}
+        renderItem={(chat, dupNote) => {
+          const note = plan ? noteFor(key, plan.reasons[chat.id], chat.name) : undefined;
+          return renderRow(chat, { note: [note, dupNote].filter(Boolean).join(' · ') || undefined, manual: key !== 'ready' });
+        }}
+      />
     </ul>
   );
 

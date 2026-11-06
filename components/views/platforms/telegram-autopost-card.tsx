@@ -2,6 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { PaceEstimate, PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
+import { DuplicateRows } from '@/components/views/platforms/duplicate-frame';
 import { ThreadPicker } from '@/components/views/platforms/thread-picker';
 import { AutopostPanel, chatWord, type AutopostMaterialProps, type AutopostPlan, type AutopostReadiness, type TelegramThreadChoice } from '@/components/views/platforms/autopost-panel';
 import type { AutopostAttentionItem, AutopostDecision } from '@/components/views/platforms/autopost-attention';
@@ -63,11 +64,12 @@ function ThreadChoices({ choices, busy, onChoose, onScan }: { choices: TelegramT
       </div>
       <p className="m-0 text-xs text-ink-2">У цих чатах є гілки. Такі чати в партію не входять і місць «на годину» не займають; чат піде в чергу, щойно ти вибереш гілку, і наступного разу питати не буду. Список гілок може бути неповним: «Знайти гілки» доповнює його.</p>
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
-        {choices.map((choice) => {
+        <DuplicateRows items={choices.map((choice) => ({ value: choice, id: choice.chatId, dup: choice.dup }))} renderItem={(choice, dupNote) => {
           const open = choice.topics.filter((topic) => !topic.closed);
           return (
             <li key={choice.chatId} className="flex flex-wrap items-center gap-3 rounded-inner border border-line px-3 py-2.5">
               <span className="min-w-0 flex-1 truncate text-sm font-medium" title={choice.name}>{choice.name}</span>
+              {dupNote ? <span className="basis-full text-xs text-ink-2">{dupNote}</span> : null}
               {choice.topics.length ? (
                 <ThreadPicker choice={choice} busy={busy} onChoose={onChoose} />
               ) : <span className="text-xs text-ink-2">Список гілок ще не зібрано</span>}
@@ -76,7 +78,7 @@ function ThreadChoices({ choices, busy, onChoose, onScan }: { choices: TelegramT
               {choice.topics.length && !open.length ? <span className="basis-full text-xs text-ink-2">Усі гілки позначені закритими (значок замка в Telegram). Якщо це не так, перевір гілки ще раз.</span> : null}
             </li>
           );
-        })}
+        }} />
       </ul>
     </section>
   );

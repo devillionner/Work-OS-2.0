@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { getCurrentUser } from '@/lib/auth';
-import { ChatDuplicateError, mergeDuplicateChats, readChatDuplicateGroups, renameDuplicateChat } from '@/lib/chats/duplicates';
+import { ChatDuplicateError, markChatsApart, mergeDuplicateChats, readChatDuplicateGroups, renameDuplicateChat } from '@/lib/chats/duplicates';
 import { readJsonObject, sameOrigin } from '@/lib/http-json';
 
 const PLATFORMS=new Set(['telegram','whatsapp','viber','facebook']);
@@ -32,6 +32,10 @@ export async function POST(request:Request):Promise<Response>{
       const removeIds=Array.isArray(parsed.removeIds)?parsed.removeIds.filter((id):id is string=>typeof id==='string').map(id=>id.trim().slice(0,200)):[];
       const result=await mergeDuplicateChats(env.DB,{userId:user.id,keepId,removeIds,acceptLoss:parsed.acceptLoss===true,now:unixNow()});
       return Response.json({ok:true,...result});
+    }
+    if(action==='apart'){
+      const ids=Array.isArray(parsed.ids)?parsed.ids.filter((id):id is string=>typeof id==='string').map(id=>id.trim().slice(0,200)):[];
+      return Response.json({ok:true,...await markChatsApart(env.DB,{userId:user.id,ids,now:unixNow()})});
     }
     if(action!=='rename')return bad('Невідома дія менеджера дублікатів.');
     const id=text(parsed.id);

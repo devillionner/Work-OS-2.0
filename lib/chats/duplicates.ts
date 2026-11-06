@@ -3,6 +3,13 @@ import { cleanChatName, normalizeGroupLink } from './bulk-input.ts';
 import { chatStateEvent, chatStateTokenSql } from './state.ts';
 
 export const DUPLICATE_SWEEP_CHUNK = 500;
+/**
+ * «Це різні чати»: пара, яку власник позначив різною, зберігається в chat_dup_keys рядками kind='apart' (ключ — впорядкована пара id, по
+ * рядку на кожен чат пари). Збіг лише за назвою для такої пари більше не пропонується; збіг за посиланням ігнорувати не можна.
+ */
+const NOT_APART_SQL = `NOT (k1.kind='name' AND EXISTS(SELECT 1 FROM chat_dup_keys x WHERE x.user_id=k1.user_id AND x.kind='apart'
+  AND x.key=CASE WHEN k1.chat_id<k2.chat_id THEN k1.chat_id||'|'||k2.chat_id ELSE k2.chat_id||'|'||k1.chat_id END AND x.chat_id=k1.chat_id))`;
+const apartKey = (a:string,b:string)=>a<b?`${a}|${b}`:`${b}|${a}`;
 const SWEEP_MAX_CHUNKS = 4;
 
 export type DuplicateChat = {
@@ -79,7 +86,7 @@ export async function sweepChatDuplicateIndex(db:D1Database,userId:string,chunks
       if(name) keys.push({kind:'name',key:`${row.platform}|${name}`,chat:row.id});
     }
     await db.batch([
-      db.prepare(`DELETE FROM chat_dup_keys WHERE chat_id IN (SELECT value FROM json_each(?1))`).bind(JSON.stringify(ids)),
+      db.prepare(`DELETE FROM chat_dup_keys WHERE chat_id IN (SELECT value FROM json_each(?1)) AND kind IN ('link','name')`).bind(JSON.stringify(ids)),
       db.prepare(`INSERT OR REPLACE INTO chat_dup_keys(user_id,kind,key,chat_id)
         SELECT ?1,json_extract(v.value,'$.kind'),json_extract(v.value,'$.key'),json_extract(v.value,'$.chat') FROM json_each(?2) v`)
         .bind(userId,JSON.stringify(keys)),
@@ -97,7 +104,7 @@ export async function sweepChatDuplicateIndex(db:D1Database,userId:string,chunks
     const pairs=await db.prepare(`SELECT k1.chat_id AS a,k2.chat_id AS b FROM json_each(?2) j
       CROSS JOIN chat_dup_keys k1 INDEXED BY chat_dup_keys_chat_idx ON k1.chat_id=j.value
       CROSS JOIN chat_dup_keys k2 ON k2.user_id=k1.user_id AND k2.kind=k1.kind AND k2.key=k1.key AND k2.chat_id<>k1.chat_id
-      WHERE k1.user_id=?1`).bind(userId,JSON.stringify(ids)).all<{a:string;b:string}>();
+      WHERE k1.user_id=?1 AND k1.kind IN ('link','name') AND ${NOT_APART_SQL}`).bind(userId,JSON.stringify(ids)).all<{a:string;b:string}>();
     const flagged=new Set<string>();
     for(const pair of pairs.results) { flagged.add(pair.a); flagged.add(pair.b); }
     await db.batch([
@@ -143,12 +150,18 @@ export async function readChatDuplicateGroups(db:D1Database,input:{
     for(const chat of group.chats) for(const day of new Set(byChat.get(chat.id)||[])) days.set(day,(days.get(day)||0)+1);
     // Архів із справжньою причиною (нецільовий, забанено, чат не існує) лишається основним, щоб блокування не загубилось;
     // архів «Дублікат» від старого менеджера — найнижчий пріоритет.
-    const blocked=(chat:DuplicateChat)=>chat.status==='archived'&&Boolean(chat.archiveReason)&&chat.archiveReason!=='Дублікат';
-    const rank=(chat:DuplicateChat)=>[blocked(chat)?0:1,publications[chat.id]>0?0:1,chat.status==='archived'&&!blocked(chat)?5:mainStatusRank(chat.status),created.get(chat.id)??0] as const;
-    const keep=[...group.chats].sort((a,b)=>{const x=rank(a),y=rank(b);return x[0]-y[0]||x[1]-y[1]||x[2]-y[2]||x[3]-y[3]||a.id.localeCompare(b.id);})[0];
+    const keep=pickKeepChat(group.chats,publications,created);
     return {...group,keepId:keep.id,publications,collisionDays:[...days.values()].filter(count=>count>1).length};
   });
   return {groups,indexing:false};
+}
+
+/** Основний чат групи: «далі по роботі». Архів зі справжньою причиною (нецільовий, забанено, чат не існує) лишається основним, щоб блокування не
+ * загубилось; архів «Дублікат» від старого менеджера — найнижчий пріоритет. */
+function pickKeepChat(chats:Array<{id:string;status:string;archiveReason:string|null}>,publications:Record<string,number>,created:Map<string,number>){
+  const blocked=(chat:{status:string;archiveReason:string|null})=>chat.status==='archived'&&Boolean(chat.archiveReason)&&chat.archiveReason!=='Дублікат';
+  const rank=(chat:{id:string;status:string;archiveReason:string|null})=>[blocked(chat)?0:1,(publications[chat.id]||0)>0?0:1,chat.status==='archived'&&!blocked(chat)?5:mainStatusRank(chat.status),created.get(chat.id)??0] as const;
+  return [...chats].sort((a,b)=>{const x=rank(a),y=rank(b);return x[0]-y[0]||x[1]-y[1]||x[2]-y[2]||x[3]-y[3]||a.id.localeCompare(b.id);})[0];
 }
 
 function mainStatusRank(status:string){return ({ready:0,waiting:1,failed:2,to_join:3,archived:4} as Record<string,number>)[status]??5;}
@@ -241,7 +254,7 @@ export async function mergeDuplicateChats(db:D1Database,input:{
   // Кожна копія має збігатися з основним чатом за ключем (посиланням чи назвою): довільне видалення чужого чату неможливе.
   const linked=await db.prepare(`SELECT DISTINCT b.chat_id AS id FROM chat_dup_keys a
     JOIN chat_dup_keys b ON b.user_id=a.user_id AND b.kind=a.kind AND b.key=a.key AND b.chat_id<>a.chat_id
-    WHERE a.user_id=?1 AND a.chat_id=?2 AND b.chat_id IN (SELECT value FROM json_each(?3))`)
+    WHERE a.user_id=?1 AND a.chat_id=?2 AND a.kind IN ('link','name') AND b.chat_id IN (SELECT value FROM json_each(?3))`)
     .bind(input.userId,input.keepId,JSON.stringify(removeIds)).all<{id:string}>();
   if(linked.results.length!==removeIds.length) throw new ChatDuplicateError('Ці чати не збігаються за посиланням чи назвою. Оновіть список.',409);
   const pubs=await db.prepare(`SELECT chat_id,published_on FROM chat_publications WHERE user_id=?1 AND chat_id IN (SELECT value FROM json_each(?2))`)
@@ -269,6 +282,12 @@ export async function mergeDuplicateChats(db:D1Database,input:{
     q(`UPDATE telegram_schedule_slots SET chat_id=NULL WHERE user_id=?1 AND chat_id=?2 AND status='pending'
       AND EXISTS(SELECT 1 FROM telegram_schedule_slots k WHERE k.user_id=?1 AND k.chat_id=?3 AND k.status='pending' AND k.telegram_account_id=telegram_schedule_slots.telegram_account_id)`,input.userId,rm,input.keepId);
     q(`UPDATE telegram_schedule_slots SET chat_id=?3 WHERE user_id=?1 AND chat_id=?2`,input.userId,rm,input.keepId);
+    // Вибрана гілка Telegram і список гілок переходять на основний чат, якщо в нього їх немає (інакше він знову стане в «Вибрати гілку»).
+    q(`UPDATE chats SET telegram_forum=(SELECT r.telegram_forum FROM chats r WHERE r.id=?3),telegram_thread_id=(SELECT r.telegram_thread_id FROM chats r WHERE r.id=?3),
+      telegram_thread_title=(SELECT r.telegram_thread_title FROM chats r WHERE r.id=?3)
+      WHERE id=?2 AND user_id=?1 AND telegram_thread_id IS NULL AND EXISTS(SELECT 1 FROM chats r WHERE r.id=?3 AND r.user_id=?1 AND r.telegram_thread_id IS NOT NULL)`,input.userId,input.keepId,rm);
+    q(`UPDATE chats SET telegram_topics_json=(SELECT r.telegram_topics_json FROM chats r WHERE r.id=?3),telegram_forum=COALESCE(telegram_forum,(SELECT r.telegram_forum FROM chats r WHERE r.id=?3))
+      WHERE id=?2 AND user_id=?1 AND telegram_topics_json IS NULL AND EXISTS(SELECT 1 FROM chats r WHERE r.id=?3 AND r.user_id=?1 AND r.telegram_topics_json IS NOT NULL)`,input.userId,input.keepId,rm);
     q(`UPDATE leads SET source_chat_id=?3 WHERE user_id=?1 AND source_chat_id=?2`,input.userId,rm,input.keepId);
     q(`UPDATE chat_discovery_candidates SET imported_chat_id=?3 WHERE user_id=?1 AND imported_chat_id=?2`,input.userId,rm,input.keepId);
     q(`UPDATE chat_profiles SET chat_id=?3 WHERE chat_id=?2 AND ?1<>'' AND NOT EXISTS(SELECT 1 FROM chat_profiles WHERE chat_id=?3)`,input.userId,rm,input.keepId);
@@ -297,4 +316,78 @@ export async function mergeDuplicateChats(db:D1Database,input:{
   const after=await db.prepare(`SELECT published_on,COUNT(*) AS n FROM chat_publications WHERE user_id=?1 AND chat_id=?2 GROUP BY published_on`)
     .bind(input.userId,input.keepId).all<{published_on:string;n:number}>();
   return {merged:removeIds.length,movedPublications:moved,lostPublications:lost,daysBefore,daysAfter:Object.fromEntries(after.results.map(row=>[row.published_on,row.n]))};
+}
+
+export type ChatDupMember = {
+  id:string; name:string; link:string; status:string; archiveReason:string|null; accountName:string|null; telegramAccountId:string|null;
+  publications:number; lastPublished:string|null;
+};
+/** Пара (чи більше) чатів, що збігаються: точно (те саме канонічне посилання) чи лише за назвою; `keepId` — основний («далі по роботі»). */
+export type ChatDupInfo = { key:string; exact:boolean; keepId:string; members:ChatDupMember[] };
+
+/**
+ * Дублікати для чатів поточної сторінки списку. Читається лише для позначених (`chat_dup_flags`) чатів: пари — за первинним ключем
+ * chat_dup_keys, чати групи — за первинним ключем chats, публікації — за індексом (chat_id, …). Повертає за id чату її групу
+ * (одна й та сама група для всіх членів).
+ */
+export async function readChatDupInfo(db:D1Database,userId:string,flaggedIds:string[]):Promise<Map<string,ChatDupInfo>> {
+  const result=new Map<string,ChatDupInfo>();
+  if(!flaggedIds.length) return result;
+  const pairs=await db.prepare(`SELECT k1.chat_id AS a,k2.chat_id AS b,k1.kind AS kind FROM json_each(?2) j
+    CROSS JOIN chat_dup_keys k1 INDEXED BY chat_dup_keys_chat_idx ON k1.chat_id=j.value
+    CROSS JOIN chat_dup_keys k2 ON k2.user_id=k1.user_id AND k2.kind=k1.kind AND k2.key=k1.key AND k2.chat_id<>k1.chat_id
+    WHERE k1.user_id=?1 AND k1.kind IN ('link','name') AND ${NOT_APART_SQL}`).bind(userId,JSON.stringify(flaggedIds)).all<{a:string;b:string;kind:string}>();
+  if(!pairs.results.length) return result;
+  const parent=new Map<string,string>();
+  const find=(id:string):string=>{const p=parent.get(id)??id;if(p===id){parent.set(id,id);return id;}const r=find(p);parent.set(id,r);return r;};
+  const exactRoots=new Set<string>();
+  for(const pair of pairs.results){const ra=find(pair.a),rb=find(pair.b);if(ra!==rb)parent.set(rb,ra);}
+  for(const pair of pairs.results) if(pair.kind==='link') exactRoots.add(find(pair.a));
+  const ids=[...parent.keys()];
+  const [chats,pubs]=await Promise.all([
+    db.prepare(`SELECT c.id,c.name,c.link,c.normalized_link,c.platform,c.workflow_status,c.archive_reason,c.telegram_account_id,t.name AS account_name,c.created_at
+      FROM chats c INDEXED BY sqlite_autoindex_chats_1 LEFT JOIN telegram_accounts t ON t.id=c.telegram_account_id
+      WHERE c.user_id=?1 AND c.id IN (SELECT value FROM json_each(?2))`).bind(userId,JSON.stringify(ids))
+      .all<{id:string;name:string;link:string;normalized_link:string;platform:string;workflow_status:string;archive_reason:string|null;telegram_account_id:string|null;account_name:string|null;created_at:number}>(),
+    db.prepare(`SELECT p.chat_id AS chat_id,COUNT(*) AS n,MAX(p.published_on) AS last FROM json_each(?2) j CROSS JOIN chat_publications p ON p.chat_id=j.value
+      WHERE p.user_id=?1 GROUP BY p.chat_id`).bind(userId,JSON.stringify(ids)).all<{chat_id:string;n:number;last:string|null}>(),
+  ]);
+  const byId=new Map(chats.results.map(row=>[row.id,row]));
+  const pubInfo=new Map(pubs.results.map(row=>[row.chat_id,row]));
+  const created=new Map(chats.results.map(row=>[row.id,row.created_at]));
+  const roots=new Map<string,string[]>();
+  for(const id of ids){if(!byId.has(id))continue;const root=find(id);roots.set(root,[...(roots.get(root)||[]),id]);}
+  for(const [root,members] of roots){
+    if(members.length<2) continue;
+    const publications=Object.fromEntries(members.map(id=>[id,Number(pubInfo.get(id)?.n)||0]));
+    const keep=pickKeepChat(members.map(id=>({id,status:byId.get(id)!.workflow_status,archiveReason:byId.get(id)!.archive_reason})),publications,created);
+    const info:ChatDupInfo={key:[...members].sort().join(':'),exact:exactRoots.has(root),keepId:keep.id,members:members.map(id=>{
+      const row=byId.get(id)!;
+      return {id,name:row.name,link:row.link,status:row.workflow_status,archiveReason:row.archive_reason,accountName:row.account_name,telegramAccountId:row.telegram_account_id,publications:publications[id],lastPublished:pubInfo.get(id)?.last??null};
+    }).sort((x,y)=>(x.id===keep.id?0:1)-(y.id===keep.id?0:1)||x.name.localeCompare(y.name,'uk'))};
+    for(const id of members) result.set(id,info);
+  }
+  return result;
+}
+
+/** «Це різні чати»: пара більше не пропонується як дублікат за назвою. Позначки перераховуються розбором черги. */
+export async function markChatsApart(db:D1Database,input:{userId:string;ids:string[];now:number}):Promise<{pairs:number}> {
+  const ids=[...new Set(input.ids)].filter(Boolean);
+  if(ids.length<2||ids.length>20) throw new ChatDuplicateError('Оберіть від двох до двадцяти чатів.');
+  const found=await db.prepare(`SELECT c.id FROM chats c INDEXED BY sqlite_autoindex_chats_1 WHERE c.user_id=?1 AND c.id IN (SELECT value FROM json_each(?2))`)
+    .bind(input.userId,JSON.stringify(ids)).all<{id:string}>();
+  if(found.results.length!==ids.length) throw new ChatDuplicateError('Чат уже змінено або видалено. Оновіть список.',409);
+  const statements:D1PreparedStatement[]=[];
+  let pairs=0;
+  for(let i=0;i<ids.length;i+=1) for(let j=i+1;j<ids.length;j+=1) {
+    const key=apartKey(ids[i],ids[j]);
+    pairs+=1;
+    for(const id of [ids[i],ids[j]]) statements.push(db.prepare(`INSERT OR IGNORE INTO chat_dup_keys(user_id,kind,key,chat_id) VALUES(?1,'apart',?2,?3)`).bind(input.userId,key,id));
+  }
+  // Чати йдуть на перерахунок позначок; UPDATE без зміни значення піднімає ревізію даних, тож кешований список перечитається.
+  statements.push(db.prepare(`INSERT OR IGNORE INTO chat_dup_pending(chat_id,user_id) SELECT value,?2 FROM json_each(?1)`).bind(JSON.stringify(ids),input.userId));
+  statements.push(db.prepare(`UPDATE chats SET updated_at=updated_at WHERE id=?1 AND user_id=?2`).bind(ids[0],input.userId));
+  await db.batch(statements);
+  await sweepChatDuplicateIndex(db,input.userId,1);
+  return {pairs};
 }

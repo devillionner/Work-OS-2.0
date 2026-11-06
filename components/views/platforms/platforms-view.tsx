@@ -25,6 +25,7 @@ import { TelegramAutopostCard } from '@/components/views/platforms/telegram-auto
 import { BulkPanel } from '@/components/views/platforms/bulk-panel';
 import { ChatHistoryPanel } from '@/components/views/platforms/chat-history-panel';
 import { ChatRow } from '@/components/views/platforms/chat-row';
+import { DuplicateActionsProvider, DuplicateRows } from '@/components/views/platforms/duplicate-frame';
 import { ReadyGroups, type RowExtra } from '@/components/views/platforms/ready-groups';
 import { DiscoveryPanel } from '@/components/views/platforms/discovery-panel';
 import { JoinSections } from '@/components/views/platforms/join-sections';
@@ -259,7 +260,7 @@ export default function PlatformsView() {
         <>
           {queue === 'ready' ? <ReadyGroups chats={data.chats} clock={p.clock} plan={groupedPlan} complete={groupedComplete} renderRow={(chat, extra) => renderRow(chat, undefined, extra)} onOpenDecisions={groupedPlan ? () => { setZone('autopost'); setPhoneSection('autopost'); } : undefined} /> : (
             <ul className="m-0 flex list-none flex-col gap-2 p-0">
-              {data.chats.map((chat) => renderRow(chat))}
+              <DuplicateRows items={data.chats.map((chat) => ({ value: chat, id: chat.id, dup: chat.dup }))} renderItem={(chat, note) => renderRow(chat, undefined, note ? { note } : undefined)} />
             </ul>
           )}
           {data.total > PAGE && !groupedComplete ? (
@@ -277,6 +278,7 @@ export default function PlatformsView() {
   );
 
   return (
+    <DuplicateActionsProvider value={{ merge: p.mergeDuplicates, apart: p.apartDuplicates, hidden: p.hiddenDup, busy: p.busy !== null }}>
     <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4 pb-6" aria-busy={p.loading}>
       <TopbarControls>
         <Segmented<string> label="Платформа" value={platform} onValueChange={(value) => p.selectPlatform(value as typeof platform)} items={p.availablePlatforms.map((item) => ({ value: item.key, label: item.label }))} />
@@ -317,5 +319,6 @@ export default function PlatformsView() {
       <ConfirmDialog open={p.confirmation !== null} title={p.confirmation?.kind === 'assign' ? 'Перепризначити Telegram-акаунт?' : p.confirmation?.chat.platform === 'telegram' ? 'Повернути чат у чергу приєднання?' : 'Повернути чат до приєднання?'} description={p.confirmation?.kind === 'assign' ? `Чат перейде з «${p.confirmation.currentName}» на «${p.confirmation.nextName}». Членство в самому Telegram потрібно змінити вручну.` : p.confirmation?.chat.platform === 'telegram' ? `Чат повернеться в чергу приєднання${p.confirmation.chat.inSchedule ? ' і зникне зі слота розкладу — слот лишиться вільним' : ''}. Історія чату не видаляється.` : 'Чат повернеться в чергу «Для приєднання». Історія чату не видаляється.'} confirmLabel={p.confirmation?.kind === 'assign' ? 'Перепризначити' : 'Повернути'} busy={p.busy !== null} onCancel={() => p.setConfirmation(null)} onConfirm={p.confirmPlatformAction} />
       <ConfirmDialog open={p.deleteChat !== null} title="Остаточно видалити чат?" description={p.deleteChat ? `«${p.deleteChat.name}» більше не блокуватиме повторне додавання. Дію не можна скасувати; вона доступна лише для неіснуючого чату без публікацій, лідів або активного розкладу.` : ''} confirmLabel="Видалити назавжди" destructive busy={p.busy !== null} onCancel={() => p.setDeleteChat(null)} onConfirm={() => { const chat = p.deleteChat; p.setDeleteChat(null); if (chat) void p.act(chat, 'permanent_delete', { confirmation: 'PERMANENTLY_DELETE_NONEXISTENT_CHAT' }); }} />
     </div>
+    </DuplicateActionsProvider>
   );
 }

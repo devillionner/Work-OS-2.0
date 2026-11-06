@@ -18,6 +18,7 @@ import { pairThisBrowserExecutor } from '@/lib/chat-discovery/executor-storage';
 import { CHAT_PLATFORM_NAMES, type ChatPlatform } from '@/lib/chats/bulk-input';
 import type { BulkResult } from '@/lib/chats/bulk';
 import type { ChatProfile } from '@/lib/chats/profile';
+import type { ChatDupInfo } from '@/lib/chats/duplicates';
 import { useSelectedLists } from '@/components/views/platforms/use-selected-lists';
 import { EMPTY_WAITING_CHECK, parseWaitingCheckView, waitingCheckArchiveReason, type WaitingCheckView } from '@/lib/chats/whatsapp-waiting-check-copy';
 import { humanError } from '@/components/ui/human-error';
@@ -34,6 +35,8 @@ export type Chat = {
   inSchedule?: boolean;
   /** Telegram: час відбору в чергу приєднання; `null` — чат серед «Нових чатів». */
   candidateAt?: number | null;
+  /** Пара (чи більше) дублікатів, до якої належить чат; null — дублікатів немає. */
+  dup?: ChatDupInfo | null;
 };
 type ProfileCounts = { confirmed: number; draft: number; empty: number; needsReview: number };
 type PublicationState = { chatId: string; chatPublishedToday: boolean; publishedToday: LinkItem[]; publicationPace: PublicationPace };
@@ -823,6 +826,55 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   }
   const showMoreNewChats = () => setPoolLimit((value) => Math.min(500, value + 50));
 
+  // Дублікати: точний збіг зливається через 8 с, якщо не натиснути «Скасувати» (копії зникають зі списку одразу); збіг за назвою — після підтвердження в рамці.
+  const [hiddenDup, setHiddenDup] = useState<ReadonlySet<string>>(new Set());
+  const dupTimers = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => Promise<void> }>());
+  const unhideDup = useCallback((ids: string[]) => setHiddenDup((current) => { const next = new Set(current); ids.forEach((id) => next.delete(id)); return next; }), []);
+  const mergeDuplicates = (dup: ChatDupInfo) => {
+    if (dupTimers.current.has(dup.key)) return;
+    const removeIds = dup.members.filter((member) => member.id !== dup.keepId).map((member) => member.id);
+    const keepName = dup.members.find((member) => member.id === dup.keepId)?.name ?? '';
+    setHiddenDup((current) => new Set([...current, ...removeIds]));
+    const execute = async () => {
+      dupTimers.current.delete(dup.key);
+      try {
+        const response = await fetch('/api/chats/duplicates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'merge', keepId: dup.keepId, removeIds }) });
+        const body = await response.json().catch(() => ({})) as { error?: string; code?: string; merged?: number };
+        if (!response.ok) {
+          unhideDup(removeIds);
+          toast.push({ message: body.code === 'publication_collision' ? `${body.error ?? 'Публікації збігаються за датами.'} Злий цю пару в «Налаштування → Сервіс → Дублікати» з підтвердженням.` : (body.error || 'Не вдалося прибрати дублікати.'), tone: 'hot', duration: 10000 });
+          return;
+        }
+        invalidateQueueCache(); announceDataChange('platforms');
+        await reloadChats.current(true);
+        unhideDup(removeIds);
+        toast.push({ message: `Прибрано ${removeIds.length === 1 ? 'дубль' : `${removeIds.length} копії`}: історія перейшла на «${keepName}».` });
+      } catch (reason) {
+        unhideDup(removeIds);
+        toast.push({ message: humanError(reason, 'Не вдалося прибрати дублікати. Перевір з’єднання.'), tone: 'hot' });
+      }
+    };
+    const timer = setTimeout(() => void execute(), 8_000);
+    dupTimers.current.set(dup.key, { timer, run: execute });
+    toast.push({ message: `Прибираю ${removeIds.length === 1 ? 'дубль' : 'дублікати'} «${keepName}»: історія перейде на основний чат.`, duration: 8000, action: { label: 'Скасувати', onClick: () => { clearTimeout(timer); dupTimers.current.delete(dup.key); unhideDup(removeIds); } } });
+  };
+  const apartDuplicates = async (dup: ChatDupInfo) => {
+    try {
+      const response = await fetch('/api/chats/duplicates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'apart', ids: dup.members.map((member) => member.id) }) });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(body.error || 'Не вдалося зберегти позначку.');
+      invalidateQueueCache(); announceDataChange('platforms');
+      await reloadChats.current(true);
+      toast.push({ message: 'Позначено: це різні чати. Більше не пропонуватиму їх як дублікат.' });
+    } catch (reason) { toast.push({ message: humanError(reason, 'Не вдалося зберегти позначку.'), tone: 'hot' }); }
+  };
+  // Згорнули чи закрили вкладку, поки злиття чекає 8 с: виконуємо одразу, а не губимо.
+  useEffect(() => {
+    const flush = () => { if (document.visibilityState !== 'hidden') return; for (const item of dupTimers.current.values()) { clearTimeout(item.timer); void item.run(); } };
+    document.addEventListener('visibilitychange', flush);
+    return () => document.removeEventListener('visibilitychange', flush);
+  }, []);
+
   function assignAccount(chat: Chat, nextId: string) {
     if (busy !== null || nextId === chat.telegramAccountId) return;
     const currentName = accounts.find((item) => item.id === chat.telegramAccountId)?.name || 'поточного акаунта';
@@ -1058,6 +1110,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     platform, queue, search, setSearch, profileFilter, setProfileFilter, offset, setOffset, availablePlatforms, selectedPlatform,
     data, availableToday, loadAvailable, loading, switchingList, error, setError, busy, tabCounts, selectPlatform, selectQueue, reload: () => reloadChats.current(),
     // чат
+    mergeDuplicates, apartDuplicates, hiddenDup,
     openChat, act, shortlistChat, unshortlistChat, returnToQueue, showMoreNewChats, poolLimit, clock, lastOpenedByPlatform, toggleWhatsAppAutopost, assignAccount, confirmation, setConfirmation, confirmPlatformAction, deleteChat, setDeleteChat, archiveChat, setArchiveChat,
     // callbacks панелей
     addedChats, savedProfile, importedDiscoveryChat, invalidateQueueCache,

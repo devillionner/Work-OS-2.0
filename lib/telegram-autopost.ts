@@ -1,6 +1,8 @@
 // Автопост Telegram через браузер: гілки форумів, прив'язка акаунта Telegram Web і дані для задачі. Спільна черга задач, claim і
 // політика збоїв живуть у messenger-automation.ts; тут лише те, що стосується тільки Telegram.
 
+import { readChatDupInfo, type ChatDupInfo } from './chats/duplicates.ts';
+
 export type TelegramTopic = { id: string; title: string; closed: boolean };
 export type TelegramThread = { id: string; title: string };
 /**
@@ -121,10 +123,12 @@ export async function chooseTelegramThread(db: D1Database, userId: string, chatI
 /** Чати з гілками, для яких гілку ще не вибрано (частковий індекс): група «Вибрати гілку». */
 export async function readTelegramThreadChoices(db: D1Database, userId: string, accountId: string | null) {
   if (!accountId) return [];
-  const rows = await db.prepare(`SELECT id,name,telegram_topics_json,telegram_restricted_at FROM chats
+  const rows = await db.prepare(`SELECT id,name,telegram_topics_json,telegram_restricted_at,EXISTS(SELECT 1 FROM chat_dup_flags f WHERE f.chat_id=chats.id) AS dup_flag FROM chats
     WHERE user_id=?1 AND platform='telegram' AND telegram_account_id=?2 AND telegram_forum=1 AND telegram_thread_id IS NULL AND workflow_status='ready'
-    ORDER BY name LIMIT 200`).bind(userId, accountId).all<{ id: string; name: string; telegram_topics_json: string | null; telegram_restricted_at: number | null }>();
-  return (rows.results || []).map((row) => ({ chatId: row.id, name: row.name, topics: parseTelegramTopics(row.telegram_topics_json), restrictedAt: row.telegram_restricted_at === null ? null : Number(row.telegram_restricted_at) }));
+    ORDER BY name LIMIT 200`).bind(userId, accountId).all<{ id: string; name: string; telegram_topics_json: string | null; telegram_restricted_at: number | null; dup_flag: number }>();
+  // Пари дублікатів видно й тут: той самий форум двічі в «Вибрати гілку» — це копія, а не два чати.
+  const dup = await readChatDupInfo(db, userId, (rows.results || []).filter((row) => Number(row.dup_flag)).map((row) => row.id)).catch(() => new Map<string, ChatDupInfo>());
+  return (rows.results || []).map((row) => ({ chatId: row.id, name: row.name, topics: parseTelegramTopics(row.telegram_topics_json), restrictedAt: row.telegram_restricted_at === null ? null : Number(row.telegram_restricted_at), dup: dup.get(row.id) ?? null }));
 }
 export type TelegramThreadChoice = Awaited<ReturnType<typeof readTelegramThreadChoices>>[number];
 

@@ -13,6 +13,7 @@ import { AutopostAttentionList, type AutopostAttentionItem, type AutopostDecisio
 import { AutopostBatchPanel } from '@/components/views/platforms/autopost-batch';
 import type { WhatsAppAutopostImage, WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import { dayLabel, snoozeSummary } from '@/components/views/platforms/autopost-reasons';
+import type { ChatDupInfo } from '@/lib/chats/duplicates';
 
 /** План запуску з сервера: скільки чатів справді піде в партію й чому решта черги «Для публікації» не йде. */
 export type AutopostPlan = {
@@ -32,7 +33,7 @@ export type AutopostPlan = {
 /** Чому чат відкладено (бере сервер за останньою відкладеною задачею чату). */
 export type SnoozeReason = { kind: 'restricted_until' | 'restricted' | 'quiet' | 'slow' | 'rate' | 'fresh' | 'manual'; until: number | null };
 export type AutopostBucket = 'ready' | 'decision' | 'tried' | 'published' | 'rules' | 'snoozed' | 'queued' | 'other' | 'thread' | 'schedule' | 'toolong';
-export type TelegramThreadChoice = { chatId: string; name: string; topics: Array<{ id: string; title: string; closed: boolean }>; /** Коли runner востаннє бачив, що в чаті зараз не можна писати (нічний режим, права чату); null — можна. */ restrictedAt?: number | null };
+export type TelegramThreadChoice = { chatId: string; name: string; /** Пара дублікатів, якщо цей чат має копію. */ dup?: ChatDupInfo | null; topics: Array<{ id: string; title: string; closed: boolean }>; /** Коли runner востаннє бачив, що в чаті зараз не можна писати (нічний режим, права чату); null — можна. */ restrictedAt?: number | null };
 export type AutopostReadiness = { tone: 'ok' | 'warn' | 'hot' | 'idle'; text: string };
 export type AutopostMaterialProps = {
   image: WhatsAppAutopostImage | null; imageLoaded: boolean; caption: string; captionLoaded: boolean;

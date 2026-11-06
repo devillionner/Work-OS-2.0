@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useToast } from '@/components/ui/toast';
 import type { Chat, JoinSections as JoinCounts } from '@/components/views/platforms/use-platforms';
+import { DuplicateRows } from '@/components/views/platforms/duplicate-frame';
 
 const PARTY = 5;
 
@@ -25,7 +26,7 @@ type Props = {
   /** Скільки «Нових чатів» усього (за пошуком, якщо він активний). */
   poolTotal: number;
   searching: boolean;
-  renderRow: (chat: Chat, section: 'queue' | 'pool') => ReactNode;
+  renderRow: (chat: Chat, section: 'queue' | 'pool', extra?: { note?: string }) => ReactNode;
   onShowMore: () => void;
 };
 
@@ -69,7 +70,7 @@ export function JoinSections({ candidates, pool, counts, poolTotal, searching, r
           ) : null}
         </div>
         {candidates.length ? (
-          <ul className="m-0 flex list-none flex-col gap-2 p-0">{candidates.map((chat) => renderRow(chat, 'queue'))}</ul>
+          <ul className="m-0 flex list-none flex-col gap-2 p-0"><DuplicateRows items={candidates.map((chat) => ({ value: chat, id: chat.id, dup: chat.dup }))} renderItem={(chat, note) => renderRow(chat, 'queue', note ? { note } : undefined)} /></ul>
         ) : (
           <p className="m-0 rounded-inner border border-dashed border-line-strong px-4 py-4 text-sm text-ink-2">{searching ? 'У черзі нічого не знайдено.' : 'Черга порожня. Відберіть чати кнопкою + у списку нижче.'}</p>
         )}
@@ -83,7 +84,7 @@ export function JoinSections({ candidates, pool, counts, poolTotal, searching, r
         {parties.length ? parties.map((party) => (
           <div key={party.number} className="flex flex-col gap-2">
             <h4 className="m-0 flex items-baseline gap-2 px-1 pt-1 text-xs font-normal text-ink-2"><span className="text-ink">Партія {party.number}</span><span className="font-mono">№ {party.from}–{party.to}</span></h4>
-            <ul className="m-0 flex list-none flex-col gap-2 p-0">{party.chats.map((chat) => renderRow(chat, 'pool'))}</ul>
+            <ul className="m-0 flex list-none flex-col gap-2 p-0"><DuplicateRows items={party.chats.map((chat) => ({ value: chat, id: chat.id, dup: chat.dup }))} renderItem={(chat, note) => renderRow(chat, 'pool', note ? { note } : undefined)} /></ul>
           </div>
         )) : <EmptyState text={searching ? 'Серед нових чатів нічого не знайдено.' : 'Нових чатів немає. Додай їх кнопкою «Додати чати».'} />}
         {remaining > 0 ? <Button variant="outline" onClick={onShowMore}>Показати ще ({remaining})</Button> : null}
