@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, Fragment, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import type { ChatDupInfo, ChatDupMember } from '@/lib/chats/duplicates';
@@ -75,6 +75,12 @@ export function DuplicateRows<T>({ items, renderItem }: { items: ReadonlyArray<I
     if (emitted.has(dup.key)) continue;
     emitted.add(dup.key);
     const present = visible.filter((other) => other.dup?.key === dup.key);
+    // Після злиття лишається один чат: звичайний рядок без рамки.
+    const presentIds = new Set(present.map((other) => other.id));
+    if (present.length + dup.members.filter((member) => !presentIds.has(member.id) && !actions.hidden.has(member.id)).length < 2) {
+      for (const other of present) out.push(renderItem(other.value));
+      continue;
+    }
     out.push(<DuplicateFrame key={`dup-${dup.key}`} dup={dup} present={present} renderItem={renderItem} actions={actions} />);
   }
   return <>{out}</>;
@@ -98,9 +104,17 @@ function DuplicateFrame<T>({ dup, present, renderItem, actions }: { dup: ChatDup
   const manual = keepId !== dup.keepId;
   const needsAsk = !dup.exact || manual || flagged.length > 0 || keepArchived;
   const merge = () => { setAsk(false); actions.merge(dup, keepId); };
-  const roleOf = (id: string) => (id === keepId ? 'Лишиться · ' : 'Буде прибрано · ');
-  const chooser = (member: ChatDupMember) => (
-    <button type="button" disabled={actions.busy} onClick={() => setPicked(member.id)} className="inline-flex min-h-8 items-center rounded-full px-2 text-xs text-ink-2 underline-offset-4 hover:text-ink hover:underline disabled:opacity-50">Лишити цей</button>
+  const presentKeep = present.find((item) => item.id === keepId);
+  const copiesShown = copies.filter((member) => !actions.hidden.has(member.id));
+  // Компактний рядок чату, що не лишається (або лишається, але лежить в іншій черзі): мітка, тихий опис і «Лишити цей».
+  const compact = (member: ChatDupMember, removable: boolean) => (
+    <li key={member.id} className="flex list-none flex-wrap items-center gap-x-3 gap-y-1 rounded-field border border-line px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <p className="m-0 truncate text-sm font-medium" title={member.name}>{member.name}</p>
+        <p className="m-0 text-xs text-ink-2">{removable ? <span className="text-ink-3">Буде прибрано · </span> : null}{dupMemberNote(member, dup)}</p>
+      </div>
+      {removable ? <button type="button" disabled={actions.busy} onClick={() => setPicked(member.id)} className="inline-flex min-h-8 shrink-0 items-center rounded-full px-2 text-xs text-ink-2 underline-offset-4 hover:text-ink hover:underline disabled:opacity-50">Лишити цей</button> : null}
+    </li>
   );
   return (
     <li className="list-none">
@@ -109,27 +123,15 @@ function DuplicateFrame<T>({ dup, present, renderItem, actions }: { dup: ChatDup
           <h4 className="m-0 text-sm font-medium">{title}</h4>
           <Button variant="outline" size="sm" disabled={actions.busy} onClick={() => (needsAsk ? setAsk(true) : actions.merge(dup, keepId))}>Прибрати дублікати</Button>
         </div>
-        <ul className="m-0 flex list-none flex-col gap-2 p-0">
-          {present.map((item) => {
-            const member = byId.get(item.id);
-            return (
-              <Fragment key={item.id}>
-                {renderItem(item.value, member ? `${roleOf(item.id)}${dupMemberNote(member, dup)}` : undefined)}
-                {member && member.id !== keepId ? <li className="-mt-1 flex list-none justify-end px-1">{chooser(member)}</li> : null}
-              </Fragment>
-            );
-          })}
-        </ul>
-        {elsewhere.length ? (
-          <ul className="m-0 flex list-none flex-col gap-1 p-0 px-1.5">
-            {elsewhere.map((member) => (
-              <li key={member.id} className="flex flex-wrap items-center gap-x-2 text-xs text-ink-2">
-                <span><span className="font-medium text-ink">{member.name}</span> · {member.id === keepId ? 'лишиться' : 'буде прибрано'} · {dupMemberNote(member, dup)}</span>
-                {member.id !== keepId ? chooser(member) : null}
-              </li>
-            ))}
+        {presentKeep ? (
+          <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+            <li className="list-none px-1.5"><span className="rounded-full border border-line px-2 py-0.5 text-xs text-ink-2">Лишиться</span></li>
+            {renderItem(presentKeep.value, dupMemberNote(keep, dup))}
           </ul>
-        ) : null}
+        ) : <ul className="m-0 flex list-none flex-col gap-1.5 p-0"><li className="list-none px-1.5"><span className="rounded-full border border-line px-2 py-0.5 text-xs text-ink-2">Лишиться</span></li>{compact(keep, false)}</ul>}
+        <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+          {copiesShown.map((member) => compact(member, true))}
+        </ul>
       </section>
       <Dialog
         open={ask}

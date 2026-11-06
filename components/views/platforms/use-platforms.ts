@@ -472,12 +472,12 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
 
   // План запуску автопосту (скільки чатів справді піде в партію) читається при відкритті вкладки й після дій, без таймера.
   // Telegram: план по вибраному акаунту; він несе й чати з гілками, з яких власник вибирає.
-  const loadAutopostPlan = useCallback(() => {
-    if (platform !== 'whatsapp' && platform !== 'viber' && platform !== 'telegram') return;
+  const loadAutopostPlan = useCallback((): Promise<void> => {
+    if (platform !== 'whatsapp' && platform !== 'viber' && platform !== 'telegram') return Promise.resolve();
     const target = platform;
-    if (target === 'telegram' && !accountId) return;
+    if (target === 'telegram' && !accountId) return Promise.resolve();
     const account = target === 'telegram' ? accountId : null;
-    void fetch(`/api/messenger-automation?plan=${target}${account ? `&account=${encodeURIComponent(account)}` : ''}`, { cache: 'no-store' })
+    return fetch(`/api/messenger-automation?plan=${target}${account ? `&account=${encodeURIComponent(account)}` : ''}`, { cache: 'no-store' })
       .then(async (response) => {
         const body = await response.json() as { plan?: AutopostPlan };
         if (response.ok && body.plan) setAutopostPlans((current) => ({ ...current, [target]: target === 'telegram' ? { ...(body.plan as AutopostPlan), accountId: account as string } : body.plan as AutopostPlan }));
@@ -846,7 +846,8 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
         return;
       }
       invalidateQueueCache(); announceDataChange('platforms');
-      await reloadChats.current(true);
+      // Групи «Вибрати гілку» і лічильники живуть у плані автопосту: без його перечитування стара копія повернула б рамку.
+      await Promise.all([reloadChats.current(true), loadAutopostPlan()]);
       unhideDup(removeIds);
       toast.push({ message: `Прибрано ${removeIds.length === 1 ? 'дубль' : `${removeIds.length} копії`}: історія перейшла на «${keepName}».` });
     } catch (reason) {
