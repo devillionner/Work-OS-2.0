@@ -42,7 +42,7 @@ export function AutopostAttentionList({ items, busy, canVerify, onDecide, onDeci
   const similar = (list: AutopostAttentionItem[]) => list.filter((item) => { const observed = knownObserved(item); return observed && isSimilarName(item.name, observed); });
 
   return (
-    <section className="flex flex-col gap-2 pb-24 sm:pb-0" aria-label="Чати, що потребують рішення">
+    <section id="autopost-decisions" className="flex flex-col gap-2 pb-24 sm:pb-0" aria-label="Чати, що потребують рішення">
       <h3 className="m-0 text-sm font-medium">Потребують рішення сьогодні <span className="font-mono font-normal tabular-nums text-ink-2">{items.length}</span></h3>
       {[...groups.entries()].map(([key, group]) => {
         const renameable = similar(group.items);

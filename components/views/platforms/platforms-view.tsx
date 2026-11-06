@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useCommand } from '@/components/shell/command-bus';
 import { useSearchIndex, type SearchItem } from '@/components/shell/search-index';
 import { useShell } from '@/components/shell/shell-context';
@@ -38,6 +39,7 @@ import { SelectedChats } from '@/components/views/platforms/selected-chats';
 import { SelectedListPicker } from '@/components/views/platforms/selected-list-picker';
 import { usePlatforms, PLATFORMS, QUEUES, type Chat } from '@/components/views/platforms/use-platforms';
 import { WaitingCheckCard } from '@/components/views/platforms/waiting-check-card';
+import { useColumnScroll } from '@/components/views/platforms/use-column-scroll';
 
 type Zone = 'overview' | 'schedule' | 'autopost' | 'quick';
 const PAGE = 50;
@@ -61,6 +63,8 @@ export default function PlatformsView() {
   const [profileChat, setProfileChat] = useState<Chat | null>(null);
   const [historyChat, setHistoryChat] = useState<Chat | null>(null);
   const [publishChat, setPublishChat] = useState<Chat | null>(null);
+  // Гортання колонок на ПК: функції з хуків нижче, щоб команди могли їх викликати.
+  const [jump, setJump] = useState<{ side: 'left' | 'right'; id: number } | null>(null);
 
   useCommand('chats:add', () => setBulkOpen(true));
   useCommand('chats:discover', () => { if (p.availablePlatforms.some((item) => item.key === 'whatsapp')) p.selectPlatform('whatsapp'); setDiscoveryOpen(true); });
@@ -70,12 +74,15 @@ export default function PlatformsView() {
     const queueKey = QUEUES.find((item) => item.key === target?.queue)?.key;
     if (platformKey) p.selectPlatform(platformKey);
     if (queueKey) p.selectQueue(queueKey);
+    // Перехід із картки веде на початок черги, а не на місце, де її лишили.
+    setJump({ side: 'left', id: Date.now() });
   });
   useCommand('platforms:autopost', (payload) => {
     const target = payload as { platform?: string } | undefined;
     const platformKey = p.availablePlatforms.find((item) => item.key === target?.platform)?.key;
     if (platformKey) p.selectPlatform(platformKey);
     setZone('autopost'); setPhoneSection('autopost');
+    setJump({ side: 'right', id: Date.now() });
   });
   useCommand('platforms:telegram-schedule', () => { p.selectPlatform('telegram'); setZone('schedule'); setPhoneSection('schedule'); });
 
@@ -97,6 +104,13 @@ export default function PlatformsView() {
     return list;
   }, [platform]);
   const currentZone: Zone = zones.some((item) => item.value === zone) ? zone : 'overview';
+  const [leftRef, scrollLeftTo] = useColumnScroll(`${platform}:${queue}:${p.selected.listId ?? ''}`, active && desktop);
+  const [rightRef, scrollRightTo, scrollRightToNode] = useColumnScroll(`${platform}:${platform === 'telegram' && queue === 'selected' ? `selected:${p.selected.listId ?? ''}` : currentZone}`, active && desktop);
+  useEffect(() => {
+    if (!jump) return undefined;
+    const frame = window.requestAnimationFrame(() => (jump.side === 'left' ? scrollLeftTo : scrollRightTo)(0));
+    return () => window.cancelAnimationFrame(frame);
+  }, [jump, scrollLeftTo, scrollRightTo]);
   const phoneCurrent: 'chats' | Zone = phoneSection === 'chats' || zones.some((item) => item.value === phoneSection) ? phoneSection : 'chats';
 
   const searchItems = useMemo<SearchItem[]>(() => (data?.chats ?? []).map((chat) => ({
@@ -215,7 +229,7 @@ export default function PlatformsView() {
   );
   const joinSplit = platform === 'telegram' && queue === 'to_join' && data?.candidates !== undefined;
 
-  const list = (
+  const listTop = (
     <div className="flex min-w-0 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="action" size="sm" disabled={p.busy !== null} onClick={() => setBulkOpen(true)}><Plus aria-hidden="true" strokeWidth={1.5} />Додати чати</Button>
@@ -242,6 +256,11 @@ export default function PlatformsView() {
 
       {p.error ? <div className="flex flex-wrap items-center gap-3"><p role="alert" className="m-0 text-sm text-hot">{p.error}</p><Button variant="outline" size="sm" disabled={p.loading || p.busy !== null} onClick={() => void p.reload()}>Оновити список</Button></div> : null}
 
+    </div>
+  );
+
+  const listBody = (
+    <div className="flex min-w-0 flex-col gap-3">
       {queue === 'selected' ? (
         <SelectedListPicker
           lists={p.selected.lists}
@@ -258,7 +277,7 @@ export default function PlatformsView() {
         <JoinSections candidates={data.candidates ?? []} pool={data.chats} counts={data.sections ?? { queue: 0, pool: 0 }} poolTotal={data.total} searching={p.search.trim() !== ''} renderRow={renderRow} onShowMore={p.showMoreNewChats} />
       ) : data?.chats.length ? (
         <>
-          {queue === 'ready' ? <ReadyGroups chats={data.chats} clock={p.clock} plan={groupedPlan} complete={groupedComplete} renderRow={(chat, extra) => renderRow(chat, undefined, extra)} onOpenDecisions={groupedPlan ? () => { setZone('autopost'); setPhoneSection('autopost'); } : undefined} /> : (
+          {queue === 'ready' ? <ReadyGroups chats={data.chats} clock={p.clock} plan={groupedPlan} complete={groupedComplete} renderRow={(chat, extra) => renderRow(chat, undefined, extra)} onOpenDecisions={groupedPlan ? () => { setZone('autopost'); setPhoneSection('autopost'); if (desktop) window.setTimeout(() => scrollRightToNode(document.getElementById('autopost-decisions')), 120); } : undefined} /> : (
             <ul className="m-0 flex list-none flex-col gap-2 p-0">
               <DuplicateRows items={data.chats.map((chat) => ({ value: chat, id: chat.id, dup: chat.dup }))} renderItem={(chat, note) => renderRow(chat, undefined, note ? { note } : undefined)} />
             </ul>
@@ -277,9 +296,11 @@ export default function PlatformsView() {
     </div>
   );
 
+  const list = <div className="flex min-w-0 flex-col gap-3">{listTop}{listBody}</div>;
+
   return (
     <DuplicateActionsProvider value={{ merge: p.mergeDuplicates, apart: p.apartDuplicates, hidden: p.hiddenDup, busy: p.busy !== null }}>
-    <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4 pb-6" aria-busy={p.loading}>
+    <div className={cn('mx-auto flex w-full max-w-[1480px] flex-col gap-4', desktop ? 'h-full min-h-0' : 'pb-6')} aria-busy={p.loading}>
       <TopbarControls>
         <Segmented<string> label="Платформа" value={platform} onValueChange={(value) => p.selectPlatform(value as typeof platform)} items={p.availablePlatforms.map((item) => ({ value: item.key, label: item.label }))} />
       </TopbarControls>
@@ -288,16 +309,24 @@ export default function PlatformsView() {
         <Segmented<string> label="Розділ платформи" value={phoneCurrent} onValueChange={(value) => setPhoneSection(value as 'chats' | Zone)} items={[{ value: 'chats', label: 'Чати' }, ...zones]} />
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-[minmax(340px,420px)_minmax(0,1fr)]">
-        {(desktop || phoneCurrent === 'chats') ? <div className="min-w-0">{list}</div> : null}
-        {desktop || phoneCurrent !== 'chats' ? (
-          <div className="min-w-0 @4xl:sticky @4xl:top-0 @4xl:self-start">
-            {desktop && zones.length > 1 ? <div className="mb-4"><Segmented<Zone> label="Зона платформи" value={currentZone} onValueChange={setZone} items={zones} /></div> : null}
-            {selectedBlock && desktop ? selectedBlock : zoneContent(desktop ? currentZone : (phoneCurrent as Zone))}
+      {desktop ? (
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(340px,420px)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-4">
+          <div className="flex min-h-0 min-w-0 flex-col gap-3">
+            <div className="shrink-0">{listTop}</div>
+            <div ref={leftRef} className="scroll-soft min-h-0 flex-1 overflow-y-auto pr-1"><div className="pb-2">{listBody}</div></div>
           </div>
-        ) : null}
-        {selectedBlock && !desktop && phoneCurrent === 'chats' ? <div className="min-w-0">{selectedBlock}</div> : null}
-      </div>
+          <div className="flex min-h-0 min-w-0 flex-col gap-4">
+            {zones.length > 1 ? <div className="shrink-0"><Segmented<Zone> label="Зона платформи" value={currentZone} onValueChange={setZone} items={zones} /></div> : null}
+            <div ref={rightRef} className="scroll-soft min-h-0 flex-1 overflow-y-auto pr-1"><div className="pb-2">{selectedBlock ?? zoneContent(currentZone)}</div></div>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4">
+          {phoneCurrent === 'chats' ? <div className="min-w-0">{list}</div> : null}
+          {phoneCurrent !== 'chats' ? <div className="min-w-0">{zoneContent(phoneCurrent as Zone)}</div> : null}
+          {selectedBlock && phoneCurrent === 'chats' ? <div className="min-w-0">{selectedBlock}</div> : null}
+        </div>
+      )}
 
       <BulkPanel open={bulkOpen} onClose={() => setBulkOpen(false)} onAdded={(result) => { p.addedChats(result); }} enabledPlatforms={snapshot.enabledPlatforms} />
       <DiscoveryPanel open={discoveryOpen} onClose={() => setDiscoveryOpen(false)} onImported={(next) => p.importedDiscoveryChat(next as 'whatsapp' | 'viber')} />

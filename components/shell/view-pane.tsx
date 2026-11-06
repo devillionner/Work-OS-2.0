@@ -27,7 +27,7 @@ export function useViewActive(): boolean {
  * Оболонка розділу: тримає змонтованим (стан і дані не губляться), ховає, коли розділ неактивний,
  * і запускає появу блоків `[data-reveal]` лише при першому відкритті.
  */
-export function ViewPane({ active, children }: { active: boolean; children: ReactNode }) {
+export function ViewPane({ active, fill = false, children }: { active: boolean; fill?: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useReveal(ref, active);
 
@@ -39,7 +39,7 @@ export function ViewPane({ active, children }: { active: boolean; children: Reac
 
   return (
     <ViewActiveContext.Provider value={active}>
-      <div ref={ref} data-pane="" data-active={active ? 'true' : 'false'} hidden={!active} aria-hidden={active ? undefined : true} inert={active ? undefined : true} className="@container min-w-0">
+      <div ref={ref} data-pane="" data-active={active ? 'true' : 'false'} hidden={!active} aria-hidden={active ? undefined : true} inert={active ? undefined : true} className={fill && active ? '@container min-h-0 min-w-0 flex-1' : '@container min-w-0'}>
         {children}
       </div>
     </ViewActiveContext.Provider>

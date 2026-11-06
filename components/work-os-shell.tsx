@@ -12,6 +12,7 @@ import { PulseRail, type PulseRing } from '@/components/shell/pulse-rail';
 import { QuickSettings } from '@/components/shell/quick-settings';
 import { Rail } from '@/components/shell/rail';
 import { ReleasePanel } from '@/components/shell/release-panel';
+import { cn } from '@/lib/utils';
 import { useScrollActivity } from '@/components/shell/scroll-activity';
 import { ShellProvider, type ShellContextValue } from '@/components/shell/shell-context';
 import { Topbar } from '@/components/shell/topbar';
@@ -181,10 +182,12 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
     />
   );
 
+  // «Платформи» на ПК займають висоту полотна: колонки гортаються окремо, сторінка — ні.
+  const fillView = desktop && !phone && activeView === 'platforms';
   const panes = (
     <>
       {VIEW_KEYS.filter((key) => visited.has(key)).map((key) => (
-        <ViewPane key={key} active={activeView === key}>
+        <ViewPane key={key} active={activeView === key} fill={fillView && key === 'platforms'}>
           <WorkspaceErrorBoundary name={viewLabel(key)}>
             <Suspense fallback={<ViewFallback />}>{renderView(key)}</Suspense>
           </WorkspaceErrorBoundary>
@@ -226,7 +229,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
                 <div className="glass frost relative flex min-w-0 flex-1 overflow-hidden rounded-panel">
                   <div className="flex min-w-0 flex-1 flex-col">
                     {header}
-                    <main ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-8 pt-1">{panes}</main>
+                    <main ref={scroller} className={cn('relative min-h-0 flex-1 overscroll-contain px-6 pt-1', fillView ? 'flex flex-col overflow-hidden pb-4' : 'overflow-y-auto pb-8')}>{panes}</main>
                   </div>
                   {wide ? <InspectorColumn onElement={setAsideElement} /> : null}
                 </div>
