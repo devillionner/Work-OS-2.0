@@ -14,7 +14,7 @@ export async function GET(request:Request):Promise<Response>{
   if(requested&&!PLATFORMS.has(requested))return bad('Невідома платформа.');
   try{
     // Дублікати шукаються по всіх акаунтах Telegram: один чат живе лише в одному акаунті.
-    const {groups,indexing}=await readChatDuplicateGroups(env.DB,{userId:user.id,platform:requested||null});
+    const {groups,indexing}=await readChatDuplicateGroups(env.DB,{userId:user.id,platform:requested||null,activeAccountId:(url.searchParams.get('account')||'').trim().slice(0,200)||null});
     return Response.json({platform:requested||null,groups,indexing},{headers:{'Cache-Control':'no-store'}});
   }catch(reason){return duplicateError(reason);}
 }
@@ -47,7 +47,7 @@ export async function POST(request:Request):Promise<Response>{
 }
 
 function duplicateError(reason:unknown){
-  if(reason instanceof ChatDuplicateError)return Response.json({error:reason.message,code:reason.code||undefined},{status:reason.status});
+  if(reason instanceof ChatDuplicateError)return Response.json({error:reason.message,code:reason.code||undefined,...reason.extra},{status:reason.status});
   console.error('chat duplicate manager error',reason);
   return Response.json({error:'Не вдалося оновити менеджер дублікатів.'},{status:500});
 }

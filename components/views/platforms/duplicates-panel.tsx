@@ -9,12 +9,24 @@ import { ConfirmDialog } from '@/components/ui/dialog';
 import { Ghost } from '@/components/ui/ghost';
 import { Input } from '@/components/ui/input';
 import { humanError } from '@/components/ui/human-error';
+import { flaggedAs } from '@/components/views/platforms/duplicate-frame';
 
 type Platform = 'all' | 'telegram' | 'whatsapp' | 'viber' | 'facebook';
 type Chat = { id: string; name: string; link: string; normalizedLink: string; platform: string; status: string; archiveReason: string | null; archivedAt: number | null; telegramAccountId: string | null; accountName?: string | null; stateToken: string };
 type Group = { key: string; match: 'link' | 'name'; chats: Chat[]; keepId: string; publications: Record<string, number>; collisionDays: number };
 const PLATFORMS: Array<[Platform, string]> = [['all', 'Усі'], ['telegram', 'Telegram'], ['whatsapp', 'WhatsApp'], ['viber', 'Viber'], ['facebook', 'Facebook']];
 const STATUS: Record<string, string> = { to_join: 'Для приєднання', ready: 'Для публікації', waiting: 'Очікування', failed: 'Не вдалося', archived: 'Архів' };
+
+/**
+ * Застереження до злиття групи: копія була позначена нецільовою чи забаненою, а основний працює («Лишити основний у публікаціях?»),
+ * або основним лишається архівний чат, поки є робочий. Такі групи не зливаються мовчки, лише з окремим підтвердженням.
+ */
+function concerns(group: Group, keepId: string): string[] {
+  const main = group.chats.find((chat) => chat.id === keepId) || group.chats[0];
+  if (main.status === 'archived') return group.chats.some((chat) => chat.status !== 'archived') ? [`«${main.name}»: лишається чат в архіві, а робочий буде видалено`] : [];
+  return group.chats.filter((chat) => chat.id !== main.id && chat.status === 'archived' && flaggedAs(chat.archiveReason))
+    .map((chat) => `Копію${chat.accountName ? ` на акаунті ${chat.accountName}` : ''} було позначено як ${flaggedAs(chat.archiveReason)}. Лишити основний у публікаціях?`);
+}
 
 type MergeAsk = { groups: Group[]; keep: Record<string, string>; acceptLoss: boolean };
 
@@ -93,11 +105,15 @@ export function DuplicatesPanel({ open, onClose }: { open: boolean; onClose: () 
   }
 
   const exact = groups.filter((group) => group.match === 'link');
+  const concerned = (group: Group) => concerns(group, keep[group.key] || group.keepId).length > 0;
+  const plainExact = exact.filter((group) => group.collisionDays === 0 && !concerned(group));
+  const askedExact = exact.filter(concerned);
   const removeCount = (list: Group[]) => list.reduce((sum, group) => sum + group.chats.length - 1, 0);
   const askText = (request: MergeAsk) => request.groups.slice(0, 12).map((group) => {
     const main = group.chats.find((chat) => chat.id === (request.keep[group.key] || group.keepId)) || group.chats[0];
     const others = group.chats.filter((chat) => chat.id !== main.id).map((chat) => `${STATUS[chat.status] || chat.status}${chat.accountName ? ` · ${chat.accountName}` : ''}`);
-    return `«${main.name}» — основний, видаляється: ${others.join('; ')}`;
+    const questions = concerns(group, main.id);
+    return `«${main.name}» — основний, видаляється: ${others.join('; ')}${questions.length ? `\n${questions.join('\n')}` : ''}`;
   }).join('\n') + (request.groups.length > 12 ? `\n…і ще ${request.groups.length - 12} груп` : '');
 
   return (
@@ -106,7 +122,7 @@ export function DuplicatesPanel({ open, onClose }: { open: boolean; onClose: () 
         open={ask !== null}
         title={ask?.acceptLoss ? 'Злити зі збігом дат публікацій?' : `Злити дублікати: ${ask ? removeCount(ask.groups) : 0}?`}
         description={ask ? <span className="whitespace-pre-line">{`${askText(ask)}\n\nКопії буде видалено назавжди, уся їхня історія (публікації, події, задачі автопосту, слоти розкладу, джерело лідів) перейде на основний чат.${ask.acceptLoss ? ' У добах зі збігом лишиться одна публікація.' : ''}`}</span> : ''}
-        confirmLabel="Злити й видалити копії" destructive busy={busy !== null}
+        confirmLabel={ask?.groups.some((group) => concerns(group, ask.keep[group.key] || group.keepId).length) ? 'Лишити основний і злити' : 'Злити й видалити копії'} destructive busy={busy !== null}
         onCancel={() => setAsk(null)}
         onConfirm={() => { const request = ask; if (!request) return; setAsk(null); void mergeAll(request); }}
       />
@@ -116,7 +132,8 @@ export function DuplicatesPanel({ open, onClose }: { open: boolean; onClose: () 
             {PLATFORMS.map(([value, label]) => <Chip key={value} pressed={platform === value} disabled={busy !== null} onClick={() => setPlatform(value)}>{label}</Chip>)}
             <Button variant="ghost" size="sm" disabled={loading || busy !== null} onClick={() => void load()}>Оновити</Button>
           </div>
-          {exact.length ? <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => setAsk({ groups: exact.filter((group) => group.collisionDays === 0), keep, acceptLoss: false })}>Злити точні збіги ({removeCount(exact.filter((group) => group.collisionDays === 0))})</Button> : null}
+          {plainExact.length ? <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => setAsk({ groups: plainExact, keep, acceptLoss: false })}>Злити точні збіги ({removeCount(plainExact)})</Button> : null}
+          {askedExact.length ? <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => setAsk({ groups: askedExact, keep, acceptLoss: false })}>Злити з окремим підтвердженням ({removeCount(askedExact)})</Button> : null}
           {error ? <p role="alert" className="m-0 text-sm text-hot">{error}</p> : null}
           {notice ? <output className="block text-sm text-ok">{notice}</output> : null}
           {indexing ? <p className="m-0 text-sm text-ink-2">Готую індекс чатів, це відбувається один раз.</p> : null}

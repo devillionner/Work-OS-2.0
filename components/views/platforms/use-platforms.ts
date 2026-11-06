@@ -830,33 +830,45 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   const [hiddenDup, setHiddenDup] = useState<ReadonlySet<string>>(new Set());
   const dupTimers = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => Promise<void> }>());
   const unhideDup = useCallback((ids: string[]) => setHiddenDup((current) => { const next = new Set(current); ids.forEach((id) => next.delete(id)); return next; }), []);
-  const mergeDuplicates = (dup: ChatDupInfo) => {
-    if (dupTimers.current.has(dup.key)) return;
-    const removeIds = dup.members.filter((member) => member.id !== dup.keepId).map((member) => member.id);
-    const keepName = dup.members.find((member) => member.id === dup.keepId)?.name ?? '';
-    setHiddenDup((current) => new Set([...current, ...removeIds]));
-    const execute = async () => {
-      dupTimers.current.delete(dup.key);
-      try {
-        const response = await fetch('/api/chats/duplicates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'merge', keepId: dup.keepId, removeIds }) });
-        const body = await response.json().catch(() => ({})) as { error?: string; code?: string; merged?: number };
-        if (!response.ok) {
-          unhideDup(removeIds);
-          toast.push({ message: body.code === 'publication_collision' ? `${body.error ?? 'Публікації збігаються за датами.'} Злий цю пару в «Налаштування → Сервіс → Дублікати» з підтвердженням.` : (body.error || 'Не вдалося прибрати дублікати.'), tone: 'hot', duration: 10000 });
-          return;
-        }
-        invalidateQueueCache(); announceDataChange('platforms');
-        await reloadChats.current(true);
+  // Збіг дат: у тій самій добі публікація записана в обох копіях, після злиття лишиться одна. Питаємо на місці, а не відсилаємо в «Сервіс».
+  const [dupCollision, setDupCollision] = useState<{ dup: ChatDupInfo; keepId: string; lost: number } | null>(null);
+  const runDuplicateMerge = async (dup: ChatDupInfo, keepId: string, acceptLoss: boolean) => {
+    const removeIds = dup.members.filter((member) => member.id !== keepId).map((member) => member.id);
+    const keepName = dup.members.find((member) => member.id === keepId)?.name ?? '';
+    dupTimers.current.delete(dup.key);
+    try {
+      const response = await fetch('/api/chats/duplicates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'merge', keepId, removeIds, acceptLoss }) });
+      const body = await response.json().catch(() => ({})) as { error?: string; code?: string; merged?: number; lostPublications?: number };
+      if (!response.ok) {
         unhideDup(removeIds);
-        toast.push({ message: `Прибрано ${removeIds.length === 1 ? 'дубль' : `${removeIds.length} копії`}: історія перейшла на «${keepName}».` });
-      } catch (reason) {
-        unhideDup(removeIds);
-        toast.push({ message: humanError(reason, 'Не вдалося прибрати дублікати. Перевір з’єднання.'), tone: 'hot' });
+        if (body.code === 'publication_collision') { setDupCollision({ dup, keepId, lost: Number(body.lostPublications) || 0 }); return; }
+        toast.push({ message: body.error || 'Не вдалося прибрати дублікати.', tone: 'hot', duration: 10000 });
+        return;
       }
-    };
-    const timer = setTimeout(() => void execute(), 8_000);
-    dupTimers.current.set(dup.key, { timer, run: execute });
+      invalidateQueueCache(); announceDataChange('platforms');
+      await reloadChats.current(true);
+      unhideDup(removeIds);
+      toast.push({ message: `Прибрано ${removeIds.length === 1 ? 'дубль' : `${removeIds.length} копії`}: історія перейшла на «${keepName}».` });
+    } catch (reason) {
+      unhideDup(removeIds);
+      toast.push({ message: humanError(reason, 'Не вдалося прибрати дублікати. Перевір з’єднання.'), tone: 'hot' });
+    }
+  };
+  const mergeDuplicates = (dup: ChatDupInfo, keepId: string = dup.keepId) => {
+    if (dupTimers.current.has(dup.key)) return;
+    const removeIds = dup.members.filter((member) => member.id !== keepId).map((member) => member.id);
+    const keepName = dup.members.find((member) => member.id === keepId)?.name ?? '';
+    setHiddenDup((current) => new Set([...current, ...removeIds]));
+    const timer = setTimeout(() => void runDuplicateMerge(dup, keepId, false), 8_000);
+    dupTimers.current.set(dup.key, { timer, run: () => runDuplicateMerge(dup, keepId, false) });
     toast.push({ message: `Прибираю ${removeIds.length === 1 ? 'дубль' : 'дублікати'} «${keepName}»: історія перейде на основний чат.`, duration: 8000, action: { label: 'Скасувати', onClick: () => { clearTimeout(timer); dupTimers.current.delete(dup.key); unhideDup(removeIds); } } });
+  };
+  const confirmDupCollision = () => {
+    const pending = dupCollision;
+    setDupCollision(null);
+    if (!pending) return;
+    setHiddenDup((current) => new Set([...current, ...pending.dup.members.filter((member) => member.id !== pending.keepId).map((member) => member.id)]));
+    void runDuplicateMerge(pending.dup, pending.keepId, true);
   };
   const apartDuplicates = async (dup: ChatDupInfo) => {
     try {
@@ -1110,7 +1122,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     platform, queue, search, setSearch, profileFilter, setProfileFilter, offset, setOffset, availablePlatforms, selectedPlatform,
     data, availableToday, loadAvailable, loading, switchingList, error, setError, busy, tabCounts, selectPlatform, selectQueue, reload: () => reloadChats.current(),
     // чат
-    mergeDuplicates, apartDuplicates, hiddenDup,
+    mergeDuplicates, apartDuplicates, hiddenDup, dupCollision, confirmDupCollision, cancelDupCollision: () => setDupCollision(null),
     openChat, act, shortlistChat, unshortlistChat, returnToQueue, showMoreNewChats, poolLimit, clock, lastOpenedByPlatform, toggleWhatsAppAutopost, assignAccount, confirmation, setConfirmation, confirmPlatformAction, deleteChat, setDeleteChat, archiveChat, setArchiveChat,
     // callbacks панелей
     addedChats, savedProfile, importedDiscoveryChat, invalidateQueueCache,

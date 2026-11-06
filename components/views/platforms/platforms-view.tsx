@@ -346,6 +346,15 @@ export default function PlatformsView() {
       />
       <ArchiveReasonDialog open={p.archiveChat !== null} chatName={p.archiveChat?.name ?? null} joinFailed={p.archiveChat?.status === 'to_join'} busy={p.busy !== null} error={p.error} onCancel={() => p.setArchiveChat(null)} onConfirm={(reason) => { const chat = p.archiveChat; if (!chat) return; p.setArchiveChat(null); void p.act(chat, chat.status === 'to_join' && reason === JOIN_FAILED_REASON ? 'failed' : 'archive', { reason }, { action: 'restore', label: `В архів: ${reason.toLowerCase()}. Можна скасувати протягом 8 секунд.`, ...(chat.platform === 'telegram' && chat.status === 'to_join' && chat.telegramAccountId === null ? { extra: { toPool: true } } : {}) }); }} />
       <ConfirmDialog open={p.confirmation !== null} title={p.confirmation?.kind === 'assign' ? 'Перепризначити Telegram-акаунт?' : p.confirmation?.chat.platform === 'telegram' ? 'Повернути чат у чергу приєднання?' : 'Повернути чат до приєднання?'} description={p.confirmation?.kind === 'assign' ? `Чат перейде з «${p.confirmation.currentName}» на «${p.confirmation.nextName}». Членство в самому Telegram потрібно змінити вручну.` : p.confirmation?.chat.platform === 'telegram' ? `Чат повернеться в чергу приєднання${p.confirmation.chat.inSchedule ? ' і зникне зі слота розкладу — слот лишиться вільним' : ''}. Історія чату не видаляється.` : 'Чат повернеться в чергу «Для приєднання». Історія чату не видаляється.'} confirmLabel={p.confirmation?.kind === 'assign' ? 'Перепризначити' : 'Повернути'} busy={p.busy !== null} onCancel={() => p.setConfirmation(null)} onConfirm={p.confirmPlatformAction} />
+      <ConfirmDialog
+        open={p.dupCollision !== null}
+        title="Злити зі збігом дат?"
+        description={p.dupCollision ? `У ${p.dupCollision.lost} ${p.dupCollision.lost === 1 ? 'добі' : 'добах'} публікація записана в обох копіях. Після злиття лишиться одна на добу, тож публікацій стане на ${p.dupCollision.lost} менше. Злити?` : ''}
+        confirmLabel="Злити зі збігом дат"
+        destructive
+        onCancel={p.cancelDupCollision}
+        onConfirm={p.confirmDupCollision}
+      />
       <ConfirmDialog open={p.deleteChat !== null} title="Остаточно видалити чат?" description={p.deleteChat ? `«${p.deleteChat.name}» більше не блокуватиме повторне додавання. Дію не можна скасувати; вона доступна лише для неіснуючого чату без публікацій, лідів або активного розкладу.` : ''} confirmLabel="Видалити назавжди" destructive busy={p.busy !== null} onCancel={() => p.setDeleteChat(null)} onConfirm={() => { const chat = p.deleteChat; p.setDeleteChat(null); if (chat) void p.act(chat, 'permanent_delete', { confirmation: 'PERMANENTLY_DELETE_NONEXISTENT_CHAT' }); }} />
     </div>
     </DuplicateActionsProvider>

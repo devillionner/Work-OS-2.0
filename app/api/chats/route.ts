@@ -158,7 +158,7 @@ export async function GET(request: Request): Promise<Response> {
   const [rowsResult, totalResult, countsResult, joinedResult, publishedResult, goalResult, publicationCountResult] = results;
   // Дублікати лише для позначених чатів цієї сторінки: пари за ключами, групи за первинним ключем.
   const flaggedIds = [...(rowsResult.results as ChatRow[]), ...(joinAccount && !search && !poolMore ? (results[joinIndex + 1].results as ChatRow[]) : [])].filter((row) => Number(row.dup_flag)).map((row) => row.id);
-  const dupInfo = await readChatDupInfo(env.DB, user.id, [...new Set(flaggedIds)]).catch(() => new Map<string, ChatDupInfo>());
+  const dupInfo = await readChatDupInfo(env.DB, user.id, [...new Set(flaggedIds)], accountId).catch(() => new Map<string, ChatDupInfo>());
   const toChat = (row: ChatRow) => ({
     id: row.id, name: row.name, link: row.link, platform: row.platform,
     status: row.workflow_status, archiveReason: row.archive_reason, archivedAt: row.archived_at,
