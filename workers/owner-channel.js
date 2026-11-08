@@ -270,7 +270,8 @@ export class OwnerChannel {
    */
   async warnDispatcherUsage(status, now) {
     const privateKey = this.env.VAPID_PRIVATE_KEY;
-    if (!privateKey) return false;
+    // Без ключа сповіщення не надіслати ніколи: вважаємо його «відправленим», щоб не питати лічильник бази щодесять хвилин.
+    if (!privateKey) return true;
     const hour = kyivHour(now);
     if (hour >= 22 || hour < 8) return false;
     try {
