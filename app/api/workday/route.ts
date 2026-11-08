@@ -35,26 +35,8 @@ export async function GET(): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const caller = { userId: '' };
-  const response = await handlePost(request, caller);
-  // День запущено й не на паузі — власник чекає на роботу: Durable Object дізнається лише від цієї дії, а не з опитування D1.
-  if (response.ok && caller.userId) {
-    const body = await response.clone().json().catch(() => null) as { workday?: { status?: string } | null } | null;
-    if (body && 'workday' in body) {
-      const active = body.workday?.status === 'active';
-      try {
-        const stub = env.OWNER_CHANNEL.get(env.OWNER_CHANNEL.idFromName(caller.userId));
-        await stub.fetch(`https://owner-channel/day-state?userId=${encodeURIComponent(caller.userId)}&active=${active ? 1 : 0}`, { method: 'POST' });
-      } catch (reason) { console.error('workday day-state notify failed', reason); }
-    }
-  }
-  return response;
-}
-
-async function handlePost(request: Request, caller: { userId: string }): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: 'Потрібно увійти.' }, { status: 401 });
-  caller.userId = user.id;
   if (!sameOrigin(request)) return Response.json({ error: 'Недійсний запит.' }, { status: 403 });
   if (!isJson(request.headers.get('content-type'))) return Response.json({ error: 'Очікується JSON-запит.' }, { status: 415 });
   const body = await readBody(request);

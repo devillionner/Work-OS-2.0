@@ -79,10 +79,10 @@ export function PushGroup() {
   const unavailable = supported === false;
   const unconfigured = info !== null && !info.configured;
   return (
-    <Group id="push" title="Сповіщення на телефон" hint="Приходять не частіше разу на 30 хв на одну причину й не вночі (22:00–08:00). На iPhone працює лише для застосунку, доданого на головний екран: у Safari «Поділитися» → «На початковий екран», далі відкрий його звідти й увімкни перемикач.">
+    <Group id="push" title="Сповіщення на телефон" hint="Приходять не вночі (22:00–08:00): те, що мало прийти вночі, не надсилається. На iPhone працює лише для застосунку, доданого на головний екран: у Safari «Поділитися» → «На початковий екран», далі відкрий його звідти й увімкни перемикач.">
       <Row
         label="Сповіщати на цей пристрій"
-        description={unavailable ? 'Цей браузер не вміє сповіщення. На iPhone додай Work OS на головний екран і відкрий звідти.' : unconfigured ? 'Сервер ще без ключа сповіщень.' : 'Runner вимкнений понад 10 хв, вихід із WhatsApp чи Telegram Web, партія стоїть понад 15 хв, партія завершилась.'}
+        description={unavailable ? 'Цей браузер не вміє сповіщення. На iPhone додай Work OS на головний екран і відкрий звідти.' : unconfigured ? 'Сервер ще без ключа сповіщень.' : 'Автопост почався й автопост завершено, окремо для кожної платформи.'}
       >
         <Switch aria-label="Сповіщати на цей пристрій" checked={here} disabled={busy || unavailable || unconfigured || info === null} onCheckedChange={(checked) => void toggle(checked)} />
       </Row>
