@@ -4,6 +4,13 @@
 # Налаштування (необов'язково): WORK_OS_URL, WORK_OS_BROWSER, WORK_OS_CDP_PORT.
 set -euo pipefail
 
+# Налаштування, які записав scripts/install-runner.sh (браузер, профіль, адреса Work OS); змінні середовища сильніші.
+RUNNER_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/work-os/runner.env"
+if [ -f "$RUNNER_CONF" ]; then
+  while IFS='=' read -r key value; do
+    case "$key" in WORK_OS_BROWSER|WORK_OS_BROWSER_PROFILE|WORK_OS_URL) [ -z "${!key:-}" ] && export "$key=$(eval "printf '%s' $value")";; esac
+  done < "$RUNNER_CONF"
+fi
 WORK_OS_URL="${WORK_OS_URL:-https://work-os-2-staging.devillionner.workers.dev}"
 PORT="${WORK_OS_CDP_PORT:-9222}"
 PROFILE="${WORK_OS_BROWSER_PROFILE:-$HOME/.local/share/work-os-runner-browser}"
@@ -28,7 +35,13 @@ write_status() {
 # The everyday browser already opens with the CDP port (its desktop entry carries the flag): then wait for
 # it instead of starting a second profile that grabs the port first and has no Work OS executor.
 main_browser_has_cdp() {
-  grep -qs -- "--remote-debugging-port=${PORT}" "${XDG_DATA_HOME:-$HOME/.local/share}"/applications/*.desktop
+  local f
+  for f in "${XDG_DATA_HOME:-$HOME/.local/share}"/applications/*.desktop; do
+    # Власний запис runner (work-os-runner-browser.desktop) — не «ваш щоденний браузер»: на нього не чекаємо.
+    case "$f" in */work-os-runner-browser.desktop) continue;; esac
+    grep -qs -- "--remote-debugging-port=${PORT}" "$f" && return 0
+  done
+  return 1
 }
 
 if ! cdp_ready && [ -z "${WORK_OS_BROWSER:-}" ] && main_browser_has_cdp; then

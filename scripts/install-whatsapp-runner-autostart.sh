@@ -36,6 +36,8 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
+# Node, поставлений інсталятором без root, лежить у ~/.local/bin; systemd user не завжди має його в PATH.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/env python3 "$ROOT/scripts/work-os-runner-tray.py"
 Restart=on-failure
 RestartSec=3

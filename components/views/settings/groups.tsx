@@ -18,6 +18,7 @@ import { ExecutorCard } from './executor-card';
 import { GoalHistoryPanel } from './goal-history-panel';
 import { LeadToolsPanel } from './lead-tools-panel';
 import { RestorePanel } from './restore-panel';
+import { RunnerRow } from './runner-row';
 import { UpdatePreview } from './update-preview';
 import { Group, Row } from './ui';
 import { humanError } from '@/components/ui/human-error';
@@ -118,6 +119,7 @@ export function ServiceGroup() {
       <Row label="Executor пошуку чатів" description="Підключення runner до авторизованого WhatsApp Web.">
         <Button variant="outline" size="sm" onClick={() => setPanel('executor')}>Налаштувати</Button>
       </Row>
+      <RunnerRow />
       <Row label="Версія" description={`Work OS ${APP_VERSION}`}>
         <Button variant="outline" size="sm" onClick={openRelease}>Що змінилося</Button>
       </Row>
