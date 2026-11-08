@@ -91,7 +91,7 @@ function reportBrowserFlags(){
   const port=Number((/:(\d+)$/.exec(whatsappCdp)||[])[1])||9222;
   const missing=whatsappCdp?missingThrottleFlags(port):null;
   if(missing===null)return;
-  sendLive(liveWs,{type:'progress',process:'runner_notice',code:'browser_throttling',active:missing.length>0,
+  sendLiveStatus(liveWs,{type:'progress',process:'runner_notice',code:'browser_throttling',active:missing.length>0,
     text:missing.length?'Перезапусти Opera, щоб автопост не гальмував за іншими вікнами.':''});
 }
 function runnerVersion(){
@@ -867,6 +867,49 @@ let wsReconnectDelayMs=WS_RECONNECT_MIN_MS;
 function sendLive(ws,message){
   if(ws&&ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(message));
 }
+// Кожне повідомлення в live-канал будить Durable Object (а запит до нього йде в ліміт безкоштовного плану, 100 тис. на добу), тож статуси
+// шлемо лише при зміні й раз на 15 хв як підтвердження. Після (пере)підключення пам'ять скидається: новий DO отримає стан одразу.
+const STATUS_CONFIRM_MS=15*60_000;
+const lastStatusSent=new Map();
+function sendLiveStatus(ws,message){
+  if(!ws||ws.readyState!==WebSocket.OPEN)return;
+  const key=`${message.process}:${message.platform||''}`;
+  const {at:_at,...rest}=message;
+  const signature=JSON.stringify(rest);
+  const previous=lastStatusSent.get(key);
+  if(previous&&previous.signature===signature&&Date.now()-previous.at<STATUS_CONFIRM_MS)return;
+  ws.send(JSON.stringify(message));
+  lastStatusSent.set(key,{signature,at:Date.now()});
+}
+// Кроки однієї задачі, що йдуть частіше за раз на 2 с, зливаються в останній: сайт показує лише поточний крок, а кожен крок — повідомлення.
+const STEP_MERGE_MS=2000;
+const stepStates=new Map();
+function sendStepMerged(jobId,message){
+  let state=stepStates.get(jobId);
+  if(!state){state={sentAt:0,signature:'',timer:null,pending:null};stepStates.set(jobId,state);}
+  const {at:_at,...rest}=message;
+  const signature=JSON.stringify(rest);
+  const elapsed=Date.now()-state.sentAt;
+  if(elapsed>=STEP_MERGE_MS){
+    if(state.timer){clearTimeout(state.timer);state.timer=null;}
+    state.pending=null;
+    if(signature!==state.signature){sendLive(liveWs,message);state.signature=signature;state.sentAt=Date.now();}
+    return;
+  }
+  state.pending={message,signature};
+  if(state.timer)return;
+  state.timer=setTimeout(()=>{
+    state.timer=null;
+    const next=state.pending;state.pending=null;
+    if(!next||next.signature===state.signature)return;
+    sendLive(liveWs,{...next.message,at:Date.now()});state.signature=next.signature;state.sentAt=Date.now();
+  },STEP_MERGE_MS-elapsed);
+}
+function dropStepState(jobId){
+  const state=stepStates.get(jobId);
+  if(state?.timer)clearTimeout(state.timer);
+  stepStates.delete(jobId);
+}
 
 // Результат автопосту не можна губити: публікація вже могла відбутись. Тому він іде через актуальне з'єднання (те, що було
 // під час отримання задачі, могло обірватись), а коли зв'язку немає, чекає на перепідключення. Останні результати
@@ -886,6 +929,7 @@ function sendReliable(message){
   console.warn(`Work OS live channel недоступний: результат ${message.jobId||''} чекає на перепідключення.`);
 }
 function sendAutopostResult(message){
+  dropStepState(message.jobId);
   for(const [jobId,item] of autopostResults)if(Date.now()-item.at>AUTOPOST_RESULT_KEEP_MS)autopostResults.delete(jobId);
   autopostResults.set(message.jobId,{message,at:Date.now(),sig:autopostTaskSig.get(message.jobId)||''});
   sendReliable(message);
@@ -968,12 +1012,12 @@ function clockText(ms){return new Date(ms).toLocaleTimeString('uk-UA',{hour:'2-d
 // Стан автопосту платформи (WhatsApp, Telegram) для картки: сайт показує причину паузи й час наступної спроби. Лише повідомлення в
 // live-канал, без D1.
 function reportAutopostStatus(platform,state,reason,text,untilMs=0,extra={}){
-  sendLive(liveWs,{type:'progress',process:'autopost_status',platform,state,reason:reason||null,text:text||(state==='ready'?'':'Автопост на паузі'),until:untilMs>Date.now()?untilMs:null,at:Date.now(),...extra});
+  sendLiveStatus(liveWs,{type:'progress',process:'autopost_status',platform,state,reason:reason||null,text:text||(state==='ready'?'':'Автопост на паузі'),until:untilMs>Date.now()?untilMs:null,at:Date.now(),...extra});
 }
 
 function reportViberStatus(ws,state,reason,detail){
-  // Стан шлеться щоразу (це лише повідомлення в браузер, без D1): сторінка, відкрита пізніше, теж побачить «готовий».
-  sendLive(ws,{type:'progress',process:'viber_status',state,reason:reason||null,text:state==='busy'?`Зайнятий: ${detail||'надсилаю'}`:reason?(VIBER_ENV_REASON_TEXT[reason]||detail||reason):'Viber готовий',at:Date.now()});
+  // Стан шлеться лише при зміні й раз на 15 хв (див. sendLiveStatus): DO запам'ятовує його для сторінки, відкритої пізніше.
+  sendLiveStatus(ws,{type:'progress',process:'viber_status',state,reason:reason||null,text:state==='busy'?`Зайнятий: ${detail||'надсилаю'}`:reason?(VIBER_ENV_REASON_TEXT[reason]||detail||reason):'Viber готовий',at:Date.now()});
 }
 
 async function checkViberStatus(){
@@ -1000,7 +1044,7 @@ function createStepReporter(job,platformLabel){
   const progress=job.progress&&Number(job.progress.total)>0?`${Math.min(Number(job.progress.done)+1,Number(job.progress.total))}/${Number(job.progress.total)} · `:'';
   const name=job.target?.expectedName||'чат';
   return (step,text)=>{
-    sendLive(liveWs,{type:'progress',process:'autopost_step',platform:platformLabel==='Viber'?'viber':platformLabel==='Telegram'?'telegram':'whatsapp',jobId:job.jobId,name,step,text,startedAt,at:Date.now(),
+    sendStepMerged(job.jobId,{type:'progress',process:'autopost_step',platform:platformLabel==='Viber'?'viber':platformLabel==='Telegram'?'telegram':'whatsapp',jobId:job.jobId,name,step,text,startedAt,at:Date.now(),
       done:Number(job.progress?.done)||0,total:Number(job.progress?.total)||0,verify:job.mode==='verify'});
     setStatus('working',`${platformLabel}: ${progress}${name} · ${text}`);
   };
@@ -1514,6 +1558,7 @@ function connectLiveChannel(){
   };
   ws.addEventListener('open',()=>{
     wsReconnectDelayMs=WS_RECONNECT_MIN_MS;
+    lastStatusSent.clear();
     console.log('Connected to the Work OS live channel.');
     setStatus('ready','Готовий: підключено до Work OS');
     while(pendingLive.length)ws.send(JSON.stringify(pendingLive.shift()));

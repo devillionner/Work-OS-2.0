@@ -12,10 +12,10 @@ export const D1_STOP_ROWS = 1_500_000;
 const MAX_ROUTES = 60;
 export const D1_BUDGET_TEXT = 'Зараз економимо ліміт бази, спробуй завтра.';
 
-export type MeterData = { day: string; total: number; routes: Record<string, number>; warned: boolean };
+export type MeterData = { day: string; total: number; routes: Record<string, number>; warned: boolean; /** Режим економії звернень до Durable Object: ізоляти шлють внески рідше (скидається з новою добою). */ economy?: boolean };
 export type MeterAdd = { total: number; routes: Record<string, number> };
 export type MeterLevel = 'ok' | 'warn' | 'stop';
-export type MeterStatus = { day: string; total: number; level: MeterLevel; top: Array<{ route: string; rows: number }> };
+export type MeterStatus = { day: string; total: number; level: MeterLevel; top: Array<{ route: string; rows: number }>; economy: boolean };
 
 /** Доба рахується за UTC: о 00:00 UTC Cloudflare скидає денний ліміт. */
 export function meterDay(ms: number): string {
@@ -60,7 +60,7 @@ export function topRoutes(data: MeterData, count = 3): Array<{ route: string; ro
 }
 
 export function meterStatus(data: MeterData): MeterStatus {
-  return { day: data.day, total: data.total, level: meterLevel(data.total), top: topRoutes(data, 5) };
+  return { day: data.day, total: data.total, level: meterLevel(data.total), top: topRoutes(data, 5), economy: Boolean(data.economy) };
 }
 
 /** Читання, без яких застосунок працює: аналітика, сканування дублікатів, плани. Чати, автопост і ліди сюди не входять. */

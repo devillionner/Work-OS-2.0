@@ -2,7 +2,9 @@
 // і працює в кожному ізоляті, зокрема й у Durable Object: перехоплює методи D1 (`run`, `all`, `first`, `raw`, `batch`),
 // читає з відповіді `meta.rows_read` і складає за маршрутом запиту (AsyncLocalStorage). Підсумок рахує Durable Object
 // `d1-meter` (OwnerChannel за ім'ям D1_METER_NAME; у D1 лічильник нічого не пише): ізолят надсилає накопичене раз на
-// 30 с або від 3000 рядків, а у відповідь отримує денну суму й рівень.
+// 5 хв або від 20 000 рядків (і лише коли накопичено від 500 рядків; у режимі економії раз на 15 хв), а у відповідь отримує денну суму й рівень.
+// Кожен внесок — запит до Durable Object і йде до ліміту безкоштовного плану (100 тис. на добу), тому надсилаємо рідко: лічильник —
+// страховка й диспетчер, а не точний облік. Помилка Durable Object (зокрема перевищення ліміту) ніколи не ламає основний запит.
 //
 // Рівні: від 1 млн рядків за добу власнику йде одне сповіщення, від 1,5 млн важкі необов'язкові читання (аналітика,
 // дублікати, план автопосту, обслуговування лідів) відповідають 503 з поясненням; чати, автопост і ліди працюють далі.
@@ -10,9 +12,12 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { D1_BUDGET_TEXT, D1_METER_NAME, isHeavyRoute, meterSuspended } from '../lib/d1-meter-state.ts';
 
-const FLUSH_ROWS = 3000;
-const FLUSH_MS = 30_000;
-const LEVEL_MS = 60_000;
+const FLUSH_ROWS = 20_000;
+const FLUSH_MS = 5 * 60_000;
+const FLUSH_MIN_ROWS = 500;
+const ECONOMY_FLUSH_MS = 15 * 60_000;
+const LEVEL_MS = 5 * 60_000;
+const ECONOMY_LEVEL_MS = 15 * 60_000;
 const DURABLE_OBJECT_ROUTE = 'durable-object';
 
 /** @type {AsyncLocalStorage<string>} */
@@ -21,9 +26,11 @@ const routeStore = new AsyncLocalStorage();
 let meterEnv = null;
 let installed = false;
 let pending = { total: 0, routes: /** @type {Record<string, number>} */ ({}) };
+// Відлік від першого запиту ізоляту (у глобальному контексті Date.now() ненадійний): короткоживучий ізолят нічого не шле, довгоживучий — раз на FLUSH_MS.
 let lastFlushAt = 0;
 let lastLevelAt = 0;
 let level = 'ok';
+let economy = false;
 let levelDay = '';
 /** @type {Promise<void>|null} */
 let flushing = null;
@@ -36,6 +43,7 @@ const today = () => new Date().toISOString().slice(0, 10);
  */
 export function installD1Meter(env) {
   meterEnv = env;
+  if (!lastFlushAt) lastFlushAt = Date.now();
   if (installed || !env?.DB || !env?.OWNER_CHANNEL) return;
   try {
     const statement = Object.getPrototypeOf(env.DB.prepare('SELECT 1'));
@@ -89,9 +97,11 @@ async function note(rowsRead) {
   const rows = Math.max(0, Math.floor(Number(rowsRead) || 0));
   if (!rows || meterSuspended()) return;
   const route = routeStore.getStore() ?? DURABLE_OBJECT_ROUTE;
+  if (!lastFlushAt) lastFlushAt = Date.now();
   pending.total += rows;
   pending.routes[route] = (pending.routes[route] ?? 0) + rows;
-  if (pending.total >= FLUSH_ROWS || Date.now() - lastFlushAt >= FLUSH_MS) await flush();
+  // Не чекаємо Durable Object: запит до бази не повинен залежати від лічильника.
+  if (pending.total >= FLUSH_ROWS || (pending.total >= FLUSH_MIN_ROWS && Date.now() - lastFlushAt >= (economy ? ECONOMY_FLUSH_MS : FLUSH_MS))) void flush();
 }
 
 /** @param {boolean} [force] надіслати й порожній внесок, щоб дізнатися поточний рівень */
@@ -108,6 +118,7 @@ async function flush(force = false) {
       if (!response.ok) throw new Error(`meter ${response.status}`);
       const status = await response.json();
       level = status.level === 'stop' || status.level === 'warn' ? status.level : 'ok';
+      economy = status.economy === true;
       levelDay = String(status.day || today());
       lastLevelAt = Date.now();
     } catch {
@@ -124,7 +135,7 @@ async function flush(force = false) {
 
 async function currentLevel() {
   if (levelDay && levelDay !== today()) { level = 'ok'; levelDay = ''; }
-  if (Date.now() - lastLevelAt >= LEVEL_MS) await flush(true);
+  if (Date.now() - lastLevelAt >= (economy ? ECONOMY_LEVEL_MS : LEVEL_MS)) await flush(true);
   return levelDay === today() ? level : 'ok';
 }
 
@@ -149,6 +160,6 @@ export async function meteredFetch(request, env, ctx, run) {
   try {
     return await routeStore.run(`${request.method} ${url.pathname}`, () => run());
   } finally {
-    if (pending.total > 0 && Date.now() - lastFlushAt >= FLUSH_MS) ctx.waitUntil(flush());
+    if (pending.total >= FLUSH_MIN_ROWS && Date.now() - lastFlushAt >= (economy ? ECONOMY_FLUSH_MS : FLUSH_MS)) ctx.waitUntil(flush().catch(() => {}));
   }
 }
