@@ -30,8 +30,6 @@ import {
 } from '../lib/chats/whatsapp-waiting-check.ts';
 import { businessDate } from '../lib/business-time.ts';
 import { pushToOwner } from '../lib/push-store.ts';
-import { addToMeter, formatRows, meterStatus, topRoutes, unmetered, D1_METER_NAME, D1_WARN_ROWS } from '../lib/d1-meter-state.ts';
-import { addUsage, DO_USAGE_KEY, DO_USAGE_LIMIT, DO_USAGE_WARN, emptyUsage, mergeUsage, totalRequests, usageDay, usageKindLabel, usageStatus } from '../lib/do-usage-state.ts';
 import {
   claimWhatsAppAutopostJob,
   completeWhatsAppAutopostJob,
@@ -83,11 +81,6 @@ const RUNNER_STALE_MS = 75_000;
 const RUNNER_WATCH_MS = 90_000;
 // Коли runner онлайн, а задач немає, живучість видно з автовідповіді на пінг: будильник рідший (кожен будильник — запит до ліміту Durable Objects).
 const RUNNER_IDLE_WATCH_MS = 5 * 60_000;
-// Звернення до Durable Object (fetch, повідомлення, будильник) рахуються по видах і дописуються в ctx.storage: перше після тиші — одразу
-// (об'єкт засинає за секунди, пам'ять не переживе), серія — не частіше за раз на 2 с. Від цієї кількості запитів за добу — сповіщення й режим економії.
-const USAGE_BURST_MS = 2000;
-const USAGE_WARN_GATE = 20_000;
-const USAGE_CHECK_GAP_MS = 10 * 60_000;
 /** Задача автопосту «в роботі» довше за це вважається покинутою (один чат — 15–30 с, тайм-аути runner — до кількох хвилин). */
 const AUTOPOST_LEASE_SECONDS = 600;
 /** Платформа задачі автопосту за її видом: браузер перечитує лише ту платформу, якої стосується подія. */
@@ -138,14 +131,6 @@ export class OwnerChannel {
     this.env = env;
     /** Черга обробників подій: кожен читає стан, чекає D1 і пише його назад (див. serial). */
     this.chain = Promise.resolve();
-    /** Накопичені, ще не записані звернення за видами (див. noteUsage). */
-    this.usagePending = null;
-    this.usageTimer = null;
-    this.usageFlushedAt = 0;
-    this.usageWrite = Promise.resolve();
-    this.usageCache = null;
-    this.usageCheckedAt = 0;
-    this.isMeter = false;
     // Hibernation-safe auto-response: a bare ping/pong never wakes the DO or runs JS.
     // WebSocketRequestResponsePair only exists in the real Workers runtime; tests exercise the
     // message-routing methods directly with a mock ctx that doesn't need it.
@@ -173,155 +158,21 @@ export class OwnerChannel {
 
   /** @param {Request} request */
   fetch(request) {
-    const url = new URL(request.url);
-    // Лічильник звернень до самого Durable Object: сторінка статистики й режим економії (не стає в чергу подій каналу).
-    if (url.pathname.startsWith('/usage/')) return this.handleUsage(request, url.pathname);
-    this.noteUsage(request.headers.get('Upgrade') === 'websocket' ? `fetch:/api/live ${url.searchParams.get('kind') || 'browser'}` : `fetch:${url.pathname.slice(0, 60)}`);
-    // Лічильник прочитаних рядків D1 живе в окремому екземплярі `d1-meter` і не стає в чергу подій каналу власника.
-    if (url.pathname.startsWith('/meter/')) { this.isMeter = true; return this.handleMeter(request); }
     return this.serial(() => this.handleFetch(request));
   }
 
   /**
-   * Рахує одне звернення до цього об'єкта. Запис у ctx.storage: перше після тиші — одразу, далі не частіше за USAGE_BURST_MS.
-   * @param {string} kind
-   */
-  noteUsage(kind) {
-    const pending = (this.usagePending ??= {});
-    pending[kind] = (pending[kind] || 0) + 1;
-    if (this.usageTimer) return;
-    const wait = USAGE_BURST_MS - (Date.now() - this.usageFlushedAt);
-    if (wait <= 0) void this.flushUsage();
-    else this.usageTimer = setTimeout(() => { this.usageTimer = null; void this.flushUsage(); }, wait);
-  }
-
-  /** Дописує накопичене в добовий підсумок цього екземпляра й перевіряє поріг сповіщення. Помилка ніколи не ламає подію. */
-  flushUsage() {
-    const pending = this.usagePending;
-    this.usagePending = null;
-    this.usageFlushedAt = Date.now();
-    if (!pending) return this.usageWrite;
-    this.usageWrite = this.usageWrite.then(async () => {
-      const next = addUsage(await this.readUsage(false), pending, usageDay(Date.now()));
-      this.usageCache = next;
-      await this.ctx.storage.put(DO_USAGE_KEY, next);
-      await this.checkUsageWarn(next);
-    }).catch(() => {});
-    return this.usageWrite;
-  }
-
-  /**
-   * Добовий підсумок цього екземпляра зі сховища (кеш у пам'яті живе, поки об'єкт не заснув).
-   * @param {boolean} [fresh] віддати порожній підсумок, якщо збережений за іншу добу
-   */
-  async readUsage(fresh = true) {
-    const stored = this.usageCache ?? (await this.ctx.storage.get(DO_USAGE_KEY)) ?? null;
-    this.usageCache = stored;
-    return fresh ? (stored && stored.day === usageDay(Date.now()) ? stored : emptyUsage(usageDay(Date.now()))) : stored;
-  }
-
-  /**
-   * `/usage/read` — підсумок цього екземпляра (з уже накопиченим); `/usage/economy` (POST) — режим економії для екземпляра `d1-meter`:
-   * ізоляти воркера дізнаються про нього з відповіді лічильника рядків D1 і шлють внески рідше.
-   * @param {Request} request
-   * @param {string} path
-   */
-  async handleUsage(request, path) {
-    this.noteUsage(`fetch:${path}`);
-    if (path === '/usage/economy' && request.method === 'POST') {
-      this.isMeter = true;
-      const data = addToMeter((await this.ctx.storage.get('meter')) ?? null, { total: 0, routes: {} }, Date.now());
-      data.economy = true;
-      await this.ctx.storage.put('meter', data);
-      return Response.json({ ok: true });
-    }
-    await this.flushUsage();
-    return Response.json(await this.readUsage(), { headers: { 'Cache-Control': 'no-store' } });
-  }
-
-  /**
-   * Поріг DO_USAGE_WARN запитів за добу (канал власника + лічильник бази): одне сповіщення з топом звернень і режим економії.
-   * Підсумок лічильника бази питаємо лише коли власні звернення перейшли USAGE_WARN_GATE і не частіше за раз на 10 хв.
-   * @param {import('../lib/do-usage-state.ts').DoUsage} usage
-   */
-  async checkUsageWarn(usage) {
-    if (this.isMeter || this.ctx.id?.name === D1_METER_NAME || (usage.economy && usage.warned)) return;
-    if (totalRequests(usage.kinds) < USAGE_WARN_GATE || Date.now() - this.usageCheckedAt < USAGE_CHECK_GAP_MS) return;
-    this.usageCheckedAt = Date.now();
-    const meterStub = this.env.OWNER_CHANNEL.get(this.env.OWNER_CHANNEL.idFromName(D1_METER_NAME));
-    const day = usageDay(Date.now());
-    const meterUsage = await meterStub.fetch('https://d1-meter/usage/read').then((response) => (response.ok ? response.json() : null)).catch(() => null);
-    const status = usageStatus(mergeUsage([usage, meterUsage], day));
-    if (status.requests < DO_USAGE_WARN) return;
-    if (!usage.economy) {
-      usage.economy = true;
-      await this.ctx.storage.put(DO_USAGE_KEY, usage);
-      await meterStub.fetch('https://d1-meter/usage/economy', { method: 'POST' }).catch(() => null);
-    }
-    if (!usage.warned && await this.warnDispatcherUsage(status, Date.now())) {
-      usage.warned = true;
-      await this.ctx.storage.put(DO_USAGE_KEY, usage);
-    }
-  }
-
-  /**
-   * @param {import('../lib/do-usage-state.ts').DoUsageStatus} status
-   * @param {number} now
-   */
-  async warnDispatcherUsage(status, now) {
-    const privateKey = this.env.VAPID_PRIVATE_KEY;
-    // Без ключа сповіщення не надіслати ніколи: вважаємо його «відправленим», щоб не питати лічильник бази щодесять хвилин.
-    if (!privateKey) return true;
-    const hour = kyivHour(now);
-    if (hour >= 22 || hour < 8) return false;
-    try {
-      return await unmetered(async () => {
-        const owner = await this.env.DB.prepare('SELECT id FROM users ORDER BY created_at LIMIT 1').first();
-        if (!owner?.id) return false;
-        const top = status.top.slice(0, 3).map((item) => `${usageKindLabel(item.kind)} ${item.requests}`).join(', ');
-        await pushToOwner(this.env.DB, privateKey, String(owner.id), { title: `Диспетчер сьогодні вже ${status.requests} запитів (ліміт ${DO_USAGE_LIMIT / 1000} тис.)`, body: top ? `Найбільше: ${top}. Увімкнено режим економії.` : 'Увімкнено режим економії.', url: '/?go=settings', tag: 'do-requests' }, nowSeconds());
-        return true;
-      });
-    } catch {
-      return false;
-    }
-  }
-
-  /**
    * Як часто будильник перевіряє живучість runner. Поки runner онлайн і задач немає, його живучість видно з автовідповіді на пінг, тож
-   * достатньо раз на 5 хв (у режимі економії раз на 15); коли щось виконується — частіше.
+   * достатньо раз на 5 хв (кожен будильник — запит до Durable Object); коли щось виконується — частіше.
    * @param {OwnerChannelState} state
    */
-  async runnerWatchMs(state) {
+  runnerWatchMs(state) {
     const busy = AUTOPOST_LANES.some((lane) => state.autopostLanes?.[lane]?.jobId)
       || Object.keys(state.autopostBatchOpen ?? {}).length > 0
       || Boolean(state.discoveryCurrentTask || state.discoveryRunJob)
       || isWaitingCheckBatchActive(state.waitingCheckBatch)
       || Object.values(state.processes ?? {}).some((process) => process?.running);
-    if (busy) return RUNNER_WATCH_MS;
-    return (await this.readUsage()).economy ? RUNNER_IDLE_WATCH_MS * 3 : RUNNER_IDLE_WATCH_MS;
-  }
-
-  /**
-   * Денний підсумок прочитаних рядків D1 (3.8.0): `/meter/add` (внесок ізоляту воркера) і `/meter/read`. Доба за UTC.
-   * Від D1_WARN_ROWS власнику йде одне сповіщення з трьома найважчими маршрутами (поза тихою годиною).
-   * @param {Request} request
-   */
-  async handleMeter(request) {
-    const now = Date.now();
-    let data = (await this.ctx.storage.get('meter')) ?? null;
-    let changed = false;
-    if (new URL(request.url).pathname === '/meter/add' && request.method === 'POST') {
-      const body = await request.json().catch(() => null);
-      if (body && typeof body === 'object') { data = addToMeter(data, body, now); changed = true; }
-    } else {
-      const fresh = addToMeter(data, { total: 0, routes: {} }, now);
-      if (!data || data.day !== fresh.day) { data = fresh; changed = true; }
-    }
-    data ??= addToMeter(null, { total: 0, routes: {} }, now);
-    if (data.total >= D1_WARN_ROWS && !data.warned && await this.warnRowsRead(data, now)) { data.warned = true; changed = true; }
-    if (changed) await this.ctx.storage.put('meter', data);
-    return Response.json(meterStatus(data), { headers: { 'Cache-Control': 'no-store' } });
+    return busy ? RUNNER_WATCH_MS : RUNNER_IDLE_WATCH_MS;
   }
 
   /**
@@ -347,28 +198,6 @@ export class OwnerChannel {
     const steps = (await this.ctx.storage.get(AUTOPOST_STEPS_KEY)) ?? {};
     const now = Date.now();
     return Object.fromEntries(Object.entries(steps).filter(([, step]) => now - Number(step?.at || 0) < AUTOPOST_STEP_FRESH_MS));
-  }
-
-  /**
-   * @param {{total: number, routes: Record<string, number>}} data
-   * @param {number} now
-   */
-  async warnRowsRead(data, now) {
-    const privateKey = this.env.VAPID_PRIVATE_KEY;
-    if (!privateKey) return false;
-    const hour = kyivHour(now);
-    if (hour >= 22 || hour < 8) return false;
-    try {
-      return await unmetered(async () => {
-        const owner = await this.env.DB.prepare('SELECT id FROM users ORDER BY created_at LIMIT 1').first();
-        if (!owner?.id) return false;
-        const top = topRoutes(data, 3).map((item) => `${item.route.replace(/^GET /, '')} ${formatRows(item.rows)}`).join(', ');
-        await pushToOwner(this.env.DB, privateKey, String(owner.id), { title: `Сьогодні прочитано вже ${formatRows(data.total)} рядків бази`, body: top ? `Найбільше: ${top}.` : 'Ліміт акаунта — 5 млн за добу.', url: '/?go=settings', tag: 'd1-rows' }, nowSeconds());
-        return true;
-      });
-    } catch {
-      return false;
-    }
   }
 
   /** @param {Request} request */
@@ -609,7 +438,6 @@ export class OwnerChannel {
     if (typeof raw !== 'string') return;
     let message;
     try { message = JSON.parse(raw); } catch { return; }
-    this.noteUsage(`ws:${message.process || message.type || '?'}/${message.process ? message.type || '?' : ''}`.replace(/\/$/, ''));
     if (message.type === 'ping') { ws.send(PONG); return; }
     // Після підключення runner каже, які задачі автопосту в нього справді в роботі: те, що DO видав раніше й чого runner не знає (завдання
     // пішло в мертвий сокет під час розриву зв'язку), повертається в чергу, а не чекає кінця оренди.
@@ -1118,7 +946,6 @@ export class OwnerChannel {
 
   // Alarm: re-check runner liveness by ping times while a runner is believed connected.
   alarm() {
-    this.noteUsage('alarm');
     return this.serial(() => this.handleAlarm());
   }
 
@@ -1223,7 +1050,7 @@ export class OwnerChannel {
    */
   async scheduleAlarm(state) {
     const times = [];
-    if (state.runnerOnline) times.push(Date.now() + await this.runnerWatchMs(state));
+    if (state.runnerOnline) times.push(Date.now() + this.runnerWatchMs(state));
     if (state.discoveryRunWakeAt && state.discoveryRunWakeAt > Date.now()) times.push(state.discoveryRunWakeAt);
     // Задача автопосту «в роботі» не чекає чужої події: коли оренда спливає, DO сам прокидається й видає наступну. Один будильник на задачу, не опитування.
     for (const lane of AUTOPOST_LANES) { const slot = state.autopostLanes?.[lane]; if (slot?.jobId) times.push(slot.claimedAt + AUTOPOST_LEASE_SECONDS * 1000 + 2000); }
@@ -1237,7 +1064,7 @@ export class OwnerChannel {
 
   /** @param {OwnerChannelState} state */
   async scheduleRunnerWatch(state) {
-    await this.ctx.storage.setAlarm(Date.now() + await this.runnerWatchMs(state));
+    await this.ctx.storage.setAlarm(Date.now() + this.runnerWatchMs(state));
   }
 
   /**

@@ -28,14 +28,6 @@ export async function bundleLiveGateway() {
   return bundleWorkerModule(liveGatewaySourcePath);
 }
 
-// Лічильник прочитаних рядків D1 і запобіжник ліміту (workers/d1-meter.js): працює в кожному ізоляті воркера.
-const D1_METER_FILENAME = 'd1-meter.js';
-const d1MeterSourcePath = fileURLToPath(new URL('../workers/d1-meter.js', import.meta.url));
-
-export async function bundleD1Meter() {
-  return bundleWorkerModule(d1MeterSourcePath);
-}
-
 async function bundleWorkerModule(entryPoint, plugins = []) {
   const result = await esbuild.build({
     entryPoints: [entryPoint],
@@ -67,17 +59,14 @@ export function normalizeGeneratedWranglerConfig(config) {
 // workers/live-gateway.js). Everything else goes to vinext unchanged.
 export function workerEntryWrapperSource() {
   return [
-    `import { env } from 'cloudflare:workers';`,
     `import app from './index.js';`,
     `import { handleLiveRequest } from './${LIVE_GATEWAY_FILENAME}';`,
-    `import { installD1Meter, meteredFetch } from './${D1_METER_FILENAME}';`,
     `export { OwnerChannel } from './${OWNER_CHANNEL_FILENAME}';`,
-    `installD1Meter(env);`,
     `export default {`,
     `  ...app,`,
     `  fetch(request, env, ctx) {`,
     `    if (new URL(request.url).pathname === '/api/live') return handleLiveRequest(request, env);`,
-    `    return meteredFetch(request, env, ctx, () => app.fetch(request, env, ctx));`,
+    `    return app.fetch(request, env, ctx);`,
     `  },`,
     `};`,
     ``,
@@ -88,7 +77,6 @@ export async function writeWorkerEntryWrapper(serverDir) {
   await writeFile(path.join(serverDir, WORKER_ENTRY_FILENAME), workerEntryWrapperSource(), 'utf8');
   await writeFile(path.join(serverDir, OWNER_CHANNEL_FILENAME), await bundleOwnerChannel(), 'utf8');
   await writeFile(path.join(serverDir, LIVE_GATEWAY_FILENAME), await bundleLiveGateway(), 'utf8');
-  await writeFile(path.join(serverDir, D1_METER_FILENAME), await bundleD1Meter(), 'utf8');
 }
 
 export async function normalizeGeneratedWranglerFile(
