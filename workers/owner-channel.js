@@ -67,7 +67,7 @@ import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFee
 /** @typedef {'browser'|'runner'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId?: string|null, autopostClaimedAt?: number, autopostLanes?: Record<string, {jobId: string, claimedAt: number, current: {send: boolean, startedAt: number, platform: string}}|undefined>, autopostWatchAt?: number, runnerConnectedAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostPace?: Record<string, {intervalSeconds:number, nextAt:number}>, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, runnerVersion?: string, runnerNotices?: Record<string, string>, runnerOfflineAt?: number, runnerOfflineNotified?: boolean, pushSentAt?: Record<string, number>, autopostBatchOpen?: Record<string, number>, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId?: string|null, autopostClaimedAt?: number, autopostLanes?: Record<string, {jobId: string, claimedAt: number, current: {send: boolean, startedAt: number, platform: string}}|undefined>, autopostWatchAt?: number, runnerConnectedAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostPace?: Record<string, {intervalSeconds:number, nextAt:number}>, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, runnerVersion?: string, runnerNotices?: Record<string, string>, runnerOfflineAt?: number, runnerOfflineNotified?: boolean, pushSentAt?: Record<string, number>, autopostBatchOpen?: Record<string, number>, autopostQueueDate?: string, discoveryQueued?: boolean, dayActiveDate?: string, runnerActive?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 // Останній крок автопосту за платформами (лише для hello нових сторінок) і скільки він лишається актуальним.
@@ -79,8 +79,8 @@ const RUNNER_STALE_MS = 75_000;
 // While a runner is believed connected, an alarm re-checks those ping times (no D1) so a PC that loses
 // power or network shows as offline everywhere within about two minutes, not only on a clean close.
 const RUNNER_WATCH_MS = 90_000;
-// Коли runner онлайн, а задач немає, живучість видно з автовідповіді на пінг: будильник рідший (кожен будильник — запит до ліміту Durable Objects).
-const RUNNER_IDLE_WATCH_MS = 5 * 60_000;
+// Відкрита партія старша за це вважається покинутою: вона більше не означає, що власник чекає на роботу.
+const BATCH_OPEN_FRESH_MS = 12 * 3_600_000;
 /** Задача автопосту «в роботі» довше за це вважається покинутою (один чат — 15–30 с, тайм-аути runner — до кількох хвилин). */
 const AUTOPOST_LEASE_SECONDS = 600;
 /** Платформа задачі автопосту за її видом: браузер перечитує лише ту платформу, якої стосується подія. */
@@ -161,18 +161,25 @@ export class OwnerChannel {
     return this.serial(() => this.handleFetch(request));
   }
 
-  /**
-   * Як часто будильник перевіряє живучість runner. Поки runner онлайн і задач немає, його живучість видно з автовідповіді на пінг, тож
-   * достатньо раз на 5 хв (кожен будильник — запит до Durable Object); коли щось виконується — частіше.
-   * @param {OwnerChannelState} state
-   */
-  runnerWatchMs(state) {
-    const busy = AUTOPOST_LANES.some((lane) => state.autopostLanes?.[lane]?.jobId)
-      || Object.keys(state.autopostBatchOpen ?? {}).length > 0
+  /** Йде партія автопосту: задача в роботі чи відкрита (не покинута) партія. @param {OwnerChannelState} state */
+  autopostActive(state) {
+    const now = Date.now();
+    return AUTOPOST_LANES.some((lane) => state.autopostLanes?.[lane]?.jobId)
+      || Object.values(state.autopostBatchOpen ?? {}).some((openedAt) => now - Number(openedAt) < BATCH_OPEN_FRESH_MS);
+  }
+
+  /** Є що виконувати runner: партія чи задачі автопосту в черзі на сьогодні, автопошук, перевірка заявок, запущені процеси. @param {OwnerChannelState} state */
+  runnerBusy(state) {
+    return this.autopostActive(state)
+      || state.autopostQueueDate === businessDate(nowSeconds())
       || Boolean(state.discoveryCurrentTask || state.discoveryRunJob)
       || isWaitingCheckBatchActive(state.waitingCheckBatch)
       || Object.values(state.processes ?? {}).some((process) => process?.running);
-    return busy ? RUNNER_WATCH_MS : RUNNER_IDLE_WATCH_MS;
+  }
+
+  /** Власник чекає на роботу: runner зайнятий або день у «Сьогодні» запущено й не на паузі. Лише тоді «Runner вимкнений» варте сповіщення. @param {OwnerChannelState} state */
+  ownerWaiting(state) {
+    return this.runnerBusy(state) || state.dayActiveDate === businessDate(nowSeconds());
   }
 
   /**
@@ -211,6 +218,16 @@ export class OwnerChannel {
     if (url.pathname === '/waiting-check') {
       return this.handleWaitingCheckHttp(request, userId);
     }
+    // Робочий день у «Сьогодні» запущено чи зупинено (дія власника): без цього DO не знає, чи варто сповіщати про вимкнений runner.
+    if (url.pathname === '/day-state' && request.method === 'POST') {
+      if (!userId) return new Response(null, { status: 401 });
+      const state = await this.readState();
+      if (state.userId !== userId) state.userId = userId;
+      state.dayActiveDate = url.searchParams.get('active') === '1' ? businessDate(nowSeconds()) : undefined;
+      await this.scheduleAlarm(state);
+      await this.writeState(state);
+      return new Response(null, { status: 204 });
+    }
     if (url.pathname === '/autopost-wake' && request.method === 'POST') {
       if (!userId) return new Response(null, { status: 401 });
       const state = await this.readState();
@@ -240,6 +257,10 @@ export class OwnerChannel {
         this.broadcastPace(state, platform);
       }
       this.autopostTrace(state, 'wake: з браузера', false);
+      // Чи є задачі в черзі на сьогодні (дія власника: старт, зупинка, рішення): від цього залежать сповіщення про вимкнений runner.
+      const today = businessDate(nowSeconds());
+      const queued = await this.env.DB.prepare(`SELECT 1 AS queued FROM whatsapp_autopost_jobs WHERE user_id=?1 AND published_on=?2 AND status='pending' LIMIT 1`).bind(userId, today).first();
+      state.autopostQueueDate = queued ? today : undefined;
       await this.dispatchNextAutopostJob(state);
       await this.writeState(state);
       return new Response(null, { status: 204 });
@@ -252,6 +273,8 @@ export class OwnerChannel {
       const state = await this.readState();
       if (state.userId !== userId) state.userId = userId;
       await this.dispatchNextDiscoveryTask(state);
+      // Runner ще не підключений: завдання дочекаються його (на підключенні в простої D1 не читаємо).
+      if (this.openRunnerCount() === 0) state.discoveryQueued = true;
       await this.writeState(state);
       return new Response(null, { status: 204 });
     }
@@ -307,12 +330,13 @@ export class OwnerChannel {
     state.runnerOfflineAt = undefined;
     state.runnerOfflineNotified = undefined;
     state.runnerConnectedAt = Date.now();
-    await this.scheduleRunnerWatch(state);
     // The only runner now connected cannot be working on anything yet: any in-flight task still
     // recorded belongs to a connection whose close was never processed (staging, before 2026-10-04,
     // left such claims stuck and blocked all further dispatch), so release it before dispatching.
     if (this.openRunnerCount(server) === 0) await this.releaseOrphanedTasks(state);
     server.send(JSON.stringify({ type: 'hello', processes: state.processes }));
+    // Runner без партії й задач нічого не перевіряє й не шле: скаже, чи є що робити, DO (і далі при кожній зміні).
+    server.send(JSON.stringify({ type: 'activity', active: this.runnerBusy(state) }));
     for (const entry of (state.autopostTrace ?? []).slice(-AUTOPOST_TRACE_REPLAY)) server.send(JSON.stringify({ type: 'trace', at: entry.at, text: entry.text, replay: true }));
     this.autopostTrace(state, `runner підключено (відкритих: ${this.openRunnerCount()}), у роботі ${this.lanesText(state)}`, false);
     this.broadcast('browser', { type: 'runner_status', connected: true });
@@ -334,16 +358,18 @@ export class OwnerChannel {
     // Unlike waiting_check's in-memory batch, an autopost job row lives in D1: a disconnect already
     // released any in-flight job back to 'pending' (see webSocketClose), so reconnect just looks for
     // new work instead of resuming anything specific.
-    await this.dispatchNextAutopostJob(state);
+    // У простої (немає партії й задач у черзі на сьогодні) підключений runner не коштує жодного читання D1: видача почнеться з першої дії власника.
+    if (this.autopostActive(state) || state.autopostQueueDate === businessDate(nowSeconds())) await this.dispatchNextAutopostJob(state);
+    const run = await loadRun(this.ctx.storage);
     // Discovery's per-candidate task is never written to D1 at dispatch time (see
     // dispatchNextDiscoveryTask), so a disconnect left D1 untouched; webSocketClose only had to forget
-    // the in-memory discoveryCurrentTask, and a fresh read here finds the same candidate again.
-    await this.dispatchNextDiscoveryTask(state);
-    const run = await loadRun(this.ctx.storage);
+    // the in-memory discoveryCurrentTask, and a fresh read here finds the same candidate again. Лише поки автопошук чи виконавець запущені.
+    if (run.running || state.processes?.discovery?.running || state.discoveryQueued) { state.discoveryQueued = undefined; await this.dispatchNextDiscoveryTask(state); }
     if (run.running && run.runId) {
       server.send(JSON.stringify(await this.runPlanMessage(run.runId)));
       await this.dispatchRun(state);
     }
+    await this.scheduleAlarm(state);
     await this.writeState(state);
   }
 
@@ -439,6 +465,8 @@ export class OwnerChannel {
     let message;
     try { message = JSON.parse(raw); } catch { return; }
     if (message.type === 'ping') { ws.send(PONG); return; }
+    // Власник відкрив картку автопосту: runner один раз перевіряє середовище (інакше в простої він мовчить).
+    if (message.type === 'check_status') { this.broadcast('runner', { type: 'check_status' }); return; }
     // Після підключення runner каже, які задачі автопосту в нього справді в роботі: те, що DO видав раніше й чого runner не знає (завдання
     // пішло в мертвий сокет під час розриву зв'язку), повертається в чергу, а не чекає кінця оренди.
     if (message.type === 'runner_state' && Array.isArray(message.active)) return this.handleRunnerState(message.active.map(String));
@@ -498,7 +526,7 @@ export class OwnerChannel {
       const status = { state: message.state === 'ready' ? 'ready' : 'blocked', reason: typeof message.reason === 'string' ? message.reason : null, text: typeof message.text === 'string' ? message.text.slice(0, 300) : '', identity: typeof message.identity === 'string' && /^[0-9]{3,20}$/.test(message.identity) ? message.identity : null, until: Number.isFinite(Number(message.until)) && Number(message.until) > 0 ? Number(message.until) : null };
       state.autopostStatus = { ...(state.autopostStatus || {}), [message.platform]: status };
       const loginName = status.state === 'blocked' && status.reason ? PUSH_LOGIN_REASONS[status.reason] : null;
-      if (loginName) await this.notifyOwner(state, `login:${message.platform}`, { title: `${loginName} Web вийшов із сесії`, body: 'Потрібен вхід у браузері runner, автопост цієї платформи стоїть.', url: `/?go=platforms:${message.platform}:autopost`, tag: `login-${message.platform}` });
+      if (loginName && (this.autopostActive(state) || state.autopostQueueDate === businessDate(nowSeconds()))) await this.notifyOwner(state, `login:${message.platform}`, { title: `${loginName} Web вийшов із сесії`, body: 'Потрібен вхід у браузері runner, автопост цієї платформи стоїть.', url: `/?go=platforms:${message.platform}:autopost`, tag: `login-${message.platform}` });
       await this.writeState(state);
     }
     if (message.type === 'progress' && message.process === 'runner_notice' && typeof message.code === 'string') {
@@ -514,9 +542,6 @@ export class OwnerChannel {
       // Стан Viber від runner приходить раз на хвилину; DO запам'ятовує його, щоб сторінка, відкрита між повідомленнями, показала його одразу.
       const state = await this.readState();
       state.viberStatus = { state: message.state === 'ready' ? 'ready' : message.state === 'busy' ? 'busy' : 'blocked', reason: typeof message.reason === 'string' ? message.reason : null, text: typeof message.text === 'string' ? message.text : '' };
-      if (state.viberStatus.state === 'blocked' && state.viberStatus.reason === 'android_unauthorized') {
-        await this.notifyOwner(state, 'viber:android_unauthorized', { title: 'Android просить Allow', body: 'Натисни «Відкрити вікно» в картці Viber: автопост вікно сам не відкриває.', url: '/?go=platforms:viber:autopost', tag: 'viber-allow' });
-      }
       await this.writeState(state);
     }
     if (message.type === 'progress' && message.process === 'autopost_step' && typeof message.platform === 'string') {
@@ -1010,7 +1035,7 @@ export class OwnerChannel {
   async checkPushWatches(state) {
     const now = Date.now();
     // Одне сповіщення на кожне вимкнення: наступне лише після того, як runner під'єднався й зник знову (власник, 2026-10-31).
-    if (state.runnerOfflineAt && !state.runnerOnline && !state.runnerOfflineNotified && this.openRunnerCount() === 0 && now >= state.runnerOfflineAt + PUSH_RUNNER_OFFLINE_MS) {
+    if (state.runnerOfflineAt && !state.runnerOnline && !state.runnerOfflineNotified && this.openRunnerCount() === 0 && now >= state.runnerOfflineAt + PUSH_RUNNER_OFFLINE_MS && this.ownerWaiting(state)) {
       state.runnerOfflineNotified = await this.notifyOwner(state, 'runner_offline', { title: 'Runner вимкнений', body: 'ПК не підключений уже понад 10 хв, автопост не працює.', url: '/?go=today', tag: 'runner-offline' });
     }
     for (const platform of Object.keys(state.autopostBatchOpen ?? {})) {
@@ -1026,6 +1051,7 @@ export class OwnerChannel {
   async finishAutopostBatches(state) {
     const open = Object.keys(state.autopostBatchOpen ?? {});
     state.autopostBatchOpen = undefined;
+    state.autopostQueueDate = undefined;
     if (!state.userId) return;
     for (const platform of open) {
       try {
@@ -1050,21 +1076,18 @@ export class OwnerChannel {
    */
   async scheduleAlarm(state) {
     const times = [];
-    if (state.runnerOnline) times.push(Date.now() + this.runnerWatchMs(state));
+    // Живучість runner без задач видно з автовідповіді на пінг, будильник потрібен лише поки щось виконується.
+    if (state.runnerOnline && this.runnerBusy(state)) times.push(Date.now() + RUNNER_WATCH_MS);
     if (state.discoveryRunWakeAt && state.discoveryRunWakeAt > Date.now()) times.push(state.discoveryRunWakeAt);
     // Задача автопосту «в роботі» не чекає чужої події: коли оренда спливає, DO сам прокидається й видає наступну. Один будильник на задачу, не опитування.
     for (const lane of AUTOPOST_LANES) { const slot = state.autopostLanes?.[lane]; if (slot?.jobId) times.push(slot.claimedAt + AUTOPOST_LEASE_SECONDS * 1000 + 2000); }
     if (state.autopostWatchAt) times.push(Math.max(state.autopostWatchAt, Date.now() + 1000));
     // Сповіщення: runner офлайн понад 10 хв і партія без кроків понад 15 хв (одні будильники, без опитувань).
     // Не частіше за хвилину: у тиху годину сповіщення не йде, і будильник «за секунду» будив би DO щосекунди всю ніч.
-    if (state.runnerOfflineAt && !state.runnerOnline && !state.runnerOfflineNotified) times.push(Math.max(state.runnerOfflineAt + PUSH_RUNNER_OFFLINE_MS, Date.now() + 60_000));
+    if (state.runnerOfflineAt && !state.runnerOnline && !state.runnerOfflineNotified && this.ownerWaiting(state)) times.push(Math.max(state.runnerOfflineAt + PUSH_RUNNER_OFFLINE_MS, Date.now() + 60_000));
     for (const platform of Object.keys(state.autopostBatchOpen ?? {})) times.push(Math.max(this.autopostLastActivity(state, platform) + PUSH_AUTOPOST_STALL_MS + 1000, Date.now() + 1000));
     if (times.length) await this.ctx.storage.setAlarm(Math.min(...times));
-  }
-
-  /** @param {OwnerChannelState} state */
-  async scheduleRunnerWatch(state) {
-    await this.ctx.storage.setAlarm(Date.now() + this.runnerWatchMs(state));
+    else await this.ctx.storage.deleteAlarm();
   }
 
   /**
@@ -1332,7 +1355,8 @@ export class OwnerChannel {
   async releaseOrphanedTasks(state) {
     // The runner's connection is the only ownership proof an autopost claim has — losing it
     // means whatever job was in flight must go back to 'pending' instead of waiting on a timeout.
-    if (state.userId) {
+    // У простої (немає партії, задач у черзі й задач у роботі) в D1 нічого не торкаємось: runner, що вмикається чи вимикається, нічого не коштує.
+    if (state.userId && (this.autopostActive(state) || state.autopostQueueDate === businessDate(nowSeconds()))) {
       // Не лише задача, яку DO пам'ятає: рядок `claimed` у D1 без відкритого runner нікому не належить, хоч би що лежало в стані.
       const released = await releaseClaimedAutopostJobs(this.env.DB, state.userId, nowSeconds());
       for (const lane of AUTOPOST_LANES) { const known = state.autopostLanes?.[lane]?.jobId; if (known && !released.includes(known)) released.push(known); }
@@ -1437,6 +1461,11 @@ export class OwnerChannel {
 
   /** @param {OwnerChannelState} state */
   async writeState(state) {
+    // Зміна «є що виконувати» йде runner повідомленням (не запитом): він перевіряє середовище лише під час партії й задач.
+    const active = this.runnerBusy(state);
+    const changed = Boolean(state.runnerActive) !== active;
+    state.runnerActive = active;
     await this.ctx.storage.put(STORAGE_KEY, state);
+    if (changed) this.broadcast('runner', { type: 'activity', active });
   }
 }

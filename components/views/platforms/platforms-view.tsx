@@ -39,6 +39,7 @@ import { SelectedChats } from '@/components/views/platforms/selected-chats';
 import { SelectedListPicker } from '@/components/views/platforms/selected-list-picker';
 import { usePlatforms, PLATFORMS, QUEUES, type Chat } from '@/components/views/platforms/use-platforms';
 import { WaitingCheckCard } from '@/components/views/platforms/waiting-check-card';
+import { requestRunnerCheck } from '@/lib/live-channel';
 import { useColumnScroll } from '@/components/views/platforms/use-column-scroll';
 
 type Zone = 'overview' | 'schedule' | 'autopost' | 'quick';
@@ -112,6 +113,9 @@ export default function PlatformsView() {
     return () => window.cancelAnimationFrame(frame);
   }, [jump, scrollLeftTo, scrollRightTo]);
   const phoneCurrent: 'chats' | Zone = phoneSection === 'chats' || zones.some((item) => item.value === phoneSection) ? phoneSection : 'chats';
+  // Картка автопосту відкрита (дія власника): runner один раз перевіряє середовище, бо в простої він мовчить.
+  const autopostOpen = currentZone === 'autopost' && (desktop || phoneCurrent === 'autopost');
+  useEffect(() => { if (active && autopostOpen) requestRunnerCheck(); }, [active, autopostOpen, platform]);
 
   const searchItems = useMemo<SearchItem[]>(() => (data?.chats ?? []).map((chat) => ({
     id: `chat:${chat.id}`, group: 'Чати', label: chat.name, hint: `${chat.platform}`, run: () => { navigate('platforms'); p.selectPlatform(chat.platform); p.setSearch(chat.name); },

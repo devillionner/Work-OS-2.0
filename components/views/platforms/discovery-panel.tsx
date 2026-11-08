@@ -143,7 +143,7 @@ export function DiscoveryPanel({
 
   useEffect(()=>{
     if(!open||liveConnected||!localPreview.running)return;
-    const timer=window.setInterval(()=>void loadRun(),RUN_FALLBACK_POLL_MS);
+    const timer=window.setInterval(()=>{if(document.visibilityState==='visible')void loadRun();},RUN_FALLBACK_POLL_MS);
     return()=>window.clearInterval(timer);
   },[open,liveConnected,localPreview.running,loadRun]);
 

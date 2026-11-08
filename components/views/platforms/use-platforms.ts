@@ -638,7 +638,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   // Фолбек: поки канал недоступний, стан runner оновлюється старим способом.
   useEffect(() => {
     if (!active || platform !== 'whatsapp' || queue !== 'waiting' || liveStatus.connected) return;
-    const timer = window.setInterval(() => void refreshWaitingCheck(), waitingCheck.active ? 15_000 : 60_000);
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void refreshWaitingCheck(); }, waitingCheck.active ? 15_000 : 60_000);
     return () => window.clearInterval(timer);
   }, [active, platform, queue, liveStatus.connected, waitingCheck.active, refreshWaitingCheck]);
 

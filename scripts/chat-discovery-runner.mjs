@@ -87,6 +87,19 @@ let browserFlagsTimer=null;
 const BROWSER_FLAGS_CHECK_MS=10*60_000;
 // Opera, запущена без прапорців проти гальмування прихованих вікон, стишує таймери вкладок runner: власнику лишається один раз перезапустити її
 // (сам браузер без попередження не перезапускаємо). Командний рядок читається з /proc, мережі й D1 це не чіпає.
+// Runner без партії й задач мовчить: не перевіряє Viber, Telegram чи браузер і нічого не шле, лише відповідає на пінг (автовідповідь
+// Durable Object не будить). Є що робити, коли Durable Object сказав `activity: true` (партія чи задачі в черзі), або коли задача вже в нас.
+// Перевірку «за запитом» (власник відкрив картку автопосту) запускає `check_status` з force.
+let serverActive=false;
+function runnerIdle(){
+  return !serverActive&&!processingTask&&!processingViberTask&&incomingTaskQueue.length===0&&viberTaskQueue.length===0&&autopostActive.size===0&&!viberActiveTask();
+}
+function checkEnvironment(force=false){
+  if(!force&&runnerIdle())return;
+  reportBrowserFlags();
+  void checkViberStatus(force);
+  void checkTelegramStatus(force);
+}
 function reportBrowserFlags(){
   const port=Number((/:(\d+)$/.exec(whatsappCdp)||[])[1])||9222;
   const missing=whatsappCdp?missingThrottleFlags(port):null;
@@ -1020,7 +1033,8 @@ function reportViberStatus(ws,state,reason,detail){
   sendLiveStatus(ws,{type:'progress',process:'viber_status',state,reason:reason||null,text:state==='busy'?`Зайнятий: ${detail||'надсилаю'}`:reason?(VIBER_ENV_REASON_TEXT[reason]||detail||reason):'Viber готовий',at:Date.now()});
 }
 
-async function checkViberStatus(){
+async function checkViberStatus(force=false){
+  if(!force&&runnerIdle())return;
   if(!liveWs||liveWs.readyState!==WebSocket.OPEN)return;
   // Поки Viber виконує задачу, `adb` для перевірки не запускаємо: картка показує «зайнятий», а не хибне «Viber не відповів».
   const busy=viberActiveTask();
@@ -1141,7 +1155,8 @@ function pauseTelegramAutopost(ws,job,untilMs,reason,extra={}){
   releaseTask(ws,'autopost',job,until,'',until);
 }
 
-async function checkTelegramStatus(){
+async function checkTelegramStatus(force=false){
+  if(!force&&runnerIdle())return;
   if(!liveWs||liveWs.readyState!==WebSocket.OPEN||processingTask||!whatsappCdp)return;
   let result;
   try{result=await readTelegramIdentityViaCdp({cdpBaseUrl:whatsappCdp});}catch{return;}
@@ -1453,6 +1468,16 @@ async function pumpTaskQueue(){
 function onLiveMessage(ws,raw){
   let message;
   try{message=JSON.parse(raw);}catch{return;}
+  // DO каже, чи є що виконувати (партія, задачі в черзі): на початок партії одразу перевіряємо середовище, у простої — тиша.
+  if(message.type==='activity'){
+    const next=message.active===true;
+    const changed=next!==serverActive;
+    serverActive=next;
+    if(next&&changed)checkEnvironment();
+    return;
+  }
+  // Власник відкрив картку автопосту: одна перевірка навіть у простої (готовність, прив'язка акаунта Telegram).
+  if(message.type==='check_status'){checkEnvironment(true);return;}
   // Рішення Durable Object про видачу автопосту: без цього журналу не видно, чи задача взагалі дійшла до runner.
   if(message.type==='trace'){
     console.log(`[Work OS ${new Date(Number(message.at)||Date.now()).toLocaleTimeString('uk-UA')}${message.replay?' · раніше':''}] ${String(message.text||'')}`);
@@ -1548,6 +1573,7 @@ function connectLiveChannel(){
     settled=true;
     if(keepalive)clearInterval(keepalive);
     if(liveWs===ws)liveWs=null;
+    serverActive=false;
     try{ws.close();}catch{}
     console.warn('Work OS live channel disconnected; reconnecting…');
     setStatus('reconnecting','З’єднання з Work OS перервано — перепідключення…');
@@ -1565,12 +1591,10 @@ function connectLiveChannel(){
     // Версія застосунку, з якою запущено runner; `updated` — його щойно перезапустила іконка в треї після зміни коду (раз на процес).
     ws.send(JSON.stringify({type:'runner_info',version:runnerVersion(),updated:!runnerInfoSent&&process.env.WORK_OS_RUNNER_UPDATED==='1'}));
     runnerInfoSent=true;
-    reportBrowserFlags();
     if(browserFlagsTimer)clearInterval(browserFlagsTimer);
-    browserFlagsTimer=setInterval(reportBrowserFlags,BROWSER_FLAGS_CHECK_MS);
+    browserFlagsTimer=setInterval(()=>{if(!runnerIdle())reportBrowserFlags();},BROWSER_FLAGS_CHECK_MS);
     // Які задачі автопосту в цього runner справді в роботі: DO повертає в чергу видані раніше й невідомі нам (пішли в мертвий сокет).
     ws.send(JSON.stringify({type:'runner_state',active:[...autopostActive,...incomingTaskQueue.filter((item)=>item.taskProcess==='autopost').map((item)=>String(item.task?.jobId||'')),...viberTaskQueue.map((item)=>String(item.task?.jobId||'')),...autopostResults.keys()]}));
-    setTimeout(()=>{void checkViberStatus();void checkTelegramStatus();},1500);
     keepalive=setInterval(()=>{
       // A ping still unanswered a whole interval later means a half-open socket (sleep, network
       // switch) that would otherwise look connected forever while no task can arrive.
@@ -1604,6 +1628,7 @@ function withCdpLock(fn){
 console.log('Work OS Discovery runner started. Ctrl+C to stop.');
 // Місцева перевірка Viber (процес, доступність, вікно): ніякої мережі й D1, лише `pgrep` і шина доступності.
 setInterval(()=>{void checkViberStatus();void checkTelegramStatus();},VIBER_STATUS_EVERY_MS);
+// Усі перевірки вище самі нічого не роблять у простої (див. runnerIdle).
 setStatus('starting','Запускається…');
 for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{setStatus('stopped','Runner зупинено');process.exit(0);});
 connectLiveChannel();

@@ -39,6 +39,28 @@ let lastActivityAt = 0;
 let connectStartedAt = 0;
 let helloSeen = false;
 let windowListenersAttached = false;
+// Поки вкладка прихована, повідомлення не доходять до підписників (вони б перечитували дані з бази, а ніхто не дивиться): кеші статусів
+// оновлюються, а на поверненні підписники отримують одне синтетичне `hello` з `resync` (і `deferred`, щоб ServerSync не дублював власну перевірку).
+let deferredWhileHidden = false;
+let runnerCheckPending = false;
+let lastRunnerCheckAt = 0;
+const isHidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden';
+
+/** Просить runner один раз перевірити середовище (власник відкрив картку автопосту); у простої runner інакше мовчить. */
+export function requestRunnerCheck() {
+  const now = Date.now();
+  if (now - lastRunnerCheckAt < 60_000) return;
+  lastRunnerCheckAt = now;
+  if (socket && socket.readyState === WebSocket.OPEN) { try { socket.send(JSON.stringify({ type: 'check_status' })); } catch { /* наступне відкриття картки спробує знову */ } }
+  else runnerCheckPending = true;
+}
+
+function flushDeferred() {
+  if (!deferredWhileHidden || isHidden()) return;
+  deferredWhileHidden = false;
+  const message: LiveMessage = { type: 'hello', resync: true, deferred: true };
+  for (const listener of messageListeners) listener(message);
+}
 // Останній стан Viber від runner: приходить у hello і щохвилини; сторінка, відкрита між повідомленнями, бере його звідси, а не чекає наступного.
 let latestViberStatus: LiveMessage | null = null;
 export function getLatestViberStatus(): LiveMessage | null { return latestViberStatus; }
@@ -136,6 +158,7 @@ function connect() {
     reconnectDelay = RECONNECT_MIN_MS;
     lastActivityAt = Date.now();
     setStatus({ connected: true });
+    if (runnerCheckPending) { runnerCheckPending = false; try { ws.send(JSON.stringify({ type: 'check_status' })); } catch { /* ignore */ } }
     clearKeepalive();
     scheduleKeepalive(ws);
   });
@@ -191,6 +214,7 @@ function connect() {
       runnerNotices = message.active === true && typeof message.text === 'string' && message.text ? { ...rest, [message.code]: message.text } : rest;
     }
     if (message.type === 'runner_status' && typeof message.connected === 'boolean') { setStatus({ runnerConnected: message.connected, ...(typeof message.version === 'string' ? { runnerVersion: message.version } : {}) }); if (!message.connected) { latestViberStatus = null; latestAutopostStatus = {}; runnerNotices = {}; latestSteps = {}; } }
+    if (isHidden()) { deferredWhileHidden = true; return; }
     for (const listener of messageListeners) listener(message);
   });
   ws.addEventListener('close', onDown);
@@ -259,6 +283,7 @@ function attachWindowListeners() {
   window.addEventListener('focus', checkConnection);
   window.addEventListener('pageshow', checkConnection);
   document.addEventListener('visibilitychange', checkConnection);
+  document.addEventListener('visibilitychange', flushDeferred);
 }
 
 // Deferred one tick so an unmount immediately followed by a remount (React StrictMode, a component

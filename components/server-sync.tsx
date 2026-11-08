@@ -151,6 +151,10 @@ export function ServerSync() {
 
     async function poll() {
       if (stopped) return;
+      if (document.visibilityState === 'hidden') {
+        schedulePoll(SERVER_SYNC_IDLE_MAX_MS);
+        return;
+      }
       if (refreshBusinessDay()) {
         pollDelay = SERVER_SYNC_ACTIVE_MS;
         failureDelay = 0;
@@ -171,6 +175,7 @@ export function ServerSync() {
     }
 
     const wake = (reason: DataSyncDetail['reason'], scope: DataSyncScope = 'all') => {
+      if (document.visibilityState === 'hidden') return;
       if (refreshBusinessDay()) {
         pollDelay = SERVER_SYNC_ACTIVE_MS;
         failureDelay = 0;
@@ -191,6 +196,8 @@ export function ServerSync() {
     let wakeTimer: number | null = null;
     let wakeScope: DataSyncScope | null = null;
     const scheduleWake = (reason: DataSyncDetail['reason'], scope: DataSyncScope) => {
+      // Прихована вкладка нічого не перечитує: на поверненні onVisibility робить одну перевірку.
+      if (document.visibilityState === 'hidden') return;
       wakeScope = mergeScope(wakeScope, scope);
       if (wakeTimer !== null) window.clearTimeout(wakeTimer);
       wakeTimer = window.setTimeout(() => {
@@ -223,7 +230,8 @@ export function ServerSync() {
 
     // Any pushed message (hello on (re)connect included — events may have been missed while down) is a
     // hint, never data: it goes through the same coalesced authoritative revision check as cross-tab signals.
-    const onLiveMessage = () => scheduleWake('live', 'all');
+    // Синтетичне `hello` після прихованої вкладки (`deferred`) ігноруємо: на поверненні перевірку й так робить onVisibility.
+    const onLiveMessage = (message: { type: string; [key: string]: unknown }) => { if (message.deferred === true) return; scheduleWake('live', 'all'); };
     const onLiveStatus = ({ connected }: { connected: boolean }) => {
       if (connected === liveConnected) return;
       liveConnected = connected;
