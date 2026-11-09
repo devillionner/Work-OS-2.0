@@ -1,13 +1,13 @@
 {
   "name": "work-os-2",
-  "version": "3.15.0",
+  "version": "3.16.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
   },
   "scripts": {
     "dev": "vinext dev",
-    "build": "vinext build && node scripts/normalize-wrangler-config.mjs",
+    "build": "node scripts/build-runner-package.mjs && vinext build && node scripts/normalize-wrangler-config.mjs",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "deploy": "npm run build && wrangler deploy --config dist/server/wrangler.json",
     "deploy:staging": "node scripts/deploy-staging.mjs",

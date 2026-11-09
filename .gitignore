@@ -38,3 +38,8 @@ next-env.d.ts
 /work/
 /.backups/
 *.tsbuildinfo
+__pycache__/
+*.pyc
+public/runner/runner.tar.gz
+public/runner/runner.sha256
+public/runner/manifest.json

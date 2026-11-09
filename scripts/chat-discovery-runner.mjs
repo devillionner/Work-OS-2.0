@@ -24,6 +24,8 @@ import { TELEGRAM_PARALLEL_TABS, openTelegramWebSessions, scanTelegramGroupForIn
 import { MAX_REVISIT_GROUPS, isGroupScanDue, parseScanMemory, productiveGroupsDue, rememberScannedGroups } from './telegram-group-memory.mjs';
 import { VIBER_ENV_REASON_TEXT, cancelViberTask, runViberAndroid, viberActiveTask, viberPayloadFromTask } from './viber-android.mjs';
 import { readTelegramIdentityViaCdp, reloadTelegramTabViaCdp, sendTelegramAutopostViaCdp } from './telegram-autopost-cdp.mjs';
+import { estimateBackup, executeBackup, formatBytes } from './runner-transfer.mjs';
+import { readInstalledPackage, updateFromSite } from './runner-update.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
@@ -91,8 +93,10 @@ const BROWSER_FLAGS_CHECK_MS=10*60_000;
 // Durable Object не будить). Є що робити, коли Durable Object сказав `activity: true` (партія чи задачі в черзі), або коли задача вже в нас.
 // Перевірку «за запитом» (власник відкрив картку автопосту) запускає `check_status` з force.
 let serverActive=false;
+// «Зберегти для перенесення» триває: браузер і Android закриті, нові задачі чекають у черзі.
+let transferBusy=false;
 function runnerIdle(){
-  return !serverActive&&!processingTask&&!processingViberTask&&incomingTaskQueue.length===0&&viberTaskQueue.length===0&&autopostActive.size===0&&!viberActiveTask();
+  return !serverActive&&!transferBusy&&!processingTask&&!processingViberTask&&incomingTaskQueue.length===0&&viberTaskQueue.length===0&&autopostActive.size===0&&!viberActiveTask();
 }
 function checkEnvironment(force=false){
   if(!force&&runnerIdle())return;
@@ -111,6 +115,76 @@ function runnerVersion(){
   try{return /APP_VERSION\s*=\s*'([^']+)'/.exec(readFileSync(join(dirname(new URL(import.meta.url).pathname),'..','lib','app-meta.ts'),'utf8'))?.[1]||'';}
   catch{return '';}
 }
+// --- Перенесення входів і самооновлення ---------------------------------------------------------------------------------------
+const rootDir=join(dirname(new URL(import.meta.url).pathname),'..');
+let siteVersion='';
+let selfUpdating=false;
+let selfUpdateRetry=null;
+// Runner, поставлений із сайту (поруч лежить RUNNER-PACKAGE.json), підтягує версію сайту сам; робоча копія репозиторію не чіпається.
+async function maybeSelfUpdate(){
+  if(!siteVersion||selfUpdating||!readInstalledPackage(rootDir))return;
+  const current=runnerVersion();
+  if(!current||current===siteVersion)return;
+  if(!runnerIdle()){
+    if(!selfUpdateRetry)selfUpdateRetry=setTimeout(()=>{selfUpdateRetry=null;void maybeSelfUpdate();},5*60_000);
+    return;
+  }
+  selfUpdating=true;
+  try{
+    console.log(`Версія сайту ${siteVersion}, runner ${current}: завантажую оновлення.`);
+    const next=await updateFromSite({baseUrl,rootDir,expectedVersion:siteVersion,log:(line)=>console.log(line)});
+    console.log(`Runner оновлено до ${next}; іконка в треї перезапустить його, коли він не працюватиме.`);
+  }catch(error){
+    console.warn(`Не вдалося оновити runner із сайту: ${error instanceof Error?error.message:String(error)}`);
+    if(!selfUpdateRetry)selfUpdateRetry=setTimeout(()=>{selfUpdateRetry=null;void maybeSelfUpdate();},30*60_000);
+  }finally{selfUpdating=false;}
+}
+
+let transferAbort=null;
+function transferProgress(event){
+  sendLive(liveWs,{type:'progress',process:'runner_transfer',op:'backup',phase:event.phase,text:event.text,percent:event.percent??null,bytes:event.bytes??0,total:event.total??0,at:Date.now()});
+}
+// Вікно пароля на ПК (GTK): пароль читається лише з stdout цього процесу й нікуди більше не йде.
+function askTransferSecrets(estimate){
+  if(process.env.WORK_OS_TRANSFER_PASSWORD)return Promise.resolve({password:process.env.WORK_OS_TRANSFER_PASSWORD,sudo:process.env.WORK_OS_TRANSFER_SUDO});
+  const args=[join(rootDir,'scripts','work-os-runner-dialog.py'),'--size',formatBytes(estimate.bytes)];
+  if(estimate.needsRoot)args.push('--sudo');
+  if(estimate.profile?.kind==='daily')args.push('--daily',estimate.profile.desktop?.name||estimate.profile.browser||'браузер');
+  return new Promise((resolve)=>{
+    execFile('python3',args,{timeout:15*60_000,maxBuffer:1<<16},(error,stdout)=>{
+      if(error){resolve(null);return;}
+      try{const result=JSON.parse(stdout);resolve(result.ok?result:null);}catch{resolve(null);}
+    });
+  });
+}
+async function startBackupTransfer(){
+  if(transferBusy)return;
+  const fail=(text)=>transferProgress({phase:'error',text,percent:null});
+  if(!baseUrl||!token){fail('Runner ще не підключений до Work OS.');return;}
+  if(!runnerIdle()&&!serverActive){fail('Runner зараз виконує задачу: дочекайся її завершення й повтори.');return;}
+  if(serverActive){fail('Іде партія автопосту: дочекайся її завершення й повтори.');return;}
+  let estimate;
+  try{estimate=estimateBackup();}catch{fail('Не вдалося оцінити розмір даних.');return;}
+  if(!estimate.sources.length){fail('Немає чого зберігати: не знайдено профіль браузера runner.');return;}
+  transferBusy=true;
+  transferAbort=new AbortController();
+  setStatus('working','Зберігаю входи для перенесення…');
+  try{
+    transferProgress({phase:'asking',text:`Чекаю на пароль у вікні на ПК (орієнтовно ${formatBytes(estimate.bytes)})`,percent:0});
+    const secrets=await askTransferSecrets(estimate);
+    if(!secrets){fail('Скасовано: пароль не введено.');return;}
+    const saved=await executeBackup({baseUrl,token,secrets,estimate,version:runnerVersion(),signal:transferAbort.signal,progress:transferProgress});
+    if(!saved)fail('Архів не збережено.');
+  }catch(error){
+    console.error(`Збереження для перенесення не вдалось: ${error instanceof Error?error.message:String(error)}`);
+    fail(transferAbort?.signal.aborted?'Скасовано.':`Не вдалося зберегти: ${error instanceof Error?error.message:'невідома помилка'}`);
+  }finally{
+    transferBusy=false;transferAbort=null;
+    setStatus('ready','Готовий: підключено до Work OS');
+    void pumpViberQueue();pumpTaskQueue();
+  }
+}
+
 const WHATSAPP_AUTOPOST_SYSTEMIC_AFTER=2;
 const WHATSAPP_AUTOPOST_SYSTEMIC_PAUSE_MS=10*60_000;
 const WHATSAPP_REASON_TEXT={
@@ -1417,7 +1491,7 @@ function enqueueTask(ws,taskProcess,task){
   pumpTaskQueue();
 }
 async function pumpViberQueue(){
-  if(processingViberTask)return;
+  if(processingViberTask||transferBusy)return;
   const next=viberTaskQueue.shift();
   if(!next)return;
   processingViberTask=true;
@@ -1441,7 +1515,7 @@ function takeNextTask(){
   return incomingTaskQueue.splice(index>=0?index:0,1)[0];
 }
 async function pumpTaskQueue(){
-  if(processingTask)return;
+  if(processingTask||transferBusy)return;
   const next=takeNextTask();
   if(!next)return;
   lastPumpedProcess=next.taskProcess;
@@ -1474,10 +1548,19 @@ function onLiveMessage(ws,raw){
     const changed=next!==serverActive;
     serverActive=next;
     if(next&&changed)checkEnvironment();
+    if(!next)void maybeSelfUpdate();
     return;
   }
   // Власник відкрив картку автопосту: одна перевірка навіть у простої (готовність, прив'язка акаунта Telegram).
   if(message.type==='check_status'){checkEnvironment(true);return;}
+  // Версія сайту: runner, встановлений із сайту, оновлює себе, коли вона інша (і лише коли простоює).
+  if(message.type==='site_info'){siteVersion=String(message.version||'').slice(0,20);void maybeSelfUpdate();return;}
+  // Картка «Runner на цьому ПК»: «Зберегти для перенесення» чи «Скасувати».
+  if(message.type==='transfer'){
+    if(message.action==='cancel'){transferAbort?.abort();return;}
+    void startBackupTransfer();
+    return;
+  }
   // Рішення Durable Object про видачу автопосту: без цього журналу не видно, чи задача взагалі дійшла до runner.
   if(message.type==='trace'){
     console.log(`[Work OS ${new Date(Number(message.at)||Date.now()).toLocaleTimeString('uk-UA')}${message.replay?' · раніше':''}] ${String(message.text||'')}`);

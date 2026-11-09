@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Встановлення runner Work OS із сайту однією командою (Linux, звичайний користувач):
+#   curl -fsSL https://<сайт>/runner/install | bash -s -- --site https://<сайт> --code XXXX-XXXX
+# На ПК ставиться лише runner (скрипти, трей, адаптери WhatsApp/Telegram/Viber) і програми, без яких він не працює (Node, браузер, Waydroid).
+# Репозиторій, git і сам сайт на ПК не потрібні. Пакет береться з цього ж сайту, його SHA-256 перевіряється до розпакування.
+# Параметри (усе, чого немає в списку нижче, передається інсталятору runner): --site АДРЕСА (обов'язково), --code КОД, --dry-run, --check, --remove [--purge],
+# --restore, --yes, --browser …, --skip-waydroid. Повний перелік: ~/.local/share/work-os/runner/scripts/install-runner.sh --help
+set -euo pipefail
+
+SITE="" ARGS=() DRY=0 MODE=install
+if [ -t 1 ]; then R=$'\033[31m' N=$'\033[0m' B=$'\033[1m'; else R="" N="" B=""; fi
+die() { printf '%sПомилка:%s %s\n' "$R" "$N" "$*" >&2; exit 1; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --site) SITE="${2:?потрібна адреса сайту}"; shift;;
+    --dry-run) DRY=1; ARGS+=("$1");;
+    --check) MODE=check; ARGS+=("$1");;
+    --remove) MODE=remove; ARGS+=("$1");;
+    *) ARGS+=("$1");;
+  esac
+  shift
+done
+SITE="${SITE%/}"
+[ -n "$SITE" ] || die "вкажіть адресу сайту: --site https://…  (команду з готовою адресою дає «Налаштування → Сервіс → Runner на цьому ПК»)"
+case "$SITE" in https://*|http://localhost*|http://127.0.0.1*) ;; *) die "адреса сайту має починатись з https://";; esac
+
+[ "$(uname -s)" = Linux ] || die "підтримано лише Linux"
+[ "$(id -u)" != 0 ] || die "запускайте від звичайного користувача (sudo спитається, коли потрібно)"
+
+# Система, яку підтримує інсталятор. Незмінні й невідомі системи відсікаються тут, до будь-яких завантажень і змін.
+os_file="${OS_RELEASE_FILE:-/etc/os-release}"
+[ -r "$os_file" ] || die "не знайдено $os_file: не можу визначити дистрибутив. Нічого не встановлено."
+ids="$(. "$os_file"; printf '%s %s' "${ID:-}" "${ID_LIKE:-}")"; id="$(. "$os_file"; printf '%s' "${ID:-}")"
+variant="$(. "$os_file"; printf '%s' "${VARIANT_ID:-}")"; name="$(. "$os_file"; printf '%s' "${PRETTY_NAME:-${NAME:-$id}}")"
+unsupported() { printf '%sНе підтримується:%s %s\n  %s\nПідтримано: Arch/CachyOS/Manjaro/EndeavourOS, Fedora (звичайна), Ubuntu/Debian/Mint, x86_64. Нічого не встановлено.\n' "$R" "$N" "$name" "$*" >&2; exit 1; }
+if [ "$MODE" != remove ]; then
+  if [ -e "${OSTREE_BOOTED_FILE:-/run/ostree-booted}" ] || printf ' %s ' "$variant" | grep -qiE ' (silverblue|kinoite|sericea|onyx|iot|coreos|cosmic-atomic|bazzite|bluefin|aurora) ' || printf ' %s ' "$id" | grep -qiE ' (bazzite|bluefin|aurora|steamos|vanilla) '; then
+    unsupported "незмінна система (rpm-ostree/atomic): пакети й Waydroid ставляться інакше."
+  fi
+  case " $ids " in *" nixos "*) unsupported "NixOS: пакети описуються конфігурацією системи.";; esac
+  case " $ids " in *" opensuse "*|*" opensuse-leap "*|*" opensuse-tumbleweed "*|*" suse "*|*" sles "*|*" sled "*) unsupported "openSUSE/SUSE: пакетного кроку для zypper немає.";; esac
+  case " $ids " in
+    *" arch "*|*" cachyos "*|*" manjaro "*|*" endeavouros "*|*" garuda "*|*" fedora "*|*" nobara "*|*" rhel "*|*" ubuntu "*|*" debian "*|*" linuxmint "*|*" pop "*) ;;
+    *) unsupported "невідомий дистрибутив ($ids).";;
+  esac
+fi
+for tool in curl tar gzip sha256sum; do command -v "$tool" >/dev/null 2>&1 || die "потрібна програма $tool (поставте її пакетним менеджером і повторіть)"; done
+
+DEST="${XDG_DATA_HOME:-$HOME/.local/share}/work-os/runner"
+TTY_IN=/dev/null; { : </dev/tty; } 2>/dev/null && TTY_IN=/dev/tty
+
+# --check і --remove працюють із вже встановленим runner.
+if [ "$MODE" = check ] || [ "$MODE" = remove ]; then
+  [ -x "$DEST/scripts/install-runner.sh" ] || { [ "$MODE" = remove ] && { printf 'Runner із сайту не встановлено (%s): нічого прибирати.\n' "$DEST"; exit 0; }; die "runner ще не встановлено в $DEST"; }
+  exec "$DEST/scripts/install-runner.sh" --site "$SITE" ${ARGS[@]+"${ARGS[@]}"}
+fi
+
+work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
+printf '%s▸ Завантажую пакет runner з %s%s\n' "$B" "$SITE" "$N"
+curl -fsSL "$SITE/runner/runner.tar.gz" -o "$work/runner.tar.gz" || die "не вдалося завантажити пакет runner (перевірте адресу сайту й мережу)"
+curl -fsSL "$SITE/runner/runner.sha256" -o "$work/runner.sha256" || die "не вдалося завантажити контрольну суму пакета"
+expected="$(cut -d' ' -f1 "$work/runner.sha256" | head -1)"
+actual="$(sha256sum "$work/runner.tar.gz" | cut -d' ' -f1)"
+[ -n "$expected" ] && [ "$expected" = "$actual" ] || die "контрольна сума пакета не збігається (очікувалась ${expected:0:12}…, отримано ${actual:0:12}…): нічого не розпаковано"
+printf '  ✔ SHA-256 пакета збігається (%s…)\n' "${actual:0:12}"
+
+if [ "$DRY" = 1 ]; then
+  # Показати план: пакет розпаковується в тимчасову теку, у $DEST нічого не змінюється.
+  mkdir -p "$work/runner"; tar -xzf "$work/runner.tar.gz" -C "$work/runner"
+  "$work/runner/scripts/install-runner.sh" --site "$SITE" ${ARGS[@]+"${ARGS[@]}"} <"$TTY_IN"
+  exit $?
+fi
+
+# Ідемпотентно: нова версія розпаковується поруч і замінює стару; сервіс трея бачить заміну файлів і сам перезапускає runner.
+mkdir -p "$(dirname "$DEST")"
+rm -rf "$DEST.new"; mkdir -p "$DEST.new"
+tar -xzf "$work/runner.tar.gz" -C "$DEST.new"
+[ -f "$DEST.new/scripts/chat-discovery-runner.mjs" ] || die "пакет неповний: немає файлів runner"
+if [ -d "$DEST" ]; then rm -rf "$DEST.old"; mv "$DEST" "$DEST.old"; fi
+mv "$DEST.new" "$DEST"; rm -rf "$DEST.old"
+printf '  ✔ runner %s розпаковано в %s\n' "$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$DEST/RUNNER-PACKAGE.json")" "$DEST"
+exec "$DEST/scripts/install-runner.sh" --site "$SITE" ${ARGS[@]+"${ARGS[@]}"} <"$TTY_IN"

@@ -8,7 +8,7 @@ set -euo pipefail
 RUNNER_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/work-os/runner.env"
 if [ -f "$RUNNER_CONF" ]; then
   while IFS='=' read -r key value; do
-    case "$key" in WORK_OS_BROWSER|WORK_OS_BROWSER_PROFILE|WORK_OS_URL) [ -z "${!key:-}" ] && export "$key=$(eval "printf '%s' $value")";; esac
+    case "$key" in WORK_OS_BROWSER|WORK_OS_BROWSER_PROFILE|WORK_OS_URL|WORK_OS_EXECUTOR_TOKEN) [ -z "${!key:-}" ] && export "$key=$(eval "printf '%s' $value")";; esac
   done < "$RUNNER_CONF"
 fi
 WORK_OS_URL="${WORK_OS_URL:-https://work-os-2-staging.devillionner.workers.dev}"

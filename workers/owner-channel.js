@@ -29,6 +29,7 @@ import {
   waitingCheckStatusFromBatch,
 } from '../lib/chats/whatsapp-waiting-check.ts';
 import { businessDate } from '../lib/business-time.ts';
+import { APP_VERSION } from '../lib/app-meta.ts';
 import { pushToOwner } from '../lib/push-store.ts';
 import {
   claimWhatsAppAutopostJob,
@@ -200,6 +201,42 @@ export class OwnerChannel {
     return Object.fromEntries(Object.entries(steps).filter(([, step]) => now - Number(step?.at || 0) < AUTOPOST_STEP_FRESH_MS));
   }
 
+  /**
+   * Реєстр кодів встановлення (екземпляр `idFromName('runner-enroll')`): ключ `enroll:<sha256 коду>` → власник і термін. Сам код ніде не зберігається й не
+   * логується; обмін видаляє запис (одне використання), а невдалі спроби лічаться вікном 15 хв.
+   * @param {Request} request
+   */
+  async handleEnrollPut(request) {
+    const body = await request.json().catch(() => null);
+    const hash = typeof body?.hash === 'string' ? body.hash : '';
+    const userId = typeof body?.userId === 'string' ? body.userId : '';
+    const expiresAt = Number(body?.expiresAt);
+    if (!/^[0-9a-f]{64}$/.test(hash) || !userId || !Number.isFinite(expiresAt)) return new Response(null, { status: 400 });
+    const now = nowSeconds();
+    const stale = await this.ctx.storage.list({ prefix: 'enroll:' });
+    for (const [key, value] of stale) if (Number(value?.expiresAt) <= now) await this.ctx.storage.delete(key);
+    await this.ctx.storage.put(`enroll:${hash}`, { userId, expiresAt });
+    return new Response(null, { status: 204 });
+  }
+
+  /** @param {Request} request */
+  async handleEnrollTake(request) {
+    const body = await request.json().catch(() => null);
+    const hash = typeof body?.hash === 'string' ? body.hash : '';
+    const now = nowSeconds();
+    const attempts = (await this.ctx.storage.get('enroll_attempts')) ?? { since: now, failed: 0 };
+    if (now - attempts.since > 900) { attempts.since = now; attempts.failed = 0; }
+    if (attempts.failed >= 10) return new Response(null, { status: 429 });
+    const entry = /^[0-9a-f]{64}$/.test(hash) ? await this.ctx.storage.get(`enroll:${hash}`) : undefined;
+    if (!entry || Number(entry.expiresAt) <= now) {
+      attempts.failed += 1;
+      await this.ctx.storage.put('enroll_attempts', attempts);
+      return new Response(null, { status: 404 });
+    }
+    await this.ctx.storage.delete(`enroll:${hash}`);
+    return Response.json({ userId: entry.userId });
+  }
+
   /** @param {Request} request */
   async handleFetch(request) {
     const url = new URL(request.url);
@@ -210,6 +247,16 @@ export class OwnerChannel {
     }
     if (url.pathname === '/waiting-check') {
       return this.handleWaitingCheckHttp(request, userId);
+    }
+    // Одноразові коди встановлення runner (лише хеш, 15 хв, одне використання): реєстр живе в окремому екземплярі DO, без D1.
+    if (url.pathname === '/enroll-put' && request.method === 'POST') return this.handleEnrollPut(request);
+    if (url.pathname === '/enroll-take' && request.method === 'POST') return this.handleEnrollTake(request);
+    // «Зберегти для перенесення» / «Скасувати» з картки: команда runner (пароль і прогрес лишаються між ПК і сторінкою напряму).
+    if (url.pathname === '/runner-transfer' && request.method === 'POST') {
+      if (!userId) return new Response(null, { status: 401 });
+      const action = url.searchParams.get('action') === 'cancel' ? 'cancel' : 'backup';
+      const delivered = this.broadcast('runner', { type: 'transfer', action });
+      return Response.json({ delivered });
     }
     if (url.pathname === '/autopost-wake' && request.method === 'POST') {
       if (!userId) return new Response(null, { status: 401 });
@@ -298,7 +345,7 @@ export class OwnerChannel {
   async onBrowserConnected(server, userId) {
     const state = await this.readState();
     if (userId && state.userId !== userId) { state.userId = userId; await this.writeState(state); }
-    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0, ...(state.runnerVersion ? { runnerVersion: state.runnerVersion } : {}), ...(state.runnerNotices ? { runnerNotices: state.runnerNotices } : {}), ...(state.viberStatus ? { viberStatus: state.viberStatus } : {}), ...(state.autopostStatus ? { autopostStatus: state.autopostStatus } : {}), ...(state.autopostPace ? { autopostPace: state.autopostPace } : {}), ...(state.autopostPace?.telegram ? { telegramPace: state.autopostPace.telegram } : {}), autopostSteps: await this.freshAutopostSteps() }));
+    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0, ...(state.runnerVersion ? { runnerVersion: state.runnerVersion } : {}), ...(state.runnerNotices ? { runnerNotices: state.runnerNotices } : {}), ...(state.viberStatus ? { viberStatus: state.viberStatus } : {}), ...(state.autopostStatus ? { autopostStatus: state.autopostStatus } : {}), ...(state.autopostPace ? { autopostPace: state.autopostPace } : {}), ...(state.autopostPace?.telegram ? { telegramPace: state.autopostPace.telegram } : {}), autopostSteps: await this.freshAutopostSteps(), ...(state.runnerTransfer ? { runnerTransfer: state.runnerTransfer } : {}) }));
   }
 
   /**
@@ -318,6 +365,8 @@ export class OwnerChannel {
     server.send(JSON.stringify({ type: 'hello', processes: state.processes }));
     // Runner без партії й задач нічого не перевіряє й не шле: скаже, чи є що робити, DO (і далі при кожній зміні).
     server.send(JSON.stringify({ type: 'activity', active: this.runnerBusy(state) }));
+    // Версія сайту: runner, встановлений із сайту, сам оновлюється, коли вона інша за його власну (і лише коли простоює).
+    server.send(JSON.stringify({ type: 'site_info', version: APP_VERSION }));
     for (const entry of (state.autopostTrace ?? []).slice(-AUTOPOST_TRACE_REPLAY)) server.send(JSON.stringify({ type: 'trace', at: entry.at, text: entry.text, replay: true }));
     this.autopostTrace(state, `runner підключено (відкритих: ${this.openRunnerCount()}), у роботі ${this.lanesText(state)}`, false);
     this.broadcast('browser', { type: 'runner_status', connected: true });
@@ -506,6 +555,12 @@ export class OwnerChannel {
       const state = await this.readState();
       const status = { state: message.state === 'ready' ? 'ready' : 'blocked', reason: typeof message.reason === 'string' ? message.reason : null, text: typeof message.text === 'string' ? message.text.slice(0, 300) : '', identity: typeof message.identity === 'string' && /^[0-9]{3,20}$/.test(message.identity) ? message.identity : null, until: Number.isFinite(Number(message.until)) && Number(message.until) > 0 ? Number(message.until) : null };
       state.autopostStatus = { ...(state.autopostStatus || {}), [message.platform]: status };
+      await this.writeState(state);
+    }
+    if (message.type === 'progress' && message.process === 'runner_transfer') {
+      // Прогрес перенесення входів (збереження архіву): лишається в стані, щоб картка, відкрита посеред операції чи після неї, показала результат.
+      const state = await this.readState();
+      state.runnerTransfer = { op: String(message.op || 'backup').slice(0, 20), phase: String(message.phase || '').slice(0, 30), text: String(message.text || '').slice(0, 300), percent: Number.isFinite(Number(message.percent)) ? Number(message.percent) : null, bytes: Number(message.bytes) || 0, total: Number(message.total) || 0, at: Date.now() };
       await this.writeState(state);
     }
     if (message.type === 'progress' && message.process === 'runner_notice' && typeof message.code === 'string') {

@@ -8,12 +8,16 @@
 #   --check                      лише перевірка готовності (нічого не змінює)
 #   --dry-run                    показати, що було б зроблено
 #   --yes                        без питань (типові відповіді)
-#   --restore ФАЙЛ               розгорнути архів runner-backup.sh (сесії месенджерів і Viber переносяться без QR)
+#   --site АДРЕСА                адреса сайту Work OS (звідси ж береться пакет runner і архів входів)
+#   --code КОД                   одноразовий код із «Налаштування → Сервіс → Runner на цьому ПК» (прив'язка без входу вручну)
+#   --restore                    запропонувати відновити входи з архіву в хмарі (з --code пропонується саме)
+#   --remove                     прибрати runner, сервіс і обробники посилань (входи й Waydroid-дані лишаються)
+#   --purge                      з --remove: прибрати ще профіль браузера runner, налаштування й стан (Waydroid-дані лишаються)
 #   --browser opera|chrome|chromium|brave|install   який браузер використати (install — поставити Chromium/Chrome)
 #   --arm auto|houdini|ndk|skip  перекладач ARM для Waydroid (auto: Intel — houdini, AMD — ndk)
 #   --android-windows auto|hide|off|keep   що робити з вікнами Android (auto: Hyprland і KDE — ховати правилом, решта — вимкнути multi_windows)
 #   --skip-waydroid              не чіпати Waydroid і Viber (лише WhatsApp і Telegram)
-#   --url АДРЕСА                 адреса Work OS (типово staging)
+#   --url АДРЕСА                 те саме, що --site
 # Змінні для перевірок: OS_RELEASE_FILE (інший файл замість /etc/os-release), ADBKEYBOARD_SHA256 (інша контрольна сума APK).
 set -euo pipefail
 
@@ -32,7 +36,7 @@ ADBKEYBOARD_URL="https://github.com/senzhk/ADBKeyBoard/raw/master/ADBKeyboard.ap
 ADBKEYBOARD_SHA256="${ADBKEYBOARD_SHA256:-e698adea5633135a067b038f9a0cf41baa4de09888713a81593fb2b9682cdc59}"
 ADBKEYBOARD_PACKAGE="com.android.adbkeyboard"
 
-MODE=install DRY=0 YES=0 RESTORE="" BROWSER_CHOICE="" ARM=auto ANDROID_WINDOWS=auto SKIP_WAYDROID=0
+MODE=install DRY=0 YES=0 RESTORE=0 CODE="" PURGE=0 RUNNER_TOKEN="" BROWSER_CHOICE="" ARM=auto ANDROID_WINDOWS=auto SKIP_WAYDROID=0
 WORK_OS_URL="${WORK_OS_URL:-https://work-os-2-staging.devillionner.workers.dev}"
 FAMILY="" SUDO_READY=0 PROBLEMS=0
 
@@ -45,14 +49,18 @@ bad()  { printf '  %s✘%s %s\n' "$R" "$N" "$*"; PROBLEMS=$((PROBLEMS + 1)); }
 die()  { printf '%sПомилка:%s %s\n' "$R" "$N" "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-usage() { sed -n 2,19p "$0"; }
+usage() { sed -n 2,24p "$0"; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --check) MODE=check;;
     --dry-run) DRY=1;;
     --yes|-y) YES=1;;
-    --restore) RESTORE="${2:?потрібен файл архіву}"; shift;;
+    --restore) RESTORE=1;;
+    --code) CODE="${2:?потрібен код}"; shift;;
+    --remove) MODE=remove;;
+    --purge) PURGE=1;;
+    --site) WORK_OS_URL="${2:?}"; shift;;
     --browser) BROWSER_CHOICE="${2:?}"; shift;;
     --arm) ARM="${2:?}"; shift;;
     --android-windows) ANDROID_WINDOWS="${2:?}"; shift;;
@@ -68,8 +76,11 @@ run() { if [ "$DRY" = 1 ]; then printf '    [dry-run] %s\n' "$*"; else "$@"; fi;
 
 ask() { # ask "питання" типова_відповідь → друкує відповідь
   local answer
-  if [ "$YES" = 1 ] || [ ! -t 0 ]; then printf '%s' "$2"; return; fi
-  read -r -p "  $1 [$2] " answer || answer=""
+  if [ "$YES" = 1 ]; then printf '%s' "$2"; return; fi
+  # Інсталятор запускають як `curl … | bash`: stdin зайнятий скриптом, тож питання йдуть із термінала.
+  if [ -t 0 ]; then read -r -p "  $1 [$2] " answer || answer=""
+  elif { : </dev/tty; } 2>/dev/null; then printf '  %s [%s] ' "$1" "$2" >/dev/tty; read -r answer </dev/tty || answer=""
+  else printf '%s' "$2"; return; fi
   printf '%s' "${answer:-$2}"
 }
 
@@ -85,15 +96,23 @@ as_root() { ensure_sudo; if [ "$(id -u)" = 0 ]; then run "$@"; else run sudo "$@
 
 # --- Дистрибутив -----------------------------------------------------------------------------------------------------------
 detect_distro() {
-  local file="${OS_RELEASE_FILE:-/etc/os-release}" ids
-  [ -r "$file" ] || die "не знайдено $file: не можу визначити дистрибутив"
+  local file="${OS_RELEASE_FILE:-/etc/os-release}" ids id variant name
+  [ -r "$file" ] || die "не знайдено $file: не можу визначити дистрибутив. Підтримано: Arch-, Fedora- та Debian/Ubuntu-подібні. Нічого не встановлено."
   # shellcheck disable=SC1090
   ids="$(. "$file"; printf '%s %s' "${ID:-}" "${ID_LIKE:-}")"
+  id="$(. "$file"; printf '%s' "${ID:-}")"; variant="$(. "$file"; printf '%s' "${VARIANT_ID:-}")"; name="$(. "$file"; printf '%s' "${PRETTY_NAME:-${NAME:-$id}}")"
+  unsupported() { printf '%sНе підтримується:%s %s\n  %s\nПідтримано: Arch/CachyOS/Manjaro/EndeavourOS, Fedora (звичайна), Ubuntu/Debian/Mint, архітектура x86_64. Нічого не встановлено.\n' "$R" "$N" "$name" "$*" >&2; exit 1; }
+  # Незмінні системи: корінь лише для читання, пакети й модулі ядра не поставити так, як це робить інсталятор.
+  if [ -e "${OSTREE_BOOTED_FILE:-/run/ostree-booted}" ] || printf ' %s ' "$variant" | grep -qiE ' (silverblue|kinoite|sericea|onyx|iot|coreos|cosmic-atomic|bazzite|bluefin|aurora) ' || printf ' %s ' "$id" | grep -qiE ' (bazzite|bluefin|aurora|steamos|vanilla) '; then
+    unsupported "незмінна система (rpm-ostree/atomic): пакети й Waydroid ставляться інакше, інсталятор їх не чіпає."
+  fi
+  case " $ids " in *" nixos "*) unsupported "NixOS: пакети описуються конфігурацією системи, імперативне встановлення не підходить.";; esac
+  case " $ids " in *" opensuse "*|*" opensuse-leap "*|*" opensuse-tumbleweed "*|*" suse "*|*" sles "*|*" sled "*) unsupported "openSUSE/SUSE: пакетного кроку для zypper немає.";; esac
   case " $ids " in
     *" arch "*|*" cachyos "*|*" manjaro "*|*" endeavouros "*|*" garuda "*) FAMILY=arch;;
     *" fedora "*|*" nobara "*|*" rhel "*) FAMILY=fedora;;
     *" ubuntu "*|*" debian "*|*" linuxmint "*|*" pop "*) FAMILY=debian;;
-    *) die "дистрибутив ($ids) не підтримано. Потрібен Arch-, Fedora- або Debian/Ubuntu-подібний; потрібні пакети: nodejs ≥ ${NODE_MIN_MAJOR}.${NODE_MIN_MINOR}, waydroid, adb, python3-gobject з AppIndicator, curl, git, openssl.";;
+    *) unsupported "невідомий дистрибутив ($ids).";;
   esac
   ok "Дистрибутив: сімейство ${FAMILY} (${ids})"
 }
@@ -117,7 +136,7 @@ pkg_install() { # лише відсутні пакети
   esac
 }
 
-pkgs_base()  { case "$FAMILY" in arch|fedora) echo "curl git xdg-utils util-linux openssl tar";; debian) echo "curl git xdg-utils util-linux openssl tar ca-certificates";; esac; }
+pkgs_base()  { case "$FAMILY" in arch|fedora) echo "curl xdg-utils util-linux tar";; debian) echo "curl xdg-utils util-linux tar ca-certificates";; esac; }
 pkgs_tray()  { case "$FAMILY" in arch) echo "python-gobject gtk3 libayatana-appindicator";; fedora) echo "python3-gobject gtk3 libayatana-appindicator-gtk3";; debian) echo "python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1";; esac; }
 pkgs_python() { case "$FAMILY" in arch) echo "python python-pip";; fedora) echo "python3 python3-pip";; debian) echo "python3 python3-venv python3-pip";; esac; }
 pkgs_waydroid() { case "$FAMILY" in arch|fedora) echo "waydroid android-tools";; debian) echo "waydroid adb";; esac; }
@@ -150,12 +169,22 @@ install_node_tarball() { # офіційний tarball nodejs.org із перев
 
 # --- Кроки -----------------------------------------------------------------------------------------------------------------
 step_base() {
-  step "1. Node.js і залежності репозиторію"
-  why_root "системні пакети (curl, git, openssl, трей-залежності)"
+  step "1. Node.js і системні пакети"
+  why_root "системні пакети (curl, трей-залежності)"
   # shellcheck disable=SC2046
   pkg_install $(pkgs_base) $(pkgs_tray) $(pkgs_python)
   if node_ok; then ok "Node $(node --version)"; else say "  Node ≥ ${NODE_MIN_MAJOR}.${NODE_MIN_MINOR} не знайдено: ставлю офіційний пакет без root"; install_node_tarball; [ "$DRY" = 1 ] || node_ok || die "Node не встановився"; ok "Node встановлено"; fi
-  if [ -d "$ROOT/node_modules" ] && [ "$ROOT/node_modules" -nt "$ROOT/package-lock.json" ]; then ok "залежності репозиторію вже встановлено"; else (cd "$ROOT" && run npm ci --no-audit --no-fund); ok "npm ci виконано"; fi
+  [ -f "$ROOT/RUNNER-PACKAGE.json" ] && ok "пакет runner $(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('$ROOT/RUNNER-PACKAGE.json','utf8')).version)" 2>/dev/null || echo '?') у $ROOT (залежностей npm runner не має)"
+}
+
+# Рядок KEY=значення в runner.env: оновлює наявний і не чіпає решту (токен, браузер, адреса живуть разом).
+conf_set() {
+  [ "$DRY" = 1 ] && return 0
+  mkdir -p "$CONF_DIR"; touch "$CONF_FILE"; chmod 600 "$CONF_FILE"
+  local tmp; tmp="$(mktemp)"
+  grep -v "^$1=" "$CONF_FILE" > "$tmp" || true
+  printf '%s=%q\n' "$1" "$2" >> "$tmp"
+  cat "$tmp" > "$CONF_FILE"; rm -f "$tmp"
 }
 
 desktop_with_cdp() { # існуючий .desktop користувача, який уже відкриває браузер із портом CDP
@@ -212,7 +241,7 @@ step_browser() {
   local profile="$HOME/.local/share/work-os-runner-browser"
   run mkdir -p "$CONF_DIR" "$APPS" "$profile"
   if [ "$DRY" != 1 ]; then
-    { printf 'WORK_OS_BROWSER=%q\n' "$bin"; printf 'WORK_OS_BROWSER_PROFILE=%q\n' "$profile"; printf 'WORK_OS_URL=%q\n' "$WORK_OS_URL"; } > "$CONF_FILE"
+    conf_set WORK_OS_BROWSER "$bin"; conf_set WORK_OS_BROWSER_PROFILE "$profile"
     cat > "$APPS/work-os-runner-browser.desktop" <<DESK
 [Desktop Entry]
 Type=Application
@@ -305,8 +334,8 @@ install_adbkeyboard() {
 
 step_waydroid() {
   step "3. Waydroid (Android для Viber)"
-  if [ "$SKIP_WAYDROID" = 1 ]; then warn "пропущено (--skip-waydroid): Viber працювати не буде"; return; fi
-  [ "$(uname -m)" = x86_64 ] || { warn "Waydroid автоматично налаштовується лише на x86_64"; return; }
+  if [ "$SKIP_WAYDROID" = 1 ]; then warn "пропущено (--skip-waydroid): Viber працювати не буде"; do_restore; return; fi
+  [ "$(uname -m)" = x86_64 ] || { warn "Waydroid автоматично налаштовується лише на x86_64"; do_restore; return; }
   if ! grep -qw binder /proc/filesystems 2>/dev/null && [ ! -e /dev/binderfs ] && ! lsmod 2>/dev/null | grep -q binder; then
     warn "у ядрі не видно binder: Waydroid його потребує."
     case "$FAMILY" in
@@ -330,10 +359,7 @@ step_waydroid() {
   as_root systemctl enable --now waydroid-container.service
   firewall_rules
 
-  if [ -n "$RESTORE" ]; then
-    step "3a. Відновлення з архіву"
-    "$ROOT/scripts/runner-backup.sh" restore "$RESTORE"
-  fi
+  do_restore
 
   local arm="$ARM"
   if [ "$arm" = auto ]; then
@@ -345,8 +371,13 @@ step_waydroid() {
       say "  Перекладач ARM ($arm) потрібен, бо Viber — ARM-застосунок. Використовую waydroid_script (комміт ${WAYDROID_SCRIPT_COMMIT:0:8})."
       why_root "встановити перекладач ARM у образ Android"
       local ws="$DATA_DIR/waydroid_script"
-      if [ ! -d "$ws/.git" ]; then run git clone --quiet "$WAYDROID_SCRIPT_URL" "$ws"; fi
-      run git -C "$ws" checkout --quiet "$WAYDROID_SCRIPT_COMMIT"
+      if [ ! -f "$ws/main.py" ]; then
+        # Без git: архів саме цього комміту (він і задає вміст; адреса з хешем не міняється).
+        run mkdir -p "$ws"
+        if [ "$DRY" = 1 ]; then say "    [dry-run] завантажити waydroid_script@${WAYDROID_SCRIPT_COMMIT:0:8} і розпакувати в $ws"; else
+          curl -fsSL "$WAYDROID_SCRIPT_URL/archive/$WAYDROID_SCRIPT_COMMIT.tar.gz" | tar -xz -C "$ws" --strip-components=1 || die "не вдалося завантажити waydroid_script"
+        fi
+      fi
       [ -d "$ws/venv" ] || run python3 -m venv "$ws/venv"
       run "$ws/venv/bin/pip" install --quiet -r "$ws/requirements.txt"
       as_root "$ws/venv/bin/python" "$ws/main.py" install "$([ "$arm" = ndk ] && echo libndk || echo libhoudini)"
@@ -390,10 +421,65 @@ step_service() {
 
 step_bind() {
   step "5. Прив'язка до Work OS"
-  say "  1) У вікні браузера runner (відкриється саме) увійдіть у Work OS: $WORK_OS_URL"
-  say "  2) У цьому ж браузері увійдіть у WhatsApp Web (QR) і Telegram Web (web.telegram.org)"
-  say "  3) Токен runner підхопиться сам зі сторінки Work OS; якщо ні: «Налаштування → Сервіс → Executor пошуку чатів»"
-  say "  Якщо ви відновили архів (--restore), входи й токен уже на місці й QR не потрібні."
+  if [ -n "$RUNNER_TOKEN" ] || grep -qs '^WORK_OS_EXECUTOR_TOKEN=' "$CONF_FILE" 2>/dev/null; then
+    say "  Runner прив'язано кодом: входити в Work OS у браузері runner не треба."
+  else
+    say "  1) У вікні браузера runner (відкриється саме) увійдіть у Work OS: $WORK_OS_URL"
+    say "  2) Токен runner підхопиться сам зі сторінки Work OS; якщо ні: «Налаштування → Сервіс → Executor пошуку чатів»"
+  fi
+  say "  WhatsApp Web (QR) і Telegram Web (web.telegram.org): увійдіть у вікні браузера runner, якщо входів не відновлено з архіву."
+}
+
+# --- Код встановлення, токен, архів входів -----------------------------------------------------------------------------------------
+json_get() { node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const v=JSON.parse(d)[process.argv[1]];process.stdout.write(v==null?"":String(v))}catch{}})' "$1"; }
+
+step_enroll() {
+  [ -n "$CODE" ] || return 0
+  step "Прив'язка за одноразовим кодом"
+  if [ "$DRY" = 1 ]; then say "    [dry-run] обміняти код на токен runner (POST $WORK_OS_URL/api/runner/enroll)"; return 0; fi
+  local body response
+  body="$(printf '{"action":"redeem","code":"%s","host":"%s"}' "$CODE" "$(hostname | tr -cd 'A-Za-z0-9._ -')")"
+  response="$(curl -sS --max-time 30 -X POST -H 'Content-Type: application/json' -d "$body" "$WORK_OS_URL/api/runner/enroll" 2>&1)" || die "не вдалося зв'язатися з Work OS: $response"
+  RUNNER_TOKEN="$(printf '%s' "$response" | json_get token)"
+  if [ -z "$RUNNER_TOKEN" ]; then die "код не прийнято: $(printf '%s' "$response" | json_get error)"; fi
+  conf_set WORK_OS_EXECUTOR_TOKEN "$RUNNER_TOKEN"; conf_set WORK_OS_URL "$WORK_OS_URL"
+  ok "Runner прив'язано до Work OS: токен збережено в $CONF_FILE (доступ лише для вас). Код більше не діє."
+}
+
+# Відновлення входів: архів лежить у хмарі Work OS, розшифровується паролем локально; наявне не затирається, а переїжджає в *.bak-ДАТА.
+do_restore() {
+  [ "$RESTORE" = 1 ] || [ -n "$CODE" ] || return 0
+  step "Відновлення входів з архіву"
+  if [ "$DRY" = 1 ]; then say "    [dry-run] перевірити архів у хмарі й, якщо він є, відновити (профіль браузера, дані Android)"; return 0; fi
+  local token="${RUNNER_TOKEN:-}"
+  if [ -z "$token" ] && [ -f "$CONF_FILE" ]; then token="$(grep '^WORK_OS_EXECUTOR_TOKEN=' "$CONF_FILE" | head -1 | cut -d= -f2- | tr -d "'\"")"; fi
+  [ -n "$token" ] || { warn "немає токена runner: відновлення пропущено (запустіть із --code)"; return 0; }
+  local yes_flag=(); [ "$YES" = 1 ] && yes_flag=(--yes)
+  set +e
+  node "$ROOT/scripts/runner-transfer.mjs" restore --site "$WORK_OS_URL" --token "$token" ${yes_flag[@]+"${yes_flag[@]}"} </dev/tty
+  local code=$?
+  set -e
+  case "$code" in
+    0) ok "входи відновлено: WhatsApp, Telegram і Viber без QR";;
+    3) say "  Архіву в хмарі немає (це перший ПК). Після встановлення увійдіть у WhatsApp Web (QR) і Telegram Web у вікні браузера runner; Viber активується з телефона.";;
+    4) warn "відновлення пропущено за вашим вибором";;
+    *) warn "відновлення не завершилось (код $code): runner працюватиме, але входи доведеться зробити вручну; повторити: $0 --restore";;
+  esac
+}
+
+do_remove() {
+  step "Видалення runner"
+  if [ "$DRY" = 1 ]; then say "    [dry-run] зупинити сервіс, прибрати обробники й $ROOT$([ "$PURGE" = 1 ] && echo ', налаштування, стан і профіль браузера runner')"; return 0; fi
+  "$ROOT/scripts/install-whatsapp-runner-autostart.sh" --remove || true
+  pkill -f 'scripts/chat-discovery-runner.mjs' 2>/dev/null || true
+  rm -f "$APPS/work-os-runner-browser.desktop"
+  if [ "$PURGE" = 1 ]; then
+    rm -rf "$CONF_DIR" "$STATE_DIR" "$HOME/.local/share/work-os-runner-browser"
+    ok "налаштування, стан і профіль браузера runner прибрано"
+  else
+    say "  Входи (профіль браузера runner), налаштування й дані Waydroid лишено. Прибрати ще й їх: --remove --purge (Waydroid-дані вручну: ~/.local/share/waydroid)."
+  fi
+  case "$ROOT" in "$DATA_DIR"/*) rm -rf "$ROOT"; ok "runner видалено: $ROOT";; *) say "  Теку $ROOT не видаляю (це не встановлення з сайту): видаліть її самі, якщо вона не потрібна.";; esac
 }
 
 # --- Перевірка -------------------------------------------------------------------------------------------------------------
@@ -401,7 +487,7 @@ check_all() {
   step "Перевірка готовності runner"
   PROBLEMS=0
   if node_ok; then ok "Node $(node --version)"; else bad "Node ≥ ${NODE_MIN_MAJOR}.${NODE_MIN_MINOR} не знайдено → scripts/install-runner.sh"; fi
-  [ -d "$ROOT/node_modules" ] && ok "залежності репозиторію встановлено" || bad "немає node_modules → npm ci у $ROOT"
+  [ -f "$ROOT/scripts/chat-discovery-runner.mjs" ] && ok "runner: $ROOT" || bad "немає файлів runner у $ROOT → встановіть заново"
   python3 - <<'PY' >/dev/null 2>&1 && ok "трей: Python GTK і AppIndicator доступні" || bad "трей: бракує python-gobject/AppIndicator → scripts/install-runner.sh"
 import gi
 gi.require_version('Gtk', '3.0')
@@ -429,12 +515,13 @@ PY
 # --- Головний потік --------------------------------------------------------------------------------------------------------
 [ "$(uname -s)" = Linux ] || die "підтримано лише Linux"
 [ "$(id -u)" != 0 ] || die "запускайте від звичайного користувача (sudo спитається, коли потрібно)"
+if [ "$MODE" = remove ]; then do_remove; exit 0; fi
 detect_distro
 if [ "$MODE" = check ]; then check_all; exit $?; fi
 say "Work OS: встановлення runner. Адреса Work OS: $WORK_OS_URL"
 [ "$DRY" = 1 ] && say "(режим --dry-run: нічого не змінюється)"
 step_base
-if [ -n "$RESTORE" ] && [ "$SKIP_WAYDROID" = 1 ]; then step "Відновлення з архіву"; "$ROOT/scripts/runner-backup.sh" restore "$RESTORE"; fi
+step_enroll
 step_browser
 step_waydroid
 step_service

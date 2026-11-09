@@ -82,6 +82,15 @@ function cleanStep(value: unknown): AutopostStep | null {
   const item = value as Record<string, unknown>;
   return { jobId: String(item.jobId || ''), name: String(item.name || ''), text: String(item.text || ''), startedAt: Number(item.startedAt) || Date.now(), at: Number(item.at) || Date.now(), verify: item.verify === true };
 }
+/** Прогрес «Зберегти для перенесення» від runner: приходить у hello (останній стан) і подіями; пароль і дані сюди не потрапляють. */
+export type RunnerTransfer = { op: string; phase: string; text: string; percent: number | null; bytes: number; total: number; at: number };
+let latestTransfer: RunnerTransfer | null = null;
+export function getLatestTransfer(): RunnerTransfer | null { return latestTransfer; }
+function cleanTransfer(value: unknown): RunnerTransfer | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Record<string, unknown>;
+  return { op: String(item.op || 'backup'), phase: String(item.phase || ''), text: String(item.text || ''), percent: typeof item.percent === 'number' ? item.percent : null, bytes: Number(item.bytes) || 0, total: Number(item.total) || 0, at: Number(item.at) || Date.now() };
+}
 export function getRunnerNotice(code: string): string | null { return runnerNotices[code] || null; }
 export function getLatestPace(platform: string): AutopostPace | null { return latestPace[platform] || null; }
 export function getLatestTelegramPace(): AutopostPace | null { return getLatestPace('telegram'); }
@@ -205,6 +214,8 @@ function connect() {
       const clean = cleanAutopostStatus(message);
       if (clean) latestAutopostStatus = { ...latestAutopostStatus, [message.platform]: clean };
     }
+    if (message.type === 'hello') latestTransfer = cleanTransfer(message.runnerTransfer);
+    if (message.type === 'progress' && message.process === 'runner_transfer') latestTransfer = cleanTransfer(message);
     if (message.type === 'hello') {
       const raw = message.runnerNotices;
       runnerNotices = raw && typeof raw === 'object' ? Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) : {};
