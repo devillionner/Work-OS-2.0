@@ -12,7 +12,7 @@ const tagsOf = (json: string): string[] => { try { const parsed = JSON.parse(jso
 async function load(userId: string) {
   const [settings, items] = await env.DB.batch([
     env.DB.prepare('SELECT value_json FROM user_settings WHERE user_id=?1 AND setting_key=?2 LIMIT 1').bind(userId, DICTIONARY_SETTING_KEY),
-    env.DB.prepare('SELECT id,tags_json,branch FROM library_items WHERE user_id=?1').bind(userId),
+    env.DB.prepare('SELECT id,tags_json,branch FROM library_items WHERE user_id=?1 AND NOT (id>=\'tgp_\' AND id<\'tgp`\')').bind(userId),
   ]);
   const saved = parseDictionaries((settings.results[0] as { value_json?: string } | undefined)?.value_json);
   const rows = items.results as ItemRow[];

@@ -44,7 +44,7 @@ export async function readHistoricalPublicationOptions(db:D1Database,input:{
     db.prepare(`SELECT id,account_number,name,is_enabled FROM telegram_accounts
       WHERE user_id=?1 ORDER BY account_number`).bind(input.userId),
     db.prepare(`SELECT id,title FROM library_items
-      WHERE user_id=?1 AND kind='advertisement' AND archived_at IS NULL
+      WHERE user_id=?1 AND kind='advertisement' AND archived_at IS NULL AND NOT (id>='tgp_' AND id<'tgp\`')
       ORDER BY updated_at DESC,title LIMIT 200`).bind(input.userId),
   ]);
   return {

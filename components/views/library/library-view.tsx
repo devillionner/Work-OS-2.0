@@ -23,6 +23,7 @@ import { applyReorder, sortByOrder } from './order';
 import { collectionLabel, COLLECTIONS, matchesPlatform, platformLabel, type Collection, type Item, type LibraryCollectionKey } from './types';
 
 const DevelopmentSection = lazy(() => import('./development-section'));
+const PoolSection = lazy(() => import('./pool-section'));
 const ConvertFieldsPanel = lazy(() => import('./convert-fields-panel'));
 const ImportScripts = lazy(() => import('./import-scripts'));
 
@@ -49,7 +50,8 @@ export default function LibraryView() {
   const [pendingOpen, setPendingOpen] = useState<string | null>(null);
   const grid = useRef<HTMLUListElement>(null);
   const seenRevision = useRef(syncRevision);
-  const developing = collection === 'development';
+  const pooled = collection === 'telegram_pool';
+  const developing = collection === 'development' || pooled;
   const libraryCollection = developing ? null : collection as LibraryCollectionKey;
 
   useEffect(() => {
@@ -157,7 +159,7 @@ export default function LibraryView() {
   return (
     <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-4 pb-6" aria-busy={list.loading}>
       <TopbarControls>
-        <SearchField value={search} onValueChange={setSearch} placeholder={developing ? 'Назва, опис або чекпоінт' : 'Назва, текст або тег'} wrapperClassName="min-w-[150px] max-w-[360px] flex-1" hotkey={!phone} />
+        <SearchField value={search} onValueChange={setSearch} placeholder={pooled ? 'Текст або напрям' : developing ? 'Назва, опис або чекпоінт' : 'Назва, текст або тег'} wrapperClassName="min-w-[150px] max-w-[360px] flex-1" hotkey={!phone} />
       </TopbarControls>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -177,7 +179,7 @@ export default function LibraryView() {
         </Suspense>
       ) : developing ? (
         <Suspense fallback={<div aria-busy="true" className="grid grid-cols-1 gap-3 @4xl:grid-cols-4">{[0, 1, 2, 3].map((item) => <Ghost key={item} className="h-[320px] rounded-card" />)}</div>}>
-          <DevelopmentSection active={active} query={query} />
+          {pooled ? <PoolSection active={active} query={query} /> : <DevelopmentSection active={active} query={query} />}
         </Suspense>
       ) : (
         <>

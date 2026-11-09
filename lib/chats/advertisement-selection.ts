@@ -101,7 +101,7 @@ export async function readPublicationAdvertisementSelection(
   const [advertisementsResult, usedResult, focusResult, workdayResult] = !withItems ? emptyItemsBatch() : await db.batch([
     db.prepare(`SELECT id,title,uk_text,ru_text,notes,tags_json,platforms_json,updated_at
       FROM library_items
-      WHERE user_id=?1 AND kind='advertisement' AND archived_at IS NULL
+      WHERE user_id=?1 AND kind='advertisement' AND archived_at IS NULL AND NOT (id>='tgp_' AND id<'tgp\`')
       ORDER BY updated_at DESC,title LIMIT 500`).bind(input.userId),
     usedStatement,
     db.prepare(`SELECT value_json,updated_at FROM user_settings

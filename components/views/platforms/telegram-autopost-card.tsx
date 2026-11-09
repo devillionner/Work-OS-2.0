@@ -1,9 +1,13 @@
 'use client';
 
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { PaceEstimate, PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
 import { DuplicateRows } from '@/components/views/platforms/duplicate-frame';
 import { ThreadPicker } from '@/components/views/platforms/thread-picker';
+import { PoolPanel } from '@/components/views/platforms/pool-panel';
+import { usePoolPreview } from '@/components/views/platforms/use-pool-preview';
+import { endingText } from '@/components/views/platforms/pool-types';
 import { AutopostPanel, chatWord, type AutopostMaterialProps, type AutopostPlan, type AutopostReadiness, type TelegramThreadChoice } from '@/components/views/platforms/autopost-panel';
 import type { AutopostAttentionItem, AutopostDecision } from '@/components/views/platforms/autopost-attention';
 import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
@@ -30,6 +34,27 @@ function AccountBinding({ binding, status, busy, onBind }: { binding: { bound: b
     <div className="flex flex-wrap items-center gap-3 text-sm">
       <span className={other ? 'text-hot' : 'text-ink-2'}>{other ? 'У браузері відкрито інший акаунт Telegram, не той, що прив’язано.' : 'Акаунт прив’язано до браузера runner.'}</span>
       <Button variant="ghost" size="sm" disabled={busy} onClick={() => onBind(null)}>Прибрати прив’язку</Button>
+    </div>
+  );
+}
+
+/** Рядок пулу текстових оголошень: скільки їх, скільки вільних сьогодні, які напрями закінчуються; «Вставити список» відкриває розбір списку. */
+function PoolRow({ plan, onOpen }: { plan: AutopostPlan | null; onOpen: () => void }) {
+  const pool = plan?.pool;
+  const waiting = plan?.textWaiting ?? 0;
+  const ending = pool ? endingText(pool) : '';
+  return (
+    <div className="flex flex-col gap-1.5 rounded-inner border border-line px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <p className="m-0 min-w-0 flex-1 basis-52 text-sm">
+          <span className="text-ink-2">Оголошення: </span>
+          {pool ? (
+            <>пул <b className="font-mono font-medium tabular-nums">{pool.total}</b> · вільних сьогодні <b className="font-mono font-medium tabular-nums">{pool.free}</b>{ending ? <span className="text-ink-2"> · {ending}</span> : null}</>
+          ) : plan ? <span className="text-ink-2">пулу немає, працює власний текст або Бібліотека</span> : <span className="text-ink-2">рахую…</span>}
+        </p>
+        <Button variant="outline" size="sm" onClick={onOpen}>{pool ? 'Оновити список' : 'Вставити список'}</Button>
+      </div>
+      {pool && pool.free === 0 ? <p className="m-0 text-sm text-warn">Тексти на сьогодні закінчились{waiting ? ` · ${waiting} ${chatWord(waiting)} ${waiting % 10 === 1 && waiting % 100 !== 11 ? 'чекає' : 'чекають'}` : ''}</p> : waiting > 0 ? <p className="m-0 text-xs text-ink-2">Вільних текстів на сьогодні менше, ніж чатів: {waiting} {chatWord(waiting)} {waiting % 10 === 1 && waiting % 100 !== 11 ? 'чекає' : 'чекають'} на завтра.</p> : null}
     </div>
   );
 }
@@ -88,7 +113,9 @@ function ThreadChoices({ choices, busy, onChoose, onScan }: { choices: TelegramT
  * Автопублікація у Telegram через браузер: спільна картка автопосту, текст оголошення з Бібліотеки для кожного чату (як при ручній
  * публікації), темп «5 · 10 · 20 на годину», прив'язка акаунта до браузера й вибір гілок форумів.
  */
-export function TelegramAutopostCard({ runnerSeen, onScanThreads, material, plan, onLoadPlan, runnerConnected, status, pace, progress, attention, batchNote, binding, busy, onDecide, onDecideMany, onStart, onStop, onReset, onChooseThread, onBind }: {
+export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, material, plan, onLoadPlan, runnerConnected, status, pace, progress, attention, batchNote, binding, busy, onDecide, onDecideMany, onStart, onStop, onReset, onChooseThread, onBind }: {
+  /** Вибраний акаунт Telegram: для нього рахується підбір текстів пулу. */
+  accountId: string | null;
   /** Від runner приходять події (кроки, стан): він на зв'язку, навіть коли прапорець каналу ще не оновився. */
   runnerSeen: boolean;
   onScanThreads: (chatId?: string) => void;
@@ -106,13 +133,15 @@ export function TelegramAutopostCard({ runnerSeen, onScanThreads, material, plan
   busy: boolean;
   onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
   onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision) => void;
-  onStart: (limit: number | null, exclude: string[], perHour: number) => void;
+  onStart: (limit: number | null, exclude: string[], perHour: number, texts: Record<string, string>) => void;
   onStop: () => void;
   onReset: () => void;
   onChooseThread: (chatId: string, threadId: string | null) => void;
   onBind: (webUserId: string | null) => void;
 }) {
   const [perHour, setPerHour] = usePerHour('telegram');
+  const [poolOpen, setPoolOpen] = useState(false);
+  const preview = usePoolPreview(accountId);
   const running = progress?.running === true;
   const unbound = binding !== null && !binding.bound;
   const online = runnerConnected === true || runnerSeen;
@@ -128,6 +157,7 @@ export function TelegramAutopostCard({ runnerSeen, onScanThreads, material, plan
   const minutes = Math.round(60 / perHour);
 
   return (
+    <>
     <AutopostPanel
       platform="telegram"
       title="Автопублікація у Telegram"
@@ -142,11 +172,11 @@ export function TelegramAutopostCard({ runnerSeen, onScanThreads, material, plan
         <ol className="m-0 flex flex-col gap-1.5 pl-5">
           <li>У браузері runner відкрий web.telegram.org/a і залогінься в акаунт, який вибрано вгорі в Work OS.</li>
           <li>Прив’яжи акаунт кнопкою вище: перед кожним чатом автопост перевіряє, що відкрито саме його.</li>
-          <li>Фото й текст у Telegram власні, окремі від WhatsApp і Viber (кнопка «Взяти з WhatsApp/Viber» копіює їх). Без свого тексту береться оголошення з Бібліотеки за мовою й напрямками профілю чату. Фото необов’язкове: підпис до фото — до 1024 символів, текст без фото — до 4096.</li>
+          <li>Фото й текст у Telegram власні, окремі від WhatsApp і Viber (кнопка «Взяти з WhatsApp/Viber» копіює їх). Коли в пулі оголошень є тексти, кожен чат отримує окремий текст за напрямом, мовою й аудиторією, і за добу жоден текст не йде вдруге; власний текст і Бібліотека — запасні, коли пулу немає. Фото необов’язкове: підпис до фото — до 1024 символів, текст без фото — до 4096.</li>
           <li>Чат у розкладі на сьогодні автопост не бере. Якщо Telegram просить зачекати, вся черга Telegram стає на паузу на вказаний час.</li>
         </ol>
       )}
-      material={material}
+      material={{ ...material, poolActive: Boolean(plan?.pool) }}
       progress={progress}
       attention={attention}
       batchNote={batchNote}
@@ -154,6 +184,7 @@ export function TelegramAutopostCard({ runnerSeen, onScanThreads, material, plan
       runnerBlocked={(runnerConnected === false && !runnerSeen) || unbound || status?.state === 'blocked' && status.reason === 'telegram_account_mismatch'}
       topSlot={(
         <div className="flex flex-col gap-3">
+          <PoolRow plan={plan} onOpen={() => setPoolOpen(true)} />
           <AccountBinding binding={binding} status={status} busy={busy} onBind={onBind} />
           <PaceEstimate platform="telegram" count={plan?.ready ?? 0} perHour={perHour} running={running} />
           {(plan?.unscanned ?? 0) > 0 && !running ? <p className="m-0 text-xs text-ink-2">{plan?.unscanned} {chatWord(plan?.unscanned ?? 0)} ще не перевірено на гілки: перед публікацією їх швидко відкриє прохід, він не займає місць «на годину». Можна зробити це наперед кнопкою «Знайти гілки» нижче.</p> : null}
@@ -169,10 +200,13 @@ export function TelegramAutopostCard({ runnerSeen, onScanThreads, material, plan
       )}
       onDecide={onDecide}
       onDecideMany={onDecideMany}
-      onStart={(limit, exclude) => onStart(limit, exclude, perHour)}
+      poolPreview={plan?.pool ? preview : undefined}
+      onStart={(limit, exclude) => { onStart(limit, exclude, perHour, preview.overrides); preview.clear(); }}
       onStop={onStop}
       onReset={onReset}
     />
+    <PoolPanel open={poolOpen} onOpenChange={setPoolOpen} total={plan?.pool?.total ?? 0} onSaved={onLoadPlan} />
+    </>
   );
 }
 

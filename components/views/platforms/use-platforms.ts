@@ -1001,12 +1001,12 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   // Telegram: та сама черга, але лише чати вибраного акаунта; публікації розставляє DO рівномірно (5, 10 чи 20 на годину).
   const telegramAction = async (action: string, extra: Record<string, unknown> = {}) => {
     const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, accountId, ...extra }) });
-    const body = await response.json() as { created?: number; scanning?: number; skipped?: number; reasons?: Array<{ code: string; count: number }>; more?: boolean; cancelled?: number; removed?: number; progress?: WhatsAppAutopostProgress; queued?: boolean; error?: string };
+    const body = await response.json() as { created?: number; scanning?: number; skipped?: number; reasons?: Array<{ code: string; count: number }>; more?: boolean; waiting?: number; cancelled?: number; removed?: number; progress?: WhatsAppAutopostProgress; queued?: boolean; error?: string };
     if (!response.ok) throw new Error(body.error || 'Не вдалося виконати дію автопосту Telegram.');
     return body;
   };
-  const startTelegramAutopostBatch = (limit: number | null, exclude: string[], perHour: number) => { if (platform !== 'telegram' || !accountId) return Promise.resolve(); return wa('telegram-autopost-batch', async () => {
-    const body = await telegramAction('telegram-autopost-batch', { ...(limit ? { limit } : {}), exclude, perHour });
+  const startTelegramAutopostBatch = (limit: number | null, exclude: string[], perHour: number, texts: Record<string, string> = {}) => { if (platform !== 'telegram' || !accountId) return Promise.resolve(); return wa('telegram-autopost-batch', async () => {
+    const body = await telegramAction('telegram-autopost-batch', { ...(limit ? { limit } : {}), exclude, perHour, ...(Object.keys(texts).length ? { texts } : {}) });
     invalidateQueueCache('telegram'); announceDataChange('platforms'); await reloadChats.current(true); loadAutopostPlan();
     const fresh = await readTelegramAutopost(); if (fresh) applyTelegramAutopost(fresh);
     const created = Number(body.created || 0); const skipped = Number(body.skipped || 0);
@@ -1015,6 +1015,8 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       ? `Остання партія: поставлено ${created} чатів${skipped ? `, пропущено ${skipped} (${why})` : ''}${body.more ? '. Придатних чатів лишилось ще: запусти автопост повторно, коли партія завершиться' : ''}.`
       : `Остання партія: нових чатів для автопосту немає${skipped ? `, пропущено ${skipped} (${why})` : ''}.`);
     const scanning = Number(body.scanning || 0);
+    const waiting = Number(body.waiting || 0);
+    if (waiting) setTelegramBatchNote(`Тексти на сьогодні закінчились: ${waiting} ${waiting % 10 === 1 && waiting % 100 !== 11 ? 'чат чекає' : 'чатів чекають'} на завтра. Додай нові оголошення в пул, щоб вони пішли сьогодні.`);
     toast.push({ message: created ? `Поставлено в автопост Telegram: ${created} чатів, ${perHour} на годину${scanning ? `. ${scanning} із них спершу перевірю на гілки, це не займає місць «на годину»` : ''}. Відправка йде по одному, з підтвердженням.` : 'Нових чатів для автопосту Telegram зараз немає.' });
   }); };
   const stopTelegramAutopostBatch = () => { if (platform !== 'telegram') return Promise.resolve(); return wa('telegram-autopost-stop', async () => {

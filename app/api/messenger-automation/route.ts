@@ -15,6 +15,7 @@ import {
   createTelegramScanJob,
   createWhatsAppAutopostBatch,
   createWhatsAppAutopostJob,
+  previewTelegramPool,
   readAutopostPlan,
   readLatestViberSafeNoteJob,
   readLatestWhatsAppAutopostJob,
@@ -23,6 +24,7 @@ import {
   resetWhatsAppAutopostQueue,
 } from '@/lib/messenger-automation';
 import { readAutopostAttention, resolveAutopostDecision, resolveAutopostDecisions, type AutopostDecision } from '@/lib/messenger-automation-outcome';
+import { readPoolForUi, savePool } from '@/lib/telegram-pool/store';
 import { TelegramAutopostError, bindTelegramWebAccount, chooseTelegramThread, readTelegramThreadState, unbindTelegramWebAccount } from '@/lib/telegram-autopost';
 import { resolveTelegramAccount } from '@/lib/chats/telegram-account';
 import { deleteWhatsAppAutopostImage, publicWhatsAppAutopostImage, readWhatsAppAutopostImage, saveWhatsAppAutopostImage } from '@/lib/whatsapp-autopost-media';
@@ -101,6 +103,11 @@ export async function GET(request:Request):Promise<Response>{
       const now=Math.floor(Date.now()/1000);
       return json({plan:await readAutopostPlan(env.DB,user.id,planPlatform,now,businessDate(now))});
     }
+    // Пул текстових оголошень Telegram (картка автопосту й Бібліотека): тексти з розміткою й позначкою «вільний сьогодні».
+    if(url.searchParams.get('telegramPool')==='1'){
+      const now=Math.floor(Date.now()/1000);
+      return json({pool:await readPoolForUi(env.DB,user.id,businessDate(now))});
+    }
     // Гілка одного чату Telegram: форум чи ні, вибрана гілка й список (закриті позначені), для «Профіль і правила».
     const threadChat=url.searchParams.get('telegramThread')?.trim()||'';
     if(threadChat)return json({thread:await readTelegramThreadState(env.DB,user.id,threadChat)});
@@ -154,7 +161,8 @@ export async function POST(request:Request):Promise<Response>{
   const user=await getCurrentUser();
   if(!user)return json({error:'Потрібна авторизація.'},401);
   if(!sameOrigin(request))return json({error:'Недійсне джерело запиту.'},403);
-  const body=await readJsonObject(request,64*1024);
+  // Список оголошень пулу (до 500 текстів) більший за звичайний запит.
+  const body=await readJsonObject(request,768*1024);
   if(body instanceof Response)return body;
   const now=Math.floor(Date.now()/1000);
   try{
@@ -213,9 +221,22 @@ export async function POST(request:Request):Promise<Response>{
       const accountId=await resolveTelegramAccount(env.DB,user.id,typeof body.accountId==='string'?body.accountId:null,now);
       if(!accountId)throw new MessengerAutomationError('Додай або увімкни Telegram-акаунт.',409,'account_missing');
       const perHour=cleanPerHour(body.perHour,false);
-      const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,platform:'telegram',exclude:body.exclude,telegramAccountId:accountId},now,businessDate(now));
+      const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,platform:'telegram',exclude:body.exclude,texts:body.texts,telegramAccountId:accountId},now,businessDate(now));
       if(batch.created>0)await wakeOwnerChannelAutopost(user.id,{platform:'telegram',perHour});
       return json(batch);
+    }
+    // Пул текстових оголошень: зберегти розібраний у браузері список («Замінити» архівує попередній, «Додати» дописує).
+    if(body.action==='telegram-pool-save'){
+      const mode=body.mode==='add'?'add':'replace';
+      const result=await savePool(env.DB,user.id,{mode,items:body.items},now,businessDate(now));
+      if(result.saved===0&&mode==='replace')throw new MessengerAutomationError('У списку немає жодного оголошення, яке можна зберегти. Попередній пул лишився без змін.',409,'pool_empty_input');
+      return json({result,pool:await readPoolForUi(env.DB,user.id,businessDate(now))});
+    }
+    // Що піде в чати партії Telegram і який текст кожному підібрано: перегляд до запуску, нічого не створює.
+    if(body.action==='telegram-pool-preview'){
+      const accountId=await resolveTelegramAccount(env.DB,user.id,typeof body.accountId==='string'?body.accountId:null,now);
+      if(!accountId)throw new MessengerAutomationError('Додай або увімкни Telegram-акаунт.',409,'account_missing');
+      return json({preview:await previewTelegramPool(env.DB,user.id,{limit:body.limit,exclude:body.exclude,texts:body.texts,telegramAccountId:accountId},now,businessDate(now))});
     }
     if(body.action==='cancel-telegram-autopost-batch'){
       const result=await cancelWhatsAppAutopostBatch(env.DB,user.id,businessDate(now),now,'telegram');

@@ -1,5 +1,6 @@
 'use client';
 
+import { poolSnippet } from '@/lib/telegram-pool/parse';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Check, ChevronDown, Minus, X } from 'lucide-react';
 import { Ring } from '@/components/ui/ring';
@@ -8,7 +9,7 @@ import { useLiveSynced } from '@/components/views/platforms/use-live-synced';
 import { autopostReasonGroup } from '@/components/views/platforms/autopost-reasons';
 
 /** Один чат поточної партії: результат або те, що робиться просто зараз. */
-export type AutopostBatchEntry = { jobId: string; name: string; status: 'claimed' | 'sent' | 'failed'; outcome: string | null; code: string | null; at: number };
+export type AutopostBatchEntry = { jobId: string; name: string; status: 'claimed' | 'sent' | 'failed'; outcome: string | null; code: string | null; at: number; /** Початок тексту з пулу оголошень Telegram, який пішов (чи мав піти) в чат. */ text?: string };
 /** Поточна партія платформи: лічильники лише її задач (скасовані задачі старих партій сюди не потрапляють). */
 export type AutopostBatch = { id: string; startedAt: number; total: number; sent: number; remaining: number; failed: number; skipped: number; cancelled: number; /** Чати партії, що чекають вибору гілки: не «Не вдалося». */ thread?: number; averageSeconds: number | null; entries: AutopostBatchEntry[] };
 
@@ -128,10 +129,11 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
             {finishedEntries.map((entry) => {
               const label = entryLabel(entry);
               return (
-                <li key={entry.jobId} className="flex items-center gap-2 text-xs">
+                <li key={entry.jobId} className="flex flex-wrap items-center gap-x-2 text-xs">
                   {label.icon === 'ok' ? <Check aria-hidden="true" strokeWidth={1.5} className="size-3.5 shrink-0 text-ok" /> : label.icon === 'bad' ? <X aria-hidden="true" strokeWidth={1.5} className="size-3.5 shrink-0 text-hot" /> : <Minus aria-hidden="true" strokeWidth={1.5} className="size-3.5 shrink-0 text-ink-3" />}
                   <span className="min-w-0 flex-1 truncate" title={entry.name}>{entry.name}</span>
                   <span className={label.icon === 'bad' ? 'shrink-0 text-hot' : 'shrink-0 text-ink-2'}>{label.text}</span>
+                  {entry.text ? <span className="basis-full truncate pl-[22px] text-ink-3" title={entry.text}>{poolSnippet(entry.text, 80)}</span> : null}
                 </li>
               );
             })}

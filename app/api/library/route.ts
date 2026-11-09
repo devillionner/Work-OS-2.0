@@ -54,6 +54,7 @@ export async function GET(request: Request): Promise<Response> {
         AND (?3='' OR collection=?3)
         AND (?4='all' OR kind=?4)
         AND NOT (?4='script' AND ?3='' AND collection='knowledge')
+        AND NOT (id>='tgp_' AND id<'tgp\`')
       ORDER BY updated_at DESC,title${libraryLimit}`).bind(user.id,Number(archived),collection,kind),
     env.DB.prepare(`SELECT p.advertisement_id,p.platform
       FROM chat_publications p

@@ -3,7 +3,8 @@ import { canonicalKnownSubject, type CanonicalSubject } from '@/lib/subjects';
 
 /** Колекції, що живуть у `library_items`; «Розробка» має власну таблицю й екран. */
 export type LibraryCollectionKey = 'advertisement' | 'official_script' | 'personal_script' | 'knowledge';
-export type Collection = LibraryCollectionKey | 'development';
+/** `development` і `telegram_pool` — розділи без власних карток-папок: у них свої екрани (дошка розробки, пул текстів автопосту Telegram). */
+export type Collection = LibraryCollectionKey | 'development' | 'telegram_pool';
 export type Item = {
   id: string;
   kind: 'advertisement' | 'script';
@@ -31,6 +32,7 @@ export const COLLECTIONS: ReadonlyArray<{ value: Collection; label: string }> = 
   { value: 'official_script', label: 'Офіційні скрипти' },
   { value: 'personal_script', label: 'Особисті скрипти' },
   { value: 'knowledge', label: 'База знань' },
+  { value: 'telegram_pool', label: 'Пул Telegram' },
   { value: 'development', label: 'Розробка' },
 ];
 
