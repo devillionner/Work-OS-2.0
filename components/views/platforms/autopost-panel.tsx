@@ -29,6 +29,8 @@ export type AutopostPlan = {
   unscanned?: number;
   /** Telegram: пул текстових оголошень і скільки готових чатів чекають на завтра, бо вільних текстів на сьогодні не лишилось. */
   pool?: PoolSummary; textWaiting?: number;
+  /** Telegram: що публікується (пул чи власний матеріал) і чи є матеріал для кожного режиму. */
+  source?: { mode: 'pool' | 'own'; saved: 'pool' | 'own' | null; poolAvailable: boolean; poolTotal: number; ownAvailable: boolean };
   chats: Array<{ id: string; name: string }>;
   /** Кожен чат черги «Для публікації» рівно в одній групі (за цим розкладом лічаться чіпи, список зліва, «Огляд» і картка). */
   buckets: Record<string, AutopostBucket>;
@@ -49,6 +51,8 @@ export type AutopostMaterialProps = {
   onCopyFromShared?: () => void;
   /** Telegram: у пулі оголошень є тексти, тож власний текст — лише запасний, а чати отримують текст із пулу. */
   poolActive?: boolean;
+  /** Telegram: вибір «Пул оголошень · Власне фото й текст» у блоці «Що піде в чати». */
+  source?: { mode: 'pool' | 'own'; poolAvailable: boolean; ownAvailable: boolean; busy: boolean; onChange: (mode: 'pool' | 'own') => void; onOpenPool: () => void };
 };
 
 /** Ліміти Telegram: підпис до фото 1024 символи, текст без фото 4096. */
@@ -99,7 +103,9 @@ export function noReadyText(plan: AutopostPlan): string {
 /** Що саме піде: мініатюра фото, перші рядки підпису й редактор (той самий для Viber і WhatsApp: фото й текст спільні). */
 function MaterialRow({ material, editing, onToggle, busy }: { material: AutopostMaterialProps; editing: boolean; onToggle: () => void; busy: boolean }) {
   const fileInput = useRef<HTMLInputElement | null>(null);
-  const { image, caption } = material;
+  // Редактор відкрито з пояснення «немає власного тексту»: у режимі пулу текст зазвичай прихований (там «Змінити» керує лише фото).
+  const [withText, setWithText] = useState(false);
+  const { image, caption, source } = material;
   const telegram = material.scope === 'telegram';
   const lines = caption.trim().split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 2);
   const length = Array.from(caption).length;
@@ -111,8 +117,17 @@ function MaterialRow({ material, editing, onToggle, busy }: { material: Autopost
     : telegram
     ? (image ? (lines.length ? `Фото + власний текст: ${lines.join(' · ')}` : 'Фото + текст із Бібліотеки для кожного чату') : (lines.length ? `Без фото · власний текст: ${lines.join(' · ')}` : 'Без фото · текст із Бібліотеки для кожного чату'))
     : (lines.length ? lines.join(' · ') : 'Підпис із Бібліотеки для кожного чату');
+  const showText = !(telegram && material.poolActive) || withText;
   return (
     <div className="flex flex-col gap-3">
+      {source ? (
+        <div className="flex flex-col gap-2">
+          <Segmented<'pool' | 'own'> label="Що публікувати в чати" size="sm" value={source.mode} onValueChange={(next) => { if (!source.busy && next !== source.mode) source.onChange(next); }}
+            items={[{ value: 'pool', label: 'Пул оголошень', disabled: !source.poolAvailable }, { value: 'own', label: 'Власне фото й текст', disabled: !source.ownAvailable }]} />
+          {!source.poolAvailable ? <p className="m-0 flex flex-wrap items-center gap-x-2 text-xs text-ink-2">Пул оголошень порожній, тож цей режим недоступний. <Button variant="ghost" size="sm" onClick={source.onOpenPool}>Вставити список</Button></p> : null}
+          {!source.ownAvailable ? <p className="m-0 flex flex-wrap items-center gap-x-2 text-xs text-ink-2">Власного тексту немає, а в Бібліотеці немає оголошень для Telegram, тож цей режим недоступний. <Button variant="ghost" size="sm" onClick={() => { setWithText(true); if (!editing) onToggle(); }}>Змінити</Button></p> : null}
+        </div>
+      ) : null}
       <div className="flex items-center gap-3 rounded-inner border border-line p-3">
         {image ? (
           <span aria-hidden="true" style={{ backgroundImage: `url(${thumb})` }} className="size-14 shrink-0 rounded-field border border-line bg-cover bg-center" />
@@ -127,7 +142,7 @@ function MaterialRow({ material, editing, onToggle, busy }: { material: Autopost
             <p className="m-0 mt-0.5 text-sm text-hot">Немає фото: додай його, щоб запустити партію</p>
           )}
         </div>
-        <Button variant="ghost" size="sm" onClick={onToggle}>{editing ? 'Сховати' : 'Змінити'}</Button>
+        <Button variant="ghost" size="sm" onClick={() => { if (editing) setWithText(false); onToggle(); }}>{editing ? 'Сховати' : 'Змінити'}</Button>
       </div>
       {editing ? (
         <div className="grid gap-5 lg:grid-cols-2">
@@ -151,6 +166,7 @@ function MaterialRow({ material, editing, onToggle, busy }: { material: Autopost
             )}
             {telegram && material.onCopyFromShared ? <Button variant="outline" size="sm" className="self-start" disabled={busy} onClick={material.onCopyFromShared}>Взяти з WhatsApp/Viber</Button> : null}
           </section>
+          {showText ? (
           <section className="flex flex-col gap-3" aria-label="Текст автопоста">
             <div className="flex items-center justify-between"><label htmlFor="autopost-caption" className="text-sm font-medium">Текст автопоста</label><span className={`font-mono text-[11px] tabular-nums ${over ? 'text-hot' : 'text-ink-2'}`}>{telegram ? `${length} / ${limit}${image ? ' з фото' : ''}` : `${length} / 4000`}</span></div>
             <Textarea id="autopost-caption" rows={6} maxLength={telegram ? TELEGRAM_TEXT_LIMIT : 4000} disabled={busy || !material.captionLoaded} value={caption} onChange={(event) => material.onCaptionChange(event.target.value)} placeholder={telegram ? 'Свій текст для Telegram. Залиш порожнім, щоб Work OS підставила текст із Бібліотеки для кожного чату (за мовою й напрямками профілю).' : 'Встав текст, який піде під фото. Залиш порожнім, щоб Work OS підставила текст із Бібліотеки для кожного чату.'} />
@@ -164,6 +180,7 @@ function MaterialRow({ material, editing, onToggle, busy }: { material: Autopost
               </div>
             </div>
           </section>
+          ) : null}
         </div>
       ) : null}
     </div>

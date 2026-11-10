@@ -9,6 +9,7 @@ import { followOf, settleAutopostFailure, verifyFromOf } from './messenger-autom
 import { hasWhatsAppAutopostImage, readWhatsAppAutopostImage, type AutopostMaterialScope } from './whatsapp-autopost-media.ts';
 import { TELEGRAM_PHOTO_CAPTION_LIMIT, TELEGRAM_TEXT_LIMIT, cleanWhatsAppAutopostCaption, readWhatsAppAutopostCaption, textLength } from './whatsapp-autopost-caption.ts';
 import { POOL_ID_RANGE, isPoolId, confirmPoolText, pickPoolTextForChat, readPoolState, resolvePoolAssignments, summarizePool, type PoolSummary } from './telegram-pool/store.ts';
+import { effectiveSource, ownMaterialAvailable, readSavedSource, type TelegramSource } from './telegram-pool/source.ts';
 import { poolReasonText, AUDIENCE_LABEL, languageLabel, type PoolAssignment } from './telegram-pool/assign.ts';
 import { poolSnippet } from './telegram-pool/parse.ts';
 import { applyTelegramScan, parseTelegramScan, readTelegramAutopostAccount, readTelegramThreadChoices, readTelegramThreadState, type TelegramThreadChoice, type TelegramTopic } from './telegram-autopost.ts';
@@ -534,6 +535,8 @@ export type AutopostPlan={
   unscanned?:number;
   /** Лише Telegram: пул текстових оголошень (їх підбирають чатам) і скільки готових чатів чекають на завтра, бо вільних текстів на сьогодні немає. */
   pool?:PoolSummary;textWaiting?:number;
+  /** Лише Telegram: що публікується (пул чи власний матеріал) і чи є матеріал для кожного режиму. */
+  source?:{mode:TelegramSource;saved:TelegramSource|null;poolAvailable:boolean;poolTotal:number;ownAvailable:boolean};
 };
 export async function readAutopostPlan(db:D1Database,userId:string,platformInput:unknown,now:number,date:string,telegramAccountId:string|null=null):Promise<AutopostPlan>{
   const platform=cleanAutopostPlatform(platformInput);
@@ -600,7 +603,10 @@ export async function readAutopostPlan(db:D1Database,userId:string,platformInput
   let poolActive=false;
   if(telegram){
     const state=await readPoolState(db,userId,date);
-    if(state.active){
+    const saved=await readSavedSource(db,userId);
+    const mode=effectiveSource(saved,state.active);
+    plan.source={mode,saved,poolAvailable:state.active,poolTotal:state.items.length,ownAvailable:await ownMaterialAvailable(db,userId,Boolean((await readWhatsAppAutopostCaption(db,userId,'telegram'))?.text))};
+    if(mode==='pool'&&state.active){
       poolActive=true;
       plan.pool=summarizePool(state,demand);
       if(ready.length>plan.pool.free){
@@ -740,7 +746,8 @@ export async function createWhatsAppAutopostBatch(
   // а не чат за чатом. Чат без вільного тексту лишається на завтра: це не збій.
   let pool:{assigned:Map<string,PoolAssignment>;free:number}|'off'='off';
   let waiting=0;
-  if(platform==='telegram'){
+  // Власний матеріал (вибір власника): пул не читається й не витрачається, усі чати йдуть із власним фото й текстом чи з Бібліотеки.
+  if(platform==='telegram'&&(await readSavedSource(db,userId))!=='own'){
     const state=await readPoolState(db,userId,date);
     if(state.active){
       const forced=new Map<string,string>();
@@ -815,6 +822,7 @@ export type PoolPreview={
 export async function previewTelegramPool(db:D1Database,userId:string,input:{limit?:unknown;exclude?:unknown;telegramAccountId:string;texts?:unknown},now:number,date:string):Promise<PoolPreview>{
   const rawLimit=Number(input.limit);
   const limit=Number.isSafeInteger(rawLimit)?Math.max(1,Math.min(AUTOPOST_BATCH_MAX,rawLimit)):AUTOPOST_BATCH_DEFAULT;
+  if((await readSavedSource(db,userId))==='own')return {active:false,items:{},scan:[],waiting:[],options:[]};
   const state=await readPoolState(db,userId,date);
   if(!state.active)return {active:false,items:{},scan:[],waiting:[],options:[]};
   const excluded=JSON.stringify(Array.isArray(input.exclude)?input.exclude.filter((id):id is string=>typeof id==='string'&&id.length>0&&id.length<=100).slice(0,200):[]);

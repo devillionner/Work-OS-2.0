@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/components/ui/toast';
 import { PaceEstimate, PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
 import { DuplicateRows } from '@/components/views/platforms/duplicate-frame';
 import { ThreadPicker } from '@/components/views/platforms/thread-picker';
@@ -140,7 +141,9 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, mat
   onBind: (webUserId: string | null) => void;
 }) {
   const [perHour, setPerHour] = usePerHour('telegram');
+  const toast = useToast();
   const [poolOpen, setPoolOpen] = useState(false);
+  const [sourceBusy, setSourceBusy] = useState(false);
   const preview = usePoolPreview(accountId);
   const running = progress?.running === true;
   const unbound = binding !== null && !binding.bound;
@@ -155,6 +158,15 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, mat
           ? { tone: 'ok', text: 'Runner підключений. Вкладка Telegram Web у його браузері має бути відкрита й залогінена в акаунт Work OS.' }
           : { tone: 'idle', text: 'Чекаю на зв’язок із runner на ПК…' };
   const minutes = Math.round(60 / perHour);
+  const source = plan?.source;
+  // Режим публікації зберігається на сервері (один для всіх акаунтів): план і партія беруть його звідти, тож після зміни план перечитується.
+  const changeSource = (mode: 'pool' | 'own') => {
+    setSourceBusy(true);
+    void fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'telegram-source', mode }) })
+      .then(async (response) => { if (!response.ok) { const body = await response.json().catch(() => ({})) as { error?: string }; throw new Error(body.error || 'Не вдалося змінити режим.'); } onLoadPlan(); toast.push({ message: mode === 'pool' ? 'Публікуємо оголошення з пулу: кожен чат отримає свій текст.' : 'Публікуємо власне фото й текст: усі чати отримають однаковий матеріал.' }); })
+      .catch((error: unknown) => toast.push({ message: error instanceof Error ? error.message : 'Не вдалося змінити режим.' }))
+      .finally(() => setSourceBusy(false));
+  };
 
   return (
     <>
@@ -172,11 +184,11 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, mat
         <ol className="m-0 flex flex-col gap-1.5 pl-5">
           <li>У браузері runner відкрий web.telegram.org/a і залогінься в акаунт, який вибрано вгорі в Work OS.</li>
           <li>Прив’яжи акаунт кнопкою вище: перед кожним чатом автопост перевіряє, що відкрито саме його.</li>
-          <li>Фото й текст у Telegram власні, окремі від WhatsApp і Viber (кнопка «Взяти з WhatsApp/Viber» копіює їх). Коли в пулі оголошень є тексти, кожен чат отримує окремий текст за напрямом, мовою й аудиторією, і за добу жоден текст не йде вдруге; власний текст і Бібліотека — запасні, коли пулу немає. Фото необов’язкове: підпис до фото — до 1024 символів, текст без фото — до 4096.</li>
+          <li>Фото й текст у Telegram власні, окремі від WhatsApp і Viber (кнопка «Взяти з WhatsApp/Viber» копіює їх). У блоці «Що піде в чати» обери, що публікувати: «Пул оголошень» (кожен чат отримує окремий текст за напрямом, мовою й аудиторією, за добу жоден текст не йде вдруге) або «Власне фото й текст» (усі чати отримують однаковий матеріал; без власного тексту береться оголошення з Бібліотеки). Вибір зберігається для всіх акаунтів Telegram і діє на нові партії. Фото необов’язкове: підпис до фото — до 1024 символів, текст без фото — до 4096.</li>
           <li>Чат у розкладі на сьогодні автопост не бере. Якщо Telegram просить зачекати, вся черга Telegram стає на паузу на вказаний час.</li>
         </ol>
       )}
-      material={{ ...material, poolActive: Boolean(plan?.pool) }}
+      material={{ ...material, poolActive: Boolean(plan?.pool), source: source ? { mode: source.mode, poolAvailable: source.poolAvailable, ownAvailable: source.ownAvailable, busy: sourceBusy, onChange: changeSource, onOpenPool: () => setPoolOpen(true) } : undefined }}
       progress={progress}
       attention={attention}
       batchNote={batchNote}
@@ -184,7 +196,7 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, mat
       runnerBlocked={(runnerConnected === false && !runnerSeen) || unbound || status?.state === 'blocked' && status.reason === 'telegram_account_mismatch'}
       topSlot={(
         <div className="flex flex-col gap-3">
-          <PoolRow plan={plan} onOpen={() => setPoolOpen(true)} />
+          {source?.mode === 'pool' ? <PoolRow plan={plan} onOpen={() => setPoolOpen(true)} /> : null}
           <AccountBinding binding={binding} status={status} busy={busy} onBind={onBind} />
           <PaceEstimate platform="telegram" count={plan?.ready ?? 0} perHour={perHour} running={running} />
           {(plan?.unscanned ?? 0) > 0 && !running ? <p className="m-0 text-xs text-ink-2">{plan?.unscanned} {chatWord(plan?.unscanned ?? 0)} ще не перевірено на гілки: перед публікацією їх швидко відкриє прохід, він не займає місць «на годину». Можна зробити це наперед кнопкою «Знайти гілки» нижче.</p> : null}
@@ -205,7 +217,7 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, mat
       onStop={onStop}
       onReset={onReset}
     />
-    <PoolPanel open={poolOpen} onOpenChange={setPoolOpen} total={plan?.pool?.total ?? 0} onSaved={onLoadPlan} />
+    <PoolPanel open={poolOpen} onOpenChange={setPoolOpen} total={source?.poolTotal ?? 0} onSaved={onLoadPlan} />
     </>
   );
 }

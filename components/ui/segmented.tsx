@@ -4,7 +4,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs';
 import { cn } from '@/lib/utils';
 
-export type SegmentedItem<T extends string> = { value: T; label: ReactNode; count?: ReactNode };
+export type SegmentedItem<T extends string> = { value: T; label: ReactNode; count?: ReactNode; /** Пункт недоступний: не обирається, виглядає приглушеним. */ disabled?: boolean };
 
 /** Сегментований pill-перемикач на base-ui Tabs (клавіатура й aria — з коробки); індикатор ковзає. Контент рендерить споживач. */
 export function Segmented<T extends string>({ value, onValueChange, items, label, size = 'md', className }: {
@@ -44,7 +44,9 @@ export function Segmented<T extends string>({ value, onValueChange, items, label
           <TabsPrimitive.Tab
             key={item.value}
             value={item.value}
+            disabled={item.disabled}
             className={cn(
+              item.disabled && 'cursor-not-allowed opacity-45 hover:text-ink-2',
               'relative z-10 inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full font-medium text-ink-2 transition-colors duration-200 hover:text-ink data-[active]:text-action-ink',
               size === 'sm' ? 'h-7 px-3 text-xs [@media(pointer:coarse)]:h-9' : 'h-8 px-4 text-[13px] [@media(pointer:coarse)]:h-10',
             )}

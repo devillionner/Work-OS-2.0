@@ -24,7 +24,8 @@ import {
   resetWhatsAppAutopostQueue,
 } from '@/lib/messenger-automation';
 import { readAutopostAttention, resolveAutopostDecision, resolveAutopostDecisions, type AutopostDecision } from '@/lib/messenger-automation-outcome';
-import { readPoolForUi, savePool } from '@/lib/telegram-pool/store';
+import { readActivePool, readPoolForUi, savePool } from '@/lib/telegram-pool/store';
+import { ownMaterialAvailable, saveSource } from '@/lib/telegram-pool/source';
 import { TelegramAutopostError, bindTelegramWebAccount, chooseTelegramThread, readTelegramThreadState, unbindTelegramWebAccount } from '@/lib/telegram-autopost';
 import { resolveTelegramAccount } from '@/lib/chats/telegram-account';
 import { deleteWhatsAppAutopostImage, publicWhatsAppAutopostImage, readWhatsAppAutopostImage, saveWhatsAppAutopostImage } from '@/lib/whatsapp-autopost-media';
@@ -231,6 +232,15 @@ export async function POST(request:Request):Promise<Response>{
       const result=await savePool(env.DB,user.id,{mode,items:body.items},now,businessDate(now));
       if(result.saved===0&&mode==='replace')throw new MessengerAutomationError('У списку немає жодного оголошення, яке можна зберегти. Попередній пул лишився без змін.',409,'pool_empty_input');
       return json({result,pool:await readPoolForUi(env.DB,user.id,businessDate(now))});
+    }
+    // Що публікувати в Telegram: пул оголошень чи власне фото й текст. Режим один для всіх акаунтів; недоступний, коли в обраного режиму немає матеріалу.
+    if(body.action==='telegram-source'){
+      const mode=body.mode==='own'?'own':body.mode==='pool'?'pool':null;
+      if(!mode)throw new MessengerAutomationError('Невідомий режим.');
+      if(mode==='pool'&&(await readActivePool(env.DB,user.id)).length===0)throw new MessengerAutomationError('Пул оголошень порожній: спершу встав список.',409,'pool_empty');
+      if(mode==='own'&&!await ownMaterialAvailable(env.DB,user.id,Boolean((await readWhatsAppAutopostCaption(env.DB,user.id,'telegram'))?.text)))throw new MessengerAutomationError('Немає власного тексту й оголошень у Бібліотеці: спершу додай текст.',409,'own_empty');
+      await saveSource(env.DB,user.id,mode,now);
+      return json({ok:true,mode});
     }
     // Що піде в чати партії Telegram і який текст кожному підібрано: перегляд до запуску, нічого не створює.
     if(body.action==='telegram-pool-preview'){
