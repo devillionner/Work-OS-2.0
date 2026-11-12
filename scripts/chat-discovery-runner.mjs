@@ -1274,7 +1274,7 @@ async function handleTelegramAutopostTask(ws,job){
   if(job.mode==='scan'&&automated.kind==='blocked'&&automated.reason==='scan_only'){
     telegramAdapterFailures=[];
     sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'scanned',observedTarget:automated.observedTarget||job.target?.expectedName,targetVerified:true,sendConfirmed:false,sendAttempted:false,scan:automated.scan});
-    console.log(`Telegram scan: ${automated.observedTarget||job.target?.expectedName} — ${automated.scan?.forum?`форум, гілок ${automated.scan.topics.length}`:'без гілок'}.`);
+    console.log(`Telegram scan: ${automated.observedTarget||job.target?.expectedName} — ${automated.scan?.forum?`форум, гілок ${automated.scan.topics.length}`:automated.scan?.forum===false?'без гілок':'не вдалося визначити (шапка чату не завантажилась), нічого не записано'}.`);
     return;
   }
   if(automated.kind==='result'&&automated.result.sendConfirmed===true){

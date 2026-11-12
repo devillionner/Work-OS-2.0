@@ -294,20 +294,27 @@ export async function POST(request:Request):Promise<Response>{
     // Кнопка «Знайти гілки»: прохід по чатах, про які невідомо, чи є в них гілки, і по чатах, що чекають вибору гілки (оновити список).
     // Проходи не займають вікон «N на годину» й не рахуються спробами.
     if(body.action==='telegram-scan-threads'){
-      const accountId=await resolveTelegramAccount(env.DB,user.id,typeof body.accountId==='string'?body.accountId:null,now);
+      // «Перевірити гілки ще раз» у профілі чату: перевіряє той акаунт, до якого чат належить (профіль не знає вибраного зверху).
+      const ownerAccount=typeof body.chatId==='string'&&body.chatId.trim()
+        ? (await env.DB.prepare(`SELECT telegram_account_id AS id FROM chats WHERE id=?1 AND user_id=?2 AND platform='telegram' LIMIT 1`).bind(body.chatId.trim(),user.id).first<{id:string|null}>())?.id||null
+        : null;
+      const accountId=await resolveTelegramAccount(env.DB,user.id,ownerAccount||(typeof body.accountId==='string'?body.accountId:null),now);
       if(!accountId)throw new MessengerAutomationError('Додай або увімкни Telegram-акаунт.',409,'account_missing');
       // «Перевірити гілки ще раз» у рядку чату: прохід лише для цього чату (разом із форумами, де вибрано гілку).
       const oneChat=typeof body.chatId==='string'?body.chatId.trim():'';
       let result:{created:number;skipped:number};
+      let scanJobId='';
+      let reason='';
       if(oneChat){
-        try{await createTelegramScanJob(env.DB,user.id,oneChat,accountId,now,businessDate(now),null);result={created:1,skipped:0};}
+        try{scanJobId=(await createTelegramScanJob(env.DB,user.id,oneChat,accountId,now,businessDate(now),null)).id;result={created:1,skipped:0};}
         catch(error){
           if(!(error instanceof MessengerAutomationError&&[404,409].includes(error.status)))throw error;
           result={created:0,skipped:1};
+          reason=error.message;
         }
       }else result=await createTelegramScanBatch(env.DB,user.id,accountId,now,businessDate(now));
       if(result.created>0)await wakeOwnerChannelAutopost(user.id);
-      return json(result);
+      return json({...result,...(scanJobId?{jobId:scanJobId}:{}),...(reason?{reason}:{})});
     }
     // Власник вибрав гілку форуму (або прибрав вибір). Якщо чат сьогодні чекав саме гілки, він одразу стає в чергу.
     if(body.action==='telegram-choose-thread'){

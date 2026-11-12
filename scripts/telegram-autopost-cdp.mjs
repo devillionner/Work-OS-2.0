@@ -258,6 +258,36 @@ export const READ_STATE_JS = `(() => {
   };
 })()`;
 
+/**
+ * Форум чи ні: `true` — є ознака форуму (аватар forum, панель гілок, підказка в підвалі); `false` — ознак немає, а чат точно завантажився (шапка з аватаром
+ * і назвою, поле повідомлення чи підвал прочитано), і так само за ≈1,5 с (`recheck`); `null` — чат не встиг домалюватись, відповіді немає.
+ */
+export async function detectForum(page, peerId, { recheck = true, sleepFn = sleep } = {}) {
+  const AVATAR = `Boolean(document.querySelector('#MiddleColumn .MiddleHeader .Avatar'))`;
+  const look = async () => {
+    const state = await page.evaluate(READ_STATE_JS);
+    let topics = await page.evaluate(readTopicsJs(peerId));
+    const headerForum = Boolean(state.forumUi);
+    for (let attempt = 0; attempt < 8 && headerForum && !(Array.isArray(topics) && topics.length); attempt += 1) { await sleepFn(300); topics = await page.evaluate(readTopicsJs(peerId)); }
+    const avatar = Boolean(await page.evaluate(AVATAR));
+    const forum = (Array.isArray(topics) && topics.length > 0) || headerForum;
+    const loaded = avatar && Boolean(state.title) && (Boolean(state.composer) || Boolean(state.footer) || Boolean(state.disabled));
+    return { forum, loaded, topics: Array.isArray(topics) ? topics : [] };
+  };
+  for (let attempt = 0; attempt < 12 && !(await page.evaluate(AVATAR)); attempt += 1) await sleepFn(350);
+  await sleepFn(300);
+  let first = await look();
+  // Шапка чи підвал ще не домальовані: ще до ≈3 с, поки не з'явиться ознака форуму або чат не стане завантаженим.
+  for (let attempt = 0; attempt < 6 && !first.forum && !first.loaded; attempt += 1) { await sleepFn(500); first = await look(); }
+  if (first.forum) return { forum: true, topics: first.topics };
+  if (!first.loaded) return { forum: null, topics: [] };
+  if (!recheck) return { forum: false, topics: [] };
+  await sleepFn(1500);
+  const second = await look();
+  if (second.forum) return { forum: true, topics: second.topics };
+  return second.loaded ? { forum: false, topics: [] } : { forum: null, topics: [] };
+}
+
 // Гілки форуму. Telegram Web A показує повний список гілок у лівій колонці, поки відкритий форум (живий розбір 2026-10-25, два форуми):
 // рядок `#LeftColumn .ListItem.Chat > a.ListItem-button[href="#<чат>_<гілка>"]`, назва в `h3.fullName`, загальна гілка має href `…_1` і
 // значок `general-forum-icon`. Список віртуальний (рядки з `style="top:…"`, 65 px на рядок) і лежить у `.chat-list.custom-scroll`.
@@ -450,25 +480,25 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
 
     // 3. Форум чи ні й гілки (закриті позначені). Форум без вибраної гілки в чат не пишемо: публікація в «Загальну» замість потрібної гілки
     // гірша за пропуск, тож і форум, чий список гілок не прочитався, іде на вибір гілки.
-    // Шапка з аватаром малюється трохи пізніше за назву: без неї ознака форуму ще не видна, і форум помилково вважався б звичайним чатом.
-    for (let attempt = 0; attempt < 12 && !(await page.evaluate(`Boolean(document.querySelector('#MiddleColumn .MiddleHeader .Avatar'))`)); attempt += 1) await sleep(350);
-    await sleep(300);
+    // Шапка з аватаром малюється трохи пізніше за назву: без неї ознака форуму ще не видна, і форум помилково вважався б звичайним чатом (так «Українці в
+    // регіоні Harz» отримали `telegram_forum=0`). «Ні» вважається відповіддю лише для чату, що точно завантажився; інакше форум невідомий (`null`).
     const rootUrl = peerId ? `${TELEGRAM_WEB}#${peerId}` : url;
-    // Список гілок у лівій колонці з'являється трохи пізніше за шапку: до 2,5 с, поки це форум і рядків ще немає.
-    let panelTopics = await page.evaluate(readTopicsJs(peerId));
-    const headerForum = Boolean((await page.evaluate(READ_STATE_JS)).forumUi);
-    for (let attempt = 0; attempt < 8 && headerForum && !panelTopics.length; attempt += 1) { await sleep(300); panelTopics = await page.evaluate(readTopicsJs(peerId)); }
-    const forum = (Array.isArray(panelTopics) && panelTopics.length > 0) || headerForum;
+    const detected = await detectForum(page, peerId, { recheck: scanOnly || task?.telegram?.forum !== false });
+    const forum = detected.forum;
     const chosen = task?.telegram?.thread || null;
     const knownTopics = Array.isArray(task?.telegram?.topics) ? task.telegram.topics : [];
     // Список гілок збираємо, лише коли гілку ще не вибрано (або для діагностики): для вибраної він уже збережений.
     let topics = [];
     if (forum) {
       onStep('topics', 'збираю гілки чату');
-      // Список гілок збирає лише окремий прохід (scanOnly) у межах бюджету часу; задача публікації без вибраної гілки його не збирає.
-      topics = scanOnly ? await collectTopics(page, client, peerId, rootUrl, shouldAbort, Math.min(deadlineAt, startedAt + SCAN_BUDGET_MS), knownTopics) : knownTopics;
+      // Список гілок збирає окремий прохід (scanOnly) і задача публікації в чат, який досі вважався звичайним чи ще не відкривався (знайшли ознаки форуму):
+      // тоді публікації не буде, чат піде на вибір гілки зі свіжим списком. Для відомого форуму береться збережений список.
+      const collect = scanOnly || task?.telegram?.forum !== true;
+      topics = collect ? await collectTopics(page, client, peerId, rootUrl, shouldAbort, Math.min(deadlineAt, startedAt + SCAN_BUDGET_MS), knownTopics) : knownTopics;
     }
+    // Форум не вдалося визначити: прохід нічого не записує (telegram_forum лишається як був), публікація не йде наосліп, а повторюється після перезавантаження вкладки.
     let scan = { forum, topics };
+    if (forum === null && !scanOnly) return { kind: 'blocked', reason: 'telegram_chat_not_opened', detail: 'forum_unknown', observedTarget, scan: { forum: null, topics: [] }, sendAttempted: false };
     // sendAttempted: кнопку «Надіслати» вже натиснуто. Лише тоді задача займає вікно інтервалу «N на годину»; збій до натискання його не витрачає.
     let sendAttempted = false;
     const withScan = (extra) => ({ ...extra, observedTarget, scan, sendAttempted });
