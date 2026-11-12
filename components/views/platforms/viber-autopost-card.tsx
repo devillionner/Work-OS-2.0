@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { AutopostPanel, type AutopostMaterialProps, type AutopostPlan, type AutopostReadiness } from '@/components/views/platforms/autopost-panel';
-import type { AutopostAttentionItem, AutopostDecision } from '@/components/views/platforms/autopost-attention';
+import type { AutopostAttentionItem, AutopostDecision, DecideOptions } from '@/components/views/platforms/autopost-attention';
 import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import { autopostReasonText } from '@/components/views/platforms/autopost-reasons';
 import { PaceEstimate, PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
@@ -26,8 +26,8 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
   runnerConnected: boolean | null;
   pace: AutopostPace | null;
   busy: boolean;
-  onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
-  onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision) => void;
+  onDecide: (item: AutopostAttentionItem, decision: AutopostDecision, options?: DecideOptions) => void;
+  onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision, options?: DecideOptions) => void;
   /** Скільки чатів поставити в партію (null — усі придатні) і які чати прибрано з цього запуску. */
   onStart: (limit: number | null, exclude: string[], perHour: number) => void;
   onStop: () => void;

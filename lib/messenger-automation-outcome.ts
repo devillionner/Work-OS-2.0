@@ -9,7 +9,7 @@ export const MAX_AUTOPOST_ATTEMPTS = 3;
 
 /** `needs_thread` — Telegram: чат із гілками чекає вибору гілки. Це не збій і не рішення про помилку: у «Не вдалося» не рахується. */
 export type AutopostOutcome = 'archived' | 'waiting' | 'snoozed' | 'skipped' | 'needs_decision' | 'needs_thread' | 'resolved';
-export type AutopostDecision = 'archive' | 'snooze' | 'retry' | 'check' | 'rename';
+export type AutopostDecision = 'archive' | 'snooze' | 'retry' | 'retry_nophoto' | 'check' | 'rename';
 
 type Policy =
   | { kind: 'archive'; reason: string }
@@ -111,7 +111,10 @@ async function snoozeUntil(db: D1Database, userId: string, chatId: string, until
   return Boolean(result[0].meta.changes);
 }
 
-const snoozeUntilTomorrow = (db: D1Database, userId: string, chatId: string, now: number) => snoozeUntil(db, userId, chatId, tomorrowStart(now), now);
+/** Відкласти на N діб: до початку доби за київським часом (1 — «до завтра», 3 — «на 3 дні», 7 — «на тиждень»), як і «Відкласти на 3 дні» в меню чату. */
+export const SNOOZE_CHOICES = [1, 3, 7] as const;
+export const snoozeDeadlineDays = (now: number, days: number) => businessDayStart(shiftBusinessDate(businessDate(now), days));
+const snoozeForDays = (db: D1Database, userId: string, chatId: string, days: number, now: number) => snoozeUntil(db, userId, chatId, snoozeDeadlineDays(now, days), now);
 
 async function archiveChat(db: D1Database, userId: string, chatId: string, reason: string, now: number) {
   const chat = await readChatState(db, userId, chatId);
@@ -226,7 +229,8 @@ export async function settleAutopostFailure(
   else if (policy.kind === 'retry') outcome = 'needs_decision';
   else if (policy.kind === 'skip') outcome = 'skipped';
   else outcome = 'needs_decision';
-  await closeJob(db, userId, job.id, outcome, attempts, result, now);
+  // Задача, що проходила автоперевірку відправки (`follow`), лишає слід у результаті: далі повтор небезпечний (повідомлення могло піти).
+  await closeJob(db, userId, job.id, outcome, attempts, follow ? { ...result, follow, verifyFrom: verifyFromOf(job.result_json) } : result, now);
   return { outcome, attempts };
 }
 
@@ -234,17 +238,20 @@ export async function settleAutopostFailure(
 export async function resolveAutopostDecision(
   db: D1Database,
   userId: string,
-  input: { jobId: string; decision: AutopostDecision; requireSimilar?: boolean; /** Дія лише для задач із цим кодом помилки (масова повторна відправка: тільки «повідомлення не знайдено»). */ requireCode?: string },
+  input: { jobId: string; decision: AutopostDecision; requireSimilar?: boolean; /** Дія лише для задач із цим кодом помилки. */ requireCode?: string; /** Масовий повтор: лише там, де дубля бути не може (збій до «Надіслати» або перевірка показала, що повідомлення немає). */ requireSafe?: boolean; /** Відкласти: на скільки діб (1, 3, 7). */ days?: number },
   now: number,
 ): Promise<{ ok: true; chatId: string } | { ok: false; error: string }> {
-  const job = await db.prepare(`SELECT id,chat_id,outcome,result_json FROM whatsapp_autopost_jobs WHERE id=?1 AND user_id=?2 LIMIT 1`)
-    .bind(input.jobId, userId).first<{ id: string; chat_id: string; outcome: string | null; result_json: string | null }>();
+  const job = await db.prepare(`SELECT id,chat_id,outcome,result_json,request_key FROM whatsapp_autopost_jobs WHERE id=?1 AND user_id=?2 LIMIT 1`)
+    .bind(input.jobId, userId).first<{ id: string; chat_id: string; outcome: string | null; result_json: string | null; request_key: string }>();
   if (!job || (job.outcome !== 'needs_decision' && job.outcome !== 'needs_thread')) return { ok: false, error: 'Це рішення вже прийнято. Оновіть список.' };
   if (input.requireCode && errorCodeOf(job.result_json) !== input.requireCode) return { ok: false, error: 'Для масової дії потрібна перевірена відсутність повідомлення.' };
+  if (input.requireSafe && errorCodeOf(job.result_json) !== 'message_not_found' && !failedBeforeSend(job.result_json, job.request_key)) return { ok: false, error: 'Повідомлення могло дійти до чату: повтор лише по одному чату з підтвердженням.' };
+  if (input.decision === 'retry_nophoto' && !PHOTO_FAILURES.has(errorCodeOf(job.result_json))) return { ok: false, error: 'Відправка без фото потрібна лише після збою вікна фото.' };
   if (input.decision === 'archive') {
     if (!await archiveChat(db, userId, job.chat_id, ARCHIVE_DECIDED, now)) return { ok: false, error: 'Стан чату вже змінився. Оновіть список.' };
   } else if (input.decision === 'snooze') {
-    if (!await snoozeUntilTomorrow(db, userId, job.chat_id, now)) return { ok: false, error: 'Чат уже не в черзі публікації. Оновіть список.' };
+    const days = (SNOOZE_CHOICES as readonly number[]).includes(Number(input.days)) ? Number(input.days) : 1;
+    if (!await snoozeForDays(db, userId, job.chat_id, days, now)) return { ok: false, error: 'Чат уже не в черзі публікації. Оновіть список.' };
   } else if (input.decision === 'rename') {
     // «Це той самий чат»: назва в Work OS стає такою, як її показує месенджер; нову задачу створює викликач.
     const observed = cleanChatName(observedName(job.result_json));
@@ -259,6 +266,29 @@ export async function resolveAutopostDecision(
     .bind(now, job.id, userId).all<{ id: string }>();
   if (updated.results.length !== 1) return { ok: false, error: 'Це рішення вже прийнято. Оновіть список.' };
   return { ok: true, chatId: job.chat_id };
+}
+
+// Коди, після яких повідомлення могло піти (або перевірка не дала відповіді): повтор лише з підтвердженням «Можливий дубль».
+const AFTER_SEND_CODES = new Set([...UNCONFIRMED, 'verify_inconclusive', 'message_not_found', 'publication_reconcile_failed', 'send_failed', 'media_send_failed', 'telegram_send_failed']);
+// Збій вікна фото Telegram: для них є повтор без фото.
+export const PHOTO_FAILURES = new Set(['telegram_attachment_not_opened', 'telegram_send_not_clicked', 'telegram_attachment_failed']);
+// Запасний список для записів без `sendAttempted` (старі й Viber/WhatsApp): збій точно до натискання «Надіслати».
+const BEFORE_SEND_FALLBACK = new Set([...RETRY, 'target_unconfirmed', 'target_not_found', 'target_ambiguous', 'target_not_verified', 'viber_not_joined', 'blocking_dialog', 'target_name_missing']);
+
+/**
+ * Чи збій стався ДО натискання «Надіслати» (повтор безпечний). Береться з `result_json` задачі: `sendAttempted`, який передає runner,
+ * і сліди автоперевірки (`follow`, `verifyFrom`: відправка була). Лише для записів без `sendAttempted` — запасний список кодів.
+ * Усе, що не розпізнано, вважається небезпечним.
+ */
+export function failedBeforeSend(resultJson: string | null, requestKey = ''): boolean {
+  // Задача-перевірка (`verify_`) існує лише тому, що відправка вже була.
+  if (requestKey.startsWith('verify_')) return false;
+  let parsed: Record<string, unknown> = {};
+  try { const value: unknown = resultJson ? JSON.parse(resultJson) : null; if (value && typeof value === 'object') parsed = value as Record<string, unknown>; } catch { return false; }
+  const code = typeof parsed.errorCode === 'string' ? parsed.errorCode : '';
+  if (AFTER_SEND_CODES.has(code) || parsed.sendAttempted === true || parsed.follow || Number(parsed.verifyFrom) > 0) return false;
+  if (parsed.sendAttempted === false) return true;
+  return BEFORE_SEND_FALLBACK.has(code);
 }
 
 function errorCodeOf(resultJson: string | null): string {
@@ -286,37 +316,37 @@ const cleanChatName = (value: string) => value.replace(/[\u0000-\u001f\u007f]/g,
 export async function resolveAutopostDecisions(
   db: D1Database,
   userId: string,
-  input: { jobIds: string[]; decision: AutopostDecision; requireSimilar?: boolean; requireCode?: string },
+  input: { jobIds: string[]; decision: AutopostDecision; requireSimilar?: boolean; requireCode?: string; requireSafe?: boolean; days?: number },
   now: number,
 ): Promise<{ resolved: Array<{ jobId: string; chatId: string }>; skipped: number }> {
   const resolved: Array<{ jobId: string; chatId: string }> = [];
   let skipped = 0;
   for (const jobId of input.jobIds.slice(0, 100)) {
-    const result = await resolveAutopostDecision(db, userId, { jobId, decision: input.decision, requireSimilar: input.requireSimilar, requireCode: input.requireCode }, now);
+    const result = await resolveAutopostDecision(db, userId, { jobId, decision: input.decision, requireSimilar: input.requireSimilar, requireCode: input.requireCode, requireSafe: input.requireSafe, days: input.days }, now);
     if (result.ok) resolved.push({ jobId, chatId: result.chatId });
     else skipped += 1;
   }
   return { resolved, skipped };
 }
 
-export type AutopostAttentionItem = { jobId: string; chatId: string; name: string; errorCode: string; updatedAt: number; /** Назва чату, яку бачив месенджер (для «Не той чат»). */ observed: string | null };
+export type AutopostAttentionItem = { jobId: string; chatId: string; name: string; errorCode: string; updatedAt: number; /** Назва чату, яку бачив месенджер (для «Не той чат»). */ observed: string | null; /** Збій стався до «Надіслати»: повтор не може дати дубль. */ beforeSend: boolean };
 
 /**
  * Чати платформи, які автопост не чіпав і чекає рішення власника, лише з партій сьогодні. З новим днем учорашні зникають зі
  * списку самі: чат не архівується й не змінюється, лишається в «Для публікації», а та сама помилка завтра з'явиться знову.
  */
 export async function readAutopostAttention(db: D1Database, userId: string, platform: 'whatsapp' | 'viber' | 'telegram', date: string): Promise<AutopostAttentionItem[]> {
-  const rows = await db.prepare(`SELECT j.id AS id,j.chat_id AS chat_id,j.expected_name AS name,j.result_json AS result_json,j.updated_at AS updated_at
+  const rows = await db.prepare(`SELECT j.id AS id,j.chat_id AS chat_id,j.expected_name AS name,j.result_json AS result_json,j.updated_at AS updated_at,j.request_key AS request_key
     FROM whatsapp_autopost_jobs j JOIN chats c ON c.id=j.chat_id AND c.user_id=j.user_id
     WHERE j.user_id=?1 AND j.outcome='needs_decision' AND c.platform=?2 AND j.published_on=?3
     ORDER BY j.updated_at DESC,j.id LIMIT 100`).bind(userId, platform, date)
-    .all<{ id: string; chat_id: string; name: string; result_json: string | null; updated_at: number }>();
+    .all<{ id: string; chat_id: string; name: string; result_json: string | null; updated_at: number; request_key: string }>();
   return (rows.results || []).filter((row) => !(platform === 'telegram' && THREAD_CODES.has(errorCodeOf(row.result_json)))).map((row) => {
     let code = 'adapter_failed';
     try {
       const parsed: unknown = row.result_json ? JSON.parse(row.result_json) : null;
       if (parsed && typeof parsed === 'object' && typeof (parsed as { errorCode?: unknown }).errorCode === 'string') code = (parsed as { errorCode: string }).errorCode;
     } catch { /* лишається код за замовчуванням */ }
-    return { jobId: row.id, chatId: row.chat_id, name: row.name, errorCode: code, updatedAt: Number(row.updated_at), observed: observedName(row.result_json).trim() || null };
+    return { jobId: row.id, chatId: row.chat_id, name: row.name, errorCode: code, updatedAt: Number(row.updated_at), observed: observedName(row.result_json).trim() || null, beforeSend: failedBeforeSend(row.result_json, row.request_key) };
   });
 }

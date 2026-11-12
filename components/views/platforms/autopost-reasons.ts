@@ -86,6 +86,9 @@ export function autopostReasonText(code: string | null | undefined): string {
   return REASONS[code] || 'Автопост не зміг виконати відправку. Перевір чат вручну.';
 }
 
+/** Збої вікна фото Telegram: для них є повтор без фото (той самий текст, лише цього разу). */
+export const PHOTO_FAILURE_CODES: ReadonlySet<string> = new Set(['telegram_attachment_not_opened', 'telegram_send_not_clicked', 'telegram_attachment_failed']);
+
 /** Чому чат не потрапив у партію (коди з відповіді запуску партії). */
 const BATCH_SKIP: Record<string, string> = {
   profile_rule: 'правила профілю',
@@ -129,6 +132,14 @@ const MONTHS = ['січня', 'лютого', 'березня', 'квітня', 
 export function dayLabel(iso: string): string {
   const [, month, day] = iso.split('-').map(Number);
   return month >= 1 && month <= 12 ? `${day} ${MONTHS[month - 1]}` : iso;
+}
+
+/** Київська дата через N діб від сьогодні (ISO): «Відкладено до …» показується до того, як сервер відповів. */
+export function kyivDateAfter(days: number): string {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const date = new Date(`${today}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 const kyivDay = new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'long', timeZone: 'Europe/Kyiv' });

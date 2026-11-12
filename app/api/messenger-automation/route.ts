@@ -14,6 +14,7 @@ import {
   createTelegramScanBatch,
   createTelegramScanJob,
   createWhatsAppAutopostBatch,
+  createTelegramNoPhotoJob,
   createWhatsAppAutopostJob,
   previewTelegramPool,
   readAutopostPlan,
@@ -23,7 +24,7 @@ import {
   readWhatsAppAutopostProgress,
   resetWhatsAppAutopostQueue,
 } from '@/lib/messenger-automation';
-import { readAutopostAttention, resolveAutopostDecision, resolveAutopostDecisions, type AutopostDecision } from '@/lib/messenger-automation-outcome';
+import { SNOOZE_CHOICES, readAutopostAttention, resolveAutopostDecision, resolveAutopostDecisions, snoozeDeadlineDays, type AutopostDecision } from '@/lib/messenger-automation-outcome';
 import { readActivePool, readPoolForUi, savePool } from '@/lib/telegram-pool/store';
 import { ownMaterialAvailable, saveSource } from '@/lib/telegram-pool/source';
 import { TelegramAutopostError, bindTelegramWebAccount, chooseTelegramThread, readTelegramThreadState, unbindTelegramWebAccount } from '@/lib/telegram-autopost';
@@ -359,35 +360,45 @@ export async function POST(request:Request):Promise<Response>{
     // Рішення власника зі списку «Потребують рішення»: в архів, відкласти на завтра, спробувати ще раз або «перевірити» (лише
     // відкрити чат і подивитись, чи повідомлення вже є). Те саме для групи чатів одним запитом (`jobIds`).
     if(body.action==='resolve-autopost-decision'||body.action==='resolve-autopost-decisions'){
-      const decision=['archive','snooze','retry','check','rename'].includes(String(body.decision))?body.decision as AutopostDecision:null;
+      const decision=['archive','snooze','retry','retry_nophoto','check','rename'].includes(String(body.decision))?body.decision as AutopostDecision:null;
       const bulk=body.action==='resolve-autopost-decisions';
       const jobIds=bulk?(Array.isArray(body.jobIds)?body.jobIds.filter((id):id is string=>typeof id==='string'&&id.length>0):[]):(typeof body.jobId==='string'&&body.jobId?[body.jobId]:[]);
       if(!jobIds.length||!decision)throw new MessengerAutomationError('Не вказано чат або рішення.');
       const date=businessDate(now);
+      const days=(SNOOZE_CHOICES as readonly number[]).includes(Number(body.days))?Number(body.days):1;
       let resolved:Array<{jobId:string;chatId:string}>;
-      if(bulk)// Повторна відправка для групи лише там, де перевірка вже показала, що повідомлення в чаті немає (дубля не буде).
-        resolved=(await resolveAutopostDecisions(env.DB,user.id,{jobIds,decision,requireSimilar:decision==='rename',requireCode:decision==='retry'?'message_not_found':undefined},now)).resolved;
+      const single=!bulk;
+      if(bulk)// Масовий повтор лише там, де дубля бути не може: збій до «Надіслати» або перевірка показала, що повідомлення немає.
+        resolved=(await resolveAutopostDecisions(env.DB,user.id,{jobIds,decision,requireSimilar:decision==='rename',requireSafe:decision==='retry'||decision==='retry_nophoto',days},now)).resolved;
       else{
-        const single=await resolveAutopostDecision(env.DB,user.id,{jobId:jobIds[0],decision},now);
-        if(!single.ok)throw new MessengerAutomationError(single.error,409);
-        resolved=[{jobId:jobIds[0],chatId:single.chatId}];
+        const one=await resolveAutopostDecision(env.DB,user.id,{jobId:jobIds[0],decision,days},now);
+        if(!one.ok)throw new MessengerAutomationError(one.error,409);
+        resolved=[{jobId:jobIds[0],chatId:one.chatId}];
       }
+      // Чат, для якого нову задачу не вдалося поставити (немає вільного тексту пулу, чат уже змінився), лишається в «Для публікації» і піде в наступну партію.
+      let failedToQueue=0;
+      const queue=async(make:()=>Promise<unknown>)=>{
+        try{await make();}
+        catch(error){if(error instanceof MessengerAutomationError&&!single)failedToQueue+=1;else throw error;}
+      };
       if(decision==='retry'||decision==='rename'){
         for(const item of resolved){
           const platformRow=await env.DB.prepare(`SELECT platform FROM chats WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(item.chatId,user.id).first<{platform:string}>();
-          await createWhatsAppAutopostJob(env.DB,user.id,{requestKey:`retry_${crypto.randomUUID()}`,chatId:item.chatId,platform:platformRow?.platform},now,date);
+          await queue(()=>createWhatsAppAutopostJob(env.DB,user.id,{requestKey:`retry_${crypto.randomUUID()}`,chatId:item.chatId,platform:platformRow?.platform},now,date));
         }
       }
+      // Той самий текст, але без фото (лише на цей раз; налаштування фото не змінюються).
+      if(decision==='retry_nophoto')for(const item of resolved)await queue(()=>createTelegramNoPhotoJob(env.DB,user.id,item.jobId,now,date));
       if(decision==='check'){
         for(const item of resolved)await createAutopostVerifyJob(env.DB,user.id,item.jobId,now,date);
       }
-      if(decision==='retry'||decision==='check'||decision==='rename')await wakeOwnerChannelAutopost(user.id);
+      if(decision==='retry'||decision==='retry_nophoto'||decision==='check'||decision==='rename')await wakeOwnerChannelAutopost(user.id);
       const platform=cleanAutopostPlatform(body.platform);
       const [progress,attention]=await Promise.all([
         readWhatsAppAutopostProgress(env.DB,user.id,date,platform),
         readAutopostAttention(env.DB,user.id,platform,date),
       ]);
-      return json({ok:true,resolved:resolved.length,progress,autopostAttention:attention});
+      return json({ok:true,resolved:resolved.length,...(failedToQueue?{failedToQueue}:{}),progress,autopostAttention:attention,...(decision==='snooze'?{snoozedUntil:snoozeDeadlineDays(now,days)}:{})});
     }
     if(body.action==='cancel-whatsapp-autopost'){
       if(typeof body.jobId!=='string'||!body.jobId)throw new MessengerAutomationError('WhatsApp autopost задача не вказана.');

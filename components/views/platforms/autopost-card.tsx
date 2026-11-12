@@ -1,7 +1,7 @@
 'use client';
 
 import { AutopostPanel, type AutopostMaterialProps, type AutopostPlan, type AutopostReadiness } from '@/components/views/platforms/autopost-panel';
-import type { AutopostAttentionItem, AutopostDecision } from '@/components/views/platforms/autopost-attention';
+import type { AutopostAttentionItem, AutopostDecision, DecideOptions } from '@/components/views/platforms/autopost-attention';
 import type { AutopostBatch } from '@/components/views/platforms/autopost-batch';
 import { PaceEstimate, PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
 import type { AutopostPace, AutopostPlatformStatus } from '@/lib/live-channel';
@@ -25,8 +25,8 @@ export function AutopostCard({ material, status, pace, busy, plan, onLoadPlan, r
   attention: AutopostAttentionItem[];
   /** Підсумок останнього запуску партії: скільки чатів поставлено й чому решту пропущено. */
   batchNote: string | null;
-  onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
-  onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision) => void;
+  onDecide: (item: AutopostAttentionItem, decision: AutopostDecision, options?: DecideOptions) => void;
+  onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision, options?: DecideOptions) => void;
   onStart: (limit: number | null, exclude: string[], perHour: number) => void;
   onStop: () => void;
   onReset: () => void;

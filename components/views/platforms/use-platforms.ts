@@ -5,10 +5,10 @@ import { useToast } from '@/components/ui/toast';
 import { telegramAccountAction, useTelegramAccounts, loadTelegramAccounts, type TelegramAccount } from '@/components/views/platforms/telegram-accounts';
 import type { PlatformLinkItem as LinkItem, PublicationPace } from '@/components/views/platforms/overview';
 import type { WhatsAppAutopostImage, WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
-import type { AutopostAttentionItem, AutopostDecision } from '@/components/views/platforms/autopost-attention';
+import type { AutopostAttentionItem, AutopostDecision, DecideOptions } from '@/components/views/platforms/autopost-attention';
 import type { ViberRunnerStatus } from '@/components/views/platforms/viber-autopost-card';
 import type { AutopostPlan } from '@/components/views/platforms/autopost-panel';
-import { batchSkipText } from '@/components/views/platforms/autopost-reasons';
+import { batchSkipText, dayLabel, kyivDateAfter } from '@/components/views/platforms/autopost-reasons';
 import type { WaitingCheckAction, WaitingCheckProblemAction } from '@/components/views/platforms/waiting-check-card';
 import { announceDataChange } from '@/lib/client-sync';
 import { createActionGate } from '@/lib/action-gate';
@@ -1092,23 +1092,70 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     setAutopostAttention(body.autopostAttention || []);
     invalidateQueueCache(platform); announceDataChange('platforms'); loadAutopostPlan();
   };
-  const decideAutopost = (item: AutopostAttentionItem, decision: AutopostDecision) => wa('autopost-decision', async () => {
-    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'resolve-autopost-decision', jobId: item.jobId, decision, platform }) });
-    const body = await response.json() as { progress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[]; error?: string };
+  // Рішення зі списку «Потребують рішення»: архів, відкладення й повтор виконуються через 8 с, якщо не натиснути «Скасувати» (рядки зникають одразу);
+  // «Перевірити» й «Оновити назву» запускають роботу runner і йдуть одразу. Масова дія — один запит (`resolve-autopost-decisions`).
+  const [hiddenAttention, setHiddenAttention] = useState<ReadonlySet<string>>(new Set());
+  const visibleAttention = useMemo(() => autopostAttention.filter((item) => !hiddenAttention.has(item.jobId)), [autopostAttention, hiddenAttention]);
+  const pendingDecisions = useRef(new Set<{ timer: ReturnType<typeof setTimeout>; run: () => Promise<void> }>());
+  const unhideAttention = useCallback((ids: string[]) => setHiddenAttention((current) => { const next = new Set(current); ids.forEach((id) => next.delete(id)); return next; }), []);
+  useEffect(() => {
+    // Згорнули вкладку чи пішли зі сторінки: відкладені рішення виконуються одразу, щоб не загубитись.
+    const flush = () => { for (const entry of pendingDecisions.current) { clearTimeout(entry.timer); void entry.run(); } };
+    const onHide = () => { if (document.visibilityState === 'hidden') flush(); };
+    document.addEventListener('visibilitychange', onHide); window.addEventListener('pagehide', flush);
+    return () => { document.removeEventListener('visibilitychange', onHide); window.removeEventListener('pagehide', flush); };
+  }, []);
+  const sendDecision = async (items: AutopostAttentionItem[], decision: AutopostDecision, bulk: boolean, options?: DecideOptions) => {
+    const payload = bulk ? { action: 'resolve-autopost-decisions', jobIds: items.map((item) => item.jobId) } : { action: 'resolve-autopost-decision', jobId: items[0].jobId };
+    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, decision, platform, ...(options?.days ? { days: options.days } : {}) }) });
+    const body = await response.json() as { resolved?: number; failedToQueue?: number; progress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[]; error?: string };
     if (!response.ok) throw new Error(body.error || 'Не вдалося застосувати рішення.');
     applyDecisionResult(body);
     await reloadChats.current(true);
-    toast.push({ message: decision === 'archive' ? 'Чат переміщено в архів.' : decision === 'snooze' ? 'Чат відкладено до завтра.' : decision === 'check' ? 'Перевіряю чат: runner відкриє його й подивиться, чи є повідомлення.' : decision === 'rename' ? 'Назву чату оновлено, він піде в наступну партію.' : 'Чат знову поставлено в чергу автопосту.' });
-  });
-  const decideAutopostMany = (items: AutopostAttentionItem[], decision: AutopostDecision) => wa('autopost-decision', async () => {
-    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'resolve-autopost-decisions', jobIds: items.map((item) => item.jobId), decision, platform }) });
-    const body = await response.json() as { resolved?: number; progress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[]; error?: string };
-    if (!response.ok) throw new Error(body.error || 'Не вдалося застосувати рішення.');
-    applyDecisionResult(body);
-    await reloadChats.current(true);
-    const count = body.resolved ?? items.length;
-    toast.push({ message: decision === 'archive' ? `В архів переміщено чатів: ${count}.` : decision === 'snooze' ? `Відкладено до завтра чатів: ${count}.` : decision === 'rename' ? `Назви оновлено, у наступну партію піде чатів: ${count}.` : decision === 'retry' ? `Знову поставлено в чергу автопосту чатів: ${count}.` : `Перевіряю чати: ${count}.` });
-  });
+    return body;
+  };
+  const DEFERRED: ReadonlySet<AutopostDecision> = new Set(['archive', 'snooze', 'retry', 'retry_nophoto']);
+  const decisionMessage = (decision: AutopostDecision, count: number, options?: DecideOptions) => {
+    const many = count > 1;
+    switch (decision) {
+      case 'archive': return many ? `В архів піде чатів: ${count}.` : 'Чат піде в архів.';
+      case 'snooze': return `Відкладено до ${dayLabel(kyivDateAfter(options?.days ?? 1))}${many ? `: чатів ${count}` : ''}.`;
+      case 'retry_nophoto': return many ? `Знову без фото (лише цього разу): чатів ${count}.` : 'Чат піде знову без фото (лише цього разу).';
+      case 'retry': return many ? `Знову піде в чергу автопосту чатів: ${count}.` : 'Чат знову піде в чергу автопосту.';
+      case 'check': return many ? `Перевіряю чати: ${count}.` : 'Перевіряю чат: runner відкриє його й подивиться, чи є повідомлення.';
+      default: return many ? `Назви оновлено, у наступну партію піде чатів: ${count}.` : 'Назву чату оновлено, він піде в наступну партію.';
+    }
+  };
+  const decide = (items: AutopostAttentionItem[], decision: AutopostDecision, bulk: boolean, options?: DecideOptions) => {
+    if (!items.length) return Promise.resolve();
+    if (!DEFERRED.has(decision)) {
+      return wa('autopost-decision', async () => {
+        const body = await sendDecision(items, decision, bulk, options);
+        const count = body.resolved ?? items.length;
+        toast.push({ message: decisionMessage(decision, bulk ? count : 1, options) });
+      });
+    }
+    const ids = items.map((item) => item.jobId);
+    setHiddenAttention((current) => new Set([...current, ...ids]));
+    const entry: { timer: ReturnType<typeof setTimeout>; run: () => Promise<void> } = {
+      timer: setTimeout(() => void entry.run(), 8_000),
+      run: async () => {
+        clearTimeout(entry.timer); pendingDecisions.current.delete(entry);
+        try {
+          const body = await sendDecision(items, decision, bulk, options);
+          if (body.failedToQueue) toast.push({ message: `Не всі чати вдалося поставити в чергу: ${body.failedToQueue}. Вони лишились у «Для публікації» й підуть у наступну партію.`, tone: 'hot', duration: 10000 });
+        } catch (reason) {
+          toast.push({ message: humanError(reason, 'Не вдалося застосувати рішення. Спробуй ще раз.'), tone: 'hot', duration: 10000 });
+          await reloadChats.current(true);
+        } finally { unhideAttention(ids); }
+      },
+    };
+    pendingDecisions.current.add(entry);
+    toast.push({ message: decisionMessage(decision, items.length, options), duration: 8000, action: { label: 'Скасувати', onClick: () => { clearTimeout(entry.timer); pendingDecisions.current.delete(entry); unhideAttention(ids); } } });
+    return Promise.resolve();
+  };
+  const decideAutopost = (item: AutopostAttentionItem, decision: AutopostDecision, options?: DecideOptions) => decide([item], decision, false, options);
+  const decideAutopostMany = (items: AutopostAttentionItem[], decision: AutopostDecision, options?: DecideOptions) => decide(items, decision, true, options);
 
   async function accountAction(action: string, id?: string, extra: Record<string, unknown> = {}) {
     await runAction.current(async () => {
@@ -1135,7 +1182,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     // WhatsApp / Viber
     waitingCheckView, changeWaitingCheck, connectWaitingCheckRunner, resolveWaitingProblem, liveStatus,
     quickPublishMode, setQuickPublishMode, quickAdvertisementId, setQuickAdvertisementId,
-    autopostPlans, loadAutopostPlan, whatsappImage, whatsappImageLoaded, whatsappCaption, setWhatsappCaption, whatsappCaptionLoaded, whatsappProgress, autopostAttention, whatsappBatchNote, decideAutopost, decideAutopostMany,
+    autopostPlans, loadAutopostPlan, whatsappImage, whatsappImageLoaded, whatsappCaption, setWhatsappCaption, whatsappCaptionLoaded, whatsappProgress, autopostAttention: visibleAttention, whatsappBatchNote, decideAutopost, decideAutopostMany,
     telegramImage, telegramCaption, telegramMaterialLoaded, setTelegramCaption, uploadTelegramImage, removeTelegramImage, saveTelegramCaption, clearTelegramCaption, copyTelegramMaterialFromShared,
     telegramRunnerSeen, scanTelegramThreads, viberPace, whatsappPace,
     telegramProgress, telegramBatchNote, telegramAutopostStatus, telegramPace, telegramAccountBinding, startTelegramAutopostBatch, stopTelegramAutopostBatch, resetTelegramAutopostQueue, chooseTelegramThread, bindTelegramAccount,

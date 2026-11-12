@@ -409,6 +409,27 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
   return publicWhatsAppAutopostJob(created);
 }
 
+/** Ключ задачі «Спробувати ще без фото»: claim віддає `media:null` лише їй, налаштування фото не змінюються. */
+export const NO_PHOTO_KEY='retry_nophoto_';
+
+/**
+ * Telegram: нова задача для чату з тим самим текстом, що був у збійній задачі, але без фото (лише цей раз).
+ * Текст пулу береться той самий, а коли його за цей час зайняла інша задача, — наступний вільний для чату.
+ */
+export async function createTelegramNoPhotoJob(db:D1Database,userId:string,oldJobId:string,now:number,date:string):Promise<WhatsAppAutopostJob>{
+  const old=await readWhatsAppAutopostRow(db,userId,oldJobId);
+  if(!old||old.platform!=='telegram')throw new MessengerAutomationError('Задачу Telegram не знайдено.',404,'job_not_found');
+  const base={requestKey:`${NO_PHOTO_KEY}${crypto.randomUUID()}`,chatId:old.chat_id,platform:'telegram',telegramHasPhoto:false};
+  if(isPoolId(old.advertisement_id)){
+    const check=await confirmPoolText(db,userId,{id:old.id,chat_id:old.chat_id,advertisement_id:old.advertisement_id},date);
+    const text=check.same?{id:old.advertisement_id,version:Number(old.advertisement_version),language:(old.language==='ru'?'ru':'uk') as 'uk'|'ru',text:old.payload_text}:check.pick?.text;
+    if(!text)throw new MessengerAutomationError('На сьогодні вільних текстів пулу немає.',409,'pool_empty');
+    return createWhatsAppAutopostJob(db,userId,{...base,pool:{choice:{id:text.id,version:text.version,language:text.language,text:text.text}}},now,date);
+  }
+  if(old.advertisement_id.startsWith('tg_autopost_custom_'))return createWhatsAppAutopostJob(db,userId,{...base,pool:'off',caption:old.payload_text,language:old.language},now,date);
+  return createWhatsAppAutopostJob(db,userId,{...base,pool:'off',advertisementId:old.advertisement_id,language:old.language},now,date);
+}
+
 /** Задача проходу «знайти гілки»: ключ `scan_<id партії або none>_<uuid>`. Така задача нічого не публікує й не займає вікно інтервалу. */
 const SCAN_KEY=/^scan_([0-9a-f-]{36}|none)_/;
 const isScanKey=(key:string)=>key.startsWith('scan_');
@@ -1066,7 +1087,7 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
       }
     }
     // Telegram: фото могли додати після створення задачі, а підпис до фото не довший за 1024 символи (текст пулу довший йде без фото).
-    if(platform==='telegram'&&!poolMaterial&&row.payload_text.trim()&&textLength(row.payload_text)>TELEGRAM_PHOTO_CAPTION_LIMIT&&!row.request_key.startsWith('verify_')&&await hasWhatsAppAutopostImage(db,userId,'telegram')){
+    if(platform==='telegram'&&!poolMaterial&&row.payload_text.trim()&&textLength(row.payload_text)>TELEGRAM_PHOTO_CAPTION_LIMIT&&!row.request_key.startsWith('verify_')&&!row.request_key.startsWith(NO_PHOTO_KEY)&&await hasWhatsAppAutopostImage(db,userId,'telegram')){
       onSkip?.(row,'caption_too_long');
       await failWhatsAppAutopostJob(db,userId,row,'caption_too_long',now);
       continue;
@@ -1122,7 +1143,8 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
     const follow=followOf(row.result_json);
     const verifyMode=row.request_key.startsWith('verify_')||follow==='verify'||follow==='verify2';
     // Текст пулу довший за підпис до фото (1024) іде в Telegram повідомленням без фото.
-    const withoutPhoto=poolMaterial&&textLength(row.payload_text)>TELEGRAM_PHOTO_CAPTION_LIMIT;
+    // «Без фото» (рішення власника зі списку «Потребують рішення»): лише цей раз, налаштування фото не змінюються.
+    const withoutPhoto=row.request_key.startsWith(NO_PHOTO_KEY)||(poolMaterial&&textLength(row.payload_text)>TELEGRAM_PHOTO_CAPTION_LIMIT);
     const image=verifyMode||withoutPhoto?null:await readWhatsAppAutopostImage(db,userId,true,platform==='telegram'?'telegram':'shared');
     let telegram:WhatsAppAutopostTask['telegram']|undefined;
     if(platform==='telegram'&&chat?.telegram_account_id){
@@ -1188,6 +1210,8 @@ export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,in
   restrictedUntil?:unknown;
   /** Коли runner натиснув «Надіслати» (epoch, с). */
   sentAt?:unknown;
+  /** Runner натиснув «Надіслати» (Telegram): від цього залежить, чи безпечний повтор. Зберігається в `result_json.sendAttempted`. */
+  sendAttempted?:unknown;
 },now:number){
   const jobId=typeof input.jobId==='string'?input.jobId.trim():'';
   if(!jobId)throw new MessengerAutomationError('WhatsApp autopost задача не вказана.');
@@ -1255,7 +1279,7 @@ export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,in
     const errorCode=cleanErrorCode(input.errorCode)||(
       !targetVerified||!exactTarget?'target_not_verified':!sendConfirmed?'send_not_confirmed':'adapter_failed'
     );
-    const result={requestedStatus:requestedSent?'sent':'failed',observedTarget,targetVerified,sendConfirmed,errorCode};
+    const result={requestedStatus:requestedSent?'sent':'failed',observedTarget,targetVerified,sendConfirmed,errorCode,...(typeof input.sendAttempted==='boolean'?{sendAttempted:input.sendAttempted}:{})};
     // Що далі з чатом (архів, «Очікування», повтор, відкласти, рішення власника), визначає політика за кодом помилки.
     const resume=input.resumeHour===undefined||input.resumeHour===null?null:{hour:input.resumeHour,minute:input.resumeMinute};
     const settled=await settleAutopostFailure(db,userId,{id:row.id,chat_id:row.chat_id,attempts:Number(row.attempts)||0,result_json:row.result_json},{errorCode,result,now,resume,restrictedUntil:Number(input.restrictedUntil)||null,sentAt:Number(input.sentAt)||null});

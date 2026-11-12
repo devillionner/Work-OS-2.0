@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/input';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu';
 import { Segmented } from '@/components/ui/segmented';
 import { Surface } from '@/components/ui/surface';
-import { AutopostAttentionList, type AutopostAttentionItem, type AutopostDecision } from '@/components/views/platforms/autopost-attention';
+import { AutopostAttentionList, type AutopostAttentionItem, type AutopostDecision, type DecideOptions } from '@/components/views/platforms/autopost-attention';
 import { AutopostBatchPanel } from '@/components/views/platforms/autopost-batch';
 import type { WhatsAppAutopostImage, WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import { dayLabel, snoozeSummary } from '@/components/views/platforms/autopost-reasons';
@@ -221,8 +221,8 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
   startNote?: string;
   /** Telegram з пулом: який текст піде в кожен чат партії. */
   poolPreview?: PoolPreviewControls;
-  onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
-  onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision) => void;
+  onDecide: (item: AutopostAttentionItem, decision: AutopostDecision, options?: DecideOptions) => void;
+  onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision, options?: DecideOptions) => void;
   /** Скільки чатів поставити в партію (null — усі) і які чати прибрано з цього запуску. */
   onStart: (limit: number | null, exclude: string[]) => void;
   onStop: () => void;

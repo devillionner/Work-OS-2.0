@@ -10,7 +10,7 @@ import { PoolPanel } from '@/components/views/platforms/pool-panel';
 import { usePoolPreview } from '@/components/views/platforms/use-pool-preview';
 import { endingText } from '@/components/views/platforms/pool-types';
 import { AutopostPanel, chatWord, type AutopostMaterialProps, type AutopostPlan, type AutopostReadiness, type TelegramThreadChoice } from '@/components/views/platforms/autopost-panel';
-import type { AutopostAttentionItem, AutopostDecision } from '@/components/views/platforms/autopost-attention';
+import type { AutopostAttentionItem, AutopostDecision, DecideOptions } from '@/components/views/platforms/autopost-attention';
 import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import type { AutopostPlatformStatus, TelegramPace } from '@/lib/live-channel';
 
@@ -132,8 +132,8 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, mat
   batchNote: string | null;
   binding: { bound: boolean; webUserId: string | null } | null;
   busy: boolean;
-  onDecide: (item: AutopostAttentionItem, decision: AutopostDecision) => void;
-  onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision) => void;
+  onDecide: (item: AutopostAttentionItem, decision: AutopostDecision, options?: DecideOptions) => void;
+  onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision, options?: DecideOptions) => void;
   onStart: (limit: number | null, exclude: string[], perHour: number, texts: Record<string, string>) => void;
   onStop: () => void;
   onReset: () => void;
