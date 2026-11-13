@@ -8,11 +8,21 @@ export type ChatProfileInput = {
   name: unknown; language: unknown; cadence: unknown; weekdays: unknown;
   customIntervalDays: unknown; nextAllowedOn: unknown;
   directions: unknown; note: unknown; reviewStatus: unknown;
+  /** Суворі правила автопосту (необов'язкові: старі клієнти їх не шлють). */
+  directionsStrict?: unknown; pinnedAds?: unknown; noPhoto?: unknown;
 };
 export type ChatProfile = {
   name: string; language: 'uk' | 'ru' | null; cadence: ProfileCadence;
   weekdays: number[]; customIntervalDays: number | null; nextAllowedOn: string | null;
   directions: string[]; note: string; reviewStatus: 'draft' | 'confirmed';
+  /** «Публікувати лише ці напрямки»: чат отримує тільки оголошення своїх напрямів, інший не підставляється. */
+  directionsStrict: boolean;
+  /** «Лише ці оголошення»: id оголошень Бібліотеки й текстів пулу Telegram; мають пріоритет над напрямами. */
+  pinnedAds: string[];
+  /** «Без фото»: для цього чату автопост надсилає лише текст. */
+  noPhoto: boolean;
+  /** Позначку «без фото» поставив автопост (технічна заборона медіа в чаті), а не власник. */
+  noPhotoAuto: boolean;
 };
 
 export class ChatProfileError extends Error {
@@ -89,8 +99,12 @@ export function validateChatProfile(input: ChatProfileInput): ChatProfile {
   const nextAllowedOn = optionalDate(input.nextAllowedOn);
   const directions = canonicalDirections(list(input.directions, 12, 80));
   const note = text(input.note, 1000);
+  const directionsStrict = input.directionsStrict === true;
+  if (directionsStrict && !directions.length) throw new ChatProfileError('Щоб публікувати лише свої напрямки, обери хоча б один напрям.');
+  const pinnedAds = input.pinnedAds === undefined ? [] : list(input.pinnedAds, 30, 100);
+  const noPhoto = input.noPhoto === true;
   const reviewStatus = input.reviewStatus === 'confirmed' ? 'confirmed' : input.reviewStatus === 'draft' ? 'draft' : (() => { throw new ChatProfileError('Некоректний стан профілю.'); })();
-  return { name, language: language as 'uk' | 'ru' | null, cadence: input.cadence as ProfileCadence, weekdays, customIntervalDays, nextAllowedOn, directions, note, reviewStatus };
+  return { name, language: language as 'uk' | 'ru' | null, cadence: input.cadence as ProfileCadence, weekdays, customIntervalDays, nextAllowedOn, directions, note, reviewStatus, directionsStrict, pinnedAds, noPhoto, noPhotoAuto: false };
 }
 
 export async function saveChatProfile(db: D1Database, input: {
@@ -106,12 +120,15 @@ export async function saveChatProfile(db: D1Database, input: {
   const results = await db.batch([
     db.prepare(`UPDATE chats SET name=?1,updated_at=?2 WHERE id=?3 AND user_id=?4 AND ${chatStateTokenSql('chats')}=?5`)
       .bind(profile.name, input.now, input.chatId, input.userId, input.stateToken),
-    db.prepare(`INSERT INTO chat_profiles(chat_id,language,cadence,weekdays_json,custom_interval_days,next_allowed_on,directions_json,note,review_status,source,updated_at)
-      SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,'manual',?10 WHERE changes()=1
+    // `no_photo_auto` лишається, поки «без фото» увімкнене: позначка «виявлено автоматично» зникає, коли власник вимикає правило.
+    db.prepare(`INSERT INTO chat_profiles(chat_id,language,cadence,weekdays_json,custom_interval_days,next_allowed_on,directions_json,note,review_status,source,updated_at,directions_strict,pinned_ads_json,no_photo,no_photo_auto)
+      SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,'manual',?10,?11,?12,?13,0 WHERE changes()=1
       ON CONFLICT(chat_id) DO UPDATE SET language=excluded.language,cadence=excluded.cadence,
         weekdays_json=excluded.weekdays_json,custom_interval_days=excluded.custom_interval_days,next_allowed_on=excluded.next_allowed_on,directions_json=excluded.directions_json,note=excluded.note,
-        review_status=excluded.review_status,source='manual',updated_at=excluded.updated_at`)
-      .bind(input.chatId, profile.language, profile.cadence, JSON.stringify(profile.weekdays), profile.customIntervalDays, profile.nextAllowedOn, JSON.stringify(profile.directions), profile.note, profile.reviewStatus, input.now),
+        review_status=excluded.review_status,source='manual',updated_at=excluded.updated_at,
+        directions_strict=excluded.directions_strict,pinned_ads_json=excluded.pinned_ads_json,no_photo=excluded.no_photo,
+        no_photo_auto=CASE WHEN excluded.no_photo=1 THEN chat_profiles.no_photo_auto ELSE 0 END`)
+      .bind(input.chatId, profile.language, profile.cadence, JSON.stringify(profile.weekdays), profile.customIntervalDays, profile.nextAllowedOn, JSON.stringify(profile.directions), profile.note, profile.reviewStatus, input.now, profile.directionsStrict ? 1 : 0, JSON.stringify(profile.pinnedAds), profile.noPhoto ? 1 : 0),
     db.prepare(`INSERT INTO activity_events(id,user_id,event_type,platform,chat_id,occurred_at,event_date,metadata_json,source_key)
       SELECT ?1,c.user_id,'chat_profile_changed',c.platform,c.id,?2,?3,?4,?5 FROM chats c
       WHERE c.id=?6 AND c.user_id=?7 AND changes()=1`)

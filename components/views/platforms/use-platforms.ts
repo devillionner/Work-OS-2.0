@@ -224,6 +224,9 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   const [whatsappImageLoaded, setWhatsappImageLoaded] = useState(false);
   const [whatsappCaption, setWhatsappCaption] = useState('');
   const [whatsappCaptionLoaded, setWhatsappCaptionLoaded] = useState(false);
+  // Напрям власного оголошення (необов'язковий): потрібен чатам із «Лише ці напрямки». Зберігається разом із текстом.
+  const [whatsappCaptionDirection, setWhatsappCaptionDirection] = useState('');
+  const [telegramCaptionDirection, setTelegramCaptionDirection] = useState('');
   const [whatsappProgress, setWhatsappProgress] = useState<WhatsAppAutopostProgress | null>(null);
   const [autopostAttention, setAutopostAttention] = useState<AutopostAttentionItem[]>([]);
   const [viberProgress, setViberProgress] = useState<WhatsAppAutopostProgress | null>(null);
@@ -425,11 +428,11 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     // Після події фото й текст не перечитуються (їх змінює лише власник), а відома партія не шукається заново.
     const batch = fromEvent ? knownBatches.current.telegram : undefined;
     const response = await fetch(`/api/messenger-automation?telegram=1&account=${encodeURIComponent(accountId)}${fromEvent ? '&light=1' : ''}${batch ? `&batch=${batch}` : ''}`, { cache: 'no-store' });
-    const body = await response.json() as { telegramAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[]; telegramAccount?: { bound: boolean; webUserId: string | null } | null; telegramMaterial?: { image: WhatsAppAutopostImage | null; caption: string } };
+    const body = await response.json() as { telegramAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[]; telegramAccount?: { bound: boolean; webUserId: string | null } | null; telegramMaterial?: { image: WhatsAppAutopostImage | null; caption: string; direction?: string } };
     return response.ok ? body : null;
   }, [accountId]);
-  const applyTelegramAutopost = useCallback((body: { telegramAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[]; telegramAccount?: { bound: boolean; webUserId: string | null } | null; telegramMaterial?: { image: WhatsAppAutopostImage | null; caption: string } }) => {
-    if (body.telegramMaterial) { setTelegramImage(body.telegramMaterial.image); setTelegramCaption(body.telegramMaterial.caption); setTelegramMaterialLoaded(true); }
+  const applyTelegramAutopost = useCallback((body: { telegramAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[]; telegramAccount?: { bound: boolean; webUserId: string | null } | null; telegramMaterial?: { image: WhatsAppAutopostImage | null; caption: string; direction?: string } }) => {
+    if (body.telegramMaterial) { setTelegramImage(body.telegramMaterial.image); setTelegramCaption(body.telegramMaterial.caption); setTelegramCaptionDirection(body.telegramMaterial.direction || ''); setTelegramMaterialLoaded(true); }
     setTelegramProgress(body.telegramAutopostProgress || null); setAutopostAttention(body.autopostAttention || []);
     setTelegramAccountBinding(body.telegramAccount ? { bound: body.telegramAccount.bound, webUserId: body.telegramAccount.webUserId } : null);
   }, []);
@@ -457,11 +460,12 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     let cancelled = false;
     void fetch('/api/messenger-automation', { cache: 'no-store' })
       .then(async (response) => {
-        const body = await response.json() as { whatsappAutopostImage?: WhatsAppAutopostImage | null; whatsappAutopostCaption?: string; whatsappAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[] };
+        const body = await response.json() as { whatsappAutopostImage?: WhatsAppAutopostImage | null; whatsappAutopostCaption?: string; whatsappAutopostCaptionDirection?: string; whatsappAutopostProgress?: WhatsAppAutopostProgress; autopostAttention?: AutopostAttentionItem[] };
         if (!cancelled && response.ok) {
           setWhatsappImage(body.whatsappAutopostImage || null);
           // Фото й підпис спільні для обох платформ; прогрес і чати «Потребують рішення» тут читає лише WhatsApp.
           setWhatsappCaption(typeof body.whatsappAutopostCaption === 'string' ? body.whatsappAutopostCaption : '');
+          setWhatsappCaptionDirection(typeof body.whatsappAutopostCaptionDirection === 'string' ? body.whatsappAutopostCaptionDirection : '');
           if (platform === 'whatsapp') { setAutopostAttention(body.autopostAttention || []); setWhatsappProgress(body.whatsappAutopostProgress || null); }
         }
       })
@@ -922,10 +926,10 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     setWhatsappImage(null); setWhatsappImageLoaded(true); toast.push({ message: 'Фото автопоста прибрано.' });
   });
   const saveWhatsAppAutopostCaption = () => { if (!whatsappCaptionLoaded) return Promise.resolve(); return wa('whatsapp-autopost-caption', async () => {
-    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-whatsapp-autopost-caption', text: whatsappCaption }) });
-    const body = await response.json() as { caption?: string; error?: string };
+    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-whatsapp-autopost-caption', text: whatsappCaption, direction: whatsappCaptionDirection }) });
+    const body = await response.json() as { caption?: string; direction?: string; error?: string };
     if (!response.ok) throw new Error(body.error || 'Не вдалося зберегти текст автопоста.');
-    setWhatsappCaption(body.caption || ''); toast.push({ message: body.caption ? 'Текст автопоста збережено.' : 'Власний текст очищено — Work OS братиме текст із Бібліотеки.' });
+    setWhatsappCaption(body.caption || ''); setWhatsappCaptionDirection(body.direction || ''); toast.push({ message: body.caption ? 'Текст автопоста збережено.' : 'Власний текст очищено — Work OS братиме текст із Бібліотеки.' });
   }); };
   const clearWhatsAppAutopostCaption = () => wa('whatsapp-autopost-caption-clear', async () => {
     const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'clear-whatsapp-autopost-caption' }) });
@@ -1047,10 +1051,10 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     setTelegramImage(null); loadAutopostPlan(); toast.push({ message: 'Фото для Telegram прибрано: підуть лише тексти.' });
   });
   const saveTelegramCaption = () => wa('telegram-autopost-caption', async () => {
-    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-telegram-autopost-caption', text: telegramCaption }) });
-    const body = await response.json() as { caption?: string; error?: string };
+    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-telegram-autopost-caption', text: telegramCaption, direction: telegramCaptionDirection }) });
+    const body = await response.json() as { caption?: string; direction?: string; error?: string };
     if (!response.ok) throw new Error(body.error || 'Не вдалося зберегти текст для Telegram.');
-    setTelegramCaption(body.caption || ''); loadAutopostPlan();
+    setTelegramCaption(body.caption || ''); setTelegramCaptionDirection(body.direction || ''); loadAutopostPlan();
     toast.push({ message: body.caption ? 'Текст для Telegram збережено.' : 'Власний текст очищено: Work OS братиме текст із Бібліотеки для кожного чату.' });
   });
   const clearTelegramCaption = () => wa('telegram-autopost-caption-clear', async () => {
@@ -1061,9 +1065,9 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   });
   const copyTelegramMaterialFromShared = () => wa('telegram-material-copy', async () => {
     const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'copy-telegram-material-from-shared' }) });
-    const body = await response.json() as { image?: WhatsAppAutopostImage | null; caption?: string; error?: string };
+    const body = await response.json() as { image?: WhatsAppAutopostImage | null; caption?: string; direction?: string; error?: string };
     if (!response.ok) throw new Error(body.error || 'Не вдалося взяти фото й текст із WhatsApp і Viber.');
-    setTelegramImage(body.image || null); setTelegramCaption(body.caption || ''); loadAutopostPlan();
+    setTelegramImage(body.image || null); setTelegramCaption(body.caption || ''); setTelegramCaptionDirection(body.direction || ''); loadAutopostPlan();
     toast.push({ message: 'Фото й текст WhatsApp і Viber скопійовано в Telegram. Далі вони окремі: зміни в одному місці не чіпають інше.' });
   });
   /** «Знайти гілки»: швидкий прохід по чатах, про які невідомо, чи є в них гілки, і по чатах, що чекають вибору гілки. */
@@ -1216,7 +1220,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     // WhatsApp / Viber
     waitingCheckView, changeWaitingCheck, connectWaitingCheckRunner, resolveWaitingProblem, liveStatus,
     quickPublishMode, setQuickPublishMode, quickAdvertisementId, setQuickAdvertisementId,
-    autopostPlans, loadAutopostPlan, whatsappImage, whatsappImageLoaded, whatsappCaption, setWhatsappCaption, whatsappCaptionLoaded, whatsappProgress, autopostAttention: visibleAttention, whatsappBatchNote, decideAutopost, decideAutopostMany,
+    autopostPlans, loadAutopostPlan, whatsappImage, whatsappImageLoaded, whatsappCaption, setWhatsappCaption, whatsappCaptionDirection, setWhatsappCaptionDirection, telegramCaptionDirection, setTelegramCaptionDirection, whatsappCaptionLoaded, whatsappProgress, autopostAttention: visibleAttention, whatsappBatchNote, decideAutopost, decideAutopostMany,
     telegramImage, telegramCaption, telegramMaterialLoaded, setTelegramCaption, uploadTelegramImage, removeTelegramImage, saveTelegramCaption, clearTelegramCaption, copyTelegramMaterialFromShared,
     telegramRunnerSeen, scanTelegramThreads, skipThreadChoice, viberPace, whatsappPace,
     telegramProgress, telegramBatchNote, telegramAutopostStatus, telegramPace, telegramAccountBinding, startTelegramAutopostBatch, stopTelegramAutopostBatch, resetTelegramAutopostQueue, chooseTelegramThread, bindTelegramAccount,

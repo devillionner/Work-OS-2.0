@@ -609,7 +609,7 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     // У групі, де адміни заборонили медіа, у полі стоїть кнопка «Sending media isn't allowed in this group» і вставка фото нічого не відкриває
     // (перевірено наживо 2026-10-26, «Чат Мандарин Медіа»). Оголошення тоді йде лише текстом: це кращий результат, ніж вічний повтор.
     if (media && await page.evaluate(`[...document.querySelectorAll('#MiddleColumn .Composer button, #MiddleColumn .Composer .Button')].some((node) => /(?:media|photos?|photo and video).{0,20}(?:isn.?t|not|n.?t) allowed|медіа.{0,30}заборон|медиа.{0,30}запрещ/i.test(node.getAttribute('aria-label') || node.getAttribute('title') || ''))`)) {
-      media = null;
+      media = null; scan = { ...scan, mediaForbidden: true };
       onStep('photo', 'у цій групі медіа заборонені: публікую лише текст');
     }
     if (media) {
@@ -632,12 +632,12 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
         if (errorText) {
           await closeErrorModal(page);
           if (privateChannelPattern.test(errorText)) return withScan({ kind: 'blocked', reason: 'telegram_no_access', detail: errorText });
-          if (mediaForbiddenPattern.test(errorText)) { media = null; onStep('photo', 'у цій групі медіа заборонені: публікую лише текст'); break; }
+          if (mediaForbiddenPattern.test(errorText)) { media = null; scan = { ...scan, mediaForbidden: true }; onStep('photo', 'у цій групі медіа заборонені: публікую лише текст'); break; }
           return withScan({ kind: 'blocked', reason: 'telegram_attachment_not_opened', detail: JSON.stringify({ modalText: errorText }) });
         }
         if (!menuChecked && attempt >= 6) {
           menuChecked = true;
-          if (await attachMenuForbidsMedia(page)) { media = null; onStep('photo', 'у цій групі медіа заборонені: публікую лише текст'); break; }
+          if (await attachMenuForbidsMedia(page)) { media = null; scan = { ...scan, mediaForbidden: true }; onStep('photo', 'у цій групі медіа заборонені: публікую лише текст'); break; }
         }
         if (attempt === 30) await page.evaluate(pasteScript);
         await sleep(400);

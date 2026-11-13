@@ -838,6 +838,67 @@ async function attachAndSend(android, caption, guard, ime) {
   }
 }
 
+/**
+ * Правило чату «без фото» (3.17.0): звичайне текстове повідомлення прямо в розмові, без вкладення. Текст вводиться клавіатурою ADB у поле повідомлення
+ * (`send_text`), звіряється повним dump, далі кнопка відправки. Якщо поле чи кнопки на екрані немає, нічого не надсилається (`before`).
+ * Лише для задач із прапорцем `textOnly` (його ставить сервер за правилом чату): відсутнє фото в звичайній задачі лишається збоєм `image_missing`.
+ */
+const TEXT_SEND_BUTTONS = ['btn_send', 'send_button', 'btn_send_message'];
+const textSendButton = (view) => TEXT_SEND_BUTTONS.map((id) => viewById(view, id)).find((item) => item && item.visible !== false);
+async function sendTextOnly(android, text, guard, ime) {
+  const convo = await android.until(conversationReady, { timeout: 15_000, step: 250 });
+  if (!convo) throw new ViberStop('send_ui_unavailable', 'before', 'conversation');
+  guard();
+  step('text', 'вводжу текст');
+  try {
+    if ((await android.sh('settings get secure default_input_method')).trim() !== ADB_KEYBOARD) {
+      await android.sh(`ime set ${ADB_KEYBOARD}`);
+      await sleep(2500);
+    }
+    let focused = false;
+    for (let touch = 0; touch < 4 && !focused; touch += 1) {
+      const field = viewById(await android.view(), 'send_text');
+      if (!field) throw new ViberStop('send_ui_unavailable', 'before', 'message field');
+      if (!field.focused) { guard(); await android.tap(field); await sleep(700); }
+      focused = Boolean(viewById(await android.view(), 'send_text')?.focused);
+    }
+    if (!focused) throw new ViberStop('send_ui_unavailable', 'before', 'message field focus');
+    await sleep(400);
+    const wanted = looseName(text);
+    const base64 = Buffer.from(text, 'utf8').toString('base64');
+    let typed = '';
+    for (let attempt = 0; attempt < 2 && looseName(typed) !== wanted; attempt += 1) {
+      await android.sh(`am broadcast -a ADB_INPUT_B64 --es msg ${base64}`);
+      for (let poll = 0; poll < 3 && looseName(typed) !== wanted; poll += 1) {
+        await sleep(poll === 0 ? 300 : 700);
+        typed = byId(await android.dump(), 'send_text')?.text || '';
+      }
+      // Частковий набір не дописуємо вдруге: лише порожнє поле повторюється.
+      if (looseName(typed) !== wanted && typed.trim() && !/^(?:message|type a message|write a message)/i.test(typed.trim())) throw new ViberStop('send_ui_unavailable', 'before', 'text mismatch');
+    }
+    if (looseName(typed) !== wanted) throw new ViberStop('send_ui_unavailable', 'before', 'text not typed');
+    currentLaps?.lap('текст');
+    const sendNow = textSendButton(await android.view());
+    if (!sendNow) throw new ViberStop('send_ui_unavailable', 'before', 'send button');
+    step('send', 'надсилаю');
+    guard();
+    // Від цього моменту повідомлення може піти: обрив більше не діє, а тайм-аут веде в «потребує рішення».
+    sendPressed = true;
+    sendPressedAt = Date.now();
+    let sent = false;
+    for (let attempt = 0; attempt < 2 && !sent; attempt += 1) {
+      const button = textSendButton(await android.view());
+      const field = byId(await android.dump(), 'send_text');
+      if (field && looseName(field.text) !== wanted) { sent = true; break; }
+      if (button) await android.press(button);
+      sent = Boolean(await android.until((view) => !looseName(viewById(view, 'send_text')?.text || '').startsWith(wanted.slice(0, 20)) || !viewById(view, 'send_text'), { timeout: 8000, step: 250 }));
+    }
+    if (!sent) throw new ViberStop('send_not_confirmed', 'after', 'send button did not respond');
+  } finally {
+    await ime.restore();
+  }
+}
+
 // ---------------------------------------------------------------- Пошук нашого повідомлення в стрічці
 //
 // Правда з живих даних 2026-10-26 (11 чатів «send_not_confirmed» / «message_not_found»): вікно Viber у Waydroid плаває й має довільний
@@ -1104,7 +1165,9 @@ async function post(payload, guard) {
   const ime = await prepareIme(android, caption);
   try {
     // Фото кладеться паралельно з відкриттям чату: до галереї воно вже буде в індексі.
-    const image = freshImage(android, payload.media);
+    // Правило чату «без фото»: фото не кладемо, повідомлення піде звичайним текстом.
+    const textOnly = payload.textOnly === true;
+    const image = textOnly ? Promise.resolve(null) : freshImage(android, payload.media);
     image.catch(() => {});
     step('open', 'відкриваю чат');
     const targetName = await withStep('відкриття чату', STEP_LIMITS_MS.open, () => openTarget(android, payload, guard));
@@ -1113,7 +1176,7 @@ async function post(payload, guard) {
     await withStep('фото', STEP_LIMITS_MS.photo, () => image);
     laps.lap('фото');
     guard();
-    await withStep('фото, підпис і відправка', STEP_LIMITS_MS.send, () => attachAndSend(android, caption, guard, ime));
+    await withStep(textOnly ? 'текст і відправка' : 'фото, підпис і відправка', STEP_LIMITS_MS.send, () => (textOnly ? sendTextOnly(android, caption, guard, ime) : attachAndSend(android, caption, guard, ime)));
     laps.lap('відправка');
     await withStep('підтвердження', STEP_LIMITS_MS.confirm, () => confirmSent(android, caption, targetName));
     laps.lap('підтвердження');
@@ -1207,6 +1270,8 @@ export function viberPayloadFromTask(task, overrides = {}) {
     expectedName: task.target?.expectedName || '',
     message: task.material?.text || '',
     media: task.material?.media || null,
+    // Правило чату «без фото»: лише текстове повідомлення (див. `sendTextOnly`).
+    textOnly: task.material?.textOnly === true,
     ...overrides,
   };
 }

@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { Check, ExternalLink } from 'lucide-react';
 import { Panel } from '@/components/shell/panel';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/toggle';
+import { Checkbox, Switch } from '@/components/ui/toggle';
 import { Chip } from '@/components/ui/chip';
 import { Field } from '@/components/ui/field';
 import { Input, Textarea } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import { PROFILE_CADENCES } from '@/lib/chats/profile';
 import { createActionGate } from '@/lib/action-gate';
 import { humanError } from '@/components/ui/human-error';
 import { DirectionsField } from '@/components/views/platforms/directions-field';
+import { PinnedAdsField } from '@/components/views/platforms/pinned-ads-field';
 import { TelegramThreadField } from '@/components/views/platforms/telegram-thread-field';
 
 export type ChatWithProfile = { id: string; name: string; link?: string; platform: string; stateToken: string; profile: ChatProfile };
@@ -41,6 +42,10 @@ function ProfileForm({ footerEl, chat, onClose, onSaved, onOpenChat }: { footerE
   const [customIntervalDays, setCustomIntervalDays] = useState(chat.profile.customIntervalDays ? String(chat.profile.customIntervalDays) : '');
   const [nextAllowedOn, setNextAllowedOn] = useState(chat.profile.nextAllowedOn || '');
   const [directions, setDirections] = useState<string[]>(chat.profile.directions);
+  // Суворі правила автопосту (3.17.0).
+  const [strict, setStrict] = useState(Boolean(chat.profile.directionsStrict));
+  const [pinned, setPinned] = useState<string[]>(chat.profile.pinnedAds ?? []);
+  const [noPhoto, setNoPhoto] = useState(Boolean(chat.profile.noPhoto));
   const [note, setNote] = useState(chat.profile.note || '');
   const [reviewStatus, setReviewStatus] = useState<'draft' | 'confirmed'>(chat.profile.reviewStatus || 'draft');
   const [busy, setBusy] = useState(false);
@@ -57,14 +62,16 @@ function ProfileForm({ footerEl, chat, onClose, onSaved, onOpenChat }: { footerE
           method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
           body: JSON.stringify({
             id: chat.id, action: 'profile', stateToken: chat.stateToken,
-            profile: { name, language: language || null, cadence, weekdays, customIntervalDays: cadence === 'custom' ? Number(customIntervalDays) : null, nextAllowedOn: nextAllowedOn || null, directions, note, reviewStatus },
+            profile: { name, language: language || null, cadence, weekdays, customIntervalDays: cadence === 'custom' ? Number(customIntervalDays) : null, nextAllowedOn: nextAllowedOn || null, directions, note, reviewStatus, directionsStrict: strict && directions.length > 0, pinnedAds: pinned, noPhoto },
           }),
         });
         const value: unknown = await response.json();
         if (!response.ok || !value || typeof value !== 'object' || !('profile' in value)) {
           throw new Error(value && typeof value === 'object' && 'error' in value && typeof value.error === 'string' ? value.error : 'Не вдалося зберегти профіль. Онови список і спробуй ще раз.');
         }
-        onSaved(chat.id, (value as { profile: ChatProfile }).profile);
+        // `noPhotoAuto` лишається, поки «без фото» увімкнене: позначку автоматичного виявлення сервер знімає, лише коли власник вимикає правило.
+        const saved = (value as { profile: ChatProfile }).profile;
+        onSaved(chat.id, { ...saved, noPhotoAuto: noPhoto && Boolean(chat.profile.noPhotoAuto) });
         onClose();
       } catch (reason) {
         setError(humanError(reason, 'Не вдалося зберегти профіль. Перевір з’єднання та спробуй ще раз.'));
@@ -105,6 +112,18 @@ function ProfileForm({ footerEl, chat, onClose, onSaved, onOpenChat }: { footerE
         <div className="flex flex-wrap gap-2">{WEEKDAYS.map((day, index) => <Chip key={day} pressed={weekdays.includes(index + 1)} onClick={() => toggleDay(index + 1)}>{day}</Chip>)}</div>
       </fieldset>
       <Field label="Цільові напрямки" htmlFor="chat-profile-directions"><DirectionsField id="chat-profile-directions" values={directions} onChange={setDirections} disabled={busy} /></Field>
+      <label className="flex items-start gap-3 rounded-inner border border-line px-4 py-3">
+        <Switch checked={strict && directions.length > 0} disabled={busy || directions.length === 0} onCheckedChange={setStrict} aria-label="Публікувати лише ці напрямки" />
+        <span className="min-w-0"><strong className="block text-sm font-medium">Публікувати лише ці напрямки</strong><span className="block text-xs text-ink-2">{directions.length ? 'Чат отримує тільки оголошення цих напрямів; інший не підставляється. Нічого підходящого немає: чат не публікується сьогодні й стоїть у групі «Немає оголошення свого напряму».' : 'Спершу обери «Цільові напрямки».'}</span></span>
+      </label>
+      <Field label="Лише ці оголошення" htmlFor="chat-profile-pinned">
+        <PinnedAdsField id="chat-profile-pinned" platform={chat.platform} values={pinned} onChange={setPinned} disabled={busy} />
+        <span className="mt-1 block text-xs text-ink-2">{pinned.length ? 'Чат отримує лише ці оголошення по черзі; це сильніше за напрямки.' : 'Необов’язково: закріпи конкретні оголошення Бібліотеки (у Telegram і тексти пулу).'}</span>
+      </Field>
+      <label className="flex items-start gap-3 rounded-inner border border-line px-4 py-3">
+        <Switch checked={noPhoto} disabled={busy} onCheckedChange={setNoPhoto} aria-label="Без фото (лише текст)" />
+        <span className="min-w-0"><strong className="block text-sm font-medium">Без фото (лише текст)</strong><span className="block text-xs text-ink-2">Для цього чату автопост завжди надсилає лише текст, на всіх платформах.{chat.profile.noPhotoAuto && noPhoto ? ' Виявлено автоматично: Telegram не дозволяє медіа в цьому чаті.' : ''}</span></span>
+      </label>
       <Field label="Нотатка про правила" htmlFor="chat-profile-note"><Textarea id="chat-profile-note" rows={3} maxLength={1000} value={note} disabled={busy} placeholder="Коли краще публікувати, суворість адмінів, додаткові вимоги…" onChange={(event) => setNote(event.target.value)} /></Field>
       <label className="flex items-start gap-3 rounded-inner border border-line px-4 py-3">
         <Checkbox checked={reviewStatus === 'confirmed'} disabled={busy} onCheckedChange={(checked) => setReviewStatus(checked ? 'confirmed' : 'draft')} aria-label="Правила чату перевірені" />

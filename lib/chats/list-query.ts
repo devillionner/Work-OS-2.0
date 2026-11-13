@@ -6,7 +6,7 @@ import { chatJoinedStateTokenSql } from './state.ts';
  */
 export const CHAT_ROW_JOINS = 'LEFT JOIN chat_profiles p ON p.chat_id=c.id LEFT JOIN chat_event_summary s ON s.chat_id=c.id';
 
-export const CHAT_LIST_COLUMNS = () => `c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.archived_at,COALESCE(s.snooze_count,0) AS snooze_count,s.left_at AS left_at,c.telegram_account_id,${chatJoinedStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.custom_interval_days AS profile_custom_interval_days,p.next_allowed_on AS profile_next_allowed_on,p.directions_json AS profile_directions,p.note AS profile_note`;
+export const CHAT_LIST_COLUMNS = () => `c.id,c.name,c.link,c.platform,c.workflow_status,c.joined_at,c.snoozed_until,c.archive_reason,c.archived_at,COALESCE(s.snooze_count,0) AS snooze_count,s.left_at AS left_at,c.telegram_account_id,${chatJoinedStateTokenSql()} AS state_token,p.review_status AS profile_status,p.language AS profile_language,p.cadence AS profile_cadence,p.weekdays_json AS profile_weekdays,p.custom_interval_days AS profile_custom_interval_days,p.next_allowed_on AS profile_next_allowed_on,p.directions_json AS profile_directions,p.note AS profile_note,p.directions_strict AS profile_strict,p.pinned_ads_json AS profile_pinned,p.no_photo AS profile_no_photo,p.no_photo_auto AS profile_no_photo_auto`;
 
 /**
  * Повний набір колонок рядка чату. `todayParam` — номер параметра з діловою датою (`?4` у списку, `?3` у пошуку).

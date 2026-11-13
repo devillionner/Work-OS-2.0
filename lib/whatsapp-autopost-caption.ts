@@ -6,7 +6,12 @@ export const TELEGRAM_TEXT_LIMIT=4096;
 export const textLength=(value:string)=>Array.from(value).length;
 export const MAX_WHATSAPP_AUTOPOST_CAPTION_CHARS=4000;
 
-export type WhatsAppAutopostCaption={text:string;updatedAt:number};
+/** `direction` — напрям власного оголошення (необов'язковий): потрібен чатам із «Лише ці напрямки». */
+export type WhatsAppAutopostCaption={text:string;updatedAt:number;direction:string};
+
+export function cleanAutopostDirection(value:unknown){
+  return typeof value==='string'?value.replace(/\p{Cc}/gu,' ').trim().replace(/\s+/g,' ').normalize('NFC').slice(0,80):'';
+}
 
 export function cleanWhatsAppAutopostCaption(value:unknown){
   if(value===undefined||value===null)return '';
@@ -23,20 +28,22 @@ export async function readWhatsAppAutopostCaption(db:D1Database,userId:string,sc
     .bind(userId,SETTING_KEYS[scope]).first<{value_json:string;updated_at:number}>();
   if(!row)return null;
   try{
-    const parsed=JSON.parse(row.value_json) as {text?:unknown};
+    const parsed=JSON.parse(row.value_json) as {text?:unknown;direction?:unknown};
     const text=cleanWhatsAppAutopostCaption(parsed?.text);
-    return text?{text,updatedAt:Number(row.updated_at)||0}:null;
+    return text?{text,updatedAt:Number(row.updated_at)||0,direction:cleanAutopostDirection(parsed?.direction)}:null;
   }catch{return null;}
 }
 
-export async function saveWhatsAppAutopostCaption(db:D1Database,userId:string,value:unknown,now:number,scope:AutopostMaterialScope='shared'):Promise<WhatsAppAutopostCaption|null>{
+export async function saveWhatsAppAutopostCaption(db:D1Database,userId:string,value:unknown,now:number,scope:AutopostMaterialScope='shared',directionInput:unknown=undefined):Promise<WhatsAppAutopostCaption|null>{
   const text=cleanWhatsAppAutopostCaption(value);
+  // Напрям не передано (старі виклики, копіювання між платформами): лишається той, що вже збережено для цього тексту.
+  const direction=directionInput===undefined?(await readWhatsAppAutopostCaption(db,userId,scope))?.direction??'':cleanAutopostDirection(directionInput);
   if(!text){await deleteWhatsAppAutopostCaption(db,userId,scope);return null;}
   await db.prepare(`INSERT INTO user_settings(user_id,setting_key,value_json,source_import_id,updated_at)
     VALUES (?1,?2,?3,NULL,?4)
     ON CONFLICT(user_id,setting_key) DO UPDATE SET value_json=excluded.value_json,source_import_id=NULL,updated_at=excluded.updated_at`)
-    .bind(userId,SETTING_KEYS[scope],JSON.stringify({version:1,text}),now).run();
-  return {text,updatedAt:now};
+    .bind(userId,SETTING_KEYS[scope],JSON.stringify({version:1,text,...(direction?{direction}:{})}),now).run();
+  return {text,updatedAt:now,direction};
 }
 
 export async function deleteWhatsAppAutopostCaption(db:D1Database,userId:string,scope:AutopostMaterialScope='shared'){

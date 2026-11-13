@@ -98,15 +98,17 @@ export function summarizePool(state: PoolState, demand: ReadonlyMap<string, numb
   };
 }
 
+const hasPinned = (value: string | null) => { try { const parsed: unknown = JSON.parse(value || '[]'); return Array.isArray(parsed) && parsed.some((item) => typeof item === 'string' && item); } catch { return false; } };
+
 /** Чати для підбору: мова й напрями профілю, назва, тексти пулу, що виходили в чаті останні 14 днів. */
 export async function readPoolChats(db: D1Database, userId: string, chatIds: readonly string[], date: string): Promise<PoolChat[]> {
   if (!chatIds.length) return [];
   const ids = JSON.stringify(chatIds);
   const since = new Date(Date.parse(`${date}T00:00:00Z`) - RECENT_DAYS * 86400000).toISOString().slice(0, 10);
   const [chats, recent] = await Promise.all([
-    db.prepare(`SELECT c.id AS id,c.name AS name,p.language AS language,p.directions_json AS directions
+    db.prepare(`SELECT c.id AS id,c.name AS name,p.language AS language,p.directions_json AS directions,p.directions_strict AS strict,p.pinned_ads_json AS pinned
       FROM chats c INDEXED BY sqlite_autoindex_chats_1 LEFT JOIN chat_profiles p ON p.chat_id=c.id
-      WHERE c.user_id=?1 AND c.id IN (SELECT value FROM json_each(?2))`).bind(userId, ids).all<{ id: string; name: string; language: string | null; directions: string | null }>(),
+      WHERE c.user_id=?1 AND c.id IN (SELECT value FROM json_each(?2))`).bind(userId, ids).all<{ id: string; name: string; language: string | null; directions: string | null; strict: number | null; pinned: string | null }>(),
     db.prepare(`SELECT j.value AS chat_id,p.advertisement_id AS ad
       FROM json_each(?1) j CROSS JOIN chat_publications p INDEXED BY chat_publications_chat_date_idx ON p.chat_id=j.value AND p.published_on>=?2
       WHERE p.advertisement_id>='tgp_' AND p.advertisement_id<'tgp\`'`).bind(ids, since).all<{ chat_id: string; ad: string }>(),
@@ -119,7 +121,9 @@ export async function readPoolChats(db: D1Database, userId: string, chatIds: rea
     if (!row) return [];
     let directions: string[] = [];
     try { const parsed = JSON.parse(row.directions || '[]') as unknown; directions = Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string').map((item) => canonicalDirection(item)).filter(Boolean) : []; } catch { /* профіль без напрямів */ }
-    return [{ id, name: row.name, language: row.language === 'ru' ? 'ru' as const : row.language === 'uk' ? 'uk' as const : null, directions, recent: seen.get(id) ?? new Set<string>() }];
+    // Чат із закріпленими оголошеннями (`Лише ці оголошення`) бере їх сам (`createWhatsAppAutopostJob`): у розкладку пулу він не входить.
+    if (hasPinned(row.pinned)) return [];
+    return [{ id, name: row.name, language: row.language === 'ru' ? 'ru' as const : row.language === 'uk' ? 'uk' as const : null, directions, strict: Number(row.strict) === 1 && directions.length > 0, recent: seen.get(id) ?? new Set<string>() }];
   });
 }
 

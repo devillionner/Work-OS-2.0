@@ -10,7 +10,7 @@ export type TelegramThread = { id: string; title: string };
  * Що runner бачив у чаті: чи це форум і які в ньому гілки (закриті позначені, писати в них не можна). `restricted` — тимчасова заборона писати
  * в чат узагалі (нічний режим бота, повільний режим, права чату): true ставить позначку, false знімає, відсутнє не чіпає.
  */
-export type TelegramScan = { forum: boolean; topics: TelegramTopic[]; restricted?: boolean };
+export type TelegramScan = { forum: boolean; topics: TelegramTopic[]; restricted?: boolean; /** Адаптер технічно виявив заборону медіа в чаті (кнопка поля чи меню вкладень): чату ставиться «Без фото» назавжди. */ mediaForbidden?: boolean };
 
 export class TelegramAutopostError extends Error {
   status: number;
@@ -47,9 +47,9 @@ export function parseTelegramTopics(value: unknown): TelegramTopic[] {
 
 export function parseTelegramScan(value: unknown): TelegramScan | null {
   if (!value || typeof value !== 'object') return null;
-  const raw = value as { forum?: unknown; topics?: unknown; restricted?: unknown };
+  const raw = value as { forum?: unknown; topics?: unknown; restricted?: unknown; mediaForbidden?: unknown };
   if (typeof raw.forum !== 'boolean') return null;
-  return { forum: raw.forum, topics: raw.forum ? parseTelegramTopics(raw.topics) : [], ...(typeof raw.restricted === 'boolean' ? { restricted: raw.restricted } : {}) };
+  return { forum: raw.forum, topics: raw.forum ? parseTelegramTopics(raw.topics) : [], ...(typeof raw.restricted === 'boolean' ? { restricted: raw.restricted } : {}), ...(raw.mediaForbidden === true ? { mediaForbidden: true } : {}) };
 }
 
 type ThreadRow = { telegram_forum: number | null; telegram_thread_id: string | null; telegram_thread_title: string | null; telegram_topics_json: string | null; telegram_topics_at: number | null };
@@ -100,6 +100,13 @@ export async function applyTelegramScan(db: D1Database, userId: string, chatId: 
       telegram_restricted_at=CASE ?8 WHEN 1 THEN COALESCE(telegram_restricted_at,?5) WHEN 0 THEN NULL ELSE telegram_restricted_at END
     WHERE id=?6 AND user_id=?7 AND platform='telegram'`)
     .bind(scan.forum ? 1 : 0, threadId, threadTitle, scan.forum ? JSON.stringify(topics) : null, now, chatId, userId, restricted).run();
+  // Заборона медіа, яку адаптер побачив у самому чаті, стає правилом чату «Без фото» (з позначкою «виявлено автоматично»), щоб наступного разу не перевіряти.
+  // Наявному профілю `updated_at` не змінюємо: токен стану чату не міняється посеред партії.
+  if (scan.mediaForbidden) {
+    await db.prepare(`INSERT INTO chat_profiles(chat_id,cadence,weekdays_json,directions_json,note,review_status,source,updated_at,no_photo,no_photo_auto)
+      SELECT ?1,'any','[]','[]','','draft','auto',?2,1,1 WHERE EXISTS(SELECT 1 FROM chats WHERE id=?1 AND user_id=?3)
+      ON CONFLICT(chat_id) DO UPDATE SET no_photo=1,no_photo_auto=1 WHERE chat_profiles.no_photo=0`).bind(chatId, now, userId).run();
+  }
   return { threadLost: Boolean(current.thread && !threadId) };
 }
 

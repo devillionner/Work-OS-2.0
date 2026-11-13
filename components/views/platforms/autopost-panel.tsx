@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/input';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu';
 import { Segmented } from '@/components/ui/segmented';
 import { Surface } from '@/components/ui/surface';
+import { DirectionsField } from '@/components/views/platforms/directions-field';
 import { AutopostAttentionList, type AutopostAttentionItem, type AutopostDecision, type DecideOptions } from '@/components/views/platforms/autopost-attention';
 import { AutopostBatchPanel } from '@/components/views/platforms/autopost-batch';
 import type { WhatsAppAutopostImage, WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
@@ -31,20 +32,25 @@ export type AutopostPlan = {
   pool?: PoolSummary; textWaiting?: number;
   /** Telegram: що публікується (пул чи власний матеріал) і чи є матеріал для кожного режиму. */
   source?: { mode: 'pool' | 'own'; saved: 'pool' | 'own' | null; poolAvailable: boolean; poolTotal: number; ownAvailable: boolean };
-  chats: Array<{ id: string; name: string }>;
+  /** Чати партії; `badges` — тихі позначки правил профілю («лише Малювання», «без фото», «закріплені оголошення · 2»). */
+  chats: Array<{ id: string; name: string; badges?: string[] }>;
+  /** Чати з «Лише ці напрямки», для яких сьогодні немає оголошення свого напряму. */
+  nodirection?: number;
   /** Кожен чат черги «Для публікації» рівно в одній групі (за цим розкладом лічаться чіпи, список зліва, «Огляд» і картка). */
   buckets: Record<string, AutopostBucket>;
-  reasons: Record<string, { code: string | null; observed: string | null; next: string | null; /** Для відкладених: чому й до коли. */ snooze?: SnoozeReason }>;
+  reasons: Record<string, { code: string | null; observed: string | null; next: string | null; /** Для відкладених: чому й до коли. */ snooze?: SnoozeReason; /** Для «немає оголошення свого напряму»: напрями чату. */ directions?: string[] }>;
 };
 /** Чому чат відкладено (бере сервер за останньою відкладеною задачею чату). */
 export type SnoozeReason = { kind: 'restricted_until' | 'restricted' | 'quiet' | 'slow' | 'rate' | 'fresh' | 'manual'; until: number | null };
-export type AutopostBucket = 'ready' | 'decision' | 'tried' | 'published' | 'rules' | 'snoozed' | 'queued' | 'other' | 'thread' | 'schedule' | 'toolong' | 'text';
+export type AutopostBucket = 'ready' | 'decision' | 'tried' | 'published' | 'rules' | 'snoozed' | 'queued' | 'other' | 'thread' | 'schedule' | 'toolong' | 'text' | 'nodirection';
 export type TelegramThreadChoice = { chatId: string; name: string; /** Посилання на чат для «Відкрити». */ link?: string; /** Прохід гілок цього чату вже йде: рядок показує «Збираю гілки…». */ collecting?: boolean; /** Чат зі збоєм гілки: прохід ще не поставлено, сторінка ставить його сама. */ needsScan?: boolean; /** Пара дублікатів, якщо цей чат має копію. */ dup?: ChatDupInfo | null; topics: Array<{ id: string; title: string; closed: boolean }>; /** Коли runner востаннє бачив, що в чаті зараз не можна писати (нічний режим, права чату); null — можна. */ restrictedAt?: number | null };
 /** Підбір текстів пулу для «Переглянути чати партії» (Telegram): дані, завантаження й ручна заміна тексту лише для цього запуску. */
 export type PoolPreviewControls = { data: PoolPreview | null; loading: boolean; overrides: Record<string, string>; manual: Record<string, string>; load: (args: { limit: number; exclude: string[] }) => void; choose: (chatId: string, adId: string | null) => void };
 export type AutopostReadiness = { tone: 'ok' | 'warn' | 'hot' | 'idle'; text: string };
 export type AutopostMaterialProps = {
   image: WhatsAppAutopostImage | null; imageLoaded: boolean; caption: string; captionLoaded: boolean;
+  /** Напрям власного оголошення (необов'язковий): потрібен лише чатам із «Лише ці напрямки». */
+  direction: string; onDirectionChange: (value: string) => void;
   onCaptionChange: (value: string) => void; onUploadImage: (file: File) => void; onRemoveImage: () => void; onSaveCaption: () => void; onClearCaption: () => void;
   /** `telegram` — власні фото й текст Telegram: фото необов'язкове, ліміти підпису, «Взяти з WhatsApp/Viber». */
   scope?: 'shared' | 'telegram';
@@ -89,6 +95,7 @@ function formatBytes(bytes: number) {
 export function noReadyText(plan: AutopostPlan): string {
   if (plan.total === 0) return 'У черзі немає чатів цієї платформи.';
   if ((plan.textWaiting ?? 0) > 0) return `Готових немає: тексти на сьогодні закінчились, ${plan.textWaiting} ${chatWord(plan.textWaiting ?? 0)} ${(plan.textWaiting ?? 0) % 10 === 1 && (plan.textWaiting ?? 0) % 100 !== 11 ? 'чекає' : 'чекають'} на завтра. Додай нові оголошення в пул, щоб вони пішли сьогодні.`;
+  if ((plan.nodirection ?? 0) > 0) return `Готових немає: ${plan.nodirection} ${chatWord(plan.nodirection ?? 0)} — немає оголошення свого напряму (правило «Лише ці напрямки»).`;
   if (plan.decision > 0) return `Готових немає. ${plan.decision} ${chatWord(plan.decision)} ${plan.decision % 10 === 1 && plan.decision % 100 !== 11 ? 'чекає' : 'чекають'} твого рішення нижче.`;
   if ((plan.tooLong ?? 0) > 0) return `Готових немає: ${plan.tooLong} ${chatWord(plan.tooLong ?? 0)} — текст із Бібліотеки задовгий для підпису до фото (понад 1024 символи). Скороти оголошення або прибери фото.`;
   if (plan.queued > 0) return `Готових немає: ${plan.queued} ${chatWord(plan.queued)} уже в черзі автопосту.`;
@@ -170,6 +177,11 @@ function MaterialRow({ material, editing, onToggle, busy }: { material: Autopost
           <section className="flex flex-col gap-3" aria-label="Текст автопоста">
             <div className="flex items-center justify-between"><label htmlFor="autopost-caption" className="text-sm font-medium">Текст автопоста</label><span className={`font-mono text-[11px] tabular-nums ${over ? 'text-hot' : 'text-ink-2'}`}>{telegram ? `${length} / ${limit}${image ? ' з фото' : ''}` : `${length} / 4000`}</span></div>
             <Textarea id="autopost-caption" rows={6} maxLength={telegram ? TELEGRAM_TEXT_LIMIT : 4000} disabled={busy || !material.captionLoaded} value={caption} onChange={(event) => material.onCaptionChange(event.target.value)} placeholder={telegram ? 'Свій текст для Telegram. Залиш порожнім, щоб Work OS підставила текст із Бібліотеки для кожного чату (за мовою й напрямками профілю).' : 'Встав текст, який піде під фото. Залиш порожнім, щоб Work OS підставила текст із Бібліотеки для кожного чату.'} />
+            <div className="flex flex-col gap-1">
+              <label htmlFor="autopost-caption-direction" className="text-xs font-medium text-ink-2">Напрям цього оголошення</label>
+              <DirectionsField id="autopost-caption-direction" values={material.direction ? [material.direction] : []} onChange={(next) => material.onDirectionChange(next[next.length - 1] ?? '')} disabled={busy || !material.captionLoaded} />
+              <span className="text-xs text-ink-2">Необов’язково. Потрібен лише чатам із «Лише ці напрямки»: власний текст піде їм, тільки якщо його напрям збігається.</span>
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <small className={`text-xs ${over ? 'text-hot' : 'text-ink-2'}`}>{over
                 ? (image ? `Підпис до фото в Telegram — до ${limit} символів, тут ${length}. Такий текст не збережеться: скороти його або прибери фото.` : `Текст у Telegram — до ${limit} символів, тут ${length}. Такий текст не збережеться.`)
@@ -342,6 +354,7 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
                         <div className="flex items-center gap-2">
                           <span className="w-6 shrink-0 text-right font-mono text-xs tabular-nums text-ink-3">{index + 1}</span>
                           <span className="min-w-0 flex-1 truncate" title={chat.name}>{chat.name}</span>
+                          {chat.badges?.length ? <span className="max-w-[45%] shrink-0 truncate text-xs text-ink-3" title={chat.badges.join(' · ')}>{chat.badges.join(' · ')}</span> : null}
                           <button type="button" aria-label={`Прибрати з цього запуску: ${chat.name}`} title="Прибрати лише з цього запуску" onClick={() => setRemoved((current) => [...current, chat.id])} className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 hover:bg-raised hover:text-ink [@media(pointer:coarse)]:size-11"><X aria-hidden="true" strokeWidth={1.5} className="size-4" /></button>
                         </div>
                         {poolPreview ? <PoolTextLine chatId={chat.id} preview={poolPreview} /> : null}

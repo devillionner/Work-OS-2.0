@@ -31,6 +31,7 @@ type ChatRow = {
   profile_language: string | null; profile_cadence: string | null; profile_weekdays: string | null;
   profile_custom_interval_days: number | null; profile_next_allowed_on: string | null;
   profile_directions: string | null; profile_note: string | null;
+  profile_strict?: number | null; profile_pinned?: string | null; profile_no_photo?: number | null; profile_no_photo_auto?: number | null;
   telegram_account_id: string | null; state_token: string; discovery_decision: string | null; autopost_job_id: string | null;
   join_candidate_at: number | null; in_schedule: number;
 };
@@ -168,7 +169,8 @@ export async function GET(request: Request): Promise<Response> {
     profileConfirmed: row.profile_status === 'confirmed',
     profile: { language: row.profile_language === 'uk' || row.profile_language === 'ru' ? row.profile_language : null,
       cadence: typeof row.profile_cadence === 'string' && PROFILE_CADENCES.includes(row.profile_cadence as typeof PROFILE_CADENCES[number]) ? row.profile_cadence : 'any', weekdays: parseNumberList(row.profile_weekdays), customIntervalDays: row.profile_custom_interval_days === null ? null : Number(row.profile_custom_interval_days), nextAllowedOn: row.profile_next_allowed_on || null, directions: parseStringList(row.profile_directions),
-      note: row.profile_note || '', reviewStatus: row.profile_status === 'confirmed' ? 'confirmed' : 'draft' },
+      note: row.profile_note || '', reviewStatus: row.profile_status === 'confirmed' ? 'confirmed' : 'draft',
+      directionsStrict: Number(row.profile_strict) === 1, pinnedAds: parseStringList(row.profile_pinned), noPhoto: Number(row.profile_no_photo) === 1, noPhotoAuto: Number(row.profile_no_photo_auto) === 1 },
     publishedToday: Boolean(row.published_today),
     joinedAt: row.joined_at === null || row.joined_at === undefined ? null : Number(row.joined_at),
     snoozedUntil: row.snoozed_until,

@@ -14,6 +14,8 @@ export type PoolChat = {
   id: string; name: string; language: PoolLanguage | null; directions: string[];
   /** Тексти пулу, які вже виходили в цьому чаті за останні 14 днів. */
   recent: ReadonlySet<string>;
+  /** «Публікувати лише ці напрямки»: чат отримує лише тексти своїх напрямів, інший не підставляється (тексти без напряму теж). */
+  strict?: boolean;
 };
 export type PoolReason =
   /** Напрям тексту є в профілі чату. */
@@ -76,7 +78,9 @@ export function assignPoolTexts(chats: readonly PoolChat[], texts: readonly Pool
   };
   const best = (chat: PoolChat): { text: PoolText; score: number } | null => {
     let pick: { text: PoolText; score: number } | null = null;
+    const wanted = wantedOf.get(chat.id) ?? [];
     for (const text of free.values()) {
+      if (chat.strict && wanted.length && !wanted.includes(canonicalDirection(text.direction).toLocaleLowerCase('uk-UA'))) continue;
       const score = scoreChatText(chat, text, used, audienceOf.get(chat.id) ?? 'any');
       if (!pick || score > pick.score) pick = { text, score };
     }

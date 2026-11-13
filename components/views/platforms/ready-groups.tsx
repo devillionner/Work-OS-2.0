@@ -17,6 +17,7 @@ const GROUPS: Array<{ key: AutopostBucket; label: string; open?: boolean }> = [
   { key: 'thread', label: 'Вибрати гілку' },
   { key: 'text', label: 'Чекають на новий текст' },
   { key: 'toolong', label: 'Текст задовгий для підпису до фото' },
+  { key: 'nodirection', label: 'Немає оголошення свого напряму' },
   { key: 'decision', label: 'Потребують рішення' },
   { key: 'tried', label: 'Уже пробували сьогодні без відправки' },
   { key: 'queued', label: 'В черзі автопосту' },
@@ -35,6 +36,7 @@ function noteFor(bucket: AutopostBucket, reason: AutopostPlan['reasons'][string]
   }
   if (bucket === 'thread') return 'У чаті є гілки: вибери, куди публікувати, на вкладці «Автопост».';
   if (bucket === 'text') return 'Вільних текстів пулу на сьогодні не лишилось. Чат піде завтра або сьогодні, якщо додати нові оголошення.';
+  if (bucket === 'nodirection') return `Немає оголошення напряму ${(reason?.directions ?? []).join(', ') || 'цього чату'}: чат не публікується сьогодні. Додай оголошення цього напряму (чи тексти в пул) або вимкни «Лише ці напрямки» в профілі.`;
   if (bucket === 'toolong') return 'Текст із Бібліотеки довший за 1024 символи: з фото він не влізе в підпис. Скороти текст або прибери фото.';
   if (bucket === 'schedule') return 'Чат стоїть у розкладі, автопост його не бере.';
   if (bucket === 'tried') return reason?.code ? `Автопост не відправив: ${autopostReasonText(reason.code)} Повтор завтра.` : 'Автопост пробував сьогодні, відправки не було. Повтор завтра.';
@@ -65,7 +67,7 @@ export function ReadyGroups({ chats, clock, plan, complete, renderRow, onOpenDec
     items.push(chat);
     grouped.set(bucket, items);
   }
-  const countOf = (key: AutopostBucket) => (plan && complete ? (key === 'published' ? plan.publishedToday : key === 'thread' || key === 'schedule' ? plan[key] ?? 0 : key === 'toolong' ? plan.tooLong ?? 0 : key === 'text' ? plan.textWaiting ?? 0 : plan[key]) ?? 0 : grouped.get(key)?.length ?? 0) as number;
+  const countOf = (key: AutopostBucket) => (plan && complete ? (key === 'published' ? plan.publishedToday : key === 'thread' || key === 'schedule' ? plan[key] ?? 0 : key === 'toolong' ? plan.tooLong ?? 0 : key === 'text' ? plan.textWaiting ?? 0 : key === 'nodirection' ? plan.nodirection ?? 0 : plan[key]) ?? 0 : grouped.get(key)?.length ?? 0) as number;
   const list = (key: AutopostBucket, items: Chat[]) => (
     <ul className="m-0 flex list-none flex-col gap-2 p-0">
       <DuplicateRows

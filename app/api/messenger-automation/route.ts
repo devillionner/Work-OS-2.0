@@ -139,7 +139,7 @@ export async function GET(request:Request):Promise<Response>{
         readWhatsAppAutopostProgress(env.DB,user.id,date,'telegram',knownBatch),
         env.DB.prepare(`SELECT id,name,web_user_id FROM telegram_accounts WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(accountId,user.id).first<{id:string;name:string;web_user_id:string|null}>(),
       ]);
-      return json({...(light?{}:{telegramMaterial:{image:telegramImage?publicWhatsAppAutopostImage(telegramImage):null,caption:telegramCaption?.text||''}}),telegramAutopostProgress:progress,autopostAttention:await attentionFor(progress,'telegram',date),telegramAccount:account?{id:account.id,name:account.name,bound:Boolean(account.web_user_id),webUserId:account.web_user_id}:null});
+      return json({...(light?{}:{telegramMaterial:{image:telegramImage?publicWhatsAppAutopostImage(telegramImage):null,caption:telegramCaption?.text||'',direction:telegramCaption?.direction||''}}),telegramAutopostProgress:progress,autopostAttention:await attentionFor(progress,'telegram',date),telegramAccount:account?{id:account.id,name:account.name,bound:Boolean(account.web_user_id),webUserId:account.web_user_id}:null});
     }
     // Viber-автопост: лічильники сьогоднішньої партії й чати, що чекають рішення (одна згрупована вибірка й один короткий список).
     if(url.searchParams.get('viber')==='1'){
@@ -161,6 +161,7 @@ export async function GET(request:Request):Promise<Response>{
       whatsappAutopost,
       whatsappAutopostImage:image?publicWhatsAppAutopostImage(image):null,
       whatsappAutopostCaption:caption?.text||'',
+      whatsappAutopostCaptionDirection:caption?.direction||'',
       whatsappAutopostProgress:progress,
       autopostAttention:attention,
     });
@@ -194,9 +195,9 @@ export async function POST(request:Request):Promise<Response>{
       try{text=cleanWhatsAppAutopostCaption(body.text);}
       catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
       const caption=text
-        ? await saveWhatsAppAutopostCaption(env.DB,user.id,text,now)
+        ? await saveWhatsAppAutopostCaption(env.DB,user.id,text,now,'shared',body.direction)
         : (await deleteWhatsAppAutopostCaption(env.DB,user.id),null);
-      return json({caption:caption?.text||''});
+      return json({caption:caption?.text||'',direction:caption?.direction||''});
     }
     if(body.action==='clear-whatsapp-autopost-caption'){
       await deleteWhatsAppAutopostCaption(env.DB,user.id);
@@ -279,8 +280,8 @@ export async function POST(request:Request):Promise<Response>{
       const hasPhoto=Boolean(await readWhatsAppAutopostImage(env.DB,user.id,false,'telegram'));
       const limit=hasPhoto?TELEGRAM_PHOTO_CAPTION_LIMIT:TELEGRAM_TEXT_LIMIT;
       if(textLength(text)>limit)throw new MessengerAutomationError(hasPhoto?`Підпис до фото в Telegram — до ${limit} символів, а в тексті ${textLength(text)}. Скороти текст або прибери фото.`:`Текст у Telegram — до ${limit} символів, а в тексті ${textLength(text)}.`,409,'too_long');
-      const caption=text?await saveWhatsAppAutopostCaption(env.DB,user.id,text,now,'telegram'):(await deleteWhatsAppAutopostCaption(env.DB,user.id,'telegram'),null);
-      return json({caption:caption?.text||''});
+      const caption=text?await saveWhatsAppAutopostCaption(env.DB,user.id,text,now,'telegram',body.direction):(await deleteWhatsAppAutopostCaption(env.DB,user.id,'telegram'),null);
+      return json({caption:caption?.text||'',direction:caption?.direction||''});
     }
     if(body.action==='clear-telegram-autopost-caption'){
       await deleteWhatsAppAutopostCaption(env.DB,user.id,'telegram');
@@ -300,9 +301,9 @@ export async function POST(request:Request):Promise<Response>{
         for(let index=0;index<binary.length;index+=1)bytes[index]=binary.charCodeAt(index);
         savedImage=await saveWhatsAppAutopostImage(env.DB,user.id,{fileName:image.fileName,contentType:image.contentType,bytes},now,'telegram');
       }else await deleteWhatsAppAutopostImage(env.DB,user.id,'telegram');
-      if(text)await saveWhatsAppAutopostCaption(env.DB,user.id,text,now,'telegram');
+      if(text)await saveWhatsAppAutopostCaption(env.DB,user.id,text,now,'telegram',caption?.direction??'');
       else await deleteWhatsAppAutopostCaption(env.DB,user.id,'telegram');
-      return json({image:savedImage,caption:text});
+      return json({image:savedImage,caption:text,direction:caption?.direction||''});
     }
     // Кнопка «Знайти гілки»: прохід по чатах, про які невідомо, чи є в них гілки, і по чатах, що чекають вибору гілки (оновити список).
     // Проходи не займають вікон «N на годину» й не рахуються спробами.

@@ -62,6 +62,13 @@ export function ChatRow({ chat, queue, section, clock, busy, lastOpened, account
   const signals: Array<{ key: string; text: string; tone?: 'ok' | 'warn' }> = [];
   if (lastOpened) signals.push({ key: 'last', text: 'Останній відкритий' });
   if (chat.platform !== 'viber' && !chat.profileConfirmed && (queue === 'ready' || queue === 'profile_review')) signals.push({ key: 'profile', text: 'Профіль не заповнено' });
+  // Суворі правила профілю для автопосту: тиха позначка («лише Малювання», «закріплені оголошення · 2», «без фото»).
+  if (queue === 'ready' || queue === 'waiting') {
+    const profile = chat.profile;
+    if (profile.pinnedAds?.length) signals.push({ key: 'rule-pinned', text: `закріплені оголошення · ${profile.pinnedAds.length}` });
+    else if (profile.directionsStrict && profile.directions.length) signals.push({ key: 'rule-strict', text: `лише ${profile.directions.join(', ')}` });
+    if (profile.noPhoto) signals.push({ key: 'rule-nophoto', text: 'без фото' });
+  }
   if (queue === 'profile_review') signals.push({ key: 'which', text: chat.status === 'waiting' ? 'Очікування' : 'Для публікації' });
   if (queue === 'ready' && blockedByQualification) signals.push({ key: 'qual', text: 'Потрібна кваліфікація', tone: 'warn' });
   if (chat.autopostJobId) signals.push({ key: 'auto', text: 'Автопост у черзі' });

@@ -45,6 +45,8 @@ export type PublicationAdvertisementSelection = {
   profileLanguage: 'uk' | 'ru' | null;
   profileDirections: string[];
   profileConfirmed: boolean;
+  /** «Публікувати лише ці напрямки»: придатні лише оголошення з `directionMatch: 'matched'` (без позначки напряму теж не підходить). */
+  directionsStrict: boolean;
   publicationAllowed: boolean;
   publicationReason: string | null;
   focusPlan: PublicationFocusPlan;
@@ -55,6 +57,7 @@ type SelectionChatRow = {
   platform: string;
   language: string | null;
   directions_json: string | null;
+  directions_strict?: number | null;
   review_status: string | null;
   cadence: string | null;
   weekdays_json: string | null;
@@ -76,7 +79,7 @@ export async function readPublicationAdvertisementSelection(
   db: D1Database,
   input: { userId: string; chatId: string; date: string; excludeAutomationJobId?: string; /** false — лише правила профілю: без списку матеріалів, використаних сьогодні й плану фокусу (автопост із власним текстом). */ withItems?: boolean },
 ): Promise<PublicationAdvertisementSelection | null> {
-  const chat = await db.prepare(`SELECT c.platform,p.language,p.directions_json,p.review_status,p.cadence,p.weekdays_json,p.custom_interval_days,p.next_allowed_on
+  const chat = await db.prepare(`SELECT c.platform,p.language,p.directions_json,p.directions_strict,p.review_status,p.cadence,p.weekdays_json,p.custom_interval_days,p.next_allowed_on
     FROM chats c LEFT JOIN chat_profiles p ON p.chat_id=c.id
     WHERE c.id=?1 AND c.user_id=?2 AND c.workflow_status='ready' LIMIT 1`).bind(input.chatId, input.userId).first<SelectionChatRow>();
   if (!chat) return null;
@@ -116,6 +119,7 @@ export async function readPublicationAdvertisementSelection(
 
   const language = chat.language === 'uk' || chat.language === 'ru' ? chat.language : null;
   const directions = canonicalDirections(parseList(chat.directions_json));
+  const strict = Number(chat.directions_strict) === 1 && directions.length > 0;
   const focusRow = (focusResult.results as FocusSettingRow[])[0] || null;
   const workdayRow = (workdayResult.results as WorkdayFocusRow[])[0] || null;
   const focusPlan = projectPublicationFocusPlan(
@@ -148,6 +152,7 @@ export async function readPublicationAdvertisementSelection(
     profileLanguage: language,
     profileDirections: directions,
     profileConfirmed: chat.review_status === 'confirmed',
+    directionsStrict: strict,
     publicationAllowed: publicationRule.allowed,
     publicationReason: publicationRule.reason,
     focusPlan,
@@ -155,7 +160,8 @@ export async function readPublicationAdvertisementSelection(
       platform: chat.platform,
       profileLanguage: language,
       profileDirections: directions,
-      profileConfirmed: chat.review_status === 'confirmed',
+      // Суворі напрями діють і в непідтвердженому профілі: це явне рішення власника.
+      profileConfirmed: chat.review_status === 'confirmed' || strict,
       focusDirections: focusPlan.planDirections,
       usedToday,
     }),
@@ -343,6 +349,12 @@ function parseWeekdays(value: string | null): number[] {
 
 function normalize(value: string) {
   return value.normalize('NFC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('uk-UA');
+}
+
+/** Чи позначено оголошення (за тегами) одним із напрямів: те саме порівняння, що й `directionMatch: 'matched'`. */
+export function tagsMatchDirections(tags: readonly string[], directions: readonly string[]): boolean {
+  const wanted = canonicalDirections(directions).map(normalize).filter(Boolean);
+  return tags.map(normalize).filter(Boolean).some((tag) => wanted.some((direction) => relatedDirection(tag, direction)));
 }
 
 function relatedDirection(left: string, right: string) {

@@ -103,6 +103,8 @@ const BATCH_SKIP: Record<string, string> = {
   rules_unavailable: 'не вдалося перевірити правила',
   chat_not_found: 'чат не знайдено',
   thread_required: 'не вибрано гілку',
+  no_direction_ad: 'немає оголошення свого напряму',
+  pinned_unavailable: 'закріплені оголошення зараз недоступні',
   caption_too_long: 'текст задовгий для підпису до фото',
   text_too_long: 'текст довший за ліміт Telegram',
   in_schedule: 'чат стоїть у розкладі',
