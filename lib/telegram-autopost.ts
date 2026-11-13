@@ -2,6 +2,7 @@
 // політика збоїв живуть у messenger-automation.ts; тут лише те, що стосується тільки Telegram.
 
 import { readChatDupInfo, type ChatDupInfo } from './chats/duplicates.ts';
+import { THREAD_SUSPECT_CODES } from './telegram-thread-codes.ts';
 
 export type TelegramTopic = { id: string; title: string; closed: boolean };
 export type TelegramThread = { id: string; title: string };
@@ -120,17 +121,65 @@ export async function chooseTelegramThread(db: D1Database, userId: string, chatI
   return { ...state, thread: { id: topic.id, title: topic.title } };
 }
 
-/** Чати з гілками, для яких гілку ще не вибрано (частковий індекс): група «Вибрати гілку». */
-export async function readTelegramThreadChoices(db: D1Database, userId: string, accountId: string | null) {
+const suspectList = THREAD_SUSPECT_CODES.map((code) => `'${code}'`).join(',');
+
+/**
+ * «Обери гілку»: чати акаунта, для яких гілку вибирає власник, (1) форуми (`telegram_forum=1`) без вибраної гілки (частковий індекс) і
+ * (2) чати, які сьогодні закінчились збоєм гілки (вікно фото, поле, гілка не відкрились), поки прохід гілок не вирішить, форум це чи ні.
+ * Другі показуються як «Збираю гілки…»: `needsScan` каже клієнтові поставити прохід (`telegram-scan-threads` із `chatIds`). Чат, який прохід
+ * визнав звичайним, зі списку зникає. Відкладені чати («Пропустити сьогодні») сюди не входять.
+ */
+export async function readTelegramThreadChoices(db: D1Database, userId: string, accountId: string | null, date = '', now = Math.floor(Date.now() / 1000)) {
   if (!accountId) return [];
-  const rows = await db.prepare(`SELECT id,name,telegram_topics_json,telegram_restricted_at,EXISTS(SELECT 1 FROM chat_dup_flags f WHERE f.chat_id=chats.id) AS dup_flag FROM chats
+  const rows = await db.prepare(`SELECT id,name,link,telegram_topics_json,telegram_restricted_at,EXISTS(SELECT 1 FROM chat_dup_flags f WHERE f.chat_id=chats.id) AS dup_flag FROM chats INDEXED BY chats_telegram_thread_choice_idx
     WHERE user_id=?1 AND platform='telegram' AND telegram_account_id=?2 AND telegram_forum=1 AND telegram_thread_id IS NULL AND workflow_status='ready'
-    ORDER BY name LIMIT 200`).bind(userId, accountId).all<{ id: string; name: string; telegram_topics_json: string | null; telegram_restricted_at: number | null; dup_flag: number }>();
+      AND (snoozed_until IS NULL OR snoozed_until<=?3)
+    ORDER BY name LIMIT 200`).bind(userId, accountId, now).all<{ id: string; name: string; link: string; telegram_topics_json: string | null; telegram_restricted_at: number | null; dup_flag: number }>();
   // Пари дублікатів видно й тут: той самий форум двічі в «Вибрати гілку» — це копія, а не два чати.
   const dup = await readChatDupInfo(db, userId, (rows.results || []).filter((row) => Number(row.dup_flag)).map((row) => row.id)).catch(() => new Map<string, ChatDupInfo>());
-  return (rows.results || []).map((row) => ({ chatId: row.id, name: row.name, topics: parseTelegramTopics(row.telegram_topics_json), restrictedAt: row.telegram_restricted_at === null ? null : Number(row.telegram_restricted_at), dup: dup.get(row.id) ?? null }));
+  type Choice = { chatId: string; name: string; link: string; topics: TelegramTopic[]; restrictedAt: number | null; dup: ChatDupInfo | null; collecting: boolean; needsScan: boolean };
+  const choices: Choice[] = (rows.results || []).map((row) => ({ chatId: row.id, name: row.name, link: row.link, topics: parseTelegramTopics(row.telegram_topics_json), restrictedAt: row.telegram_restricted_at === null ? null : Number(row.telegram_restricted_at), dup: dup.get(row.id) ?? null, collecting: false, needsScan: false }));
+  const known = new Set(choices.map((choice) => choice.chatId));
+  if (date) {
+    const suspects = await db.prepare(`SELECT c.id AS id,c.name AS name,c.link AS link,c.telegram_topics_at AS topics_at,MAX(j.updated_at) AS failed_at
+      FROM whatsapp_autopost_jobs j INDEXED BY whatsapp_autopost_jobs_decision_idx JOIN chats c ON c.id=j.chat_id AND c.user_id=j.user_id
+      WHERE j.user_id=?1 AND j.outcome='needs_decision' AND j.published_on=?2 AND j.platform='telegram'
+        AND json_extract(j.result_json,'$.errorCode') IN (${suspectList})
+        AND c.platform='telegram' AND c.telegram_account_id=?3 AND c.workflow_status='ready' AND c.telegram_forum IS NOT 1
+        AND (c.snoozed_until IS NULL OR c.snoozed_until<=?4)
+      GROUP BY c.id LIMIT 100`).bind(userId, date, accountId, now).all<{ id: string; name: string; link: string; topics_at: number | null; failed_at: number }>();
+    for (const row of suspects.results || []) {
+      // Прохід гілок уже був після збою і форуму не знайшов: це звичайний чат, його рішення лишається в «Потребують рішення».
+      if (row.topics_at !== null && Number(row.topics_at) >= Number(row.failed_at) || known.has(row.id)) continue;
+      choices.push({ chatId: row.id, name: row.name, link: row.link, topics: [], restrictedAt: null, dup: null, collecting: false, needsScan: true });
+    }
+    // Чи прохід цього чату вже стоїть у черзі чи виконується (за унікальним active_key, лише для чатів, у яких списку гілок ще немає).
+    const waiting = choices.filter((choice) => !choice.topics.length);
+    if (waiting.length) {
+      const keys = waiting.map((choice) => `${userId}:telegram:autopost:${choice.chatId}:${date}`);
+      const active = await db.prepare(`SELECT j.chat_id AS chat_id FROM json_each(?1) e CROSS JOIN whatsapp_autopost_jobs j ON j.active_key=e.value
+        WHERE substr(j.request_key,1,5)='scan_' AND j.status IN ('pending','claimed')`).bind(JSON.stringify(keys)).all<{ chat_id: string }>();
+      const running = new Set((active.results || []).map((row) => row.chat_id));
+      for (const choice of waiting) {
+        choice.collecting = running.has(choice.chatId);
+        choice.needsScan = choice.needsScan && !choice.collecting;
+      }
+    }
+  }
+  return choices;
 }
 export type TelegramThreadChoice = Awaited<ReturnType<typeof readTelegramThreadChoices>>[number];
+
+/** Скільки чатів чекає вибору гілки (усі акаунти): лічильник «Обери гілку» в картці «Автопост сьогодні». Форуми без гілки — за частковим індексом. */
+export async function countTelegramThreadChoices(db: D1Database, userId: string, date: string, now: number): Promise<number> {
+  const forums = await db.prepare(`SELECT COUNT(*) AS n FROM chats INDEXED BY chats_telegram_thread_choice_idx WHERE user_id=?1 AND platform='telegram' AND telegram_forum=1 AND telegram_thread_id IS NULL AND workflow_status='ready'
+    AND (snoozed_until IS NULL OR snoozed_until<=?2)`).bind(userId, now).first<{ n: number }>();
+  const suspects = await db.prepare(`SELECT COUNT(*) AS n FROM (SELECT c.id FROM whatsapp_autopost_jobs j INDEXED BY whatsapp_autopost_jobs_decision_idx JOIN chats c ON c.id=j.chat_id AND c.user_id=j.user_id
+      WHERE j.user_id=?1 AND j.outcome='needs_decision' AND j.published_on=?2 AND j.platform='telegram' AND json_extract(j.result_json,'$.errorCode') IN (${suspectList})
+        AND c.platform='telegram' AND c.workflow_status='ready' AND c.telegram_forum IS NOT 1 AND (c.snoozed_until IS NULL OR c.snoozed_until<=?3)
+        AND (c.telegram_topics_at IS NULL OR c.telegram_topics_at<j.updated_at) GROUP BY c.id)`).bind(userId, date, now).first<{ n: number }>();
+  return Number(forums?.n ?? 0) + Number(suspects?.n ?? 0);
+}
 
 /** Telegram-акаунт, що публікує: id користувача в Telegram Web (прив'язує оператор) і чи ввімкнений. */
 export async function readTelegramAutopostAccount(db: D1Database, userId: string, accountId: string) {

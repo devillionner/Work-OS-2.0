@@ -79,27 +79,42 @@ function TooLongChats({ chats, total }: { chats: Array<{ id: string; name: strin
   );
 }
 
-/** Чати з гілками, для яких гілку ще не вибрано: зі списком гілок (закриті сірі, вибрати їх не можна). Вибір зберігається. */
-function ThreadChoices({ choices, busy, onChoose, onScan }: { choices: TelegramThreadChoice[]; busy: boolean; onChoose: (chatId: string, threadId: string | null) => void; onScan: (chatId?: string) => void }) {
+/**
+ * «Обери гілку · N»: усі чати, для яких гілку вибирає власник, в одному місці над ходом партії (видно й під час партії, і без неї): форуми без вибраної
+ * гілки й чати, що сьогодні закінчились збоєм гілки (поки прохід гілок збирає список, рядок пише «Збираю гілки…»). Гілку обирає людина, автоматично нічого
+ * не вибирається; вибір зберігається назавжди й одразу ставить чат у партію (чи лишає серед «Готових»). «Пропустити сьогодні» відкладає чат до завтра.
+ */
+function ThreadChoices({ choices, busy, onChoose, onScan, onSkip, onOpen }: {
+  choices: TelegramThreadChoice[];
+  busy: boolean;
+  onChoose: (chatId: string, threadId: string | null) => void;
+  onScan: (target?: string | string[]) => void;
+  onSkip: (chatId: string) => void;
+  onOpen: (link: string) => void;
+}) {
   if (!choices.length) return null;
   return (
-    <section className="flex flex-col gap-2" aria-label="Чати, для яких треба вибрати гілку">
+    <section id="thread-choices" className="flex flex-col gap-2 scroll-mt-20" aria-label="Чати, для яких треба вибрати гілку">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="m-0 text-sm font-medium">Вибрати гілку <span className="font-mono font-normal tabular-nums text-ink-2">{choices.length}</span></h3>
+        <h3 className="m-0 text-sm font-medium">Обери гілку <span className="font-mono font-normal tabular-nums text-ink-2">· {choices.length}</span></h3>
         <Button variant="outline" size="sm" disabled={busy} title="Швидко відкриє ці чати й доповнить списки гілок; місць «на годину» не займає" onClick={() => onScan()}>Знайти гілки</Button>
       </div>
-      <p className="m-0 text-xs text-ink-2">У цих чатах є гілки. Такі чати в партію не входять і місць «на годину» не займають; чат піде в чергу, щойно ти вибереш гілку, і наступного разу питати не буду. Список гілок може бути неповним: «Знайти гілки» доповнює його.</p>
+      <p className="m-0 text-xs text-ink-2">У цих чатах є гілки (чи вони могли бути). Обери гілку один раз: чат одразу піде в партію, а наступного разу питати не буду. Поки гілку не вибрано, чат у партію не входить.</p>
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
-        <DuplicateRows items={choices.map((choice) => ({ value: choice, id: choice.chatId, dup: choice.dup }))} renderItem={(choice, dupNote) => {
+        <DuplicateRows items={choices.map((choice) => ({ value: choice, id: choice.chatId, dup: choice.dup ?? null }))} renderItem={(choice, dupNote) => {
           const open = choice.topics.filter((topic) => !topic.closed);
+          const collecting = Boolean(choice.collecting || choice.needsScan);
           return (
-            <li key={choice.chatId} className="flex flex-wrap items-center gap-3 rounded-inner border border-line px-3 py-2.5">
-              <span className="min-w-0 flex-1 truncate text-sm font-medium" title={choice.name}>{choice.name}</span>
+            <li key={choice.chatId} className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-inner border border-line px-3 py-2.5">
+              <span className="min-w-0 flex-1 basis-40 truncate text-sm font-medium" title={choice.name}>{choice.name}</span>
               {dupNote ? <span className="basis-full text-xs text-ink-2">{dupNote}</span> : null}
-              {choice.topics.length ? (
-                <ThreadPicker choice={choice} busy={busy} onChoose={onChoose} />
-              ) : <span className="text-xs text-ink-2">Список гілок ще не зібрано</span>}
-              <button type="button" disabled={busy} title="Відкриє чат і заново прочитає повний список гілок; місць «на годину» не займає" onClick={() => onScan(choice.chatId)} className="inline-flex min-h-9 items-center rounded-full px-3 text-xs text-ink-2 hover:bg-raised disabled:opacity-45">Перевірити гілки ще раз</button>
+              <div className="flex flex-wrap items-center gap-2">
+                {choice.topics.length ? <ThreadPicker choice={choice} busy={busy} onChoose={onChoose} />
+                  : collecting ? <output className="text-xs text-ink-2">Збираю гілки…</output>
+                    : <button type="button" disabled={busy} title="Відкриє чат і прочитає список гілок; місць «на годину» не займає" onClick={() => onScan(choice.chatId)} className="inline-flex min-h-9 items-center rounded-full border border-line px-3 text-xs hover:bg-raised disabled:opacity-45 [@media(pointer:coarse)]:min-h-11">Знайти гілки</button>}
+                {choice.link ? <Button variant="ghost" size="sm" onClick={() => onOpen(choice.link as string)}>Відкрити</Button> : null}
+                <Button variant="ghost" size="sm" disabled={busy} title="Чат повернеться в чергу завтра" onClick={() => onSkip(choice.chatId)}>Пропустити сьогодні</Button>
+              </div>
               {choice.restrictedAt ? <span className="basis-full text-xs text-ink-2">Зараз писати не можна (обмеження чату). Гілки відкриті, чат відкладається автоматично.</span> : null}
               {choice.topics.length && !open.length ? <span className="basis-full text-xs text-ink-2">Усі гілки позначені закритими (значок замка в Telegram). Якщо це не так, перевір гілки ще раз.</span> : null}
             </li>
@@ -114,12 +129,16 @@ function ThreadChoices({ choices, busy, onChoose, onScan }: { choices: TelegramT
  * Автопублікація у Telegram через браузер: спільна картка автопосту, текст оголошення з Бібліотеки для кожного чату (як при ручній
  * публікації), темп «5 · 10 · 20 на годину», прив'язка акаунта до браузера й вибір гілок форумів.
  */
-export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, material, plan, onLoadPlan, runnerConnected, status, pace, progress, attention, batchNote, binding, busy, onDecide, onDecideMany, onStart, onStop, onReset, onChooseThread, onBind }: {
+export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, onSkipThread, onOpenChat, material, plan, onLoadPlan, runnerConnected, status, pace, progress, attention, batchNote, binding, busy, onDecide, onDecideMany, onStart, onStop, onReset, onChooseThread, onBind }: {
   /** Вибраний акаунт Telegram: для нього рахується підбір текстів пулу. */
   accountId: string | null;
   /** Від runner приходять події (кроки, стан): він на зв'язку, навіть коли прапорець каналу ще не оновився. */
   runnerSeen: boolean;
-  onScanThreads: (chatId?: string) => void;
+  onScanThreads: (target?: string | string[]) => void;
+  /** «Пропустити сьогодні» в блоці «Обери гілку». */
+  onSkipThread: (chatId: string) => void;
+  /** Відкрити чат у Telegram. */
+  onOpenChat: (link: string) => void;
   /** Власні фото й текст Telegram (не спільні з WhatsApp і Viber). */
   material: AutopostMaterialProps;
   plan: AutopostPlan | null;
@@ -198,6 +217,7 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, mat
         <div className="flex flex-col gap-3">
           {source?.mode === 'pool' ? <PoolRow plan={plan} onOpen={() => setPoolOpen(true)} /> : null}
           <AccountBinding binding={binding} status={status} busy={busy} onBind={onBind} />
+          <ThreadChoices choices={plan?.threadChoices ?? []} busy={busy} onChoose={onChooseThread} onScan={onScanThreads} onSkip={onSkipThread} onOpen={onOpenChat} />
           <PaceEstimate platform="telegram" count={plan?.ready ?? 0} perHour={perHour} running={running} />
           {(plan?.unscanned ?? 0) > 0 && !running ? <p className="m-0 text-xs text-ink-2">{plan?.unscanned} {chatWord(plan?.unscanned ?? 0)} ще не перевірено на гілки: перед публікацією їх швидко відкриє прохід, він не займає місць «на годину». Можна зробити це наперед кнопкою «Знайти гілки» нижче.</p> : null}
           <PaceLine pace={pace} progress={progress} running={running} status={status} noun="публікація" />
@@ -207,7 +227,6 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, mat
       midSlot={(
         <>
           <TooLongChats chats={plan?.tooLongChats ?? []} total={plan?.tooLong ?? 0} />
-          <ThreadChoices choices={plan?.threadChoices ?? []} busy={busy} onChoose={onChooseThread} onScan={onScanThreads} />
         </>
       )}
       onDecide={onDecide}

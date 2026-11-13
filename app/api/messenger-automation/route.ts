@@ -14,6 +14,7 @@ import {
   createTelegramScanBatch,
   createTelegramScanJob,
   createWhatsAppAutopostBatch,
+  addChatToRunningBatch,
   createTelegramNoPhotoJob,
   readActiveTelegramScanJobId,
   createWhatsAppAutopostJob,
@@ -25,10 +26,10 @@ import {
   readWhatsAppAutopostProgress,
   resetWhatsAppAutopostQueue,
 } from '@/lib/messenger-automation';
-import { SNOOZE_CHOICES, readAutopostAttention, resolveAutopostDecision, resolveAutopostDecisions, snoozeDeadlineDays, type AutopostDecision } from '@/lib/messenger-automation-outcome';
+import { SNOOZE_CHOICES, skipChatUntilTomorrow, tomorrowStart, readAutopostAttention, resolveAutopostDecision, resolveAutopostDecisions, snoozeDeadlineDays, type AutopostDecision } from '@/lib/messenger-automation-outcome';
 import { readActivePool, readPoolForUi, savePool } from '@/lib/telegram-pool/store';
 import { ownMaterialAvailable, saveSource } from '@/lib/telegram-pool/source';
-import { TelegramAutopostError, bindTelegramWebAccount, chooseTelegramThread, readTelegramThreadState, unbindTelegramWebAccount } from '@/lib/telegram-autopost';
+import { TelegramAutopostError, bindTelegramWebAccount, chooseTelegramThread, countTelegramThreadChoices, readTelegramThreadState, unbindTelegramWebAccount } from '@/lib/telegram-autopost';
 import { resolveTelegramAccount } from '@/lib/chats/telegram-account';
 import { deleteWhatsAppAutopostImage, publicWhatsAppAutopostImage, readWhatsAppAutopostImage, saveWhatsAppAutopostImage } from '@/lib/whatsapp-autopost-media';
 import {
@@ -94,10 +95,13 @@ export async function GET(request:Request):Promise<Response>{
       const date=businessDate(Math.floor(Date.now()/1000));
       const platforms=['whatsapp','viber','telegram'] as const;
       const progress=await Promise.all(platforms.map(platform=>readWhatsAppAutopostProgress(env.DB,user.id,date,platform)));
+      // «Обери гілку · N»: чати, для яких гілку вибирає власник (форуми без гілки й чати зі збоєм гілки сьогодні).
+      const chooseThread=await countTelegramThreadChoices(env.DB,user.id,date,Math.floor(Date.now()/1000));
       return json({summary:{date,platforms:platforms.map((platform,index)=>{
         const p=progress[index];
         return {platform,total:p.total,sent:p.sent,failed:p.failed,pending:p.pending,claimed:p.claimed,running:p.running,settled:p.settled,
-          startedAt:p.batch?.startedAt??null,lastAt:p.batch?.entries[0]?.at??null};
+          startedAt:p.batch?.startedAt??null,lastAt:p.batch?.entries[0]?.at??null,
+          ...(platform==='telegram'?{chooseThread}:{})};
       })}});
     }
     // План запуску: скільки чатів справді піде в партію й чому решта черги не йде (за запитом, без таймера).
@@ -314,7 +318,17 @@ export async function POST(request:Request):Promise<Response>{
       let result:{created:number;skipped:number};
       let scanJobId='';
       let reason='';
-      if(oneChat){
+      if(Array.isArray(body.chatIds)){
+        // Блок «Обери гілку»: прохід для кількох чатів одним запитом (збій гілки сьогодні, форум без списку). Лише чати вибраного акаунта.
+        result={created:0,skipped:0};
+        for(const id of body.chatIds.filter((value):value is string=>typeof value==='string'&&value.length>0).slice(0,50)){
+          try{await createTelegramScanJob(env.DB,user.id,id,accountId,now,businessDate(now),null);result.created+=1;}
+          catch(error){
+            if(!(error instanceof MessengerAutomationError&&[404,409].includes(error.status)))throw error;
+            result.skipped+=1;
+          }
+        }
+      }else if(oneChat){
         try{scanJobId=(await createTelegramScanJob(env.DB,user.id,oneChat,accountId,now,businessDate(now),null)).id;result={created:1,skipped:0};}
         catch(error){
           if(!(error instanceof MessengerAutomationError&&[404,409].includes(error.status)))throw error;
@@ -333,20 +347,30 @@ export async function POST(request:Request):Promise<Response>{
       if(!chatId)throw new MessengerAutomationError('Чат не вказано.');
       const state=await chooseTelegramThread(env.DB,user.id,chatId,body.threadId);
       let queued=false;
+      let running=false;
       if(state.thread){
         const date=businessDate(now);
-        const waiting=await env.DB.prepare(`SELECT id,json_extract(result_json,'$.errorCode') AS code FROM whatsapp_autopost_jobs
-          WHERE user_id=?1 AND chat_id=?2 AND outcome IN ('needs_decision','needs_thread') AND published_on=?3`).bind(user.id,chatId,date).all<{id:string;code:string|null}>();
-        for(const job of waiting.results||[]){
-          if(job.code!=='thread_required'&&job.code!=='thread_closed')continue;
-          const resolved=await resolveAutopostDecision(env.DB,user.id,{jobId:job.id,decision:'retry'},now);
-          if(!resolved.ok)continue;
-          await createWhatsAppAutopostJob(env.DB,user.id,{requestKey:`retry_${crypto.randomUUID()}`,chatId,platform:'telegram'},now,date);
-          queued=true;
-        }
+        // Рішення за цим чатом, що чекали на гілку (форум без гілки, збій вікна фото чи поля), закриваються: нову задачу ставить сам вибір, а не «Спробувати ще».
+        const waiting=await env.DB.prepare(`SELECT id FROM whatsapp_autopost_jobs
+          WHERE user_id=?1 AND chat_id=?2 AND outcome IN ('needs_decision','needs_thread') AND published_on=?3`).bind(user.id,chatId,date).all<{id:string}>();
+        for(const job of waiting.results||[])await resolveAutopostDecision(env.DB,user.id,{jobId:job.id,decision:'retry'},now);
+        // Партія йде: чат додається в її кінець. Партії немає: він просто «Готовий» і піде з наступним запуском.
+        const added=await addChatToRunningBatch(env.DB,user.id,chatId,body.batchId,now,date);
+        queued=added.queued;
+        running=added.reason!=='no_batch';
         if(queued)await wakeOwnerChannelAutopost(user.id);
       }
-      return json({ok:true,thread:state.thread,queued});
+      return json({ok:true,thread:state.thread,queued,running});
+    }
+    // «Пропустити сьогодні» в блоці «Обери гілку»: чат відкладається до завтра, а його сьогоднішні рішення закриваються (в «Потребують рішення» він не повертається).
+    if(body.action==='telegram-skip-thread'){
+      const chatId=typeof body.chatId==='string'?body.chatId.trim():'';
+      if(!chatId)throw new MessengerAutomationError('Чат не вказано.');
+      const date=businessDate(now);
+      const skipped=await skipChatUntilTomorrow(env.DB,user.id,chatId,now);
+      if(!skipped)throw new MessengerAutomationError('Чат уже не в черзі публікації. Оновіть список.',409,'not_available');
+      await env.DB.prepare(`UPDATE whatsapp_autopost_jobs SET outcome='resolved',updated_at=?1 WHERE user_id=?2 AND chat_id=?3 AND published_on=?4 AND outcome IN ('needs_decision','needs_thread')`).bind(now,user.id,chatId,date).run();
+      return json({ok:true,snoozedUntil:tomorrowStart(now)});
     }
     // Прив'язка акаунта Work OS до акаунта, залогіненого в Telegram Web runner: id приходить зі стану runner, оператор підтверджує кнопкою.
     if(body.action==='telegram-bind-account'){

@@ -2,6 +2,7 @@ import { businessDate, businessDayStart, shiftBusinessDate } from './business-ti
 import { lessonEpoch } from './leads/domain/time.ts';
 import { chatStateEvent, chatStateTokenSql, readChatState } from './chats/state.ts';
 import { transitionChat } from './chats/transitions.ts';
+import { THREAD_SUSPECT_CODES } from './telegram-thread-codes.ts';
 import { AUTO_RENAME_THRESHOLD, isSimilarName, nameSimilarity } from './name-similarity.ts';
 
 /** Скільки разів задачу пробують, перш ніж пропустити на сьогодні: перша спроба і ще дві. */
@@ -114,6 +115,9 @@ async function snoozeUntil(db: D1Database, userId: string, chatId: string, until
   ]);
   return Boolean(result[0].meta.changes);
 }
+
+/** «Пропустити сьогодні»: чат відкладається до початку завтрашньої доби за Києвом. */
+export const skipChatUntilTomorrow = (db: D1Database, userId: string, chatId: string, now: number) => snoozeUntil(db, userId, chatId, tomorrowStart(now), now);
 
 /** Відкласти на N діб: до початку доби за київським часом (1 — «до завтра», 3 — «на 3 дні», 7 — «на тиждень»), як і «Відкласти на 3 дні» в меню чату. */
 export const SNOOZE_CHOICES = [1, 3, 7] as const;
@@ -340,12 +344,25 @@ export type AutopostAttentionItem = { jobId: string; chatId: string; name: strin
  * списку самі: чат не архівується й не змінюється, лишається в «Для публікації», а та сама помилка завтра з'явиться знову.
  */
 export async function readAutopostAttention(db: D1Database, userId: string, platform: 'whatsapp' | 'viber' | 'telegram', date: string): Promise<AutopostAttentionItem[]> {
-  const rows = await db.prepare(`SELECT j.id AS id,j.chat_id AS chat_id,j.expected_name AS name,j.result_json AS result_json,j.updated_at AS updated_at,j.request_key AS request_key
+  const rows = await db.prepare(`SELECT j.id AS id,j.chat_id AS chat_id,j.expected_name AS name,j.result_json AS result_json,j.updated_at AS updated_at,j.request_key AS request_key,
+      c.telegram_forum AS forum,c.telegram_thread_id AS thread_id,c.telegram_topics_at AS topics_at,c.telegram_account_id AS account_id
     FROM whatsapp_autopost_jobs j JOIN chats c ON c.id=j.chat_id AND c.user_id=j.user_id
     WHERE j.user_id=?1 AND j.outcome='needs_decision' AND c.platform=?2 AND j.published_on=?3
     ORDER BY j.updated_at DESC,j.id LIMIT 100`).bind(userId, platform, date)
-    .all<{ id: string; chat_id: string; name: string; result_json: string | null; updated_at: number; request_key: string }>();
-  return (rows.results || []).filter((row) => !(platform === 'telegram' && THREAD_CODES.has(errorCodeOf(row.result_json)))).map((row) => {
+    .all<{ id: string; chat_id: string; name: string; result_json: string | null; updated_at: number; request_key: string; forum: number | null; thread_id: string | null; topics_at: number | null; account_id: string | null }>();
+  // Блок «Обери гілку» показує чати вибраного акаунта (runner публікує лише за ним): чужі акаунти лишаються в «Потребують рішення».
+  const selected = platform === 'telegram' ? (await db.prepare(`SELECT id FROM telegram_accounts WHERE user_id=?1 AND is_selected=1 LIMIT 1`).bind(userId).first<{ id: string }>())?.id ?? null : null;
+  return (rows.results || []).filter((row) => {
+    if (platform !== 'telegram') return true;
+    const code = errorCodeOf(row.result_json);
+    if (THREAD_CODES.has(code)) return false;
+    // Чати, для яких гілку вибирає власник (блок «Обери гілку» в картці автопосту), у «Потребують рішення» не дублюються: форум без вибраної гілки
+    // і чат зі збоєм гілки, поки прохід гілок ще не вирішив, форум це чи ні.
+    if (!selected || row.account_id !== selected) return true;
+    if (Number(row.forum) === 1 && !row.thread_id) return false;
+    if (THREAD_SUSPECT_CODES.includes(code) && Number(row.forum) !== 1 && !(row.topics_at !== null && Number(row.topics_at) >= Number(row.updated_at))) return false;
+    return true;
+  }).map((row) => {
     let code = 'adapter_failed';
     try {
       const parsed: unknown = row.result_json ? JSON.parse(row.result_json) : null;

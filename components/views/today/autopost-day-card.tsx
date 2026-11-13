@@ -18,7 +18,6 @@ const REASONS: ReadonlyArray<{ key: keyof AutopostDayPlatform['settled']; label:
   { key: 'snoozed', label: 'Відкладено на завтра' },
   { key: 'waiting', label: 'Очікують вступу' },
   { key: 'skipped', label: 'Пропущено на сьогодні' },
-  { key: 'thread', label: 'Чекають вибору гілки' },
 ];
 
 const DOT = { run: 'bg-ink', done: 'bg-ok', wait: 'bg-warn' } as const;
@@ -32,7 +31,8 @@ export function AutopostDayCard({ size }: { size: 'phone' | 'desktop' }) {
   const nowSeconds = useMinuteClock();
   const { navigate } = useShell();
   const platforms = ORDER.map((key) => day?.platforms.find((item) => item.platform === key)).filter((item): item is AutopostDayPlatform => Boolean(item));
-  const active = platforms.filter((item) => item.total > 0 || item.settled.thread > 0);
+  const active = platforms.filter((item) => item.total > 0 || (item.chooseThread ?? 0) > 0);
+  const chooseThread = platforms.reduce((sum, item) => sum + (item.chooseThread ?? 0), 0);
   const open = (platform?: AutopostDayPlatform['platform']) => {
     navigate('platforms');
     emitCommand('platforms:autopost', { platform: platform ?? 'viber' });
@@ -41,6 +41,11 @@ export function AutopostDayCard({ size }: { size: 'phone' | 'desktop' }) {
   const openArchive = (platform?: AutopostDayPlatform['platform']) => {
     navigate('platforms');
     emitCommand('platforms:queue', { platform: platform ?? 'telegram', queue: 'archived' });
+  };
+  // «Обери гілку · N»: веде в блок «Обери гілку» у картці автопосту Telegram.
+  const openThreadChoices = () => {
+    navigate('platforms');
+    emitCommand('platforms:autopost', { platform: 'telegram', section: 'thread-choices' });
   };
   const pad = size === 'phone' ? 'p-4' : 'p-5';
   if (!day) return null;
@@ -103,6 +108,7 @@ export function AutopostDayCard({ size }: { size: 'phone' | 'desktop' }) {
           </ul>
         </div>
       ) : null}
+      {chooseThread ? <Button variant="outline" size="md" onClick={openThreadChoices}>Обери гілку · {chooseThread}</Button> : null}
       <Button variant={decision ? 'action' : 'outline'} size="md" onClick={() => open(active.find((item) => item.settled.decision > 0)?.platform)}>{decision ? `Потребують рішення · ${decision}` : 'Відкрити автопост'}</Button>
     </Surface>
   );

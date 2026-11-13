@@ -37,7 +37,7 @@ import { PublishPanel } from '@/components/views/platforms/publish-panel';
 import { ScheduleTab } from '@/components/views/platforms/schedule-tab';
 import { SelectedChats } from '@/components/views/platforms/selected-chats';
 import { SelectedListPicker } from '@/components/views/platforms/selected-list-picker';
-import { usePlatforms, PLATFORMS, QUEUES, type Chat } from '@/components/views/platforms/use-platforms';
+import { usePlatforms, PLATFORMS, QUEUES, type Chat, openNativeChat } from '@/components/views/platforms/use-platforms';
 import { WaitingCheckCard } from '@/components/views/platforms/waiting-check-card';
 import { requestRunnerCheck } from '@/lib/live-channel';
 import { useColumnScroll } from '@/components/views/platforms/use-column-scroll';
@@ -66,6 +66,7 @@ export default function PlatformsView() {
   const [publishChat, setPublishChat] = useState<Chat | null>(null);
   // Гортання колонок на ПК: функції з хуків нижче, щоб команди могли їх викликати.
   const [jump, setJump] = useState<{ side: 'left' | 'right'; id: number } | null>(null);
+  const [focusSection, setFocusSection] = useState<{ id: string; key: number } | null>(null);
 
   useCommand('chats:add', () => setBulkOpen(true));
   useCommand('chats:discover', () => { if (p.availablePlatforms.some((item) => item.key === 'whatsapp')) p.selectPlatform('whatsapp'); setDiscoveryOpen(true); });
@@ -79,11 +80,13 @@ export default function PlatformsView() {
     setJump({ side: 'left', id: Date.now() });
   });
   useCommand('platforms:autopost', (payload) => {
-    const target = payload as { platform?: string } | undefined;
+    const target = payload as { platform?: string; section?: string } | undefined;
     const platformKey = p.availablePlatforms.find((item) => item.key === target?.platform)?.key;
     if (platformKey) p.selectPlatform(platformKey);
     setZone('autopost'); setPhoneSection('autopost');
     setJump({ side: 'right', id: Date.now() });
+    // Лічильник «Обери гілку · N» з «Сьогодні» веде прямо до блоку (він з'являється після завантаження плану).
+    if (target?.section === 'thread-choices') setFocusSection({ id: 'thread-choices', key: Date.now() });
   });
   useCommand('platforms:telegram-schedule', () => { p.selectPlatform('telegram'); setZone('schedule'); setPhoneSection('schedule'); });
 
@@ -107,6 +110,11 @@ export default function PlatformsView() {
   const currentZone: Zone = zones.some((item) => item.value === zone) ? zone : 'overview';
   const [leftRef, scrollLeftTo] = useColumnScroll(`${platform}:${queue}:${p.selected.listId ?? ''}`, active && desktop);
   const [rightRef, scrollRightTo, scrollRightToNode] = useColumnScroll(`${platform}:${platform === 'telegram' && queue === 'selected' ? `selected:${p.selected.listId ?? ''}` : currentZone}`, active && desktop);
+  useEffect(() => {
+    if (!focusSection) return;
+    const timer = window.setTimeout(() => { const node = document.getElementById(focusSection.id); if (!node) return; if (desktop) scrollRightToNode(node); else node.scrollIntoView({ block: 'start' }); }, 500);
+    return () => window.clearTimeout(timer);
+  }, [focusSection, desktop, scrollRightToNode]);
   useEffect(() => {
     if (!jump) return undefined;
     const frame = window.requestAnimationFrame(() => (jump.side === 'left' ? scrollLeftTo : scrollRightTo)(0));
@@ -160,7 +168,7 @@ export default function PlatformsView() {
 
   const zoneContent = (value: Zone) => {
     if (queue === 'selected' && platform === 'telegram' && value === 'overview') return null;
-    if (value === 'autopost' && platform === 'telegram') return <TelegramAutopostCard accountId={p.accountId} runnerSeen={p.telegramRunnerSeen} onScanThreads={(chatId) => void p.scanTelegramThreads(chatId)} material={{ image: p.telegramImage, imageLoaded: p.telegramMaterialLoaded, caption: p.telegramCaption, captionLoaded: p.telegramMaterialLoaded, onCaptionChange: p.setTelegramCaption, onUploadImage: (file: File) => void p.uploadTelegramImage(file), onRemoveImage: () => void p.removeTelegramImage(), onSaveCaption: () => void p.saveTelegramCaption(), onClearCaption: () => void p.clearTelegramCaption(), scope: 'telegram', onCopyFromShared: () => void p.copyTelegramMaterialFromShared() }} plan={telegramPlan} onLoadPlan={p.loadAutopostPlan} runnerConnected={p.liveStatus.connected ? p.liveStatus.runnerConnected : null} status={p.telegramAutopostStatus} pace={p.telegramPace} progress={p.telegramProgress} attention={p.autopostAttention} batchNote={p.telegramBatchNote} binding={p.telegramAccountBinding} busy={p.busy !== null} onDecide={p.decideAutopost} onDecideMany={p.decideAutopostMany} onStart={(limit, exclude, perHour, texts) => void p.startTelegramAutopostBatch(limit, exclude, perHour, texts)} onStop={() => void p.stopTelegramAutopostBatch()} onReset={() => void p.resetTelegramAutopostQueue()} onChooseThread={(chatId, threadId) => void p.chooseTelegramThread(chatId, threadId)} onBind={(webUserId) => void p.bindTelegramAccount(webUserId)} />;
+    if (value === 'autopost' && platform === 'telegram') return <TelegramAutopostCard accountId={p.accountId} runnerSeen={p.telegramRunnerSeen} onScanThreads={(target) => void p.scanTelegramThreads(target)} onSkipThread={(chatId) => void p.skipThreadChoice(chatId)} onOpenChat={(link) => openNativeChat('telegram', link)} material={{ image: p.telegramImage, imageLoaded: p.telegramMaterialLoaded, caption: p.telegramCaption, captionLoaded: p.telegramMaterialLoaded, onCaptionChange: p.setTelegramCaption, onUploadImage: (file: File) => void p.uploadTelegramImage(file), onRemoveImage: () => void p.removeTelegramImage(), onSaveCaption: () => void p.saveTelegramCaption(), onClearCaption: () => void p.clearTelegramCaption(), scope: 'telegram', onCopyFromShared: () => void p.copyTelegramMaterialFromShared() }} plan={telegramPlan} onLoadPlan={p.loadAutopostPlan} runnerConnected={p.liveStatus.connected ? p.liveStatus.runnerConnected : null} status={p.telegramAutopostStatus} pace={p.telegramPace} progress={p.telegramProgress} attention={p.autopostAttention} batchNote={p.telegramBatchNote} binding={p.telegramAccountBinding} busy={p.busy !== null} onDecide={p.decideAutopost} onDecideMany={p.decideAutopostMany} onStart={(limit, exclude, perHour, texts) => void p.startTelegramAutopostBatch(limit, exclude, perHour, texts)} onStop={() => void p.stopTelegramAutopostBatch()} onReset={() => void p.resetTelegramAutopostQueue()} onChooseThread={(chatId, threadId) => void p.chooseTelegramThread(chatId, threadId)} onBind={(webUserId) => void p.bindTelegramAccount(webUserId)} />;
     if (value === 'schedule' && p.accountId) return <ScheduleTab key={p.accountId} accountId={p.accountId} />;
     if (value === 'schedule') return <EmptyState text="Додай або увімкни Telegram-акаунт, щоб побачити розклад." />;
     const material = { image: p.whatsappImage, imageLoaded: p.whatsappImageLoaded, caption: p.whatsappCaption, captionLoaded: p.whatsappCaptionLoaded, onCaptionChange: p.setWhatsappCaption, onUploadImage: (file: File) => void p.uploadWhatsAppAutopostImage(file), onRemoveImage: () => void p.removeWhatsAppAutopostImage(), onSaveCaption: () => void p.saveWhatsAppAutopostCaption(), onClearCaption: () => void p.clearWhatsAppAutopostCaption() };

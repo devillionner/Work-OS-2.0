@@ -573,7 +573,7 @@ export async function readAutopostPlan(db:D1Database,userId:string,platformInput
         WHEN EXISTS(SELECT 1 FROM chat_publications p WHERE p.user_id=c.user_id AND p.chat_id=c.id AND p.published_on=?3) THEN 'published'
         WHEN EXISTS(SELECT 1 FROM whatsapp_autopost_jobs j WHERE j.user_id=c.user_id AND j.chat_id=c.id AND j.published_on=?3 AND j.status IN ('pending','claimed')) THEN 'queued'${telegramWhen}
         WHEN EXISTS(SELECT 1 FROM whatsapp_autopost_jobs d WHERE d.user_id=c.user_id AND d.chat_id=c.id AND d.published_on=?3 AND d.outcome='needs_decision') THEN 'decision'
-        WHEN EXISTS(SELECT 1 FROM whatsapp_autopost_jobs t WHERE t.user_id=c.user_id AND t.chat_id=c.id AND t.published_on=?3 AND t.status IN ('sent','failed')) THEN 'tried'
+        WHEN EXISTS(SELECT 1 FROM whatsapp_autopost_jobs t WHERE t.user_id=c.user_id AND t.chat_id=c.id AND t.published_on=?3 AND (t.status='sent' OR (t.status='failed' AND COALESCE(t.outcome,'')<>'resolved'))) THEN 'tried'
         WHEN c.snoozed_until IS NOT NULL AND c.snoozed_until>?2 THEN 'snoozed'
         WHEN EXISTS(SELECT 1 FROM chat_discovery_candidates dc WHERE dc.user_id=c.user_id AND dc.imported_chat_id=c.id AND dc.decision!='target' AND dc.id NOT LIKE 'waiting-%') THEN 'other'
         WHEN NOT (${profilePublicationEligibilitySql('?3','?5')}
@@ -670,7 +670,7 @@ export async function readAutopostPlan(db:D1Database,userId:string,platformInput
   }
   plan.ready=ready.length;
   plan.chats=ready.slice(0,AUTOPOST_BATCH_MAX).map(({id,name})=>({id,name}));
-  if(telegram)plan.threadChoices=await readTelegramThreadChoices(db,userId,telegramAccountId);
+  if(telegram)plan.threadChoices=await readTelegramThreadChoices(db,userId,telegramAccountId,date,now);
   return plan;
 }
 
@@ -719,7 +719,7 @@ async function readBatchCandidates(db:D1Database,userId:string,platform:Autopost
       AND (${profilePublicationEligibilitySql('?3','?6')}
         OR NOT EXISTS(SELECT 1 FROM chat_profiles pu WHERE pu.chat_id=c.id AND pu.review_status='confirmed'))
       AND NOT EXISTS(SELECT 1 FROM whatsapp_autopost_jobs j
-        WHERE j.user_id=c.user_id AND j.chat_id=c.id AND j.published_on=?3 AND j.status IN ('pending','claimed','sent','failed'))
+        WHERE j.user_id=c.user_id AND j.chat_id=c.id AND j.published_on=?3 AND (j.status IN ('pending','claimed','sent') OR (j.status='failed' AND COALESCE(j.outcome,'')<>'resolved')))
       AND NOT EXISTS(SELECT 1 FROM whatsapp_autopost_jobs d
         WHERE d.user_id=c.user_id AND d.chat_id=c.id AND d.published_on=?3 AND d.outcome='needs_decision')
       AND c.id NOT IN (SELECT value FROM json_each(?8))${telegramFilter}
@@ -870,6 +870,26 @@ export async function readLatestWhatsAppAutopostJob(db:D1Database,userId:string)
   const row=await db.prepare(`SELECT * FROM whatsapp_autopost_jobs
     WHERE user_id=?1 ORDER BY created_at DESC,id DESC LIMIT 1`).bind(userId).first<WhatsAppAutopostRow>();
   return row?publicWhatsAppAutopostJob(row):null;
+}
+
+/**
+ * Чат, якому власник щойно вибрав гілку: додається в кінець партії, що зараз іде (текст пулу чи власний матеріал підбираються як для будь-якого чату партії,
+ * темп веде Durable Object). Партія — та, чий id знає сторінка (`knownBatchId`) і в якої ще є задачі в роботі; інакше чат просто лишається «Готовим».
+ */
+export async function addChatToRunningBatch(db:D1Database,userId:string,chatId:string,knownBatchId:unknown,now:number,date:string):Promise<{queued:boolean;reason:string}>{
+  const batchId=cleanKnownBatchId(knownBatchId);
+  if(!batchId)return {queued:false,reason:'no_batch'};
+  const prefix=batchKeyPrefix('telegram',batchId);
+  const live=await db.prepare(`SELECT 1 AS hit FROM whatsapp_autopost_jobs WHERE user_id=?1 AND request_key>=?2 AND request_key<?3 AND published_on=?4 AND status IN ('pending','claimed') LIMIT 1`)
+    .bind(userId,prefix,`${prefix.slice(0,-1)}\``,date).first<{hit:number}>();
+  if(!live)return {queued:false,reason:'no_batch'};
+  try{
+    await createWhatsAppAutopostJob(db,userId,{requestKey:`${prefix}${crypto.randomUUID()}`,chatId,platform:'telegram'},now,date);
+    return {queued:true,reason:''};
+  }catch(error){
+    if(error instanceof MessengerAutomationError&&[404,409].includes(error.status))return {queued:false,reason:error.code};
+    throw error;
+  }
 }
 
 /** Активна задача проходу «знайти гілки» для чату за сьогодні (по унікальному `active_key`): профіль чату чекає саме її, а не ставить другу. */

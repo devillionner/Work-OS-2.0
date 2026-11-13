@@ -9,6 +9,8 @@ export type AutopostDayPlatform = {
   total: number; sent: number; failed: number; pending: number; claimed: number; running: boolean;
   settled: { archived: number; waiting: number; snoozed: number; skipped: number; decision: number; thread: number };
   startedAt: number | null; lastAt: number | null;
+  /** Лише Telegram: скільки чатів чекає вибору гілки («Обери гілку · N»). */
+  chooseThread?: number;
 };
 export type AutopostDay = { date: string; platforms: AutopostDayPlatform[] };
 

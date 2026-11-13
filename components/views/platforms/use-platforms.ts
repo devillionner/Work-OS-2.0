@@ -1067,18 +1067,52 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     toast.push({ message: 'Фото й текст WhatsApp і Viber скопійовано в Telegram. Далі вони окремі: зміни в одному місці не чіпають інше.' });
   });
   /** «Знайти гілки»: швидкий прохід по чатах, про які невідомо, чи є в них гілки, і по чатах, що чекають вибору гілки. */
-  const scanTelegramThreads = (chatId?: string) => { if (platform !== 'telegram' || !accountId) return Promise.resolve(); return wa('telegram-scan', async () => {
+  /** `string[]` — тихий прохід для чатів блоку «Обери гілку» (без тосту: у рядку видно «Збираю гілки…»). */
+  const scanTelegramThreads = (target?: string | string[]) => { if (platform !== 'telegram' || !accountId) return Promise.resolve();
+    if (Array.isArray(target)) return (async () => {
+      try { await telegramAction('telegram-scan-threads', { chatIds: target }); const fresh = await readTelegramAutopost(); if (fresh) applyTelegramAutopost(fresh); await loadAutopostPlan(); }
+      catch { /* наступне відкриття картки спробує ще раз */ }
+    })();
+    const chatId = target;
+    return wa('telegram-scan', async () => {
     const body = await telegramAction('telegram-scan-threads', chatId ? { chatId } : undefined) as { created?: number; skipped?: number };
     const created = Number(body.created || 0);
     const fresh = await readTelegramAutopost(); if (fresh) applyTelegramAutopost(fresh);
-    toast.push({ message: created ? (chatId ? 'Перечитую гілки чату. Це не займає місць «на годину»; результат з\'явиться в групі «Вибрати гілку».' : `Шукаю гілки в ${created} чатах. Це не займає місць «на годину»; результат з'явиться в групі «Вибрати гілку».`) : chatId ? 'Для цього чату вже є активна задача.' : 'Усі чати вже перевірено на гілки.' });
+    toast.push({ message: created ? (chatId ? 'Перечитую гілки чату. Це не займає місць «на годину»; результат з\'явиться в блоці «Обери гілку».' : `Шукаю гілки в ${created} чатах. Це не займає місць «на годину»; результат з'явиться в блоці «Обери гілку».`) : chatId ? 'Для цього чату вже є активна задача.' : 'Усі чати вже перевірено на гілки.' });
   }); };
-  /** Власник вибрав гілку чату з форумом (null — прибрати вибір). Чат, що чекав саме гілки, одразу стає в чергу автопосту. */
+  // Чати зі збоєм гілки сьогодні: форум це чи ні, вирішує прохід гілок, і ставиться він сам, по разу на чат за відкриття (блок «Обери гілку» пише «Збираю гілки…»).
+  const scanRequested = useRef(new Set<string>());
+  const quietScan = useRef<(ids: string[]) => Promise<void>>(async () => {});
+  const threadScanKey = (autopostPlans.telegram?.threadChoices ?? []).filter((choice) => choice.needsScan).map((choice) => choice.chatId).join(',');
+  useEffect(() => { quietScan.current = (ids) => Promise.resolve(scanTelegramThreads(ids)); });
+  useEffect(() => {
+    const ids = threadScanKey ? threadScanKey.split(',').filter((id) => !scanRequested.current.has(id)) : [];
+    if (!ids.length) return;
+    for (const id of ids) scanRequested.current.add(id);
+    void quietScan.current(ids);
+  }, [threadScanKey]);
+  /**
+   * Власник вибрав гілку чату з форумом (null — прибрати вибір). Партія йде: чат додається в її кінець (id партії несе запит); партії немає: чат лишається
+   * серед «Готових» і піде з наступним запуском. Вибір зберігається назавжди.
+   */
   const chooseTelegramThread = (chatId: string, threadId: string | null) => wa('telegram-thread', async () => {
-    const body = await telegramAction('telegram-choose-thread', { chatId, threadId });
+    const choice = autopostPlans.telegram?.threadChoices?.find((item) => item.chatId === chatId);
+    const batchId = telegramProgress?.running ? telegramProgress.batch?.id : undefined;
+    const body = await telegramAction('telegram-choose-thread', { chatId, threadId, ...(batchId ? { batchId } : {}) }) as { queued?: boolean; running?: boolean; thread?: { title?: string } | null };
     invalidateQueueCache('telegram'); announceDataChange('platforms'); await reloadChats.current(true); loadAutopostPlan();
     const fresh = await readTelegramAutopost(); if (fresh) applyTelegramAutopost(fresh);
-    toast.push({ message: threadId ? (body.queued ? 'Гілку вибрано, чат поставлено в чергу автопосту.' : 'Гілку вибрано. Наступного разу питати не буду.') : 'Вибір гілки прибрано.' });
+    const name = choice?.name ?? 'Чат';
+    const title = body.thread?.title ?? choice?.topics.find((topic) => topic.id === threadId)?.title ?? '';
+    const label = title ? `${name} → ${title}` : name;
+    toast.push({ message: !threadId ? 'Вибір гілки прибрано.' : body.queued ? `Додано в партію: ${label}.` : body.running ? `Гілку вибрано: ${label}. У партію чат додати не вдалося, він серед «Готових».` : `Гілку вибрано: ${label}. Чат серед «Готових», піде з наступним запуском.` });
+  });
+  /** «Пропустити сьогодні» в блоці «Обери гілку»: чат відкладається до завтра, його сьогоднішні рішення закриваються. */
+  const skipThreadChoice = (chatId: string) => wa('telegram-thread-skip', async () => {
+    const choice = autopostPlans.telegram?.threadChoices?.find((item) => item.chatId === chatId);
+    await telegramAction('telegram-skip-thread', { chatId });
+    invalidateQueueCache('telegram'); announceDataChange('platforms'); await reloadChats.current(true); loadAutopostPlan();
+    const fresh = await readTelegramAutopost(); if (fresh) applyTelegramAutopost(fresh);
+    toast.push({ message: `Пропущено до завтра: ${choice?.name ?? 'чат'}.` });
   });
   /** Прив'язка вибраного акаунта до того, що залогінений у Telegram Web runner (`webUserId` — зі стану runner). */
   const bindTelegramAccount = (webUserId: string | null) => wa('telegram-bind', async () => {
@@ -1184,7 +1218,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     quickPublishMode, setQuickPublishMode, quickAdvertisementId, setQuickAdvertisementId,
     autopostPlans, loadAutopostPlan, whatsappImage, whatsappImageLoaded, whatsappCaption, setWhatsappCaption, whatsappCaptionLoaded, whatsappProgress, autopostAttention: visibleAttention, whatsappBatchNote, decideAutopost, decideAutopostMany,
     telegramImage, telegramCaption, telegramMaterialLoaded, setTelegramCaption, uploadTelegramImage, removeTelegramImage, saveTelegramCaption, clearTelegramCaption, copyTelegramMaterialFromShared,
-    telegramRunnerSeen, scanTelegramThreads, viberPace, whatsappPace,
+    telegramRunnerSeen, scanTelegramThreads, skipThreadChoice, viberPace, whatsappPace,
     telegramProgress, telegramBatchNote, telegramAutopostStatus, telegramPace, telegramAccountBinding, startTelegramAutopostBatch, stopTelegramAutopostBatch, resetTelegramAutopostQueue, chooseTelegramThread, bindTelegramAccount,
     viberProgress, viberStatus, viberBatchNote, whatsappAutopostStatus, startViberAutopostBatch, stopViberAutopostBatch, resetViberAutopostQueue,
     uploadWhatsAppAutopostImage, removeWhatsAppAutopostImage, saveWhatsAppAutopostCaption, clearWhatsAppAutopostCaption, resetWhatsAppAutopostQueue, stopWhatsAppAutopostBatch, startWhatsAppAutopostBatch,
