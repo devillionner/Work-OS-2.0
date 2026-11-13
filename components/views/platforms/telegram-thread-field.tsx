@@ -8,7 +8,7 @@ import { createActionGate } from '@/lib/action-gate';
 import { humanError } from '@/components/ui/human-error';
 import { subscribeLiveMessages, subscribeLiveStatus, type LiveStatus } from '@/lib/live-channel';
 
-type ThreadView = { forum: boolean | null; thread: { id: string; title: string } | null; topics: Array<{ id: string; title: string; closed: boolean }>; scannedAt?: number | null };
+type ThreadView = { forum: boolean | null; thread: { id: string; title: string } | null; topics: Array<{ id: string; title: string; closed: boolean }>; scannedAt?: number | null; /** Перевірка гілок цього чату вже стоїть у черзі чи виконується. */ scanJobId?: string };
 /** Скільки чекаємо на прохід, поки результат не прийшов live-каналом (runner міг зникнути посеред перевірки). */
 const SCAN_WAIT_MS = 120_000;
 
@@ -27,7 +27,7 @@ export function TelegramThreadField({ chatId, disabled }: { chatId: string; disa
   const [view, setView] = useState<ThreadView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [scanning, setScanning] = useState<{ jobId: string; before: number | null } | null>(null);
+  const [scanning, setScanning] = useState<{ jobId: string; before: number | null; queued: boolean } | null>(null);
   const [note, setNote] = useState('');
   const [runner, setRunner] = useState<LiveStatus>({ connected: false, runnerConnected: null });
   const gate = useRef(createActionGate());
@@ -45,7 +45,13 @@ export function TelegramThreadField({ chatId, disabled }: { chatId: string; disa
     let live = true;
     void fetch(`/api/messenger-automation?telegramThread=${encodeURIComponent(chatId)}`, { cache: 'no-store' })
       .then((response) => response.json() as Promise<{ thread?: ThreadView }>)
-      .then((body) => { if (live && body.thread) setView(body.thread); })
+      .then((body) => {
+        if (!live || !body.thread) return;
+        setView(body.thread);
+        // Перевірка вже в роботі (її поставили раніше чи з іншого місця): чекаємо її результат, нову не ставимо.
+        const active = body.thread.scanJobId;
+        if (active) setScanning((current) => current ?? { jobId: active, before: body.thread?.scannedAt ?? null, queued: true });
+      })
       .catch(() => undefined);
     return () => { live = false; };
   }, [chatId]);
@@ -56,6 +62,8 @@ export function TelegramThreadField({ chatId, disabled }: { chatId: string; disa
     if (!scanning) return;
     const finish = async () => {
       const next = await load();
+      // Задача ще в черзі (runner зайнятий чи офлайн): це не відмова, чекаємо далі тією самою задачею.
+      if (next?.scanJobId) { setScanning((current) => (current ? { ...current, jobId: next.scanJobId ?? current.jobId, queued: true } : current)); return; }
       const changed = next !== null && (next.scannedAt ?? null) !== scanning.before;
       setNote(changed ? '' : 'Не вдалося визначити, чи є в чаті гілки: чат не встиг завантажитись у Telegram Web. Нічого не змінено, спробуй ще раз.');
       setScanning(null);
@@ -74,8 +82,9 @@ export function TelegramThreadField({ chatId, disabled }: { chatId: string; disa
         const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'telegram-scan-threads', chatId }) });
         const body = await response.json() as { created?: number; jobId?: string; reason?: string; error?: string };
         if (!response.ok) throw new Error(body.error || 'Не вдалося запустити перевірку.');
-        if (!body.created || !body.jobId) { setNote(`Перевірку зараз не поставити: ${(body.reason || 'у чата вже є активна задача автопосту').replace(/[.]$/, '')}.`); return; }
-        setScanning({ jobId: body.jobId, before: view?.scannedAt ?? null });
+        // Є id задачі проходу: нова (`created`) чи вже поставлена раніше. В обох випадках чекаємо її результат.
+        if (body.jobId) { setScanning({ jobId: body.jobId, before: view?.scannedAt ?? null, queued: !body.created }); return; }
+        setNote(`Перевірку зараз не поставити: ${(body.reason || 'у чата вже є активна задача автопосту').replace(/[.]$/, '')}.`);
       } catch (reason) { setError(humanError(reason, 'Не вдалося запустити перевірку. Спробуй ще раз.')); }
       finally { setBusy(false); }
     });
@@ -96,7 +105,7 @@ export function TelegramThreadField({ chatId, disabled }: { chatId: string; disa
 
   if (!view) return null;
   const offline = runner.connected && runner.runnerConnected === false;
-  const recheck = scanning ? <output className="text-xs text-ink-2">Перевіряю…</output>
+  const recheck = scanning ? <output className="text-xs text-ink-2">{scanning.queued ? 'Перевіряю… (у черзі)' : 'Перевіряю…'}</output>
     : offline ? <span className="text-xs text-ink-2">Runner не підключений: запусти його на ПК, щоб перевірити гілки.</span>
       : <Button type="button" variant="outline" size="sm" className="self-start" disabled={disabled || busy} onClick={() => void scan()}>Перевірити гілки ще раз</Button>;
   const messages = (

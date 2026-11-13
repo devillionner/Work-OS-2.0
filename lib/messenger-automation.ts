@@ -872,6 +872,14 @@ export async function readLatestWhatsAppAutopostJob(db:D1Database,userId:string)
   return row?publicWhatsAppAutopostJob(row):null;
 }
 
+/** Активна задача проходу «знайти гілки» для чату за сьогодні (по унікальному `active_key`): профіль чату чекає саме її, а не ставить другу. */
+export async function readActiveTelegramScanJobId(db:D1Database,userId:string,chatId:string,date:string):Promise<string|null>{
+  const row=await db.prepare(`SELECT id FROM whatsapp_autopost_jobs
+    WHERE active_key=?1 AND user_id=?2 AND request_key LIKE 'scan\\_%' ESCAPE '\\' AND status IN ('pending','claimed') LIMIT 1`)
+    .bind(`${userId}:telegram:autopost:${chatId}:${date}`,userId).first<{id:string}>();
+  return row?.id??null;
+}
+
 export async function readActiveWhatsAppAutopostJob(db:D1Database,userId:string,chatId:string,date:string):Promise<WhatsAppAutopostJob|null>{
   const row=await db.prepare(`SELECT * FROM whatsapp_autopost_jobs
     WHERE user_id=?1 AND chat_id=?2 AND published_on=?3 AND status IN ('pending','claimed') LIMIT 1`)

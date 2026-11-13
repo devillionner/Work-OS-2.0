@@ -15,6 +15,7 @@ import {
   createTelegramScanJob,
   createWhatsAppAutopostBatch,
   createTelegramNoPhotoJob,
+  readActiveTelegramScanJobId,
   createWhatsAppAutopostJob,
   previewTelegramPool,
   readAutopostPlan,
@@ -112,7 +113,14 @@ export async function GET(request:Request):Promise<Response>{
     }
     // Гілка одного чату Telegram: форум чи ні, вибрана гілка й список (закриті позначені), для «Профіль і правила».
     const threadChat=url.searchParams.get('telegramThread')?.trim()||'';
-    if(threadChat)return json({thread:await readTelegramThreadState(env.DB,user.id,threadChat)});
+    if(threadChat){
+      // Якщо перевірка гілок цього чату вже стоїть у черзі чи виконується, профіль показує «Перевіряю…» і чекає саме її результат.
+      const [thread,scanJobId]=await Promise.all([
+        readTelegramThreadState(env.DB,user.id,threadChat),
+        readActiveTelegramScanJobId(env.DB,user.id,threadChat,businessDate(Math.floor(Date.now()/1000))),
+      ]);
+      return json({thread:{...thread,...(scanJobId?{scanJobId}:{})}});
+    }
     // Telegram: усе по вибраному акаунту (чати, гілки, прив'язка до браузера).
     if(planPlatform==='telegram'||url.searchParams.get('telegram')==='1'){
       const now=Math.floor(Date.now()/1000);
@@ -312,6 +320,8 @@ export async function POST(request:Request):Promise<Response>{
           if(!(error instanceof MessengerAutomationError&&[404,409].includes(error.status)))throw error;
           result={created:0,skipped:1};
           reason=error.message;
+          // Перевірка цього чату вже поставлена: це не відмова, а та сама задача, результат якої чекає профіль.
+          if(error.code==='already_queued')scanJobId=await readActiveTelegramScanJobId(env.DB,user.id,oneChat,businessDate(now))||'';
         }
       }else result=await createTelegramScanBatch(env.DB,user.id,accountId,now,businessDate(now));
       if(result.created>0)await wakeOwnerChannelAutopost(user.id);
