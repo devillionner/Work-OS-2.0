@@ -1217,6 +1217,7 @@ const TELEGRAM_REASON_TEXT={
   telegram_attachment_not_opened:'Telegram Web не відкрив вікно вкладення з фото. Автопост на паузі.',
   telegram_send_not_clicked:'Telegram Web не прийняв відправку фото (вікно лишилось відкритим). Автопост на паузі.',
   telegram_flood_wait:'Telegram просить зачекати (забагато запитів).',
+  telegram_paid_messages:'Чат бере зірки за повідомлення. Нічого не надіслано й не сплачено, чат іде в архів.',
 };
 let telegramFloodUntil=0;
 let telegramAdapterFailures=[];

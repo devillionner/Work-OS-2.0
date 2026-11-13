@@ -24,6 +24,8 @@ const ARCHIVE_ADMINS = 'Пишуть лише адміни';
 const ARCHIVE_BANNED = 'Забанено';
 const ARCHIVE_MISSING = 'Чат не існує';
 const ARCHIVE_NO_ACCESS = 'Немає доступу';
+// Чат бере Telegram Stars за кожне повідомлення: автопост нічого не надсилає й не сплачує, повтор безглуздий.
+const ARCHIVE_PAID = 'Платні повідомлення';
 const ARCHIVE_DECIDED = 'Не вдалося опублікувати';
 
 const ADMIN_ONLY = new Set(['admin_only', 'read_only', 'viber_read_only', 'telegram_read_only']);
@@ -61,6 +63,8 @@ export function classifyAutopostFailure(code: string, platform: string): Policy 
   if (MISSING.has(code)) return { kind: 'archive', reason: ARCHIVE_MISSING };
   // Telegram: акаунт не бачить чат (не учасник, вийшов чи вилучений) — власнику нема що вирішувати, чат іде в архів із причиною.
   if (code === 'telegram_no_access') return { kind: 'archive', reason: ARCHIVE_NO_ACCESS };
+  // Платні повідомлення (Telegram Stars): архів із причиною, без повторів і без «Потребують рішення».
+  if (code === 'telegram_paid_messages') return { kind: 'archive', reason: ARCHIVE_PAID };
   // «Очікування» є лише у WhatsApp і Telegram; у Viber невдалий вступ вирішує власник.
   if (code === 'approval_required' && platform === 'whatsapp') return { kind: 'waiting' };
   if (POSTPONE.has(code)) return { kind: 'postpone' };

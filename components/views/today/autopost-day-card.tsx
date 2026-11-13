@@ -14,7 +14,7 @@ const NAMES = { whatsapp: 'WhatsApp', viber: 'Viber', telegram: 'Telegram' } as 
 const ORDER: ReadonlyArray<AutopostDayPlatform['platform']> = ['viber', 'whatsapp', 'telegram'];
 const REASONS: ReadonlyArray<{ key: keyof AutopostDayPlatform['settled']; label: string }> = [
   { key: 'decision', label: 'Потребують рішення' },
-  { key: 'archived', label: 'В архів: бан, заборона писати, чату немає' },
+  { key: 'archived', label: 'В архів: бан, заборона писати, платні, чату немає' },
   { key: 'snoozed', label: 'Відкладено на завтра' },
   { key: 'waiting', label: 'Очікують вступу' },
   { key: 'skipped', label: 'Пропущено на сьогодні' },

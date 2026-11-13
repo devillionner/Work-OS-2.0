@@ -34,6 +34,16 @@ const privatePattern = /(?:(?:chat|group|channel) is private|(?:чат|груп�
 const topicClosedPattern = /(?:topic is closed|тему закрито|тема закрита|тема закрыта|тема закрита адміністратор|закрыта админ)/iu;
 // Підвал чату, де поля немає з інших причин (нічний режим бота, повільний режим, права чату): не закрита гілка і не привід для архіву.
 const forumHintPattern = /(?:reply to messages in topics|відповідати на повідомлення в темах|відповісти на повідомлення в темах|отвечать на сообщения в темах)/iu;
+// Платні повідомлення (Telegram Stars): чат бере зірки за кожне вхідне повідомлення. Діалог «Confirm Payment … charges 385 Stars per incoming message»
+// з кнопками «Cancel» і «Pay for 1 message» адаптер не торкається ніколи: бачить його — закриває «Cancel» (чи Escape) і віддає `telegram_paid_messages`.
+// Це текст діалогу, не підпису до фото: у вікні відправки фото (є поле підпису) текст оголошення сюди не потрапляє.
+export const paidDialogPattern = /(?:confirm(?:ation of)? payment|pay for\s+\d*\s*messages?|charges?\s+[\d\s.,]*(?:stars?|★|⭐)|[\d.,]+\s*stars?\s+per\s+(?:incoming\s+)?message|(?:підтверд\p{L}*|підтвердіть)\s+(?:оплат|платіж)\p{L}*|(?:сплатити|оплатити|сплатіть)\s+(?:за\s+)?\d*\s*повідомлен\p{L}*|(?:зір(?:ок|ки|ку)|зірк\p{L}*)\s+за\s+(?:кожне\s+)?(?:вхідне\s+)?повідомлен\p{L}*|(?:подтверд\p{L}*|подтвердите)\s+(?:оплат|платеж)\p{L}*|(?:оплатить|заплатить)\s+(?:за\s+)?\d*\s*сообщен\p{L}*|(?:звёзд|звезд)\p{L}*\s+за\s+(?:каждое\s+)?(?:входящее\s+)?сообщен\p{L}*)/iu;
+// Кнопка оплати за підписом: «Pay for 1 message», «Сплатити …», будь-що із зіркою.
+export const payButtonPattern = /(?:^pay\b|pay for|^сплатити|^оплатити|^оплатить|^заплатить|[★⭐])/iu;
+// Плейсхолдер чи підпис поля платного чату: «Message for ★385».
+export const paidComposerPattern = /(?:(?:message|send) for|повідомлення за|надіслати за|сообщение за|отправить за)\s*[★⭐]|[★⭐]\s*\d/iu;
+// Єдина кнопка, яку адаптер тисне в діалозі оплати: «Cancel».
+const cancelButtonPattern = /^(?:cancel|скасувати|скасуй|отмена|відміна)$/iu;
 // Бот-модератор пише, до котрої години чат закритий: «до 7:00», «until 7». Шукаємо лише в повідомленнях про режим тиші.
 const quietKeywordPattern = /(?:нічн|ночн|night|тиш[аіу]|тихий|silent|режим|mode|заборон|закрит|запрещ)/iu;
 const quietUntilPattern = /(?<!\p{L})(?:до|until|till|по)\s+(\d{1,2})(?:[:.](\d{2}))?(?!\d)(?!\s*(?:хв|мин|min|сек|sec))/iu;
@@ -477,6 +487,9 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     }
     const observedTarget = state.title;
     const peerId = state.peerId || (target.kind === 'private' ? target.peerId : '');
+    // Вікна від попередньої спроби (вікно фото, помилка, діалог оплати): закриваємо до будь-якого кліку. Діалог оплати означає платний чат.
+    const leftoverPaid = await clearLeftoverModals(page);
+    if (leftoverPaid) return { kind: 'blocked', reason: 'telegram_paid_messages', observedTarget, detail: `leftover: ${leftoverPaid}`.slice(0, 300), sendAttempted: false };
 
     // 3. Форум чи ні й гілки (закриті позначені). Форум без вибраної гілки в чат не пишемо: публікація в «Загальну» замість потрібної гілки
     // гірша за пропуск, тож і форум, чий список гілок не прочитався, іде на вибір гілки.
@@ -502,6 +515,13 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     // sendAttempted: кнопку «Надіслати» вже натиснуто. Лише тоді задача займає вікно інтервалу «N на годину»; збій до натискання його не витрачає.
     let sendAttempted = false;
     const withScan = (extra) => ({ ...extra, observedTarget, scan, sendAttempted });
+    // Чат, який вважався звичайним, а підвал чи стан поля показали форум: збираємо гілки й віддаємо чат на вибір гілки (`thread_required`), публікації немає.
+    const forumFromHint = async (detail) => {
+      onStep('topics', 'збираю гілки чату');
+      const found = await collectTopics(page, client, peerId, rootUrl, shouldAbort, Math.min(deadlineAt, startedAt + SCAN_BUDGET_MS), knownTopics);
+      scan = { forum: true, topics: found };
+      return withScan({ kind: 'blocked', reason: 'thread_required', detail: String(detail || '').slice(0, 200) });
+    };
     if (forum && !scanOnly) {
       if (!chosen) return withScan({ kind: 'blocked', reason: 'thread_required' });
       const known = topics.find((item) => item.id === chosen.id);
@@ -543,6 +563,9 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
       await sleep(400); writable = await page.evaluate(READ_STATE_JS);
     }
     if (forum && chosen && writable.threadId !== chosen.id) return withScan({ kind: 'blocked', reason: 'telegram_thread_not_opened', detail: writable.url || '' });
+    // Підвал «You can reply to messages in topics» — це форум, навіть якщо шапка не показала аватар форуму: пишемо не в чат, а збираємо гілки й віддаємо чат
+    // на вибір гілки (а не «зараз писати не можна»). Без цього форуми з `telegram_forum=0` щоразу падали однаково.
+    if (!forum && forumHintPattern.test(`${writable.footer || ''} ${writable.disabled || ''}`)) return await forumFromHint(`footer: ${writable.footer || writable.disabled}`);
     const blockedText = `${writable.footer || ''} ${writable.notices || ''}`;
     if (!writable.composer) {
       // Закрита гілка — лише за явною ознакою: значок замка в списку гілок або текст «топік закрито» в підвалі.
@@ -569,6 +592,10 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
       }
       return withScan({ kind: 'blocked', reason: 'telegram_composer_not_found', detail: blockedText });
     }
+    // Платний чат (Telegram Stars): ознака видна ще до введення чого-небудь (плейсхолдер «Message for ★385», кнопка з зіркою). Нічого не вставляємо й не тиснемо.
+    let paidState = await readPaidState(page);
+    if (!paidState.paid) { await sleep(500); paidState = await readPaidState(page); }
+    if (paidState.paid) return withScan({ kind: 'blocked', reason: 'telegram_paid_messages', detail: paidState.why });
     // Поле є: тимчасова заборона чату знята (позначка в Work OS очищається разом з будь-яким результатом цього чату).
     scan = { ...scan, restricted: false };
     // Лише перевірити, що в чат (гілку) можна писати: текст не вводиться й нічого не надсилається (діагностика на живих чатах).
@@ -619,9 +646,17 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
         // Діагностика: що саме стоїть у полі, коли вікно фото не відкрилось (заборона медіа, інша мова підпису кнопки, довгий запуск вікна).
         const state = await page.evaluate(`JSON.stringify({pasted:${pasted ? 'true' : 'false'},modal:Boolean(document.querySelector('.Modal')),composer:(document.querySelector('#MiddleColumn .Composer')||{}).innerText||'',buttons:[...document.querySelectorAll('#MiddleColumn .Composer button, #MiddleColumn .Composer .Button')].map((n)=>(n.getAttribute('aria-label')||n.innerText||'').trim()).filter(Boolean).slice(0,10),footer:(document.querySelector('.messaging-disabled')||{}).innerText||''})`).catch(() => '');
         await discardAttachment(page);
+        const paidLate = await paymentGuard(page);
+        if (paidLate) return withScan({ kind: 'blocked', reason: 'telegram_paid_messages', detail: paidLate.slice(0, 300) });
+        // Вікно фото не відкрилось, бо це форум без вибраної гілки (вставка в «корінь» нічого не відкриває): форум, а не збій екрана.
+        if (!forum && forumHintPattern.test(String(state))) return await forumFromHint(`attachment: ${state}`);
         return withScan({ kind: 'blocked', reason: 'telegram_attachment_not_opened', detail: String(state).slice(0, 500) });
       }
       if (media) { await sleep(600); field = '#editable-message-text-modal'; }
+      if (media) {
+        const paidModal = await paymentGuard(page);
+        if (paidModal) { await discardAttachment(page); return withScan({ kind: 'blocked', reason: 'telegram_paid_messages', detail: paidModal.slice(0, 300) }); }
+      }
     }
     onStep('text', 'вводжу текст');
     if (!await page.click(`document.querySelector(${JSON.stringify(field)})`)) { if (media) await discardAttachment(page); return withScan({ kind: 'blocked', reason: 'telegram_composer_not_found' }); }
@@ -639,21 +674,41 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     if (shouldAbort()) { if (media) await discardAttachment(page); return withScan({ kind: 'blocked', reason: 'cancelled' }); }
 
     // 6. Надіслати: у вікні фото — головна кнопка вікна, без нього — кнопка поля повідомлення.
+    // Перед кліком ще раз: ні діалогу оплати, ні платної кнопки (чат міг стати платним, поки йшла підготовка). Підпис оголошення в перевірці не бере участі.
+    const cancelPaid = async (detail) => {
+      // Нічого не надіслано: тиснемо лише «Cancel», вікно фото й чернетку в полі прибираємо.
+      if (media) await discardAttachment(page);
+      else await page.evaluate(`(() => { const node = document.querySelector('#editable-message-text'); if (!node) return false; node.focus(); const range = document.createRange(); range.selectNodeContents(node); const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range); document.execCommand('delete'); return true; })()`).catch(() => {});
+      sendAttempted = false;
+      return withScan({ kind: 'blocked', reason: 'telegram_paid_messages', detail: String(detail || '').slice(0, 300) });
+    };
+    const paidBefore = await paymentGuard(page);
+    if (paidBefore) return await cancelPaid(paidBefore);
+    const paidButton = await readPaidState(page, { withText: false });
+    if (paidButton.paid) return await cancelPaid(paidButton.why);
     onStep('send', 'надсилаю');
     const clicked = await page.click(media
-      ? `[...document.querySelectorAll('.Modal button.primary')].filter((el) => !el.disabled && el.getBoundingClientRect().width > 0).pop() || null`
+      ? SAFE_PHOTO_SEND_EXPR
       : `(() => { const buttons = [...document.querySelectorAll('#MiddleColumn button, #MiddleColumn .Button')];
         return buttons.find((el) => el.classList.contains('send') && !el.disabled) || buttons.find((el) => /^(send message|надіслати повідомлення|отправить сообщение)$/iu.test(el.getAttribute('aria-label') || el.title || '')) || null; })()`);
     sendAttempted = true;
-    if (!clicked) {
+    if (!clicked && media) {
+      // Безпечної кнопки немає (поверх вікна фото відкрито ще одне вікно чи кнопка з зіркою): нічого не тиснемо навмання, дивимось, що це.
+      const blocker = await paymentGuard(page);
+      sendAttempted = false;
+      if (blocker) return await cancelPaid(blocker);
+    } else if (!clicked) {
       await page.key('Enter', 'Enter', 13);
     } else if (media) {
       // Вікно фото закривається, щойно Telegram прийняв відправку. Якщо воно ще відкрите через кілька секунд, клік не подіяв (фото ще
       // обробляється): тиснемо ще раз, до трьох разів. Поки вікно відкрите, нічого не надіслано, тож дубля не буде.
+      // Перед кожним повторним кліком — діалог оплати: його закриваємо «Cancel», а кнопка вікна фото тиснеться лише через SAFE_PHOTO_SEND_EXPR.
       for (let again = 0; again < 2; again += 1) {
         await sleep(3_000);
+        const paidAgain = await paymentGuard(page);
+        if (paidAgain) return await cancelPaid(paidAgain);
         if (!await page.evaluate(`Boolean(document.querySelector('.Modal #editable-message-text-modal'))`)) break;
-        await page.click(`[...document.querySelectorAll('.Modal button.primary')].filter((el) => !el.disabled && el.getBoundingClientRect().width > 0).pop() || null`);
+        await page.click(SAFE_PHOTO_SEND_EXPR);
       }
     }
 
@@ -663,6 +718,9 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     const confirmDeadline = Date.now() + (media ? PHOTO_CONFIRM_TIMEOUT_MS : SEND_CONFIRM_TIMEOUT_MS);
     while (Date.now() < confirmDeadline) {
       await sleep(POLL_MS);
+      // Діалог оплати міг з'явитись після кліку «Надіслати»: закриваємо «Cancel», нічого не сплачуємо.
+      const paidLoop = await paymentGuard(page);
+      if (paidLoop) return await cancelPaid(paidLoop);
       const messages = await page.evaluate(READ_MESSAGES_JS);
       const mine = messages.find((item) => !beforeIds.has(item.id) && item.own && squash(item.text).startsWith(wanted));
       if (mine) {
@@ -674,6 +732,8 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
       if (notice && floodPattern.test(notice)) return withScan({ kind: 'blocked', reason: 'telegram_flood_wait', floodSeconds: parseTelegramFloodSeconds(notice) || 300, detail: notice, afterSend: true });
       if (notice && slowModePattern.test(notice)) return withScan({ kind: 'blocked', reason: 'telegram_slow_mode', detail: notice, afterSend: true });
     }
+    const paidLate = await paymentGuard(page);
+    if (paidLate) return await cancelPaid(paidLate);
     // Не вдалось підтвердити: зберігаємо, що саме було на екрані (знімок поруч із журналом runner) і стан поля, кнопки й сповіщень.
     const diagnostic = await page.evaluate(`(() => { const composer = document.querySelector('#editable-message-text');
       return { composerChars: composer ? (composer.innerText || '').length : -1, own: document.querySelectorAll('#MiddleColumn .Message.own').length, messages: document.querySelectorAll('#MiddleColumn .Message').length,
@@ -699,6 +759,112 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     try { await client.send('Emulation.clearDeviceMetricsOverride'); } catch { /* вкладка вже закрита */ }
     page.close();
   }
+}
+
+// Усі видимі модальні вікна: чи це вікно відправки фото (є поле підпису), текст і підписи кнопок. Платіжний діалог розпізнається тут.
+export const READ_MODALS_JS = `(() => {
+  const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const nodes = [...document.querySelectorAll('.Modal, .modal-dialog, [role="dialog"]')].filter(visible);
+  return nodes.map((node) => ({
+    editor: Boolean(node.querySelector('#editable-message-text-modal')),
+    text: (node.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 400),
+    buttons: [...node.querySelectorAll('button, .Button')].filter(visible).map((el) => (el.innerText || el.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim().slice(0, 80)).filter(Boolean),
+  }));
+})()`;
+
+/** Чи це діалог оплати зірками (за текстом чи за кнопкою оплати), а не вікно відправки фото чи помилка. */
+export function isPaidModal(modal) {
+  if (!modal) return false;
+  if ((modal.buttons || []).some((label) => payButtonPattern.test(String(label)))) return true;
+  // Текст оголошення в полі підпису вікна фото не рахується: платіжний діалог — окреме вікно без поля підпису.
+  return !modal.editor && paidDialogPattern.test(String(modal.text || ''));
+}
+
+// Ознаки платного чату в самому полі повідомлення: клас кнопки (`has-paid-stars paid`, живий знімок 2026-11-10) і плейсхолдер «Message for ★385».
+// `withText: false` після набору тексту: підпис оголошення не має бути приводом для хибної тривоги.
+export const paidProbeJs = (withText) => `(() => {
+  const root = document.querySelector('#MiddleColumn .Composer');
+  const field = document.querySelector('#editable-message-text');
+  const buttons = root ? [...root.querySelectorAll('button, .Button')] : [];
+  const buttonPaid = buttons.some((el) => /(?:^|\\s)(?:has-paid-stars|paid)(?:\\s|$)/.test(typeof el.className === 'string' ? el.className : ''));
+  const parts = [];
+  if (field) parts.push(field.getAttribute('data-placeholder') || '', field.getAttribute('placeholder') || '', field.getAttribute('aria-label') || '');
+  if (${withText ? 'true' : 'false'} && root) {
+    for (const node of root.querySelectorAll('.placeholder-text, [class*="placeholder"]')) parts.push(node.innerText || node.textContent || '');
+    if (field && !(field.innerText || '').trim()) parts.push(root.innerText || '');
+  }
+  const labels = buttons.map((el) => el.getAttribute('aria-label') || el.title || '').filter(Boolean);
+  return { buttonPaid, text: parts.join(' | ').replace(/\\s+/g, ' ').trim().slice(0, 200), labels: labels.join(' | ').slice(0, 200) };
+})()`;
+
+/** Платний чат: так / ні + чим видно (для журналу). */
+export async function readPaidState(page, { withText = true } = {}) {
+  const state = await page.evaluate(paidProbeJs(withText)).catch(() => null);
+  if (!state) return { paid: false, why: '' };
+  if (state.buttonPaid) return { paid: true, why: 'send_button_paid' };
+  if (paidComposerPattern.test(String(state.text || ''))) return { paid: true, why: `placeholder: ${state.text}` };
+  if (paidComposerPattern.test(String(state.labels || ''))) return { paid: true, why: `button: ${state.labels}` };
+  return { paid: false, why: '' };
+}
+
+// «Cancel» у діалозі оплати: лише кнопка з таким підписом всередині вікна, текст якого збігається з ознаками оплати. Кнопку оплати вираз не вибере ніколи.
+const CANCEL_PAID_EXPR = `(() => {
+  const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const paid = new RegExp(${JSON.stringify(paidDialogPattern.source)}, 'iu');
+  const cancel = new RegExp(${JSON.stringify(cancelButtonPattern.source)}, 'iu');
+  const pay = new RegExp(${JSON.stringify(payButtonPattern.source)}, 'iu');
+  const modals = [...document.querySelectorAll('.Modal')].filter(visible).filter((node) => !node.querySelector('#editable-message-text-modal'));
+  for (const modal of modals) {
+    const buttons = [...modal.querySelectorAll('button, .Button')].filter(visible);
+    if (!(paid.test((modal.innerText || '').replace(/\\s+/g, ' ')) || buttons.some((el) => pay.test((el.innerText || '').trim())))) continue;
+    const found = buttons.find((el) => cancel.test((el.innerText || el.getAttribute('aria-label') || '').trim()) && !pay.test((el.innerText || '').trim()));
+    if (found) return found;
+  }
+  return null;
+})()`;
+
+// Кнопка відправки вікна фото. Тиснемо лише коли відкрите єдине вікно (з полем підпису) і на кнопці немає зірки: будь-яке інше вікно поверх нього
+// (оплата, помилка) означає «не тиснути». Раніше тут була будь-яка `.Modal button.primary`, і нею могла виявитись кнопка «Pay for 1 message».
+export const SAFE_PHOTO_SEND_EXPR = `(() => {
+  const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const modals = [...document.querySelectorAll('.Modal')].filter(visible);
+  const editor = modals.find((node) => node.querySelector('#editable-message-text-modal'));
+  if (!editor || modals.some((node) => node !== editor)) return null;
+  const pay = new RegExp(${JSON.stringify(payButtonPattern.source)}, 'iu');
+  const button = [...editor.querySelectorAll('button.primary')].filter((el) => !el.disabled && visible(el)).pop();
+  if (!button) return null;
+  if (pay.test((button.innerText || button.getAttribute('aria-label') || '').trim())) return null;
+  return button;
+})()`;
+
+/**
+ * Діалог оплати на екрані (чи платна кнопка у вікні): закриваємо «Cancel» (чи Escape), оплату не торкаємось. Повертає короткий опис знайденого або ''.
+ * Далі викликач прибирає вікно фото й віддає `telegram_paid_messages`.
+ */
+export async function paymentGuard(page) {
+  const modals = await page.evaluate(READ_MODALS_JS).catch(() => []);
+  const paid = (Array.isArray(modals) ? modals : []).filter(isPaidModal);
+  if (!paid.length) return '';
+  const detail = paid.map((modal) => String(modal.text || '').slice(0, 160)).join(' | ');
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const clicked = await page.click(CANCEL_PAID_EXPR).catch(() => false);
+    if (!clicked) await page.key('Escape', 'Escape', 27).catch(() => {});
+    await sleep(500);
+    const left = await page.evaluate(READ_MODALS_JS).catch(() => []);
+    if (!(Array.isArray(left) ? left : []).some(isPaidModal)) break;
+  }
+  return detail || 'paid_dialog';
+}
+
+// Вікна, що лишились від попередньої спроби (після перепідключення runner чи збою): платіжний діалог закривається «Cancel» і означає платний чат,
+// вікно фото чи помилка — закриваються. Без цього повторна спроба тиснула б головну кнопку чужого вікна.
+async function clearLeftoverModals(page) {
+  const modals = await page.evaluate(READ_MODALS_JS).catch(() => []);
+  if (!Array.isArray(modals) || !modals.length) return '';
+  const paidDetail = await paymentGuard(page);
+  await discardAttachment(page);
+  await closeErrorModal(page);
+  return paidDetail;
 }
 
 // Помилкове вікно Telegram Web («Something went wrong»): закриваємо кнопкою «OK», інакше Escape.
