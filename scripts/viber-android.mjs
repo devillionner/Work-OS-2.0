@@ -71,7 +71,8 @@ export const VIBER_ENV_REASON_TEXT = {
 
 /** Помилка з кодом причини: severity показує, чи могло щось піти в чат. */
 class ViberStop extends Error {
-  constructor(reason, severity, detail = '') { super(reason); this.reason = reason; this.severity = severity; this.detail = detail; }
+  // `observed` — назва чату, яку показав Viber (для «Не той чат»: власник бачить «У Work OS: X · у Viber: Y» і може оновити назву).
+  constructor(reason, severity, detail = '', observed = '') { super(reason); this.reason = reason; this.severity = severity; this.detail = detail; this.observed = observed; }
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -513,8 +514,32 @@ export function inviteScreen(nodes, expected) {
   return { kind: state.title ? 'no_input' : 'other', state };
 }
 
+// Підписи панелі й кнопок сторінки вступу, які не є назвою спільноти.
+const JOIN_PAGE_NOISE = /^(?:join\b|navigate up|more options|share|back)/iu;
+// «2,654 members», «1.2K members», «15 учасників»: рядок під назвою спільноти.
+const MEMBERS_LINE = /^\d[\d\s.,]*[km]?\s*(?:members?|учасник\p{L}*|участник\p{L}*|subscribers?|followers?)(?!\p{L})/iu;
+
+/**
+ * Назва спільноти зі сторінки вступу (сторінка може показувати інший чат за тим самим запрошенням): останній непорожній рядок між «Navigate up» і
+ * «N members». Без рядка з учасниками — перший текст після «Navigate up». Порожньо, якщо назви не видно.
+ */
+export function joinPageTitle(nodes) {
+  const list = Array.isArray(nodes) ? nodes : [];
+  const texts = list.map((node) => String(node.text || '').trim());
+  const up = list.findIndex((node) => /^navigate up$/iu.test(String(node.desc || node.text || '').trim()));
+  const from = up >= 0 ? up + 1 : 0;
+  const members = texts.findIndex((text, index) => index >= from && MEMBERS_LINE.test(text));
+  if (members >= 0) {
+    for (let index = members - 1; index >= from; index -= 1) if (texts[index] && !JOIN_PAGE_NOISE.test(texts[index])) return texts[index].slice(0, 180);
+    return '';
+  }
+  if (up < 0) return '';
+  for (let index = from; index < texts.length; index += 1) if (texts[index] && !JOIN_PAGE_NOISE.test(texts[index])) return texts[index].slice(0, 180);
+  return '';
+}
+
 /** Сторінка вступу належить саме тому чату, який у черзі: назва спільноти збігається, інакше не приєднуємось нікуди. */
-const joinPageNamesChat = (nodes, expected) => {
+export const joinPageNamesChat = (nodes, expected) => {
   const wanted = looseName(expected);
   return Boolean(wanted) && nodes.some((node) => node.text && looseName(node.text) === wanted);
 };
@@ -593,14 +618,14 @@ async function openTarget(android, payload, guard = () => {}) {
   }
   if (!screen) throw new ViberStop('blocking_dialog', 'before', screenText(await android.dump()).slice(0, 160));
   if (screen.kind === 'join') {
-    if (!joinPageNamesChat(nodes, expected)) throw new ViberStop('target_unconfirmed', 'before', `join page: ${screenText(nodes).slice(0, 100)}`);
+    if (!joinPageNamesChat(nodes, expected)) throw new ViberStop('target_unconfirmed', 'before', `join page: ${screenText(nodes).slice(0, 100)}`, joinPageTitle(nodes));
     nodes = await joinChat(android, nodes, expected, guard);
     screen = inviteScreen(nodes, expected);
   }
   if (screen.kind === 'blocked') throw new ViberStop(screen.reason, 'before', screenText(nodes).slice(0, 160));
   const state = conversationState(nodes, expected);
   if (state.title && state.input && state.matches) return state.title.text;
-  if (state.title && !state.matches && state.input) throw new ViberStop('target_unconfirmed', 'before', `${state.title.text}`.slice(0, 180));
+  if (state.title && !state.matches && state.input) throw new ViberStop('target_unconfirmed', 'before', `${state.title.text}`.slice(0, 180), `${state.title.text}`.slice(0, 180));
   throw new ViberStop('blocking_dialog', 'before', screenText(nodes).slice(0, 160));
 }
 
@@ -985,7 +1010,7 @@ async function confirmSent(android, caption, targetName) {
     const nodes = await android.dump();
     const opened = conversationState(nodes, targetName);
     if (!opened.title) continue;
-    if (!opened.matches) throw new ViberStop('target_unconfirmed', 'after', opened.title.text.slice(0, 80));
+    if (!opened.matches) throw new ViberStop('target_unconfirmed', 'after', opened.title.text.slice(0, 80), opened.title.text.slice(0, 180));
     const sentAt = clockMinutes(await android.clock());
     last = await locateOwnMessage(android, prefix, { sentAt, maxPages: 3 });
     if (last.state === 'found') break;
@@ -1168,7 +1193,7 @@ export async function runViberAndroid(action, payload = {}, { shouldAbort = () =
     }
     if (error instanceof ViberStop) {
       const detail = `${error.detail}${error.reason === 'cancelled' ? '' : ` | пройшло ${spent} с`}`.trim();
-      return { ok: false, status: error.severity === 'env' ? 'blocked' : error.severity === 'after' ? 'failed' : 'skipped', reason: error.reason, severity: error.severity, detail, ...(sendPressedAt ? { sentAt: Math.floor(sendPressedAt / 1000) } : {}) };
+      return { ok: false, status: error.severity === 'env' ? 'blocked' : error.severity === 'after' ? 'failed' : 'skipped', reason: error.reason, severity: error.severity, detail, ...(error.observed ? { observedTarget: error.observed } : {}), ...(sendPressedAt ? { sentAt: Math.floor(sendPressedAt / 1000) } : {}) };
     }
     return { ok: false, status: 'failed', reason: 'helper_error', severity: 'after', detail: String(error?.message || error).slice(0, 160) };
   } finally { clearTimeout(timer); emitStep = () => {}; activeTask = null; taskController = null; sendPressed = false; }

@@ -37,11 +37,15 @@ function SnoozeMenu({ label, title, disabled, onPick }: { label: string; title: 
  * «Повідомлення не знайдено» — «Опублікувати ще раз» без попередження: перевірка вже показала, що дубля немає.
  * «Не той чат» — «У Work OS: X · у месенджері: Y» і «Це той самий чат: оновити назву й опублікувати».
  */
-export function AutopostAttentionList({ items, busy, canVerify, onDecide, onDecideMany }: {
+const MESSENGER_NAMES = { viber: 'Viber', whatsapp: 'WhatsApp', telegram: 'Telegram' } as const;
+
+export function AutopostAttentionList({ items, busy, canVerify, messenger, onDecide, onDecideMany }: {
   items: AutopostAttentionItem[];
   busy: boolean;
   /** Чи вміє адаптер платформи лише перевірити наявне повідомлення (Viber і WhatsApp вміють). */
   canVerify: boolean;
+  /** Платформа списку: у «Не той чат» назва з месенджера підписується його іменем («у Viber: …»). */
+  messenger?: keyof typeof MESSENGER_NAMES;
   onDecide: (item: AutopostAttentionItem, decision: AutopostDecision, options?: DecideOptions) => void;
   onDecideMany: (items: AutopostAttentionItem[], decision: AutopostDecision, options?: DecideOptions) => void;
 }) {
@@ -67,7 +71,8 @@ export function AutopostAttentionList({ items, busy, canVerify, onDecide, onDeci
       {[...groups.entries()].map(([key, group]) => {
         const renameable = similar(group.items);
         // Масовий повтор лише там, де збій був до «Надіслати» (ознака з результату задачі), без попередження про дубль.
-        const safe = group.items.filter((item) => item.beforeSend);
+        // «Не той чат» із відомою назвою з месенджера: повтор без зміни назви гарантовано дасть той самий збій, тож масового «Спробувати ще» для таких немає.
+        const safe = group.items.filter((item) => item.beforeSend && !(group.renameable && knownObserved(item)));
         const noPhoto = safe.filter((item) => PHOTO_FAILURE_CODES.has(item.errorCode));
         return (
           <details key={key} className="group rounded-inner border border-line bg-sunken">
@@ -96,12 +101,12 @@ export function AutopostAttentionList({ items, busy, canVerify, onDecide, onDeci
                   <div className="min-w-0">
                     <p className="m-0 truncate text-sm font-medium" title={item.name}>{item.name}</p>
                     {group.renameable && knownObserved(item) ? (
-                      <p className="m-0 mt-0.5 text-xs text-ink-2">У Work OS: {item.name} · у месенджері: <span className="text-ink">{knownObserved(item)}</span></p>
+                      <p className="m-0 mt-0.5 text-xs text-ink-2">У Work OS: {item.name} · у {messenger ? MESSENGER_NAMES[messenger] : 'месенджері'}: <span className="text-ink">{knownObserved(item)}</span></p>
                     ) : <p className="m-0 mt-0.5 text-xs text-ink-2">{autopostReasonText(item.errorCode)}</p>}
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap gap-2">
-                      {group.renameable && knownObserved(item) ? <Button variant="outline" size="sm" disabled={busy} onClick={() => onDecide(item, 'rename')}>Це той самий чат: оновити назву й опублікувати</Button> : null}
+                      {group.renameable && knownObserved(item) ? <Button variant="outline" size="sm" className="h-auto min-h-8 max-w-full whitespace-normal py-2 text-center" disabled={busy} onClick={() => onDecide(item, 'rename')}>Це той самий чат: оновити назву й опублікувати</Button> : null}
                       {group.checkable ? <Button variant="outline" size="sm" disabled={busy} onClick={() => onDecide(item, 'check')}>{group.missing ? 'Перевірити ще раз' : 'Перевірити'}</Button> : null}
                       {group.renameable && knownObserved(item) ? null : <Button variant="outline" size="sm" disabled={busy} onClick={() => retry(item)}>{group.missing ? 'Опублікувати ще раз' : 'Спробувати ще'}</Button>}
                       {PHOTO_FAILURE_CODES.has(item.errorCode) ? <Button variant="outline" size="sm" disabled={busy} title="Той самий текст без фото, лише цього разу" onClick={() => retry(item, 'retry_nophoto')}>Без фото</Button> : null}

@@ -1187,7 +1187,8 @@ async function handleViberAutopostTask(ws,job){
   }
   reportViberStatus(ws,'ready');
   // «Не той чат»: Viber показав чат з іншою назвою; її (до « | screen:») зберігаємо, щоб власник міг оновити назву в Work OS.
-  const observedTitle=reason==='target_unconfirmed'&&!String(result.detail||'').startsWith('join page:')?String(result.detail||'').split(' | screen:')[0].trim():'';
+  // Назву чату з Viber віддає адаптер (`observedTarget`: заголовок розмови чи сторінки вступу); для старих відповідей без неї — заголовок із detail.
+  const observedTitle=reason==='target_unconfirmed'?(String(result.observedTarget||'').trim()||(!String(result.detail||'').startsWith('join page:')?String(result.detail||'').split(' | screen:')[0].trim():'')):'';
   sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',
     observedTarget:observedTitle||job.target?.expectedName,targetVerified:result.severity==='after',sendConfirmed:false,errorCode:reason||'adapter_failed',...(result.sentAt?{sentAt:result.sentAt}:{})});
 }
@@ -1418,8 +1419,9 @@ async function handleAutopostTaskNow(ws,job){
     releaseTask(ws,'autopost',job,now+WHATSAPP_AUTOPOST_RETRY_COOLDOWN_MS,automated.reason,now+WHATSAPP_AUTOPOST_RETRY_COOLDOWN_MS);
     return;
   }
+  // «Не той чат»: назву, яку показав WhatsApp Web (заголовок відкритого чату чи сторінки запрошення), віддаємо серверу, щоб власник міг оновити назву.
   sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',
-    observedTarget:job.target?.expectedName,targetVerified:false,sendConfirmed:false,errorCode:automated.reason});
+    observedTarget:String(automated.observedTarget||'').trim()||job.target?.expectedName,targetVerified:false,sendConfirmed:false,errorCode:automated.reason});
 }
 
 async function handleDiscoveryTask(ws,task){

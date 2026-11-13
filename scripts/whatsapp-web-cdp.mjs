@@ -803,7 +803,7 @@ export async function leaveWhatsappTaskViaCdp(
       opened = await waitForClassification(client, { ...observedTask, action: 'inspect' }, remainingBudget(), 'view', navigatedInviteCode);
     }
     if (opened.kind !== 'result' || opened.result.membershipState !== 'joined' || opened.result.targetVerified !== true) {
-      return { kind: 'blocked', reason: opened.reason || 'joined_target_not_verified' };
+      return { kind: 'blocked', reason: opened.reason || 'joined_target_not_verified', ...(opened.observedName || opened.result?.observedName ? { observedTarget: String(opened.observedName || opened.result.observedName) } : {}) };
     }
 
     const observedTarget = opened.result.observedName || task.expectedTarget?.name || task.name;
@@ -1234,7 +1234,8 @@ export async function sendWhatsappAutopostViaCdp(
         // безкінечно «пропускався» й не архівувався.
         const result = classified.kind === 'result' ? classified.result : null;
         const real = result?.reason || (result?.membershipState === 'pending' ? 'approval_required' : '') || classified.reason;
-        return { kind:'blocked', reason:real || 'joined_target_not_verified' };
+        const seen = result?.observedName || classified.observedName || '';
+        return { kind:'blocked', reason:real || 'joined_target_not_verified', ...(seen ? { observedTarget:String(seen) } : {}) };
       }
       observedTarget = classified.result.observedName || task.target.expectedName;
     }

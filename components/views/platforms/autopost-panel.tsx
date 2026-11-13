@@ -373,7 +373,7 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
 
       {midSlot}
 
-      <AutopostAttentionList items={attention} busy={busy} canVerify onDecide={onDecide} onDecideMany={onDecideMany} />
+      <AutopostAttentionList items={attention} busy={busy} canVerify messenger={platform} onDecide={onDecide} onDecideMany={onDecideMany} />
 
       <ConfirmDialog
         open={confirmReset}
