@@ -12,6 +12,7 @@ const REASONS: Record<string, string> = {
   viber_not_activated: 'Viber у Waydroid не активований. Відкрий його й активуй як додатковий пристрій.',
   viber_language: 'Мова Android у Waydroid має бути англійською.',
   adbkeyboard_missing: 'У Waydroid не встановлена клавіатура ADBKeyBoard: без неї підпис не ввести. Встанови її з adb install.',
+  adbkeyboard_disabled: 'Клавіатура ADBKeyBoard встановлена, але не ввімкнена в Android: підпис не набрався б. Runner вмикає її сам; якщо не вийшло, виконай в adb: ime enable com.android.adbkeyboard/.AdbIME.',
   invalid_viber_link: 'Посилання чату не підходить для автопосту: потрібне посилання виду invite.viber.com.',
   target_name_missing: 'У чату немає назви. Додай назву й повтори.',
   viber_chat_missing: 'Посилання на чат неактивне, або чат видалено.',

@@ -374,10 +374,18 @@ wait_android() { # wait_android секунд
   return 1
 }
 
+# Встановлена клавіатура Android не вважає доступною, поки її не ввімкнено: `ime list -s` її не показує, а `ime set` мовчки не діє.
+enable_adbkeyboard() {
+  [ "$DRY" = 1 ] && return 0
+  android_adb shell ime enable "${ADBKEYBOARD_PACKAGE}/.AdbIME" >/dev/null 2>&1 || true
+  if android_adb shell ime list -s 2>/dev/null | grep -q "${ADBKEYBOARD_PACKAGE}/.AdbIME"; then ok "ADBKeyBoard ввімкнено в Android"
+  else warn "ADBKeyBoard встановлено, але не ввімкнено: runner спробує сам, інакше: adb shell ime enable ${ADBKEYBOARD_PACKAGE}/.AdbIME"; fi
+}
+
 install_adbkeyboard() {
   [ "$DRY" = 1 ] && { say "    [dry-run] дочекатись завантаження Android (sys.boot_completed=1, adb device), завантажити ADBKeyboard.apk, перевірити SHA-256 ${ADBKEYBOARD_SHA256:0:12}…, adb install"; return 0; }
   local apk="$DATA_DIR/ADBKeyboard.apk" limit="${ANDROID_WAIT_SECONDS:-120}"
-  if wait_android "$limit" && android_adb shell pm list packages 2>/dev/null | grep -q "package:${ADBKEYBOARD_PACKAGE}"; then ok "ADBKeyBoard уже встановлено"; return 0; fi
+  if wait_android "$limit" && android_adb shell pm list packages 2>/dev/null | grep -q "package:${ADBKEYBOARD_PACKAGE}"; then ok "ADBKeyBoard уже встановлено"; enable_adbkeyboard; return 0; fi
   mkdir -p "$DATA_DIR"
   curl -fsSL "$ADBKEYBOARD_URL" -o "$apk" || { bad "не вдалося завантажити ADBKeyBoard з $ADBKEYBOARD_URL"; return 1; }
   local actual; actual="$(sha256sum "$apk" | cut -d' ' -f1)"
@@ -388,7 +396,11 @@ install_adbkeyboard() {
   # Дві спроби: після першої (Android міг ще не прийняти ключ adb) ще чекаємо готовності.
   local attempt
   for attempt in 1 2; do
-    if wait_android "$limit" && android_adb install -r "$apk" >/dev/null 2>&1; then ok "ADBKeyBoard встановлено (контрольну суму перевірено)"; rm -f "$apk"; return 0; fi
+    if wait_android "$limit" && android_adb install -r "$apk" >/dev/null 2>&1; then
+      ok "ADBKeyBoard встановлено (контрольну суму перевірено)"; rm -f "$apk"
+      enable_adbkeyboard
+      return 0
+    fi
     [ "$attempt" = 1 ] && { warn "adb ще не прийняв встановлення, пробую вдруге"; limit=60; sleep 5; }
   done
   bad "не вдалося встановити ADBKeyBoard: Android ще не готовий або adb не авторизований. Файл збережено: $apk"

@@ -651,7 +651,9 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
           menuChecked = true;
           if (await attachMenuForbidsMedia(page)) { media = null; scan = { ...scan, mediaForbidden: true }; onStep('photo', 'у цій групі медіа заборонені: публікую лише текст'); break; }
         }
-        if (attempt === 30) await page.evaluate(pasteScript);
+        // Повторна вставка лише коли жодного вікна (навіть ще не готового) немає: інакше друга вставка стане в чергу й після відправки першої
+        // лишиться ще одне вікно «Send Photo» з тим самим підписом (наживо 16.11, повідомлення вийшло, вікно лишилось).
+        if (attempt === 30 && !await page.evaluate(`Boolean(document.querySelector('.Modal'))`)) await page.evaluate(pasteScript);
         await sleep(400);
       }
       if (media && !opened) {
@@ -737,7 +739,11 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
       const mine = messages.find((item) => !beforeIds.has(item.id) && item.own && squash(item.text).startsWith(wanted));
       if (mine) {
         if (mine.failed) return withScan({ kind: 'blocked', reason: media ? 'telegram_attachment_failed' : 'telegram_send_failed' });
-        if (!mine.pending) return { kind: 'result', result: { status: 'sent', observedTarget, targetVerified: true, sendConfirmed: true, mediaConfirmed: media ? mine.hasMedia : undefined, sendAttempted: true, scan } };
+        if (!mine.pending) {
+          // Повідомлення вийшло: вікна «Send Photo», що лишились (друга вставка, повільне вікно), закриваємо без відправки.
+          if (media) await closeResidualPhotoModals(page, onStep);
+          return { kind: 'result', result: { status: 'sent', observedTarget, targetVerified: true, sendConfirmed: true, mediaConfirmed: media ? mine.hasMedia : undefined, sendAttempted: true, scan } };
+        }
         continue;
       }
       const notice = (await page.evaluate(READ_STATE_JS)).notices || '';
@@ -900,6 +906,22 @@ async function attachMenuForbidsMedia(page) {
     await sleep(300);
     return /photo or video|фото або відео|фото или видео/iu.test(items) ? false : mediaForbiddenPattern.test(items);
   } catch { return false; }
+}
+
+// Після підтвердженої відправки: усі вікна «Send Photo», що ще відкриті (до трьох), закриваються без відправки. Вікно з іншим вмістом
+// (помилка, оплата) не чіпаємо тут: його закриють перевірки наступної задачі.
+async function closeResidualPhotoModals(page, onStep = () => {}) {
+  let closed = 0;
+  try {
+    for (let round = 0; round < 3; round += 1) {
+      await sleep(round ? 500 : 800);
+      if (!await page.evaluate(`Boolean(document.querySelector('.Modal #editable-message-text-modal'))`)) break;
+      if (!closed) onStep('confirm', 'закриваю зайве вікно фото');
+      await discardAttachment(page);
+      closed += 1;
+    }
+  } catch { /* вкладка вже закрита */ }
+  return closed;
 }
 
 // Закрити вікно вкладення без відправки (кнопка «Discard attachments» або Escape): фото не мусить лишитись у полі до наступної задачі.

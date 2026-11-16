@@ -67,6 +67,7 @@ export const VIBER_ENV_REASON_TEXT = {
   viber_not_activated: 'Viber у Waydroid не активований',
   viber_language: 'Мова Android має бути англійською',
   adbkeyboard_missing: 'У Waydroid не встановлена клавіатура ADBKeyBoard',
+  adbkeyboard_disabled: 'Клавіатура ADBKeyBoard встановлена, але не ввімкнена в Android',
 };
 
 /** Помилка з кодом причини: severity показує, чи могло щось піти в чат. */
@@ -158,7 +159,10 @@ export const looseName = (value) => String(value || '').normalize('NFC')
  * і координатами, але без тексту. Координати вузла = початок вікна (`mBounds`) + зсуви всіх батьків; видимість успадковується.
  * Тексти (назва чату, підпис, останнє повідомлення) читає лише повний `uiautomator dump` у точках перевірки.
  */
-const VIEW_LINE = /^(\s+)[\w.$]+\{[0-9a-f]+ (\S+) (\S+) (-?\d+),(-?\d+)-(-?\d+),(-?\d+)(?: #[0-9a-f]+ app:id\/(\w+))?\}/;
+// Після `uiautomator dump` Android дописує до рядків дерева ` aid=…` (accessibility id), а власні вузли системи мають
+// `android:id/…`: обидва варіанти раніше не збігалися з шаблоном, рядок відкидався, і діти вузла рахувались від чужого
+// батька (3.17.5: «Send» мав top 0 і visible=false, дотик не йшов, хоча кнопка була на екрані).
+const VIEW_LINE = /^(\s+)[\w.$]+\{[0-9a-f]+ (\S+) (\S+) (-?\d+),(-?\d+)-(-?\d+),(-?\d+)(?: #[0-9a-f]+ (?:app|android):id\/(\w+))?[^}\n]*\}/;
 
 export function parseViewTree(text, packageName = VIBER_PACKAGE) {
   let activity = '';
@@ -410,6 +414,17 @@ async function connectQuick() {
   return connect();
 }
 
+/** Увімкнені методи введення (`ime list -s`). */
+async function enabledImes(android) {
+  return (await android.sh('ime list -s', { timeout: 10_000 })).split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
+/** Робить клавіатуру ADB поточною: спершу `ime enable` (без нього `ime set` мовчки нічого не змінює), потім `ime set`. */
+async function selectAdbKeyboard(android) {
+  await android.sh(`ime enable ${ADB_KEYBOARD}`);
+  await android.sh(`ime set ${ADB_KEYBOARD}`);
+}
+
 async function checkEnvironment(android) {
   const installed = await android.sh(`pm path ${VIBER_PACKAGE}`, { timeout: 15_000 });
   if (!installed.includes('package:')) throw new ViberStop('viber_not_installed', 'env');
@@ -417,6 +432,12 @@ async function checkEnvironment(android) {
   if (!/^en/i.test(locale)) throw new ViberStop('viber_language', 'env', locale);
   const keyboard = await android.sh(`pm path ${ADB_KEYBOARD_PACKAGE}`, { timeout: 15_000 });
   if (!keyboard.includes('package:')) throw new ViberStop('adbkeyboard_missing', 'env');
+  // Встановлена клавіатура Android не вважає доступною, поки її не ввімкнено (`ime list -s` її не показує, `ime set` мовчки не діє,
+  // а підпис потрапляє в екранну клавіатуру). Вмикаємо самі; якщо не вийшло, це окрема причина зі своїм поясненням.
+  if (!(await enabledImes(android)).includes(ADB_KEYBOARD)) {
+    await android.sh(`ime enable ${ADB_KEYBOARD}`);
+    if (!(await enabledImes(android)).includes(ADB_KEYBOARD)) throw new ViberStop('adbkeyboard_disabled', 'env');
+  }
   // Автозаморожування Waydroid зупиняє відправку при схованому вікні: вимикаємо саме, а якщо не вийшло, пояснюємо на сайті.
   if ((await android.sh('getprop persist.waydroid.suspend')).trim() === 'true') {
     await android.sh('setprop persist.waydroid.suspend false');
@@ -728,16 +749,39 @@ async function prepareIme(android, caption) {
     restored = true;
     if (state.previous) await android.sh(`ime set ${state.previous}`);
   };
-  if (current !== ADB_KEYBOARD) await android.sh(`ime set ${ADB_KEYBOARD}`);
+  if (current !== ADB_KEYBOARD) await selectAdbKeyboard(android);
   return state;
+}
+
+/**
+ * Разові рекламні панелі Viber («Create your own Remix Image» над переглядом фото, «Give images a new look» із кнопкою «Got it»
+ * над розмовою) закривають поле підпису й стрічку: перегляд і підтвердження їх не бачать. Панель із «Got it» закривається
+ * цією кнопкою, «Remix now» — «Назад» (перший «Назад» закриває лише її, не перегляд). true — панель була й закрита.
+ */
+async function dismissPromoSheet(android, nodes = null) {
+  const list = nodes || await android.dump();
+  const gotIt = list.find((node) => node.id === 'positive_button' && /^got it$/i.test(node.text.trim()))
+    && list.some((node) => node.id === 'bottom_sheet_title');
+  if (gotIt) {
+    await android.tap(list.find((node) => node.id === 'positive_button'));
+    await sleep(900);
+    return true;
+  }
+  const texts = list.map((node) => `${node.text} ${node.desc}`).join(' | ');
+  if (!/Remix now|Create your own Remix/i.test(texts)) return false;
+  await android.key(4);
+  await sleep(900);
+  return true;
 }
 
 /** Текст у поле підпису через клавіатуру ADB (див. `prepareIme`). */
 async function typeCaption(android, caption, guard) {
   // Якщо клавіатуру хтось підмінив, повертаємо ADB і даємо їй час.
   if ((await android.sh('settings get secure default_input_method')).trim() !== ADB_KEYBOARD) {
-    await android.sh(`ime set ${ADB_KEYBOARD}`);
+    await selectAdbKeyboard(android);
     await sleep(2500);
+    // Клавіатуру не вдалося зробити поточною: підпис пішов би в екранну клавіатуру, тож зупиняємось до відправки.
+    if ((await android.sh('settings get secure default_input_method')).trim() !== ADB_KEYBOARD) throw new ViberStop('adbkeyboard_disabled', 'before', 'ime set');
   }
   // Порожнє поле віддає в дереві підказку «Add a description…»: так відрізняємо «нічого не набралось» від неповного набору.
   const isEmpty = (text) => !text || /^Add a description/i.test(text);
@@ -748,7 +792,9 @@ async function typeCaption(android, caption, guard) {
     // з дерева (Viber підміняє його полем редагування). Інакше дотикаємо знову. Команда без фокусу мовчки губиться.
     let touched = false;
     for (let touch = 0; touch < 4 && !touched; touch += 1) {
-      const field = viewById(await android.view(), CAPTION_FIELD);
+      let field = viewById(await android.view(), CAPTION_FIELD);
+      // Разова реклама Viber («Create your own Remix Image») закриває поле підпису: перший «Назад» закриває лише її, не перегляд.
+      if (!field && !touch && await dismissPromoSheet(android)) field = viewById(await android.view(), CAPTION_FIELD);
       if (!field && !touch) throw new ViberStop('send_ui_unavailable', 'before', 'caption field');
       if (field && !field.focused) {
         guard();
@@ -795,7 +841,8 @@ async function pressUntil(android, locate, done, { attempts = 3, timeout = 5000 
  * Viber у Waydroid, тому не використовується; усі екрани цього шляху `uiautomator dump` витримують.
  */
 async function attachAndSend(android, caption, guard, ime) {
-  const convo = await android.until(conversationReady, { timeout: 15_000, step: 250 });
+  let convo = await android.until(conversationReady, { timeout: 15_000, step: 250 });
+  if (!convo && await dismissPromoSheet(android)) convo = await android.until(conversationReady, { timeout: 10_000, step: 250 });
   if (!convo) throw new ViberStop('send_ui_unavailable', 'before', 'plus button');
   step('photo', 'додаю фото');
   guard();
@@ -845,7 +892,10 @@ async function attachAndSend(android, caption, guard, ime) {
     let sent = false;
     for (let attempt = 0; attempt < 2 && !sent; attempt += 1) {
       const view = await android.view();
-      const send = viewById(view, 'btn_send');
+      // Координати «Send» з дешевого дерева звіряються з повним dump, якщо дерево його не віддало (рядки з `aid=` раніше
+      // відкидались): у dump координати вже екранні, з урахуванням letterbox-зсуву вікна.
+      let send = viewById(view, 'btn_send');
+      if (!send && !left(view)) send = byId(await android.dump(), 'btn_send');
       if (send && !left(view)) await android.press(send);
       sent = Boolean(await android.until(left, { timeout: 8000, step: 250 }));
     }
@@ -863,13 +913,14 @@ async function attachAndSend(android, caption, guard, ime) {
 const TEXT_SEND_BUTTONS = ['btn_send', 'send_button', 'btn_send_message'];
 const textSendButton = (view) => TEXT_SEND_BUTTONS.map((id) => viewById(view, id)).find((item) => item && item.visible !== false);
 async function sendTextOnly(android, text, guard, ime) {
-  const convo = await android.until(conversationReady, { timeout: 15_000, step: 250 });
+  let convo = await android.until(conversationReady, { timeout: 15_000, step: 250 });
+  if (!convo && await dismissPromoSheet(android)) convo = await android.until(conversationReady, { timeout: 10_000, step: 250 });
   if (!convo) throw new ViberStop('send_ui_unavailable', 'before', 'conversation');
   guard();
   step('text', 'вводжу текст');
   try {
     if ((await android.sh('settings get secure default_input_method')).trim() !== ADB_KEYBOARD) {
-      await android.sh(`ime set ${ADB_KEYBOARD}`);
+      await selectAdbKeyboard(android);
       await sleep(2500);
     }
     let focused = false;
@@ -1087,7 +1138,7 @@ async function confirmSent(android, caption, targetName) {
     }
     const nodes = await android.dump();
     const opened = conversationState(nodes, targetName);
-    if (!opened.title) continue;
+    if (!opened.title) { await dismissPromoSheet(android, nodes); continue; }
     if (!opened.matches) throw new ViberStop('target_unconfirmed', 'after', opened.title.text.slice(0, 80), opened.title.text.slice(0, 180));
     const sentAt = clockMinutes(await android.clock());
     last = await locateOwnMessage(android, prefix, { sentAt, maxPages: 3 });
