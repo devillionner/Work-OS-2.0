@@ -275,6 +275,9 @@ export class OwnerChannel {
       }
       // Дія оператора (старт, зупинка, рішення) знімає паузу: він міг якраз виправити причину.
       state.autopostPaused = undefined;
+      // «Перевірити й продовжити»: runner спершу проходить пробну відправку платформи (пауза вже знята, задача піде після неї).
+      const recheck = url.searchParams.get('check');
+      if (AUTOPOST_PLATFORMS.includes(String(recheck))) this.broadcast('runner', { type: 'canary_force', platform: recheck });
       // Темп платформ: `pace=viber:0,telegram:20` (0 — без пауз); старий параметр `telegramPerHour` лишається для сумісності.
       const paceParam = url.searchParams.get('pace') || '';
       const legacyPerHour = Number(url.searchParams.get('telegramPerHour'));
@@ -345,7 +348,7 @@ export class OwnerChannel {
   async onBrowserConnected(server, userId) {
     const state = await this.readState();
     if (userId && state.userId !== userId) { state.userId = userId; await this.writeState(state); }
-    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0, ...(state.runnerVersion ? { runnerVersion: state.runnerVersion } : {}), ...(state.runnerNotices ? { runnerNotices: state.runnerNotices } : {}), ...(state.viberStatus ? { viberStatus: state.viberStatus } : {}), ...(state.autopostStatus ? { autopostStatus: state.autopostStatus } : {}), ...(state.autopostPace ? { autopostPace: state.autopostPace } : {}), ...(state.autopostPace?.telegram ? { telegramPace: state.autopostPace.telegram } : {}), autopostSteps: await this.freshAutopostSteps(), ...(state.runnerTransfer ? { runnerTransfer: state.runnerTransfer } : {}) }));
+    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0, ...(state.runnerVersion ? { runnerVersion: state.runnerVersion } : {}), ...(state.runnerNotices ? { runnerNotices: state.runnerNotices } : {}), ...(state.viberStatus ? { viberStatus: state.viberStatus } : {}), ...(state.autopostStatus ? { autopostStatus: state.autopostStatus } : {}), ...(state.autopostPace ? { autopostPace: state.autopostPace } : {}), ...(state.autopostHealth ? { autopostHealth: state.autopostHealth } : {}), ...(state.autopostPace?.telegram ? { telegramPace: state.autopostPace.telegram } : {}), autopostSteps: await this.freshAutopostSteps(), ...(state.runnerTransfer ? { runnerTransfer: state.runnerTransfer } : {}) }));
   }
 
   /**
@@ -580,6 +583,12 @@ export class OwnerChannel {
     }
     if (message.type === 'progress' && message.process === 'autopost_step' && typeof message.platform === 'string') {
       await this.rememberAutopostStep(message);
+    }
+    if (message.type === 'progress' && message.process === 'autopost_health' && AUTOPOST_PLATFORMS.includes(String(message.platform))) {
+      // Здоров'я платформи (пробна відправка, пауза середовища): лишається в стані, щоб сторінка, відкрита пізніше, одразу показала рядок.
+      const state = await this.readState();
+      state.autopostHealth = { ...(state.autopostHealth || {}), [message.platform]: { status: String(message.status || '').slice(0, 20), line: String(message.line || '').slice(0, 300), checkedAt: Number(message.checkedAt) || 0, until: Number(message.until) || 0 } };
+      await this.writeState(state);
     }
     if (message.type === 'progress' || message.type === 'result') {
       this.broadcast('browser', message);

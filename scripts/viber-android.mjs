@@ -7,6 +7,7 @@ import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/pro
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { hideAndroidWindows } from './hyprland-android-windows.mjs';
+import { saveFailureSnapshot } from './failure-snapshots.mjs';
 
 const VIBER_PACKAGE = 'com.viber.voip';
 const VIBER_LAUNCH = 'com.viber.voip/.WelcomeActivity';
@@ -68,7 +69,11 @@ export const VIBER_ENV_REASON_TEXT = {
   viber_language: 'Мова Android має бути англійською',
   adbkeyboard_missing: 'У Waydroid не встановлена клавіатура ADBKeyBoard',
   adbkeyboard_disabled: 'Клавіатура ADBKeyBoard встановлена, але не ввімкнена в Android',
+  viber_invite_not_opened: 'Viber не відкриває чати за запрошенням',
 };
+
+// Коди, після яких екран був не тим, що чекав адаптер: для них зберігається знімок (скріншот і дерево).
+const UNKNOWN_STATE_REASONS = new Set(['blocking_dialog', 'send_ui_unavailable', 'send_not_confirmed', 'viber_invite_not_opened', 'target_not_found', 'helper_error', 'adbkeyboard_disabled', 'android_error']);
 
 /** Помилка з кодом причини: severity показує, чи могло щось піти в чат. */
 class ViberStop extends Error {
@@ -615,6 +620,33 @@ async function joinChat(android, nodes, expected, guard) {
   throw new ViberStop('viber_not_joined', 'before', screenText(nodes).slice(0, 160));
 }
 
+/**
+ * Уже приєднаний чат зі списку Viber: рядок із точно такою назвою (без регістру й емодзі), єдиний на екрані й у трьох прокрутках.
+ * Дві однакові назви чи жодної — нічого не відкриваємо. Повертає дерево відкритої розмови або null; назву розмови перевіряє виклик.
+ */
+async function openFromChatList(android, expected, firstNodes) {
+  const wanted = looseName(expected);
+  if (!wanted) return null;
+  let nodes = firstNodes;
+  for (let round = 0; round < 4; round += 1) {
+    const rows = nodes.filter((node) => node.id === 'from' && looseName(node.text) === wanted);
+    if (rows.length > 1) return null;
+    if (rows.length === 1) {
+      await android.tap(rows[0]);
+      const opened = await android.until(conversationReady, { timeout: 12_000, step: 250 });
+      if (!opened) return null;
+      const dump = await clearPromos(android, await android.dump());
+      return conversationState(dump, expected).matches ? dump : null;
+    }
+    const list = nodes.find((node) => node.id === 'from');
+    if (!list) return null;
+    await android.sh(`input swipe ${list.x} ${Math.round(list.top + 500)} ${list.x} ${Math.max(0, Math.round(list.top - 300))} 300`);
+    await sleep(700);
+    nodes = await android.dump();
+  }
+  return null;
+}
+
 async function openTarget(android, payload, guard = () => {}) {
   const expected = String(payload.expectedName || '').trim();
   if (!expected) throw new ViberStop('target_name_missing', 'before');
@@ -630,6 +662,8 @@ async function openTarget(android, payload, guard = () => {}) {
   const link = String(payload.url || '').trim();
   if (!/^https:\/\/invite\.viber\.com\//i.test(link)) throw new ViberStop('invalid_viber_link', 'before');
   await openChatList(android);
+  // Лише для перевірок: імітація збою відкриття запрошення (запобіжник серії), нічого не чіпає в Android.
+  if (process.env.WORK_OS_VIBER_TEST_FAIL === 'viber_invite_not_opened') throw new ViberStop('viber_invite_not_opened', 'before', 'імітація');
   await android.sh(`am start -a android.intent.action.VIEW -d ${shQuote(link)} -p ${VIBER_PACKAGE}`);
   // Дешеве дерево показує, що розмова вже на екрані; будь-який інший екран (вступ, заборона, діалог) раз на кілька секунд
   // читається повним dump з текстом, щоб його розпізнати.
@@ -638,23 +672,46 @@ async function openTarget(android, payload, guard = () => {}) {
   let withoutInput = 0;
   let nodes = null;
   let screen = null;
-  while (!screen && Date.now() - startedAt < 30_000) {
+  let lastKind = '';
+  let relaunched = false;
+  let byName = false;
+  while (!screen && Date.now() - startedAt < 32_000) {
     const ready = conversationReady(await android.view());
     if (ready || (Date.now() - startedAt > 3000 && Date.now() - lastDump > 4000)) {
       // Рекламна підказка поверх розмови ховає її з dump: спершу закриваємо, потім оцінюємо екран.
       const candidate = await clearPromos(android, await android.dump());
       lastDump = Date.now();
       const found = inviteScreen(candidate, expected);
+      lastKind = found.kind;
       if (found.kind === 'conversation' || found.kind === 'join' || found.kind === 'blocked') { nodes = candidate; screen = found; }
       else if (found.kind === 'no_input') {
         // Розмова без поля повідомлення: або ще вантажиться, або писати можуть лише адміни.
         withoutInput += 1;
         if (withoutInput >= 2) throw new ViberStop('viber_read_only', 'before', screenText(candidate).slice(0, 160));
+      } else if (found.kind === 'list') {
+        // Запрошення лишило Viber на списку чатів (16.11, щойно активований додатковий пристрій): інший спосіб відкриття, до відправки
+        // це безпечно. Спершу явний компонент обробника посилань, потім уже приєднаний чат за назвою зі списку.
+        const waited = Date.now() - startedAt;
+        if (!relaunched && waited > 8000) {
+          relaunched = true;
+          await android.sh(`am start -a android.intent.action.VIEW -d ${shQuote(link)} -n ${VIBER_PACKAGE}/com.viber.voip.api.URLSchemeHandlerActivity`);
+        } else if (!byName && waited > 16_000) {
+          byName = true;
+          const viaList = await openFromChatList(android, expected, candidate);
+          if (viaList) { nodes = viaList; screen = inviteScreen(viaList, expected); }
+        }
       }
     }
     if (!screen) await sleep(250);
   }
-  if (!screen) throw new ViberStop('blocking_dialog', 'before', screenText(await android.dump()).slice(0, 160));
+  if (!screen) {
+    const finalNodes = await android.dump();
+    const text = screenText(finalNodes).slice(0, 160);
+    // Список чатів замість чату: запрошення не відкрилось жодним способом (окремий код, а не «діалог, якого не розпізнали»).
+    if (lastKind === 'list' || looksLikeChatList(finalNodes)) throw new ViberStop('viber_invite_not_opened', 'before', text);
+    throw new ViberStop('blocking_dialog', 'before', text);
+  }
+  if (screen.kind === 'join' && payload.openOnly) return joinPageTitle(nodes) || expected;
   if (screen.kind === 'join') {
     if (!joinPageNamesChat(nodes, expected)) throw new ViberStop('target_unconfirmed', 'before', `join page: ${screenText(nodes).slice(0, 100)}`, joinPageTitle(nodes));
     nodes = await joinChat(android, nodes, expected, guard);
@@ -1206,6 +1263,27 @@ async function status() {
   return { ok: true, status: 'ready', reason: null, severity: 'env', detail: '' };
 }
 
+/**
+ * Відбиток середовища Viber (3.18.0): розмір і режим дисплея Android, версії Viber/Android/Waydroid, стан ADBKeyBoard. Зміна будь-
+ * чого з цього вимагає пробної відправки (див. `autopost-health.mjs`). Поки йде задача, `adb` не чіпаємо: повертає null.
+ */
+export async function viberFingerprint() {
+  if (activeTask || process.platform !== 'linux') return null;
+  const android = await connectQuick();
+  const get = async (command) => String(await android.sh(command, { timeout: 10_000 }).catch(() => '')).trim();
+  const keyboardPath = await get(`pm path ${ADB_KEYBOARD_PACKAGE}`);
+  const enabled = (await enabledImes(android).catch(() => [])).includes(ADB_KEYBOARD);
+  const waydroid = await run('waydroid', ['--version'], { timeout: 8000 }).catch(() => ({ stdout: '' }));
+  return {
+    android: await get('getprop ro.build.version.release'),
+    display: (await get('wm size')).replace(/^Physical size:\s*/i, ''),
+    multiWindows: await get('getprop persist.waydroid.multi_windows'),
+    viber: (await get(`dumpsys package ${VIBER_PACKAGE} | grep -m1 versionName`)).replace(/^versionName=/, ''),
+    waydroid: String(waydroid.stdout || '').trim().split('\n')[0].slice(0, 40),
+    adbKeyboard: keyboardPath.includes('package:') ? (enabled ? 'увімкнена' : 'вимкнена') : 'немає',
+  };
+}
+
 /** Секундомір етапів: `lap('назва')` записує, скільки минуло від попередньої позначки. */
 function startLaps() {
   const laps = { items: [], mark: Date.now(), started: Date.now() };
@@ -1235,12 +1313,14 @@ async function post(payload, guard) {
     // Фото кладеться паралельно з відкриттям чату: до галереї воно вже буде в індексі.
     // Правило чату «без фото»: фото не кладемо, повідомлення піде звичайним текстом.
     const textOnly = payload.textOnly === true;
-    const image = textOnly ? Promise.resolve(null) : freshImage(android, payload.media);
+    const image = textOnly || payload.openOnly ? Promise.resolve(null) : freshImage(android, payload.media);
     image.catch(() => {});
     step('open', 'відкриваю чат');
     const targetName = await withStep('відкриття чату', STEP_LIMITS_MS.open, () => openTarget(android, payload, guard));
     laps.lap('чат');
     guard();
+    // Пробна перевірка відкриття запрошення (3.18.0): чат відкрито, нічого не надсилаємо й нікуди не вступаємо.
+    if (payload.openOnly) return { ok: true, status: 'checked', reason: null, severity: 'before', observedTarget: targetName, timings: laps.text() };
     await withStep('фото', STEP_LIMITS_MS.photo, () => image);
     laps.lap('фото');
     guard();
@@ -1316,6 +1396,11 @@ export async function runViberAndroid(action, payload = {}, { shouldAbort = () =
           const dir = join(homedir(), '.local', 'state', 'work-os');
           await mkdir(dir, { recursive: true });
           if (Buffer.isBuffer(shot.stdout) && shot.stdout.length > 1000) await writeFile(join(dir, 'viber-last-failure.png'), shot.stdout);
+          // Невідомий стан: знімок із деревом екрана в теці збоїв (14 днів, ≤ 200 МБ), щоб власник міг передати його на виправлення.
+          if (UNKNOWN_STATE_REASONS.has(error.reason)) {
+            const tree = nodes.map((node) => `${node.id}\t${node.cls}\t${JSON.stringify(node.text)}\t${JSON.stringify(node.desc)}\t[${node.left},${node.top}][${node.right},${node.bottom}]`).join('\n');
+            saveFailureSnapshot({ platform: 'viber', code: error.reason, png: Buffer.isBuffer(shot.stdout) ? shot.stdout : null, tree, detail: error.detail, extra: { target: activeTask?.name } });
+          }
         })(), sleep(20_000)]);
       } catch { /* діагностика не має ламати відповідь */ }
     }

@@ -58,13 +58,15 @@ function cleanPerHour(value:unknown,allowNoPause:boolean):number{
   return allowNoPause&&perHour===0?0:allowNoPause?0:10;
 }
 
-async function wakeOwnerChannelAutopost(userId:string,pace?:{platform:'whatsapp'|'viber'|'telegram';perHour:number}){
+async function wakeOwnerChannelAutopost(userId:string,pace?:{platform:'whatsapp'|'viber'|'telegram';perHour:number},check?:'whatsapp'|'viber'|'telegram'){
   try{
     const stub=env.OWNER_CHANNEL.get(env.OWNER_CHANNEL.idFromName(userId));
     const url=new URL('https://owner-channel/autopost-wake');
     url.searchParams.set('userId',userId);
     // Темп платформи (відправок на годину, 0 — без пауз): DO розставляє їх рівномірно (інтервал = 3600 / це число).
     if(pace)url.searchParams.set('pace',`${pace.platform}:${pace.perHour}`);
+    // «Перевірити й продовжити»: runner спершу проходить пробну відправку цієї платформи, а далі черга йде далі.
+    if(check)url.searchParams.set('check',check);
     await stub.fetch(new Request(url,{method:'POST'}));
   }catch(error){
     console.error('Autopost wake failed',error instanceof Error?error.name:'unknown');
@@ -226,6 +228,12 @@ export async function POST(request:Request):Promise<Response>{
     }
     // Viber-автопост: та сама черга задач, що й у WhatsApp, але чати Viber, без власного тексту й фото (їх дає нотатка
     // в «Мої нотатки»), виконує помічник на ПК оператора через runner.
+    if(body.action==='autopost-recheck'){
+      const platform=body.platform==='viber'||body.platform==='telegram'||body.platform==='whatsapp'?body.platform:null;
+      if(!platform)throw new MessengerAutomationError('Невідома платформа.');
+      await wakeOwnerChannelAutopost(user.id,undefined,platform);
+      return json({ok:true});
+    }
     if(body.action==='viber-autopost-batch'){
       const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,platform:'viber',exclude:body.exclude},now,businessDate(now));
       if(batch.created>0)await wakeOwnerChannelAutopost(user.id,{platform:'viber',perHour:cleanPerHour(body.perHour,true)});

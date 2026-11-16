@@ -1,5 +1,6 @@
 'use client';
 
+import { HealthLine } from '@/components/views/platforms/health-line';
 import { RunnerLaunchLink, WaydroidWindowLink, useRunnerNotice } from '@/components/shell/runner-offline';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ImagePlus, MoreHorizontal, Send, Square, Trash2, UploadCloud, X } from 'lucide-react';
@@ -309,6 +310,7 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
           <i aria-hidden="true" className={`mt-1.5 size-2 shrink-0 rounded-full ${readiness.tone === 'ok' ? 'bg-ok' : readiness.tone === 'hot' ? 'bg-hot' : readiness.tone === 'warn' ? 'bg-warn' : 'bg-ink-3'}`} />
           <span className={readiness.tone === 'hot' ? 'text-hot' : 'text-ink-2'}>{readiness.text}</span>
         </output>
+        <HealthLine platform={platform} />
         {runnerBlocked && readiness.tone === 'hot' && readiness.text.startsWith('Runner вимкнений') ? <RunnerLaunchLink className="self-start" /> : null}
         {platform === 'viber' && /Allow/.test(readiness.text) ? <div className="flex flex-col items-start gap-1.5"><span className="text-[13px] text-ink-2">Потрібно натиснути Allow в Android.</span><WaydroidWindowLink /></div> : null}
         {browserNotice && platform !== 'viber' ? <p className="m-0 flex items-start gap-2 text-[13px] text-warn" role="note"><i aria-hidden="true" className="mt-1.5 size-2 shrink-0 rounded-full bg-warn" />{browserNotice}</p> : null}

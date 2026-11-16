@@ -45,6 +45,8 @@ const RETRY = new Set([
   'autopost_budget_exhausted', 'composer_not_found', 'composer_content_mismatch', 'expected_control_disappeared',
   'membership_not_confirmed', 'joined_target_not_verified', 'media_send_control_not_found',
   'send_ui_unavailable', 'android_error',
+  // Viber не відкрив чат за запрошенням і лишився на списку чатів: до відправки, безпечно повторювати.
+  'viber_invite_not_opened', 'adbkeyboard_disabled',
   // Telegram Web: усе до натискання «Надіслати» (вкладка не готова, чат чи поле повідомлення не відкрились).
   // Viber: крок завис до «Send» і його обірвав сторож; чат не зачеплено, повтор не дасть дубля.
   'viber_step_timeout', 'viber_task_timeout',

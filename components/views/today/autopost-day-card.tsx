@@ -4,6 +4,7 @@ import { emitCommand } from '@/components/shell/command-bus';
 import { useShell } from '@/components/shell/shell-context';
 import { Button } from '@/components/ui/button';
 import { Surface } from '@/components/ui/surface';
+import { HealthText } from '@/components/views/platforms/health-line';
 import { getLatestPace } from '@/lib/live-channel';
 import { cn } from '@/lib/utils';
 import { clockOf } from '@/components/views/today/day-model';
@@ -86,6 +87,7 @@ export function AutopostDayCard({ size }: { size: 'phone' | 'desktop' }) {
                 <i className="block h-full bg-hot" style={{ width: `${(item.failed / total) * 100}%` }} />
                 <i className="block h-full bg-ink opacity-40" style={{ width: `${(item.claimed / total) * 100}%` }} />
               </div>
+              <HealthText platform={item.platform} />
               <div className="flex flex-wrap items-center justify-between gap-x-3 text-xs text-ink-3">
                 <span className="inline-flex items-center gap-1.5 text-ink-2"><i aria-hidden="true" className={cn('size-[7px] rounded-full', DOT[state])} />{label}</span>
                 <span className="font-mono">{item.startedAt ? `${clockOf(item.startedAt)}${state === 'done' && item.lastAt ? ` – ${clockOf(item.lastAt)}` : ''}` : ''}{left && item.pending + item.claimed ? ` · лишилось ${item.pending + item.claimed}` : ''}</span>

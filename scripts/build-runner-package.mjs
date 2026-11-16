@@ -13,7 +13,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const entry = 'scripts/chat-discovery-runner.mjs';
 // Службові файли, яких не видно в імпортах: запуск, трей, обробники посилань, інсталятор, діалог пароля, лікар середовища, версія.
 const EXTRA = [
-  'scripts/whatsapp-runner.sh', 'scripts/work-os-runner-tray.py', 'scripts/work-os-runner-launch.sh', 'scripts/work-os-waydroid-show.sh',
+  'scripts/whatsapp-runner.sh', 'scripts/work-os-runner-tray.py', 'scripts/work-os-runner-launch.sh', 'scripts/work-os-waydroid-show.sh', 'scripts/work-os-hide-waydroid-icons.sh',
   'scripts/install-whatsapp-runner-autostart.sh', 'scripts/install-runner.sh', 'scripts/runner-doctor.mjs', 'scripts/work-os-runner-dialog.py',
   'lib/app-meta.ts',
 ];

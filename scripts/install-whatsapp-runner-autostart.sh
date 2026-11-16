@@ -16,10 +16,19 @@ APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 HANDLER="$APPS/work-os-runner.desktop"
 WAYDROID_HANDLER="$APPS/work-os-waydroid.desktop"
 LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/work-os"
+BIN_DIR="$HOME/.local/bin"
+HIDE_BIN="$BIN_DIR/work-os-hide-waydroid-icons"
+HIDE_PATH_UNIT="$UNIT_DIR/work-os-hide-waydroid-icons.path"
+HIDE_SERVICE_UNIT="$UNIT_DIR/work-os-hide-waydroid-icons.service"
 
 if [ "${1:-}" = "--remove" ]; then
   systemctl --user disable --now work-os-runner-tray.service 2>/dev/null || true
-  rm -f "$UNIT" "$HANDLER" "$WAYDROID_HANDLER" "$OLD_AUTOSTART"
+  systemctl --user disable --now work-os-hide-waydroid-icons.path 2>/dev/null || true
+  rm -f "$UNIT" "$HANDLER" "$WAYDROID_HANDLER" "$OLD_AUTOSTART" "$HIDE_BIN" "$HIDE_PATH_UNIT" "$HIDE_SERVICE_UNIT"
+  # Копії системних ярликів Waydroid, які ми ховали (NoDisplay), прибираємо: меню програм знову бачить системні.
+  for name in Waydroid.desktop waydroid.market.desktop waydroid.app.install.desktop; do
+    [ -f "$APPS/$name" ] && [ -f "/usr/share/applications/$name" ] && rm -f "$APPS/$name"
+  done
   systemctl --user daemon-reload || true
   update-desktop-database "$APPS" 2>/dev/null || true
   echo "Автозапуск і обробник посилання вимкнено."
@@ -70,12 +79,42 @@ NoDisplay=true
 MimeType=x-scheme-handler/workos-waydroid;
 WAYDROID_EOF
 
+# Ярлики Android-застосунків Waydroid (Viber, Gmail, Play тощо) не мають засмічувати меню програм: Android працює в фоні. Скрипт ховає їх
+# (NoDisplay=true), а user-сервіс .path запускає його щоразу, як у теці ярликів щось змінюється (Waydroid створює нові при встановленні
+# застосунків). Лише коли Waydroid встановлений.
+if command -v waydroid >/dev/null 2>&1; then
+  mkdir -p "$BIN_DIR"
+  install -m 755 "$ROOT/scripts/work-os-hide-waydroid-icons.sh" "$HIDE_BIN"
+  cat > "$HIDE_SERVICE_UNIT" <<HIDE_SERVICE_EOF
+[Unit]
+Description=Work OS: ховати ярлики Android (Waydroid) з меню програм
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/work-os-hide-waydroid-icons
+HIDE_SERVICE_EOF
+  cat > "$HIDE_PATH_UNIT" <<HIDE_PATH_EOF
+[Unit]
+Description=Work OS: стежити за новими ярликами Waydroid
+
+[Path]
+PathChanged=%h/.local/share/applications
+
+[Install]
+WantedBy=default.target
+HIDE_PATH_EOF
+fi
+
 rm -f "$OLD_AUTOSTART"
 update-desktop-database "$APPS" 2>/dev/null || true
 xdg-mime default work-os-runner.desktop x-scheme-handler/workos-runner
 xdg-mime default work-os-waydroid.desktop x-scheme-handler/workos-waydroid
 systemctl --user daemon-reload
 systemctl --user enable work-os-runner-tray.service
+if [ -f "$HIDE_PATH_UNIT" ]; then
+  systemctl --user enable --now work-os-hide-waydroid-icons.path 2>/dev/null || true
+  "$HIDE_BIN" 2>/dev/null || true
+fi
 
 echo "Готово. Сервіс: $UNIT"
 echo "Обробник workos-runner:// встановлено. Журнал runner: $LOG_DIR/whatsapp-runner.log"

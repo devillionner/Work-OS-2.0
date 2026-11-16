@@ -77,6 +77,15 @@ let runnerNotices: Record<string, string> = {};
 export type AutopostStep = { jobId: string; name: string; text: string; startedAt: number; at: number; verify: boolean };
 let latestSteps: Record<string, AutopostStep> = {};
 export function getLatestStep(platform: string): AutopostStep | null { return latestSteps[platform] || null; }
+/** Здоров'я автопосту платформи від runner (3.18.0): «Перевірено о 18:02 · працює» / «Пауза: …» / «Середовище змінилось — перевіряю». */
+export type AutopostHealth = { status: string; line: string; checkedAt: number; until: number };
+let latestHealth: Record<string, AutopostHealth> = {};
+export function getLatestHealth(platform: string): AutopostHealth | null { return latestHealth[platform] || null; }
+function cleanHealth(value: unknown): AutopostHealth | null {
+  if (!value || typeof value !== 'object') return null;
+  const item = value as Record<string, unknown>;
+  return typeof item.line === 'string' ? { status: String(item.status || ''), line: item.line, checkedAt: Number(item.checkedAt) || 0, until: Number(item.until) || 0 } : null;
+}
 function cleanStep(value: unknown): AutopostStep | null {
   if (!value || typeof value !== 'object') return null;
   const item = value as Record<string, unknown>;
@@ -189,6 +198,15 @@ function connect() {
       if (helloSeen) message = { ...message, resync: true };
       helloSeen = true;
       setStatus({ synced: true });
+    }
+    if (message.type === 'hello') {
+      latestHealth = {};
+      const all = message.autopostHealth && typeof message.autopostHealth === 'object' ? message.autopostHealth as Record<string, unknown> : {};
+      for (const [platform, value] of Object.entries(all)) { const clean = cleanHealth(value); if (clean) latestHealth[platform] = clean; }
+    }
+    if (message.type === 'progress' && message.process === 'autopost_health' && typeof message.platform === 'string') {
+      const clean = cleanHealth(message);
+      latestHealth = clean ? { ...latestHealth, [message.platform]: clean } : Object.fromEntries(Object.entries(latestHealth).filter(([key]) => key !== message.platform));
     }
     if (message.type === 'progress' && message.process === 'autopost_step' && typeof message.platform === 'string') {
       const clean = cleanStep(message);

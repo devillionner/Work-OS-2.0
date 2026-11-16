@@ -1174,11 +1174,14 @@ export async function sendWhatsappAutopostViaCdp(
   { cdpBaseUrl, timeoutMs = DEFAULT_TIMEOUT_MS, shouldAbort = () => false, onStep = () => {}, verifyOnly = false, sinceEpoch = 0 } = {},
 ) {
   if (task?.kind !== 'whatsapp_autopost') return { kind:'blocked', reason:'unsupported_runtime' };
+  // Пробна відправка (3.18.0): чат «Ви» (повідомлення собі), без посилання-запрошення; відкривається за власним номером акаунта.
+  const selfChat = task.target?.selfChat === true;
   const targetUrl = toWhatsAppWebInviteUrl(task.target?.expectedLink);
-  if (!targetUrl) return { kind:'blocked', reason:'invalid_whatsapp_link' };
+  if (!targetUrl && !selfChat) return { kind:'blocked', reason:'invalid_whatsapp_link' };
   if (!cdpBaseUrl) return { kind:'blocked', reason:'cdp_not_configured' };
   const base = normalizeLocalCdpBaseUrl(cdpBaseUrl);
   if (!base) return { kind:'blocked', reason:'cdp_not_local' };
+  const settle = task.canary === true ? (_step, outcome) => outcome : settleAfterSend;
   const text = String(task.material?.text || '');
   if (!text.trim()) return { kind:'blocked', reason:'empty_material' };
 
@@ -1207,7 +1210,19 @@ export async function sendWhatsappAutopostViaCdp(
     let observedTarget = '';
     // Пошук у фоновій вкладці інколи не відфільтровує список з першого разу: дві спроби, і лише потім посилання-запрошення.
     let openedInApp = false;
-    if (task.target.expectedName) {
+    if (selfChat) {
+      const wid = String((await client.send('Runtime.evaluate', { expression:`localStorage.getItem('last-wid-md') || localStorage.getItem('last-wid') || ''`, returnByValue:true }))?.result?.value || '');
+      const digits = wid.match(/(\d{6,16})(?::\d+)?@c\.us/)?.[1];
+      if (!digits) return { kind:'blocked', reason:'whatsapp_self_unknown' };
+      await client.send('Page.navigate', { url:`https://web.whatsapp.com/send?phone=${digits}` });
+      let ready = null;
+      for (let attempt = 0; attempt < 45 && !ready?.composer; attempt += 1) { await sleep(1_000); ready = await readSnapshot(client).catch(() => null); }
+      if (!ready?.composer) return { kind:'blocked', reason:'whatsapp_self_chat_not_opened' };
+      await sleep(1_200);
+      observedTarget = String(await readOpenChatHeader(client)).trim() || ((ready.headerNames || []).map((value) => String(value || '').trim()).find(Boolean)) || 'Ви';
+      task.target.expectedName = observedTarget;
+    }
+    if (!selfChat && task.target.expectedName) {
       for (let attempt = 0; attempt < 2 && !openedInApp; attempt += 1) openedInApp = await openChatInApp(client, task.target.expectedName, 10_000).catch(() => false);
     }
     if (openedInApp) {
@@ -1327,13 +1342,13 @@ export async function sendWhatsappAutopostViaCdp(
       // «Відправлено» лише коли наш новий рядок (з нашим підписом) має галочку; годинник, що висить довше за вікно, — не підтвердження.
       const ackState=await waitForOwnAck(client,{beforeKeys,text,maxMs:Math.max(confirmWindowMs,AUTOPOST_PENDING_WAIT_MS),requireText:true});
       if(ackState.state==='sent'){
-        return settleAfterSend(onStep,{kind:'result',result:{status:'sent',observedTarget,targetVerified:true,sendConfirmed:true,mediaConfirmed:true}});
+        return settle(onStep,{kind:'result',result:{status:'sent',observedTarget,targetVerified:true,sendConfirmed:true,mediaConfirmed:true}});
       }
-      if(ackState.state==='failed')return settleAfterSend(onStep,{kind:'blocked',reason:'media_send_failed'});
+      if(ackState.state==='failed')return settle(onStep,{kind:'blocked',reason:'media_send_failed'});
       // Живий збір 2026-10-24: після кліку повідомлення не з'явилось. Зберігаємо знімок і стан екрана, щоб бачити, що саме лишилось.
       const afterSend=await client.send('Runtime.evaluate',{expression:`JSON.stringify({previewOpen:[...document.querySelectorAll('button,[role="button"]')].some((n)=>/вибраний файл|selected file/i.test(n.getAttribute('aria-label')||'')),rows:document.querySelectorAll('#main [data-id]').length,outRows:[...document.querySelectorAll('#main [data-id]')].filter((n)=>/^true_/.test(n.getAttribute('data-id')||'')).length,dialogs:[...document.querySelectorAll('[role="dialog"]')].map((n)=>(n.innerText||'').replace(/\\s+/g,' ').slice(0,100))})`,returnByValue:true}).catch(()=>null);
       await saveFailureShot(client);
-      return settleAfterSend(onStep,{kind:'blocked',reason:'media_send_not_confirmed',detail:`${ackState.state};${String(afterSend?.result?.value||'')}`});
+      return settle(onStep,{kind:'blocked',reason:'media_send_not_confirmed',detail:`${ackState.state};${String(afterSend?.result?.value||'')}`});
     }
     if (!await focusAndClearComposer(client)) return { kind:'blocked', reason:'composer_not_found' };
     await client.send('Input.insertText', { text });
@@ -1351,10 +1366,12 @@ export async function sendWhatsappAutopostViaCdp(
     recentSend.at = Date.now();
     onStep('confirm', 'чекаю галочку біля повідомлення');
     const ackState = await waitForOwnAck(client, { beforeKeys, text, maxMs:Math.max(confirmWindowMs, AUTOPOST_TEXT_PENDING_WAIT_MS), requireText:true });
-    if (ackState.state === 'sent') return settleAfterSend(onStep, { kind:'result', result:{ status:'sent', observedTarget, targetVerified:true, sendConfirmed:true } });
-    if (ackState.state === 'failed') return settleAfterSend(onStep, { kind:'blocked', reason:'send_failed' });
-    return settleAfterSend(onStep, { kind:'blocked', reason:'send_not_confirmed' });
+    if (ackState.state === 'sent') return settle(onStep, { kind:'result', result:{ status:'sent', observedTarget, targetVerified:true, sendConfirmed:true } });
+    if (ackState.state === 'failed') return settle(onStep, { kind:'blocked', reason:'send_failed' });
+    return settle(onStep, { kind:'blocked', reason:'send_not_confirmed' });
   } finally {
+    // Після пробної відправки вкладка повертається на головну: інші кроки очікують саме її адресу.
+    if (selfChat) await client.send('Page.navigate', { url:'https://web.whatsapp.com/' }).catch(() => {});
     client.close();
   }
 }

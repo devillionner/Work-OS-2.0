@@ -28,6 +28,8 @@ import { estimateBackup, executeBackup, formatBytes } from './runner-transfer.mj
 import { readInstalledPackage, updateFromSite } from './runner-update.mjs';
 import { createSleepInhibitor } from './sleep-inhibit.mjs';
 import { createDayState, platformOfKind } from './tray-day.mjs';
+import { createHealth, helpFor, NAMES as PLATFORM_NAMES, RECHECK_MS, suspectKind } from './autopost-health.mjs';
+import { collectFingerprint, runCanary, snapshotBrowserTab } from './autopost-canary.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
@@ -100,6 +102,9 @@ let transferBusy=false;
 // Поки є що виконувати (activity від Durable Object, задачі в черзі чи в роботі), система не засинає; у простої блокування знімається.
 // Підсумок дня для значка в треї (число біля значка, рядок на платформу, «Потребують рішення»).
 const dayState=createDayState();
+// Здоров'я автопосту (3.18.0): відбиток середовища, пробна відправка, запобіжник серії збоїв.
+const health=createHealth();
+const jobInfo=new Map();
 const sleepInhibitor=createSleepInhibitor({log:(line)=>console.warn(line),onChange:()=>{lastStatusKey='';setStatus(lastStatus.state,lastStatus.detail);}});
 function syncSleepInhibit(){sleepInhibitor.sync(!runnerIdle());}
 function runnerIdle(){
@@ -289,14 +294,15 @@ const lastStatus={state:'starting',detail:''};
 function setStatus(state,detail){
   const awake=sleepInhibitor.active;
   const day=dayState.snapshot({active:!runnerIdle()});
-  const key=`${state}|${detail}|${awake}|${JSON.stringify(day)}`;
+  const healthLines=Object.fromEntries(['viber','telegram','whatsapp'].map((platform)=>[platform,health.publicState(platform).line]));
+  const key=`${state}|${detail}|${awake}|${JSON.stringify(day)}|${JSON.stringify(healthLines)}`;
   if(key===lastStatusKey)return;
   lastStatusKey=key;
   lastStatus.state=state;lastStatus.detail=detail;
   try{
     mkdirSync(dirname(statusFile),{recursive:true});
     // `awake`: runner тримає блокування сну (трей показує «Не даю заснути: іде автопост»).
-    writeFileSync(`${statusFile}.tmp`,JSON.stringify({state,detail,awake,day,pid:process.pid,updatedAt:Date.now()}));
+    writeFileSync(`${statusFile}.tmp`,JSON.stringify({state,detail,awake,day,health:healthLines,pid:process.pid,updatedAt:Date.now()}));
     renameSync(`${statusFile}.tmp`,statusFile);
   }catch{}
 }
@@ -1028,7 +1034,93 @@ function sendReliable(message){
   pendingLive.push(message);
   console.warn(`Work OS live channel недоступний: результат ${message.jobId||''} чекає на перепідключення.`);
 }
+// --- Здоров'я автопосту (3.18.0). Пробна відправка перед першою партією платформи за день, після перезапуску й зміни відбитка середовища;
+// запобіжник серії: однаковий збій на двох різних чатах поспіль = збій середовища, платформа на паузу, задачі в чергу без спроб.
+const FINGERPRINT_TTL_MS=2*60_000;
+const fingerprintCache=new Map();
+async function currentFingerprint(platform){
+  const cached=fingerprintCache.get(platform);
+  if(cached&&Date.now()-cached.at<FINGERPRINT_TTL_MS)return cached.value;
+  const value=await collectFingerprint(platform,{cdp:whatsappCdp||''}).catch(()=>null);
+  if(value)fingerprintCache.set(platform,{value,at:Date.now()});
+  return value||cached?.value||null;
+}
+
+function publishHealth(platform){
+  const state=health.publicState(platform);
+  sendLiveStatus(liveWs,{type:'progress',process:'autopost_health',platform,status:state.status,line:state.line,checkedAt:state.checkedAt,until:state.until,at:Date.now()});
+  setStatus(lastStatus.state,lastStatus.detail);
+}
+
+/** Платформа на паузі через середовище: картка показує причину, трей теж; DO не видає задач до `until`. */
+function reportEnvironmentPause(platform,text,until){
+  if(platform==='viber')reportViberStatus(liveWs,'blocked','environment_check',text);
+  else reportAutopostStatus(platform,'blocked','environment_check',text,until);
+  setStatus('working',`${PLATFORM_NAMES[platform]} автопост на паузі: ${text}`);
+}
+
+function pauseForHealth(ws,job,platform,text,until){
+  reportEnvironmentPause(platform,text,until);
+  releaseTask(ws,'autopost',job,until,'',until);
+}
+
+/** true — задачу можна виконувати; false — її вже повернуто в чергу (платформа на паузі) або скасовано. */
+async function healthGate(ws,job,platform){
+  if(!platform||job.mode==='verify'||job.mode==='scan'||process.env.WORK_OS_SKIP_CANARY==='1')return true;
+  const current=health.publicState(platform);
+  if(current.status==='paused'&&current.until>Date.now()&&!health.isForced(platform)){pauseForHealth(ws,job,platform,current.text,current.until);return false;}
+  const fingerprint=await currentFingerprint(platform);
+  const need=health.needCheck(platform,fingerprint);
+  if(!need.need)return true;
+  health.markChecking(platform,need.why,health.changeText(platform,fingerprint));
+  publishHealth(platform);
+  setStatus('working',`${PLATFORM_NAMES[platform]}: пробна відправка`);
+  const canary=await runCanary(platform,{
+    inviteLink:platform==='viber'?job.target?.expectedLink:'',inviteName:platform==='viber'?job.target?.expectedName:'',
+    cdp:whatsappCdp||'',shouldAbort:()=>cancelledAutopostJobs.has(job.jobId),
+    onStep:(_step,text)=>setStatus('working',`${PLATFORM_NAMES[platform]}: ${text}`),
+  });
+  fingerprintCache.delete(platform);
+  if(canary.code==='cancelled'){health.markOk(platform,fingerprint);abandonCancelledAutopost(ws,job);return false;}
+  if(canary.ok){
+    health.markOk(platform,fingerprint);
+    publishHealth(platform);
+    if(platform==='viber')reportViberStatus(ws,'ready');else reportAutopostStatus(platform,'ready');
+    console.log(`Пробна відправка ${PLATFORM_NAMES[platform]} пройшла за ${Math.round(canary.ms/1000)} с.`);
+    return true;
+  }
+  const until=Date.now()+RECHECK_MS;
+  const text=`${helpFor(canary.code)}. Партія не стартувала, чати не постраждали. Наступна перевірка о ${clockText(until)}`;
+  console.warn(`Пробна відправка ${PLATFORM_NAMES[platform]} не пройшла: ${canary.code}${canary.detail?` (${canary.detail})`:''}`);
+  health.markPaused(platform,{reason:canary.code,text,until});
+  publishHealth(platform);
+  pauseForHealth(ws,job,platform,text,until);
+  return false;
+}
+
+/** Результат реальної задачі для запобіжника. true — серія збоїв: задачу повернено в чергу, результат не віддається. */
+function guardSeries(message){
+  if(message.type!=='result'||message.process!=='autopost')return false;
+  const jobId=String(message.jobId||'');
+  const info=jobInfo.get(jobId);
+  if(!info||autopostUncounted.has(jobId))return false;
+  const ok=message.status==='sent';
+  const code=String(message.errorCode||'');
+  if(!ok&&info.platform!=='viber'&&suspectKind(info.platform,code)&&whatsappCdp)void snapshotBrowserTab(whatsappCdp,info.platform==='telegram'?'web.telegram.org':'web.whatsapp.com',info.platform,code,String(info.chat||''));
+  const verdict=health.noteResult(info.platform,{ok,code,chat:info.chat});
+  if(!verdict.trip)return false;
+  const until=Date.now()+RECHECK_MS;
+  const text=`Однаковий збій (${code}) на двох чатах поспіль: схоже на збій середовища, а не чатів. ${helpFor(code)}. Чати не постраждали. Наступна перевірка о ${clockText(until)}`;
+  console.warn(`Запобіжник серії: ${PLATFORM_NAMES[info.platform]} ${code} на двох чатах поспіль, платформа на паузі.`);
+  health.markPaused(info.platform,{reason:code,text,until});
+  publishHealth(info.platform);
+  reportEnvironmentPause(info.platform,text,until);
+  if(verdict.release){releaseTask(liveWs,'autopost',info.job,until,'',until);return true;}
+  return false;
+}
+
 function sendAutopostResult(message){
+  if(guardSeries(message)){dropStepState(message.jobId);return;}
   dropStepState(message.jobId);
   // Значок у треї: відправлено — +1 одразу, решту уточнить наступна видача чи підсумок партії.
   dayState.onResult(message.jobId,message.status,{counts:!autopostUncounted.has(String(message.jobId))});
@@ -1364,6 +1456,8 @@ async function handleAutopostTask(ws,job){
 
 async function handleAutopostTaskNow(ws,job){
   if(cancelledAutopostJobs.has(job.jobId)){abandonCancelledAutopost(ws,job);return;}
+  const gatePlatform=platformOfKind(job.kind);
+  if(!await healthGate(ws,job,gatePlatform))return;
   if(job.kind==='viber_android')return handleViberAutopostTask(ws,job);
   if(job.kind==='telegram_autopost')return handleTelegramAutopostTask(ws,job);
   if(!whatsappCdp){
@@ -1570,6 +1664,10 @@ function onLiveMessage(ws,raw){
     setStatus(lastStatus.state,lastStatus.detail);
     return;
   }
+  if(message.type==='canary_force'){
+    if(['viber','telegram','whatsapp'].includes(String(message.platform))){health.force(String(message.platform));console.log(`Власник просить перевірити й продовжити: ${message.platform}`);}
+    return;
+  }
   if(message.type==='autopost_summary'){
     dayState.onSummary(message);
     setStatus(lastStatus.state,lastStatus.detail);
@@ -1610,6 +1708,8 @@ function onLiveMessage(ws,raw){
       autopostTaskSig.set(jobId,sig);
       // Проходи гілок і перевірки не відправляють нового повідомлення: у значок вони нічого не додають.
       if(task.mode==='scan'||task.mode==='verify')autopostUncounted.add(jobId);
+      jobInfo.set(jobId,{platform:platformOfKind(task.kind),job:task,chat:task.target?.chatId||task.target?.expectedName||jobId});
+      if(jobInfo.size>200)jobInfo.delete(jobInfo.keys().next().value);
       if(task.mode!=='scan'){dayState.onClaim(task.kind,task);setStatus(lastStatus.state,lastStatus.detail);}
       if(autopostActive.has(jobId)||incomingTaskQueue.some((item)=>item.taskProcess==='autopost'&&item.task?.jobId===jobId)||viberTaskQueue.some((item)=>item.task?.jobId===jobId)){
         console.log(`Задача ${jobId} уже виконується або чекає в черзі: дубль проігноровано.`);

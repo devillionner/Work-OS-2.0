@@ -20,6 +20,8 @@ const REASONS: Record<string, string> = {
   viber_read_only: 'У цьому чаті писати можуть лише адміни.',
   viber_not_joined: 'Автопост не зміг приєднатися до цього чату: кнопка вступу не подіяла. Перевір чат вручну.',
   blocking_dialog: 'Viber показав діалог, який автопост не розпізнав. Пропущено без відправки.',
+  viber_invite_not_opened: 'Viber не відкрив чат за запрошенням: після переходу за посиланням лишився список чатів. Нічого не надіслано, повтор безпечний. Якщо так з кількома чатами поспіль, автопост ставить Viber на паузу й перевіряє середовище.',
+  environment_check: 'Платформа на паузі: пробна відправка не пройшла або збій повторився на кількох чатах. Деталі в рядку здоров’я нижче.',
   target_unconfirmed: 'Не вдалося переконатися, що відкрито саме цей чат (назва в Viber інша). Пропущено без відправки й без вступу.',
   target_not_found: 'У вікні відправки Viber немає чату з такою назвою серед останніх. Пропущено без відправки.',
   target_ambiguous: 'У вікні відправки Viber кілька чатів із такою назвою. Пропущено, щоб не надіслати не туди.',
@@ -124,7 +126,7 @@ const GROUPS: Array<[string[], AutopostReasonGroup]> = [
   [['viber_banned', 'whatsapp_removed_from_group', 'membership_left', 'telegram_banned', 'telegram_write_banned'], { key: 'blocked', label: 'Заблоковано в групі', checkable: false }],
   [['target_unconfirmed', 'target_not_found', 'target_ambiguous', 'joined_target_not_verified', 'target_not_verified'], { key: 'target', label: 'Не той чат', checkable: false, renameable: true }],
   [['viber_not_joined', 'membership_not_confirmed', 'approval_required', 'whatsapp_join_retry_later'], { key: 'join', label: 'Не вдалося приєднатися', checkable: false }],
-  [['send_ui_unavailable', 'blocking_dialog', 'android_error', 'media_attach_failed', 'media_preview_not_ready', 'media_caption_not_found', 'media_caption_mismatch', 'media_send_failed', 'send_failed', 'telegram_send_failed', 'telegram_attachment_not_opened', 'telegram_send_not_clicked', 'telegram_attachment_failed', 'telegram_page_not_ready', 'telegram_chat_not_opened', 'telegram_composer_not_found', 'telegram_text_mismatch', 'telegram_thread_not_opened'], { key: 'screen', label: 'Збій екрана відправки', checkable: false }],
+  [['send_ui_unavailable', 'blocking_dialog', 'viber_invite_not_opened', 'adbkeyboard_disabled', 'android_error', 'media_attach_failed', 'media_preview_not_ready', 'media_caption_not_found', 'media_caption_mismatch', 'media_send_failed', 'send_failed', 'telegram_send_failed', 'telegram_attachment_not_opened', 'telegram_send_not_clicked', 'telegram_attachment_failed', 'telegram_page_not_ready', 'telegram_chat_not_opened', 'telegram_composer_not_found', 'telegram_text_mismatch', 'telegram_thread_not_opened'], { key: 'screen', label: 'Збій екрана відправки', checkable: false }],
 ];
 const OTHER_GROUP: AutopostReasonGroup = { key: 'other', label: 'Інше', checkable: false };
 export function autopostReasonGroup(code: string | null | undefined): AutopostReasonGroup {

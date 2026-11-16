@@ -831,7 +831,8 @@ const CANCEL_PAID_EXPR = `(() => {
   const paid = new RegExp(${JSON.stringify(paidDialogPattern.source)}, 'iu');
   const cancel = new RegExp(${JSON.stringify(cancelButtonPattern.source)}, 'iu');
   const pay = new RegExp(${JSON.stringify(payButtonPattern.source)}, 'iu');
-  const modals = [...document.querySelectorAll('.Modal')].filter(visible).filter((node) => !node.querySelector('#editable-message-text-modal'));
+  const shown = (el) => visible(el) || [...el.querySelectorAll('.modal-dialog')].some(visible);
+  const modals = [...document.querySelectorAll('.Modal')].filter(shown).filter((node) => !node.querySelector('#editable-message-text-modal'));
   for (const modal of modals) {
     const buttons = [...modal.querySelectorAll('button, .Button')].filter(visible);
     if (!(paid.test((modal.innerText || '').replace(/\\s+/g, ' ')) || buttons.some((el) => pay.test((el.innerText || '').trim())))) continue;
@@ -845,7 +846,10 @@ const CANCEL_PAID_EXPR = `(() => {
 // (оплата, помилка) означає «не тиснути». Раніше тут була будь-яка `.Modal button.primary`, і нею могла виявитись кнопка «Pay for 1 message».
 export const SAFE_PHOTO_SEND_EXPR = `(() => {
   const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-  const modals = [...document.querySelectorAll('.Modal')].filter(visible);
+  // Кореневий .Modal у Telegram Web A має нульову висоту (вміст у .modal-dialog усередині): вікно видно за ним (перевірено наживо
+  // 2026-11-16 пробною відправкою: без цього безпечної кнопки не знаходилось ніколи, і фото не відправлялось).
+  const shown = (el) => visible(el) || [...el.querySelectorAll('.modal-dialog')].some(visible);
+  const modals = [...document.querySelectorAll('.Modal')].filter(shown);
   const editor = modals.find((node) => node.querySelector('#editable-message-text-modal'));
   if (!editor || modals.some((node) => node !== editor)) return null;
   const pay = new RegExp(${JSON.stringify(payButtonPattern.source)}, 'iu');
