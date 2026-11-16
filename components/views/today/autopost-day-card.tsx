@@ -84,6 +84,7 @@ export function AutopostDayCard({ size }: { size: 'phone' | 'desktop' }) {
               <div className="flex h-1.5 gap-0.5 overflow-hidden rounded-full bg-line" aria-hidden="true">
                 <i className="block h-full bg-ink" style={{ width: `${(item.sent / total) * 100}%` }} />
                 <i className="block h-full bg-hot" style={{ width: `${(item.failed / total) * 100}%` }} />
+                <i className="block h-full bg-ink opacity-40" style={{ width: `${(item.claimed / total) * 100}%` }} />
               </div>
               <div className="flex flex-wrap items-center justify-between gap-x-3 text-xs text-ink-3">
                 <span className="inline-flex items-center gap-1.5 text-ink-2"><i aria-hidden="true" className={cn('size-[7px] rounded-full', DOT[state])} />{label}</span>

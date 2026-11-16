@@ -3,7 +3,8 @@
 import { poolSnippet } from '@/lib/telegram-pool/parse';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Check, ChevronDown, Minus, X } from 'lucide-react';
-import { Ring } from '@/components/ui/ring';
+import { CountUp } from '@/components/motion/count-up';
+import { BatchRing } from '@/components/views/platforms/batch-ring';
 import { getLatestStep, subscribeLiveMessages, type AutopostStep } from '@/lib/live-channel';
 import { useLiveSynced } from '@/components/views/platforms/use-live-synced';
 import { autopostReasonGroup } from '@/components/views/platforms/autopost-reasons';
@@ -11,7 +12,7 @@ import { autopostReasonGroup } from '@/components/views/platforms/autopost-reaso
 /** Один чат поточної партії: результат або те, що робиться просто зараз. */
 export type AutopostBatchEntry = { jobId: string; name: string; status: 'claimed' | 'sent' | 'failed'; outcome: string | null; code: string | null; at: number; /** Початок тексту з пулу оголошень Telegram, який пішов (чи мав піти) в чат. */ text?: string };
 /** Поточна партія платформи: лічильники лише її задач (скасовані задачі старих партій сюди не потрапляють). */
-export type AutopostBatch = { id: string; startedAt: number; total: number; sent: number; remaining: number; failed: number; skipped: number; cancelled: number; /** Чати партії, що чекають вибору гілки: не «Не вдалося». */ thread?: number; averageSeconds: number | null; entries: AutopostBatchEntry[] };
+export type AutopostBatch = { id: string; startedAt: number; total: number; sent: number; remaining: number; /** Задачі в роботі (частина `remaining`). */ inProgress: number; /** Задачі в черзі (частина `remaining`). */ queued: number; failed: number; skipped: number; cancelled: number; /** Чати партії, що чекають вибору гілки: не «Не вдалося». */ thread?: number; averageSeconds: number | null; entries: AutopostBatchEntry[] };
 
 type LiveStep = AutopostStep;
 const STALE_STEP_MS = 5 * 60_000;
@@ -67,14 +68,14 @@ function entryLabel(entry: AutopostBatchEntry): { icon: 'ok' | 'bad' | 'skip'; t
  * орієнтовний час до кінця) і згортуваний журнал партії. Оновлюється подіями live-каналу.
  */
 /** Що робиться просто зараз: назва чату, крок і час на ньому. */
-function NowBlock({ name, step, now }: { name: string; step: LiveStep | null; now: number }) {
+function NowBlock({ name, step, now, waiting = false }: { name: string; step: LiveStep | null; now: number; waiting?: boolean }) {
   const synced = useLiveSynced();
   return (
     <output className="flex flex-col gap-1 rounded-inner border border-line px-4 py-3">
       <p className="m-0 text-xs text-ink-2">Зараз</p>
-      <p className="m-0 truncate text-sm font-medium" title={name}>{name || 'Чекаю на runner'}</p>
+      <p className="m-0 truncate text-sm font-medium" title={name}>{name || (waiting ? 'Чекаю наступну відправку' : 'Чекаю на runner')}</p>
       <p className="m-0 flex items-center gap-2 text-xs text-ink-2">
-        <span>{step ? (step.verify ? `перевірка: ${step.text}` : step.text) : synced ? 'runner ще не повідомив крок' : 'Оновлюю…'}</span>
+        <span>{step ? (step.verify ? `перевірка: ${step.text}` : step.text) : waiting ? 'пауза між відправками' : synced ? 'runner ще не повідомив крок' : 'Оновлюю…'}</span>
         {step && now > 0 ? <span className="ml-auto font-mono tabular-nums">{Math.max(0, Math.round((now - step.startedAt) / 1000))} с</span> : null}
       </p>
     </output>
@@ -86,30 +87,39 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
   const step = useAutopostStep(platform, running, now);
   // Перевірка чату з «Потребують рішення» не належить партії, але крок її теж видно.
   if (!batch || batch.total === 0) return running && step ? <NowBlock name={step.name} step={step} now={now} /> : null;
+  // Усі задачі партії (у черзі, у роботі й завершені; пізніше додані повтори теж): оброблені — завершені будь-як, без збою чи зі збоєм.
   const done = batch.total - batch.remaining;
-  // Кільце показує частку відправлених, а не оброблених: інакше партія, де чверть чатів не вдалась, виглядає «100 %».
+  // Кільце й відсоток — частка відправлених від усіх задач, а не оброблених: партія, де чверть чатів не вдалась, не виглядає «100 %».
   const ratio = Math.min(1, batch.sent / batch.total);
   // «Не вдалося» — усе, що закінчилось без відправки: помилка, пропуск за політикою чи рішення власника.
   const notSent = batch.failed + batch.skipped;
+  // Партія завершена лише коли немає ні задач у черзі, ні в роботі; зелений стан — коли до того ж відправлено все.
+  const active = batch.remaining > 0;
+  const allSent = !active && batch.sent === batch.total;
   const secondsLeft = batch.averageSeconds ? batch.remaining * batch.averageSeconds : null;
   const finishedEntries = batch.entries.filter((entry) => entry.status !== 'claimed');
   const claimed = running ? batch.entries.find((entry) => entry.status === 'claimed') : undefined;
-  const currentName = step?.name ?? claimed?.name ?? '';
+  // «Зараз» показує крок лише поки в партії справді є задача в роботі (або це ручна перевірка): крок завершеної задачі живе в live-каналі ще кілька хвилин.
+  const liveStep = step && (batch.inProgress > 0 || step.verify) ? step : null;
+  const currentName = liveStep?.name ?? claimed?.name ?? '';
 
   return (
     <section className="flex flex-col gap-4 rounded-inner border border-line bg-sunken p-4" aria-label="Хід партії автопосту">
       <div className="flex items-center gap-5">
-        <Ring value={ratio} tone={ratio >= 1 ? 'ok' : 'ink'} size={72} stroke={5} label={`Відправлено ${batch.sent} з ${batch.total}`}>{Math.round(ratio * 100)}%</Ring>
+        <BatchRing total={batch.total} sent={batch.sent} failed={notSent} busy={batch.inProgress} ok={allSent} size={72} stroke={5} label={`Відправлено ${batch.sent} з ${batch.total}${batch.inProgress ? `, у роботі ${batch.inProgress}` : ''}`}>
+          <CountUp value={Math.round(ratio * 100)} format={(value) => `${value}%`} />
+        </BatchRing>
         <div className="min-w-0 flex-1">
           <p className="m-0 flex items-center gap-2 text-sm font-medium">
-            {running ? <i aria-hidden="true" className="size-2 rounded-full bg-ok" /> : <Check aria-hidden="true" strokeWidth={1.5} className="size-4 text-ok" />}
-            {running ? 'Партія виконується' : batch.cancelled > 0 && batch.remaining === 0 ? 'Партію зупинено' : 'Партію завершено'}
+            {active ? <i aria-hidden="true" className="size-2 rounded-full bg-ink" /> : <Check aria-hidden="true" strokeWidth={1.5} className={allSent ? 'size-4 text-ok' : 'size-4 text-ink-2'} />}
+            {active ? 'Партія виконується' : batch.cancelled > 0 ? 'Партію зупинено' : 'Партію завершено'}
             <span className="ml-auto text-sm font-normal text-ink-2">оброблено <span className="font-mono tabular-nums text-ink">{done} з {batch.total}</span></span>
           </p>
           <p className="m-0 mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
             <span>Відправлено <b className="font-mono font-normal tabular-nums text-ink">{batch.sent}</b></span>
-            <span>Лишилось <b className="font-mono font-normal tabular-nums text-ink">{batch.remaining}</b></span>
             {notSent > 0 ? <span className="text-hot" title="Помилка, пропуск за політикою або рішення, що чекає тебе">Не вдалося <b className="font-mono font-normal tabular-nums">{notSent}</b></span> : null}
+            {batch.inProgress > 0 ? <span>У роботі <b className="font-mono font-normal tabular-nums text-ink">{batch.inProgress}</b></span> : null}
+            <span>Лишилось <b className="font-mono font-normal tabular-nums text-ink">{batch.queued}</b></span>
             {(batch.thread ?? 0) > 0 ? <span title="У цих чатах є гілки: вибери, куди публікувати">Чекають вибору гілки <b className="font-mono font-normal tabular-nums text-ink">{batch.thread}</b></span> : null}
             {batch.cancelled > 0 ? <span>Скасовано <b className="font-mono font-normal tabular-nums text-ink">{batch.cancelled}</b></span> : null}
           </p>
@@ -117,7 +127,7 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
         </div>
       </div>
 
-      {running ? <NowBlock name={currentName} step={step} now={now} /> : null}
+      {running ? <NowBlock name={currentName} step={liveStep} now={now} waiting={!liveStep && !claimed && batch.queued > 0} /> : null}
 
       {finishedEntries.length > 0 ? (
         <details className="group">

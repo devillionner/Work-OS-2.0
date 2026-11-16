@@ -1036,7 +1036,7 @@ export async function cancelWhatsAppAutopostJob(db:D1Database,userId:string,jobI
 export type WhatsAppAutopostSettled = { archived:number; waiting:number; snoozed:number; skipped:number; decision:number; /** Telegram: чати з гілками, що чекають вибору гілки (не збій). */ thread:number };
 export type AutopostBatchEntry = { jobId:string; name:string; status:'claimed'|'sent'|'failed'; outcome:string|null; code:string|null; at:number; /** Початок тексту оголошення з пулу (лише Telegram). */ text?:string };
 /** Поточна партія платформи (остання за сьогодні): лічильники лише її задач, без скасованих задач старих партій. */
-export type AutopostBatch = { id:string; startedAt:number; total:number; sent:number; remaining:number; failed:number; skipped:number; cancelled:number; /** Чати партії, що чекають вибору гілки: не «Не вдалося». */ thread:number; averageSeconds:number|null; entries:AutopostBatchEntry[] };
+export type AutopostBatch = { id:string; startedAt:number; total:number; sent:number; remaining:number; /** Задачі в роботі (claimed): частина `remaining`. */ inProgress:number; /** Задачі в черзі (pending): частина `remaining`. */ queued:number; failed:number; skipped:number; cancelled:number; /** Чати партії, що чекають вибору гілки: не «Не вдалося». */ thread:number; averageSeconds:number|null; entries:AutopostBatchEntry[] };
 export type WhatsAppAutopostProgress = { total:number; done:number; pending:number; claimed:number; sent:number; failed:number; cancelled:number; running:boolean; settled:WhatsAppAutopostSettled; batch:AutopostBatch|null };
 
 const BATCH_KEY=/^batch_(whatsapp|viber|telegram)_([0-9a-f-]{36})_/;
@@ -1068,17 +1068,28 @@ export async function readAutopostBatch(db:D1Database,userId:string,platform:Aut
     rows=await readRows(batchId);
   }
   if(!rows.results.length)return null;
-  const batch:AutopostBatch={id:batchId,startedAt:Number.MAX_SAFE_INTEGER,total:0,sent:0,remaining:0,failed:0,skipped:0,cancelled:0,thread:0,averageSeconds:null,entries:[]};
+  // Задачі, додані до партії пізніше («Спробувати ще», «Без фото»: ключі `retry_…`), входять у неї: інакше задача в роботі
+  // лишалась поза знаменником, а кільце показувало 100 %. Діапазон по унікальному індексу (user_id, request_key) лише `retry_`-ключів,
+  // далі день, платформа й час створення; `verify_` (перевірка вже наявної задачі) і `scan_` (прохід гілок) нових відправок не несуть.
+  const startedAtMin=Math.min(...rows.results.map((row)=>Number(row.created_at)));
+  const later=await db.prepare(`SELECT id,expected_name,status,outcome,json_extract(result_json,'$.errorCode') AS code,CASE WHEN substr(advertisement_id,1,4)='tgp_' THEN substr(payload_text,1,160) END AS snippet,created_at,updated_at,completed_at
+    FROM whatsapp_autopost_jobs WHERE user_id=?1 AND request_key>=?2 AND request_key<?3 AND published_on=?4 AND created_at>=?5 AND COALESCE(platform,'whatsapp')=?6`)
+    .bind(userId,'retry_','retry`',date,startedAtMin,platform).all<BatchRow>();
+  const batchRows=[...rows.results,...(later.results||[])];
+  const batch:AutopostBatch={id:batchId,startedAt:Number.MAX_SAFE_INTEGER,total:0,sent:0,remaining:0,inProgress:0,queued:0,failed:0,skipped:0,cancelled:0,thread:0,averageSeconds:null,entries:[]};
   let lastFinished=0;
   let finished=0;
-  for(const row of rows.results){
+  for(const row of batchRows){
     batch.startedAt=Math.min(batch.startedAt,Number(row.created_at));
     if(row.status==='cancelled'){batch.cancelled+=1;continue;}
     if(row.outcome==='needs_thread'){batch.thread+=1;continue;}
+    // Закрита рішенням власника («resolved»: архів, відкладення, повтор) чат уже не потребує уваги й не рахується (як у лічильниках дня):
+    // повтор має власну задачу, тож один чат не стоїть у знаменнику двічі.
+    if(row.outcome==='resolved')continue;
     batch.total+=1;
     const at=Number(row.completed_at??row.updated_at);
-    if(row.status==='pending'){batch.remaining+=1;continue;}
-    if(row.status==='claimed'){batch.remaining+=1;batch.entries.push({jobId:row.id,name:row.expected_name,status:'claimed',outcome:null,code:null,at,text:row.snippet||undefined});continue;}
+    if(row.status==='pending'){batch.remaining+=1;batch.queued+=1;continue;}
+    if(row.status==='claimed'){batch.remaining+=1;batch.inProgress+=1;batch.entries.push({jobId:row.id,name:row.expected_name,status:'claimed',outcome:null,code:null,at,text:row.snippet||undefined});continue;}
     finished+=1;lastFinished=Math.max(lastFinished,at);
     if(row.status==='sent')batch.sent+=1;
     else if(!row.outcome||row.outcome==='needs_decision')batch.failed+=1;
