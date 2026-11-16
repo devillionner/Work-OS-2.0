@@ -54,7 +54,9 @@ const RETRY = new Set([
 ]);
 // Чат змінився до відправки або немає фото для відправки: чіпати нічого, пропускаємо на сьогодні.
 // `cancelled`: оператор зупинив партію, поки задача ще виконувалась (до відправки): власнику нема що вирішувати.
-const SKIP = new Set(['stale_precondition', 'image_missing', 'cancelled']);
+// `viber_invite_dead`: запрошення не відкриває чат (Viber лишається на списку чатів), а інші чати партії відкриваються: це властивість чату.
+// Перший раз пропуск на сьогодні, другий поспіль на цьому чаті — архів «Чат не існує» (див. `settleAutopostFailure`).
+const SKIP = new Set(['stale_precondition', 'image_missing', 'cancelled', 'viber_invite_dead']);
 
 /**
  * Що робити з чатом після невдалої автопублікації. Незнайомий код і будь-який збій після натискання «Надіслати»
@@ -181,6 +183,14 @@ export async function settleAutopostFailure(
   const { now } = input;
   let errorCode = input.errorCode;
   const chat = await readChatState(db, userId, job.chat_id);
+  // Друга «мертва» відповідь запрошення поспіль на тому самому чаті (попередня завершена задача чату теж `viber_invite_dead`) — чату вже
+  // нема що пробувати: архів «Чат не існує», як для неактивного посилання, без «Потребують рішення». Запит по (user_id, chat_id).
+  if (errorCode === 'viber_invite_dead' && chat?.platform === 'viber') {
+    const previous = await db.prepare(`SELECT json_extract(result_json,'$.errorCode') AS code FROM whatsapp_autopost_jobs
+      WHERE user_id=?1 AND chat_id=?2 AND id!=?3 AND status IN ('sent','failed') AND request_key NOT LIKE 'scan\\_%' ESCAPE '\\'
+      ORDER BY published_on DESC,updated_at DESC LIMIT 1`).bind(userId, job.chat_id, job.id).first<{ code: string | null }>();
+    if (previous?.code === 'viber_invite_dead') errorCode = 'viber_chat_missing';
+  }
   // Заборона писати в Telegram, що триває понад тиждень (за часом першого виявлення), — це бан: архів «Забанено», власник може відкрити чат і перевірити.
   if (errorCode === 'telegram_chat_restricted' && chat?.platform === 'telegram') {
     const row = await db.prepare(`SELECT telegram_restricted_at FROM chats WHERE id=?1 AND user_id=?2 LIMIT 1`).bind(job.chat_id, userId).first<{ telegram_restricted_at: number | null }>();

@@ -1108,6 +1108,9 @@ function guardSeries(message){
   const code=String(message.errorCode||'');
   if(!ok&&info.platform!=='viber'&&suspectKind(info.platform,code)&&whatsappCdp)void snapshotBrowserTab(whatsappCdp,info.platform==='telegram'?'web.telegram.org':'web.whatsapp.com',info.platform,code,String(info.chat||''));
   const verdict=health.noteResult(info.platform,{ok,code,chat:info.chat});
+  // Запрошення лишило Viber на списку чатів, але серії немає (попередній чат відкрився або це перший збій): це властивість чату,
+  // а не середовища. Два різні чати поспіль уже дають запобіжник нижче.
+  if(!verdict.trip&&info.platform==='viber'&&code==='viber_invite_not_opened'){message.errorCode='viber_invite_dead';return false;}
   if(!verdict.trip)return false;
   const until=Date.now()+RECHECK_MS;
   const text=`Однаковий збій (${code}) на двох чатах поспіль: схоже на збій середовища, а не чатів. ${helpFor(code)}. Чати не постраждали. Наступна перевірка о ${clockText(until)}`;
