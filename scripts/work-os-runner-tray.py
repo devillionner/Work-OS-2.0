@@ -163,6 +163,7 @@ class Tray:
         self.update_note_until = 0.0
         self.flags_checked_at = 0.0
         self.flags_missing = False
+        self.awake = False
         write_icons()
         self.indicator = AppIndicator.Indicator.new(
             'work-os-runner', str(ICON_DIR / 'work-os-starting.svg'), AppIndicator.IndicatorCategory.APPLICATION_STATUS)
@@ -180,6 +181,10 @@ class Tray:
         self.opera_item = Gtk.MenuItem(label='Перезапусти Opera: без прапорців автопост гальмує за іншими вікнами')
         self.opera_item.set_sensitive(False)
         menu.append(self.opera_item)
+        # Runner тримає блокування сну, поки йде автопост (поле `awake` у runner-status.json).
+        self.awake_item = Gtk.MenuItem(label='Не даю заснути: іде автопост')
+        self.awake_item.set_sensitive(False)
+        menu.append(self.awake_item)
         restart = Gtk.MenuItem(label='Перезапустити runner')
         restart.connect('activate', lambda _: self.restart_runner())
         menu.append(restart)
@@ -192,6 +197,7 @@ class Tray:
         menu.append(off_item)
         menu.show_all()
         self.opera_item.hide()
+        self.awake_item.hide()
         self.indicator.set_menu(menu)
 
         self.start_runner()
@@ -266,8 +272,10 @@ class Tray:
     def read_status(self):
         try:
             status = json.loads(STATUS_FILE.read_text(encoding='utf-8'))
+            self.awake = bool(status.get('awake'))
             return status.get('state', 'starting'), status.get('detail', '')
         except (OSError, ValueError):
+            self.awake = False
             return 'starting', 'Запускається…'
 
     def maybe_update(self, state):
@@ -317,6 +325,7 @@ class Tray:
         self.indicator.set_title(f'Work OS runner — {LABELS.get(state, state)}')
         self.state_item.set_label(f'Work OS runner: {LABELS.get(state, state)}')
         self.detail_item.set_label(detail[:90])
+        (self.awake_item.show if self.awake and self.running() else self.awake_item.hide)()
         self.check_browser_flags()
         return True
 

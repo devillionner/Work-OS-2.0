@@ -26,6 +26,7 @@ import { VIBER_ENV_REASON_TEXT, cancelViberTask, runViberAndroid, viberActiveTas
 import { readTelegramIdentityViaCdp, reloadTelegramTabViaCdp, sendTelegramAutopostViaCdp } from './telegram-autopost-cdp.mjs';
 import { estimateBackup, executeBackup, formatBytes } from './runner-transfer.mjs';
 import { readInstalledPackage, updateFromSite } from './runner-update.mjs';
+import { createSleepInhibitor } from './sleep-inhibit.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
@@ -95,6 +96,9 @@ const BROWSER_FLAGS_CHECK_MS=10*60_000;
 let serverActive=false;
 // «Зберегти для перенесення» триває: браузер і Android закриті, нові задачі чекають у черзі.
 let transferBusy=false;
+// Поки є що виконувати (activity від Durable Object, задачі в черзі чи в роботі), система не засинає; у простої блокування знімається.
+const sleepInhibitor=createSleepInhibitor({log:(line)=>console.warn(line),onChange:()=>{lastStatusKey='';setStatus(lastStatus.state,lastStatus.detail);}});
+function syncSleepInhibit(){sleepInhibitor.sync(!runnerIdle());}
 function runnerIdle(){
   return !serverActive&&!transferBusy&&!processingTask&&!processingViberTask&&incomingTaskQueue.length===0&&viberTaskQueue.length===0&&autopostActive.size===0&&!viberActiveTask();
 }
@@ -278,13 +282,17 @@ const statusFile=process.env.WORK_OS_RUNNER_STATUS_FILE
   ||join(process.env.XDG_STATE_HOME||join(homedir(),'.local','state'),'work-os','runner-status.json');
 let lastStatusKey='';
 // Read by the tray icon (scripts/work-os-runner-tray.py); written only when the state changes.
+const lastStatus={state:'starting',detail:''};
 function setStatus(state,detail){
-  const key=`${state}|${detail}`;
+  const awake=sleepInhibitor.active;
+  const key=`${state}|${detail}|${awake}`;
   if(key===lastStatusKey)return;
   lastStatusKey=key;
+  lastStatus.state=state;lastStatus.detail=detail;
   try{
     mkdirSync(dirname(statusFile),{recursive:true});
-    writeFileSync(`${statusFile}.tmp`,JSON.stringify({state,detail,pid:process.pid,updatedAt:Date.now()}));
+    // `awake`: runner тримає блокування сну (трей показує «Не даю заснути: іде автопост»).
+    writeFileSync(`${statusFile}.tmp`,JSON.stringify({state,detail,awake,pid:process.pid,updatedAt:Date.now()}));
     renameSync(`${statusFile}.tmp`,statusFile);
   }catch{}
 }
@@ -1550,6 +1558,7 @@ function onLiveMessage(ws,raw){
     const next=message.active===true;
     const changed=next!==serverActive;
     serverActive=next;
+    syncSleepInhibit();
     if(next&&changed)checkEnvironment();
     if(!next)void maybeSelfUpdate();
     return;
@@ -1660,6 +1669,7 @@ function connectLiveChannel(){
     if(keepalive)clearInterval(keepalive);
     if(liveWs===ws)liveWs=null;
     serverActive=false;
+    syncSleepInhibit();
     try{ws.close();}catch{}
     console.warn('Work OS live channel disconnected; reconnecting…');
     setStatus('reconnecting','З’єднання з Work OS перервано — перепідключення…');
@@ -1716,7 +1726,9 @@ console.log('Work OS Discovery runner started. Ctrl+C to stop.');
 setInterval(()=>{void checkViberStatus();void checkTelegramStatus();},VIBER_STATUS_EVERY_MS);
 // Усі перевірки вище самі нічого не роблять у простої (див. runnerIdle).
 setStatus('starting','Запускається…');
-for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{setStatus('stopped','Runner зупинено');process.exit(0);});
+for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{sleepInhibitor.release();setStatus('stopped','Runner зупинено');process.exit(0);});
+// Локальні задачі стартують і закінчуються без повідомлень Durable Object, тож стан блокування звіряється раз на 15 с (без мережі й D1).
+setInterval(syncSleepInhibit,15_000).unref?.();
 connectLiveChannel();
 // Everything (Waiting check, autopost, Discovery executor and the autonomous run) now arrives pushed over
 // the live channel; this loop only keeps the executor token available until the channel can connect.
