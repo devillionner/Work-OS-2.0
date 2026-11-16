@@ -17,6 +17,7 @@
 // time and simply inlined by the time the file reaches dist/server. Tests cover the message-
 // routing/storage/business-logic behavior directly (tests/owner-channel.test.mjs); IDE type hints
 // come from the JSDoc below.
+import { estimateBatch } from '../lib/autopost-estimate.mjs';
 import {
   advanceWaitingCheckTask,
   applyWaitingCheckResult,
@@ -95,7 +96,6 @@ const AUTOPOST_WATCH_MS = 180_000;
 // (що мало прийти вночі, не надсилається). Інших сповіщень немає.
 const PUSH_PLATFORM_NAMES = { whatsapp: 'WhatsApp', viber: 'Viber', telegram: 'Telegram' };
 /** Скільки секунд на чат, коли темп «без пауз» (як у `secondsPerChat` картки автопосту). */
-const SECONDS_NO_PAUSE = { viber: 30, whatsapp: 40, telegram: 15 };
 function kyivHour(ms) {
   return Number(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hourCycle: 'h23', timeZone: 'Europe/Kyiv' }).format(ms));
 }
@@ -278,6 +278,11 @@ export class OwnerChannel {
       // «Перевірити й продовжити»: runner спершу проходить пробну відправку платформи (пауза вже знята, задача піде після неї).
       const recheck = url.searchParams.get('check');
       if (AUTOPOST_PLATFORMS.includes(String(recheck))) this.broadcast('runner', { type: 'canary_force', platform: recheck });
+      // Лічильники дня платформи до партії (`base=viber:80:1:0` — усього, відправлено, не вдалося): runner і трей рахують ними «партія N з M».
+      const baseParam = (url.searchParams.get('base') || '').split(':');
+      if (AUTOPOST_PLATFORMS.includes(baseParam[0]) && baseParam.length === 4 && baseParam.slice(1).every((value) => /^\d{1,6}$/.test(value))) {
+        state.autopostBase = { ...(state.autopostBase || {}), [baseParam[0]]: { total: Number(baseParam[1]), sent: Number(baseParam[2]), failed: Number(baseParam[3]) } };
+      }
       // Темп платформ: `pace=viber:0,telegram:20` (0 — без пауз); старий параметр `telegramPerHour` лишається для сумісності.
       const paceParam = url.searchParams.get('pace') || '';
       const legacyPerHour = Number(url.searchParams.get('telegramPerHour'));
@@ -714,6 +719,7 @@ export class OwnerChannel {
         if (!openedAt || Date.now() - openedAt > BATCH_OPEN_FRESH_MS) startedPlatforms.push(platform);
         (state.autopostBatchOpen ??= {})[platform] = Date.now();
       }
+      if (task.progress && state.autopostBase?.[platform]) task.progress = { ...task.progress, base: state.autopostBase[platform] };
       const sent = this.broadcast('runner', { type: 'task', process: 'autopost', task });
       notes.push(`видача: ${task.kind} ${task.jobId} «${task.target.expectedName}» → runner: відкритих ${runners}, доставлено ${sent}`);
       flush();
@@ -1084,12 +1090,12 @@ export class OwnerChannel {
       const total = progress.batch?.total || progress.total;
       if (!total) return;
       const left = progress.batch ? progress.batch.remaining : progress.pending + progress.claimed;
-      const perChat = Math.max(state.autopostPace?.[platform]?.intervalSeconds ?? 0, SECONDS_NO_PAUSE[platform] ?? 30);
-      const endAt = Date.now() + Math.max(1, left) * perChat * 1000;
-      const endText = new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Europe/Kyiv' }).format(endAt);
+      // Та сама оцінка, що в картці й треї (залишок × довідкова швидкість з урахуванням темпу): «≈ 50 хв · до 14:30».
+      const interval = this.paceInterval(state, platform);
+      const estimate = estimateBatch({ platform, remaining: Math.max(1, left), perHour: interval > 0 ? 3600 / interval : 0 });
       await this.notifyOwner(state, {
         title: `${PUSH_PLATFORM_NAMES[platform] ?? platform}: автопост почався`,
-        body: `${this.chatsText(total)} · орієнтовно до ${endText}`,
+        body: `${this.chatsText(total)} · ${estimate.text}`,
         url: `/?go=platforms:${platform}:autopost`, tag: `batch-start-${platform}`,
       });
     } catch (error) {

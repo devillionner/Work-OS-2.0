@@ -1671,7 +1671,7 @@ function onLiveMessage(ws,raw){
   try{message=JSON.parse(raw);}catch{return;}
   // DO каже, чи є що виконувати (партія, задачі в черзі): на початок партії одразу перевіряємо середовище, у простої — тиша.
   if(message.type==='autopost_pace'||(message.type==='progress'&&message.process==='autopost_pace')){
-    dayState.onPace(String(message.platform||''),Number(message.nextAt));
+    dayState.onPace(String(message.platform||''),Number(message.nextAt),Number(message.intervalSeconds)||0);
     setStatus(lastStatus.state,lastStatus.detail);
     return;
   }

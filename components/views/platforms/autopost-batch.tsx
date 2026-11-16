@@ -9,6 +9,7 @@ import { getLatestStep, subscribeLiveMessages, type AutopostStep } from '@/lib/l
 import { useLiveSynced } from '@/components/views/platforms/use-live-synced';
 import { autopostReasonGroup } from '@/components/views/platforms/autopost-reasons';
 import { useAutopostHealth } from '@/components/views/platforms/health-line';
+import { estimateBatch } from '@/lib/autopost-estimate.mjs';
 
 /** Один чат поточної партії: результат або те, що робиться просто зараз. */
 export type AutopostBatchEntry = { jobId: string; name: string; status: 'claimed' | 'sent' | 'failed'; outcome: string | null; code: string | null; at: number; /** Початок тексту з пулу оголошень Telegram, який пішов (чи мав піти) в чат. */ text?: string };
@@ -24,8 +25,16 @@ const OUTCOME_LABEL: Record<string, string> = { archived: 'в архів', waiti
 // Останній крок кожної платформи тримає live-канал (lib/live-channel.ts): він приходить подіями й у hello, тож картка, відкрита посеред
 // партії чи після того, як телефон приспав вкладку, одразу показує поточний крок.
 const stepListeners = new Set<() => void>();
+// Задачі, чий результат уже прийшов подією (`process_state` з підсумковим статусом): їхній крок і рядок «у роботі» одразу зникають, не чекаючи
+// наступного читання партії (раніше «Зараз» ще кілька секунд показував крок щойно завершеної задачі).
+const finishedJobs = new Set<string>();
 if (typeof window !== 'undefined') {
   subscribeLiveMessages((message) => {
+    if (message.type === 'process_state' && message.process === 'autopost' && typeof message.jobId === 'string' && message.status && message.status !== 'running') {
+      finishedJobs.add(message.jobId);
+      if (finishedJobs.size > 300) finishedJobs.delete(finishedJobs.values().next().value as string);
+      for (const listener of stepListeners) listener();
+    }
     if (message.type === 'hello' || (message.type === 'progress' && message.process === 'autopost_step') || (message.type === 'runner_status' && message.connected === false)) for (const listener of stepListeners) listener();
   });
 }
@@ -34,7 +43,8 @@ const subscribeStep = (listener: () => void) => { stepListeners.add(listener); r
 /** Крок поточної задачі з live-каналу: runner шле «відкриваю чат», «додаю фото» і далі; опитувань бази тут немає. */
 function useAutopostStep(platform: 'whatsapp' | 'viber' | 'telegram', active: boolean, now: number): LiveStep | null {
   const step = useSyncExternalStore(subscribeStep, () => getLatestStep(platform), () => null);
-  return active && step && (now === 0 || now - step.at < STALE_STEP_MS) ? step : null;
+  const finished = useSyncExternalStore(subscribeStep, () => Boolean(step && finishedJobs.has(step.jobId)), () => false);
+  return active && step && !finished && (now === 0 || now - step.at < STALE_STEP_MS) ? step : null;
 }
 
 /** Секундний годинник, поки партія виконується; 0 — ще не стартував (час під час рендеру не читаємо). */
@@ -50,11 +60,6 @@ function useSecondClock(enabled: boolean): number {
 }
 
 const clock = (seconds: number) => new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Kyiv' }).format(new Date(seconds * 1000));
-
-function eta(seconds: number): string {
-  const minutes = Math.round(seconds / 60);
-  return minutes < 1 ? 'менш як хвилина' : `близько ${minutes} хв`;
-}
 
 function entryLabel(entry: AutopostBatchEntry): { icon: 'ok' | 'bad' | 'skip'; text: string } {
   if (entry.status === 'sent') return { icon: 'ok', text: `відправлено о ${clock(entry.at)}` };
@@ -99,9 +104,10 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
   // Партія завершена лише коли немає ні задач у черзі, ні в роботі; зелений стан — коли до того ж відправлено все.
   const active = batch.remaining > 0;
   const allSent = !active && batch.sent === batch.total;
-  const secondsLeft = batch.averageSeconds ? batch.remaining * batch.averageSeconds : null;
+  // Одна оцінка з усіма місцями (картка до запуску, сповіщення, трей): залишок × середній фактичний час на чат за останні задачі платформи.
+  const estimate = estimateBatch({ platform, remaining: batch.remaining, finishedAt: batch.entries.filter((entry) => entry.status !== 'claimed').map((entry) => entry.at * 1000) });
   const finishedEntries = batch.entries.filter((entry) => entry.status !== 'claimed');
-  const claimed = running ? batch.entries.find((entry) => entry.status === 'claimed') : undefined;
+  const claimed = running ? batch.entries.find((entry) => entry.status === 'claimed' && !finishedJobs.has(entry.jobId)) : undefined;
   // «Зараз» показує крок лише поки в партії справді є задача в роботі (або це ручна перевірка): крок завершеної задачі живе в live-каналі ще кілька хвилин.
   const liveStep = step && (batch.inProgress > 0 || step.verify || checking) ? step : null;
   const currentName = liveStep?.name ?? claimed?.name ?? '';
@@ -126,11 +132,11 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
             {(batch.thread ?? 0) > 0 ? <span title="У цих чатах є гілки: вибери, куди публікувати">Чекають вибору гілки <b className="font-mono font-normal tabular-nums text-ink">{batch.thread}</b></span> : null}
             {batch.cancelled > 0 ? <span>Скасовано <b className="font-mono font-normal tabular-nums text-ink">{batch.cancelled}</b></span> : null}
           </p>
-          {running && secondsLeft ? <p className="m-0 mt-1.5 text-xs text-ink-2">До кінця: {eta(secondsLeft)}</p> : null}
+          {active ? <p className="m-0 mt-1.5 text-xs text-ink-2">До кінця: {estimate.text}</p> : null}
         </div>
       </div>
 
-      {running || checking ? <NowBlock name={currentName} step={liveStep} now={now} waiting={!liveStep && !claimed && batch.queued > 0} /> : null}
+      {running || checking ? <NowBlock name={currentName} step={liveStep} now={now} waiting={!liveStep && !claimed} /> : null}
 
       {finishedEntries.length > 0 ? (
         <details className="group">

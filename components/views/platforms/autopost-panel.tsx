@@ -1,6 +1,7 @@
 'use client';
 
-import { HealthLine } from '@/components/views/platforms/health-line';
+import { HealthLine, useAutopostHealth } from '@/components/views/platforms/health-line';
+import { CANARY_SECONDS, estimateFromSeconds } from '@/lib/autopost-estimate.mjs';
 import { RunnerLaunchLink, WaydroidWindowLink, useRunnerNotice } from '@/components/shell/runner-offline';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ImagePlus, MoreHorizontal, Send, Square, Trash2, UploadCloud, X } from 'lucide-react';
@@ -75,15 +76,6 @@ export function chatWord(count: number): string {
   if (tail >= 11 && tail <= 14) return 'чатів';
   const last = count % 10;
   return last === 1 ? 'чат' : last >= 2 && last <= 4 ? 'чати' : 'чатів';
-}
-
-function etaText(seconds: number): string {
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 1) return 'менше хвилини';
-  if (minutes < 60) return `≈ ${minutes} хв`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return `≈ ${hours} год${rest ? ` ${rest} хв` : ''}`;
 }
 
 function formatBytes(bytes: number) {
@@ -260,6 +252,9 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
   const planIds = new Set((plan?.chats ?? []).map((chat) => chat.id));
   const removedNow = removed.filter((id) => planIds.has(id));
   const readyCount = Math.max(0, (plan?.ready ?? 0) - removedNow.length);
+  const healthStatus = useAutopostHealth(platform)?.status ?? '';
+  // Партія іде (є задачі в черзі чи в роботі): заголовок показує її, а не «Готово до публікації: 0 чатів».
+  const batchLive = progress?.batch && progress.batch.total > 0 && progress.batch.remaining > 0 ? progress.batch : null;
   const cap = Math.min(readyCount, BATCH_CAP);
   const chosen = size === 'all' ? cap : Math.min(Number(size), readyCount);
   const going = (plan?.chats ?? []).filter((chat) => !removedNow.includes(chat.id)).slice(0, chosen);
@@ -323,7 +318,11 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
       <section className="flex flex-col gap-1" aria-label="Скільки чатів готові до публікації">
         {plan ? (
           <>
-            <p className="m-0 text-[28px] font-medium leading-tight tracking-[-0.02em]">Готово до публікації: <span className="tabular-nums">{plan.ready}</span> {chatWord(plan.ready)}</p>
+            {batchLive ? (
+              <p className="m-0 text-[28px] font-medium leading-tight tracking-[-0.02em]">Іде партія: <span className="tabular-nums">{batchLive.sent + batchLive.failed + batchLive.skipped}</span> з <span className="tabular-nums">{batchLive.total}</span>{plan.ready > 0 ? <span className="text-ink-2"> · ще готових поза партією: <span className="tabular-nums">{plan.ready}</span></span> : null}</p>
+            ) : (
+              <p className="m-0 text-[28px] font-medium leading-tight tracking-[-0.02em]">Готово до публікації: <span className="tabular-nums">{plan.ready}</span> {chatWord(plan.ready)}</p>
+            )}
             {plan.total > 0 ? (
               <p className="m-0 text-sm text-ink-2">
                 З {plan.total} у черзі «Для публікації»{reasons.length ? ': ' : '.'}
@@ -372,7 +371,7 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
                   <Button variant="action" busy={busy} disabled={runnerBlocked || !ready || chosen === 0} title={ready ? undefined : 'Спершу додай фото'} onClick={() => onStart(chosen, removedNow)}>
                     <Send aria-hidden="true" strokeWidth={1.5} />{busy ? 'Ставимо в чергу…' : `Опублікувати в ${chosen} ${chatWord(chosen)}`}
                   </Button>
-                  <span className="text-xs text-ink-2">{chosen ? (startNote ?? `${etaText(chosen * secondsPerChat)}, по одному чату з підтвердженням`) : ''}</span>
+                  <span className="text-xs text-ink-2">{chosen ? (startNote ?? `${estimateFromSeconds(chosen * secondsPerChat + (healthStatus === 'ok' ? 0 : CANARY_SECONDS[platform])).text}, по одному чату з підтвердженням`) : ''}</span>
                 </div>
               </div>
             </>

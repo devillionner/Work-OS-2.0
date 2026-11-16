@@ -5,6 +5,8 @@ import { Segmented } from '@/components/ui/segmented';
 import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import { useLiveSynced } from '@/components/views/platforms/use-live-synced';
 import type { AutopostPace, AutopostPlatformStatus } from '@/lib/live-channel';
+import { CANARY_SECONDS, estimateFromSeconds, secondsPerChat as sharedSecondsPerChat } from '@/lib/autopost-estimate.mjs';
+import { useAutopostHealth } from '@/components/views/platforms/health-line';
 
 /** Відправок на годину; 0 — без пауз (лише Viber і WhatsApp: у Telegram найвищий темп 30 на годину). */
 export type PerHour = 0 | 5 | 10 | 20 | 30;
@@ -12,8 +14,6 @@ export type PacePlatform = 'viber' | 'whatsapp' | 'telegram';
 
 const VALUES: Record<PacePlatform, PerHour[]> = { viber: [5, 10, 20, 30, 0], whatsapp: [5, 10, 20, 30, 0], telegram: [5, 10, 20, 30] };
 const DEFAULT: Record<PacePlatform, PerHour> = { viber: 0, whatsapp: 0, telegram: 10 };
-/** Скільки триває один чат без пауз (за вимірами партій): Viber ≈ 30 с разом із проміжком між чатами, WhatsApp ≈ 40 с, Telegram ≈ 15 с. */
-const SECONDS_NO_PAUSE: Record<PacePlatform, number> = { viber: 30, whatsapp: 40, telegram: 15 };
 const key = (platform: PacePlatform) => `work-os:autopost-per-hour:${platform}`;
 
 function readPerHour(platform: PacePlatform): PerHour {
@@ -37,22 +37,23 @@ export function usePerHour(platform: PacePlatform): [PerHour, (value: PerHour) =
 
 /** Скільки секунд на чат: за темпом (3600 / N), а без пауз — за вимірами платформи; повільніше з двох. */
 export function secondsPerChat(platform: PacePlatform, perHour: PerHour): number {
-  return perHour > 0 ? Math.max(Math.round(3600 / perHour), SECONDS_NO_PAUSE[platform]) : SECONDS_NO_PAUSE[platform];
+  return sharedSecondsPerChat(platform, [], perHour);
 }
 
-export function durationText(totalMinutes: number): string {
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${hours ? `${hours} год` : ''}${hours && minutes ? ' ' : ''}${minutes || !hours ? `${minutes} хв` : ''}`;
+/** Оцінка партії до запуску: «≈ 55 хв · до 21:43» (разом із пробною відправкою, поки вона ще попереду). */
+export function useStartEstimate(platform: PacePlatform, count: number, perHour: PerHour): string {
+  const health = useAutopostHealth(platform);
+  const canary = health?.status === 'ok' ? 0 : CANARY_SECONDS[platform];
+  return estimateFromSeconds(count * secondsPerChat(platform, perHour) + canary).text;
 }
 
 const chatsWord = (count: number) => (count % 10 === 1 && count % 100 !== 11 ? 'чат' : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14) ? 'чати' : 'чатів');
 
-/** «Оцінка: 63 чати ≈ 3 год 9 хв при 20 на годину» або «80 чатів ≈ 40 хв без пауз»: довге очікування не виглядає як зависання. */
+/** «Оцінка: 63 чати ≈ 1 год 5 хв · до 21:43 при 20 на годину»: довге очікування не виглядає як зависання. */
 export function PaceEstimate({ platform, count, perHour, running }: { platform: PacePlatform; count: number; perHour: PerHour; running: boolean }) {
+  const text = useStartEstimate(platform, count, perHour);
   if (running || count <= 0) return null;
-  const minutes = Math.max(1, Math.round((count * secondsPerChat(platform, perHour)) / 60));
-  return <p className="m-0 text-sm text-ink-2">Оцінка: <span className="tabular-nums">{count}</span> {chatsWord(count)} ≈ {durationText(minutes)} {perHour > 0 ? `при ${perHour} на годину` : 'без пауз'}</p>;
+  return <p className="m-0 text-sm text-ink-2">Оцінка: <span className="tabular-nums">{count}</span> {chatsWord(count)} {text}{perHour > 0 ? ` при ${perHour} на годину` : ''}</p>;
 }
 
 /** Сегмент «5 · 10 · 20 · 30 на годину · Без пауз» (у Telegram без «Без пауз»). */
