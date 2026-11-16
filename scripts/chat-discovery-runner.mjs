@@ -27,6 +27,7 @@ import { readTelegramIdentityViaCdp, reloadTelegramTabViaCdp, sendTelegramAutopo
 import { estimateBackup, executeBackup, formatBytes } from './runner-transfer.mjs';
 import { readInstalledPackage, updateFromSite } from './runner-update.mjs';
 import { createSleepInhibitor } from './sleep-inhibit.mjs';
+import { createDayState, platformOfKind } from './tray-day.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
 const whatsappCdp=(process.env.WORK_OS_WHATSAPP_CDP||'').replace(/\/$/,'');
@@ -97,6 +98,8 @@ let serverActive=false;
 // «Зберегти для перенесення» триває: браузер і Android закриті, нові задачі чекають у черзі.
 let transferBusy=false;
 // Поки є що виконувати (activity від Durable Object, задачі в черзі чи в роботі), система не засинає; у простої блокування знімається.
+// Підсумок дня для значка в треї (число біля значка, рядок на платформу, «Потребують рішення»).
+const dayState=createDayState();
 const sleepInhibitor=createSleepInhibitor({log:(line)=>console.warn(line),onChange:()=>{lastStatusKey='';setStatus(lastStatus.state,lastStatus.detail);}});
 function syncSleepInhibit(){sleepInhibitor.sync(!runnerIdle());}
 function runnerIdle(){
@@ -285,14 +288,15 @@ let lastStatusKey='';
 const lastStatus={state:'starting',detail:''};
 function setStatus(state,detail){
   const awake=sleepInhibitor.active;
-  const key=`${state}|${detail}|${awake}`;
+  const day=dayState.snapshot({active:!runnerIdle()});
+  const key=`${state}|${detail}|${awake}|${JSON.stringify(day)}`;
   if(key===lastStatusKey)return;
   lastStatusKey=key;
   lastStatus.state=state;lastStatus.detail=detail;
   try{
     mkdirSync(dirname(statusFile),{recursive:true});
     // `awake`: runner тримає блокування сну (трей показує «Не даю заснути: іде автопост»).
-    writeFileSync(`${statusFile}.tmp`,JSON.stringify({state,detail,awake,pid:process.pid,updatedAt:Date.now()}));
+    writeFileSync(`${statusFile}.tmp`,JSON.stringify({state,detail,awake,day,pid:process.pid,updatedAt:Date.now()}));
     renameSync(`${statusFile}.tmp`,statusFile);
   }catch{}
 }
@@ -1016,6 +1020,7 @@ const autopostResults=new Map();
 // відправки без підтвердження, повторна відправка), має інший підпис і виконується заново; лише точний повтор тієї самої видачі (DO повторив
 // її після обриву зв'язку) отримує збережений результат. Без цього повтор «verify» віддавав кешований збій, не виконуючись.
 const autopostTaskSig=new Map();
+const autopostUncounted=new Set();
 const taskSignature=(task)=>`${task?.mode||''}|${task?.verify?.sinceEpoch||''}|${task?.attempt??''}`;
 const autopostActive=new Set();
 function sendReliable(message){
@@ -1025,6 +1030,10 @@ function sendReliable(message){
 }
 function sendAutopostResult(message){
   dropStepState(message.jobId);
+  // Значок у треї: відправлено — +1 одразу, решту уточнить наступна видача чи підсумок партії.
+  dayState.onResult(message.jobId,message.status,{counts:!autopostUncounted.has(String(message.jobId))});
+  autopostUncounted.delete(String(message.jobId));
+  setStatus(lastStatus.state,lastStatus.detail);
   for(const [jobId,item] of autopostResults)if(Date.now()-item.at>AUTOPOST_RESULT_KEEP_MS)autopostResults.delete(jobId);
   autopostResults.set(message.jobId,{message,at:Date.now(),sig:autopostTaskSig.get(message.jobId)||''});
   sendReliable(message);
@@ -1139,7 +1148,9 @@ function createStepReporter(job,platformLabel){
   const startedAt=Date.now();
   const progress=job.progress&&Number(job.progress.total)>0?`${Math.min(Number(job.progress.done)+1,Number(job.progress.total))}/${Number(job.progress.total)} · `:'';
   const name=job.target?.expectedName||'чат';
+  const platformId=platformLabel==='Viber'?'viber':platformLabel==='Telegram'?'telegram':'whatsapp';
   return (step,text)=>{
+    if(job.mode!=='scan'){dayState.setCurrent(platformId);}
     sendStepMerged(job.jobId,{type:'progress',process:'autopost_step',platform:platformLabel==='Viber'?'viber':platformLabel==='Telegram'?'telegram':'whatsapp',jobId:job.jobId,name,step,text,startedAt,at:Date.now(),
       done:Number(job.progress?.done)||0,total:Number(job.progress?.total)||0,verify:job.mode==='verify'});
     setStatus('working',`${platformLabel}: ${progress}${name} · ${text}`);
@@ -1554,11 +1565,22 @@ function onLiveMessage(ws,raw){
   let message;
   try{message=JSON.parse(raw);}catch{return;}
   // DO каже, чи є що виконувати (партія, задачі в черзі): на початок партії одразу перевіряємо середовище, у простої — тиша.
+  if(message.type==='autopost_pace'||(message.type==='progress'&&message.process==='autopost_pace')){
+    dayState.onPace(String(message.platform||''),Number(message.nextAt));
+    setStatus(lastStatus.state,lastStatus.detail);
+    return;
+  }
+  if(message.type==='autopost_summary'){
+    dayState.onSummary(message);
+    setStatus(lastStatus.state,lastStatus.detail);
+    return;
+  }
   if(message.type==='activity'){
     const next=message.active===true;
     const changed=next!==serverActive;
     serverActive=next;
     syncSleepInhibit();
+    setStatus(lastStatus.state,lastStatus.detail);
     if(next&&changed)checkEnvironment();
     if(!next)void maybeSelfUpdate();
     return;
@@ -1586,6 +1608,9 @@ function onLiveMessage(ws,raw){
       let finished=autopostResults.get(jobId);
       if(finished&&finished.sig!==sig){autopostResults.delete(jobId);finished=undefined;}
       autopostTaskSig.set(jobId,sig);
+      // Проходи гілок і перевірки не відправляють нового повідомлення: у значок вони нічого не додають.
+      if(task.mode==='scan'||task.mode==='verify')autopostUncounted.add(jobId);
+      if(task.mode!=='scan'){dayState.onClaim(task.kind,task);setStatus(lastStatus.state,lastStatus.detail);}
       if(autopostActive.has(jobId)||incomingTaskQueue.some((item)=>item.taskProcess==='autopost'&&item.task?.jobId===jobId)||viberTaskQueue.some((item)=>item.task?.jobId===jobId)){
         console.log(`Задача ${jobId} уже виконується або чекає в черзі: дубль проігноровано.`);
         return;

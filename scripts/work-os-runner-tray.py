@@ -13,6 +13,7 @@ import fcntl
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -40,6 +41,11 @@ RUNNER_SCRIPT = ROOT / 'scripts' / 'whatsapp-runner.sh'
 RUNNER_ENTRY = ROOT / 'scripts' / 'chat-discovery-runner.mjs'
 APP_META = ROOT / 'lib' / 'app-meta.ts'
 RUNNER_MARK = 'scripts/chat-discovery-runner.mjs'
+WAYDROID_SHOW = ROOT / 'scripts' / 'work-os-waydroid-show.sh'
+# Режим браузера runner: «headless» (без вікна) чи «window»; читає scripts/whatsapp-runner.sh при запуску браузера.
+BROWSER_MODE_FILE = STATE_DIR / 'runner-browser-mode'
+RUNNER_CONF = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'work-os' / 'runner.env'
+BROWSER_CHECK_SECONDS = 10
 WORK_OS_URL = os.environ.get('WORK_OS_URL', 'https://work-os-2-staging.devillionner.workers.dev')
 
 # Файли змінилися й стоять без змін стільки секунд: можна перезапускати (git pull чи збірка пишуть кілька файлів підряд).
@@ -142,6 +148,38 @@ def missing_throttle_flags(port=9222):
     return None
 
 
+def runner_browser_profile():
+    """Профіль браузера runner: runner.env (його пише інсталятор), інакше стандартний."""
+    profile = os.environ.get('WORK_OS_BROWSER_PROFILE', '')
+    if not profile:
+        try:
+            for line in RUNNER_CONF.read_text(encoding='utf-8').splitlines():
+                key, _, value = line.partition('=')
+                if key.strip() == 'WORK_OS_BROWSER_PROFILE':
+                    profile = value.strip().strip('"\'')
+        except OSError:
+            pass
+    return profile or str(Path.home() / '.local' / 'share' / 'work-os-runner-browser')
+
+
+def runner_browser(port=9222):
+    """Головний процес браузера runner (порт налагодження + профіль runner): (pid, без_вікна) або None.
+    Щоденний браузер власника, що випадково стоїть на цьому порту без профілю runner, не чіпаємо."""
+    profile = runner_browser_profile()
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            # Chromium переписує argv в один рядок, тож ділимо і за нулями, і за пробілами.
+            args = (entry / 'cmdline').read_bytes().decode(errors='ignore').replace('\0', ' ').split()
+        except OSError:
+            continue
+        if f'--remote-debugging-port={port}' in args and f'--user-data-dir={profile}' in args \
+                and not any(a.startswith('--type=') for a in args):
+            return int(entry.name), any(a.startswith('--headless') for a in args)
+    return None
+
+
 def app_version():
     try:
         match = re.search(r"APP_VERSION\s*=\s*'([^']+)'", APP_META.read_text(encoding='utf-8'))
@@ -164,6 +202,11 @@ class Tray:
         self.flags_checked_at = 0.0
         self.flags_missing = False
         self.awake = False
+        self.day = {}
+        self.label = None
+        self.browser = None
+        self.browser_checked_at = 0.0
+        self.has_waydroid = shutil.which('waydroid') is not None
         write_icons()
         self.indicator = AppIndicator.Indicator.new(
             'work-os-runner', str(ICON_DIR / 'work-os-starting.svg'), AppIndicator.IndicatorCategory.APPLICATION_STATUS)
@@ -171,6 +214,28 @@ class Tray:
         self.indicator.set_title('Work OS runner')
 
         menu = Gtk.Menu()
+        # Зверху те, заради чого відкривають меню: що відбувається з автопостом (дані з runner-status.json, без запитів).
+        self.platform_items = {}
+        for pid, name in (('viber', 'Viber'), ('telegram', 'Telegram'), ('whatsapp', 'WhatsApp')):
+            item = Gtk.MenuItem(label=f'{name} —')
+            item.set_sensitive(False)
+            menu.append(item)
+            self.platform_items[pid] = item
+        self.decision_platform = 'viber'
+        self.decision_item = Gtk.MenuItem(label='Потребують рішення')
+        self.decision_item.connect('activate', lambda _: self.open_autopost(self.decision_platform))
+        menu.append(self.decision_item)
+        site = Gtk.MenuItem(label='Відкрити Work OS')
+        site.connect('activate', lambda _: subprocess.Popen(['xdg-open', WORK_OS_URL], start_new_session=True))
+        menu.append(site)
+        # Браузер runner працює без вікна; вікно потрібне лише для входу в WhatsApp чи Telegram (QR-код).
+        self.browser_item = Gtk.MenuItem(label='Показати браузер runner')
+        self.browser_item.connect('activate', lambda _: self.toggle_browser())
+        menu.append(self.browser_item)
+        self.android_item = Gtk.MenuItem(label='Показати Android')
+        self.android_item.connect('activate', lambda _: subprocess.Popen([str(WAYDROID_SHOW)], start_new_session=True))
+        menu.append(self.android_item)
+        menu.append(Gtk.SeparatorMenuItem())
         self.state_item = Gtk.MenuItem(label='Work OS runner')
         self.state_item.set_sensitive(False)
         self.detail_item = Gtk.MenuItem(label='')
@@ -188,9 +253,6 @@ class Tray:
         restart = Gtk.MenuItem(label='Перезапустити runner')
         restart.connect('activate', lambda _: self.restart_runner())
         menu.append(restart)
-        site = Gtk.MenuItem(label='Відкрити Work OS')
-        site.connect('activate', lambda _: subprocess.Popen(['xdg-open', WORK_OS_URL], start_new_session=True))
-        menu.append(site)
         menu.append(Gtk.SeparatorMenuItem())
         off_item = Gtk.MenuItem(label='Вимкнути повністю…')
         off_item.connect('activate', lambda _: self.confirm_disable())
@@ -198,6 +260,10 @@ class Tray:
         menu.show_all()
         self.opera_item.hide()
         self.awake_item.hide()
+        self.decision_item.hide()
+        self.browser_item.hide()
+        if not self.has_waydroid:
+            self.android_item.hide()
         self.indicator.set_menu(menu)
 
         self.start_runner()
@@ -273,9 +339,11 @@ class Tray:
         try:
             status = json.loads(STATUS_FILE.read_text(encoding='utf-8'))
             self.awake = bool(status.get('awake'))
+            self.day = status.get('day') if isinstance(status.get('day'), dict) else {}
             return status.get('state', 'starting'), status.get('detail', '')
         except (OSError, ValueError):
             self.awake = False
+            self.day = {}
             return 'starting', 'Запускається…'
 
     def maybe_update(self, state):
@@ -326,8 +394,82 @@ class Tray:
         self.state_item.set_label(f'Work OS runner: {LABELS.get(state, state)}')
         self.detail_item.set_label(detail[:90])
         (self.awake_item.show if self.awake and self.running() else self.awake_item.hide)()
+        self.show_day(state)
         self.check_browser_flags()
+        self.check_browser(state)
         return True
+
+    def show_day(self, state):
+        """Число біля значка (GNOME не показує підказок), рядки платформ і «Потребують рішення» у меню."""
+        label = str(self.day.get('label') or '') if self.running() else ''
+        if label != self.label:
+            self.label = label
+            self.indicator.set_label(label, '999/999')
+        decisions, best = 0, ('viber', 0)
+        for item in self.day.get('platforms') or []:
+            row = self.platform_items.get(item.get('id'))
+            if row is not None:
+                row.set_label(str(item.get('text') or ''))
+            count = int(item.get('decision') or 0)
+            decisions += count
+            if count > best[1]:
+                best = (item.get('id'), count)
+        self.decision_platform = best[0]
+        if decisions:
+            self.decision_item.set_label(f'Потребують рішення · {decisions}')
+            self.decision_item.show()
+        else:
+            self.decision_item.hide()
+
+    def open_autopost(self, platform):
+        subprocess.Popen(['xdg-open', f'{WORK_OS_URL}/?go=platforms:{platform}:autopost'], start_new_session=True)
+
+    # ── браузер runner: без вікна чи з вікном ──────────────────────────────────────────
+    def check_browser(self, state):
+        now = time.time()
+        if now - self.browser_checked_at < BROWSER_CHECK_SECONDS:
+            return
+        self.browser_checked_at = now
+        found = runner_browser()
+        self.browser = found
+        if found is None:
+            self.browser_item.hide()
+            return
+        self.browser_item.set_label('Показати браузер runner' if found[1] else 'Сховати браузер runner')
+        self.browser_item.set_sensitive(state != 'working')
+        self.browser_item.show()
+
+    def toggle_browser(self):
+        """Перезапускає браузер runner у протилежному режимі з тим самим профілем (сесії WhatsApp і Telegram лишаються)."""
+        found = runner_browser()
+        if found is None:
+            return
+        pid, headless = found
+        want_window = headless
+        try:
+            STATE_DIR.mkdir(parents=True, exist_ok=True)
+            BROWSER_MODE_FILE.write_text('window' if want_window else 'headless', encoding='utf-8')
+        except OSError:
+            return
+        self.stop_runner()
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+        for _ in range(100):
+            if runner_browser() is None:
+                break
+            time.sleep(0.1)
+        else:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        self.backoff = BACKOFF_START
+        self.next_start_at = 0.0
+        self.browser_checked_at = 0.0
+        self.start_runner()
+        self.refresh()
 
     def check_browser_flags(self):
         """Opera без прапорців проти гальмування: один рядок у меню; сам браузер власника не чіпаємо."""

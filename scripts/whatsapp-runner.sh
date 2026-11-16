@@ -8,7 +8,7 @@ set -euo pipefail
 RUNNER_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/work-os/runner.env"
 if [ -f "$RUNNER_CONF" ]; then
   while IFS='=' read -r key value; do
-    case "$key" in WORK_OS_BROWSER|WORK_OS_BROWSER_PROFILE|WORK_OS_URL|WORK_OS_EXECUTOR_TOKEN) [ -z "${!key:-}" ] && export "$key=$(eval "printf '%s' $value")";; esac
+    case "$key" in WORK_OS_BROWSER|WORK_OS_BROWSER_PROFILE|WORK_OS_URL|WORK_OS_EXECUTOR_TOKEN|WORK_OS_RUNNER_HEADLESS) [ -z "${!key:-}" ] && export "$key=$(eval "printf '%s' $value")";; esac
   done < "$RUNNER_CONF"
 fi
 WORK_OS_URL="${WORK_OS_URL:-https://work-os-2-staging.devillionner.workers.dev}"
@@ -23,6 +23,31 @@ if command -v flock >/dev/null 2>&1; then
   exec 9>"${XDG_RUNTIME_DIR:-/tmp}/work-os-whatsapp-runner.lock"
   if ! flock -n 9; then echo "Runner уже запущений — другий не потрібен."; exit 0; fi
 fi
+
+# Браузер runner без вікна (3.17.4): `--headless=new` з тим самим профілем і портом, тож сесії WhatsApp і Telegram ті самі, а вікно
+# нічого не відкриває на робочому столі й не забирає фокус. Режим: WORK_OS_RUNNER_HEADLESS=1|0 (сильніше за все), потім файл
+# `runner-browser-mode` («headless» чи «window»; його пише трей кнопкою «Показати браузер runner» / «Сховати»), інакше на GNOME без
+# вікна, на решті середовищ як раніше. Профіль без входів (немає теки Default) і Opera відкриваються з вікном: у першому QR-код,
+# а Opera не підтримує режим без вікна.
+MODE_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/work-os/runner-browser-mode"
+want_headless() {
+  case "${WORK_OS_RUNNER_HEADLESS:-}" in 1|true|yes) return 0;; 0|false|no) return 1;; esac
+  case "$(basename "$1")" in opera*) return 1;; esac
+  [ -d "$PROFILE/Default" ] || return 1
+  if [ -f "$MODE_FILE" ]; then
+    case "$(cat "$MODE_FILE" 2>/dev/null)" in window) return 1;; headless) return 0;; esac
+  fi
+  case "${XDG_CURRENT_DESKTOP:-}:${DESKTOP_SESSION:-}" in *GNOME*|*gnome*) return 0;; esac
+  return 1
+}
+# Звичайний User-Agent без «Headless»: WhatsApp Web і Telegram Web відмовляють браузерам, що себе так називають.
+headless_user_agent() {
+  local version major
+  version="$("$1" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  major="${version%%.*}"
+  [ -n "$major" ] || major=130
+  printf 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s.0.0.0 Safari/537.36' "$major"
+}
 
 cdp_ready() { curl -fsS --max-time 2 "${CDP}/json/version" >/dev/null 2>&1; }
 
@@ -64,13 +89,27 @@ if ! cdp_ready; then
   # Після входу в систему мережа з'являється не одразу; інакше вкладка Work OS лишиться зі сторінкою помилки.
   for _ in $(seq 1 60); do curl -fsS --max-time 3 -o /dev/null "$WORK_OS_URL" && break; sleep 1; done
   mkdir -p "$PROFILE"
-  echo "Відкриваю $BROWSER (окремий профіль: $PROFILE)…"
+  MODE_FLAGS=()
+  if want_headless "$BROWSER"; then
+    MODE_FLAGS=(--headless=new "--user-agent=$(headless_user_agent "$BROWSER")" --window-size=1400,900)
+    echo "Відкриваю $BROWSER без вікна (окремий профіль: $PROFILE)…"
+  else
+    echo "Відкриваю $BROWSER (окремий профіль: $PROFILE)…"
+  fi
   # Прапорці проти гальмування прихованих вікон: автопост працює, поки власник дивиться відео на весь екран в іншому вікні.
+  # Без вікна браузер приймає лише одну адресу в аргументах («Multiple targets are not supported in headless mode»): решта вкладок
+  # відкривається через CDP, коли порт готовий.
+  if [ "${#MODE_FLAGS[@]}" -gt 0 ]; then START_URLS=("$WORK_OS_URL"); else START_URLS=("$WORK_OS_URL" "https://web.whatsapp.com/" "https://web.telegram.org/a/"); fi
   setsid "$BROWSER" --remote-debugging-port="$PORT" --user-data-dir="$PROFILE" \
     --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling \
-    --no-first-run --no-default-browser-check \
-    "$WORK_OS_URL" "https://web.whatsapp.com/" "https://web.telegram.org/a/" >/dev/null 2>&1 < /dev/null 9>&- &
+    --no-first-run --no-default-browser-check "${MODE_FLAGS[@]}" \
+    "${START_URLS[@]}" >/dev/null 2>&1 < /dev/null 9>&- &
   for _ in $(seq 1 30); do cdp_ready && break; sleep 1; done
+  if [ "${#MODE_FLAGS[@]}" -gt 0 ] && cdp_ready; then
+    for extra in "https://web.whatsapp.com/" "https://web.telegram.org/a/"; do
+      curl -fsS --max-time 5 -X PUT "${CDP}/json/new?${extra}" >/dev/null 2>&1 || true
+    done
+  fi
   if ! cdp_ready; then
     echo "Браузер не відкрив порт ${PORT}. Якщо він уже був запущений без нього — закрийте його й повторіть." >&2
     exit 1

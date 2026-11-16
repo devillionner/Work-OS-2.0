@@ -264,6 +264,23 @@ const WAYDROID_RESTART_GAP_MS = 5 * 60 * 1000;
 let lastWaydroidRestartAt = 0;
 let connecting = null;
 
+let singleWindowChecked = false;
+/**
+ * Android у Waydroid без окремих вікон на робочому столі: `persist.waydroid.multi_windows=false`. Адаптер ніде не показує вікно
+ * (`waydroid app launch` і `show-full-ui` не викликаються, Viber запускається лише через `adb shell am start`); якщо прапорець
+ * усе ж увімкнений, вимикаємо його раз за життя runner (діє з наступного запуску сесії Waydroid, поточну не перезапускаємо).
+ * Під Hyprland вікна ховає правило з hyprland-android-windows.mjs, тому там нічого не змінюємо.
+ */
+async function ensureSingleWindowMode() {
+  if (singleWindowChecked || process.env.HYPRLAND_INSTANCE_SIGNATURE) return;
+  singleWindowChecked = true;
+  const current = String((await run('waydroid', ['prop', 'get', 'persist.waydroid.multi_windows'], { timeout: 10_000 })).stdout || '').trim();
+  if (current === 'true') {
+    await run('waydroid', ['prop', 'set', 'persist.waydroid.multi_windows', 'false'], { timeout: 10_000 });
+    console.warn('Waydroid: вимкнено multi_windows, щоб вікна Android не з’являлись на робочому столі (діє з наступного запуску сесії).');
+  }
+}
+
 /** `waydroid session start` живе, поки живе сесія, тому запускається окремим процесом, який не залежить від runner. */
 function startWaydroidSession() {
   const child = spawn('waydroid', ['session', 'start'], { detached: true, stdio: 'ignore' });
@@ -1200,6 +1217,8 @@ export async function runViberAndroid(action, payload = {}, { shouldAbort = () =
   if (process.platform !== 'linux') return { ok: true, status: 'skipped', reason: 'viber_unsupported_platform', severity: 'env' };
   // Вікна Android (multi_windows у Waydroid) ховаються правилом Hyprland до того, як Viber відкриє перше з них.
   await hideAndroidWindows().catch(() => {});
+  // Поза Hyprland (GNOME, KDE) окремих вікон Android не буває, поки `persist.waydroid.multi_windows` вимкнено.
+  await ensureSingleWindowMode().catch(() => {});
   // Перевірка стану під час відправки не чіпає ні adb, ні контролер задачі: вона лише повідомляє, що адаптер зайнятий.
   if (action === 'status') {
     try { return await status(); } catch (error) {

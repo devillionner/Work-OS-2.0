@@ -779,7 +779,10 @@ export class OwnerChannel {
   broadcastPace(state, platform) {
     const pace = state.autopostPace?.[platform];
     if (!pace) return;
-    this.broadcast('browser', { type: 'progress', process: 'autopost_pace', platform, nextAt: pace.nextAt, intervalSeconds: pace.intervalSeconds });
+    const message = { type: 'progress', process: 'autopost_pace', platform, nextAt: pace.nextAt, intervalSeconds: pace.intervalSeconds };
+    this.broadcast('browser', message);
+    // Той самий інтервал бачить і runner: значок у треї пише «наступна о 18:26» без жодного запиту.
+    this.broadcast('runner', message);
   }
 
   /**
@@ -1105,6 +1108,8 @@ export class OwnerChannel {
         const result = notSent
           ? `Вийшло ${batch.sent} з ${batch.total} · не вийшло ${notSent}${decision ? ` (${decision} ${decision % 10 === 1 && decision % 100 !== 11 ? 'потребує' : 'потребують'} рішення)` : ''}`
           : `Вийшло ${batch.sent} з ${batch.total}`;
+        // Точний підсумок для значка в треї (підсумок уже прочитано для сповіщення, нових запитів немає).
+        this.broadcast('runner', { type: 'autopost_summary', platform, sent: batch.sent, total: batch.total, decision: progress.settled.decision });
         await this.notifyOwner(state, {
           title: `${PUSH_PLATFORM_NAMES[platform] ?? platform}: автопост завершено`, body: result,
           url: `/?go=platforms:${platform}:autopost`, tag: `batch-${platform}`,
