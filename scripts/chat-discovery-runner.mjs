@@ -1274,12 +1274,13 @@ async function handleViberAutopostTask(ws,job){
   const progress=job.progress&&Number(job.progress.total)>0
     ? `${Math.min(Number(job.progress.done)+1,Number(job.progress.total))}/${Number(job.progress.total)} · `
     : '';
+  const onStep=createStepReporter(job,'Viber');
   const wait=lastViberFinishedAt+VIBER_PACE_MIN_MS+Math.random()*(VIBER_PACE_MAX_MS-VIBER_PACE_MIN_MS)-Date.now();
-  if(lastViberFinishedAt>0&&wait>0)await sleep(wait);
+  // Пауза між чатами (8–16 с) теж крок: чат уже в роботі, і «Зараз» у картці пише це, а не «runner ще не повідомив крок» (знайдено живою перевіркою 16.11: ≈ 36 % часу партії).
+  if(lastViberFinishedAt>0&&wait>0){onStep('pace',`пауза між чатами · ~${Math.ceil(wait/1000)} с`);await sleep(wait);}
   if(cancelledAutopostJobs.has(job.jobId)){abandonCancelledAutopost(ws,job);return;}
   setStatus('working',`Viber: ${progress}${job.target?.expectedName||'чат'}`);
   const overrides=process.env.WORK_OS_VIBER_TEST_TARGET==='my_notes'?{testTarget:'my_notes'}:{};
-  const onStep=createStepReporter(job,'Viber');
   onStep('start',job.mode==='verify'?'починаю перевірку':'починаю');
   viberCurrentJobId=job.jobId;
   let result;
