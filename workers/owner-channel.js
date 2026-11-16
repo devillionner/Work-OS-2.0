@@ -37,6 +37,7 @@ import {
   completeWhatsAppAutopostJob,
   releaseClaimedAutopostJobs,
   readWhatsAppAutopostProgress,
+  readAutopostBatch,
   releaseWhatsAppAutopostJob,
 } from '../lib/messenger-automation.ts';
 import { readDiscoveryExecutorQueue, completeDiscoveryExternalLeave } from '../lib/chat-discovery/executor.ts';
@@ -278,11 +279,6 @@ export class OwnerChannel {
       // «Перевірити й продовжити»: runner спершу проходить пробну відправку платформи (пауза вже знята, задача піде після неї).
       const recheck = url.searchParams.get('check');
       if (AUTOPOST_PLATFORMS.includes(String(recheck))) this.broadcast('runner', { type: 'canary_force', platform: recheck });
-      // Лічильники дня платформи до партії (`base=viber:80:1:0` — усього, відправлено, не вдалося): runner і трей рахують ними «партія N з M».
-      const baseParam = (url.searchParams.get('base') || '').split(':');
-      if (AUTOPOST_PLATFORMS.includes(baseParam[0]) && baseParam.length === 4 && baseParam.slice(1).every((value) => /^\d{1,6}$/.test(value))) {
-        state.autopostBase = { ...(state.autopostBase || {}), [baseParam[0]]: { total: Number(baseParam[1]), sent: Number(baseParam[2]), failed: Number(baseParam[3]) } };
-      }
       // Темп платформ: `pace=viber:0,telegram:20` (0 — без пауз); старий параметр `telegramPerHour` лишається для сумісності.
       const paceParam = url.searchParams.get('pace') || '';
       const legacyPerHour = Number(url.searchParams.get('telegramPerHour'));
@@ -719,7 +715,20 @@ export class OwnerChannel {
         if (!openedAt || Date.now() - openedAt > BATCH_OPEN_FRESH_MS) startedPlatforms.push(platform);
         (state.autopostBatchOpen ??= {})[platform] = Date.now();
       }
-      if (task.progress && state.autopostBase?.[platform]) task.progress = { ...task.progress, base: state.autopostBase[platform] };
+      // База партії (лічильники дня мінус рядки партії) рахується один раз на партію при першій видачі: так «партія 26 з 79» у треї збігається
+      // з кільцем картки, а «сьогодні 27 з 80» лишається окремо. Один діапазон рядків партії на партію, далі лише збережена база.
+      if (task.progress && platform) {
+        const batchId = task.progress.batchId;
+        let base = state.autopostBase?.[platform];
+        if (batchId && (!base || base.batchId !== batchId)) {
+          try {
+            const batch = await readAutopostBatch(this.env.DB, state.userId, platform, businessDate(nowSeconds()), batchId);
+            if (batch) base = { batchId, total: Math.max(0, task.progress.total - batch.total), sent: Math.max(0, (task.progress.sent ?? 0) - batch.sent), failed: Math.max(0, (task.progress.failed ?? 0) - batch.failed - batch.skipped) };
+          } catch { /* без бази трей покаже числа дня */ }
+          if (base) state.autopostBase = { ...(state.autopostBase || {}), [platform]: base };
+        }
+        if (base) task.progress = { ...task.progress, base };
+      }
       const sent = this.broadcast('runner', { type: 'task', process: 'autopost', task });
       notes.push(`видача: ${task.kind} ${task.jobId} «${task.target.expectedName}» → runner: відкритих ${runners}, доставлено ${sent}`);
       flush();

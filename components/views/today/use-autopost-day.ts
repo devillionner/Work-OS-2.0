@@ -14,7 +14,8 @@ export type AutopostDayPlatform = {
 };
 export type AutopostDay = { date: string; platforms: AutopostDayPlatform[] };
 
-const REFRESH_DELAY_MS = 8_000;
+// Підсумок дня перечитується через 2 с після події результату (3 платформи, кілька рядків лічильників): картка йде в ногу з кільцем партії.
+const REFRESH_DELAY_MS = 2_000;
 
 /**
  * Підсумок дня автопосту для «Сьогодні»: один запит при відкритті розділу, далі лише за подіями live-каналу (результат чи початок задачі автопосту)

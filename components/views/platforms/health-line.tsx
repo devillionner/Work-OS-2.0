@@ -17,29 +17,15 @@ export function useAutopostHealth(platform: 'whatsapp' | 'viber' | 'telegram'): 
   return useSyncExternalStore(subscribe, () => getLatestHealth(platform), () => null);
 }
 
-/**
- * Рядок здоров'я: «Перевірено о 18:02 · працює», «Пауза: …» (із кнопкою «Перевірити й продовжити») або «Середовище змінилось — перевіряю».
- * Кнопка знімає паузу й просить runner спершу пройти пробну відправку, далі черга йде сама.
- */
-export function HealthLine({ platform }: { platform: 'whatsapp' | 'viber' | 'telegram' }) {
-  const health = useAutopostHealth(platform);
+/** «Перевірити й продовжити»: знімає паузу й просить runner спершу пройти пробну відправку, далі черга йде сама. */
+export function RecheckButton({ platform }: { platform: 'whatsapp' | 'viber' | 'telegram' }) {
   const [asked, setAsked] = useState(false);
-  if (!health?.line) return null;
-  const paused = health.status === 'paused';
   const recheck = () => {
     setAsked(true);
     void fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'autopost-recheck', platform }) })
       .finally(() => window.setTimeout(() => setAsked(false), 4000));
   };
-  return (
-    <div className="flex flex-col items-start gap-2" data-health={health.status}>
-      <p className={`m-0 flex items-start gap-2 text-[13px] ${paused ? 'text-warn' : 'text-ink-2'}`}>
-        <i aria-hidden="true" className={`mt-1.5 size-2 shrink-0 rounded-full ${paused ? 'bg-warn' : health.status === 'ok' ? 'bg-ok' : 'bg-ink-3'}`} />
-        <span>{health.line}</span>
-      </p>
-      {paused ? <Button variant="outline" size="sm" busy={asked} onClick={recheck}>Перевірити й продовжити</Button> : null}
-    </div>
-  );
+  return <Button variant="outline" size="sm" busy={asked} onClick={recheck} className="self-start">Перевірити й продовжити</Button>;
 }
 
 /** Той самий стан одним тихим рядком (картка «Автопост сьогодні»). */

@@ -5,7 +5,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Check, ChevronDown, Minus, X } from 'lucide-react';
 import { CountUp } from '@/components/motion/count-up';
 import { BatchRing } from '@/components/views/platforms/batch-ring';
-import { getLatestStep, subscribeLiveMessages, type AutopostStep } from '@/lib/live-channel';
+import { getLatestPace, getLatestStep, subscribeLiveMessages, type AutopostStep } from '@/lib/live-channel';
 import { useLiveSynced } from '@/components/views/platforms/use-live-synced';
 import { autopostReasonGroup } from '@/components/views/platforms/autopost-reasons';
 import { useAutopostHealth } from '@/components/views/platforms/health-line';
@@ -30,6 +30,11 @@ const stepListeners = new Set<() => void>();
 const finishedJobs = new Set<string>();
 if (typeof window !== 'undefined') {
   subscribeLiveMessages((message) => {
+    // Задача, видана знову (повернена й узята повторно), знову «у роботі»: інакше її крок лишався б прихованим.
+    if (message.type === 'process_state' && message.process === 'autopost' && typeof message.jobId === 'string' && message.status === 'running') {
+      finishedJobs.delete(message.jobId);
+      for (const listener of stepListeners) listener();
+    }
     if (message.type === 'process_state' && message.process === 'autopost' && typeof message.jobId === 'string' && message.status && message.status !== 'running') {
       finishedJobs.add(message.jobId);
       if (finishedJobs.size > 300) finishedJobs.delete(finishedJobs.values().next().value as string);
@@ -74,14 +79,18 @@ function entryLabel(entry: AutopostBatchEntry): { icon: 'ok' | 'bad' | 'skip'; t
  * орієнтовний час до кінця) і згортуваний журнал партії. Оновлюється подіями live-каналу.
  */
 /** Що робиться просто зараз: назва чату, крок і час на ньому. */
-function NowBlock({ name, step, now, waiting = false }: { name: string; step: LiveStep | null; now: number; waiting?: boolean }) {
+/**
+ * Що робиться зараз: чат і крок задачі в роботі; поки в роботі нічого — або «Чекаю наступну відправку · о 20:58» (інтервал темпу ще не минув),
+ * або «Беру наступний чат» (без пауз чи інтервал минув).
+ */
+function NowBlock({ name, step, now, idle = null }: { name: string; step: LiveStep | null; now: number; idle?: { title: string; detail: string } | null }) {
   const synced = useLiveSynced();
   return (
     <output className="flex flex-col gap-1 rounded-inner border border-line px-4 py-3">
       <p className="m-0 text-xs text-ink-2">Зараз</p>
-      <p className="m-0 truncate text-sm font-medium" title={name}>{name || (waiting ? 'Чекаю наступну відправку' : 'Чекаю на runner')}</p>
+      <p className="m-0 truncate text-sm font-medium" title={name}>{name || idle?.title || 'Чекаю на runner'}</p>
       <p className="m-0 flex items-center gap-2 text-xs text-ink-2">
-        <span>{step ? (step.verify ? `перевірка: ${step.text}` : step.text) : waiting ? 'пауза між відправками' : synced ? 'runner ще не повідомив крок' : 'Оновлюю…'}</span>
+        <span>{step ? (step.verify ? `перевірка: ${step.text}` : step.text) : idle ? idle.detail : synced ? 'runner ще не повідомив крок' : 'Оновлюю…'}</span>
         {step && now > 0 ? <span className="ml-auto font-mono tabular-nums">{Math.max(0, Math.round((now - step.startedAt) / 1000))} с</span> : null}
       </p>
     </output>
@@ -111,6 +120,11 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
   // «Зараз» показує крок лише поки в партії справді є задача в роботі (або це ручна перевірка): крок завершеної задачі живе в live-каналі ще кілька хвилин.
   const liveStep = step && (batch.inProgress > 0 || step.verify || checking) ? step : null;
   const currentName = liveStep?.name ?? claimed?.name ?? '';
+  // Задачі в роботі немає: інтервал темпу ще не минув — «о 20:58», інакше (в т. ч. «Без пауз») runner одразу бере наступний чат.
+  const paceNextAt = getLatestPace(platform)?.nextAt ?? 0;
+  const idle = !liveStep && !claimed
+    ? (batch.queued > 0 && now > 0 && paceNextAt > now ? { title: 'Чекаю наступну відправку', detail: `за темпом, наступна о ${clock(Math.floor(paceNextAt / 1000))}` } : { title: 'Беру наступний чат', detail: '' })
+    : null;
 
   return (
     <section className="flex flex-col gap-4 rounded-inner border border-line bg-sunken p-4" aria-label="Хід партії автопосту">
@@ -136,7 +150,7 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
         </div>
       </div>
 
-      {running || checking ? <NowBlock name={currentName} step={liveStep} now={now} waiting={!liveStep && !claimed} /> : null}
+      {running || checking ? <NowBlock name={currentName} step={liveStep} now={now} idle={idle} /> : null}
 
       {finishedEntries.length > 0 ? (
         <details className="group">

@@ -125,6 +125,8 @@ export function createHealth({ file = join(process.env.XDG_STATE_HOME || join(ho
       const item = entry(platform);
       item.status = 'paused'; item.checkedAt = now(); item.reason = reason; item.text = text; item.pausedUntil = until; item.forced = false; item.startChecked = true;
     },
+    /** Перевірка перервалась (скасування, збій самого runner): рядок «Перевіряю…» не має лишатись назавжди. */
+    clearChecking(platform) { const item = entry(platform); if (item.status === 'checking') { item.status = 'unknown'; item.text = ''; item.changeText = ''; } },
     /** Власник натиснув «Перевірити й продовжити»: наступна задача спершу проходить пробну відправку. */
     force(platform) { entry(platform).forced = true; },
     isForced(platform) { return entry(platform).forced; },

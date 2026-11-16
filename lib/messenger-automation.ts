@@ -243,7 +243,7 @@ export type WhatsAppAutopostTask={
   kind:'whatsapp_autopost'|'viber_android'|'telegram_autopost';
   jobId:string;
   /** Де ця задача в поточній партії, щоб трей runner показав «3/30». */
-  progress?:{done:number;total:number;sent?:number;decision?:number;failed?:number;pending?:number;claimed?:number;/** Лічильники дня на старті партії (DO додає при видачі): різниця з поточними дає числа партії. */base?:{total:number;sent:number;failed:number}};
+  progress?:{done:number;total:number;sent?:number;decision?:number;failed?:number;pending?:number;claimed?:number;/** Партія задачі (з ключа): за нею DO рахує базу один раз. */batchId?:string;/** База партії (DO додає при видачі): лічильники дня мінус рядки партії. */base?:{batchId:string;total:number;sent:number;failed:number}};
   /** Номер спроби цієї задачі: runner відрізняє повтор видачі після обриву зв'язку (той самий номер) від нової спроби. */
   attempt?:number;
   /** `verify` — лише перевірити, чи повідомлення вже є в чаті, нічого не надсилаючи (дія «Перевірити»). */
@@ -1312,7 +1312,7 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
     return {
       kind:platform==='viber'?'viber_android':platform==='telegram'?'telegram_autopost':'whatsapp_autopost',
       jobId:row.id,
-      progress:batch?{done:batch.done,total:batch.total,sent:batch.sent,decision:batch.settled.decision,failed:batch.failed,pending:batch.pending,claimed:batch.claimed}:undefined,
+      progress:batch?{done:batch.done,total:batch.total,sent:batch.sent,decision:batch.settled.decision,failed:batch.failed,pending:batch.pending,claimed:batch.claimed,batchId:batchMatch?.[2]}:undefined,
       mode:verifyMode?'verify':'send',
       verify:verifyMode?{sinceEpoch}:undefined,
       attempt:Number(row.attempts)||0,

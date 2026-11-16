@@ -1066,6 +1066,16 @@ function pauseForHealth(ws,job,platform,text,until){
 
 /** true — задачу можна виконувати; false — її вже повернуто в чергу (платформа на паузі) або скасовано. */
 async function healthGate(ws,job,platform){
+  try{return await healthGateNow(ws,job,platform);}
+  catch(error){
+    // Збій самої перевірки не блокує партію й не лишає рядок «Перевіряю…» назавжди.
+    console.warn(`Перевірка середовища ${platform} перервалась: ${error instanceof Error?error.message:String(error)}`);
+    health.clearChecking(platform);publishHealth(platform);
+    return true;
+  }
+}
+
+async function healthGateNow(ws,job,platform){
   if(!platform||job.mode==='verify'||job.mode==='scan'||process.env.WORK_OS_SKIP_CANARY==='1')return true;
   const current=health.publicState(platform);
   if(current.status==='paused'&&current.until>Date.now()&&!health.isForced(platform)){pauseForHealth(ws,job,platform,current.text,current.until);return false;}
@@ -1089,7 +1099,7 @@ async function healthGate(ws,job,platform){
   });
   dropStepState(job.jobId);
   fingerprintCache.delete(platform);
-  if(canary.code==='cancelled'){health.markOk(platform,fingerprint);abandonCancelledAutopost(ws,job);return false;}
+  if(canary.code==='cancelled'){health.clearChecking(platform);publishHealth(platform);abandonCancelledAutopost(ws,job);return false;}
   if(canary.ok){
     health.markOk(platform,fingerprint);
     publishHealth(platform);

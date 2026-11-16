@@ -1,6 +1,6 @@
 'use client';
 
-import { HealthLine, useAutopostHealth } from '@/components/views/platforms/health-line';
+import { RecheckButton, useAutopostHealth } from '@/components/views/platforms/health-line';
 import { CANARY_SECONDS, estimateFromSeconds } from '@/lib/autopost-estimate.mjs';
 import { RunnerLaunchLink, WaydroidWindowLink, useRunnerNotice } from '@/components/shell/runner-offline';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -252,9 +252,16 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
   const planIds = new Set((plan?.chats ?? []).map((chat) => chat.id));
   const removedNow = removed.filter((id) => planIds.has(id));
   const readyCount = Math.max(0, (plan?.ready ?? 0) - removedNow.length);
-  const healthStatus = useAutopostHealth(platform)?.status ?? '';
+  const health = useAutopostHealth(platform);
+  const healthStatus = health?.status ?? '';
   // Партія іде (є задачі в черзі чи в роботі): заголовок показує її, а не «Готово до публікації: 0 чатів».
   const batchLive = progress?.batch && progress.batch.total > 0 && progress.batch.remaining > 0 ? progress.batch : null;
+  const transient = readiness.text.startsWith('Перевіряю');
+  const checkedClock = health?.checkedAt ? new Date(health.checkedAt).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) : '';
+  const env: AutopostReadiness = health?.status === 'checking' ? { tone: 'idle', text: health.line }
+    : health?.status === 'paused' ? { tone: 'warn', text: health.line }
+    : health?.status === 'ok' && (readiness.tone === 'ok' || (transient && batchLive)) ? { tone: 'ok', text: `Готово · перевірено о ${checkedClock}` }
+    : readiness;
   const cap = Math.min(readyCount, BATCH_CAP);
   const chosen = size === 'all' ? cap : Math.min(Number(size), readyCount);
   const going = (plan?.chats ?? []).filter((chat) => !removedNow.includes(chat.id)).slice(0, chosen);
@@ -275,10 +282,10 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
     ['у розкладі Telegram', plan.schedule ?? 0],
     ['потребують рішення', plan.decision],
     ['уже пробували сьогодні без відправки', plan.tried],
-    ['опубліковано сьогодні', plan.publishedToday],
+    ['опубліковано сьогодні', batchLive && progress ? progress.sent : plan.publishedToday],
     ['чекають за правилами частоти', plan.rules, plan.rulesNextDate ? `найближча — ${dayLabel(plan.rulesNextDate)}` : undefined],
     ['відкладено', plan.snoozed, snoozeSummary(plan)],
-    ['уже в черзі автопосту', plan.queued],
+    ['уже в черзі автопосту', batchLive && progress ? progress.pending + progress.claimed : plan.queued],
     ['інше', plan.other],
   ] : [];
   const reasons = breakdown.filter(([, count]) => count > 0);
@@ -301,11 +308,12 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
       </div>
 
       <div className="flex flex-col gap-2">
+        {/* Стан середовища одним рядком: «Готово · перевірено о 20:41», «Перевіряю середовище (…що саме…)» або «Пауза: …» (з кнопкою). */}
         <output className="m-0 flex items-start gap-2 text-sm">
-          <i aria-hidden="true" className={`mt-1.5 size-2 shrink-0 rounded-full ${readiness.tone === 'ok' ? 'bg-ok' : readiness.tone === 'hot' ? 'bg-hot' : readiness.tone === 'warn' ? 'bg-warn' : 'bg-ink-3'}`} />
-          <span className={readiness.tone === 'hot' ? 'text-hot' : 'text-ink-2'}>{readiness.text}</span>
+          <i aria-hidden="true" className={`mt-1.5 size-2 shrink-0 rounded-full ${env.tone === 'ok' ? 'bg-ok' : env.tone === 'hot' ? 'bg-hot' : env.tone === 'warn' ? 'bg-warn' : 'bg-ink-3'}`} />
+          <span className={env.tone === 'hot' ? 'text-hot' : env.tone === 'warn' && health?.status === 'paused' ? 'text-warn' : 'text-ink-2'}>{env.text}</span>
         </output>
-        <HealthLine platform={platform} />
+        {health?.status === 'paused' ? <RecheckButton platform={platform} /> : null}
         {runnerBlocked && readiness.tone === 'hot' && readiness.text.startsWith('Runner вимкнений') ? <RunnerLaunchLink className="self-start" /> : null}
         {platform === 'viber' && /Allow/.test(readiness.text) ? <div className="flex flex-col items-start gap-1.5"><span className="text-[13px] text-ink-2">Потрібно натиснути Allow в Android.</span><WaydroidWindowLink /></div> : null}
         {browserNotice && platform !== 'viber' ? <p className="m-0 flex items-start gap-2 text-[13px] text-warn" role="note"><i aria-hidden="true" className="mt-1.5 size-2 shrink-0 rounded-full bg-warn" />{browserNotice}</p> : null}

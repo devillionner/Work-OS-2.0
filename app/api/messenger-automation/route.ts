@@ -58,21 +58,13 @@ function cleanPerHour(value:unknown,allowNoPause:boolean):number{
   return allowNoPause&&perHour===0?0:allowNoPause?0:10;
 }
 
-/** Лічильники дня платформи до щойно створеної партії: поточні мінус нові задачі в черзі (вони ще не відправлені й не збійні). */
-async function batchBase(userId:string,platform:'whatsapp'|'viber'|'telegram',created:number){
-  const day=await readWhatsAppAutopostProgress(env.DB,userId,businessDate(Math.floor(Date.now()/1000)),platform,null);
-  return {total:Math.max(0,day.total-created),sent:day.sent,failed:day.failed};
-}
-
-async function wakeOwnerChannelAutopost(userId:string,pace?:{platform:'whatsapp'|'viber'|'telegram';perHour:number;base?:{total:number;sent:number;failed:number}},check?:'whatsapp'|'viber'|'telegram'){
+async function wakeOwnerChannelAutopost(userId:string,pace?:{platform:'whatsapp'|'viber'|'telegram';perHour:number},check?:'whatsapp'|'viber'|'telegram'){
   try{
     const stub=env.OWNER_CHANNEL.get(env.OWNER_CHANNEL.idFromName(userId));
     const url=new URL('https://owner-channel/autopost-wake');
     url.searchParams.set('userId',userId);
     // Темп платформи (відправок на годину, 0 — без пауз): DO розставляє їх рівномірно (інтервал = 3600 / це число).
     if(pace)url.searchParams.set('pace',`${pace.platform}:${pace.perHour}`);
-    // Лічильники дня платформи до партії: з них runner і трей рахують «партія N з M» окремо від «сьогодні N з M».
-    if(pace?.base)url.searchParams.set('base',`${pace.platform}:${pace.base.total}:${pace.base.sent}:${pace.base.failed}`);
     // «Перевірити й продовжити»: runner спершу проходить пробну відправку цієї платформи, а далі черга йде далі.
     if(check)url.searchParams.set('check',check);
     await stub.fetch(new Request(url,{method:'POST'}));
@@ -231,7 +223,7 @@ export async function POST(request:Request):Promise<Response>{
         caption=cleaned;
       }
       const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,caption,exclude:body.exclude},now,businessDate(now));
-      if(batch.created>0)await wakeOwnerChannelAutopost(user.id,{platform:'whatsapp',perHour:cleanPerHour(body.perHour,true),base:await batchBase(user.id,'whatsapp',batch.created)});
+      if(batch.created>0)await wakeOwnerChannelAutopost(user.id,{platform:'whatsapp',perHour:cleanPerHour(body.perHour,true)});
       return json(batch);
     }
     // Viber-автопост: та сама черга задач, що й у WhatsApp, але чати Viber, без власного тексту й фото (їх дає нотатка
@@ -244,7 +236,7 @@ export async function POST(request:Request):Promise<Response>{
     }
     if(body.action==='viber-autopost-batch'){
       const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,platform:'viber',exclude:body.exclude},now,businessDate(now));
-      if(batch.created>0)await wakeOwnerChannelAutopost(user.id,{platform:'viber',perHour:cleanPerHour(body.perHour,true),base:await batchBase(user.id,'viber',batch.created)});
+      if(batch.created>0)await wakeOwnerChannelAutopost(user.id,{platform:'viber',perHour:cleanPerHour(body.perHour,true)});
       return json(batch);
     }
     // Telegram-автопост: та сама черга, але лише чати вибраного акаунта, публікації розставляє DO рівномірно (5, 10 чи 20 на годину).
@@ -253,7 +245,7 @@ export async function POST(request:Request):Promise<Response>{
       if(!accountId)throw new MessengerAutomationError('Додай або увімкни Telegram-акаунт.',409,'account_missing');
       const perHour=cleanPerHour(body.perHour,false);
       const batch=await createWhatsAppAutopostBatch(env.DB,user.id,{limit:body.limit,platform:'telegram',exclude:body.exclude,texts:body.texts,telegramAccountId:accountId},now,businessDate(now));
-      if(batch.created>0)await wakeOwnerChannelAutopost(user.id,{platform:'telegram',perHour,base:await batchBase(user.id,'telegram',batch.created)});
+      if(batch.created>0)await wakeOwnerChannelAutopost(user.id,{platform:'telegram',perHour});
       return json(batch);
     }
     // Пул текстових оголошень: зберегти розібраний у браузері список («Замінити» архівує попередній, «Додати» дописує).
