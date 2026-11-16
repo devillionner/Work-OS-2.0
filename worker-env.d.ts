@@ -5,6 +5,8 @@ declare namespace Cloudflare {
     FILES?: R2Bucket;
     ASSETS: Fetcher;
     GOOGLE_CLIENT_ID: string;
+    /** Секрет воркера для входу перенаправленням (`wrangler secret put GOOGLE_CLIENT_SECRET`); без нього працює лише кнопка Google Identity Services. */
+    GOOGLE_CLIENT_SECRET?: string;
     OWNER_EMAIL: string;
     ALLOWED_GOOGLE_EMAILS?: string;
     AUDIT_ACCESS_TOKEN?: string;
