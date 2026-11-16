@@ -8,6 +8,7 @@ import { BatchRing } from '@/components/views/platforms/batch-ring';
 import { getLatestStep, subscribeLiveMessages, type AutopostStep } from '@/lib/live-channel';
 import { useLiveSynced } from '@/components/views/platforms/use-live-synced';
 import { autopostReasonGroup } from '@/components/views/platforms/autopost-reasons';
+import { useAutopostHealth } from '@/components/views/platforms/health-line';
 
 /** Один чат поточної партії: результат або те, що робиться просто зараз. */
 export type AutopostBatchEntry = { jobId: string; name: string; status: 'claimed' | 'sent' | 'failed'; outcome: string | null; code: string | null; at: number; /** Початок тексту з пулу оголошень Telegram, який пішов (чи мав піти) в чат. */ text?: string };
@@ -83,10 +84,12 @@ function NowBlock({ name, step, now, waiting = false }: { name: string; step: Li
 }
 
 export function AutopostBatchPanel({ batch, running, platform }: { batch: AutopostBatch | null | undefined; running: boolean; platform: 'whatsapp' | 'viber' | 'telegram' }) {
-  const now = useSecondClock(running);
-  const step = useAutopostStep(platform, running, now);
+  // Пробна відправка перед партією: runner шле крок «Перевіряю … перед партією», і «Зараз» показує його, а не «Чекаю наступну відправку».
+  const checking = useAutopostHealth(platform)?.status === 'checking';
+  const now = useSecondClock(running || checking);
+  const step = useAutopostStep(platform, running || checking, now);
   // Перевірка чату з «Потребують рішення» не належить партії, але крок її теж видно.
-  if (!batch || batch.total === 0) return running && step ? <NowBlock name={step.name} step={step} now={now} /> : null;
+  if (!batch || batch.total === 0) return (running || checking) && step ? <NowBlock name={step.name} step={step} now={now} /> : null;
   // Усі задачі партії (у черзі, у роботі й завершені; пізніше додані повтори теж): оброблені — завершені будь-як, без збою чи зі збоєм.
   const done = batch.total - batch.remaining;
   // Кільце й відсоток — частка відправлених від усіх задач, а не оброблених: партія, де чверть чатів не вдалась, не виглядає «100 %».
@@ -100,7 +103,7 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
   const finishedEntries = batch.entries.filter((entry) => entry.status !== 'claimed');
   const claimed = running ? batch.entries.find((entry) => entry.status === 'claimed') : undefined;
   // «Зараз» показує крок лише поки в партії справді є задача в роботі (або це ручна перевірка): крок завершеної задачі живе в live-каналі ще кілька хвилин.
-  const liveStep = step && (batch.inProgress > 0 || step.verify) ? step : null;
+  const liveStep = step && (batch.inProgress > 0 || step.verify || checking) ? step : null;
   const currentName = liveStep?.name ?? claimed?.name ?? '';
 
   return (
@@ -127,7 +130,7 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
         </div>
       </div>
 
-      {running ? <NowBlock name={currentName} step={liveStep} now={now} waiting={!liveStep && !claimed && batch.queued > 0} /> : null}
+      {running || checking ? <NowBlock name={currentName} step={liveStep} now={now} waiting={!liveStep && !claimed && batch.queued > 0} /> : null}
 
       {finishedEntries.length > 0 ? (
         <details className="group">

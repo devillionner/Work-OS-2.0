@@ -28,7 +28,7 @@ import { estimateBackup, executeBackup, formatBytes } from './runner-transfer.mj
 import { readInstalledPackage, updateFromSite } from './runner-update.mjs';
 import { createSleepInhibitor } from './sleep-inhibit.mjs';
 import { createDayState, platformOfKind } from './tray-day.mjs';
-import { createHealth, helpFor, NAMES as PLATFORM_NAMES, RECHECK_MS, suspectKind } from './autopost-health.mjs';
+import { canaryText, canaryTitle, createHealth, helpFor, NAMES as PLATFORM_NAMES, RECHECK_MS, suspectKind } from './autopost-health.mjs';
 import { collectFingerprint, runCanary, snapshotBrowserTab } from './autopost-canary.mjs';
 
 const baseUrl=(process.env.WORK_OS_URL||'').replace(/\/$/,'');
@@ -1074,12 +1074,20 @@ async function healthGate(ws,job,platform){
   if(!need.need)return true;
   health.markChecking(platform,need.why,health.changeText(platform,fingerprint));
   publishHealth(platform);
-  setStatus('working',`${PLATFORM_NAMES[platform]}: пробна відправка`);
+  // «Зараз» у картці, трей і «Автопост сьогодні» пишуть, що відбувається, а не «чекаю»: пробна відправка триває до ≈30 с.
+  const title=canaryTitle(platform);
+  const startedAt=Date.now();
+  const canaryStep=(step,text)=>{
+    sendStepMerged(job.jobId,{type:'progress',process:'autopost_step',platform,jobId:job.jobId,name:title,step,text,startedAt,at:Date.now(),done:0,total:0,verify:false});
+    setStatus('working',`${title} (${text})`);
+  };
+  canaryStep('canary',canaryText(platform));
   const canary=await runCanary(platform,{
     inviteLink:platform==='viber'?job.target?.expectedLink:'',inviteName:platform==='viber'?job.target?.expectedName:'',
     cdp:whatsappCdp||'',shouldAbort:()=>cancelledAutopostJobs.has(job.jobId),
-    onStep:(_step,text)=>setStatus('working',`${PLATFORM_NAMES[platform]}: ${text}`),
+    onStep:(_step,text)=>{if(!String(text).startsWith('пробна'))canaryStep('canary',`${canaryText(platform).split(' · ')[0]} · ${text}`);},
   });
+  dropStepState(job.jobId);
   fingerprintCache.delete(platform);
   if(canary.code==='cancelled'){health.markOk(platform,fingerprint);abandonCancelledAutopost(ws,job);return false;}
   if(canary.ok){

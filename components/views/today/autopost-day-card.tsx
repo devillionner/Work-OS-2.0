@@ -4,7 +4,7 @@ import { emitCommand } from '@/components/shell/command-bus';
 import { useShell } from '@/components/shell/shell-context';
 import { Button } from '@/components/ui/button';
 import { Surface } from '@/components/ui/surface';
-import { HealthText } from '@/components/views/platforms/health-line';
+import { HealthText, useAutopostHealth } from '@/components/views/platforms/health-line';
 import { getLatestPace } from '@/lib/live-channel';
 import { cn } from '@/lib/utils';
 import { clockOf } from '@/components/views/today/day-model';
@@ -29,6 +29,7 @@ const DOT = { run: 'bg-ink', done: 'bg-ok', wait: 'bg-warn' } as const;
  */
 export function AutopostDayCard({ size }: { size: 'phone' | 'desktop' }) {
   const { day } = useAutopostDay();
+  const checks = { viber: useAutopostHealth('viber')?.status === 'checking', whatsapp: useAutopostHealth('whatsapp')?.status === 'checking', telegram: useAutopostHealth('telegram')?.status === 'checking' };
   const nowSeconds = useMinuteClock();
   const { navigate } = useShell();
   const platforms = ORDER.map((key) => day?.platforms.find((item) => item.platform === key)).filter((item): item is AutopostDayPlatform => Boolean(item));
@@ -77,8 +78,8 @@ export function AutopostDayCard({ size }: { size: 'phone' | 'desktop' }) {
         {active.map((item) => {
           const total = Math.max(1, item.total);
           const pace = getLatestPace(item.platform);
-          const state = item.running ? (item.claimed > 0 || !pace || pace.nextAt <= nowSeconds * 1000 ? 'run' : 'wait') : 'done';
-          const label = state === 'done' ? 'Завершено' : state === 'wait' ? `Чекає інтервалу · наступна о ${clockOf(Math.floor((pace?.nextAt ?? nowSeconds * 1000) / 1000))}` : 'Іде';
+          const state = item.running || checks[item.platform] ? (checks[item.platform] || item.claimed > 0 || !pace || pace.nextAt <= nowSeconds * 1000 ? 'run' : 'wait') : 'done';
+          const label = checks[item.platform] ? 'Перевіряю перед партією' : state === 'done' ? 'Завершено' : state === 'wait' ? `Чекає інтервалу · наступна о ${clockOf(Math.floor((pace?.nextAt ?? nowSeconds * 1000) / 1000))}` : 'Іде';
           return (
             <li key={item.platform} className="flex flex-col gap-2 rounded-inner border border-line bg-sunken p-3.5">
               <div className="flex items-baseline justify-between gap-3"><span className="text-sm font-medium">{NAMES[item.platform]}</span><span className="font-mono text-sm">{item.sent} <small className="text-xs text-ink-3">з {item.total}</small></span></div>

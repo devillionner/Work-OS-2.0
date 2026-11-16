@@ -12,6 +12,17 @@ export const PLATFORMS = ['viber', 'whatsapp', 'telegram'];
 export const NAMES = { viber: 'Viber', whatsapp: 'WhatsApp', telegram: 'Telegram' };
 /** Скільки платформа стоїть на паузі між перевірками (далі DO сам повертає задачу, а runner знову запускає пробну відправку). */
 export const RECHECK_MS = 10 * 60_000;
+/** Що саме робить пробна відправка платформи й скільки це триває (для «Зараз», трея й картки дня). */
+export const CANARY_INFO = {
+  viber: { target: 'в My Notes', seconds: 30 },
+  telegram: { target: 'у «Збережене»', seconds: 15 },
+  whatsapp: { target: 'в чат «Ви»', seconds: 25 },
+};
+export function canaryTitle(platform) { return `Перевіряю ${NAMES[platform]} перед партією`; }
+export function canaryText(platform) {
+  const info = CANARY_INFO[platform];
+  return `пробна відправка ${info.target} · ~${info.seconds} с`;
+}
 
 const kyivDay = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv' }).format(ms);
 const clockOf = (ms) => new Date(ms).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -146,7 +157,7 @@ export function createHealth({ file = join(process.env.XDG_STATE_HOME || join(ho
         until: item.pausedUntil > now() ? item.pausedUntil : 0,
         line: item.status === 'ok' ? `Перевірено о ${clockOf(item.checkedAt)} · працює`
           : item.status === 'paused' ? `Пауза: ${item.text}`
-            : item.status === 'checking' ? (item.changeText ? `Середовище змінилось: ${item.changeText} · перевіряю` : 'Перевіряю середовище')
+            : item.status === 'checking' ? (item.changeText ? `Середовище змінилось: ${item.changeText} · перевіряю` : `${canaryTitle(platform)} (${canaryText(platform)})`)
               : '',
       };
     },
