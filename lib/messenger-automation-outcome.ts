@@ -55,7 +55,7 @@ const RETRY = new Set([
 // Чат змінився до відправки або немає фото для відправки: чіпати нічого, пропускаємо на сьогодні.
 // `cancelled`: оператор зупинив партію, поки задача ще виконувалась (до відправки): власнику нема що вирішувати.
 // `viber_invite_dead`: запрошення не відкриває чат (Viber лишається на списку чатів), а інші чати партії відкриваються: це властивість чату.
-// Перший раз пропуск на сьогодні, другий поспіль на цьому чаті — архів «Чат не існує» (див. `settleAutopostFailure`).
+// Перший раз пропуск на сьогодні, другий поспіль на цьому чаті — архів «Забанено» (див. `settleAutopostFailure`).
 const SKIP = new Set(['stale_precondition', 'image_missing', 'cancelled', 'viber_invite_dead']);
 
 /**
@@ -184,12 +184,12 @@ export async function settleAutopostFailure(
   let errorCode = input.errorCode;
   const chat = await readChatState(db, userId, job.chat_id);
   // Друга «мертва» відповідь запрошення поспіль на тому самому чаті (попередня завершена задача чату теж `viber_invite_dead`) — чату вже
-  // нема що пробувати: архів «Чат не існує», як для неактивного посилання, без «Потребують рішення». Запит по (user_id, chat_id).
+  // нема що пробувати: архів «Забанено» (власник перевірив 16.11: «НЯНЯ» його заблокувала), без «Потребують рішення». Запит по (user_id, chat_id).
   if (errorCode === 'viber_invite_dead' && chat?.platform === 'viber') {
     const previous = await db.prepare(`SELECT json_extract(result_json,'$.errorCode') AS code FROM whatsapp_autopost_jobs
       WHERE user_id=?1 AND chat_id=?2 AND id!=?3 AND status IN ('sent','failed') AND request_key NOT LIKE 'scan\\_%' ESCAPE '\\'
       ORDER BY published_on DESC,updated_at DESC LIMIT 1`).bind(userId, job.chat_id, job.id).first<{ code: string | null }>();
-    if (previous?.code === 'viber_invite_dead') errorCode = 'viber_chat_missing';
+    if (previous?.code === 'viber_invite_dead') errorCode = 'viber_banned';
   }
   // Заборона писати в Telegram, що триває понад тиждень (за часом першого виявлення), — це бан: архів «Забанено», власник може відкрити чат і перевірити.
   if (errorCode === 'telegram_chat_restricted' && chat?.platform === 'telegram') {
