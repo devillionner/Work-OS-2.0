@@ -181,7 +181,19 @@ async function findTelegramPage(base, { create = true } = {}) {
     const response = await fetch(`${base}/json/list`, { signal: AbortSignal.timeout(4_000) });
     pages = await response.json();
   } catch { return { kind: 'blocked', reason: 'cdp_unavailable' }; }
-  const page = (Array.isArray(pages) ? pages : []).find((item) => item?.type === 'page' && String(item.url || '').startsWith(TELEGRAM_WEB.slice(0, -1)) && item.webSocketDebuggerUrl);
+  const list = Array.isArray(pages) ? pages : [];
+  let page = list.find((item) => item?.type === 'page' && String(item.url || '').startsWith(TELEGRAM_WEB.slice(0, -1)) && item.webSocketDebuggerUrl);
+  // Адаптер працює з Telegram Web A (/a/); вкладка, відкрита на версії K (/k/), не підходить. Сесія в обох версіях спільна, тож переводимо вкладку на /a/ сама.
+  if (!page) {
+    const legacy = list.find((item) => item?.type === 'page' && /^https:\/\/web\.telegram\.org\/k(?:[/#?]|$)/u.test(String(item.url || '')) && item.webSocketDebuggerUrl);
+    if (legacy && isLocalCdpWebSocketUrl(legacy.webSocketDebuggerUrl)) {
+      try {
+        const client = await createTelegramPageClient(legacy);
+        try { await client.send('Page.enable').catch(() => {}); await client.send('Page.navigate', { url: TELEGRAM_WEB }); await sleep(8_000); } finally { try { client.close(); } catch { /* вкладка вже закрита */ } }
+        page = { ...legacy, url: TELEGRAM_WEB };
+      } catch { /* лишаємо як є: нижче відкриється нова вкладка /a/ */ }
+    }
+  }
   if (page) return isLocalCdpWebSocketUrl(page.webSocketDebuggerUrl) ? { kind: 'result', page } : { kind: 'blocked', reason: 'cdp_websocket_not_local' };
   if (!create) return { kind: 'blocked', reason: 'telegram_tab_missing' };
   try {

@@ -69,7 +69,7 @@ if ! cdp_ready; then
   setsid "$BROWSER" --remote-debugging-port="$PORT" --user-data-dir="$PROFILE" \
     --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling \
     --no-first-run --no-default-browser-check \
-    "$WORK_OS_URL" "https://web.whatsapp.com/" >/dev/null 2>&1 < /dev/null 9>&- &
+    "$WORK_OS_URL" "https://web.whatsapp.com/" "https://web.telegram.org/a/" >/dev/null 2>&1 < /dev/null 9>&- &
   for _ in $(seq 1 30); do cdp_ready && break; sleep 1; done
   if ! cdp_ready; then
     echo "Браузер не відкрив порт ${PORT}. Якщо він уже був запущений без нього — закрийте його й повторіть." >&2

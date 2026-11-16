@@ -18,7 +18,8 @@
 #   --android-windows auto|hide|off|keep   що робити з вікнами Android (auto: Hyprland і KDE — ховати правилом, решта — вимкнути multi_windows)
 #   --skip-waydroid              не чіпати Waydroid і Viber (лише WhatsApp і Telegram)
 #   --url АДРЕСА                 те саме, що --site
-# Змінні для перевірок: OS_RELEASE_FILE (інший файл замість /etc/os-release), ADBKEYBOARD_SHA256 (інша контрольна сума APK).
+# Змінні для перевірок: OS_RELEASE_FILE (інший файл замість /etc/os-release), ADBKEYBOARD_SHA256 (інша контрольна сума APK),
+# APT_CACHE (інша команда замість apt-cache), WAYDROID_APT_LIST (інший шлях замість /etc/apt/sources.list.d/waydroid.list), ANDROID_WAIT_SECONDS.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -39,6 +40,9 @@ ADBKEYBOARD_PACKAGE="com.android.adbkeyboard"
 MODE=install DRY=0 YES=0 RESTORE=0 CODE="" PURGE=0 RUNNER_TOKEN="" BROWSER_CHOICE="" ARM=auto ANDROID_WINDOWS=auto SKIP_WAYDROID=0
 WORK_OS_URL="${WORK_OS_URL:-https://work-os-2-staging.devillionner.workers.dev}"
 FAMILY="" SUDO_READY=0 PROBLEMS=0
+WAYDROID_APT_LIST="${WAYDROID_APT_LIST:-/etc/apt/sources.list.d/waydroid.list}"
+WAYDROID_APT_KEY="${WAYDROID_APT_KEY:-/usr/share/keyrings/waydroid.gpg}"
+APT_CACHE="${APT_CACHE:-apt-cache}"
 
 if [ -t 1 ]; then G=$'\033[32m' R=$'\033[31m' Y=$'\033[33m' B=$'\033[1m' N=$'\033[0m'; else G="" R="" Y="" B="" N=""; fi
 say()  { printf '%s\n' "$*"; }
@@ -48,6 +52,17 @@ warn() { printf '  %s!%s %s\n' "$Y" "$N" "$*"; }
 bad()  { printf '  %s✘%s %s\n' "$R" "$N" "$*"; PROBLEMS=$((PROBLEMS + 1)); }
 die()  { printf '%sПомилка:%s %s\n' "$R" "$N" "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# Після збою на будь-якому кроці: точна команда продовження. Токен runner уже в runner.env (його пише крок прив'язки) — новий код не потрібен.
+resume_hint() {
+  local token=0
+  grep -qs '^WORK_OS_EXECUTOR_TOKEN=' "$CONF_FILE" 2>/dev/null && token=1
+  printf '\n%sЩоб продовжити з місця зупинки (виконані кроки пропускаються):%s\n  %s --site %s --restore\n' "$B" "$N" "$ROOT/scripts/install-runner.sh" "$WORK_OS_URL"
+  if [ "$token" = 1 ]; then say "  Новий код не потрібен: runner уже прив'язано (токен у $CONF_FILE)."; else say "  Runner ще не прив'язано: додайте --code НОВИЙ_КОД (код створюється в «Налаштування → Сервіс → Runner на цьому ПК»)."; fi
+}
+INSTALL_STARTED=0
+on_exit() { local code=$?; [ "$code" != 0 ] && [ "$INSTALL_STARTED" = 1 ] && [ "$MODE" = install ] && [ "$DRY" != 1 ] && resume_hint >&2; return 0; }
+trap on_exit EXIT
 
 usage() { sed -n 2,24p "$0"; }
 
@@ -174,7 +189,7 @@ step_base() {
   # shellcheck disable=SC2046
   pkg_install $(pkgs_base) $(pkgs_tray) $(pkgs_python)
   if node_ok; then ok "Node $(node --version)"; else say "  Node ≥ ${NODE_MIN_MAJOR}.${NODE_MIN_MINOR} не знайдено: ставлю офіційний пакет без root"; install_node_tarball; [ "$DRY" = 1 ] || node_ok || die "Node не встановився"; ok "Node встановлено"; fi
-  [ -f "$ROOT/RUNNER-PACKAGE.json" ] && ok "пакет runner $(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('$ROOT/RUNNER-PACKAGE.json','utf8')).version)" 2>/dev/null || echo '?') у $ROOT (залежностей npm runner не має)"
+  [ -f "$ROOT/RUNNER-PACKAGE.json" ] && ok "пакет runner $(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('$ROOT/RUNNER-PACKAGE.json','utf8')).version)" 2>/dev/null || echo '?') у $ROOT (залежностей npm runner не має)" || true
 }
 
 # Рядок KEY=значення в runner.env: оновлює наявний і не чіпає решту (токен, браузер, адреса живуть разом).
@@ -256,6 +271,35 @@ DESK
 }
 
 # --- Waydroid --------------------------------------------------------------------------------------------------------------
+APT_CANDIDATE_VERSION=""
+# Чи дає apt кандидата на пакет (з будь-якого підключеного репозиторію).
+apt_has_candidate() {
+  local out v
+  out="$($APT_CACHE policy "$1" 2>/dev/null || true)"
+  v="$(printf '%s\n' "$out" | awk '/Candidate:/{print $2; exit}')"
+  [ -n "$v" ] && [ "$v" != "(none)" ] || return 1
+  APT_CANDIDATE_VERSION="$v"
+}
+# Чи є кандидат у репозиторії, що не repo.waydro.id (тобто дистрибутив постачає пакет сам).
+apt_distro_has() {
+  # awk читає весь вивід (grep -q завершується раніше, а pipefail тоді вважає конвеєр невдалим).
+  $APT_CACHE policy "$1" 2>/dev/null | awk '/^[ \t]+[0-9]+ https?:\/\// && !/waydro\.id/ {found=1} END {exit !found}'
+}
+# `apt install waydroid adb` впав, а в системі лишився repo.waydro.id від попереднього запуску інсталятора, хоча дистрибутив має власний Waydroid:
+# пакети двох джерел конфліктують. Пояснюємо людською мовою й, якщо дозволите, прибираємо репозиторій і ключ та повторюємо.
+waydroid_install_conflict() {
+  [ "$FAMILY" = debian ] && [ -f "$WAYDROID_APT_LIST" ] && apt_distro_has waydroid || return 1
+  say ""
+  say "  Не вдалося встановити Waydroid: у системі підключено сторонній репозиторій repo.waydro.id ($WAYDROID_APT_LIST), а ваш дистрибутив має власний Waydroid."
+  say "  Пакети двох джерел конфліктують між собою (зокрема libgbinder). Найнадійніше прибрати repo.waydro.id і ставити Waydroid з репозиторію дистрибутива."
+  local answer; answer="$(ask "Прибрати repo.waydro.id (файл $WAYDROID_APT_LIST і ключ) і повторити?" "y")"
+  case "$answer" in y|Y|yes|так|Так|т|Т) ;; *) say "  Нічого не змінено. Прибрати вручну: sudo rm $WAYDROID_APT_LIST $WAYDROID_APT_KEY && sudo apt update"; return 1;; esac
+  why_root "прибрати репозиторій repo.waydro.id і його ключ, оновити список пакетів"
+  as_root rm -f "$WAYDROID_APT_LIST" "$WAYDROID_APT_KEY"
+  as_root apt-get update -qq
+  pkg_install $(pkgs_waydroid)
+}
+
 waydroid_running() { have waydroid && waydroid status 2>/dev/null | grep -qi 'Session:.*RUNNING'; }
 wait_session() { local i; for i in $(seq 1 90); do waydroid_running && return 0; sleep 1; done; return 1; }
 start_session() {
@@ -318,18 +362,40 @@ android_adb() {
   adb -s "$serial" "$@"
 }
 
+# Android у Waydroid після `waydroid session start` ще хвилину-дві вантажиться: поки `sys.boot_completed` не 1 і adb не `device`, `adb install` падає.
+android_ready() {
+  [ "$(android_adb get-state 2>/dev/null | tr -d '\r')" = device ] && [ "$(android_adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]
+}
+wait_android() { # wait_android секунд
+  local limit="$1" waited=0
+  android_ready && return 0
+  say "  Чекаю, поки Android у Waydroid завантажиться й adb підключиться (до $((limit / 60 > 0 ? limit / 60 : 1)) хв; перший запуск довгий)…"
+  while [ "$waited" -lt "$limit" ]; do sleep 3; waited=$((waited + 3)); android_ready && return 0; done
+  return 1
+}
+
 install_adbkeyboard() {
-  android_adb shell pm list packages 2>/dev/null | grep -q "package:${ADBKEYBOARD_PACKAGE}" && { ok "ADBKeyBoard уже встановлено"; return 0; }
-  local tmp apk; tmp="$(mktemp -d)"; apk="$tmp/ADBKeyboard.apk"
-  [ "$DRY" = 1 ] && { say "    [dry-run] завантажити ADBKeyboard.apk, перевірити SHA-256 ${ADBKEYBOARD_SHA256:0:12}…, waydroid app install"; rm -rf "$tmp"; return 0; }
-  curl -fsSL "$ADBKEYBOARD_URL" -o "$apk" || { bad "не вдалося завантажити ADBKeyBoard з $ADBKEYBOARD_URL"; rm -rf "$tmp"; return 1; }
+  [ "$DRY" = 1 ] && { say "    [dry-run] дочекатись завантаження Android (sys.boot_completed=1, adb device), завантажити ADBKeyboard.apk, перевірити SHA-256 ${ADBKEYBOARD_SHA256:0:12}…, adb install"; return 0; }
+  local apk="$DATA_DIR/ADBKeyboard.apk" limit="${ANDROID_WAIT_SECONDS:-120}"
+  if wait_android "$limit" && android_adb shell pm list packages 2>/dev/null | grep -q "package:${ADBKEYBOARD_PACKAGE}"; then ok "ADBKeyBoard уже встановлено"; return 0; fi
+  mkdir -p "$DATA_DIR"
+  curl -fsSL "$ADBKEYBOARD_URL" -o "$apk" || { bad "не вдалося завантажити ADBKeyBoard з $ADBKEYBOARD_URL"; return 1; }
   local actual; actual="$(sha256sum "$apk" | cut -d' ' -f1)"
   if [ "$actual" != "$ADBKEYBOARD_SHA256" ]; then
-    bad "контрольна сума ADBKeyboard.apk не збігається (очікувалась ${ADBKEYBOARD_SHA256:0:16}…, отримано ${actual:0:16}…). Не встановлюю. Якщо ви перевірили файл вручну: ADBKEYBOARD_SHA256=$actual $0"
-    rm -rf "$tmp"; return 1
+    bad "контрольна сума ADBKeyboard.apk не збігається (очікувалась ${ADBKEYBOARD_SHA256:0:16}…, отримано ${actual:0:16}…). Не встановлюю. Якщо ви перевірили файл вручну: ADBKEYBOARD_SHA256=${actual} $0"
+    rm -f "$apk"; return 1
   fi
-  android_adb install -r "$apk" >/dev/null 2>&1 && ok "ADBKeyBoard встановлено (контрольну суму перевірено)" || bad "не вдалося встановити ADBKeyBoard через adb (перевірте, що Android запущено й adb авторизований)"
-  rm -rf "$tmp"
+  # Дві спроби: після першої (Android міг ще не прийняти ключ adb) ще чекаємо готовності.
+  local attempt
+  for attempt in 1 2; do
+    if wait_android "$limit" && android_adb install -r "$apk" >/dev/null 2>&1; then ok "ADBKeyBoard встановлено (контрольну суму перевірено)"; rm -f "$apk"; return 0; fi
+    [ "$attempt" = 1 ] && { warn "adb ще не прийняв встановлення, пробую вдруге"; limit=60; sleep 5; }
+  done
+  bad "не вдалося встановити ADBKeyBoard: Android ще не готовий або adb не авторизований. Файл збережено: $apk"
+  say "    Повторіть, коли Android завантажиться (waydroid status показує RUNNING і IP):"
+  say "      $ROOT/scripts/install-runner.sh --site $WORK_OS_URL --restore"
+  say "    або лише цей крок: adb connect \$(waydroid status | awk '/IP address/{print \$NF}'):5555 && adb install -r $apk"
+  return 1
 }
 
 step_waydroid() {
@@ -344,13 +410,21 @@ step_waydroid() {
       fedora) say "    Fedora: потрібне ядро з CONFIG_ANDROID_BINDERFS (стандартне має); перезавантажте систему після встановлення Waydroid.";;
     esac
   fi
+  # repo.waydro.id потрібен лише там, де дистрибутив сам не дає Waydroid (Ubuntu/Debian). Дистрибутиви, що постачають власний пакет (PikaOS: ppa.pika-os.com),
+  # з ним конфліктують (libgbinder/libgbinder1), тож є кандидат — ставимо з дистрибутива.
   if [ "$FAMILY" = debian ] && ! pkg_present waydroid; then
-    why_root "підключити офіційний репозиторій Waydroid (repo.waydro.id), у стандартних репозиторіях Ubuntu/Debian його немає"
-    ensure_sudo; [ "$DRY" = 1 ] && say "    [dry-run] curl -s https://repo.waydro.id | sudo bash" || curl -fsSL https://repo.waydro.id | sudo bash
+    if apt_has_candidate waydroid; then
+      ok "Waydroid є в репозиторіях дистрибутива (${APT_CANDIDATE_VERSION}): ставлю звідти, repo.waydro.id не додаю"
+    else
+      why_root "підключити офіційний репозиторій Waydroid (repo.waydro.id), у стандартних репозиторіях Ubuntu/Debian його немає"
+      ensure_sudo; [ "$DRY" = 1 ] && say "    [dry-run] curl -s https://repo.waydro.id | sudo bash" || curl -fsSL https://repo.waydro.id | sudo bash
+    fi
   fi
   why_root "встановити Waydroid і adb"
   # shellcheck disable=SC2046
-  pkg_install $(pkgs_waydroid)
+  if ! pkg_install $(pkgs_waydroid); then
+    waydroid_install_conflict || die "не вдалося встановити Waydroid і adb"
+  fi
   if [ -f /var/lib/waydroid/waydroid.cfg ]; then ok "образ Waydroid уже ініціалізовано"; else
     why_root "завантажити й розгорнути образ Android (GAPPS: з Google Play, звідти ставиться Viber), кілька гігабайт"
     as_root waydroid init -s GAPPS -f
@@ -509,7 +583,7 @@ PY
     elif printf '%s' "$out" | grep -Eq '"reason":"(waydroid_not_running|waydroid_frozen|android_unreachable)"'; then warn "Android у Waydroid зараз не запущено: адаптер Viber сам запустить його перед партією (або: waydroid session start)"
     else bad "Viber: $(printf '%s' "$out" | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('text')+' ['+str(d.get('reason'))+']')" 2>/dev/null || echo 'перевірка не відповіла') → scripts/install-runner.sh або картка Viber у Work OS"; fi
   fi
-  if [ "$PROBLEMS" = 0 ]; then printf '\n%sУсе готове.%s\n' "$G" "$N"; else printf '\n%sПотребує уваги: %s%s\n' "$R" "$PROBLEMS" "$N"; return 1; fi
+  if [ "$PROBLEMS" = 0 ]; then printf '\n%sУсе готове.%s\n' "$G" "$N"; else printf '\n%sПотребує уваги: %s%s\n' "$R" "$PROBLEMS" "$N"; [ "$MODE" = install ] && resume_hint; return 1; fi
 }
 
 # --- Головний потік --------------------------------------------------------------------------------------------------------
@@ -518,6 +592,7 @@ PY
 if [ "$MODE" = remove ]; then do_remove; exit 0; fi
 detect_distro
 if [ "$MODE" = check ]; then check_all; exit $?; fi
+INSTALL_STARTED=1
 say "Work OS: встановлення runner. Адреса Work OS: $WORK_OS_URL"
 [ "$DRY" = 1 ] && say "(режим --dry-run: нічого не змінюється)"
 step_base
