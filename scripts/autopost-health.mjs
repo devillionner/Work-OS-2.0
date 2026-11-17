@@ -41,6 +41,7 @@ export const suspectKind = (platform, code) => (SUSPECT[platform]?.before.includ
 
 /** Людське пояснення збою пробної відправки: що зламалось і що робити (один рядок). */
 const HELP = {
+  viber_unknown_window: 'Viber показує невідоме вікно після запуску. Знімок у теці збоїв; закрий вікно в Android («Показати Android»)',
   adbkeyboard_disabled: 'Клавіатура ADBKeyBoard не ввімкнена в Android. Виконай: adb shell ime enable com.android.adbkeyboard/.AdbIME',
   adbkeyboard_missing: 'У Waydroid немає клавіатури ADBKeyBoard. Встанови її: adb install ADBKeyboard.apk',
   viber_invite_not_opened: 'Viber не відкриває чати за запрошенням (лишається на списку чатів). Перевір, що Viber активований, і перезапусти Waydroid',
@@ -68,7 +69,11 @@ const HELP = {
   telegram_attachment_not_opened: 'Telegram Web не відкрив вікно фото',
   telegram_composer_not_found: 'Telegram Web не показав поле повідомлення',
 };
-export const helpFor = (code) => HELP[code] || `Пробна відправка не пройшла (код ${code}). Знімок у теці збоїв`;
+/** `detail` для `viber_unknown_window` уже містить пояснення з назвою вікна («Viber показує невідоме вікно після запуску: …»). */
+export const helpFor = (code, detail = '') => {
+  if (code === 'viber_unknown_window' && detail) return String(detail).split(' | пройшло')[0];
+  return HELP[code] || `Пробна відправка не пройшла (код ${code}). Знімок у теці збоїв`;
+};
 
 /** Короткий опис змін між двома відбитками: «Viber 6.1 → 6.2; ADBKeyBoard: вимкнена». */
 export function describeChange(previous, next) {

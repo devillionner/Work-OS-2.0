@@ -73,7 +73,7 @@ export const VIBER_ENV_REASON_TEXT = {
 };
 
 // Коди, після яких екран був не тим, що чекав адаптер: для них зберігається знімок (скріншот і дерево).
-const UNKNOWN_STATE_REASONS = new Set(['blocking_dialog', 'send_ui_unavailable', 'send_not_confirmed', 'viber_invite_not_opened', 'target_not_found', 'helper_error', 'adbkeyboard_disabled', 'android_error']);
+const UNKNOWN_STATE_REASONS = new Set(['viber_unknown_window', 'blocking_dialog', 'send_ui_unavailable', 'send_not_confirmed', 'viber_invite_not_opened', 'target_not_found', 'helper_error', 'adbkeyboard_disabled', 'android_error']);
 
 /** Помилка з кодом причини: severity показує, чи могло щось піти в чат. */
 class ViberStop extends Error {
@@ -471,7 +471,7 @@ async function preflight(android) {
       preflightOkAt = Date.now();
       return;
     } catch (error) {
-      if (error instanceof ViberStop && (error.reason === 'viber_not_activated' || error.reason === 'cancelled')) throw error;
+      if (error instanceof ViberStop && (error.reason === 'viber_not_activated' || error.reason === 'cancelled' || error.reason === 'viber_unknown_window')) throw error;
       await android.sh(`am force-stop ${VIBER_PACKAGE}`, { timeout: 10_000 });
       await sleep(1500);
     }
@@ -503,18 +503,87 @@ async function clearPromos(android, nodes) {
 /** Список чатів готовий: у дереві є пошук і хоч один рядок розмови. */
 const chatListReady = (view) => Boolean(viewById(view, 'menu_search') && (viewById(view, 'from') || viewById(view, 'subject')));
 
+/**
+ * Відомі заставки Viber після запуску, що стоять перед списком чатів (17.11: «Your Notifications are OFF!» тримав Viber на
+ * `GlobalNotificationSplashActivity`, і черга стояла годину). Повертає опис дії чи null, якщо екран невідомий. `view` — дешеве дерево
+ * (назва активності), `nodes` — повний dump (тексти).
+ */
+export function knownScreen(nodes, view = { activity: '' }) {
+  const text = screenText(nodes);
+  if (/GlobalNotificationSplashActivity|notificationsoff/i.test(view.activity || '') || /Your Notifications are OFF|Please do not show me this again/i.test(text)) return { kind: 'notifications_off' };
+  if (byId(nodes, 'bottom_sheet_title') && nodes.some((node) => node.id === 'positive_button' && /^got it$/i.test(node.text.trim()))) return { kind: 'got_it' };
+  if (/Remix now|Create your own Remix/i.test(text)) return { kind: 'remix' };
+  // Заставки з однією безпечною відмовою: тапаємо лише кнопку відмови, «Turn on» / «Allow» / «Enable» не чіпаємо ніколи.
+  const decline = nodes.find((node) => (node.click || /Button/i.test(node.cls)) && /^(?:not now|skip|maybe later|no,? thanks|later)$/i.test(node.text.trim()));
+  if (decline) return { kind: 'decline', node: decline };
+  return null;
+}
+
+/** Закриває відому заставку; true — щось було й закрите. «Turn on» (сповіщення Android не потрібні) не натискається. */
+async function dismissKnownScreen(android, nodes, view) {
+  const known = knownScreen(nodes, view);
+  if (!known) return false;
+  if (known.kind === 'notifications_off') {
+    // «Please do not show me this again» (чекбокс), потім «Назад»: Viber більше не показує заставку.
+    const box = nodes.find((node) => node.cls === 'CheckBox') || nodes.find((node) => /Please do not show me this again/i.test(node.text));
+    if (box) {
+      await android.tap(box);
+      await sleep(500);
+      const after = await android.dump();
+      const checkbox = after.find((node) => node.cls === 'CheckBox');
+      if (checkbox && !checkbox.checked) { await android.tap(checkbox); await sleep(400); }
+    }
+    await android.key(4);
+    await sleep(1200);
+    return true;
+  }
+  if (known.kind === 'got_it') { await android.tap(nodes.find((node) => node.id === 'positive_button')); await sleep(900); return true; }
+  if (known.kind === 'decline') { await android.tap(known.node); await sleep(900); return true; }
+  await android.key(4);
+  await sleep(900);
+  return true;
+}
+
+/** Заголовок невідомого вікна для пояснення в картці: id title/headline, інакше найвищий осмислений текст. */
+function windowTitle(nodes) {
+  const named = nodes.find((node) => /title|headline|header/i.test(node.id) && node.text.trim());
+  const first = named || nodes.filter((node) => node.text.trim().length > 2 && node.top < 700).sort((a, b) => a.top - b.top)[0];
+  return (first?.text || screenText(nodes)).replace(/\s+/g, ' ').trim().slice(0, 80) || 'без заголовка';
+}
+
+async function snapshotUnknownScreen(android, code, nodes, detail) {
+  try {
+    const shot = await android.adb(['exec-out', 'screencap', '-p'], { timeout: 15_000, buffer: true });
+    const tree = nodes.map((node) => `${node.id}\t${node.cls}\t${JSON.stringify(node.text)}\t${JSON.stringify(node.desc)}\t[${node.left},${node.top}][${node.right},${node.bottom}]`).join('\n');
+    saveFailureSnapshot({ platform: 'viber', code, png: Buffer.isBuffer(shot.stdout) ? shot.stdout : null, tree, detail });
+  } catch { /* знімок необов'язковий */ }
+}
+
 async function openChatList(android, timeout = 40_000) {
   await android.key(3);
   // CLEAR_TASK: залишок попередньої задачі (відкритий перегляд фото, розмова) не заважає, Viber починає зі списку чатів.
   await android.sh(`am start -f 0x10008000 -n ${VIBER_LAUNCH}`);
   // Дерево ще кілька сотень мс може показувати стару задачу, яку саме закривають.
   await sleep(500);
-  const found = await android.until(chatListReady, { timeout, step: 250 });
+  const end = Date.now() + timeout;
+  let found = await android.until(chatListReady, { timeout: Math.min(timeout, 9000), step: 250 });
+  // Список не з'явився: знайома заставка (сповіщення вимкнені, «Got it», «Not now») закривається, і чекаємо список далі.
+  for (let attempt = 0; !found && attempt < 5; attempt += 1) {
+    const nodes = await android.dump();
+    if (/phone number|activate|continue|scan|QR|welcome/i.test(screenText(nodes)) && !knownScreen(nodes)) break;
+    if (!await dismissKnownScreen(android, nodes, await android.view())) break;
+    found = await android.until(chatListReady, { timeout: Math.min(6000, Math.max(1000, end - Date.now())), step: 250 });
+  }
+  if (!found && Date.now() < end) found = await android.until(chatListReady, { timeout: end - Date.now(), step: 250 });
   if (found) return;
   const nodes = await android.dump();
   const text = screenText(nodes);
   if (/phone number|activate|continue|scan|QR|welcome/i.test(text)) throw new ViberStop('viber_not_activated', 'env', text.slice(0, 120));
-  throw new ViberStop('blocking_dialog', 'before', text.slice(0, 160));
+  // Невідома заставка чи діалог після запуску: власник бачить у картці, що саме заважає (заголовок вікна), а не «Viber не відповідає».
+  const view = await android.view().catch(() => ({ activity: '' }));
+  const detail = `Viber показує невідоме вікно після запуску: ${windowTitle(nodes)}${view.activity ? ` (${view.activity.split('/').pop()})` : ''}`;
+  await snapshotUnknownScreen(android, 'viber_unknown_window', nodes, detail);
+  throw new ViberStop('viber_unknown_window', 'env', detail);
 }
 
 /** Чат відкритий і доступний для запису: у розмові є поле повідомлення. */
@@ -817,18 +886,7 @@ async function prepareIme(android, caption) {
  */
 async function dismissPromoSheet(android, nodes = null) {
   const list = nodes || await android.dump();
-  const gotIt = list.find((node) => node.id === 'positive_button' && /^got it$/i.test(node.text.trim()))
-    && list.some((node) => node.id === 'bottom_sheet_title');
-  if (gotIt) {
-    await android.tap(list.find((node) => node.id === 'positive_button'));
-    await sleep(900);
-    return true;
-  }
-  const texts = list.map((node) => `${node.text} ${node.desc}`).join(' | ');
-  if (!/Remix now|Create your own Remix/i.test(texts)) return false;
-  await android.key(4);
-  await sleep(900);
-  return true;
+  return dismissKnownScreen(android, list, await android.view().catch(() => ({ activity: '' })));
 }
 
 /** Текст у поле підпису через клавіатуру ADB (див. `prepareIme`). */

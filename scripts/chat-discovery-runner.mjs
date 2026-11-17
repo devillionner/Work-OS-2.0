@@ -1108,7 +1108,7 @@ async function healthGateNow(ws,job,platform){
     return true;
   }
   const until=Date.now()+RECHECK_MS;
-  const text=`${helpFor(canary.code)}. Партія не стартувала, чати не постраждали. Наступна перевірка о ${clockText(until)}`;
+  const text=`${helpFor(canary.code,canary.detail)}. Партія не стартувала, чати не постраждали. Наступна перевірка о ${clockText(until)}`;
   console.warn(`Пробна відправка ${PLATFORM_NAMES[platform]} не пройшла: ${canary.code}${canary.detail?` (${canary.detail})`:''}`);
   health.markPaused(platform,{reason:canary.code,text,until});
   publishHealth(platform);
@@ -1234,7 +1234,7 @@ function reportAutopostStatus(platform,state,reason,text,untilMs=0,extra={}){
 
 function reportViberStatus(ws,state,reason,detail){
   // Стан шлеться лише при зміні й раз на 15 хв (див. sendLiveStatus): DO запам'ятовує його для сторінки, відкритої пізніше.
-  sendLiveStatus(ws,{type:'progress',process:'viber_status',state,reason:reason||null,text:state==='busy'?`Зайнятий: ${detail||'надсилаю'}`:reason?(VIBER_ENV_REASON_TEXT[reason]||detail||reason):'Viber готовий',at:Date.now()});
+  sendLiveStatus(ws,{type:'progress',process:'viber_status',state,reason:reason||null,text:state==='busy'?`Зайнятий: ${detail||'надсилаю'}`:reason?(VIBER_ENV_REASON_TEXT[reason]||String(detail||'').split(' | пройшло')[0]||reason):'Viber готовий',at:Date.now()});
 }
 
 async function checkViberStatus(force=false){
