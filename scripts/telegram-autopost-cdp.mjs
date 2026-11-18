@@ -402,6 +402,92 @@ function composerText(page, selector = '#editable-message-text') {
     return blocks.map((block) => String(block.textContent || '')).join('\\n'); })()`);
 }
 
+// --- Самовідновлення порожньої вкладки Telegram Web A ---
+// Інцидент 2026-11-18: вкладка /a/ була біла (у розмітці лише noscript і #portals), вхід цілий, а в консолі «Failed to read large IndexedDB value»:
+// пошкоджений кеш Telegram Web A в базі IndexedDB `tt-data`. Перезавантаження не допомагало, допомагало видалення лише цієї бази.
+// Вхід (localStorage: user_auth, dcN_auth_key, tt-passcode, tweb-*, cookies) не чіпається ніколи.
+const BLANK_WAIT_MS = 15_000;
+const AFTER_CLEAR_WAIT_MS = 30_000;
+const CACHE_CLEAR_GAP_MS = 30 * 60_000;
+const CACHE_DB = 'tt-data';
+const idbErrorPattern = /Failed to read large IndexedDB value/iu;
+// Застосунок «живий», коли є поле пошуку, список чатів або форма входу (QR чи номер).
+export const ALIVE_JS = `(() => Boolean(document.getElementById('telegram-search-input') || document.querySelector('#auth-qr-form, #auth-phone-number-form, .auth-form, #LeftColumn .chat-list, #LeftColumn .ListItem')))()`;
+let lastCacheClearAt = 0;
+export const resetTelegramCacheClearMemory = () => { lastCacheClearAt = 0; };
+
+// Видалення однієї бази на тому ж походженні: сторінка /a/site.webmanifest не запускає застосунок, тож базу ніхто не тримає (blocked від живого
+// shared worker минає, видалення все одно завершується).
+const DELETE_CACHE_JS = `new Promise((resolve) => {
+  let blocked = false; let settled = false;
+  const done = (value) => { if (!settled) { settled = true; resolve(value); } };
+  let request;
+  try { request = indexedDB.deleteDatabase(${JSON.stringify(CACHE_DB)}); } catch (error) { return done('error: ' + (error && error.message)); }
+  request.onsuccess = () => done(blocked ? 'deleted_after_blocked' : 'deleted');
+  request.onerror = () => done('error');
+  request.onblocked = () => { blocked = true; };
+  setTimeout(() => done(blocked ? 'blocked' : 'timeout'), 6000);
+})`;
+
+async function pageAlive(page) {
+  try { return Boolean(await page.evaluate(ALIVE_JS)); } catch { return false; }
+}
+
+/**
+ * Чекає, поки застосунок оживе: 'alive' | 'idb' (порожня сторінка й у консолі помилка кешу, не раніше ніж через 3 с) | 'timeout'.
+ */
+async function waitAlive(page, waitMs, seen, { stopOnIdb = false, sleepFn = sleep } = {}) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < waitMs) {
+    if (await pageAlive(page)) return 'alive';
+    if (stopOnIdb && seen.idb && Date.now() - startedAt >= 3_000) return 'idb';
+    await sleepFn(500);
+  }
+  return (await pageAlive(page)) ? 'alive' : 'timeout';
+}
+
+/**
+ * Переконується, що Telegram Web A відкрився (список чатів чи форма входу). Порожня понад 15 с → одне перезавантаження → якщо знову порожня (чи в консолі
+ * «Failed to read large IndexedDB value») → видаляється лише база `tt-data` і /a/ відкривається знову; не частіше за раз на 30 хв.
+ * Повертає { ok:true, cleared? } або { ok:false, detail } (пояснення для картки).
+ */
+export async function ensureTelegramWebAlive(page, { waitMs = BLANK_WAIT_MS, afterClearMs = AFTER_CLEAR_WAIT_MS, log = (line) => console.log(line), sleepFn = sleep, nowFn = Date.now } = {}) {
+  const client = page.client;
+  const seen = { idb: false };
+  const detach = typeof client.on === 'function'
+    ? ['Runtime.consoleAPICalled', 'Log.entryAdded', 'Runtime.exceptionThrown'].map((method) => client.on(method, (params) => { try { if (idbErrorPattern.test(JSON.stringify(params))) seen.idb = true; } catch { /* не серіалізується */ } }))
+    : [];
+  try {
+    await client.send('Log.enable').catch(() => {});
+    if (await waitAlive(page, waitMs, seen, { sleepFn }) === 'alive') return { ok: true };
+    // 1. Порожня: одне перезавантаження.
+    await client.send('Page.navigate', { url: TELEGRAM_WEB }).catch(() => {});
+    const afterReload = await waitAlive(page, waitMs, seen, { stopOnIdb: true, sleepFn });
+    if (afterReload === 'alive') return { ok: true };
+    // 2. Далі порожня: чистимо лише кеш tt-data (не частіше за раз на 30 хв).
+    const since = nowFn() - lastCacheClearAt;
+    if (lastCacheClearAt && since < CACHE_CLEAR_GAP_MS) {
+      const at = new Date(lastCacheClearAt).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+      return { ok: false, detail: `сторінка порожня, а кеш уже очищали о ${at}${seen.idb ? ' (у консолі помилка кешу)' : ''}` };
+    }
+    lastCacheClearAt = nowFn();
+    await client.send('Page.navigate', { url: `${TELEGRAM_WEB}site.webmanifest` }).catch(() => {});
+    await sleepFn(1_200);
+    let outcome = '';
+    try { outcome = String(await page.evaluate(DELETE_CACHE_JS)); } catch (error) { outcome = `error: ${error instanceof Error ? error.message : String(error)}`; }
+    await client.send('Page.navigate', { url: TELEGRAM_WEB }).catch(() => {});
+    const afterClear = await waitAlive(page, afterClearMs, seen, { sleepFn });
+    if (afterClear === 'alive') {
+      const loggedIn = await page.evaluate(`Boolean(document.getElementById('telegram-search-input'))`).catch(() => false);
+      log(loggedIn ? 'Telegram: пошкоджений кеш, очищено, вхід збережено' : 'Telegram: пошкоджений кеш, очищено, але потрібен вхід');
+      return { ok: true, cleared: true };
+    }
+    return { ok: false, detail: `сторінка порожня навіть після очищення кешу ${CACHE_DB} (${outcome})` };
+  } finally {
+    for (const off of detach) { try { off(); } catch { /* вже знято */ } }
+  }
+}
+
 /** Id користувача, залогіненого в Telegram Web runner: за ним Work OS перевіряє, що це потрібний акаунт. */
 /** Самолікування: перезавантажує вкладку Telegram Web (створює, якщо її немає) і чекає, поки застосунок стартує. */
 export async function reloadTelegramTabViaCdp({ cdpBaseUrl } = {}) {
@@ -412,9 +498,10 @@ export async function reloadTelegramTabViaCdp({ cdpBaseUrl } = {}) {
   const client = await createTelegramPageClient(found.page);
   try {
     await client.send('Page.enable');
+    await client.send('Runtime.enable').catch(() => {});
     await client.send('Page.navigate', { url: TELEGRAM_WEB });
-    await sleep(10_000);
-    return { kind: 'result' };
+    const alive = await ensureTelegramWebAlive(new TelegramPage(client));
+    return alive.ok ? { kind: 'result' } : { kind: 'blocked', reason: 'telegram_page_not_ready', detail: alive.detail, unrecoverable: true };
   } finally { try { client.close(); } catch { /* вкладка вже закрита */ } }
 }
 
@@ -428,6 +515,8 @@ export async function readTelegramIdentityViaCdp({ cdpBaseUrl } = {}) {
   const page = new TelegramPage(client);
   try {
     await client.send('Runtime.enable');
+    const alive = await ensureTelegramWebAlive(page);
+    if (!alive.ok) return { kind: 'blocked', reason: 'telegram_page_not_ready', detail: alive.detail, unrecoverable: true };
     const state = await page.evaluate(READ_STATE_JS);
     if (state.auth) return { kind: 'blocked', reason: 'telegram_not_authenticated' };
     if (!state.ready) return { kind: 'blocked', reason: 'telegram_page_not_ready' };
@@ -460,12 +549,17 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
   const client = await createTelegramPageClient(found.page);
   const page = new TelegramPage(client);
   const startedAt = Date.now();
-  const deadlineAt = startedAt + 120_000;
+  let deadlineAt = startedAt + 120_000;
   try {
     await client.send('Runtime.enable');
     await client.send('Page.enable').catch(() => {});
     // Вкладка у фоні: фокус емулюється при створенні клієнта (createTelegramPageClient), вікно не піднімається. Широкий екран потрібен, щоб лівий список (гілки) був видимий.
     await client.send('Emulation.setDeviceMetricsOverride', WIDE_VIEWPORT);
+
+    // 0. Порожня вкладка (пошкоджений кеш Telegram Web A) лікується до будь-яких дій; час на відновлення не з'їдає бюджет задачі.
+    const alive = await ensureTelegramWebAlive(page);
+    if (!alive.ok) return { kind: 'blocked', reason: 'telegram_page_not_ready', detail: alive.detail, unrecoverable: true };
+    deadlineAt = Math.max(deadlineAt, Date.now() + 120_000);
 
     // 1. Той самий акаунт, що в Work OS.
     const initial = await page.evaluate(READ_STATE_JS);

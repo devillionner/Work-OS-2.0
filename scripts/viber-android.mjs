@@ -1169,7 +1169,10 @@ async function scrollToBottom(android) {
  * (час не вдалося визначити, стрічка не гортається, ліміт сторінок).
  */
 async function locateOwnMessage(android, prefix, { sentAt, maxPages = 10, guard = () => {} }) {
-  if (!prefix) return { state: 'absent' };
+  // `copies`: скільки повідомлень з цим початком бачили за сьогодні, але з часом поза вікном (для «Перевірити»: повторювати відправку тоді небезпечно).
+  let copies = 0;
+  const absent = () => ({ state: 'absent', copies });
+  if (!prefix) return absent();
   // `sentAt` null — час відправки невідомий: підходить будь-яке повідомлення з цим початком за сьогодні (до межі доби).
   const known = sentAt !== null && sentAt !== undefined;
   const reference = known ? sentAt : clockMinutes(await android.clock());
@@ -1186,14 +1189,19 @@ async function locateOwnMessage(android, prefix, { sentAt, maxPages = 10, guard 
     const state = conversationStateOf(nodes);
     if (!state) return { state: 'unknown', why: 'conversation not shown' };
     // Межа доби: угору час має спадати, а різкий стрибок угору означає, що вище вже вчорашні повідомлення.
-    const stampNodes = nodes.filter((node) => node.id === 'timestampView').map((node) => ({ top: node.top, minute: stampMinutes(node.text) })).filter((item) => item.minute !== null).sort((a, b) => a.top - b.top);
+    const stampNodes = nodes.filter((node) => node.id === 'timestampView').map((node) => ({ top: node.top, bottom: node.bottom, minute: stampMinutes(node.text) })).filter((item) => item.minute !== null).sort((a, b) => a.top - b.top);
     // Між сторінками теж можна перетнути північ: найдавніший час на новій сторінці різко більший за найдавніший на попередній.
-    if (previousTopStamp !== null && stampNodes.length && stampNodes[0].minute > previousTopStamp + 30) return { state: 'absent' };
+    if (previousTopStamp !== null && stampNodes.length && stampNodes[0].minute > previousTopStamp + 30) return absent();
     if (stampNodes.length) previousTopStamp = stampNodes[0].minute;
+    // Межа доби: заголовок дати («Today, 18 Nov») над повідомленням або різкий стрибок часу між сусідніми повідомленнями. Повідомлення
+    // нової доби лежать нижче межі, а їхній час стоїть під текстом, тож межа — це низ часу ВИЩОГО (старішого) повідомлення, а не верх
+    // нижнього: інакше перше повідомлення нової доби (текст вище за свій час) відкидалось як вчорашнє (2026-11-18, хибне send_not_confirmed).
     let dayBoundaryTop = null;
     for (let index = 0; index < stampNodes.length - 1; index += 1) {
-      if (stampNodes[index].minute > stampNodes[index + 1].minute + 30) { dayBoundaryTop = stampNodes[index + 1].top; break; }
+      if (stampNodes[index].minute > stampNodes[index + 1].minute + 30) { dayBoundaryTop = stampNodes[index].bottom; break; }
     }
+    const todayHeader = nodes.filter((node) => node.id === 'dateHeaderView' && /^today\b/i.test(String(node.text || '').trim())).sort((x, y) => y.top - x.top)[0];
+    if (todayHeader && (dayBoundaryTop === null || todayHeader.top < dayBoundaryTop)) dayBoundaryTop = todayHeader.top;
     const own = nodes.filter((node) => node.id === 'textMessageView' && looseName(node.text).startsWith(prefix) && (dayBoundaryTop === null || node.top >= dayBoundaryTop - 4)).sort((a, b) => b.bottom - a.bottom);
     for (const message of own) {
       let minute = stampBelow(nodes, message);
@@ -1207,19 +1215,20 @@ async function locateOwnMessage(android, prefix, { sentAt, maxPages = 10, guard 
         if (minute === null) return { state: 'unknown', why: 'timestamp hidden' };
       }
       if (inWindow(minute)) return { state: 'found', minute };
+      copies += 1;
       // Копія з іншим часом (учорашня чи давніша): не наша, шукаємо далі.
     }
     const stamps = stampNodes.map((item) => item.minute);
     // Усе видиме вже давніше за момент відправки: далі лише давніші повідомлення, нашого немає.
     if (process.env.WORK_OS_VIBER_DEBUG) console.error(`locate page ${page} sentAt=${sentAt} own=${own.length} stamps=${stamps.join(',')} texts=${nodes.filter((n) => n.id === 'textMessageView').map((n) => `${n.top}-${n.bottom}:${n.text.slice(0, 12)}`).join(' | ')}`);
-    if (dayBoundaryTop !== null) return { state: 'absent' };
-    if (stamps.length && stamps.every(olderThanWindow)) return { state: 'absent' };
+    if (dayBoundaryTop !== null) return absent();
+    if (stamps.length && stamps.every(olderThanWindow)) return absent();
     // Підпис екрана: усі вузли повідомлень (текст, час, фото, відправник): одна велика картинка без тексту теж змінюється при прокрутці.
     const signature = nodes.filter((node) => ['textMessageView', 'timestampView', 'imageView', 'nameView', 'avatarView'].includes(node.id)).map((node) => `${node.id}:${node.top}:${(node.text || '').slice(0, 12)}`).join('|');
     if (page > 0 && signature === lastSignature) {
       // Стрічка не зсунулась: жест міг потрапити на повідомлення, яке його поглинає. Пробуємо край вікна, потім інший край.
       stuckTries += 1;
-      if (stuckTries >= 3) return stamps.length && stamps.some(olderThanWindow) ? { state: 'absent' } : { state: 'unknown', why: 'start of chat or list stuck' };
+      if (stuckTries >= 3) return stamps.length && stamps.some(olderThanWindow) ? absent() : { state: 'unknown', why: 'start of chat or list stuck' };
     } else stuckTries = 0;
     lastSignature = signature;
     await scrollConversation(android, 'older', 0.85, stuckTries === 0 ? 0.5 : stuckTries === 1 ? 0.04 : 0.96);
@@ -1308,6 +1317,8 @@ async function verify(payload, guard) {
     return { state: 'absent' };
   });
   if (found.state === 'found') return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: targetName, timings: 'перевірено, повідомлення є в чаті' };
+  // Копія з тим самим підписом за сьогодні є, але час не збігся: «немає» тут небезпечне (повторна відправка дала б дубль), віддаємо власнику.
+  if (found.copies > 0) throw new ViberStop('verify_inconclusive', 'before', `same caption found today at another time (${found.copies})`);
   throw new ViberStop('message_not_found', 'before', 'message not in chat');
 }
 // ---------------------------------------------------------------- Дії для runner
@@ -1327,12 +1338,20 @@ async function status() {
  */
 export async function viberFingerprint() {
   if (activeTask || process.platform !== 'linux') return null;
-  const android = await connectQuick();
+  // Android після пробудження чи перезапуску сесії ще не готовий (adb offline, `sys.boot_completed` ≠ 1): чекаємо до хвилини й лише
+  // тоді знімаємо відбиток. Не дочекались — null («зараз зібрати не можна»), а не відбиток із порожніми полями, який виглядав би зміною.
+  const android = await Promise.race([
+    connectQuick().catch(() => null),
+    sleep(60_000).then(() => null),
+  ]);
+  if (!android) return null;
+  const booted = (await android.sh('getprop sys.boot_completed', { timeout: 8000 }).catch(() => '')).trim();
+  if (booted !== '1') return null;
   const get = async (command) => String(await android.sh(command, { timeout: 10_000 }).catch(() => '')).trim();
   const keyboardPath = await get(`pm path ${ADB_KEYBOARD_PACKAGE}`);
   const enabled = (await enabledImes(android).catch(() => [])).includes(ADB_KEYBOARD);
   const waydroid = await run('waydroid', ['--version'], { timeout: 8000 }).catch(() => ({ stdout: '' }));
-  return {
+  const print = {
     android: await get('getprop ro.build.version.release'),
     display: (await get('wm size')).replace(/^Physical size:\s*/i, ''),
     multiWindows: await get('getprop persist.waydroid.multi_windows'),
@@ -1340,6 +1359,8 @@ export async function viberFingerprint() {
     waydroid: String(waydroid.stdout || '').trim().split('\n')[0].slice(0, 40),
     adbKeyboard: keyboardPath.includes('package:') ? (enabled ? 'увімкнена' : 'вимкнена') : 'немає',
   };
+  // Частина полів не прочиталась (Android ще збирається): неповний відбиток не віддаємо.
+  return print.android && print.display && print.viber ? print : null;
 }
 
 /** Секундомір етапів: `lap('назва')` записує, скільки минуло від попередньої позначки. */

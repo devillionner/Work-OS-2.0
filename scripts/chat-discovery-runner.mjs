@@ -1343,7 +1343,7 @@ const TELEGRAM_REASON_TEXT={
   telegram_account_unbound:'Акаунт Telegram ще не прив’язано до браузера. Натисни «Прив’язати цей акаунт» у картці автопосту.',
   telegram_account_mismatch:'У браузері відкрито інший акаунт Telegram, не той, що вибрано у Work OS.',
   telegram_identity_unknown:'Не вдалося визначити, який акаунт відкрито в Telegram Web.',
-  telegram_page_not_ready:'Telegram Web не завантажився. Автопост на паузі.',
+  telegram_page_not_ready:'Telegram Web не відкривається: сторінка порожня, самовідновлення не допомогло. Автопост на паузі.',
   telegram_chat_not_opened:'Telegram Web не відкрив чат. Автопост на паузі.',
   telegram_composer_not_found:'Telegram Web не показав поле повідомлення. Автопост на паузі.',
   telegram_text_mismatch:'Текст у полі повідомлення Telegram не збігся з оголошенням. Автопост на паузі.',
@@ -1356,11 +1356,18 @@ const TELEGRAM_REASON_TEXT={
 let telegramFloodUntil=0;
 let telegramAdapterFailures=[];
 
-function pauseTelegramAutopost(ws,job,untilMs,reason,extra={}){
+// Пояснення для картки: порожня вкладка, яку самовідновлення не вилікувало, називається прямо («Telegram Web не відкривається: …»), а не голим кодом.
+function telegramReasonText(reason,detail=''){
+  if(reason==='telegram_page_not_ready'&&detail)return `Telegram Web не відкривається: ${String(detail).slice(0,200)}. Автопост на паузі.`;
+  return TELEGRAM_REASON_TEXT[reason]||`Telegram Web не готовий (${reason}).`;
+}
+
+function pauseTelegramAutopost(ws,job,untilMs,reason,extra={},detail=''){
   const until=Math.max(untilMs,Date.now()+20_000);
-  const text=`${TELEGRAM_REASON_TEXT[reason]||`Telegram Web не готовий (${reason}).`} Наступна спроба о ${clockText(until)}.`;
+  const reasonText=telegramReasonText(reason,detail);
+  const text=`${reasonText} Наступна спроба о ${clockText(until)}.`;
   reportAutopostStatus('telegram','blocked',reason,text,until,extra);
-  setStatus('working',`Telegram автопост на паузі до ${clockText(until)}: ${TELEGRAM_REASON_TEXT[reason]||reason}`);
+  setStatus('working',`Telegram автопост на паузі до ${clockText(until)}: ${reasonText}`);
   releaseTask(ws,'autopost',job,until,'',until);
 }
 
@@ -1370,7 +1377,7 @@ async function checkTelegramStatus(force=false){
   let result;
   try{result=await readTelegramIdentityViaCdp({cdpBaseUrl:whatsappCdp});}catch{return;}
   if(result.kind==='result')reportAutopostStatus('telegram','ready',null,'Telegram Web готовий.',0,{identity:result.identity});
-  else if(result.reason!=='telegram_tab_missing')reportAutopostStatus('telegram','blocked',result.reason,TELEGRAM_REASON_TEXT[result.reason]||'Telegram Web не готовий.');
+  else if(result.reason!=='telegram_tab_missing')reportAutopostStatus('telegram','blocked',result.reason,telegramReasonText(result.reason,result.detail));
 }
 
 // Самолікування вкладок: Telegram Web чи WhatsApp Web, що не готові, спершу перезавантажуються (не частіше за раз на 3 хв на сайт), і лише
@@ -1437,6 +1444,11 @@ async function handleTelegramAutopostTask(ws,job){
       return;
     }
     releaseTask(ws,'autopost',job,telegramFloodUntil,'',telegramFloodUntil);
+    return;
+  }
+  // Порожня вкладка, яку адаптер уже намагався вилікувати (перезавантаження, очищення кешу tt-data): далі це не чат, а середовище, пауза з поясненням одразу.
+  if(automated.unrecoverable&&reason==='telegram_page_not_ready'){
+    pauseTelegramAutopost(ws,job,Date.now()+TELEGRAM_ENV_PAUSE_MS,reason,{},automated.detail);
     return;
   }
   // Збій до «Надіслати», що повторюється на різних чатах, — це браузер чи Telegram Web, а не чат: пауза з поясненням.

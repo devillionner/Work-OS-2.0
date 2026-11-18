@@ -2325,6 +2325,8 @@ export async function createCdpClient(url) {
 
   let nextId = 0;
   const pending = new Map();
+  /** Підписки на події CDP (`Runtime.consoleAPICalled`, `Log.entryAdded` тощо): метод → обробники. */
+  const listeners = new Map();
   socket.addEventListener('message', (event) => {
     let message;
     try {
@@ -2342,6 +2344,10 @@ export async function createCdpClient(url) {
       } catch {}
       return;
     }
+    if (message.method && !message.id) {
+      for (const handler of listeners.get(message.method) || []) { try { handler(message.params || {}); } catch { /* обробник події не валить клієнта */ } }
+      return;
+    }
     if (!message.id || !pending.has(message.id)) return;
     const waiter = pending.get(message.id);
     pending.delete(message.id);
@@ -2357,6 +2363,11 @@ export async function createCdpClient(url) {
         pending.set(id, { resolve:value=>{clearTimeout(timer);resolve(value);}, reject:error=>{clearTimeout(timer);reject(error);} });
         socket.send(JSON.stringify({ id, method, params }));
       });
+    },
+    on(method, handler) {
+      if (!listeners.has(method)) listeners.set(method, new Set());
+      listeners.get(method).add(handler);
+      return () => listeners.get(method)?.delete(handler);
     },
     close() {
       for (const waiter of pending.values()) waiter.reject(new Error('CDP connection closed.'));

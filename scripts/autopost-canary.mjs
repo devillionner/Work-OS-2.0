@@ -40,7 +40,7 @@ async function telegramVariant(cdp) {
 export async function collectFingerprint(platform, { cdp = '' } = {}) {
   const base = osInfo();
   if (platform === 'viber') {
-    const viber = await viberFingerprint().catch(() => ({ android: 'недоступний' }));
+    const viber = await viberFingerprint().catch(() => null);
     return viber ? { ...base, ...viber } : null;
   }
   const browser = cdp ? await browserInfo(cdp) : { browser: 'не підключений', mode: '' };
@@ -87,7 +87,7 @@ async function canaryViber({ inviteLink, inviteName, shouldAbort, onStep }) {
 
 async function canaryTelegram({ cdp, shouldAbort, onStep }) {
   const identity = await readTelegramIdentityViaCdp({ cdpBaseUrl: cdp });
-  if (identity.kind !== 'result') return failed(identity.reason || 'telegram_page_not_ready');
+  if (identity.kind !== 'result') return failed(identity.reason || 'telegram_page_not_ready', identity.detail);
   onStep?.('canary', 'пробна відправка у «Збережене»');
   const task = {
     kind: 'telegram_autopost', canary: true,

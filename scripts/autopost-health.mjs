@@ -66,26 +66,32 @@ const HELP = {
   composer_not_found: 'WhatsApp Web не показав поле повідомлення',
   media_preview_not_ready: 'WhatsApp Web не відкрив вікно фото',
   media_send_not_confirmed: 'WhatsApp не підтвердив відправку (галочки немає)',
+  telegram_page_not_ready: 'Telegram Web не відкривається: сторінка порожня',
   telegram_attachment_not_opened: 'Telegram Web не відкрив вікно фото',
   telegram_composer_not_found: 'Telegram Web не показав поле повідомлення',
 };
 /** `detail` для `viber_unknown_window` уже містить пояснення з назвою вікна («Viber показує невідоме вікно після запуску: …»). */
 export const helpFor = (code, detail = '') => {
   if (code === 'viber_unknown_window' && detail) return String(detail).split(' | пройшло')[0];
+  if (code === 'telegram_page_not_ready' && detail) return `Telegram Web не відкривається: ${String(detail).slice(0, 200)}`;
   return HELP[code] || `Пробна відправка не пройшла (код ${code}). Знімок у теці збоїв`;
 };
 
 /** Короткий опис змін між двома відбитками: «Viber 6.1 → 6.2; ADBKeyBoard: вимкнена». */
 export function describeChange(previous, next) {
-  if (!previous) return '';
+  if (!previous || !next) return '';
   const parts = [];
   for (const key of Object.keys({ ...previous, ...next })) {
+    // Поле, яке зараз не прочиталось (порожнє чи «недоступний»), зміною не вважається.
+    if (isUnreadable(next[key])) continue;
     if (previous[key] !== next[key]) parts.push(`${key}: ${previous[key] || '—'} → ${next[key] || '—'}`);
   }
   return parts.slice(0, 4).join('; ');
 }
 
-const stable = (value) => JSON.stringify(Object.keys(value || {}).sort().map((key) => [key, value[key]]));
+const isUnreadable = (value) => value === undefined || value === null || value === '' || value === 'недоступний';
+/** Порівняння відбитків лише за полями, що прочиталися в обох. */
+const stable = (value, other) => JSON.stringify(Object.keys(value || {}).sort().filter((key) => !other || (!isUnreadable(value[key]) && !isUnreadable(other[key]))).map((key) => [key, value[key]]));
 
 /** @param {{file?: string, now?: () => number}} [options] */
 export function createHealth({ file = join(process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state'), 'work-os', 'health.json'), now = () => Date.now() } = {}) {
@@ -108,8 +114,8 @@ export function createHealth({ file = join(process.env.XDG_STATE_HOME || join(ho
       const item = entry(platform);
       if (item.forced) return { need: true, why: 'forced' };
       if (item.status === 'paused') return { need: true, why: 'paused' };
-      if (!item.startChecked) return { need: true, why: saved[platform]?.fingerprint && fingerprint && stable(saved[platform].fingerprint) !== stable(fingerprint) ? 'changed' : 'restart' };
-      if (fingerprint && saved[platform]?.fingerprint && stable(saved[platform].fingerprint) !== stable(fingerprint)) return { need: true, why: 'changed' };
+      if (!item.startChecked) return { need: true, why: saved[platform]?.fingerprint && fingerprint && stable(saved[platform].fingerprint, fingerprint) !== stable(fingerprint, saved[platform].fingerprint) ? 'changed' : 'restart' };
+      if (fingerprint && saved[platform]?.fingerprint && stable(saved[platform].fingerprint, fingerprint) !== stable(fingerprint, saved[platform].fingerprint)) return { need: true, why: 'changed' };
       if (saved[platform]?.day !== kyivDay(now())) return { need: true, why: 'day' };
       return { need: false, why: '' };
     },
@@ -123,7 +129,7 @@ export function createHealth({ file = join(process.env.XDG_STATE_HOME || join(ho
     markOk(platform, fingerprint) {
       const item = entry(platform);
       item.status = 'ok'; item.checkedAt = now(); item.text = ''; item.changeText = ''; item.forced = false; item.startChecked = true; item.pausedUntil = 0; item.reason = ''; item.results = [];
-      saved[platform] = { fingerprint: fingerprint || saved[platform]?.fingerprint || null, day: kyivDay(now()), checkedAt: item.checkedAt };
+      saved[platform] = { fingerprint: fingerprint ? { ...fingerprint, ...Object.fromEntries(Object.entries(saved[platform]?.fingerprint || {}).filter(([key]) => isUnreadable(fingerprint[key]))) } : saved[platform]?.fingerprint || null, day: kyivDay(now()), checkedAt: item.checkedAt };
       persist();
     },
     markPaused(platform, { reason, text, until }) {
