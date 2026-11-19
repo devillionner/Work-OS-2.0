@@ -67,22 +67,22 @@ export async function snapshotBrowserTab(cdp, urlPart, platform, code, detail = 
   } catch { return saveFailureSnapshot({ platform, code, detail: `${detail} | знімок вкладки не вдався` }); }
 }
 
-const CHAT_LEVEL_REASONS = new Set(['viber_chat_missing', 'viber_banned', 'viber_read_only', 'viber_not_joined', 'target_unconfirmed', 'target_name_missing', 'invalid_viber_link']);
+const CHAT_LEVEL_REASONS = new Set(['viber_invite_dead', 'viber_chat_missing', 'viber_banned', 'viber_read_only', 'viber_not_joined', 'target_unconfirmed', 'target_name_missing', 'invalid_viber_link']);
 const failed = (code, detail = '') => ({ ok: false, code, detail: String(detail).slice(0, 300) });
 
 async function canaryViber({ inviteLink, inviteName, shouldAbort, onStep }) {
-  // 1) Відкриття за запрошенням (лише відкрити й закрити, нікуди не вступаємо й нічого не шлемо).
+  // 1) Повний шлях відправки в «My Notes»: фото, підпис, «Надіслати», підтвердження. Саме він каже, чи справне середовище.
+  onStep?.('canary', 'пробна відправка в My Notes');
+  const result = await runViberAndroid('post', { id: 'canary', testTarget: 'my_notes', expectedName: 'My Notes', message: canaryText('Viber'), media: CANARY_IMAGE }, { shouldAbort, onStep });
+  if (result.status !== 'sent') return failed(result.reason || 'viber_failed', result.detail);
+  // 2) Відкриття за запрошенням (лише відкрити, нікуди не вступаємо й нічого не шлемо) — лише для чату, що сьогодні вже відкривався (`inviteLink`
+  // порожній, коли такого чату немає). My Notes уже пройшов, тож список чатів чи відмова на цьому чаті — властивість чату, а не середовища.
   if (inviteLink) {
     onStep?.('canary', 'перевіряю відкриття запрошення');
     const open = await runViberAndroid('post', { id: 'canary-open', url: inviteLink, expectedName: inviteName || 'чат', openOnly: true }, { shouldAbort });
-    // Будь-який впізнаний екран (розмова, сторінка вступу, відмова: неактивне посилання, бан) означає, що відкриття працює; проблема
-    // лише в самому чаті, а не в середовищі. Не впізнано (список чатів, невідомий діалог) — збій середовища.
-    if (open.status !== 'checked' && !CHAT_LEVEL_REASONS.has(String(open.reason))) return failed(open.reason || 'viber_failed', open.detail);
+    if (open.status !== 'checked' && !CHAT_LEVEL_REASONS.has(String(open.reason)) && open.reason !== 'viber_invite_not_opened') return failed(open.reason || 'viber_failed', open.detail);
   }
-  // 2) Повний шлях відправки в «My Notes»: фото, підпис, «Надіслати», підтвердження.
-  onStep?.('canary', 'пробна відправка в My Notes');
-  const result = await runViberAndroid('post', { id: 'canary', testTarget: 'my_notes', expectedName: 'My Notes', message: canaryText('Viber'), media: CANARY_IMAGE }, { shouldAbort, onStep });
-  return result.status === 'sent' ? { ok: true } : failed(result.reason || 'viber_failed', result.detail);
+  return { ok: true };
 }
 
 async function canaryTelegram({ cdp, shouldAbort, onStep }) {

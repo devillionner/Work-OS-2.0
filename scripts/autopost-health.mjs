@@ -158,6 +158,11 @@ export function createHealth({ file = join(process.env.XDG_STATE_HOME || join(ho
       const trip = consecutive || (same.length >= 3 && chats.size >= 3);
       return { trip, code, release: trip && kind === 'before' };
     },
+    /** Попередній результат серії — той самий код на іншому чаті: другий такий збій поспіль дав би запобіжник серії. */
+    seriesPending(platform, code, chat = '') {
+      const last = entry(platform).results.at(-1);
+      return Boolean(last && last.code === code && last.chat !== chat);
+    },
     /** Стан для картки й трея (повідомлення live-каналу). */
     publicState(platform) {
       const item = entry(platform);

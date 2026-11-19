@@ -1037,6 +1037,18 @@ function sendReliable(message){
 // --- Здоров'я автопосту (3.18.0). Пробна відправка перед першою партією платформи за день, після перезапуску й зміни відбитка середовища;
 // запобіжник серії: однаковий збій на двох різних чатах поспіль = збій середовища, платформа на паузу, задачі в чергу без спроб.
 const FINGERPRINT_TTL_MS=2*60_000;
+// Чат Viber, у якому сьогодні вже була підтверджена відправка: лише на ньому пробна відправка перевіряє відкриття запрошення (`openOnly`).
+// Чат, що вже провалився сьогодні, середовище не міряє (19.11: один мертвий чат тримав платформу на паузі з 17:11 до 17:48). Немає такого чату —
+// `openOnly` пропускається, досить пробної відправки в My Notes.
+const kyivDayOf=(at)=>new Date(at).toLocaleDateString('en-CA',{timeZone:'Europe/Kyiv'});
+let viberOpenedToday=null;
+function rememberViberOpened(job){
+  const link=String(job?.target?.expectedLink||'');
+  if(!/^https:\/\/invite\.viber\.com\//i.test(link))return;
+  viberOpenedToday={day:kyivDayOf(Date.now()),link,name:String(job.target?.expectedName||'')};
+}
+const viberOpenedChat=()=>viberOpenedToday&&viberOpenedToday.day===kyivDayOf(Date.now())?viberOpenedToday:null;
+
 const fingerprintCache=new Map();
 async function currentFingerprint(platform){
   const cached=fingerprintCache.get(platform);
@@ -1093,7 +1105,7 @@ async function healthGateNow(ws,job,platform){
   };
   canaryStep('canary',canaryText(platform));
   const canary=await runCanary(platform,{
-    inviteLink:platform==='viber'?job.target?.expectedLink:'',inviteName:platform==='viber'?job.target?.expectedName:'',
+    inviteLink:platform==='viber'?(viberOpenedChat()?.link||''):'',inviteName:platform==='viber'?(viberOpenedChat()?.name||''):'',
     cdp:whatsappCdp||'',shouldAbort:()=>cancelledAutopostJobs.has(job.jobId),
     onStep:(_step,text)=>{if(!String(text).startsWith('пробна'))canaryStep('canary',`${canaryText(platform).split(' · ')[0]} · ${text}`);},
   });
@@ -1124,6 +1136,7 @@ function guardSeries(message){
   if(!info||autopostUncounted.has(jobId))return false;
   const ok=message.status==='sent';
   const code=String(message.errorCode||'');
+  if(ok&&info.platform==='viber')rememberViberOpened(info.job);
   if(!ok&&info.platform!=='viber'&&suspectKind(info.platform,code)&&whatsappCdp)void snapshotBrowserTab(whatsappCdp,info.platform==='telegram'?'web.telegram.org':'web.whatsapp.com',info.platform,code,String(info.chat||''));
   const verdict=health.noteResult(info.platform,{ok,code,chat:info.chat});
   // Запрошення лишило Viber на списку чатів, але серії немає (попередній чат відкрився або це перший збій): це властивість чату,
@@ -1317,6 +1330,21 @@ async function handleViberAutopostTask(ws,job){
     setStatus('working',`Viber автопост на паузі: ${VIBER_ENV_REASON_TEXT[reason]||reason}`);
     releaseTask(ws,'autopost',job,Date.now()+cooldown,'',Date.now()+cooldown);
     return;
+  }
+  // Запрошення лишило Viber на списку чатів. Якщо це вже другий такий чат поспіль, запобіжник серії поставив би платформу на паузу, але пауза
+  // потрібна лише коли справне й середовище: пробна відправка в My Notes проходить — обидва чати мертві (`viber_invite_dead`), паузи немає.
+  if(reason==='viber_invite_not_opened'&&health.seriesPending('viber',reason,job.target?.chatId||job.target?.expectedName||job.jobId)){
+    onStep('canary','перевіряю, чи справне середовище: пробна відправка в My Notes · ~30 с');
+    let env=null;
+    try{env=await runCanary('viber',{inviteLink:'',inviteName:'',shouldAbort:()=>cancelledAutopostJobs.has(job.jobId),onStep:()=>{}});}
+    catch(error){console.warn(`Перевірка середовища Viber перервалась: ${error instanceof Error?error.message:String(error)}`);}
+    if(env?.ok){
+      console.log('Viber: пробна відправка в My Notes пройшла, тож запрошення не відкрилось через сам чат (viber_invite_dead), паузи немає.');
+      reportViberStatus(ws,'ready');
+      sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',
+        observedTarget:job.target?.expectedName,targetVerified:false,sendConfirmed:false,errorCode:'viber_invite_dead'});
+      return;
+    }
   }
   reportViberStatus(ws,'ready');
   // «Не той чат»: Viber показав чат з іншою назвою; її (до « | screen:») зберігаємо, щоб власник міг оновити назву в Work OS.

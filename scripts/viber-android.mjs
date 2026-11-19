@@ -510,7 +510,9 @@ const chatListReady = (view) => Boolean(viewById(view, 'menu_search') && (viewBy
  */
 export function knownScreen(nodes, view = { activity: '' }) {
   const text = screenText(nodes);
-  if (/GlobalNotificationSplashActivity|notificationsoff/i.test(view.activity || '') || /Your Notifications are OFF|Please do not show me this again/i.test(text)) return { kind: 'notifications_off' };
+  // Банер «Notifications are OFF!» з кнопкою «Turn on» внизу списку чатів (`banner_root`) — не заставка: його не чіпаємо й екраном-перешкодою не вважаємо.
+  const chatListBanner = nodes.some((node) => node.id === 'banner_root') || looksLikeChatList(nodes);
+  if (/GlobalNotificationSplashActivity|notificationsoff/i.test(view.activity || '') || /Please do not show me this again/i.test(text) || (!chatListBanner && /Your Notifications are OFF/i.test(text))) return { kind: 'notifications_off' };
   if (byId(nodes, 'bottom_sheet_title') && nodes.some((node) => node.id === 'positive_button' && /^got it$/i.test(node.text.trim()))) return { kind: 'got_it' };
   if (/Remix now|Create your own Remix/i.test(text)) return { kind: 'remix' };
   // Заставки з однією безпечною відмовою: тапаємо лише кнопку відмови, «Turn on» / «Allow» / «Enable» не чіпаємо ніколи.
@@ -719,6 +721,11 @@ async function openFromChatList(android, expected, firstNodes) {
 async function openTarget(android, payload, guard = () => {}) {
   const expected = String(payload.expectedName || '').trim();
   if (!expected) throw new ViberStop('target_name_missing', 'before');
+  // Лише для перевірок: чати з цього списку назв («|»-розділювач) поводяться як мертві запрошення (Viber лишається на списку чатів).
+  if (process.env.WORK_OS_VIBER_TEST_DEAD && process.env.WORK_OS_VIBER_TEST_DEAD.split('|').includes(expected)) {
+    await openChatList(android);
+    throw new ViberStop('viber_invite_not_opened', 'before', 'імітація: мертвий чат');
+  }
   if (payload.testTarget === 'my_notes') {
     await openChatList(android);
     const row = (await android.dump()).find((node) => node.id === 'from' && node.text === 'My Notes');
