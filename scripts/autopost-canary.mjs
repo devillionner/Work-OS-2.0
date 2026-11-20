@@ -6,7 +6,7 @@ import { release as osRelease } from 'node:os';
 import { CANARY_IMAGE } from './autopost-canary-image.mjs';
 import { saveFailureSnapshot } from './failure-snapshots.mjs';
 import { runViberAndroid, viberFingerprint } from './viber-android.mjs';
-import { readTelegramIdentityViaCdp, sendTelegramAutopostViaCdp } from './telegram-autopost-cdp.mjs';
+import { readTelegramIdentityViaCdp, reloadTelegramTabViaCdp, sendTelegramAutopostViaCdp } from './telegram-autopost-cdp.mjs';
 import { readWhatsappHomeHealthViaCdp, sendWhatsappAutopostViaCdp } from './whatsapp-web-cdp.mjs';
 
 const stamp = () => new Date().toLocaleString('uk-UA', { dateStyle: 'short', timeStyle: 'short' });
@@ -86,7 +86,15 @@ async function canaryViber({ inviteLink, inviteName, shouldAbort, onStep }) {
 }
 
 async function canaryTelegram({ cdp, shouldAbort, onStep }) {
-  const identity = await readTelegramIdentityViaCdp({ cdpBaseUrl: cdp });
+  let identity = await readTelegramIdentityViaCdp({ cdpBaseUrl: cdp });
+  // Читання особи вкладку не створює. Після перезапуску браузера runner вкладки Telegram Web немає, і без цього кроку проба падала б
+  // з `telegram_tab_missing` щоразу, а партія не стартувала б ніколи: сама відправка вкладку відкрила б, але до неї не доходить.
+  if (identity.kind !== 'result' && identity.reason === 'telegram_tab_missing') {
+    onStep?.('canary', 'відкриваю вкладку Telegram Web');
+    const opened = await reloadTelegramTabViaCdp({ cdpBaseUrl: cdp });
+    if (opened.kind !== 'result') return failed(opened.reason || 'telegram_page_not_ready', opened.detail);
+    identity = await readTelegramIdentityViaCdp({ cdpBaseUrl: cdp });
+  }
   if (identity.kind !== 'result') return failed(identity.reason || 'telegram_page_not_ready', identity.detail);
   onStep?.('canary', 'пробна відправка у «Збережене»');
   const task = {
