@@ -290,9 +290,11 @@ export async function mergeDuplicateChats(db:D1Database,input:{
     q(`UPDATE whatsapp_autopost_jobs SET chat_id=?3 WHERE user_id=?1 AND chat_id=?2`,input.userId,rm,input.keepId);
     q(`UPDATE chat_publications SET chat_id=?3 WHERE user_id=?1 AND chat_id=?2
       AND published_on NOT IN (SELECT published_on FROM chat_publications WHERE user_id=?1 AND chat_id=?3)`,input.userId,rm,input.keepId);
-    q(`UPDATE activity_events SET chat_id=?3 WHERE user_id=?1 AND chat_id=?2`,input.userId,rm,input.keepId);
+    // `INDEXED BY`: без підказки планувальник бере індекс за user_id і перебирає всі події власника (23.11: ≈ 8,8 тис. прочитаних рядків на одне злиття),
+    // а з нею — лише події цього чату.
+    q(`UPDATE activity_events INDEXED BY activity_events_chat_type_idx SET chat_id=?3 WHERE user_id=?1 AND chat_id=?2`,input.userId,rm,input.keepId);
     // Очікуючий слот копії: якщо в основного такий уже є — слот звільняється (chat_id NULL), інакше переходить.
-    q(`UPDATE telegram_schedule_slots SET chat_id=NULL WHERE user_id=?1 AND chat_id=?2 AND status='pending'
+    q(`UPDATE telegram_schedule_slots INDEXED BY fk_telegram_schedule_slots_chat_idx SET chat_id=NULL WHERE user_id=?1 AND chat_id=?2 AND status='pending'
       AND EXISTS(SELECT 1 FROM telegram_schedule_slots k WHERE k.user_id=?1 AND k.chat_id=?3 AND k.status='pending' AND k.telegram_account_id=telegram_schedule_slots.telegram_account_id)`,input.userId,rm,input.keepId);
     q(`UPDATE telegram_schedule_slots SET chat_id=?3 WHERE user_id=?1 AND chat_id=?2`,input.userId,rm,input.keepId);
     // Вибрана гілка Telegram і список гілок переходять на основний чат, якщо в нього їх немає (інакше він знову стане в «Вибрати гілку»).
