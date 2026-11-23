@@ -8,8 +8,6 @@ import { CreateMenu } from '@/components/shell/create-menu';
 import { Dock } from '@/components/shell/dock';
 import { MoreSheet } from '@/components/shell/more-sheet';
 import { PanelSlotProvider, useOpenPanelCount } from '@/components/shell/panel';
-import { PulseRail, type PulseRing } from '@/components/shell/pulse-rail';
-import { QuickSettings } from '@/components/shell/quick-settings';
 import { Rail } from '@/components/shell/rail';
 import { ReleasePanel } from '@/components/shell/release-panel';
 import { cn } from '@/lib/utils';
@@ -89,7 +87,6 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [quickOpen, setQuickOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [asideElement, setAsideElement] = useState<HTMLElement | null>(null);
   const [topbarSlot, setTopbarSlot] = useState<HTMLElement | null>(null);
@@ -157,15 +154,6 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
 
   const context = useMemo<ShellContextValue>(() => ({ user, signOutPath, snapshot, syncRevision, navigate, openLead, refreshSnapshot, openRelease }), [user, signOutPath, snapshot, syncRevision, navigate, openLead, refreshSnapshot, openRelease]);
 
-  const rings = useMemo<PulseRing[]>(() => {
-    const totals = snapshot.platforms.reduce((sum, platform) => ({ publications: sum.publications + platform.publications, joined: sum.joined + platform.joined, bookings: sum.bookings + platform.bookings }), { publications: 0, joined: 0, bookings: 0 });
-    return [
-      { key: 'publications', label: 'Публікації', count: totals.publications, target: snapshot.publicationGoal.target || null },
-      { key: 'joined', label: 'Нові чати', count: totals.joined, target: snapshot.chatGoal.target || null },
-      { key: 'bookings', label: 'Записи', count: totals.bookings, target: snapshot.bookingGoal.target || null },
-    ];
-  }, [snapshot.platforms, snapshot.publicationGoal.target, snapshot.chatGoal.target, snapshot.bookingGoal.target]);
-
   const header = (
     <Topbar
       title={viewLabel(activeView)}
@@ -212,13 +200,11 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
             <div className="relative min-h-dvh pb-[calc(168px+env(safe-area-inset-bottom))]">
               {header}
               <main className="flex flex-col gap-3 px-3 pt-2">{panes}</main>
-              <PulseRail rings={rings} onOpenSettings={() => setQuickOpen(true)} />
               <div className="fixed right-3 z-30" style={{ bottom: 'calc(12px + 64px + 12px + env(safe-area-inset-bottom))' }}>
                 <CreateMenu onNavigate={navigate} fab />
               </div>
               <Dock active={activeView} onNavigate={navigate} onPrefetch={prefetchView} onMore={() => setMoreOpen(true)} />
               <MoreSheet open={moreOpen} onOpenChange={setMoreOpen} active={activeView} onNavigate={navigate} />
-              <QuickSettings open={quickOpen} onOpenChange={setQuickOpen} onNavigate={navigate} />
               {overlays}
             </div>
           ) : (

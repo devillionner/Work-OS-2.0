@@ -6,7 +6,7 @@ import { goalTone } from '@/components/views/shared/pace';
 import { useMinuteClock } from '@/components/views/today/use-minute-clock';
 
 /**
- * Тон кільця цілі для місць поза «Сьогодні» (PulseRail, «Платформи»): та сама `goalTone`, що й у «Сьогодні»; день розпочато,
+ * Тон кільця цілі для плитки «Ціль публікацій» у «Платформах»: та сама `goalTone`, що й у «Сьогодні»; день розпочато,
  * коли знімок має робочий день на сьогодні, час оновлюється щохвилини локально.
  */
 export function useGoalTone(): (completed: number, target: number) => RingTone {
