@@ -430,6 +430,46 @@ async function selectAdbKeyboard(android) {
   await android.sh(`ime set ${ADB_KEYBOARD}`);
 }
 
+/**
+ * Тиша на Android: звук відправки Viber, сповіщення й дотики не мають лунати на ПК оператора. Потоки 1 (система), 2 (дзвінок),
+ * 3 (медіа) і 5 (сповіщення) ставимо в 0; 4 (будильник) не чіпаємо, його мінімум 1. Перед записом читаємо поточне значення, щоб
+ * не писати зайвого. Раз на завантаження Android (`boot_id`): після перезапуску сесії Waydroid значення можуть повернутись.
+ * Збій тут не валить задачу: лише рядок у журналі.
+ */
+const MUTE_STREAMS = [1, 2, 3, 5];
+const MUTE_SETTINGS = ['sound_effects_enabled', 'dtmf_tone', 'lockscreen_sounds_enabled'];
+let mutedBootId = '';
+
+export async function muteAndroid(android) {
+  try {
+    const bootId = (await android.sh('cat /proc/sys/kernel/random/boot_id', { timeout: 8000 })).trim();
+    if (bootId && bootId === mutedBootId) return false;
+    const changed = [];
+    for (const stream of MUTE_STREAMS) {
+      const current = /volume is (\d+)/.exec(await android.sh(`cmd media_session volume --stream ${stream} --get`, { timeout: 10_000 }))?.[1];
+      if (current === '0') continue;
+      await android.sh(`cmd media_session volume --stream ${stream} --set 0`, { timeout: 10_000 });
+      changed.push(`потік ${stream}`);
+    }
+    for (const key of MUTE_SETTINGS) {
+      if ((await android.sh(`settings get system ${key}`, { timeout: 8000 })).trim() === '0') continue;
+      await android.sh(`settings put system ${key} 0`, { timeout: 8000 });
+      changed.push(key);
+    }
+    // zen_mode 1 = «Не турбувати: лише пріоритетні»; без пріоритетних винятків сповіщення Viber звуку не дають.
+    if ((await android.sh('settings get global zen_mode', { timeout: 8000 })).trim() !== '1') {
+      await android.sh('cmd notification set_dnd priority', { timeout: 10_000 });
+      changed.push('не турбувати');
+    }
+    mutedBootId = bootId;
+    if (changed.length) console.warn(`Android: вимкнено звуки (${changed.join(', ')}).`);
+    return true;
+  } catch (error) {
+    console.warn(`Android: не вдалося вимкнути звуки: ${String(error?.message || error).slice(0, 160)}`);
+    return false;
+  }
+}
+
 async function checkEnvironment(android) {
   const installed = await android.sh(`pm path ${VIBER_PACKAGE}`, { timeout: 15_000 });
   if (!installed.includes('package:')) throw new ViberStop('viber_not_installed', 'env');
@@ -448,6 +488,7 @@ async function checkEnvironment(android) {
     await android.sh('setprop persist.waydroid.suspend false');
     if ((await android.sh('getprop persist.waydroid.suspend')).trim() === 'true') throw new ViberStop('waydroid_suspend', 'env');
   }
+  await muteAndroid(android);
   // Дозвіл на фото видається тут, а не під час відправки: Viber уже запущений, і видача не має його зачіпати.
   await android.sh(`pm grant ${VIBER_PACKAGE} ${MEDIA_PERMISSION}`);
   environmentOkAt = Date.now();

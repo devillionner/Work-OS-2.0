@@ -382,10 +382,25 @@ enable_adbkeyboard() {
   else warn "ADBKeyBoard встановлено, але не ввімкнено: runner спробує сам, інакше: adb shell ime enable ${ADBKEYBOARD_PACKAGE}/.AdbIME"; fi
 }
 
+# Тиша на Android: звук відправки Viber і сповіщення не мають лунати на ПК (runner робить те саме сам, це лише перший раз).
+mute_android() {
+  [ "$DRY" = 1 ] && return 0
+  local n cur
+  for n in 1 2 3 5; do
+    cur="$(android_adb shell cmd media_session volume --stream "$n" --get 2>/dev/null | sed -n 's/.*volume is \([0-9]*\).*/\1/p' | head -1)"
+    [ "$cur" = 0 ] || android_adb shell cmd media_session volume --stream "$n" --set 0 >/dev/null 2>&1 || true
+  done
+  for n in sound_effects_enabled dtmf_tone lockscreen_sounds_enabled; do
+    [ "$(android_adb shell settings get system "$n" 2>/dev/null | tr -d '\r')" = 0 ] || android_adb shell settings put system "$n" 0 >/dev/null 2>&1 || true
+  done
+  [ "$(android_adb shell settings get global zen_mode 2>/dev/null | tr -d '\r')" = 1 ] || android_adb shell cmd notification set_dnd priority >/dev/null 2>&1 || true
+  ok "Звуки Android вимкнено (runner підтримує це сам)"
+}
+
 install_adbkeyboard() {
   [ "$DRY" = 1 ] && { say "    [dry-run] дочекатись завантаження Android (sys.boot_completed=1, adb device), завантажити ADBKeyboard.apk, перевірити SHA-256 ${ADBKEYBOARD_SHA256:0:12}…, adb install"; return 0; }
   local apk="$DATA_DIR/ADBKeyboard.apk" limit="${ANDROID_WAIT_SECONDS:-120}"
-  if wait_android "$limit" && android_adb shell pm list packages 2>/dev/null | grep -q "package:${ADBKEYBOARD_PACKAGE}"; then ok "ADBKeyBoard уже встановлено"; enable_adbkeyboard; return 0; fi
+  if wait_android "$limit" && android_adb shell pm list packages 2>/dev/null | grep -q "package:${ADBKEYBOARD_PACKAGE}"; then ok "ADBKeyBoard уже встановлено"; enable_adbkeyboard; mute_android; return 0; fi
   mkdir -p "$DATA_DIR"
   curl -fsSL "$ADBKEYBOARD_URL" -o "$apk" || { bad "не вдалося завантажити ADBKeyBoard з $ADBKEYBOARD_URL"; return 1; }
   local actual; actual="$(sha256sum "$apk" | cut -d' ' -f1)"
@@ -399,6 +414,7 @@ install_adbkeyboard() {
     if wait_android "$limit" && android_adb install -r "$apk" >/dev/null 2>&1; then
       ok "ADBKeyBoard встановлено (контрольну суму перевірено)"; rm -f "$apk"
       enable_adbkeyboard
+      mute_android
       return 0
     fi
     [ "$attempt" = 1 ] && { warn "adb ще не прийняв встановлення, пробую вдруге"; limit=60; sleep 5; }
