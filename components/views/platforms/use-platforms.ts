@@ -1097,10 +1097,19 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     void quietScan.current(ids);
   }, [threadScanKey]);
   /**
-   * Власник вибрав гілку чату з форумом (null — прибрати вибір). Партія йде: чат додається в її кінець (id партії несе запит); партії немає: чат лишається
+   * Власник натиснув «Додати в партію» / «Зберегти» біля вибраної гілки чату з форумом (null — прибрати вибір). Партія йде: чат додається в її кінець (id партії несе запит); партії немає: чат лишається
    * серед «Готових» і піде з наступним запуском. Вибір зберігається назавжди.
    */
-  const chooseTelegramThread = (chatId: string, threadId: string | null, directions?: string[]) => wa('telegram-thread', async () => {
+  const chooseTelegramThread = async (chatId: string, threadId: string | null, directions?: string[]): Promise<string | null> => {
+    // Помилку показує сам рядок блоку (вибір не губиться), тому вона не йде в загальне повідомлення; null — усе збережено.
+    let failure: string | null = 'Інша дія ще виконується, спробуй за мить.';
+    await wa('telegram-thread', async () => {
+      failure = null;
+      try { await saveTelegramThread(chatId, threadId, directions); } catch (reason) { failure = humanError(reason, 'Не вдалося зберегти гілку. Вибір лишився в рядку, спробуй ще раз.'); }
+    });
+    return failure;
+  };
+  const saveTelegramThread = async (chatId: string, threadId: string | null, directions?: string[]) => {
     const choice = autopostPlans.telegram?.threadChoices?.find((item) => item.chatId === chatId);
     const batchId = telegramProgress?.running ? telegramProgress.batch?.id : undefined;
     // Напрями (необов'язкові) зберігаються першими, наявною дією профілю, з «лише ці напрямки»: тоді чат, доданий у партію, що йде, одразу отримує текст
@@ -1137,7 +1146,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
       : bucket === 'nodirection' ? `Гілку вибрано: ${label}. Немає вільного тексту напряму «${missing.join(', ') || 'цього чату'}» — чат піде, коли з’явиться.`
         : bucket === 'text' && wanted.length ? `Гілку вибрано: ${label}.${suffix} Вільних текстів пулу на сьогодні немає — чат піде, коли з’являться.`
           : body.queued ? `Додано в партію: ${label}.${suffix}` : body.running ? `Гілку вибрано: ${label}.${suffix} У партію чат додати не вдалося, він серед «Готових».` : `Гілку вибрано: ${label}.${suffix} Чат серед «Готових», піде з наступним запуском.` });
-  });
+  };
   /** «Пропустити сьогодні» в блоці «Обери гілку»: чат відкладається до завтра, його сьогоднішні рішення закриваються. */
   const skipThreadChoice = (chatId: string) => wa('telegram-thread-skip', async () => {
     const choice = autopostPlans.telegram?.threadChoices?.find((item) => item.chatId === chatId);

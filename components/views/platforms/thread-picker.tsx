@@ -17,12 +17,13 @@ const TRIGGER = 'inline-flex min-h-9 items-center gap-2 rounded-full border bord
  * SEARCH_FROM гілках — панель (Sheet знизу) з пошуком і власною прокруткою: меню з десятками пунктів виходило за екран iPhone.
  * Закриті гілки сірі й невибірні.
  */
-export function ThreadPicker({ choice, busy, onChoose, className }: { choice: TelegramThreadChoice; busy: boolean; onChoose: (chatId: string, threadId: string | null) => void; /** Додаткові класи кнопки (у тісному рядку вона займає всю ширину своєї клітинки). */ className?: string }) {
+export function ThreadPicker({ choice, busy, onChoose, className, selectedId }: { choice: TelegramThreadChoice; busy: boolean; onChoose: (chatId: string, threadId: string | null) => void; /** Запам'ятована (ще не збережена) гілка: її назва стоїть на кнопці. */ selectedId?: string | null; /** Додаткові класи кнопки (у тісному рядку вона займає всю ширину своєї клітинки). */ className?: string }) {
   const phone = useMediaQuery(PHONE);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const hasOpen = choice.topics.some((topic) => !topic.closed);
-  const label = hasOpen ? 'Гілка' : 'Усі гілки закриті';
+  const picked = selectedId ? choice.topics.find((topic) => topic.id === selectedId) : undefined;
+  const label = picked ? picked.title : hasOpen ? 'Гілка' : 'Усі гілки закриті';
   const trigger = `${TRIGGER} ${className ?? ''}`;
   const searchable = choice.topics.length > SEARCH_FROM;
   const shown = useMemo(() => {
