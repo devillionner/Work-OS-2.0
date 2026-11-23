@@ -7,7 +7,7 @@ import type { RingTone } from '@/components/ui/ring';
 import { useToast } from '@/components/ui/toast';
 import { useTelegramAccounts } from '@/components/views/platforms/telegram-accounts';
 import { telegramSchedule, useTelegramSchedule } from '@/components/views/platforms/telegram-schedule-store';
-import { dayProgress, goalRatio } from '@/components/views/shared/pace';
+import { goalTone } from '@/components/views/shared/pace';
 import { buildDayModel, type DayEvent, type DayModel } from '@/components/views/today/day-model';
 import type { Metric } from '@/components/views/today/kpi-panel';
 import { useCheckpoints } from '@/components/views/today/use-checkpoints';
@@ -34,16 +34,6 @@ export type Day = {
   openEvent: (event: DayEvent) => void;
   actionOf: (event: DayEvent) => EventAction | null;
 };
-
-/** Тон кільця цілі: виконано — ok, у темпі — біле, трохи відстає — warn, відстає сильно — hot. До старту дня — нейтральне. */
-function ringTone(value: number, target: number, started: boolean, now: number): RingTone {
-  const ratio = goalRatio(value, target);
-  if (target <= 0) return 'ink';
-  if (ratio >= 1) return 'ok';
-  if (!started) return 'ink';
-  const expected = Math.max(0.02, dayProgress(new Date(now * 1000)));
-  return ratio >= expected * 0.85 ? 'ink' : ratio >= expected * 0.6 ? 'warn' : 'hot';
-}
 
 /**
  * Усі дані екрана «Сьогодні» з наявних джерел, без нових періодичних запитів: знімок дашборда (цілі, нагадування, стан дня),
@@ -73,10 +63,10 @@ export function useDay(): Day {
   );
   const started = workday.workday !== null && workday.workday.workDate === snapshot.today;
   const goals: Goal[] = [
-    { metric: 'publications', label: 'Публікації', value: totals.publications, target: snapshot.publicationGoal.target, icon: Send, title: 'Відкрити «Для публікації»', tone: ringTone(totals.publications, snapshot.publicationGoal.target, started, now), open: go('platforms', { platform: 'telegram', queue: 'ready' }) },
-    { metric: 'joined', label: 'Нові чати', value: totals.joined, target: snapshot.chatGoal.target, icon: MessagesSquare, title: 'Відкрити чергу приєднання', tone: ringTone(totals.joined, snapshot.chatGoal.target, started, now), open: go('platforms', { platform: 'telegram', queue: 'to_join' }) },
-    { metric: 'responses', label: 'Відгуки', value: totals.responses, target: snapshot.responseGoal.target, icon: Reply, title: 'Відкрити ліди', tone: ringTone(totals.responses, snapshot.responseGoal.target, started, now), open: go('leads') },
-    { metric: 'bookings', label: 'Записи', value: totals.bookings, target: snapshot.bookingGoal.target, icon: CalendarCheck, title: 'Відкрити ліди', tone: ringTone(totals.bookings, snapshot.bookingGoal.target, started, now), open: go('leads') },
+    { metric: 'publications', label: 'Публікації', value: totals.publications, target: snapshot.publicationGoal.target, icon: Send, title: 'Відкрити «Для публікації»', tone: goalTone(totals.publications, snapshot.publicationGoal.target, started, now), open: go('platforms', { platform: 'telegram', queue: 'ready' }) },
+    { metric: 'joined', label: 'Нові чати', value: totals.joined, target: snapshot.chatGoal.target, icon: MessagesSquare, title: 'Відкрити чергу приєднання', tone: goalTone(totals.joined, snapshot.chatGoal.target, started, now), open: go('platforms', { platform: 'telegram', queue: 'to_join' }) },
+    { metric: 'responses', label: 'Відгуки', value: totals.responses, target: snapshot.responseGoal.target, icon: Reply, title: 'Відкрити ліди', tone: goalTone(totals.responses, snapshot.responseGoal.target, started, now), open: go('leads') },
+    { metric: 'bookings', label: 'Записи', value: totals.bookings, target: snapshot.bookingGoal.target, icon: CalendarCheck, title: 'Відкрити ліди', tone: goalTone(totals.bookings, snapshot.bookingGoal.target, started, now), open: go('leads') },
   ];
 
   const openReport = (date: string) => () => { navigate('reports'); emitCommand('reports:date', date); };

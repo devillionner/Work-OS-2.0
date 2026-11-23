@@ -1,4 +1,4 @@
-import { goalTone, type RingTone } from '@/components/ui/ring';
+import type { RingTone } from '@/components/ui/ring';
 
 const DAY_START_HOUR = 9;
 const DAY_END_HOUR = 21;
@@ -16,8 +16,18 @@ export function goalRatio(completed: number, target: number): number {
   return target > 0 ? completed / target : 0;
 }
 
-export function toneFor(completed: number, target: number): RingTone {
-  return target > 0 ? goalTone(goalRatio(completed, target), dayProgress()) : 'ink';
+/**
+ * Єдиний тон кільця цілі для «Сьогодні», PulseRail і «Платформ»: виконано — ok; до старту дня — нейтральне;
+ * у темпі (≥ 85 % від того, що мало б бути до цього часу) — біле; трохи відстає (≥ 60 %) — warn; сильно відстає — hot.
+ * `now` — unix-секунди, `started` — чи день розпочато.
+ */
+export function goalTone(completed: number, target: number, started: boolean, now: number): RingTone {
+  if (target <= 0) return 'ink';
+  const ratio = goalRatio(completed, target);
+  if (ratio >= 1) return 'ok';
+  if (!started) return 'ink';
+  const expected = Math.max(0.02, dayProgress(new Date(now * 1000)));
+  return ratio >= expected * 0.85 ? 'ink' : ratio >= expected * 0.6 ? 'warn' : 'hot';
 }
 
 export function greeting(date = new Date()): string {

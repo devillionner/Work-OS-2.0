@@ -2,7 +2,7 @@
 
 import { Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Ring } from '@/components/ui/ring';
+import { Ring, toneTextClass } from '@/components/ui/ring';
 import { Surface } from '@/components/ui/surface';
 import type { Goal } from '@/components/views/today/use-day';
 import { cn } from '@/lib/utils';
@@ -22,7 +22,7 @@ export function GoalsCard({ goals, size, onBreakdown }: { goals: readonly Goal[]
               <Ring value={goal.target > 0 ? goal.value / goal.target : 0} tone={goal.tone} size={52} stroke={5} label={`${goal.label}: ${goal.value}${goal.target > 0 ? ` з ${goal.target}` : ''}`} />
               <span className="flex min-w-0 flex-col">
                 <span className="text-xs text-ink-2">{goal.label}</span>
-                <span className="font-mono text-[15px] font-medium tabular-nums">{goal.value}{goal.target > 0 ? ` / ${goal.target}` : ''}</span>
+                <span className={cn('font-mono text-[15px] font-medium tabular-nums', toneTextClass(goal.tone))}>{goal.value}{goal.target > 0 ? ` / ${goal.target}` : ''}</span>
               </span>
             </button>
           </li>

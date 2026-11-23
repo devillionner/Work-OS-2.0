@@ -4,10 +4,11 @@ import { useRef, useState } from 'react';
 import { Settings2 } from 'lucide-react';
 import { gsap, matchMotion, useGSAP } from '@/components/motion/gsap';
 import { Draggable } from '@/components/motion/draggable';
-import { Ring, type RingTone } from '@/components/ui/ring';
+import { Ring, toneTextClass } from '@/components/ui/ring';
+import { useGoalTone } from '@/components/views/shared/use-goal-tone';
 import { cn } from '@/lib/utils';
 
-export type PulseRing = { key: string; label: string; count: number; target: number | null; tone: RingTone };
+export type PulseRing = { key: string; label: string; count: number; target: number | null };
 
 const WIDTH = 88;
 
@@ -19,6 +20,7 @@ export function PulseRail({ rings, onOpenSettings }: { rings: PulseRing[]; onOpe
   const root = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const openRef = useRef(false);
+  const toneOf = useGoalTone();
 
   useGSAP(() => {
     const node = root.current;
@@ -71,12 +73,13 @@ export function PulseRail({ rings, onOpenSettings }: { rings: PulseRing[]; onOpe
         <ul className="m-0 flex list-none flex-col items-center gap-4 p-0">
           {rings.map((ring) => {
             const ratio = ring.target ? ring.count / ring.target : 0;
+            const tone = ring.target ? toneOf(ring.count, ring.target) : 'rail';
             return (
               <li key={ring.key} className="flex flex-col items-center gap-1.5">
-                <Ring value={ring.target ? ratio : 0} tone={ring.target ? ring.tone : 'rail'} track="var(--rail-line)" size={48} stroke={4} label={`${ring.label}: ${ring.count}${ring.target ? ` із ${ring.target}` : ''}`}>
+                <Ring value={ring.target ? ratio : 0} tone={tone} track="var(--rail-line)" size={48} stroke={4} label={`${ring.label}: ${ring.count}${ring.target ? ` із ${ring.target}` : ''}`}>
                   {ring.target ? null : ring.count}
                 </Ring>
-                <span className="font-mono text-[11px] text-rail-ink-2">{ring.target ? `${Math.round(ratio * 100)}%` : ring.label}</span>
+                <span className={cn('font-mono text-[11px] tabular-nums', toneTextClass(tone) || 'text-rail-ink-2')}>{ring.target ? `${Math.round(ratio * 100)}%` : ring.label}</span>
               </li>
             );
           })}

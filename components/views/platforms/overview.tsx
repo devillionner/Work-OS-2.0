@@ -3,10 +3,10 @@
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Ring } from '@/components/ui/ring';
+import { Ring, toneTextClass } from '@/components/ui/ring';
 import { Surface } from '@/components/ui/surface';
-import { goalTone } from '@/components/ui/ring';
-import { dayProgress } from '@/components/views/shared/pace';
+import { useGoalTone } from '@/components/views/shared/use-goal-tone';
+import { cn } from '@/lib/utils';
 
 export type PlatformLinkItem = { id?: string; name?: string; link?: string };
 export type PublicationPace = { completed: number; target: number };
@@ -15,13 +15,14 @@ export type PublicationPace = { completed: number; target: number };
 export function PlatformOverview({ pace, platformLabel, available, availableLabel = 'Доступні для публікації', availableCount, loadAvailable, joined, published }: { pace?: PublicationPace; /** Назва платформи для рядка цілі: ціль спільна для всіх платформ, а внесок платформи видно окремо. */ platformLabel?: string; /** undefined — картку не показуємо; null — список ще вантажиться. */ available?: PlatformLinkItem[] | null; availableLabel?: string; /** Число готових із плану автопосту: показується одразу, ще до завантаження списку для копіювання. */ availableCount?: number; /** Свіжий список доступних перед копіюванням: у відповіді списку чатів їх немає. */ loadAvailable?: () => Promise<PlatformLinkItem[]>; joined?: PlatformLinkItem[]; published?: PlatformLinkItem[] }) {
   const safe = pace ?? { completed: 0, target: 0 };
   const ratio = safe.target > 0 ? safe.completed / safe.target : 0;
+  const tone = useGoalTone()(safe.completed, safe.target);
   return (
     <section aria-label="Сьогоднішній стан" className="grid gap-3 @xl:grid-cols-2 @4xl:grid-cols-3">
       <Surface variant="glass" radius="card" className="flex items-center gap-4 p-4 @xl:col-span-2 @4xl:col-span-1">
-        <Ring value={ratio} tone={safe.target > 0 ? goalTone(ratio, dayProgress()) : 'ink'} size={64} stroke={5} label={`Ціль публікацій: ${safe.completed} із ${safe.target}`}>{Math.round(ratio * 100)}%</Ring>
+        <Ring value={ratio} tone={tone} size={64} stroke={5} label={`Ціль публікацій: ${safe.completed} із ${safe.target}`}>{Math.round(ratio * 100)}%</Ring>
         <div className="min-w-0">
           <p className="m-0 text-[13px] text-ink-2">Ціль публікацій</p>
-          <p className="m-0 font-mono text-[28px] leading-tight">{safe.completed} <span className="text-base text-ink-2">/ {safe.target}</span></p>
+          <p className={cn('m-0 font-mono text-[28px] leading-tight', toneTextClass(tone))}>{safe.completed} <span className="text-base text-ink-2">/ {safe.target}</span></p>
           {platformLabel ? <p className="m-0 text-xs text-ink-2">усі платформи · {platformLabel} <span className="font-mono tabular-nums text-ink">{published?.length ?? 0}</span></p> : null}
         </div>
       </Surface>
