@@ -17,6 +17,7 @@ import { AutopostBatchPanel } from '@/components/views/platforms/autopost-batch'
 import type { WhatsAppAutopostImage, WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import { dayLabel, snoozeSummary } from '@/components/views/platforms/autopost-reasons';
 import type { ChatDupInfo } from '@/lib/chats/duplicates';
+import type { ThreadChoiceProfile } from '@/lib/telegram-autopost';
 import type { PoolPreview, PoolSummary } from '@/components/views/platforms/pool-types';
 import { PoolTextLine } from '@/components/views/platforms/pool-text-line';
 
@@ -45,7 +46,7 @@ export type AutopostPlan = {
 /** Чому чат відкладено (бере сервер за останньою відкладеною задачею чату). */
 export type SnoozeReason = { kind: 'restricted_until' | 'restricted' | 'quiet' | 'slow' | 'rate' | 'fresh' | 'manual'; until: number | null };
 export type AutopostBucket = 'ready' | 'decision' | 'tried' | 'published' | 'rules' | 'snoozed' | 'queued' | 'other' | 'thread' | 'schedule' | 'toolong' | 'text' | 'nodirection';
-export type TelegramThreadChoice = { chatId: string; name: string; /** Посилання на чат для «Відкрити». */ link?: string; /** Прохід гілок цього чату вже йде: рядок показує «Збираю гілки…». */ collecting?: boolean; /** Чат зі збоєм гілки: прохід ще не поставлено, сторінка ставить його сама. */ needsScan?: boolean; /** Пара дублікатів, якщо цей чат має копію. */ dup?: ChatDupInfo | null; topics: Array<{ id: string; title: string; closed: boolean }>; /** Коли runner востаннє бачив, що в чаті зараз не можна писати (нічний режим, права чату); null — можна. */ restrictedAt?: number | null };
+export type TelegramThreadChoice = { chatId: string; name: string; /** Посилання на чат для «Відкрити». */ link?: string; /** Прохід гілок цього чату вже йде: рядок показує «Збираю гілки…». */ collecting?: boolean; /** Чат зі збоєм гілки: прохід ще не поставлено, сторінка ставить його сама. */ needsScan?: boolean; /** Пара дублікатів, якщо цей чат має копію. */ dup?: ChatDupInfo | null; topics: Array<{ id: string; title: string; closed: boolean }>; /** Коли runner востаннє бачив, що в чаті зараз не можна писати (нічний режим, права чату); null — можна. */ restrictedAt?: number | null; /** Токен стану й профіль чату: щоб зберегти напрями разом із гілкою, не втративши решту правил профілю (профілю немає — null). */ stateToken?: string | null; profile?: ThreadChoiceProfile | null };
 /** Підбір текстів пулу для «Переглянути чати партії» (Telegram): дані, завантаження й ручна заміна тексту лише для цього запуску. */
 export type PoolPreviewControls = { data: PoolPreview | null; loading: boolean; overrides: Record<string, string>; manual: Record<string, string>; load: (args: { limit: number; exclude: string[] }) => void; choose: (chatId: string, adId: string | null) => void };
 export type AutopostReadiness = { tone: 'ok' | 'warn' | 'hot' | 'idle'; text: string };

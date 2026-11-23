@@ -125,7 +125,7 @@ export function SearchSelect({ id, options, value, onChange, onCreate, createLab
  * показується чіпами під полем із «×»; саме поле лишається кнопкою «Додати…». Нові значення додає батько через `onCreate`
  * (він же вирішує, чи вносити їх у довідник).
  */
-export function MultiSelect({ id, options, values, onChange, onCreate, placeholder = 'Додати', searchPlaceholder = 'Пошук', emptyText = 'Нічого не знайдено', createLabel = 'Створити', disabled, limit = 50, 'aria-label': ariaLabel }: {
+export function MultiSelect({ id, options, values, onChange, onCreate, placeholder = 'Додати', searchPlaceholder = 'Пошук', emptyText = 'Нічого не знайдено', createLabel = 'Створити', disabled, limit = 50, compact = false, 'aria-label': ariaLabel }: {
   id?: string;
   options: readonly SearchOption[];
   values: readonly string[];
@@ -137,6 +137,8 @@ export function MultiSelect({ id, options, values, onChange, onCreate, placehold
   createLabel?: string;
   disabled?: boolean;
   limit?: number;
+  /** Тісний рядок: вибране видно прямо в полі («Математика, Англійська»), без чіпів під ним. */
+  compact?: boolean;
   'aria-label'?: string;
 }) {
   const [query, setQuery] = useState('');
@@ -175,9 +177,9 @@ export function MultiSelect({ id, options, values, onChange, onCreate, placehold
             id={id}
             aria-label={ariaLabel}
             data-slot="select"
-            className={cn(fieldClassName, 'flex h-10 [@media(pointer:coarse)]:h-11 cursor-pointer items-center justify-between gap-2 rounded-full pl-4 pr-3 text-left text-ink-2 data-[popup-open]:border-line-strong')}
+            className={cn(fieldClassName, 'flex h-10 [@media(pointer:coarse)]:h-11 cursor-pointer items-center justify-between gap-2 rounded-full pl-4 pr-3 text-left data-[popup-open]:border-line-strong', compact && chosen.length ? 'text-ink' : 'text-ink-2')}
           >
-            <span className="min-w-0 truncate">{placeholder}</span>
+            <span className="min-w-0 truncate">{compact && chosen.length ? chosen.map((option) => option.label).join(', ') : placeholder}</span>
             <ChevronDown aria-hidden="true" strokeWidth={1.5} className="size-4 shrink-0" />
           </ComboboxPrimitive.Trigger>
           <ComboboxPrimitive.Portal>
@@ -205,7 +207,7 @@ export function MultiSelect({ id, options, values, onChange, onCreate, placehold
           </ComboboxPrimitive.Portal>
         </ComboboxPrimitive.Root>
       </span>
-      {chosen.length ? (
+      {chosen.length && !compact ? (
         <ul aria-label="Вибрано" className="m-0 flex list-none flex-wrap gap-1.5 p-0">
           {chosen.map((option) => (
             <li key={option.value} className="inline-flex h-7 max-w-full items-center gap-1 rounded-full border border-line bg-sunken pl-3 pr-1 text-[13px]">

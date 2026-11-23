@@ -476,17 +476,18 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
 
   // План запуску автопосту (скільки чатів справді піде в партію) читається при відкритті вкладки й після дій, без таймера.
   // Telegram: план по вибраному акаунту; він несе й чати з гілками, з яких власник вибирає.
-  const loadAutopostPlan = useCallback((): Promise<void> => {
-    if (platform !== 'whatsapp' && platform !== 'viber' && platform !== 'telegram') return Promise.resolve();
+  const loadAutopostPlan = useCallback((): Promise<AutopostPlan | null> => {
+    if (platform !== 'whatsapp' && platform !== 'viber' && platform !== 'telegram') return Promise.resolve(null);
     const target = platform;
-    if (target === 'telegram' && !accountId) return Promise.resolve();
+    if (target === 'telegram' && !accountId) return Promise.resolve(null);
     const account = target === 'telegram' ? accountId : null;
     return fetch(`/api/messenger-automation?plan=${target}${account ? `&account=${encodeURIComponent(account)}` : ''}`, { cache: 'no-store' })
       .then(async (response) => {
         const body = await response.json() as { plan?: AutopostPlan };
         if (response.ok && body.plan) setAutopostPlans((current) => ({ ...current, [target]: target === 'telegram' ? { ...(body.plan as AutopostPlan), accountId: account as string } : body.plan as AutopostPlan }));
+        return response.ok && body.plan ? body.plan : null;
       })
-      .catch(() => { /* наступне відкриття вкладки перерахує */ });
+      .catch(() => null /* наступне відкриття вкладки перерахує */);
   }, [platform, accountId]);
 
   // Чіп черги й «Огляд» показують числа з плану, тож він потрібен одразу після відкриття платформи, а не лише на вкладці «Автопост».
@@ -1099,16 +1100,43 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
    * Власник вибрав гілку чату з форумом (null — прибрати вибір). Партія йде: чат додається в її кінець (id партії несе запит); партії немає: чат лишається
    * серед «Готових» і піде з наступним запуском. Вибір зберігається назавжди.
    */
-  const chooseTelegramThread = (chatId: string, threadId: string | null) => wa('telegram-thread', async () => {
+  const chooseTelegramThread = (chatId: string, threadId: string | null, directions?: string[]) => wa('telegram-thread', async () => {
     const choice = autopostPlans.telegram?.threadChoices?.find((item) => item.chatId === chatId);
     const batchId = telegramProgress?.running ? telegramProgress.batch?.id : undefined;
+    // Напрями (необов'язкові) зберігаються першими, наявною дією профілю, з «лише ці напрямки»: тоді чат, доданий у партію, що йде, одразу отримує текст
+    // свого напряму. Решту правил профілю беремо з рядка блоку: збереження профілю замінює його цілком. Порожній вибір профіль не чіпає.
+    const wanted = threadId ? (directions ?? []).filter(Boolean) : [];
+    if (wanted.length) {
+      const known = choice?.profile ?? null;
+      const unchanged = Boolean(known?.directionsStrict && known.directions.length === wanted.length && wanted.every((name) => known.directions.includes(name)));
+      if (!unchanged) {
+        if (!choice?.stateToken) throw new Error('Не вдалося зберегти напрями: оновіть список і спробуйте ще раз.');
+        const response = await fetch('/api/chats', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: chatId, action: 'profile', stateToken: choice.stateToken, profile: {
+            name: choice.name, language: known?.language ?? null, cadence: known?.cadence ?? 'any', weekdays: known?.weekdays ?? [], customIntervalDays: known?.customIntervalDays ?? null,
+            nextAllowedOn: known?.nextAllowedOn ?? null, directions: wanted, note: known?.note ?? '', reviewStatus: known?.reviewStatus ?? 'draft', directionsStrict: true, pinnedAds: known?.pinnedAds ?? [], noPhoto: known?.noPhoto ?? false,
+          } }),
+        });
+        const saved = await response.json().catch(() => ({})) as { ok?: boolean; error?: string };
+        if (!response.ok || !saved.ok) throw new Error(saved.error || 'Не вдалося зберегти напрями. Гілку не вибрано.');
+      }
+    }
     const body = await telegramAction('telegram-choose-thread', { chatId, threadId, ...(batchId ? { batchId } : {}) }) as { queued?: boolean; running?: boolean; thread?: { title?: string } | null };
-    invalidateQueueCache('telegram'); announceDataChange('platforms'); await reloadChats.current(true); loadAutopostPlan();
+    invalidateQueueCache('telegram'); announceDataChange('platforms'); await reloadChats.current(true);
+    const plan = await loadAutopostPlan();
     const fresh = await readTelegramAutopost(); if (fresh) applyTelegramAutopost(fresh);
     const name = choice?.name ?? 'Чат';
     const title = body.thread?.title ?? choice?.topics.find((topic) => topic.id === threadId)?.title ?? '';
     const label = title ? `${name} → ${title}` : name;
-    toast.push({ message: !threadId ? 'Вибір гілки прибрано.' : body.queued ? `Додано в партію: ${label}.` : body.running ? `Гілку вибрано: ${label}. У партію чат додати не вдалося, він серед «Готових».` : `Гілку вибрано: ${label}. Чат серед «Готових», піде з наступним запуском.` });
+    // Для вибраних напрямів сьогодні немає вільного тексту: про це кажемо прямо, чат піде, коли текст з'явиться.
+    const bucket = threadId ? plan?.buckets?.[chatId] : undefined;
+    const missing = bucket === 'nodirection' ? (plan?.reasons?.[chatId]?.directions?.length ? plan.reasons[chatId].directions as string[] : wanted) : [];
+    const suffix = wanted.length ? ` Напрями: ${wanted.join(', ')}.` : '';
+    toast.push({ message: !threadId ? 'Вибір гілки прибрано.'
+      : bucket === 'nodirection' ? `Гілку вибрано: ${label}. Немає вільного тексту напряму «${missing.join(', ') || 'цього чату'}» — чат піде, коли з’явиться.`
+        : bucket === 'text' && wanted.length ? `Гілку вибрано: ${label}.${suffix} Вільних текстів пулу на сьогодні немає — чат піде, коли з’являться.`
+          : body.queued ? `Додано в партію: ${label}.${suffix}` : body.running ? `Гілку вибрано: ${label}.${suffix} У партію чат додати не вдалося, він серед «Готових».` : `Гілку вибрано: ${label}.${suffix} Чат серед «Готових», піде з наступним запуском.` });
   });
   /** «Пропустити сьогодні» в блоці «Обери гілку»: чат відкладається до завтра, його сьогоднішні рішення закриваються. */
   const skipThreadChoice = (chatId: string) => wa('telegram-thread-skip', async () => {

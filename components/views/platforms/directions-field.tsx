@@ -16,8 +16,9 @@ type DictionaryPayload = { dictionaries: Dictionaries };
  * значення створюється з поля й одразу потрапляє в довідник. Значення, збережені в профілях раніше й відсутні в довіднику (ручне
  * введення), лишаються й видно окремо: їх можна додати в довідник або замінити схожим напрямком. Формат збереження не змінюється.
  */
-export function DirectionsField({ id, values, onChange, disabled }: { id: string; values: string[]; onChange: (values: string[]) => void; disabled?: boolean }) {
-  const dictionary = useRemote<DictionaryPayload>('/api/library/dictionaries', { revalidateOnEnable: true, fallback: 'Не вдалося завантажити довідник напрямків.' });
+/** Спільний довідник напрямків: один запит на кілька полів (блок «Обери гілку» має поле в кожному рядку). */
+export function useDirectionDictionary(enabled = true) {
+  const dictionary = useRemote<DictionaryPayload>('/api/library/dictionaries', { enabled, revalidateOnEnable: true, fallback: 'Не вдалося завантажити довідник напрямків.' });
   const [added, setAdded] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -27,15 +28,6 @@ export function DirectionsField({ id, values, onChange, disabled }: { id: string
     return base.filter((name, index) => base.findIndex((other) => sameName(other, name)) === index);
   }, [dictionary.data, added]);
   const loaded = dictionary.data !== null;
-  // Сервер зводить «ІТ» і «Шахи» до «ІТ та шахи», тож таке значення вважаємо відомим, хоч у довіднику вони окремо.
-  const isKnown = (value: string) => names.some((name) => sameName(name, value)) || (FOCUS_DIRECTIONS as readonly string[]).includes(value)
-    || names.some((name) => canonicalDirection(name) === canonicalDirection(value));
-  const known = loaded ? values.filter(isKnown) : values;
-  const unknown = loaded ? values.filter((value) => !isKnown(value)) : [];
-  const options: SearchOption[] = useMemo(() => {
-    const extra = known.filter((value) => !names.some((name) => sameName(name, value)));
-    return [...names, ...extra].map((name) => ({ value: name, label: name }));
-  }, [names, known]);
 
   async function saveToDictionary(name: string): Promise<boolean> {
     const clean = cleanDictionaryName(name);
@@ -53,6 +45,22 @@ export function DirectionsField({ id, values, onChange, disabled }: { id: string
       return false;
     } finally { setBusy(false); }
   }
+  return { names, loaded, busy, error: error || dictionary.error, saveToDictionary };
+}
+export type DirectionDictionary = ReturnType<typeof useDirectionDictionary>;
+
+export function DirectionsField({ id, values, onChange, disabled, compact = false, emptyLabel = 'Додати напрямок', dictionary: shared }: { id: string; values: string[]; onChange: (values: string[]) => void; disabled?: boolean; compact?: boolean; emptyLabel?: string; dictionary?: DirectionDictionary }) {
+  const own = useDirectionDictionary(!shared);
+  const { names, loaded, busy, error, saveToDictionary } = shared ?? own;
+  // Сервер зводить «ІТ» і «Шахи» до «ІТ та шахи», тож таке значення вважаємо відомим, хоч у довіднику вони окремо.
+  const isKnown = (value: string) => names.some((name) => sameName(name, value)) || (FOCUS_DIRECTIONS as readonly string[]).includes(value)
+    || names.some((name) => canonicalDirection(name) === canonicalDirection(value));
+  const known = loaded ? values.filter(isKnown) : values;
+  const unknown = loaded ? values.filter((value) => !isKnown(value)) : [];
+  const options: SearchOption[] = useMemo(() => {
+    const extra = known.filter((value) => !names.some((name) => sameName(name, value)));
+    return [...names, ...extra].map((name) => ({ value: name, label: name }));
+  }, [names, known]);
 
   const similarTo = (value: string) => {
     let best: { name: string; score: number } | null = null;
@@ -72,12 +80,13 @@ export function DirectionsField({ id, values, onChange, disabled }: { id: string
         onChange={(next) => onChange([...next, ...unknown])}
         onCreate={(name) => { void saveToDictionary(name); }}
         disabled={disabled || busy}
-        placeholder={loaded ? 'Додати напрямок' : 'Завантажую довідник…'}
+        placeholder={loaded ? emptyLabel : 'Завантажую довідник…'}
+        compact={compact}
         searchPlaceholder="Пошук або новий напрямок"
         createLabel="Додати в довідник"
       />
-      {error || dictionary.error ? <p role="alert" className="m-0 text-xs text-hot">{error || dictionary.error}</p> : null}
-      {unknown.length ? (
+      {error ? <p role="alert" className="m-0 text-xs text-hot">{error}</p> : null}
+      {unknown.length && !compact ? (
         <ul className="m-0 flex list-none flex-col gap-2 p-0" aria-label="Напрямки, яких немає в довіднику">
           {unknown.map((value) => {
             const similar = similarTo(value);

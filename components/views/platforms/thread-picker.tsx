@@ -17,12 +17,13 @@ const TRIGGER = 'inline-flex min-h-9 items-center gap-2 rounded-full border bord
  * SEARCH_FROM гілках — панель (Sheet знизу) з пошуком і власною прокруткою: меню з десятками пунктів виходило за екран iPhone.
  * Закриті гілки сірі й невибірні.
  */
-export function ThreadPicker({ choice, busy, onChoose }: { choice: TelegramThreadChoice; busy: boolean; onChoose: (chatId: string, threadId: string | null) => void }) {
+export function ThreadPicker({ choice, busy, onChoose, className }: { choice: TelegramThreadChoice; busy: boolean; onChoose: (chatId: string, threadId: string | null) => void; /** Додаткові класи кнопки (у тісному рядку вона займає всю ширину своєї клітинки). */ className?: string }) {
   const phone = useMediaQuery(PHONE);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const hasOpen = choice.topics.some((topic) => !topic.closed);
-  const label = hasOpen ? 'Вибрати гілку' : 'Усі гілки закриті';
+  const label = hasOpen ? 'Гілка' : 'Усі гілки закриті';
+  const trigger = `${TRIGGER} ${className ?? ''}`;
   const searchable = choice.topics.length > SEARCH_FROM;
   const shown = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase('uk');
@@ -32,8 +33,8 @@ export function ThreadPicker({ choice, busy, onChoose }: { choice: TelegramThrea
   if (!phone && !searchable) {
     return (
       <Menu>
-        <MenuTrigger render={<button type="button" disabled={busy} aria-label={`Вибрати гілку для чату ${choice.name}`} className={TRIGGER} />}>
-          {label}<ChevronDown aria-hidden="true" strokeWidth={1.5} className="size-4" />
+        <MenuTrigger render={<button type="button" disabled={busy} aria-label={`Вибрати гілку для чату ${choice.name}`} className={trigger} />}>
+          <span className="min-w-0 truncate">{label}</span><ChevronDown aria-hidden="true" strokeWidth={1.5} className="size-4 shrink-0" />
         </MenuTrigger>
         <MenuContent align="end">
           {choice.topics.map((topic) => (
@@ -50,8 +51,8 @@ export function ThreadPicker({ choice, busy, onChoose }: { choice: TelegramThrea
   const close = () => { setOpen(false); setQuery(''); };
   return (
     <>
-      <button type="button" disabled={busy} aria-label={`Вибрати гілку для чату ${choice.name}`} className={TRIGGER} onClick={() => setOpen(true)}>
-        {label}<ChevronDown aria-hidden="true" strokeWidth={1.5} className="size-4" />
+      <button type="button" disabled={busy} aria-label={`Вибрати гілку для чату ${choice.name}`} className={trigger} onClick={() => setOpen(true)}>
+        <span className="min-w-0 truncate">{label}</span><ChevronDown aria-hidden="true" strokeWidth={1.5} className="size-4 shrink-0" />
       </button>
       <Panel open={open} onOpenChange={(next) => { if (!next) close(); }} title="Вибрати гілку" subtitle={choice.name}>
         <div className="flex flex-col gap-3">

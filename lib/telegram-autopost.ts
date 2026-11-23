@@ -2,6 +2,7 @@
 // політика збоїв живуть у messenger-automation.ts; тут лише те, що стосується тільки Telegram.
 
 import { readChatDupInfo, type ChatDupInfo } from './chats/duplicates.ts';
+import { chatStateTokenSql } from './chats/state.ts';
 import { THREAD_SUSPECT_CODES } from './telegram-thread-codes.ts';
 
 export type TelegramTopic = { id: string; title: string; closed: boolean };
@@ -128,6 +129,28 @@ export async function chooseTelegramThread(db: D1Database, userId: string, chatI
   return { ...state, thread: { id: topic.id, title: topic.title } };
 }
 
+type ChoiceRow = {
+  id: string; name: string; link: string; telegram_topics_json: string | null; telegram_restricted_at: number | null; dup_flag: number; state_token: string;
+  p_chat: string | null; p_language: string | null; p_cadence: string | null; p_weekdays: string | null; p_interval: number | null; p_next: string | null; p_directions: string | null;
+  p_note: string | null; p_review: string | null; p_strict: number | null; p_pinned: string | null; p_no_photo: number | null;
+};
+/** Профіль чату для рядка «Обери гілку»: щоб зберегти напрями, не втративши решту правил (збереження профілю замінює його цілком). Профілю немає — null. */
+export type ThreadChoiceProfile = {
+  language: 'uk' | 'ru' | null; cadence: string; weekdays: number[]; customIntervalDays: number | null; nextAllowedOn: string | null; directions: string[]; note: string;
+  reviewStatus: 'draft' | 'confirmed'; directionsStrict: boolean; pinnedAds: string[]; noPhoto: boolean;
+};
+function jsonList(value: string | null): unknown[] { try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) ? parsed : []; } catch { return []; } }
+function choiceProfile(row: ChoiceRow): ThreadChoiceProfile | null {
+  if (!row.p_chat) return null;
+  return {
+    language: row.p_language === 'uk' || row.p_language === 'ru' ? row.p_language : null, cadence: row.p_cadence || 'any',
+    weekdays: jsonList(row.p_weekdays).filter((item): item is number => Number.isInteger(item)), customIntervalDays: row.p_interval === null ? null : Number(row.p_interval),
+    nextAllowedOn: row.p_next || null, directions: jsonList(row.p_directions).filter((item): item is string => typeof item === 'string'), note: row.p_note || '',
+    reviewStatus: row.p_review === 'confirmed' ? 'confirmed' : 'draft', directionsStrict: Number(row.p_strict) === 1,
+    pinnedAds: jsonList(row.p_pinned).filter((item): item is string => typeof item === 'string'), noPhoto: Number(row.p_no_photo) === 1,
+  };
+}
+
 const suspectList = THREAD_SUSPECT_CODES.map((code) => `'${code}'`).join(',');
 
 /**
@@ -138,14 +161,19 @@ const suspectList = THREAD_SUSPECT_CODES.map((code) => `'${code}'`).join(',');
  */
 export async function readTelegramThreadChoices(db: D1Database, userId: string, accountId: string | null, date = '', now = Math.floor(Date.now() / 1000)) {
   if (!accountId) return [];
-  const rows = await db.prepare(`SELECT id,name,link,telegram_topics_json,telegram_restricted_at,EXISTS(SELECT 1 FROM chat_dup_flags f WHERE f.chat_id=chats.id) AS dup_flag FROM chats INDEXED BY chats_telegram_thread_choice_idx
-    WHERE user_id=?1 AND platform='telegram' AND telegram_account_id=?2 AND telegram_forum=1 AND telegram_thread_id IS NULL AND workflow_status='ready'
-      AND (snoozed_until IS NULL OR snoozed_until<=?3)
-    ORDER BY name LIMIT 200`).bind(userId, accountId, now).all<{ id: string; name: string; link: string; telegram_topics_json: string | null; telegram_restricted_at: number | null; dup_flag: number }>();
+  // Профіль і токен стану потрібні рядку «Обери гілку», щоб зберегти напрями разом із гілкою наявною дією профілю (вона замінює профіль цілком): це читання по первинному ключу.
+  const rows = await db.prepare(`SELECT chats.id AS id,chats.name AS name,chats.link AS link,chats.telegram_topics_json AS telegram_topics_json,chats.telegram_restricted_at AS telegram_restricted_at,
+      EXISTS(SELECT 1 FROM chat_dup_flags f WHERE f.chat_id=chats.id) AS dup_flag,${chatStateTokenSql('chats')} AS state_token,
+      p.chat_id AS p_chat,p.language AS p_language,p.cadence AS p_cadence,p.weekdays_json AS p_weekdays,p.custom_interval_days AS p_interval,p.next_allowed_on AS p_next,
+      p.directions_json AS p_directions,p.note AS p_note,p.review_status AS p_review,p.directions_strict AS p_strict,p.pinned_ads_json AS p_pinned,p.no_photo AS p_no_photo
+    FROM chats INDEXED BY chats_telegram_thread_choice_idx LEFT JOIN chat_profiles p ON p.chat_id=chats.id
+    WHERE chats.user_id=?1 AND chats.platform='telegram' AND chats.telegram_account_id=?2 AND chats.telegram_forum=1 AND chats.telegram_thread_id IS NULL AND chats.workflow_status='ready'
+      AND (chats.snoozed_until IS NULL OR chats.snoozed_until<=?3)
+    ORDER BY chats.name LIMIT 200`).bind(userId, accountId, now).all<ChoiceRow>();
   // Пари дублікатів видно й тут: той самий форум двічі в «Вибрати гілку» — це копія, а не два чати.
   const dup = await readChatDupInfo(db, userId, (rows.results || []).filter((row) => Number(row.dup_flag)).map((row) => row.id)).catch(() => new Map<string, ChatDupInfo>());
-  type Choice = { chatId: string; name: string; link: string; topics: TelegramTopic[]; restrictedAt: number | null; dup: ChatDupInfo | null; collecting: boolean; needsScan: boolean };
-  const choices: Choice[] = (rows.results || []).map((row) => ({ chatId: row.id, name: row.name, link: row.link, topics: parseTelegramTopics(row.telegram_topics_json), restrictedAt: row.telegram_restricted_at === null ? null : Number(row.telegram_restricted_at), dup: dup.get(row.id) ?? null, collecting: false, needsScan: false }));
+  type Choice = { chatId: string; name: string; link: string; topics: TelegramTopic[]; restrictedAt: number | null; dup: ChatDupInfo | null; collecting: boolean; needsScan: boolean; stateToken: string | null; profile: ThreadChoiceProfile | null };
+  const choices: Choice[] = (rows.results || []).map((row) => ({ chatId: row.id, name: row.name, link: row.link, topics: parseTelegramTopics(row.telegram_topics_json), restrictedAt: row.telegram_restricted_at === null ? null : Number(row.telegram_restricted_at), dup: dup.get(row.id) ?? null, collecting: false, needsScan: false, stateToken: row.state_token, profile: choiceProfile(row) }));
   const known = new Set(choices.map((choice) => choice.chatId));
   if (date) {
     const suspects = await db.prepare(`SELECT c.id AS id,c.name AS name,c.link AS link,c.telegram_topics_at AS topics_at,MAX(j.updated_at) AS failed_at
@@ -158,7 +186,7 @@ export async function readTelegramThreadChoices(db: D1Database, userId: string, 
     for (const row of suspects.results || []) {
       // Прохід гілок уже був після збою і форуму не знайшов: це звичайний чат, його рішення лишається в «Потребують рішення».
       if (row.topics_at !== null && Number(row.topics_at) >= Number(row.failed_at) || known.has(row.id)) continue;
-      choices.push({ chatId: row.id, name: row.name, link: row.link, topics: [], restrictedAt: null, dup: null, collecting: false, needsScan: true });
+      choices.push({ chatId: row.id, name: row.name, link: row.link, topics: [], restrictedAt: null, dup: null, collecting: false, needsScan: true, stateToken: null, profile: null });
     }
     // Чи прохід цього чату вже стоїть у черзі чи виконується (за унікальним active_key, лише для чатів, у яких списку гілок ще немає).
     const waiting = choices.filter((choice) => !choice.topics.length);

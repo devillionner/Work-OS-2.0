@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
 import { PaceEstimate, PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
 import { DuplicateRows } from '@/components/views/platforms/duplicate-frame';
-import { ThreadPicker } from '@/components/views/platforms/thread-picker';
+import { useDirectionDictionary } from '@/components/views/platforms/directions-field';
+import { ThreadChoiceRow } from '@/components/views/platforms/thread-choice-row';
 import { PoolPanel } from '@/components/views/platforms/pool-panel';
 import { usePoolPreview } from '@/components/views/platforms/use-pool-preview';
 import { endingText } from '@/components/views/platforms/pool-types';
@@ -87,11 +88,13 @@ function TooLongChats({ chats, total }: { chats: Array<{ id: string; name: strin
 function ThreadChoices({ choices, busy, onChoose, onScan, onSkip, onOpen }: {
   choices: TelegramThreadChoice[];
   busy: boolean;
-  onChoose: (chatId: string, threadId: string | null) => void;
+  onChoose: (chatId: string, threadId: string | null, directions?: string[]) => void;
   onScan: (target?: string | string[]) => void;
   onSkip: (chatId: string) => void;
   onOpen: (link: string) => void;
 }) {
+  // Довідник напрямків читається один раз на весь блок, а не в кожному рядку.
+  const dictionary = useDirectionDictionary(choices.length > 0);
   if (!choices.length) return null;
   return (
     <section id="thread-choices" className="flex flex-col gap-2 scroll-mt-20" aria-label="Чати, для яких треба вибрати гілку">
@@ -99,27 +102,11 @@ function ThreadChoices({ choices, busy, onChoose, onScan, onSkip, onOpen }: {
         <h3 className="m-0 text-sm font-medium">Обери гілку <span className="font-mono font-normal tabular-nums text-ink-2">· {choices.length}</span></h3>
         <Button variant="outline" size="sm" disabled={busy} title="Швидко відкриє ці чати й доповнить списки гілок; місць «на годину» не займає" onClick={() => onScan()}>Знайти гілки</Button>
       </div>
-      <p className="m-0 text-xs text-ink-2">У цих чатах є гілки (чи вони могли бути). Обери гілку один раз: чат одразу піде в партію, а наступного разу питати не буду. Поки гілку не вибрано, чат у партію не входить.</p>
+      <p className="m-0 text-xs text-ink-2">У цих чатах є гілки (чи вони могли бути). Обери гілку один раз: чат одразу піде в партію, а наступного разу питати не буду. Напрямки необов’язкові: обери їх до гілки, і чат отримуватиме лише оголошення цих напрямів. Поки гілку не вибрано, чат у партію не входить.</p>
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
-        <DuplicateRows items={choices.map((choice) => ({ value: choice, id: choice.chatId, dup: choice.dup ?? null }))} renderItem={(choice, dupNote) => {
-          const open = choice.topics.filter((topic) => !topic.closed);
-          const collecting = Boolean(choice.collecting || choice.needsScan);
-          return (
-            <li key={choice.chatId} className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-inner border border-line px-3 py-2.5">
-              <span className="min-w-0 flex-1 basis-40 truncate text-sm font-medium" title={choice.name}>{choice.name}</span>
-              {dupNote ? <span className="basis-full text-xs text-ink-2">{dupNote}</span> : null}
-              <div className="flex flex-wrap items-center gap-2">
-                {choice.topics.length ? <ThreadPicker choice={choice} busy={busy} onChoose={onChoose} />
-                  : collecting ? <output className="text-xs text-ink-2">Збираю гілки…</output>
-                    : <button type="button" disabled={busy} title="Відкриє чат і прочитає список гілок; місць «на годину» не займає" onClick={() => onScan(choice.chatId)} className="inline-flex min-h-9 items-center rounded-full border border-line px-3 text-xs hover:bg-raised disabled:opacity-45 [@media(pointer:coarse)]:min-h-11">Знайти гілки</button>}
-                {choice.link ? <Button variant="ghost" size="sm" onClick={() => onOpen(choice.link as string)}>Відкрити</Button> : null}
-                <Button variant="ghost" size="sm" disabled={busy} title="Чат повернеться в чергу завтра" onClick={() => onSkip(choice.chatId)}>Пропустити сьогодні</Button>
-              </div>
-              {choice.restrictedAt ? <span className="basis-full text-xs text-ink-2">Зараз писати не можна (обмеження чату). Гілки відкриті, чат відкладається автоматично.</span> : null}
-              {choice.topics.length && !open.length ? <span className="basis-full text-xs text-ink-2">Усі гілки позначені закритими (значок замка в Telegram). Якщо це не так, перевір гілки ще раз.</span> : null}
-            </li>
-          );
-        }} />
+        <DuplicateRows items={choices.map((choice) => ({ value: choice, id: choice.chatId, dup: choice.dup ?? null }))} renderItem={(choice, dupNote) => (
+          <ThreadChoiceRow key={choice.chatId} choice={choice} dupNote={dupNote} dictionary={dictionary} busy={busy} onChoose={onChoose} onScan={onScan} onSkip={onSkip} onOpen={onOpen} />
+        )} />
       </ul>
     </section>
   );
@@ -156,7 +143,7 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, onS
   onStart: (limit: number | null, exclude: string[], perHour: number, texts: Record<string, string>) => void;
   onStop: () => void;
   onReset: () => void;
-  onChooseThread: (chatId: string, threadId: string | null) => void;
+  onChooseThread: (chatId: string, threadId: string | null, directions?: string[]) => void;
   onBind: (webUserId: string | null) => void;
 }) {
   const [perHour, setPerHour] = usePerHour('telegram');
