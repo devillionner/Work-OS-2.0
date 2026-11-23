@@ -4,6 +4,7 @@ import { poolSnippet } from '@/lib/telegram-pool/parse';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Check, ChevronDown, Minus, X } from 'lucide-react';
 import { CountUp } from '@/components/motion/count-up';
+import { ratioPercent } from '@/components/ui/ring';
 import { BatchRing } from '@/components/views/platforms/batch-ring';
 import { getLatestPace, getLatestStep, subscribeLiveMessages, type AutopostStep } from '@/lib/live-channel';
 import { useLiveSynced } from '@/components/views/platforms/use-live-synced';
@@ -130,7 +131,7 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
     <section className="flex flex-col gap-4 rounded-inner border border-line bg-sunken p-4" aria-label="Хід партії автопосту">
       <div className="flex items-center gap-5">
         <BatchRing total={batch.total} sent={batch.sent} failed={notSent} busy={batch.inProgress} ok={allSent} size={72} stroke={5} label={`Відправлено ${batch.sent} з ${batch.total}${batch.inProgress ? `, у роботі ${batch.inProgress}` : ''}`}>
-          <CountUp value={Math.round(ratio * 100)} format={(value) => `${value}%`} />
+          <CountUp value={ratioPercent(ratio)} format={(value) => `${value}%`} />
         </BatchRing>
         <div className="min-w-0 flex-1">
           <p className="m-0 flex items-center gap-2 text-sm font-medium">

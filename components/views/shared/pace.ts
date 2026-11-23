@@ -1,4 +1,4 @@
-import type { RingTone } from '@/components/ui/ring';
+import { ratioPercent, type RingTone } from '@/components/ui/ring';
 
 const DAY_START_HOUR = 9;
 const DAY_END_HOUR = 21;
@@ -14,6 +14,11 @@ export function dayProgress(date = new Date()): number {
 
 export function goalRatio(completed: number, target: number): number {
   return target > 0 ? completed / target : 0;
+}
+
+/** Відсоток цілі для підпису біля кільця: до виконання — floor (139/140 → 99), після — фактичний (≥ 100). */
+export function goalPercent(completed: number, target: number): number {
+  return ratioPercent(goalRatio(completed, target));
 }
 
 /**

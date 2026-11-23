@@ -19,7 +19,7 @@ export function GoalsCard({ goals, size, onBreakdown }: { goals: readonly Goal[]
         {goals.map((goal) => (
           <li key={goal.metric} className="min-w-0">
             <button type="button" onClick={goal.open} title={goal.title} aria-label={`${goal.label}: ${goal.value}${goal.target > 0 ? ` з ${goal.target}` : ''}. ${goal.title}`} className="flex w-full min-w-0 items-center gap-2.5 rounded-[14px] p-1.5 text-left transition-colors duration-150 hover:bg-raised">
-              <Ring value={goal.target > 0 ? goal.value / goal.target : 0} tone={goal.tone} size={52} stroke={5} label={`${goal.label}: ${goal.value}${goal.target > 0 ? ` з ${goal.target}` : ''}`} />
+              <Ring id={`today:${goal.metric}`} value={goal.target > 0 ? goal.value / goal.target : 0} tone={goal.tone} size={52} stroke={5} label={`${goal.label}: ${goal.value}${goal.target > 0 ? ` з ${goal.target}` : ''}`} />
               <span className="flex min-w-0 flex-col">
                 <span className="text-xs text-ink-2">{goal.label}</span>
                 <span className={cn('font-mono text-[15px] font-medium tabular-nums', toneTextClass(goal.tone))}>{goal.value}{goal.target > 0 ? ` / ${goal.target}` : ''}</span>

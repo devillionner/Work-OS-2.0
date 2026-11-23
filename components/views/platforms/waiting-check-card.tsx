@@ -3,7 +3,7 @@
 import { Archive, Cable, Check, ExternalLink, Play, RotateCcw, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Hint } from '@/components/ui/hint';
-import { Ring } from '@/components/ui/ring';
+import { Ring, ratioPercent } from '@/components/ui/ring';
 import { Surface } from '@/components/ui/surface';
 import { waitingCheckDone, waitingCheckEtaMinutes, waitingCheckReasonLabel, waitingCheckRunnerOffline, waitingCheckRunnerState, type WaitingCheckView } from '@/lib/chats/whatsapp-waiting-check-copy';
 
@@ -51,7 +51,7 @@ export function WaitingCheckCard({ view, nowSeconds, busy, onAction, onConnect, 
 
       {view.active ? (
         <output className="flex items-center gap-4">
-          <Ring value={ratio} size={52} stroke={4} label={`Перевірено ${done} з ${view.total}`}>{Math.round(ratio * 100)}%</Ring>
+          <Ring id="waiting-check" value={ratio} size={52} stroke={4} label={`Перевірено ${done} з ${view.total}`}>{ratioPercent(ratio)}%</Ring>
           <span className="min-w-0 text-sm">Перевірено <b className="font-mono font-normal">{done}</b> з {view.total}{view.currentName ? <> · зараз: <b className="font-medium">{view.currentName}</b></> : null}{eta !== null ? <span className="block text-xs text-ink-2">≈ {eta} хв до кінця</span> : null}</span>
         </output>
       ) : null}

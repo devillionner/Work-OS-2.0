@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { SearchField } from '@/components/ui/search-field';
 import { Segmented } from '@/components/ui/segmented';
 import { Select } from '@/components/ui/select';
+import { ratioPercent } from '@/components/ui/ring';
 import { Surface } from '@/components/ui/surface';
 import { useToast } from '@/components/ui/toast';
 import { ArchiveReasonDialog } from '@/components/views/platforms/archive-reason-dialog';
@@ -90,7 +91,7 @@ function ScheduleForm({ accountId, data, busy, error, onToast }: { accountId: st
       <Surface variant="glass" radius="card" className="flex flex-col gap-1 p-5" aria-labelledby="schedule-head">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div><h2 id="schedule-head" className="m-0 text-[17px] font-medium">План публікацій</h2><p className="m-0 mt-1 text-xs text-ink-2">{data.nextSlot ? `Наступна: ${formatTime(data.nextSlot.scheduledAt)} · ${data.nextSlot.chatName || 'призначити чат'}` : 'Окремий розклад для поточного Telegram-акаунта'}</p></div>
-          <span className="font-mono text-sm text-ink-2">{data.completed}/{total} · {Math.round(progress * 100)}%</span>
+          <span className="font-mono text-sm text-ink-2">{data.completed}/{total} · {ratioPercent(progress)}%</span>
         </div>
       </Surface>
 
