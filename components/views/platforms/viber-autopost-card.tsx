@@ -5,6 +5,8 @@ import { AutopostPanel, type AutopostMaterialProps, type AutopostPlan, type Auto
 import type { AutopostAttentionItem, AutopostDecision, DecideOptions } from '@/components/views/platforms/autopost-attention';
 import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import { autopostReasonText } from '@/components/views/platforms/autopost-reasons';
+import { useSharedSource } from '@/components/views/platforms/library-ads';
+import { usePoolPreview } from '@/components/views/platforms/use-pool-preview';
 import { PaceEstimate, PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
 import type { AutopostPace } from '@/lib/live-channel';
 
@@ -42,6 +44,8 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
   }, [status, runnerConnected]);
 
   const [perHour, setPerHour] = usePerHour('viber');
+  const sharedSource = useSharedSource(onLoadPlan);
+  const preview = usePoolPreview(null, plan?.library ? 'viber' : null);
   const runnerOffline = runnerConnected === false;
   const blocked = status?.state === 'blocked';
   // Іде партія: runner зайнятий відправкою і про стан Viber окремо не звітує, тож «Viber не відповів» тут було б хибним.
@@ -81,10 +85,11 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
           <li>Waydroid на ПК запускається сам; Viber у ньому активований як додатковий пристрій, мова Android англійська.</li>
           <li>У Waydroid встановлена клавіатура ADBKeyBoard (adb install ADBKeyboard.apk): через неї вводиться текст, потім звичайна клавіатура повертається.</li>
           <li>Автозаморожування Waydroid вимкнене (waydroid prop set persist.waydroid.suspend false), щоб відправка йшла й зі схованим вікном.</li>
-          <li>Фото й текст спільні з WhatsApp: їх можна змінити тут, у блоці «Що піде в чати».</li>
+          <li>Що піде в чати, обираєш у блоці «Що піде в чати»: оголошення з Бібліотеки (з їхніми фото; вибір спільний з WhatsApp і Telegram) або власний текст і фото, які спільні з WhatsApp. Оголошення без фото йде лише текстом.</li>
         </ol>
       )}
-      material={material}
+      material={{ ...material, source: { mode: plan?.library ? 'library' : 'own', ownAvailable: true, busy: sharedSource.busy, onChange: (mode) => { if (mode !== 'pool') sharedSource.change(mode); }, library: plan?.library ?? null, onSelectionSaved: onLoadPlan } }}
+      poolPreview={plan?.library ? preview : undefined}
       progress={progress}
       attention={attention}
       batchNote={batchNote}

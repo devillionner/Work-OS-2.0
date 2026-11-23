@@ -19,6 +19,7 @@ import { sameName, type Dictionaries } from '@/lib/library-dictionaries';
 import type { ScriptFieldKey } from '@/lib/script-fields';
 import { labels as leadLabels } from '@/components/views/leads/client';
 import { InsertFieldMenu, ScriptTextEditor } from './script-editor';
+import { compressImage } from './image-compress';
 import { ViberCard } from './viber-card';
 import { collectionLabel, formFromItem, formatStamp, newForm, platformLabel, type Form, type Item, type LibraryCollectionKey } from './types';
 import { humanError } from '@/components/ui/human-error';
@@ -95,6 +96,10 @@ export function LibraryPanel({ open, onOpenChange, collection, item, onSaved, on
   const [saving, setSaving] = useState(false);
   const [archiveAsk, setArchiveAsk] = useState(false);
   const insertRef = useRef<(key: ScriptFieldKey) => void>(() => {});
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  // Фото оголошення змінюється одразу й окремо від збереження тексту: нову версію воно не створює.
+  const [imageKey, setImageKey] = useState<string | null>(item?.imageKey ?? null);
+  const [imageBusy, setImageBusy] = useState(false);
   const [created, setCreated] = useState<{ tags: string[]; branches: string[] }>({ tags: [], branches: [] });
   const dictionaries = useRemote<DictionaryPayload>('/api/library/dictionaries', { enabled: open, revalidateOnEnable: true, fallback: 'Не вдалося завантажити довідники.' }).data?.dictionaries ?? null;
   const ad = collection === 'advertisement';
@@ -111,7 +116,9 @@ export function LibraryPanel({ open, onOpenChange, collection, item, onSaved, on
   const platformOptions: SearchOption[] = useMemo(() => withValues([...LIBRARY_ADVERTISEMENT_PLATFORMS], form.platforms).map((value) => ({ value, label: platformLabel(value) })), [form.platforms]);
   const unsupported = ad && item ? item.platforms.filter((value) => !canonicalLibraryPlatform(value)) : [];
   const incomplete = ad && (!form.ukText.trim() || !form.ruText.trim());
-  const canSave = Boolean(form.title.trim()) && (ad ? !incomplete && form.platforms.length > 0 : Boolean(form.ukText.trim() || form.ruText.trim()));
+  // «Лише свій напрям» без жодного напряму нікуди б не йшло, тому зберегти таке оголошення не дозволяємо.
+  const exclusiveWithoutDirection = ad && form.scope === 'exclusive' && selectedDirections.length === 0;
+  const canSave = Boolean(form.title.trim()) && (ad ? !incomplete && form.platforms.length > 0 && !exclusiveWithoutDirection : Boolean(form.ukText.trim() || form.ruText.trim()));
   const currentKey = language === 'uk' ? 'ukText' : 'ruText';
 
   const set = (patch: Partial<Form>) => setForm((current) => ({ ...current, ...patch }));
@@ -126,7 +133,7 @@ export function LibraryPanel({ open, onOpenChange, collection, item, onSaved, on
       onSaved({
         id: body.id, kind: ad ? 'advertisement' : 'script', collection, version: body.version, title: form.title.trim(), ukText: form.ukText, ruText: form.ruText, notes: form.notes,
         tags: [...form.tags], platforms: [...form.platforms], stage: script && form.stage ? form.stage : null, branch: script ? form.branch : '', originId: item?.originId ?? null, templateKey: item?.templateKey ?? null,
-        usedTodayPlatforms: item?.usedTodayPlatforms ?? [], archivedAt: null, updatedAt: body.updatedAt,
+        usedTodayPlatforms: item?.usedTodayPlatforms ?? [], scope: ad ? form.scope : 'wide', imageKey: item?.imageKey ?? imageKey, archivedAt: null, updatedAt: body.updatedAt,
       });
       toast.push({ message: `Збережено · v${body.version}.`, tone: 'ok' });
     } catch (reason) {
@@ -153,6 +160,43 @@ export function LibraryPanel({ open, onOpenChange, collection, item, onSaved, on
       onChanged(false);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const uploadImage = async (file: File) => {
+    if (!item) return;
+    setImageBusy(true);
+    try {
+      const blob = await compressImage(file, 600 * 1024);
+      const data = new FormData();
+      data.append('id', item.id);
+      data.append('file', new File([blob], `${file.name.replace(/\.[^.]+$/u, '').slice(0, 100) || 'ad'}.jpg`, { type: 'image/jpeg' }));
+      const response = await fetch('/api/library/image', { method: 'POST', body: data });
+      const body = await response.json().catch(() => ({})) as { imageKey?: string; error?: string };
+      if (!response.ok || !body.imageKey) throw new Error(body.error || 'Не вдалося зберегти фото оголошення.');
+      setImageKey(body.imageKey);
+      toast.push({ message: 'Фото оголошення збережено.', tone: 'ok' });
+      onChanged(false);
+    } catch (reason) {
+      toast.push({ message: humanError(reason, 'Не вдалося зберегти фото оголошення.'), tone: 'hot', duration: 7000 });
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  const removeImage = async () => {
+    if (!item) return;
+    setImageBusy(true);
+    try {
+      const response = await fetch(`/api/library/image?id=${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Не вдалося прибрати фото оголошення.');
+      setImageKey(null);
+      toast.push({ message: 'Фото оголошення прибрано.' });
+      onChanged(false);
+    } catch (reason) {
+      toast.push({ message: humanError(reason, 'Не вдалося прибрати фото оголошення.'), tone: 'hot' });
+    } finally {
+      setImageBusy(false);
     }
   };
 
@@ -238,6 +282,15 @@ export function LibraryPanel({ open, onOpenChange, collection, item, onSaved, on
                   searchPlaceholder="Пошук або новий тег"
                 />
               </Field>
+              {ad ? (
+                <Field label="Охоплення" hint="Куди йде оголошення в автопості">
+                  <div className="flex flex-col gap-2">
+                    <Segmented<'wide' | 'exclusive'> label="Охоплення оголошення" size="sm" value={form.scope} onValueChange={(scope) => set({ scope })} items={[{ value: 'wide', label: 'Широке', disabled: locked }, { value: 'exclusive', label: 'Лише свій напрям', disabled: locked }]} />
+                    <p className="m-0 text-xs text-ink-2">{form.scope === 'wide' ? 'Широке — у чати свого напряму й без напряму.' : 'Лише свій напрям — тільки в чати з цим напрямом.'}</p>
+                    {exclusiveWithoutDirection ? <p role="alert" className="m-0 text-xs text-hot">Для охоплення «Лише свій напрям» додай хоча б один напрямок.</p> : null}
+                  </div>
+                </Field>
+              ) : null}
               {script ? (
                 <>
                   <Field label="Етап воронки" hint="До якого етапу ліда скрипт підходить">
@@ -266,6 +319,18 @@ export function LibraryPanel({ open, onOpenChange, collection, item, onSaved, on
             </Field>
             {ad ? (
               <>
+                <Field label="Фото оголошення" hint="Необов’язково: без фото в чат піде лише текст">
+                  {item ? (
+                    <div className="flex items-center gap-3">
+                      <input ref={fileInput} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void uploadImage(file); }} />
+                      {imageKey ? <span aria-hidden="true" style={{ backgroundImage: `url(/api/library/image?id=${encodeURIComponent(item.id)}&v=${imageKey.slice(0, 16)})` }} className="size-16 shrink-0 rounded-field border border-line bg-cover bg-center" /> : null}
+                      <span className="flex flex-wrap items-center gap-2">
+                        <Button variant="outline" size="sm" disabled={imageBusy || archived} onClick={() => fileInput.current?.click()}>{imageBusy ? 'Зберігаємо…' : imageKey ? 'Замінити фото' : 'Додати фото'}</Button>
+                        {imageKey ? <Button variant="ghost" size="sm" tone="danger" disabled={imageBusy || archived} onClick={() => void removeImage()}>Прибрати</Button> : null}
+                      </span>
+                    </div>
+                  ) : <p className="m-0 text-xs text-ink-2">Спершу збережи оголошення, тоді можна додати фото.</p>}
+                </Field>
                 {item && item.usedTodayPlatforms.length ? <p className="m-0 text-[13px] text-ink-2">Сьогодні вже використано: {cleanLibraryPlatforms(item.usedTodayPlatforms).map(platformLabel).join(', ')}.</p> : null}
                 {unsupported.length ? <p className="m-0 text-[13px] text-ink-2">Є старі невідомі платформи: {unsupported.join(', ')}. Обери актуальні зі списку перед збереженням.</p> : null}
                 {item && item.archivedAt === null && cleanLibraryPlatforms(item.platforms).includes('viber') ? <ViberCard key={item.id} item={item} /> : null}

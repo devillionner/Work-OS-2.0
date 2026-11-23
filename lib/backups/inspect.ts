@@ -1,7 +1,7 @@
 import { BACKUP_TABLES, type BackupTable } from './export.ts';
 
 export const CLOUD_BACKUP_APP = 'work-os-cloud-backup';
-export const CLOUD_BACKUP_SCHEMA_VERSION = 16;
+export const CLOUD_BACKUP_SCHEMA_VERSION = 17;
 export const CLOUD_BACKUP_MIN_SCHEMA_VERSION = 5;
 export const CLOUD_BACKUP_MAX_BYTES = 25 * 1024 * 1024;
 

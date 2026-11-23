@@ -9,8 +9,11 @@ type Args = { limit: number; exclude: string[] };
  * Підбір текстів для «Переглянути чати партії» (Telegram з пулом): сервер рахує той самий розподіл, що й запуск, але нічого не створює.
  * Запит іде лише поки список партії відкрито й коли змінилась партія чи вибір тексту; перед запуском `overrides` додаються до запиту.
  */
-export function usePoolPreview(accountId: string | null) {
-  const [data, setData] = useState<PoolPreview | null>(null);
+export function usePoolPreview(accountId: string | null, library: 'whatsapp' | 'viber' | 'telegram' | null = null) {
+  // Підбір зберігається разом з режимом (пул чи Бібліотека): після зміни режиму підбір попереднього не показується.
+  const mode = library ?? 'pool';
+  const [stored, setStored] = useState<{ mode: string; data: PoolPreview } | null>(null);
+  const data = stored && stored.mode === mode ? stored.data : null;
   const [loading, setLoading] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   /** Чати, для яких власник сам вибрав текст («Змінити»): лише вони підписані «вибрано вручну». */
@@ -23,19 +26,20 @@ export function usePoolPreview(accountId: string | null) {
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const run = useCallback((args: Args, texts: Record<string, string>) => {
-    if (!accountId) return;
+    // Telegram потребує вибраного акаунта; Viber і WhatsApp у режимі Бібліотеки — ні.
+    if (!accountId && library !== 'whatsapp' && library !== 'viber') return;
     last.current = args;
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       const mine = ++token.current;
       setLoading(true);
-      void fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'telegram-pool-preview', accountId, limit: args.limit, exclude: args.exclude, texts }) })
+      void fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(library ? { action: 'autopost-library-preview', platform: library, accountId, limit: args.limit, exclude: args.exclude } : { action: 'telegram-pool-preview', accountId, limit: args.limit, exclude: args.exclude, texts }) })
         .then(async (response) => ({ ok: response.ok, body: await response.json() as { preview?: PoolPreview } }))
-        .then(({ ok, body }) => { if (mine === token.current && ok && body.preview) setData(body.preview); })
+        .then(({ ok, body }) => { if (mine === token.current && ok && body.preview) setStored({ mode, data: body.preview }); })
         .catch(() => undefined)
         .finally(() => { if (mine === token.current) setLoading(false); });
     }, 250);
-  }, [accountId]);
+  }, [accountId, library, mode]);
 
   const load = useCallback((args: Args) => run(args, overridesRef.current), [run]);
   const dataRef = useRef(data);

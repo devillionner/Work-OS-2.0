@@ -6,7 +6,8 @@ import { businessDate } from './business-time.ts';
 import { readChatState } from './chats/state.ts';
 import { isoWeekday, profilePublicationEligibilitySql } from './chats/profile.ts';
 import { followOf, settleAutopostFailure, verifyFromOf } from './messenger-automation-outcome.ts';
-import { hasWhatsAppAutopostImage, readWhatsAppAutopostImage, type AutopostMaterialScope } from './whatsapp-autopost-media.ts';
+import { hasWhatsAppAutopostImage, readStoredImage, readWhatsAppAutopostImage, type AutopostMaterialScope } from './whatsapp-autopost-media.ts';
+import { adFitsChat, adImageSettingKey, assignLibraryAds, noAdReason, readAdLastPublished, readLibraryAds, readSelectedAdIds, readSharedSource, type AdChat, type LibraryAd } from './autopost-ads.ts';
 import { cleanAutopostDirection, TELEGRAM_PHOTO_CAPTION_LIMIT, TELEGRAM_TEXT_LIMIT, cleanWhatsAppAutopostCaption, readWhatsAppAutopostCaption, textLength } from './whatsapp-autopost-caption.ts';
 import { POOL_ID_RANGE, isPoolId, confirmPoolText, pickPoolTextForChat, readPoolState, resolvePoolAssignments, summarizePool, type PoolSummary } from './telegram-pool/store.ts';
 import { effectiveSource, ownMaterialAvailable, readSavedSource, type TelegramSource } from './telegram-pool/source.ts';
@@ -291,7 +292,22 @@ async function assertTelegramJobAllowed(db:D1Database,userId:string,chatId:strin
 /** «Немає оголошення свого напряму»: чат із «Лише ці напрямки» не отримує оголошення інших напрямів, а свого сьогодні немає. Це не збій. */
 const noDirectionError=(rules:ChatRules)=>new MessengerAutomationError(`Немає оголошення свого напряму: ${rules.directions.join(', ')}.`,409,'no_direction_ad');
 
-type PinnedMaterial={id:string;version:number;language:'uk'|'ru';text:string};
+/** Режим «Оголошення з Бібліотеки» для платформи: лише коли власник його вибрав (спільний вибір оголошень для всіх платформ, режим — свій для WhatsApp+Viber і для Telegram). */
+async function libraryModeOn(db:D1Database,userId:string,platform:AutopostPlatform):Promise<boolean>{
+  return platform==='telegram'?(await readSavedSource(db,userId))==='library':(await readSharedSource(db,userId))==='library';
+}
+/** Обрані власником оголошення, що ще є в Бібліотеці, не в архіві й підходять платформі. */
+async function readChosenAds(db:D1Database,userId:string,platform:AutopostPlatform):Promise<LibraryAd[]>{
+  const ids=await readSelectedAdIds(db,userId);
+  if(!ids.length)return [];
+  const wanted=new Set(ids);
+  return (await readLibraryAds(db,userId,platform)).filter(ad=>wanted.has(ad.id));
+}
+const adChat=(id:string,rules:ChatRules|undefined,last:ReadonlyMap<string,string>|undefined,language?:'uk'|'ru'|null):AdChat=>({id,language:language??rules?.language??null,directions:rules?.directions??[],strict:Boolean(rules?.strict),last:last??new Map()});
+type LibraryChoice={id:string;version:number;language:'uk'|'ru';text:string;hasImage:boolean};
+const libraryChoiceOf=(pick:{ad:LibraryAd;language:'uk'|'ru';text:string}):LibraryChoice=>({id:pick.ad.id,version:pick.ad.version,language:pick.language,text:pick.text,hasImage:Boolean(pick.ad.imageKey)});
+
+type PinnedMaterial={id:string;version:number;language:'uk'|'ru';text:string;hasImage?:boolean};
 /**
  * «Лише ці оголошення»: наступне закріплене оголошення чату по черзі (спершу те, що в цьому чаті ще не виходило, далі найдавніше за датою публікації).
  * Тексти пулу Telegram (`tgp_`) діють за правилом «текст раз на добу»: зайнятий сьогодні пропускається. Архівні й чужі для платформи не беруться.
@@ -299,9 +315,9 @@ type PinnedMaterial={id:string;version:number;language:'uk'|'ru';text:string};
 async function pickPinnedMaterial(db:D1Database,userId:string,chatId:string,platform:AutopostPlatform,pinned:readonly string[],date:string,preferred:'uk'|'ru'|null):Promise<PinnedMaterial|null>{
   const ids=pinned.slice(0,30);
   if(!ids.length)return null;
-  const rows=await db.prepare(`SELECT l.id AS id,l.version AS version,l.uk_text AS uk_text,l.ru_text AS ru_text,l.platforms_json AS platforms_json
+  const rows=await db.prepare(`SELECT l.id AS id,l.version AS version,l.uk_text AS uk_text,l.ru_text AS ru_text,l.platforms_json AS platforms_json,l.image_key AS image_key
     FROM json_each(?2) e CROSS JOIN library_items l ON l.id=e.value
-    WHERE l.user_id=?1 AND l.kind='advertisement' AND l.archived_at IS NULL`).bind(userId,JSON.stringify(ids)).all<{id:string;version:number;uk_text:string;ru_text:string;platforms_json:string}>();
+    WHERE l.user_id=?1 AND l.kind='advertisement' AND l.archived_at IS NULL`).bind(userId,JSON.stringify(ids)).all<{id:string;version:number;uk_text:string;ru_text:string;platforms_json:string;image_key:string|null}>();
   const pool=platform==='telegram'&&ids.some(isPoolId)?await readPoolState(db,userId,date):null;
   const takenToday=pool?.taken??new Set<string>();
   const poolById=new Map((pool?.items??[]).map(item=>[item.id,item]));
@@ -319,7 +335,7 @@ async function pickPinnedMaterial(db:D1Database,userId:string,chatId:string,plat
     const hasUk=Boolean(row.uk_text.trim());const hasRu=Boolean(row.ru_text.trim());
     const language:'uk'|'ru'|null=preferred==='ru'&&hasRu?'ru':preferred==='uk'&&hasUk?'uk':hasUk?'uk':hasRu?'ru':null;
     if(!language)continue;
-    available.push({id:row.id,version:Number(row.version),language,text:(language==='uk'?row.uk_text:row.ru_text).trim()});
+    available.push({id:row.id,version:Number(row.version),language,text:(language==='uk'?row.uk_text:row.ru_text).trim(),hasImage:Boolean(row.image_key)});
   }
   if(!available.length)return null;
   const last=await db.prepare(`SELECT p.advertisement_id AS id,MAX(p.published_on) AS day FROM json_each(?2) e CROSS JOIN chat_publications p ON p.advertisement_id=e.value
@@ -337,6 +353,8 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
   requestKey:unknown;chatId:unknown;advertisementId?:unknown;language?:unknown;caption?:unknown;platform?:unknown;telegramAccountId?:unknown;telegramHasPhoto?:boolean;
   /** Telegram: текст пулу, підібраний для чату партією (`choice`), або `off` — пулу немає. Без цього поля текст підбирається тут, для одного чату. */
   pool?:{choice:{id:string;version:number;language:'uk'|'ru';text:string}}|'off';
+  /** Режим «Оголошення з Бібліотеки»: оголошення, підібране чату партією (`choice`), або `off` — режим вимкнений. Без поля режим і оголошення визначаються тут, для одного чату. */
+  library?:{choice:LibraryChoice}|'off';
 },now:number,date:string):Promise<WhatsAppAutopostJob>{
   const requestKey=cleanRequestKey(input.requestKey);
   const chatId=typeof input.chatId==='string'?input.chatId.trim():'';
@@ -371,10 +389,35 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
     if(!pinnedChoice)throw new MessengerAutomationError('Закріплені оголошення чату зараз недоступні: вони вже використані сьогодні, в архіві чи не для цієї платформи.',409,'pinned_unavailable');
   }
 
+  // «Оголошення з Бібліотеки» (3.20.0): одне оголошення з обраних, що підходить чату (`adFitsChat`). Партія приносить уже підібране; поза партією
+  // («Спробувати ще», після проходу гілок) воно підбирається тут за тим самим розподілом. Закріплене в профілі сильніше.
+  let libraryChoice:LibraryChoice|null=null;
+  const libraryMode=input.library==='off'?false:input.library?true:await libraryModeOn(db,userId,platform);
+  if(libraryMode&&!pinnedChoice){
+    if(input.library&&input.library!=='off')libraryChoice=input.library.choice;
+    else{
+      const requestedAd=typeof input.advertisementId==='string'?input.advertisementId.trim():'';
+      const language=preferredLanguage||rules.language;
+      if(requestedAd){
+        const own=(await readLibraryAds(db,userId,platform)).find(ad=>ad.id===requestedAd);
+        const text=own?(language==='ru'&&own.ruText.trim()?{language:'ru' as const,text:own.ruText.trim()}:own.ukText.trim()?{language:'uk' as const,text:own.ukText.trim()}:own.ruText.trim()?{language:'ru' as const,text:own.ruText.trim()}:null):null;
+        if(!own||!text)throw new MessengerAutomationError('Оголошення вже недоступне в Бібліотеці.',409,'no_advertisement');
+        libraryChoice=libraryChoiceOf({ad:own,...text});
+      }else{
+        const ads=await readChosenAds(db,userId,platform);
+        if(!ads.length)throw new MessengerAutomationError('Обери хоча б одне оголошення.',409,'ads_not_selected');
+        const last=await readAdLastPublished(db,userId,[chatId],ads.map(ad=>ad.id),date);
+        const pick=assignLibraryAds([adChat(chatId,rules,last.get(chatId),language)],ads).assigned.get(chatId);
+        if(!pick)throw new MessengerAutomationError(`Немає підходящого оголошення серед обраних (${noAdReason(rules,ads)}).`,409,'no_ad');
+        libraryChoice=libraryChoiceOf(pick);
+      }
+    }
+  }
+
   // Telegram: коли в пулі текстових оголошень є тексти, працює пул (власний текст і Бібліотека лише запасні, коли пулу немає).
   // Партія приносить уже підібраний текст; задача поза партією («Спробувати ще», після проходу гілок) підбирає його тут, для одного чату.
   let poolChoice:{id:string;version:number;language:'uk'|'ru';text:string}|null=null;
-  if(platform==='telegram'&&input.pool!=='off'&&!pinnedChoice){
+  if(platform==='telegram'&&input.pool!=='off'&&!pinnedChoice&&!libraryMode){
     if(input.pool)poolChoice=input.pool.choice;
     else{
       const single=await pickPoolTextForChat(db,userId,chatId,date);
@@ -391,7 +434,7 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
   // Telegram має власні фото й текст (вкладка «Автопост» Telegram), не спільні з WhatsApp і Viber; без власного тексту — оголошення з Бібліотеки.
   const scope:AutopostMaterialScope=platform==='telegram'?'telegram':'shared';
   let captionOverride='';
-  if(poolChoice||pinnedChoice){/* текст дає пул чи закріплене оголошення */}
+  if(poolChoice||pinnedChoice||libraryChoice){/* текст дає пул, закріплене оголошення чи оголошення Бібліотеки */}
   else if(input.caption!==undefined){
     try{captionOverride=cleanWhatsAppAutopostCaption(input.caption);}
     catch(error){throw new MessengerAutomationError(error instanceof Error?error.message:'Некоректний текст автопоста.');}
@@ -405,7 +448,7 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
 
   // З власним текстом оголошення не вибираються, тож список матеріалів і «використане сьогодні» не читаємо (в партії це
   // давало O(n²) читань: кожна нова задача перечитувала всі вже створені).
-  const selection=await readPublicationAdvertisementSelection(db,{userId,chatId,date,withItems:!captionOverride&&!poolChoice&&!pinnedChoice});
+  const selection=await readPublicationAdvertisementSelection(db,{userId,chatId,date,withItems:!captionOverride&&!poolChoice&&!pinnedChoice&&!libraryChoice});
   if(!selection)throw new MessengerAutomationError('Не вдалося перевірити правила публікації для цього чату.',409,'rules_unavailable');
   if(!selection.publicationAllowed)throw new MessengerAutomationError(selection.publicationReason||'Публікація зараз заборонена правилами профілю.',409,'profile_rule');
 
@@ -420,6 +463,11 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
     materialVersion=pinnedChoice.version;
     language=pinnedChoice.language;
     payload=pinnedChoice.text;
+  }else if(libraryChoice){
+    materialId=libraryChoice.id;
+    materialVersion=libraryChoice.version;
+    language=libraryChoice.language;
+    payload=libraryChoice.text;
   }else if(poolChoice){
     materialId=poolChoice.id;
     materialVersion=poolChoice.version;
@@ -457,7 +505,7 @@ export async function createWhatsAppAutopostJob(db:D1Database,userId:string,inpu
   // Telegram: підпис до фото не довший за 1024 символи, текст без фото за 4096. Довший не обрізаємо, а не ставимо в чергу.
   if(platform==='telegram'){
     // Текст пулу довший за 1024 при заданому фото піде без фото (рішення на видачі задачі), тож «задовгий» для нього не збій.
-    const hasPhoto=rules.noPhoto||poolChoice||(pinnedChoice&&isPoolId(pinnedChoice.id))?false:typeof input.telegramHasPhoto==='boolean'?input.telegramHasPhoto:await hasWhatsAppAutopostImage(db,userId,'telegram');
+    const hasPhoto=rules.noPhoto||poolChoice||(pinnedChoice&&isPoolId(pinnedChoice.id))?false:libraryMode?Boolean((libraryChoice??pinnedChoice)?.hasImage):typeof input.telegramHasPhoto==='boolean'?input.telegramHasPhoto:await hasWhatsAppAutopostImage(db,userId,'telegram');
     const length=textLength(payload);
     if(hasPhoto&&length>TELEGRAM_PHOTO_CAPTION_LIMIT)throw new MessengerAutomationError(`Текст задовгий для підпису до фото: ${length} із ${TELEGRAM_PHOTO_CAPTION_LIMIT}.`,409,'caption_too_long');
     if(length>TELEGRAM_TEXT_LIMIT)throw new MessengerAutomationError(`Текст довший за ліміт Telegram: ${length} із ${TELEGRAM_TEXT_LIMIT}.`,409,'text_too_long');
@@ -590,7 +638,7 @@ export async function createAutopostVerifyJob(db:D1Database,userId:string,origin
  * що й `createWhatsAppAutopostBatch`) і чому решта «Для публікації» не йде. Один запит по чатах платформи; рахується при відкритті
  * вкладки й після дій, а не за таймером.
  */
-export type AutopostBucket='ready'|'decision'|'tried'|'published'|'rules'|'snoozed'|'queued'|'other'|'thread'|'schedule'|'toolong'|'text'|'nodirection';
+export type AutopostBucket='ready'|'decision'|'tried'|'published'|'rules'|'snoozed'|'queued'|'other'|'thread'|'schedule'|'toolong'|'text'|'noad';
 /** Чому чат відкладено: заборона писати до дати, нічний режим бота, повільний режим, щойно вступили, відкладено вручну. */
 export type SnoozeReason={kind:'restricted_until'|'restricted'|'quiet'|'slow'|'rate'|'fresh'|'manual';until:number|null};
 const SLOW_CODES=new Set(['slow_mode','telegram_slow_mode','viber_slow_mode']);
@@ -618,9 +666,11 @@ export type AutopostPlan={
   /** Кожен чат черги «Для публікації» рівно в одній групі: за цим розкладом групується список зліва й лічаться чіпи, «Огляд» і картка. */
   buckets:Record<string,AutopostBucket>;
   /** Для «потребують рішення» й «пробували»: код причини й назва, яку бачив месенджер; для «правил» — найближча дата. */
-  reasons:Record<string,{code:string|null;observed:string|null;next:string|null;/** Для «відкладених»: чому й до коли. */ snooze?:SnoozeReason;/** Для «немає оголошення свого напряму»: напрями чату. */ directions?:string[]}>;
-  /** Чати з «Лише ці напрямки», для яких сьогодні немає оголошення свого напряму: у партію не йдуть, це не збій. */
-  nodirection?:number;
+  reasons:Record<string,{code:string|null;observed:string|null;next:string|null;/** Для «відкладених»: чому й до коли. */ snooze?:SnoozeReason;/** Для «немає підходящого оголошення»: напрями чату. */ directions?:string[];/** Для «немає підходящого оголошення» у режимі Бібліотеки: назви обраних оголошень і готове пояснення. */ chosen?:string[];explain?:string}>;
+  /** Чати, для яких сьогодні немає підходящого оголошення (обрані не підходять за напрямом, чи для чату із «Лише ці напрямки» немає свого): у партію не йдуть, це не збій. */
+  noad?:number;
+  /** Режим «Оголошення з Бібліотеки» (він увімкнений): вибір власника й усі оголошення платформи з тим, скільком чатам вони підійдуть. `needSelection` — нічого не обрано. */
+  library?:{selected:string[];needSelection:boolean;ads:Array<{id:string;title:string;directions:string[];scope:'wide'|'exclusive';image:boolean;imageKey:string|null;fits:number}>};
   /** Лише Telegram: скільки чатів чекають вибору гілки й у розкладі, і самі чати з гілками, з яких власник вибирає. */
   thread?:number;schedule?:number;threadChoices?:TelegramThreadChoice[];
   /** Лише Telegram: чати, чий текст із Бібліотеки задовгий для підпису до фото (з фото вони в партію не йдуть). */
@@ -654,21 +704,21 @@ export async function readAutopostPlan(db:D1Database,userId:string,platformInput
         ELSE 'ready'
       END AS bucket,
       (SELECT pr.next_allowed_on FROM chat_profiles pr WHERE pr.chat_id=c.id) AS next_allowed_on,
-      pd.directions_json AS directions,pd.directions_strict AS strict,pd.pinned_ads_json AS pinned,pd.no_photo AS no_photo,
+      pd.directions_json AS directions,pd.directions_strict AS strict,pd.pinned_ads_json AS pinned,pd.no_photo AS no_photo,pd.language AS plang,
       (SELECT json_extract(j.result_json,'$.errorCode') FROM whatsapp_autopost_jobs j WHERE j.user_id=c.user_id AND j.chat_id=c.id AND j.published_on=?3 AND j.status='failed' ORDER BY j.updated_at DESC LIMIT 1) AS code,
       (SELECT json_extract(j.result_json,'$.observedTarget') FROM whatsapp_autopost_jobs j WHERE j.user_id=c.user_id AND j.chat_id=c.id AND j.published_on=?3 AND j.status='failed' ORDER BY j.updated_at DESC LIMIT 1) AS observed,
       COALESCE((SELECT MAX(p2.published_on) FROM chat_publications p2 WHERE p2.user_id=c.user_id AND p2.chat_id=c.id),'') AS last_published,
       c.snoozed_until AS snoozed_until,c.joined_at AS joined_at,
       CASE WHEN c.snoozed_until IS NOT NULL AND c.snoozed_until>?2 THEN (SELECT j.result_json FROM whatsapp_autopost_jobs j WHERE j.user_id=c.user_id AND j.chat_id=c.id AND j.status='failed' AND j.outcome='snoozed' ORDER BY j.published_on DESC LIMIT 1) END AS snooze_result
     FROM chats c LEFT JOIN chat_profiles pd ON pd.chat_id=c.id WHERE c.user_id=?1 AND c.platform=?4 AND c.workflow_status='ready'${telegram?' AND c.telegram_account_id=?6':''}`)
-    .bind(userId,now,date,platform,isoWeekday(date),...(telegram?[telegramAccountId]:[])).all<{id:string;name:string;forum:number|null;bucket:string;next_allowed_on:string|null;directions:string|null;strict:number|null;pinned:string|null;no_photo:number|null;code:string|null;observed:string|null;last_published:string;snoozed_until:number|null;joined_at:number|null;snooze_result:string|null}>();
+    .bind(userId,now,date,platform,isoWeekday(date),...(telegram?[telegramAccountId]:[])).all<{id:string;name:string;forum:number|null;bucket:string;next_allowed_on:string|null;directions:string|null;strict:number|null;pinned:string|null;no_photo:number|null;plang:string|null;code:string|null;observed:string|null;last_published:string;snoozed_until:number|null;joined_at:number|null;snooze_result:string|null}>();
   const plan:AutopostPlan={total:0,ready:0,publishedToday:0,queued:0,decision:0,tried:0,snoozed:0,rules:0,rulesNextDate:null,other:0,chats:[],buckets:{},reasons:{}};
   const ready:Array<{id:string;name:string;last:string}>=[];
   const demand=new Map<string,number>();
   const rulesById=new Map<string,ChatRules>();
   for(const row of rows.results){
     plan.total+=1;
-    rulesById.set(row.id,parseRules({directions_json:row.directions,directions_strict:row.strict,pinned_ads_json:row.pinned,no_photo:row.no_photo}));
+    rulesById.set(row.id,parseRules({directions_json:row.directions,directions_strict:row.strict,pinned_ads_json:row.pinned,no_photo:row.no_photo,language:row.plang}));
     plan.buckets[row.id]=(['ready','decision','tried','published','rules','snoozed','queued','thread','schedule','toolong','text'].includes(row.bucket)?row.bucket:'other') as AutopostBucket;
     if(row.bucket==='decision'||row.bucket==='tried')plan.reasons[row.id]={code:row.code,observed:row.observed,next:null};
     else if(row.bucket==='rules')plan.reasons[row.id]={code:null,observed:null,next:row.next_allowed_on&&row.next_allowed_on>date?row.next_allowed_on:null};
@@ -698,14 +748,15 @@ export async function readAutopostPlan(db:D1Database,userId:string,platformInput
   // не лишилось, у «Готових» немає: вони чекають на завтра (це не збій).
   let poolActive=false;
   // «Лише ці напрямки»: чат, для якого сьогодні немає оголошення свого напряму, у партію не йде й не вважається збоєм: окрема група з назвою напряму.
-  const markNoDirection=(chat:{id:string})=>{
+  const markNoDirection=(chat:{id:string},chosen?:string[],explain?:string)=>{
     const rules=rulesById.get(chat.id);
-    plan.buckets[chat.id]='nodirection';
-    plan.nodirection=(plan.nodirection||0)+1;
-    plan.reasons[chat.id]={code:null,observed:null,next:null,directions:rules?.directions??[]};
+    plan.buckets[chat.id]='noad';
+    plan.noad=(plan.noad||0)+1;
+    plan.reasons[chat.id]={code:null,observed:null,next:null,directions:rules?.directions??[],...(chosen?{chosen}:{}),...(explain?{explain}:{})};
     ready.splice(ready.findIndex(entry=>entry.id===chat.id),1);
   };
   const strictReady=()=>ready.filter(chat=>{const rules=rulesById.get(chat.id);return Boolean(rules?.strict&&!rules.pinned.length);});
+  const libraryActive=await libraryModeOn(db,userId,platform);
   if(telegram){
     const state=await readPoolState(db,userId,date);
     const saved=await readSavedSource(db,userId);
@@ -727,8 +778,36 @@ export async function readAutopostPlan(db:D1Database,userId:string,platformInput
       }
     }
   }
+  // «Оголошення з Бібліотеки»: чат у партії лише якщо серед обраних є оголошення, що йому підходить (`adFitsChat`); решта — «Немає підходящого оголошення».
+  let libraryAssigned:Map<string,{ad:LibraryAd;language:'uk'|'ru';text:string}>|null=null;
+  if(libraryActive){
+    const ids=await readSelectedAdIds(db,userId);
+    const all=await readLibraryAds(db,userId,platform);
+    const chosen=all.filter(ad=>ids.includes(ad.id));
+    const fitChats=ready.filter(chat=>!rulesById.get(chat.id)?.pinned.length);
+    const fits=new Map<string,number>();
+    for(const ad of all){
+      let count=0;
+      for(const chat of fitChats){const rules=rulesById.get(chat.id);if(adFitsChat(ad,{directions:rules?.directions??[],strict:Boolean(rules?.strict)}))count+=1;}
+      fits.set(ad.id,count);
+    }
+    plan.library={selected:chosen.map(ad=>ad.id),needSelection:chosen.length===0,ads:all.map(ad=>({id:ad.id,title:ad.title,directions:ad.directions,scope:ad.scope,image:Boolean(ad.imageKey),imageKey:ad.imageKey,fits:fits.get(ad.id)??0}))};
+    if(chosen.length){
+      // Чи підходить чату хоч одне оголошення, від історії публікацій не залежить; її (≈ публікації чатів за 14 днів) читаємо лише коли від вибору залежить довжина
+      // підпису до фото в Telegram: оголошення з фото й текстом понад 1024 символи.
+      const needLast=telegram&&chosen.some(ad=>Boolean(ad.imageKey)&&Math.max(textLength(ad.ukText),textLength(ad.ruText))>TELEGRAM_PHOTO_CAPTION_LIMIT);
+      const last=needLast?await readAdLastPublished(db,userId,fitChats.map(chat=>chat.id),chosen.map(ad=>ad.id),date):new Map<string,Map<string,string>>();
+      const result=assignLibraryAds(fitChats.map(chat=>adChat(chat.id,rulesById.get(chat.id),last.get(chat.id))),chosen);
+      libraryAssigned=result.assigned;
+      for(const id of result.none){
+        const chat=ready.find(entry=>entry.id===id);
+        const rules=rulesById.get(id)??parseRules(null);
+        if(chat)markNoDirection(chat,chosen.map(ad=>ad.title),noAdReason(rules,chosen));
+      }
+    }
+  }
   // Власний матеріал чи Бібліотека (WhatsApp, Viber, Telegram без пулу): свій напрям має власний текст або оголошення Бібліотеки з тегом цього напряму.
-  if(!poolActive){
+  if(!poolActive&&!libraryActive){
     const strictChats=strictReady();
     if(strictChats.length){
       const own=await readWhatsAppAutopostCaption(db,userId,telegram?'telegram':'shared');
@@ -745,7 +824,19 @@ export async function readAutopostPlan(db:D1Database,userId:string,platformInput
     }
   }
   // Telegram із фото: текст Бібліотеки довший за 1024 символи не влізе в підпис, такі чати до запуску виходять із «Готових».
-  if(telegram&&!poolActive&&ready.length&&await hasWhatsAppAutopostImage(db,userId,'telegram')&&!(await readWhatsAppAutopostCaption(db,userId,'telegram'))?.text){
+  if(telegram&&libraryAssigned){
+    // Режим Бібліотеки: фото в Telegram лише власне фото оголошення; з фото підпис до 1024 символів, інакше чат у партію не йде.
+    const tooLong:Array<{id:string;name:string;length:number}>=[];
+    for(const chat of ready.slice()){
+      const picked=libraryAssigned.get(chat.id);
+      if(!picked||!picked.ad.imageKey||rulesById.get(chat.id)?.noPhoto)continue;
+      const length=textLength(picked.text);
+      if(length>TELEGRAM_PHOTO_CAPTION_LIMIT){tooLong.push({id:chat.id,name:chat.name,length});plan.buckets[chat.id]='toolong';ready.splice(ready.findIndex(entry=>entry.id===chat.id),1);}
+    }
+    plan.tooLong=tooLong.length;
+    plan.tooLongChats=tooLong.slice(0,100);
+  }
+  if(telegram&&!poolActive&&!libraryActive&&ready.length&&await hasWhatsAppAutopostImage(db,userId,'telegram')&&!(await readWhatsAppAutopostCaption(db,userId,'telegram'))?.text){
     const [ads,profiles]=await Promise.all([
       db.prepare(`SELECT id,title,uk_text,ru_text,notes,tags_json,platforms_json,updated_at FROM library_items
         WHERE user_id=?1 AND kind='advertisement' AND archived_at IS NULL ORDER BY updated_at DESC,title LIMIT 500`).bind(userId).all<PublicationAdvertisementRow>(),
@@ -794,6 +885,8 @@ export type AutopostBatchResult={
   reasons:Array<{code:string;count:number}>;
   /** Телеграм з пулом: чати, для яких на сьогодні не лишилось вільних текстів; вони чекають на завтра. */
   waiting?:number;
+  /** Режим Бібліотеки: чати, для яких серед обраних немає підходящого оголошення (не збій, у партію не йдуть). */
+  noad?:number;
   /** Партію обмежено розміром, а придатні чати ще лишились: запуск повторюється. */
   more:boolean;
   jobs:WhatsAppAutopostJob[];
@@ -856,8 +949,12 @@ export async function createWhatsAppAutopostBatch(
   const platform=cleanAutopostPlatform(input.platform);
   const telegramAccountId=platform==='telegram'&&typeof input.telegramAccountId==='string'?input.telegramAccountId:null;
   if(platform==='telegram'&&!telegramAccountId)throw new MessengerAutomationError('Вибери активний Telegram-акаунт.',409,'account_missing');
+  // Режим «Оголошення з Бібліотеки»: оголошення обрані, фото в них своє (без фото йде лише текст); решта режимів — як було.
+  const libraryMode=await libraryModeOn(db,userId,platform);
+  const chosenAds=libraryMode?await readChosenAds(db,userId,platform):[];
+  if(libraryMode&&!chosenAds.length)throw new MessengerAutomationError('Обери хоча б одне оголошення.',409,'ads_not_selected');
   // Фото для обох платформ одне, його додають на вкладці автопоста WhatsApp: без нього Viber нічого не відправить.
-  if(platform==='viber'&&!await readWhatsAppAutopostImage(db,userId))
+  if(platform==='viber'&&!libraryMode&&!await readWhatsAppAutopostImage(db,userId))
     throw new MessengerAutomationError('Для автопосту Viber спершу додай фото на вкладці «Автопост» у WhatsApp.',409,'image_missing');
   const rawLimit=Number(input.limit);
   const limit=Number.isSafeInteger(rawLimit)?Math.max(1,Math.min(AUTOPOST_BATCH_MAX,rawLimit)):AUTOPOST_BATCH_DEFAULT;
@@ -880,7 +977,7 @@ export async function createWhatsAppAutopostBatch(
   let pool:{assigned:Map<string,PoolAssignment>;free:number}|'off'='off';
   let waiting=0;
   // Власний матеріал (вибір власника): пул не читається й не витрачається, усі чати йдуть із власним фото й текстом чи з Бібліотеки.
-  if(platform==='telegram'&&(await readSavedSource(db,userId))!=='own'){
+  if(platform==='telegram'&&!libraryMode&&(await readSavedSource(db,userId))!=='own'){
     const state=await readPoolState(db,userId,date);
     if(state.active){
       const forced=new Map<string,string>();
@@ -891,6 +988,16 @@ export async function createWhatsAppAutopostBatch(
       const resolved=await resolvePoolAssignments(db,userId,windowIds,date,{state,forced});
       pool={assigned:resolved.assigned,free:resolved.free};
     }
+  }
+  // Режим Бібліотеки: оголошення розподіляються за всією партією одразу (той самий розподіл, що в перегляді); закріплене в профілі сильніше.
+  let libraryAssigned:Map<string,{ad:LibraryAd;language:'uk'|'ru';text:string}>|null=null;
+  const libraryWindow=new Set<string>();
+  let noad=0;
+  if(libraryMode){
+    const window=candidateList.slice(0,Math.min(limit,AUTOPOST_BATCH_SCAN_MAX)).filter(row=>(platform!=='telegram'||row.forum!==null)&&!(batchRules.get(row.id)?.pinned.length));
+    for(const row of window)libraryWindow.add(row.id);
+    const last=await readAdLastPublished(db,userId,window.map(row=>row.id),chosenAds.map(ad=>ad.id),date);
+    libraryAssigned=assignLibraryAds(window.map(row=>adChat(row.id,batchRules.get(row.id),last.get(row.id))),chosenAds).assigned;
   }
   const batchId=crypto.randomUUID();
   const jobs:WhatsAppAutopostJob[]=[];
@@ -917,6 +1024,12 @@ export async function createWhatsAppAutopostBatch(
         // Чат, якого не було в розкладці (поза вікном партії) або якому тексту не вистачило, добирає вільний текст по одному; якщо їх уже немає, чекає на завтра.
         else if(pool.free===0){waiting+=1;continue;}
       }
+      let libraryInput:{choice:LibraryChoice}|'off'|undefined=libraryMode?undefined:'off';
+      if(libraryMode&&!pinned&&libraryAssigned){
+        const picked=libraryAssigned.get(row.id);
+        if(picked)libraryInput={choice:libraryChoiceOf(picked)};
+        else if(libraryWindow.has(row.id)){noad+=1;continue;}
+      }
       jobs.push(await createWhatsAppAutopostJob(db,userId,{
         requestKey:`${batchKeyPrefix(platform,batchId)}${crypto.randomUUID()}`,
         chatId:row.id,
@@ -925,10 +1038,12 @@ export async function createWhatsAppAutopostBatch(
         telegramAccountId,
         telegramHasPhoto,
         pool:poolInput,
+        library:libraryInput,
       },now,date));
     }catch(error){
       if(error instanceof MessengerAutomationError&&[404,409].includes(error.status)){
         if(error.code==='pool_empty'){waiting+=1;continue;}
+        if(error.code==='no_ad'){noad+=1;continue;}
         skipped+=1;
         reasons.set(error.code,(reasons.get(error.code)||0)+1);
         continue;
@@ -938,7 +1053,7 @@ export async function createWhatsAppAutopostBatch(
   }
   // «Ще є чати» — без окремого запиту: у списку лишились кандидати, яких партія не взяла.
   const more=jobs.length>=limit&&candidateList.length>consumed;
-  return {created:jobs.length,scanning,skipped,...(pool!=='off'?{waiting}:{}),reasons:[...reasons].map(([code,count])=>({code,count})),more,jobs,batchId};
+  return {created:jobs.length,scanning,skipped,...(pool!=='off'?{waiting}:{}),...(libraryMode?{noad}:{}),reasons:[...reasons].map(([code,count])=>({code,count})),more,jobs,batchId};
 }
 
 export type PoolPreview={
@@ -951,12 +1066,14 @@ export type PoolPreview={
   waiting:string[];
   /** Вільні тексти, не призначені жодному чату партії: з них власник вибирає інший текст для чату («Змінити»). */
   options:Array<{id:string;snippet:string;label:string;direction:string}>;
+  /** `library` — режим «Оголошення з Бібліотеки»: біля чату назва оголошення, «Змінити» немає; `noad` — чати без підходящого оголошення. */
+  kind?:'library';noad?:string[];
 };
 /** Що піде в чати партії Telegram: той самий відбір і той самий підбір текстів, що й у запуску, але без створення задач. */
 export async function previewTelegramPool(db:D1Database,userId:string,input:{limit?:unknown;exclude?:unknown;telegramAccountId:string;texts?:unknown},now:number,date:string):Promise<PoolPreview>{
   const rawLimit=Number(input.limit);
   const limit=Number.isSafeInteger(rawLimit)?Math.max(1,Math.min(AUTOPOST_BATCH_MAX,rawLimit)):AUTOPOST_BATCH_DEFAULT;
-  if((await readSavedSource(db,userId))==='own')return {active:false,items:{},scan:[],waiting:[],options:[]};
+  { const saved=await readSavedSource(db,userId); if(saved==='own'||saved==='library')return {active:false,items:{},scan:[],waiting:[],options:[]}; }
   const state=await readPoolState(db,userId,date);
   if(!state.active)return {active:false,items:{},scan:[],waiting:[],options:[]};
   const excluded=JSON.stringify(Array.isArray(input.exclude)?input.exclude.filter((id):id is string=>typeof id==='string'&&id.length>0&&id.length<=100).slice(0,200):[]);
@@ -977,6 +1094,28 @@ export async function previewTelegramPool(db:D1Database,userId:string,input:{lim
     .filter(item=>!state.taken.has(item.id)&&!assignedIds.has(item.id)&&(!item.until||item.until>=date))
     .map(item=>({id:item.id,snippet:poolSnippet(item.text,64),label:[item.direction||'Без напряму',AUDIENCE_LABEL[item.audience],languageLabel(item.language)].join(' · '),direction:item.direction}));
   return {active:true,items,scan:candidates.filter(row=>row.forum===null).map(row=>row.id),waiting:resolved.waiting,options};
+}
+
+/** Що піде в чати партії в режимі «Оголошення з Бібліотеки» (будь-яка платформа): той самий відбір і розподіл, що й у запуску, але без створення задач. */
+export async function previewLibraryAds(db:D1Database,userId:string,input:{platform:unknown;limit?:unknown;exclude?:unknown;telegramAccountId?:string|null},now:number,date:string):Promise<PoolPreview>{
+  const platform=cleanAutopostPlatform(input.platform);
+  const empty:PoolPreview={active:false,items:{},scan:[],waiting:[],options:[]};
+  if(!await libraryModeOn(db,userId,platform))return empty;
+  const ads=await readChosenAds(db,userId,platform);
+  if(!ads.length)return empty;
+  const rawLimit=Number(input.limit);
+  const limit=Number.isSafeInteger(rawLimit)?Math.max(1,Math.min(AUTOPOST_BATCH_MAX,rawLimit)):AUTOPOST_BATCH_DEFAULT;
+  const excluded=JSON.stringify(Array.isArray(input.exclude)?input.exclude.filter((id):id is string=>typeof id==='string'&&id.length>0&&id.length<=100).slice(0,200):[]);
+  const candidates=(await readBatchCandidates(db,userId,platform,platform==='telegram'?input.telegramAccountId??null:null,now,date,excluded)).slice(0,Math.min(limit,AUTOPOST_BATCH_SCAN_MAX));
+  const rules=await readChatRulesMany(db,candidates.map(row=>row.id));
+  const window=candidates.filter(row=>(platform!=='telegram'||row.forum!==null)&&!(rules.get(row.id)?.pinned.length));
+  const last=await readAdLastPublished(db,userId,window.map(row=>row.id),ads.map(ad=>ad.id),date);
+  const result=assignLibraryAds(window.map(row=>adChat(row.id,rules.get(row.id),last.get(row.id))),ads);
+  const items:PoolPreview['items']={};
+  for(const [chatId,pick] of result.assigned){
+    items[chatId]={adId:pick.ad.id,snippet:pick.ad.title,label:[pick.ad.directions.join(', ')||'Без напряму',pick.ad.scope==='exclusive'?'лише свій напрям':'широке',languageLabel(pick.language)].join(' · '),note:null,forced:false,directions:rules.get(chatId)?.directions??[]};
+  }
+  return {active:true,kind:'library',items,scan:platform==='telegram'?candidates.filter(row=>row.forum===null).map(row=>row.id):[],waiting:[],options:[],noad:result.none};
 }
 
 export async function readLatestWhatsAppAutopostJob(db:D1Database,userId:string):Promise<WhatsAppAutopostJob|null>{
@@ -1215,9 +1354,9 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
         safety:{createsPublication:'after_confirmed_send',requiresTargetVerification:true,requiresSendConfirmation:true},
       };
     }
-    const material=await db.prepare(`SELECT version,uk_text,ru_text,archived_at FROM library_items
+    const material=await db.prepare(`SELECT version,uk_text,ru_text,archived_at,image_key FROM library_items
       WHERE id=?1 AND user_id=?2 AND kind='advertisement' LIMIT 1`)
-      .bind(row.advertisement_id,userId).first<{version:number;uk_text:string;ru_text:string;archived_at:number|null}>();
+      .bind(row.advertisement_id,userId).first<{version:number;uk_text:string;ru_text:string;archived_at:number|null;image_key:string|null}>();
     const publication=await db.prepare(`SELECT id FROM chat_publications
       WHERE user_id=?1 AND chat_id=?2 AND published_on=?3 LIMIT 1`).bind(userId,row.chat_id,row.published_on).first<{id:string}>();
     const discovery=await db.prepare(`SELECT decision FROM chat_discovery_candidates
@@ -1227,7 +1366,11 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
     // (пул міг бути замінений уже після створення задачі, текст у задачі все одно власника).
     const poolMaterial=isPoolId(row.advertisement_id);
     const customMaterial=isCustomAutopostMaterial(userId,row.advertisement_id)||poolMaterial;
-    const selection=chat ? await readPublicationAdvertisementSelection(db,{userId,chatId:row.chat_id,date:row.published_on,excludeAutomationJobId:row.id,withItems:!customMaterial}) : null;
+    // Режим «Оголошення з Бібліотеки»: оголошення підібрав розподіл партії за обраними, тож «придатність» за рангом старого вибору тут не перевіряється,
+    // а фото береться з самого оголошення (без фото йде лише текст).
+    const earlyPlatform:AutopostPlatform|null=chat&&(chat.platform==='whatsapp'||chat.platform==='viber'||chat.platform==='telegram')?chat.platform:null;
+    const claimLibrary=!customMaterial&&Boolean(earlyPlatform)&&await libraryModeOn(db,userId,earlyPlatform as AutopostPlatform);
+    const selection=chat ? await readPublicationAdvertisementSelection(db,{userId,chatId:row.chat_id,date:row.published_on,excludeAutomationJobId:row.id,withItems:!customMaterial&&!claimLibrary}) : null;
     const selected=selection?.items.find(item=>item.id===row.advertisement_id);
     const platform:AutopostPlatform|null=chat&&(chat.platform==='whatsapp'||chat.platform==='viber'||chat.platform==='telegram')?chat.platform:null;
     let telegramProblem='';
@@ -1241,7 +1384,7 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
     // «Без фото» у профілі чату (правило власника або технічна заборона медіа): задача завжди текстова, на всіх платформах.
     const chatRules=await readChatRules(db,row.chat_id);
     // Telegram: фото могли додати після створення задачі, а підпис до фото не довший за 1024 символи (текст пулу довший йде без фото).
-    if(platform==='telegram'&&!chatRules.noPhoto&&!poolMaterial&&row.payload_text.trim()&&textLength(row.payload_text)>TELEGRAM_PHOTO_CAPTION_LIMIT&&!row.request_key.startsWith('verify_')&&!row.request_key.startsWith(NO_PHOTO_KEY)&&await hasWhatsAppAutopostImage(db,userId,'telegram')){
+    if(platform==='telegram'&&!chatRules.noPhoto&&!poolMaterial&&row.payload_text.trim()&&textLength(row.payload_text)>TELEGRAM_PHOTO_CAPTION_LIMIT&&!row.request_key.startsWith('verify_')&&!row.request_key.startsWith(NO_PHOTO_KEY)&&(claimLibrary?Boolean(material?.image_key):await hasWhatsAppAutopostImage(db,userId,'telegram'))){
       onSkip?.(row,'caption_too_long');
       await failWhatsAppAutopostJob(db,userId,row,'caption_too_long',now);
       continue;
@@ -1257,7 +1400,7 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
       &&!publication&&(!discovery||discovery.decision==='target')&&material
       &&(customMaterial||!material.archived_at)
       &&(customMaterial||Number(material.version)===Number(row.advertisement_version))
-      &&selection?.publicationAllowed&&(customMaterial||selected?.selectable)
+      &&selection?.publicationAllowed&&(customMaterial||claimLibrary||selected?.selectable)
       &&row.payload_text.trim().length>0
     );
     if(!valid){
@@ -1265,7 +1408,7 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
         :chat.state_token!==row.chat_state_token?'chat_changed':publication?'already_published'
         :discovery&&discovery.decision!=='target'?'discovery_decision':!material?'material_missing'
         :!customMaterial&&material.archived_at?'material_archived':!customMaterial&&Number(material.version)!==Number(row.advertisement_version)?'material_version'
-        :!selection?.publicationAllowed?'publication_not_allowed':!customMaterial&&!selected?.selectable?'material_not_selectable':'empty_text');
+        :!selection?.publicationAllowed?'publication_not_allowed':!customMaterial&&!claimLibrary&&!selected?.selectable?'material_not_selectable':'empty_text');
       await failWhatsAppAutopostJob(db,userId,row,'stale_precondition',now);
       continue;
     }
@@ -1299,7 +1442,7 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
     // Текст пулу довший за підпис до фото (1024) іде в Telegram повідомленням без фото.
     // «Без фото» (рішення власника зі списку «Потребують рішення»): лише цей раз, налаштування фото не змінюються.
     const withoutPhoto=chatRules.noPhoto||row.request_key.startsWith(NO_PHOTO_KEY)||(poolMaterial&&textLength(row.payload_text)>TELEGRAM_PHOTO_CAPTION_LIMIT);
-    const image=verifyMode||withoutPhoto?null:await readWhatsAppAutopostImage(db,userId,true,platform==='telegram'?'telegram':'shared');
+    const image=verifyMode||withoutPhoto?null:claimLibrary?(material?.image_key?await readStoredImage(db,userId,adImageSettingKey(row.advertisement_id),true):null):await readWhatsAppAutopostImage(db,userId,true,platform==='telegram'?'telegram':'shared');
     let telegram:WhatsAppAutopostTask['telegram']|undefined;
     if(platform==='telegram'&&chat?.telegram_account_id){
       const [account,thread]=await Promise.all([readTelegramAutopostAccount(db,userId,chat.telegram_account_id),readTelegramThreadState(db,userId,row.chat_id)]);
@@ -1322,7 +1465,7 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
         language:row.language,text:row.payload_text,
         media:image?{fileName:image.fileName,contentType:image.contentType,sizeBytes:image.sizeBytes,sha256:image.sha256,base64:image.base64}:null,
         // Правило чату «без фото»: адаптер Viber лише тоді відправляє текст без вкладення (без прапорця відсутнє фото лишається збоєм `image_missing`).
-        ...(chatRules.noPhoto?{textOnly:true}:{}),
+        ...(chatRules.noPhoto||(claimLibrary&&!image&&!verifyMode)?{textOnly:true}:{}),
       },
       publishedOn:row.published_on,
       ...(telegram?{telegram}:{}),

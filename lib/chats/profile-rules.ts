@@ -14,11 +14,13 @@ export type ChatRules = {
   noPhoto: boolean;
   /** «Без фото» поставив автопост, коли побачив технічну заборону медіа. */
   noPhotoAuto: boolean;
+  /** Мова профілю чату: за нею з обраного оголошення береться UA чи RU текст. */
+  language: 'uk' | 'ru' | null;
 };
 
-export const NO_RULES: ChatRules = { directions: [], strict: false, pinned: [], noPhoto: false, noPhotoAuto: false };
+export const NO_RULES: ChatRules = { directions: [], strict: false, pinned: [], noPhoto: false, noPhotoAuto: false, language: null };
 
-type RulesRow = { directions_json?: string | null; directions_strict?: number | null; pinned_ads_json?: string | null; no_photo?: number | null; no_photo_auto?: number | null };
+type RulesRow = { directions_json?: string | null; directions_strict?: number | null; pinned_ads_json?: string | null; no_photo?: number | null; no_photo_auto?: number | null; language?: string | null };
 
 function strings(value: string | null | undefined): string[] {
   try {
@@ -36,12 +38,13 @@ export function parseRules(row: RulesRow | null | undefined): ChatRules {
     pinned: [...new Set(strings(row.pinned_ads_json))],
     noPhoto: Number(row.no_photo) === 1,
     noPhotoAuto: Number(row.no_photo_auto) === 1,
+    language: row.language === 'ru' ? 'ru' : row.language === 'uk' ? 'uk' : null,
   };
 }
 
 /** Правила одного чату (за первинним ключем профілю). */
 export async function readChatRules(db: D1Database, chatId: string): Promise<ChatRules> {
-  const row = await db.prepare(`SELECT directions_json,directions_strict,pinned_ads_json,no_photo,no_photo_auto FROM chat_profiles WHERE chat_id=?1 LIMIT 1`).bind(chatId).first<RulesRow>();
+  const row = await db.prepare(`SELECT directions_json,directions_strict,pinned_ads_json,no_photo,no_photo_auto,language FROM chat_profiles WHERE chat_id=?1 LIMIT 1`).bind(chatId).first<RulesRow>();
   return parseRules(row);
 }
 
@@ -49,7 +52,7 @@ export async function readChatRules(db: D1Database, chatId: string): Promise<Cha
 export async function readChatRulesMany(db: D1Database, chatIds: readonly string[]): Promise<Map<string, ChatRules>> {
   const result = new Map<string, ChatRules>();
   if (!chatIds.length) return result;
-  const rows = await db.prepare(`SELECT p.chat_id AS chat_id,p.directions_json AS directions_json,p.directions_strict AS directions_strict,p.pinned_ads_json AS pinned_ads_json,p.no_photo AS no_photo,p.no_photo_auto AS no_photo_auto
+  const rows = await db.prepare(`SELECT p.chat_id AS chat_id,p.directions_json AS directions_json,p.directions_strict AS directions_strict,p.pinned_ads_json AS pinned_ads_json,p.no_photo AS no_photo,p.no_photo_auto AS no_photo_auto,p.language AS language
     FROM json_each(?1) e CROSS JOIN chat_profiles p ON p.chat_id=e.value`).bind(JSON.stringify(chatIds)).all<RulesRow & { chat_id: string }>();
   for (const row of rows.results || []) result.set(row.chat_id, parseRules(row));
   return result;

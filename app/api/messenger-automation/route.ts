@@ -19,6 +19,7 @@ import {
   readActiveTelegramScanJobId,
   createWhatsAppAutopostJob,
   previewTelegramPool,
+  previewLibraryAds,
   readAutopostPlan,
   readLatestViberSafeNoteJob,
   readLatestWhatsAppAutopostJob,
@@ -29,6 +30,7 @@ import {
 import { SNOOZE_CHOICES, skipChatUntilTomorrow, tomorrowStart, readAutopostAttention, resolveAutopostDecision, resolveAutopostDecisions, snoozeDeadlineDays, type AutopostDecision } from '@/lib/messenger-automation-outcome';
 import { readActivePool, readPoolForUi, savePool } from '@/lib/telegram-pool/store';
 import { ownMaterialAvailable, saveSource } from '@/lib/telegram-pool/source';
+import { readLibraryAds, saveSelectedAdIds, saveSharedSource } from '@/lib/autopost-ads';
 import { TelegramAutopostError, bindTelegramWebAccount, chooseTelegramThread, countTelegramThreadChoices, readTelegramThreadState, unbindTelegramWebAccount } from '@/lib/telegram-autopost';
 import { resolveTelegramAccount } from '@/lib/chats/telegram-account';
 import { deleteWhatsAppAutopostImage, publicWhatsAppAutopostImage, readWhatsAppAutopostImage, saveWhatsAppAutopostImage } from '@/lib/whatsapp-autopost-media';
@@ -257,12 +259,35 @@ export async function POST(request:Request):Promise<Response>{
     }
     // Що публікувати в Telegram: пул оголошень чи власне фото й текст. Режим один для всіх акаунтів; недоступний, коли в обраного режиму немає матеріалу.
     if(body.action==='telegram-source'){
-      const mode=body.mode==='own'?'own':body.mode==='pool'?'pool':null;
+      const mode=body.mode==='own'?'own':body.mode==='pool'?'pool':body.mode==='library'?'library':null;
       if(!mode)throw new MessengerAutomationError('Невідомий режим.');
       if(mode==='pool'&&(await readActivePool(env.DB,user.id)).length===0)throw new MessengerAutomationError('Пул оголошень порожній: спершу встав список.',409,'pool_empty');
       if(mode==='own'&&!await ownMaterialAvailable(env.DB,user.id,Boolean((await readWhatsAppAutopostCaption(env.DB,user.id,'telegram'))?.text)))throw new MessengerAutomationError('Немає власного тексту й оголошень у Бібліотеці: спершу додай текст.',409,'own_empty');
       await saveSource(env.DB,user.id,mode,now);
       return json({ok:true,mode});
+    }
+    // Що публікувати у Viber і WhatsApp: оголошення Бібліотеки чи власне фото й текст (режим спільний для двох платформ). Порожній вибір режиму не забороняє: запуск партії пояснить.
+    if(body.action==='autopost-source'){
+      const mode=body.mode==='library'?'library':body.mode==='own'?'own':null;
+      if(!mode)throw new MessengerAutomationError('Невідомий режим.');
+      await saveSharedSource(env.DB,user.id,mode,now);
+      return json({ok:true,mode});
+    }
+    // Спільний вибір оголошень Бібліотеки для Viber, WhatsApp і Telegram: лише наявні неархівні оголошення, до 100.
+    if(body.action==='autopost-ads-save'){
+      const wanted=Array.isArray(body.ids)?body.ids.filter((id:unknown):id is string=>typeof id==='string'&&id.length>0&&id.length<=100):[];
+      const known=new Set<string>();
+      for(const platform of ['whatsapp','viber','telegram'] as const)for(const ad of await readLibraryAds(env.DB,user.id,platform))known.add(ad.id);
+      const ids=[...new Set(wanted)].filter(id=>known.has(id)).slice(0,100);
+      await saveSelectedAdIds(env.DB,user.id,ids,now);
+      return json({ok:true,ids});
+    }
+    // Що піде в чати партії в режимі Бібліотеки (будь-яка платформа): те саме відбір і розподіл, що в запуску; нічого не створює.
+    if(body.action==='autopost-library-preview'){
+      const platform=cleanAutopostPlatform(body.platform);
+      const accountId=platform==='telegram'?await resolveTelegramAccount(env.DB,user.id,typeof body.accountId==='string'?body.accountId:null,now):null;
+      if(platform==='telegram'&&!accountId)throw new MessengerAutomationError('Додай або увімкни Telegram-акаунт.',409,'account_missing');
+      return json({preview:await previewLibraryAds(env.DB,user.id,{platform,limit:body.limit,exclude:body.exclude,telegramAccountId:accountId},now,businessDate(now))});
     }
     // Що піде в чати партії Telegram і який текст кожному підібрано: перегляд до запуску, нічого не створює.
     if(body.action==='telegram-pool-preview'){

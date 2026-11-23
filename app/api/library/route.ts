@@ -21,6 +21,7 @@ import { readJsonObject, sameOrigin } from '@/lib/http-json';
 import { TEMPLATE_SCRIPTS } from '@/lib/script-fields';
 import { subjectSearchVariants } from '@/lib/subjects';
 import { businessDate } from '@/lib/business-time';
+import { adDirectionsFromTags, cleanAdScope, readDictionaryDirections } from '@/lib/autopost-ads';
 import { revisionCacheRequest, matchRevisionJson, putRevisionJson } from '@/lib/revision-cache';
 import { normalizeUnicodeSearchText, unicodeSearchMatchesAny } from '@/lib/unicode-search';
 
@@ -48,7 +49,7 @@ export async function GET(request: Request): Promise<Response> {
   const rowLimit=kind==='script'||collection==='official_script'||collection==='personal_script'||collection==='knowledge'?600:200;
   const libraryLimit=normalizedSearch?'':` LIMIT ${rowLimit}`;
   const [itemsResult,usageResult,orderResult] = await env.DB.batch([
-    env.DB.prepare(`SELECT id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,stage,branch,origin_id,template_key,archived_at,created_at,updated_at
+    env.DB.prepare(`SELECT id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,stage,branch,origin_id,template_key,scope,image_key,archived_at,created_at,updated_at
       FROM library_items WHERE user_id=?1
         AND ((?2=0 AND archived_at IS NULL) OR (?2=1 AND archived_at IS NOT NULL))
         AND (?3='' OR collection=?3)
@@ -169,6 +170,10 @@ export async function POST(request: Request): Promise<Response> {
   const platforms = kind === 'advertisement' ? cleanLibraryPlatforms(body.platforms) : cleanLibraryList(body.platforms);
   if (kind === 'advertisement' && platforms.length === 0)
     return Response.json({ error: 'Оберіть хоча б одну платформу для оголошення.' }, { status: 400 });
+  // «Охоплення» оголошення: «Лише свій напрям» вимагає хоча б одного напряму (тега з довідника «Напрямки»), інакше оголошення нікуди б не йшло.
+  const scope = kind === 'advertisement' ? cleanAdScope(body.scope) : 'wide';
+  if (scope === 'exclusive' && adDirectionsFromTags(tags, await readDictionaryDirections(env.DB, user.id)).length === 0)
+    return Response.json({ error: 'Для охоплення «Лише свій напрям» додай хоча б один напрямок.' }, { status: 400 });
   const stage = kind === 'script' ? cleanLibraryStage(body.stage) : null;
   const branch = kind === 'script' ? cleanLibraryBranch(body.branch) : '';
   const itemId = id || crypto.randomUUID();
@@ -178,9 +183,9 @@ export async function POST(request: Request): Promise<Response> {
     if (!expectedVersion) return Response.json({ error: 'Оновіть бібліотеку перед редагуванням.' }, { status: 409 });
     const nextVersion = expectedVersion + 1;
     const results = await env.DB.batch([
-      env.DB.prepare(`UPDATE library_items SET kind=?1,collection=?2,title=?3,uk_text=?4,ru_text=?5,notes=?6,tags_json=?7,platforms_json=?8,stage=?13,branch=?14,updated_at=?9,version=version+1
+      env.DB.prepare(`UPDATE library_items SET kind=?1,collection=?2,title=?3,uk_text=?4,ru_text=?5,notes=?6,tags_json=?7,platforms_json=?8,stage=?13,branch=?14,scope=?15,updated_at=?9,version=version+1
         WHERE id=?10 AND user_id=?11 AND version=?12 AND archived_at IS NULL`)
-        .bind(kind,requestedCollection,title,ukText,ruText,notes,JSON.stringify(tags),JSON.stringify(platforms),now,id,user.id,expectedVersion,stage,branch),
+        .bind(kind,requestedCollection,title,ukText,ruText,notes,JSON.stringify(tags),JSON.stringify(platforms),now,id,user.id,expectedVersion,stage,branch,scope),
       libraryVersionStatement(env.DB,{userId:user.id,itemId:id,action:'update',expectedVersion:nextVersion,savedAt:now}),
     ]);
     if (!results[0].meta.changes) return Response.json({ error: 'Матеріал уже змінився. Оновіть бібліотеку.' }, { status: 409 });
@@ -188,17 +193,17 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const results = await env.DB.batch([
-    env.DB.prepare(`INSERT INTO library_items (id,user_id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,stage,branch,created_at,updated_at)
-      VALUES (?1,?2,?3,?4,1,?5,?6,?7,?8,?9,?10,?12,?13,?11,?11)`)
-      .bind(itemId,user.id,kind,requestedCollection,title,ukText,ruText,notes,JSON.stringify(tags),JSON.stringify(platforms),now,stage,branch),
+    env.DB.prepare(`INSERT INTO library_items (id,user_id,kind,collection,version,title,uk_text,ru_text,notes,tags_json,platforms_json,stage,branch,scope,created_at,updated_at)
+      VALUES (?1,?2,?3,?4,1,?5,?6,?7,?8,?9,?10,?12,?13,?14,?11,?11)`)
+      .bind(itemId,user.id,kind,requestedCollection,title,ukText,ruText,notes,JSON.stringify(tags),JSON.stringify(platforms),now,stage,branch,scope),
     libraryVersionStatement(env.DB,{userId:user.id,itemId:itemId,action:'create',expectedVersion:1,savedAt:now}),
   ]);
   if (!results[0].meta.changes) return Response.json({ error: 'Не вдалося створити матеріал.' }, { status: 409 });
   return Response.json({ ok: true, id: itemId, collection:requestedCollection,kind,version:1,updatedAt:now });
 }
 
-type LibraryRow = { id: string; kind: string; collection:string; version:number; title: string; uk_text: string; ru_text: string; notes: string; tags_json: string; platforms_json: string; stage:string|null; branch:string; origin_id:string|null; template_key:string|null; archived_at:number|null; created_at: number; updated_at: number };
-function publicItem(row: LibraryRow,usedTodayPlatforms:string[]) { return { id: row.id, kind: row.kind, collection:row.collection, version:Number(row.version), title: row.title, ukText: row.uk_text, ruText: row.ru_text, notes: row.notes, tags: parseList(row.tags_json), platforms: parseList(row.platforms_json), stage: row.stage, branch: row.branch||'', originId: row.origin_id, templateKey: row.template_key, usedTodayPlatforms, archivedAt:row.archived_at, createdAt: row.created_at, updatedAt: row.updated_at }; }
+type LibraryRow = { id: string; kind: string; collection:string; version:number; title: string; uk_text: string; ru_text: string; notes: string; tags_json: string; platforms_json: string; stage:string|null; branch:string; origin_id:string|null; template_key:string|null; scope:string|null; image_key:string|null; archived_at:number|null; created_at: number; updated_at: number };
+function publicItem(row: LibraryRow,usedTodayPlatforms:string[]) { return { id: row.id, kind: row.kind, collection:row.collection, version:Number(row.version), title: row.title, ukText: row.uk_text, ruText: row.ru_text, notes: row.notes, tags: parseList(row.tags_json), platforms: parseList(row.platforms_json), stage: row.stage, branch: row.branch||'', originId: row.origin_id, templateKey: row.template_key, scope: cleanAdScope(row.scope), imageKey: row.image_key || null, usedTodayPlatforms, archivedAt:row.archived_at, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function parseList(value: string): string[] { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []; } catch { return []; } }
 function positiveInteger(value:unknown){const number=Number(value);return Number.isSafeInteger(number)&&number>0?number:null;}
 

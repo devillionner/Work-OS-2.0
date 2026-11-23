@@ -1,7 +1,7 @@
 const MAX_BYTES = 700 * 1024;
 
 /** Стискає фото в браузері перед завантаженням: JPEG до 1600 px і приблизно 700 КБ; прозорість заливається білим. */
-export async function compressImage(file: File): Promise<Blob> {
+export async function compressImage(file: File, maxBytes: number = MAX_BYTES): Promise<Blob> {
   if (!file.type.startsWith('image/')) throw new Error('Обери зображення.');
   const url = URL.createObjectURL(file);
   try {
@@ -23,7 +23,7 @@ export async function compressImage(file: File): Promise<Blob> {
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
       for (const quality of [0.82, 0.7, 0.58]) {
         const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
-        if (blob && blob.size <= MAX_BYTES) return blob;
+        if (blob && blob.size <= maxBytes) return blob;
       }
     }
     throw new Error('Фото завелике навіть після стискання. Обери інше зображення.');

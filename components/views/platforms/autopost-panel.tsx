@@ -20,6 +20,7 @@ import type { ChatDupInfo } from '@/lib/chats/duplicates';
 import type { ThreadChoiceProfile } from '@/lib/telegram-autopost';
 import type { PoolPreview, PoolSummary } from '@/components/views/platforms/pool-types';
 import { PoolTextLine } from '@/components/views/platforms/pool-text-line';
+import { LibraryAdsPicker, type LibraryAdsPlan, type LibraryAdView } from '@/components/views/platforms/library-ads';
 
 /** План запуску з сервера: скільки чатів справді піде в партію й чому решта черги «Для публікації» не йде. */
 export type AutopostPlan = {
@@ -34,18 +35,20 @@ export type AutopostPlan = {
   /** Telegram: пул текстових оголошень і скільки готових чатів чекають на завтра, бо вільних текстів на сьогодні не лишилось. */
   pool?: PoolSummary; textWaiting?: number;
   /** Telegram: що публікується (пул чи власний матеріал) і чи є матеріал для кожного режиму. */
-  source?: { mode: 'pool' | 'own'; saved: 'pool' | 'own' | null; poolAvailable: boolean; poolTotal: number; ownAvailable: boolean };
+  source?: { mode: 'pool' | 'own' | 'library'; saved: 'pool' | 'own' | 'library' | null; poolAvailable: boolean; poolTotal: number; ownAvailable: boolean };
   /** Чати партії; `badges` — тихі позначки правил профілю («лише Малювання», «без фото», «закріплені оголошення · 2»). */
   chats: Array<{ id: string; name: string; badges?: string[] }>;
-  /** Чати з «Лише ці напрямки», для яких сьогодні немає оголошення свого напряму. */
-  nodirection?: number;
+  /** Чати, для яких сьогодні немає підходящого оголошення (за обраними чи за «Лише ці напрямки»): у партію не йдуть, це не збій. */
+  noad?: number;
+  /** Режим «Оголошення з Бібліотеки» (він увімкнений): вибір власника й усі оголошення платформи; `fits` — скільком готовим чатам цієї платформи оголошення підійде. */
+  library?: { selected: string[]; needSelection: boolean; ads: LibraryAdView[] };
   /** Кожен чат черги «Для публікації» рівно в одній групі (за цим розкладом лічаться чіпи, список зліва, «Огляд» і картка). */
   buckets: Record<string, AutopostBucket>;
-  reasons: Record<string, { code: string | null; observed: string | null; next: string | null; /** Для відкладених: чому й до коли. */ snooze?: SnoozeReason; /** Для «немає оголошення свого напряму»: напрями чату. */ directions?: string[] }>;
+  reasons: Record<string, { code: string | null; observed: string | null; next: string | null; /** Для відкладених: чому й до коли. */ snooze?: SnoozeReason; /** Для «немає підходящого оголошення»: напрями чату, назви обраних і готове пояснення. */ directions?: string[]; chosen?: string[]; explain?: string }>;
 };
 /** Чому чат відкладено (бере сервер за останньою відкладеною задачею чату). */
 export type SnoozeReason = { kind: 'restricted_until' | 'restricted' | 'quiet' | 'slow' | 'rate' | 'fresh' | 'manual'; until: number | null };
-export type AutopostBucket = 'ready' | 'decision' | 'tried' | 'published' | 'rules' | 'snoozed' | 'queued' | 'other' | 'thread' | 'schedule' | 'toolong' | 'text' | 'nodirection';
+export type AutopostBucket = 'ready' | 'decision' | 'tried' | 'published' | 'rules' | 'snoozed' | 'queued' | 'other' | 'thread' | 'schedule' | 'toolong' | 'text' | 'noad';
 export type TelegramThreadChoice = { chatId: string; name: string; /** Посилання на чат для «Відкрити». */ link?: string; /** Прохід гілок цього чату вже йде: рядок показує «Збираю гілки…». */ collecting?: boolean; /** Чат зі збоєм гілки: прохід ще не поставлено, сторінка ставить його сама. */ needsScan?: boolean; /** Пара дублікатів, якщо цей чат має копію. */ dup?: ChatDupInfo | null; topics: Array<{ id: string; title: string; closed: boolean }>; /** Коли runner востаннє бачив, що в чаті зараз не можна писати (нічний режим, права чату); null — можна. */ restrictedAt?: number | null; /** Токен стану й профіль чату: щоб зберегти напрями разом із гілкою, не втративши решту правил профілю (профілю немає — null). */ stateToken?: string | null; profile?: ThreadChoiceProfile | null };
 /** Підбір текстів пулу для «Переглянути чати партії» (Telegram): дані, завантаження й ручна заміна тексту лише для цього запуску. */
 export type PoolPreviewControls = { data: PoolPreview | null; loading: boolean; overrides: Record<string, string>; manual: Record<string, string>; load: (args: { limit: number; exclude: string[] }) => void; choose: (chatId: string, adId: string | null) => void };
@@ -60,8 +63,11 @@ export type AutopostMaterialProps = {
   onCopyFromShared?: () => void;
   /** Telegram: у пулі оголошень є тексти, тож власний текст — лише запасний, а чати отримують текст із пулу. */
   poolActive?: boolean;
-  /** Telegram: вибір «Пул оголошень · Власне фото й текст» у блоці «Що піде в чати». */
-  source?: { mode: 'pool' | 'own'; poolAvailable: boolean; ownAvailable: boolean; busy: boolean; onChange: (mode: 'pool' | 'own') => void; onOpenPool: () => void };
+  /**
+   * Вибір «що піде в чати» (3.20.0): Telegram — «Пул текстів · Оголошення Бібліотеки · Власне фото й текст», Viber і WhatsApp — «Оголошення з Бібліотеки · Власний текст і фото».
+   * `poolAvailable` задано лише в Telegram; `library` — вибір оголошень (є лише коли режим Бібліотеки увімкнено).
+   */
+  source?: { mode: 'pool' | 'own' | 'library'; poolAvailable?: boolean; ownAvailable: boolean; busy: boolean; onChange: (mode: 'pool' | 'own' | 'library') => void; onOpenPool?: () => void; library: LibraryAdsPlan | null; onSelectionSaved: () => void };
 };
 
 /** Ліміти Telegram: підпис до фото 1024 символи, текст без фото 4096. */
@@ -89,7 +95,7 @@ function formatBytes(bytes: number) {
 export function noReadyText(plan: AutopostPlan): string {
   if (plan.total === 0) return 'У черзі немає чатів цієї платформи.';
   if ((plan.textWaiting ?? 0) > 0) return `Готових немає: тексти на сьогодні закінчились, ${plan.textWaiting} ${chatWord(plan.textWaiting ?? 0)} ${(plan.textWaiting ?? 0) % 10 === 1 && (plan.textWaiting ?? 0) % 100 !== 11 ? 'чекає' : 'чекають'} на завтра. Додай нові оголошення в пул, щоб вони пішли сьогодні.`;
-  if ((plan.nodirection ?? 0) > 0) return `Готових немає: ${plan.nodirection} ${chatWord(plan.nodirection ?? 0)} — немає оголошення свого напряму (правило «Лише ці напрямки»).`;
+  if ((plan.noad ?? 0) > 0) return `Готових немає: ${plan.noad} ${chatWord(plan.noad ?? 0)} — немає підходящого оголошення (за напрямом чату чи правилом «Лише ці напрямки»).`;
   if (plan.decision > 0) return `Готових немає. ${plan.decision} ${chatWord(plan.decision)} ${plan.decision % 10 === 1 && plan.decision % 100 !== 11 ? 'чекає' : 'чекають'} твого рішення нижче.`;
   if ((plan.tooLong ?? 0) > 0) return `Готових немає: ${plan.tooLong} ${chatWord(plan.tooLong ?? 0)} — текст із Бібліотеки задовгий для підпису до фото (понад 1024 символи). Скороти оголошення або прибери фото.`;
   if (plan.queued > 0) return `Готових немає: ${plan.queued} ${chatWord(plan.queued)} уже в черзі автопосту.`;
@@ -123,12 +129,18 @@ function MaterialRow({ material, editing, onToggle, busy }: { material: Autopost
     <div className="flex flex-col gap-3">
       {source ? (
         <div className="flex flex-col gap-2">
-          <Segmented<'pool' | 'own'> label="Що публікувати в чати" size="sm" value={source.mode} onValueChange={(next) => { if (!source.busy && next !== source.mode) source.onChange(next); }}
-            items={[{ value: 'pool', label: 'Пул оголошень', disabled: !source.poolAvailable }, { value: 'own', label: 'Власне фото й текст', disabled: !source.ownAvailable }]} />
-          {!source.poolAvailable ? <p className="m-0 flex flex-wrap items-center gap-x-2 text-xs text-ink-2">Пул оголошень порожній, тож цей режим недоступний. <Button variant="ghost" size="sm" onClick={source.onOpenPool}>Вставити список</Button></p> : null}
+          <Segmented<'pool' | 'own' | 'library'> label="Що публікувати в чати" size="sm" value={source.mode} onValueChange={(next) => { if (!source.busy && next !== source.mode) source.onChange(next); }}
+            items={[
+              ...(source.poolAvailable !== undefined ? [{ value: 'pool' as const, label: 'Пул текстів', disabled: !source.poolAvailable }] : []),
+              { value: 'library' as const, label: telegram ? 'Оголошення Бібліотеки' : 'Оголошення з Бібліотеки' },
+              { value: 'own' as const, label: telegram ? 'Власне фото й текст' : 'Власний текст і фото', disabled: !source.ownAvailable },
+            ]} />
+          {source.poolAvailable === false ? <p className="m-0 flex flex-wrap items-center gap-x-2 text-xs text-ink-2">Пул текстів порожній, тож цей режим недоступний. <Button variant="ghost" size="sm" onClick={source.onOpenPool}>Вставити список</Button></p> : null}
           {!source.ownAvailable ? <p className="m-0 flex flex-wrap items-center gap-x-2 text-xs text-ink-2">Власного тексту немає, а в Бібліотеці немає оголошень для Telegram, тож цей режим недоступний. <Button variant="ghost" size="sm" onClick={() => { setWithText(true); if (!editing) onToggle(); }}>Змінити</Button></p> : null}
         </div>
       ) : null}
+      {source?.mode === 'library' ? (source.library ? <LibraryAdsPicker plan={source.library} busy={busy} onSaved={source.onSelectionSaved} /> : <p className="m-0 text-sm text-ink-2">Читаю оголошення Бібліотеки…</p>) : null}
+      {source?.mode === 'library' ? null : <>
       <div className="flex items-center gap-3 rounded-inner border border-line p-3">
         {image ? (
           <span aria-hidden="true" style={{ backgroundImage: `url(${thumb})` }} className="size-14 shrink-0 rounded-field border border-line bg-cover bg-center" />
@@ -189,6 +201,7 @@ function MaterialRow({ material, editing, onToggle, busy }: { material: Autopost
           ) : null}
         </div>
       ) : null}
+      </>}
     </div>
   );
 }
@@ -266,7 +279,7 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
   const cap = Math.min(readyCount, BATCH_CAP);
   const chosen = size === 'all' ? cap : Math.min(Number(size), readyCount);
   const going = (plan?.chats ?? []).filter((chat) => !removedNow.includes(chat.id)).slice(0, chosen);
-  const poolActive = Boolean(plan?.pool);
+  const poolActive = Boolean(plan?.pool) || Boolean(plan?.library);
   const previewLoad = poolPreview?.load;
   const removedKey = removedNow.join(',');
   // Підбір текстів рахується, лише поки список партії відкрито, і заново, коли змінилась партія.
@@ -274,11 +287,14 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
     if (poolActive && listOpen && previewLoad && chosen > 0) previewLoad({ limit: chosen, exclude: removedKey ? removedKey.split(',') : [] });
   }, [poolActive, listOpen, previewLoad, chosen, removedKey, plan?.ready]);
   const hasQueue = Boolean(progress && progress.total + progress.cancelled > 0);
-  const ready = material === null || (material.scope === 'telegram' ? material.captionLoaded : material.imageLoaded && Boolean(material.image) && material.captionLoaded);
+  const libraryOn = Boolean(plan?.library);
+  const needSelection = Boolean(plan?.library?.needSelection);
+  const ready = libraryOn ? !needSelection : material === null || (material.scope === 'telegram' ? material.captionLoaded : material.imageLoaded && Boolean(material.image) && material.captionLoaded);
 
   const breakdown: Array<[string, number, string?]> = plan ? [
     ['тексти на сьогодні закінчились, чекають на завтра', plan.textWaiting ?? 0],
     ['текст задовгий для підпису до фото', plan.tooLong ?? 0],
+    ['немає підходящого оголошення', plan.noad ?? 0],
     ['потребують вибору гілки', plan.thread ?? 0],
     ['у розкладі Telegram', plan.schedule ?? 0],
     ['потребують рішення', plan.decision],
@@ -377,10 +393,10 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
               <div className="flex flex-wrap items-center justify-end gap-3">
                 <Segmented<'1' | '5' | '20' | 'all'> label="Скільки чатів у партії" size="sm" value={size} onValueChange={setSize} items={[{ value: '1', label: '1' }, { value: '5', label: '5' }, { value: '20', label: '20' }, { value: 'all', label: `Усі (${cap})` }]} />
                 <div className="flex flex-col items-end gap-1">
-                  <Button variant="action" busy={busy} disabled={runnerBlocked || !ready || chosen === 0} title={ready ? undefined : 'Спершу додай фото'} onClick={() => onStart(chosen, removedNow)}>
+                  <Button variant="action" busy={busy} disabled={runnerBlocked || !ready || chosen === 0} title={ready ? undefined : libraryOn ? 'Обери хоча б одне оголошення' : 'Спершу додай фото'} onClick={() => onStart(chosen, removedNow)}>
                     <Send aria-hidden="true" strokeWidth={1.5} />{busy ? 'Ставимо в чергу…' : `Опублікувати в ${chosen} ${chatWord(chosen)}`}
                   </Button>
-                  <span className="text-xs text-ink-2">{chosen ? (startNote ?? `${estimateFromSeconds(chosen * secondsPerChat + (healthStatus === 'ok' ? 0 : CANARY_SECONDS[platform])).text}, по одному чату з підтвердженням`) : ''}</span>
+                  <span className="text-xs text-ink-2">{needSelection ? 'Обери хоча б одне оголошення' : chosen ? (startNote ?? `${estimateFromSeconds(chosen * secondsPerChat + (healthStatus === 'ok' ? 0 : CANARY_SECONDS[platform])).text}, по одному чату з підтвердженням`) : ''}</span>
                 </div>
               </div>
             </>

@@ -138,7 +138,7 @@ export async function resolvePoolAssignments(db: D1Database, userId: string, cha
 /** Один чат: вільний текст пулу, що найкраще підходить (задача створюється поза партією: «Спробувати ще», після проходу гілок). */
 export async function pickPoolTextForChat(db: D1Database, userId: string, chatId: string, date: string, excludeJobId = ''): Promise<{ active: boolean; pick: PoolAssignment | null }> {
   // Власник вибрав власний матеріал: пул не використовується й не витрачається.
-  if ((await readSavedSource(db, userId)) === 'own') return { active: false, pick: null };
+  { const saved = await readSavedSource(db, userId); if (saved === 'own' || saved === 'library') return { active: false, pick: null }; }
   const state = await readPoolState(db, userId, date, excludeJobId);
   if (!state.active) return { active: false, pick: null };
   const { assigned } = await resolvePoolAssignments(db, userId, [chatId], date, { state });

@@ -3,6 +3,8 @@
 import { AutopostPanel, type AutopostMaterialProps, type AutopostPlan, type AutopostReadiness } from '@/components/views/platforms/autopost-panel';
 import type { AutopostAttentionItem, AutopostDecision, DecideOptions } from '@/components/views/platforms/autopost-attention';
 import type { AutopostBatch } from '@/components/views/platforms/autopost-batch';
+import { useSharedSource } from '@/components/views/platforms/library-ads';
+import { usePoolPreview } from '@/components/views/platforms/use-pool-preview';
 import { PaceEstimate, PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
 import type { AutopostPace, AutopostPlatformStatus } from '@/lib/live-channel';
 
@@ -32,6 +34,8 @@ export function AutopostCard({ material, status, pace, busy, plan, onLoadPlan, r
   onReset: () => void;
 }) {
   const [perHour, setPerHour] = usePerHour('whatsapp');
+  const sharedSource = useSharedSource(onLoadPlan);
+  const preview = usePoolPreview(null, plan?.library ? 'whatsapp' : null);
   const readiness: AutopostReadiness = runnerConnected === false
     ? { tone: 'hot', text: 'Runner вимкнений. Автопост не працює, поки його не запущено.' }
     : runnerConnected && status?.state === 'blocked'
@@ -57,8 +61,9 @@ export function AutopostCard({ material, status, pace, busy, plan, onLoadPlan, r
       startSlot={<PaceSegment platform="whatsapp" value={perHour} onChange={setPerHour} />}
       readiness={readiness}
       settingsTitle="Як підготувати автопост WhatsApp"
-      settingsHelp={<p className="m-0">Автопост керує вкладкою WhatsApp Web у браузері, до якого підключений runner. Вона має бути відкрита й залогінена в акаунт, з якого публікуєш. Фото й текст спільні з Viber.</p>}
-      material={material}
+      settingsHelp={<p className="m-0">Автопост керує вкладкою WhatsApp Web у браузері, до якого підключений runner. Вона має бути відкрита й залогінена в акаунт, з якого публікуєш. Що піде в чати, обираєш у блоці «Що піде в чати»: оголошення з Бібліотеки (вибір спільний з Viber і Telegram) або власні фото й текст (спільні з Viber).</p>}
+      material={{ ...material, source: { mode: plan?.library ? 'library' : 'own', ownAvailable: true, busy: sharedSource.busy, onChange: (mode) => { if (mode !== 'pool') sharedSource.change(mode); }, library: plan?.library ?? null, onSelectionSaved: onLoadPlan } }}
+      poolPreview={plan?.library ? preview : undefined}
       progress={progress}
       attention={attention}
       batchNote={batchNote}

@@ -15,6 +15,8 @@ export type PoolPreview = {
   scan: string[];
   waiting: string[];
   options: Array<{ id: string; snippet: string; label: string; direction: string }>;
+  /** `library` — режим «Оголошення з Бібліотеки»: біля чату назва оголошення, «Змінити» немає; `noad` — чати партії без підходящого оголошення. */
+  kind?: 'library'; noad?: string[];
 };
 
 export const AUDIENCE_NAMES: Record<PoolAudience, string> = { kids: 'діти', adults: 'дорослі', any: 'усі' };

@@ -117,6 +117,9 @@ function isResync(message: { type?: unknown; resync?: unknown }) { return messag
 /** Серія подій (кілька задач підряд) дає одне перечитування. */
 const AUTOPOST_REFRESH_DEBOUNCE_MS = 2_000;
 
+/** Режим Бібліотеки: чати без підходящого оголошення в партію не потрапили (це не збій). */
+const noAdNote = (count: unknown) => (Number(count) > 0 ? ` Без підходящого оголошення серед обраних: ${count} (у партію не потрапили, це не збій).` : '');
+
 export function isSnoozed(chat: Chat, clock: number) { return chat.snoozedUntil !== null && chat.snoozedUntil > clock / 1000; }
 
 const WHATSAPP_AUTOPOST_IMAGE_MAX_BYTES = 640 * 1024;
@@ -953,10 +956,11 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     const cancelled = Number(body.cancelled || 0);
     toast.push({ message: cancelled ? `Автопост зупинено, скасовано ${cancelled} чатів у черзі.` : 'Активних задач автопоста вже не було.' });
   }); };
-  const startWhatsAppAutopostBatch = (limit: number | null, exclude: string[], perHour = 0) => { if (platform !== 'whatsapp' || !whatsappImage || !whatsappCaptionLoaded) return Promise.resolve(); return wa('whatsapp-autopost-batch', async () => {
+  // У режимі «Оголошення з Бібліотеки» власні фото й текст не потрібні й не надсилаються (інакше запуск перезаписав би збережений власний текст).
+  const startWhatsAppAutopostBatch = (limit: number | null, exclude: string[], perHour = 0) => { const library = Boolean(autopostPlans.whatsapp?.library); if (platform !== 'whatsapp' || (!library && (!whatsappImage || !whatsappCaptionLoaded))) return Promise.resolve(); return wa('whatsapp-autopost-batch', async () => {
     setQuickPublishMode(false); setQuickAdvertisementId(null);
-    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'whatsapp-autopost-batch', caption: whatsappCaption, ...(limit ? { limit } : {}), exclude, perHour }) });
-    const body = await response.json() as { created?: number; skipped?: number; reasons?: Array<{ code: string; count: number }>; more?: boolean; error?: string };
+    const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'whatsapp-autopost-batch', ...(library ? {} : { caption: whatsappCaption }), ...(limit ? { limit } : {}), exclude, perHour }) });
+    const body = await response.json() as { created?: number; skipped?: number; noad?: number; reasons?: Array<{ code: string; count: number }>; more?: boolean; error?: string };
     if (!response.ok) throw new Error(body.error || 'Не вдалося запустити автопост черги.');
     invalidateQueueCache('whatsapp'); announceDataChange('platforms'); await reloadChats.current(true); loadAutopostPlan();
     const created = Number(body.created || 0); const skipped = Number(body.skipped || 0);
@@ -969,13 +973,13 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     const note = created
       ? `Остання партія: поставлено ${created} чатів${skipped ? `, пропущено ${skipped} (${why})` : ''}${body.more ? '. Придатних чатів лишилось ще: запусти автопост повторно, коли партія завершиться' : ''}.`
       : `Остання партія: нових чатів для автопосту немає${skipped ? `, пропущено ${skipped} (${why})` : ''}.`;
-    setWhatsappBatchNote(note);
+    setWhatsappBatchNote(note + noAdNote(body.noad));
     toast.push({ message: created ? `Поставлено в автопост: ${created} чатів. Відправка йде по одному, з підтвердженням.` : 'Нових чатів для автопосту зараз немає.' });
   }); };
 
   const viberAction = async (action: string, extra: Record<string, unknown> = {}) => {
     const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...extra }) });
-    const body = await response.json() as { created?: number; skipped?: number; reasons?: Array<{ code: string; count: number }>; more?: boolean; cancelled?: number; removed?: number; progress?: WhatsAppAutopostProgress; error?: string };
+    const body = await response.json() as { created?: number; skipped?: number; noad?: number; reasons?: Array<{ code: string; count: number }>; more?: boolean; cancelled?: number; removed?: number; progress?: WhatsAppAutopostProgress; error?: string };
     if (!response.ok) throw new Error(body.error || 'Не вдалося виконати дію автопосту Viber.');
     return body;
   };
@@ -989,6 +993,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     setViberBatchNote(created
       ? `Остання партія: поставлено ${created} чатів${skipped ? `, пропущено ${skipped} (${why})` : ''}${body.more ? '. Придатних чатів лишилось ще: запусти автопост повторно, коли партія завершиться' : ''}.`
       : `Остання партія: нових чатів для автопосту немає${skipped ? `, пропущено ${skipped} (${why})` : ''}.`);
+    if (Number(body.noad) > 0) setViberBatchNote((current) => `${current ?? ''}${noAdNote(body.noad)}`);
     toast.push({ message: created ? `Поставлено в автопост Viber: ${created} чатів. Відправка йде по одному, з підтвердженням.` : 'Нових чатів для автопосту Viber зараз немає.' });
   }); };
   const stopViberAutopostBatch = () => { if (platform !== 'viber') return Promise.resolve(); return wa('viber-autopost-stop', async () => {
@@ -1006,7 +1011,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
   // Telegram: та сама черга, але лише чати вибраного акаунта; публікації розставляє DO рівномірно (5, 10 чи 20 на годину).
   const telegramAction = async (action: string, extra: Record<string, unknown> = {}) => {
     const response = await fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, accountId, ...extra }) });
-    const body = await response.json() as { created?: number; scanning?: number; skipped?: number; reasons?: Array<{ code: string; count: number }>; more?: boolean; waiting?: number; cancelled?: number; removed?: number; progress?: WhatsAppAutopostProgress; queued?: boolean; error?: string };
+    const body = await response.json() as { created?: number; scanning?: number; skipped?: number; noad?: number; reasons?: Array<{ code: string; count: number }>; more?: boolean; waiting?: number; cancelled?: number; removed?: number; progress?: WhatsAppAutopostProgress; queued?: boolean; error?: string };
     if (!response.ok) throw new Error(body.error || 'Не вдалося виконати дію автопосту Telegram.');
     return body;
   };
@@ -1019,6 +1024,7 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     setTelegramBatchNote(created
       ? `Остання партія: поставлено ${created} чатів${skipped ? `, пропущено ${skipped} (${why})` : ''}${body.more ? '. Придатних чатів лишилось ще: запусти автопост повторно, коли партія завершиться' : ''}.`
       : `Остання партія: нових чатів для автопосту немає${skipped ? `, пропущено ${skipped} (${why})` : ''}.`);
+    if (Number(body.noad) > 0) setTelegramBatchNote((current) => `${current ?? ''}${noAdNote(body.noad)}`);
     const scanning = Number(body.scanning || 0);
     const waiting = Number(body.waiting || 0);
     if (waiting) setTelegramBatchNote(`Тексти на сьогодні закінчились: ${waiting} ${waiting % 10 === 1 && waiting % 100 !== 11 ? 'чат чекає' : 'чатів чекають'} на завтра. Додай нові оголошення в пул, щоб вони пішли сьогодні.`);
@@ -1140,10 +1146,10 @@ export function usePlatforms({ enabledPlatforms, syncRevision, businessDate, act
     const label = title ? `${name} → ${title}` : name;
     // Для вибраних напрямів сьогодні немає вільного тексту: про це кажемо прямо, чат піде, коли текст з'явиться.
     const bucket = threadId ? plan?.buckets?.[chatId] : undefined;
-    const missing = bucket === 'nodirection' ? (plan?.reasons?.[chatId]?.directions?.length ? plan.reasons[chatId].directions as string[] : wanted) : [];
+    const missing = bucket === 'noad' ? (plan?.reasons?.[chatId]?.directions?.length ? plan.reasons[chatId].directions as string[] : wanted) : [];
     const suffix = wanted.length ? ` Напрями: ${wanted.join(', ')}.` : '';
     toast.push({ message: !threadId ? 'Вибір гілки прибрано.'
-      : bucket === 'nodirection' ? `Гілку вибрано: ${label}. Немає вільного тексту напряму «${missing.join(', ') || 'цього чату'}» — чат піде, коли з’явиться.`
+      : bucket === 'noad' ? (plan?.reasons?.[chatId]?.explain ? `Гілку вибрано: ${label}. Немає підходящого оголошення (${plan.reasons[chatId].explain}) — чат піде, коли воно з’явиться.` : `Гілку вибрано: ${label}. Немає вільного тексту напряму «${missing.join(', ') || 'цього чату'}» — чат піде, коли з’явиться.`)
         : bucket === 'text' && wanted.length ? `Гілку вибрано: ${label}.${suffix} Вільних текстів пулу на сьогодні немає — чат піде, коли з’являться.`
           : body.queued ? `Додано в партію: ${label}.${suffix}` : body.running ? `Гілку вибрано: ${label}.${suffix} У партію чат додати не вдалося, він серед «Готових».` : `Гілку вибрано: ${label}.${suffix} Чат серед «Готових», піде з наступним запуском.` });
   };

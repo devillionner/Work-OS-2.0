@@ -31,13 +31,14 @@ export function FolderCard({ item, sortable, onOpen, onCopy }: { item: Item; sor
             <Badge className="shrink-0" aria-label={`Версія ${item.version}`}>v{item.version}</Badge>
           )}
         </div>
+        {ad && item.imageKey ? <span aria-hidden="true" style={{ backgroundImage: `url(/api/library/image?id=${encodeURIComponent(item.id)}&v=${item.imageKey.slice(0, 16)})` }} className="h-24 w-full shrink-0 rounded-field border border-line bg-cover bg-center" /> : null}
         {script ? <ScriptText text={item.ukText || item.ruText} className="line-clamp-2 text-[13px] text-ink-2" /> : <p className="m-0 line-clamp-2 text-[13px] text-ink-2">{item.ukText || item.ruText}</p>}
         <div className="flex flex-col gap-1 text-xs text-ink-2">
           {missing ? <Badge tone="warn">Додай {missing} версію перед наступним збереженням</Badge> : null}
           {script && (item.stage || item.branch || item.templateKey) ? <span className="truncate">{[item.templateKey ? 'Шаблон' : '', item.stage ? leadLabels[item.stage] ?? item.stage : '', item.branch].filter(Boolean).join(' · ')}</span> : null}
           {used.length ? <span>Сьогодні: {used.map(platformLabel).join(', ')}</span> : null}
           {item.tags.length ? <span className="truncate">{item.tags.slice(0, 3).map((tag) => `#${tag}`).join(' ')}{item.tags.length > 3 ? ` +${item.tags.length - 3}` : ''}</span> : null}
-          {ad ? <span className="font-mono">v{item.version}</span> : null}
+          {ad ? <span className="font-mono">v{item.version}{item.scope === 'exclusive' ? ' · лише свій напрям' : ''}</span> : null}
         </div>
         <div className="mt-auto flex items-center justify-between gap-2 pt-1">
           <Button variant="action" size="sm" onClick={onOpen}>Відкрити</Button>

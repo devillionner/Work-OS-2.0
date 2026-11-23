@@ -10,8 +10,13 @@ export type WhatsAppAutopostImage={
 export type WhatsAppAutopostImageMeta=Omit<WhatsAppAutopostImage,'base64'>;
 
 export async function readWhatsAppAutopostImage(db:D1Database,userId:string,includeBase64=false,scope:AutopostMaterialScope='shared'):Promise<WhatsAppAutopostImage|null>{
+  return readStoredImage(db,userId,SETTING_KEYS[scope],includeBase64);
+}
+
+/** Фото в `user_settings` за довільним ключем (фото автопосту й фото оголошень Бібліотеки). */
+export async function readStoredImage(db:D1Database,userId:string,settingKey:string,includeBase64=false):Promise<WhatsAppAutopostImage|null>{
   const row=await db.prepare(`SELECT value_json,updated_at FROM user_settings WHERE user_id=?1 AND setting_key=?2 LIMIT 1`)
-    .bind(userId,SETTING_KEYS[scope]).first<{value_json:string;updated_at:number}>();
+    .bind(userId,settingKey).first<{value_json:string;updated_at:number}>();
   if(!row)return null;
   let parsed:unknown;
   try{parsed=JSON.parse(row.value_json);}catch{return null;}
@@ -31,6 +36,10 @@ export function publicWhatsAppAutopostImage(image:WhatsAppAutopostImage):WhatsAp
 }
 
 export async function saveWhatsAppAutopostImage(db:D1Database,userId:string,input:{fileName:string;contentType:string;bytes:Uint8Array},now:number,scope:AutopostMaterialScope='shared'):Promise<WhatsAppAutopostImageMeta>{
+  return saveStoredImage(db,userId,SETTING_KEYS[scope],input,now);
+}
+
+export async function saveStoredImage(db:D1Database,userId:string,settingKey:string,input:{fileName:string;contentType:string;bytes:Uint8Array},now:number):Promise<WhatsAppAutopostImageMeta>{
   const contentType=String(input.contentType||'').toLowerCase();
   if(!ALLOWED_TYPES.has(contentType))throw new Error('Підтримуються JPG, PNG або WebP.');
   if(!input.bytes.byteLength||input.bytes.byteLength>MAX_WHATSAPP_AUTOPOST_IMAGE_BYTES)throw new Error('Фото автопоста має бути не більше 640 КБ після стискання.');
@@ -40,7 +49,7 @@ export async function saveWhatsAppAutopostImage(db:D1Database,userId:string,inpu
   await db.prepare(`INSERT INTO user_settings(user_id,setting_key,value_json,source_import_id,updated_at)
     VALUES (?1,?2,?3,NULL,?4)
     ON CONFLICT(user_id,setting_key) DO UPDATE SET value_json=excluded.value_json,source_import_id=NULL,updated_at=excluded.updated_at`)
-    .bind(userId,SETTING_KEYS[scope],JSON.stringify(stored),now).run();
+    .bind(userId,settingKey,JSON.stringify(stored),now).run();
   return {fileName,contentType,sizeBytes:input.bytes.byteLength,sha256,updatedAt:now};
 }
 

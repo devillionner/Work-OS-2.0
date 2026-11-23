@@ -22,10 +22,13 @@ export type Item = {
   originId: string | null;
   templateKey: string | null;
   usedTodayPlatforms: string[];
+  /** Охоплення оголошення в автопості: «Широке» (свій напрям і без напряму) чи «Лише свій напрям»; і хеш фото оголошення (порожньо — без фото). */
+  scope: 'wide' | 'exclusive';
+  imageKey: string | null;
   archivedAt: number | null;
   updatedAt: number;
 };
-export type Form = { title: string; ukText: string; ruText: string; notes: string; tags: string[]; platforms: string[]; stage: string; branch: string };
+export type Form = { title: string; ukText: string; ruText: string; notes: string; tags: string[]; platforms: string[]; stage: string; branch: string; scope: 'wide' | 'exclusive' };
 
 export const COLLECTIONS: ReadonlyArray<{ value: Collection; label: string }> = [
   { value: 'advertisement', label: 'Оголошення' },
@@ -39,13 +42,13 @@ export const COLLECTIONS: ReadonlyArray<{ value: Collection; label: string }> = 
 export const collectionLabel = (collection: Collection) => COLLECTIONS.find((item) => item.value === collection)?.label ?? collection;
 
 export function newForm(collection: LibraryCollectionKey): Form {
-  return { title: '', ukText: '', ruText: '', notes: '', tags: [], platforms: collection === 'advertisement' ? [...LIBRARY_ADVERTISEMENT_PLATFORMS] : [], stage: '', branch: '' };
+  return { title: '', ukText: '', ruText: '', notes: '', tags: [], platforms: collection === 'advertisement' ? [...LIBRARY_ADVERTISEMENT_PLATFORMS] : [], stage: '', branch: '', scope: 'wide' };
 }
 
 export function formFromItem(item: Item): Form {
   const known = cleanLibraryPlatforms(item.platforms);
   const platforms = item.collection === 'advertisement' ? (item.platforms.length === 0 ? [...LIBRARY_ADVERTISEMENT_PLATFORMS] : known) : item.platforms;
-  return { title: item.title, ukText: item.ukText, ruText: item.ruText, notes: item.notes, tags: [...item.tags], platforms: [...platforms], stage: item.stage ?? '', branch: item.branch };
+  return { title: item.title, ukText: item.ukText, ruText: item.ruText, notes: item.notes, tags: [...item.tags], platforms: [...platforms], stage: item.stage ?? '', branch: item.branch, scope: item.scope === 'exclusive' ? 'exclusive' : 'wide' };
 }
 
 export function splitList(value: string): string[] {

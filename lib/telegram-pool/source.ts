@@ -1,19 +1,20 @@
 /**
  * Що публікує автопост Telegram: пул оголошень (`pool`: кожен чат отримує свій текст, один текст раз на добу) чи власний матеріал (`own`: одне фото
  * й текст для всіх, а без власного тексту оголошення з Бібліотеки за профілем чату). Вибір власника лежить в одному рядку `user_settings` і
- * однаковий для всіх акаунтів Telegram. Без вибору: пул, якщо він не порожній, інакше власний матеріал.
+ * однаковий для всіх акаунтів Telegram. Третій режим (3.20.0) — `library`: оголошення Бібліотеки, обрані власником (спільний вибір для Viber, WhatsApp і Telegram). Без вибору: пул, якщо він не порожній, інакше власний матеріал.
  */
-export type TelegramSource = 'pool' | 'own';
+export type TelegramSource = 'pool' | 'own' | 'library';
 const KEY = 'telegram_autopost_source_v1';
 
 export async function readSavedSource(db: D1Database, userId: string): Promise<TelegramSource | null> {
   const row = await db.prepare(`SELECT value_json FROM user_settings WHERE user_id=?1 AND setting_key=?2 LIMIT 1`).bind(userId, KEY).first<{ value_json: string }>();
-  try { const value: unknown = row ? JSON.parse(row.value_json) : null; return value === 'pool' || value === 'own' ? value : null; } catch { return null; }
+  try { const value: unknown = row ? JSON.parse(row.value_json) : null; return value === 'pool' || value === 'own' || value === 'library' ? value : null; } catch { return null; }
 }
 
 /** Режим, за яким працює партія: збережений вибір; «пул» без текстів у пулі нічого не дає, тож тоді власний матеріал. */
 export function effectiveSource(saved: TelegramSource | null, poolActive: boolean): TelegramSource {
   if (saved === 'own') return 'own';
+  if (saved === 'library') return 'library';
   return poolActive ? 'pool' : 'own';
 }
 

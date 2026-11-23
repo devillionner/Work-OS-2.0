@@ -151,7 +151,7 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, onS
   const toast = useToast();
   const [poolOpen, setPoolOpen] = useState(false);
   const [sourceBusy, setSourceBusy] = useState(false);
-  const preview = usePoolPreview(accountId);
+  const preview = usePoolPreview(accountId, plan?.library ? 'telegram' : null);
   const running = progress?.running === true;
   const unbound = binding !== null && !binding.bound;
   const online = runnerConnected === true || runnerSeen;
@@ -167,10 +167,10 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, onS
   const minutes = Math.round(60 / perHour);
   const source = plan?.source;
   // Режим публікації зберігається на сервері (один для всіх акаунтів): план і партія беруть його звідти, тож після зміни план перечитується.
-  const changeSource = (mode: 'pool' | 'own') => {
+  const changeSource = (mode: 'pool' | 'own' | 'library') => {
     setSourceBusy(true);
     void fetch('/api/messenger-automation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'telegram-source', mode }) })
-      .then(async (response) => { if (!response.ok) { const body = await response.json().catch(() => ({})) as { error?: string }; throw new Error(body.error || 'Не вдалося змінити режим.'); } onLoadPlan(); toast.push({ message: mode === 'pool' ? 'Публікуємо оголошення з пулу: кожен чат отримає свій текст.' : 'Публікуємо власне фото й текст: усі чати отримають однаковий матеріал.' }); })
+      .then(async (response) => { if (!response.ok) { const body = await response.json().catch(() => ({})) as { error?: string }; throw new Error(body.error || 'Не вдалося змінити режим.'); } onLoadPlan(); toast.push({ message: mode === 'pool' ? 'Публікуємо тексти з пулу: кожен чат отримає свій текст.' : mode === 'library' ? 'Публікуємо оголошення Бібліотеки: кожен чат отримає підходяще з обраних.' : 'Публікуємо власне фото й текст: усі чати отримають однаковий матеріал.' }); })
       .catch((error: unknown) => toast.push({ message: error instanceof Error ? error.message : 'Не вдалося змінити режим.' }))
       .finally(() => setSourceBusy(false));
   };
@@ -191,11 +191,11 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, onS
         <ol className="m-0 flex flex-col gap-1.5 pl-5">
           <li>У браузері runner відкрий web.telegram.org/a і залогінься в акаунт, який вибрано вгорі в Work OS.</li>
           <li>Прив’яжи акаунт кнопкою вище: перед кожним чатом автопост перевіряє, що відкрито саме його.</li>
-          <li>Фото й текст у Telegram власні, окремі від WhatsApp і Viber (кнопка «Взяти з WhatsApp/Viber» копіює їх). У блоці «Що піде в чати» обери, що публікувати: «Пул оголошень» (кожен чат отримує окремий текст за напрямом, мовою й аудиторією, за добу жоден текст не йде вдруге) або «Власне фото й текст» (усі чати отримують однаковий матеріал; без власного тексту береться оголошення з Бібліотеки). Вибір зберігається для всіх акаунтів Telegram і діє на нові партії. Фото необов’язкове: підпис до фото — до 1024 символів, текст без фото — до 4096.</li>
+          <li>Фото й текст у Telegram власні, окремі від WhatsApp і Viber (кнопка «Взяти з WhatsApp/Viber» копіює їх). У блоці «Що піде в чати» обери, що публікувати: «Пул текстів» (кожен чат отримує окремий текст за напрямом, мовою й аудиторією, за добу жоден текст не йде вдруге), «Оголошення Бібліотеки» (обрані оголошення з їхніми фото, кожен чат отримує підходяще за напрямом; вибір спільний із Viber і WhatsApp) або «Власне фото й текст» (усі чати отримують однаковий матеріал; без власного тексту береться оголошення з Бібліотеки). Вибір зберігається для всіх акаунтів Telegram і діє на нові партії. Фото необов’язкове: підпис до фото — до 1024 символів, текст без фото — до 4096.</li>
           <li>Чат у розкладі на сьогодні автопост не бере. Якщо Telegram просить зачекати, вся черга Telegram стає на паузу на вказаний час.</li>
         </ol>
       )}
-      material={{ ...material, poolActive: Boolean(plan?.pool), source: source ? { mode: source.mode, poolAvailable: source.poolAvailable, ownAvailable: source.ownAvailable, busy: sourceBusy, onChange: changeSource, onOpenPool: () => setPoolOpen(true) } : undefined }}
+      material={{ ...material, poolActive: Boolean(plan?.pool), source: source ? { mode: source.mode, poolAvailable: source.poolAvailable, ownAvailable: source.ownAvailable, busy: sourceBusy, onChange: changeSource, onOpenPool: () => setPoolOpen(true), library: plan?.library ?? null, onSelectionSaved: onLoadPlan } : undefined }}
       progress={progress}
       attention={attention}
       batchNote={batchNote}
@@ -219,7 +219,7 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, onS
       )}
       onDecide={onDecide}
       onDecideMany={onDecideMany}
-      poolPreview={plan?.pool ? preview : undefined}
+      poolPreview={plan?.pool || plan?.library ? preview : undefined}
       onStart={(limit, exclude) => { onStart(limit, exclude, perHour, preview.overrides); preview.clear(); }}
       onStop={onStop}
       onReset={onReset}

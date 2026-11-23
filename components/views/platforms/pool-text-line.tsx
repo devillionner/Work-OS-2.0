@@ -11,9 +11,18 @@ export function PoolTextLine({ chatId, preview }: { chatId: string; preview: Poo
   const data = preview.data;
   if (!data?.active) return null;
   const item = data.items[chatId];
-  if (data.scan.includes(chatId)) return <p className="m-0 pl-8 text-xs text-ink-3">Текст підберу після перевірки на гілки</p>;
+  if (data.scan.includes(chatId)) return <p className="m-0 pl-8 text-xs text-ink-3">{data.kind === 'library' ? 'Оголошення підберу після перевірки на гілки' : 'Текст підберу після перевірки на гілки'}</p>;
+  if (data.kind === 'library' && data.noad?.includes(chatId)) return <p className="m-0 pl-8 text-xs text-ink-2">Немає підходящого оголошення серед обраних: чат у партію не піде</p>;
   if (data.waiting.includes(chatId)) return <p className="m-0 pl-8 text-xs text-ink-2">Вільних текстів на сьогодні немає: чат піде завтра</p>;
-  if (!item) return <p className="m-0 pl-8 text-xs text-ink-3">{preview.loading ? 'Підбираю текст…' : ''}</p>;
+  if (!item) return <p className="m-0 pl-8 text-xs text-ink-3">{preview.loading ? (data.kind === 'library' ? 'Підбираю оголошення…' : 'Підбираю текст…') : ''}</p>;
+  if (data.kind === 'library') {
+    return (
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 pl-8 text-xs text-ink-2">
+        <span className="min-w-0 max-w-full truncate text-ink" title={item.snippet}>{item.snippet}</span>
+        <span className="shrink-0">{item.label}</span>
+      </div>
+    );
+  }
   const wanted = item.directions.map((direction) => direction.toLocaleLowerCase('uk'));
   const options = [...data.options].sort((a, b) => Number(wanted.includes(b.direction.toLocaleLowerCase('uk'))) - Number(wanted.includes(a.direction.toLocaleLowerCase('uk')))).slice(0, 60);
   return (
