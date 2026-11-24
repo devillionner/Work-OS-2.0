@@ -10,6 +10,28 @@ const ALLOWED_FROM: Record<string, readonly string[]> = {
   shortlist: ['to_join'], unshortlist: ['to_join'],
 };
 
+/** Приєднання, старші за це, історію не переписують: давні чати без публікацій власник архівує при прибиранні. */
+export const UNUSED_JOIN_WINDOW_SECONDS = 14 * 24 * 3600;
+
+/**
+ * Гасить останню активну `chat_joined` чату, якщо після неї не було жодної публікації (`chat_publications` з `published_on` не раніше дати приєднання)
+ * і приєднання не старше 14 днів. Той самий механізм, що й скасування запису на урок: `cancelled_at` (лічильники дня й ревізії рухають тригери),
+ * у `metadata_json` лишається пояснення для історії чату. Виконується в одному `batch` зі зміною статусу (guard — подія переходу).
+ * Індекси: пошук приєднання — `activity_events_chat_type_idx` явно (без підказки планувальник бере індекс за `user_id` і читає всі події власника),
+ * публікації — `chat_publications_user_chat_day_idx`, оновлення — за первинним ключем.
+ */
+export function cancelUnusedJoinStatement(db: D1Database, input: { userId: string; chatId: string; eventId: string; now: number; reason: string }) {
+  return db.prepare(`UPDATE activity_events SET cancelled_at=?1,
+      metadata_json=json_set(CASE WHEN json_valid(metadata_json) THEN metadata_json ELSE '{}' END,'$.cancelReason','archived_before_publication','$.archiveReason',?6)
+    WHERE id=(SELECT j.id FROM activity_events j INDEXED BY activity_events_chat_type_idx
+        WHERE j.chat_id=?3 AND j.event_type='chat_joined' AND j.cancelled_at IS NULL AND j.user_id=?2
+        ORDER BY j.occurred_at DESC LIMIT 1)
+      AND user_id=?2 AND occurred_at>=?4
+      AND NOT EXISTS(SELECT 1 FROM chat_publications p WHERE p.user_id=?2 AND p.chat_id=?3 AND p.published_on>=activity_events.event_date)
+      AND EXISTS(SELECT 1 FROM activity_events transition_event WHERE transition_event.id=?5 AND transition_event.user_id=?2)`)
+    .bind(input.now, input.userId, input.chatId, input.now - UNUSED_JOIN_WINDOW_SECONDS, input.eventId, input.reason);
+}
+
 export async function transitionChat(db: D1Database, input: {
   userId: string; chat: ChatState; action: string; accountId: string | null; now: number; reason?: string;
   /** Telegram: `restore` за замовчуванням повертає чат у чергу приєднання; `toPool` — у «Нові чати» (скасування архівації з них). */
@@ -28,7 +50,8 @@ export async function transitionChat(db: D1Database, input: {
   const joining = action === 'joined' || action === 'approved';
   const reset = action === 'restore' || action === 'return_to_join';
   const archived = action === 'archive' || action === 'failed';
-  const invalidatesTodayJoin = action === 'archive' || action === 'failed' || action === 'return_to_join';
+  // «Невдале приєднання» і повернення в чергу (у т. ч. «Скасувати» після «Приєднано») гасять сьогоднішнє приєднання завжди.
+  const invalidatesTodayJoin = action === 'failed' || action === 'return_to_join';
   const assign = action === 'assign_account';
   const queueMove = action === 'shortlist' || action === 'unshortlist';
   // Чат Telegram у черзі приєднання: після відбору, повернення зі «Для публікації»/«Очікування» і відновлення з архіву.
@@ -61,6 +84,10 @@ export async function transitionChat(db: D1Database, input: {
       WHERE user_id=?2 AND chat_id=?3 AND event_type='chat_joined' AND event_date=?4 AND cancelled_at IS NULL
         AND EXISTS(SELECT 1 FROM activity_events transition_event WHERE transition_event.id=?5 AND transition_event.user_id=?2)`)
       .bind(now,userId,chat.id,businessDate(now),eventId));
+  }
+  // Архів до першої публікації: приєднання не зараховується (будь-який шлях в архів: ручний, автопост, «Потребують рішення»).
+  if (action === 'archive') statements.push(cancelUnusedJoinStatement(db, { userId, chatId: chat.id, eventId, now, reason }));
+  if (invalidatesTodayJoin || action === 'archive') {
     // Скасоване сьогоднішнє приєднання відкочує й серію приєднань акаунта: так «Скасувати» після «Приєднано»
     // повертає лічильник «Приєднано N із M» до попереднього значення (рядок лише за ключем акаунта).
     if (chat.platform === 'telegram' && chat.telegram_account_id) {

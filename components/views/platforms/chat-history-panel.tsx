@@ -116,11 +116,14 @@ function HistoryBody({ chat }: { chat: HistoryChat }) {
               <p className="m-0 text-sm font-medium">
                 {EVENT_NAMES[event.eventType] || event.eventType}
                 {event.eventType === 'chat_state_changed' && typeof event.metadata.action === 'string' ? <span className="font-normal text-ink-2"> · {ACTION_NAMES[event.metadata.action] || event.metadata.action}</span> : null}
-                {event.eventType === 'publication' && event.cancelledAt ? <span className="font-normal text-ink-2"> · скасовано</span> : null}
+                {(event.eventType === 'publication' || event.eventType === 'chat_joined') && event.cancelledAt ? <span className="font-normal text-ink-2"> · скасовано</span> : null}
                 {event.eventType === 'publication' && event.advertisementTitle ? <span className="font-normal text-ink-2"> · {event.advertisementTitle}</span> : null}
                 {event.eventType === 'publication' && (event.metadata.language === 'uk' || event.metadata.language === 'ru') ? <span className="font-normal text-ink-2"> · {event.metadata.language === 'uk' ? 'UA' : 'RU'}</span> : null}
               </p>
               <time className="font-mono text-xs text-ink-2" dateTime={new Date(event.occurredAt * 1000).toISOString()}>{formatTime(event.occurredAt)}</time>
+              {event.eventType === 'chat_joined' && event.cancelledAt && event.metadata.cancelReason === 'archived_before_publication' ? (
+                <p className="m-0 text-xs text-ink-2">Приєднання не зараховано: чат пішов в архів до першої публікації{typeof event.metadata.archiveReason === 'string' && event.metadata.archiveReason ? ` (причина: ${event.metadata.archiveReason})` : ''}.</p>
+              ) : null}
             </li>
           ))}
         </ol>
