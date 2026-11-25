@@ -1211,10 +1211,15 @@ export async function sendWhatsappAutopostViaCdp(
     // Пошук у фоновій вкладці інколи не відфільтровує список з першого разу: дві спроби, і лише потім посилання-запрошення.
     let openedInApp = false;
     if (selfChat) {
+      // Після попередньої проби вкладка перезавантажується на головну (≈ 20 с без вікна): чекаємо, поки з'явиться список чатів.
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const listReady = (await client.send('Runtime.evaluate', { expression:`Boolean(document.querySelector('#pane-side'))`, returnByValue:true }).catch(() => null))?.result?.value === true;
+        if (listReady) break;
+        await sleep(1_000);
+      }
       const wid = String((await client.send('Runtime.evaluate', { expression:`localStorage.getItem('last-wid-md') || localStorage.getItem('last-wid') || ''`, returnByValue:true }))?.result?.value || '');
       const digits = wid.match(/(\d{6,16})(?::\d+)?@c\.us/)?.[1];
       if (!digits) return { kind:'blocked', reason:'whatsapp_self_unknown' };
-      await client.send('Page.navigate', { url:`https://web.whatsapp.com/send?phone=${digits}` });
       // Поле повідомлення з'являється раніше, ніж WhatsApp Web застосує посилання: спершу може лишатись чат, відкритий востаннє (на Windows без
       // вікна так і було: у шапці стояв чужий чат). Тож чекаємо, поки шапка стане саме чатом із собою: цифри номера збігаються з власним
       // або це «Ви»/«You»/«Вы». Інакше нічого не надсилаємо: фото з підписом не повинно потрапити в довільний чат.
@@ -1224,6 +1229,19 @@ export async function sendWhatsappAutopostViaCdp(
         if (text.replace(/\D/g, '') === digits) return true;
         return /^(ви|you|вы)(\s*\(.*\))?$/iu.test(text) || /\((ви|you|вы)\)\s*$/iu.test(text);
       };
+      // Чат із собою відкриваємо ТАК САМО, як звичайні чати: пошук у списку й клік по рядку. Посилання /send?phone=… показує шапку чату з собою, але
+      // «активним» для вставки фото лишає чат, відкритий раніше (на Windows без вікна це був закріплений чужий чат: перегляд фото відкривався для нього).
+      // Без відкриття через список чат із собою не використовуємо: нічого не надсилаємо.
+      const selfTitle = (title) => {
+        const text = String(title || '').trim();
+        return (text.replace(/\D/g, '') === digits) || /^(ви|you|вы)(\s*\(.*\))?$/iu.test(text);
+      };
+      let openedSelf = false;
+      for (let attempt = 0; attempt < 4 && !openedSelf; attempt += 1) {
+        openedSelf = await openChatInApp(client, digits, 12_000, { query: digits, match: selfTitle }).catch(() => false);
+        if (!openedSelf) await sleep(2_000);
+      }
+      if (!openedSelf) return { kind:'blocked', reason:'whatsapp_self_chat_not_opened' };
       let ready = null;
       let selfHeader = '';
       let lastHeader = '';
@@ -1530,9 +1548,11 @@ export async function waitForOwnPendingToClear(client, maxMs, signal = null) {
  * зайве для чату, де акаунт уже учасник, і воно вбиває невідправлені повідомлення. Клік по найвищому рядку з цією назвою; якщо такого немає,
  * повертає false, і виклик іде через посилання-запрошення. Ціль підтверджує далі звірка назви в шапці.
  */
-export async function openChatInApp(client, expectedName, timeoutMs = 12_000) {
-  const wanted = looseTargetLabel(expectedName);
+export async function openChatInApp(client, expectedName, timeoutMs = 12_000, options = {}) {
+  // options.query — що вводимо в пошук; options.match(title) — чи це потрібний рядок списку (для чату з собою, назву якого наперед не знаємо: за цифрами номера).
+  const wanted = options.match ? 'custom' : looseTargetLabel(expectedName);
   if (!wanted) return false;
+  const isWanted = (title) => (options.match ? Boolean(options.match(String(title || ''))) : looseTargetLabel(title) === wanted);
   const deadline = Date.now() + timeoutMs;
   const evaluate = async (expression) => (await client.send('Runtime.evaluate', { expression, returnByValue:true, awaitPromise:true }).catch(() => null))?.result?.value;
   // Вкладка у фоні (`visibilityState: hidden`): список результатів пошуку не домальовується, рядки лишаються порожніми. Емуляція фокусу
@@ -1551,7 +1571,7 @@ export async function openChatInApp(client, expectedName, timeoutMs = 12_000) {
   for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await client.send('Input.dispatchMouseEvent', { type, x:searchBox.x, y:searchBox.y, button:'left', clickCount:1 });
   await press('keyDown', 'a', 'KeyA', 65, 2); await press('keyUp', 'a', 'KeyA', 65, 2);
   await press('keyDown', 'Backspace', 'Backspace', 8); await press('keyUp', 'Backspace', 'Backspace', 8);
-  await client.send('Input.insertText', { text:String(expectedName).slice(0, 60) });
+  await client.send('Input.insertText', { text:String(options.query ?? expectedName).slice(0, 60) });
   // Назва чату — у першому елементі з атрибутом title: перший рядок innerText у чатів із непрочитаними — це «N непрочитане повідомлення».
   const readResultRows = async () => await evaluate(`(() => [...document.querySelectorAll('#pane-side [role="row"], #pane-side [role="listitem"]')].map((row) => {
     const b = row.getBoundingClientRect();
@@ -1569,10 +1589,10 @@ export async function openChatInApp(client, expectedName, timeoutMs = 12_000) {
     if (rows.length > 1 && rows.filter((row) => !row.first).length > 1) {
       await client.send('Page.captureScreenshot', { format:'jpeg', quality:1, clip:{ x:0, y:0, width:8, height:8, scale:0.1 } }).catch(() => {});
     }
-    const first = rows.find((row) => looseTargetLabel(row.first) === wanted);
+    const first = rows.find((row) => isWanted(row.first));
     if (!first) continue;
     await sleep(500);
-    const again = (await readResultRows()).find((row) => looseTargetLabel(row.first) === wanted);
+    const again = (await readResultRows()).find((row) => isWanted(row.first));
     if (again && Math.abs(again.y - first.y) < 2) { clickAt = again; break; }
   }
   // Запит із пошуку прибираємо виділенням і Backspace у самому полі: Escape поза полем закрив би відкритий чат.
@@ -1586,7 +1606,7 @@ export async function openChatInApp(client, expectedName, timeoutMs = 12_000) {
   // Клік могли «з'їсти» під час перемальовування списку: друга спроба бере свіжі координати рядка.
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (attempt > 0) {
-      clickAt = (await readResultRows()).find((row) => looseTargetLabel(row.first) === wanted) || clickAt;
+      clickAt = (await readResultRows()).find((row) => isWanted(row.first)) || clickAt;
     }
     for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await client.send('Input.dispatchMouseEvent', { type, x:clickAt.x, y:clickAt.y, button:'left', clickCount:1 });
     // Шапка відкритого чату має показати саме цю назву.
@@ -1594,7 +1614,7 @@ export async function openChatInApp(client, expectedName, timeoutMs = 12_000) {
     while (Date.now() < until) {
       await sleep(400);
       const header = await evaluate(`String((document.querySelector('#main header') || {}).innerText || '').split('\\n')[0] || ''`);
-      if (looseTargetLabel(header) === wanted) { await finish(); return true; }
+      if (options.match ? options.match(header) : looseTargetLabel(header) === wanted) { await finish(); return true; }
     }
   }
   await finish();
