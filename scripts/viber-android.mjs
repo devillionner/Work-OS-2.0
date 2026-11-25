@@ -6,6 +6,7 @@ import { execFile, spawn } from 'node:child_process';
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { stateDir } from './platform/paths.mjs';
+import { viberDesktopStatus } from './platform/viber-desktop.mjs';
 import { dirname, join } from 'node:path';
 import { hideAndroidWindows } from './hyprland-android-windows.mjs';
 import { saveFailureSnapshot } from './failure-snapshots.mjs';
@@ -58,6 +59,8 @@ let currentLaps = null;
 export const VIBER_ENV_REASON_TEXT = {
   viber_unsupported_platform: 'Автопост Viber працює лише на Linux',
   viber_desktop_pending: 'Viber на Windows: автопост з’явиться в другій фазі',
+  viber_desktop_not_running: 'Viber Desktop не запущений',
+  viber_desktop_dialog: 'У Viber Desktop відкрито діалог: закрий його',
   adb_missing: 'Не встановлено adb (пакет android-tools)',
   waydroid_missing: 'Не встановлено Waydroid',
   waydroid_not_running: 'Waydroid не запущений',
@@ -1475,7 +1478,13 @@ async function post(payload, guard) {
  */
 export async function runViberAndroid(action, payload = {}, { shouldAbort = () => false, onStep = () => {} } = {}) {
   // Windows: Viber Desktop — друга фаза; до неї платформа Viber на паузі з поясненням і задач не бере. Інші системи, окрім Linux, не підтримуються.
-  if (process.platform !== 'linux') return { ok: true, status: 'skipped', reason: process.platform === 'win32' ? 'viber_desktop_pending' : 'viber_unsupported_platform', severity: 'env' };
+  if (process.platform === 'win32') {
+    // Стан Viber Desktop читаємо лише для підказки в картці; реальні чати поки не обробляються (назви чатів недоступні через UIA).
+    const desktop = action === 'status' ? await viberDesktopStatus().catch(() => null) : null;
+    const reason = desktop?.reason === 'viber_desktop_not_running' ? 'viber_desktop_not_running' : desktop?.popups?.length ? 'viber_desktop_dialog' : 'viber_desktop_pending';
+    return { ok: true, status: 'skipped', reason, severity: 'env' };
+  }
+  if (process.platform !== 'linux') return { ok: true, status: 'skipped', reason: 'viber_unsupported_platform', severity: 'env' };
   // Вікна Android (multi_windows у Waydroid) ховаються правилом Hyprland до того, як Viber відкриє перше з них.
   await hideAndroidWindows().catch(() => {});
   // Поза Hyprland (GNOME, KDE) окремих вікон Android не буває, поки `persist.waydroid.multi_windows` вимкнено.

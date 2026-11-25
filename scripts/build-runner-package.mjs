@@ -16,7 +16,7 @@ const EXTRA = [
   'scripts/whatsapp-runner.sh', 'scripts/work-os-runner-tray.py', 'scripts/work-os-runner-launch.sh', 'scripts/work-os-waydroid-show.sh', 'scripts/work-os-hide-waydroid-icons.sh',
   'scripts/install-whatsapp-runner-autostart.sh', 'scripts/install-runner.sh', 'scripts/runner-doctor.mjs', 'scripts/work-os-runner-dialog.py',
   // Windows (3.21.0): лаунчер браузера й runner, трей і інсталятор на PowerShell 5.1 (UTF-8 з BOM).
-  'scripts/platform/windows-launch.mjs', 'scripts/windows/work-os-runner-tray.ps1', 'scripts/windows/install.ps1',
+  'scripts/platform/windows-launch.mjs', 'scripts/windows/work-os-runner-tray.ps1', 'scripts/windows/install.ps1', 'scripts/windows/viber-uia.ps1',
   'lib/app-meta.ts',
 ];
 const IMPORT_RE = /(?:from|import)\s*\(?\s*['"](\.{1,2}\/[^'"]+)['"]/g;

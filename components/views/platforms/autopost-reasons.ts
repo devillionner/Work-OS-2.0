@@ -1,6 +1,8 @@
 /** Причини, з яких автопост у WhatsApp чи Viber не відправив повідомлення, людською мовою (коди дають адаптер на ПК і сервер). */
 const REASONS: Record<string, string> = {
   viber_unsupported_platform: 'Автопост Viber працює лише на Linux-ПК із Waydroid.',
+  viber_desktop_not_running: 'Viber Desktop не запущений. Запусти його на ПК: автопост Viber на Windows чекає на нього.',
+  viber_desktop_dialog: 'У Viber Desktop відкрито діалог (наприклад, відновлення історії чи сповіщення): закрий його, тоді статус оновиться.',
   viber_desktop_pending: 'Автопост Viber на Windows ще не готовий: це друга фаза. Telegram і WhatsApp працюють.',
   adb_missing: 'На ПК немає adb. Встанови пакет android-tools.',
   waydroid_missing: 'На ПК не встановлений Waydroid.',
