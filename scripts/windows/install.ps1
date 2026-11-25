@@ -58,10 +58,21 @@ function Get-BrowserPath {
     return ''
 }
 
+function Grant-OwnerAccess([string]$path, [string]$rights) {
+    $me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    & icacls.exe $path /grant:r ('{0}:{1}' -f $me, $rights) 2>&1 | Out-Null
+}
+
 function Read-Env {
     $values = [ordered]@{}
     if (Test-Path -LiteralPath $RunnerEnv) {
-        foreach ($line in [IO.File]::ReadAllLines($RunnerEnv, [Text.Encoding]::UTF8)) {
+        try { $lines = [IO.File]::ReadAllLines($RunnerEnv, [Text.Encoding]::UTF8) }
+        catch {
+            # Власник файла завжди може повернути собі доступ (так було б після невдалого обмеження прав): відновлюємо й читаємо ще раз.
+            Grant-OwnerAccess $RunnerEnv 'F'
+            $lines = [IO.File]::ReadAllLines($RunnerEnv, [Text.Encoding]::UTF8)
+        }
+        foreach ($line in $lines) {
             if ($line -match '^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$') { $values[$Matches[1]] = $Matches[2] }
         }
     }
@@ -73,11 +84,12 @@ function Write-Env($values) {
     $lines = foreach ($key in $values.Keys) { '{0}={1}' -f $key, $values[$key] }
     [IO.File]::WriteAllLines($RunnerEnv, [string[]]@($lines), (New-Object Text.UTF8Encoding $false))
     # Токен лише для цього користувача: прибираємо успадковані права й даємо читання/запис лише йому.
+    # Увага: прапорці (OI)(CI) на файлі роблять запис лише успадковуваним і залишають файл без чинних прав, тож для файла вони не потрібні.
     $me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-    foreach ($path in @($RunnerEnv, $ConfigDir)) {
-        & icacls.exe $path /inheritance:r /grant:r ('{0}:(OI)(CI)F' -f $me) 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { Warn "не вдалося обмежити права на $path" }
-    }
+    & icacls.exe $ConfigDir /inheritance:r /grant:r ('{0}:(OI)(CI)F' -f $me) 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { Warn "не вдалося обмежити права на $ConfigDir" }
+    & icacls.exe $RunnerEnv /inheritance:r /grant:r ('{0}:F' -f $me) 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { Warn "не вдалося обмежити права на $RunnerEnv" }
 }
 
 function Get-TrayProcesses {
