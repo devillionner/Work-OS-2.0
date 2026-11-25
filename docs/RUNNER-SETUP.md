@@ -93,3 +93,11 @@ curl -fsSL https://<сайт>/runner/install | bash -s -- --site https://<сай
 **Сон:** поки є що виконувати, дочірній Windows PowerShell тримає `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)` (`powercfg /requests` показує запит). Закриття кришки визначає схема живлення Windows, цей запит її не змінює.
 
 **Не підтримується на Windows у фазі 1:** Viber (адаптер на Waydroid; платформа показує «друга фаза» й задач не бере), «Зберегти для перенесення» (входи WhatsApp і Telegram — свіжим QR).
+
+## Viber Desktop на Windows (3.22.0)
+
+Автопост Viber на Windows іде через програму Viber Desktop (Qt6): керування через UI Automation (`scripts/windows/viber-uia.ps1`), діалог файла через Win32 (`viber-dialog.ps1`), знімок вікна й OCR (`viber-vision.ps1`). Назву відкритого чату Viber через UI Automation не віддає, тому перед будь-яким введенням шапка розмови розпізнається OCR і нечітко порівнюється з назвою цілі (`lib/ocr-name-match.mjs`, поріг 0.8).
+
+**Потрібно один раз:** мова OCR для кирилиці. Української в Windows немає, ставиться російська (від адміністратора): `Add-WindowsCapability -Online -Name "Language.OCR~~~ru-RU~0.0.1.0"`. Без неї Viber на паузі (`viber_ocr_unavailable`).
+
+**Вмикання:** у `%LOCALAPPDATA%WorkOSconfigunner.env` рядок `WORK_OS_VIBER_DESKTOP=1`, далі перезапуск runner з трея. Поки рядка немає, платформа Viber на паузі (`viber_desktop_pending`). Пробна відправка в «My Notes» (фото з підписом) проходить перед першим реальним чатом дня.

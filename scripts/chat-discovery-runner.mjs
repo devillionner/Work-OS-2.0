@@ -220,7 +220,7 @@ const VIBER_PACE_MAX_MS=16000;
 const VIBER_ENV_COOLDOWN_MS=60000;
 // Дозвіл adb чи Viber, що не відповідає, за хвилину не зникнуть: одна довша пауза замість щохвилинних спроб.
 const VIBER_ENV_LONG_COOLDOWN_MS=5*60000;
-const VIBER_LONG_COOLDOWN_REASONS=new Set(['android_unauthorized','viber_not_responding','android_unreachable','waydroid_not_running','waydroid_frozen']);
+const VIBER_LONG_COOLDOWN_REASONS=new Set(['android_unauthorized','viber_not_responding','android_unreachable','waydroid_not_running','waydroid_frozen','viber_desktop_focus_stolen','viber_ocr_unavailable']);
 // Скільки задач підряд обірвав сторож кроку, перш ніж це вважається проблемою Viber, а не одного чату.
 const VIBER_STALL_AFTER=3;
 let viberStalls=0;
