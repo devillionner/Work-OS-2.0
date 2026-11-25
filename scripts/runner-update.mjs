@@ -35,13 +35,16 @@ export async function updateFromSite({ baseUrl, rootDir, expectedVersion, log = 
   try {
     writeFileSync(join(tmp, 'runner.tar.gz'), data);
     mkdirSync(join(tmp, 'new'));
-    const unpack = spawnSync('tar', ['-xzf', join(tmp, 'runner.tar.gz'), '-C', join(tmp, 'new')], { stdio: 'ignore' });
+    // Windows: системний bsdtar (GNU tar із Git трактує «C:» як віддалений вузол).
+    const tar = process.platform === 'win32' ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
+    const unpack = spawnSync(tar, ['-xzf', join(tmp, 'runner.tar.gz'), '-C', join(tmp, 'new')], { stdio: 'ignore' });
     if (unpack.status !== 0) throw new Error('пакет не розпакувався');
     const next = readInstalledPackage(join(tmp, 'new'));
     if (!next?.version || !existsSync(join(tmp, 'new', 'scripts', 'chat-discovery-runner.mjs'))) throw new Error('пакет неповний');
     if (expectedVersion && next.version !== expectedVersion) throw new Error(`у пакеті версія ${next.version}, а сайт каже ${expectedVersion}`);
     const old = readInstalledPackage(rootDir);
-    const trayBefore = existsSync(join(rootDir, 'scripts/work-os-runner-tray.py')) ? readFileSync(join(rootDir, 'scripts/work-os-runner-tray.py')) : null;
+    const trayFile = process.platform === 'win32' ? 'scripts/windows/work-os-runner-tray.ps1' : 'scripts/work-os-runner-tray.py';
+    const trayBefore = existsSync(join(rootDir, trayFile)) ? readFileSync(join(rootDir, trayFile)) : null;
     const files = walk(join(tmp, 'new'));
     for (const rel of files) {
       if (rel === PACKAGE_MARKER) continue;
@@ -54,8 +57,9 @@ export async function updateFromSite({ baseUrl, rootDir, expectedVersion, log = 
     }
     for (const rel of old?.files || []) if (!files.includes(rel)) { try { unlinkSync(join(rootDir, rel)); } catch { /* уже немає */ } }
     writeFileSync(join(rootDir, PACKAGE_MARKER), JSON.stringify(next));
-    const trayAfter = readFileSync(join(rootDir, 'scripts/work-os-runner-tray.py'));
-    if (trayBefore && !trayBefore.equals(trayAfter)) {
+    const trayAfter = existsSync(join(rootDir, trayFile)) ? readFileSync(join(rootDir, trayFile)) : null;
+    // Windows: трей сам бачить зміну свого скрипта й перезапускається між задачами (див. work-os-runner-tray.ps1).
+    if (process.platform !== 'win32' && trayBefore && trayAfter && !trayBefore.equals(trayAfter)) {
       // Сам трей змінився: перезапускаємо лише його (runner переживає: KillMode=process, новий трей його підхоплює).
       log('Оновився трей: перезапускаю сервіс трея.');
       spawn('systemctl', ['--user', 'restart', 'work-os-runner-tray.service'], { detached: true, stdio: 'ignore' }).unref();

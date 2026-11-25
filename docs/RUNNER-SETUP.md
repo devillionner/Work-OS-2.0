@@ -76,3 +76,20 @@ curl -fsSL https://<сайт>/runner/install | bash -s -- --site https://<сай
 Перевірено (3.16.0, локально, `wrangler dev` із локальним R2): код встановлення діє один раз і гасне через 15 хв, обмеження невдалих спроб; збереження 323 МБ (11 частин) через проксі, що рве з'єднання посеред частини, з імітованим збоєм ще однієї частини; завантаження з обривом і усіченою частиною; перевернутий байт у дорозі (виявляється за SHA-256, нічого не розкладається); неправильний пароль, обрізаний, пошкоджений і переставлений файл (до розпакування); кеші не в архіві, вміст профілю й Waydroid збігається з оригіналом; наявне відкладається в `*.bak-ДАТА`; лишаються два архіви, старіші зникають з R2; пакет runner у чистій теці (22 файли, лише runner), запуск runner із пакета з токеном, самооновлення з іншої версії; `--dry-run` на Arch, Fedora й Ubuntu (`OS_RELEASE_FILE`), відмова на NixOS, openSUSE, Silverblue, Bazzite, невідомому; закриття браузера через CDP; весь ланцюжок «кнопка в картці → DO → runner → прогрес у браузері».
 
 Не перевірено наживо: вікно пароля GTK (лише компіляція), права root через справжній `sudo -A` (перевірено з тестовим `sudo`), закриття щоденного Opera й повернення вкладок, зупинка й запуск справжнього Waydroid, справжнє встановлення в чистому контейнері чи ВМ (на цьому ПК немає docker/podman/distrobox; `apt` і `dnf` гілки лише `--dry-run`), встановлення Waydroid з нуля, відновлення в іншому дистрибутиві (профіль Opera → Chrome), завантаження ADBKeyBoard за закріпленою сумою, правило KWin і режим без `multi_windows`, робота на staging із справжнім R2.
+
+## Windows 11 (3.21.0): Telegram і WhatsApp
+
+Один runner для обох систем: ядро (`scripts/chat-discovery-runner.mjs`, черги, адаптери CDP) спільне, платформні частини лежать окремо (`scripts/platform/`, `scripts/windows/`).
+Потрібні лише Node.js ≥ 22.13 і Edge (чи Chrome); Windows PowerShell 5.1 уже є в системі. Права адміністратора не потрібні.
+
+**Встановлення.** «Налаштування → Сервіс → Runner на цьому ПК» на Windows показує команду з одноразовим кодом:
+`& ([scriptblock]::Create([Text.Encoding]::UTF8.GetString((iwr -UseBasicParsing 'https://САЙТ/runner/install.ps1').RawContentStream.ToArray()))) -Site 'https://САЙТ' -Code 'XXXX-XXXX'`.
+`public/runner/install.ps1` (лише ASCII) качає пакет із цього ж сайту, звіряє SHA-256 до розпакування (`tar.exe`), а справжній інсталятор `scripts/windows/install.ps1` (UTF-8 з BOM, українською) обмінює код на токен, пише `configunner.env` (права лише користувача), ставить ярлик автозапуску й `workos-runner://` у HKCU. Режими: `-Check`, `-Remove [-Purge]`, `-NoStart`. Ідемпотентно.
+
+**Де що лежить:** `%LOCALAPPDATA%WorkOSunner` (пакет), `state` (стан, журнал, знімки збоїв), `config` (runner.env), `rowser` (профіль Edge із входами). Усі шляхи дає `scripts/platform/paths.mjs`.
+
+**Браузер runner** (`scripts/platform/windows-launch.mjs`): окремий профіль, порт 9222 на 127.0.0.1, `--headless=new`, UA без «Headless», ті самі прапорці проти гальмування, що в `whatsapp-runner.sh`, `--mute-audio`. Перший запуск і порожній профіль — з вікном (QR-код); потім у меню трея «Сховати браузер runner» (файл `stateunner-browser-mode`). Закривається коректно через CDP (`--close-browser`).
+
+**Сон:** поки є що виконувати, дочірній Windows PowerShell тримає `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)` (`powercfg /requests` показує запит). Закриття кришки визначає схема живлення Windows, цей запит її не змінює.
+
+**Не підтримується на Windows у фазі 1:** Viber (адаптер на Waydroid; платформа показує «друга фаза» й задач не бере), «Зберегти для перенесення» (входи WhatsApp і Telegram — свіжим QR).

@@ -71,6 +71,8 @@ export async function openBackgroundTab(base, url) {
  * (тоді нічого не повідомляємо). Читає лише /proc, жодних запитів.
  */
 export function missingThrottleFlags(port = 9222) {
+  // Windows: браузер запускає наш лаунчер із усіма прапорцями (scripts/platform/windows-launch.mjs), читати нічого не треба.
+  if (process.platform !== 'linux') return null;
   try {
     for (const entry of readdirSync('/proc')) {
       if (!/^\d+$/.test(entry)) continue;

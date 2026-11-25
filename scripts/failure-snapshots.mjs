@@ -1,14 +1,14 @@
-// Знімки невідомих станів (3.18.0): скріншот і дерево екрана в ~/.local/state/work-os/failures/<дата>-<платформа>-<код>/, щоб власник
+// Знімки невідомих станів (3.18.0): скріншот і дерево екрана в <state>/failures/<дата>-<платформа>-<код>/, щоб власник
 // міг одразу передати їх на виправлення. Зберігаються 14 днів і не більше 200 МБ; «нові» — ті, що новіші за позначку `.seen`
 // (її ставить пункт меню трея «Нові збої»).
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { stateDir } from './platform/paths.mjs';
 import { join } from 'node:path';
 
 const KEEP_MS = 14 * 24 * 3600_000;
 const MAX_BYTES = 200 * 1024 * 1024;
 
-export const failuresDir = () => join(process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state'), 'work-os', 'failures');
+export const failuresDir = () => join(stateDir(), 'failures');
 
 const safe = (value) => String(value || 'unknown').replace(/[^\w.-]+/gu, '_').slice(0, 60);
 

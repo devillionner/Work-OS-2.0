@@ -5,6 +5,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
+import { stateDir } from './platform/paths.mjs';
 import { dirname, join } from 'node:path';
 import { hideAndroidWindows } from './hyprland-android-windows.mjs';
 import { saveFailureSnapshot } from './failure-snapshots.mjs';
@@ -56,6 +57,7 @@ let currentLaps = null;
 /** Короткі пояснення для журналу й значка в треї; повні тексти для оператора живуть на сайті. */
 export const VIBER_ENV_REASON_TEXT = {
   viber_unsupported_platform: 'Автопост Viber працює лише на Linux',
+  viber_desktop_pending: 'Viber на Windows: автопост з’явиться в другій фазі',
   adb_missing: 'Не встановлено adb (пакет android-tools)',
   waydroid_missing: 'Не встановлено Waydroid',
   waydroid_not_running: 'Waydroid не запущений',
@@ -1472,7 +1474,8 @@ async function post(payload, guard) {
  * @returns {Promise<{ok:boolean,status:string,reason?:string|null,severity?:string,detail?:string,[key:string]:unknown}>}
  */
 export async function runViberAndroid(action, payload = {}, { shouldAbort = () => false, onStep = () => {} } = {}) {
-  if (process.platform !== 'linux') return { ok: true, status: 'skipped', reason: 'viber_unsupported_platform', severity: 'env' };
+  // Windows: Viber Desktop — друга фаза; до неї платформа Viber на паузі з поясненням і задач не бере. Інші системи, окрім Linux, не підтримуються.
+  if (process.platform !== 'linux') return { ok: true, status: 'skipped', reason: process.platform === 'win32' ? 'viber_desktop_pending' : 'viber_unsupported_platform', severity: 'env' };
   // Вікна Android (multi_windows у Waydroid) ховаються правилом Hyprland до того, як Viber відкриє перше з них.
   await hideAndroidWindows().catch(() => {});
   // Поза Hyprland (GNOME, KDE) окремих вікон Android не буває, поки `persist.waydroid.multi_windows` вимкнено.
@@ -1520,7 +1523,7 @@ export async function runViberAndroid(action, payload = {}, { shouldAbort = () =
           const nodes = await currentAndroid.dump();
           error.detail = `${error.detail} | screen: ${screenText(nodes).slice(0, 160)}${currentLaps ? ` | ${currentLaps.text()}` : ''}`.trim();
           const shot = await currentAndroid.adb(['exec-out', 'screencap', '-p'], { timeout: 15_000, buffer: true });
-          const dir = join(homedir(), '.local', 'state', 'work-os');
+          const dir = stateDir();
           await mkdir(dir, { recursive: true });
           if (Buffer.isBuffer(shot.stdout) && shot.stdout.length > 1000) await writeFile(join(dir, 'viber-last-failure.png'), shot.stdout);
           // Невідомий стан: знімок із деревом екрана в теці збоїв (14 днів, ≤ 200 МБ), щоб власник міг передати його на виправлення.

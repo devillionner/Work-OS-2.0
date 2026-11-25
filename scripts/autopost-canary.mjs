@@ -2,7 +2,7 @@
 // в безпечне місце, нікому не видиме: Viber → «My Notes», WhatsApp → чат «Ви», Telegram → «Збережене» (Saved Messages).
 // Для Viber окремо перевіряється відкриття за запрошенням: будь-яке запрошення з черги (лише відкрити, нічого не надсилати).
 import { readFileSync } from 'node:fs';
-import { release as osRelease } from 'node:os';
+import { release as osRelease, version as osVersion } from 'node:os';
 import { CANARY_IMAGE } from './autopost-canary-image.mjs';
 import { saveFailureSnapshot } from './failure-snapshots.mjs';
 import { runViberAndroid, viberFingerprint } from './viber-android.mjs';
@@ -13,6 +13,7 @@ const stamp = () => new Date().toLocaleString('uk-UA', { dateStyle: 'short', tim
 const canaryText = (name) => `Work OS: пробна відправка ${name} ${stamp()} (можна видалити)`;
 
 function osInfo() {
+  if (process.platform === 'win32') return { os: `Windows ${osVersion()}`, kernel: osRelease(), session: '', desktop: '' };
   let id = '';
   try { id = readFileSync('/etc/os-release', 'utf8').split('\n').filter((line) => /^(ID|VERSION_ID)=/.test(line)).map((line) => line.split('=')[1].replace(/"/g, '')).join(' '); } catch { /* без файла */ }
   return { os: id.trim(), kernel: osRelease().split('-')[0], session: process.env.XDG_SESSION_TYPE || '', desktop: process.env.XDG_CURRENT_DESKTOP || '' };

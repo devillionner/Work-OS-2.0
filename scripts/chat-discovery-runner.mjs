@@ -2,8 +2,9 @@
 import { missingThrottleFlags } from './cdp-background.mjs';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { IS_WINDOWS, statusFile as defaultStatusFile } from './platform/paths.mjs';
 import process from 'node:process';
 import readline from 'node:readline/promises';
 import {
@@ -124,11 +125,11 @@ function reportBrowserFlags(){
     text:missing.length?'Перезапусти Opera, щоб автопост не гальмував за іншими вікнами.':''});
 }
 function runnerVersion(){
-  try{return /APP_VERSION\s*=\s*'([^']+)'/.exec(readFileSync(join(dirname(new URL(import.meta.url).pathname),'..','lib','app-meta.ts'),'utf8'))?.[1]||'';}
+  try{return /APP_VERSION\s*=\s*'([^']+)'/.exec(readFileSync(join(dirname(fileURLToPath(import.meta.url)),'..','lib','app-meta.ts'),'utf8'))?.[1]||'';}
   catch{return '';}
 }
 // --- Перенесення входів і самооновлення ---------------------------------------------------------------------------------------
-const rootDir=join(dirname(new URL(import.meta.url).pathname),'..');
+const rootDir=join(dirname(fileURLToPath(import.meta.url)),'..');
 let siteVersion='';
 let selfUpdating=false;
 let selfUpdateRetry=null;
@@ -286,8 +287,7 @@ async function refreshExecutorTokenIfNeeded(){
   if(resolved)token=resolved;
 }
 
-const statusFile=process.env.WORK_OS_RUNNER_STATUS_FILE
-  ||join(process.env.XDG_STATE_HOME||join(homedir(),'.local','state'),'work-os','runner-status.json');
+const statusFile=defaultStatusFile();
 let lastStatusKey='';
 // Read by the tray icon (scripts/work-os-runner-tray.py); written only when the state changes.
 const lastStatus={state:'starting',detail:''};
@@ -1752,6 +1752,8 @@ function onLiveMessage(ws,raw){
   // Картка «Runner на цьому ПК»: «Зберегти для перенесення» чи «Скасувати».
   if(message.type==='transfer'){
     if(message.action==='cancel'){transferAbort?.abort();return;}
+    // Перенесення входів (tar, sudo, Waydroid, GTK-діалог пароля) — лише Linux; на Windows входи в WhatsApp і Telegram робляться свіжим QR.
+    if(IS_WINDOWS){transferProgress({phase:'error',text:'На Windows перенесення входів недоступне: увійди в WhatsApp і Telegram у браузері runner заново (QR).',percent:null});return;}
     void startBackupTransfer();
     return;
   }

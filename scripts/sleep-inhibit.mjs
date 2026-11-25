@@ -1,10 +1,23 @@
 // Блокування сну ноутбука, поки runner виконує автопост: партія (Telegram 59 чатів при 30/год ≈ 2 год) довша за автопризупинення системи,
 // а сон обриває runner посеред партії. Тримаємо inhibitor logind (`sleep:idle`, режим block) дочірнім процесом `systemd-inhibit`, який живе,
 // поки потрібно. Екран гаснути може, обробку кришки (handle-lid-switch) не чіпаємо. Без systemd-inhibit чи logind мовчки пропускаємо (один рядок у журналі).
+// Windows: дочірній Windows PowerShell тримає `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)` і сам завершується, коли зникає runner
+// (`powercfg /requests` тоді показує запит у розділі SYSTEM). Закриття кришки визначає схема живлення, а не цей запит.
 import { spawn } from 'node:child_process';
 
 export const INHIBIT_WHO = 'Work OS';
 export const INHIBIT_WHY = 'Іде автопост';
+
+/** Скрипт для Windows PowerShell: ES_CONTINUOUS | ES_SYSTEM_REQUIRED (0x80000001) живе, поки живий потік і runner. */
+export function windowsInhibitCommand(pid) {
+  const script = [
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    `Add-Type -Namespace WorkOs -Name Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);'`,
+    '[void][WorkOs.Power]::SetThreadExecutionState([uint32]2147483649)',
+    `while (Get-Process -Id ${Number(pid)}) { Start-Sleep -Seconds 5 }`,
+  ].join('\n');
+  return ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')];
+}
 
 /**
  * @param {{ spawnFn?: typeof spawn, log?: (line: string) => void, onChange?: (active: boolean) => void, pid?: number }} [options]
@@ -20,16 +33,17 @@ export function createSleepInhibitor({ spawnFn = spawn, log = () => {}, onChange
   function acquire() {
     if (unavailable || child) return;
     // Утримувана команда сама завершується, коли помирає runner (`tail --pid`): навіть після SIGKILL блокування не лишиться назавжди.
-    const args = ['--what=sleep:idle', `--who=${INHIBIT_WHO}`, `--why=${INHIBIT_WHY}`, '--mode=block', 'tail', `--pid=${pid}`, '-f', '/dev/null'];
+    const windows = process.platform === 'win32';
+    const args = windows ? windowsInhibitCommand(pid) : ['--what=sleep:idle', `--who=${INHIBIT_WHO}`, `--why=${INHIBIT_WHY}`, '--mode=block', 'tail', `--pid=${pid}`, '-f', '/dev/null'];
     let spawned;
-    try { spawned = spawnFn('systemd-inhibit', args, { stdio: 'ignore', detached: true }); }
-    catch { unavailable = true; log('Блокування сну недоступне: systemd-inhibit не запускається. Пропускаю.'); return; }
+    try { spawned = windows ? spawnFn('powershell.exe', args, { stdio: 'ignore', windowsHide: true }) : spawnFn('systemd-inhibit', args, { stdio: 'ignore', detached: true }); }
+    catch { unavailable = true; log(`Блокування сну недоступне: ${windows ? 'powershell.exe' : 'systemd-inhibit'} не запускається. Пропускаю.`); return; }
     child = spawned;
     const startedAt = Date.now();
     spawned.on('error', () => {
       if (child === spawned) child = null;
       unavailable = true; set(false);
-      log('Блокування сну недоступне: немає systemd-inhibit. Пропускаю.');
+      log(`Блокування сну недоступне: немає ${windows ? 'powershell.exe' : 'systemd-inhibit'}. Пропускаю.`);
     });
     spawned.on('exit', (code) => {
       if (child === spawned) child = null;
@@ -44,7 +58,7 @@ export function createSleepInhibitor({ spawnFn = spawn, log = () => {}, onChange
     if (!child) return;
     const stopping = child;
     child = null;
-    try { process.kill(-stopping.pid, 'SIGTERM'); } catch { try { stopping.kill('SIGTERM'); } catch { /* уже завершився */ } }
+    try { if (process.platform === 'win32') throw new Error('без груп процесів'); process.kill(-stopping.pid, 'SIGTERM'); } catch { try { stopping.kill('SIGTERM'); } catch { /* уже завершився */ } }
     set(false);
   }
 

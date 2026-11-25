@@ -10,6 +10,8 @@ import { Row } from './ui';
 
 type Backup = { id: string; createdAt: number; sizeBytes: number; version: string; host: string };
 const CHECK_COMMAND = '~/.local/share/work-os/runner/scripts/install-runner.sh --check';
+// Windows PowerShell 5.1: перевірка встановленого runner (політика виконання Restricted не дозволяє запускати .ps1 напряму, тож -ExecutionPolicy Bypass).
+const CHECK_COMMAND_WINDOWS = String.raw`powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\WorkOS\runner\scripts\windows\install.ps1" -Check`;
 /** Прогрес, старший за цей час без завершення, вважається застарілим (runner міг впасти). */
 const STALE_MS = 10 * 60_000;
 
@@ -44,6 +46,8 @@ export function RunnerRow() {
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
+  // Сайт відкрито на Windows: показуємо команду для PowerShell; перенесення входів архівом там не підтримується (входи робляться QR).
+  const windows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent);
 
   const load = useCallback(() => {
     void fetch('/api/runner/backup', { cache: 'no-store' }).then((response) => response.json() as Promise<{ backups?: Backup[]; available?: boolean }>)
@@ -99,13 +103,16 @@ export function RunnerRow() {
   const copy = (text: string, message: string) => void navigator.clipboard.writeText(text).then(() => toast.push({ message }));
 
   const left = code ? code.expiresAt - now : 0;
-  const command = code ? `curl -fsSL ${origin}/runner/install | bash -s -- --site ${origin} --code ${code.value}` : '';
+  const command = !code ? '' : windows
+    ? `& ([scriptblock]::Create([Text.Encoding]::UTF8.GetString((iwr -UseBasicParsing '${origin}/runner/install.ps1').RawContentStream.ToArray()))) -Site '${origin}' -Code '${code.value}'`
+    : `curl -fsSL ${origin}/runner/install | bash -s -- --site ${origin} --code ${code.value}`;
+  const checkCommand = windows ? CHECK_COMMAND_WINDOWS : CHECK_COMMAND;
   const running = transfer !== null && !['done', 'error'].includes(transfer.phase) && now - transfer.at < STALE_MS;
   const failed = transfer?.phase === 'error' && now - transfer.at < 60 * 60_000;
   const latest = backups?.[0] ?? null;
 
   return (
-    <Row label="Runner на цьому ПК" description={`${state} Новий ПК чи інша система Linux: встанови одну командою з одноразовим кодом, а входи в WhatsApp, Telegram і Viber перенеси зашифрованим архівом із хмари: без QR-кодів.`} stacked>
+    <Row label="Runner на цьому ПК" description={windows ? `${state} Новий ПК з Windows: встанови runner однією командою в PowerShell з одноразовим кодом, потім увійди в WhatsApp і Telegram у вікні браузера runner (QR-код). Viber на Windows з’явиться в другій фазі.` : `${state} Новий ПК чи інша система Linux: встанови одну командою з одноразовим кодом, а входи в WhatsApp, Telegram і Viber перенеси зашифрованим архівом із хмари: без QR-кодів.`} stacked>
       <div className="flex w-full min-w-0 flex-col gap-4">
         <section className="flex min-w-0 flex-col gap-2" aria-label="Встановити на новій системі">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -122,12 +129,12 @@ export function RunnerRow() {
             </div>
           ) : <p className="m-0 text-xs text-ink-2">Команду видно лише тут і лише після створення коду: код одноразовий. Пакет runner завантажується з цього сайту й перевіряється за SHA-256; репозиторій і git на ПК не потрібні.</p>}
           <div className="flex min-w-0 items-center gap-2 rounded-inner border border-line bg-sunken px-3 py-2">
-            <div className="min-w-0 flex-1"><p className="m-0 text-xs text-ink-2">Перевірити готовність на ПК</p><code className="block truncate font-mono text-xs" title={CHECK_COMMAND}>{CHECK_COMMAND}</code></div>
-            <Button variant="icon" size="sm" aria-label="Скопіювати команду перевірки" onClick={() => copy(CHECK_COMMAND, 'Команду скопійовано.')}><Copy aria-hidden="true" strokeWidth={1.5} /></Button>
+            <div className="min-w-0 flex-1"><p className="m-0 text-xs text-ink-2">Перевірити готовність на ПК</p><code className="block truncate font-mono text-xs" title={checkCommand}>{checkCommand}</code></div>
+            <Button variant="icon" size="sm" aria-label="Скопіювати команду перевірки" onClick={() => copy(checkCommand, 'Команду скопійовано.')}><Copy aria-hidden="true" strokeWidth={1.5} /></Button>
           </div>
         </section>
 
-        <section className="flex min-w-0 flex-col gap-2" aria-label="Зберегти для перенесення">
+        {windows ? null : <section className="flex min-w-0 flex-col gap-2" aria-label="Зберегти для перенесення">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="m-0 text-sm font-medium">Зберегти для перенесення</h3>
             {running
@@ -147,7 +154,7 @@ export function RunnerRow() {
               <Button variant="ghost" size="sm" tone="danger" disabled={busy || running} onClick={() => setConfirmDelete(true)}>Видалити архів із хмари</Button>
             </div>
           ) : backups !== null ? <p className="m-0 text-xs text-ink-2">Архіву ще немає. Архів зашифровано паролем, який знаєш лише ти: без нього його не відкрити, відновити пароль неможливо.</p> : null}
-        </section>
+        </section>}
       </div>
       <ConfirmDialog open={confirmDelete} title="Видалити архів із хмари" description="Архів входів буде видалено назавжди. Щоб переїхати на іншу систему, доведеться зберегти новий." confirmLabel="Видалити" destructive busy={busy} onCancel={() => setConfirmDelete(false)} onConfirm={() => latest && void remove(latest.id)} />
     </Row>

@@ -15,6 +15,8 @@ const entry = 'scripts/chat-discovery-runner.mjs';
 const EXTRA = [
   'scripts/whatsapp-runner.sh', 'scripts/work-os-runner-tray.py', 'scripts/work-os-runner-launch.sh', 'scripts/work-os-waydroid-show.sh', 'scripts/work-os-hide-waydroid-icons.sh',
   'scripts/install-whatsapp-runner-autostart.sh', 'scripts/install-runner.sh', 'scripts/runner-doctor.mjs', 'scripts/work-os-runner-dialog.py',
+  // Windows (3.21.0): лаунчер браузера й runner, трей і інсталятор на PowerShell 5.1 (UTF-8 з BOM).
+  'scripts/platform/windows-launch.mjs', 'scripts/windows/work-os-runner-tray.ps1', 'scripts/windows/install.ps1',
   'lib/app-meta.ts',
 ];
 const IMPORT_RE = /(?:from|import)\s*\(?\s*['"](\.{1,2}\/[^'"]+)['"]/g;
@@ -55,7 +57,8 @@ export function buildRunnerPackage(outDir = join(root, 'public', 'runner')) {
       const target = join(stage, rel);
       mkdirSync(dirname(target), { recursive: true });
       copyFileSync(join(root, rel), target);
-      chmodSync(target, statSync(join(root, rel)).mode & 0o755 | 0o644);
+      // На Windows режими файлів не передаються: скрипти для Linux у пакеті мусять лишитися виконуваними.
+      chmodSync(target, WINDOWS && /\.(sh|py)$/.test(rel) ? 0o755 : statSync(join(root, rel)).mode & 0o755 | 0o644);
     }
     writeFileSync(join(stage, 'RUNNER-PACKAGE.json'), JSON.stringify({ version, files }));
     mkdirSync(outDir, { recursive: true });

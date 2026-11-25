@@ -1,6 +1,6 @@
 import { enterBackgroundMode, openBackgroundTab } from './cdp-background.mjs';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { stateDir } from './platform/paths.mjs';
 import { join } from 'node:path';
 
 // Real WhatsApp invite resolution can exceed 20s before the factual join/retry modal appears.
@@ -1097,7 +1097,7 @@ async function waitForNoInviteCheckDialog(client,timeoutMs){
 async function saveFailureShot(client){
   try{
     const shot=await client.send('Page.captureScreenshot',{format:'jpeg',quality:55});
-    const dir=join(process.env.XDG_STATE_HOME||join(homedir(),'.local','state'),'work-os');
+    const dir=stateDir();
     mkdirSync(dir,{recursive:true});
     writeFileSync(join(dir,'whatsapp-last-failure.jpg'),Buffer.from(shot.data,'base64'));
   }catch{/* знімок необов'язковий */}

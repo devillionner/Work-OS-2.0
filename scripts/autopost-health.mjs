@@ -3,9 +3,9 @@
 //  • Пробна відправка: перед першою партією платформи за день, після перезапуску runner і після зміни відбитка; не пройшла → партія
 //    платформи не стартує, пройшла → йде.
 //  • Запобіжник: однаковий збій на двох різних чатах поспіль (або 3 з 5) = збій середовища, а не чатів.
-// Стан у ~/.local/state/work-os/health.json (лише відбиток і час останньої перевірки); нічого в D1.
+// Стан у <state>/health.json (лише відбиток і час останньої перевірки); нічого в D1.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { stateDir } from './platform/paths.mjs';
 import { dirname, join } from 'node:path';
 
 export const PLATFORMS = ['viber', 'whatsapp', 'telegram'];
@@ -94,7 +94,7 @@ const isUnreadable = (value) => value === undefined || value === null || value =
 const stable = (value, other) => JSON.stringify(Object.keys(value || {}).sort().filter((key) => !other || (!isUnreadable(value[key]) && !isUnreadable(other[key]))).map((key) => [key, value[key]]));
 
 /** @param {{file?: string, now?: () => number}} [options] */
-export function createHealth({ file = join(process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state'), 'work-os', 'health.json'), now = () => Date.now() } = {}) {
+export function createHealth({ file = join(stateDir(), 'health.json'), now = () => Date.now() } = {}) {
   let saved = {};
   try { saved = JSON.parse(readFileSync(file, 'utf8')).platforms || {}; } catch { /* першого разу файла немає */ }
   const persist = () => {
