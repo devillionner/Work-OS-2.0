@@ -99,7 +99,7 @@ function Get-TrayProcesses {
 
 function Get-RunnerLockPid {
     try {
-        $lock = Get-Content -LiteralPath (Join-Path $StateDir 'runner.lock') -Raw | ConvertFrom-Json
+        $lock = Get-Content -LiteralPath (Join-Path $StateDir 'runner.lock') -Raw -Encoding UTF8 | ConvertFrom-Json
         $p = Get-Process -Id ([int]$lock.pid) -ErrorAction SilentlyContinue
         if ($p -and $p.ProcessName -eq 'node') { return [int]$lock.pid }
     } catch { }
@@ -163,16 +163,16 @@ if ($Check) {
     $browser = Get-BrowserPath
     if ($browser) { Good "браузер: $browser" } else { Warn 'не знайдено Edge чи Chrome'; $problems++ }
     $package = Join-Path $RunnerDir 'RUNNER-PACKAGE.json'
-    if (Test-Path -LiteralPath $package) { Good ('runner ' + (Get-Content -LiteralPath $package -Raw | ConvertFrom-Json).version + " у $RunnerDir") } else { Warn 'runner не встановлено'; $problems++ }
+    if (Test-Path -LiteralPath $package) { Good ('runner ' + (Get-Content -LiteralPath $package -Raw -Encoding UTF8 | ConvertFrom-Json).version + " у $RunnerDir") } else { Warn 'runner не встановлено'; $problems++ }
     $values = Read-Env
     if ($values['WORK_OS_URL']) { Good ('сайт: ' + $values['WORK_OS_URL']) } else { Warn 'у runner.env немає адреси сайту'; $problems++ }
     if ($values['WORK_OS_EXECUTOR_TOKEN']) { Good 'токен прив''язки є' } else { Warn 'токена прив''язки немає (створіть код у Work OS і повторіть встановлення)'; $problems++ }
     if (Test-Path -LiteralPath $ShortcutPath) { Good 'автозапуск налаштовано' } else { Warn 'автозапуску немає'; $problems++ }
     if (Test-Path $ProtocolKey) { Good 'посилання workos-runner:// зареєстровано' } else { Warn 'посилання workos-runner:// не зареєстровано'; $problems++ }
-    if ((Get-TrayProcesses).Count -gt 0) { Good 'трей працює' } else { Warn 'трей не запущений'; $problems++ }
+    if (@(Get-TrayProcesses).Count -gt 0) { Good 'трей працює' } else { Warn 'трей не запущений'; $problems++ }
     if (Test-Port 9222) { Good 'браузер runner відповідає на порту 9222' } else { Warn 'браузер runner не відповідає на порту 9222' }
     try {
-        $status = Get-Content -LiteralPath (Join-Path $StateDir 'runner-status.json') -Raw | ConvertFrom-Json
+        $status = Get-Content -LiteralPath (Join-Path $StateDir 'runner-status.json') -Raw -Encoding UTF8 | ConvertFrom-Json
         Say ('  стан runner: {0} — {1}' -f $status.state, $status.detail)
     } catch { Say '  стан runner: файла стану ще немає' }
     if ($problems -gt 0) { Say ''; Say "Потребує уваги: $problems. Команду встановлення з кодом дає «Налаштування → Сервіс → Runner на цьому ПК»."; exit 1 }
@@ -228,7 +228,7 @@ if ((Resolve-Path -LiteralPath $source).Path -ne (Resolve-Path -LiteralPath $Run
     if ($LASTEXITCODE -ge 8) { Fail "не вдалося скопіювати файли runner (robocopy $LASTEXITCODE)." }
 }
 $version = ''
-try { $version = (Get-Content -LiteralPath (Join-Path $RunnerDir 'RUNNER-PACKAGE.json') -Raw | ConvertFrom-Json).version } catch { }
+try { $version = (Get-Content -LiteralPath (Join-Path $RunnerDir 'RUNNER-PACKAGE.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version } catch { }
 Good ("runner $version у $RunnerDir")
 
 Step 'Прив''язка до Work OS'
