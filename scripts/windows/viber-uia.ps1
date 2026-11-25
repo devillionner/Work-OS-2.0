@@ -89,6 +89,12 @@ switch ($Command) {
                 }
             }
         }
+        # Рекламні панелі Viber («Give images a new look») — не QQuickPopupItem: кнопку шукаємо за назвою по всьому вікну.
+        foreach ($n in $nodes) {
+            if ($n.Current.ControlType.ProgrammaticName -eq 'ControlType.Button' -and $n.Current.Name -eq $Button) {
+                $n.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Reply @{ ok = $true; dismissed = $Button }
+            }
+        }
         Reply @{ ok = $false; reason = 'dialog_button_not_found' }
     }
     'set-text' {
