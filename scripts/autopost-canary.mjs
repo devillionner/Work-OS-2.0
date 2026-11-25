@@ -115,7 +115,7 @@ async function canaryWhatsapp({ cdp, shouldAbort, onStep }) {
   onStep?.('canary', 'пробна відправка в чат «Ви»');
   const task = { kind: 'whatsapp_autopost', canary: true, target: { expectedName: 'Ви', selfChat: true }, material: { text: canaryText('WhatsApp'), media: { ...CANARY_IMAGE } } };
   const result = await sendWhatsappAutopostViaCdp(task, { cdpBaseUrl: cdp, shouldAbort, onStep });
-  return result.kind === 'result' && result.result?.status === 'sent' ? { ok: true } : failed(result.reason || 'whatsapp_failed', result.detail);
+  return result.kind === 'result' && result.result?.status === 'sent' ? { ok: true } : failed(result.reason || 'whatsapp_failed', result.detail || (result.observedTarget ? `у шапці чату: «${result.observedTarget}»` : ''));
 }
 
 /**

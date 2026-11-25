@@ -1215,11 +1215,29 @@ export async function sendWhatsappAutopostViaCdp(
       const digits = wid.match(/(\d{6,16})(?::\d+)?@c\.us/)?.[1];
       if (!digits) return { kind:'blocked', reason:'whatsapp_self_unknown' };
       await client.send('Page.navigate', { url:`https://web.whatsapp.com/send?phone=${digits}` });
+      // Поле повідомлення з'являється раніше, ніж WhatsApp Web застосує посилання: спершу може лишатись чат, відкритий востаннє (на Windows без
+      // вікна так і було: у шапці стояв чужий чат). Тож чекаємо, поки шапка стане саме чатом із собою: цифри номера збігаються з власним
+      // або це «Ви»/«You»/«Вы». Інакше нічого не надсилаємо: фото з підписом не повинно потрапити в довільний чат.
+      const isSelfHeader = (header) => {
+        const text = String(header || '').trim();
+        if (!text) return false;
+        if (text.replace(/\D/g, '') === digits) return true;
+        return /^(ви|you|вы)(\s*\(.*\))?$/iu.test(text) || /\((ви|you|вы)\)\s*$/iu.test(text);
+      };
       let ready = null;
-      for (let attempt = 0; attempt < 45 && !ready?.composer; attempt += 1) { await sleep(1_000); ready = await readSnapshot(client).catch(() => null); }
-      if (!ready?.composer) return { kind:'blocked', reason:'whatsapp_self_chat_not_opened' };
+      let selfHeader = '';
+      let lastHeader = '';
+      for (let attempt = 0; attempt < 60 && !selfHeader; attempt += 1) {
+        await sleep(1_000);
+        ready = await readSnapshot(client).catch(() => null);
+        if (!ready?.composer) continue;
+        lastHeader = String(await readOpenChatHeader(client)).trim() || ((ready.headerNames || []).map((value) => String(value || '').trim()).find(Boolean)) || '';
+        if (isSelfHeader(lastHeader)) selfHeader = lastHeader;
+      }
+      if (!selfHeader) return { kind:'blocked', reason:'whatsapp_self_chat_not_opened', ...(lastHeader ? { observedTarget:lastHeader } : {}) };
       await sleep(1_200);
-      observedTarget = String(await readOpenChatHeader(client)).trim() || ((ready.headerNames || []).map((value) => String(value || '').trim()).find(Boolean)) || 'Ви';
+      observedTarget = String(await readOpenChatHeader(client)).trim();
+      if (!isSelfHeader(observedTarget)) return { kind:'blocked', reason:'whatsapp_self_chat_not_opened', observedTarget };
       task.target.expectedName = observedTarget;
     }
     if (!selfChat && task.target.expectedName) {
@@ -1332,8 +1350,9 @@ export async function sendWhatsappAutopostViaCdp(
       // Остання перевірка перед кнопкою: відкритий чат має бути саме цим.
       if(!await openChatMatchesTarget(client,task.target.expectedName,observedTarget)){
         const wrong=await readOpenChatHeader(client);
+        await saveFailureShot(client);
         await discardOpenMediaEditor(client);
-        return {kind:'blocked',reason:'target_unconfirmed',observedTarget:wrong};
+        return {kind:'blocked',reason:'target_unconfirmed',observedTarget:wrong,detail:`очікувався «${task.target.expectedName}» (було «${observedTarget}»), у шапці «${wrong}»`};
       }
       onStep('send','надсилаю');
       if(!await clickWhatsappMediaSend(client))return {kind:'blocked',reason:'media_send_control_not_found'};
