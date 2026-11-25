@@ -18,6 +18,17 @@ const EXTRA = [
   'lib/app-meta.ts',
 ];
 const IMPORT_RE = /(?:from|import)\s*\(?\s*['"](\.{1,2}\/[^'"]+)['"]/g;
+const WINDOWS = process.platform === 'win32';
+// Шляхи в пакеті й маніфесті завжди з «/», навіть коли збираємо на Windows.
+const toPosix = (rel) => rel.replace(/\\/g, '/');
+// На Windows GNU tar, gzip і sh лежать у Git for Windows (usr\bin), а шлях C:\… для них — /c/….
+const shellPath = (path) => (WINDOWS ? toPosix(path).replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`) : path);
+function shellEnv() {
+  if (!WINDOWS) return process.env;
+  const gitUsrBin = join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Git', 'usr', 'bin');
+  if (!existsSync(join(gitUsrBin, 'sh.exe'))) throw new Error('на Windows потрібен Git for Windows (sh, GNU tar і gzip у Git\\usr\\bin)');
+  return { ...process.env, PATH: `${gitUsrBin};${process.env.PATH ?? process.env.Path ?? ''}` };
+}
 
 export function collectRunnerFiles() {
   const seen = new Set();
@@ -27,7 +38,7 @@ export function collectRunnerFiles() {
     seen.add(rel);
     if (!/\.(mjs|js|ts)$/.test(rel)) return;
     const text = readFileSync(join(root, rel), 'utf8');
-    for (const match of text.matchAll(IMPORT_RE)) visit(normalize(join(dirname(rel), match[1])));
+    for (const match of text.matchAll(IMPORT_RE)) visit(toPosix(normalize(join(dirname(rel), match[1]))));
   };
   visit(entry);
   for (const rel of EXTRA) visit(rel);
@@ -49,7 +60,7 @@ export function buildRunnerPackage(outDir = join(root, 'public', 'runner')) {
     writeFileSync(join(stage, 'RUNNER-PACKAGE.json'), JSON.stringify({ version, files }));
     mkdirSync(outDir, { recursive: true });
     const archive = join(outDir, 'runner.tar.gz');
-    const pack = spawnSync('sh', ['-c', `tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf - -C "${stage}" . | gzip -n -9 > "${archive}"`], { stdio: ['ignore', 'inherit', 'inherit'] });
+    const pack = spawnSync('sh', ['-c', `tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf - -C "${shellPath(stage)}" . | gzip -n -9 > "${shellPath(archive)}"`], { stdio: ['ignore', 'inherit', 'inherit'], env: shellEnv() });
     if (pack.status !== 0) throw new Error('не вдалося зібрати пакет (потрібен GNU tar і gzip)');
     const data = readFileSync(archive);
     const sha256 = createHash('sha256').update(data).digest('hex');
