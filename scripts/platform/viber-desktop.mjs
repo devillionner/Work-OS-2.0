@@ -31,6 +31,7 @@ const FOCUS_PAUSE_MS = 30 * 60_000;
 /** Кнопки діалогів і панелей, які безпечно закривати. «Turn on», «Allow», «Enable», оплата, «Leave and delete», «Report» — ніколи. */
 const SAFE_DISMISS = ['got it', 'not now', 'skip', 'maybe later', 'no thanks', 'later', 'close', 'ok', 'cancel', 'dismiss'];
 const FORBIDDEN_BUTTON = /(turn on|allow|enable|pay|buy|purchase|subscribe|leave|delete|report|block|remove|clear chat)/i;
+const isJoinButton = (name) => /^(join|приєднатися|вступить|присоединиться)/i.test(String(name || ''));
 
 class DesktopStop extends Error {
   constructor(reason, severity = 'before', detail = '', observed = '') {
@@ -113,7 +114,14 @@ async function clearDialogs(status) {
   let current = status;
   for (let round = 0; round < 4 && current.popups?.length; round += 1) {
     const popup = current.popups[0];
-    const safe = (popup.buttons || []).find((name) => SAFE_DISMISS.includes(String(name).toLowerCase()) && !FORBIDDEN_BUTTON.test(String(name)));
+    // Вікно вступу в спільноту, що лишилось від минулої спроби: закриваємо «×» (ніколи не вступаємо тут).
+    if ((popup.buttons || []).some(isJoinButton)) {
+      await act('close-popup', [], 'close-popup');
+      await sleep(700);
+      current = await uia('status');
+      continue;
+    }
+    const safe =(popup.buttons || []).find((name) => SAFE_DISMISS.includes(String(name).toLowerCase()) && !FORBIDDEN_BUTTON.test(String(name)));
     if (!safe) {
       await snapshot('viber_unknown_window', `діалог «${popup.title || ''}» з кнопками: ${(popup.buttons || []).join(', ') || 'без кнопок'}`);
       throw new DesktopStop('viber_unknown_window', 'env', `Viber показує невідоме вікно: «${popup.title || ''}» (кнопки: ${(popup.buttons || []).join(', ') || 'немає'})`);
@@ -226,20 +234,22 @@ function inviteData(url) {
   } catch { return ''; }
 }
 
-/** Текст середини вікна (діалог Viber): тіло діалогу UIA не віддає, тож читаємо OCR. */
-async function centerText() {
+/** Рядки тексту в середині вікна (діалог Viber): тіло діалогу UIA не віддає, тож читаємо OCR; кожен рядок окремо. */
+async function centerLines() {
   const g = await uia('geometry');
   const w = g.window;
-  if (!g.ok || !w) return '';
-  const box = { x: w.clientX + Math.max(0, Math.floor(w.clientW / 2) - 320), y: w.clientY + Math.max(0, Math.floor(w.clientH / 2) - 180), w: Math.min(640, w.clientW), h: 360 };
+  if (!g.ok || !w) return [];
+  const box = { x: w.clientX + Math.max(0, Math.floor(w.clientW / 2) - 320), y: w.clientY + Math.max(0, Math.floor(w.clientH / 2) - 220), w: Math.min(640, w.clientW), h: 440 };
   const out = await vision('ocr', ['-Rects', rectArg(box), '-Scale', '2'], 40_000);
-  return out.ok ? (out.results?.[0]?.texts || []).join(' ') : '';
+  return (out.ok ? out.results?.[0]?.texts || [] : []).flatMap((t) => String(t?.text || '').split(/\r?\n/).filter(Boolean).map((line) => ({ ...t, text: line })));
 }
+const centerText = async () => (await centerLines()).map((t) => t.text).join(' ');
 
 /**
  * Відкриття чату — ЛИШЕ за запрошенням, як на Android (3.22.4, рішення власника: пошук у списку не знаходить тихих груп, забанених і ще не
  * приєднаних чатів і лише плутає). Повертає шапку, що збіглась; інакше зупинка з причиною. Відмови Viber — це стан чату:
- * «Unable to join … blocked» — бан, «Inactive link» — чату немає. Кнопку вступу тиснемо лише коли назва на сторінці спільноти збіглась із ціллю.
+ * «Unable to join … blocked» — бан, «Inactive link» — чату немає. Ще не приєднаний чат Viber Desktop показує діалогом (назва, учасники, опис,
+ * «Join Community»; назву UIA не віддає): тиснемо «Join Community» лише коли назва в діалозі за OCR збіглась із ціллю, інакше закриваємо «×».
  */
 async function openByInvite(name, url, guard, onStep) {
   const data = inviteData(url);
@@ -253,28 +263,51 @@ async function openByInvite(name, url, guard, onStep) {
   let joinTried = false;
   let mismatched = 0;
   let observed = '';
-  const openedAt = Date.now();
-  const deadline = openedAt + 25_000;
+  let openedAt = Date.now();
+  let deadline = openedAt + 25_000;
   while (Date.now() < deadline) {
     guard();
     const status = await uia('status');
     const popup = status.popups?.[0];
     if (popup) {
       const title = String(popup.title || '');
+      const buttons = popup.buttons || [];
+      const join = buttons.find(isJoinButton);
+      if (join) {
+        if (joinTried) { await sleep(1200); continue; }
+        const lines = await centerLines();
+        const match = bestOcrMatch(name, lines, { lines: 1 });
+        if (!match.matched) {
+          await snapshot('target_unconfirmed', `вікно вступу: «${match.observed}», очікувалось «${name}»`);
+          await act('close-popup', [], 'close-popup').catch(() => {});
+          throw new DesktopStop('target_unconfirmed', 'before', `вікно вступу показує «${match.observed || '?'}», а не «${name}»`, match.observed);
+        }
+        onStep?.('open', 'вступаю в спільноту');
+        joinTried = true;
+        const clicked = await act('dismiss', ['-Button', join], 'join');
+        if (!clicked.ok) throw new DesktopStop('viber_not_joined', 'before', 'кнопка «Join Community» не натиснулась');
+        // Після вступу розмова відкривається не одразу: даємо ще 25 с від натискання, і попередній чат у шапці вже не рахується.
+        openedAt = Date.now();
+        deadline = openedAt + 25_000;
+        mismatched = 0;
+        await sleep(2500);
+        continue;
+      }
       if (/unable to join|не вдалося приєднатися|не удалось присоединиться/i.test(title)) {
         const body = await centerText();
-        await act('dismiss', ['-Button', (popup.buttons || []).find((b) => /close|ok/i.test(b)) || 'Close'], 'dismiss').catch(() => {});
+        await act('dismiss', ['-Button', buttons.find((b) => /close|ok/i.test(b)) || 'Close'], 'dismiss').catch(() => {});
         if (/block|заблок/i.test(body)) throw new DesktopStop('viber_banned', 'before', 'Viber: «Unable to join» — вас заблоковано в цій спільноті');
         throw new DesktopStop('viber_not_joined', 'before', `Viber: «${title}»${body ? ` — ${body.slice(0, 120)}` : ''}`);
       }
       if (/inactive link|invalid link|неактивн|недійсн/i.test(title)) {
-        await act('dismiss', ['-Button', (popup.buttons || [])[0] || 'OK'], 'dismiss').catch(() => {});
+        await act('dismiss', ['-Button', buttons[0] || 'OK'], 'dismiss').catch(() => {});
         throw new DesktopStop('viber_chat_missing', 'before', `Viber: «${title}» — запрошення більше не діє`);
       }
-      await snapshot('viber_not_joined', `після запрошення діалог «${title}» (кнопки: ${(popup.buttons || []).join(', ')})`);
-      const safe = (popup.buttons || []).find((b) => SAFE_DISMISS.includes(String(b).toLowerCase()) && !FORBIDDEN_BUTTON.test(String(b)));
+      await snapshot('viber_not_joined', `після запрошення діалог «${title}» (кнопки: ${buttons.join(', ')})`);
+      const safe = buttons.find((b) => SAFE_DISMISS.includes(String(b).toLowerCase()) && !FORBIDDEN_BUTTON.test(String(b)));
       if (safe) await act('dismiss', ['-Button', safe], 'dismiss').catch(() => {});
-      throw new DesktopStop('viber_not_joined', 'before', `після запрошення Viber показав «${title}» (кнопки: ${(popup.buttons || []).join(', ') || 'немає'})`);
+      else await act('close-popup', [], 'close-popup').catch(() => {});
+      throw new DesktopStop('viber_not_joined', 'before', `після запрошення Viber показав «${title}» (кнопки: ${buttons.join(', ') || 'немає'})`);
     }
     if (status.conversationOpen) {
       const header = await readHeader(name, guard, 4_000).catch(() => null);
@@ -286,27 +319,9 @@ async function openByInvite(name, url, guard, onStep) {
         throw new DesktopStop('target_unconfirmed', 'before', `за запрошенням відкрився чат «${observed || '?'}», а не «${name}»`, observed);
       }
     }
-    if (status.join?.length && !joinTried) {
-      // Сторінка спільноти без вступу: назва має збігтися з ціллю (OCR верхньої смуги сторінки), інакше не вступаємо.
-      const g = await uia('geometry');
-      const top = g.stack ? { x: g.stack.x, y: g.stack.y, w: g.stack.w, h: Math.min(260, g.stack.h) } : null;
-      const out = top ? await vision('ocr', ['-Rects', rectArg(top), '-Scale', '3']) : null;
-      // Кожен рядок окремо: назва спільноти стоїть серед опису й кількості учасників.
-      const texts = (out?.ok ? out.results?.[0]?.texts || [] : []).flatMap((t) => String(t?.text || '').split(/\r?\n/).filter(Boolean).map((line) => ({ ...t, text: line })));
-      const match = bestOcrMatch(name, texts, { lines: 1 });
-      if (!match.matched) {
-        await snapshot('target_unconfirmed', `сторінка вступу: «${match.observed}», очікувалось «${name}»`);
-        throw new DesktopStop('target_unconfirmed', 'before', `сторінка вступу показує «${match.observed || '?'}», а не «${name}»`, match.observed);
-      }
-      onStep?.('open', 'вступаю в спільноту');
-      joinTried = true;
-      await act('dismiss', ['-Button', status.join[0]], 'join');
-      await sleep(2500);
-      continue;
-    }
     await sleep(1200);
   }
-  if (joinTried) throw new DesktopStop('viber_not_joined', 'before', 'кнопка вступу не подіяла');
+  if (joinTried) throw new DesktopStop('viber_not_joined', 'before', 'після «Join Community» чат не відкрився');
   throw new DesktopStop('viber_invite_not_opened', 'before', 'за 25 с після запрошення Viber не показав ні чат, ні відмову');
 }
 

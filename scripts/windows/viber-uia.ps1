@@ -13,11 +13,12 @@
 #                   preview-close закриває перегляд без відправки
 #   scroll-bottom   кнопка «до кінця стрічки»; wheel — прокрутка стрічки колесом (-Index дельта у «клацаннях», додатне — вгору)
 #   dismiss         натиснути кнопку діалогу чи рекламної панелі за назвою (-Button, за замовчуванням OK)
+#   close-popup     закрити діалог «×» без дії
 #   open-link       відкрити запрошення спільноти (-TextBase64: viber://community_invite?data=…), без активації вікна
 # Важливо: Viber НЕ віддає через UIA назву чату (ні в шапці, ні в списку, ні в перегляді фото): ця команда нічого не знає про те, який чат відкрито.
 # Тому вона не вирішує, КУДИ писати; запобіжник «це саме потрібний чат» (OCR шапки) мусить бути окремим і до `send`/`preview-send`.
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('status', 'info', 'window', 'geometry', 'messages', 'set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss', 'open-link')][string]$Command,
+    [Parameter(Mandatory = $true)][ValidateSet('status', 'info', 'window', 'geometry', 'messages', 'set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss', 'open-link', 'close-popup')][string]$Command,
     [string]$TextBase64 = '',
     [string]$ExpectBase64 = '',
     [string]$Button = 'OK',
@@ -48,7 +49,7 @@ public class VU {
 # Контроль фокусу: команди, що щось змінюють у Viber, не мають забирати активне вікно в людини (Viber може бути на іншому робочому столі, і Windows
 # перемкне екран). Активне вікно до дії порівнюється з активним після неї; зміну віддаємо у відповіді (focusStolen), і адаптер зупиняється.
 $fgBefore = [VU]::GetForegroundWindow()
-$mutating = @('set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss', 'open-link') -contains $Command
+$mutating = @('set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss', 'open-link', 'close-popup') -contains $Command
 $AE = [System.Windows.Automation.AutomationElement]
 $Walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
 
@@ -375,6 +376,20 @@ switch ($Command) {
             if ($n.Current.ControlType.ProgrammaticName -eq 'ControlType.Button' -and $n.Current.Name -eq $Button -and (ClickNode $n)) { Start-Sleep -Milliseconds 500; Reply @{ ok = $true; dismissed = $Button } }
         }
         Reply @{ ok = $false; reason = 'dialog_button_not_found' }
+    }
+    'close-popup' {
+        # «×» діалогу (кнопка без назви, найвища в діалозі) — закрити без дії (наприклад, сторінку вступу в спільноту).
+        foreach ($n in $nodes) {
+            if ($n.Current.ClassName -ne 'QQuickPopupItem') { continue }
+            $best = $null; $bestY = [double]::MaxValue
+            $kid = $Walker.GetFirstChild($n)
+            while ($kid -ne $null) {
+                if ($kid.Current.ControlType.ProgrammaticName -eq 'ControlType.Button' -and -not $kid.Current.Name) { $r = RectOf $kid; if ($r -and $r.y -lt $bestY) { $best = $kid; $bestY = $r.y } }
+                $kid = $Walker.GetNextSibling($kid)
+            }
+            if ($best -and (ClickNode $best)) { Start-Sleep -Milliseconds 600; Reply @{ ok = $true; closed = $true } }
+        }
+        Reply @{ ok = $false; reason = 'dialog_close_not_found' }
     }
     'set-text' {
         if ($popups.Count -gt 0) { Reply @{ ok = $false; reason = 'viber_desktop_dialog'; popups = $popups } }
