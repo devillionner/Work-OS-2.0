@@ -210,8 +210,13 @@ async function readHeader(expected, guard, timeoutMs = 20_000) {
 }
 
 /** Шапка мусить збігатися з ціллю, інакше нічого не вводимо. */
-async function verifyHeader(expected, guard) {
+/** Приблизний збіг для чату, відкритого за власним запрошенням (див. openByInvite). */
+const looseMatch = (header) => Boolean(header && (header.score >= 0.6 || (header.coverage ?? 0) >= 0.4));
+
+async function verifyHeader(expected, guard, opened = null) {
   const header = await readHeader(expected, guard);
+  // Чат, відкритий за запрошенням із приблизною назвою: та сама шапка, що й після відкриття, або знову приблизний збіг.
+  if (!header.matched && opened?.byLink && (looseMatch(header) || nameSkeleton(header.observed) === nameSkeleton(opened.observed))) return header;
   if (!header.matched) {
     await snapshot('target_unconfirmed', `очікувалось «${expected}», OCR шапки: «${header.observed}» (схожість ${header.score})`);
     throw new DesktopStop('target_unconfirmed', 'before', `шапка розмови «${header.observed || '?'}» не збіглась із «${expected}» (схожість ${header.score}, слова ${header.coverage ?? 0})`);
@@ -325,7 +330,12 @@ async function openByInvite(name, url, guard, onStep, before = '') {
     if (status.conversationOpen) {
       const header = await readHeader(name, guard, 4_000).catch(() => null);
       // Збіг за словами — лише коли шапка вже інша, ніж до запрошення (інакше це попередній чат зі схожими словами).
-      if (header?.matched && (header.full || nameSkeleton(header.observed) !== nameSkeleton(before))) return header;
+      // Збіг за словами — лише коли шапка вже інша, ніж до запрошення (інакше це попередній чат зі схожими словами).
+      const changed = Boolean(before && header?.observed && nameSkeleton(header.observed) !== nameSkeleton(before));
+      if (header?.matched && (header.full || changed)) return header;
+      // Чат відкрито за його унікальним запрошенням, і шапка змінилась: це він. OCR без української (Windows не має uk-UA) губить слова з «і»
+      // і емодзі-літери, тож назва лише приблизна (схожість ≥ 0.6 або ≥ 40 % слів). Шапка не змінилась — лише сувора перевірка вище.
+      if (changed && looseMatch(header)) return { ...header, matched: true, byLink: true };
       // Перші секунди ще видно попередній чат; стійко інша назва після цього — запрошення веде в чат з іншою назвою (дія «оновити назву»).
       if (header && Date.now() - openedAt > 6_000) { mismatched += 1; observed = header.observed || observed; }
       if (mismatched >= 3) {
@@ -438,7 +448,8 @@ async function verifyPreviewTarget(name) {
   const texts = out.ok ? out.results?.[0]?.texts || [] : [];
   const match = bestOcrMatch(name, texts, { lines: 1 });
   // Прочитано впевнено інше ім'я — це не наш чат: закриваємо перегляд без відправки. Нечитабельно — довіряємо шапці, перевіреній секунди тому.
-  if (!match.matched && match.observed.length >= 4 && match.score < 0.5) {
+  const words = wordCoverMatch(name, texts);
+  if (!match.matched && !words.matched && match.observed.length >= 4 && match.score < 0.5 && words.coverage < 0.3) {
     await act('preview-close', [], 'preview-close').catch(() => {});
     throw new DesktopStop('target_unconfirmed', 'before', `у перегляді фото отримувач «${match.observed}», очікувався «${name}»`, match.observed);
   }
@@ -501,7 +512,7 @@ async function post(payload, guard, step, state) {
   guard();
   if (payload.openOnly) return { ok: true, status: 'checked', reason: null, severity: 'before', observedTarget: name };
   // Остання перевірка шапки безпосередньо перед введенням (поки відкривали, чат міг змінитись).
-  await verifyHeader(name, guard);
+  await verifyHeader(name, guard, opened);
   const before = feedState(await feed(), caption);
   guard();
   const textOnly = payload.textOnly === true || !payload.media;
