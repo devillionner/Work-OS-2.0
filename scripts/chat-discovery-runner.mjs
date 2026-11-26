@@ -1349,7 +1349,7 @@ async function handleViberAutopostTask(ws,job){
   reportViberStatus(ws,'ready');
   // «Не той чат»: Viber показав чат з іншою назвою; її (до « | screen:») зберігаємо, щоб власник міг оновити назву в Work OS.
   // Назву чату з Viber віддає адаптер (`observedTarget`: заголовок розмови чи сторінки вступу); для старих відповідей без неї — заголовок із detail.
-  const observedTitle=reason==='target_unconfirmed'?(String(result.observedTarget||'').trim()||(!String(result.detail||'').startsWith('join page:')?String(result.detail||'').split(' | screen:')[0].trim():'')):'';
+  const observedTitle=reason==='target_unconfirmed'&&!result.noRename?(String(result.observedTarget||'').trim()||(!String(result.detail||'').startsWith('join page:')?String(result.detail||'').split(' | screen:')[0].trim():'')):'';
   sendAutopostResult({type:'result',process:'autopost',jobId:job.jobId,status:'failed',
     observedTarget:observedTitle||job.target?.expectedName,targetVerified:result.severity==='after',sendConfirmed:false,errorCode:reason||'adapter_failed',...(result.sentAt?{sentAt:result.sentAt}:{})});
 }

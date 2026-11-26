@@ -65,7 +65,8 @@ export function AutopostAttentionList({ items, busy, canVerify, messenger, onDec
   // Назва з месенджера відома, лише коли вона відрізняється від нашої: збіг означає, що runner її не зчитав (старий запис).
   // Обрізаний початок нашої назви («Отдам-Продам-Куплю. Сдам-» з вікна вступу Viber) — це не інша назва: перейменовувати не можна, лишаємо «Спробувати ще».
   const truncatedOf = (name: string, observed: string) => { const seen = nameSkeleton(observed); return seen.length >= 8 && nameSkeleton(name).startsWith(seen); };
-  const knownObserved = (item: AutopostAttentionItem) => (item.observed && !isSameName(item.name, item.observed) && !truncatedOf(item.name, item.observed) ? item.observed : null);
+  // Viber Desktop читає назву чату OCR (3.22.10): прочитане — не справжня назва, тож перейменування для Viber немає, лише «Спробувати ще».
+  const knownObserved = (item: AutopostAttentionItem) => (messenger !== 'viber' && item.observed && !isSameName(item.name, item.observed) && !truncatedOf(item.name, item.observed) ? item.observed : null);
   const similar = (list: AutopostAttentionItem[]) => list.filter((item) => { const observed = knownObserved(item); return observed && isSimilarName(item.name, observed); });
 
   return (

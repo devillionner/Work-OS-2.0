@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { bestOcrMatch, nameSkeleton, observedFromOcr } from '../../lib/ocr-name-match.mjs';
+import { bestOcrMatch, nameSkeleton, observedFromOcr, wordCoverMatch } from '../../lib/ocr-name-match.mjs';
 import { saveFailureSnapshot } from '../failure-snapshots.mjs';
 
 const SCRIPTS = join(dirname(fileURLToPath(import.meta.url)), '..', 'windows');
@@ -204,7 +204,9 @@ async function readHeader(expected, guard, timeoutMs = 20_000) {
   }
   const texts = out.results?.[0]?.texts || [];
   const match = bestOcrMatch(expected, texts, { lines: 1 });
-  return { ...match, observed: match.observed || observedFromOcr(texts, 1), geometry: g };
+  // Повна назва (≥ 0.8) або збіг за словами (ru-OCR губить слова з «і», `wordCoverMatch`). `full` — лише повна: нею підтверджується «чат уже відкритий».
+  const words = wordCoverMatch(expected, texts);
+  return { ...match, full: match.matched, byWords: !match.matched && words.matched, matched: match.matched || words.matched, coverage: words.coverage, observed: match.observed || observedFromOcr(texts, 1), geometry: g };
 }
 
 /** Шапка мусить збігатися з ціллю, інакше нічого не вводимо. */
@@ -212,7 +214,7 @@ async function verifyHeader(expected, guard) {
   const header = await readHeader(expected, guard);
   if (!header.matched) {
     await snapshot('target_unconfirmed', `очікувалось «${expected}», OCR шапки: «${header.observed}» (схожість ${header.score})`);
-    throw new DesktopStop('target_unconfirmed', 'before', `шапка розмови «${header.observed || '?'}» не збіглась із «${expected}» (схожість ${header.score}, поріг 0.8)`, header.observed);
+    throw new DesktopStop('target_unconfirmed', 'before', `шапка розмови «${header.observed || '?'}» не збіглась із «${expected}» (схожість ${header.score}, слова ${header.coverage ?? 0})`);
   }
   return header;
 }
@@ -253,7 +255,7 @@ const centerText = async () => (await centerLines()).map((t) => t.text).join(' '
  * «Unable to join … blocked» — бан, «Inactive link» — чату немає. Ще не приєднаний чат Viber Desktop показує діалогом (назва, учасники, опис,
  * «Join Community»; назву UIA не віддає): тиснемо «Join Community» лише коли назва в діалозі за OCR збіглась із ціллю, інакше закриваємо «×».
  */
-async function openByInvite(name, url, guard, onStep) {
+async function openByInvite(name, url, guard, onStep, before = '') {
   const data = inviteData(url);
   if (!data) {
     if (/^https:\/\/invite\.viber\.com\//i.test(String(url || '').trim())) throw new DesktopStop('viber_not_joined', 'before', 'старе посилання (g=) Viber Desktop не відкриває: потрібне посилання-запрошення з g2=');
@@ -291,7 +293,7 @@ async function openByInvite(name, url, guard, onStep) {
         if (!match.matched) {
           await snapshot('target_unconfirmed', `вікно вступу: «${match.observed}», очікувалось «${name}»`);
           await act('close-popup', [], 'close-popup').catch(() => {});
-          throw new DesktopStop('target_unconfirmed', 'before', `вікно вступу показує «${match.observed || '?'}», а не «${name}»`, match.observed);
+          throw new DesktopStop('target_unconfirmed', 'before', `вікно вступу показує «${match.observed || '?'}», а не «${name}»`);
         }
         onStep?.('open', 'вступаю в спільноту');
         joinTried = true;
@@ -322,12 +324,13 @@ async function openByInvite(name, url, guard, onStep) {
     }
     if (status.conversationOpen) {
       const header = await readHeader(name, guard, 4_000).catch(() => null);
-      if (header?.matched) return header;
+      // Збіг за словами — лише коли шапка вже інша, ніж до запрошення (інакше це попередній чат зі схожими словами).
+      if (header?.matched && (header.full || nameSkeleton(header.observed) !== nameSkeleton(before))) return header;
       // Перші секунди ще видно попередній чат; стійко інша назва після цього — запрошення веде в чат з іншою назвою (дія «оновити назву»).
       if (header && Date.now() - openedAt > 6_000) { mismatched += 1; observed = header.observed || observed; }
       if (mismatched >= 3) {
         await snapshot('target_unconfirmed', `за запрошенням відкрився «${observed}», очікувався «${name}»`);
-        throw new DesktopStop('target_unconfirmed', 'before', `за запрошенням відкрився чат «${observed || '?'}», а не «${name}»`, observed);
+        throw new DesktopStop('target_unconfirmed', 'before', `за запрошенням відкрився чат «${observed || '?'}», а не «${name}»`);
       }
     }
     await sleep(1200);
@@ -339,8 +342,17 @@ async function openByInvite(name, url, guard, onStep) {
 /** Відкриває потрібний чат: уже відкритий (шапка збіглась) → лише за запрошенням. Пошук у списку — тільки для пробної відправки в «My Notes». */
 async function openChat(name, guard, onStep, url = '', { search = false } = {}) {
   const current = await readHeader(name, guard, 6_000).catch(() => null);
-  if (current?.matched) return current;
-  if (!search) return openByInvite(name, url, guard, onStep);
+  if (current?.full) return current;
+  if (!search) return openByInvite(name, url, guard, onStep, current?.observed || '');
+  if (name === 'My Notes') {
+    // «My Notes» — кругла кнопка над списком чатів; пошук у Viber Desktop ненадійний (режим пошуку ховає розмову з дерева UIA).
+    onStep?.('open', 'відкриваю My Notes');
+    const notes = await act('open-notes', [], 'open-notes');
+    if (notes.ok) {
+      const header = await waitFor(() => readHeader(name, guard, 4_000).catch(() => null), (h) => h?.full, 8_000, 900, guard);
+      if (header) return header;
+    }
+  }
   const query = searchQuery(name);
   if (query.length < 3) throw new DesktopStop('target_unconfirmed', 'before', 'назва чату надто коротка для пошуку', current?.observed || '');
   onStep?.('open', 'шукаю чат у списку Viber Desktop');
@@ -487,7 +499,7 @@ async function post(payload, guard, step, state) {
   step('open', 'відкриваю чат');
   const opened = await openChat(name, guard, step, payload.testTarget ? '' : payload.url, { search: Boolean(payload.testTarget) });
   guard();
-  if (payload.openOnly) return { ok: true, status: 'checked', reason: null, severity: 'before', observedTarget: opened.observed };
+  if (payload.openOnly) return { ok: true, status: 'checked', reason: null, severity: 'before', observedTarget: name };
   // Остання перевірка шапки безпосередньо перед введенням (поки відкривали, чат міг змінитись).
   await verifyHeader(name, guard);
   const before = feedState(await feed(), caption);
@@ -502,7 +514,7 @@ async function post(payload, guard, step, state) {
   }
   step('confirm', 'чекаю повідомлення в стрічці');
   await confirmOwn(caption, before, textOnly ? CONFIRM_TEXT_MS : CONFIRM_PHOTO_MS);
-  return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: opened.observed || name, sentAt: Math.floor(result.sentAt / 1000) };
+  return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: name, sentAt: Math.floor(result.sentAt / 1000) };
 }
 
 /** Режим перевірки: нічого не надсилає. Часу повідомлень UIA не віддає, а те саме оголошення могло вийти тут учора, тому «відправлено» —
@@ -518,7 +530,7 @@ async function verify(payload, guard, step, state) {
   step('confirm', 'шукаю повідомлення в чаті');
   guard();
   const now = feedState(await feed(), caption);
-  if (now.lastMatch) return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: opened.observed || name, timings: 'перевірено, повідомлення є в чаті' };
+  if (now.lastMatch) return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: name, timings: 'перевірено, повідомлення є в чаті' };
   throw new DesktopStop('verify_inconclusive', 'before', now.count ? 'такий текст є в стрічці, але не найновішим повідомленням: не видно, чи він сьогоднішній' : 'наш текст не найновіше повідомлення в чаті');
 }
 
@@ -565,7 +577,9 @@ export async function runViberDesktop(action, payload = {}, { shouldAbort = () =
         reason: error.reason,
         severity: error.severity,
         detail: `${error.detail}${error.reason === 'cancelled' ? '' : ` | пройшло ${spent} с`}`.trim(),
-        ...(error.observed ? { observedTarget: error.observed } : {}),
+        // Назва, прочитана OCR, ніколи не йде в observedTarget: сервер і кнопка «оновити назву» перейменували б чат на сміття розпізнавання
+        // (2026-11-26: «Чехия Работа / Чехія Робота» стала «Чехия Работа / Робота»). Прочитане видно в detail; `noRename` каже runner не брати назву з detail.
+        noRename: true,
         ...(state.sentAt ? { sentAt: Math.floor(state.sentAt / 1000) } : {}),
       };
     }

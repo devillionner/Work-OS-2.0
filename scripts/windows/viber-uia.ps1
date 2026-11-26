@@ -18,7 +18,7 @@
 # Важливо: Viber НЕ віддає через UIA назву чату (ні в шапці, ні в списку, ні в перегляді фото): ця команда нічого не знає про те, який чат відкрито.
 # Тому вона не вирішує, КУДИ писати; запобіжник «це саме потрібний чат» (OCR шапки) мусить бути окремим і до `send`/`preview-send`.
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('status', 'info', 'window', 'geometry', 'messages', 'set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss', 'open-link', 'close-popup', 'leave-search')][string]$Command,
+    [Parameter(Mandatory = $true)][ValidateSet('status', 'info', 'window', 'geometry', 'messages', 'set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss', 'open-link', 'close-popup', 'leave-search', 'open-notes')][string]$Command,
     [string]$TextBase64 = '',
     [string]$ExpectBase64 = '',
     [string]$Button = 'OK',
@@ -39,6 +39,7 @@ public class VU {
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr h);
+  [DllImport("user32.dll")] public static extern void SwitchToThisWindow(IntPtr h, bool altTab);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("user32.dll", EntryPoint = "PostMessageW")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
   public struct RECT { public int L, T, R, B; }
@@ -49,7 +50,7 @@ public class VU {
 # Контроль фокусу: команди, що щось змінюють у Viber, не мають забирати активне вікно в людини (Viber може бути на іншому робочому столі, і Windows
 # перемкне екран). Активне вікно до дії порівнюється з активним після неї; зміну віддаємо у відповіді (focusStolen), і адаптер зупиняється.
 $fgBefore = [VU]::GetForegroundWindow()
-$mutating = @('set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss', 'open-link', 'close-popup', 'leave-search') -contains $Command
+$mutating = @('set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss', 'open-link', 'close-popup', 'leave-search', 'open-notes') -contains $Command
 $AE = [System.Windows.Automation.AutomationElement]
 $Walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
 
@@ -97,7 +98,12 @@ if ($Command -eq 'open-link') {
     if ($link -notmatch '^viber://community_invite\?data=[A-Za-z0-9%_.+=/\-]+$') { Reply @{ ok = $false; reason = 'invalid_viber_link' } }
     Start-Process $link
     Start-Sleep -Milliseconds 2500
-    Reply @{ ok = $true }
+    # Viber інколи сам виходить наперед (2026-11-26 12:22): повертаємо людині її вікно одразу, щоб не перемикати їй екран надовго.
+    $restored = $false
+    for ($i = 0; $i -lt 3 -and $fgBefore -ne [IntPtr]::Zero -and $fgBefore -ne $hwnd -and [VU]::GetForegroundWindow() -eq $hwnd; $i++) {
+        [VU]::SwitchToThisWindow($fgBefore, $true); Start-Sleep -Milliseconds 300; $restored = $true
+    }
+    Reply @{ ok = $true; focusRestored = ($restored -and [VU]::GetForegroundWindow() -ne $hwnd) }
 }
 
 # Обхід у ширину (від вікна донизу) з лімітом вузлів: Qt повторює елементи в піддеревах списку чатів і рекламного вебвікна з різними RuntimeId,
@@ -384,6 +390,20 @@ switch ($Command) {
             if ($n.Current.ControlType.ProgrammaticName -eq 'ControlType.Button' -and $n.Current.Name -eq $Button -and (ClickNode $n)) { Start-Sleep -Milliseconds 500; Reply @{ ok = $true; dismissed = $Button } }
         }
         Reply @{ ok = $false; reason = 'dialog_button_not_found' }
+    }
+    'open-notes' {
+        # Швидкий перехід у «My Notes»: найлівіший круглий значок (≈32×32) над списком чатів (у звичайному вигляді — група delegateLoader,
+        # у режимі пошуку — TabComponent). Якщо там інший чат, адаптер це побачить за шапкою й нічого не надішле.
+        $best = $null
+        foreach ($n in $nodes) {
+            $r = RectOf $n
+            if (-not $r -or $r.x -ge 40 -or $r.y -lt 100 -or $r.y -gt 220 -or $r.w -lt 26 -or $r.w -gt 40 -or $r.h -lt 26 -or $r.h -gt 40) { continue }
+            if (-not $best -or $r.x -lt $best.x) { $best = $r }
+        }
+        if (-not $best) { Reply @{ ok = $false; reason = 'notes_tab_not_found' } }
+        ClickAt ($best.x + [int]($best.w / 2)) ($best.y + [int]($best.h / 2))
+        Start-Sleep -Milliseconds 900
+        Reply @{ ok = $true; at = $best }
     }
     'close-popup' {
         # «×» діалогу (кнопка без назви, найвища в діалозі) — закрити без дії (наприклад, сторінку вступу в спільноту).
