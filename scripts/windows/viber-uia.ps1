@@ -13,10 +13,11 @@
 #                   preview-close закриває перегляд без відправки
 #   scroll-bottom   кнопка «до кінця стрічки»; wheel — прокрутка стрічки колесом (-Index дельта у «клацаннях», додатне — вгору)
 #   dismiss         натиснути кнопку діалогу чи рекламної панелі за назвою (-Button, за замовчуванням OK)
+#   open-link       відкрити запрошення спільноти (-TextBase64: viber://community_invite?data=…), без активації вікна
 # Важливо: Viber НЕ віддає через UIA назву чату (ні в шапці, ні в списку, ні в перегляді фото): ця команда нічого не знає про те, який чат відкрито.
 # Тому вона не вирішує, КУДИ писати; запобіжник «це саме потрібний чат» (OCR шапки) мусить бути окремим і до `send`/`preview-send`.
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('status', 'info', 'window', 'geometry', 'messages', 'set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss')][string]$Command,
+    [Parameter(Mandatory = $true)][ValidateSet('status', 'info', 'window', 'geometry', 'messages', 'set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss', 'open-link')][string]$Command,
     [string]$TextBase64 = '',
     [string]$ExpectBase64 = '',
     [string]$Button = 'OK',
@@ -47,7 +48,7 @@ public class VU {
 # Контроль фокусу: команди, що щось змінюють у Viber, не мають забирати активне вікно в людини (Viber може бути на іншому робочому столі, і Windows
 # перемкне екран). Активне вікно до дії порівнюється з активним після неї; зміну віддаємо у відповіді (focusStolen), і адаптер зупиняється.
 $fgBefore = [VU]::GetForegroundWindow()
-$mutating = @('set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss') -contains $Command
+$mutating = @('set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss', 'open-link') -contains $Command
 $AE = [System.Windows.Automation.AutomationElement]
 $Walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
 
@@ -78,6 +79,16 @@ if ($Command -eq 'window') {
     if ($Button -eq 'restore' -and $iconic) { [void][VU]::ShowWindow($hwnd, 4); Start-Sleep -Milliseconds 700 }   # SW_SHOWNOACTIVATE: відновити без активації
     if ($Button -eq 'minimize' -and -not $iconic) { [void][VU]::ShowWindow($hwnd, 7) }                            # SW_SHOWMINNOACTIVE
     Reply @{ ok = $true; iconic = [bool]$iconic; zoomed = [bool][VU]::IsZoomed($hwnd) }
+}
+
+# Посилання-запрошення спільноти: Viber Desktop приймає viber://community_invite?data=<g2> (так його відкриває сторінка invite.viber.com) і не
+# активує вікно (перевірено 2026-11-26: активним лишилось вікно людини). Інші схеми не приймаємо.
+if ($Command -eq 'open-link') {
+    $link = FromB64 $TextBase64
+    if ($link -notmatch '^viber://community_invite\?data=[A-Za-z0-9%_.+=/\-]+$') { Reply @{ ok = $false; reason = 'invalid_viber_link' } }
+    Start-Process $link
+    Start-Sleep -Milliseconds 2500
+    Reply @{ ok = $true }
 }
 
 # Обхід у ширину (від вікна донизу) з лімітом вузлів: Qt повторює елементи в піддеревах списку чатів і рекламного вебвікна з різними RuntimeId,
@@ -241,6 +252,11 @@ foreach ($n in $nodes) {
         $popups += @{ title = [string]$n.Current.Name; buttons = $buttons }
     }
 }
+# Кнопка вступу на сторінці спільноти, відкритої за запрошенням (назва кнопки — службовий текст застосунку).
+$joinButtons = @()
+foreach ($n in $nodes) {
+    if ($n.Current.ControlType.ProgrammaticName -eq 'ControlType.Button' -and $n.Current.Name -match '^(Join|Приєднатися|Вступить|Присоединиться)') { $joinButtons += [string]$n.Current.Name }
+}
 
 # Розмова: панель стрічки (StackView), поле повідомлення й кнопка відправки (числові суфікси класів залежать від збірки Viber).
 $stack = FindById 'SplitView_QMLTYPE_\d+\.StackView_QMLTYPE_\d+$' 'ControlType.Pane'
@@ -280,7 +296,10 @@ function ListRows() {
         foreach ($hy in $headers) { if ($hy -gt $r.y) { $bottom = [Math]::Min($bottom, $hy - 10); break } }
         for ($y = $r.y; ($y + 64) -le $bottom; $y += 72) { $rows += @{ x = $r.x; y = $y; w = $r.w; h = 72 } }
     }
-    return @($rows | Sort-Object { $_.y })
+    # Той самий рядок буває віддано кількома вузлами з різницею в 1–2 px: лишаємо один на кожні пів рядка.
+    $unique = @()
+    foreach ($row in @($rows | Sort-Object { $_.y })) { if (-not $unique.Count -or ($row.y - $unique[-1].y) -ge 36) { $unique += $row } }
+    return $unique
 }
 
 switch ($Command) {
@@ -290,7 +309,7 @@ switch ($Command) {
         Reply @{ ok = $true; version = $version; windows = ('Windows ' + [System.Environment]::OSVersion.Version.ToString()) }
     }
     'status' {
-        Reply @{ ok = $true; running = $true; popups = $popups; conversationOpen = $conversationOpen; composerLength = $composerValue.Length; aiPanel = [bool]$aiPanel; previewOpen = $previewOpen }
+        Reply @{ ok = $true; running = $true; popups = $popups; join = @($joinButtons); stackOpen = [bool]$stack; conversationOpen = $conversationOpen; composerLength = $composerValue.Length; aiPanel = [bool]$aiPanel; previewOpen = $previewOpen }
     }
     'geometry' {
         $wr = New-Object VU+RECT; [void][VU]::GetWindowRect($hwnd, [ref]$wr)
