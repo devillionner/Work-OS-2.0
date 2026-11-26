@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync, spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 
 export const PACKAGE_MARKER = 'RUNNER-PACKAGE.json';
 
@@ -13,11 +13,12 @@ export function readInstalledPackage(rootDir) {
   try { return JSON.parse(readFileSync(join(rootDir, PACKAGE_MARKER), 'utf8')); } catch { return null; }
 }
 
+// Шляхи завжди з «/», як у RUNNER-PACKAGE.json: на Windows relative() дає «\», і 3.22.0 через це видалив усі старі файли runner.
 function walk(dir, base = dir) {
   const files = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) files.push(...walk(path, base)); else files.push(relative(base, path));
+    if (entry.isDirectory()) files.push(...walk(path, base)); else files.push(relative(base, path).split(sep).join('/'));
   }
   return files;
 }
@@ -55,7 +56,11 @@ export async function updateFromSite({ baseUrl, rootDir, expectedVersion, log = 
       chmodSync(staged, statSync(join(tmp, 'new', rel)).mode);
       renameSync(staged, target);
     }
-    for (const rel of old?.files || []) if (!files.includes(rel)) { try { unlinkSync(join(rootDir, rel)); } catch { /* уже немає */ } }
+    const present = new Set(files);
+    for (const rel of old?.files || []) {
+      const key = String(rel).replaceAll('\\', '/');
+      if (!present.has(key)) { try { unlinkSync(join(rootDir, key)); } catch { /* уже немає */ } }
+    }
     writeFileSync(join(rootDir, PACKAGE_MARKER), JSON.stringify(next));
     const trayAfter = existsSync(join(rootDir, trayFile)) ? readFileSync(join(rootDir, trayFile)) : null;
     // Windows: трей сам бачить зміну свого скрипта й перезапускається між задачами (див. work-os-runner-tray.ps1).
