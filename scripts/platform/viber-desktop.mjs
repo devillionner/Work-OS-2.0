@@ -275,8 +275,17 @@ async function openByInvite(name, url, guard, onStep) {
       const join = buttons.find(isJoinButton);
       if (join) {
         if (joinTried) { await sleep(1200); continue; }
+        // Довга назва у вікні вступу переноситься на 2–3 рядки («Отдам-Продам-Куплю. Сдам-» / «Сниму_жильё»): пробуємо й склеєні сусідні рядки.
         const lines = await centerLines();
-        const match = bestOcrMatch(name, lines, { lines: 1 });
+        const candidates = [...lines];
+        for (let i = 0; i < lines.length; i += 1) {
+          for (let span = 2; span <= 3 && i + span <= lines.length; span += 1) {
+            const part = lines.slice(i, i + span);
+            if (part.some((t) => t.lang !== part[0].lang || t.inverted !== part[0].inverted)) continue;
+            candidates.push({ ...part[0], text: part.map((t) => t.text).join(' ') }, { ...part[0], text: part.map((t) => t.text).join('') });
+          }
+        }
+        const match = bestOcrMatch(name, candidates, { lines: 1 });
         if (!match.matched) {
           await snapshot('target_unconfirmed', `вікно вступу: «${match.observed}», очікувалось «${name}»`);
           await act('close-popup', [], 'close-popup').catch(() => {});
