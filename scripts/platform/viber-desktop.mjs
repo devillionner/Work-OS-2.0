@@ -237,16 +237,19 @@ async function centerText() {
 }
 
 /**
- * Відкриття за запрошенням (основний шлях; у Viber Desktop без відновленої історії тихих груп немає в списку, і пошук їх не знаходить).
- * Повертає шапку, що збіглась, або `null`, коли запрошення нічого певного не показало (тоді — пошук). Відмови Viber — це стан чату:
+ * Відкриття чату — ЛИШЕ за запрошенням, як на Android (3.22.4, рішення власника: пошук у списку не знаходить тихих груп, забанених і ще не
+ * приєднаних чатів і лише плутає). Повертає шапку, що збіглась; інакше зупинка з причиною. Відмови Viber — це стан чату:
  * «Unable to join … blocked» — бан, «Inactive link» — чату немає. Кнопку вступу тиснемо лише коли назва на сторінці спільноти збіглась із ціллю.
  */
 async function openByInvite(name, url, guard, onStep) {
   const data = inviteData(url);
-  if (!data) return null;
+  if (!data) {
+    if (/^https:\/\/invite\.viber\.com\//i.test(String(url || '').trim())) throw new DesktopStop('viber_not_joined', 'before', 'старе посилання (g=) Viber Desktop не відкриває: потрібне посилання-запрошення з g2=');
+    throw new DesktopStop('invalid_viber_link', 'before', 'у чату немає посилання-запрошення invite.viber.com');
+  }
   onStep?.('open', 'відкриваю чат за запрошенням');
   const opened = await act('open-link', ['-TextBase64', b64(`viber://community_invite?data=${encodeURIComponent(data)}`)], 'open-link');
-  if (!opened.ok) return null;
+  if (!opened.ok) throw new DesktopStop('viber_invite_not_opened', 'before', `запрошення не передалось у Viber: ${opened.reason || ''}`);
   let joinTried = false;
   let mismatched = 0;
   let observed = '';
@@ -304,15 +307,14 @@ async function openByInvite(name, url, guard, onStep) {
     await sleep(1200);
   }
   if (joinTried) throw new DesktopStop('viber_not_joined', 'before', 'кнопка вступу не подіяла');
-  return null;
+  throw new DesktopStop('viber_invite_not_opened', 'before', 'за 25 с після запрошення Viber не показав ні чат, ні відмову');
 }
 
-/** Відкриває потрібний чат: уже відкритий (шапка збіглась) → за запрошенням → пошук за назвою → клік по рядку, чия назва за OCR збіглась (і єдина). */
-async function openChat(name, guard, onStep, url = '') {
+/** Відкриває потрібний чат: уже відкритий (шапка збіглась) → лише за запрошенням. Пошук у списку — тільки для пробної відправки в «My Notes». */
+async function openChat(name, guard, onStep, url = '', { search = false } = {}) {
   const current = await readHeader(name, guard, 6_000).catch(() => null);
   if (current?.matched) return current;
-  const invited = await openByInvite(name, url, guard, onStep);
-  if (invited) return invited;
+  if (!search) return openByInvite(name, url, guard, onStep);
   const query = searchQuery(name);
   if (query.length < 3) throw new DesktopStop('target_unconfirmed', 'before', 'назва чату надто коротка для пошуку', current?.observed || '');
   onStep?.('open', 'шукаю чат у списку Viber Desktop');
@@ -321,7 +323,7 @@ async function openChat(name, guard, onStep, url = '') {
   try {
     await sleep(1200);
     const found = await waitFor(() => uia('geometry'), (g) => g.ok && g.searchValue === query && g.rows?.length > 0, 14_000, 900, guard);
-    if (!found) throw new DesktopStop('viber_not_joined', 'before', `чату «${name}» немає у списку Viber Desktop (пошук «${query}»), а посилання-запрошення чат не відкрило`);
+    if (!found) throw new DesktopStop('viber_not_joined', 'before', `чату «${name}» немає у списку Viber Desktop (пошук «${query}»)`);
     const rects = found.rows.map((r) => `${r.x + 66},${r.y + 4},${Math.max(40, r.w - 66 - 62)},56`).join(';');
     const ocr = await vision('ocr', ['-Rects', rects, '-Scale', '3']);
     if (!ocr.ok) throw new DesktopStop('viber_desktop_helper_error', 'env', `OCR списку: ${ocr.reason || ocr.detail || ''}`);
@@ -447,7 +449,7 @@ async function post(payload, guard, step, state) {
   state.context = await prepare(step);
   guard();
   step('open', 'відкриваю чат');
-  const opened = await openChat(name, guard, step, payload.testTarget ? '' : payload.url);
+  const opened = await openChat(name, guard, step, payload.testTarget ? '' : payload.url, { search: Boolean(payload.testTarget) });
   guard();
   if (payload.openOnly) return { ok: true, status: 'checked', reason: null, severity: 'before', observedTarget: opened.observed };
   // Остання перевірка шапки безпосередньо перед введенням (поки відкривали, чат міг змінитись).
@@ -475,7 +477,7 @@ async function verify(payload, guard, step, state) {
   step('env', 'перевіряю Viber Desktop');
   state.context = await prepare(step);
   step('open', 'відкриваю чат');
-  const opened = await openChat(name, guard, step, payload.testTarget ? '' : payload.url);
+  const opened = await openChat(name, guard, step, payload.testTarget ? '' : payload.url, { search: Boolean(payload.testTarget) });
   if (fullKey(caption).length < 6) throw new DesktopStop('message_not_found', 'before', 'підпис порожній');
   step('confirm', 'шукаю повідомлення в чаті');
   guard();
