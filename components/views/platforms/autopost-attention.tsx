@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { PHOTO_FAILURE_CODES, autopostReasonGroup, autopostReasonText } from '@/components/views/platforms/autopost-reasons';
 import { isSameName, isSimilarName } from '@/lib/name-similarity';
+import { nameSkeleton } from '@/lib/ocr-name-match.mjs';
 
 export type AutopostAttentionItem = { jobId: string; chatId: string; name: string; errorCode: string; updatedAt: number; /** Назва чату, яку бачив месенджер (для «Не той чат»). */ observed: string | null;
   /** Збій стався до «Надіслати» (з результату задачі): повтор не може дати дубль, тож для групи є масове «Спробувати ще всі». */
@@ -63,8 +64,7 @@ export function AutopostAttentionList({ items, busy, canVerify, messenger, onDec
   const needsConfirm = (item: AutopostAttentionItem) => { const group = autopostReasonGroup(item.errorCode); return Boolean(group.risky) || (!item.beforeSend && group.key !== 'missing'); };
   // Назва з месенджера відома, лише коли вона відрізняється від нашої: збіг означає, що runner її не зчитав (старий запис).
   // Обрізаний початок нашої назви («Отдам-Продам-Куплю. Сдам-» з вікна вступу Viber) — це не інша назва: перейменовувати не можна, лишаємо «Спробувати ще».
-  const skeleton = (value: string) => value.toLocaleLowerCase('uk').replace(/[^\p{L}\p{N}]/gu, '');
-  const truncatedOf = (name: string, observed: string) => { const seen = skeleton(observed); return seen.length >= 8 && skeleton(name).startsWith(seen); };
+  const truncatedOf = (name: string, observed: string) => { const seen = nameSkeleton(observed); return seen.length >= 8 && nameSkeleton(name).startsWith(seen); };
   const knownObserved = (item: AutopostAttentionItem) => (item.observed && !isSameName(item.name, item.observed) && !truncatedOf(item.name, item.observed) ? item.observed : null);
   const similar = (list: AutopostAttentionItem[]) => list.filter((item) => { const observed = knownObserved(item); return observed && isSimilarName(item.name, observed); });
 
