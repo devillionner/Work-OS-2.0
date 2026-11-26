@@ -9,4 +9,4 @@ export function bestOcrMatch(
   options?: { lines?: number },
 ): { score: number; observed: string; lang: string; inverted: boolean; truncated: boolean; short: boolean; matched: boolean };
 export function observedFromOcr(texts: { text?: string; lang?: string; inverted?: boolean }[], lines?: number): string;
-export function wordCoverMatch(expected: string, texts: { text?: string; lang?: string; inverted?: boolean }[]): { matched: boolean; coverage: number; words: number };
+export function wordCoverMatch(expected: string, texts: { text?: string; lang?: string; inverted?: boolean }[]): { matched: boolean; coverage: number; words: number; prefix?: boolean };

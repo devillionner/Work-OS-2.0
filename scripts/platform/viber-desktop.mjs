@@ -206,12 +206,12 @@ async function readHeader(expected, guard, timeoutMs = 20_000) {
   const match = bestOcrMatch(expected, texts, { lines: 1 });
   // Повна назва (≥ 0.8) або збіг за словами (ru-OCR губить слова з «і», `wordCoverMatch`). `full` — лише повна: нею підтверджується «чат уже відкритий».
   const words = wordCoverMatch(expected, texts);
-  return { ...match, full: match.matched, byWords: !match.matched && words.matched, matched: match.matched || words.matched, coverage: words.coverage, observed: match.observed || observedFromOcr(texts, 1), geometry: g };
+  return { ...match, full: match.matched, byWords: !match.matched && words.matched, matched: match.matched || words.matched, coverage: words.coverage, prefix: Boolean(words.prefix), observed: match.observed || observedFromOcr(texts, 1), geometry: g };
 }
 
 /** Шапка мусить збігатися з ціллю, інакше нічого не вводимо. */
 /** Приблизний збіг для чату, відкритого за власним запрошенням (див. openByInvite). */
-const looseMatch = (header) => Boolean(header && (header.score >= 0.6 || (header.coverage ?? 0) >= 0.4));
+const looseMatch = (header) => Boolean(header && (header.score >= 0.6 || (header.coverage ?? 0) >= 0.4 || header.prefix));
 
 async function verifyHeader(expected, guard, opened = null) {
   const header = await readHeader(expected, guard);
