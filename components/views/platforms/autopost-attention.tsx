@@ -62,7 +62,10 @@ export function AutopostAttentionList({ items, busy, canVerify, messenger, onDec
   const retry = (item: AutopostAttentionItem, decision: 'retry' | 'retry_nophoto' = 'retry') => (needsConfirm(item) ? setPending({ kind: 'retry', item, decision }) : onDecide(item, decision));
   const needsConfirm = (item: AutopostAttentionItem) => { const group = autopostReasonGroup(item.errorCode); return Boolean(group.risky) || (!item.beforeSend && group.key !== 'missing'); };
   // Назва з месенджера відома, лише коли вона відрізняється від нашої: збіг означає, що runner її не зчитав (старий запис).
-  const knownObserved = (item: AutopostAttentionItem) => (item.observed && !isSameName(item.name, item.observed) ? item.observed : null);
+  // Обрізаний початок нашої назви («Отдам-Продам-Куплю. Сдам-» з вікна вступу Viber) — це не інша назва: перейменовувати не можна, лишаємо «Спробувати ще».
+  const skeleton = (value: string) => value.toLocaleLowerCase('uk').replace(/[^\p{L}\p{N}]/gu, '');
+  const truncatedOf = (name: string, observed: string) => { const seen = skeleton(observed); return seen.length >= 8 && skeleton(name).startsWith(seen); };
+  const knownObserved = (item: AutopostAttentionItem) => (item.observed && !isSameName(item.name, item.observed) && !truncatedOf(item.name, item.observed) ? item.observed : null);
   const similar = (list: AutopostAttentionItem[]) => list.filter((item) => { const observed = knownObserved(item); return observed && isSimilarName(item.name, observed); });
 
   return (
