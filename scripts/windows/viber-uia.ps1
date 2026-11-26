@@ -18,7 +18,7 @@
 # Важливо: Viber НЕ віддає через UIA назву чату (ні в шапці, ні в списку, ні в перегляді фото): ця команда нічого не знає про те, який чат відкрито.
 # Тому вона не вирішує, КУДИ писати; запобіжник «це саме потрібний чат» (OCR шапки) мусить бути окремим і до `send`/`preview-send`.
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('status', 'info', 'window', 'geometry', 'messages', 'set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss', 'open-link', 'close-popup')][string]$Command,
+    [Parameter(Mandatory = $true)][ValidateSet('status', 'info', 'window', 'geometry', 'messages', 'set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss', 'open-link', 'close-popup', 'leave-search')][string]$Command,
     [string]$TextBase64 = '',
     [string]$ExpectBase64 = '',
     [string]$Button = 'OK',
@@ -49,7 +49,7 @@ public class VU {
 # Контроль фокусу: команди, що щось змінюють у Viber, не мають забирати активне вікно в людини (Viber може бути на іншому робочому столі, і Windows
 # перемкне екран). Активне вікно до дії порівнюється з активним після неї; зміну віддаємо у відповіді (focusStolen), і адаптер зупиняється.
 $fgBefore = [VU]::GetForegroundWindow()
-$mutating = @('set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss', 'open-link', 'close-popup') -contains $Command
+$mutating = @('set-text', 'clear', 'send', 'search', 'search-clear', 'open-row', 'attach', 'preview-caption', 'preview-send', 'preview-close', 'scroll-bottom', 'wheel', 'dismiss', 'open-link', 'close-popup', 'leave-search') -contains $Command
 $AE = [System.Windows.Automation.AutomationElement]
 $Walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
 
@@ -80,6 +80,14 @@ if ($Command -eq 'window') {
     if ($Button -eq 'restore' -and $iconic) { [void][VU]::ShowWindow($hwnd, 4); Start-Sleep -Milliseconds 700 }   # SW_SHOWNOACTIVATE: відновити без активації
     if ($Button -eq 'minimize' -and -not $iconic) { [void][VU]::ShowWindow($hwnd, 7) }                            # SW_SHOWMINNOACTIVE
     Reply @{ ok = $true; iconic = [bool]$iconic; zoomed = [bool][VU]::IsZoomed($hwnd) }
+}
+
+# Вихід з режиму пошуку: поле пошуку у фокусі ховає з дерева UIA всю розмову (лишаються лише рядки списку), і адаптер її «не бачить».
+if ($Command -eq 'leave-search') {
+    [void][VU]::PostMessage($hwnd, 0x0100, [IntPtr]0x1B, [IntPtr]1)
+    [void][VU]::PostMessage($hwnd, 0x0101, [IntPtr]0x1B, [IntPtr]0xC0000001)
+    Start-Sleep -Milliseconds 700
+    Reply @{ ok = $true }
 }
 
 # Посилання-запрошення спільноти: Viber Desktop приймає viber://community_invite?data=<g2> (так його відкриває сторінка invite.viber.com) і не

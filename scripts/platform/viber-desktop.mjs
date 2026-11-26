@@ -173,6 +173,8 @@ async function prepare(onStep) {
     await sleep(900);
   }
   status = await clearDialogs(await uia('status'));
+  // Viber лишився в режимі пошуку (поле у фокусі): розмови в дереві UIA немає, поки не вийти Escape.
+  if (status.ok && !status.stackOpen && !status.popups?.length) { await act('leave-search', [], 'leave-search').catch(() => {}); status = await uia('status'); }
   return { restored };
 }
 
@@ -355,7 +357,7 @@ async function openChat(name, guard, onStep, url = '', { search = false } = {}) 
       await sleep(1500);
       found = await waitFor(() => uia('geometry'), (g) => g.ok && g.searchValue === query && g.rows?.length > 0, 14_000, 900, guard);
     }
-    if (!found) throw new DesktopStop('viber_not_joined', 'before', `чату «${name}» немає у списку Viber Desktop (пошук «${query}»)`);
+    if (!found) { const g = await uia('geometry'); throw new DesktopStop('viber_not_joined', 'before', `чату «${name}» немає у списку Viber Desktop (пошук «${query}»; у полі «${g.searchValue ?? g.reason ?? '?'}», рядків ${g.rows?.length ?? 0})`); }
     const rects = found.rows.map((r) => `${r.x + 66},${r.y + 4},${Math.max(40, r.w - 66 - 62)},56`).join(';');
     const ocr = await vision('ocr', ['-Rects', rects, '-Scale', '3']);
     if (!ocr.ok) throw new DesktopStop('viber_desktop_helper_error', 'env', `OCR списку: ${ocr.reason || ocr.detail || ''}`);
@@ -369,6 +371,8 @@ async function openChat(name, guard, onStep, url = '', { search = false } = {}) 
     if (!opened.ok) throw new DesktopStop('viber_unknown_window', 'before', `відкриття чату: ${opened.reason || ''}`);
   } finally {
     await act('search-clear', [], 'search-clear').catch(() => {});
+    // Поле пошуку у фокусі ховає розмову з дерева UIA (лишаються лише рядки списку): виходимо з режиму пошуку.
+    await act('leave-search', [], 'leave-search').catch(() => {});
   }
   await sleep(1500);
   return verifyHeader(name, guard);
