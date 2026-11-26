@@ -346,7 +346,15 @@ async function openChat(name, guard, onStep, url = '', { search = false } = {}) 
   if (!set.ok) throw new DesktopStop('viber_unknown_window', 'before', `пошук у Viber: ${set.reason || 'поле пошуку недоступне'}`);
   try {
     await sleep(1200);
-    const found = await waitFor(() => uia('geometry'), (g) => g.ok && g.searchValue === query && g.rows?.length > 0, 14_000, 900, guard);
+    let found = await waitFor(() => uia('geometry'), (g) => g.ok && g.searchValue === query && g.rows?.length > 0, 14_000, 900, guard);
+    if (!found) {
+      // Пробна відправка 2026-11-26 11:48: перший пошук «My Notes» не дав результатів (текст не ліг у поле), повтор одразу після — дав. Ще одна спроба з чистого поля.
+      await act('search-clear', [], 'search-clear').catch(() => {});
+      await sleep(800);
+      await act('search', ['-TextBase64', b64(query)], 'search');
+      await sleep(1500);
+      found = await waitFor(() => uia('geometry'), (g) => g.ok && g.searchValue === query && g.rows?.length > 0, 14_000, 900, guard);
+    }
     if (!found) throw new DesktopStop('viber_not_joined', 'before', `чату «${name}» немає у списку Viber Desktop (пошук «${query}»)`);
     const rects = found.rows.map((r) => `${r.x + 66},${r.y + 4},${Math.max(40, r.w - 66 - 62)},56`).join(';');
     const ocr = await vision('ocr', ['-Rects', rects, '-Scale', '3']);
