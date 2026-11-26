@@ -48,7 +48,7 @@ let busy = null;
 /** Запуск PowerShell-помічника: один рядок JSON у відповідь, без вікон. */
 function ps(file, args, timeout = 40_000) {
   return new Promise((resolve) => {
-    execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file, ...args], { timeout, windowsHide: true, maxBuffer: 1 << 26 }, (error, stdout) => {
+    execFile('powershell.exe', ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', file, ...args], { timeout, windowsHide: true, maxBuffer: 1 << 26 }, (error, stdout) => {
       const line = String(stdout || '').replace(/^﻿/, '').trim().split(/\r?\n/).filter(Boolean).pop() || '';
       try { resolve(JSON.parse(line)); } catch { resolve({ ok: false, reason: 'viber_desktop_helper_error', detail: error ? String(error.message).slice(0, 160) : line.slice(0, 160) }); }
     });
@@ -226,7 +226,8 @@ async function openChat(name, guard, onStep) {
   const set = await act('search', ['-TextBase64', b64(query)], 'search');
   if (!set.ok) throw new DesktopStop('viber_unknown_window', 'before', `пошук у Viber: ${set.reason || 'поле пошуку недоступне'}`);
   try {
-    const found = await waitFor(() => uia('geometry'), (g) => g.ok && g.rows?.length > 0, 14_000, 900, guard);
+    await sleep(1200);
+    const found = await waitFor(() => uia('geometry'), (g) => g.ok && g.searchValue === query && g.rows?.length > 0, 14_000, 900, guard);
     if (!found) throw new DesktopStop('viber_not_joined', 'before', `чату «${name}» немає у списку Viber Desktop (пошук «${query}»); вступ за запрошенням у Desktop ще не підтримано`);
     const rects = found.rows.map((r) => `${r.x + 66},${r.y + 4},${Math.max(40, r.w - 66 - 62)},56`).join(';');
     const ocr = await vision('ocr', ['-Rects', rects, '-Scale', '3']);
@@ -248,7 +249,6 @@ async function openChat(name, guard, onStep) {
 
 // ── Повідомлення в стрічці ────────────────────────────────────────────────────
 
-const messageKey = (text) => nameSkeleton(String(text || '').slice(0, 80)).slice(0, 24);
 
 /** Тексти повідомлень, видимих у стрічці (нижній край: спершу «до кінця»). */
 async function feed({ bottom = true } = {}) {
@@ -257,14 +257,22 @@ async function feed({ bottom = true } = {}) {
   return out.ok ? out.messages || [] : [];
 }
 
-const countPrefix = (messages, prefix) => messages.filter((m) => messageKey(m.text) === prefix).length;
 
-/** Підтвердження: у стрічці з'явилось нове повідомлення з початком підпису (більше копій, ніж було до відправки). */
-async function confirmOwn(caption, beforeCount, timeoutMs, guard) {
-  const prefix = messageKey(caption);
-  if (prefix.length < 6) throw new DesktopStop('send_not_confirmed', 'after', 'підпис надто короткий, щоб знайти його в стрічці');
-  const found = await waitFor(async () => countPrefix(await feed(), prefix), (count) => count > beforeCount, timeoutMs, 2500, () => {});
-  if (!found) throw new DesktopStop('send_not_confirmed', 'after', `у стрічці не з'явилось повідомлення з початком «${String(caption).slice(0, 30)}»`);
+// Порівняння за повним текстом (скелет перших 120 символів), а не за першими словами: однакові початки («Work OS: пробна відправка…»,
+// те саме оголошення вчора) давали хибне «не підтверджено» (3.22.2, 2026-11-26: фото пішло, а лічильник копій у видимій стрічці не зріс).
+const fullKey = (text) => nameSkeleton(String(text || '').slice(0, 400)).slice(0, 120);
+/** Стан стрічки щодо підпису: чи найновіше (найнижче) повідомлення — наше, і скільки повних збігів видно. */
+function feedState(messages, caption) {
+  const key = fullKey(caption);
+  const last = messages.reduce((best, m) => (!best || m.y > best.y ? m : best), null);
+  return { lastMatch: Boolean(last && fullKey(last.text) === key), count: messages.filter((m) => fullKey(m.text) === key).length };
+}
+
+/** Підтвердження: найновіше повідомлення стрічки — наш підпис, і воно нове (до відправки найновішим був інший текст, або копій стало більше). */
+async function confirmOwn(caption, before, timeoutMs) {
+  if (fullKey(caption).length < 6) throw new DesktopStop('send_not_confirmed', 'after', 'підпис надто короткий, щоб знайти його в стрічці');
+  const found = await waitFor(async () => feedState(await feed(), caption), (s) => s.lastMatch && (!before.lastMatch || s.count > before.count), timeoutMs, 2500);
+  if (!found) throw new DesktopStop('send_not_confirmed', 'after', `найновіше повідомлення в чаті не стало нашим «${String(caption).slice(0, 30)}»`);
 }
 
 // ── Відправка ─────────────────────────────────────────────────────────────────
@@ -297,7 +305,7 @@ async function sendPhoto(name, caption, media, guard, step) {
   const image = await writeImage(media);
   try {
     step('photo', 'відкриваю вибір файла');
-    const clicked = await act('attach', [], 'attach');
+    const clicked = await actInConversation('attach', []);
     if (!clicked.ok) throw new DesktopStop('send_ui_unavailable', 'before', `кнопка вкладення: ${clicked.reason || ''}`);
     const dlg = await dialog('find', ['-WaitSeconds', '10'], 20_000);
     if (!dlg.found) throw new DesktopStop('send_ui_unavailable', 'before', 'діалог «Send a file» не відкрився');
@@ -310,7 +318,7 @@ async function sendPhoto(name, caption, media, guard, step) {
       throw new DesktopStop('send_ui_unavailable', 'before', 'перегляд фото не відкрився');
     }
     step('caption', 'вписую підпис');
-    const set = await act('preview-caption', ['-TextBase64', b64(caption)], 'preview-caption');
+    const set = await actInConversation('preview-caption', ['-TextBase64', b64(caption)], 60_000);
     if (!set.ok) {
       await act('preview-close', [], 'preview-close').catch(() => {});
       throw new DesktopStop('send_ui_unavailable', 'before', 'підпис у перегляді не записався');
@@ -322,8 +330,18 @@ async function sendPhoto(name, caption, media, guard, step) {
   } finally { await rm(image.dir, { recursive: true, force: true }).catch(() => {}); }
 }
 
+/** Дія, що чекає відкриту розмову: дерево UIA інколи на мить не віддає її після попередньої дії, тож ще дві спроби з паузою. */
+async function actInConversation(command, extra, timeout) {
+  let out = await act(command, extra, command, timeout);
+  for (let i = 0; i < 2 && !out.ok && (out.reason === 'viber_desktop_no_conversation' || out.reason === 'viber_desktop_no_preview'); i += 1) {
+    await sleep(1500);
+    out = await act(command, extra, command, timeout);
+  }
+  return out;
+}
+
 async function sendText(caption) {
-  const set = await act('set-text', ['-TextBase64', b64(caption)], 'set-text');
+  const set = await actInConversation('set-text', ['-TextBase64', b64(caption)], 60_000);
   if (!set.ok) throw new DesktopStop('send_ui_unavailable', 'before', `поле повідомлення: ${set.reason || 'текст не записався'}`);
   return { sentAt: Date.now(), send: await act('send', ['-ExpectBase64', b64(caption)], 'send', 40_000) };
 }
@@ -341,7 +359,7 @@ async function post(payload, guard, step, state) {
   if (payload.openOnly) return { ok: true, status: 'checked', reason: null, severity: 'before', observedTarget: opened.observed };
   // Остання перевірка шапки безпосередньо перед введенням (поки відкривали, чат міг змінитись).
   await verifyHeader(name, guard);
-  const beforeCount = countPrefix(await feed(), messageKey(caption));
+  const before = feedState(await feed(), caption);
   guard();
   const textOnly = payload.textOnly === true || !payload.media;
   const result = textOnly ? await sendText(caption) : await sendPhoto(name, caption, payload.media, guard, step);
@@ -352,11 +370,12 @@ async function post(payload, guard, step, state) {
     if (result.send.reason === 'composer_mismatch' || result.send.reason === 'caption_mismatch') { state.sendPressed = false; throw new DesktopStop('send_ui_unavailable', 'before', `поле змінилось: ${result.send.reason}`); }
   }
   step('confirm', 'чекаю повідомлення в стрічці');
-  await confirmOwn(caption, beforeCount, textOnly ? CONFIRM_TEXT_MS : CONFIRM_PHOTO_MS, guard);
+  await confirmOwn(caption, before, textOnly ? CONFIRM_TEXT_MS : CONFIRM_PHOTO_MS);
   return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: opened.observed || name, sentAt: Math.floor(result.sentAt / 1000) };
 }
 
-/** Режим перевірки: нічого не надсилає, гортає стрічку вгору й шукає повідомлення з початком підпису. */
+/** Режим перевірки: нічого не надсилає. Часу повідомлень UIA не віддає, а те саме оголошення могло вийти тут учора, тому «відправлено» —
+ *  лише коли наш текст — найновіше повідомлення чату; інакше «не вдалося визначити» (а не «немає», щоб не було повторної відправки й дубля). */
 async function verify(payload, guard, step, state) {
   const name = String(payload.expectedName || '');
   const caption = String(payload.message || '');
@@ -364,19 +383,12 @@ async function verify(payload, guard, step, state) {
   state.context = await prepare(step);
   step('open', 'відкриваю чат');
   const opened = await openChat(name, guard, step);
-  const prefix = messageKey(caption);
-  if (prefix.length < 6) throw new DesktopStop('message_not_found', 'before', 'підпис порожній');
+  if (fullKey(caption).length < 6) throw new DesktopStop('message_not_found', 'before', 'підпис порожній');
   step('confirm', 'шукаю повідомлення в чаті');
-  let messages = await feed();
-  for (let page = 0; page < 24; page += 1) {
-    guard();
-    if (countPrefix(messages, prefix) > 0) return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: opened.observed || name, timings: 'перевірено, повідомлення є в чаті' };
-    await act('wheel', ['-Index', '3'], 'wheel');
-    await sleep(500);
-    messages = await feed({ bottom: false });
-  }
-  // Часу повідомлень UIA не віддає: «немає» за межами гортання — лише «не знайшов», а не доказ відсутності.
-  throw new DesktopStop('verify_inconclusive', 'before', 'повідомлення не знайдено серед гортаних сторінок стрічки');
+  guard();
+  const now = feedState(await feed(), caption);
+  if (now.lastMatch) return { ok: true, status: 'sent', reason: null, severity: 'after', observedTarget: opened.observed || name, timings: 'перевірено, повідомлення є в чаті' };
+  throw new DesktopStop('verify_inconclusive', 'before', now.count ? 'такий текст є в стрічці, але не найновішим повідомленням: не видно, чи він сьогоднішній' : 'наш текст не найновіше повідомлення в чаті');
 }
 
 /**

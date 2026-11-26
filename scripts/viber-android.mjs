@@ -58,7 +58,7 @@ let currentLaps = null;
 /** Короткі пояснення для журналу й значка в треї; повні тексти для оператора живуть на сайті. */
 export const VIBER_ENV_REASON_TEXT = {
   viber_unsupported_platform: 'Автопост Viber працює лише на Linux',
-  viber_desktop_pending: 'Viber Desktop: автопост вимкнений, доки його не ввімкнено в runner.env (WORK_OS_VIBER_DESKTOP=1)',
+  viber_desktop_pending: 'Viber Desktop: автопост вимкнений у runner.env (WORK_OS_VIBER_DESKTOP=0)',
   viber_ocr_unavailable: 'У Windows немає мови OCR для кирилиці (ru-RU)',
   viber_desktop_focus_stolen: 'Дії у Viber Desktop забирали активне вікно: автопост на паузі',
   viber_desktop_minimized: 'Вікно Viber Desktop згорнуте',
@@ -1395,7 +1395,7 @@ async function status() {
  * чого з цього вимагає пробної відправки (див. `autopost-health.mjs`). Поки йде задача, `adb` не чіпаємо: повертає null.
  */
 export async function viberFingerprint() {
-  if (process.platform === 'win32' && process.env.WORK_OS_VIBER_DESKTOP === '1') return viberDesktopFingerprint();
+  if (process.platform === 'win32' && process.env.WORK_OS_VIBER_DESKTOP !== '0') return viberDesktopFingerprint();
   if (activeTask || process.platform !== 'linux') return null;
   // Android після пробудження чи перезапуску сесії ще не готовий (adb offline, `sys.boot_completed` ≠ 1): чекаємо до хвилини й лише
   // тоді знімаємо відбиток. Не дочекались — null («зараз зібрати не можна»), а не відбиток із порожніми полями, який виглядав би зміною.
@@ -1483,10 +1483,10 @@ async function post(payload, guard) {
  * @returns {Promise<{ok:boolean,status:string,reason?:string|null,severity?:string,detail?:string,[key:string]:unknown}>}
  */
 export async function runViberAndroid(action, payload = {}, { shouldAbort = () => false, onStep = () => {} } = {}) {
-  // Windows: Viber Desktop — друга фаза; до неї платформа Viber на паузі з поясненням і задач не бере. Інші системи, окрім Linux, не підтримуються.
+  // Windows: Viber Desktop (нижче); з WORK_OS_VIBER_DESKTOP=0 платформа Viber на паузі з поясненням і задач не бере. Інші системи, окрім Linux, не підтримуються.
   if (process.platform === 'win32') {
-    // Viber Desktop увімкнено явно (WORK_OS_VIBER_DESKTOP=1 у runner.env): адаптер через UIA, Win32-діалог файла й OCR шапки (platform/viber-desktop.mjs).
-    if (process.env.WORK_OS_VIBER_DESKTOP === '1') return runViberDesktop(action, payload, { shouldAbort, onStep });
+    // Viber Desktop (з 3.22.2 увімкнено за замовчуванням; WORK_OS_VIBER_DESKTOP=0 у runner.env вимикає): адаптер через UIA, Win32-діалог файла й OCR шапки (platform/viber-desktop.mjs).
+    if (process.env.WORK_OS_VIBER_DESKTOP !== '0') return runViberDesktop(action, payload, { shouldAbort, onStep });
     // Стан Viber Desktop читаємо лише для підказки в картці; реальні чати поки не обробляються (назви чатів недоступні через UIA).
     const desktop = action === 'status' ? await viberDesktopStatus().catch(() => null) : null;
     const reason = desktop?.reason === 'viber_desktop_not_running' ? 'viber_desktop_not_running' : desktop?.popups?.length ? 'viber_desktop_dialog' : 'viber_desktop_pending';

@@ -3,7 +3,7 @@ const REASONS: Record<string, string> = {
   viber_unsupported_platform: 'Автопост Viber працює лише на Linux-ПК із Waydroid.',
   viber_desktop_not_running: 'Viber Desktop не запущений. Запусти його на ПК: автопост Viber на Windows чекає на нього.',
   viber_desktop_dialog: 'У Viber Desktop відкрито діалог (наприклад, відновлення історії чи сповіщення): закрий його, тоді статус оновиться.',
-  viber_desktop_pending: 'Автопост Viber на Windows вимкнений: його вмикають після перевірки на ПК (WORK_OS_VIBER_DESKTOP=1 у налаштуваннях runner). Telegram і WhatsApp працюють.',
+  viber_desktop_pending: 'Автопост Viber на Windows вимкнений у налаштуваннях runner (WORK_OS_VIBER_DESKTOP=0). Telegram і WhatsApp працюють.',
   viber_ocr_unavailable: 'У Windows немає розпізнавання тексту для кирилиці (мова ru-RU). Без нього Viber Desktop не може перевірити назву чату й нічого не надсилає. Встанови її від адміністратора: Add-WindowsCapability -Online -Name "Language.OCR~~~ru-RU~0.0.1.0".',
   viber_desktop_focus_stolen: 'Дії у Viber Desktop забирали активне вікно й перемикали екран. Автопост Viber на паузі, щоб не заважати. Перенеси вікно Viber на робочий стіл, де ти працюєш, і натисни «Перевірити й продовжити».',
   viber_desktop_minimized: 'Вікно Viber Desktop згорнуте й не відновилось. Розгорни його й повтори.',

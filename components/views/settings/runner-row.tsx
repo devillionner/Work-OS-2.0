@@ -112,7 +112,7 @@ export function RunnerRow() {
   const latest = backups?.[0] ?? null;
 
   return (
-    <Row label="Runner на цьому ПК" description={windows ? `${state} Новий ПК з Windows: встанови runner однією командою в PowerShell з одноразовим кодом, потім увійди в WhatsApp і Telegram у вікні браузера runner (QR-код). Viber на Windows з’явиться в другій фазі.` : `${state} Новий ПК чи інша система Linux: встанови одну командою з одноразовим кодом, а входи в WhatsApp, Telegram і Viber перенеси зашифрованим архівом із хмари: без QR-кодів.`} stacked>
+    <Row label="Runner на цьому ПК" description={windows ? `${state} Новий ПК з Windows: встанови runner однією командою в PowerShell з одноразовим кодом, потім увійди в WhatsApp і Telegram у вікні браузера runner (QR-код). Viber працює через програму Viber Desktop: вона має бути запущена й увійдена.` : `${state} Новий ПК чи інша система Linux: встанови одну командою з одноразовим кодом, а входи в WhatsApp, Telegram і Viber перенеси зашифрованим архівом із хмари: без QR-кодів.`} stacked>
       <div className="flex w-full min-w-0 flex-col gap-4">
         <section className="flex min-w-0 flex-col gap-2" aria-label="Встановити на новій системі">
           <div className="flex flex-wrap items-center justify-between gap-2">

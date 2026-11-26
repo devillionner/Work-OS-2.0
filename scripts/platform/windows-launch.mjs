@@ -15,7 +15,7 @@ import { browserProfileDir, runnerEnvFile, stateDir } from './paths.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RUNNER_ENTRY = join(HERE, '..', 'chat-discovery-runner.mjs');
 const DEFAULT_URL = 'https://work-os-2-staging.devillionner.workers.dev';
-const ENV_KEYS = new Set(['WORK_OS_BROWSER', 'WORK_OS_BROWSER_PROFILE', 'WORK_OS_URL', 'WORK_OS_EXECUTOR_TOKEN', 'WORK_OS_RUNNER_HEADLESS', 'WORK_OS_CDP_PORT']);
+const ENV_KEYS = new Set(['WORK_OS_BROWSER', 'WORK_OS_BROWSER_PROFILE', 'WORK_OS_URL', 'WORK_OS_EXECUTOR_TOKEN', 'WORK_OS_RUNNER_HEADLESS', 'WORK_OS_CDP_PORT', 'WORK_OS_VIBER_DESKTOP']);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const log = (line) => console.log(`[${new Date().toLocaleTimeString('uk-UA')}] ${line}`);
 

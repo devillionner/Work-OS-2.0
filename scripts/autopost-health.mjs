@@ -45,7 +45,7 @@ const HELP = {
   viber_desktop_focus_stolen: 'Дії у Viber Desktop забирали активне вікно й перемикали екран. Перенеси вікно Viber на робочий стіл, де ти працюєш',
   viber_desktop_not_running: 'Viber Desktop не запущений',
   viber_desktop_dialog: 'У Viber Desktop відкрито діалог: закрий його',
-  viber_desktop_pending: 'Viber Desktop вимкнений: WORK_OS_VIBER_DESKTOP=1 у налаштуваннях runner',
+  viber_desktop_pending: 'Viber Desktop вимкнений у налаштуваннях runner (WORK_OS_VIBER_DESKTOP=0)',
   viber_unknown_window: 'Viber показує невідоме вікно після запуску. Знімок у теці збоїв; закрий вікно в Android («Показати Android»)',
   adbkeyboard_disabled: 'Клавіатура ADBKeyBoard не ввімкнена в Android. Виконай: adb shell ime enable com.android.adbkeyboard/.AdbIME',
   adbkeyboard_missing: 'У Waydroid немає клавіатури ADBKeyBoard. Встанови її: adb install ADBKeyboard.apk',

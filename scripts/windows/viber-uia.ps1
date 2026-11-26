@@ -4,7 +4,7 @@
 #   window          стан вікна (-Button state|restore|minimize): згорнуте вікно відновлюється без активації й без фокусу
 #   geometry        екранні координати (фізичні пікселі): вікно, розмова, шапка (смуга назви чату), поле повідомлення, рядки списку чатів
 #   messages        тексти повідомлень, видимих у стрічці відкритої розмови (UIA віддає повний текст; Y і X потрібні, щоб знайти останнє)
-#   set-text/clear  записати/очистити поле повідомлення (ValuePattern, фокус вікна не потрібен); текст у Base64 (UTF-8)
+#   set-text/clear  записати/очистити поле повідомлення (кліки й символи через PostMessage, без активації вікна); текст у Base64 (UTF-8)
 #   send            натиснути «Надіслати», але ЛИШЕ коли в полі рівно очікуваний текст (-ExpectBase64)
 #   search          записати текст у поле пошуку (-TextBase64); search-clear — очистити
 #   open-row        відкрити чат зі списку ліворуч (-Index порядковий номер видимого рядка, -Y очікуване положення: рядок має лишитись на місці)
@@ -38,7 +38,7 @@ public class VU {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
-  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+  [DllImport("user32.dll", EntryPoint = "PostMessageW")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
   public struct RECT { public int L, T, R, B; }
   public struct POINT { public int X, Y; }
 }
@@ -140,6 +140,97 @@ function ClickAt([int]$sx, [int]$sy) {
 }
 function InvokeOf($n) { $n.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
 
+# Фокус (3.22.2): UIA SetValue й Invoke у Viber Desktop роблять вікно Viber активним (перевірено 2026-11-26: пошук, поле повідомлення, «Надіслати»),
+# а повідомлення миші й клавіатури, надіслані у вікно (PostMessage), — ні. Тому всі дії, що щось змінюють, ідуть через PostMessage:
+# клік по центру елемента, символи WM_CHAR (перенос рядка — U+2028, Viber зберігає його як «\n»), а текст із емодзі поза BMP (WM_CHAR їх губить) —
+# через буфер обміну й пункт «Paste» контекстного меню Viber (буфер людини зберігається й повертається).
+function CenterOf($n) { $r = RectOf $n; if (-not $r) { return $null }; return @(($r.x + [int]($r.w / 2)), ($r.y + [int]($r.h / 2))) }
+function ClickNode($n) { $c = CenterOf $n; if (-not $c) { return $false }; ClickAt $c[0] $c[1]; return $true }
+function RightClickAt([int]$sx, [int]$sy) {
+    $cp = New-Object VU+POINT; [void][VU]::ClientToScreen($hwnd, [ref]$cp)
+    $l = [IntPtr](((($sy - $cp.Y) -band 0xFFFF) -shl 16) -bor (($sx - $cp.X) -band 0xFFFF))
+    [void][VU]::PostMessage($hwnd, 0x0200, [IntPtr]::Zero, $l)
+    Start-Sleep -Milliseconds 100
+    [void][VU]::PostMessage($hwnd, 0x0204, [IntPtr]2, $l)         # WM_RBUTTONDOWN
+    Start-Sleep -Milliseconds 80
+    [void][VU]::PostMessage($hwnd, 0x0205, [IntPtr]::Zero, $l)    # WM_RBUTTONUP
+}
+function PostKey([int]$vk, [int]$times = 1) {
+    for ($i = 0; $i -lt $times; $i++) {
+        [void][VU]::PostMessage($hwnd, 0x0100, [IntPtr]$vk, [IntPtr]1)
+        [void][VU]::PostMessage($hwnd, 0x0101, [IntPtr]$vk, [IntPtr]0xC0000001)
+        Start-Sleep -Milliseconds 6
+    }
+}
+function PostChars([string]$text) {
+    foreach ($ch in $text.Replace("`r`n", "`n").ToCharArray()) {
+        $code = [int]$ch
+        if ($code -eq 10) { $code = 0x2028 }
+        [void][VU]::PostMessage($hwnd, 0x0102, [IntPtr]$code, [IntPtr]1)
+        Start-Sleep -Milliseconds 6
+    }
+}
+function HasAstral([string]$text) { foreach ($ch in $text.ToCharArray()) { if ([char]::IsSurrogate($ch)) { return $true } }; return $false }
+# Пункт контекстного меню Viber за назвою (меню з'являється в тому самому вікні, UIA бачить його пункти).
+function MenuItemByName([string]$name) {
+    $cond = New-Object System.Windows.Automation.AndCondition(
+        (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::MenuItem)),
+        (New-Object System.Windows.Automation.PropertyCondition($AE::NameProperty, $name)))
+    for ($i = 0; $i -lt 8; $i++) {
+        $item = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
+        if ($item -and (RectOf $item)) { return $item }
+        Start-Sleep -Milliseconds 150
+    }
+    return $null
+}
+# Контекстне меню поля: правий клік → пункт за назвою. Неактивний пункт (напр. «Select All» у порожньому полі) не натискається; меню закривається кліком у поле.
+function FieldMenu($field, [string]$name) {
+    $c = CenterOf $field
+    RightClickAt $c[0] $c[1]
+    Start-Sleep -Milliseconds 350
+    $item = MenuItemByName $name
+    if ($item -and $item.Current.IsEnabled) { [void](ClickNode $item); Start-Sleep -Milliseconds 300; return $true }
+    ClickAt $c[0] $c[1]
+    Start-Sleep -Milliseconds 200
+    return $false
+}
+function PasteViaClipboard($field, [string]$text) {
+    Add-Type -AssemblyName System.Windows.Forms
+    $saved = @{}
+    try { $old = [Windows.Forms.Clipboard]::GetDataObject(); if ($old) { foreach ($f in $old.GetFormats($false)) { try { $saved[$f] = $old.GetData($f) } catch { } } } } catch { }
+    try {
+        [Windows.Forms.Clipboard]::SetText($text)
+        $ok = FieldMenu $field 'Paste'
+        Start-Sleep -Milliseconds 400
+        return $ok
+    } finally {
+        try {
+            if ($saved.Count) { $d = New-Object Windows.Forms.DataObject; foreach ($k in $saved.Keys) { try { $d.SetData($k, $saved[$k]) } catch { } }; [Windows.Forms.Clipboard]::SetDataObject($d, $true) }
+            else { [Windows.Forms.Clipboard]::Clear() }
+        } catch { }
+    }
+}
+# Записати текст у поле без активації вікна: виділити все через меню, стерти, вписати (символами або вставкою). Повертає те, що стоїть у полі після.
+function SetFieldText($field, [string]$text) {
+    $c = CenterOf $field
+    if (-not $c) { return $null }
+    if ((ValueOf $field).Length -gt 0) {
+        [void](FieldMenu $field 'Select All')
+        PostKey 0x08
+        Start-Sleep -Milliseconds 250
+        if ((ValueOf $field).Length -gt 0) { ClickAt $c[0] $c[1]; PostKey 0x23; PostKey 0x08 ((ValueOf $field).Length + 4); Start-Sleep -Milliseconds 250 }
+    } else {
+        ClickAt $c[0] $c[1]
+        Start-Sleep -Milliseconds 250
+    }
+    if ($text) {
+        if (HasAstral $text) { [void](PasteViaClipboard $field $text) } else { PostChars $text }
+        Start-Sleep -Milliseconds 500
+    }
+    return (ValueOf $field)
+}
+function SameText([string]$a, [string]$b) { return ($a.Replace("`r`n", "`n").Replace([string][char]0x2028, "`n") -ceq $b.Replace("`r`n", "`n").Replace([string][char]0x2028, "`n")) }
+
 # Діалоги Qt Quick Controls: заголовок і назви кнопок (це службовий текст застосунку, не чати).
 $popups = @()
 foreach ($n in $nodes) {
@@ -174,12 +265,20 @@ function ListRows() {
     $stackRect = RectOf $stack
     $winRect = New-Object VU+RECT; [void][VU]::GetWindowRect($hwnd, [ref]$winRect)
     $rows = @()
+    # Результати пошуку — розділи («Conversations», «Bots»…): група delegateLoader на весь розділ, без дітей; заголовок розділу має кнопку
+    # PrimaryButton праворуч. Рядки всередині — по 72 px від верху групи до заголовка наступного розділу.
+    $headers = @()
+    foreach ($n in (FindAllById 'ApplicationWindowContentControl\.PrimaryButton_QMLTYPE_\d+(_QML_\d+)?$' 'ControlType.Button')) { $hr = RectOf $n; if ($hr -and $hr.x -lt 300) { $headers += $hr.y } }
+    $headers = @($headers | Sort-Object)
     foreach ($n in (FindAllById '(^|\.)delegateLoader$' 'ControlType.Group')) {
         $r = RectOf $n
-        if (-not $r -or $r.h -lt 50 -or $r.h -gt 140 -or $r.w -lt 200 -or $r.w -gt 420) { continue }
+        if (-not $r -or $r.h -lt 50 -or $r.w -lt 200 -or $r.w -gt 420) { continue }
         if ($stackRect -and $r.x -ge $stackRect.x) { continue }
-        if ($r.y -lt 120 -or ($r.y + $r.h) -gt $winRect.B) { continue }
-        $rows += $r
+        if ($r.y -lt 120 -or $r.y -gt $winRect.B) { continue }
+        if ($r.h -le 140) { if (($r.y + $r.h) -le $winRect.B) { $rows += $r }; continue }
+        $bottom = [Math]::Min($r.y + $r.h, $winRect.B)
+        foreach ($hy in $headers) { if ($hy -gt $r.y) { $bottom = [Math]::Min($bottom, $hy - 10); break } }
+        for ($y = $r.y; ($y + 64) -le $bottom; $y += 72) { $rows += @{ x = $r.x; y = $y; w = $r.w; h = 72 } }
     }
     return @($rows | Sort-Object { $_.y })
 }
@@ -247,14 +346,14 @@ switch ($Command) {
             if ($n.Current.ClassName -eq 'QQuickPopupItem') {
                 $kid = $Walker.GetFirstChild($n)
                 while ($kid -ne $null) {
-                    if ($kid.Current.Name -eq $Button) { InvokeOf $kid; Reply @{ ok = $true; dismissed = $Button } }
+                    if ($kid.Current.Name -eq $Button -and (ClickNode $kid)) { Start-Sleep -Milliseconds 500; Reply @{ ok = $true; dismissed = $Button } }
                     $kid = $Walker.GetNextSibling($kid)
                 }
             }
         }
         # Рекламні панелі Viber («Give images a new look») — не QQuickPopupItem: кнопку шукаємо за назвою по всьому вікну.
         foreach ($n in $nodes) {
-            if ($n.Current.ControlType.ProgrammaticName -eq 'ControlType.Button' -and $n.Current.Name -eq $Button) { InvokeOf $n; Reply @{ ok = $true; dismissed = $Button } }
+            if ($n.Current.ControlType.ProgrammaticName -eq 'ControlType.Button' -and $n.Current.Name -eq $Button -and (ClickNode $n)) { Start-Sleep -Milliseconds 500; Reply @{ ok = $true; dismissed = $Button } }
         }
         Reply @{ ok = $false; reason = 'dialog_button_not_found' }
     }
@@ -262,22 +361,21 @@ switch ($Command) {
         if ($popups.Count -gt 0) { Reply @{ ok = $false; reason = 'viber_desktop_dialog'; popups = $popups } }
         if (-not $conversationOpen) { Reply @{ ok = $false; reason = 'viber_desktop_no_conversation' } }
         $text = FromB64 $TextBase64
-        SetValueOf $composer $text
-        Start-Sleep -Milliseconds 400
-        $after = ValueOf $composer
-        Reply @{ ok = ($after -eq $text); matches = ($after -eq $text); length = $after.Length }
+        $after = SetFieldText $composer $text
+        $same = SameText $after $text
+        Reply @{ ok = $same; matches = $same; length = $after.Length }
     }
     'clear' {
         if (-not $composer) { Reply @{ ok = $false; reason = 'viber_desktop_no_conversation' } }
-        SetValueOf $composer ''
-        Reply @{ ok = $true }
+        $after = SetFieldText $composer ''
+        Reply @{ ok = ($after.Length -eq 0) }
     }
     'send' {
         if ($popups.Count -gt 0) { Reply @{ ok = $false; reason = 'viber_desktop_dialog'; popups = $popups } }
         if (-not $conversationOpen) { Reply @{ ok = $false; reason = 'viber_desktop_no_conversation' } }
         $expect = FromB64 $ExpectBase64
-        if (-not $expect -or $composerValue -ne $expect) { Reply @{ ok = $false; reason = 'composer_mismatch'; length = $composerValue.Length } }
-        InvokeOf $sendButton
+        if (-not $expect -or -not (SameText $composerValue $expect)) { Reply @{ ok = $false; reason = 'composer_mismatch'; length = $composerValue.Length } }
+        [void](ClickNode $sendButton)
         Start-Sleep -Milliseconds 1800
         $left = if ($composer) { ValueOf $composer } else { '' }
         Reply @{ ok = ($left.Length -eq 0); composerCleared = ($left.Length -eq 0) }
@@ -286,30 +384,32 @@ switch ($Command) {
         $field = FindById 'SearchItem_QMLTYPE_\d+(_QML_\d+)?\.TextFieldItem_QMLTYPE_\d+$' 'ControlType.Edit'
         if (-not $field) { Reply @{ ok = $false; reason = 'viber_desktop_search_missing' } }
         $text = FromB64 $TextBase64
-        SetValueOf $field $text
+        $c = CenterOf $field
+        ClickAt $c[0] $c[1]
+        Start-Sleep -Milliseconds 250
+        $len = (ValueOf $field).Length
+        if ($len -gt 0) { PostKey 0x23; PostKey 0x08 ($len + 2) }
+        PostChars $text
         Start-Sleep -Milliseconds 900
         $after = ValueOf $field
         Reply @{ ok = ($after -eq $text); value = $after }
     }
     'search-clear' {
         $field = FindById 'SearchItem_QMLTYPE_\d+(_QML_\d+)?\.TextFieldItem_QMLTYPE_\d+$' 'ControlType.Edit'
-        if ($field) { SetValueOf $field '' }
-        Reply @{ ok = $true }
+        if ($field -and (ValueOf $field).Length -gt 0) {
+            $c = CenterOf $field
+            ClickAt $c[0] $c[1]
+            Start-Sleep -Milliseconds 200
+            PostKey 0x23
+            PostKey 0x08 ((ValueOf $field).Length + 2)
+            Start-Sleep -Milliseconds 400
+        }
+        Reply @{ ok = (-not $field -or (ValueOf $field).Length -eq 0) }
     }
     'open-row' {
-        $rowNodes = @()
-        $stackRect = RectOf $stack
-        $winRect = New-Object VU+RECT; [void][VU]::GetWindowRect($hwnd, [ref]$winRect)
-        foreach ($n in (FindAllById '(^|\.)delegateLoader$' 'ControlType.Group')) {
-            $r = RectOf $n
-            if (-not $r -or $r.h -lt 50 -or $r.h -gt 140 -or $r.w -lt 200 -or $r.w -gt 420) { continue }
-            if ($stackRect -and $r.x -ge $stackRect.x) { continue }
-            if ($r.y -lt 120 -or ($r.y + $r.h) -gt $winRect.B) { continue }
-            $rowNodes += @{ node = $n; y = $r.y; x = $r.x; w = $r.w; h = $r.h }
-        }
-        $rowNodes = @($rowNodes | Sort-Object { $_.y })
-        if ($Index -lt 0 -or $Index -ge $rowNodes.Count) { Reply @{ ok = $false; reason = 'row_not_found'; count = $rowNodes.Count } }
-        $pick = $rowNodes[$Index]
+        $rowList = @(ListRows)
+        if ($Index -lt 0 -or $Index -ge $rowList.Count) { Reply @{ ok = $false; reason = 'row_not_found'; count = $rowList.Count } }
+        $pick = $rowList[$Index]
         if ($Y -ge 0 -and [Math]::Abs($pick.y - $Y) -gt 4) { Reply @{ ok = $false; reason = 'row_moved'; expectedY = $Y; actualY = $pick.y } }
         # Клік по тілу рядка (правіше за аватар, лівіше за час): на назві чату.
         ClickAt ($pick.x + 150) ($pick.y + 28)
@@ -328,7 +428,7 @@ switch ($Command) {
             if (-not $plus -or $r.x -lt (RectOf $plus).x) { $plus = $n }
         }
         if (-not $plus) { Reply @{ ok = $false; reason = 'viber_desktop_attach_missing' } }
-        InvokeOf $plus
+        [void](ClickNode $plus)
         Reply @{ ok = $true }
     }
     'preview' {
@@ -338,30 +438,29 @@ switch ($Command) {
     'preview-caption' {
         if (-not $previewOpen) { Reply @{ ok = $false; reason = 'viber_desktop_no_preview' } }
         $text = FromB64 $TextBase64
-        SetValueOf $previewCaption $text
-        Start-Sleep -Milliseconds 500
-        $after = ValueOf $previewCaption
-        Reply @{ ok = ($after -eq $text); length = $after.Length }
+        $after = SetFieldText $previewCaption $text
+        $same = SameText $after $text
+        Reply @{ ok = $same; length = $after.Length }
     }
     'preview-send' {
         if (-not $previewOpen) { Reply @{ ok = $false; reason = 'viber_desktop_no_preview' } }
         $expect = FromB64 $ExpectBase64
         $current = ValueOf $previewCaption
         # Підпис порожній лише коли це відправка фото без підпису (-ExpectBase64 порожній і поле порожнє).
-        if ($current -ne $expect) { Reply @{ ok = $false; reason = 'caption_mismatch'; length = $current.Length } }
-        InvokeOf $previewSend
+        if (-not (SameText $current $expect)) { Reply @{ ok = $false; reason = 'caption_mismatch'; length = $current.Length } }
+        [void](ClickNode $previewSend)
         Start-Sleep -Milliseconds 2500
         Reply @{ ok = $true }
     }
     'preview-close' {
         if (-not $previewClose) { Reply @{ ok = $true; closed = $false } }
-        InvokeOf $previewClose
+        [void](ClickNode $previewClose)
         Start-Sleep -Milliseconds 700
         Reply @{ ok = $true; closed = $true }
     }
     'scroll-bottom' {
         $b = FindById 'StackView_QMLTYPE_\d+\.ScrollToBottomItem_QMLTYPE_\d+(_QML_\d+)?$' 'ControlType.Button'
-        if ($b) { InvokeOf $b; Start-Sleep -Milliseconds 500 }
+        if ($b -and (ClickNode $b)) { Start-Sleep -Milliseconds 500 }
         Reply @{ ok = $true; pressed = [bool]$b }
     }
     'wheel' {
