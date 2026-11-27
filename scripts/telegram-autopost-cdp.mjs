@@ -684,7 +684,7 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
       return withScan({ kind: 'blocked', reason: 'scan_only' });
     }
     // `await` обов'язковий: без нього `finally` закрив би з'єднання, поки перевірка ще гортає стрічку.
-    if (verifyOnly) return await verifyOwnMessage(page, text, sinceEpoch, withScan, shouldAbort, deadlineAt);
+    if (verifyOnly) return await verifyOwnMessage(page, text, sinceEpoch, withScan, shouldAbort, deadlineAt, { peerId, thread: forum && chosen ? chosen.id : '' });
 
     // 4. Чи можна тут писати.
     // Поле повідомлення монтується не одразу (у гілці — після переходу): чекаємо до 6 с, і лише коли сторінка справді в потрібній гілці
@@ -1140,12 +1140,25 @@ async function collectTopics(page, client, peerId, rootUrl, shouldAbort, budgetU
 }
 
 // «Перевірити»: нічого не надсилаємо, лише шукаємо своє повідомлення з цим текстом, гортаючи стрічку вгору.
-async function verifyOwnMessage(page, text, _sinceEpoch, withScan, shouldAbort, deadlineAt) {
+async function verifyOwnMessage(page, text, _sinceEpoch, withScan, shouldAbort, deadlineAt, where = {}) {
   const wanted = squash(text).slice(0, 40);
   const hit = (messages) => messages.find((item) => item.own && squash(item.text).startsWith(wanted));
+  const sent = () => { const known = withScan({}); return { kind: 'result', result: { status: 'sent', observedTarget: known.observedTarget, targetVerified: true, sendConfirmed: true, scan: known.scan } }; };
   // Стрічка підвантажується не миттєво: чекаємо до 10 с, поки зʼявляться повідомлення (інакше порожній список виглядає як «початок чату»).
   for (let attempt = 0; attempt < 25 && !(await page.evaluate(READ_MESSAGES_JS)).length; attempt += 1) await sleep(400);
   await sleep(600);
+  // Велика гілка відкривається на місці останнього прочитаного, а не внизу (27.11: «повідомлення не знайдено» в чатах, куди воно вийшло, і
+  // повторна відправка дала б дубль). Тому спершу рядок цього чату зліва («You: …» з нашим текстом), потім низ стрічки, і лише потім угору.
+  const rowWanted = squash(text).slice(0, 20);
+  const row = rowWanted ? await page.evaluate(leftRowJs(where.peerId, where.thread)).catch(() => null) : null;
+  if (row && row.own && !row.pending && !row.failed && squash(row.text).includes(rowWanted)) return sent();
+  let reachedBottom = false;
+  for (let attempt = 0; attempt < 6 && !reachedBottom; attempt += 1) {
+    const action = await page.evaluate(SCROLL_TO_BOTTOM_JS).catch(() => '');
+    await sleep(900);
+    if (hit(await page.evaluate(READ_MESSAGES_JS))) return sent();
+    if (!action) reachedBottom = true;
+  }
   for (let pageNumber = 0; pageNumber < 16 && Date.now() < deadlineAt; pageNumber += 1) {
     if (shouldAbort()) return withScan({ kind: 'blocked', reason: 'cancelled' });
     const found = hit(await page.evaluate(READ_MESSAGES_JS));
@@ -1158,5 +1171,7 @@ async function verifyOwnMessage(page, text, _sinceEpoch, withScan, shouldAbort, 
     await sleep(900);
     if (!moved?.ok || moved.atTop) break;
   }
+  // Низу стрічки так і не дісталися: «немає» тут не доведено, а повтор міг би дати дубль.
+  if (!reachedBottom) return withScan({ kind: 'blocked', reason: 'verify_inconclusive' });
   return withScan({ kind: 'blocked', reason: 'message_not_found' });
 }

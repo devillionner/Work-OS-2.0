@@ -57,7 +57,14 @@ $Walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
 function Reply($value) {
     if ($script:mutating -and $value -is [hashtable]) {
         $fgAfter = [VU]::GetForegroundWindow()
-        if ($fgAfter -ne $script:fgBefore -and $script:hwnd -and $fgAfter -eq $script:hwnd) { $value['focusStolen'] = $true }
+        if ($fgAfter -ne $script:fgBefore -and $script:hwnd -and $fgAfter -eq $script:hwnd) {
+            # Viber сам вийшов наперед (27.11 так робив «Надіслати» в перегляді фото): одразу повертаємо людині її вікно, як після open-link.
+            # Пауза автопосту — лише коли повернути не вдалось.
+            for ($i = 0; $i -lt 3 -and $script:fgBefore -ne [IntPtr]::Zero -and [VU]::GetForegroundWindow() -eq $script:hwnd; $i++) {
+                [VU]::SwitchToThisWindow($script:fgBefore, $true); Start-Sleep -Milliseconds 300
+            }
+            if ([VU]::GetForegroundWindow() -eq $script:hwnd) { $value['focusStolen'] = $true } else { $value['focusRestored'] = $true }
+        }
     }
     [Console]::Out.WriteLine(($value | ConvertTo-Json -Compress -Depth 8)); exit 0
 }

@@ -12,6 +12,9 @@ const full = process.argv.includes('--full');
 const result = spawnSync('npx', ['wrangler', 'd1', 'insights', DATABASE, '--sort-by', 'reads', '--time-period', timePeriod, '--limit', limit, '--json'], {
   encoding: 'utf8',
   env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },
+  // На Windows npx — це npx.cmd, і spawnSync без оболонки його не знаходить (status null).
+  shell: process.platform === 'win32',
+  maxBuffer: 32 * 1024 * 1024,
 });
 
 if (result.status !== 0) {
