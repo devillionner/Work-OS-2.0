@@ -2,7 +2,7 @@
 // пакет із того ж сайту, звіряє SHA-256 і розкладає файли поверх своїх; трей бачить зміну файлів і сам перезапускає runner (лише коли він не працює).
 // Runner із робочої копії репозиторію (немає RUNNER-PACKAGE.json) не чіпається: його оновлює трей за зміною файлів, як і раніше.
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { spawnSync, spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
@@ -51,9 +51,15 @@ export async function updateFromSite({ baseUrl, rootDir, expectedVersion, log = 
       if (rel === PACKAGE_MARKER) continue;
       const target = join(rootDir, rel);
       mkdirSync(dirname(target), { recursive: true });
+      const source = join(tmp, 'new', rel);
+      // Незмінений файл не чіпаємо. Змінений отримує час «зараз»: у пакеті всі файли мають час 1970 (детермінована збірка), а трей,
+      // черговий і перевірка «runner на старому коді» дивляться на час і розмір (27.11: файл того ж розміру не помічався б зовсім).
+      if (existsSync(target) && readFileSync(target).equals(readFileSync(source))) continue;
       const staged = `${target}.new`;
-      copyFileSync(join(tmp, 'new', rel), staged);
-      chmodSync(staged, statSync(join(tmp, 'new', rel)).mode);
+      copyFileSync(source, staged);
+      chmodSync(staged, statSync(source).mode);
+      const now = new Date();
+      utimesSync(staged, now, now);
       renameSync(staged, target);
     }
     const present = new Set(files);
