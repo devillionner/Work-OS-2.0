@@ -18,7 +18,9 @@ import { telegramSchedule, useTelegramSchedule, type ScheduleSlot } from '@/comp
 import { businessDate, businessDateTime, lessonEpoch } from '@/lib/leads/domain/time';
 import { cn } from '@/lib/utils';
 
-const formatNumber = (value: number) => Number(value.toFixed(6)).toString();
+/** Число для поля: до двох знаків після коми, з комою (8,57 замість 8.571429). Точний інтервал зберігається окремо. */
+const formatNumber = (value: number) => new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 2, useGrouping: false }).format(value);
+const parseNumber = (value: string) => Number(value.trim().replace(',', '.'));
 const formatTime = (epoch: number) => businessDateTime(epoch).slice(11, 16);
 const normalizeTime = (value: string) => { const digits = value.replace(/\D/g, '').slice(0, 4); return digits.length > 2 ? `${digits.slice(0, 2)}:${digits.slice(2)}` : digits; };
 
@@ -41,6 +43,8 @@ type Data = NonNullable<ReturnType<typeof useTelegramSchedule>['snapshot']>;
 function ScheduleForm({ accountId, data, busy, error, onToast }: { accountId: string; data: Data; busy: boolean; error: string; onToast: (toast: { message: string; tone?: 'hot' | 'ok' }) => number }) {
   const [localError, setLocalError] = useState('');
   const [search, setSearch] = useState('');
+  // Точний інтервал (60 / 7 = 8,5714…) іде на сервер як є, а поля показують його округлено.
+  const [interval, setIntervalValue] = useState(data.settings.intervalMinutes);
   const [intervalText, setIntervalText] = useState(formatNumber(data.settings.intervalMinutes));
   const [rateText, setRateText] = useState(formatNumber(60 / data.settings.intervalMinutes));
   const [baseTime, setBaseTime] = useState(businessDateTime(data.settings.baseAt).slice(11, 16));
@@ -56,11 +60,10 @@ function ScheduleForm({ accountId, data, busy, error, onToast }: { accountId: st
   const total = data.pending + data.completed;
   const progress = total ? data.completed / total : 0;
 
-  function changeInterval(value: string) { setIntervalText(value); const interval = Number(value.replace(',', '.')); if (Number.isFinite(interval) && interval > 0) setRateText(formatNumber(60 / interval)); }
-  function changeRate(value: string) { setRateText(value); const rate = Number(value.replace(',', '.')); if (Number.isFinite(rate) && rate > 0) setIntervalText(formatNumber(60 / rate)); }
+  function changeInterval(value: string) { setIntervalText(value); const next = parseNumber(value); setIntervalValue(next); if (Number.isFinite(next) && next > 0) setRateText(formatNumber(60 / next)); }
+  function changeRate(value: string) { setRateText(value); const rate = parseNumber(value); if (Number.isFinite(rate) && rate > 0) { setIntervalValue(60 / rate); setIntervalText(formatNumber(60 / rate)); } }
 
   async function saveSettings() {
-    const interval = Number(intervalText.replace(',', '.'));
     const baseAt = lessonEpoch(businessDate(Math.floor(Date.now() / 1000)), baseTime);
     if (!Number.isFinite(interval) || interval <= 0) { setLocalError('Інтервал має бути більшим за нуль.'); return null; }
     if (baseAt === null) { setLocalError('Введи час у форматі HH:MM.'); return null; }
@@ -99,8 +102,8 @@ function ScheduleForm({ accountId, data, busy, error, onToast }: { accountId: st
 
       <Surface variant="glass" radius="card" className="flex flex-col gap-5 p-5">
         <div className="grid grid-cols-2 gap-3 @3xl:grid-cols-4">
-          <label htmlFor="telegram-rate" className="flex flex-col gap-1.5 text-xs font-medium text-ink-2">Публікацій на годину<Input id="telegram-rate" className="font-mono" inputMode="decimal" value={rateText} disabled={busy} onChange={(event) => changeRate(event.target.value)} /></label>
-          <label htmlFor="telegram-interval" className="flex flex-col gap-1.5 text-xs font-medium text-ink-2">Інтервал, хв<Input id="telegram-interval" className="font-mono" inputMode="decimal" value={intervalText} disabled={busy} onChange={(event) => changeInterval(event.target.value)} /></label>
+          <label htmlFor="telegram-rate" className="flex flex-col gap-1.5 text-xs font-medium text-ink-2">Публікацій на годину<Input id="telegram-rate" className="font-mono tabular-nums"inputMode="decimal" value={rateText} disabled={busy} onChange={(event) => changeRate(event.target.value)} /></label>
+          <label htmlFor="telegram-interval" className="flex flex-col gap-1.5 text-xs font-medium text-ink-2">Інтервал, хв<Input id="telegram-interval" className="font-mono tabular-nums"inputMode="decimal" value={intervalText} disabled={busy} onChange={(event) => changeInterval(event.target.value)} /></label>
           <label htmlFor="telegram-start" className="flex flex-col gap-1.5 text-xs font-medium text-ink-2">Старт (ГГ:ХХ)
             <span className="flex items-center gap-2"><Input id="telegram-start" className="font-mono" inputMode="numeric" maxLength={5} value={baseTime} disabled={busy} onChange={(event) => setBaseTime(normalizeTime(event.target.value))} /><Button variant="icon" size="md" aria-label="Від зараз" title="Від зараз" disabled={busy} onClick={() => setBaseTime(businessDateTime(Math.floor(Date.now() / 1000)).slice(11, 16))}><RefreshCw aria-hidden="true" strokeWidth={1.5} /></Button></span>
           </label>
@@ -135,9 +138,10 @@ function ScheduleForm({ accountId, data, busy, error, onToast }: { accountId: st
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="action" busy={busy} onClick={() => void generate()}>Створити розклад</Button>
           <Button variant="outline" disabled={busy} onClick={() => void saveSettings()}>Зберегти налаштування</Button>
-          <span className="flex-1" />
-          <Button variant="outline" disabled={busy || !data.slots.length} onClick={() => void copyPlan()}><Copy aria-hidden="true" strokeWidth={1.5} />Скопіювати план</Button>
-          <Button variant="outline" tone="danger" disabled={busy || !data.pending} onClick={() => setClearConfirm(true)}><Trash2 aria-hidden="true" strokeWidth={1.5} />Очистити невиконані</Button>
+          {/* Дії з розкладом показуються, лише коли є до чого їх застосувати: без слотів нічого копіювати, без невиконаних нічого очищати. */}
+          {data.slots.length || data.pending ? <span className="flex-1" /> : null}
+          {data.slots.length ? <Button variant="outline" disabled={busy} onClick={() => void copyPlan()}><Copy aria-hidden="true" strokeWidth={1.5} />Скопіювати план</Button> : null}
+          {data.pending ? <Button variant="outline" tone="danger" disabled={busy} onClick={() => setClearConfirm(true)}><Trash2 aria-hidden="true" strokeWidth={1.5} />Очистити невиконані</Button> : null}
         </div>
       </Surface>
 

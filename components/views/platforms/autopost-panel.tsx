@@ -107,6 +107,11 @@ export function noReadyText(plan: AutopostPlan): string {
     : 'Сьогодні все опубліковано. Наступні чати стануть доступні завтра.';
 }
 
+/** Підпис пункту перемикача: на телефоні коротко, щоб усі пункти влізли в ширину картки без прокрутки, від 640 px повністю. */
+function ShortLabel({ short, full }: { short: string; full: string }) {
+  return <><span className="sm:hidden">{short}</span><span className="hidden sm:inline">{full}</span></>;
+}
+
 /** Що саме піде: мініатюра фото, перші рядки підпису й редактор (той самий для Viber і WhatsApp: фото й текст спільні). */
 function MaterialRow({ material, editing, onToggle, busy }: { material: AutopostMaterialProps; editing: boolean; onToggle: () => void; busy: boolean }) {
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -131,9 +136,9 @@ function MaterialRow({ material, editing, onToggle, busy }: { material: Autopost
         <div className="flex flex-col gap-2">
           <Segmented<'pool' | 'own' | 'library'> label="Що публікувати в чати" size="sm" value={source.mode} onValueChange={(next) => { if (!source.busy && next !== source.mode) source.onChange(next); }}
             items={[
-              ...(source.poolAvailable !== undefined ? [{ value: 'pool' as const, label: 'Пул текстів', disabled: !source.poolAvailable }] : []),
-              { value: 'library' as const, label: telegram ? 'Оголошення Бібліотеки' : 'Оголошення з Бібліотеки' },
-              { value: 'own' as const, label: telegram ? 'Власне фото й текст' : 'Власний текст і фото', disabled: !source.ownAvailable },
+              ...(source.poolAvailable !== undefined ? [{ value: 'pool' as const, label: <ShortLabel short="Пул" full="Пул текстів" />, disabled: !source.poolAvailable }] : []),
+              { value: 'library' as const, label: <ShortLabel short="Бібліотека" full={telegram ? 'Оголошення Бібліотеки' : 'Оголошення з Бібліотеки'} /> },
+              { value: 'own' as const, label: <ShortLabel short="Власне" full={telegram ? 'Власне фото й текст' : 'Власний текст і фото'} />, disabled: !source.ownAvailable },
             ]} />
           {source.poolAvailable === false ? <p className="m-0 flex flex-wrap items-center gap-x-2 text-xs text-ink-2">Пул текстів порожній, тож цей режим недоступний. <Button variant="ghost" size="sm" onClick={source.onOpenPool}>Вставити список</Button></p> : null}
           {!source.ownAvailable ? <p className="m-0 flex flex-wrap items-center gap-x-2 text-xs text-ink-2">Власного тексту немає, а в Бібліотеці немає оголошень для Telegram, тож цей режим недоступний. <Button variant="ghost" size="sm" onClick={() => { setWithText(true); if (!editing) onToggle(); }}>Змінити</Button></p> : null}
@@ -272,7 +277,10 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
   const batchLive = progress?.batch && progress.batch.total > 0 && progress.batch.remaining > 0 ? progress.batch : null;
   const transient = readiness.text.startsWith('Перевіряю');
   const checkedClock = health?.checkedAt ? new Date(health.checkedAt).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) : '';
-  const env: AutopostReadiness = health?.status === 'checking' ? { tone: 'idle', text: health.line }
+  // Runner вимкнений — головне: застарілий рядок здоров'я («перевіряю…», «пауза: …») його не перекриває.
+  const runnerOff = runnerBlocked && readiness.tone === 'hot' && readiness.text.startsWith('Runner вимкнений');
+  const env: AutopostReadiness = runnerOff ? readiness
+    : health?.status === 'checking' ? { tone: 'idle', text: health.line }
     : health?.status === 'paused' ? { tone: 'warn', text: health.line }
     : health?.status === 'ok' && (readiness.tone === 'ok' || (transient && batchLive)) ? { tone: 'ok', text: `Готово · перевірено о ${checkedClock}` }
     : readiness;
@@ -330,8 +338,8 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
           <i aria-hidden="true" className={`mt-1.5 size-2 shrink-0 rounded-full ${env.tone === 'ok' ? 'bg-ok' : env.tone === 'hot' ? 'bg-hot' : env.tone === 'warn' ? 'bg-warn' : 'bg-ink-3'}`} />
           <span className={env.tone === 'hot' ? 'text-hot' : env.tone === 'warn' && health?.status === 'paused' ? 'text-warn' : 'text-ink-2'}>{env.text}</span>
         </output>
-        {health?.status === 'paused' ? <RecheckButton platform={platform} /> : null}
-        {runnerBlocked && readiness.tone === 'hot' && readiness.text.startsWith('Runner вимкнений') ? <RunnerLaunchLink className="self-start" /> : null}
+        {health?.status === 'paused' && !runnerOff ? <RecheckButton platform={platform} /> : null}
+        {runnerOff ? <RunnerLaunchLink className="self-start" /> : null}
         {platform === 'viber' && /Allow/.test(readiness.text) ? <div className="flex flex-col items-start gap-1.5"><span className="text-[13px] text-ink-2">Потрібно натиснути Allow в Android.</span><WaydroidWindowLink /></div> : null}
         {browserNotice && platform !== 'viber' ? <p className="m-0 flex items-start gap-2 text-[13px] text-warn" role="note"><i aria-hidden="true" className="mt-1.5 size-2 shrink-0 rounded-full bg-warn" />{browserNotice}</p> : null}
         <details className="group" open={readiness.tone === 'warn'}>

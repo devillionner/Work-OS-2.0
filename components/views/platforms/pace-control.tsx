@@ -56,12 +56,15 @@ export function PaceEstimate({ platform, count, perHour, running }: { platform: 
   return <p className="m-0 text-sm text-ink-2">Оцінка: <span className="tabular-nums">{count}</span> {chatsWord(count)} {text}{perHour > 0 ? ` при ${perHour} на годину` : ''}</p>;
 }
 
-/** Сегмент «5 · 10 · 20 · 30 на годину · Без пауз» (у Telegram без «Без пауз»). */
+/**
+ * Сегмент «Темп, на годину: 5 · 10 · 20 · 30 · Без пауз» (у Telegram без «Без пауз»). Одиниця винесена в підпис, а в пунктах лише числа:
+ * так перемикач влізає в картку на телефоні (390 px) без прокрутки й обрізаних пунктів.
+ */
 export function PaceSegment({ platform, value, onChange }: { platform: PacePlatform; value: PerHour; onChange: (value: PerHour) => void }) {
-  const items = VALUES[platform].map((item) => ({ value: String(item), label: item === 0 ? 'Без пауз' : `${item} на годину` }));
+  const items = VALUES[platform].map((item) => ({ value: String(item), label: item === 0 ? 'Без пауз' : <span className="tabular-nums">{item}</span> }));
   return (
-    <div className="flex flex-wrap items-center justify-end gap-3">
-      <span className="text-sm text-ink-2">Темп</span>
+    <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+      <span className="text-sm text-ink-2">Темп, на годину</span>
       <Segmented<string> label="Скільки відправок на годину" size="sm" value={String(value)} onValueChange={(next) => onChange(Number(next) as PerHour)} items={items} />
     </div>
   );

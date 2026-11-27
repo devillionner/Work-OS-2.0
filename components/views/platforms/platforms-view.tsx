@@ -318,7 +318,8 @@ export default function PlatformsView() {
       </TopbarControls>
 
       {!desktop ? (
-        <Segmented<string> label="Розділ платформи" value={phoneCurrent} onValueChange={(value) => setPhoneSection(value as 'chats' | Zone)} items={[{ value: 'chats', label: 'Чати' }, ...zones]} />
+        // На телефоні «Швидкий режим» — просто «Швидкий»: інакше чотири пункти Viber не влазять у ширину екрана 390 px.
+        <Segmented<string> label="Розділ платформи" value={phoneCurrent} onValueChange={(value) => setPhoneSection(value as 'chats' | Zone)} items={[{ value: 'chats', label: 'Чати' }, ...zones.map((item) => (item.value === 'quick' ? { ...item, label: 'Швидкий' } : item))]} />
       ) : null}
 
       {desktop ? (
