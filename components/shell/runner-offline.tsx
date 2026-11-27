@@ -39,14 +39,17 @@ export function RunnerLaunchLink({ className }: { className?: string }) {
   }, [state]);
 
   async function launch() {
+    // На ПК спершу локальний обробник (одразу в обробнику кліку: після await браузер може заблокувати перехід без жесту),
+    // а команда черговому йде теж: подвійний запуск безпечний, другий трей лише будить перший.
+    const local = !isMobileDevice();
+    if (local) window.location.href = 'workos-runner://start';
     setState('sending');
     try {
       const response = await fetch('/api/runner/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       const result = await response.json().catch(() => ({})) as { delivered?: number };
       if (response.ok && Number(result.delivered) > 0) { setState('sent'); return; }
     } catch { /* мережа: нижче запасний шлях */ }
-    if (!isMobileDevice()) { setState('idle'); window.location.href = 'workos-runner://start'; return; }
-    setState('offline');
+    setState(local ? 'sent' : 'offline');
   }
 
   const text = connected ? '' : LAUNCH_TEXT[state];

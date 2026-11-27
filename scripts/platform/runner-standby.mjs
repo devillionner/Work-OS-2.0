@@ -61,9 +61,11 @@ function startRunner() {
   lastStartAt = Date.now();
   try {
     if (IS_WINDOWS) {
+      // Без conhost: `conhost --headless` із процесу без консолі й зі stdio 'ignore' виходить одразу, нічого не запустивши (3.23.0,
+      // перевірено 27.11). PowerShell напряму з CREATE_NO_WINDOW (windowsHide) працює й вікна не показує; трей — WinForms.
       const tray = join(ROOT, 'scripts', 'windows', 'work-os-runner-tray.ps1');
-      const conhost = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'conhost.exe');
-      spawn(conhost, ['--headless', 'powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tray, '-Wake'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+      const powershell = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+      spawn(powershell, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', tray, '-Wake'], { stdio: 'ignore', windowsHide: true }).unref();
     } else {
       spawn('bash', [join(ROOT, 'scripts', 'work-os-runner-launch.sh')], { detached: true, stdio: 'ignore' }).unref();
     }
