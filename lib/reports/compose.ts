@@ -20,7 +20,8 @@ export function composeGoalLines(rows: ReportSummaryItem[], goals: ReportGoals):
   ];
 }
 
-export function composeDailyReportText(date: string, rows: ReportSummaryItem[], details: ReportBookingDetail[] = [], goals?: ReportGoals): string {
+/** `enabled` — платформи у фокусі (налаштування «Платформи»): вимкнена платформа в тексті звіту не з'являється, якщо за день у ній немає подій. */
+export function composeDailyReportText(date: string, rows: ReportSummaryItem[], details: ReportBookingDetail[] = [], goals?: ReportGoals, enabled?: string[]): string {
   const grouped = new Map<string,Map<string,number>>();
   for (const row of rows) {
     const platform = row.platform || 'unknown';
@@ -29,7 +30,8 @@ export function composeDailyReportText(date: string, rows: ReportSummaryItem[], 
     grouped.set(platform,events);
   }
   const extraPlatforms = Array.from(grouped.keys()).filter((value) => !PLATFORM_ORDER.includes(value as typeof PLATFORM_ORDER[number])).sort();
-  const platforms = [...PLATFORM_ORDER,...extraPlatforms];
+  const allowed = enabled ? new Set(enabled) : null;
+  const platforms = [...PLATFORM_ORDER,...extraPlatforms].filter((platform) => !allowed || allowed.has(platform) || [...(grouped.get(platform)?.values() ?? [])].some((count) => count > 0));
   const lines:string[] = [`Загальний звіт ${formatReportDate(date)}`,''];
   platforms.forEach((platform,index) => {
     const events = grouped.get(platform) || new Map<string,number>();

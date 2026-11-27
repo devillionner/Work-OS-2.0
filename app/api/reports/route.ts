@@ -36,14 +36,17 @@ export async function GET(request: Request): Promise<Response> {
   ]);
   const selected = selectedResult ?? undefined;
   const selectedDate = selected?.report_date || (validDate(date) && date!.startsWith(month) ? date : null);
-  const [summary, details, previousReportReminder, finalReportState, goalPlanFact, goalSchedule] = await Promise.all([
+  const [summary, details, previousReportReminder, finalReportState, goalPlanFact, reportSettings] = await Promise.all([
     selectedDate ? eventSummary(user.id, selectedDate) : Promise.resolve([]),
     selectedDate ? readReportEventDetails(env.DB, user.id, selectedDate) : Promise.resolve([]),
     readPreviousReportReminder(env.DB, user.id, kyivDate()),
     selectedDate ? readFinalReportState(env.DB,user.id,selectedDate,now,kyivDate()) : Promise.resolve(null),
     selectedDate ? readGoalPlanFact(env.DB,user.id,selectedDate) : Promise.resolve(null),
-    selectedDate ? env.DB.prepare(`SELECT value_json FROM user_settings WHERE user_id=?1 AND setting_key='analytics-daily-goal-schedule-v1' LIMIT 1`).bind(user.id).first<{value_json:string}>() : Promise.resolve(null),
+    // Розклад цілей і увімкнені платформи (у тексті звіту лише платформи у фокусі): обидва рядки за первинним ключем.
+    selectedDate ? env.DB.prepare(`SELECT setting_key,value_json FROM user_settings WHERE user_id=?1 AND setting_key IN ('analytics-daily-goal-schedule-v1','enabled_platforms')`).bind(user.id).all<{setting_key:string;value_json:string}>() : Promise.resolve(null),
   ]);
+  const goalSchedule = reportSettings?.results?.find((row) => row.setting_key === 'analytics-daily-goal-schedule-v1') ?? null;
+  const enabledPlatforms = (() => { try { const parsed = JSON.parse(reportSettings?.results?.find((row) => row.setting_key === 'enabled_platforms')?.value_json || '[]'); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []; } catch { return []; } })();
   const selectedPublic = selected
     ? { ...publicReport(selected), stale: calendar.find((item) => item.id === selected.id)?.stale ?? false }
     : null;
@@ -54,7 +57,7 @@ export async function GET(request: Request): Promise<Response> {
     responses: resolveDailyGoalField(goalSchedule?.value_json, selectedDate, 'responses'),
     records: goalPlanFact?.dailyTarget ?? null,
   } : null;
-  const suggestedText = selectedDate && !selected ? composeDailyReportText(selectedDate, summary, details, goals ?? undefined) : '';
+  const suggestedText = selectedDate && !selected ? composeDailyReportText(selectedDate, summary, details, goals ?? undefined, enabledPlatforms.length ? enabledPlatforms : undefined) : '';
   const goalLines = goals ? composeGoalLines(summary, goals) : [];
   const payload={ month, reports: calendar, calendarContext, selected: selectedPublic, suggestedText, goalLines, summary, details, previousReportReminder, finalReportState, goalPlanFact, leadCommandScope: `reports:${user.id}` };
   await putRevisionJson(cacheRequest,payload,45);
