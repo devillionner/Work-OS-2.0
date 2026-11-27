@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Ghost } from '@/components/ui/ghost';
 import type { LeadHistoryItem } from '@/lib/leads/history';
 import { EditDialog } from './form';
+import { displayDate, displayTime } from './client';
 import { humanError } from '@/components/ui/human-error';
 
 const LEAD_EVENTS: Record<string, string> = {
@@ -29,10 +30,6 @@ const LEAD_EVENTS: Record<string, string> = {
 };
 
 const cache = new Map<string, LeadHistoryItem[]>();
-
-function formatTime(value: number) {
-  return new Intl.DateTimeFormat('uk-UA', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Kyiv' }).format(new Date(value * 1000));
-}
 
 /** Хронологія подій ліда або одного уроку; кеш на сеанс, повторне відкриття не блимає завантаженням. */
 export function HistoryList({ leadId, lessonId }: { leadId: string; lessonId?: string }) {
@@ -67,7 +64,7 @@ export function HistoryList({ leadId, lessonId }: { leadId: string; lessonId?: s
           <p className="m-0 text-sm font-medium">{LEAD_EVENTS[event.eventType] || event.eventType}{event.cancelledAt !== null ? <span className="font-normal text-ink-2"> · скасовано</span> : null}</p>
           {typeof event.metadata.reason === 'string' && event.metadata.reason ? <p className="m-0 text-xs text-ink-2">{event.metadata.reason}</p> : null}
           {event.eventType === 'script_used' && typeof event.metadata.title === 'string' ? <p className="m-0 text-xs text-ink-2">{event.metadata.title}{event.metadata.language === 'ru' ? ' · RU' : ' · UA'}</p> : null}
-          <time className="font-mono text-xs text-ink-2" dateTime={new Date(event.occurredAt * 1000).toISOString()}>{formatTime(event.occurredAt)}</time>
+          <time className="font-mono text-xs text-ink-2" dateTime={new Date(event.occurredAt * 1000).toISOString()}>{displayTime(event.occurredAt)}</time>
         </li>
       ))}
     </ol>
@@ -76,9 +73,8 @@ export function HistoryList({ leadId, lessonId }: { leadId: string; lessonId?: s
 
 /** Історія одного уроку — крок усередині панелі ліда. */
 export function LessonHistory({ lesson, close }: { lesson: { id: string; leadId: string; subject: string; date: string }; close: () => void }) {
-  const [year, month, day] = lesson.date.split('-');
   return (
-    <EditDialog title="Історія уроку" description={`${lesson.subject} · ${day}.${month}.${year}`} close={close}>
+    <EditDialog title="Історія уроку" description={`${lesson.subject} · ${displayDate(lesson.date)}`} close={close}>
       <HistoryList leadId={lesson.leadId} lessonId={lesson.id} />
     </EditDialog>
   );

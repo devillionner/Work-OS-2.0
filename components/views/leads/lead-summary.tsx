@@ -10,7 +10,7 @@ import { FUNNEL_STAGES, safeUrl } from '@/lib/leads/domain/validation';
 import { businessDate } from '@/lib/leads/domain/time';
 import { cn } from '@/lib/utils';
 import { EditDialog, Field, SaveForm, SelectField, textValue, epochValue, datetimeValue } from './form';
-import { displayTime, labels, type Mutation } from './client';
+import { displayDate, displayTime, displayWait, labels, type Mutation } from './client';
 import { StudentsBlock } from './learners';
 
 /** Вкладка «Огляд»: контакти, воронка, наступна дія, факти й швидкі дії над лідом. */
@@ -62,7 +62,7 @@ export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onRe
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-2">
         <span>Звернувся з предмета: <span className="text-ink">{lead.subject || 'не вказано'}</span></span>
         <span aria-hidden="true">·</span>
-        <span>Відгук: <span className="font-mono">{lead.responseDate || 'не вказано'}</span></span>
+        <span>Відгук: <span className="font-mono">{displayDate(lead.responseDate) || 'не вказано'}</span></span>
         <span aria-hidden="true">·</span>
         <span>{archived ? 'В архіві' : (labels[lead.status] ?? lead.status)}</span>
       </div>
@@ -93,7 +93,7 @@ export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onRe
       ) : null}
       {lead.duplicateState !== 'none' ? <p className="m-0 text-sm text-warn">Дублікат: {labels[lead.duplicateState]}</p> : null}
 
-      <ol className="m-0 flex list-none gap-1 overflow-x-auto p-0 hide-scrollbar" aria-label="Етапи воронки">
+      <ol className="m-0 flex list-none flex-wrap gap-1 p-0" aria-label="Етапи воронки">
         {FUNNEL_STAGES.map((stage, index) => (
           <li key={stage} aria-current={stage === lead.funnelStage ? 'step' : undefined} className={cn('flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs', stage === lead.funnelStage ? 'border-transparent bg-action text-action-ink' : stageIndex > index ? 'border-line-strong text-ink' : 'border-line text-ink-2')}>
             <span className="font-mono">{index + 1}</span>{labels[stage]}
@@ -113,7 +113,7 @@ export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onRe
 
       {pastBooked ? (
         <output className="flex items-start justify-between gap-3 rounded-inner border border-warn/40 px-4 py-3">
-          <p className="m-0 text-sm"><strong className="font-medium">Минулий урок без результату.</strong> {pastBooked.subject} · {pastBooked.lessonDate}. Зафіксуй результат, щоб воронка пішла далі.</p>
+          <p className="m-0 text-sm"><strong className="font-medium">Минулий урок без результату.</strong> {pastBooked.subject} · {displayDate(pastBooked.lessonDate)}. Зафіксуй результат, щоб воронка пішла далі.</p>
           <Button variant="outline" size="sm" onClick={() => scrollToNode(document.getElementById(`lesson-${pastBooked.id}`), { block: 'center' })}>До уроку</Button>
         </output>
       ) : null}
@@ -122,7 +122,7 @@ export function LeadSummary({ detail, mutate, onEdit, onHistory, onArchive, onRe
         <div><dt className="text-xs text-ink-2">Кваліфікація лід / родина</dt><dd className="m-0 font-mono">{lead.qualification ?? '—'} / {lead.familyQualification ?? '—'}</dd></div>
         <div><dt className="text-xs text-ink-2">Час відгуку</dt><dd className="m-0 font-mono text-[13px]">{displayTime(lead.responseAt)}</dd></div>
         <div><dt className="text-xs text-ink-2">Перша відповідь</dt><dd className="m-0 font-mono text-[13px]">{displayTime(lead.firstReplyAt)}</dd></div>
-        <div><dt className="text-xs text-ink-2">{lead.firstReplyAt === null ? 'Очікує відповіді' : 'Швидкість відповіді'}</dt><dd className="m-0 font-mono">{lead.waitingSeconds === null ? '—' : `${Math.floor(lead.waitingSeconds / 3600)} г ${Math.floor(lead.waitingSeconds / 60) % 60} хв`}</dd></div>
+        <div><dt className="text-xs text-ink-2">{lead.firstReplyAt === null ? 'Очікує відповіді' : 'Швидкість відповіді'}</dt><dd className="m-0 font-mono">{lead.waitingSeconds === null ? '—' : displayWait(lead.waitingSeconds)}</dd></div>
       </dl>
       {lead.firstReplyAt === null ? (
         <div className="flex items-center justify-between gap-3 rounded-inner border border-dashed border-line-strong px-4 py-3">

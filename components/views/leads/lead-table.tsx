@@ -5,7 +5,7 @@ import { ArrowDown, ArrowUp } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { EmptyState } from '@/components/ui/empty-state';
 import { cn } from '@/lib/utils';
-import { labels } from './client';
+import { displayShortTime, labels } from './client';
 import { agoLabel, type LeadRow } from './lead-board';
 import { sortByRecency, type LeadOrder } from './lead-order';
 import { LearnerChips } from './learners';
@@ -17,10 +17,12 @@ export type ColumnSort = { key: ColumnSortKey; dir: 1 | -1 };
  * Щільна таблиця лідів: липкий заголовок і сортування по поточній сторінці. Дата відгуку — той самий порядок, що й
  * перемикач у Topbar (`order`); сортування за іншою колонкою (`columnSort`) вимикає порядок за давністю, доки його не натиснуть знову.
  */
-export function LeadTable({ leads, order, columnSort, onToggleOrder, onColumnSort, selectedId, onOpen }: {
+export function LeadTable({ leads, order, columnSort, compact = false, onToggleOrder, onColumnSort, selectedId, onOpen }: {
   leads: LeadRow[];
   order: LeadOrder;
   columnSort: ColumnSort | null;
+  /** Телефон: замість таблиці з горизонтальною прокруткою — список компактних карток у тому самому порядку. */
+  compact?: boolean;
   onToggleOrder: () => void;
   onColumnSort: (key: ColumnSortKey) => void;
   selectedId: string | null;
@@ -49,6 +51,37 @@ export function LeadTable({ leads, order, columnSort, onToggleOrder, onColumnSor
   const dateDir = order === 'newest' ? -1 : 1;
 
   if (!rows.length) return <EmptyState text="Лідів за цим фільтром немає." />;
+  if (compact) {
+    return (
+      <ul className="m-0 flex list-none flex-col gap-2 p-0" aria-label="Список лідів">
+        {rows.map((lead) => (
+          <li key={lead.id}>
+            <button type="button" onClick={() => onOpen(lead.id)} aria-label={`Відкрити ліда ${lead.name}`} className={cn('cv-auto flex w-full flex-col gap-2 rounded-inner border bg-solid p-3 text-left transition-colors duration-200 active:bg-raised', selectedId === lead.id ? 'border-line-strong' : 'border-line')}>
+              <span className="flex w-full items-start gap-3">
+                <Avatar name={lead.name} size={32} />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-start justify-between gap-2">
+                    <span className="line-clamp-2 min-w-0 break-words text-sm font-medium leading-snug">{lead.name}</span>
+                    <span className="shrink-0 font-mono text-[11px] text-ink-2">{agoLabel(lead.responseDate)}</span>
+                  </span>
+                  <span className="mt-0.5 block text-xs text-ink-2">{labels[lead.platform] ?? lead.platform} · {labels[lead.funnelStage] ?? lead.funnelStage}{lead.qualification ? ` · ${lead.qualification}` : ''}</span>
+                </span>
+              </span>
+              {lead.learners.length ? <LearnerChips learners={lead.learners} leadName={lead.name} wrap /> : <span className="line-clamp-2 break-words text-xs text-ink-2">{lead.subject || 'Предмет не вказано'}</span>}
+              {lead.nextAction || lead.nextContactAt ? (
+                <span className="flex w-full items-start justify-between gap-3 text-xs text-ink-2">
+                  <span className="line-clamp-2 min-w-0 break-words">{lead.nextAction || 'Без наступної дії'}</span>
+                  {lead.nextContactAt ? (
+                    <span className="inline-flex shrink-0 items-center gap-1.5 font-mono text-[11px]">{lead.overdue ? <i aria-label="Прострочено" className="size-1.5 rounded-full bg-hot" /> : null}{displayShortTime(lead.nextContactAt)}</span>
+                  ) : null}
+                </span>
+              ) : null}
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+  }
   return (
     <div className="overflow-x-auto rounded-card border border-line">
       <table className="w-full min-w-[720px] border-collapse text-sm">
@@ -83,7 +116,7 @@ export function LeadTable({ leads, order, columnSort, onToggleOrder, onColumnSor
               <td className="px-3 py-2.5"><span className="inline-flex rounded-full border border-line px-2.5 py-0.5 text-xs">{labels[lead.funnelStage]}{lead.qualification ? ` · ${lead.qualification}` : ''}</span></td>
               <td className="max-w-[220px] truncate px-3 py-2.5 text-ink-2">{lead.nextAction || '—'}</td>
               <td className="whitespace-nowrap px-3 py-2.5 font-mono text-xs">
-                <span className="inline-flex items-center gap-2">{lead.overdue ? <i aria-label="Прострочено" className="size-1.5 rounded-full bg-hot" /> : null}{lead.nextContactAt ? new Intl.DateTimeFormat('uk-UA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Kyiv' }).format(new Date(lead.nextContactAt * 1000)) : '—'}</span>
+                <span className="inline-flex items-center gap-2">{lead.overdue ? <i aria-label="Прострочено" className="size-1.5 rounded-full bg-hot" /> : null}{lead.nextContactAt ? displayShortTime(lead.nextContactAt) : '—'}</span>
               </td>
               <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono text-xs text-ink-2">{agoLabel(lead.responseDate)}</td>
             </tr>

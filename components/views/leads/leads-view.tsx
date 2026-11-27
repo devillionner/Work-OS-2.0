@@ -181,12 +181,24 @@ export default function LeadsView() {
   return (
     <div className="mx-auto flex w-full max-w-[1480px] flex-col gap-4 pb-6" aria-busy={!list && !listError}>
       <TopbarControls>
-        <div className="shrink-0"><Segmented<Mode> label="Режим лідів" value={mode} onValueChange={changeMode} items={[{ value: 'board', label: 'Дошка' }, { value: 'list', label: 'Список' }]} /></div>
-        {/* У вузькому слоті Topbar (на ПК з відкритим Inspector) кнопка порядку лишається іконкою, а пошук стискається. */}
-        <Button variant="outline" size="sm" className={cn('shrink-0 @max-[30rem]/slot:w-8 @max-[30rem]/slot:px-0', !orderActive && 'text-ink-3')} onClick={toggleOrder} aria-label={orderActive ? ORDER_LABEL[order] : `${ORDER_LABEL[order]}, не діє: список відсортовано за колонкою`} title="Порядок за давністю відгуку">
+        {/* `leadbar` — поки пошук у фокусі у вузькому слоті, режим і порядок ховаються й віддають йому місце. */}
+        <div className="group/leadbar flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <div className="shrink-0 @max-[30rem]/slot:group-has-[label:focus-within]/leadbar:hidden"><Segmented<Mode> label="Режим лідів" value={mode} onValueChange={changeMode} items={[{ value: 'board', label: 'Дошка' }, { value: 'list', label: 'Список' }]} /></div>
+        {/* У вузькому слоті Topbar (на ПК з відкритим Inspector) кнопка порядку лишається іконкою з підписом у title й aria-label. */}
+        <Button variant="outline" size="sm" className={cn('shrink-0 @max-[30rem]/slot:w-8 @max-[30rem]/slot:px-0 @max-[30rem]/slot:group-has-[label:focus-within]/leadbar:hidden',!orderActive && 'text-ink-3')} onClick={toggleOrder} aria-label={orderActive ? ORDER_LABEL[order] : `${ORDER_LABEL[order]}, не діє: список відсортовано за колонкою`} title={`${ORDER_LABEL[order]}: порядок за давністю відгуку`}>
           {order === 'newest' ? <ArrowDown aria-hidden="true" strokeWidth={1.5} /> : <ArrowUp aria-hidden="true" strokeWidth={1.5} />}<span className="@max-[30rem]/slot:sr-only">{ORDER_LABEL[order]}</span>
         </Button>
-        <SearchField value={search} onValueChange={setSearch} placeholder="Ім’я, контакт, предмет, викладач" wrapperClassName="min-w-[88px] max-w-[320px] flex-1 @min-[30rem]/slot:min-w-[150px]" hotkey={!phone} />
+        {/* Там само пошук згортається в круглу кнопку з лупою; фокус (клік, Tab, «/») розгортає його на весь слот, а введений запит без фокусу позначає крапка. */}
+        <SearchField
+          value={search}
+          onValueChange={setSearch}
+          placeholder="Ім’я, контакт, предмет, викладач"
+          aria-label="Пошук лідів"
+          title="Пошук лідів"
+          hotkey={!phone}
+          wrapperClassName="min-w-[150px] max-w-[320px] flex-1 cursor-text @max-[30rem]/slot:w-10 @max-[30rem]/slot:min-w-10 @max-[30rem]/slot:flex-none @max-[30rem]/slot:[&>kbd]:hidden @max-[30rem]/slot:[&>svg]:left-3 @max-[30rem]/slot:not-focus-within:[&>button]:hidden @max-[30rem]/slot:focus-within:min-w-0 @max-[30rem]/slot:focus-within:flex-1 @max-[30rem]/slot:focus-within:[&>svg]:left-4 @max-[30rem]/slot:has-[input:not(:placeholder-shown)]:not-focus-within:after:absolute @max-[30rem]/slot:has-[input:not(:placeholder-shown)]:not-focus-within:after:right-1 @max-[30rem]/slot:has-[input:not(:placeholder-shown)]:not-focus-within:after:top-1 @max-[30rem]/slot:has-[input:not(:placeholder-shown)]:not-focus-within:after:size-2 @max-[30rem]/slot:has-[input:not(:placeholder-shown)]:not-focus-within:after:rounded-full @max-[30rem]/slot:has-[input:not(:placeholder-shown)]:not-focus-within:after:bg-ink @max-[30rem]/slot:has-[input:not(:placeholder-shown)]:not-focus-within:after:content-['']"
+        />
+        </div>
       </TopbarControls>
 
       <TodayStrip refreshKey={refresh} onSelect={openLead} />
@@ -209,7 +221,7 @@ export default function LeadsView() {
       ) : mode === 'board' ? (
         <LeadBoard leads={list.leads} order={order} captureRef={boardCapture} selectedId={selected} canDrag={pointerFine && filter !== 'archived'} onOpen={openLead} onCreate={() => setCreating(true)} onMove={moveStage} />
       ) : (
-        <LeadTable leads={list.leads} order={order} columnSort={columnSort} onToggleOrder={toggleOrder} onColumnSort={sortByColumn} selectedId={selected} onOpen={openLead} />
+        <LeadTable leads={list.leads} order={order} columnSort={columnSort} compact={phone} onToggleOrder={toggleOrder} onColumnSort={sortByColumn} selectedId={selected} onOpen={openLead} />
       )}
 
       {list && list.total > 50 ? (

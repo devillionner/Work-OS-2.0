@@ -8,7 +8,7 @@ import type { LeadDetail } from '@/lib/leads/application/queries';
 import { safeUrl } from '@/lib/leads/domain/validation';
 import { businessDate } from '@/lib/leads/domain/time';
 import { EditDialog, Field, SaveForm, textValue } from './form';
-import { labels, type Mutation } from './client';
+import { displayDate, labels, type Mutation } from './client';
 import { LessonEditor } from './lesson-editor';
 import { LessonHistory } from './history-events';
 import { Reminders } from './reminders';
@@ -36,7 +36,7 @@ export function LessonsTab({ detail, mutate, mode }: { detail: LeadDetail; mutat
       <div className="flex flex-col gap-6">
         {booked.map((lesson) => (
           <section key={lesson.id} className="flex flex-col gap-3" aria-label={`Нагадування: ${lesson.subject}`}>
-            <h3 className="m-0 text-[15px] font-medium">{lesson.subject} <span className="font-mono text-xs font-normal text-ink-2">{lesson.lessonDate} {lesson.lessonTime || ''}</span></h3>
+            <h3 className="m-0 text-[15px] font-medium">{lesson.subject} <span className="font-mono text-xs font-normal text-ink-2">{displayDate(lesson.lessonDate)} {lesson.lessonTime || ''}</span></h3>
             <Reminders lesson={lesson} leadId={detail.lead.id} leadVersion={detail.lead.version} mutate={mutate} disabled={archived} />
           </section>
         ))}
@@ -60,7 +60,7 @@ export function LessonsTab({ detail, mutate, mode }: { detail: LeadDetail; mutat
           <ul className="m-0 flex list-none flex-col gap-1 p-0">
             {detail.curatorRequests.map((request) => (
               <li key={request.id} className="flex items-center justify-between gap-3 text-sm">
-                <span>Запит від {request.submittedDate}</span>
+                <span>Запит від <span className="font-mono">{displayDate(request.submittedDate)}</span></span>
                 <Button variant="ghost" size="sm" disabled={archived} onClick={() => setCancelRequest(request.id)}>Скасувати запит</Button>
               </li>
             ))}
@@ -78,14 +78,14 @@ export function LessonsTab({ detail, mutate, mode }: { detail: LeadDetail; mutat
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h3 className="m-0 truncate text-[15px] font-medium">{lesson.subject}</h3>
-                  <p className="m-0 mt-0.5 text-xs text-ink-2">{lesson.studentName} · <span className="font-mono">{lesson.lessonDate} {lesson.lessonTime || 'час не вказано'}</span> (Київ)</p>
+                  <p className="m-0 mt-0.5 text-xs text-ink-2">{lesson.studentName} · <span className="font-mono">{displayDate(lesson.lessonDate)} {lesson.lessonTime || 'час не вказано'}</span> (Київ)</p>
                 </div>
                 <span className={`flex shrink-0 items-center gap-1.5 text-xs ${pastBooked ? 'text-warn' : 'text-ink-2'}`}>
                   {pastBooked ? <i aria-hidden="true" className="size-1.5 rounded-full bg-warn" /> : null}
                   {pastBooked ? 'Потрібен результат' : (labels[lesson.status] ?? lesson.status)}
                 </span>
               </div>
-              <p className="m-0 text-xs text-ink-2">{lesson.teacherName || 'Викладача не вказано'} · {lesson.lessonPlatform || 'платформу не вказано'} · дата запису {lesson.bookingDate || 'не вказана'}</p>
+              <p className="m-0 text-xs text-ink-2">{lesson.teacherName || 'Викладача не вказано'} · {lesson.lessonPlatform || 'платформу не вказано'} · дата запису {displayDate(lesson.bookingDate) || 'не вказана'}</p>
               {safeUrl(lesson.meetingLink) ? <a href={lesson.meetingLink} target="_blank" rel="noreferrer" className="w-fit text-sm underline underline-offset-4">Відкрити зустріч</a> : null}
               {lesson.statusReason ? <p className="m-0 text-xs text-ink-2">Причина: {lesson.statusReason}</p> : null}
               {lesson.rescheduledFromId ? <p className="m-0 text-xs text-ink-2"><a href={`#lesson-${lesson.rescheduledFromId}`} className="underline underline-offset-4">Попередній урок</a> · перенесення</p> : null}
