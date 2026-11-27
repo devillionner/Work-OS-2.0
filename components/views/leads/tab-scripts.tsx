@@ -20,7 +20,7 @@ import { learnerOf, rankLeadScripts, type LeadScriptItem, type RankedLeadScript 
 import { splitClarifier } from '@/lib/script-notes';
 import { fieldLabel, fillScript, type ScriptFieldKey, type ScriptValues } from '@/lib/script-fields';
 import { cn } from '@/lib/utils';
-import { displayTime, labels, type Mutation } from './client';
+import { displayDate, displayTime, labels, type Mutation } from './client';
 
 type Language = 'uk' | 'ru';
 type UsedPayload = { used: Array<{ itemId: string; at: number; count: number }> };
@@ -203,9 +203,9 @@ export function ScriptsTab({ detail, mutate }: { detail: LeadDetail; mutate: Mut
         ) : null}
         {lessons.length > 1 ? (
           <Select aria-label="Урок для полів скрипту" value={lesson?.id ?? ''} onChange={(event) => setLessonId(event.target.value)}>
-            {lessons.map((entry) => <option key={entry.id} value={entry.id}>{entry.subject} · {entry.lessonDate} {entry.lessonTime}</option>)}
+            {lessons.map((entry) => <option key={entry.id} value={entry.id}>{entry.subject} · {displayDate(entry.lessonDate)} {entry.lessonTime}</option>)}
           </Select>
-        ) : lesson ? <p className="m-0 text-xs text-ink-2">Урок для полів: {lesson.subject} · {lesson.lessonDate} {lesson.lessonTime || 'час не вказано'}.</p> : <p className="m-0 text-xs text-ink-2">Запланованого уроку немає: поля уроку можна дописати вручну.</p>}
+        ) : lesson ? <p className="m-0 text-xs text-ink-2">Урок для полів: {lesson.subject} · {displayDate(lesson.lessonDate)} {lesson.lessonTime || 'час не вказано'}.</p> : <p className="m-0 text-xs text-ink-2">Запланованого уроку немає: поля уроку можна дописати вручну.</p>}
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-ink-2">Інтерес ліда (гілка скриптів)</span>
           <SearchSelect

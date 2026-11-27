@@ -3,6 +3,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs';
 import { cn } from '@/lib/utils';
+import { useEdgeFade } from './use-edge-fade';
 
 export type SegmentedItem<T extends string> = { value: T; label: ReactNode; count?: ReactNode; /** Пункт недоступний: не обирається, виглядає приглушеним. */ disabled?: boolean };
 
@@ -16,6 +17,8 @@ export function Segmented<T extends string>({ value, onValueChange, items, label
   className?: string;
 }) {
   const list = useRef<HTMLDivElement>(null);
+  // Вкладки, що не вміщуються (вузький Inspector), прокручуються; край із продовженням тане.
+  const fade = useEdgeFade(list);
 
   // Активна вкладка завжди в зоні видимості, коли список прокручується по горизонталі.
   useEffect(() => {
@@ -34,7 +37,7 @@ export function Segmented<T extends string>({ value, onValueChange, items, label
       <TabsPrimitive.List
         ref={list}
         aria-label={label}
-        className={cn('relative inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full border border-line bg-sunken p-1 hide-scrollbar', className)}
+        className={cn('relative inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full border border-line bg-sunken p-1 hide-scrollbar', fade, className)}
       >
         <TabsPrimitive.Indicator
           className="pointer-events-none absolute left-0 rounded-full bg-action transition-[translate,width] duration-200 ease-out"

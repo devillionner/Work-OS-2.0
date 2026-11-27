@@ -7,6 +7,7 @@ import { Draggable } from '@/components/motion/draggable';
 import { Flip } from '@/components/motion/flip';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { useEdgeFade } from '@/components/ui/use-edge-fade';
 import { useToast } from '@/components/ui/toast';
 import { FUNNEL_STAGES } from '@/lib/leads/domain/validation';
 import { cn } from '@/lib/utils';
@@ -54,17 +55,7 @@ export function LeadBoard({ leads, order, captureRef, selectedId, canDrag, onOpe
   const columns = useMemo(() => FUNNEL_STAGES.map((stage) => [stage, sortByRecency(leads.filter((lead) => (overrides[lead.id] ?? lead.funnelStage) === stage), order)] as const), [leads, overrides, order]);
 
   // Колонки вміщуються в ширину (від 11,75 рем кожна); якщо їх усе ж більше, край із продовженням тане, як підказка прокрутки.
-  const [edge, setEdge] = useState({ left: false, right: false });
-  useEffect(() => {
-    const node = board.current;
-    if (!node) return;
-    const update = () => setEdge({ left: node.scrollLeft > 4, right: node.scrollLeft + node.clientWidth < node.scrollWidth - 4 });
-    update();
-    node.addEventListener('scroll', update, { passive: true });
-    const observer = new ResizeObserver(update);
-    observer.observe(node);
-    return () => { node.removeEventListener('scroll', update); observer.disconnect(); };
-  }, []);
+  const fade = useEdgeFade(board);
 
   useLayoutEffect(() => {
     if (!flip.current) return;
@@ -120,7 +111,7 @@ export function LeadBoard({ leads, order, captureRef, selectedId, canDrag, onOpe
   }, { scope: board, dependencies: [signature, canDrag] });
 
   return (
-    <div ref={board} className={cn('flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3 hide-scrollbar md:snap-none', edge.left && edge.right ? 'edge-fade-lr' : edge.right ? 'edge-fade-r' : edge.left ? 'edge-fade-l' : '')} aria-label="Дошка лідів">
+    <div ref={board} className={cn('flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3 hide-scrollbar md:snap-none', fade)} aria-label="Дошка лідів">
       {columns.map(([stage, items]) => (
         <section key={stage} data-stage-col={stage} aria-label={labels[stage]} className="flex w-[78vw] shrink-0 snap-start flex-col gap-2 rounded-card border border-line bg-sunken p-2.5 transition-colors duration-200 data-[over=true]:border-line-strong data-[over=true]:bg-raised md:w-auto md:min-w-[11.75rem] md:max-w-[17rem] md:shrink md:basis-0 md:flex-1">
           <header className="flex items-center justify-between gap-2 px-2 pb-1 pt-1.5">
@@ -137,17 +128,17 @@ export function LeadBoard({ leads, order, captureRef, selectedId, canDrag, onOpe
                   data-flip-id={lead.id}
                   className={cn('cv-auto relative flex flex-col gap-2 rounded-inner border bg-solid p-3 text-left transition-colors duration-200', selectedId === lead.id ? 'border-line-strong' : 'border-line', canDrag ? 'cursor-grab touch-none active:cursor-grabbing' : '')}
                 >
-                  <button type="button" onClick={(event) => { if (!canDrag || event.detail === 0) onOpen(lead.id); }} className="flex items-start gap-3 text-left outline-offset-4" aria-label={`Відкрити ліда ${lead.name}`}>
-                    <Avatar name={lead.name} size={36} />
+                  <button type="button" onClick={(event) => { if (!canDrag || event.detail === 0) onOpen(lead.id); }} className="flex items-start gap-2.5 text-left outline-offset-4" aria-label={`Відкрити ліда ${lead.name}`}>
+                    <Avatar name={lead.name} size={32} />
                     <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2">
-                        <span className="min-w-0 truncate text-sm font-medium">{lead.name}</span>
-                        {lead.overdue ? <i aria-label="Прострочено" className="size-1.5 shrink-0 rounded-full bg-hot" /> : null}
+                      <span className="flex items-start gap-2">
+                        <span title={lead.name} className="line-clamp-2 min-w-0 break-words text-sm font-medium leading-snug">{lead.name}</span>
+                        {lead.overdue ? <i aria-label="Прострочено" className="mt-1.5 size-1.5 shrink-0 rounded-full bg-hot" /> : null}
                       </span>
-                      {lead.learners.length ? null : <span className="block truncate text-xs text-ink-2">{lead.subject || 'Предмет не вказано'}</span>}
+                      {lead.learners.length ? null : <span className="mt-0.5 line-clamp-2 break-words text-xs text-ink-2">{lead.subject || 'Предмет не вказано'}</span>}
                     </span>
                   </button>
-                  {lead.learners.length ? <LearnerChips learners={lead.learners} leadName={lead.name} /> : null}
+                  {lead.learners.length ? <LearnerChips learners={lead.learners} leadName={lead.name} wrap /> : null}
                   {lead.nextAction ? <p className="m-0 line-clamp-1 text-xs text-ink-2">{lead.nextAction}</p> : null}
                   <div className="flex items-center justify-between gap-2 text-[11px] text-ink-2">
                     <span>{labels[lead.platform] ?? lead.platform}{lead.qualification ? ` · ${lead.qualification}` : ''}</span>

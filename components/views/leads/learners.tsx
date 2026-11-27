@@ -21,13 +21,20 @@ export function learnerLabel(learner: Pick<Learner, 'kind' | 'name'>, leadName: 
 }
 
 /** Чіпи «Максим: Англійська, Математика» для дошки й таблиці: одна картка на ліда, учні в чіпах. */
-export function LearnerChips({ learners, leadName, max = 3, className }: { learners: readonly Learner[]; leadName: string; max?: number; className?: string }) {
+export function LearnerChips({ learners, leadName, max = 3, wrap = false, className }: {
+  learners: readonly Learner[];
+  leadName: string;
+  max?: number;
+  /** Довгий підпис переноситься на другий рядок (вузькі картки дошки), а не обрізається одразу. */
+  wrap?: boolean;
+  className?: string;
+}) {
   const shown = learners.slice(0, max);
   const rest = learners.length - shown.length;
   return (
     <ul className={cn('m-0 flex min-w-0 list-none flex-wrap gap-1 p-0', className)} aria-label="Учні й предмети">
       {shown.map((learner) => (
-        <li key={learner.id} className="max-w-full truncate rounded-full border border-line px-2 py-0.5 text-[11px] text-ink-2">
+        <li key={learner.id} className={cn('max-w-full border border-line px-2 py-0.5 text-[11px] text-ink-2', wrap ? 'line-clamp-2 break-words rounded-inner' : 'truncate rounded-full')}>
           {learnerLabel(learner, leadName)}{learner.subjects.length ? `: ${learner.subjects.join(', ')}` : ''}
         </li>
       ))}

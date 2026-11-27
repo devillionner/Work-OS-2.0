@@ -71,12 +71,35 @@ export const labels: Record<string, string> = {
   inactive: 'Неактивне',
   expired: 'Урок уже розпочався',
 };
+/** Один формат дат у «Лідах»: «27.11.2026, 14:05» (Київ). */
 export function displayTime(epoch: number | null) {
   return epoch === null
     ? 'Не вказано'
     : new Intl.DateTimeFormat('uk-UA', {
         timeZone: 'Europe/Kyiv',
-        dateStyle: 'short',
-        timeStyle: 'short',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
       }).format(new Date(epoch * 1000));
+}
+
+/** Коротка дата й час для щільних рядків: «27.11, 14:05» (Київ). */
+export function displayShortTime(epoch: number) {
+  return new Intl.DateTimeFormat('uk-UA', { timeZone: 'Europe/Kyiv', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(epoch * 1000));
+}
+
+/** Дата з бази (`2026-11-27`) у тому самому вигляді, що й `displayTime`: «27.11.2026». */
+export function displayDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return match ? `${match[3]}.${match[2]}.${match[1]}` : iso;
+}
+
+/** Тривалість очікування: «4 год 5 хв», «12 хв». */
+export function displayWait(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor(seconds / 60) % 60;
+  return hours > 0 ? `${hours} год ${minutes} хв` : `${minutes} хв`;
 }
