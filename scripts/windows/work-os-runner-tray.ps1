@@ -546,6 +546,19 @@ Set-TrayIcon 'starting' ''
 $notify.Visible = $true
 Set-TrayText 'Work OS runner — запускається'
 Write-TrayLog ("Трей запущено" + $(if ($Wake) { ' (команда «Запустити runner»)' } elseif ($Replace) { ' (оновлення)' } else { '' }))
+# Runner, що пережив трей, міг стартувати до того, як оновились його файли (оновлення приходить разом зі скриптом трея, і новий трей
+# бере вже новий підпис файлів): тоді він далі працює зі старим кодом. Порівнюємо час старту процесу з найновішим файлом.
+try {
+    $adopted = Get-RunnerPid
+    if ($adopted -gt 0) {
+        $runnerStarted = (Get-Process -Id $adopted -ErrorAction Stop).StartTime.ToUniversalTime()
+        $newestFile = ($script:WatchedList | ForEach-Object { (Get-Item -LiteralPath $_ -ErrorAction SilentlyContinue).LastWriteTimeUtc } | Measure-Object -Maximum).Maximum
+        if ($newestFile -and $newestFile -gt $runnerStarted) {
+            $script:ChangedAt = (Get-Date).AddSeconds(-$UpdateQuietSeconds)
+            Write-TrayLog 'Runner працює зі старим кодом: перезапущу, щойно він буде вільний'
+        }
+    }
+} catch { }
 Start-Runner
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 2000
