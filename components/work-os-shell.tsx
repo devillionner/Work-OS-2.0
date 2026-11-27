@@ -200,7 +200,7 @@ export function WorkOsShell({ user, signOutPath, snapshot, syncRevision }: Props
             <div className="relative min-h-dvh pb-[calc(200px+env(safe-area-inset-bottom))]">
               {/* Низ сторінки звільняє місце під Dock і кнопку «+» над ним (до 152 px) із запасом: останній блок не ховається під ними. */}
               {header}
-              <main className="flex flex-col gap-3 px-3 pt-2">{panes}</main>
+              <main className="flex flex-col gap-3 px-4 pt-2">{panes}</main>
               <div className="fixed right-3 z-30" style={{ bottom: 'calc(12px + 64px + 12px + env(safe-area-inset-bottom))' }}>
                 <CreateMenu onNavigate={navigate} fab />
               </div>
