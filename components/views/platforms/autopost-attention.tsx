@@ -9,6 +9,7 @@ import { PHOTO_FAILURE_CODES, autopostReasonGroup, autopostReasonText } from '@/
 import { isSameName, isSimilarName } from '@/lib/name-similarity';
 import { nameSkeleton } from '@/lib/ocr-name-match.mjs';
 import { openNativeChat } from '@/components/views/platforms/use-platforms';
+import { AutopostSectionTitle } from '@/components/views/platforms/autopost-section';
 
 export type AutopostAttentionItem = { jobId: string; chatId: string; name: string; errorCode: string; updatedAt: number; /** Назва чату, яку бачив месенджер (для «Не той чат»). */ observed: string | null;
   /** Збій стався до «Надіслати» (з результату задачі): повтор не може дати дубль, тож для групи є масове «Спробувати ще всі». */
@@ -79,8 +80,8 @@ export function AutopostAttentionList({ items, busy, canVerify, messenger, tail 
   const similar = (list: AutopostAttentionItem[]) => list.filter((item) => { const observed = knownObserved(item); return observed && isSimilarName(item.name, observed); });
 
   return (
-    <section id="autopost-decisions" className={`flex scroll-mt-20 flex-col gap-2 ${tail ? 'pb-24 sm:pb-0' : ''}`} aria-label="Чати, що потребують рішення">
-      <h3 className="m-0 text-sm font-medium">Потребують рішення сьогодні <span className="font-mono font-normal tabular-nums text-ink-2">{items.length}</span></h3>
+    <section id="autopost-decisions" className={`flex scroll-mt-20 flex-col gap-3 ${tail ? 'pb-24 sm:pb-0' : ''}`} aria-label="Чати, що потребують рішення">
+      <AutopostSectionTitle count={items.length}>Потребують рішення сьогодні</AutopostSectionTitle>
       {[...groups.entries()].map(([key, group]) => {
         const renameable = similar(group.items);
         // Масовий повтор лише там, де збій був до «Надіслати» (ознака з результату задачі), без попередження про дубль.
@@ -88,14 +89,14 @@ export function AutopostAttentionList({ items, busy, canVerify, messenger, tail 
         const safe = group.items.filter((item) => item.beforeSend && !(group.renameable && knownObserved(item)));
         const noPhoto = safe.filter((item) => PHOTO_FAILURE_CODES.has(item.errorCode));
         return (
-          <details key={key} className="group rounded-inner border border-line bg-sunken" open={groups.size === 1 || group.items.length <= OPEN_GROUP_MAX}>
-            <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
+          <details key={key} className="group overflow-hidden rounded-inner border border-line" open={groups.size === 1 || group.items.length <= OPEN_GROUP_MAX}>
+            <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 px-4 py-2.5 text-sm hover:bg-raised [&::-webkit-details-marker]:hidden">
               <ChevronDown aria-hidden="true" strokeWidth={1.5} className="size-4 shrink-0 text-ink-2 transition-transform group-open:rotate-180" />
-              <span className="min-w-0 flex-1 truncate">{group.label}</span>
-              <span className="font-mono tabular-nums text-ink-2">{group.items.length}</span>
+              <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
               <span className="text-xs text-ink-3 group-open:hidden">розгорнути</span>
+              <span className="tabular-nums text-ink-2">{group.items.length}</span>
             </summary>
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line bg-sunken px-4 py-3">
               <div className="flex flex-wrap gap-2">
                 {safe.length ? <Button variant="action" size="sm" disabled={busy} title={safe.length < group.items.length ? 'Лише чати, де збій був до «Надіслати»: дубля не буде' : 'Збій був до «Надіслати», дубля не буде'} onClick={() => onDecideMany(safe, 'retry')}>Спробувати ще всі ({safe.length})</Button> : null}
                 {group.missing ? <Button variant="action" size="sm" disabled={busy} title="Перевірка показала, що повідомлення в цих чатах немає, тож дубля не буде" onClick={() => onDecideMany(group.items, 'retry')}>Опублікувати ще раз усі</Button> : null}
@@ -108,19 +109,19 @@ export function AutopostAttentionList({ items, busy, canVerify, messenger, tail 
                 <Button variant="ghost" size="sm" tone="danger" disabled={busy} onClick={() => (group.items.length >= ARCHIVE_CONFIRM_MIN ? setPending({ kind: 'archive', items: group.items }) : onDecideMany(group.items, 'archive'))}>В архів усі</Button>
               </div>
             </div>
-            <ul className="m-0 flex list-none flex-col gap-2 p-0 px-3 pb-3">
+            <ul className="m-0 flex list-none flex-col divide-y divide-line border-t border-line p-0">
               {group.items.map((item) => (
-                <li key={item.jobId} className="flex flex-col gap-2 rounded-inner border border-line px-3 py-2.5">
+                <li key={item.jobId} className="flex flex-col gap-2.5 px-4 py-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="m-0 min-w-0 flex-1 truncate text-sm font-medium" title={item.name}>{item.name}</p>
-                      {item.link && messenger ? <button type="button" title="Відкрити чат у месенджері" onClick={() => openNativeChat(messenger, item.link as string)} className="-my-1 shrink-0 rounded-full px-2 py-1 text-xs text-ink-2 hover:bg-raised hover:text-ink [@media(pointer:coarse)]:min-h-9">Відкрити</button> : null}
+                      {item.link && messenger ? <button type="button" title="Відкрити чат у месенджері" onClick={() => openNativeChat(messenger, item.link as string)} className="-my-1 -mr-2 shrink-0 rounded-full px-2 py-1 text-xs text-ink-2 hover:bg-raised hover:text-ink [@media(pointer:coarse)]:min-h-9">Відкрити</button> : null}
                     </div>
                     {group.renameable && knownObserved(item) ? (
-                      <p className="m-0 mt-0.5 text-xs text-ink-2">У Work OS: {item.name} · у {messenger ? MESSENGER_NAMES[messenger] : 'месенджері'}: <span className="text-ink">{knownObserved(item)}</span></p>
-                    ) : <p className="m-0 mt-0.5 text-xs text-ink-2">{autopostReasonText(item.errorCode)}</p>}
+                      <p className="m-0 mt-1 text-xs leading-relaxed text-ink-2">У Work OS: {item.name} · у {messenger ? MESSENGER_NAMES[messenger] : 'месенджері'}: <span className="text-ink">{knownObserved(item)}</span></p>
+                    ) : <p className="m-0 mt-1 text-xs leading-relaxed text-ink-2">{autopostReasonText(item.errorCode)}</p>}
                   </div>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
                     <div className="flex flex-wrap gap-2">
                       {group.renameable && knownObserved(item) ? <Button variant="outline" size="sm" className="h-auto min-h-8 max-w-full whitespace-normal py-2 text-center" disabled={busy} onClick={() => onDecide(item, 'rename')}>Це той самий чат: оновити назву й опублікувати</Button> : null}
                       {group.checkable ? <Button variant="outline" size="sm" disabled={busy} onClick={() => onDecide(item, 'check')}>{group.missing ? 'Перевірити ще раз' : 'Перевірити'}</Button> : null}

@@ -4,7 +4,7 @@ import { RecheckButton, useAutopostHealth } from '@/components/views/platforms/h
 import { CANARY_SECONDS, estimateFromSeconds } from '@/lib/autopost-estimate.mjs';
 import { RunnerLaunchLink, WaydroidWindowLink, useRunnerNotice } from '@/components/shell/runner-offline';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ImagePlus, MoreHorizontal, Send, Square, Trash2, UploadCloud, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, ImagePlus, MoreHorizontal, Send, Square, Trash2, UploadCloud, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/input';
@@ -14,6 +14,7 @@ import { Surface } from '@/components/ui/surface';
 import { DirectionsField } from '@/components/views/platforms/directions-field';
 import { AutopostAttentionList, type AutopostAttentionItem, type AutopostDecision, type DecideOptions } from '@/components/views/platforms/autopost-attention';
 import { AutopostBatchPanel } from '@/components/views/platforms/autopost-batch';
+import { AutopostSectionTitle } from '@/components/views/platforms/autopost-section';
 import { scrollToSection } from '@/components/views/platforms/scroll-to-section';
 import type { WhatsAppAutopostImage, WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import { dayLabel, snoozeSummary } from '@/components/views/platforms/autopost-reasons';
@@ -154,12 +155,12 @@ function MaterialRow({ material, editing, onToggle, busy }: { material: Autopost
           <span aria-hidden="true" className="flex size-14 shrink-0 items-center justify-center rounded-field border border-dashed border-line-strong text-ink-3"><ImagePlus strokeWidth={1.5} className="size-5" /></span>
         )}
         <div className="min-w-0 flex-1">
-          <p className="m-0 text-xs text-ink-2">Що піде в чати</p>
           {image || telegram ? (
-            <p className="m-0 mt-0.5 line-clamp-2 text-sm">{summary}</p>
+            <p className="m-0 line-clamp-2 text-sm leading-snug">{summary}</p>
           ) : (
-            <p className="m-0 mt-0.5 text-sm text-hot">Немає фото: додай його, щоб запустити партію</p>
+            <p className="m-0 text-sm leading-snug text-hot">Немає фото: додай його, щоб запустити партію</p>
           )}
+          {image ? <p className="m-0 mt-1 truncate text-xs text-ink-3" title={image.fileName}>{image.fileName} · <span className="tabular-nums">{formatBytes(image.sizeBytes)}</span></p> : null}
         </div>
         <Button variant="ghost" size="sm" onClick={() => { if (editing) setWithText(false); onToggle(); }}>{editing ? 'Сховати' : 'Змінити'}</Button>
       </div>
@@ -169,7 +170,7 @@ function MaterialRow({ material, editing, onToggle, busy }: { material: Autopost
             <h3 className="m-0 text-sm font-medium">Зображення{telegram ? ' (необов’язково)' : ''}</h3>
             <input ref={fileInput} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) material.onUploadImage(file); }} />
             {image ? (
-              <div className="flex flex-col gap-3 rounded-inner border border-line bg-sunken p-4">
+              <div className="flex flex-col gap-3 rounded-inner bg-sunken p-4">
                 <div className="min-w-0"><p className="m-0 truncate text-sm font-medium" title={image.fileName}>{image.fileName}</p><p className="m-0 text-xs text-ink-2">{formatBytes(image.sizeBytes)}</p></div>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" disabled={busy} onClick={() => fileInput.current?.click()}><ImagePlus aria-hidden="true" strokeWidth={1.5} />Замінити фото</Button>
@@ -187,7 +188,7 @@ function MaterialRow({ material, editing, onToggle, busy }: { material: Autopost
           </section>
           {showText ? (
           <section className="flex flex-col gap-3" aria-label="Текст автопоста">
-            <div className="flex items-center justify-between"><label htmlFor="autopost-caption" className="text-sm font-medium">Текст автопоста</label><span className={`font-mono text-[11px] tabular-nums ${over ? 'text-hot' : 'text-ink-2'}`}>{telegram ? `${length} / ${limit}${image ? ' з фото' : ''}` : `${length} / 4000`}</span></div>
+            <div className="flex items-center justify-between"><label htmlFor="autopost-caption" className="text-sm font-medium">Текст автопоста</label><span className={`text-xs tabular-nums ${over ? 'text-hot' : 'text-ink-3'}`}>{telegram ? `${length} / ${limit}${image ? ' з фото' : ''}` : `${length} / 4000`}</span></div>
             <Textarea id="autopost-caption" rows={6} maxLength={telegram ? TELEGRAM_TEXT_LIMIT : 4000} disabled={busy || !material.captionLoaded} value={caption} onChange={(event) => material.onCaptionChange(event.target.value)} placeholder={telegram ? 'Свій текст для Telegram. Залиш порожнім, щоб Work OS підставила текст із Бібліотеки для кожного чату (за мовою й напрямками профілю).' : 'Встав текст, який піде під фото. Залиш порожнім, щоб Work OS підставила текст із Бібліотеки для кожного чату.'} />
             <div className="flex flex-col gap-1">
               <label htmlFor="autopost-caption-direction" className="text-xs font-medium text-ink-2">Напрям цього оголошення</label>
@@ -328,34 +329,42 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
   const reasons = breakdown.filter((row) => row.count > 0);
 
   const planBlock = (
-    <section className="flex flex-col gap-2" aria-label="Скільки чатів готові до публікації">
+    <section className="flex flex-col gap-3" aria-label="Скільки чатів готові до публікації">
       {plan ? (
         <>
-          {/* Поки партія йде, «оброблено N з M» уже в кільці: окремого заголовка «Іде партія» немає. */}
-          {batchLive ? null : <p className="m-0 text-[28px] font-medium leading-tight tracking-[-0.02em]">Готово до публікації: <span className="tabular-nums">{plan.ready}</span> {chatWord(plan.ready)}</p>}
-          {plan.total > 0 ? (
-            <div className="flex flex-col gap-1">
-              <p className="m-0 text-xs text-ink-2">З <span className="font-mono tabular-nums">{plan.total}</span> у черзі «Для публікації»</p>
-              {reasons.length ? (
-                <ul className="m-0 grid list-none gap-x-6 p-0 sm:grid-cols-2">
-                  {reasons.map((row) => {
-                    const content = (
-                      <>
-                        <span className="min-w-0 flex-1">{row.label}{row.note ? <span className="text-ink-3"> · {row.note}</span> : null}</span>
-                        <span className="shrink-0 font-mono tabular-nums text-ink">{row.count}</span>
-                      </>
-                    );
-                    return (
-                      <li key={row.label}>
-                        {row.target ? (
-                          <button type="button" onClick={() => scrollToSection(row.target as string)} className="flex min-h-9 w-full items-center gap-3 py-1 text-left text-sm text-ink-2 underline decoration-line-strong underline-offset-4 hover:text-ink">{content}</button>
-                        ) : <div className="flex min-h-9 items-center gap-3 py-1 text-sm text-ink-2">{content}</div>}
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
+          {/* Поки партія йде, «оброблено N з M» уже в кільці: окремого заголовка «Іде партія» немає. Без партії головне число картки — готові чати. */}
+          {batchLive ? (
+            <AutopostSectionTitle count={plan.total}>Черга «Для публікації»</AutopostSectionTitle>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              <p className="m-0 text-xs text-ink-2">Готово до публікації</p>
+              <p className="m-0 flex items-baseline gap-2">
+                <span className="text-[34px] font-medium leading-none tracking-[-0.03em] tabular-nums">{plan.ready}</span>
+                <span className="text-[15px] text-ink-2">{chatWord(plan.ready)}{plan.total > 0 ? <> з <span className="tabular-nums">{plan.total}</span> у черзі</> : null}</span>
+              </p>
             </div>
+          )}
+          {plan.total > 0 ? (
+            reasons.length ? (
+              <ul className="m-0 grid list-none gap-x-8 p-0 sm:grid-cols-2">
+                {reasons.map((row) => {
+                  const content = (
+                    <>
+                      <span className="min-w-0 flex-1">{row.label}{row.note ? <span className="text-ink-3"> · {row.note}</span> : null}</span>
+                      <span className="shrink-0 tabular-nums text-ink">{row.count}</span>
+                      {row.target ? <ChevronRight aria-hidden="true" strokeWidth={1.5} className="-mr-1 size-4 shrink-0 text-ink-3" /> : null}
+                    </>
+                  );
+                  return (
+                    <li key={row.label} className="border-t border-line">
+                      {row.target ? (
+                        <button type="button" onClick={() => scrollToSection(row.target as string)} className="flex min-h-10 w-full items-center gap-3 py-1.5 text-left text-[13px] text-ink-2 transition-colors hover:text-ink">{content}</button>
+                      ) : <div className="flex min-h-10 items-center gap-3 py-1.5 text-[13px] text-ink-2">{content}</div>}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null
           ) : <p className="m-0 text-sm text-ink-2">У черзі «Для публікації» немає чатів цієї платформи.</p>}
         </>
       ) : <p className="m-0 text-sm text-ink-2">Рахую, скільки чатів готові до публікації…</p>}
@@ -438,22 +447,30 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
           {batchBlock}
 
           {!running && plan ? (
-            <section className="flex flex-col gap-4" aria-label="Запуск партії">
-              {material ? <MaterialRow material={material} editing={editing} onToggle={() => setEditing((value) => !value)} busy={busy} /> : null}
+            <>
+            {material ? (
+              <section className="flex flex-col gap-3" aria-labelledby={`autopost-${platform}-material`}>
+                <AutopostSectionTitle id={`autopost-${platform}-material`}>Що піде в чати</AutopostSectionTitle>
+                <MaterialRow material={material} editing={editing} onToggle={() => setEditing((value) => !value)} busy={busy} />
+              </section>
+            ) : null}
+            <section className="flex flex-col gap-3" aria-labelledby={`autopost-${platform}-launch`}>
+              <AutopostSectionTitle id={`autopost-${platform}-launch`}>Запуск партії</AutopostSectionTitle>
               {plan.ready === 0 ? (
-                <p className="m-0 rounded-inner border border-line px-4 py-3 text-sm text-ink-2">{noReadyText(plan)}</p>
+                <p className="m-0 text-sm text-ink-2">{noReadyText(plan)}</p>
               ) : (
                 <>
                   {going.length ? (
-                    <details className="group rounded-inner border border-line" onToggle={(event) => setListOpen(event.currentTarget.open)}>
-                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
-                        <span>Переглянути чати партії</span><span className="font-mono tabular-nums text-ink-2">{chosen}</span>
+                    <details className="group overflow-hidden rounded-inner border border-line" onToggle={(event) => setListOpen(event.currentTarget.open)}>
+                      <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 px-4 py-2.5 text-sm hover:bg-raised [&::-webkit-details-marker]:hidden">
+                        <ChevronDown aria-hidden="true" strokeWidth={1.5} className="size-4 shrink-0 text-ink-2 transition-transform group-open:rotate-180" />
+                        <span className="min-w-0 flex-1">Переглянути чати партії</span><span className="tabular-nums text-ink-2">{chosen}</span>
                       </summary>
-                      <ol className="m-0 flex max-h-72 list-none flex-col gap-2 overflow-y-auto p-0 px-3 pb-3 sm:max-h-96">
+                      <ol className="m-0 flex max-h-72 list-none flex-col gap-2 overflow-y-auto border-t border-line p-0 px-3 py-3 scroll-soft sm:max-h-96">
                         {going.map((chat, index) => (
                           <li key={chat.id} className="flex flex-col gap-0.5 text-sm">
                             <div className="flex items-center gap-2">
-                              <span className="w-6 shrink-0 text-right font-mono text-xs tabular-nums text-ink-3">{index + 1}</span>
+                              <span className="w-6 shrink-0 text-right text-xs tabular-nums text-ink-3">{index + 1}</span>
                               <span className="min-w-0 flex-1 truncate" title={chat.name}>{chat.name}</span>
                               {chat.badges?.length ? <span className="max-w-[45%] shrink-0 truncate text-xs text-ink-3" title={chat.badges.join(' · ')}>{chat.badges.join(' · ')}</span> : null}
                               <button type="button" aria-label={`Прибрати з цього запуску: ${chat.name}`} title="Прибрати лише з цього запуску" onClick={() => setRemoved((current) => [...current, chat.id])} className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 hover:bg-raised hover:text-ink [@media(pointer:coarse)]:size-11"><X aria-hidden="true" strokeWidth={1.5} className="size-4" /></button>
@@ -464,19 +481,24 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
                       </ol>
                     </details>
                   ) : null}
-                  {startSlot}
-                  <div className="flex flex-wrap items-center justify-end gap-3">
-                    <Segmented<'1' | '5' | '20' | 'all'> label="Скільки чатів у партії" size="sm" value={size} onValueChange={setSize} items={[{ value: '1', label: '1' }, { value: '5', label: '5' }, { value: '20', label: '20' }, { value: 'all', label: `Усі (${cap})` }]} />
-                    <div className="flex flex-col items-end gap-1">
-                      <Button variant="action" busy={busy} disabled={runnerBlocked || !ready || chosen === 0} title={ready ? undefined : libraryOn ? 'Обери хоча б одне оголошення' : 'Спершу додай фото'} onClick={() => onStart(chosen, removedNow)}>
+                  {/* Одна група керування: скільки чатів, темп і кнопка з оцінкою часу. */}
+                  <div className="flex flex-col gap-4 rounded-inner bg-sunken p-4">
+                    <div className="grid grid-cols-1 items-center gap-x-4 gap-y-2 sm:grid-cols-[minmax(8rem,auto)_1fr]">
+                      <span className="text-[13px] text-ink-2">Чатів у партії</span>
+                      <Segmented<'1' | '5' | '20' | 'all'> label="Скільки чатів у партії" size="sm" value={size} onValueChange={setSize} items={[{ value: '1', label: '1' }, { value: '5', label: '5' }, { value: '20', label: '20' }, { value: 'all', label: <>Усі <span className="tabular-nums">{cap}</span></> }]} />
+                      {startSlot}
+                    </div>
+                    <div className="flex flex-col-reverse gap-2 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                      <span className="text-xs text-ink-2">{needSelection ? 'Обери хоча б одне оголошення' : chosen ? `${estimateFromSeconds(chosen * secondsPerChat + (healthStatus === 'ok' ? 0 : CANARY_SECONDS[platform])).text} · ${startNote ?? 'по одному чату з підтвердженням'}` : ''}</span>
+                      <Button variant="action" busy={busy} className="w-full sm:w-auto" disabled={runnerBlocked || !ready || chosen === 0} title={ready ? undefined : libraryOn ? 'Обери хоча б одне оголошення' : 'Спершу додай фото'} onClick={() => onStart(chosen, removedNow)}>
                         <Send aria-hidden="true" strokeWidth={1.5} />{busy ? 'Ставимо в чергу…' : `Опублікувати в ${chosen} ${chatWord(chosen)}`}
                       </Button>
-                      <span className="text-xs text-ink-2">{needSelection ? 'Обери хоча б одне оголошення' : chosen ? (startNote ?? `${estimateFromSeconds(chosen * secondsPerChat + (healthStatus === 'ok' ? 0 : CANARY_SECONDS[platform])).text}, по одному чату з підтвердженням`) : ''}</span>
                     </div>
                   </div>
                 </>
               )}
             </section>
+            </>
           ) : null}
           {midSlot}
           {attentionBlock}

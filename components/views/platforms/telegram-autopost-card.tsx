@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
-import { PaceEstimate, PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
+import { PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
 import { DuplicateRows } from '@/components/views/platforms/duplicate-frame';
 import { useDirectionDictionary } from '@/components/views/platforms/directions-field';
 import { ThreadChoiceRow } from '@/components/views/platforms/thread-choice-row';
@@ -15,6 +16,7 @@ import type { AutopostAttentionItem, AutopostDecision, DecideOptions } from '@/c
 import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import type { AutopostPlatformStatus, TelegramPace } from '@/lib/live-channel';
 import { Chip } from '@/components/ui/chip';
+import { AutopostSectionTitle } from '@/components/views/platforms/autopost-section';
 import type { TelegramAccount } from '@/components/views/platforms/telegram-accounts';
 
 /** Вибір робочого акаунта прямо в картці автопосту (ті самі чіпи, що в «Огляді»): з одним акаунтом нічого не показуємо. */
@@ -44,7 +46,7 @@ function AccountBinding({ binding, status, busy, runnerOffline, onBind }: { bind
         <p className="m-0 text-sm text-ink-2">Автопост перевіряє, що в Telegram Web відкрито саме цей акаунт Work OS. Увійди в нього у вкладці браузера runner і прив’яжи.</p>
         <div className="flex flex-wrap items-center gap-3">
           <Button variant="outline" size="sm" disabled={busy || !identity} aria-describedby={identity ? undefined : 'telegram-bind-why'} onClick={() => onBind(identity)}>Прив’язати цей акаунт</Button>
-          {identity ? <span className="font-mono text-xs tabular-nums text-ink-2">id {identity}</span> : <span id="telegram-bind-why" className="min-w-0 flex-1 basis-56 text-xs text-ink-2">{why}</span>}
+          {identity ? <span className="text-xs tabular-nums text-ink-2">id {identity}</span> : <span id="telegram-bind-why" className="min-w-0 flex-1 basis-56 text-xs text-ink-2">{why}</span>}
         </div>
       </div>
     );
@@ -69,7 +71,7 @@ function PoolRow({ plan, onOpen }: { plan: AutopostPlan | null; onOpen: () => vo
         <p className="m-0 min-w-0 flex-1 basis-52 text-sm">
           <span className="text-ink-2">Оголошення: </span>
           {pool ? (
-            <>пул <b className="font-mono font-medium tabular-nums">{pool.total}</b> · вільних сьогодні <b className="font-mono font-medium tabular-nums">{pool.free}</b>{ending ? <span className="text-ink-2"> · {ending}</span> : null}</>
+            <>пул <span className="tabular-nums text-ink">{pool.total}</span> · вільних сьогодні <span className="tabular-nums text-ink">{pool.free}</span>{ending ? <span className="text-ink-2"> · {ending}</span> : null}</>
           ) : plan ? <span className="text-ink-2">пулу немає, працює власний текст або Бібліотека</span> : <span className="text-ink-2">рахую…</span>}
         </p>
         <Button variant="outline" size="sm" onClick={onOpen}>{pool ? 'Оновити список' : 'Вставити список'}</Button>
@@ -83,15 +85,16 @@ function PoolRow({ plan, onOpen }: { plan: AutopostPlan | null; onOpen: () => vo
 function TooLongChats({ chats, total }: { chats: Array<{ id: string; name: string; length: number }>; total: number }) {
   if (!total) return null;
   return (
-    <details className="group rounded-inner border border-line">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
-        <span>{total} {total % 10 === 1 && total % 100 !== 11 ? 'чат' : total % 10 >= 2 && total % 10 <= 4 && (total % 100 < 12 || total % 100 > 14) ? 'чати' : 'чатів'}: текст задовгий для підпису до фото</span>
+    <details className="group overflow-hidden rounded-inner border border-line">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 px-4 py-2.5 text-sm hover:bg-raised [&::-webkit-details-marker]:hidden">
+        <ChevronDown aria-hidden="true" strokeWidth={1.5} className="size-4 shrink-0 text-ink-2 transition-transform group-open:rotate-180" />
+        <span className="min-w-0 flex-1">{total} {total % 10 === 1 && total % 100 !== 11 ? 'чат' : total % 10 >= 2 && total % 10 <= 4 && (total % 100 < 12 || total % 100 > 14) ? 'чати' : 'чатів'}: текст задовгий для підпису до фото</span>
         <span className="text-xs text-ink-3 group-open:hidden">розгорнути</span>
       </summary>
-      <div className="flex flex-col gap-2 px-4 pb-3">
+      <div className="flex flex-col gap-2 border-t border-line px-4 py-3">
         <p className="m-0 text-xs text-ink-2">Текст із Бібліотеки для цих чатів довший за 1024 символи. З фото вони не підуть, а без фото підуть; можна скоротити оголошення або прибрати фото.</p>
         <ul className="m-0 flex list-none flex-col gap-1 p-0">
-          {chats.map((chat) => <li key={chat.id} className="flex items-center gap-2 text-sm"><span className="min-w-0 flex-1 truncate" title={chat.name}>{chat.name}</span><span className="font-mono text-xs tabular-nums text-ink-2">{chat.length}</span></li>)}
+          {chats.map((chat) => <li key={chat.id} className="flex items-center gap-2 text-sm"><span className="min-w-0 flex-1 truncate" title={chat.name}>{chat.name}</span><span className="text-xs tabular-nums text-ink-2">{chat.length}</span></li>)}
         </ul>
       </div>
     </details>
@@ -116,12 +119,9 @@ function ThreadChoices({ choices, busy, running, onChoose, onScan, onSkip, onOpe
   const dictionary = useDirectionDictionary(choices.length > 0);
   if (!choices.length) return null;
   return (
-    <section id="thread-choices" className="flex flex-col gap-2 scroll-mt-20" aria-label="Чати, для яких треба вибрати гілку">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="m-0 text-sm font-medium">Обери гілку <span className="font-mono font-normal tabular-nums text-ink-2">· {choices.length}</span></h3>
-        <Button variant="outline" size="sm" disabled={busy} title="Відкриє ці чати й ще не перевірені чати акаунта та оновить списки гілок; місць «на годину» не займає. Поки runner вимкнений, перевірки чекають у черзі" onClick={() => onScan()}>Знайти гілки</Button>
-      </div>
-      <p className="m-0 text-xs text-ink-2">У цих чатах є гілки (чи вони могли бути). Обери гілку й, за бажанням, напрямки, потім натисни «Додати в партію». Вибір зберігається назавжди. Поки гілку не збережено, чат у партію не входить.</p>
+    <section id="thread-choices" className="flex flex-col gap-3 scroll-mt-20" aria-label="Чати, для яких треба вибрати гілку">
+      <AutopostSectionTitle count={choices.length} action={<Button variant="ghost" size="sm" disabled={busy} title="Відкриє ці чати й ще не перевірені чати акаунта та оновить списки гілок; місць «на годину» не займає. Поки runner вимкнений, перевірки чекають у черзі" onClick={() => onScan()}>Знайти гілки</Button>}>Обери гілку</AutopostSectionTitle>
+      <p className="m-0 -mt-1 max-w-[62ch] text-xs leading-relaxed text-ink-2">У цих чатах є гілки (чи вони могли бути). Обери гілку й, за бажанням, напрямки, потім натисни «Додати в партію». Вибір зберігається назавжди. Поки гілку не збережено, чат у партію не входить.</p>
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
         <DuplicateRows items={choices.map((choice) => ({ value: choice, id: choice.chatId, dup: choice.dup ?? null }))} renderItem={(choice, dupNote) => (
           <ThreadChoiceRow key={choice.chatId} choice={choice} dupNote={dupNote} dictionary={dictionary} busy={busy} batchRunning={running} onChoose={onChoose} onScan={onScan} onSkip={onSkip} onOpen={onOpen} />
@@ -187,7 +187,6 @@ export function TelegramAutopostCard({ accountId, accounts, onSelectAccount, run
         : online
           ? { tone: 'ok', text: 'Runner підключений.' }
           : { tone: 'idle', text: 'Чекаю на зв’язок із runner на ПК…' };
-  const minutes = Math.round(60 / perHour);
   const source = plan?.source;
   // Режим публікації зберігається на сервері (один для всіх акаунтів): план і партія беруть його звідти, тож після зміни план перечитується.
   const changeSource = (mode: 'pool' | 'own' | 'library') => {
@@ -207,7 +206,7 @@ export function TelegramAutopostCard({ accountId, accounts, onSelectAccount, run
       plan={plan}
       onLoadPlan={onLoadPlan}
       secondsPerChat={secondsPerChat('telegram', perHour)}
-      startNote={`${perHour} на годину: один чат кожні ${minutes} хв, з підтвердженням`}
+      startNote={`${perHour} на годину, з підтвердженням`}
       readiness={readiness}
       settingsTitle="Як підготувати автопост Telegram"
       settingsHelp={(
@@ -228,7 +227,6 @@ export function TelegramAutopostCard({ accountId, accounts, onSelectAccount, run
         <div className="flex flex-col gap-3">
           {source?.mode === 'pool' ? <PoolRow plan={plan} onOpen={() => setPoolOpen(true)} /> : null}
           <AccountBinding binding={binding} status={status} busy={busy} runnerOffline={runnerOffline} onBind={onBind} />
-          <PaceEstimate platform="telegram" count={plan?.ready ?? 0} perHour={perHour} running={running} />
           {(plan?.unscanned ?? 0) > 0 && !running ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
               <p className="m-0 min-w-0 flex-1 basis-64 text-xs text-ink-2">{plan?.unscanned} {chatWord(plan?.unscanned ?? 0)} ще не перевірено на гілки: перед публікацією їх швидко відкриє прохід, він не займає місць «на годину». {hasChoices ? 'Можна зробити це наперед кнопкою «Знайти гілки» в блоці «Обери гілку» вище.' : 'Можна зробити це наперед.'}{runnerOffline ? ' Поки runner вимкнений, перевірки чекають у черзі.' : ''}</p>

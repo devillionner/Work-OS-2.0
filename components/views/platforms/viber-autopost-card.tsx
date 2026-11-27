@@ -7,7 +7,7 @@ import type { WhatsAppAutopostProgress } from '@/components/views/platforms/auto
 import { autopostReasonText } from '@/components/views/platforms/autopost-reasons';
 import { useSharedSource } from '@/components/views/platforms/library-ads';
 import { usePoolPreview } from '@/components/views/platforms/use-pool-preview';
-import { PaceEstimate, PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
+import { PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
 import type { AutopostPace } from '@/lib/live-channel';
 
 /** Стан Viber на ПК оператора, який runner передає через live-канал (процес, доступність, вікно). */
@@ -70,12 +70,7 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
       plan={plan}
       onLoadPlan={onLoadPlan}
       secondsPerChat={secondsPerChat('viber', perHour)}
-      startNote={perHour > 0 ? `${perHour} на годину: один чат кожні ${Math.round(60 / perHour)} хв, з підтвердженням` : undefined}
-      topSlot={(
-        <div className="flex flex-col gap-3">
-          <PaceEstimate platform="viber" count={plan?.ready ?? 0} perHour={perHour} running={progress?.running === true} />
-        </div>
-      )}
+      startNote={perHour > 0 ? `${perHour} на годину, з підтвердженням` : undefined}
       paceSlot={<PaceLine pace={pace} progress={progress} running={progress?.running === true} status={null} noun="відправка" />}
       startSlot={<PaceSegment platform="viber" value={perHour} onChange={setPerHour} />}
       readiness={readiness}

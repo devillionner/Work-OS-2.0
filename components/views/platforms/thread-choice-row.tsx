@@ -47,7 +47,7 @@ export function ThreadChoiceRow({ choice, dupNote, dictionary, busy, batchRunnin
     if (problem) setFailure(problem); else setPicked(null);
   };
   return (
-    <li className="flex flex-col gap-2 rounded-inner border border-line px-3 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3">
+    <li className="flex flex-col gap-2.5 rounded-inner border border-line px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3">
       <span className="min-w-0 truncate text-sm font-medium sm:flex-1 sm:basis-40" title={choice.name}>{choice.name}</span>
       {dupNote ? <span className="text-xs text-ink-2 sm:basis-full">{dupNote}</span> : null}
       {canPick ? (
@@ -56,12 +56,12 @@ export function ThreadChoiceRow({ choice, dupNote, dictionary, busy, batchRunnin
           <div className="min-w-0 sm:w-56"><DirectionsField id={`thread-directions-${choice.chatId}`} compact emptyLabel="Напрямки" dictionary={dictionary} values={directions} onChange={(next) => { setDirections(next); setFailure(''); }} disabled={busy || saving} /></div>
         </div>
       ) : collecting ? <output className="text-xs text-ink-2">Збираю гілки…</output>
-        : <button type="button" disabled={busy} title="Відкриє чат і прочитає список гілок; місць «на годину» не займає" onClick={() => onScan(choice.chatId)} className="inline-flex min-h-9 items-center rounded-full border border-line px-3 text-xs hover:bg-raised disabled:opacity-45 [@media(pointer:coarse)]:min-h-11">Знайти гілки</button>}
+        : <Button variant="outline" size="sm" className="self-start" disabled={busy} title="Відкриє чат і прочитає список гілок; місць «на годину» не займає" onClick={() => onScan(choice.chatId)}>Знайти гілки</Button>}
       {likely && picked !== likely.id ? (
         <button type="button" disabled={busy || saving} title="Поставити цю гілку у вибір (збереже кнопка нижче)" onClick={() => { setPicked(likely.id); setFailure(''); }} className="self-start text-left text-xs text-ink-2 underline decoration-line-strong underline-offset-4 hover:text-ink disabled:opacity-45 sm:basis-full">схоже: «{likely.title}»</button>
       ) : null}
       {valid ? <Button variant="action" size="md" disabled={busy || saving} className="w-full sm:w-auto" onClick={() => void save()}>{saving ? 'Зберігаю…' : batchRunning ? 'Додати в партію' : 'Зберегти'}</Button> : null}
-      <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
+      <div className="-ml-3.5 flex flex-wrap items-center gap-x-1 gap-y-1 sm:ml-0">
         {valid ? <Button variant="ghost" size="sm" disabled={saving} onClick={() => { setPicked(null); setFailure(''); }}>Скасувати вибір</Button> : null}
         {choice.link ? <Button variant="ghost" size="sm" onClick={() => onOpen(choice.link as string)}>Відкрити</Button> : null}
         <Button variant="ghost" size="sm" disabled={busy || saving} title="Чат повернеться в чергу завтра" onClick={() => onSkip(choice.chatId)}>Пропустити сьогодні</Button>

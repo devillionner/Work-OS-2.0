@@ -103,7 +103,7 @@ export function BatchRing({ total, sent, failed, busy, ok, size = 72, stroke = 5
           );
         })}
       </svg>
-      {children ? <span className="relative z-10 text-center text-[11px] font-medium leading-none">{children}</span> : null}
+      {children ? <span className="relative z-10 text-center text-[13px] font-medium leading-none tabular-nums">{children}</span> : null}
     </div>
   );
 }

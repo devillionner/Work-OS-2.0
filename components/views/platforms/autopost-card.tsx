@@ -5,7 +5,7 @@ import type { AutopostAttentionItem, AutopostDecision, DecideOptions } from '@/c
 import type { AutopostBatch } from '@/components/views/platforms/autopost-batch';
 import { useSharedSource } from '@/components/views/platforms/library-ads';
 import { usePoolPreview } from '@/components/views/platforms/use-pool-preview';
-import { PaceEstimate, PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
+import { PaceLine, PaceSegment, secondsPerChat, usePerHour } from '@/components/views/platforms/pace-control';
 import type { AutopostPace, AutopostPlatformStatus } from '@/lib/live-channel';
 
 export type WhatsAppAutopostImage = { fileName: string; contentType: string; sizeBytes: number; sha256: string; updatedAt: number };
@@ -51,12 +51,7 @@ export function AutopostCard({ material, status, pace, busy, plan, onLoadPlan, r
       plan={plan}
       onLoadPlan={onLoadPlan}
       secondsPerChat={secondsPerChat('whatsapp', perHour)}
-      startNote={perHour > 0 ? `${perHour} на годину: один чат кожні ${Math.round(60 / perHour)} хв, з підтвердженням` : undefined}
-      topSlot={(
-        <div className="flex flex-col gap-3">
-          <PaceEstimate platform="whatsapp" count={plan?.ready ?? 0} perHour={perHour} running={progress?.running === true} />
-        </div>
-      )}
+      startNote={perHour > 0 ? `${perHour} на годину, з підтвердженням` : undefined}
       paceSlot={<PaceLine pace={pace} progress={progress} running={progress?.running === true} status={status} noun="відправка" />}
       startSlot={<PaceSegment platform="whatsapp" value={perHour} onChange={setPerHour} />}
       readiness={readiness}

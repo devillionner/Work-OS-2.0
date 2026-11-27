@@ -86,16 +86,17 @@ function entryLabel(entry: AutopostBatchEntry): { icon: 'ok' | 'bad' | 'skip'; t
  * Що робиться зараз: чат і крок задачі в роботі; поки в роботі нічого — або «Чекаю наступну відправку · о 20:58» (інтервал темпу ще не минув),
  * або «Беру наступний чат» (без пауз чи інтервал минув).
  */
-function NowBlock({ name, step, now, idle = null }: { name: string; step: LiveStep | null; now: number; idle?: { title: string; detail: string } | null }) {
+function NowBlock({ name, step, now, idle = null, framed = false }: { name: string; step: LiveStep | null; now: number; idle?: { title: string; detail: string } | null; /** Окремо від кільця (перевірка поза партією): власна плашка; у ході партії — рядок під кільцем, без рамки в рамці. */ framed?: boolean }) {
   const synced = useLiveSynced();
+  const detail = step ? (step.verify ? `перевірка: ${step.text}` : step.text) : idle ? idle.detail : synced ? 'runner ще не повідомив крок' : 'Оновлюю…';
   return (
-    <output className="flex flex-col gap-1 rounded-inner border border-line px-4 py-3">
-      <p className="m-0 text-xs text-ink-2">Зараз</p>
-      <p className="m-0 truncate text-sm font-medium" title={name}>{name || idle?.title || 'Чекаю на runner'}</p>
-      <p className="m-0 flex items-center gap-2 text-xs text-ink-2">
-        <span>{step ? (step.verify ? `перевірка: ${step.text}` : step.text) : idle ? idle.detail : synced ? 'runner ще не повідомив крок' : 'Оновлюю…'}</span>
-        {step && now > 0 ? <span className="ml-auto font-mono tabular-nums">{Math.max(0, Math.round((now - step.startedAt) / 1000))} с</span> : null}
-      </p>
+    <output className={framed ? 'flex flex-col gap-1 rounded-inner bg-sunken px-4 py-3' : 'flex flex-col gap-1 border-t border-line pt-4'}>
+      <span className="flex items-baseline justify-between gap-3 text-xs text-ink-2">
+        <span>Зараз</span>
+        {step && now > 0 ? <span className="tabular-nums">{Math.max(0, Math.round((now - step.startedAt) / 1000))} с</span> : null}
+      </span>
+      <span className="truncate text-sm font-medium" title={name}>{name || idle?.title || 'Чекаю на runner'}</span>
+      {detail ? <span className="text-xs text-ink-2">{detail}</span> : null}
     </output>
   );
 }
@@ -112,7 +113,7 @@ export function AutopostBatchPanel({ batch, running, platform, onStop, stopBusy 
   const now = useSecondClock(running || checking);
   const step = useAutopostStep(platform, running || checking, now);
   // Перевірка чату з «Потребують рішення» не належить партії, але крок її теж видно.
-  if (!batch || batch.total === 0) return (running || checking) && step ? <NowBlock name={step.name} step={step} now={now} /> : null;
+  if (!batch || batch.total === 0) return (running || checking) && step ? <NowBlock name={step.name} step={step} now={now} framed /> : null;
   // Усі задачі партії (у черзі, у роботі й завершені; пізніше додані повтори теж): оброблені — завершені будь-як, без збою чи зі збоєм.
   const done = batch.total - batch.remaining;
   // Кільце й відсоток — частка відправлених від усіх задач, а не оброблених: партія, де чверть чатів не вдалась, не виглядає «100 %».
@@ -136,8 +137,8 @@ export function AutopostBatchPanel({ batch, running, platform, onStop, stopBusy 
     : null;
 
   return (
-    <section className="flex flex-col gap-4 rounded-inner border border-line bg-sunken p-4" aria-label="Хід партії автопосту">
-      <div className="flex items-center justify-between gap-3">
+    <section className="flex flex-col gap-4 rounded-inner bg-sunken p-4 sm:p-5" aria-label="Хід партії автопосту">
+      <div className="flex min-h-8 items-center justify-between gap-3">
         <p className="m-0 flex items-center gap-2 text-sm font-medium">
           {active ? <i aria-hidden="true" className="size-2 rounded-full bg-ink" /> : <Check aria-hidden="true" strokeWidth={1.5} className={allSent ? 'size-4 text-ok' : 'size-4 text-ink-2'} />}
           {active ? 'Партія виконується' : batch.cancelled > 0 ? 'Партію зупинено' : 'Партію завершено'}
@@ -145,34 +146,37 @@ export function AutopostBatchPanel({ batch, running, platform, onStop, stopBusy 
         {running && onStop ? <Button variant="outline" size="sm" tone="danger" disabled={stopBusy} onClick={onStop}><Square aria-hidden="true" strokeWidth={1.5} />Зупинити</Button> : null}
       </div>
       <div className="flex items-center gap-5">
-        <BatchRing total={batch.total} sent={batch.sent} failed={notSent} busy={batch.inProgress} ok={allSent} size={72} stroke={5} label={`Відправлено ${batch.sent} з ${batch.total}${batch.inProgress ? `, у роботі ${batch.inProgress}` : ''}`}>
+        <BatchRing total={batch.total} sent={batch.sent} failed={notSent} busy={batch.inProgress} ok={allSent} size={84} stroke={6} label={`Відправлено ${batch.sent} з ${batch.total}${batch.inProgress ? `, у роботі ${batch.inProgress}` : ''}`}>
           <CountUp value={ratioPercent(ratio)} format={(value) => `${value}%`} />
         </BatchRing>
-        <div className="min-w-0 flex-1">
-          <p className="m-0 text-sm text-ink-2">оброблено <span className="font-mono tabular-nums text-ink">{done} з {batch.total}</span></p>
-          <p className="m-0 mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
-            <span>Відправлено <b className="font-mono font-normal tabular-nums text-ink">{batch.sent}</b></span>
-            {notSent > 0 && decisions > 0 ? (
-              <button type="button" className="text-hot underline decoration-hot/40 underline-offset-4 hover:decoration-hot" title="До списку «Потребують рішення»" onClick={() => scrollToSection('autopost-decisions')}>Не вдалося <b className="font-mono font-normal tabular-nums">{notSent}</b></button>
-            ) : notSent > 0 ? <span className="text-hot" title="Помилка, пропуск за політикою або рішення, що чекає тебе">Не вдалося <b className="font-mono font-normal tabular-nums">{notSent}</b></span> : null}
-            {batch.inProgress > 0 ? <span>У роботі <b className="font-mono font-normal tabular-nums text-ink">{batch.inProgress}</b></span> : null}
-            <span>Лишилось <b className="font-mono font-normal tabular-nums text-ink">{batch.queued}</b></span>
-            {(batch.thread ?? 0) > 0 ? <span title="У цих чатах є гілки: вибери, куди публікувати">Чекають вибору гілки <b className="font-mono font-normal tabular-nums text-ink">{batch.thread}</b></span> : null}
-            {batch.cancelled > 0 ? <span>Скасовано <b className="font-mono font-normal tabular-nums text-ink">{batch.cancelled}</b></span> : null}
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <p className="m-0 flex items-baseline gap-2">
+            <span className="text-[26px] font-medium leading-none tracking-[-0.02em] tabular-nums">{done}<span className="text-ink-3"> / {batch.total}</span></span>
+            <span className="text-xs text-ink-2">оброблено</span>
           </p>
-          {active ? <p className="m-0 mt-1.5 text-xs text-ink-2">До кінця: {estimate.text}</p> : null}
+          <p className="m-0 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
+            <span>Відправлено <span className="tabular-nums text-ink">{batch.sent}</span></span>
+            {notSent > 0 && decisions > 0 ? (
+              <button type="button" className="text-hot underline decoration-hot/40 underline-offset-4 hover:decoration-hot" title="До списку «Потребують рішення»" onClick={() => scrollToSection('autopost-decisions')}>Не вдалося <span className="tabular-nums">{notSent}</span></button>
+            ) : notSent > 0 ? <span className="text-hot" title="Помилка, пропуск за політикою або рішення, що чекає тебе">Не вдалося <span className="tabular-nums">{notSent}</span></span> : null}
+            {batch.inProgress > 0 ? <span>У роботі <span className="tabular-nums text-ink">{batch.inProgress}</span></span> : null}
+            {active || batch.queued > 0 ? <span>Лишилось <span className="tabular-nums text-ink">{batch.queued}</span></span> : null}
+            {(batch.thread ?? 0) > 0 ? <span title="У цих чатах є гілки: вибери, куди публікувати">Чекають вибору гілки <span className="tabular-nums text-ink">{batch.thread}</span></span> : null}
+            {batch.cancelled > 0 ? <span>Скасовано <span className="tabular-nums text-ink">{batch.cancelled}</span></span> : null}
+          </p>
+          {active ? <p className="m-0 text-xs text-ink-2">До кінця <span className="tabular-nums text-ink">{estimate.text}</span></p> : null}
         </div>
       </div>
 
       {running || checking ? <NowBlock name={currentName} step={liveStep} now={now} idle={idle} /> : null}
 
       {finishedEntries.length > 0 ? (
-        <details className="group">
-          <summary className="flex cursor-pointer list-none items-center gap-2 text-sm text-ink-2 [&::-webkit-details-marker]:hidden">
-            <ChevronDown aria-hidden="true" strokeWidth={1.5} className="size-4 transition-transform group-open:rotate-180" />
-            Журнал партії <span className="font-mono tabular-nums">{finishedEntries.length}</span>
+        <details className="group border-t border-line pt-3">
+          <summary className="flex min-h-9 cursor-pointer list-none items-center gap-2 text-sm text-ink-2 hover:text-ink [&::-webkit-details-marker]:hidden">
+            <ChevronDown aria-hidden="true" strokeWidth={1.5} className="size-4 shrink-0 transition-transform group-open:rotate-180" />
+            Журнал партії <span className="tabular-nums text-ink-3">{finishedEntries.length}</span>
           </summary>
-          <ul className="m-0 mt-2 flex max-h-72 list-none flex-col gap-1 overflow-y-auto p-0">
+          <ul className="m-0 mt-2 flex max-h-72 list-none flex-col gap-1.5 overflow-y-auto p-0 scroll-soft">
             {finishedEntries.map((entry) => {
               const label = entryLabel(entry);
               return (

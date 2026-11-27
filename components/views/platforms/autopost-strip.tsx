@@ -29,7 +29,7 @@ export function AutopostStrip({ enabled, current }: { enabled: readonly string[]
           {index ? <span aria-hidden="true" className="text-ink-3">·</span> : null}
           <button type="button" className={cn(item, entry.platform === current && 'text-ink')} title={`Автопост ${NAMES[entry.platform]}: відправлено ${entry.sent} з ${entry.total} за сьогодні`} onClick={() => emitCommand('platforms:autopost', { platform: entry.platform })}>
             {entry.running ? <i aria-hidden="true" className="size-1.5 rounded-full bg-ink" /> : null}
-            {NAMES[entry.platform]} <span className="font-mono tabular-nums">{entry.sent}/{entry.total}</span>
+            {NAMES[entry.platform]} <span className="tabular-nums">{entry.sent}/{entry.total}</span>
           </button>
         </span>
       ))}
@@ -37,7 +37,7 @@ export function AutopostStrip({ enabled, current }: { enabled: readonly string[]
         <span className="inline-flex items-center">
           <span aria-hidden="true" className="text-ink-3">·</span>
           <button type="button" className={cn(item, 'text-hot')} title="Відкрити «Потребують рішення»" onClick={() => emitCommand('platforms:autopost', { platform: mostDecisions.platform, section: 'decisions' })}>
-            рішення <span className="font-mono tabular-nums">{decisions}</span>
+            рішення <span className="tabular-nums">{decisions}</span>
           </button>
         </span>
       ) : null}

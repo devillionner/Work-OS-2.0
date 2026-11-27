@@ -5,8 +5,7 @@ import { Segmented } from '@/components/ui/segmented';
 import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import { useLiveSynced } from '@/components/views/platforms/use-live-synced';
 import type { AutopostPace, AutopostPlatformStatus } from '@/lib/live-channel';
-import { CANARY_SECONDS, estimateFromSeconds, secondsPerChat as sharedSecondsPerChat } from '@/lib/autopost-estimate.mjs';
-import { useAutopostHealth } from '@/components/views/platforms/health-line';
+import { secondsPerChat as sharedSecondsPerChat } from '@/lib/autopost-estimate.mjs';
 
 /** Відправок на годину; 0 — без пауз (лише Viber і WhatsApp: у Telegram найвищий темп 30 на годину). */
 export type PerHour = 0 | 5 | 10 | 20 | 30;
@@ -40,33 +39,18 @@ export function secondsPerChat(platform: PacePlatform, perHour: PerHour): number
   return sharedSecondsPerChat(platform, [], perHour);
 }
 
-/** Оцінка партії до запуску: «≈ 55 хв · до 21:43» (разом із пробною відправкою, поки вона ще попереду). */
-export function useStartEstimate(platform: PacePlatform, count: number, perHour: PerHour): string {
-  const health = useAutopostHealth(platform);
-  const canary = health?.status === 'ok' ? 0 : CANARY_SECONDS[platform];
-  return estimateFromSeconds(count * secondsPerChat(platform, perHour) + canary).text;
-}
-
-const chatsWord = (count: number) => (count % 10 === 1 && count % 100 !== 11 ? 'чат' : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14) ? 'чати' : 'чатів');
-
-/** «Оцінка: 63 чати ≈ 1 год 5 хв · до 21:43 при 20 на годину»: довге очікування не виглядає як зависання. */
-export function PaceEstimate({ platform, count, perHour, running }: { platform: PacePlatform; count: number; perHour: PerHour; running: boolean }) {
-  const text = useStartEstimate(platform, count, perHour);
-  if (running || count <= 0) return null;
-  return <p className="m-0 text-sm text-ink-2">Оцінка: <span className="tabular-nums">{count}</span> {chatsWord(count)} {text}{perHour > 0 ? ` при ${perHour} на годину` : ''}</p>;
-}
-
 /**
  * Сегмент «Темп, на годину: 5 · 10 · 20 · 30 · Без пауз» (у Telegram без «Без пауз»). Одиниця винесена в підпис, а в пунктах лише числа:
  * так перемикач влізає в картку на телефоні (390 px) без прокрутки й обрізаних пунктів.
  */
 export function PaceSegment({ platform, value, onChange }: { platform: PacePlatform; value: PerHour; onChange: (value: PerHour) => void }) {
   const items = VALUES[platform].map((item) => ({ value: String(item), label: item === 0 ? 'Без пауз' : <span className="tabular-nums">{item}</span> }));
+  // Два елементи сітки групи запуску (підпис | перемикач), під «Чатів у партії».
   return (
-    <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
-      <span className="text-sm text-ink-2">Темп, на годину</span>
+    <>
+      <span className="mt-2 text-[13px] text-ink-2 sm:mt-0">Темп, на годину</span>
       <Segmented<string> label="Скільки відправок на годину" size="sm" value={String(value)} onValueChange={(next) => onChange(Number(next) as PerHour)} items={items} />
-    </div>
+    </>
   );
 }
 
@@ -111,7 +95,7 @@ export function PaceLine({ pace, progress, running, status, noun }: { pace: Auto
   return (
     <p className="m-0 text-sm text-ink-2" aria-live="polite">
       {paused ? <>Черга на паузі до {clock(status?.until ?? 0)}. </> : null}
-      Наступна {noun} {nextText} · залишилось <b className="font-mono font-normal tabular-nums text-ink">{left}</b>{end ? <> · орієнтовно до {clock(end)}</> : null}
+      Наступна {noun} {nextText} · залишилось <span className="tabular-nums text-ink">{left}</span>{end ? <> · орієнтовно до {clock(end)}</> : null}
     </p>
   );
 }

@@ -73,7 +73,7 @@ export function AutopostDayCard({ size }: { size: 'phone' | 'desktop' }) {
   return (
     <Surface variant="glass" radius="card" data-reveal className={cn('flex min-w-0 flex-col gap-5', pad)} aria-label="Автопост сьогодні">
       <div><h3 className="m-0 text-[15px] font-medium">Автопост сьогодні</h3><p className="m-0 mt-0.5 text-[13px] text-ink-2">Партії всіх платформ за сьогодні</p></div>
-      <p className="m-0 flex flex-wrap items-baseline gap-x-2 text-[13px] text-ink-2"><b className="text-[30px] font-medium leading-none tracking-tight text-ink">{sent}</b>відправлено{failed ? ` · ${failed} не пішло` : ''}{left ? ` · ${left} лишилось` : ''}</p>
+      <p className="m-0 flex flex-wrap items-baseline gap-x-2 text-[13px] text-ink-2"><span className="text-[30px] font-medium leading-none tracking-[-0.02em] text-ink tabular-nums">{sent}</span>відправлено{failed ? <> · <span className="tabular-nums">{failed}</span> не пішло</> : null}{left ? <> · <span className="tabular-nums">{left}</span> лишилось</> : null}</p>
       <ul className="m-0 flex list-none flex-col gap-3 p-0">
         {active.map((item) => {
           const total = Math.max(1, item.total);
@@ -81,17 +81,17 @@ export function AutopostDayCard({ size }: { size: 'phone' | 'desktop' }) {
           const state = item.running || checks[item.platform] ? (checks[item.platform] || item.claimed > 0 || !pace || pace.nextAt <= nowSeconds * 1000 ? 'run' : 'wait') : 'done';
           const label = checks[item.platform] ? 'Перевіряю перед партією' : state === 'done' ? 'Завершено' : state === 'wait' ? `Чекає інтервалу · наступна о ${clockOf(Math.floor((pace?.nextAt ?? nowSeconds * 1000) / 1000))}` : 'Іде';
           return (
-            <li key={item.platform} className="flex flex-col gap-2 rounded-inner border border-line bg-sunken p-3.5">
-              <div className="flex items-baseline justify-between gap-3"><span className="text-sm font-medium">{NAMES[item.platform]}</span><span className="font-mono text-sm">{item.sent} <small className="text-xs text-ink-3">з {item.total}</small></span></div>
+            <li key={item.platform} className="flex flex-col gap-2.5 rounded-inner bg-sunken px-4 py-3.5">
+              <div className="flex items-baseline justify-between gap-3"><span className="text-sm font-medium">{NAMES[item.platform]}</span><span className="text-sm tabular-nums">{item.sent}<span className="text-ink-3"> з {item.total}</span></span></div>
               <div className="flex h-1.5 gap-0.5 overflow-hidden rounded-full bg-line" aria-hidden="true">
                 <i className="block h-full bg-ink" style={{ width: `${(item.sent / total) * 100}%` }} />
                 <i className="block h-full bg-hot" style={{ width: `${(item.failed / total) * 100}%` }} />
                 <i className="block h-full bg-ink opacity-40" style={{ width: `${(item.claimed / total) * 100}%` }} />
               </div>
               <HealthText platform={item.platform} />
-              <div className="flex flex-wrap items-center justify-between gap-x-3 text-xs text-ink-3">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-ink-3">
                 <span className="inline-flex items-center gap-1.5 text-ink-2"><i aria-hidden="true" className={cn('size-[7px] rounded-full', DOT[state])} />{label}</span>
-                <span className="font-mono">{item.startedAt ? `${clockOf(item.startedAt)}${state === 'done' && item.lastAt ? ` – ${clockOf(item.lastAt)}` : ''}` : ''}{left && item.pending + item.claimed ? ` · лишилось ${item.pending + item.claimed}` : ''}</span>
+                <span className="tabular-nums">{item.startedAt ? `${clockOf(item.startedAt)}${state === 'done' && item.lastAt ? ` – ${clockOf(item.lastAt)}` : ''}` : ''}{left && item.pending + item.claimed ? ` · лишилось ${item.pending + item.claimed}` : ''}</span>
               </div>
             </li>
           );
@@ -99,21 +99,23 @@ export function AutopostDayCard({ size }: { size: 'phone' | 'desktop' }) {
       </ul>
       {reasons.length ? (
         <div>
-          <h4 className="m-0 mb-1 text-[13px] font-medium text-ink-2">Не пішло · {failed}</h4>
+          <h4 className="m-0 mb-1 text-sm font-medium">Не пішло<span className="ml-1.5 font-normal tabular-nums text-ink-3">{failed}</span></h4>
           <ul className="m-0 flex list-none flex-col p-0">
             {reasons.map((reason) => (
               <li key={reason.key} className="border-t border-line first:border-t-0">
                 <button type="button" onClick={() => (reason.key === 'archived' ? openArchive(reason.per[0]?.platform) : open(reason.per[0]?.platform))} className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl px-1 py-2 text-left outline-offset-2 transition-colors hover:bg-raised">
                   <span className="flex min-w-0 flex-col"><span className="text-sm">{reason.label}</span><span className="text-xs text-ink-3">{reason.per.map((item) => `${NAMES[item.platform]} ${item.settled[reason.key]}`).join(' · ')}</span></span>
-                  <span className="font-mono text-sm font-medium">{reason.total}</span>
+                  <span className="text-sm tabular-nums text-ink">{reason.total}</span>
                 </button>
               </li>
             ))}
           </ul>
         </div>
       ) : null}
-      {chooseThread ? <Button variant="outline" size="md" onClick={openThreadChoices}>Обери гілку · {chooseThread}</Button> : null}
-      <Button variant={decision ? 'action' : 'outline'} size="md" onClick={() => open(active.find((item) => item.settled.decision > 0)?.platform)}>{decision ? `Потребують рішення · ${decision}` : 'Відкрити автопост'}</Button>
+      <div className="flex flex-col gap-2">
+        <Button variant={decision ? 'action' : 'outline'} size="md" onClick={() => open(active.find((item) => item.settled.decision > 0)?.platform)}>{decision ? <>Потребують рішення <span className="tabular-nums opacity-70">{decision}</span></> : 'Відкрити автопост'}</Button>
+        {chooseThread ? <Button variant="outline" size="md" onClick={openThreadChoices}>Обери гілку <span className="tabular-nums text-ink-3">{chooseThread}</span></Button> : null}
+      </div>
     </Surface>
   );
 }
