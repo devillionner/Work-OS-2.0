@@ -7,6 +7,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { useToast } from '@/components/ui/toast';
 import type { Chat, JoinSections as JoinCounts } from '@/components/views/platforms/use-platforms';
 import { DuplicateRows } from '@/components/views/platforms/duplicate-frame';
+import type { TelegramAccount } from '@/components/views/platforms/telegram-accounts';
 
 const PARTY = 5;
 
@@ -28,13 +29,35 @@ type Props = {
   searching: boolean;
   renderRow: (chat: Chat, section: 'queue' | 'pool', extra?: { note?: string }) => ReactNode;
   onShowMore: () => void;
+  /** Лічильник приєднань вибраного акаунта й перерва (ті самі дані, що в картці «Telegram-акаунти»). */
+  account?: TelegramAccount;
+  breakSeconds?: number;
+  busy?: boolean;
+  onStartBreak?: (accountId: string, minutes: number) => void;
 };
+
+const formatDuration = (seconds: number) => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+
+/** Один рядок над чергою: «Приєднано 3 із 5», коли пора — «Почати 10 хв»; під час перерви — її таймер. */
+function JoinPace({ account, breakSeconds, busy, onStartBreak }: { account: TelegramAccount; breakSeconds: number; busy: boolean; onStartBreak?: (accountId: string, minutes: number) => void }) {
+  const due = account.joinStreak >= account.joinBatchSize;
+  return (
+    <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-2" aria-live="polite">
+      {breakSeconds ? (
+        <span>Перерва <span className="font-mono tabular-nums text-ink">{formatDuration(breakSeconds)}</span></span>
+      ) : (
+        <span className={due ? 'text-warn' : undefined}>Приєднано <span className={due ? 'font-mono tabular-nums' : 'font-mono tabular-nums text-ink'}>{account.joinStreak}</span> із <span className={due ? 'font-mono tabular-nums' : 'font-mono tabular-nums text-ink'}>{account.joinBatchSize}</span>{due ? ' · час перерви' : ''}</span>
+      )}
+      {!breakSeconds && due && onStartBreak ? <Button variant="action" size="sm" disabled={busy} onClick={() => onStartBreak(account.id, account.breakMinutes)}>Почати {account.breakMinutes} хв</Button> : null}
+    </div>
+  );
+}
 
 /**
  * Telegram «Для приєднання» за Prototype Checker: угорі черга потенційного додавання вибраного акаунта (з неї приєднуються),
  * нижче всі нові чати партіями по 5 з кнопкою «+ У чергу». Копіювання черги: лише посилання або назви + посилання.
  */
-export function JoinSections({ candidates, pool, counts, poolTotal, searching, renderRow, onShowMore }: Props) {
+export function JoinSections({ candidates, pool, counts, poolTotal, searching, renderRow, onShowMore, account, breakSeconds = 0, busy = false, onStartBreak }: Props) {
   const toast = useToast();
 
   const copyQueue = async (named: boolean) => {
@@ -57,6 +80,7 @@ export function JoinSections({ candidates, pool, counts, poolTotal, searching, r
   return (
     <div className="flex flex-col gap-5">
       <section aria-labelledby="join-queue-title" className="flex flex-col gap-2">
+        {account ? <JoinPace account={account} breakSeconds={breakSeconds} busy={busy} onStartBreak={onStartBreak} /> : null}
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <div className="flex items-baseline gap-2">
             <h3 id="join-queue-title" className="m-0 text-[15px] font-medium">Черга приєднання</h3>

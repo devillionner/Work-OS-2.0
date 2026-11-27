@@ -8,15 +8,22 @@ import { ConfirmDialog } from '@/components/ui/dialog';
 import { PHOTO_FAILURE_CODES, autopostReasonGroup, autopostReasonText } from '@/components/views/platforms/autopost-reasons';
 import { isSameName, isSimilarName } from '@/lib/name-similarity';
 import { nameSkeleton } from '@/lib/ocr-name-match.mjs';
+import { openNativeChat } from '@/components/views/platforms/use-platforms';
 
 export type AutopostAttentionItem = { jobId: string; chatId: string; name: string; errorCode: string; updatedAt: number; /** Назва чату, яку бачив месенджер (для «Не той чат»). */ observed: string | null;
   /** Збій стався до «Надіслати» (з результату задачі): повтор не може дати дубль, тож для групи є масове «Спробувати ще всі». */
-  beforeSend: boolean };
+  beforeSend: boolean;
+  /** Посилання на чат: тиха «Відкрити» в рядку. */
+  link?: string };
 export type AutopostDecision = 'archive' | 'snooze' | 'retry' | 'retry_nophoto' | 'check' | 'rename';
 /** Відкласти: на скільки діб (1 — до завтра, 3, 7). */
 export type DecideOptions = { days?: 1 | 3 | 7 };
 
 type Pending = { kind: 'retry'; item: AutopostAttentionItem; decision: 'retry' | 'retry_nophoto' } | { kind: 'archive'; items: AutopostAttentionItem[] };
+/** Масове «В архів» з такої кількості чатів питає підтвердження; менше (і один чат) іде одразу з 8 с на «Скасувати» в Toast. */
+const ARCHIVE_CONFIRM_MIN = 5;
+/** Групу видно розгорнутою, коли вона єдина чи в ній небагато чатів. */
+const OPEN_GROUP_MAX = 5;
 const SNOOZE_CHOICES: Array<{ days: 1 | 3 | 7; label: string }> = [{ days: 1, label: 'До завтра' }, { days: 3, label: 'На 3 дні' }, { days: 7, label: 'На тиждень' }];
 
 /** «Відкласти ▾»: меню з терміном; на групі те саме для всіх чатів. */
@@ -40,8 +47,10 @@ function SnoozeMenu({ label, title, disabled, onPick }: { label: string; title: 
  */
 const MESSENGER_NAMES = { viber: 'Viber', whatsapp: 'WhatsApp', telegram: 'Telegram' } as const;
 
-export function AutopostAttentionList({ items, busy, canVerify, messenger, onDecide, onDecideMany }: {
+export function AutopostAttentionList({ items, busy, canVerify, messenger, tail = true, onDecide, onDecideMany }: {
   items: AutopostAttentionItem[];
+  /** Список останній у картці: на телефоні під ним місце, щоб кнопка «+» не закривала дії. */
+  tail?: boolean;
   busy: boolean;
   /** Чи вміє адаптер платформи лише перевірити наявне повідомлення (Viber і WhatsApp вміють). */
   canVerify: boolean;
@@ -70,7 +79,7 @@ export function AutopostAttentionList({ items, busy, canVerify, messenger, onDec
   const similar = (list: AutopostAttentionItem[]) => list.filter((item) => { const observed = knownObserved(item); return observed && isSimilarName(item.name, observed); });
 
   return (
-    <section id="autopost-decisions" className="flex flex-col gap-2 pb-24 sm:pb-0" aria-label="Чати, що потребують рішення">
+    <section id="autopost-decisions" className={`flex scroll-mt-20 flex-col gap-2 ${tail ? 'pb-24 sm:pb-0' : ''}`} aria-label="Чати, що потребують рішення">
       <h3 className="m-0 text-sm font-medium">Потребують рішення сьогодні <span className="font-mono font-normal tabular-nums text-ink-2">{items.length}</span></h3>
       {[...groups.entries()].map(([key, group]) => {
         const renameable = similar(group.items);
@@ -79,7 +88,7 @@ export function AutopostAttentionList({ items, busy, canVerify, messenger, onDec
         const safe = group.items.filter((item) => item.beforeSend && !(group.renameable && knownObserved(item)));
         const noPhoto = safe.filter((item) => PHOTO_FAILURE_CODES.has(item.errorCode));
         return (
-          <details key={key} className="group rounded-inner border border-line bg-sunken">
+          <details key={key} className="group rounded-inner border border-line bg-sunken" open={groups.size === 1 || group.items.length <= OPEN_GROUP_MAX}>
             <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
               <ChevronDown aria-hidden="true" strokeWidth={1.5} className="size-4 shrink-0 text-ink-2 transition-transform group-open:rotate-180" />
               <span className="min-w-0 flex-1 truncate">{group.label}</span>
@@ -96,14 +105,17 @@ export function AutopostAttentionList({ items, busy, canVerify, messenger, onDec
               </div>
               <div className="flex flex-wrap gap-2">
                 <SnoozeMenu label="Відкласти всі" title="Чати повернуться в чергу після вибраного терміну" disabled={busy} onPick={(options) => onDecideMany(group.items, 'snooze', options)} />
-                <Button variant="ghost" size="sm" tone="danger" disabled={busy} onClick={() => setPending({ kind: 'archive', items: group.items })}>В архів усі</Button>
+                <Button variant="ghost" size="sm" tone="danger" disabled={busy} onClick={() => (group.items.length >= ARCHIVE_CONFIRM_MIN ? setPending({ kind: 'archive', items: group.items }) : onDecideMany(group.items, 'archive'))}>В архів усі</Button>
               </div>
             </div>
             <ul className="m-0 flex list-none flex-col gap-2 p-0 px-3 pb-3">
               {group.items.map((item) => (
                 <li key={item.jobId} className="flex flex-col gap-2 rounded-inner border border-line px-3 py-2.5">
                   <div className="min-w-0">
-                    <p className="m-0 truncate text-sm font-medium" title={item.name}>{item.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="m-0 min-w-0 flex-1 truncate text-sm font-medium" title={item.name}>{item.name}</p>
+                      {item.link && messenger ? <button type="button" title="Відкрити чат у месенджері" onClick={() => openNativeChat(messenger, item.link as string)} className="-my-1 shrink-0 rounded-full px-2 py-1 text-xs text-ink-2 hover:bg-raised hover:text-ink [@media(pointer:coarse)]:min-h-9">Відкрити</button> : null}
+                    </div>
                     {group.renameable && knownObserved(item) ? (
                       <p className="m-0 mt-0.5 text-xs text-ink-2">У Work OS: {item.name} · у {messenger ? MESSENGER_NAMES[messenger] : 'месенджері'}: <span className="text-ink">{knownObserved(item)}</span></p>
                     ) : <p className="m-0 mt-0.5 text-xs text-ink-2">{autopostReasonText(item.errorCode)}</p>}
@@ -117,7 +129,7 @@ export function AutopostAttentionList({ items, busy, canVerify, messenger, onDec
                     </div>
                     <div className="flex gap-2">
                       <SnoozeMenu label="Відкласти" title="Чат повернеться в чергу після вибраного терміну" disabled={busy} onPick={(options) => onDecide(item, 'snooze', options)} />
-                      <Button variant="ghost" size="sm" tone="danger" disabled={busy} onClick={() => setPending({ kind: 'archive', items: [item] })}>В архів</Button>
+                      <Button variant="ghost" size="sm" tone="danger" disabled={busy} onClick={() => onDecide(item, 'archive')}>В архів</Button>
                     </div>
                   </div>
                 </li>

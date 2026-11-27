@@ -41,13 +41,13 @@ export function AutopostCard({ material, status, pace, busy, plan, onLoadPlan, r
     : runnerConnected && status?.state === 'blocked'
       ? { tone: 'warn', text: status.text || 'Автопост WhatsApp на паузі.' }
       : runnerConnected
-      ? { tone: 'ok', text: 'Runner підключений. Вкладка WhatsApp Web у його браузері має бути відкрита й залогінена.' }
+      ? { tone: 'ok', text: 'Runner підключений.' }
       : { tone: 'idle', text: 'Чекаю на зв’язок із runner на ПК…' };
   return (
     <AutopostPanel
       platform="whatsapp"
       title="Автопублікація у WhatsApp"
-      description="Чати з черги «Для публікації» по одному: Work OS відкриває чат у WhatsApp Web, додає фото з підписом, надсилає й перевіряє, що повідомлення з’явилось. Кожен чат потрапляє в партію один раз на день."
+      description={<><p className="m-0">Чати з черги «Для публікації» по одному: Work OS відкриває чат у WhatsApp Web, додає фото з підписом, надсилає й перевіряє, що повідомлення з’явилось. Кожен чат потрапляє в партію один раз на день.</p><p className="m-0">Вкладка WhatsApp Web у браузері runner має бути відкрита й залогінена.</p></>}
       plan={plan}
       onLoadPlan={onLoadPlan}
       secondsPerChat={secondsPerChat('whatsapp', perHour)}
@@ -55,9 +55,9 @@ export function AutopostCard({ material, status, pace, busy, plan, onLoadPlan, r
       topSlot={(
         <div className="flex flex-col gap-3">
           <PaceEstimate platform="whatsapp" count={plan?.ready ?? 0} perHour={perHour} running={progress?.running === true} />
-          <PaceLine pace={pace} progress={progress} running={progress?.running === true} status={status} noun="відправка" />
         </div>
       )}
+      paceSlot={<PaceLine pace={pace} progress={progress} running={progress?.running === true} status={status} noun="відправка" />}
       startSlot={<PaceSegment platform="whatsapp" value={perHour} onChange={setPerHour} />}
       readiness={readiness}
       settingsTitle="Як підготувати автопост WhatsApp"

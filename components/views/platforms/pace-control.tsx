@@ -97,6 +97,17 @@ export function PaceLine({ pace, progress, running, status, noun }: { pace: Auto
   // Час зі знімка DO вважаємо дійсним, лише коли канал синхронізований: після сну вкладки він міг застаріти.
   const nextText = !synced ? 'оновлюю…' : next === null ? 'зараз' : now > 0 && next <= now ? 'зараз' : `о ${clock(next)}`;
   const end = next !== null && intervalMs > 0 && left > 0 ? Math.max(next, now) + (left - 1) * intervalMs : null;
+  // Кільце партії вже показує «Лишилось» і «До кінця», а «Зараз» між відправками — «наступна о …»: тут лишається лише час наступної, поки чат у роботі (і пауза).
+  const ring = progress.batch && progress.batch.total > 0 ? progress.batch : null;
+  if (ring) {
+    if (!paused && (ring.inProgress === 0 || next === null || intervalMs === 0)) return null;
+    return (
+      <p className="m-0 text-sm text-ink-2" aria-live="polite">
+        {paused ? <>Черга на паузі до {clock(status?.until ?? 0)}. </> : null}
+        Наступна {noun} {nextText}
+      </p>
+    );
+  }
   return (
     <p className="m-0 text-sm text-ink-2" aria-live="polite">
       {paused ? <>Черга на паузі до {clock(status?.until ?? 0)}. </> : null}

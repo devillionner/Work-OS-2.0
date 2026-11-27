@@ -50,14 +50,15 @@ function noteFor(bucket: AutopostBucket, reason: AutopostPlan['reasons'][string]
  * (`plan.buckets`, той самий розклад, що в чіпі черги, «Огляді» й картці автопосту); для Telegram плану немає, тож групи
  * складаються з самого списку. «Готові» розгорнуті, решта під згортками з числом.
  */
-export function ReadyGroups({ chats, clock, plan, complete, renderRow, onOpenDecisions }: {
+export function ReadyGroups({ chats, clock, plan, complete, renderRow, onOpenSection }: {
   chats: Chat[];
   clock: number;
   plan: AutopostPlan | null;
   /** У списку всі чати черги (не лише сторінка): тоді числа заголовків — із плану. */
   complete: boolean;
   renderRow: (chat: Chat, extra?: RowExtra) => ReactNode;
-  onOpenDecisions?: () => void;
+  /** «Розібрати на вкладці «Автопост»»: відкриває зону автопосту й гортає до потрібного блоку («Потребують рішення» чи «Обери гілку»). */
+  onOpenSection?: (id: 'autopost-decisions' | 'thread-choices') => void;
 }) {
   const grouped = new Map<AutopostBucket, Chat[]>();
   for (const chat of chats) {
@@ -97,7 +98,7 @@ export function ReadyGroups({ chats, clock, plan, complete, renderRow, onOpenDec
               {group.key === 'rules' && plan?.rulesNextDate ? <span className="text-xs text-ink-3">найближча — {dayLabel(plan.rulesNextDate)}</span> : null}
               <span className="ml-auto text-xs text-ink-3 group-open:hidden">розгорнути</span>
             </summary>
-            {(group.key === 'decision' || group.key === 'thread') && onOpenDecisions ? <div className="mt-1"><Button variant="outline" size="sm" onClick={onOpenDecisions}>Розібрати на вкладці «Автопост»</Button></div> : null}
+            {(group.key === 'decision' || group.key === 'thread') && onOpenSection ? <div className="mt-1"><Button variant="outline" size="sm" onClick={() => onOpenSection(group.key === 'thread' ? 'thread-choices' : 'autopost-decisions')}>Розібрати на вкладці «Автопост»</Button></div> : null}
             <div className="mt-2">{list(group.key, items)}</div>
           </details>
         );

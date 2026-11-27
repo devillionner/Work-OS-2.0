@@ -2,7 +2,9 @@
 
 import { poolSnippet } from '@/lib/telegram-pool/parse';
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { Check, ChevronDown, Minus, X } from 'lucide-react';
+import { Check, ChevronDown, Minus, Square, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { scrollToSection } from '@/components/views/platforms/scroll-to-section';
 import { CountUp } from '@/components/motion/count-up';
 import { ratioPercent } from '@/components/ui/ring';
 import { BatchRing } from '@/components/views/platforms/batch-ring';
@@ -98,7 +100,13 @@ function NowBlock({ name, step, now, idle = null }: { name: string; step: LiveSt
   );
 }
 
-export function AutopostBatchPanel({ batch, running, platform }: { batch: AutopostBatch | null | undefined; running: boolean; platform: 'whatsapp' | 'viber' | 'telegram' }) {
+export function AutopostBatchPanel({ batch, running, platform, onStop, stopBusy = false, decisions = 0 }: {
+  batch: AutopostBatch | null | undefined; running: boolean; platform: 'whatsapp' | 'viber' | 'telegram';
+  /** «Зупинити» в шапці ходу партії (лише поки партія йде). */
+  onStop?: () => void; stopBusy?: boolean;
+  /** Скільки чатів у «Потребують рішення»: тоді «Не вдалося N» веде до цього списку. */
+  decisions?: number;
+}) {
   // Пробна відправка перед партією: runner шле крок «Перевіряю … перед партією», і «Зараз» показує його, а не «Чекаю наступну відправку».
   const checking = useAutopostHealth(platform)?.status === 'checking';
   const now = useSecondClock(running || checking);
@@ -129,19 +137,24 @@ export function AutopostBatchPanel({ batch, running, platform }: { batch: Autopo
 
   return (
     <section className="flex flex-col gap-4 rounded-inner border border-line bg-sunken p-4" aria-label="Хід партії автопосту">
+      <div className="flex items-center justify-between gap-3">
+        <p className="m-0 flex items-center gap-2 text-sm font-medium">
+          {active ? <i aria-hidden="true" className="size-2 rounded-full bg-ink" /> : <Check aria-hidden="true" strokeWidth={1.5} className={allSent ? 'size-4 text-ok' : 'size-4 text-ink-2'} />}
+          {active ? 'Партія виконується' : batch.cancelled > 0 ? 'Партію зупинено' : 'Партію завершено'}
+        </p>
+        {running && onStop ? <Button variant="outline" size="sm" tone="danger" disabled={stopBusy} onClick={onStop}><Square aria-hidden="true" strokeWidth={1.5} />Зупинити</Button> : null}
+      </div>
       <div className="flex items-center gap-5">
         <BatchRing total={batch.total} sent={batch.sent} failed={notSent} busy={batch.inProgress} ok={allSent} size={72} stroke={5} label={`Відправлено ${batch.sent} з ${batch.total}${batch.inProgress ? `, у роботі ${batch.inProgress}` : ''}`}>
           <CountUp value={ratioPercent(ratio)} format={(value) => `${value}%`} />
         </BatchRing>
         <div className="min-w-0 flex-1">
-          <p className="m-0 flex items-center gap-2 text-sm font-medium">
-            {active ? <i aria-hidden="true" className="size-2 rounded-full bg-ink" /> : <Check aria-hidden="true" strokeWidth={1.5} className={allSent ? 'size-4 text-ok' : 'size-4 text-ink-2'} />}
-            {active ? 'Партія виконується' : batch.cancelled > 0 ? 'Партію зупинено' : 'Партію завершено'}
-            <span className="ml-auto text-sm font-normal text-ink-2">оброблено <span className="font-mono tabular-nums text-ink">{done} з {batch.total}</span></span>
-          </p>
+          <p className="m-0 text-sm text-ink-2">оброблено <span className="font-mono tabular-nums text-ink">{done} з {batch.total}</span></p>
           <p className="m-0 mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">
             <span>Відправлено <b className="font-mono font-normal tabular-nums text-ink">{batch.sent}</b></span>
-            {notSent > 0 ? <span className="text-hot" title="Помилка, пропуск за політикою або рішення, що чекає тебе">Не вдалося <b className="font-mono font-normal tabular-nums">{notSent}</b></span> : null}
+            {notSent > 0 && decisions > 0 ? (
+              <button type="button" className="text-hot underline decoration-hot/40 underline-offset-4 hover:decoration-hot" title="До списку «Потребують рішення»" onClick={() => scrollToSection('autopost-decisions')}>Не вдалося <b className="font-mono font-normal tabular-nums">{notSent}</b></button>
+            ) : notSent > 0 ? <span className="text-hot" title="Помилка, пропуск за політикою або рішення, що чекає тебе">Не вдалося <b className="font-mono font-normal tabular-nums">{notSent}</b></span> : null}
             {batch.inProgress > 0 ? <span>У роботі <b className="font-mono font-normal tabular-nums text-ink">{batch.inProgress}</b></span> : null}
             <span>Лишилось <b className="font-mono font-normal tabular-nums text-ink">{batch.queued}</b></span>
             {(batch.thread ?? 0) > 0 ? <span title="У цих чатах є гілки: вибери, куди публікувати">Чекають вибору гілки <b className="font-mono font-normal tabular-nums text-ink">{batch.thread}</b></span> : null}
