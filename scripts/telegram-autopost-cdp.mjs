@@ -267,7 +267,7 @@ export const READ_STATE_JS = `(() => {
     // Емодзі в назві — картинки з alt: без їх підстановки слова склеюються («Украинцыв NRWКуплю…») і назва не збігається з Work OS.
     title: (() => { const node = header && header.querySelector('.fullName, h3, .title'); if (!node) return ''; const clone = node.cloneNode(true); clone.querySelectorAll('img[alt]').forEach((img) => { const alt = img.getAttribute('alt'); if (alt) img.replaceWith(document.createTextNode(alt)); }); return (clone.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 200); })(),
     status: header ? ((header.querySelector('.status, .group-status') || {}).innerText || '').trim().slice(0, 120) : '',
-    peerId: (peer && peer.getAttribute('data-peer-id')) || (location.hash.match(/^#(-?\\d+)/) || [])[1] || '',
+    peerId: (peer && peer.getAttribute('data-peer-id')) || (location.hash.match(/^#(-?[1-9]\\d*)/) || [])[1] || '',
     // Ознаки форуму, окрім списку гілок: панель форуму зліва й гілка в адресі. Якщо вони є, а список гілок не прочитався, у чат не пишемо.
     // Живий розбір форуму 2026-10-24: у режимі «як повідомлення» стрічка містить .topic-group з пігулкою .topic-pill (назва гілки), а
     // знизу замість поля стоїть «You can reply to messages in topics»; у режимі гілок зліва .Topic.
@@ -410,7 +410,8 @@ async function waitForOpenChat(page, shouldAbort, deadlineAt, stallMs = 0) {
     last = state;
     if (state.auth) return { state };
     // Застосунок обробив посилання, але чат не відкрив (адреса порожня): далі чекати марно, нехай викликач почне заново.
-    if (stallMs && Date.now() - startedWaiting > stallMs && !/tgaddr|#-?\d/.test(state.url || '') && !state.notices) return { state, stalled: true };
+    // «#0» — Telegram Web A обробив посилання, але чату не знайшов (27.11 після ночі у фоні): це теж порожня адреса, а не відкритий чат.
+    if (stallMs && Date.now() - startedWaiting > stallMs && !/tgaddr|#-?[1-9]\d*/.test(state.url || '') && !state.notices) return { state, stalled: true };
     if (state.notices && (missingPattern.test(state.notices) || privatePattern.test(state.notices))) return { state };
     // Поки застосунок не обробив глибоке посилання (tgaddr), в адресі воно ще стоїть, а на екрані може бути чат із попереднього сеансу.
     if (/tgaddr/.test(state.url || '')) { await sleep(POLL_MS); continue; }

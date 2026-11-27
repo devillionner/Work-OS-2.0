@@ -101,7 +101,7 @@ function ThreadChoices({ choices, busy, running, onChoose, onScan, onSkip, onOpe
     <section id="thread-choices" className="flex flex-col gap-2 scroll-mt-20" aria-label="Чати, для яких треба вибрати гілку">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="m-0 text-sm font-medium">Обери гілку <span className="font-mono font-normal tabular-nums text-ink-2">· {choices.length}</span></h3>
-        <Button variant="outline" size="sm" disabled={busy} title="Швидко відкриє ці чати й доповнить списки гілок; місць «на годину» не займає" onClick={() => onScan()}>Знайти гілки</Button>
+        <Button variant="outline" size="sm" disabled={busy} title="Відкриє ці чати й ще не перевірені чати акаунта та оновить списки гілок; місць «на годину» не займає. Поки runner вимкнений, перевірки чекають у черзі" onClick={() => onScan()}>Знайти гілки</Button>
       </div>
       <p className="m-0 text-xs text-ink-2">У цих чатах є гілки (чи вони могли бути). Обери гілку й, за бажанням, напрямки, потім натисни «Додати в партію». Вибір зберігається назавжди. Поки гілку не збережено, чат у партію не входить.</p>
       <ul className="m-0 flex list-none flex-col gap-2 p-0">

@@ -1542,6 +1542,9 @@ export async function completeWhatsAppAutopostJob(db:D1Database,userId:string,in
         WHERE id=?3 AND user_id=?4 AND status='claimed' RETURNING id`)
         .bind(JSON.stringify({requestedStatus:'scanned',observedTarget,forum:null}),now,jobId,userId).all<{id:string}>();
       if(closed.results.length!==1)throw new MessengerAutomationError('Задача проходу вже не в роботі.',409);
+      // Час перевірки все одно ставимо (`telegram_forum` не чіпаємо): інакше блок «Обери гілку» вважає, що проходу після збою не було,
+      // і кожне відкриття сторінки ставить його знову (знахідка 27.11). Пошук за первинним ключем.
+      await db.prepare(`UPDATE chats SET telegram_topics_at=?1 WHERE id=?2 AND user_id=?3`).bind(now,row.chat_id,userId).run();
       return {ok:true,status:'scanned',publicationId:null,result:{requestedStatus:'scanned',forum:null,topics:0,queued:false}};
     }
     if(scan){
