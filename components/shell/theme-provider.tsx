@@ -2,7 +2,8 @@
 
 import { useSyncExternalStore } from 'react';
 
-export type AtmospherePreset = 'fog' | 'coast' | 'forest' | 'road' | 'rays' | 'depth' | 'aurora' | 'mercury' | 'steel' | 'photo';
+/** Атмосфера одна — «Аврора», плюс власне фото. Збережені назви прибраних атмосфер (3.24.2) тихо читаються як «Аврора». */
+export type AtmospherePreset = 'aurora' | 'photo';
 export type Density = 'comfortable' | 'compact';
 
 export const ATMOSPHERE_KEY = 'work-os:atmosphere';
@@ -12,9 +13,9 @@ const LEGACY_THEME_KEY = 'work-os:theme';
 
 type AppearanceSnapshot = { atmosphere: AtmospherePreset; density: Density };
 
-const ATMOSPHERES = ['fog', 'coast', 'forest', 'road', 'rays', 'depth', 'aurora', 'mercury', 'steel', 'photo'] as const;
+const ATMOSPHERES = ['aurora', 'photo'] as const;
 const DENSITIES = ['comfortable', 'compact'] as const;
-const SERVER_SNAPSHOT: AppearanceSnapshot = { atmosphere: 'fog', density: 'comfortable' };
+const SERVER_SNAPSHOT: AppearanceSnapshot = { atmosphere: 'aurora', density: 'comfortable' };
 
 let snapshot: AppearanceSnapshot | null = null;
 const listeners = new Set<() => void>();
@@ -34,16 +35,21 @@ function write(key: string, value: string) {
 
 function applyToDocument(next: AppearanceSnapshot) {
   const root = document.documentElement;
-  root.dataset.atmosphere = next.atmosphere === 'photo' ? 'fog' : next.atmosphere;
-  root.dataset.atmospherePhoto = next.atmosphere === 'photo' ? '1' : '0';
+  root.dataset.atmosphere = next.atmosphere;
   root.dataset.density = next.density;
 }
 
 function getSnapshot(): AppearanceSnapshot {
   if (snapshot) return snapshot;
-  try { window.localStorage.removeItem(LEGACY_THEME_KEY); } catch { /* сховище недоступне */ }
+  try {
+    const storage = window.localStorage;
+    storage.removeItem(LEGACY_THEME_KEY);
+    // Прибрана атмосфера («Туман», «Ртуть» тощо) стає «Авророю» мовчки: стара назва просто зникає зі сховища.
+    const stored = storage.getItem(ATMOSPHERE_KEY);
+    if (stored !== null && !(ATMOSPHERES as readonly string[]).includes(stored)) storage.removeItem(ATMOSPHERE_KEY);
+  } catch { /* сховище недоступне */ }
   snapshot = {
-    atmosphere: read<AtmospherePreset>(ATMOSPHERE_KEY, ATMOSPHERES, 'fog'),
+    atmosphere: read<AtmospherePreset>(ATMOSPHERE_KEY, ATMOSPHERES, 'aurora'),
     density: read<Density>(DENSITY_KEY, DENSITIES, 'comfortable'),
   };
   return snapshot;
@@ -75,5 +81,5 @@ export function useTheme() {
   return { ...state, setAtmosphere, setDensity };
 }
 
-/** Інлайн-скрипт для <head>: виставляє атмосферу й щільність до гідрації, без мигання; тема одна («Ніч»). */
-export const THEME_BOOT_SCRIPT = `(function(){try{var d=document.documentElement,s=localStorage,a=s.getItem('${ATMOSPHERE_KEY}')||'fog';d.dataset.atmosphere=a==='photo'?'fog':a;d.dataset.atmospherePhoto=a==='photo'?'1':'0';d.dataset.density=s.getItem('${DENSITY_KEY}')||'comfortable';s.removeItem('${LEGACY_THEME_KEY}')}catch(e){}})()`;
+/** Інлайн-скрипт для <head>: виставляє атмосферу й щільність до гідрації, без мигання; будь-що, крім «photo», — «Аврора». */
+export const THEME_BOOT_SCRIPT = `(function(){try{var d=document.documentElement,s=localStorage;d.dataset.atmosphere=s.getItem('${ATMOSPHERE_KEY}')==='photo'?'photo':'aurora';d.dataset.density=s.getItem('${DENSITY_KEY}')||'comfortable';s.removeItem('${LEGACY_THEME_KEY}')}catch(e){}})()`;
