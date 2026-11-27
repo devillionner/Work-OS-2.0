@@ -16,7 +16,7 @@ export type ViberRunnerStatus = { state: 'ready' | 'blocked' | 'busy'; reason: s
 /** Скільки чекаємо першого повідомлення runner про стан, перш ніж казати, що щось не так. */
 const STATUS_GRACE_MS = 15_000;
 
-/** Автопублікація у Viber через Android у Waydroid: спільна картка автопосту (`AutopostPanel`) зі станом runner і Viber. */
+/** Автопублікація у Viber (на Windows — Viber Desktop, на Linux — Viber в Android у Waydroid): спільна картка автопосту зі станом runner і Viber. */
 export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attention, batchNote, status, runnerConnected, pace, busy, onDecide, onDecideMany, onStart, onStop, onReset }: {
   material: AutopostMaterialProps;
   plan: AutopostPlan | null;
@@ -35,7 +35,7 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
   onStop: () => void;
   onReset: () => void;
 }) {
-  // «Стан з’явиться» лише перші секунди: далі це вже привід перевірити Waydroid, а не чекати.
+  // «Стан з’явиться» лише перші секунди: далі це вже привід перевірити Viber на ПК, а не чекати.
   const [waitedLong, setWaitedLong] = useState(false);
   useEffect(() => {
     if (status || runnerConnected !== true) return;
@@ -57,16 +57,16 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
       : status?.state === 'busy' || (running && status?.state !== 'ready')
         ? { tone: 'ok', text: status?.state === 'busy' && status.text ? status.text : 'Партія виконується: runner надсилає в чати.' }
         : status?.state === 'ready'
-          ? { tone: 'ok', text: 'Runner, Waydroid і Viber готові.' }
+          ? { tone: 'ok', text: 'Runner і Viber готові.' }
           : runnerConnected === true && waitedLong
-            ? { tone: 'warn', text: 'Runner підключений, але Viber не відповів. Відкрий Waydroid на ПК (він може запускатися до хвилини) або обери «Перезапустити runner» у треї.' }
-            : { tone: 'idle', text: 'Перевіряю Waydroid і Viber…' };
+            ? { tone: 'warn', text: 'Runner підключений, але Viber не відповів. Перевір, що Viber на ПК запущений і ти в нього увійшов, або обери «Перезапустити runner» у меню значка біля годинника.' }
+            : { tone: 'idle', text: 'Перевіряю Viber на ПК…' };
 
   return (
     <AutopostPanel
       platform="viber"
       title="Автопублікація у Viber"
-      description="Чати з черги «Для публікації» по одному: Work OS відкриває чат за посиланням у Viber на Android (Waydroid), додає фото з галереї, вводить текст, надсилає й перевіряє, що повідомлення з’явилось у цьому чаті."
+      description="Чати з черги «Для публікації» по одному: Work OS відкриває чат за його посиланням-запрошенням у Viber на ПК, перевіряє назву чату, додає фото й текст, надсилає й перевіряє, що повідомлення з’явилось у цьому чаті."
       plan={plan}
       onLoadPlan={onLoadPlan}
       secondsPerChat={secondsPerChat('viber', perHour)}
@@ -82,9 +82,9 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
       settingsTitle="Налаштування Viber на ПК"
       settingsHelp={(
         <ol className="m-0 flex flex-col gap-1.5 pl-5">
-          <li>Waydroid на ПК запускається сам; Viber у ньому активований як додатковий пристрій, мова Android англійська.</li>
-          <li>У Waydroid встановлена клавіатура ADBKeyBoard (adb install ADBKeyboard.apk): через неї вводиться текст, потім звичайна клавіатура повертається.</li>
-          <li>Автозаморожування Waydroid вимкнене (waydroid prop set persist.waydroid.suspend false), щоб відправка йшла й зі схованим вікном.</li>
+          <li>На ПК встановлено Viber Desktop, і ти в нього увійшов (QR-код з телефону). Вікно Viber можна тримати на іншому робочому столі: Work OS не забирає фокус.</li>
+          <li>У Windows є розпізнавання тексту російською (ним Work OS читає назви чатів; українського у Windows немає). Інсталятор runner ставить його сам.</li>
+          <li>Чати відкриваються лише за посиланням-запрошенням: заблокований чат іде в архів «Забанено», недійсне посилання — «Чат не існує».</li>
           <li>Що піде в чати, обираєш у блоці «Що піде в чати»: оголошення з Бібліотеки (з їхніми фото; вибір спільний з WhatsApp і Telegram) або власний текст і фото, які спільні з WhatsApp. Оголошення без фото йде лише текстом.</li>
         </ol>
       )}

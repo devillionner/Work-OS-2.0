@@ -788,7 +788,7 @@ function reasonLabel(value: string) {
     fresh_join_history_unavailable: 'старі повідомлення недоступні після вступу — потрібна ручна перевірка',
     telegram_search_throttled: 'Telegram перестав повертати результати пошуку — схоже на тимчасове обмеження акаунта. Продовж за кілька годин, план лишився на цьому ж кроці.',
     telegram_flood_wait: 'Telegram тимчасово обмежив пошук — продовж пізніше',
-    telegram_tab_missing: 'відкрий web.telegram.org/a в Opera з портом 9222 і натисни «Продовжити»',
+    telegram_tab_missing: 'у браузері runner немає вкладки Telegram Web: у меню значка runner біля годинника обери «Показати браузер runner», відкрий web.telegram.org/a й увійди, потім натисни «Продовжити»',
     telegram_not_authenticated: 'потрібен вхід у Telegram Web (web.telegram.org/a)',
     telegram_tab_unavailable: 'вкладка Telegram стала недоступна',
     telegram_search_unavailable: 'пошук у Telegram тимчасово недоступний',

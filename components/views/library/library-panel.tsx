@@ -20,7 +20,6 @@ import type { ScriptFieldKey } from '@/lib/script-fields';
 import { labels as leadLabels } from '@/components/views/leads/client';
 import { InsertFieldMenu, ScriptTextEditor } from './script-editor';
 import { compressImage } from './image-compress';
-import { ViberCard } from './viber-card';
 import { collectionLabel, formFromItem, formatStamp, newForm, platformLabel, type Form, type Item, type LibraryCollectionKey } from './types';
 import { humanError } from '@/components/ui/human-error';
 
@@ -333,7 +332,6 @@ export function LibraryPanel({ open, onOpenChange, collection, item, onSaved, on
                 </Field>
                 {item && item.usedTodayPlatforms.length ? <p className="m-0 text-[13px] text-ink-2">Сьогодні вже використано: {cleanLibraryPlatforms(item.usedTodayPlatforms).map(platformLabel).join(', ')}.</p> : null}
                 {unsupported.length ? <p className="m-0 text-[13px] text-ink-2">Є старі невідомі платформи: {unsupported.join(', ')}. Обери актуальні зі списку перед збереженням.</p> : null}
-                {item && item.archivedAt === null && cleanLibraryPlatforms(item.platforms).includes('viber') ? <ViberCard key={item.id} item={item} /> : null}
               </>
             ) : null}
           </div>

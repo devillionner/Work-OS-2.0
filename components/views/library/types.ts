@@ -83,20 +83,3 @@ export function matchesPlatform(item: Item, filter: string): boolean {
 export function formatStamp(epochSeconds: number): string {
   return new Intl.DateTimeFormat('uk-UA', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Kyiv' }).format(new Date(epochSeconds * 1000));
 }
-
-export type ViberSafeJob = {
-  id: string;
-  status: 'pending' | 'claimed' | 'sent' | 'failed' | 'cancelled';
-  updatedAt?: number;
-  result: Record<string, unknown> | null;
-};
-
-export function viberJobStatus(status: ViberSafeJob['status']): string {
-  return ({
-    pending: 'очікує executor',
-    claimed: 'виконується',
-    sent: 'підтверджено в «Мої нотатки»',
-    failed: 'завершено без підтвердженої відправки',
-    cancelled: 'скасовано',
-  } as const)[status];
-}
