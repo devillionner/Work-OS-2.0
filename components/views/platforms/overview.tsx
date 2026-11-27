@@ -23,8 +23,9 @@ export function PlatformOverview({ pace, platformLabel, available, availableLabe
         <Ring id="platforms:publications" value={ratio} tone={tone} size={64} stroke={5} label={`Ціль публікацій: ${safe.completed} із ${safe.target}`}>{goalPercent(safe.completed, safe.target)}%</Ring>
         <div className="min-w-0">
           <p className="m-0 text-[13px] text-ink-2">Ціль публікацій</p>
-          <p className={cn('m-0 font-mono text-[28px] leading-tight', toneTextClass(tone))}>{safe.completed} <span className="text-base text-ink-2">/ {safe.target}</span></p>
-          {platformLabel ? <p className="m-0 text-xs text-ink-2">усі платформи · {platformLabel} <span className="font-mono tabular-nums text-ink">{published?.length ?? 0}</span></p> : null}
+          <p className={cn('m-0 whitespace-nowrap font-mono text-[28px] leading-tight tabular-nums', toneTextClass(tone))}>{safe.completed} <span className="text-base text-ink-2">/ {safe.target}</span></p>
+          {/* Назва платформи й її число не розриваються: переноситься лише ціле «Telegram 0». */}
+          {platformLabel ? <p className="m-0 text-xs text-ink-2">усі платформи · <span className="whitespace-nowrap">{platformLabel} <span className="font-mono tabular-nums text-ink">{published?.length ?? 0}</span></span></p> : null}
         </div>
       </Surface>
       {available !== undefined ? <LinkStat label={availableLabel} items={available} count={availableCount} fresh={loadAvailable} /> : null}

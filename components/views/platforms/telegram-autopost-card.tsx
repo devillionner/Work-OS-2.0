@@ -16,17 +16,21 @@ import type { WhatsAppAutopostProgress } from '@/components/views/platforms/auto
 import type { AutopostPlatformStatus, TelegramPace } from '@/lib/live-channel';
 
 /** Прив'язка Telegram-акаунта Work OS до акаунта, залогіненого в браузері runner: автопост публікує лише з нього. */
-function AccountBinding({ binding, status, busy, onBind }: { binding: { bound: boolean; webUserId: string | null } | null; status: AutopostPlatformStatus | null; busy: boolean; onBind: (webUserId: string | null) => void }) {
-  const identity = status?.identity ?? null;
+function AccountBinding({ binding, status, busy, runnerOffline, onBind }: { binding: { bound: boolean; webUserId: string | null } | null; status: AutopostPlatformStatus | null; busy: boolean; /** Runner вимкнений: акаунт у браузері прочитати нікому. */ runnerOffline: boolean; onBind: (webUserId: string | null) => void }) {
+  const identity = runnerOffline ? null : status?.identity ?? null;
   if (!binding) return null;
   if (!binding.bound) {
+    // Кнопка недоступна, поки не відомо, який акаунт відкрито в браузері runner; поруч завжди видно чому.
+    const why = runnerOffline
+      ? 'Runner вимкнений: прив’язати акаунт можна, коли його запущено (кнопка «Запустити runner» вище).'
+      : 'Чекаю, поки runner прочитає акаунт у Telegram Web: відкрий web.telegram.org у браузері runner, увійди й зачекай хвилину.';
     return (
       <div className="flex flex-col gap-2 rounded-inner border border-line p-4">
         <p className="m-0 text-sm font-medium">Акаунт Telegram у браузері ще не прив’язано</p>
         <p className="m-0 text-sm text-ink-2">Автопост перевіряє, що в Telegram Web відкрито саме цей акаунт Work OS. Увійди в нього у вкладці браузера runner і прив’яжи.</p>
         <div className="flex flex-wrap items-center gap-3">
-          <Button variant="outline" size="sm" disabled={busy || !identity} onClick={() => onBind(identity)}>Прив’язати цей акаунт</Button>
-          {identity ? <span className="font-mono text-xs tabular-nums text-ink-2">id {identity}</span> : <span className="text-xs text-ink-2">Telegram Web у браузері runner не відповів: відкрий web.telegram.org і зачекай хвилину.</span>}
+          <Button variant="outline" size="sm" disabled={busy || !identity} aria-describedby={identity ? undefined : 'telegram-bind-why'} onClick={() => onBind(identity)}>Прив’язати цей акаунт</Button>
+          {identity ? <span className="font-mono text-xs tabular-nums text-ink-2">id {identity}</span> : <span id="telegram-bind-why" className="min-w-0 flex-1 basis-56 text-xs text-ink-2">{why}</span>}
         </div>
       </div>
     );
@@ -155,8 +159,10 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, onS
   const running = progress?.running === true;
   const unbound = binding !== null && !binding.bound;
   const online = runnerConnected === true || runnerSeen;
-  const readiness: AutopostReadiness = runnerConnected === false && !runnerSeen
-    ? { tone: 'hot', text: 'Runner вимкнений. Автопост не працює, поки його не запущено.' }
+  const runnerOffline = runnerConnected === false && !runnerSeen;
+  const hasChoices = (plan?.threadChoices?.length ?? 0) > 0;
+  const readiness: AutopostReadiness = runnerOffline
+    ?{ tone: 'hot', text: 'Runner вимкнений. Автопост не працює, поки його не запущено.' }
     : online && status?.state === 'blocked'
       ? { tone: 'warn', text: status.text || 'Автопост Telegram на паузі.' }
       : unbound
@@ -190,7 +196,7 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, onS
       settingsHelp={(
         <ol className="m-0 flex flex-col gap-1.5 pl-5">
           <li>У браузері runner відкрий web.telegram.org/a і залогінься в акаунт, який вибрано вгорі в Work OS.</li>
-          <li>Прив’яжи акаунт кнопкою вище: перед кожним чатом автопост перевіряє, що відкрито саме його.</li>
+          <li>Прив’яжи акаунт кнопкою «Прив’язати цей акаунт» у блоці нижче (він видний, поки акаунт не прив’язано): перед кожним чатом автопост перевіряє, що відкрито саме його.</li>
           <li>Фото й текст у Telegram власні, окремі від WhatsApp і Viber (кнопка «Взяти з WhatsApp/Viber» копіює їх). У блоці «Що піде в чати» обери, що публікувати: «Пул текстів» (кожен чат отримує окремий текст за напрямом, мовою й аудиторією, за добу жоден текст не йде вдруге), «Оголошення Бібліотеки» (обрані оголошення з їхніми фото, кожен чат отримує підходяще за напрямом; вибір спільний із Viber і WhatsApp) або «Власне фото й текст» (усі чати отримують однаковий матеріал; без власного тексту береться оголошення з Бібліотеки). Вибір зберігається для всіх акаунтів Telegram і діє на нові партії. Фото необов’язкове: підпис до фото — до 1024 символів, текст без фото — до 4096.</li>
           <li>Чат у розкладі на сьогодні автопост не бере. Якщо Telegram просить зачекати, вся черга Telegram стає на паузу на вказаний час.</li>
         </ol>
@@ -200,14 +206,19 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, onS
       attention={attention}
       batchNote={batchNote}
       busy={busy}
-      runnerBlocked={(runnerConnected === false && !runnerSeen) || unbound || status?.state === 'blocked' && status.reason === 'telegram_account_mismatch'}
+      runnerBlocked={runnerOffline || unbound || status?.state === 'blocked' && status.reason === 'telegram_account_mismatch'}
       topSlot={(
         <div className="flex flex-col gap-3">
           {source?.mode === 'pool' ? <PoolRow plan={plan} onOpen={() => setPoolOpen(true)} /> : null}
-          <AccountBinding binding={binding} status={status} busy={busy} onBind={onBind} />
+          <AccountBinding binding={binding} status={status} busy={busy} runnerOffline={runnerOffline} onBind={onBind} />
           <ThreadChoices choices={plan?.threadChoices ?? []} busy={busy} running={running} onChoose={onChooseThread} onScan={onScanThreads} onSkip={onSkipThread} onOpen={onOpenChat} />
           <PaceEstimate platform="telegram" count={plan?.ready ?? 0} perHour={perHour} running={running} />
-          {(plan?.unscanned ?? 0) > 0 && !running ? <p className="m-0 text-xs text-ink-2">{plan?.unscanned} {chatWord(plan?.unscanned ?? 0)} ще не перевірено на гілки: перед публікацією їх швидко відкриє прохід, він не займає місць «на годину». Можна зробити це наперед кнопкою «Знайти гілки» нижче.</p> : null}
+          {(plan?.unscanned ?? 0) > 0 && !running ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <p className="m-0 min-w-0 flex-1 basis-64 text-xs text-ink-2">{plan?.unscanned} {chatWord(plan?.unscanned ?? 0)} ще не перевірено на гілки: перед публікацією їх швидко відкриє прохід, він не займає місць «на годину». {hasChoices ? 'Можна зробити це наперед кнопкою «Знайти гілки» в блоці «Обери гілку» вище.' : 'Можна зробити це наперед.'}{runnerOffline ? ' Поки runner вимкнений, перевірки чекають у черзі.' : ''}</p>
+              {hasChoices ? null : <Button variant="outline" size="sm" disabled={busy} onClick={() => onScanThreads()}>Знайти гілки</Button>}
+            </div>
+          ) : null}
           <PaceLine pace={pace} progress={progress} running={running} status={status} noun="публікація" />
         </div>
       )}
