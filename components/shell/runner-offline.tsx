@@ -2,21 +2,61 @@
 
 import { useEffect, useState } from 'react';
 import { Surface } from '@/components/ui/surface';
-import { buttonVariants } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
 import { getRunnerNotice, subscribeLiveMessages } from '@/lib/live-channel';
 import { useLiveStatus } from '@/components/shell/use-live';
 import { cn } from '@/lib/utils';
 
+type LaunchState = 'idle' | 'sending' | 'sent' | 'slow' | 'offline';
+
+/** Телефон чи планшет: локального обробника workos-runner:// там немає (Safari: «адреса недійсна»). */
+function isMobileDevice() {
+  const ua = navigator.userAgent;
+  return /iPhone|iPad|iPod|Android/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
+const LAUNCH_TEXT: Partial<Record<LaunchState, string>> = {
+  sent: 'Команду надіслано на ПК, runner запускається (до хвилини).',
+  slow: 'ПК отримав команду, але runner ще не підключився. Подивись, що з ним на ПК.',
+  offline: 'ПК не на зв\'язку: він вимкнений чи спить, або там ще стара версія runner. Один раз запусти runner на самому ПК, далі кнопка працюватиме й з телефону.',
+};
+
 /**
- * Запуск runner з Work OS: посилання workos-runner://start відкриває локальний обробник, який лише будить іконку в треї
- * (параметрів із посилання він не читає). Браузер при першому разі питає дозвіл відкрити програму.
+ * «Запустити runner» з будь-якого пристрою: команда через Work OS черговому на ПК (`runner-standby.mjs`, працює й після
+ * «Вимкнути повністю»). Коли черговий не відповів, на самому ПК лишається посилання workos-runner://start (локальний обробник,
+ * який лише будить іконку в треї; браузер при першому разі питає дозвіл відкрити програму).
  */
 export function RunnerLaunchLink({ className }: { className?: string }) {
+  const live = useLiveStatus();
+  const [state, setState] = useState<LaunchState>('idle');
+  const connected = live.runnerConnected === true;
+
+  useEffect(() => {
+    if (state !== 'sent') return;
+    const timer = window.setTimeout(() => setState('slow'), 90_000);
+    return () => window.clearTimeout(timer);
+  }, [state]);
+
+  async function launch() {
+    setState('sending');
+    try {
+      const response = await fetch('/api/runner/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const result = await response.json().catch(() => ({})) as { delivered?: number };
+      if (response.ok && Number(result.delivered) > 0) { setState('sent'); return; }
+    } catch { /* мережа: нижче запасний шлях */ }
+    if (!isMobileDevice()) { setState('idle'); window.location.href = 'workos-runner://start'; return; }
+    setState('offline');
+  }
+
+  const text = connected ? '' : LAUNCH_TEXT[state];
   return (
-    <a href="workos-runner://start" className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), className)}>
-      Запустити runner
-    </a>
+    <div className={cn('flex min-w-0 flex-col items-start gap-2', className)}>
+      <Button variant="outline" size="sm" busy={state === 'sending'} onClick={() => { void launch(); }}>
+        {state === 'sent' ? 'Запускаю…' : 'Запустити runner'}
+      </Button>
+      {text ? <p aria-live="polite" className={cn('m-0 text-sm', state === 'offline' || state === 'slow' ? 'text-warn' : 'text-ink-2')}>{text}</p> : null}
+    </div>
   );
 }
 

@@ -67,7 +67,7 @@ import {
 } from '../lib/chat-discovery/run-state.ts';
 import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFeedback, saveTelegramGroups } from '../lib/chat-discovery/run-store.ts';
 
-/** @typedef {'browser'|'runner'} ChannelKind */
+/** @typedef {'browser'|'runner'|'standby'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
 /** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId?: string|null, autopostClaimedAt?: number, autopostLanes?: Record<string, {jobId: string, claimedAt: number, current: {send: boolean, startedAt: number, platform: string}}|undefined>, autopostWatchAt?: number, runnerConnectedAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostPace?: Record<string, {intervalSeconds:number, nextAt:number}>, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, runnerVersion?: string, runnerNotices?: Record<string, string>, autopostBatchOpen?: Record<string, number>, autopostQueueDate?: string, discoveryQueued?: boolean, runnerActive?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
@@ -259,6 +259,18 @@ export class OwnerChannel {
       const delivered = this.broadcast('runner', { type: 'transfer', action });
       return Response.json({ delivered });
     }
+    // «Запустити runner» з будь-якого пристрою (телефон теж): команда черговому на ПК, що живий за останнім пінгом.
+    if (url.pathname === '/runner-start' && request.method === 'POST') {
+      if (!userId) return new Response(null, { status: 401 });
+      const payload = JSON.stringify({ type: 'start_runner' });
+      let delivered = 0;
+      for (const socket of this.ctx.getWebSockets('standby')) {
+        const last = this.lastActivityMs(socket);
+        if (socket.readyState !== 1 || (last > 0 && Date.now() - last > RUNNER_STALE_MS)) continue;
+        try { socket.send(payload); delivered += 1; } catch { /* закривається */ }
+      }
+      return Response.json({ delivered, runnerConnected: this.openRunnerCount() > 0 });
+    }
     if (url.pathname === '/autopost-wake' && request.method === 'POST') {
       if (!userId) return new Response(null, { status: 401 });
       const state = await this.readState();
@@ -322,7 +334,8 @@ export class OwnerChannel {
    */
   async acceptChannel(request, url, userId) {
     /** @type {ChannelKind} */
-    const kind = url.searchParams.get('kind') === 'runner' ? 'runner' : 'browser';
+    const requested = url.searchParams.get('kind');
+    const kind = requested === 'runner' || requested === 'standby' ? requested : 'browser';
     const deviceId = url.searchParams.get('deviceId') || '';
 
     const pair = new WebSocketPair();
@@ -333,8 +346,9 @@ export class OwnerChannel {
     this.ctx.acceptWebSocket(server, deviceId ? [kind, connTag, `device:${deviceId}`] : [kind, connTag]);
     server.serializeAttachment({ connectedAt: Date.now() });
 
+    // Черговий нічого не читає й не отримує, крім команди «запустити runner»; його пінги відповідає автовідповідь (DO не прокидається).
     if (kind === 'browser') await this.onBrowserConnected(server, userId);
-    else await this.onRunnerConnected(server, userId);
+    else if (kind === 'runner') await this.onRunnerConnected(server, userId);
 
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -495,7 +509,7 @@ export class OwnerChannel {
    * @param {string|ArrayBuffer} raw
    */
   async handleSocketMessage(ws, raw) {
-    if (typeof raw !== 'string') return;
+    if (typeof raw !== 'string' || this.tagsOf(ws).includes('standby')) return;
     let message;
     try { message = JSON.parse(raw); } catch { return; }
     if (message.type === 'ping') { ws.send(PONG); return; }

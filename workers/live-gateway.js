@@ -17,14 +17,16 @@ import { authenticateDiscoveryExecutorToken } from '../lib/chat-discovery/execut
  * @param {D1Database} db
  * @param {Request} request
  * @param {number} now
- * @returns {Promise<{kind:'browser'|'runner', userId:string, deviceId:string}|null>}
+ * @returns {Promise<{kind:'browser'|'runner'|'standby', userId:string, deviceId:string}|null>}
  */
 export async function resolveLiveCaller(db, request, now) {
   const url = new URL(request.url);
-  if (url.searchParams.get('kind') === 'runner') {
+  // «Черговий» на ПК (scripts/platform/runner-standby.mjs) входить тим самим токеном runner: він лише чекає команду «запустити runner».
+  const requested = url.searchParams.get('kind');
+  if (requested === 'runner' || requested === 'standby') {
     try {
       const auth = await authenticateDiscoveryExecutorToken(db, url.searchParams.get('token') || '', now);
-      return { kind: 'runner', userId: auth.userId, deviceId: auth.deviceId };
+      return { kind: requested, userId: auth.userId, deviceId: auth.deviceId };
     } catch {
       return null;
     }

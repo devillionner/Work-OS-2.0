@@ -31,6 +31,8 @@ $HintFile = Join-Path $StateDir 'first-run-hint'
 $FailuresDir = Join-Path $StateDir 'failures'
 $RunnerEnv = Join-Path $ConfigDir 'runner.env'
 $Launcher = Join-Path $Root 'scripts\platform\windows-launch.mjs'
+$Standby = Join-Path $Root 'scripts\platform\runner-standby.mjs'
+$StandbyLock = Join-Path $StateDir 'standby.lock'
 $RunnerEntry = Join-Path $Root 'scripts\chat-discovery-runner.mjs'
 $AppMeta = Join-Path $Root 'lib\app-meta.ts'
 New-Item -ItemType Directory -Force -Path $StateDir, $ConfigDir | Out-Null
@@ -42,6 +44,7 @@ $BrowserCheckSeconds = 10
 $FailuresCheckSeconds = 20
 $BrowserGoneRestartAfter = 3
 $BrowserRestartGapSeconds = 300
+$StandbyCheckSeconds = 30
 $CdpPort = 9222
 
 function Write-TrayLog([string]$text) {
@@ -185,6 +188,26 @@ function Invoke-Wake {
     $script:Backoff = $BackoffStart
     $script:NextStartAt = [DateTime]::MinValue
     Start-Runner
+}
+
+# Черговий (runner-standby.mjs): завжди на зв'язку з Work OS і запускає runner кнопкою з телефону. Переживає «Вимкнути повністю».
+$script:StandbyCheckedAt = [DateTime]::MinValue
+function Start-Standby {
+    $now = Get-Date
+    if (($now - $script:StandbyCheckedAt).TotalSeconds -lt $StandbyCheckSeconds) { return }
+    $script:StandbyCheckedAt = $now
+    if (-not (Test-Path -LiteralPath $Standby)) { return }
+    $lock = Read-Json $StandbyLock
+    if ($lock -and $lock.pid -and (Test-ProcessAlive ([int]$lock.pid) 'node')) { return }
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $NodeExe
+        $psi.Arguments = '"' + $Standby + '"'
+        $psi.WorkingDirectory = $StateDir
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        [void][System.Diagnostics.Process]::Start($psi)
+    } catch { Write-TrayLog ('Черговий: ' + $_.Exception.Message) }
 }
 
 # ── значок ─────────────────────────────────────────────────────────────────────────────────────────
@@ -483,6 +506,7 @@ function Update-Tray {
         Update-Health
         Update-BrowserItem $state
         Update-Failures
+        Start-Standby
         Invoke-SelfReplace $state
     } catch {
         Write-TrayLog ("Оновлення трея: " + $_.Exception.Message)
@@ -501,7 +525,7 @@ function Close-Tray([switch]$KeepRunner) {
 
 function Confirm-Disable {
     $answer = [System.Windows.Forms.MessageBox]::Show(
-        "Автопост, перевірки й сповіщення з ПК зупиняться. Runner і ця іконка не повернуться самі до наступного входу в систему або ручного запуску (кнопка «Запустити runner» у Work OS).",
+        "Автопост, перевірки й сповіщення з ПК зупиняться. Runner і ця іконка не повернуться самі до наступного входу в систему або кнопки «Запустити runner» у Work OS (вона працює й з телефону, поки ПК увімкнений).",
         'Вимкнути Work OS runner повністю?',
         [System.Windows.Forms.MessageBoxButtons]::OKCancel, [System.Windows.Forms.MessageBoxIcon]::Warning, [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
     if ($answer -eq [System.Windows.Forms.DialogResult]::OK) { Close-Tray }
