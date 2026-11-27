@@ -3,6 +3,7 @@
 import { useId, useMemo, useState, type ReactNode } from 'react';
 import { Plus, X } from 'lucide-react';
 import { Panel } from '@/components/shell/panel';
+import { useShell } from '@/components/shell/shell-context';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
@@ -119,6 +120,7 @@ function Staged({ children, onRemove, label }: { children: ReactNode; onRemove: 
 
 function PublicationAdder({ date, enabled, taken, onAdd }: { date: string; enabled: boolean; taken: ReadonlySet<string>; onAdd: (item: StagedPublication) => void }) {
   const [search, setSearch] = useState('');
+  const { snapshot } = useShell();
   const [platform, setPlatform] = useState('');
   const [applied, setApplied] = useState({ search: '', platform: '' });
   const [chatId, setChatId] = useState('');
@@ -147,7 +149,7 @@ function PublicationAdder({ date, enabled, taken, onAdd }: { date: string; enabl
         <div className="flex gap-2">
           <Select aria-label="Платформа" value={platform} onChange={(event) => setPlatform(event.target.value)}>
             <option value="">Усі платформи</option>
-            {['telegram', 'whatsapp', 'viber', 'facebook', 'threads'].map((key) => <option key={key} value={key}>{labels[key]}</option>)}
+            {['telegram', 'whatsapp', 'viber', 'facebook', 'threads'].filter((key) => snapshot.enabledPlatforms.includes(key)).map((key) => <option key={key} value={key}>{labels[key]}</option>)}
           </Select>
           <Button type="submit" variant="outline" size="md" disabled={loading}>Знайти</Button>
         </div>

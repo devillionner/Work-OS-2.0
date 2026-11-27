@@ -1,20 +1,19 @@
 'use client';
 
-import { CalendarCheck, GraduationCap, Reply, Send, type LucideIcon } from 'lucide-react';
 import { Sparkline } from '@/components/ui/sparkline';
 import { Tile, type TileDelta } from '@/components/ui/tile';
 import { analyticsPercentLabel } from '@/lib/analytics-rate';
 import { goalRatio } from '@/components/views/shared/pace';
 import { sample, type AnalyticsData, type MetricKey, type PreviousWindow, type Totals } from './types';
 
-type Kpi = { key: MetricKey; label: string; icon: LucideIcon; rate: keyof Targets; base: string; from: keyof Totals };
+type Kpi = { key: MetricKey; label: string; rate: keyof Targets; base: string; from: keyof Totals };
 type Targets = AnalyticsData['targets'];
 
 const KPIS: readonly Kpi[] = [
-  { key: 'publications', label: 'Публікації', icon: Send, rate: 'publicationRate', base: 'від приєднань', from: 'joined' },
-  { key: 'responses', label: 'Відгуки', icon: Reply, rate: 'responseRate', base: 'від публікацій', from: 'publications' },
-  { key: 'bookings', label: 'Записи', icon: CalendarCheck, rate: 'bookingRate', base: 'від відгуків', from: 'responses' },
-  { key: 'completed', label: 'Проведені уроки', icon: GraduationCap, rate: 'completionRate', base: 'від записів', from: 'bookings' },
+  { key: 'publications', label: 'Публікації', rate: 'publicationRate', base: 'від приєднань', from: 'joined' },
+  { key: 'responses', label: 'Відгуки', rate: 'responseRate', base: 'від публікацій', from: 'publications' },
+  { key: 'bookings', label: 'Записи', rate: 'bookingRate', base: 'від відгуків', from: 'responses' },
+  { key: 'completed', label: 'Проведені уроки', rate: 'completionRate', base: 'від записів', from: 'bookings' },
 ];
 
 /** Зміна до попереднього періоду; сигнальний колір лише для значущої: ≥ 3 одиниці і ≥ 20% (або з нуля). */
@@ -43,7 +42,6 @@ export function KpiRow({ data, previous, onOpen }: { data: AnalyticsData; previo
             key={kpi.key}
             label={kpi.label}
             value={value}
-            icon={kpi.icon}
             delta={deltaOf(value, previous?.totals[kpi.key])}
             hint={`${rate} ${kpi.base}${target > 0 ? ` · ціль ${target}%` : ''}`}
             progress={target > 0 && base > 0 ? { value: goalRatio(data.totals[kpi.rate], target), tone: data.totals[kpi.rate] >= target ? 'ok' : 'hot' } : undefined}

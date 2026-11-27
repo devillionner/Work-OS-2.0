@@ -16,7 +16,7 @@ const PERIODS: ReadonlyArray<{ value: SubjectPeriod; label: string }> = [
   { value: '7', label: '7 днів' },
   { value: '30', label: '30 днів' },
   { value: 'month', label: 'Місяць' },
-  { value: 'all', label: 'Весь час' },
+  { value: 'all', label: 'Усе' },
 ];
 
 function periodLabel(data: SubjectAnalytics): string {

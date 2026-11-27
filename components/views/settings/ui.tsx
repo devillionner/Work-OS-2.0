@@ -7,12 +7,13 @@ import { cn } from '@/lib/utils';
 export function Group({ id, title, note, hint, aside, children, tone }: { id: string; title: string; note?: ReactNode; /** Пояснення в підказці «?» поруч із заголовком. */ hint?: ReactNode; aside?: ReactNode; children: ReactNode; tone?: 'danger' }) {
   return (
     <section id={`settings-${id}`} aria-labelledby={`settings-${id}-title`} data-reveal className="scroll-mt-4">
-      <header className="mb-2 flex flex-wrap items-end justify-between gap-x-4 gap-y-1 px-1">
-        <div className="min-w-0">
-          <h2 id={`settings-${id}-title`} className={cn('m-0 flex items-center gap-1 text-[17px] font-medium', tone === 'danger' && 'text-hot')}>{title}{hint ? <Hint label={`Пояснення: ${title}`}>{hint}</Hint> : null}</h2>
-          {note ? <p className="m-0 mt-0.5 text-[13px] text-ink-2">{note}</p> : null}
+      {/* Дія групи стоїть в одному рядку із заголовком (по центру), пояснення — під ними. */}
+      <header className="mb-2 flex flex-col gap-0.5 px-1">
+        <div className="flex items-center justify-between gap-4">
+          <h2 id={`settings-${id}-title`} className={cn('m-0 flex min-w-0 items-center gap-1 text-[17px] font-medium', tone === 'danger' && 'text-hot')}>{title}{hint ? <Hint label={`Пояснення: ${title}`}>{hint}</Hint> : null}</h2>
+          {aside ? <div className="shrink-0">{aside}</div> : null}
         </div>
-        {aside}
+        {note ? <p className="m-0 text-[13px] text-ink-2">{note}</p> : null}
       </header>
       <Surface as="ul" variant="glass" radius="card" className={cn('m-0 list-none overflow-hidden p-0', tone === 'danger' && 'border-hot/40')}>
         {children}

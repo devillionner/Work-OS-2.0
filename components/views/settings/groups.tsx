@@ -116,7 +116,7 @@ export function ServiceGroup() {
       <Row label="Перенесення чатів" description="CSV переносить поточний стан чатів; повна історія зберігається у резервній копії.">
         <Button variant="outline" size="sm" onClick={() => setPanel('csv')}>CSV</Button>
       </Row>
-      <Row label="Executor пошуку чатів" description="Підключення runner до авторизованого WhatsApp Web.">
+      <Row label="Пошук чатів на ПК" description="Підключення runner на ПК до WhatsApp Web, у якому виконано вхід.">
         <Button variant="outline" size="sm" onClick={() => setPanel('executor')}>Налаштувати</Button>
       </Row>
       <RunnerRow />
@@ -130,7 +130,7 @@ export function ServiceGroup() {
       <DuplicatesPanel open={panel === 'duplicates'} onClose={close} />
       <LeadToolsPanel open={panel === 'leads'} onClose={close} />
       <CsvPanel open={panel === 'csv'} onClose={close} onImported={refreshSnapshot} />
-      <Panel open={panel === 'executor'} onOpenChange={(open) => { if (!open) close(); }} title="Executor пошуку чатів" subtitle="Підключення runner до WhatsApp Web">
+      <Panel open={panel === 'executor'} onOpenChange={(open) => { if (!open) close(); }} title="Пошук чатів на ПК" subtitle="Підключення runner до WhatsApp Web">
         <ExecutorCard />
       </Panel>
       {previewing ? <UpdatePreview onClose={() => setPreviewing(false)} /> : null}
