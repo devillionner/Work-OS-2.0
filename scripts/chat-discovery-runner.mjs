@@ -152,6 +152,19 @@ async function maybeSelfUpdate(){
     if(!selfUpdateRetry)selfUpdateRetry=setTimeout(()=>{selfUpdateRetry=null;void maybeSelfUpdate();},30*60_000);
   }finally{selfUpdating=false;}
 }
+// Версію сайту DO шле лише при підключенні, а розгортання з'єднання не рве (27.11: 3.23.3 runner пропустив зовсім, решту бачив лише після
+// ручного перезапуску). Тож раз на 10 хв runner сам читає статичний /runner/manifest.json: це файл сайту, без D1 і без Durable Object.
+const SITE_VERSION_CHECK_MS=10*60_000;
+async function checkSiteVersion(){
+  if(!readInstalledPackage(rootDir))return;
+  try{
+    const response=await fetch(`${baseUrl}/runner/manifest.json`,{cache:'no-store',signal:AbortSignal.timeout(15_000)});
+    if(!response.ok)return;
+    const version=String((await response.json())?.version||'').slice(0,20);
+    if(version&&/^\d+\.\d+\.\d+$/.test(version)){siteVersion=version;void maybeSelfUpdate();}
+  }catch{/* мережа: наступна перевірка за 10 хв */}
+}
+setInterval(()=>{void checkSiteVersion();},SITE_VERSION_CHECK_MS);
 
 let transferAbort=null;
 function transferProgress(event){
