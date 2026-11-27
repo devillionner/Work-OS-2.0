@@ -426,7 +426,8 @@ class Tray:
         icon = ICON_DIR / f'work-os-{state if state in COLORS else "starting"}.svg'
         self.indicator.set_icon_full(str(icon), LABELS.get(state, state))
         self.indicator.set_title(f'Work OS runner — {LABELS.get(state, state)}')
-        self.state_item.set_label(f'Work OS runner: {LABELS.get(state, state)}')
+        version = app_version()
+        self.state_item.set_label(f'Work OS runner {version} · {LABELS.get(state, state)}' if version else f'Work OS runner: {LABELS.get(state, state)}')
         self.detail_item.set_label(detail[:90])
         (self.awake_item.show if self.awake and self.running() else self.awake_item.hide)()
         self.show_day(state)

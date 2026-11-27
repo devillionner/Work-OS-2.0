@@ -192,6 +192,8 @@ function Invoke-Wake {
 
 # Черговий (runner-standby.mjs): завжди на зв'язку з Work OS і запускає runner кнопкою з телефону. Переживає «Вимкнути повністю».
 $script:StandbyCheckedAt = [DateTime]::MinValue
+$script:AppVersion = ''
+$script:VersionReadAt = [DateTime]::MinValue
 function Start-Standby {
     $now = Get-Date
     if (($now - $script:StandbyCheckedAt).TotalSeconds -lt $StandbyCheckSeconds) { return }
@@ -499,7 +501,9 @@ function Update-Tray {
         $tip = "Work OS runner — $title"
         if ($day.Summary) { $tip += " · $($day.Summary)" }
         Set-TrayText $tip
-        $stateItem.Text = "Work OS runner: $title"
+        # Версія runner (з пакета на диску) видна просто в меню: «Work OS runner 3.23.2 · Готовий».
+        if (($now - $script:VersionReadAt).TotalSeconds -ge 30) { $script:AppVersion = Get-AppVersion; $script:VersionReadAt = $now }
+        $stateItem.Text = if ($script:AppVersion) { "Work OS runner $($script:AppVersion) · $title" } else { "Work OS runner: $title" }
         $detailItem.Text = if ($detail.Length -gt 90) { $detail.Substring(0, 90) } else { $detail }
         $detailItem.Visible = [bool]$detail
         $awakeItem.Visible = ($script:Awake -and (Test-RunnerRunning))
