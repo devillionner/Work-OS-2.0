@@ -66,7 +66,7 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
     <AutopostPanel
       platform="viber"
       title="Автопублікація у Viber"
-      description="Чати з черги «Для публікації» по одному: Work OS відкриває чат за його посиланням-запрошенням у Viber на ПК, перевіряє назву чату, додає фото й текст, надсилає й перевіряє, що повідомлення з’явилось у цьому чаті."
+      description={<p className="m-0">Чати з черги «Для публікації» по одному: Work OS відкриває чат за його посиланням-запрошенням у Viber на ПК, перевіряє назву чату, додає фото й текст, надсилає й перевіряє, що повідомлення з’явилось у цьому чаті.</p>}
       plan={plan}
       onLoadPlan={onLoadPlan}
       secondsPerChat={secondsPerChat('viber', perHour)}
@@ -74,9 +74,9 @@ export function ViberAutopostCard({ material, plan, onLoadPlan, progress, attent
       topSlot={(
         <div className="flex flex-col gap-3">
           <PaceEstimate platform="viber" count={plan?.ready ?? 0} perHour={perHour} running={progress?.running === true} />
-          <PaceLine pace={pace} progress={progress} running={progress?.running === true} status={null} noun="відправка" />
         </div>
       )}
+      paceSlot={<PaceLine pace={pace} progress={progress} running={progress?.running === true} status={null} noun="відправка" />}
       startSlot={<PaceSegment platform="viber" value={perHour} onChange={setPerHour} />}
       readiness={readiness}
       settingsTitle="Налаштування Viber на ПК"

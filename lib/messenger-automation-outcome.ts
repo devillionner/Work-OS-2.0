@@ -349,7 +349,7 @@ export async function resolveAutopostDecisions(
   return { resolved, skipped };
 }
 
-export type AutopostAttentionItem = { jobId: string; chatId: string; name: string; errorCode: string; updatedAt: number; /** Назва чату, яку бачив месенджер (для «Не той чат»). */ observed: string | null; /** Збій стався до «Надіслати»: повтор не може дати дубль. */ beforeSend: boolean };
+export type AutopostAttentionItem = { jobId: string; chatId: string; name: string; errorCode: string; updatedAt: number; /** Назва чату, яку бачив месенджер (для «Не той чат»). */ observed: string | null; /** Збій стався до «Надіслати»: повтор не може дати дубль. */ beforeSend: boolean; /** Посилання на чат для «Відкрити». */ link: string };
 
 /**
  * Чати платформи, які автопост не чіпав і чекає рішення власника, лише з партій сьогодні. З новим днем учорашні зникають зі
@@ -357,11 +357,11 @@ export type AutopostAttentionItem = { jobId: string; chatId: string; name: strin
  */
 export async function readAutopostAttention(db: D1Database, userId: string, platform: 'whatsapp' | 'viber' | 'telegram', date: string): Promise<AutopostAttentionItem[]> {
   const rows = await db.prepare(`SELECT j.id AS id,j.chat_id AS chat_id,j.expected_name AS name,j.result_json AS result_json,j.updated_at AS updated_at,j.request_key AS request_key,
-      c.telegram_forum AS forum,c.telegram_thread_id AS thread_id,c.telegram_topics_at AS topics_at,c.telegram_account_id AS account_id
+      c.telegram_forum AS forum,c.telegram_thread_id AS thread_id,c.telegram_topics_at AS topics_at,c.telegram_account_id AS account_id,c.link AS link
     FROM whatsapp_autopost_jobs j JOIN chats c ON c.id=j.chat_id AND c.user_id=j.user_id
     WHERE j.user_id=?1 AND j.outcome='needs_decision' AND c.platform=?2 AND j.published_on=?3
     ORDER BY j.updated_at DESC,j.id LIMIT 100`).bind(userId, platform, date)
-    .all<{ id: string; chat_id: string; name: string; result_json: string | null; updated_at: number; request_key: string; forum: number | null; thread_id: string | null; topics_at: number | null; account_id: string | null }>();
+    .all<{ id: string; chat_id: string; name: string; result_json: string | null; updated_at: number; request_key: string; forum: number | null; thread_id: string | null; topics_at: number | null; account_id: string | null; link: string | null }>();
   // Блок «Обери гілку» показує чати вибраного акаунта (runner публікує лише за ним): чужі акаунти лишаються в «Потребують рішення».
   const selected = platform === 'telegram' ? (await db.prepare(`SELECT id FROM telegram_accounts WHERE user_id=?1 AND is_selected=1 LIMIT 1`).bind(userId).first<{ id: string }>())?.id ?? null : null;
   return (rows.results || []).filter((row) => {
@@ -380,6 +380,6 @@ export async function readAutopostAttention(db: D1Database, userId: string, plat
       const parsed: unknown = row.result_json ? JSON.parse(row.result_json) : null;
       if (parsed && typeof parsed === 'object' && typeof (parsed as { errorCode?: unknown }).errorCode === 'string') code = (parsed as { errorCode: string }).errorCode;
     } catch { /* лишається код за замовчуванням */ }
-    return { jobId: row.id, chatId: row.chat_id, name: row.name, errorCode: code, updatedAt: Number(row.updated_at), observed: observedName(row.result_json).trim() || null, beforeSend: failedBeforeSend(row.result_json, row.request_key) };
+    return { jobId: row.id, chatId: row.chat_id, name: row.name, errorCode: code, updatedAt: Number(row.updated_at), observed: observedName(row.result_json).trim() || null, beforeSend: failedBeforeSend(row.result_json, row.request_key), link: row.link ?? '' };
   });
 }

@@ -14,6 +14,20 @@ import { AutopostPanel, chatWord, type AutopostMaterialProps, type AutopostPlan,
 import type { AutopostAttentionItem, AutopostDecision, DecideOptions } from '@/components/views/platforms/autopost-attention';
 import type { WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import type { AutopostPlatformStatus, TelegramPace } from '@/lib/live-channel';
+import { Chip } from '@/components/ui/chip';
+import type { TelegramAccount } from '@/components/views/platforms/telegram-accounts';
+
+/** Вибір робочого акаунта прямо в картці автопосту (ті самі чіпи, що в «Огляді»): з одним акаунтом нічого не показуємо. */
+function AccountChips({ accounts, accountId, busy, onSelect }: { accounts: TelegramAccount[]; accountId: string | null; busy: boolean; onSelect: (id: string) => void }) {
+  const enabled = accounts.filter((item) => item.enabled);
+  if (enabled.length < 2) return null;
+  return (
+    <fieldset className="m-0 flex flex-wrap gap-2 border-0 p-0">
+      <legend className="sr-only">Акаунт, з якого публікує автопост</legend>
+      {enabled.map((account) => <Chip key={account.id} pressed={account.id === accountId} disabled={busy} onClick={() => onSelect(account.id)}>{account.name}<span className="font-mono text-[11px] opacity-70">#{account.number}</span></Chip>)}
+    </fieldset>
+  );
+}
 
 /** Прив'язка Telegram-акаунта Work OS до акаунта, залогіненого в браузері runner: автопост публікує лише з нього. */
 function AccountBinding({ binding, status, busy, runnerOffline, onBind }: { binding: { bound: boolean; webUserId: string | null } | null; status: AutopostPlatformStatus | null; busy: boolean; /** Runner вимкнений: акаунт у браузері прочитати нікому. */ runnerOffline: boolean; onBind: (webUserId: string | null) => void }) {
@@ -121,9 +135,12 @@ function ThreadChoices({ choices, busy, running, onChoose, onScan, onSkip, onOpe
  * Автопублікація у Telegram через браузер: спільна картка автопосту, текст оголошення з Бібліотеки для кожного чату (як при ручній
  * публікації), темп «5 · 10 · 20 на годину», прив'язка акаунта до браузера й вибір гілок форумів.
  */
-export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, onSkipThread, onOpenChat, material, plan, onLoadPlan, runnerConnected, status, pace, progress, attention, batchNote, binding, busy, onDecide, onDecideMany, onStart, onStop, onReset, onChooseThread, onBind }: {
+export function TelegramAutopostCard({ accountId, accounts, onSelectAccount, runnerSeen, onScanThreads, onSkipThread, onOpenChat, material, plan, onLoadPlan, runnerConnected, status, pace, progress, attention, batchNote, binding, busy, onDecide, onDecideMany, onStart, onStop, onReset, onChooseThread, onBind }: {
   /** Вибраний акаунт Telegram: для нього рахується підбір текстів пулу. */
   accountId: string | null;
+  /** Акаунти Telegram: чіпи вибору робочого акаунта вгорі картки. */
+  accounts: TelegramAccount[];
+  onSelectAccount: (id: string) => void;
   /** Від runner приходять події (кроки, стан): він на зв'язку, навіть коли прапорець каналу ще не оновився. */
   runnerSeen: boolean;
   onScanThreads: (target?: string | string[]) => void;
@@ -168,7 +185,7 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, onS
       : unbound
         ? { tone: 'warn', text: 'Прив’яжи акаунт Telegram до браузера runner, щоб запустити автопост.' }
         : online
-          ? { tone: 'ok', text: 'Runner підключений. Вкладка Telegram Web у його браузері має бути відкрита й залогінена в акаунт Work OS.' }
+          ? { tone: 'ok', text: 'Runner підключений.' }
           : { tone: 'idle', text: 'Чекаю на зв’язок із runner на ПК…' };
   const minutes = Math.round(60 / perHour);
   const source = plan?.source;
@@ -186,7 +203,7 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, onS
     <AutopostPanel
       platform="telegram"
       title="Автопублікація у Telegram"
-      description="Чати з черги «Для публікації» вибраного акаунта по одному: Work OS відкриває чат у Telegram Web (у чаті з гілками — вибрану гілку), вставляє текст оголошення з Бібліотеки, надсилає й перевіряє, що повідомлення з’явилось."
+      description={<><p className="m-0">Чати з черги «Для публікації» вибраного акаунта по одному: Work OS відкриває чат у Telegram Web (у чаті з гілками — вибрану гілку), вставляє текст оголошення, надсилає й перевіряє, що повідомлення з’явилось.</p><p className="m-0">Вкладка Telegram Web у браузері runner має бути відкрита й залогінена в акаунт Work OS, вибраний угорі.</p></>}
       plan={plan}
       onLoadPlan={onLoadPlan}
       secondsPerChat={secondsPerChat('telegram', perHour)}
@@ -211,7 +228,6 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, onS
         <div className="flex flex-col gap-3">
           {source?.mode === 'pool' ? <PoolRow plan={plan} onOpen={() => setPoolOpen(true)} /> : null}
           <AccountBinding binding={binding} status={status} busy={busy} runnerOffline={runnerOffline} onBind={onBind} />
-          <ThreadChoices choices={plan?.threadChoices ?? []} busy={busy} running={running} onChoose={onChooseThread} onScan={onScanThreads} onSkip={onSkipThread} onOpen={onOpenChat} />
           <PaceEstimate platform="telegram" count={plan?.ready ?? 0} perHour={perHour} running={running} />
           {(plan?.unscanned ?? 0) > 0 && !running ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -219,9 +235,11 @@ export function TelegramAutopostCard({ accountId, runnerSeen, onScanThreads, onS
               {hasChoices ? null : <Button variant="outline" size="sm" disabled={busy} onClick={() => onScanThreads()}>Знайти гілки</Button>}
             </div>
           ) : null}
-          <PaceLine pace={pace} progress={progress} running={running} status={status} noun="публікація" />
         </div>
       )}
+      headSlot={<AccountChips accounts={accounts} accountId={accountId} busy={busy} onSelect={onSelectAccount} />}
+      paceSlot={<PaceLine pace={pace} progress={progress} running={running} status={status} noun="публікація" />}
+      choicesSlot={<ThreadChoices choices={plan?.threadChoices ?? []} busy={busy} running={running} onChoose={onChooseThread} onScan={onScanThreads} onSkip={onSkipThread} onOpen={onOpenChat} />}
       startSlot={<PaceSegment platform="telegram" value={perHour} onChange={setPerHour} />}
       midSlot={(
         <>

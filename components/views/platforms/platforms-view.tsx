@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCommand } from '@/components/shell/command-bus';
@@ -39,11 +39,28 @@ import { SelectedChats } from '@/components/views/platforms/selected-chats';
 import { SelectedListPicker } from '@/components/views/platforms/selected-list-picker';
 import { usePlatforms, PLATFORMS, QUEUES, type Chat, openNativeChat } from '@/components/views/platforms/use-platforms';
 import { WaitingCheckCard } from '@/components/views/platforms/waiting-check-card';
-import { requestRunnerCheck } from '@/lib/live-channel';
+import { getLatestStep, requestRunnerCheck } from '@/lib/live-channel';
+import { AutopostStrip } from '@/components/views/platforms/autopost-strip';
 import { useColumnScroll } from '@/components/views/platforms/use-column-scroll';
 
 type Zone = 'overview' | 'schedule' | 'autopost' | 'quick';
+type PhoneSection = 'chats' | Zone;
 const PAGE = 50;
+const PHONE_SECTIONS: readonly PhoneSection[] = ['chats', 'overview', 'schedule', 'autopost', 'quick'];
+
+/** Розділ телефона, обраний власником, пам'ятається в межах сеансу на 10 хв (як вигляд платформи в `use-platforms.ts`). */
+const PHONE_SECTION_KEY = 'work-os:platforms-phone-section';
+const PHONE_SECTION_TTL_MS = 10 * 60 * 1000;
+function readPhoneSection(): PhoneSection | null {
+  try {
+    const value = JSON.parse(window.sessionStorage.getItem(PHONE_SECTION_KEY) || 'null') as { section?: unknown; savedAt?: unknown } | null;
+    if (!value || typeof value.savedAt !== 'number' || Date.now() - value.savedAt > PHONE_SECTION_TTL_MS) return null;
+    return PHONE_SECTIONS.includes(value.section as PhoneSection) ? value.section as PhoneSection : null;
+  } catch { return null; }
+}
+function writePhoneSection(section: PhoneSection) { try { window.sessionStorage.setItem(PHONE_SECTION_KEY, JSON.stringify({ section, savedAt: Date.now() })); } catch { /* вибір діє до перезавантаження */ } }
+/** Свіжий крок автопосту платформи з live-каналу (партія йде просто зараз). */
+const STEP_FRESH_MS = 5 * 60_000;
 
 /**
  * «Платформи»: ліворуч платформа, черги, пошук і список чатів; праворуч робоча зона платформи
@@ -56,7 +73,16 @@ export default function PlatformsView() {
   const toast = useToast();
   const p = usePlatforms({ enabledPlatforms: snapshot.enabledPlatforms, syncRevision, businessDate: snapshot.today, active });
   const [zone, setZone] = useState<Zone>('overview');
-  const [phoneSection, setPhoneSection] = useState<'chats' | Zone>('chats');
+  const [phoneSection, setPhoneSection] = useState<PhoneSection>('chats');
+  // Вибір розділу на телефоні власником: пам'ятається (10 хв) і має перевагу над автоматичним відкриттям «Автопосту».
+  const choosePhoneSection = (value: PhoneSection) => { setPhoneSection(value); writePhoneSection(value); };
+  const restoredPhone = useRef(false);
+  useEffect(() => {
+    if (restoredPhone.current) return;
+    restoredPhone.current = true;
+    const saved = readPhoneSection();
+    if (saved) queueMicrotask(() => setPhoneSection(saved));
+  }, []);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [deleteListId, setDeleteListId] = useState<string | null>(null);
   const [discoveryOpen, setDiscoveryOpen] = useState(false);
@@ -83,10 +109,11 @@ export default function PlatformsView() {
     const target = payload as { platform?: string; section?: string } | undefined;
     const platformKey = p.availablePlatforms.find((item) => item.key === target?.platform)?.key;
     if (platformKey) p.selectPlatform(platformKey);
-    setZone('autopost'); setPhoneSection('autopost');
+    setZone('autopost'); choosePhoneSection('autopost');
     setJump({ side: 'right', id: Date.now() });
-    // Лічильник «Обери гілку · N» з «Сьогодні» веде прямо до блоку (він з'являється після завантаження плану).
+    // Лічильник «Обери гілку · N» з «Сьогодні» веде прямо до блоку (він з'являється після завантаження плану); «рішення» з рядка стану — до «Потребують рішення».
     if (target?.section === 'thread-choices') setFocusSection({ id: 'thread-choices', key: Date.now() });
+    if (target?.section === 'decisions') setFocusSection({ id: 'autopost-decisions', key: Date.now() });
   });
   useCommand('platforms:telegram-schedule', () => { p.selectPlatform('telegram'); setZone('schedule'); setPhoneSection('schedule'); });
 
@@ -108,6 +135,7 @@ export default function PlatformsView() {
     return list;
   }, [platform]);
   const currentZone: Zone = zones.some((item) => item.value === zone) ? zone : 'overview';
+  const enabledKeys = useMemo(() => p.availablePlatforms.map((item) => item.key as string), [p.availablePlatforms]);
   const [leftRef, scrollLeftTo] = useColumnScroll(`${platform}:${queue}:${p.selected.listId ?? ''}`, active && desktop);
   const [rightRef, scrollRightTo, scrollRightToNode] = useColumnScroll(`${platform}:${platform === 'telegram' && queue === 'selected' ? `selected:${p.selected.listId ?? ''}` : currentZone}`, active && desktop);
   useEffect(() => {
@@ -120,10 +148,25 @@ export default function PlatformsView() {
     const frame = window.requestAnimationFrame(() => (jump.side === 'left' ? scrollLeftTo : scrollRightTo)(0));
     return () => window.cancelAnimationFrame(frame);
   }, [jump, scrollLeftTo, scrollRightTo]);
-  const phoneCurrent: 'chats' | Zone = phoneSection === 'chats' || zones.some((item) => item.value === phoneSection) ? phoneSection : 'chats';
+  const phoneCurrent: PhoneSection = phoneSection === 'chats' || zones.some((item) => item.value === phoneSection) ? phoneSection : 'chats';
   // Картка автопосту відкрита (дія власника): runner один раз перевіряє середовище, бо в простої він мовчить.
   const autopostOpen = currentZone === 'autopost' && (desktop || phoneCurrent === 'autopost');
   useEffect(() => { if (active && autopostOpen) requestRunnerCheck(); }, [active, autopostOpen, platform]);
+  // Телефон: поки партія показаної платформи йде (прогрес чи свіжий крок із live-каналу), розділ відкривається одразу на «Автопості»,
+  // якщо власник за останні 10 хв сам не обрав інший розділ. Один раз на платформу, далі вибір лишається за людиною.
+  const shownProgress = platform === 'viber' ? p.viberProgress : platform === 'whatsapp' ? p.whatsappProgress : platform === 'telegram' ? p.telegramProgress : null;
+  const batchRunningHere = shownProgress?.running === true;
+  const hasAutopostZone = zones.some((item) => item.value === 'autopost');
+  const autoOpened = useRef<string | null>(null);
+  useEffect(() => {
+    if (desktop || !active || !hasAutopostZone || autoOpened.current === platform) return;
+    const step = getLatestStep(platform);
+    const fresh = Boolean(step && Date.now() - step.at < STEP_FRESH_MS);
+    if (!batchRunningHere && !fresh) return;
+    autoOpened.current = platform;
+    if (readPhoneSection()) return;
+    queueMicrotask(() => setPhoneSection('autopost'));
+  }, [desktop, active, hasAutopostZone, platform, batchRunningHere]);
 
   const searchItems = useMemo<SearchItem[]>(() => (data?.chats ?? []).map((chat) => ({
     id: `chat:${chat.id}`, group: 'Чати', label: chat.name, hint: `${chat.platform}`, run: () => { navigate('platforms'); p.selectPlatform(chat.platform); p.setSearch(chat.name); },
@@ -168,7 +211,7 @@ export default function PlatformsView() {
 
   const zoneContent = (value: Zone) => {
     if (queue === 'selected' && platform === 'telegram' && value === 'overview') return null;
-    if (value === 'autopost' && platform === 'telegram') return <TelegramAutopostCard accountId={p.accountId} runnerSeen={p.telegramRunnerSeen} onScanThreads={(target) => void p.scanTelegramThreads(target)} onSkipThread={(chatId) => void p.skipThreadChoice(chatId)} onOpenChat={(link) => openNativeChat('telegram', link)} material={{ image: p.telegramImage, imageLoaded: p.telegramMaterialLoaded, caption: p.telegramCaption, captionLoaded: p.telegramMaterialLoaded, direction: p.telegramCaptionDirection, onDirectionChange: p.setTelegramCaptionDirection, onCaptionChange: p.setTelegramCaption, onUploadImage: (file: File) => void p.uploadTelegramImage(file), onRemoveImage: () => void p.removeTelegramImage(), onSaveCaption: () => void p.saveTelegramCaption(), onClearCaption: () => void p.clearTelegramCaption(), scope: 'telegram', onCopyFromShared: () => void p.copyTelegramMaterialFromShared() }} plan={telegramPlan} onLoadPlan={p.loadAutopostPlan} runnerConnected={p.liveStatus.connected ? p.liveStatus.runnerConnected : null} status={p.telegramAutopostStatus} pace={p.telegramPace} progress={p.telegramProgress} attention={p.autopostAttention} batchNote={p.telegramBatchNote} binding={p.telegramAccountBinding} busy={p.busy !== null} onDecide={p.decideAutopost} onDecideMany={p.decideAutopostMany} onStart={(limit, exclude, perHour, texts) => void p.startTelegramAutopostBatch(limit, exclude, perHour, texts)} onStop={() => void p.stopTelegramAutopostBatch()} onReset={() => void p.resetTelegramAutopostQueue()} onChooseThread={(chatId, threadId, directions) => p.chooseTelegramThread(chatId, threadId, directions)} onBind={(webUserId) => void p.bindTelegramAccount(webUserId)} />;
+    if (value === 'autopost' && platform === 'telegram') return <TelegramAutopostCard accountId={p.accountId} accounts={p.accounts} onSelectAccount={(id) => void p.accountAction('select', id)} runnerSeen={p.telegramRunnerSeen} onScanThreads={(target) => void p.scanTelegramThreads(target)} onSkipThread={(chatId) => void p.skipThreadChoice(chatId)} onOpenChat={(link) => openNativeChat('telegram', link)} material={{ image: p.telegramImage, imageLoaded: p.telegramMaterialLoaded, caption: p.telegramCaption, captionLoaded: p.telegramMaterialLoaded, direction: p.telegramCaptionDirection, onDirectionChange: p.setTelegramCaptionDirection, onCaptionChange: p.setTelegramCaption, onUploadImage: (file: File) => void p.uploadTelegramImage(file), onRemoveImage: () => void p.removeTelegramImage(), onSaveCaption: () => void p.saveTelegramCaption(), onClearCaption: () => void p.clearTelegramCaption(), scope: 'telegram', onCopyFromShared: () => void p.copyTelegramMaterialFromShared() }} plan={telegramPlan} onLoadPlan={p.loadAutopostPlan} runnerConnected={p.liveStatus.connected ? p.liveStatus.runnerConnected : null} status={p.telegramAutopostStatus} pace={p.telegramPace} progress={p.telegramProgress} attention={p.autopostAttention} batchNote={p.telegramBatchNote} binding={p.telegramAccountBinding} busy={p.busy !== null} onDecide={p.decideAutopost} onDecideMany={p.decideAutopostMany} onStart={(limit, exclude, perHour, texts) => void p.startTelegramAutopostBatch(limit, exclude, perHour, texts)} onStop={() => void p.stopTelegramAutopostBatch()} onReset={() => void p.resetTelegramAutopostQueue()} onChooseThread={(chatId, threadId, directions) => p.chooseTelegramThread(chatId, threadId, directions)} onBind={(webUserId) => void p.bindTelegramAccount(webUserId)} />;
     if (value === 'schedule' && p.accountId) return <ScheduleTab key={p.accountId} accountId={p.accountId} />;
     if (value === 'schedule') return <EmptyState text="Додай або увімкни Telegram-акаунт, щоб побачити розклад." />;
     const material = { image: p.whatsappImage, imageLoaded: p.whatsappImageLoaded, caption: p.whatsappCaption, captionLoaded: p.whatsappCaptionLoaded, direction: p.whatsappCaptionDirection, onDirectionChange: p.setWhatsappCaptionDirection, onCaptionChange: p.setWhatsappCaption, onUploadImage: (file: File) => void p.uploadWhatsAppAutopostImage(file), onRemoveImage: () => void p.removeWhatsAppAutopostImage(), onSaveCaption: () => void p.saveWhatsAppAutopostCaption(), onClearCaption: () => void p.clearWhatsAppAutopostCaption() };
@@ -286,10 +329,10 @@ export default function PlatformsView() {
       ) : !data && (p.loading || p.switchingList) ? (
         <div aria-busy="true" className="flex flex-col gap-2">{[0, 1, 2, 3].map((item) => <Ghost key={item} className="h-24 rounded-inner" />)}</div>
       ) : data && joinSplit ? (
-        <JoinSections candidates={data.candidates ?? []} pool={data.chats} counts={data.sections ?? { queue: 0, pool: 0 }} poolTotal={data.total} searching={p.search.trim() !== ''} renderRow={renderRow} onShowMore={p.showMoreNewChats} />
+        <JoinSections candidates={data.candidates ?? []} pool={data.chats} counts={data.sections ?? { queue: 0, pool: 0 }} poolTotal={data.total} searching={p.search.trim() !== ''} renderRow={renderRow} onShowMore={p.showMoreNewChats} account={p.activeAccount} breakSeconds={p.breakSeconds} busy={p.busy !== null} onStartBreak={(id, minutes) => void p.accountAction('start_break', id, { minutes })} />
       ) : data?.chats.length ? (
         <>
-          {queue === 'ready' ? <ReadyGroups chats={data.chats} clock={p.clock} plan={groupedPlan} complete={groupedComplete} renderRow={(chat, extra) => renderRow(chat, undefined, extra)} onOpenDecisions={groupedPlan ? () => { setZone('autopost'); setPhoneSection('autopost'); if (desktop) window.setTimeout(() => scrollRightToNode(document.getElementById('autopost-decisions')), 120); } : undefined} /> : (
+          {queue === 'ready' ? <ReadyGroups chats={data.chats} clock={p.clock} plan={groupedPlan} complete={groupedComplete} renderRow={(chat, extra) => renderRow(chat, undefined, extra)} onOpenSection={groupedPlan ? (id) => { setZone('autopost'); choosePhoneSection('autopost'); setFocusSection({ id, key: Date.now() }); } : undefined} /> : (
             <ul className="m-0 flex list-none flex-col gap-2 p-0">
               <DuplicateRows items={data.chats.map((chat) => ({ value: chat, id: chat.id, dup: chat.dup }))} renderItem={(chat, note) => renderRow(chat, undefined, note ? { note } : undefined)} />
             </ul>
@@ -318,8 +361,11 @@ export default function PlatformsView() {
       </TopbarControls>
 
       {!desktop ? (
-        // На телефоні «Швидкий режим» — просто «Швидкий»: інакше чотири пункти Viber не влазять у ширину екрана 390 px.
-        <Segmented<string> label="Розділ платформи" value={phoneCurrent} onValueChange={(value) => setPhoneSection(value as 'chats' | Zone)} items={[{ value: 'chats', label: 'Чати' }, ...zones.map((item) => (item.value === 'quick' ? { ...item, label: 'Швидкий' } : item))]} />
+        <div className="flex flex-col gap-2">
+          <AutopostStrip enabled={enabledKeys} current={platform} />
+          {/* На телефоні «Швидкий режим» — просто «Швидкий»: інакше чотири пункти Viber не влазять у ширину екрана 390 px. */}
+          <Segmented<string> label="Розділ платформи" value={phoneCurrent} onValueChange={(value) => choosePhoneSection(value as PhoneSection)} items={[{ value: 'chats', label: 'Чати' }, ...zones.map((item) => (item.value === 'quick' ? { ...item, label: 'Швидкий' } : item))]} />
+        </div>
       ) : null}
 
       {desktop ? (
@@ -329,7 +375,10 @@ export default function PlatformsView() {
             <div ref={leftRef} className="scroll-soft min-h-0 flex-1 overflow-y-auto pr-1"><div className="pb-2">{listBody}</div></div>
           </div>
           <div className="flex min-h-0 min-w-0 flex-col gap-4">
-            {zones.length > 1 ? <div className="shrink-0"><Segmented<Zone> label="Зона платформи" value={currentZone} onValueChange={setZone} items={zones} /></div> : null}
+            <div className="flex shrink-0 flex-col gap-2 empty:hidden">
+              <AutopostStrip enabled={enabledKeys} current={platform} />
+              {zones.length > 1 ? <Segmented<Zone> label="Зона платформи" value={currentZone} onValueChange={setZone} items={zones} /> : null}
+            </div>
             <div ref={rightRef} className="scroll-soft min-h-0 flex-1 overflow-y-auto pr-1"><div className="pb-2">{selectedBlock ?? zoneContent(currentZone)}</div></div>
           </div>
         </div>

@@ -61,7 +61,6 @@ export function ChatRow({ chat, queue, section, clock, busy, lastOpened, account
 
   const signals: Array<{ key: string; text: string; tone?: 'ok' | 'warn' }> = [];
   if (lastOpened) signals.push({ key: 'last', text: 'Останній відкритий' });
-  if (chat.platform !== 'viber' && !chat.profileConfirmed && (queue === 'ready' || queue === 'profile_review')) signals.push({ key: 'profile', text: 'Профіль не заповнено' });
   // Суворі правила профілю для автопосту: тиха позначка («лише Малювання», «закріплені оголошення · 2», «без фото»).
   if (queue === 'ready' || queue === 'waiting') {
     const profile = chat.profile;

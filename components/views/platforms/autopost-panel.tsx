@@ -14,6 +14,7 @@ import { Surface } from '@/components/ui/surface';
 import { DirectionsField } from '@/components/views/platforms/directions-field';
 import { AutopostAttentionList, type AutopostAttentionItem, type AutopostDecision, type DecideOptions } from '@/components/views/platforms/autopost-attention';
 import { AutopostBatchPanel } from '@/components/views/platforms/autopost-batch';
+import { scrollToSection } from '@/components/views/platforms/scroll-to-section';
 import type { WhatsAppAutopostImage, WhatsAppAutopostProgress } from '@/components/views/platforms/autopost-card';
 import { dayLabel, snoozeSummary } from '@/components/views/platforms/autopost-reasons';
 import type { ChatDupInfo } from '@/lib/chats/duplicates';
@@ -216,10 +217,11 @@ function MaterialRow({ material, editing, onToggle, busy }: { material: Autopost
  * далі розмір партії й кнопка, що говорять числами, оцінка часу, список чатів партії (кожен можна прибрати лише на цей запуск),
  * що саме піде (фото й підпис), стан готовності одним рядком і хід партії. Рідкісне («Скинути чергу») сховане в меню «⋯».
  */
-export function AutopostPanel({ platform, title, description, plan, onLoadPlan, secondsPerChat, readiness, settingsHelp, settingsTitle, material, progress, attention, batchNote, busy, runnerBlocked, topSlot, startSlot, midSlot, startNote, poolPreview, onDecide, onDecideMany, onStart, onStop, onReset }: {
+export function AutopostPanel({ platform, title, description, plan, onLoadPlan, secondsPerChat, readiness, settingsHelp, settingsTitle, material, progress, attention, batchNote, busy, runnerBlocked, headSlot, topSlot, paceSlot, choicesSlot, startSlot, midSlot, startNote, poolPreview, onDecide, onDecideMany, onStart, onStop, onReset }: {
   platform: 'whatsapp' | 'viber' | 'telegram';
   title: string;
-  description: string;
+  /** Як працює автопост платформи: згорнуто під заголовком у «Як це працює». */
+  description: ReactNode;
   plan: AutopostPlan | null;
   onLoadPlan: () => void;
   /** Орієнтовний час одного чату, для оцінки «≈ 7 хв». */
@@ -235,8 +237,14 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
   busy: boolean;
   /** Runner недоступний: запуск неможливий. */
   runnerBlocked: boolean;
-  /** Над ходом партії (темп і час наступної публікації Telegram). */
+  /** Одразу під заголовком (вибір акаунта Telegram). */
+  headSlot?: ReactNode;
+  /** Підготовка запуску (оцінка часу, пул, прив'язка акаунта); поки партія йде, стоїть після її ходу й рішень. */
   topSlot?: ReactNode;
+  /** Темп («Наступна публікація о …»): поруч із ходом партії. */
+  paceSlot?: ReactNode;
+  /** Блок «Обери гілку»: поки партія йде — одразу після «Потребують рішення». */
+  choicesSlot?: ReactNode;
   /** У блоці запуску перед кнопкою (вибір «на годину»). */
   startSlot?: ReactNode;
   /** Між запуском і «Потребують рішення» (група «Вибрати гілку»). */
@@ -299,28 +307,104 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
   const needSelection = Boolean(plan?.library?.needSelection);
   const ready = libraryOn ? !needSelection : material === null || (material.scope === 'telegram' ? material.captionLoaded : material.imageLoaded && Boolean(material.image) && material.captionLoaded);
 
-  const breakdown: Array<[string, number, string?]> = plan ? [
-    ['тексти на сьогодні закінчились, чекають на завтра', plan.textWaiting ?? 0],
-    ['текст задовгий для підпису до фото', plan.tooLong ?? 0],
-    ['немає підходящого оголошення', plan.noad ?? 0],
-    ['потребують вибору гілки', plan.thread ?? 0],
-    ['у розкладі Telegram', plan.schedule ?? 0],
-    ['потребують рішення', plan.decision],
-    ['уже пробували сьогодні без відправки', plan.tried],
-    ['опубліковано сьогодні', batchLive && progress ? progress.sent : plan.publishedToday],
-    ['чекають за правилами частоти', plan.rules, plan.rulesNextDate ? `найближча — ${dayLabel(plan.rulesNextDate)}` : undefined],
-    ['відкладено', plan.snoozed, snoozeSummary(plan)],
-    ['уже в черзі автопосту', batchLive && progress ? progress.pending + progress.claimed : plan.queued],
-    ['інше', plan.other],
+  // Розбивка черги рядками «підпис · число»; «Потребують рішення» і «Чекають вибору гілки» ведуть до своїх блоків у цій картці.
+  const live = running || Boolean(batchLive);
+  const hasChoices = (plan?.threadChoices?.length ?? 0) > 0;
+  const breakdown: Array<{ label: string; count: number; note?: string; target?: string }> = plan ? [
+    ...(batchLive ? [{ label: 'Ще готових поза партією', count: plan.ready }] : []),
+    { label: 'Тексти на сьогодні закінчились, чекають на завтра', count: plan.textWaiting ?? 0 },
+    { label: 'Текст задовгий для підпису до фото', count: plan.tooLong ?? 0 },
+    { label: 'Немає підходящого оголошення', count: plan.noad ?? 0 },
+    { label: 'Чекають вибору гілки', count: plan.thread ?? 0, target: hasChoices ? 'thread-choices' : undefined },
+    { label: 'У розкладі Telegram', count: plan.schedule ?? 0 },
+    { label: 'Потребують рішення', count: plan.decision, target: attention.length ? 'autopost-decisions' : undefined },
+    { label: 'Уже пробували сьогодні без відправки', count: plan.tried },
+    { label: 'Опубліковано сьогодні', count: batchLive && progress ? progress.sent : plan.publishedToday },
+    { label: 'Чекають за правилами частоти', count: plan.rules, note: plan.rulesNextDate ? `найближча — ${dayLabel(plan.rulesNextDate)}` : undefined },
+    { label: 'Відкладено', count: plan.snoozed, note: snoozeSummary(plan) || undefined },
+    { label: 'Уже в черзі автопосту', count: batchLive && progress ? progress.pending + progress.claimed : plan.queued },
+    { label: 'Інше', count: plan.other },
   ] : [];
-  const reasons = breakdown.filter(([, count]) => count > 0);
+  const reasons = breakdown.filter((row) => row.count > 0);
+
+  const planBlock = (
+    <section className="flex flex-col gap-2" aria-label="Скільки чатів готові до публікації">
+      {plan ? (
+        <>
+          {/* Поки партія йде, «оброблено N з M» уже в кільці: окремого заголовка «Іде партія» немає. */}
+          {batchLive ? null : <p className="m-0 text-[28px] font-medium leading-tight tracking-[-0.02em]">Готово до публікації: <span className="tabular-nums">{plan.ready}</span> {chatWord(plan.ready)}</p>}
+          {plan.total > 0 ? (
+            <div className="flex flex-col gap-1">
+              <p className="m-0 text-xs text-ink-2">З <span className="font-mono tabular-nums">{plan.total}</span> у черзі «Для публікації»</p>
+              {reasons.length ? (
+                <ul className="m-0 grid list-none gap-x-6 p-0 sm:grid-cols-2">
+                  {reasons.map((row) => {
+                    const content = (
+                      <>
+                        <span className="min-w-0 flex-1">{row.label}{row.note ? <span className="text-ink-3"> · {row.note}</span> : null}</span>
+                        <span className="shrink-0 font-mono tabular-nums text-ink">{row.count}</span>
+                      </>
+                    );
+                    return (
+                      <li key={row.label}>
+                        {row.target ? (
+                          <button type="button" onClick={() => scrollToSection(row.target as string)} className="flex min-h-9 w-full items-center gap-3 py-1 text-left text-sm text-ink-2 underline decoration-line-strong underline-offset-4 hover:text-ink">{content}</button>
+                        ) : <div className="flex min-h-9 items-center gap-3 py-1 text-sm text-ink-2">{content}</div>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+            </div>
+          ) : <p className="m-0 text-sm text-ink-2">У черзі «Для публікації» немає чатів цієї платформи.</p>}
+        </>
+      ) : <p className="m-0 text-sm text-ink-2">Рахую, скільки чатів готові до публікації…</p>}
+    </section>
+  );
+
+  const envBlock = (
+    <div className="flex flex-col gap-2">
+      {/* Стан середовища одним рядком: «Готово · перевірено о 20:41», «Перевіряю середовище (…що саме…)» або «Пауза: …» (з кнопкою). */}
+      <output className="m-0 flex items-start gap-2 text-sm">
+        <i aria-hidden="true" className={`mt-1.5 size-2 shrink-0 rounded-full ${env.tone === 'ok' ? 'bg-ok' : env.tone === 'hot' ? 'bg-hot' : env.tone === 'warn' ? 'bg-warn' : 'bg-ink-3'}`} />
+        <span className={env.tone === 'hot' ? 'text-hot' : env.tone === 'warn' && health?.status === 'paused' ? 'text-warn' : 'text-ink-2'}>{env.text}</span>
+      </output>
+      {health?.status === 'paused' && !runnerOff ? <RecheckButton platform={platform} /> : null}
+      {runnerOff ? <RunnerLaunchLink className="self-start" /> : null}
+      {platform === 'viber' && /Allow/.test(readiness.text) ? <div className="flex flex-col items-start gap-1.5"><span className="text-[13px] text-ink-2">Потрібно натиснути Allow в Android.</span><WaydroidWindowLink /></div> : null}
+      {browserNotice && platform !== 'viber' ? <p className="m-0 flex items-start gap-2 text-[13px] text-warn" role="note"><i aria-hidden="true" className="mt-1.5 size-2 shrink-0 rounded-full bg-warn" />{browserNotice}</p> : null}
+      <details className="group" open={readiness.tone === 'warn'}>
+        <summary className="cursor-pointer list-none text-xs text-ink-2 [&::-webkit-details-marker]:hidden"><span className="underline decoration-line-strong underline-offset-4">{settingsTitle}</span></summary>
+        <div className="mt-2 text-sm text-ink-2">{settingsHelp}</div>
+      </details>
+    </div>
+  );
+
+  const batchShown = Boolean(progress?.batch && progress.batch.total > 0);
+  const batchBlock = (
+    <>
+      <AutopostBatchPanel batch={progress?.batch} running={running} platform={platform} onStop={onStop} stopBusy={busy} decisions={attention.length} />
+      {/* Без кільця (одиночна перевірка чи повтор поза партією) «Зупинити» лишається окремою кнопкою. */}
+      {running && !batchShown ? (
+        <div className="flex justify-end">
+          <Button variant="outline" tone="danger" disabled={busy} onClick={onStop}><Square aria-hidden="true" strokeWidth={1.5} />Зупинити автопост</Button>
+        </div>
+      ) : null}
+      {paceSlot}
+      {batchNote ? <p className="m-0 text-xs text-ink-2">{batchNote}</p> : null}
+    </>
+  );
+  const attentionBlock = <AutopostAttentionList items={attention} busy={busy} canVerify messenger={platform} tail={!live} onDecide={onDecide} onDecideMany={onDecideMany} />;
 
   return (
     <Surface variant="glass" radius="card" className="flex flex-col gap-6 p-5 sm:p-6" aria-labelledby={`autopost-${platform}-title`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 id={`autopost-${platform}-title`} className="m-0 text-[17px] font-medium">{title}</h2>
-          <p className="m-0 mt-1 max-w-[62ch] text-sm text-ink-2">{description}</p>
+          <details className="group mt-1">
+            <summary className="cursor-pointer list-none text-xs text-ink-2 [&::-webkit-details-marker]:hidden"><span className="underline decoration-line-strong underline-offset-4">Як це працює</span></summary>
+            <div className="mt-2 flex max-w-[62ch] flex-col gap-2 text-sm text-ink-2">{description}</div>
+          </details>
         </div>
         <Menu>
           <MenuTrigger render={<button type="button" aria-label="Дії черги автопосту" className="inline-flex size-9 shrink-0 items-center justify-center rounded-full border border-line text-ink-2 hover:bg-raised" />}>
@@ -332,95 +416,72 @@ export function AutopostPanel({ platform, title, description, plan, onLoadPlan, 
         </Menu>
       </div>
 
-      <div className="flex flex-col gap-2">
-        {/* Стан середовища одним рядком: «Готово · перевірено о 20:41», «Перевіряю середовище (…що саме…)» або «Пауза: …» (з кнопкою). */}
-        <output className="m-0 flex items-start gap-2 text-sm">
-          <i aria-hidden="true" className={`mt-1.5 size-2 shrink-0 rounded-full ${env.tone === 'ok' ? 'bg-ok' : env.tone === 'hot' ? 'bg-hot' : env.tone === 'warn' ? 'bg-warn' : 'bg-ink-3'}`} />
-          <span className={env.tone === 'hot' ? 'text-hot' : env.tone === 'warn' && health?.status === 'paused' ? 'text-warn' : 'text-ink-2'}>{env.text}</span>
-        </output>
-        {health?.status === 'paused' && !runnerOff ? <RecheckButton platform={platform} /> : null}
-        {runnerOff ? <RunnerLaunchLink className="self-start" /> : null}
-        {platform === 'viber' && /Allow/.test(readiness.text) ? <div className="flex flex-col items-start gap-1.5"><span className="text-[13px] text-ink-2">Потрібно натиснути Allow в Android.</span><WaydroidWindowLink /></div> : null}
-        {browserNotice && platform !== 'viber' ? <p className="m-0 flex items-start gap-2 text-[13px] text-warn" role="note"><i aria-hidden="true" className="mt-1.5 size-2 shrink-0 rounded-full bg-warn" />{browserNotice}</p> : null}
-        <details className="group" open={readiness.tone === 'warn'}>
-          <summary className="cursor-pointer list-none text-xs text-ink-2 [&::-webkit-details-marker]:hidden"><span className="underline decoration-line-strong underline-offset-4">{settingsTitle}</span></summary>
-          <div className="mt-2 text-sm text-ink-2">{settingsHelp}</div>
-        </details>
-      </div>
+      {headSlot}
 
-      <section className="flex flex-col gap-1" aria-label="Скільки чатів готові до публікації">
-        {plan ? (
-          <>
-            {batchLive ? (
-              <p className="m-0 text-[28px] font-medium leading-tight tracking-[-0.02em]">Іде партія: <span className="tabular-nums">{batchLive.sent + batchLive.failed + batchLive.skipped}</span> з <span className="tabular-nums">{batchLive.total}</span>{plan.ready > 0 ? <span className="text-ink-2"> · ще готових поза партією: <span className="tabular-nums">{plan.ready}</span></span> : null}</p>
-            ) : (
-              <p className="m-0 text-[28px] font-medium leading-tight tracking-[-0.02em]">Готово до публікації: <span className="tabular-nums">{plan.ready}</span> {chatWord(plan.ready)}</p>
-            )}
-            {plan.total > 0 ? (
-              <p className="m-0 text-sm text-ink-2">
-                З {plan.total} у черзі «Для публікації»{reasons.length ? ': ' : '.'}
-                {reasons.map(([label, count, note], index) => <span key={label}>{index ? ' · ' : ''}{label} <b className="font-mono font-normal tabular-nums text-ink">{count}</b>{note ? ` (${note})` : ''}</span>)}
-              </p>
-            ) : <p className="m-0 text-sm text-ink-2">У черзі «Для публікації» немає чатів цієї платформи.</p>}
-          </>
-        ) : <p className="m-0 text-sm text-ink-2">Рахую, скільки чатів готові до публікації…</p>}
-      </section>
+      {live ? (
+        <>
+          {/* Партія йде: спершу її хід (кільце, «Зараз», «Зупинити»), далі те, що чекає рішення, і лише потім підготовка й розбивка черги. */}
+          {batchBlock}
+          {envBlock}
+          {attentionBlock}
+          {choicesSlot}
+          {planBlock}
+          {topSlot}
+          {midSlot}
+        </>
+      ) : (
+        <>
+          {envBlock}
+          {planBlock}
+          {choicesSlot}
+          {topSlot}
+          {batchBlock}
 
-      {topSlot}
-      <AutopostBatchPanel batch={progress?.batch} running={running} platform={platform} />
-      {batchNote ? <p className="m-0 text-xs text-ink-2">{batchNote}</p> : null}
-
-      {!running && plan ? (
-        <section className="flex flex-col gap-4" aria-label="Запуск партії">
-          {material ? <MaterialRow material={material} editing={editing} onToggle={() => setEditing((value) => !value)} busy={busy} /> : null}
-          {plan.ready === 0 ? (
-            <p className="m-0 rounded-inner border border-line px-4 py-3 text-sm text-ink-2">{noReadyText(plan)}</p>
-          ) : (
-            <>
-              {going.length ? (
-                <details className="group rounded-inner border border-line" onToggle={(event) => setListOpen(event.currentTarget.open)}>
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
-                    <span>Переглянути чати партії</span><span className="font-mono tabular-nums text-ink-2">{chosen}</span>
-                  </summary>
-                  <ol className="m-0 flex max-h-72 list-none flex-col gap-2 overflow-y-auto p-0 px-3 pb-3 sm:max-h-96">
-                    {going.map((chat, index) => (
-                      <li key={chat.id} className="flex flex-col gap-0.5 text-sm">
-                        <div className="flex items-center gap-2">
-                          <span className="w-6 shrink-0 text-right font-mono text-xs tabular-nums text-ink-3">{index + 1}</span>
-                          <span className="min-w-0 flex-1 truncate" title={chat.name}>{chat.name}</span>
-                          {chat.badges?.length ? <span className="max-w-[45%] shrink-0 truncate text-xs text-ink-3" title={chat.badges.join(' · ')}>{chat.badges.join(' · ')}</span> : null}
-                          <button type="button" aria-label={`Прибрати з цього запуску: ${chat.name}`} title="Прибрати лише з цього запуску" onClick={() => setRemoved((current) => [...current, chat.id])} className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 hover:bg-raised hover:text-ink [@media(pointer:coarse)]:size-11"><X aria-hidden="true" strokeWidth={1.5} className="size-4" /></button>
-                        </div>
-                        {poolPreview ? <PoolTextLine chatId={chat.id} preview={poolPreview} /> : null}
-                      </li>
-                    ))}
-                  </ol>
-                </details>
-              ) : null}
-              {startSlot}
-              <div className="flex flex-wrap items-center justify-end gap-3">
-                <Segmented<'1' | '5' | '20' | 'all'> label="Скільки чатів у партії" size="sm" value={size} onValueChange={setSize} items={[{ value: '1', label: '1' }, { value: '5', label: '5' }, { value: '20', label: '20' }, { value: 'all', label: `Усі (${cap})` }]} />
-                <div className="flex flex-col items-end gap-1">
-                  <Button variant="action" busy={busy} disabled={runnerBlocked || !ready || chosen === 0} title={ready ? undefined : libraryOn ? 'Обери хоча б одне оголошення' : 'Спершу додай фото'} onClick={() => onStart(chosen, removedNow)}>
-                    <Send aria-hidden="true" strokeWidth={1.5} />{busy ? 'Ставимо в чергу…' : `Опублікувати в ${chosen} ${chatWord(chosen)}`}
-                  </Button>
-                  <span className="text-xs text-ink-2">{needSelection ? 'Обери хоча б одне оголошення' : chosen ? (startNote ?? `${estimateFromSeconds(chosen * secondsPerChat + (healthStatus === 'ok' ? 0 : CANARY_SECONDS[platform])).text}, по одному чату з підтвердженням`) : ''}</span>
-                </div>
-              </div>
-            </>
-          )}
-        </section>
-      ) : null}
-
-      {running ? (
-        <div className="flex justify-end">
-          <Button variant="outline" tone="danger" disabled={busy} onClick={onStop}><Square aria-hidden="true" strokeWidth={1.5} />Зупинити автопост</Button>
-        </div>
-      ) : null}
-
-      {midSlot}
-
-      <AutopostAttentionList items={attention} busy={busy} canVerify messenger={platform} onDecide={onDecide} onDecideMany={onDecideMany} />
+          {!running && plan ? (
+            <section className="flex flex-col gap-4" aria-label="Запуск партії">
+              {material ? <MaterialRow material={material} editing={editing} onToggle={() => setEditing((value) => !value)} busy={busy} /> : null}
+              {plan.ready === 0 ? (
+                <p className="m-0 rounded-inner border border-line px-4 py-3 text-sm text-ink-2">{noReadyText(plan)}</p>
+              ) : (
+                <>
+                  {going.length ? (
+                    <details className="group rounded-inner border border-line" onToggle={(event) => setListOpen(event.currentTarget.open)}>
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
+                        <span>Переглянути чати партії</span><span className="font-mono tabular-nums text-ink-2">{chosen}</span>
+                      </summary>
+                      <ol className="m-0 flex max-h-72 list-none flex-col gap-2 overflow-y-auto p-0 px-3 pb-3 sm:max-h-96">
+                        {going.map((chat, index) => (
+                          <li key={chat.id} className="flex flex-col gap-0.5 text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className="w-6 shrink-0 text-right font-mono text-xs tabular-nums text-ink-3">{index + 1}</span>
+                              <span className="min-w-0 flex-1 truncate" title={chat.name}>{chat.name}</span>
+                              {chat.badges?.length ? <span className="max-w-[45%] shrink-0 truncate text-xs text-ink-3" title={chat.badges.join(' · ')}>{chat.badges.join(' · ')}</span> : null}
+                              <button type="button" aria-label={`Прибрати з цього запуску: ${chat.name}`} title="Прибрати лише з цього запуску" onClick={() => setRemoved((current) => [...current, chat.id])} className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 hover:bg-raised hover:text-ink [@media(pointer:coarse)]:size-11"><X aria-hidden="true" strokeWidth={1.5} className="size-4" /></button>
+                            </div>
+                            {poolPreview ? <PoolTextLine chatId={chat.id} preview={poolPreview} /> : null}
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
+                  ) : null}
+                  {startSlot}
+                  <div className="flex flex-wrap items-center justify-end gap-3">
+                    <Segmented<'1' | '5' | '20' | 'all'> label="Скільки чатів у партії" size="sm" value={size} onValueChange={setSize} items={[{ value: '1', label: '1' }, { value: '5', label: '5' }, { value: '20', label: '20' }, { value: 'all', label: `Усі (${cap})` }]} />
+                    <div className="flex flex-col items-end gap-1">
+                      <Button variant="action" busy={busy} disabled={runnerBlocked || !ready || chosen === 0} title={ready ? undefined : libraryOn ? 'Обери хоча б одне оголошення' : 'Спершу додай фото'} onClick={() => onStart(chosen, removedNow)}>
+                        <Send aria-hidden="true" strokeWidth={1.5} />{busy ? 'Ставимо в чергу…' : `Опублікувати в ${chosen} ${chatWord(chosen)}`}
+                      </Button>
+                      <span className="text-xs text-ink-2">{needSelection ? 'Обери хоча б одне оголошення' : chosen ? (startNote ?? `${estimateFromSeconds(chosen * secondsPerChat + (healthStatus === 'ok' ? 0 : CANARY_SECONDS[platform])).text}, по одному чату з підтвердженням`) : ''}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
+          ) : null}
+          {midSlot}
+          {attentionBlock}
+        </>
+      )}
 
       <ConfirmDialog
         open={confirmReset}
