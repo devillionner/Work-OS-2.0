@@ -47,7 +47,9 @@ export function RunnerRow() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
   // Сайт відкрито на Windows: показуємо команду для PowerShell; перенесення входів архівом там не підтримується (входи робляться QR).
-  const windows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent);
+  // Інструкції — для ОС runner (з live-каналу; DO пам'ятає останню, навіть коли runner вимкнений), а браузер лише запасний шлях: з телефону
+  // власник має бачити команду для свого Windows-ПК, а не для Linux.
+  const windows = status.runnerOs ? status.runnerOs === 'windows' : typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent);
 
   const load = useCallback(() => {
     void fetch('/api/runner/backup', { cache: 'no-store' }).then((response) => response.json() as Promise<{ backups?: Backup[]; available?: boolean }>)

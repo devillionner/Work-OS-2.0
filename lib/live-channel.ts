@@ -9,7 +9,7 @@
 
 export type LiveMessage = { type: string; [key: string]: unknown };
 /** `synced` — на цьому сокеті вже прийшов hello зі знімком стану (крок, темп, статус); поки його немає, картки пишуть «Оновлюю…». */
-export type LiveStatus = { connected: boolean; runnerConnected: boolean | null; runnerVersion?: string; synced?: boolean };
+export type LiveStatus = { connected: boolean; runnerConnected: boolean | null; runnerVersion?: string; runnerOs?: 'windows' | 'linux'; synced?: boolean };
 
 type MessageListener = (message: LiveMessage) => void;
 type StatusListener = (status: LiveStatus) => void;
@@ -135,7 +135,7 @@ function hasSubscribers() {
 
 function setStatus(next: Partial<LiveStatus>) {
   const merged = { ...status, ...next };
-  if (merged.connected === status.connected && merged.runnerConnected === status.runnerConnected && merged.runnerVersion === status.runnerVersion && merged.synced === status.synced) return;
+  if (merged.connected === status.connected && merged.runnerConnected === status.runnerConnected && merged.runnerVersion === status.runnerVersion && merged.runnerOs === status.runnerOs && merged.synced === status.synced) return;
   status = merged;
   for (const listener of statusListeners) listener(status);
 }
@@ -212,7 +212,7 @@ function connect() {
       const clean = cleanStep(message);
       if (clean) latestSteps = { ...latestSteps, [message.platform]: clean };
     }
-    if (message.type === 'hello' && typeof message.runnerConnected === 'boolean') setStatus({ runnerConnected: message.runnerConnected, ...(typeof message.runnerVersion === 'string' ? { runnerVersion: message.runnerVersion } : {}) });
+    if (message.type === 'hello' && typeof message.runnerConnected === 'boolean') setStatus({ runnerConnected: message.runnerConnected, ...(typeof message.runnerVersion === 'string' ? { runnerVersion: message.runnerVersion } : {}), ...(message.runnerOs === 'windows' || message.runnerOs === 'linux' ? { runnerOs: message.runnerOs } : {}) });
     if (message.type === 'hello' && message.viberStatus && typeof message.viberStatus === 'object') latestViberStatus = { type: 'progress', process: 'viber_status', ...(message.viberStatus as Record<string, unknown>) };
     if (message.type === 'progress' && message.process === 'viber_status') latestViberStatus = message;
     if (message.type === 'hello' && message.autopostStatus && typeof message.autopostStatus === 'object') {
@@ -242,7 +242,7 @@ function connect() {
       const { [message.code]: _gone, ...rest } = runnerNotices;
       runnerNotices = message.active === true && typeof message.text === 'string' && message.text ? { ...rest, [message.code]: message.text } : rest;
     }
-    if (message.type === 'runner_status' && typeof message.connected === 'boolean') { setStatus({ runnerConnected: message.connected, ...(typeof message.version === 'string' ? { runnerVersion: message.version } : {}) }); if (!message.connected) { latestViberStatus = null; latestAutopostStatus = {}; runnerNotices = {}; latestSteps = {}; } }
+    if (message.type === 'runner_status' && typeof message.connected === 'boolean') { setStatus({ runnerConnected: message.connected, ...(typeof message.version === 'string' ? { runnerVersion: message.version } : {}), ...(message.os === 'windows' || message.os === 'linux' ? { runnerOs: message.os } : {}) }); if (!message.connected) { latestViberStatus = null; latestAutopostStatus = {}; runnerNotices = {}; latestSteps = {}; } }
     if (isHidden()) { deferredWhileHidden = true; return; }
     for (const listener of messageListeners) listener(message);
   });

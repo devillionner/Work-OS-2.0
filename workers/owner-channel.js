@@ -70,7 +70,7 @@ import { loadRun, loadSourceFeedback, loadTelegramGroups, saveRun, saveSourceFee
 /** @typedef {'browser'|'runner'|'standby'} ChannelKind */
 /** @typedef {'discovery'} GenericProcessName */
 /** @typedef {{running: boolean, params: unknown, updatedAt: number}} GenericProcessState */
-/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId?: string|null, autopostClaimedAt?: number, autopostLanes?: Record<string, {jobId: string, claimedAt: number, current: {send: boolean, startedAt: number, platform: string}}|undefined>, autopostWatchAt?: number, runnerConnectedAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostPace?: Record<string, {intervalSeconds:number, nextAt:number}>, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, runnerVersion?: string, runnerNotices?: Record<string, string>, autopostBatchOpen?: Record<string, number>, autopostQueueDate?: string, discoveryQueued?: boolean, runnerActive?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
+/** @typedef {{userId: string|null, processes: Record<GenericProcessName, GenericProcessState>, waitingCheckBatch: import('../lib/chats/whatsapp-waiting-check.ts').WaitingCheckBatchState|null, autopostCurrentJobId?: string|null, autopostClaimedAt?: number, autopostLanes?: Record<string, {jobId: string, claimedAt: number, current: {send: boolean, startedAt: number, platform: string}}|undefined>, autopostWatchAt?: number, runnerConnectedAt?: number, autopostPaused?: Record<string, number>, autopostCurrent?: {telegramSend: boolean, startedAt: number, platform?: string}, telegramPace?: {intervalSeconds:number, nextAt:number}, autopostPace?: Record<string, {intervalSeconds:number, nextAt:number}>, autopostStatus?: Record<string, {state:string, reason:string|null, text:string, identity?:string|null, until:number|null}>, viberStatus?: {state:string, reason:string|null, text:string}, autopostTrace?: {at:number, text:string}[], discoveryCurrentTask: import('../lib/chat-discovery/executor.ts').DiscoveryExecutorTask|null, runnerLastSeenAt: number|null, runnerOnline?: boolean, runnerVersion?: string, runnerOs?: string, runnerNotices?: Record<string, string>, autopostBatchOpen?: Record<string, number>, autopostQueueDate?: string, discoveryQueued?: boolean, runnerActive?: boolean, discoveryRunJob?: {kind:'candidate', candidateId:string, runId:string}|{kind:'source', runId:string, cursor:number}|null, discoveryRunCandidatesBlockedUntil?: number, discoveryRunWakeAt?: number|null, discoverySourceActivity?: string|null}} OwnerChannelState */
 
 const STORAGE_KEY = 'state';
 // Останній крок автопосту за платформами (лише для hello нових сторінок) і скільки він лишається актуальним.
@@ -363,7 +363,7 @@ export class OwnerChannel {
   async onBrowserConnected(server, userId) {
     const state = await this.readState();
     if (userId && state.userId !== userId) { state.userId = userId; await this.writeState(state); }
-    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0, ...(state.runnerVersion ? { runnerVersion: state.runnerVersion } : {}), ...(state.runnerNotices ? { runnerNotices: state.runnerNotices } : {}), ...(state.viberStatus ? { viberStatus: state.viberStatus } : {}), ...(state.autopostStatus ? { autopostStatus: state.autopostStatus } : {}), ...(state.autopostPace ? { autopostPace: state.autopostPace } : {}), ...(state.autopostHealth ? { autopostHealth: state.autopostHealth } : {}), ...(state.autopostPace?.telegram ? { telegramPace: state.autopostPace.telegram } : {}), autopostSteps: await this.freshAutopostSteps(), ...(state.runnerTransfer ? { runnerTransfer: state.runnerTransfer } : {}) }));
+    server.send(JSON.stringify({ type: 'hello', processes: state.processes, runnerConnected: this.openRunnerCount() > 0, ...(state.runnerVersion ? { runnerVersion: state.runnerVersion } : {}), ...(state.runnerOs ? { runnerOs: state.runnerOs } : {}), ...(state.runnerNotices ? { runnerNotices: state.runnerNotices } : {}), ...(state.viberStatus ? { viberStatus: state.viberStatus } : {}), ...(state.autopostStatus ? { autopostStatus: state.autopostStatus } : {}), ...(state.autopostPace ? { autopostPace: state.autopostPace } : {}), ...(state.autopostHealth ? { autopostHealth: state.autopostHealth } : {}), ...(state.autopostPace?.telegram ? { telegramPace: state.autopostPace.telegram } : {}), autopostSteps: await this.freshAutopostSteps(), ...(state.runnerTransfer ? { runnerTransfer: state.runnerTransfer } : {}) }));
   }
 
   /**
@@ -521,10 +521,13 @@ export class OwnerChannel {
     // Runner повідомляє свою версію (і що його щойно перезапустила іконка в треї після зміни коду): браузерам йде «Runner оновлено до …».
     if (message.type === 'runner_info') {
       const version = String(message.version || '').slice(0, 20);
+      // ОС runner (windows/linux): «Налаштування → Runner на цьому ПК» показує інструкції для неї, а не для браузера, з якого дивляться.
+      const os = message.os === 'windows' || message.os === 'linux' ? message.os : undefined;
       const state = await this.readState();
       state.runnerVersion = version;
+      if (os) state.runnerOs = os;
       await this.writeState(state);
-      this.broadcast('browser', { type: 'runner_status', connected: true, version, updated: message.updated === true });
+      this.broadcast('browser', { type: 'runner_status', connected: true, version, ...(os ? { os } : {}), updated: message.updated === true });
       return;
     }
 

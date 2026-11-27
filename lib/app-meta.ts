@@ -1,8 +1,9 @@
-export const APP_VERSION = '3.23.9';
+export const APP_VERSION = '3.23.10';
 export const APP_RELEASE_DATE = '2026-11-27';
 
 // User-facing copy only. Keep each note short and plain; technical details belong in docs and commits.
 export const APP_CHANGES = [
+  '«Налаштування → Runner на цьому ПК» показує інструкції для системи, на якій стоїть runner (у тебе Windows), навіть коли дивишся з телефону.',
   'Telegram: чат, який Telegram Web одразу не знайшов, відкривається заново за 7 с, а не висить 25 с до збою; перевірка гілок без результату більше не повторюється при кожному відкритті сторінки.',
   'Картка автопосту Viber пише про Viber Desktop на Windows, а не про Waydroid і Android; з Бібліотеки прибрано старий тестовий режим Viber, який уже нічого не робив.',
   'Runner оновлюється сам: раз на 10 хвилин перевіряє версію на сайті, завантажує нову й перезапускається між задачами. Перезапускати вручну більше не треба.',

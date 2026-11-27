@@ -1887,7 +1887,7 @@ function connectLiveChannel(){
     setStatus('ready','Готовий: підключено до Work OS');
     while(pendingLive.length)ws.send(JSON.stringify(pendingLive.shift()));
     // Версія застосунку, з якою запущено runner; `updated` — його щойно перезапустила іконка в треї після зміни коду (раз на процес).
-    ws.send(JSON.stringify({type:'runner_info',version:runnerVersion(),updated:!runnerInfoSent&&process.env.WORK_OS_RUNNER_UPDATED==='1'}));
+    ws.send(JSON.stringify({type:'runner_info',version:runnerVersion(),os:process.platform==='win32'?'windows':'linux',updated:!runnerInfoSent&&process.env.WORK_OS_RUNNER_UPDATED==='1'}));
     runnerInfoSent=true;
     if(browserFlagsTimer)clearInterval(browserFlagsTimer);
     browserFlagsTimer=setInterval(()=>{if(!runnerIdle())reportBrowserFlags();},BROWSER_FLAGS_CHECK_MS);
