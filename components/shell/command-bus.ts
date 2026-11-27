@@ -1,35 +1,52 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useViewActive } from '@/components/shell/view-pane';
 
 type Handler = (payload?: unknown) => void;
 
-const handlers = new Map<string, Set<Handler>>();
-const pending = new Map<string, unknown>();
+const wakers = new Map<string, Set<() => void>>();
+const pending = new Map<string, { payload: unknown }>();
 
 /**
- * Команда між шеллом і розділами («додати ліда», «додати чати»). Якщо розділ ще не змонтований (лінивий чанк),
- * команда чекає, доки з'явиться підписник.
+ * Команда між шеллом і розділами («додати ліда», «відкрити автопост Viber»). Команда лягає в слот очікування
+ * (остання перемагає) і доставляється один раз, коли підписник змонтований і його розділ активний.
  */
 export function emitCommand(name: string, payload?: unknown) {
-  const set = handlers.get(name);
-  if (set?.size) set.forEach((handler) => handler(payload));
-  else pending.set(name, payload ?? true);
+  pending.set(name, { payload });
+  wakers.get(name)?.forEach((wake) => wake());
 }
 
+/**
+ * Доставка йде не одразу, а на наступному рендері підписника: розділ, що щойно з'явився чи став активним,
+ * у своїх ефектах відновлює збережений стан (платформу, чергу) мікрозадачами. Якби команда виконалась раніше,
+ * це відновлення перекрило б її, а обробник бачив би стан до відновлення.
+ */
 export function useCommand(name: string, handler: Handler) {
   const ref = useRef(handler);
   useEffect(() => { ref.current = handler; });
+  const active = useViewActive();
+  const [tick, setTick] = useState(0);
+  const armedAt = useRef<number | null>(null);
+
   useEffect(() => {
-    const call: Handler = (payload) => ref.current(payload);
-    let set = handlers.get(name);
-    if (!set) { set = new Set(); handlers.set(name, set); }
-    set.add(call);
-    if (pending.has(name)) {
-      const payload = pending.get(name);
-      pending.delete(name);
-      call(payload === true ? undefined : payload);
-    }
-    return () => { set.delete(call); };
+    const wake = () => setTick((value) => value + 1);
+    let set = wakers.get(name);
+    if (!set) { set = new Set(); wakers.set(name, set); }
+    set.add(wake);
+    return () => { set.delete(wake); };
   }, [name]);
+
+  useEffect(() => {
+    const entry = pending.get(name);
+    if (!active || !entry) { armedAt.current = null; return; }
+    if (armedAt.current === null || armedAt.current >= tick) {
+      armedAt.current = tick;
+      queueMicrotask(() => setTick((value) => value + 1));
+      return;
+    }
+    armedAt.current = null;
+    pending.delete(name);
+    ref.current(entry.payload);
+  }, [name, active, tick]);
 }

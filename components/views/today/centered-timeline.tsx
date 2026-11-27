@@ -123,6 +123,8 @@ export function CenteredTimeline({ day }: { day: Day }) {
   const started = workday.workday !== null && workday.workday.workDate === dayOf(now);
   const headline = describeUpcoming(model, now, started);
   const primary = headline.event ? day.actionOf(headline.event) : null;
+  // Порожній день без жодної події (і без прострочених чи завтрашніх) не малює величезну пусту шкалу: досить заголовка.
+  const empty = model.events.length === 0 && model.carry.length === 0 && model.tomorrow.length === 0;
   const timeOf = (event: DayEvent) => (dayOf(event.at) === dayOf(now) ? clockOf(event.at) : shortDate(dayOf(event.at)));
 
   return (
@@ -147,7 +149,7 @@ export function CenteredTimeline({ day }: { day: Day }) {
         ) : null}
       </Surface>
 
-      <Surface variant="glass" radius="card" data-reveal className="relative flex min-h-0 flex-1 overflow-hidden p-0" aria-label="Шкала дня">
+      {empty ? null : <Surface variant="glass" radius="card" data-reveal className="relative flex min-h-0 flex-1 overflow-hidden p-0" aria-label="Шкала дня">
         <div className="relative min-w-0 flex-1">
           <section ref={viewport} aria-label="Шкала дня, прокручується" onScroll={sync} className="hide-scrollbar fade-y absolute inset-0 overflow-y-auto overscroll-contain" style={{ containerType: 'size' }}>
             {/* Відступи зверху й знизу у відсотках висоти вікна (cqh), щоб будь-яку хвилину можна було поставити під лінію без вимірювань. */}
@@ -210,7 +212,7 @@ export function CenteredTimeline({ day }: { day: Day }) {
             </div>
           </div>
         </div>
-      </Surface>
+      </Surface>}
     </div>
   );
 }

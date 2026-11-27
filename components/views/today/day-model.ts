@@ -276,7 +276,11 @@ export function describeUpcoming(model: DayModel, now: number, started: boolean)
   const first = list[0] ?? null;
   const prefix = started ? '' : 'День ще не розпочато. ';
   if (!first) {
-    return { when: 'На сьогодні', what: 'подій більше немає', hint: model.attention.length ? `Лишилося справ: ${model.attention.length}` : 'Усе заплановане виконано', event: null };
+    if (model.attention.length) return { when: 'На сьогодні', what: 'подій більше немає', hint: `Лишилося справ: ${model.attention.length}`, event: null };
+    // «Усе виконано» лише коли справді щось планувалось; порожній день так і називається.
+    const planned = model.events.some((event) => event.kind === 'slot' || event.kind === 'reminder' || event.kind === 'checkpoint');
+    if (planned) return { when: 'На сьогодні', what: 'подій більше немає', hint: 'Усе заплановане виконано', event: null };
+    return { when: 'На сьогодні', what: 'нічого не заплановано', hint: `${prefix}Слоти розкладу, нагадування лідів і проміжні звіти з'являться тут.`, event: null };
   }
   const tomorrowEvent = model.tomorrow.includes(first);
   const when = tomorrowEvent ? `Завтра о ${clockOf(first.at)}` : Math.floor(first.at / 60) <= Math.floor(now / 60) ? 'Зараз' : `Через ${span(Math.floor(first.at / 60) - Math.floor(now / 60))}`;

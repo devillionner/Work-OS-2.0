@@ -24,9 +24,9 @@ export function ExecutorCard() {
     try {
       const response = await fetch('/api/chat-discovery?executorDevices=1', { cache: 'no-store' });
       const body = await response.json() as { devices?: Device[]; error?: string };
-      if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити executor.');
+      if (!response.ok) throw new Error(body.error || 'Не вдалося завантажити підключені ПК.');
       setDevices(body.devices || []);
-    } catch (reason) { setError(humanError(reason, 'Не вдалося завантажити executor.')); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося завантажити підключені ПК.')); }
   }, []);
 
   useEffect(() => { const timer = setTimeout(() => void load(), 0); return () => clearTimeout(timer); }, [load]);
@@ -34,7 +34,7 @@ export function ExecutorCard() {
   async function mutate(body: Record<string, unknown>) {
     const response = await fetch('/api/chat-discovery', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const payload = await response.json() as { token?: string; device?: { id: string }; error?: string };
-    if (!response.ok) throw new Error(payload.error || 'Операцію executor не завершено.');
+    if (!response.ok) throw new Error(payload.error || 'Операцію не завершено.');
     return payload;
   }
 
@@ -47,7 +47,7 @@ export function ExecutorCard() {
       setToken(next);
       if (next && payload.device?.id) storeExecutorToken(next, payload.device.id);
       await load();
-    } catch (reason) { setError(humanError(reason, 'Не вдалося підключити executor.')); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося підключити ПК.')); }
     finally { setBusy(false); }
   }
 
@@ -62,23 +62,23 @@ export function ExecutorCard() {
         setToken('');
       }
       await load();
-    } catch (reason) { setError(humanError(reason, 'Не вдалося відключити executor.')); }
+    } catch (reason) { setError(humanError(reason, 'Не вдалося відключити ПК.')); }
     finally { setBusy(false); }
   }
 
   return (
-    <section className="flex flex-col gap-4" aria-label="Executor пошуку чатів">
-      <p className="m-0 text-sm text-ink-2">Підключення runner до авторизованого WhatsApp Web. Credential зберігається локально в цьому браузері для фонового executor. Непідтверджений target зупиняє дію — Work OS не зараховує вступ, перевірку або вихід навмання.</p>
+    <section className="flex flex-col gap-4" aria-label="Пошук чатів на ПК">
+      <p className="m-0 text-sm text-ink-2">Підключення runner на ПК до WhatsApp Web, у якому виконано вхід. Ключ доступу зберігається лише в цьому браузері. Якщо чат не вдалося підтвердити, дія зупиняється: Work OS не зараховує вступ, перевірку чи вихід навмання.</p>
       <div className="flex flex-col gap-2 sm:flex-row">
-        <Input aria-label="Назва executor" value={name} onChange={(event) => setName(event.target.value)} maxLength={80} />
+        <Input aria-label="Назва пристрою" value={name} onChange={(event) => setName(event.target.value)} maxLength={80} />
         <Button variant="outline" busy={busy} disabled={!name.trim()} onClick={() => void pair()}><Cable aria-hidden="true" strokeWidth={1.5} />Підключити</Button>
       </div>
       {token ? (
         <div className="flex flex-col gap-2 rounded-inner border border-line bg-sunken p-3">
-          <p className="m-0 text-xs text-ink-2">Скопіюй token зараз — повторно він не показується.</p>
+          <p className="m-0 text-xs text-ink-2">Скопіюй ключ зараз: повторно він не показується.</p>
           <div className="flex items-center gap-2">
             <code className="min-w-0 flex-1 truncate font-mono text-xs">{token}</code>
-            <Button variant="icon" size="sm" aria-label="Скопіювати executor token" onClick={() => void navigator.clipboard.writeText(token).then(() => toast.push({ message: 'Token скопійовано.' }))}><Copy aria-hidden="true" strokeWidth={1.5} /></Button>
+            <Button variant="icon" size="sm" aria-label="Скопіювати ключ" onClick={() => void navigator.clipboard.writeText(token).then(() => toast.push({ message: 'Ключ скопійовано.' }))}><Copy aria-hidden="true" strokeWidth={1.5} /></Button>
           </div>
         </div>
       ) : null}
