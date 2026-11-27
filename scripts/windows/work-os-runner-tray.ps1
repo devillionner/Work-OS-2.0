@@ -178,7 +178,8 @@ function Stop-Runner {
     Remove-Item -LiteralPath $LockFile -Force -ErrorAction SilentlyContinue
 }
 
-function Restart-Runner([bool]$updated = $false) {
+function Restart-Runner([bool]$updated = $false, [string]$reason = 'вручну з меню') {
+    Write-TrayLog ("Перезапуск runner: $reason")
     Stop-Runner
     $script:Backoff = $BackoffStart
     Start-Runner $updated
@@ -314,7 +315,7 @@ $stateItem = Add-Item 'Work OS runner' $null $false
 $detailItem = Add-Item '' $null $false
 $awakeItem = Add-Item 'Не даю заснути: іде автопост' $null $false
 $awakeItem.Visible = $false
-[void](Add-Item 'Перезапустити runner' { Restart-Runner; Update-Tray })
+[void](Add-Item 'Перезапустити runner' { Restart-Runner $false 'з меню «Перезапустити runner»'; Update-Tray })
 [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 [void](Add-Item 'Вимкнути повністю…' { Confirm-Disable })
 $notify.ContextMenuStrip = $menu
@@ -353,7 +354,7 @@ function Update-BrowserItem([string]$state) {
         if ($script:BrowserGone -ge $BrowserGoneRestartAfter -and $state -ne 'working' -and (Test-RunnerRunning) `
                 -and (($now - $script:BrowserRestartedAt).TotalSeconds -gt $BrowserRestartGapSeconds) -and (($now - $script:StartedAt).TotalSeconds -gt 60)) {
             $script:BrowserRestartedAt = $now; $script:BrowserGone = 0
-            Restart-Runner
+            Restart-Runner $false 'браузер runner не відповідає (порт закритий 3 перевірки поспіль)'
         }
         return
     }
@@ -368,6 +369,7 @@ function Switch-BrowserMode {
     $info = Get-RunnerBrowser
     if (-not $info) { return }
     $wantWindow = [bool]$info.headless
+    Write-TrayLog $(if ($wantWindow) { 'Показати браузер runner: перезапуск браузера з вікном' } else { 'Сховати браузер runner: перезапуск браузера без вікна' })
     try { Set-Content -LiteralPath $ModeFile -Value $(if ($wantWindow) { 'window' } else { 'headless' }) -Encoding ASCII } catch { return }
     Stop-Runner
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -409,7 +411,7 @@ function Invoke-MaybeUpdate([string]$state) {
     $version = Get-AppVersion
     $script:UpdateNote = if ($version) { "Runner оновлено до $version" } else { 'Runner оновлено' }
     $script:UpdateNoteUntil = $now.AddSeconds($UpdateNoteSeconds)
-    Restart-Runner $true
+    Restart-Runner $true "оновлення до $version"
 }
 
 # Змінився сам скрипт трея (оновлення пакета): запускаємо нову копію й виходимо, runner переживає.
@@ -482,8 +484,11 @@ function Update-Tray {
             Invoke-MaybeUpdate $state
             if ($script:UpdateNote -and $now -lt $script:UpdateNoteUntil -and $state -ne 'working') { $detail = $script:UpdateNote }
         } else {
-            # Runner помер сам: піднімаємо його з наростаючою паузою.
+            # Runner помер сам: піднімаємо його з наростаючою паузою. У журнал трея — скільки прожив і з яким кодом вийшов.
             if ($script:NextStartAt -eq [DateTime]::MinValue) {
+                $exitCode = try { if ($script:Proc -ne $null -and $script:Proc.HasExited) { $script:Proc.ExitCode } else { '?' } } catch { '?' }
+                $lived = if ($script:StartedAt -gt [DateTime]::MinValue) { [int]($now - $script:StartedAt).TotalSeconds } else { 0 }
+                Write-TrayLog ("Runner зупинився сам: код $exitCode, працював $lived с")
                 $ran = if ($script:StartedAt -gt [DateTime]::MinValue) { ($now - $script:StartedAt).TotalSeconds } else { 0 }
                 if ($ran -gt $BackoffResetAfter) { $script:Backoff = $BackoffStart }
                 $script:NextStartAt = $now.AddSeconds($script:Backoff)
@@ -519,6 +524,7 @@ function Update-Tray {
 
 # ── вихід ──────────────────────────────────────────────────────────────────────────────────────────
 function Close-Tray([switch]$KeepRunner) {
+    Write-TrayLog $(if ($KeepRunner) { 'Трей закривається для оновлення (runner лишається)' } else { 'Вимкнено повністю з меню' })
     try { $timer.Stop() } catch { }
     if (-not $KeepRunner) { Stop-Runner }
     try { $notify.Visible = $false; $notify.Dispose() } catch { }
@@ -539,6 +545,7 @@ function Confirm-Disable {
 Set-TrayIcon 'starting' ''
 $notify.Visible = $true
 Set-TrayText 'Work OS runner — запускається'
+Write-TrayLog ("Трей запущено" + $(if ($Wake) { ' (команда «Запустити runner»)' } elseif ($Replace) { ' (оновлення)' } else { '' }))
 Start-Runner
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 2000

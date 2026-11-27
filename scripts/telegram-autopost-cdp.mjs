@@ -363,6 +363,33 @@ export const READ_MESSAGES_JS = `(() => [...document.querySelectorAll('#MiddleCo
   return { id, own, pending, failed, hasMedia, text: clone ? String(clone.innerText || clone.textContent || '').slice(0, 4200) : '' };
 }).filter((item) => item.id))()`;
 
+// Рядок цього чату (чи гілки форуму) в лівій колонці: превʼю останнього повідомлення й ознака «своє» («You:», галочки).
+// Запасне підтвердження, коли стрічка відкрилась не внизу (велика гілка відкривається на місці останнього прочитаного, і нове
+// повідомлення в кадр не потрапляє: 2026-11-26 «ЖК Каховська» й «Київські матусі» — повідомлення вийшли, а Work OS писав «не підтверджено»).
+export function leftRowJs(peer, thread) {
+  return `(() => {
+  const want = '#' + ${JSON.stringify(String(peer || ''))} + (${JSON.stringify(String(thread || ''))} ? '_' + ${JSON.stringify(String(thread || ''))} : '');
+  if (want === '#') return null;
+  const a = [...document.querySelectorAll('#LeftColumn a.ListItem-button')].find((el) => (el.getAttribute('href') || '') === want);
+  if (!a) return null;
+  const clone = a.cloneNode(true);
+  clone.querySelectorAll('img[alt]').forEach((img) => { const alt = img.getAttribute('alt'); if (alt) img.replaceWith(document.createTextNode(alt)); });
+  const text = String(clone.innerText || clone.textContent || '');
+  return { text: text.slice(0, 800), own: /(^|\\n)\\s*(You|Ви|Вы)\\s*:/u.test(text),
+    pending: Boolean(a.querySelector('.icon-message-pending, [class*="message-pending"]')),
+    failed: Boolean(a.querySelector('.icon-message-failed, [class*="message-failed"]')) };
+})()`;
+}
+
+// Кнопка «вниз» у стрічці (кругла стрілка праворуч унизу) або, без неї, прокрутка списку повідомлень до кінця. Лише гортає, нічого не надсилає.
+const SCROLL_TO_BOTTOM_JS = `(() => {
+  const button = [...document.querySelectorAll('#MiddleColumn [class*="ScrollDown" i] button, #MiddleColumn button[aria-label="Go to bottom" i], #MiddleColumn button[aria-label*="вниз" i]')].find((el) => el.offsetParent);
+  if (button) { button.click(); return 'button'; }
+  const list = document.querySelector('#MiddleColumn .MessageList');
+  if (list && list.scrollHeight - list.scrollTop - list.clientHeight > 40) { list.scrollTop = list.scrollHeight; return 'scroll'; }
+  return '';
+})()`;
+
 // Telegram Web A читає адресу з посилання лише під час запуску застосунку: зміна одного фрагмента (#…) у відкритій вкладці
 // може лишитися непоміченою. Тому до потрібної адреси йдемо через порожню сторінку, щоб застосунок стартував заново.
 async function openFresh(client, url) {
@@ -711,6 +738,8 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     // 5. Фото (якщо є): вставка в поле відкриває вікно «Send Photo» з власним полем підпису. Далі текст (рядки через Shift+Enter) і звірка.
     const before = await page.evaluate(READ_MESSAGES_JS);
     const beforeIds = new Set(before.map((item) => item.id));
+    const rowThread = forum && chosen ? chosen.id : '';
+    const rowBefore = await page.evaluate(leftRowJs(peerId, rowThread)).catch(() => null);
     let field = '#editable-message-text';
     // У групі, де адміни заборонили медіа, у полі стоїть кнопка «Sending media isn't allowed in this group» і вставка фото нічого не відкриває
     // (перевірено наживо 2026-10-26, «Чат Мандарин Медіа»). Оголошення тоді йде лише текстом: це кращий результат, ніж вічний повтор.
@@ -824,6 +853,9 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     onStep('confirm', 'перевіряю, що повідомлення в чаті');
     const wanted = squash(text).slice(0, 40);
     const confirmDeadline = Date.now() + (media ? PHOTO_CONFIRM_TIMEOUT_MS : SEND_CONFIRM_TIMEOUT_MS);
+    const confirmStarted = Date.now();
+    let scrolledAt = 0;
+    const rowWanted = squash(text).slice(0, 20);
     while (Date.now() < confirmDeadline) {
       await sleep(POLL_MS);
       // Діалог оплати міг з'явитись після кліку «Надіслати»: закриваємо «Cancel», нічого не сплачуємо.
@@ -839,6 +871,19 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
           return { kind: 'result', result: { status: 'sent', observedTarget, targetVerified: true, sendConfirmed: true, mediaConfirmed: media ? mine.hasMedia : undefined, sendAttempted: true, scan } };
         }
         continue;
+      }
+      // Свого повідомлення в кадрі немає: стрічка, мабуть, не внизу. Гортаємо вниз (раз на 3 с) і дивимось рядок чату зліва:
+      // нове своє превʼю з початком нашого тексту, без годинника, і рядок змінився від стану до відправки.
+      if (Date.now() - confirmStarted > 4_000) {
+        if (Date.now() - scrolledAt > 3_000) { scrolledAt = Date.now(); await page.evaluate(SCROLL_TO_BOTTOM_JS).catch(() => ''); }
+        const row = rowWanted ? await page.evaluate(leftRowJs(peerId, rowThread)).catch(() => null) : null;
+        if (row && row.own && squash(row.text).includes(rowWanted) && (!rowBefore || squash(rowBefore.text) !== squash(row.text))) {
+          if (row.failed) return withScan({ kind: 'blocked', reason: media ? 'telegram_attachment_failed' : 'telegram_send_failed' });
+          if (!row.pending) {
+            if (media) await closeResidualPhotoModals(page, onStep);
+            return { kind: 'result', result: { status: 'sent', observedTarget, targetVerified: true, sendConfirmed: true, confirmedBy: 'chat_list', sendAttempted: true, scan } };
+          }
+        }
       }
       const notice = (await page.evaluate(READ_STATE_JS)).notices || '';
       if (notice && floodPattern.test(notice)) return withScan({ kind: 'blocked', reason: 'telegram_flood_wait', floodSeconds: parseTelegramFloodSeconds(notice) || 300, detail: notice, afterSend: true });

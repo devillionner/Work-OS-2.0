@@ -84,15 +84,33 @@ curl -fsSL https://<сайт>/runner/install | bash -s -- --site https://<сай
 
 **Встановлення.** «Налаштування → Сервіс → Runner на цьому ПК» на Windows показує команду з одноразовим кодом:
 `& ([scriptblock]::Create([Text.Encoding]::UTF8.GetString((iwr -UseBasicParsing 'https://САЙТ/runner/install.ps1').RawContentStream.ToArray()))) -Site 'https://САЙТ' -Code 'XXXX-XXXX'`.
-`public/runner/install.ps1` (лише ASCII) качає пакет із цього ж сайту, звіряє SHA-256 до розпакування (`tar.exe`), а справжній інсталятор `scripts/windows/install.ps1` (UTF-8 з BOM, українською) обмінює код на токен, пише `configunner.env` (права лише користувача), ставить ярлик автозапуску й `workos-runner://` у HKCU. Режими: `-Check`, `-Remove [-Purge]`, `-NoStart`. Ідемпотентно.
+`public/runner/install.ps1` (лише ASCII) качає пакет із цього ж сайту, звіряє SHA-256 до розпакування (`tar.exe`), а справжній інсталятор `scripts/windows/install.ps1` (UTF-8 з BOM, українською) обмінює код на токен, пише `config\runner.env` (права лише користувача), ставить ярлик автозапуску й `workos-runner://` у HKCU. Режими: `-Check`, `-Remove [-Purge]`, `-NoStart`, `-Yes`. Ідемпотентно.
 
-**Де що лежить:** `%LOCALAPPDATA%WorkOSunner` (пакет), `state` (стан, журнал, знімки збоїв), `config` (runner.env), `rowser` (профіль Edge із входами). Усі шляхи дає `scripts/platform/paths.mjs`.
+**Де що лежить:** `%LOCALAPPDATA%\WorkOS\runner` (пакет), `state` (стан, журнал `whatsapp-runner.log`, журнал трея `tray.log`, журнал чергового `standby.log`, знімки збоїв), `config` (runner.env), `browser` (профіль Edge із входами), `node` (портативний Node, якщо системного немає). Усі шляхи дає `scripts/platform/paths.mjs`.
 
-**Браузер runner** (`scripts/platform/windows-launch.mjs`): окремий профіль, порт 9222 на 127.0.0.1, `--headless=new`, UA без «Headless», ті самі прапорці проти гальмування, що в `whatsapp-runner.sh`, `--mute-audio`. Перший запуск і порожній профіль — з вікном (QR-код); потім у меню трея «Сховати браузер runner» (файл `stateunner-browser-mode`). Закривається коректно через CDP (`--close-browser`).
+**Браузер runner** (`scripts/platform/windows-launch.mjs`): окремий профіль, порт 9222 на 127.0.0.1, `--headless=new`, UA без «Headless», ті самі прапорці проти гальмування, що в `whatsapp-runner.sh`, `--mute-audio`. Перший запуск і порожній профіль — з вікном (QR-код); потім у меню трея «Сховати браузер runner» (файл `state\runner-browser-mode`). Закривається коректно через CDP (`--close-browser`).
 
 **Сон:** поки є що виконувати, дочірній Windows PowerShell тримає `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)` (`powercfg /requests` показує запит). Закриття кришки визначає схема живлення Windows, цей запит її не змінює.
 
-**Не підтримується на Windows у фазі 1:** Viber (адаптер на Waydroid; платформа показує «друга фаза» й задач не бере), «Зберегти для перенесення» (входи WhatsApp і Telegram — свіжим QR).
+## Перевстановлення Windows: одна команда (3.23.3)
+
+1. На ПК відкрий Work OS у браузері → «Налаштування → Сервіс → Runner на цьому ПК» → «Встановити на новій системі» → скопіюй команду з кодом (15 хв).
+2. **Win+X → «Термінал»** і встав команду туди. Не в терміналі Claude чи іншої програми з Microsoft Store: Windows перенаправляє їхні файли в `%LOCALAPPDATA%\Packages\…`, і runner встав би не туди. Інсталятор це перевіряє пробним файлом і зупиняється з поясненням.
+3. Інсталятор сам ставить, чого бракує, питаючи «так/ні» (`-Yes` — на все «так»):
+   - **Node** ≥ 22.13: якщо системного немає чи він старий — портативний LTS з nodejs.org у `%LOCALAPPDATA%\WorkOS\node` (SHA-256 із `SHASUMS256.txt` до розпакування, без прав адміністратора);
+   - **Viber Desktop**: `winget install Rakuten.Viber --scope user`;
+   - **розпізнавання тексту ru-RU** (ним Viber Desktop читає назви чатів): `Add-WindowsCapability Language.OCR~~~ru-RU~0.0.1.0` в одному вікні UAC;
+   - **сон від мережі**: пропонує `powercfg /change standby-timeout-ac 0` (від батареї без змін), бо сплячий ПК не прийме «Запустити runner» з телефону;
+   - файли runner, токен, автозапуск (ярлик у «Автозавантаженні»), `workos-runner://`, трей і черговий.
+4. Наприкінці він друкує, що лишилось людині: QR-входи у WhatsApp Web і Telegram Web у вікні браузера runner, потім «Сховати браузер runner»; вхід у Viber Desktop QR-кодом, якщо він ще не увійшов. Перевірка всього: та сама команда з `-Check`.
+
+Що не переноситься з собою: входи (WhatsApp, Telegram, Viber) — лише свіжим QR. Токен прив'язки береться з нового коду; старі пристрої runner у Work OS лишаються, поки їх не відкликати.
+
+## Запуск runner з телефону (3.23.0)
+
+Кнопка «Запустити runner» на будь-якому пристрої шле команду через Work OS черговому на ПК (`scripts/platform/runner-standby.mjs`). Він працює, поки ПК увімкнений і не спить, навіть після «Вимкнути повністю» в треї. Його стартує трей (а трей — автозапуск після входу в Windows).
+
+**Не підтримується на Windows:** «Зберегти для перенесення» (входи WhatsApp, Telegram і Viber — свіжим QR). Viber працює через Viber Desktop (див. нижче).
 
 ## Viber Desktop на Windows (3.22.0)
 
