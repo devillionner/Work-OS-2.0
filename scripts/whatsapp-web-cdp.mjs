@@ -1264,9 +1264,12 @@ export async function sendWhatsappAutopostViaCdp(
     if (openedInApp) {
       const opened = await readSnapshot(client);
       await sleep(1_200);
-      const header = (opened.headerNames || []).map((value) => String(value || '').trim()).find(Boolean) || '';
-      if (header && !await openChatMatchesTarget(client, task.target.expectedName, header)) { observedTarget = ''; }
-      else if (header && !leftPattern.test(String(opened.bodyText || '')) && !opened.hasQr) observedTarget = header;
+      // observedTarget — саме та назва з шапки, що збіглась із ціллю (у групі спільноти перший рядок — назва спільноти, і
+      // запам'ятати її означало б пропустити далі будь-яку іншу групу цієї спільноти).
+      const wantedLabel = looseTargetLabel(task.target.expectedName);
+      const header = (await readOpenChatHeaderNames(client)).find((line) => looseTargetLabel(line) === wantedLabel) || '';
+      if (!header) { observedTarget = ''; }
+      else if (!leftPattern.test(String(opened.bodyText || '')) && !opened.hasQr) observedTarget = header;
     }
     if (!observedTarget) {
       const navigation = await openWhatsappInviteWhenSynced(client, page, targetUrl, operationDeadline);
@@ -1454,6 +1457,14 @@ async function readOpenChatHeader(client) {
   return String(response?.result?.value || '');
 }
 
+/** Назви в шапці відкритого чату: перший рядок і всі span[title]. У групі спільноти назва групи може стояти не першою (27.11). */
+async function readOpenChatHeaderNames(client) {
+  const expression = `(() => { const h = document.querySelector('#main header'); if (!h) return [];
+    return [String(h.innerText || '').split('\\n')[0] || '', ...[...h.querySelectorAll('span[title]')].map((n) => n.getAttribute('title') || '')].map((v) => v.trim()).filter(Boolean).slice(0, 5); })()`;
+  const response = await client.send('Runtime.evaluate', { expression, returnByValue:true }).catch(() => null);
+  return Array.isArray(response?.result?.value) ? response.result.value.map(String) : [];
+}
+
 /**
  * Живі дані 2026-10-26: фото з підписом може лишитись непереданим у вікні перегляду (редактор висить відкритим годинами), а наступний
  * запуск тоді працює поверх нього. Відкрите вікно фото перед новою відправкою закриваємо: Escape й «Відхилити» (непереслане фото нікуди
@@ -1484,8 +1495,8 @@ async function discardOpenMediaEditor(client) {
 
 /** Перед самою відправкою шапка відкритого чату має збігатися з ціллю: інакше повідомлення пішло б не туди. */
 async function openChatMatchesTarget(client, ...names) {
-  const header = looseTargetLabel(await readOpenChatHeader(client));
-  return Boolean(header) && names.some((name) => looseTargetLabel(name) === header);
+  const wanted = names.map((name) => looseTargetLabel(name)).filter(Boolean);
+  return (await readOpenChatHeaderNames(client)).some((line) => { const label = looseTargetLabel(line); return Boolean(label) && wanted.includes(label); });
 }
 
 // Остання наша відправка в цій вкладці: після неї вкладку не можна перезавантажувати, поки повідомлення не отримало галочку.
@@ -1552,7 +1563,8 @@ export async function openChatInApp(client, expectedName, timeoutMs = 12_000, op
   // options.query — що вводимо в пошук; options.match(title) — чи це потрібний рядок списку (для чату з собою, назву якого наперед не знаємо: за цифрами номера).
   const wanted = options.match ? 'custom' : looseTargetLabel(expectedName);
   if (!wanted) return false;
-  const isWanted = (title) => (options.match ? Boolean(options.match(String(title || ''))) : looseTargetLabel(title) === wanted);
+  const isWantedTitle = (title) => (options.match ? Boolean(options.match(String(title || ''))) : looseTargetLabel(title) === wanted);
+  const isWanted = (row) => Boolean(row) && (isWantedTitle(row.first) || (row.titles || []).some(isWantedTitle));
   const deadline = Date.now() + timeoutMs;
   const evaluate = async (expression) => (await client.send('Runtime.evaluate', { expression, returnByValue:true, awaitPromise:true }).catch(() => null))?.result?.value;
   // Вкладка у фоні (`visibilityState: hidden`): список результатів пошуку не домальовується, рядки лишаються порожніми. Емуляція фокусу
@@ -1577,7 +1589,9 @@ export async function openChatInApp(client, expectedName, timeoutMs = 12_000, op
     const b = row.getBoundingClientRect();
     const titled = row.querySelector('span[title]');
     const first = (titled && titled.getAttribute('title')) || String(row.innerText || '').split('\\n').map((line) => line.trim()).filter(Boolean)[0] || '';
-    return { first, x: b.x + b.width / 2, y: b.y + b.height / 2, visible: b.width > 0 && b.height > 0 && b.y >= 0 && b.y + b.height <= window.innerHeight };
+    // Група всередині спільноти: перший span[title] — назва спільноти («Вся Испания»), назва групи — наступний (27.11, «Услуги 🇪🇸 Вся Испания 🇪🇸»).
+    const titles = [...row.querySelectorAll('span[title]')].map((node) => node.getAttribute('title') || '').filter(Boolean).slice(0, 4);
+    return { first, titles, x: b.x + b.width / 2, y: b.y + b.height / 2, visible: b.width > 0 && b.height > 0 && b.y >= 0 && b.y + b.height <= window.innerHeight };
   }).filter((row) => row.visible))()`) || [];
   // Поки пошук не відфільтрував список, у ньому лежить весь список чатів (потрібний рядок за межами екрана або ще їде): чекаємо, коли
   // збіг стоїть у видимій частині й не зсувається між двома зчитуваннями.
@@ -1589,10 +1603,10 @@ export async function openChatInApp(client, expectedName, timeoutMs = 12_000, op
     if (rows.length > 1 && rows.filter((row) => !row.first).length > 1) {
       await client.send('Page.captureScreenshot', { format:'jpeg', quality:1, clip:{ x:0, y:0, width:8, height:8, scale:0.1 } }).catch(() => {});
     }
-    const first = rows.find((row) => isWanted(row.first));
+    const first = rows.find((row) => isWanted(row));
     if (!first) continue;
     await sleep(500);
-    const again = (await readResultRows()).find((row) => isWanted(row.first));
+    const again = (await readResultRows()).find((row) => isWanted(row));
     if (again && Math.abs(again.y - first.y) < 2) { clickAt = again; break; }
   }
   // Запит із пошуку прибираємо виділенням і Backspace у самому полі: Escape поза полем закрив би відкритий чат.
@@ -1606,15 +1620,17 @@ export async function openChatInApp(client, expectedName, timeoutMs = 12_000, op
   // Клік могли «з'їсти» під час перемальовування списку: друга спроба бере свіжі координати рядка.
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (attempt > 0) {
-      clickAt = (await readResultRows()).find((row) => isWanted(row.first)) || clickAt;
+      clickAt = (await readResultRows()).find((row) => isWanted(row)) || clickAt;
     }
     for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await client.send('Input.dispatchMouseEvent', { type, x:clickAt.x, y:clickAt.y, button:'left', clickCount:1 });
     // Шапка відкритого чату має показати саме цю назву.
     const until = Date.now() + 3_000;
     while (Date.now() < until) {
       await sleep(400);
-      const header = await evaluate(`String((document.querySelector('#main header') || {}).innerText || '').split('\\n')[0] || ''`);
-      if (options.match ? options.match(header) : looseTargetLabel(header) === wanted) { await finish(); return true; }
+      // Шапка: перший рядок і всі назви (span[title]); у групі спільноти назва групи може стояти не першою.
+      const header = await evaluate(`(() => { const h = document.querySelector('#main header'); if (!h) return [];
+        return [String(h.innerText || '').split('\\n')[0] || '', ...[...h.querySelectorAll('span[title]')].map((n) => n.getAttribute('title') || '')].filter(Boolean).slice(0, 5); })()`) || [];
+      if (header.some((line) => isWantedTitle(line))) { await finish(); return true; }
     }
   }
   await finish();
