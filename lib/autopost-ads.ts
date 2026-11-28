@@ -145,12 +145,13 @@ export async function readDictionaryDirections(db: D1Database, userId: string): 
 }
 
 /**
- * Усі неархівні оголошення Бібліотеки для платформи (без системних і без текстів пулу Telegram). Читається один запит по індексу колекції
- * (`library_items_user_collection_idx`), рядків стільки, скільки оголошень (десятки); `directions` рахується за довідником.
+ * Усі неархівні оголошення Бібліотеки для платформи (без системних і без текстів пулу Telegram). Читається один запит по частковому індексу
+ * оголошень без пулу (`library_items_ads_no_pool_idx`, міграція 0065): індекс колекції містив і сотні текстів пулу, які запит одразу відкидав.
+ * Рядків стільки, скільки оголошень (десятки); `directions` рахується за довідником.
  */
 export async function readLibraryAds(db: D1Database, userId: string, platform: 'whatsapp' | 'viber' | 'telegram'): Promise<LibraryAd[]> {
   const [rows, dictionary] = await Promise.all([
-    db.prepare(`SELECT id,version,title,uk_text,ru_text,tags_json,platforms_json,scope,image_key,updated_at FROM library_items
+    db.prepare(`SELECT id,version,title,uk_text,ru_text,tags_json,platforms_json,scope,image_key,updated_at FROM library_items INDEXED BY library_items_ads_no_pool_idx
       WHERE user_id=?1 AND collection='advertisement' AND archived_at IS NULL AND NOT (${POOL_ID_RANGE_SQL}) AND tags_json NOT LIKE '%"system"%'
       ORDER BY updated_at DESC,title LIMIT 300`).bind(userId).all<AdRow>(),
     readDictionaryDirections(db, userId),

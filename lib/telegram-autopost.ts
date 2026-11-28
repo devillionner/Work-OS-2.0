@@ -177,7 +177,7 @@ export async function readTelegramThreadChoices(db: D1Database, userId: string, 
   const known = new Set(choices.map((choice) => choice.chatId));
   if (date) {
     const suspects = await db.prepare(`SELECT c.id AS id,c.name AS name,c.link AS link,c.telegram_topics_at AS topics_at,MAX(j.updated_at) AS failed_at
-      FROM whatsapp_autopost_jobs j INDEXED BY whatsapp_autopost_jobs_decision_idx JOIN chats c ON c.id=j.chat_id AND c.user_id=j.user_id
+      FROM whatsapp_autopost_jobs j INDEXED BY whatsapp_autopost_jobs_decision_day_idx JOIN chats c ON c.id=j.chat_id AND c.user_id=j.user_id
       WHERE j.user_id=?1 AND j.outcome='needs_decision' AND j.published_on=?2 AND j.platform='telegram'
         AND json_extract(j.result_json,'$.errorCode') IN (${suspectList})
         AND c.platform='telegram' AND c.telegram_account_id=?3 AND c.workflow_status='ready' AND c.telegram_forum IS NOT 1
@@ -205,11 +205,13 @@ export async function readTelegramThreadChoices(db: D1Database, userId: string, 
 }
 export type TelegramThreadChoice = Awaited<ReturnType<typeof readTelegramThreadChoices>>[number];
 
-/** Скільки чатів чекає вибору гілки (усі акаунти): лічильник «Обери гілку» в картці «Автопост сьогодні». Форуми без гілки — за частковим індексом. */
+/** Скільки чатів чекає вибору гілки (усі акаунти): лічильник «Обери гілку» в картці «Автопост сьогодні». Форуми без гілки — за частковим індексом.
+ * Підозрілі збої — за індексом рішень дня `whatsapp_autopost_jobs_decision_day_idx (user_id, published_on)`: індекс рішень за чатом перебирав
+ * «Потребують рішення» за всю історію (≈ 150 рядків на виклик і далі росло). */
 export async function countTelegramThreadChoices(db: D1Database, userId: string, date: string, now: number): Promise<number> {
   const forums = await db.prepare(`SELECT COUNT(*) AS n FROM chats INDEXED BY chats_telegram_thread_choice_idx WHERE user_id=?1 AND platform='telegram' AND telegram_forum=1 AND telegram_thread_id IS NULL AND workflow_status='ready'
     AND (snoozed_until IS NULL OR snoozed_until<=?2)`).bind(userId, now).first<{ n: number }>();
-  const suspects = await db.prepare(`SELECT COUNT(*) AS n FROM (SELECT c.id FROM whatsapp_autopost_jobs j INDEXED BY whatsapp_autopost_jobs_decision_idx JOIN chats c ON c.id=j.chat_id AND c.user_id=j.user_id
+  const suspects = await db.prepare(`SELECT COUNT(*) AS n FROM (SELECT c.id FROM whatsapp_autopost_jobs j INDEXED BY whatsapp_autopost_jobs_decision_day_idx JOIN chats c ON c.id=j.chat_id AND c.user_id=j.user_id
       WHERE j.user_id=?1 AND j.outcome='needs_decision' AND j.published_on=?2 AND j.platform='telegram' AND json_extract(j.result_json,'$.errorCode') IN (${suspectList})
         AND c.platform='telegram' AND c.workflow_status='ready' AND c.telegram_forum IS NOT 1 AND (c.snoozed_until IS NULL OR c.snoozed_until<=?3)
         AND (c.telegram_topics_at IS NULL OR c.telegram_topics_at<j.updated_at) GROUP BY c.id)`).bind(userId, date, now).first<{ n: number }>();

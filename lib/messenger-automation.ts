@@ -231,6 +231,7 @@ export function cleanAutopostPlatform(value:unknown):AutopostPlatform{
   return value==='viber'?'viber':value==='telegram'?'telegram':'whatsapp';
 }
 const AUTOPOST_PLATFORM_NAME:Record<AutopostPlatform,string>={whatsapp:'WhatsApp',viber:'Viber',telegram:'Telegram'};
+const AUTOPOST_PLATFORMS:readonly AutopostPlatform[]=['whatsapp','viber','telegram'];
 
 export type WhatsAppAutopostJob={
   id:string;requestKey:string;chatId:string;expectedName:string;expectedLink:string;
@@ -564,7 +565,10 @@ export async function createTelegramScanJob(db:D1Database,userId:string,chatId:s
   if(chat.telegram_account_id!==accountId)throw new MessengerAutomationError('Чат належить іншому Telegram-акаунту.',409,'wrong_account');
   // Зовнішній ключ задачі вимагає існуючого матеріалу; текст у проході не використовується.
   // Тексти пулу сюди не беремо: задача проходу не має займати текст пулу (він видається один раз за добу).
-  const material=await db.prepare(`SELECT id,version FROM library_items WHERE user_id=?1 AND kind='advertisement' AND NOT (${POOL_ID_RANGE}) ORDER BY archived_at IS NOT NULL,updated_at DESC LIMIT 1`).bind(userId).first<{id:string;version:number}>()
+  // Спершу найновіше неархівне оголошення по частковому індексу без пулу (міграція 0065: один рядок); загальні запити нижче лише запасні,
+  // бо вони сортують усі оголошення разом із текстами пулу (≈ 170 рядків на задачу проходу).
+  const material=await db.prepare(`SELECT id,version FROM library_items INDEXED BY library_items_ads_no_pool_idx WHERE user_id=?1 AND collection='advertisement' AND kind='advertisement' AND NOT (${POOL_ID_RANGE}) AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1`).bind(userId).first<{id:string;version:number}>()
+    ??await db.prepare(`SELECT id,version FROM library_items WHERE user_id=?1 AND kind='advertisement' AND NOT (${POOL_ID_RANGE}) ORDER BY archived_at IS NOT NULL,updated_at DESC LIMIT 1`).bind(userId).first<{id:string;version:number}>()
     ??await db.prepare(`SELECT id,version FROM library_items WHERE user_id=?1 AND kind='advertisement' ORDER BY archived_at IS NOT NULL,updated_at DESC LIMIT 1`).bind(userId).first<{id:string;version:number}>();
   if(!material)throw new MessengerAutomationError('У Бібліотеці немає жодного оголошення.',409,'no_advertisement');
   const id=crypto.randomUUID();
@@ -1208,12 +1212,14 @@ export async function readAutopostBatch(db:D1Database,userId:string,platform:Aut
   }
   if(!rows.results.length)return null;
   // Задачі, додані до партії пізніше («Спробувати ще», «Без фото»: ключі `retry_…`), входять у неї: інакше задача в роботі
-  // лишалась поза знаменником, а кільце показувало 100 %. Діапазон по унікальному індексу (user_id, request_key) лише `retry_`-ключів,
-  // далі день, платформа й час створення; `verify_` (перевірка вже наявної задачі) і `scan_` (прохід гілок) нових відправок не несуть.
+  // лишалась поза знаменником, а кільце показувало 100 %. Частковий індекс лише `retry_`-задач (міграція 0065) за днем і часом створення,
+  // далі платформа; `verify_` (перевірка вже наявної задачі) і `scan_` (прохід гілок) нових відправок не несуть. Діапазон ключа `retry_`
+  // по унікальному індексу читав повтори за всю історію (≈ 110 рядків на виклик і далі росло).
   const startedAtMin=Math.min(...rows.results.map((row)=>Number(row.created_at)));
   const later=await db.prepare(`SELECT id,expected_name,status,outcome,json_extract(result_json,'$.errorCode') AS code,CASE WHEN substr(advertisement_id,1,4)='tgp_' THEN substr(payload_text,1,160) END AS snippet,created_at,updated_at,completed_at
-    FROM whatsapp_autopost_jobs WHERE user_id=?1 AND request_key>=?2 AND request_key<?3 AND published_on=?4 AND created_at>=?5 AND COALESCE(platform,'whatsapp')=?6`)
-    .bind(userId,'retry_','retry`',date,startedAtMin,platform).all<BatchRow>();
+    FROM whatsapp_autopost_jobs INDEXED BY whatsapp_autopost_jobs_retry_day_idx
+    WHERE user_id=?1 AND substr(request_key,1,6)='retry_' AND published_on=?2 AND created_at>=?3 AND COALESCE(platform,'whatsapp')=?4`)
+    .bind(userId,date,startedAtMin,platform).all<BatchRow>();
   const batchRows=[...rows.results,...(later.results||[])];
   const batch:AutopostBatch={id:batchId,startedAt:Number.MAX_SAFE_INTEGER,total:0,sent:0,remaining:0,inProgress:0,queued:0,failed:0,skipped:0,cancelled:0,thread:0,averageSeconds:null,entries:[]};
   let lastFinished=0;
@@ -1328,9 +1334,18 @@ export async function claimWhatsAppAutopostJob(db:D1Database,userId:string,now:n
       WHERE user_id=?1 AND status='pending' AND published_on=?2 AND substr(request_key,1,5)='scan_' ORDER BY created_at LIMIT 1`)
       .bind(userId,today).first<WhatsAppAutopostRow>();
     const paced=(options.skipPacedSends||[]).map(cleanAutopostPlatform).filter(platform=>!excluded.includes(platform));
-    const row=scanFirst||await db.prepare(`SELECT * FROM whatsapp_autopost_jobs
-      WHERE user_id=?1 AND status='pending' AND published_on=?2${excluded.length?` AND COALESCE(platform,'') NOT IN (${excluded.map((_,index)=>`?${index+3}`).join(',')})`:''}${paced.length?` AND NOT (COALESCE(platform,'') IN (${paced.map((_,index)=>`?${index+3+excluded.length}`).join(',')}) AND request_key NOT LIKE 'scan\\_%' ESCAPE '\\')`:''}
-      ORDER BY attempts,created_at,id LIMIT 1`).bind(userId,today,...excluded,...paced).first<WhatsAppAutopostRow>();
+    // Перша задача кожної дозволеної платформи окремо, по частковому індексу з платформою в ключі (міграція 0065): один рядок на платформу,
+    // а не перебір усіх задач платформи на паузі чи в очікуванні темпу (≈ 100–240 рядків на виклик). Платформа, що чекає темпу, пропускається
+    // цілком: її проходи «знайти гілки» вже віддав `scanFirst`. Старі задачі без платформи (до 0052) не належать жодній із пропущених.
+    const row=scanFirst||await (async()=>{
+      const pick=(platform:AutopostPlatform|null)=>db.prepare(`SELECT * FROM whatsapp_autopost_jobs INDEXED BY whatsapp_autopost_jobs_pending_platform_idx
+        WHERE user_id=?1 AND status='pending' AND published_on=?2 AND ${platform===null?'platform IS NULL':'platform=?3'}
+        ORDER BY attempts,created_at,id LIMIT 1`).bind(userId,today,...(platform===null?[]:[platform]));
+      const allowed=AUTOPOST_PLATFORMS.filter(platform=>!excluded.includes(platform)&&!paced.includes(platform));
+      const firsts=(await db.batch<WhatsAppAutopostRow>([...allowed.map(pick),pick(null)])).flatMap(result=>result.results||[]);
+      firsts.sort((a,b)=>Number(a.attempts)-Number(b.attempts)||Number(a.created_at)-Number(b.created_at)||(a.id<b.id?-1:a.id>b.id?1:0));
+      return firsts[0]??null;
+    })();
     if(!row)return null;
 
     const chat=await readChatState(db,userId,row.chat_id);
