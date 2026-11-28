@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { bestOcrMatch, nameSkeleton, observedFromOcr, wordCoverMatch } from '../../lib/ocr-name-match.mjs';
+import { bestOcrMatch, joinDialogMatch, nameSkeleton, observedFromOcr, ocrNameConflict, wordCoverMatch } from '../../lib/ocr-name-match.mjs';
 import { saveFailureSnapshot } from '../failure-snapshots.mjs';
 
 const SCRIPTS = join(dirname(fileURLToPath(import.meta.url)), '..', 'windows');
@@ -206,12 +206,16 @@ async function readHeader(expected, guard, timeoutMs = 20_000) {
   const match = bestOcrMatch(expected, texts, { lines: 1 });
   // Повна назва (≥ 0.8) або збіг за словами (ru-OCR губить слова з «і», `wordCoverMatch`). `full` — лише повна: нею підтверджується «чат уже відкритий».
   const words = wordCoverMatch(expected, texts);
-  return { ...match, full: match.matched, byWords: !match.matched && words.matched, matched: match.matched || words.matched, coverage: words.coverage, prefix: Boolean(words.prefix), observed: match.observed || observedFromOcr(texts, 1), geometry: g };
+  // `conflict`: у шапці явно інша назва (два чужі надійно прочитані слова чи слово замість слова назви) — вето для приблизного збігу.
+  return { ...match, full: match.matched, byWords: !match.matched && words.matched, matched: match.matched || words.matched, coverage: words.coverage, prefix: Boolean(words.prefix), conflict: ocrNameConflict(expected, texts), observed: match.observed || observedFromOcr(texts, 1), geometry: g };
 }
 
 /** Шапка мусить збігатися з ціллю, інакше нічого не вводимо. */
-/** Приблизний збіг для чату, відкритого за власним запрошенням (див. openByInvite). */
-const looseMatch = (header) => Boolean(header && (header.score >= 0.6 || (header.coverage ?? 0) >= 0.4 || header.prefix));
+/** Приблизний збіг для чату, відкритого за власним запрошенням (див. openByInvite), якщо назва в шапці не явно інша. */
+const looseMatch = (header) => Boolean(header && !header.conflict && (header.score >= 0.6 || (header.coverage ?? 0) >= 0.4 || header.prefix));
+
+/** До запрошення розмови у вікні не було: будь-яка розмова після нього — та, яку відкрило посилання. */
+const NO_CONVERSATION = Symbol('no-conversation');
 
 async function verifyHeader(expected, guard, opened = null) {
   const header = await readHeader(expected, guard);
@@ -258,7 +262,9 @@ const centerText = async () => (await centerLines()).map((t) => t.text).join(' '
  * Відкриття чату — ЛИШЕ за запрошенням, як на Android (3.22.4, рішення власника: пошук у списку не знаходить тихих груп, забанених і ще не
  * приєднаних чатів і лише плутає). Повертає шапку, що збіглась; інакше зупинка з причиною. Відмови Viber — це стан чату:
  * «Unable to join … blocked» — бан, «Inactive link» — чату немає. Ще не приєднаний чат Viber Desktop показує діалогом (назва, учасники, опис,
- * «Join Community»; назву UIA не віддає): тиснемо «Join Community» лише коли назва в діалозі за OCR збіглась із ціллю, інакше закриваємо «×».
+ * «Join Community»; назву UIA не віддає): тиснемо «Join Community», коли назва в діалозі за OCR збіглась із ціллю — повністю або, бо вікно відкрило
+ * наше унікальне запрошення, приблизно й без ознак явно іншої назви (`joinDialogMatch`, 3.24.4); інакше закриваємо «×».
+ * `before` — назва розмови до запрошення, '' — не прочиталась, `NO_CONVERSATION` — розмови не було.
  */
 async function openByInvite(name, url, guard, onStep, before = '') {
   const data = inviteData(url);
@@ -284,23 +290,15 @@ async function openByInvite(name, url, guard, onStep, before = '') {
       const join = buttons.find(isJoinButton);
       if (join) {
         if (joinTried) { await sleep(1200); continue; }
-        // Довга назва у вікні вступу переноситься на 2–3 рядки («Отдам-Продам-Куплю. Сдам-» / «Сниму_жильё»): пробуємо й склеєні сусідні рядки.
-        const lines = await centerLines();
-        const candidates = [...lines];
-        for (let i = 0; i < lines.length; i += 1) {
-          for (let span = 2; span <= 3 && i + span <= lines.length; span += 1) {
-            const part = lines.slice(i, i + span);
-            if (part.some((t) => t.lang !== part[0].lang || t.inverted !== part[0].inverted)) continue;
-            candidates.push({ ...part[0], text: part.map((t) => t.text).join(' ') }, { ...part[0], text: part.map((t) => t.text).join('') });
-          }
-        }
-        const match = bestOcrMatch(name, candidates, { lines: 1 });
+        // Довга назва у вікні вступу переноситься на 2–3 рядки («Отдам-Продам-Куплю. Сдам-» / «Сниму_жильё»): `joinDialogMatch` пробує й склеєні
+        // сусідні рядки; приблизний збіг — лише по рядках над «N members» (назва), не по опису й не по тлу за вікном.
+        const match = joinDialogMatch(name, await centerLines());
         if (!match.matched) {
-          await snapshot('target_unconfirmed', `вікно вступу: «${match.observed}», очікувалось «${name}»`);
+          await snapshot('target_unconfirmed', `вікно вступу: «${match.observed}», очікувалось «${name}» (схожість ${match.score}, слова ${match.coverage}${match.conflict ? ', інша назва' : ''})`);
           await act('close-popup', [], 'close-popup').catch(() => {});
           throw new DesktopStop('target_unconfirmed', 'before', `вікно вступу показує «${match.observed || '?'}», а не «${name}»`);
         }
-        onStep?.('open', 'вступаю в спільноту');
+        onStep?.('open', match.how === 'strict' ? 'вступаю в спільноту' : 'вступаю в спільноту (назва за запрошенням)');
         joinTried = true;
         const clicked = await act('dismiss', ['-Button', join], 'join');
         if (!clicked.ok) throw new DesktopStop('viber_not_joined', 'before', 'кнопка «Join Community» не натиснулась');
@@ -329,9 +327,10 @@ async function openByInvite(name, url, guard, onStep, before = '') {
     }
     if (status.conversationOpen) {
       const header = await readHeader(name, guard, 4_000).catch(() => null);
-      // Збіг за словами — лише коли шапка вже інша, ніж до запрошення (інакше це попередній чат зі схожими словами).
-      // Збіг за словами — лише коли шапка вже інша, ніж до запрошення (інакше це попередній чат зі схожими словами).
-      const changed = Boolean(before && header?.observed && nameSkeleton(header.observed) !== nameSkeleton(before));
+      // Збіг за словами — лише коли шапка вже інша, ніж до запрошення (інакше це попередній чат зі схожими словами). Розмови до запрошення не було
+      // зовсім (попередня задача лишила Viber без відкритого чату) — будь-яка розмова тепер відкрита посиланням: 27.11 «Камінь-Каширський р-н» і
+      // «Українські фахівці у Кишиневі» падали саме так (до запрошення шапки не було, `changed` хибне, приблизний збіг не діяв).
+      const changed = Boolean(header?.observed && (before === NO_CONVERSATION || (before && nameSkeleton(header.observed) !== nameSkeleton(before))));
       if (header?.matched && (header.full || changed)) return header;
       // Чат відкрито за його унікальним запрошенням, і шапка змінилась: це він. OCR без української (Windows не має uk-UA) губить слова з «і»
       // і емодзі-літери, тож назва лише приблизна (схожість ≥ 0.6 або ≥ 40 % слів). Шапка не змінилась — лише сувора перевірка вище.
@@ -353,7 +352,15 @@ async function openByInvite(name, url, guard, onStep, before = '') {
 async function openChat(name, guard, onStep, url = '', { search = false } = {}) {
   const current = await readHeader(name, guard, 6_000).catch(() => null);
   if (current?.full) return current;
-  if (!search) return openByInvite(name, url, guard, onStep, current?.observed || '');
+  if (!search) {
+    // Шапка не прочиталась: розрізняємо «розмови немає» (тоді будь-яка розмова після запрошення — його) і «є, але не прочиталась» (лише сувора перевірка).
+    let before = current?.observed || '';
+    if (!before) {
+      const g = await uia('geometry').catch(() => null);
+      if (g?.ok && !g.conversationOpen) before = NO_CONVERSATION;
+    }
+    return openByInvite(name, url, guard, onStep, before);
+  }
   if (name === 'My Notes') {
     // «My Notes» — кругла кнопка над списком чатів; пошук у Viber Desktop ненадійний (режим пошуку ховає розмову з дерева UIA).
     onStep?.('open', 'відкриваю My Notes');
