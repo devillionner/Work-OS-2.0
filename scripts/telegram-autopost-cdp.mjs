@@ -13,6 +13,8 @@ const OPEN_CHAT_TIMEOUT_MS = 25_000;
 const SEND_CONFIRM_TIMEOUT_MS = 30_000;
 // Фото вантажиться довше за текст.
 const PHOTO_CONFIRM_TIMEOUT_MS = 90_000;
+// Telegram прийняв відправку, а нашого повідомлення стільки часу поспіль немає в стрічці (вона внизу): його видалили (бот чи адміни).
+const MESSAGE_GONE_MS = 6_000;
 // Ліміт Telegram на підпис до фото.
 const MAX_CAPTION_CHARS = 1024;
 // Бюджет проходу «знайти гілки» на один чат, від початку задачі.
@@ -390,6 +392,45 @@ const SCROLL_TO_BOTTOM_JS = `(() => {
   return '';
 })()`;
 
+// Стрічка внизу: гортати нікуди й кнопки «вниз» немає. Лише читає.
+const AT_BOTTOM_JS = `(() => {
+  const button = [...document.querySelectorAll('#MiddleColumn [class*="ScrollDown" i] button, #MiddleColumn button[aria-label="Go to bottom" i], #MiddleColumn button[aria-label*="вниз" i]')].find((el) => el.offsetParent);
+  if (button) return false;
+  const list = document.querySelector('#MiddleColumn .MessageList');
+  return Boolean(list) && list.scrollHeight - list.scrollTop - list.clientHeight <= 40;
+})()`;
+
+// Плейсхолдер поля повідомлення (не текст у полі): у повільному режимі, коли цей акаунт щойно написав, Telegram Web A показує «Next message in …».
+// Живі знімки 27.11 («Ц.Чат», «Українці в Дубаї»): саме цей плейсхолдер одразу після відправки, а нашого повідомлення в стрічці вже немає.
+export const COMPOSER_HINT_JS = `(() => {
+  const root = document.querySelector('#MiddleColumn .Composer');
+  if (!root) return '';
+  const field = document.querySelector('#editable-message-text');
+  // Лише сам плейсхолдер: вузол із полем (у ньому текст оголошення) не читаємо.
+  const parts = [...root.querySelectorAll('.placeholder-text, [class*="placeholder"]')].filter((node) => !field || (node !== field && !node.contains(field)))
+    .map((node) => node.innerText || node.textContent || '');
+  if (field) parts.push(field.getAttribute('data-placeholder') || '', field.getAttribute('aria-label') || '');
+  return parts.join(' | ').replace(/\\s+/g, ' ').trim().slice(0, 160);
+})()`;
+// Відлік повільного режиму в плейсхолдері: акаунт уже писав у цей чат щойно, наступне повідомлення Telegram не прийме до кінця відліку.
+export const slowCountdownPattern = /(?:next message in|slow ?mode|наступне повідомлення (?:через|за|можна)|повільн\p{L}* режим|следующее сообщение (?:через|можно)|медленн\p{L}* режим)/iu;
+// Вікно-помилка після «Надіслати» (не оплата й не вікно фото): «Something went wrong» і uk/ru-відповідники.
+export const sendErrorPattern = /(?:something went wrong|an error (?:has )?occurred|щось пішло не так|сталася помилка|что-то пошло не так|произошла ошибка)/iu;
+
+/** Звірка тексту без емодзі, знаків і регістру: запасна, коли Telegram показує емодзі чи розмітку інакше, ніж у полі. */
+export function looseText(value) {
+  return String(value || '').normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, '').toLocaleLowerCase('uk-UA');
+}
+
+/** Чи це наше повідомлення: своє й починається з тексту оголошення (точно без пробілів або, запасно, лише за літерами й цифрами). */
+export function ownMessageMatches(item, text) {
+  if (!item || !item.own) return false;
+  const wanted = squash(text).slice(0, 40);
+  if (wanted && squash(item.text).startsWith(wanted)) return true;
+  const loose = looseText(text).slice(0, 30);
+  return loose.length >= 12 && looseText(item.text).startsWith(loose);
+}
+
 // Telegram Web A читає адресу з посилання лише під час запуску застосунку: зміна одного фрагмента (#…) у відкритій вкладці
 // може лишитися непоміченою. Тому до потрібної адреси йдемо через порожню сторінку, щоб застосунок стартував заново.
 async function openFresh(client, url) {
@@ -730,6 +771,10 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     let paidState = await readPaidState(page);
     if (!paidState.paid) { await sleep(500); paidState = await readPaidState(page); }
     if (paidState.paid) return withScan({ kind: 'blocked', reason: 'telegram_paid_messages', detail: paidState.why });
+    // Відлік повільного режиму в плейсхолдері («Next message in …»): цей акаунт щойно писав сюди, а нове повідомлення Telegram не прийме.
+    // Нічого не вставляємо й не тиснемо: чат відкладається (повторна відправка після «повідомлення не знайдено» впиралась саме в це).
+    const composerHint = String(await page.evaluate(COMPOSER_HINT_JS).catch(() => '') || '');
+    if (slowCountdownPattern.test(composerHint)) return withScan({ kind: 'blocked', reason: 'telegram_slow_mode', detail: `placeholder: ${composerHint}` });
     // Поле є: тимчасова заборона чату знята (позначка в Work OS очищається разом з будь-яким результатом цього чату).
     scan = { ...scan, restricted: false };
     // Лише перевірити, що в чат (гілку) можна писати: текст не вводиться й нічого не надсилається (діагностика на живих чатах).
@@ -825,10 +870,9 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     const paidButton = await readPaidState(page, { withText: false });
     if (paidButton.paid) return await cancelPaid(paidButton.why);
     onStep('send', 'надсилаю');
-    const clicked = await page.click(media
-      ? SAFE_PHOTO_SEND_EXPR
-      : `(() => { const buttons = [...document.querySelectorAll('#MiddleColumn button, #MiddleColumn .Button')];
-        return buttons.find((el) => el.classList.contains('send') && !el.disabled) || buttons.find((el) => /^(send message|надіслати повідомлення|отправить сообщение)$/iu.test(el.getAttribute('aria-label') || el.title || '')) || null; })()`);
+    const textSendExpr = `(() => { const buttons = [...document.querySelectorAll('#MiddleColumn button, #MiddleColumn .Button')];
+        return buttons.find((el) => el.classList.contains('send') && !el.disabled) || buttons.find((el) => /^(send message|надіслати повідомлення|отправить сообщение)$/iu.test(el.getAttribute('aria-label') || el.title || '')) || null; })()`;
+    const clicked = await page.click(media ? SAFE_PHOTO_SEND_EXPR : textSendExpr);
     sendAttempted = true;
     if (!clicked && media) {
       // Безпечної кнопки немає (поверх вікна фото відкрито ще одне вікно чи кнопка з зіркою): нічого не тиснемо навмання, дивимось, що це.
@@ -851,19 +895,40 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     }
 
     // 7. Підтвердження: своє повідомлення з цим текстом у стрічці цієї гілки, вже не «годинник». З фото чекаємо довше: воно вантажиться.
+    // Що вважаємо «Telegram прийняв відправку»: своє нове повідомлення в стрічці (навіть із годинником), своє превʼю з нашим текстом у рядку чату
+    // зліва або відлік повільного режиму в плейсхолдері, якого до кліку не було. Якщо після цього повідомлення зникло (стрічка внизу, вікна фото
+    // немає), його видалили: бот-антиспам (капча для нових учасників) чи адміни. Живі випадки 27.11: «Ц.Чат», «Українці в Дубаї»,
+    // «Детская Барахолка | Kids | Тбилиси» — і «Перевірити» з повторною відправкою лише постили ще раз у той самий смітник.
     onStep('confirm', 'перевіряю, що повідомлення в чаті');
-    const wanted = squash(text).slice(0, 40);
-    const confirmDeadline = Date.now() + (media ? PHOTO_CONFIRM_TIMEOUT_MS : SEND_CONFIRM_TIMEOUT_MS);
+    let confirmDeadline = Date.now() + (media ? PHOTO_CONFIRM_TIMEOUT_MS : SEND_CONFIRM_TIMEOUT_MS);
     const confirmStarted = Date.now();
     let scrolledAt = 0;
     const rowWanted = squash(text).slice(0, 20);
+    let seenOwnAt = 0;
+    let seenRowAt = 0;
+    let slowAfterAt = 0;
+    let goneSince = 0;
+    let lastHint = '';
+    let extended = false;
+    let textRetriedAt = 0;
+    // Знімок вкладки поруч із журналом runner: щоб наступного разу було видно, що саме сталося.
+    const saveShot = async () => {
+      try {
+        const shot = await client.send('Page.captureScreenshot', { format: 'jpeg', quality: 60 });
+        const dir = stateDir();
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, 'telegram-last-failure.jpg'), Buffer.from(shot.data, 'base64'));
+      } catch { /* знімок необов'язковий */ }
+    };
+    const deleted = async (why) => { await saveShot(); return withScan({ kind: 'blocked', reason: 'telegram_message_deleted', afterSend: true,
+      detail: JSON.stringify({ why, seenOwn: Boolean(seenOwnAt), seenRow: Boolean(seenRowAt), slowAfter: Boolean(slowAfterAt), hint: lastHint.slice(0, 80) }) }); };
     while (Date.now() < confirmDeadline) {
       await sleep(POLL_MS);
       // Діалог оплати міг з'явитись після кліку «Надіслати»: закриваємо «Cancel», нічого не сплачуємо.
       const paidLoop = await paymentGuard(page);
       if (paidLoop) return await cancelPaid(paidLoop);
       const messages = await page.evaluate(READ_MESSAGES_JS);
-      const mine = messages.find((item) => !beforeIds.has(item.id) && item.own && squash(item.text).startsWith(wanted));
+      const mine = messages.find((item) => !beforeIds.has(item.id) && ownMessageMatches(item, text));
       if (mine) {
         if (mine.failed) return withScan({ kind: 'blocked', reason: media ? 'telegram_attachment_failed' : 'telegram_send_failed' });
         if (!mine.pending) {
@@ -871,8 +936,47 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
           if (media) await closeResidualPhotoModals(page, onStep);
           return { kind: 'result', result: { status: 'sent', observedTarget, targetVerified: true, sendConfirmed: true, mediaConfirmed: media ? mine.hasMedia : undefined, sendAttempted: true, scan } };
         }
+        seenOwnAt = Date.now();
+        goneSince = 0;
+        // Фото ще вантажиться (годинник), а час спливає: чекаємо ще раз стільки ж. Повтору немає, лише довше очікування.
+        if (!extended && confirmDeadline - Date.now() < 2_000) { extended = true; confirmDeadline += PHOTO_CONFIRM_TIMEOUT_MS; onStep('confirm', 'повідомлення ще вантажиться, чекаю довше'); }
         continue;
       }
+      // Вікно-помилка після кліку (не оплата й не вікно фото): «This channel is private» — акаунт уже не в чаті (вилучили), повідомлення не прийнято.
+      const modals = await page.evaluate(READ_MODALS_JS).catch(() => []);
+      const errorModal = (Array.isArray(modals) ? modals : []).find((modal) => !modal.editor && !isPaidModal(modal) && modal.text
+        && (privateChannelPattern.test(modal.text) || bannedPattern.test(modal.text) || permanentRestrictionPattern.test(modal.text) || sendErrorPattern.test(modal.text)));
+      if (errorModal) {
+        const errorText = String(errorModal.text).slice(0, 300);
+        await closeErrorModal(page);
+        // Вікно фото лишилось під помилкою: відправка не відбулась, прибираємо його без чернетки.
+        const photoLeft = media && await page.evaluate(`Boolean(document.querySelector('.Modal #editable-message-text-modal'))`).catch(() => false);
+        if (photoLeft) { await discardAttachment(page); sendAttempted = false; }
+        if (privateChannelPattern.test(errorText)) return withScan({ kind: 'blocked', reason: 'telegram_no_access', detail: errorText, afterSend: true });
+        if (bannedPattern.test(errorText)) return withScan({ kind: 'blocked', reason: 'telegram_banned', detail: errorText, afterSend: true });
+        if (permanentRestrictionPattern.test(errorText)) return withScan({ kind: 'blocked', reason: 'telegram_write_banned', detail: errorText, afterSend: true });
+        // Загальна помилка: ще мить дивимось, чи повідомлення все ж вийшло; інакше окремий код (без повторів, рішення власника).
+        await sleep(1_500);
+        const late = (await page.evaluate(READ_MESSAGES_JS).catch(() => [])).find((item) => !beforeIds.has(item.id) && ownMessageMatches(item, text) && !item.pending && !item.failed);
+        if (late) return { kind: 'result', result: { status: 'sent', observedTarget, targetVerified: true, sendConfirmed: true, sendAttempted: true, scan } };
+        return withScan({ kind: 'blocked', reason: 'telegram_send_error', detail: errorText, afterSend: true });
+      }
+      // Текст без фото: клік не подіяв, якщо весь текст досі в полі (27.11 «Польша | Варшава | ЧАТ»: 283 символи лишились у полі, нічого не надіслано).
+      // Поки текст у полі, нічого не відправлено, тож ще один клік тієї ж кнопки дубля не дасть. Після другого — прибираємо чернетку й віддаємо
+      // «не натиснуто» (до відправки, задача повториться пізніше).
+      if (!media && !seenOwnAt && Date.now() - confirmStarted > 3_000) {
+        const still = normalizeText(await composerText(page).catch(() => '')) === text;
+        if (still && !textRetriedAt) { textRetriedAt = Date.now(); await page.click(textSendExpr).catch(() => false); continue; }
+        if (still && Date.now() - textRetriedAt > 6_000) {
+          await page.evaluate(`(() => { const node = document.querySelector('#editable-message-text'); if (!node) return false; node.focus(); const range = document.createRange(); range.selectNodeContents(node); const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range); document.execCommand('delete'); return true; })()`).catch(() => {});
+          sendAttempted = false;
+          return withScan({ kind: 'blocked', reason: 'telegram_send_not_clicked', detail: 'text_still_in_composer' });
+        }
+      }
+      // Відлік повільного режиму з'явився після кліку: сервер прийняв наше повідомлення (до кліку відліку не було — перевірено перед вставкою).
+      const hint = String(await page.evaluate(COMPOSER_HINT_JS).catch(() => '') || '');
+      if (hint) lastHint = hint;
+      if (!slowAfterAt && slowCountdownPattern.test(hint)) slowAfterAt = Date.now();
       // Свого повідомлення в кадрі немає: стрічка, мабуть, не внизу. Гортаємо вниз (раз на 3 с) і дивимось рядок чату зліва:
       // нове своє превʼю з початком нашого тексту, без годинника, і рядок змінився від стану до відправки.
       if (Date.now() - confirmStarted > 4_000) {
@@ -884,6 +988,17 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
             if (media) await closeResidualPhotoModals(page, onStep);
             return { kind: 'result', result: { status: 'sent', observedTarget, targetVerified: true, sendConfirmed: true, confirmedBy: 'chat_list', sendAttempted: true, scan } };
           }
+          seenRowAt = Date.now();
+          goneSince = 0;
+        } else if ((seenOwnAt || seenRowAt || slowAfterAt) && Date.now() - confirmStarted > 10_000 && !messages.some((item) => !beforeIds.has(item.id) && item.own)) {
+          // Telegram прийняв відправку, а нашого повідомлення немає ні в стрічці (вона внизу; і жодного нового свого — інакше це може бути наше з
+          // текстом, що не збігся), ні в рядку чату, і вікна фото вже немає: видалили.
+          const photoOpen = media && await page.evaluate(`Boolean(document.querySelector('.Modal #editable-message-text-modal'))`).catch(() => true);
+          const atBottom = !photoOpen && Boolean(await page.evaluate(AT_BOTTOM_JS).catch(() => false));
+          if (atBottom) {
+            if (!goneSince) goneSince = Date.now();
+            if (Date.now() - goneSince >= MESSAGE_GONE_MS) return await deleted('gone_after_send');
+          } else goneSince = 0;
         }
       }
       const notice = (await page.evaluate(READ_STATE_JS)).notices || '';
@@ -892,25 +1007,29 @@ export async function sendTelegramAutopostViaCdp(task, { cdpBaseUrl, shouldAbort
     }
     const paidLate = await paymentGuard(page);
     if (paidLate) return await cancelPaid(paidLate);
+    // Своє повідомлення було в стрічці (з годинником), а під кінець його немає: видалили, навіть якщо низ стрічки не підтвердився.
+    if (seenOwnAt && !(await page.evaluate(READ_MESSAGES_JS).catch(() => [])).some((item) => !beforeIds.has(item.id) && item.own)
+      && !(media && await page.evaluate(`Boolean(document.querySelector('.Modal #editable-message-text-modal'))`).catch(() => true))) return await deleted('gone_by_deadline');
     // Не вдалось підтвердити: зберігаємо, що саме було на екрані (знімок поруч із журналом runner) і стан поля, кнопки й сповіщень.
     const diagnostic = await page.evaluate(`(() => { const composer = document.querySelector('#editable-message-text');
-      return { composerChars: composer ? (composer.innerText || '').length : -1, own: document.querySelectorAll('#MiddleColumn .Message.own').length, messages: document.querySelectorAll('#MiddleColumn .Message').length,
+      const own = [...document.querySelectorAll('#MiddleColumn .Message.own')];
+      const last = own[own.length - 1];
+      const lastText = last ? ((last.querySelector('.text-content') || {}).innerText || '').replace(/\\s+/g, '').slice(0, 40) : '';
+      return { composerChars: composer ? (composer.innerText || '').length : -1, own: own.length, messages: document.querySelectorAll('#MiddleColumn .Message').length,
+        pendingOwn: own.filter((node) => node.querySelector('.icon-message-pending, [class*="message-pending"]')).length,
+        lastOwn: last ? { id: last.getAttribute('data-message-id') || '', head: lastText } : null,
         modalOpen: Boolean(document.querySelector('.Modal #editable-message-text-modal')),
         sendButtons: [...document.querySelectorAll('#MiddleColumn button.send')].map((b) => String(b.className).slice(0, 60) + (b.disabled ? ' disabled' : '')),
         notices: [...document.querySelectorAll('.Notification, .modal-dialog')].map((n) => (n.innerText || '').replace(/\\s+/g, ' ').slice(0, 120)) }; })()`).catch(() => null);
-    try {
-      const shot = await client.send('Page.captureScreenshot', { format: 'jpeg', quality: 60 });
-      const dir = stateDir();
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, 'telegram-last-failure.jpg'), Buffer.from(shot.data, 'base64'));
-    } catch { /* знімок необов'язковий */ }
+    const seen = { wanted: squash(text).slice(0, 40), seenOwn: Boolean(seenOwnAt), seenRow: Boolean(seenRowAt), slowAfter: Boolean(slowAfterAt), hint: lastHint.slice(0, 80) };
+    await saveShot();
     // Вікно фото ще відкрите: повідомлення не відправлялось, тож закриваємо його (без чернетки в чаті) і повертаємо задачу в чергу.
     if (media && diagnostic?.modalOpen) {
       await discardAttachment(page);
       sendAttempted = false;
-      return withScan({ kind: 'blocked', reason: 'telegram_send_not_clicked', detail: JSON.stringify({ clicked, ...diagnostic }) });
+      return withScan({ kind: 'blocked', reason: 'telegram_send_not_clicked', detail: JSON.stringify({ clicked, ...diagnostic, ...seen }) });
     }
-    return withScan({ kind: 'blocked', reason: 'send_not_confirmed', detail: JSON.stringify({ clicked, ...diagnostic }) });
+    return withScan({ kind: 'blocked', reason: 'send_not_confirmed', detail: JSON.stringify({ clicked, ...diagnostic, ...seen }) });
   } catch (error) {
     return { kind: 'blocked', reason: 'telegram_page_not_ready', detail: error instanceof Error ? error.message : String(error) };
   } finally {
@@ -1142,7 +1261,7 @@ async function collectTopics(page, client, peerId, rootUrl, shouldAbort, budgetU
 // «Перевірити»: нічого не надсилаємо, лише шукаємо своє повідомлення з цим текстом, гортаючи стрічку вгору.
 async function verifyOwnMessage(page, text, _sinceEpoch, withScan, shouldAbort, deadlineAt, where = {}) {
   const wanted = squash(text).slice(0, 40);
-  const hit = (messages) => messages.find((item) => item.own && squash(item.text).startsWith(wanted));
+  const hit = (messages) => messages.find((item) => wanted && ownMessageMatches(item, text));
   const sent = () => { const known = withScan({}); return { kind: 'result', result: { status: 'sent', observedTarget: known.observedTarget, targetVerified: true, sendConfirmed: true, scan: known.scan } }; };
   // Стрічка підвантажується не миттєво: чекаємо до 10 с, поки зʼявляться повідомлення (інакше порожній список виглядає як «початок чату»).
   for (let attempt = 0; attempt < 25 && !(await page.evaluate(READ_MESSAGES_JS)).length; attempt += 1) await sleep(400);
@@ -1173,5 +1292,9 @@ async function verifyOwnMessage(page, text, _sinceEpoch, withScan, shouldAbort, 
   }
   // Низу стрічки так і не дісталися: «немає» тут не доведено, а повтор міг би дати дубль.
   if (!reachedBottom) return withScan({ kind: 'blocked', reason: 'verify_inconclusive' });
+  // Повідомлення немає, а в плейсхолдері відлік повільного режиму («Next message in …»): цей акаунт щойно писав сюди, тож повідомлення
+  // було прийняте й видалене (бот-антиспам чи адміни). Повторна відправка лише запостила б ще раз у той самий смітник.
+  const hint = String(await page.evaluate(COMPOSER_HINT_JS).catch(() => '') || '');
+  if (slowCountdownPattern.test(hint)) return withScan({ kind: 'blocked', reason: 'telegram_message_deleted', detail: JSON.stringify({ why: 'verify_slow_countdown', hint: hint.slice(0, 80) }) });
   return withScan({ kind: 'blocked', reason: 'message_not_found' });
 }

@@ -28,6 +28,8 @@ const ARCHIVE_NO_ACCESS = 'Немає доступу';
 // Чат бере Telegram Stars за кожне повідомлення: автопост нічого не надсилає й не сплачує, повтор безглуздий.
 const ARCHIVE_PAID = 'Платні повідомлення';
 const ARCHIVE_DECIDED = 'Не вдалося опублікувати';
+// Telegram прийняв повідомлення, а за секунди воно зникло (бот-антиспам, капча для нових учасників чи адміни): постити ще раз марно.
+const ARCHIVE_DELETED = 'Повідомлення видаляють';
 
 const ADMIN_ONLY = new Set(['admin_only', 'read_only', 'viber_read_only', 'telegram_read_only']);
 // `telegram_write_banned`: адміни назавжди заборонили цьому акаунту писати в чаті (чи обмеження без дати) — для власника це бан.
@@ -70,6 +72,8 @@ export function classifyAutopostFailure(code: string, platform: string): Policy 
   if (code === 'telegram_no_access') return { kind: 'archive', reason: ARCHIVE_NO_ACCESS };
   // Платні повідомлення (Telegram Stars): архів із причиною, без повторів і без «Потребують рішення».
   if (code === 'telegram_paid_messages') return { kind: 'archive', reason: ARCHIVE_PAID };
+  // Повідомлення видалили одразу після відправки: без перевірки, повтору й «Потребують рішення» — архів із причиною, власник може відновити чат.
+  if (code === 'telegram_message_deleted') return { kind: 'archive', reason: ARCHIVE_DELETED };
   // «Очікування» є лише у WhatsApp і Telegram; у Viber невдалий вступ вирішує власник.
   if (code === 'approval_required' && platform === 'whatsapp') return { kind: 'waiting' };
   if (POSTPONE.has(code)) return { kind: 'postpone' };
@@ -289,7 +293,7 @@ export async function resolveAutopostDecision(
 }
 
 // Коди, після яких повідомлення могло піти (або перевірка не дала відповіді): повтор лише з підтвердженням «Можливий дубль».
-const AFTER_SEND_CODES = new Set([...UNCONFIRMED, 'verify_inconclusive', 'message_not_found', 'publication_reconcile_failed', 'send_failed', 'media_send_failed', 'telegram_send_failed']);
+const AFTER_SEND_CODES = new Set([...UNCONFIRMED, 'verify_inconclusive', 'message_not_found', 'publication_reconcile_failed', 'send_failed', 'media_send_failed', 'telegram_send_failed', 'telegram_send_error', 'telegram_message_deleted']);
 // Збій вікна фото Telegram: для них є повтор без фото.
 export const PHOTO_FAILURES = new Set(['telegram_attachment_not_opened', 'telegram_send_not_clicked', 'telegram_attachment_failed']);
 // Запасний список для записів без `sendAttempted` (старі й Viber/WhatsApp): збій точно до натискання «Надіслати».
