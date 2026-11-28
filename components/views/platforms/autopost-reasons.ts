@@ -86,7 +86,9 @@ const REASONS: Record<string, string> = {
   text_too_long: 'Текст довший за ліміт Telegram (4096 символів).',
   telegram_caption_too_long: 'Текст задовгий для підпису до фото в Telegram (до 1024 символів).',
   telegram_attachment_not_opened: 'Telegram Web не відкрив вікно вкладення з фото.',
-  telegram_send_not_clicked: 'Telegram Web не прийняв відправку фото: вікно лишилось відкритим, нічого не надіслано.',
+  telegram_send_not_clicked: 'Telegram Web не прийняв відправку: вікно фото чи текст лишились на місці, нічого не надіслано.',
+  telegram_message_deleted: 'Telegram прийняв повідомлення, але його одразу видалили (бот-антиспам, капча для нових учасників чи адміни). Повтору не було; чат в архіві з причиною «Повідомлення видаляють».',
+  telegram_send_error: 'Після «Надіслати» Telegram показав помилку. Повідомлення, найімовірніше, не вийшло: перевір чат перед повтором.',
   telegram_attachment_failed: 'Telegram Web показав помилку відправки фото. Перевір чат вручну.',
   telegram_page_not_ready: 'Telegram Web не завантажився.',
   telegram_chat_not_opened: 'Telegram Web не відкрив чат.',
@@ -133,7 +135,7 @@ export function batchSkipText(code: string): string { return BATCH_SKIP[code] ||
 /** Група причин для «Потребують рішення»: підпис, чи можна замість повтору «перевірити» (повідомлення могло піти). */
 export type AutopostReasonGroup = { key: string; label: string; checkable: boolean; /** Повтор може дати дубль: потрібне підтвердження. */ risky?: boolean; /** Назву чату в Work OS можна оновити за назвою з месенджера. */ renameable?: boolean };
 const GROUPS: Array<[string[], AutopostReasonGroup]> = [
-  [['send_not_confirmed', 'helper_timeout', 'media_send_not_confirmed'], { key: 'unconfirmed', label: 'Не вдалося підтвердити', checkable: true, risky: true }],
+  [['send_not_confirmed', 'helper_timeout', 'media_send_not_confirmed', 'telegram_send_error'], { key: 'unconfirmed', label: 'Не вдалося підтвердити', checkable: true, risky: true }],
   [['message_not_found'], { key: 'missing', label: 'Повідомлення не знайдено', checkable: true }],
   [['viber_banned', 'whatsapp_removed_from_group', 'membership_left', 'telegram_banned', 'telegram_write_banned'], { key: 'blocked', label: 'Заблоковано в групі', checkable: false }],
   [['target_unconfirmed', 'target_not_found', 'target_ambiguous', 'joined_target_not_verified', 'target_not_verified'], { key: 'target', label: 'Не той чат', checkable: false, renameable: true }],
