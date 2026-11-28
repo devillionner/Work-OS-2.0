@@ -121,6 +121,14 @@ async function clearDialogs(status) {
       current = await uia('status');
       continue;
     }
+    // Спливна панель без заголовка й кнопок — панель смайликів і реакцій над повідомленням (27.11 вона 12 разів підряд зупиняла Viber
+    // як «невідоме вікно»). Escape її закриває й нічого не надсилає; не закрилась — далі звичайний шлях невідомого вікна.
+    if (!popup.title && !(popup.buttons || []).length && round < 2) {
+      await act('leave-search', [], 'leave-search');
+      await sleep(500);
+      current = await uia('status');
+      continue;
+    }
     const safe =(popup.buttons || []).find((name) => SAFE_DISMISS.includes(String(name).toLowerCase()) && !FORBIDDEN_BUTTON.test(String(name)));
     if (!safe) {
       await snapshot('viber_unknown_window', `діалог «${popup.title || ''}» з кнопками: ${(popup.buttons || []).join(', ') || 'без кнопок'}`);
